@@ -43,7 +43,12 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["cache_ratio"] = cacheRatio
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
-	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
+	if frtMs, ok := firstResponseDisplayMs(relayInfo); ok {
+		other["frt"] = float64(frtMs)
+	}
+	if firstSSEMs, ok := firstSSEMs(relayInfo); ok {
+		other["first_sse_ms"] = float64(firstSSEMs)
+	}
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
 	}
@@ -80,6 +85,29 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+func firstResponseDisplayMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
+	if relayInfo == nil || relayInfo.StartTime.IsZero() {
+		return 0, false
+	}
+	if !relayInfo.UpstreamHeaderTime.IsZero() {
+		return relayInfo.UpstreamHeaderTime.Sub(relayInfo.StartTime).Milliseconds(), true
+	}
+	if !relayInfo.FirstResponseTime.IsZero() && relayInfo.FirstResponseTime.After(relayInfo.StartTime) {
+		return relayInfo.FirstResponseTime.Sub(relayInfo.StartTime).Milliseconds(), true
+	}
+	return 0, false
+}
+
+func firstSSEMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
+	if relayInfo == nil || relayInfo.StartTime.IsZero() {
+		return 0, false
+	}
+	if relayInfo.FirstResponseTime.IsZero() || !relayInfo.FirstResponseTime.After(relayInfo.StartTime) {
+		return 0, false
+	}
+	return relayInfo.FirstResponseTime.Sub(relayInfo.StartTime).Milliseconds(), true
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
