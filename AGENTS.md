@@ -135,3 +135,24 @@ For request structs that are parsed from client JSON and then re-marshaled to up
 ### Rule 7: Billing Expression System — Read `pkg/billingexpr/expr.md`
 
 When working on tiered/dynamic billing (expression-based pricing), you MUST read `pkg/billingexpr/expr.md` first. It documents the design philosophy, expression language (variables, functions, examples), full system architecture (editor → storage → pre-consume → settlement → log display), token normalization rules (`p`/`c` auto-exclusion), quota conversion, and expression versioning. All code changes to the billing expression system must follow the patterns described in that document.
+
+### Rule 8: Fork-Only FRT Header Display Patch — MUST Preserve
+
+This fork intentionally carries a local production patch that changes the displayed first-response time (`other.frt`) for text relay logs.
+
+**Do not remove or overwrite this patch when syncing official upstream changes.** Directly deploying an official upstream image will lose this behavior.
+
+Required behavior:
+- `RelayInfo` must keep `UpstreamHeaderTime time.Time`.
+- The upstream HTTP response header timestamp must be recorded immediately after a successful `client.Do(req)` response in `relay/channel/api_request.go`.
+- `service.GenerateTextOtherInfo` must write displayed `other.frt` from `UpstreamHeaderTime - StartTime` when available.
+- The original real first SSE timing must remain available as `other.first_sse_ms`.
+- If `UpstreamHeaderTime` is unavailable, `frt` must fall back to the original `FirstResponseTime` behavior.
+
+Before building or deploying an upstream sync, run:
+
+```bash
+scripts/check-frt-header-patch.sh
+```
+
+See `docs/ops/frt-header-patch.md` for the operational upgrade workflow and rollback notes.
