@@ -42,7 +42,7 @@ export const useModelPricingData = () => {
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [currency, setCurrency] = useState('USD');
-  const [showWithRecharge, setShowWithRecharge] = useState(false);
+  const [showWithRecharge, setShowWithRecharge] = useState(true);
   const [tokenUnit, setTokenUnit] = useState('M');
   const [models, setModels] = useState([]);
   const [vendorsMap, setVendorsMap] = useState({});
