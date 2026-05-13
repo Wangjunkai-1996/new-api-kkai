@@ -64,6 +64,10 @@ Recommended workflow:
 8. On production, only pull the fixed-tag custom image and replace the `new-api` app container. Do not build on the production server.
 9. Keep Postgres and Redis running. Do not restart them for this patch.
 
+If GitHub Actions or external image build is unavailable, this fork also has a proven fallback rollout path using a local Mac build with `go` + `bun`, then replacing only `/new-api` inside the current app image on the server. See:
+
+- `docs/ops/local-go-bun-rollout.md`
+
 ## Production Verification
 
 After deployment, verify:

@@ -156,3 +156,9 @@ scripts/check-frt-header-patch.sh
 ```
 
 See `docs/ops/frt-header-patch.md` for the operational upgrade workflow and rollback notes.
+
+For the proven local-Mac deployment fallback that avoids production builds, see:
+
+```text
+docs/ops/local-go-bun-rollout.md
+```
