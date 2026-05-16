@@ -376,6 +376,10 @@ func TokenAuth() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
 			return
 		}
+		if service.IsPolicyTokenBreakerOpen(token.Id) {
+			abortWithOpenAiMessage(c, http.StatusForbidden, "令牌已被临时风险隔离，请联系管理员", types.ErrorCodeAccessDenied)
+			return
+		}
 
 		userCache.WriteContext(c)
 

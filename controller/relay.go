@@ -322,6 +322,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
+	if service.ShouldSkipRetryAfterPolicyIncident(c) {
+		return false
+	}
 	if openaiErr == nil {
 		return false
 	}
@@ -354,6 +357,11 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+	processPolicyIncident(c, channelError, err)
+	processChannelErrorAfterPolicy(c, channelError, err)
+}
+
+func processChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
@@ -398,6 +406,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 
+}
+
+func processPolicyIncident(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+	service.HandlePolicyIncident(c, channelError, err)
 }
 
 func RelayMidjourney(c *gin.Context) {
@@ -551,11 +563,12 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 
+		channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
+			common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+		processTaskRelayPolicyIncident(c, channelError, taskErr)
+
 		if !taskErr.LocalError {
-			processChannelError(c,
-				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
-				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+			processChannelErrorAfterPolicy(c, channelError, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
 		}
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
@@ -611,6 +624,9 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError, retryTimes int) bool {
+	if service.ShouldSkipRetryAfterPolicyIncident(c) {
+		return false
+	}
 	if taskErr == nil {
 		return false
 	}
@@ -650,4 +666,8 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 		return false
 	}
 	return true
+}
+
+func processTaskRelayPolicyIncident(c *gin.Context, channelError types.ChannelError, taskErr *dto.TaskError) {
+	service.HandleTaskRelayPolicyIncident(c, channelError, taskErr)
 }

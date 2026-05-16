@@ -359,6 +359,62 @@ func DisableModelLimits(tokenId int) error {
 	return token.Update()
 }
 
+func cacheTokenAsync(token Token) {
+	if !common.RedisEnabled {
+		return
+	}
+	gopool.Go(func() {
+		if err := cacheSetToken(token); err != nil {
+			common.SysLog("failed to update token cache: " + err.Error())
+		}
+	})
+}
+
+func DisableTokenByIds(id int, userId int) (*Token, bool, error) {
+	if id <= 0 || userId <= 0 {
+		return nil, false, errors.New("id 或 userId 无效！")
+	}
+
+	var token Token
+	if err := DB.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
+		return nil, false, err
+	}
+	if token.Status == common.TokenStatusDisabled {
+		cacheTokenAsync(token)
+		return &token, false, nil
+	}
+
+	now := common.GetTimestamp()
+	result := DB.Model(&Token{}).
+		Where("id = ? and user_id = ? and status <> ?", id, userId, common.TokenStatusDisabled).
+		Updates(map[string]interface{}{
+			"status":        common.TokenStatusDisabled,
+			"accessed_time": now,
+		})
+	if result.Error != nil {
+		return &token, false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		if err := DB.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
+			return nil, false, err
+		}
+		if token.Status == common.TokenStatusDisabled {
+			cacheTokenAsync(token)
+		}
+		return &token, false, nil
+	}
+
+	token.Status = common.TokenStatusDisabled
+	token.AccessedTime = now
+	cacheTokenAsync(token)
+	return &token, true, nil
+}
+
+func DisableTokenById(id int, userId int) (bool, error) {
+	_, changed, err := DisableTokenByIds(id, userId)
+	return changed, err
+}
+
 func DeleteTokenById(id int, userId int) (err error) {
 	// Why we need userId here? In case user want to delete other's token.
 	if id == 0 || userId == 0 {

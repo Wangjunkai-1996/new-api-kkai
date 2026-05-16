@@ -94,6 +94,9 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		if newAPIError != nil {
 			return service.TaskErrorWrapper(newAPIError, "channel_no_available_key", newAPIError.StatusCode)
 		}
+		if service.IsUpstreamKeyPolicyBreakerOpen(ch.Id, key) {
+			return service.TaskErrorWrapperLocal(errors.New("upstream key is temporarily isolated by cyber policy breaker"), "policy_breaker_open", http.StatusServiceUnavailable)
+		}
 		common.SetContextKey(c, constant.ContextKeyChannelKey, key)
 		common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
 		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, ch.GetBaseURL())
