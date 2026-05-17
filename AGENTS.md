@@ -163,7 +163,27 @@ For the proven local-Mac deployment fallback that avoids production builds, see:
 docs/ops/local-go-bun-rollout.md
 ```
 
-### Rule 9: Fork-Only Policy Incident Guard Patch — MUST Preserve
+### Rule 9: Production Branch and Build Source
+
+The fixed production branch for the KKAI/Kkrich deployment is:
+
+```text
+production/kkrich
+```
+
+Production builds and rollout artifacts must come from this branch, or from a temporary release branch explicitly merged into this branch before deployment is considered complete.
+
+Do not build production artifacts from `/root/new-api` unless it is clean and checked out to `production/kkrich` at the intended release commit. If a temporary worktree is used to avoid dirty local files, fast-forward `production/kkrich` and the server checkout after rollout so the source-of-truth matches the running image.
+
+Before building or deploying, verify:
+
+```bash
+git status --short --branch
+git rev-parse --short HEAD
+scripts/check-frt-header-patch.sh
+```
+
+### Rule 10: Fork-Only Policy Incident Guard Patch — MUST Preserve
 
 This fork intentionally carries a local production patch for high-confidence upstream safety-policy incidents such as `cyber_policy` or permanently disabled upstream API keys.
 
