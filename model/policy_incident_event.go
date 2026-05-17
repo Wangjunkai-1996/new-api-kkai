@@ -40,8 +40,8 @@ type PolicyIncidentEvent struct {
 	ErrorMessage           string    `json:"error_message" gorm:"type:text"`
 	EvidenceLevel          string    `json:"evidence_level" gorm:"type:varchar(32);default:''"`
 	Causality              string    `json:"causality" gorm:"type:varchar(64);default:''"`
-	ActionTaken            string    `json:"action_taken" gorm:"type:varchar(64);default:''"`
-	ActionResult           string    `json:"action_result" gorm:"type:varchar(64);default:''"`
+	ActionTaken            string    `json:"action_taken" gorm:"type:varchar(255);default:''"`
+	ActionResult           string    `json:"action_result" gorm:"type:varchar(255);default:''"`
 	Metadata               JSONValue `json:"metadata" gorm:"type:json"`
 	CreatedAt              int64     `json:"created_at" gorm:"bigint;index"`
 }

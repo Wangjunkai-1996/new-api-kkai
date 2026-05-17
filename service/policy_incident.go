@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -88,6 +89,9 @@ func HandleTaskRelayPolicyIncident(c *gin.Context, channelError types.ChannelErr
 	if taskErr == nil {
 		return
 	}
+	if taskErr.LocalError {
+		return
+	}
 	classification := classifyPolicyIncidentText(taskErr.StatusCode, taskErr.Code, taskErr.Message)
 	if !classification.Detected && taskErr.Error != nil {
 		classification = classifyPolicyIncidentText(taskErr.StatusCode, taskErr.Code, taskErr.Error.Error())
@@ -104,24 +108,26 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 
 	tokenId := c.GetInt("token_id")
 	userId := c.GetInt("id")
-	_ = SetPolicyTokenBreaker(tokenId)
-	_ = SetPolicyUpstreamKeyBreaker(channelError.ChannelId, channelError.UsingKey)
+	tokenBreakerAction, tokenBreakerResult := setPolicyTokenBreakerAction(tokenId)
+	upstreamBreakerResult := setPolicyUpstreamKeyBreakerResult(channelError.ChannelId, channelError.UsingKey)
 
 	lockAcquired := acquirePolicyIncidentLock(channelError.ChannelId, channelError.UsingKey)
-	actions := []string{"breaker_set"}
-	results := []string{policyIncidentResultSuccess}
+	actions := []string{tokenBreakerAction, "upstream_breaker_set"}
+	results := []string{tokenBreakerResult, upstreamBreakerResult}
 
+	tokenAction, tokenResult := disablePolicyToken(tokenId, userId)
+	actions = append(actions, tokenAction)
+	results = append(results, tokenResult)
 	if lockAcquired {
-		tokenAction, tokenResult := disablePolicyToken(tokenId, userId)
 		upstreamAction, upstreamResult := isolatePolicyUpstream(channelError, classification)
-		actions = append(actions, tokenAction, upstreamAction)
-		results = append(results, tokenResult, upstreamResult)
+		actions = append(actions, upstreamAction)
+		results = append(results, upstreamResult)
 	} else {
 		actions = append(actions, "incident_lock_skipped")
 		results = append(results, "deduplicated")
 	}
 
-	event := buildPolicyIncidentEvent(c, channelError, classification, strings.Join(actions, ","), summarizePolicyActionResult(results))
+	event := buildPolicyIncidentEvent(c, channelError, classification, strings.Join(actions, ","), strings.Join(results, ","))
 	if err := model.InsertPolicyIncidentEvent(event); err != nil {
 		common.SysLog("failed to record policy incident event: " + err.Error())
 	}
@@ -130,13 +136,44 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 	}
 }
 
+func setPolicyTokenBreakerAction(tokenId int) (string, string) {
+	if tokenId <= 0 {
+		return "token_breaker_set", "token_context_missing"
+	}
+	if err := SetPolicyTokenBreaker(tokenId); err != nil {
+		return "token_breaker_set", policyBreakerSetFailureResult(err)
+	}
+	return "token_breaker_set", policyIncidentResultSuccess
+}
+
+func setPolicyUpstreamKeyBreakerResult(channelId int, upstreamKey string) string {
+	if channelId <= 0 || strings.TrimSpace(upstreamKey) == "" {
+		return "upstream_context_missing"
+	}
+	if err := SetPolicyUpstreamKeyBreaker(channelId, upstreamKey); err != nil {
+		return policyBreakerSetFailureResult(err)
+	}
+	return policyIncidentResultSuccess
+}
+
+func policyBreakerSetFailureResult(err error) string {
+	if errors.Is(err, errPolicyBreakerRedisUnavailable) {
+		return "redis_unavailable"
+	}
+	return "redis_error"
+}
+
 func disablePolicyToken(tokenId int, userId int) (string, string) {
+	if !operation_setting.GetPolicyIncidentSetting().DisableClientTokenPersistently {
+		return "token_db_disable_skipped", "config_disabled"
+	}
 	if tokenId <= 0 || userId <= 0 {
 		return "token_disable_failed", "token_context_missing"
 	}
 	_, changed, err := model.DisableTokenByIds(tokenId, userId)
 	if err != nil {
-		return "token_disable_failed", err.Error()
+		common.SysLog("failed to disable policy incident token: " + err.Error())
+		return "token_disable_failed", "db_error"
 	}
 	if changed {
 		return "token_disabled", policyIncidentResultSuccess
@@ -301,9 +338,14 @@ key 指纹：%s
 	)
 }
 
+var errPolicyBreakerRedisUnavailable = errors.New("policy breaker redis unavailable")
+
 func SetPolicyUpstreamKeyBreaker(channelId int, upstreamKey string) error {
-	if channelId <= 0 || strings.TrimSpace(upstreamKey) == "" || !common.RedisEnabled || common.RDB == nil {
+	if channelId <= 0 || strings.TrimSpace(upstreamKey) == "" {
 		return nil
+	}
+	if !common.RedisEnabled || common.RDB == nil {
+		return errPolicyBreakerRedisUnavailable
 	}
 	return common.RedisSet(policyUpstreamKeyBreakerKey(channelId, upstreamKey), "1", 24*time.Hour)
 }
@@ -317,8 +359,11 @@ func IsUpstreamKeyPolicyBreakerOpen(channelId int, upstreamKey string) bool {
 }
 
 func SetPolicyTokenBreaker(tokenId int) error {
-	if tokenId <= 0 || !common.RedisEnabled || common.RDB == nil {
+	if tokenId <= 0 {
 		return nil
+	}
+	if !common.RedisEnabled || common.RDB == nil {
+		return errPolicyBreakerRedisUnavailable
 	}
 	return common.RedisSet(fmt.Sprintf("risk:cyber:token:%d", tokenId), "1", 30*time.Minute)
 }
@@ -362,7 +407,7 @@ func policyKeyHash(upstreamKey string) string {
 func PolicyBreakerError() *types.NewAPIError {
 	return types.NewErrorWithStatusCode(
 		errors.New("upstream key is temporarily isolated by cyber policy breaker"),
-		types.ErrorCodeChannelNoAvailableKey,
+		types.ErrorCodePolicyUpstreamKeyIsolated,
 		http.StatusServiceUnavailable,
 		types.ErrOptionWithSkipRetry(),
 	)

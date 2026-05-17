@@ -8,7 +8,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -115,6 +117,60 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	assert.NotContains(t, string(event.Metadata), "upstream-b")
 	assert.NotContains(t, formatPolicyIncidentNotification(&event), "upstream-b")
 	assert.Equal(t, "encountered", event.Causality)
+	assert.Contains(t, event.ActionTaken, "token_breaker_set")
+	assert.Contains(t, event.ActionTaken, "upstream_breaker_set")
+	assert.Contains(t, event.ActionTaken, "token_disabled")
 	assert.Contains(t, event.ActionTaken, "upstream_isolated")
-	assert.Equal(t, policyIncidentResultSuccess, event.ActionResult)
+	assert.Contains(t, event.ActionResult, "redis_unavailable")
+	assert.Contains(t, event.ActionResult, policyIncidentResultSuccess)
+}
+
+func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.T) {
+	truncate(t)
+	setting := operation_setting.GetPolicyIncidentSetting()
+	original := setting.DisableClientTokenPersistently
+	setting.DisableClientTokenPersistently = false
+	t.Cleanup(func() {
+		setting.DisableClientTokenPersistently = original
+	})
+
+	token := &model.Token{UserId: 42, Key: "client-token-key-configured", Status: common.TokenStatusEnabled, Name: "client-token"}
+	require.NoError(t, model.DB.Create(token).Error)
+	channel := &model.Channel{Key: "upstream-key", Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	ctx := newPolicyIncidentTestContext(t)
+	ctx.Set("token_id", token.Id)
+	err := types.NewOpenAIError(errors.New("cyber_policy API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, "upstream-key", true), err)
+
+	var reloaded model.Token
+	require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
+	assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
+
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
+	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+	assert.Contains(t, event.ActionResult, "config_disabled")
+}
+
+func TestTaskRelayPolicyIncidentSkipsLocalErrors(t *testing.T) {
+	truncate(t)
+
+	ctx := newPolicyIncidentTestContext(t)
+	taskErr := &dto.TaskError{
+		Code:       "policy_breaker_open",
+		Message:    "cyber_policy API key 已永久禁用",
+		StatusCode: http.StatusServiceUnavailable,
+		Error:      errors.New("cyber_policy API key 已永久禁用"),
+		LocalError: true,
+	}
+
+	HandleTaskRelayPolicyIncident(ctx, *types.NewChannelError(12345, 1, "missing-channel", false, "upstream-key", true), taskErr)
+
+	assert.False(t, ShouldSkipRetryAfterPolicyIncident(ctx))
+	var count int64
+	require.NoError(t, model.DB.Model(&model.PolicyIncidentEvent{}).Count(&count).Error)
+	assert.Zero(t, count)
 }

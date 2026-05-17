@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -161,4 +163,89 @@ func TestUpdateChannelStatus_SingleKeyDisablesChannel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, common.ChannelStatusAutoDisabled, reloaded.Status)
 	assert.Equal(t, "policy", reloaded.GetOtherInfo()["status_reason"])
+}
+
+func TestGetNextEnabledKeyWithFilterSkipsRejectedKeys(t *testing.T) {
+	channel := &Channel{
+		Key: "upstream-key-a\nupstream-key-b\nupstream-key-c",
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:         true,
+			MultiKeySize:       3,
+			MultiKeyStatusList: map[int]int{0: common.ChannelStatusAutoDisabled},
+		},
+	}
+
+	key, index, apiErr := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
+		return key != "upstream-key-b"
+	})
+
+	require.Nil(t, apiErr)
+	assert.Equal(t, "upstream-key-c", key)
+	assert.Equal(t, 2, index)
+}
+
+func TestGetNextEnabledKeyWithFilterReturnsErrorWhenAllFiltered(t *testing.T) {
+	channel := &Channel{
+		Key: "upstream-key-a\nupstream-key-b",
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:   true,
+			MultiKeySize: 2,
+		},
+	}
+
+	key, index, apiErr := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
+		return false
+	})
+
+	assert.Empty(t, key)
+	assert.Zero(t, index)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCodeChannelNoAvailableKey, apiErr.GetErrorCode())
+	assert.Contains(t, apiErr.Error(), "no available keys")
+}
+
+func TestGetNextEnabledKeyWithFilterPollingSkipsRejectedKeys(t *testing.T) {
+	truncateTables(t)
+
+	channel := &Channel{
+		Key:    "upstream-key-a\nupstream-key-b\nupstream-key-c",
+		Status: common.ChannelStatusEnabled,
+		Name:   "multi-key-policy-selector-polling",
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:           true,
+			MultiKeySize:         3,
+			MultiKeyMode:         constant.MultiKeyModePolling,
+			MultiKeyPollingIndex: 0,
+		},
+	}
+	require.NoError(t, DB.Create(channel).Error)
+
+	key, index, apiErr := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
+		return key == "upstream-key-b"
+	})
+
+	require.Nil(t, apiErr)
+	assert.Equal(t, "upstream-key-b", key)
+	assert.Equal(t, 1, index)
+	assert.Equal(t, 2, channel.ChannelInfo.MultiKeyPollingIndex)
+}
+
+func TestGetNextEnabledKeyWithFilterRandomUsesAllowedCandidates(t *testing.T) {
+	channel := &Channel{
+		Key: "upstream-key-a\nupstream-key-b\nupstream-key-c",
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:   true,
+			MultiKeySize: 3,
+			MultiKeyMode: constant.MultiKeyModeRandom,
+		},
+	}
+
+	for i := 0; i < 10; i++ {
+		key, index, apiErr := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
+			return key == "upstream-key-b"
+		})
+		require.Nil(t, apiErr)
+		assert.Equal(t, "upstream-key-b", key)
+		assert.Equal(t, 1, index)
+	}
 }

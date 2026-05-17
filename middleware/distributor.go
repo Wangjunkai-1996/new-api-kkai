@@ -370,12 +370,17 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	policyBreakerFilteredKey := false
+	key, index, newAPIError := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
+		isOpen := service.IsUpstreamKeyPolicyBreakerOpen(channel.Id, key)
+		policyBreakerFilteredKey = policyBreakerFilteredKey || isOpen
+		return !isOpen
+	})
 	if newAPIError != nil {
+		if policyBreakerFilteredKey && newAPIError.GetErrorCode() == types.ErrorCodeChannelNoAvailableKey {
+			return service.PolicyBreakerError()
+		}
 		return newAPIError
-	}
-	if service.IsUpstreamKeyPolicyBreakerOpen(channel.Id, key) {
-		return service.PolicyBreakerError()
 	}
 	if channel.ChannelInfo.IsMultiKey {
 		common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, true)

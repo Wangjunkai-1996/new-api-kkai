@@ -1,0 +1,19 @@
+package operation_setting
+
+import "github.com/QuantumNous/new-api/setting/config"
+
+type PolicyIncidentSetting struct {
+	DisableClientTokenPersistently bool `json:"disable_client_token_persistently"`
+}
+
+var policyIncidentSetting = PolicyIncidentSetting{
+	DisableClientTokenPersistently: true,
+}
+
+func init() {
+	config.GlobalConfig.Register("policy_incident_setting", &policyIncidentSetting)
+}
+
+func GetPolicyIncidentSetting() *PolicyIncidentSetting {
+	return &policyIncidentSetting
+}

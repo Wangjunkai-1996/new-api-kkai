@@ -50,3 +50,31 @@ func TestRetryWithoutPolicyFlagKeepsRetryableStatusBehavior(t *testing.T) {
 	}
 	require.True(t, shouldRetryTaskRelay(ctx, 1, taskErr, 1))
 }
+
+func TestTaskErrorFromAPIErrorPreservesStatusAndCode(t *testing.T) {
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New("setup failed"),
+		types.ErrorCodeChannelModelMappedError,
+		http.StatusUnprocessableEntity,
+	)
+
+	taskErr := taskErrorFromAPIError(apiErr)
+
+	require.Equal(t, http.StatusUnprocessableEntity, taskErr.StatusCode)
+	require.Equal(t, string(types.ErrorCodeChannelModelMappedError), taskErr.Code)
+	require.False(t, taskErr.LocalError)
+}
+
+func TestTaskErrorFromAPIErrorMapsPolicyBreakerCode(t *testing.T) {
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New("upstream key is temporarily isolated by cyber policy breaker"),
+		types.ErrorCodeChannelNoAvailableKey,
+		http.StatusServiceUnavailable,
+	)
+
+	taskErr := taskErrorFromAPIError(apiErr)
+
+	require.Equal(t, http.StatusServiceUnavailable, taskErr.StatusCode)
+	require.Equal(t, "policy_breaker_open", taskErr.Code)
+	require.True(t, taskErr.LocalError)
+}

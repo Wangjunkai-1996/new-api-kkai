@@ -164,8 +164,19 @@ func (channel *Channel) GetKeys() []string {
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
+	return channel.GetNextEnabledKeyWithFilter(nil)
+}
+
+func (channel *Channel) GetNextEnabledKeyWithFilter(allow func(key string, index int) bool) (string, int, *types.NewAPIError) {
+	keyAllowed := func(key string, index int) bool {
+		return allow == nil || allow(key, index)
+	}
+
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
+		if !keyAllowed(channel.Key, 0) {
+			return "", 0, types.NewError(errors.New("no available keys"), types.ErrorCodeChannelNoAvailableKey)
+		}
 		return channel.Key, 0, nil
 	}
 
@@ -192,24 +203,33 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		return common.ChannelStatusEnabled
 	}
 
-	// Collect indexes of enabled keys
-	enabledIdx := make([]int, 0, len(keys))
+	// Collect indexes of keys that are enabled and accepted by the caller's filter.
+	available := make([]bool, len(keys))
+	availableIdx := make([]int, 0, len(keys))
+	enabledCount := 0
 	for i := range keys {
 		if getStatus(i) == common.ChannelStatusEnabled {
-			enabledIdx = append(enabledIdx, i)
+			enabledCount++
+			if keyAllowed(keys[i], i) {
+				available[i] = true
+				availableIdx = append(availableIdx, i)
+			}
 		}
 	}
 	// If no specific status list or none enabled, return an explicit error so caller can
 	// properly handle a channel with no available keys (e.g. mark channel disabled).
 	// Returning the first key here caused requests to keep using an already-disabled key.
-	if len(enabledIdx) == 0 {
+	if len(availableIdx) == 0 {
+		if enabledCount > 0 {
+			return "", 0, types.NewError(errors.New("no available keys"), types.ErrorCodeChannelNoAvailableKey)
+		}
 		return "", 0, types.NewError(errors.New("no enabled keys"), types.ErrorCodeChannelNoAvailableKey)
 	}
 
 	switch channel.ChannelInfo.MultiKeyMode {
 	case constant.MultiKeyModeRandom:
-		// Randomly pick one enabled key
-		selectedIdx := enabledIdx[rand.Intn(len(enabledIdx))]
+		// Randomly pick one available key.
+		selectedIdx := availableIdx[rand.Intn(len(availableIdx))]
 		return keys[selectedIdx], selectedIdx, nil
 	case constant.MultiKeyModePolling:
 		// Use channel-specific lock to ensure thread-safe polling
@@ -236,17 +256,17 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		}
 		for i := 0; i < len(keys); i++ {
 			idx := (start + i) % len(keys)
-			if getStatus(idx) == common.ChannelStatusEnabled {
+			if available[idx] {
 				// update polling index for next call (point to the next position)
 				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
 				return keys[idx], idx, nil
 			}
 		}
-		// Fallback – should not happen, but return first enabled key
-		return keys[enabledIdx[0]], enabledIdx[0], nil
+		// Fallback – should not happen, but return first available key.
+		return keys[availableIdx[0]], availableIdx[0], nil
 	default:
-		// Unknown mode, default to first enabled key (or original key string)
-		return keys[enabledIdx[0]], enabledIdx[0], nil
+		// Unknown mode, default to first available key (or original key string)
+		return keys[availableIdx[0]], availableIdx[0], nil
 	}
 }
 

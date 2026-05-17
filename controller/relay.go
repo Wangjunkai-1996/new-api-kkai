@@ -532,7 +532,7 @@ func RelayTask(c *gin.Context) {
 			channel = lockedCh
 			if retryParam.GetRetry() > 0 {
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+					taskErr = taskErrorFromAPIError(setupErr)
 					break
 				}
 			}
@@ -541,7 +541,7 @@ func RelayTask(c *gin.Context) {
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				taskErr = taskErrorFromAPIError(channelErr)
 				break
 			}
 		}
@@ -613,6 +613,24 @@ func RelayTask(c *gin.Context) {
 	if taskErr != nil {
 		respondTaskError(c, taskErr)
 	}
+}
+
+func taskErrorFromAPIError(apiErr *types.NewAPIError) *dto.TaskError {
+	if apiErr == nil {
+		return nil
+	}
+	if isPolicyBreakerAPIError(apiErr) {
+		err := apiErr.Err
+		if err == nil {
+			err = errors.New(apiErr.Error())
+		}
+		return service.TaskErrorWrapperLocal(err, "policy_breaker_open", apiErr.StatusCode)
+	}
+	return service.TaskErrorFromAPIError(apiErr)
+}
+
+func isPolicyBreakerAPIError(apiErr *types.NewAPIError) bool {
+	return apiErr != nil && apiErr.StatusCode == http.StatusServiceUnavailable && strings.Contains(strings.ToLower(apiErr.Error()), "policy breaker")
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
