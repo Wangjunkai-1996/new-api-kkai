@@ -162,3 +162,28 @@ For the proven local-Mac deployment fallback that avoids production builds, see:
 ```text
 docs/ops/local-go-bun-rollout.md
 ```
+
+### Rule 9: Fork-Only Policy Incident Guard Patch — MUST Preserve
+
+This fork intentionally carries a local production patch for high-confidence upstream safety-policy incidents such as `cyber_policy` or permanently disabled upstream API keys.
+
+**Do not remove or overwrite this patch when syncing official upstream changes.** Directly deploying an official upstream image will lose this behavior.
+
+Required behavior:
+- High-confidence policy incidents must stop retry fan-out instead of trying other channels with the same risky request.
+- The implicated client token must be blocked quickly and persistently disabled by default.
+- The implicated upstream channel/key must be isolated through the existing channel status and breaker mechanisms.
+- `policy_incident_events` must remain append-only and must store only redacted metadata plus upstream key fingerprints, never raw upstream keys or request prompts.
+- Task relay and normal relay paths must both call the policy-incident handling flow.
+
+Before building or deploying an upstream sync, run the focused policy tests:
+
+```bash
+go test ./service -run PolicyIncident -count=1
+go test ./model -run 'PolicyIncident|TokenDisable' -count=1
+go test ./middleware -run Policy -count=1
+go test ./controller -run Policy -count=1
+go test ./relay -run RelayTask -count=1
+```
+
+See `docs/ops/policy-incident-patch.md` for the operational upgrade workflow and rollback notes.
