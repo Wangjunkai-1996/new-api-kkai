@@ -183,6 +183,17 @@ git rev-parse --short HEAD
 scripts/check-frt-header-patch.sh
 ```
 
+Official upstream updates must use the fixed upgrade workflow:
+
+1. Start from `production/kkrich`.
+2. Create a temporary branch named like `upgrade/upstream-YYYYMMDD`.
+3. Merge the selected official target, usually `upstream/main` when it contains needed post-release fixes, or an official release tag when stability is preferred.
+4. Preserve all fork-only patches and production docs.
+5. Run focused guards and tests before building.
+6. Merge or fast-forward the verified result back into `production/kkrich`.
+7. Build locally or on an external builder, never on the small production server.
+8. After rollout, reconcile GitHub `production/kkrich`, `/root/new-api`, and the running container version.
+
 ### Rule 10: Fork-Only Policy Incident Guard Patch — MUST Preserve
 
 This fork intentionally carries a local production patch for high-confidence upstream safety-policy incidents such as `cyber_policy` or permanently disabled upstream API keys.

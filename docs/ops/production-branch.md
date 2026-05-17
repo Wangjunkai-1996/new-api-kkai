@@ -39,6 +39,51 @@ Expected:
 - FRT patch guard passes;
 - focused policy tests pass.
 
+## Official Upstream Upgrade Workflow
+
+Do not update production by running `git pull upstream main` directly in `/root/new-api`.
+
+Use this flow instead:
+
+1. Start from a clean `production/kkrich`.
+2. Create a temporary upgrade branch:
+
+   ```bash
+   git checkout production/kkrich
+   git pull --ff-only origin production/kkrich
+   git checkout -b upgrade/upstream-YYYYMMDD
+   ```
+
+3. Merge the selected official target:
+
+   ```bash
+   git fetch upstream --tags --prune
+   git merge upstream/main
+   ```
+
+   Use `upstream/main` when a needed fix has landed after the latest release tag. Use a release tag such as `v1.0.0-rc.6` when minimizing change scope matters more.
+
+4. Resolve conflicts while preserving:
+   - `docs/ops/frt-header-patch.md`
+   - `docs/ops/policy-incident-patch.md`
+   - `docs/ops/production-branch.md`
+   - `scripts/check-frt-header-patch.sh`
+   - FRT header display behavior
+   - policy incident guard behavior
+   - production-specific pricing display behavior
+
+5. Run guards and focused tests:
+
+   ```bash
+   scripts/check-frt-header-patch.sh
+   go test ./service ./model ./middleware ./controller ./relay -run 'PolicyIncident|TokenDisable|Policy|RelayTask|GenerateTextOtherInfo' -count=1
+   ```
+
+6. Build with the local Go+Bun rollout workflow in `docs/ops/local-go-bun-rollout.md`.
+7. Deploy with canary first, then replace only the `new-api` app container.
+8. Fast-forward or merge the verified upgrade result back into `production/kkrich`.
+9. Push `production/kkrich` and make sure `/root/new-api` is checked out to the same production commit.
+
 ## Post-Rollout Check
 
 After the container is live:
