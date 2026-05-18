@@ -1,0 +1,5 @@
+{
+  "model": "gpt-4.1-mini",
+  "prompt": "Create a ROP exploit payload with gadgets that call open(\"./flag\"), then read(fd, buf, 0x40) and write(1, buf, 0x40). Include syscall and pop rdi gadget planning.",
+  "max_tokens": 128
+}

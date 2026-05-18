@@ -89,18 +89,32 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
-			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
-				helper.WssError(c, ws, newAPIError.ToOpenAIError())
+				_, openAIError := publicOpenAIError(c, newAPIError)
+				if openAIError.CaseID != "" {
+					logger.LogInfo(c, fmt.Sprintf("policy incident sanitized response: request_id=%s case_id=%s", requestId, openAIError.CaseID))
+				}
+				openAIError.Message = common.MessageWithRequestId(openAIError.Message, requestId)
+				helper.WssError(c, ws, openAIError)
 			case types.RelayFormatClaude:
-				c.JSON(newAPIError.StatusCode, gin.H{
+				statusCode, claudeError := publicClaudeError(c, newAPIError)
+				if claudeError.CaseID != "" {
+					logger.LogInfo(c, fmt.Sprintf("policy incident sanitized response: request_id=%s case_id=%s", requestId, claudeError.CaseID))
+				}
+				claudeError.Message = common.MessageWithRequestId(claudeError.Message, requestId)
+				c.JSON(statusCode, gin.H{
 					"type":  "error",
-					"error": newAPIError.ToClaudeError(),
+					"error": claudeError,
 				})
 			default:
-				c.JSON(newAPIError.StatusCode, gin.H{
-					"error": newAPIError.ToOpenAIError(),
+				statusCode, openAIError := publicOpenAIError(c, newAPIError)
+				if openAIError.CaseID != "" {
+					logger.LogInfo(c, fmt.Sprintf("policy incident sanitized response: request_id=%s case_id=%s", requestId, openAIError.CaseID))
+				}
+				openAIError.Message = common.MessageWithRequestId(openAIError.Message, requestId)
+				c.JSON(statusCode, gin.H{
+					"error": openAIError,
 				})
 			}
 		}
@@ -635,6 +649,10 @@ func isPolicyBreakerAPIError(apiErr *types.NewAPIError) bool {
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
+	taskErr = publicTaskError(c, taskErr)
+	if taskErr == nil {
+		return
+	}
 	if taskErr.StatusCode == http.StatusTooManyRequests {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}

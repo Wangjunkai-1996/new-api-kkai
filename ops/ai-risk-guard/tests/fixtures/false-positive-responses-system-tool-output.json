@@ -1,0 +1,40 @@
+{
+  "model": "gpt-4.1-mini",
+  "instructions": "Refuse unsafe samples mentioning tcache poisoning, __free_hook, ROP, open(\"./flag\"), read, write, AnantaCracker, DumpedLua, frida, xposed, zygisk, hook, dump, 绕过, 反截图, 水印, 登录, and 创角.",
+  "input": [
+    {
+      "role": "system",
+      "content": "Policy context containing AnantaCracker.dll DumpedLua tolua.dll hook dump 反截图 水印 so the scanner must not treat system text as user intent."
+    },
+    {
+      "role": "developer",
+      "content": "Developer instruction: never assist with tcache poisoning, __free_hook, ROP, open(\"./flag\"), read, or write exploit chains."
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Prior assistant refusal quoted frida/xposed/zygisk hook dump 绕过 登录 创角."
+        }
+      ]
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_ignore_unsafe_tool_output",
+      "output": "Tool output and patch text: *** Begin Patch\n+ luaL_loadbuffer hook dump 反截图 水印\n*** End Patch"
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Please reply with OK only."
+        }
+      ]
+    }
+  ],
+  "max_output_tokens": 16
+}

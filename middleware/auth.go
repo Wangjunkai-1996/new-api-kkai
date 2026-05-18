@@ -379,7 +379,8 @@ func TokenAuth() func(c *gin.Context) {
 			return
 		}
 		if isPolicyTokenBreakerOpen(token.Id) {
-			abortWithOpenAiMessage(c, http.StatusForbidden, "policy_token_isolated", types.ErrorCode("policy_token_isolated"))
+			logger.LogWarn(c, fmt.Sprintf("policy token breaker open: request_id=%s token_id=%d user_id=%d", c.GetString(common.RequestIdKey), token.Id, token.UserId))
+			abortWithOpenAiMessage(c, http.StatusLocked, types.PublicMessageRequestTemporarilyUnavailable, types.ErrorCodeTemporarilyUnavailable)
 			return
 		}
 

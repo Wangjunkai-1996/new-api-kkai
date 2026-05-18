@@ -1,0 +1,332 @@
+#!/usr/bin/env python3.11
+"""Inspect ai-risk-guard cases."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+
+DEFAULT_STATE_DIR = Path("/var/lib/ai-risk-guard")
+
+
+def ensure_dir(path: Path, mode: int = 0o750, force: bool = False) -> None:
+    existed = path.exists()
+    path.mkdir(parents=True, exist_ok=True)
+    if existed and not force:
+        return
+    try:
+        os.chmod(path, mode)
+    except PermissionError:
+        pass
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict):
+                    rows.append(item)
+    except FileNotFoundError:
+        pass
+    return rows
+
+
+def parse_ts(raw: Any) -> datetime | None:
+    if not raw:
+        return None
+    value = str(raw).replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def compact_target(target: dict[str, Any]) -> str:
+    parts = []
+    for key in ("ip", "token_id", "user_id", "token_owner_user_id", "token_key_sha256", "token_key_md5", "token_suffix"):
+        if key in target:
+            value = str(target[key])
+            if key in ("token_key_sha256", "token_key_md5"):
+                value = value[:12]
+            parts.append(f"{key}={value}")
+    return ",".join(parts) if parts else "{}"
+
+
+class RiskCtl:
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.state_dir = Path(args.state_dir)
+        self.actions_log = self.state_dir / "actions.jsonl"
+        self.cases_log = self.state_dir / "cases.jsonl"
+        self.cases_dir = self.state_dir / "cases"
+
+    def cases(self) -> int:
+        cases = read_jsonl(self.cases_log)
+        actions = read_jsonl(self.actions_log)
+        latest: dict[str, dict[str, Any]] = {}
+        counts: dict[str, int] = {}
+        for case in cases:
+            latest[case.get("case_id", "")] = case
+        for action in actions:
+            case_id = action.get("case_id")
+            if case_id:
+                counts[case_id] = counts.get(case_id, 0) + 1
+        for case_id in sorted(latest):
+            if not case_id:
+                continue
+            case = latest[case_id]
+            summary = case.get("summary") or {}
+            print(
+                "\t".join(
+                    [
+                        str(case_id),
+                        str(case.get("ts", "")),
+                        f"actions={counts.get(case_id, 0)}",
+                        f"ip={summary.get('ip') or ''}",
+                        f"user_id={summary.get('user_id') or ''}",
+                        f"reason={summary.get('reason') or ''}",
+                    ]
+                )
+            )
+        return 0
+
+    def latest_cases(self) -> dict[str, dict[str, Any]]:
+        latest: dict[str, dict[str, Any]] = {}
+        for case in read_jsonl(self.cases_log):
+            case_id = case.get("case_id")
+            if case_id:
+                latest[str(case_id)] = case
+        return latest
+
+    def primary_case_reasons(self) -> dict[str, str]:
+        reasons: dict[str, str] = {}
+        for case in read_jsonl(self.cases_log):
+            case_id = str(case.get("case_id") or "")
+            summary = case.get("summary") or {}
+            reason = str(summary.get("reason") or "")
+            if not case_id or not reason or reason == case_id or reason.startswith("risk-"):
+                continue
+            reasons.setdefault(case_id, reason)
+        return reasons
+
+    def active_durable_actions(self) -> list[dict[str, Any]]:
+        active = []
+        for action in read_jsonl(self.actions_log):
+            if action.get("action") not in ("blacklist_ip", "disable_token", "disable_user"):
+                continue
+            if action.get("result") not in ("added", "disabled"):
+                continue
+            active.append(action)
+        return active
+
+    def case_event(self, case_id: str) -> dict[str, Any]:
+        raw_file = self.cases_dir / case_id / "raw_event.redacted.jsonl"
+        if raw_file.exists():
+            for row in read_jsonl(raw_file):
+                try:
+                    item = json.loads(row.get("raw") or "{}")
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict) and not item.get("cached"):
+                    return item
+        event_file = self.cases_dir / case_id / "event.redacted.json"
+        if not event_file.exists():
+            return {}
+        try:
+            item = json.loads(event_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return item if isinstance(item, dict) else {}
+
+    def audit(self, days: int, json_output: bool) -> int:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=days)
+        latest = self.latest_cases()
+        primary_reasons = self.primary_case_reasons()
+        active = self.active_durable_actions()
+
+        active_rows = []
+        suspicious_rows = []
+        for action in active:
+            case_id = str(action.get("case_id") or "")
+            case = latest.get(case_id, {})
+            summary = case.get("summary") or {}
+            event = self.case_event(case_id)
+            row = {
+                "case_id": case_id,
+                "action": action.get("action"),
+                "target": action.get("target") or {},
+                "result": action.get("result"),
+                "reason": primary_reasons.get(case_id) or summary.get("reason") or event.get("rule_id") or event.get("reason"),
+                "ip": summary.get("ip") or event.get("remote_addr"),
+                "user_id": summary.get("user_id"),
+                "user_agent": event.get("user_agent"),
+            }
+            active_rows.append(row)
+
+            reason = str(row.get("reason") or "")
+            user_agent = str(row.get("user_agent") or "")
+            excerpt = str(event.get("matched_excerpt") or "")
+            if (
+                "Codex" in user_agent
+                or "generic_game_reverse_compound" in reason
+                or "exceeded pre-risk scan limit" in reason
+                or ("_RPC" in excerpt and "game_account_rpc_flow_bypass" in reason)
+                or (
+                    "game_account_rpc_flow_bypass" in reason
+                    and any(marker in excerpt for marker in ("Sandbox", "sandbox", "loopback", "Winsock", "AF_INET", "Hermes"))
+                )
+            ):
+                suspicious_rows.append(row)
+
+        recent_counts: dict[str, dict[str, Any]] = {}
+        for case_id, case in latest.items():
+            ts = parse_ts(case.get("ts"))
+            if ts and ts < cutoff:
+                continue
+            summary = case.get("summary") or {}
+            reason = str(summary.get("reason") or "unknown")
+            item = recent_counts.setdefault(reason, {"count": 0, "ips": {}})
+            item["count"] += 1
+            ip = summary.get("ip")
+            if ip:
+                item["ips"][ip] = item["ips"].get(ip, 0) + 1
+
+        report = {
+            "days": days,
+            "active_durable_actions": active_rows,
+            "potential_false_positives": suspicious_rows,
+            "recent_case_reasons": recent_counts,
+        }
+        if json_output:
+            print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+            return 0
+
+        print(f"audit_window_days={days}")
+        print("active_durable_actions:")
+        if not active_rows:
+            print("  none")
+        for row in active_rows:
+            print(
+                "  "
+                + "\t".join(
+                    [
+                        str(row["case_id"]),
+                        str(row["action"]),
+                        compact_target(row["target"]),
+                        f"reason={row.get('reason') or ''}",
+                    ]
+                )
+            )
+
+        print("potential_false_positives:")
+        if not suspicious_rows:
+            print("  none")
+        for row in suspicious_rows:
+            print(
+                "  "
+                + "\t".join(
+                    [
+                        str(row["case_id"]),
+                        str(row["action"]),
+                        compact_target(row["target"]),
+                        f"reason={row.get('reason') or ''}",
+                    ]
+                )
+            )
+
+        print("recent_case_reasons:")
+        for reason, item in sorted(recent_counts.items(), key=lambda pair: (-pair[1]["count"], pair[0]))[:20]:
+            top_ips = ",".join(f"{ip}:{count}" for ip, count in sorted(item["ips"].items(), key=lambda pair: -pair[1])[:5])
+            print(f"  count={item['count']}\treason={reason}\ttop_ips={top_ips}")
+        return 0
+
+    def show(self, case_id: str) -> int:
+        print("case:")
+        for case in read_jsonl(self.cases_log):
+            if case.get("case_id") == case_id:
+                print(json.dumps(case, indent=2, sort_keys=True))
+        event_file = self.cases_dir / case_id / "event.redacted.json"
+        if event_file.exists():
+            print("redacted_event:")
+            print(event_file.read_text(encoding="utf-8").rstrip())
+        if self.args.full:
+            raw_file = self.cases_dir / case_id / "raw_event.redacted.jsonl"
+            if raw_file.exists():
+                print("raw_event_redacted:")
+                print(raw_file.read_text(encoding="utf-8").rstrip())
+        print("actions:")
+        for action in read_jsonl(self.actions_log):
+            if action.get("case_id") == case_id:
+                print(json.dumps(action, indent=2, sort_keys=True))
+        return 0
+
+    def prune(self, days: int) -> int:
+        cutoff = time.time() - (days * 86400)
+        removed = 0
+        if not self.cases_dir.exists():
+            print("removed=0")
+            return 0
+        for child in self.cases_dir.iterdir():
+            if child.is_dir() and child.stat().st_mtime < cutoff:
+                if self.args.dry_run:
+                    print(f"would_remove\t{child}")
+                else:
+                    shutil.rmtree(child)
+                removed += 1
+        print(f"removed={removed}")
+        return 0
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR))
+    parser.add_argument("--dry-run", action="store_true")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("cases", help="list cases")
+    audit = sub.add_parser("audit", help="summarize active actions and likely false positives")
+    audit.add_argument("--days", type=int, default=7)
+    audit.add_argument("--json", action="store_true", help="emit JSON")
+    show = sub.add_parser("show", help="show one case")
+    show.add_argument("case_id")
+    show.add_argument("--full", action="store_true", help="include redacted raw event lines")
+    prune = sub.add_parser("prune", help="remove old case evidence directories")
+    prune.add_argument("--days", type=int, required=True)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    ctl = RiskCtl(args)
+    if args.cmd == "cases":
+        return ctl.cases()
+    if args.cmd == "audit":
+        return ctl.audit(args.days, args.json)
+    if args.cmd == "show":
+        return ctl.show(args.case_id)
+    if args.cmd == "prune":
+        return ctl.prune(args.days)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -48,7 +48,7 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if channel.Status != common.ChannelStatusEnabled {
-				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable)
 				return
 			}
 		} else {
@@ -104,7 +104,7 @@ func Distribute() func(c *gin.Context) {
 					if err == nil && preferred != nil {
 						if preferred.Status != common.ChannelStatusEnabled {
 							if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-								abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
+								abortWithAffinityChannelDisabled(c)
 								return
 							}
 						} else if usingGroup == "auto" {
@@ -145,11 +145,13 @@ func Distribute() func(c *gin.Context) {
 						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
 						//	message = "数据库一致性已被破坏，请联系管理员"
 						//}
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
+						common.SysLog(fmt.Sprintf("distributor get channel failed request_id=%s: %s", c.GetString(common.RequestIdKey), message))
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable)
 						return
 					}
 					if channel == nil {
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
+						common.SysLog(fmt.Sprintf("distributor no channel available request_id=%s group=%s model=%s", c.GetString(common.RequestIdKey), usingGroup, modelRequest.Model))
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable)
 						return
 					}
 				}
@@ -157,7 +159,8 @@ func Distribute() func(c *gin.Context) {
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil {
-			abortWithOpenAiMessage(c, setupErr.StatusCode, setupErr.Error(), setupErr.GetErrorCode())
+			common.SysLog(fmt.Sprintf("distributor setup channel failed request_id=%s channel_id=%d error=%s", c.GetString(common.RequestIdKey), c.GetInt("channel_id"), setupErr.ErrorWithStatusCode()))
+			abortWithPublicAPIError(c, setupErr)
 			return
 		}
 		c.Next()

@@ -494,6 +494,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				}
 				sentStop = true
 			}
+			sr.Done()
+			return
 
 		case "response.error", "response.failed":
 			if streamResp.Response != nil {
