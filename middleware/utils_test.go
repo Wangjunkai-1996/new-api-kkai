@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,4 +29,14 @@ func TestAbortWithAffinityChannelDisabledUsesServiceUnavailable(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), string(types.ErrorCodeGetChannelFailed))
 	assert.Contains(t, recorder.Body.String(), "req-affinity-disabled")
 	assert.True(t, ctx.IsAborted())
+}
+
+func TestPublicMiddlewareAPIErrorNoAvailableKeyUsesUnavailable(t *testing.T) {
+	apiErr := types.NewError(errors.New("no enabled keys"), types.ErrorCodeChannelNoAvailableKey)
+
+	statusCode, message, code := publicMiddlewareAPIError(apiErr)
+
+	assert.Equal(t, http.StatusServiceUnavailable, statusCode)
+	assert.Equal(t, types.PublicMessageUpstreamUnavailable, message)
+	assert.Equal(t, types.ErrorCodeUpstreamUnavailable, code)
 }

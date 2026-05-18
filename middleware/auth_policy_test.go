@@ -46,7 +46,7 @@ func setupAuthPolicyTestDB(t *testing.T) {
 	})
 }
 
-func TestTokenAuthReturnsPolicyIsolationForEnabledBreakerToken(t *testing.T) {
+func TestTokenAuthReturnsCleanTemporaryUnavailableForEnabledBreakerToken(t *testing.T) {
 	setupAuthPolicyTestDB(t)
 	gin.SetMode(gin.TestMode)
 
@@ -82,8 +82,10 @@ func TestTokenAuthReturnsPolicyIsolationForEnabledBreakerToken(t *testing.T) {
 
 	router.ServeHTTP(recorder, req)
 
-	assert.Equal(t, http.StatusForbidden, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "policy_token_isolated")
+	assert.Equal(t, http.StatusLocked, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "request temporarily unavailable")
+	assert.NotContains(t, recorder.Body.String(), "policy_token_isolated")
+	assert.NotContains(t, recorder.Body.String(), "cyber_policy")
 }
 
 func TestTokenAuthKeepsDisabledTokenInvalidBeforePolicyBreaker(t *testing.T) {

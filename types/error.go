@@ -16,11 +16,13 @@ type OpenAIError struct {
 	Param    string          `json:"param"`
 	Code     any             `json:"code"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
+	CaseID   string          `json:"case_id,omitempty"`
 }
 
 type ClaudeError struct {
 	Type    string `json:"type,omitempty"`
 	Message string `json:"message,omitempty"`
+	CaseID  string `json:"case_id,omitempty"`
 }
 
 type ErrorType string
@@ -86,6 +88,11 @@ const (
 	// quota error
 	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
 	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
+
+	// public response error
+	ErrorCodePolicyBlocked          ErrorCode = "policy_blocked"
+	ErrorCodeTemporarilyUnavailable ErrorCode = "temporarily_unavailable"
+	ErrorCodeUpstreamUnavailable    ErrorCode = "upstream_unavailable"
 )
 
 type NewAPIError struct {

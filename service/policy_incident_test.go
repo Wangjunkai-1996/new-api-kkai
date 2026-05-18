@@ -1,10 +1,19 @@
 package service
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -26,6 +35,8 @@ func newPolicyIncidentTestContext(t *testing.T) *gin.Context {
 	ctx.Set("token_name", "client-token")
 	ctx.Set("original_model", "gpt-policy")
 	ctx.Set(common.RequestIdKey, "req-policy-test")
+	t.Setenv(policyIncidentEvidenceDirEnv, filepath.Join(t.TempDir(), "policy-evidence"))
+	common.SetContextKey(ctx, constant.ContextKeyRequestStartTime, time.Unix(1710000000, 123000000))
 	common.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, 1)
 	return ctx
 }
@@ -138,6 +149,109 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	assert.Contains(t, event.ActionResult, policyIncidentResultSuccess)
 }
 
+func TestPolicyIncidentWritesGzipEvidenceAndSafeMetadata(t *testing.T) {
+	truncate(t)
+	evidenceDir := filepath.Join(t.TempDir(), "policy-evidence")
+
+	const upstreamKey = "upstream-raw-key"
+	const clientToken = "sk-client-token-secret"
+	rawBody := `{"model":"gpt-policy","messages":[{"role":"user","content":"investigate policy prompt with upstream-raw-key and sk-client-token-secret"}]}`
+	ctx := newPolicyIncidentTestContext(t)
+	t.Setenv(policyIncidentEvidenceDirEnv, evidenceDir)
+	ctx.Set("token_key", "client-token-secret")
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions/"+upstreamKey, strings.NewReader(rawBody))
+	ctx.Request.RemoteAddr = "203.0.113.10:4444"
+	ctx.Request.Header.Set("Authorization", "Bearer "+clientToken)
+	ctx.Request.Header.Set("X-Forwarded-For", "198.51.100.2, 203.0.113.10")
+	apiErr := types.NewOpenAIError(errors.New("cyber_policy denied for Bearer "+upstreamKey), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(88, 1, "policy-channel", true, upstreamKey, true), apiErr)
+
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
+
+	var metadata map[string]any
+	require.NoError(t, common.Unmarshal(event.Metadata, &metadata))
+	caseID, ok := metadata["case_id"].(string)
+	require.True(t, ok)
+	assert.True(t, strings.HasPrefix(caseID, "policy-1710000000123-"))
+	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), metadata["evidence_body_sha256"])
+	assert.NotContains(t, string(event.Metadata), "investigate policy prompt")
+
+	evidencePath, ok := metadata["evidence_path"].(string)
+	require.True(t, ok)
+	assert.Equal(t, filepath.Join(evidenceDir, caseID+".json.gz"), evidencePath)
+	assert.Empty(t, metadata["evidence_error"])
+
+	dirInfo, err := os.Stat(evidenceDir)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(policyIncidentEvidenceDirPerm), dirInfo.Mode().Perm())
+	fileInfo, err := os.Stat(evidencePath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(policyIncidentEvidenceFilePerm), fileInfo.Mode().Perm())
+
+	gzipPayload, err := os.ReadFile(evidencePath)
+	require.NoError(t, err)
+	assert.Equal(t, testPolicyIncidentHexSHA256(gzipPayload), metadata["evidence_sha256"])
+
+	var evidence policyIncidentEvidenceFile
+	decodedEvidence, err := readPolicyIncidentEvidenceGzip(gzipPayload, &evidence)
+	require.NoError(t, err)
+	assert.Equal(t, caseID, evidence.CaseID)
+	assert.Equal(t, "2024-03-09T16:00:00.123Z", evidence.RequestTime)
+	assert.Equal(t, "req-policy-test", evidence.RequestID)
+	assert.Equal(t, 42, evidence.UserID)
+	assert.Equal(t, 77, evidence.TokenID)
+	assert.Equal(t, "client-token", evidence.TokenName)
+	assert.Equal(t, "gpt-policy", evidence.Model)
+	assert.Equal(t, "/v1/chat/completions/"+model.PolicyIncidentMetadataRedacted, evidence.Path)
+	assert.Equal(t, "203.0.113.10", evidence.RemoteIP)
+	assert.Equal(t, "198.51.100.2, 203.0.113.10", evidence.XForwardedFor)
+	assert.Equal(t, 88, evidence.ChannelID)
+	assert.Equal(t, 1, evidence.MultiKeyIndex)
+	assert.Equal(t, model.FingerprintPolicyIncidentUpstreamKey(upstreamKey), evidence.UpstreamKeyFingerprint)
+	assert.Equal(t, http.StatusForbidden, evidence.Status)
+	assert.Equal(t, string(types.ErrorCodeBadResponseStatusCode), evidence.Error.Code)
+	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), evidence.BodySHA256)
+	assert.Contains(t, evidence.Body, "investigate policy prompt")
+	assert.True(t, evidence.BodyRedacted)
+	assert.NotContains(t, evidence.Body, upstreamKey)
+	assert.NotContains(t, evidence.Body, clientToken)
+	assert.NotContains(t, evidence.Error.Message, upstreamKey)
+	assert.NotContains(t, string(decodedEvidence), upstreamKey)
+	assert.NotContains(t, string(decodedEvidence), clientToken)
+	assert.NotContains(t, string(decodedEvidence), "Authorization")
+}
+
+func TestPolicyIncidentEvidenceWriteFailureDoesNotBlockEvent(t *testing.T) {
+	truncate(t)
+	tempDir := t.TempDir()
+	blockedPath := filepath.Join(tempDir, "not-a-directory")
+	require.NoError(t, os.WriteFile(blockedPath, []byte("blocked"), 0600))
+
+	rawBody := `{"messages":[{"role":"user","content":"safe prompt for evidence failure"}]}`
+	ctx := newPolicyIncidentTestContext(t)
+	t.Setenv(policyIncidentEvidenceDirEnv, blockedPath)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(rawBody))
+	err := types.NewOpenAIError(errors.New("cyber_policy request rejected"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(89, 1, "policy-channel", false, "upstream-key", true), err)
+
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
+
+	var metadata map[string]any
+	require.NoError(t, common.Unmarshal(event.Metadata, &metadata))
+	assert.NotEmpty(t, metadata["case_id"])
+	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), metadata["evidence_body_sha256"])
+	assert.NotEmpty(t, metadata["evidence_error"])
+	assert.NotContains(t, string(event.Metadata), "safe prompt for evidence failure")
+	_, hasPath := metadata["evidence_path"]
+	assert.False(t, hasPath)
+	_, hasEvidenceHash := metadata["evidence_sha256"]
+	assert.False(t, hasEvidenceHash)
+}
+
 func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
@@ -219,4 +333,23 @@ func TestTaskRelayPolicyIncidentSkipsLocalErrors(t *testing.T) {
 	var count int64
 	require.NoError(t, model.DB.Model(&model.PolicyIncidentEvent{}).Count(&count).Error)
 	assert.Zero(t, count)
+}
+
+func testPolicyIncidentHexSHA256(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func readPolicyIncidentEvidenceGzip(payload []byte, v any) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+	return decoded, common.Unmarshal(decoded, v)
 }

@@ -230,10 +230,14 @@ func isolatePolicyUpstream(channelError types.ChannelError, classification Polic
 
 func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, classification PolicyIncidentClassification, actionTaken string, actionResult string) *model.PolicyIncidentEvent {
 	errorMessage := redactPolicyIncidentMessage(classification.ErrorMessage, channelError.UsingKey)
+	evidence := recordPolicyIncidentEvidence(c, channelError, classification)
 	metadata := map[string]any{
 		"client_token_action_allowed": classification.ClientTokenActionAllowed,
 		"note":                        policyIncidentAttributionNote(classification),
 		"use_channel":                 c.GetStringSlice("use_channel"),
+	}
+	for key, value := range evidence.Metadata() {
+		metadata[key] = value
 	}
 	if c.Request != nil && c.Request.URL != nil {
 		metadata["request_path"] = redactPolicyIncidentMessage(c.Request.URL.Path, channelError.UsingKey)

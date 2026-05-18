@@ -32,6 +32,25 @@ func abortWithAffinityChannelDisabled(c *gin.Context) {
 	abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled), types.ErrorCodeGetChannelFailed)
 }
 
+func abortWithPublicAPIError(c *gin.Context, apiErr *types.NewAPIError) {
+	statusCode, message, code := publicMiddlewareAPIError(apiErr)
+	abortWithOpenAiMessage(c, statusCode, message, code)
+}
+
+func publicMiddlewareAPIError(apiErr *types.NewAPIError) (int, string, types.ErrorCode) {
+	if apiErr == nil {
+		return http.StatusInternalServerError, types.PublicMessageUpstreamError, types.ErrorCodeBadResponse
+	}
+	if types.IsUpstreamUnavailableError(apiErr) {
+		return http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable
+	}
+	statusCode := apiErr.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusInternalServerError
+	}
+	return statusCode, apiErr.Error(), apiErr.GetErrorCode()
+}
+
 func abortWithMidjourneyMessage(c *gin.Context, statusCode int, code int, description string) {
 	c.JSON(statusCode, gin.H{
 		"description": description,
