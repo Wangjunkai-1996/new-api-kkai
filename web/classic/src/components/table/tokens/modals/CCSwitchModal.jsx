@@ -32,7 +32,7 @@ import { selectFilter } from '../../../../helpers';
 const APP_CONFIGS = {
   claude: {
     label: 'Claude',
-    defaultName: 'My Claude',
+    defaultName: 'KKAI',
     modelFields: [
       { key: 'model', label: '主模型' },
       { key: 'haikuModel', label: 'Haiku 模型' },
@@ -42,15 +42,66 @@ const APP_CONFIGS = {
   },
   codex: {
     label: 'Codex',
-    defaultName: 'My Codex',
+    defaultName: 'KKAI',
     modelFields: [{ key: 'model', label: '主模型' }],
   },
   gemini: {
     label: 'Gemini',
-    defaultName: 'My Gemini',
+    defaultName: 'KKAI',
     modelFields: [{ key: 'model', label: '主模型' }],
   },
 };
+
+const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
+  request: {
+    url: "{{baseUrl}}/api/usage/token/",
+    method: "GET",
+    headers: {
+      "Authorization": "Bearer {{apiKey}}",
+      "User-Agent": "cc-switch/1.0"
+    }
+  },
+  extractor: function(response) {
+    if (!response || response.code === false || response.success === false) {
+      return {
+        isValid: false,
+        invalidMessage: response?.message || response?.error?.message || "Query failed"
+      };
+    }
+
+    const data = response.data || response;
+    const quotaPerUnit = 500000;
+    const totalUsed = Number(data.total_used || 0);
+    const totalAvailable = Number(data.total_available || 0);
+    const totalGranted = Number(data.total_granted || totalUsed + totalAvailable);
+    const used = totalUsed / quotaPerUnit;
+
+    if (data.unlimited_quota) {
+      return {
+        planName: data.name || "Token",
+        remaining: 100000000,
+        total: 100000000,
+        used,
+        unit: "USD",
+        extra: "Unlimited quota"
+      };
+    }
+
+    const remaining = totalAvailable / quotaPerUnit;
+    const total = totalGranted / quotaPerUnit;
+
+    return {
+      planName: data.name || "Token",
+      remaining,
+      total,
+      used,
+      unit: "USD",
+      isValid: remaining > 0
+    };
+  }
+})`;
+
+const CC_SWITCH_ENDPOINT = 'https://api.kkrich.ltd/v1';
 
 function getServerAddress() {
   try {
@@ -65,18 +116,22 @@ function getServerAddress() {
 
 function buildCCSwitchURL(app, name, models, apiKey) {
   const serverAddress = getServerAddress();
-  const endpoint = app === 'codex' ? serverAddress + '/v1' : serverAddress;
   const params = new URLSearchParams();
   params.set('resource', 'provider');
   params.set('app', app);
   params.set('name', name);
-  params.set('endpoint', endpoint);
+  params.set('endpoint', CC_SWITCH_ENDPOINT);
   params.set('apiKey', apiKey);
   for (const [k, v] of Object.entries(models)) {
     if (v) params.set(k, v);
   }
   params.set('homepage', serverAddress);
   params.set('enabled', 'true');
+  params.set('usageEnabled', 'true');
+  params.set('usageScript', btoa(CC_SWITCH_TOKEN_USAGE_SCRIPT));
+  params.set('usageBaseUrl', serverAddress);
+  params.set('usageApiKey', apiKey);
+  params.set('usageAutoInterval', '30');
   return `ccswitch://v1/import?${params.toString()}`;
 }
 
