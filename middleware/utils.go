@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -24,6 +26,10 @@ func abortWithOpenAiMessage(c *gin.Context, statusCode int, message string, code
 	})
 	c.Abort()
 	logger.LogError(c.Request.Context(), fmt.Sprintf("user %d | %s", userId, message))
+}
+
+func abortWithAffinityChannelDisabled(c *gin.Context) {
+	abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled), types.ErrorCodeGetChannelFailed)
 }
 
 func abortWithMidjourneyMessage(c *gin.Context, statusCode int, code int, description string) {
