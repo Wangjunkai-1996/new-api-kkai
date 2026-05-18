@@ -202,9 +202,13 @@ This fork intentionally carries a local production patch for high-confidence ups
 
 Required behavior:
 - High-confidence policy incidents must stop retry fan-out instead of trying other channels with the same risky request.
-- The implicated client token must be blocked quickly and persistently disabled by default.
+- Policy incidents must be classified by causality before any client-token action:
+  - `client_policy_request`: the incident is attributable to the client request, `ClientTokenActionAllowed` must be true, and the client token breaker plus optional persistent disable are allowed.
+  - `upstream_key_encountered`: the incident only proves the upstream API key is banned, permanently disabled, or otherwise encountered an upstream-key policy state; `ClientTokenActionAllowed` must be false.
+- For `upstream_key_encountered`, never set the client-token breaker and never persistently disable the client token. The incident action/result should show `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing`.
 - The implicated upstream channel/key must be isolated through the existing channel status and breaker mechanisms.
 - `policy_incident_events` must remain append-only and must store only redacted metadata plus upstream key fingerprints, never raw upstream keys or request prompts.
+- Each incident event must preserve the causality decision in `causality` and metadata such as `client_token_action_allowed` so future operators can audit why a client token was or was not touched.
 - Task relay and normal relay paths must both call the policy-incident handling flow.
 
 Before building or deploying an upstream sync, run the focused policy tests:

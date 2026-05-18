@@ -2,22 +2,32 @@
 
 ## Purpose
 
-This fork intentionally adds a production safety guard for high-confidence upstream policy incidents. When an upstream NewAPI-like provider reports safety-policy failures such as `cyber_policy` or a permanently disabled upstream API key, the fork must stop retry fan-out, isolate the affected upstream key/channel, and block the implicated client token.
+This fork intentionally adds a production safety guard for high-confidence upstream policy incidents. When an upstream NewAPI-like provider reports safety-policy failures such as `cyber_policy` or a permanently disabled upstream API key, the fork must stop retry fan-out, isolate the affected upstream key/channel, and decide whether client-token action is allowed from the incident causality.
 
-The goal is to avoid replaying the same risky request across additional channels while keeping enough append-only audit evidence for administrator review.
+The goal is to avoid replaying the same risky request across additional channels while keeping enough append-only audit evidence for administrator review. Client tokens may be blocked only when the incident is attributable to the client request, not when the only proven cause is an upstream key ban or permanent-disable state.
 
 ## Behavior Contract
 
 - Detect high-confidence policy incident errors from normal relay and task relay paths.
 - Mark the request context as no-retry after detection.
-- Set short-lived breaker state for the client token and upstream key when Redis is available.
-- Persistently disable the implicated client token by default through `policy_incident_setting.disable_client_token_persistently`.
+- Classify incident causality before taking client-token actions.
+- Set short-lived breaker state for the upstream key when Redis is available.
+- Set client-token breaker state and persistently disable the implicated client token only when causality is `client_policy_request` and `ClientTokenActionAllowed` is true.
+- Never set client-token breaker state and never persistently disable the client token when causality is `upstream_key_encountered`; record `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing` instead.
 - Auto-disable the implicated upstream channel/key through the existing channel status update path.
 - Insert an append-only `policy_incident_events` audit record.
+- Store `causality` and `client_token_action_allowed` so operators can audit why client-token action was or was not taken.
 - Store upstream keys only as fingerprints and redact sensitive text from metadata.
 - Notify the root user once per locked incident.
 - Do not store raw request prompts or raw upstream keys in the incident event.
 - Do not restart Postgres or Redis just for this patch.
+
+## Causality Rules
+
+| Causality | Meaning | Client token action | Upstream action | Required audit markers |
+| --- | --- | --- | --- | --- |
+| `client_policy_request` | The upstream policy error is attributable to the client's request, such as a clear `cyber_policy` request-policy hit without an upstream-key permanent-disable marker. | Allowed. Set token breaker and, if enabled by config, persistently disable the client token. | Isolate the implicated upstream channel/key. | `client_token_action_allowed=true`; action includes `token_breaker_set`; persistent disable may be `token_disabled`, `token_unchanged`, or `token_db_disable_skipped` depending on config/state. |
+| `upstream_key_encountered` | The event proves the upstream key encountered a policy/permanent-disable state, such as `当前 API key 已永久禁用`; it does not prove the current client caused it. | Forbidden. Do not set token breaker and do not persistently disable the client token. | Isolate the implicated upstream channel/key. | `client_token_action_allowed=false`; action includes `token_breaker_skipped,token_db_disable_skipped`; result includes `client_attribution_missing`. |
 
 ## Patch Touch Points
 
@@ -52,6 +62,7 @@ Original patch commits on this fork:
 
 - `828998d1 fix: guard upstream cyber policy incidents`
 - `91259f4a fix: enforce policy incident client token ban`
+- `ce78d522 fix: avoid client bans for upstream key policy incidents`
 
 ## Safe Upstream Upgrade Workflow
 
@@ -61,7 +72,7 @@ Recommended workflow:
 
 1. Fetch official upstream.
 2. Create an upgrade branch from the desired upstream version.
-3. Re-apply or preserve commits `828998d1` and `91259f4a` on top of that upstream version.
+3. Re-apply or preserve commits `828998d1`, `91259f4a`, and `ce78d522` on top of that upstream version.
 4. Resolve conflicts carefully in the touch-point files above.
 5. Run the FRT patch guard too:
 
@@ -105,6 +116,7 @@ select id,
        upstream_key_fingerprint,
        evidence_level,
        causality,
+       metadata ->> 'client_token_action_allowed' as client_token_action_allowed,
        action_taken,
        action_result,
        created_at
@@ -113,7 +125,7 @@ order by id desc
 limit 10;
 ```
 
-Expected result: the table exists after app startup. It may be empty until a real policy incident occurs.
+Expected result: the table exists after app startup. It may be empty until a real policy incident occurs. When events exist, `upstream_key_encountered` rows must show `client_token_action_allowed=false`, `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing`. `client_policy_request` rows may show client-token breaker or disable actions according to `policy_incident_setting.disable_client_token_persistently`.
 
 ## Rollback
 
@@ -128,4 +140,4 @@ This patch adds a table but does not require destructive schema migration. Rollb
 
 When working in a new Codex/AI window, start with:
 
-> Read `AGENTS.md`, `docs/ops/frt-header-patch.md`, and `docs/ops/policy-incident-patch.md` first. Upgrade NewAPI from official upstream while preserving both fork-only patches: FRT Header Display and Policy Incident Guard. Run `scripts/check-frt-header-patch.sh` plus focused policy tests before build or deploy.
+> Read `AGENTS.md`, `docs/ops/frt-header-patch.md`, and `docs/ops/policy-incident-patch.md` first. Upgrade NewAPI from official upstream while preserving fork-only patches: FRT Header Display and the causality-aware Policy Incident Guard. Preserve commits `828998d1`, `91259f4a`, and `ce78d522`; never disable client tokens for `upstream_key_encountered` incidents. Run `scripts/check-frt-header-patch.sh` plus focused policy tests before build or deploy.
