@@ -518,7 +518,7 @@ class Guard:
         if token_hash and token_suffix:
             actual_hash = md5_token_key(token_key)
             actual_suffix = token_key[-len(token_suffix) :] if token_suffix and token_key else None
-            if actual_hash and (actual_hash != token_hash or actual_suffix != token_suffix):
+            if actual_hash != token_hash or actual_suffix != token_suffix:
                 self.log_action(
                     case_id,
                     "attribution_mismatch",
@@ -530,6 +530,14 @@ class Guard:
                         "db_token_key_md5": actual_hash,
                     },
                 )
+                self.log_action(
+                    case_id,
+                    "disable_token",
+                    {"token_id": db_token_id},
+                    "skipped_token_lookup_mismatch",
+                    {},
+                )
+                return None
 
         if previous_status == 2:
             result = "already_disabled"

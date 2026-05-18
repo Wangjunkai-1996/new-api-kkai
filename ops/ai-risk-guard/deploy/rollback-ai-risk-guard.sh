@@ -2,7 +2,6 @@
 set -euo pipefail
 
 NGINX_BIN="${NGINX_BIN:-nginx}"
-NGINX_RELOAD_CMD="${NGINX_RELOAD_CMD:-systemctl reload nginx}"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
 RESTART_AI_RISK_GUARD="${RESTART_AI_RISK_GUARD:-0}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/ai-risk-guard}"
@@ -48,6 +47,10 @@ run_as_root() {
   as_root "$@"
 }
 
+reload_nginx() {
+  run_as_root "$SYSTEMCTL_BIN" reload nginx
+}
+
 require_confirm() {
   [[ "${CONFIRM_ROLLBACK:-}" == "rollback-ai-risk-guard" ]] || {
     cat >&2 <<'MSG'
@@ -88,7 +91,7 @@ main() {
   run_as_root "$SYSTEMCTL_BIN" daemon-reload
 
   run_as_root "$NGINX_BIN" -t
-  run_as_root bash -c "$NGINX_RELOAD_CMD"
+  reload_nginx
 
   if [[ "$RESTART_AI_RISK_GUARD" == "1" ]]; then
     run_as_root "$SYSTEMCTL_BIN" restart ai-risk-guard

@@ -8,7 +8,6 @@ BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/ai-risk-guard}"
 BACKUP_DIR="${BACKUP_DIR:-$BACKUP_ROOT/$TIMESTAMP}"
 
 NGINX_BIN="${NGINX_BIN:-nginx}"
-NGINX_RELOAD_CMD="${NGINX_RELOAD_CMD:-systemctl reload nginx}"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
 RESTART_AI_RISK_GUARD="${RESTART_AI_RISK_GUARD:-0}"
 
@@ -71,6 +70,10 @@ run_as_root() {
   as_root "$@"
 }
 
+reload_nginx() {
+  run_as_root "$SYSTEMCTL_BIN" reload nginx
+}
+
 require_confirm() {
   [[ "${CONFIRM_DEPLOY:-}" == "install-ai-risk-guard" ]] || {
     cat >&2 <<'MSG'
@@ -97,6 +100,30 @@ backup_path() {
   else
     printf '%s\tmissing\n' "$dest" | as_root tee -a "$BACKUP_DIR/manifest.tsv" >/dev/null
   fi
+}
+
+restore_backed_up_path() {
+  local dest="$1"
+  local state
+  local backup_file="$BACKUP_DIR/files$dest"
+
+  state="$(awk -F '\t' -v dest="$dest" '$1 == dest { state = $2 } END { print state }' "$BACKUP_DIR/manifest.tsv")"
+  [[ -n "$state" ]] || fail "backup manifest missing entry for $dest"
+
+  if [[ "$state" == "present" ]]; then
+    [[ -e "$backup_file" || -L "$backup_file" ]] || fail "backup file missing for $dest"
+    run_as_root mkdir -p "$(dirname "$dest")"
+    run_as_root cp -a "$backup_file" "$dest"
+  elif [[ "$state" == "missing" ]]; then
+    run_as_root rm -f "$dest"
+  else
+    fail "unknown backup state '$state' for $dest"
+  fi
+}
+
+restore_nginx_configs() {
+  restore_backed_up_path "$NGINX_CONF_PATH"
+  restore_backed_up_path "$AI_LOCATIONS_CONF_PATH"
 }
 
 install_file() {
@@ -249,8 +276,13 @@ main() {
 
   run_as_root "$SYSTEMCTL_BIN" daemon-reload
 
-  run_as_root "$NGINX_BIN" -t
-  run_as_root bash -c "$NGINX_RELOAD_CMD"
+  if ! run_as_root "$NGINX_BIN" -t; then
+    echo "Nginx config test failed; restoring nginx config files from backup." >&2
+    restore_nginx_configs
+    run_as_root "$NGINX_BIN" -t
+    fail "nginx config test failed after ai-risk-guard deploy changes"
+  fi
+  reload_nginx
 
   if [[ "$RESTART_AI_RISK_GUARD" == "1" ]]; then
     run_as_root "$SYSTEMCTL_BIN" enable --now ai-risk-guard

@@ -173,6 +173,56 @@ def main() -> None:
         if disabled_users != [9001]:
             raise AssertionError(f"daemon disabled wrong user(s): {disabled_users}")
 
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state = root / "state"
+        args = daemon["parse_args"](
+            [
+                "--events",
+                str(root / "events.jsonl"),
+                "--state-dir",
+                str(state),
+                "--black-ip-file",
+                str(root / "black_ip"),
+                "--bridge-black-log-file",
+                "",
+                "--lock-file",
+                str(root / "guard.lock"),
+                "--once",
+            ]
+        )
+        guard = daemon["Guard"](args)
+        guard.pg = FakePg(token_owner_user_id=9001)
+        guard.setup()
+        guard.process_line(
+            json.dumps(
+                {
+                    "risk_case_id": "risk-token-mismatch-test",
+                    "enforce": True,
+                    "token_id": 42,
+                    "token_key_md5": "00000000000000000000000000000000",
+                    "token_suffix": "wrong-suffix",
+                    "rule_id": "test_rule",
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        actions = read_jsonl(state / "actions.jsonl")
+        if not any(
+            action.get("action") == "attribution_mismatch"
+            and action.get("result") == "token_lookup_mismatch"
+            for action in actions
+        ):
+            raise AssertionError("daemon did not log token lookup mismatch")
+        if any(action.get("action") == "disable_user" for action in actions):
+            raise AssertionError("daemon disabled a user after token lookup mismatch")
+        if any(
+            action.get("action") == "disable_token" and action.get("result") == "disabled"
+            for action in actions
+        ):
+            raise AssertionError("daemon disabled a token after token lookup mismatch")
+
     print("PASS: daemon evidence redacts raw token material and preserves token-owner attribution")
 
 
