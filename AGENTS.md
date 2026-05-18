@@ -222,3 +222,31 @@ go test ./relay -run RelayTask -count=1
 ```
 
 See `docs/ops/policy-incident-patch.md` for the operational upgrade workflow and rollback notes.
+
+### Rule 11: Fork-Only CC Switch One-Click Import Patch — MUST Preserve
+
+This fork intentionally carries a local production patch for KKAI/Kkrich CC Switch one-click token import.
+
+**Do not remove or overwrite this patch when syncing official upstream changes.** Directly deploying an official upstream image will lose this behavior.
+
+Required behavior:
+- CC Switch one-click import must default the provider name to `KKAI`.
+- CC Switch one-click import must use `https://api.kkrich.ltd/v1` as the imported provider endpoint.
+- The import deep link must include CC Switch usage-query parameters so imported tokens can display usage without requiring a New API user access token or user ID.
+- The usage query must use the imported token key against `/api/usage/token/`, not the New API `/api/user/self` access-token flow.
+- The patch must be preserved in both frontend variants:
+  - `web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx`
+  - `web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx`
+
+Before building or deploying an upstream sync, verify the patch is still present:
+
+```bash
+grep -R "CC_SWITCH_TOKEN_USAGE_SCRIPT" \
+  web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx \
+  web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx
+grep -R "https://api.kkrich.ltd/v1" \
+  web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx \
+  web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx
+```
+
+See `docs/ops/cc-switch-import-patch.md` for the operational upgrade workflow and rollback notes.
