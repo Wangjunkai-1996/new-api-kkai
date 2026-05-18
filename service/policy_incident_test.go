@@ -47,9 +47,22 @@ func TestClassifyPolicyIncidentMatchesHighConfidenceText(t *testing.T) {
 			assert.True(t, classification.Detected)
 			assert.Equal(t, http.StatusForbidden, classification.StatusCode)
 			assert.Equal(t, policyIncidentEvidenceHigh, classification.EvidenceLevel)
-			assert.Equal(t, policyIncidentCausality, classification.Causality)
 		})
 	}
+}
+
+func TestClassifyPolicyIncidentSeparatesClientAndUpstreamKeyCausality(t *testing.T) {
+	clientErr := types.NewOpenAIError(errors.New("upstream rejected: cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	clientClassification := ClassifyPolicyIncident(clientErr)
+	assert.True(t, clientClassification.Detected)
+	assert.True(t, clientClassification.ClientTokenActionAllowed)
+	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, clientClassification.Causality)
+
+	upstreamKeyErr := types.NewOpenAIError(errors.New("网络滥用封禁：上游返回 cyber_policy，当前 API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	upstreamKeyClassification := ClassifyPolicyIncident(upstreamKeyErr)
+	assert.True(t, upstreamKeyClassification.Detected)
+	assert.False(t, upstreamKeyClassification.ClientTokenActionAllowed)
+	assert.Equal(t, policyIncidentCausalityUpstreamKey, upstreamKeyClassification.Causality)
 }
 
 func TestClassifyPolicyIncidentDoesNotMatchOrdinaryErrors(t *testing.T) {
@@ -116,7 +129,7 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	assert.NotContains(t, event.ErrorMessage, "upstream-b")
 	assert.NotContains(t, string(event.Metadata), "upstream-b")
 	assert.NotContains(t, formatPolicyIncidentNotification(&event), "upstream-b")
-	assert.Equal(t, "encountered", event.Causality)
+	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
 	assert.Contains(t, event.ActionTaken, "token_breaker_set")
 	assert.Contains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.Contains(t, event.ActionTaken, "token_disabled")
@@ -141,7 +154,7 @@ func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.
 
 	ctx := newPolicyIncidentTestContext(t)
 	ctx.Set("token_id", token.Id)
-	err := types.NewOpenAIError(errors.New("cyber_policy API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	err := types.NewOpenAIError(errors.New("cyber_policy request rejected by upstream policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, "upstream-key", true), err)
 
@@ -153,6 +166,39 @@ func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
 	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
 	assert.Contains(t, event.ActionResult, "config_disabled")
+}
+
+func TestPolicyIncidentSkipsClientTokenActionsForUpstreamKeyPermanentBan(t *testing.T) {
+	truncate(t)
+	setting := operation_setting.GetPolicyIncidentSetting()
+	original := setting.DisableClientTokenPersistently
+	setting.DisableClientTokenPersistently = true
+	t.Cleanup(func() {
+		setting.DisableClientTokenPersistently = original
+	})
+
+	token := &model.Token{UserId: 42, Key: "client-token-key-upstream-only", Status: common.TokenStatusEnabled, Name: "client-token"}
+	require.NoError(t, model.DB.Create(token).Error)
+	channel := &model.Channel{Key: "upstream-key", Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	ctx := newPolicyIncidentTestContext(t)
+	ctx.Set("token_id", token.Id)
+	err := types.NewOpenAIError(errors.New("网络滥用封禁：上游返回 cyber_policy，当前 API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, "upstream-key", true), err)
+
+	var reloaded model.Token
+	require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
+	assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
+
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
+	assert.Equal(t, policyIncidentCausalityUpstreamKey, event.Causality)
+	assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
+	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+	assert.Contains(t, event.ActionResult, "client_attribution_missing")
+	assert.Contains(t, event.ActionTaken, "upstream_isolated")
 }
 
 func TestTaskRelayPolicyIncidentSkipsLocalErrors(t *testing.T) {

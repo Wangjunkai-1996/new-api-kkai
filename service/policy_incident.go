@@ -18,27 +18,36 @@ import (
 )
 
 const (
-	policyIncidentEvidenceHigh = "high"
-	policyIncidentCausality    = "encountered"
+	policyIncidentEvidenceHigh                 = "high"
+	policyIncidentCausalityClientPolicyRequest = "client_policy_request"
+	policyIncidentCausalityUpstreamKey         = "upstream_key_encountered"
 
 	policyIncidentResultSuccess = "success"
 	policyIncidentResultPartial = "partial"
 )
 
-var policyIncidentKeywords = []string{
+var policyIncidentClientPolicyKeywords = []string{
 	"cyber_policy",
 	"网络滥用封禁",
+}
+
+var policyIncidentUpstreamKeyKeywords = []string{
 	"当前 api key 已永久禁用",
 	"api key 已永久禁用",
+	"api key has been permanently disabled",
+	"api key is permanently disabled",
+	"key has been permanently disabled",
+	"key is permanently disabled",
 }
 
 type PolicyIncidentClassification struct {
-	Detected      bool
-	StatusCode    int
-	ErrorCode     string
-	ErrorMessage  string
-	EvidenceLevel string
-	Causality     string
+	Detected                 bool
+	StatusCode               int
+	ErrorCode                string
+	ErrorMessage             string
+	EvidenceLevel            string
+	Causality                string
+	ClientTokenActionAllowed bool
 }
 
 func ClassifyPolicyIncident(err *types.NewAPIError) PolicyIncidentClassification {
@@ -51,19 +60,34 @@ func ClassifyPolicyIncident(err *types.NewAPIError) PolicyIncidentClassification
 func classifyPolicyIncidentText(statusCode int, errorCode string, message string) PolicyIncidentClassification {
 	message = common.MaskSensitiveInfo(message)
 	text := strings.ToLower(strings.TrimSpace(errorCode + " " + message))
-	for _, keyword := range policyIncidentKeywords {
+	clientPolicyDetected := containsPolicyIncidentKeyword(text, policyIncidentClientPolicyKeywords)
+	upstreamKeyDetected := containsPolicyIncidentKeyword(text, policyIncidentUpstreamKeyKeywords)
+	if !clientPolicyDetected && !upstreamKeyDetected {
+		return PolicyIncidentClassification{StatusCode: statusCode, ErrorCode: errorCode, ErrorMessage: message}
+	}
+
+	classification := PolicyIncidentClassification{
+		Detected:      true,
+		StatusCode:    statusCode,
+		ErrorCode:     errorCode,
+		ErrorMessage:  message,
+		EvidenceLevel: policyIncidentEvidenceHigh,
+		Causality:     policyIncidentCausalityUpstreamKey,
+	}
+	if clientPolicyDetected && !upstreamKeyDetected {
+		classification.Causality = policyIncidentCausalityClientPolicyRequest
+		classification.ClientTokenActionAllowed = true
+	}
+	return classification
+}
+
+func containsPolicyIncidentKeyword(text string, keywords []string) bool {
+	for _, keyword := range keywords {
 		if strings.Contains(text, keyword) {
-			return PolicyIncidentClassification{
-				Detected:      true,
-				StatusCode:    statusCode,
-				ErrorCode:     errorCode,
-				ErrorMessage:  message,
-				EvidenceLevel: policyIncidentEvidenceHigh,
-				Causality:     policyIncidentCausality,
-			}
+			return true
 		}
 	}
-	return PolicyIncidentClassification{StatusCode: statusCode, ErrorCode: errorCode, ErrorMessage: message}
+	return false
 }
 
 func MarkPolicyIncidentNoRetry(c *gin.Context) {
@@ -108,16 +132,24 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 
 	tokenId := c.GetInt("token_id")
 	userId := c.GetInt("id")
-	tokenBreakerAction, tokenBreakerResult := setPolicyTokenBreakerAction(tokenId)
 	upstreamBreakerResult := setPolicyUpstreamKeyBreakerResult(channelError.ChannelId, channelError.UsingKey)
 
 	lockAcquired := acquirePolicyIncidentLock(channelError.ChannelId, channelError.UsingKey)
-	actions := []string{tokenBreakerAction, "upstream_breaker_set"}
-	results := []string{tokenBreakerResult, upstreamBreakerResult}
+	actions := []string{"upstream_breaker_set"}
+	results := []string{upstreamBreakerResult}
 
-	tokenAction, tokenResult := disablePolicyToken(tokenId, userId)
-	actions = append(actions, tokenAction)
-	results = append(results, tokenResult)
+	if classification.ClientTokenActionAllowed {
+		tokenBreakerAction, tokenBreakerResult := setPolicyTokenBreakerAction(tokenId)
+		actions = append(actions, tokenBreakerAction)
+		results = append(results, tokenBreakerResult)
+		tokenAction, tokenResult := disablePolicyToken(tokenId, userId)
+		actions = append(actions, tokenAction)
+		results = append(results, tokenResult)
+	} else {
+		actions = append(actions, "token_breaker_skipped", "token_db_disable_skipped")
+		results = append(results, "client_attribution_missing", "client_attribution_missing")
+	}
+
 	if lockAcquired {
 		upstreamAction, upstreamResult := isolatePolicyUpstream(channelError, classification)
 		actions = append(actions, upstreamAction)
@@ -199,8 +231,9 @@ func isolatePolicyUpstream(channelError types.ChannelError, classification Polic
 func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, classification PolicyIncidentClassification, actionTaken string, actionResult string) *model.PolicyIncidentEvent {
 	errorMessage := redactPolicyIncidentMessage(classification.ErrorMessage, channelError.UsingKey)
 	metadata := map[string]any{
-		"note":        "该用户是关联请求，不等于已确认源头",
-		"use_channel": c.GetStringSlice("use_channel"),
+		"client_token_action_allowed": classification.ClientTokenActionAllowed,
+		"note":                        policyIncidentAttributionNote(classification),
+		"use_channel":                 c.GetStringSlice("use_channel"),
 	}
 	if c.Request != nil && c.Request.URL != nil {
 		metadata["request_path"] = redactPolicyIncidentMessage(c.Request.URL.Path, channelError.UsingKey)
@@ -234,6 +267,13 @@ func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, c
 		common.SysLog("failed to set policy incident metadata: " + err.Error())
 	}
 	return event
+}
+
+func policyIncidentAttributionNote(classification PolicyIncidentClassification) string {
+	if classification.ClientTokenActionAllowed {
+		return "该上游策略事件未包含上游 key 永久禁用特征，按客户请求策略命中处置；仍建议结合请求证据复核。"
+	}
+	return "该事件只证明当前上游 key 遇到策略/永久禁用状态，不等于当前客户是源头；已隔离上游并跳过客户 token 持久封禁。"
 }
 
 func redactPolicyIncidentMessage(message string, upstreamKey string) string {
