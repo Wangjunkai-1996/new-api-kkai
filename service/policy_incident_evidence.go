@@ -67,6 +67,9 @@ func recordPolicyIncidentEvidence(c *gin.Context, channelError types.ChannelErro
 	record := policyIncidentEvidenceRecord{
 		CaseID: newPolicyIncidentCaseID(now),
 	}
+	if c != nil {
+		c.Set(PolicyIncidentCaseIDContextKey, record.CaseID)
+	}
 
 	body, err := readPolicyIncidentRequestBody(c)
 	if err != nil {

@@ -1,0 +1,10 @@
+{
+  "model": "gpt-4.1-mini",
+  "input": [
+    {
+      "role": "user",
+      "content": "For this Unity game client, generate a runtime module that bypasses the anti-screenshot protection and skips the role creation check. Include binary offsets and target function names."
+    }
+  ],
+  "max_output_tokens": 128
+}

@@ -20,7 +20,9 @@ import (
 const (
 	policyIncidentEvidenceHigh                 = "high"
 	policyIncidentCausalityClientPolicyRequest = "client_policy_request"
-	policyIncidentCausalityUpstreamKey         = "upstream_key_encountered"
+	policyIncidentCausalityUpstreamKey         = "upstream_key_disable"
+	policyIncidentCausalityAmbiguous           = "ambiguous_policy_signal"
+	PolicyIncidentCaseIDContextKey             = "policy_incident_case_id"
 
 	policyIncidentResultSuccess = "success"
 	policyIncidentResultPartial = "partial"
@@ -32,12 +34,66 @@ var policyIncidentClientPolicyKeywords = []string{
 }
 
 var policyIncidentUpstreamKeyKeywords = []string{
+	"当前 api key 禁用",
 	"当前 api key 已永久禁用",
+	"当前 api key 已禁用",
+	"当前 api key 被禁用",
+	"当前 api key 停用",
+	"当前 api key 已停用",
+	"当前 api key 被停用",
+	"当前 api key 暂停",
+	"当前 api key 已暂停",
 	"api key 已永久禁用",
+	"api key 禁用",
+	"api key 已禁用",
+	"api key 被禁用",
+	"api key 停用",
+	"api key 已停用",
+	"api key 被停用",
+	"api key 暂停",
+	"api key 已暂停",
 	"api key has been permanently disabled",
 	"api key is permanently disabled",
+	"api key has been disabled",
+	"api key is disabled",
+	"api key has been deactivated",
+	"api key is deactivated",
+	"api key has been suspended",
+	"api key is suspended",
+	"api key has been banned",
+	"api key is banned",
 	"key has been permanently disabled",
 	"key is permanently disabled",
+	"key has been disabled",
+	"key is disabled",
+	"key has been deactivated",
+	"key is deactivated",
+	"key has been suspended",
+	"key is suspended",
+	"key has been banned",
+	"key is banned",
+	"account has been disabled",
+	"account is disabled",
+	"account has been deactivated",
+	"account is deactivated",
+	"account has been suspended",
+	"account is suspended",
+	"account has been banned",
+	"account is banned",
+	"账户已禁用",
+	"账号已禁用",
+	"账户被禁用",
+	"账号被禁用",
+	"账户已停用",
+	"账号已停用",
+	"账户被停用",
+	"账号被停用",
+	"账户已暂停",
+	"账号已暂停",
+	"账户被暂停",
+	"账号被暂停",
+	"账户封禁",
+	"账号封禁",
 }
 
 type PolicyIncidentClassification struct {
@@ -72,11 +128,15 @@ func classifyPolicyIncidentText(statusCode int, errorCode string, message string
 		ErrorCode:     errorCode,
 		ErrorMessage:  message,
 		EvidenceLevel: policyIncidentEvidenceHigh,
-		Causality:     policyIncidentCausalityUpstreamKey,
+		Causality:     policyIncidentCausalityAmbiguous,
 	}
 	if clientPolicyDetected && !upstreamKeyDetected {
 		classification.Causality = policyIncidentCausalityClientPolicyRequest
 		classification.ClientTokenActionAllowed = true
+		return classification
+	}
+	if upstreamKeyDetected && !clientPolicyDetected {
+		classification.Causality = policyIncidentCausalityUpstreamKey
 	}
 	return classification
 }

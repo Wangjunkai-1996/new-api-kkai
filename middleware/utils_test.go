@@ -26,7 +26,9 @@ func TestAbortWithAffinityChannelDisabledUsesServiceUnavailable(t *testing.T) {
 	abortWithAffinityChannelDisabled(ctx)
 
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), string(types.ErrorCodeGetChannelFailed))
+	assert.Contains(t, recorder.Body.String(), string(types.ErrorCodeUpstreamUnavailable))
+	assert.Contains(t, recorder.Body.String(), types.PublicMessageUpstreamUnavailable)
+	assert.NotContains(t, recorder.Body.String(), appI18n.T(ctx, appI18n.MsgDistributorAffinityChannelDisabled))
 	assert.Contains(t, recorder.Body.String(), "req-affinity-disabled")
 	assert.True(t, ctx.IsAborted())
 }
@@ -39,4 +41,17 @@ func TestPublicMiddlewareAPIErrorNoAvailableKeyUsesUnavailable(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, statusCode)
 	assert.Equal(t, types.PublicMessageUpstreamUnavailable, message)
 	assert.Equal(t, types.ErrorCodeUpstreamUnavailable, code)
+}
+
+func TestPublicMiddlewareAPIErrorScrubsUnsafeSetupError(t *testing.T) {
+	apiErr := types.NewError(
+		errors.New("header override exposed Authorization: Bearer sk-setup-secret-token"),
+		types.ErrorCodeChannelParamOverrideInvalid,
+	)
+
+	statusCode, message, code := publicMiddlewareAPIError(apiErr)
+
+	assert.Equal(t, http.StatusInternalServerError, statusCode)
+	assert.Equal(t, types.PublicMessageUpstreamError, message)
+	assert.Equal(t, types.ErrorCodeBadResponse, code)
 }

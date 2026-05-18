@@ -36,6 +36,20 @@ TOKEN_ID_FIELDS = ("token_id", "tokenId")
 TOKEN_HASH_FIELDS = ("api_key_hash", "token_key_md5", "token_md5")
 TOKEN_SUFFIX_FIELDS = ("api_key_suffix", "token_suffix", "key_suffix")
 USER_FIELDS = ("user_id", "userId", "uid")
+SENSITIVE_FIELD_NAMES = {
+    "authorization",
+    "token",
+    "token_key",
+    "api_key",
+    "api_key_full",
+    "key",
+}
+SECRET_EVIDENCE_FIELD_HINTS = ("hash", "sha", "md5", "fingerprint", "suffix")
+BEARER_TOKEN_RE = re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/=-]{8,})")
+SK_TOKEN_RE = re.compile(r"\bsk-[A-Za-z0-9._~+/=-]{8,}")
+QUERY_API_KEY_RE = re.compile(r"(?i)([?&]api_key=)([^&#\s]+)")
+LONG_HEX_SECRET_RE = re.compile(r"\b[0-9a-fA-F]{32,}\b")
+LONG_BASE64_SECRET_RE = re.compile(r"\b(?=[A-Za-z0-9+/=_-]*[+/=_-])(?=[A-Za-z0-9+/=_-]*[A-Za-z])[A-Za-z0-9+/=_-]{32,}\b")
 
 
 def utc_now() -> str:
@@ -166,16 +180,57 @@ def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def redacted_secret(value: Any) -> dict[str, Any]:
+    token = normalized_token_key(value)
+    return {
+        "redacted": True,
+        "sha256": hashlib.sha256(token.encode()).hexdigest() if token else None,
+    }
+
+
+def sanitize_secret_text(text: str) -> str:
+    def redact_query_api_key(match: re.Match[str]) -> str:
+        return match.group(1) + "[REDACTED]"
+
+    sanitized = QUERY_API_KEY_RE.sub(redact_query_api_key, text)
+    sanitized = BEARER_TOKEN_RE.sub("Bearer [REDACTED]", sanitized)
+    sanitized = SK_TOKEN_RE.sub("[REDACTED]", sanitized)
+    sanitized = LONG_HEX_SECRET_RE.sub("[REDACTED]", sanitized)
+    return LONG_BASE64_SECRET_RE.sub("[REDACTED]", sanitized)
+
+
+def should_redact_key(key: Any, parent_key: str | None) -> bool:
+    key_name = str(key).lower()
+    if key_name in SENSITIVE_FIELD_NAMES:
+        return True
+    return parent_key is not None and parent_key.lower() == "headers" and key_name == "authorization"
+
+
+def should_preserve_secret_evidence(key: str | None) -> bool:
+    key_name = (key or "").lower()
+    return any(hint in key_name for hint in SECRET_EVIDENCE_FIELD_HINTS)
+
+
+def redact_value(value: Any, parent_key: str | None = None) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if should_redact_key(key, parent_key):
+                redacted[key] = redacted_secret(item)
+            else:
+                redacted[key] = redact_value(item, str(key))
+        return redacted
+    if isinstance(value, list):
+        return [redact_value(item, parent_key) for item in value]
+    if isinstance(value, str):
+        if should_preserve_secret_evidence(parent_key):
+            return value
+        return sanitize_secret_text(value)
+    return value
+
+
 def redact_event(event: dict[str, Any]) -> dict[str, Any]:
-    redacted = dict(event)
-    for field in TOKEN_FIELDS:
-        if field in redacted:
-            token = normalized_token_key(redacted[field])
-            redacted[field] = {
-                "redacted": True,
-                "sha256": hashlib.sha256((token or "").encode()).hexdigest() if token else None,
-            }
-    return redacted
+    return redact_value(event)
 
 
 def redacted_event_line(event: dict[str, Any]) -> str:
@@ -421,7 +476,7 @@ class Guard:
         previous_status = safe_user_id(previous_status_s)
         if token_id is None:
             self.log_action(case_id, "disable_token", {"token_key_sha256": token_hash}, "invalid_db_row", {"row": row})
-            return user_id
+            return None
 
         if previous_status == 2:
             result = "already_disabled"
@@ -437,22 +492,44 @@ class Guard:
         )
         return user_id
 
-    def disable_token_by_id(self, case_id: str, token_id: int) -> int | None:
+    def disable_token_by_id(
+        self,
+        case_id: str,
+        token_id: int,
+        token_hash: str | None = None,
+        token_suffix: str | None = None,
+    ) -> int | None:
         if self.args.dry_run:
             self.log_action(case_id, "disable_token", {"token_id": token_id}, "dry_run", {})
             return None
-        row = self.pg.query(f"SELECT id,user_id,status FROM tokens WHERE id={token_id} ORDER BY id LIMIT 1;")
+        row = self.pg.query(f"SELECT id,user_id,status,key FROM tokens WHERE id={token_id} ORDER BY id LIMIT 1;")
         if not row:
             self.log_action(case_id, "disable_token", {"token_id": token_id}, "not_found", {})
             return None
 
-        token_id_s, user_id_s, previous_status_s = (row.split("|") + ["", "", ""])[:3]
+        token_id_s, user_id_s, previous_status_s, token_key = (row.split("|") + ["", "", "", ""])[:4]
         db_token_id = safe_user_id(token_id_s)
         user_id = safe_user_id(user_id_s)
         previous_status = safe_user_id(previous_status_s)
         if db_token_id is None:
-            self.log_action(case_id, "disable_token", {"token_id": token_id}, "invalid_db_row", {"row": row})
-            return user_id
+            self.log_action(case_id, "disable_token", {"token_id": token_id}, "invalid_db_row", {"row": "|".join(row.split("|")[:3])})
+            return None
+
+        if token_hash and token_suffix:
+            actual_hash = md5_token_key(token_key)
+            actual_suffix = token_key[-len(token_suffix) :] if token_suffix and token_key else None
+            if actual_hash and (actual_hash != token_hash or actual_suffix != token_suffix):
+                self.log_action(
+                    case_id,
+                    "attribution_mismatch",
+                    {"token_id": db_token_id},
+                    "token_lookup_mismatch",
+                    {
+                        "event_token_key_md5": token_hash,
+                        "event_token_suffix": token_suffix,
+                        "db_token_key_md5": actual_hash,
+                    },
+                )
 
         if previous_status == 2:
             result = "already_disabled"
@@ -487,7 +564,7 @@ class Guard:
             previous_status = safe_user_id(previous_status_s)
             if token_id is None:
                 self.log_action(case_id, "disable_token", target, "invalid_db_row", {"row": "|".join(row.split("|")[:3])})
-                return user_id
+                return None
             if previous_status == 2:
                 result = "already_disabled"
             else:
@@ -551,26 +628,32 @@ class Guard:
             )
             return
 
-        raw_ip, token_key, user_id = extract_targets(event)
+        raw_ip, token_key, event_user_id = extract_targets(event)
         token_id, token_hash, token_suffix = extract_token_lookup(event)
         ip = normalized_ip(raw_ip)
+        token_owner_user_id = None
 
         if ip:
             self.add_black_ip(case_id, ip)
         elif raw_ip:
             self.log_error(case_id, raw_line, f"invalid ip: {raw_ip}")
         if token_id and not self.args.no_db:
-            token_user_id = self.disable_token_by_id(case_id, token_id)
-            user_id = user_id or token_user_id
+            token_owner_user_id = self.disable_token_by_id(case_id, token_id, token_hash, token_suffix)
         elif token_key and not self.args.no_db:
-            token_user_id = self.disable_token_and_user(case_id, token_key)
-            user_id = user_id or token_user_id
+            token_owner_user_id = self.disable_token_and_user(case_id, token_key)
         elif token_hash and token_suffix and not self.args.no_db:
-            token_user_id = self.disable_token_by_hash_suffix(case_id, token_hash, token_suffix)
-            user_id = user_id or token_user_id
-        if user_id and not self.args.no_db:
-            self.disable_user(case_id, user_id)
-        if not any((ip, token_id, token_key, token_hash and token_suffix, user_id)):
+            token_owner_user_id = self.disable_token_by_hash_suffix(case_id, token_hash, token_suffix)
+        if event_user_id and token_owner_user_id and event_user_id != token_owner_user_id:
+            self.log_action(
+                case_id,
+                "attribution_mismatch",
+                {"token_owner_user_id": token_owner_user_id},
+                "event_user_id_mismatch",
+                {"event_user_id": event_user_id},
+            )
+        if token_owner_user_id and not self.args.no_db:
+            self.disable_user(case_id, token_owner_user_id)
+        if not any((ip, token_id, token_key, token_hash and token_suffix, token_owner_user_id)):
             self.log_action(case_id, "noop", {}, "no_targets", {})
 
     def process_bridge_black_log_line(self, raw_line: str) -> None:

@@ -34,13 +34,46 @@
       "description": "High-confidence ROP chain to open ./flag, read it, and write it out.",
       "all": [
         "(?i)\\bROP\\b|return[-\\s]?oriented",
-        "open\\s*\\(\\s*[\"']\\./flag[\"']\\s*\\)",
+        "(?i)\\bopen(?:at)?\\s*\\([^)]*[\"'](?:\\./|/)?flag(?:\\.txt)?[\"']",
         "(?i)\\bread\\s*\\(",
         "(?i)\\bwrite\\s*\\("
       ],
       "any": [
         "(?i)\\b(?:syscall|gadget|pop\\s+rdi|ret2csu|ret2libc|payload|exploit)\\b",
         "(?i)\\b(?:stdout|fd|sendfile|leak)\\b"
+      ]
+    },
+    {
+      "case_id": "pwn_flag_file_open_read_write_chain",
+      "enabled": true,
+      "severity": "critical",
+      "enforcement": "block",
+      "tags": ["pwn", "flag-read", "openat", "exfiltration"],
+      "description": "High-confidence exploit payload chain to open/openat a flag path, read it, and write it out.",
+      "all": [
+        "(?i)\\b(?:pwn|exploit|payload|shellcode|ROP|return[-\\s]?oriented)\\b",
+        "(?i)\\bopen(?:at)?\\s*\\([^)]*[\"'](?:\\./|/)?flag(?:\\.txt)?[\"']",
+        "(?i)\\bread\\s*\\(",
+        "(?i)\\bwrite\\s*\\("
+      ],
+      "any": [
+        "(?i)\\b(?:syscall|gadget|stdout|fd|sendfile|leak|AT_FDCWD|O_RDONLY)\\b"
+      ]
+    },
+    {
+      "case_id": "pwn_tcache_malloc_hook_chain",
+      "enabled": true,
+      "severity": "critical",
+      "enforcement": "block",
+      "tags": ["pwn", "heap", "tcache", "malloc-hook"],
+      "description": "High-confidence heap exploitation chain combining tcache poisoning and __malloc_hook overwrite intent.",
+      "all": [
+        "(?i)\\btcache(?:[-_\\s]*poison(?:ing)?)?\\b",
+        "__malloc_hook"
+      ],
+      "any": [
+        "(?i)\\b(?:malloc|free|glibc|heap|one_gadget|system\\s*\\(|overwrite|exploit|pwn)\\b",
+        "覆盖|劫持|写入|getshell"
       ]
     },
     {
@@ -119,6 +152,23 @@
       ],
       "any": [
         "dump|DumpedLua|反编译|导出|拦截|破解|hook|绕过"
+      ]
+    },
+    {
+      "case_id": "english_game_client_protection_bypass_chain",
+      "enabled": true,
+      "severity": "critical",
+      "enforcement": "block",
+      "tags": ["game-reverse", "protection-bypass", "english"],
+      "description": "High-confidence English game/client protection bypass request with game context, bypass action, protected surface, and tooling/runtime signal.",
+      "all": [
+        "(?i)\\b(?:game|client|apk|mobile|unity|unreal|android|ios)\\b",
+        "(?i)\\b(?:bypass(?:es|ing)?|disable[sd]?|remov(?:e|es|ing)|strip(?:s|ping)?|evad(?:e|es|ing)|spoof(?:s|ing)?|skip(?:s|ping)?)\\b",
+        "(?i)\\b(?:anti[- ]?cheat|watermark|anti[- ]?screenshot|screenshot protection|root detection|emulator detection|integrity check|login check|account check|role creation)\\b"
+      ],
+      "any": [
+        "(?i)\\b(?:frida|xposed|zygisk|dobby|minhook|substrate|hook|inline hook|patch|dump|luaL_loadbuffer|tolua|xlua|il2cpp|GameAssembly|libil2cpp)\\b",
+        "(?i)\\b(?:script|module|runtime|binary|offset|function)\\b"
       ]
     },
     {
@@ -240,7 +290,7 @@
       "enforcement": "observe",
       "tags": ["generic-term", "observe-only"],
       "description": "Single generic technical terms are evidence-only and must not auto-block or auto-ban without a stronger chain rule.",
-      "pattern": "(?i)\\b(?:tcache|ROP|__free_hook|frida|xposed|zygisk|luaL_loadbuffer|tolua|xlua|hook|dump|bypass|RPC)\\b|反截图"
+      "pattern": "(?i)\\b(?:tcache|ROP|__free_hook|__malloc_hook|openat|flag\\.txt|frida|xposed|zygisk|luaL_loadbuffer|tolua|xlua|hook|dump|bypass|RPC)\\b|反截图"
     }
   ]
 }

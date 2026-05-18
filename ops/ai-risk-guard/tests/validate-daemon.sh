@@ -18,10 +18,6 @@ DB_CONTAINER="${DB_CONTAINER:-new-api-postgres}"
 DB_NAME="${DB_NAME:-newapi}"
 DB_USER="${DB_USER:-newapi}"
 
-CASE_SHOW_CMD_TEMPLATE="${CASE_SHOW_CMD_TEMPLATE:-$RISKCTL show {case_id}}"
-TOKEN_STATUS_CMD_TEMPLATE="${TOKEN_STATUS_CMD_TEMPLATE:-podman exec -i $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -At -c \"SELECT status FROM tokens WHERE id={token_id};\"}"
-USER_STATUS_CMD_TEMPLATE="${USER_STATUS_CMD_TEMPLATE:-podman exec -i $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -At -c \"SELECT status FROM users WHERE id={user_id};\"}"
-
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -40,25 +36,30 @@ require_value() {
   [[ -n "$value" ]] || fail "$name is required"
 }
 
-render_template() {
-  local template="$1"
-  local rendered="$template"
-  rendered="${rendered//\{case_id\}/$CASE_ID}"
-  rendered="${rendered//\{token_id\}/$TOKEN_ID}"
-  rendered="${rendered//\{user_id\}/$USER_ID}"
-  printf '%s\n' "$rendered"
+require_numeric_id() {
+  local name="$1"
+  local value="$2"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || fail "$name must be a positive integer"
 }
 
-run_template() {
-  local label="$1"
-  local template="$2"
-  local output_file="$3"
-  local command
-  command="$(render_template "$template")"
+require_numeric_status() {
+  local value="$1"
+  [[ "$value" =~ ^[0-9]+$ ]] || fail "EXPECTED_STATUS must be a non-negative integer"
+}
 
-  bash -c "$command" >"$output_file" 2>&1 || {
+require_case_id() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9_.:-]{1,120}$ ]] || fail "CASE_ID contains unsafe characters"
+}
+
+run_command() {
+  local label="$1"
+  local output_file="$2"
+  shift 2
+
+  "$@" >"$output_file" 2>&1 || {
     sed -n '1,120p' "$output_file" >&2
-    fail "$label command failed: $command"
+    fail "$label command failed"
   }
 }
 
@@ -66,7 +67,7 @@ assert_status_2() {
   local label="$1"
   local output_file="$2"
 
-  if grep -Eq "\"status\"[[:space:]]*:[[:space:]]*\"?$EXPECTED_STATUS\"?|status[[:space:]]*=[[:space:]]*\"?$EXPECTED_STATUS\"?|status:[[:space:]]*\"?$EXPECTED_STATUS\"?" "$output_file"; then
+  if grep -Eq "^[[:space:]]*$EXPECTED_STATUS[[:space:]]*$|\"status\"[[:space:]]*:[[:space:]]*\"?$EXPECTED_STATUS\"?|status[[:space:]]*=[[:space:]]*\"?$EXPECTED_STATUS\"?|status:[[:space:]]*\"?$EXPECTED_STATUS\"?" "$output_file"; then
     pass "$label status=$EXPECTED_STATUS"
     return
   fi
@@ -85,16 +86,24 @@ main() {
   require_value "CASE_ID or CASE_ID_FILE" "$CASE_ID"
   require_value "TOKEN_ID" "$TOKEN_ID"
   require_value "USER_ID" "$USER_ID"
+  require_case_id "$CASE_ID"
+  require_numeric_id "TOKEN_ID" "$TOKEN_ID"
+  require_numeric_id "USER_ID" "$USER_ID"
+  require_numeric_status "$EXPECTED_STATUS"
 
   sleep "$DAEMON_SETTLE_SECONDS"
 
-  run_template "riskctl case show" "$CASE_SHOW_CMD_TEMPLATE" "$TMP_DIR/case-show.out"
+  run_command "riskctl case show" "$TMP_DIR/case-show.out" "$RISKCTL" show "$CASE_ID"
   pass "riskctl case show works for $CASE_ID"
 
-  run_template "token status query" "$TOKEN_STATUS_CMD_TEMPLATE" "$TMP_DIR/token-status.out"
+  run_command "token status query" "$TMP_DIR/token-status.out" \
+    podman exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -At \
+    -c "SELECT status FROM tokens WHERE id=${TOKEN_ID};"
   assert_status_2 "token $TOKEN_ID" "$TMP_DIR/token-status.out"
 
-  run_template "user status query" "$USER_STATUS_CMD_TEMPLATE" "$TMP_DIR/user-status.out"
+  run_command "user status query" "$TMP_DIR/user-status.out" \
+    podman exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -At \
+    -c "SELECT status FROM users WHERE id=${USER_ID};"
   assert_status_2 "user $USER_ID" "$TMP_DIR/user-status.out"
 }
 

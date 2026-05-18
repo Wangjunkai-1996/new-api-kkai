@@ -62,10 +62,10 @@ def parse_ts(raw: Any) -> datetime | None:
 
 def compact_target(target: dict[str, Any]) -> str:
     parts = []
-    for key in ("ip", "token_id", "user_id", "token_key_sha256"):
+    for key in ("ip", "token_id", "user_id", "token_owner_user_id", "token_key_sha256", "token_key_md5", "token_suffix"):
         if key in target:
             value = str(target[key])
-            if key == "token_key_sha256":
+            if key in ("token_key_sha256", "token_key_md5"):
                 value = value[:12]
             parts.append(f"{key}={value}")
     return ",".join(parts) if parts else "{}"

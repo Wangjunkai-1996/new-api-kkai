@@ -53,7 +53,7 @@ Useful environment variables:
 CASE_ID=risk-case-id \
 TOKEN_ID=token-id \
 USER_ID=user-id \
-./ai-risk-guard/tests/validate-daemon.sh
+./ops/ai-risk-guard/tests/validate-daemon.sh
 ```
 
 Validated behavior:
@@ -62,11 +62,12 @@ Validated behavior:
 - The affected token shows `status=2` after daemon processing.
 - The affected user shows `status=2` after daemon processing.
 
-If `riskctl` uses different command syntax, override the templates:
+`validate-daemon.sh` passes values as argv and validates inputs before use:
+`TOKEN_ID` and `USER_ID` must be positive integers, and `CASE_ID` must use only
+safe case-id characters. It no longer accepts shell command templates.
 
-```bash
-CASE_SHOW_CMD_TEMPLATE='riskctl case show --id {case_id}' \
-TOKEN_STATUS_CMD_TEMPLATE='podman exec -i new-api-postgres psql -U newapi -d newapi -At -c "SELECT status FROM tokens WHERE id={token_id};"' \
-USER_STATUS_CMD_TEMPLATE='podman exec -i new-api-postgres psql -U newapi -d newapi -At -c "SELECT status FROM users WHERE id={user_id};"' \
-./ai-risk-guard/tests/validate-daemon.sh
-```
+Useful environment variables:
+
+- `RISKCTL`: path to `riskctl`, default `ops/ai-risk-guard/bin/riskctl`.
+- `STATE_DIR`: daemon state directory, default `/var/lib/ai-risk-guard`.
+- `DB_CONTAINER`, `DB_USER`, `DB_NAME`: read-only status query targets.

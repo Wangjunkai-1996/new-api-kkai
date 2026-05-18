@@ -44,13 +44,46 @@ local BUILTIN_RULES = {
       description = "High-confidence ROP chain to open ./flag, read it, and write it out.",
       all = {
         [[(?i)\bROP\b|return[-\s]?oriented]],
-        [[open\s*\(\s*["']\./flag["']\s*\)]],
+        [=[(?i)\bopen(?:at)?\s*\([^)]*["'](?:\./|/)?flag(?:\.txt)?["']]=],
         [[(?i)\bread\s*\(]],
         [[(?i)\bwrite\s*\(]],
       },
       any = {
         [[(?i)\b(?:syscall|gadget|pop\s+rdi|ret2csu|ret2libc|payload|exploit)\b]],
         [[(?i)\b(?:stdout|fd|sendfile|leak)\b]],
+      },
+    },
+    {
+      case_id = "pwn_flag_file_open_read_write_chain",
+      enabled = true,
+      severity = "critical",
+      enforcement = "block",
+      tags = {"pwn", "flag-read", "openat", "exfiltration"},
+      description = "High-confidence exploit payload chain to open/openat a flag path, read it, and write it out.",
+      all = {
+        [[(?i)\b(?:pwn|exploit|payload|shellcode|ROP|return[-\s]?oriented)\b]],
+        [=[(?i)\bopen(?:at)?\s*\([^)]*["'](?:\./|/)?flag(?:\.txt)?["']]=],
+        [[(?i)\bread\s*\(]],
+        [[(?i)\bwrite\s*\(]],
+      },
+      any = {
+        [[(?i)\b(?:syscall|gadget|stdout|fd|sendfile|leak|AT_FDCWD|O_RDONLY)\b]],
+      },
+    },
+    {
+      case_id = "pwn_tcache_malloc_hook_chain",
+      enabled = true,
+      severity = "critical",
+      enforcement = "block",
+      tags = {"pwn", "heap", "tcache", "malloc-hook"},
+      description = "High-confidence heap exploitation chain combining tcache poisoning and __malloc_hook overwrite intent.",
+      all = {
+        [[(?i)\btcache(?:[-_\s]*poison(?:ing)?)?\b]],
+        [[__malloc_hook]],
+      },
+      any = {
+        [[(?i)\b(?:malloc|free|glibc|heap|one_gadget|system\s*\(|overwrite|exploit|pwn)\b]],
+        [[覆盖|劫持|写入|getshell]],
       },
     },
     {
@@ -132,6 +165,23 @@ local BUILTIN_RULES = {
       },
     },
     {
+      case_id = "english_game_client_protection_bypass_chain",
+      enabled = true,
+      severity = "critical",
+      enforcement = "block",
+      tags = {"game-reverse", "protection-bypass", "english"},
+      description = "High-confidence English game/client protection bypass request with game context, bypass action, protected surface, and tooling/runtime signal.",
+      all = {
+        [[(?i)\b(?:game|client|apk|mobile|unity|unreal|android|ios)\b]],
+        [[(?i)\b(?:bypass(?:es|ing)?|disable[sd]?|remov(?:e|es|ing)|strip(?:s|ping)?|evad(?:e|es|ing)|spoof(?:s|ing)?|skip(?:s|ping)?)\b]],
+        [[(?i)\b(?:anti[- ]?cheat|watermark|anti[- ]?screenshot|screenshot protection|root detection|emulator detection|integrity check|login check|account check|role creation)\b]],
+      },
+      any = {
+        [[(?i)\b(?:frida|xposed|zygisk|dobby|minhook|substrate|hook|inline hook|patch|dump|luaL_loadbuffer|tolua|xlua|il2cpp|GameAssembly|libil2cpp)\b]],
+        [[(?i)\b(?:script|module|runtime|binary|offset|function)\b]],
+      },
+    },
+    {
       case_id = "generic_game_reverse_compound_strike",
       enabled = true,
       severity = "medium",
@@ -153,7 +203,7 @@ local BUILTIN_RULES = {
       enforcement = "observe",
       tags = {"generic-term", "observe-only"},
       description = "Single generic technical terms are evidence-only and must not auto-block or auto-ban without a stronger chain rule.",
-      pattern = [[(?i)\b(?:tcache|ROP|__free_hook|frida|xposed|zygisk|luaL_loadbuffer|tolua|xlua|hook|dump|bypass|RPC)\b|反截图]],
+      pattern = [[(?i)\b(?:tcache|ROP|__free_hook|__malloc_hook|openat|flag\.txt|frida|xposed|zygisk|luaL_loadbuffer|tolua|xlua|hook|dump|bypass|RPC)\b|反截图]],
     },
   },
 }
@@ -408,13 +458,14 @@ local append_responses_input_item = function(parts, item)
   end
 
   local item_type = normalize_token(item.type)
-  if item_type == "input_text" then
+  local role = normalize_token(item.role)
+  if item_type == "input_text" and (role == "" or role == "user") then
     append_text(parts, item.text)
     append_text(parts, item.input_text)
     return
   end
 
-  if normalize_token(item.role) ~= "user" then
+  if role ~= "user" then
     return
   end
 
@@ -425,34 +476,64 @@ local append_responses_input_item = function(parts, item)
   end
 end
 
+local is_responses_user_authored_item = function(item)
+  if type(item) == "string" then
+    return true
+  end
+  if type(item) ~= "table" then
+    return false
+  end
+
+  local item_type = normalize_token(item.type)
+  local role = normalize_token(item.role)
+  if item_type == "input_text" then
+    return role == "" or role == "user"
+  end
+
+  return role == "user"
+end
+
 local extract_responses_scan_text = function(decoded)
   local parts = {}
   local input = decoded.input
 
   if type(input) == "table" and is_array(input) then
-    for _, item in ipairs(input) do
-      append_responses_input_item(parts, item)
+    for index = #input, 1, -1 do
+      local item = input[index]
+      if is_responses_user_authored_item(item) then
+        append_responses_input_item(parts, item)
+        return table.concat(parts, "\n"), {
+          scan_scope = "responses_final_user_input",
+          scan_item_index = index,
+        }
+      end
     end
+    return "", {scan_scope = "responses_final_user_input", scan_item_index = nil}
   else
     append_responses_input_item(parts, input)
   end
 
-  return table.concat(parts, "\n")
+  return table.concat(parts, "\n"), {scan_scope = "responses_direct_input"}
 end
 
 local extract_chat_scan_text = function(decoded)
   local parts = {}
   if type(decoded.messages) ~= "table" then
-    return ""
+    return "", {scan_scope = "chat_final_user_message"}
   end
 
-  for _, message in ipairs(decoded.messages) do
+  for index = #decoded.messages, 1, -1 do
+    local message = decoded.messages[index]
     if type(message) == "table" and normalize_token(message.role) == "user" then
       append_content_text(parts, message.content)
+      return table.concat(parts, "\n"), {
+        scan_scope = "chat_final_user_message",
+        scan_message_index = index,
+      }
     end
   end
 
-  return table.concat(parts, "\n")
+  return "", {scan_scope = "chat_final_user_message", scan_message_index = nil}
 end
 
 local append_prompt_text = function(parts, prompt)
@@ -472,7 +553,7 @@ end
 local extract_completion_scan_text = function(decoded)
   local parts = {}
   append_prompt_text(parts, decoded.prompt)
-  return table.concat(parts, "\n")
+  return table.concat(parts, "\n"), {scan_scope = "completions_prompt"}
 end
 
 local multipart_boundary = function(content_type)
@@ -572,13 +653,13 @@ local extract_json_scan_text = function(body, content_type)
   end
 
   if kind == "responses" then
-    return extract_responses_scan_text(decoded), {scan_scope = "responses_user_input"}
+    return extract_responses_scan_text(decoded)
   end
   if kind == "chat_completions" then
-    return extract_chat_scan_text(decoded), {scan_scope = "chat_user_messages"}
+    return extract_chat_scan_text(decoded)
   end
   if kind == "completions" then
-    return extract_completion_scan_text(decoded), {scan_scope = "completions_prompt"}
+    return extract_completion_scan_text(decoded)
   end
 
   return body, {scan_scope = "json_raw_body"}
@@ -877,7 +958,167 @@ local should_reject_truncated = function()
       or uri == "/v1beta/completions"
 end
 
+local redaction_marker = function(value)
+  return "[REDACTED:" .. string.sub(ngx.md5(tostring(value or "")), 1, 12) .. "]"
+end
+
+local trim_string = function(value, limit)
+  if type(value) ~= "string" or not limit or #value <= limit then
+    return value, false
+  end
+  return string.sub(value, 1, limit) .. "...[truncated]", true
+end
+
+local sanitize_secret_text = function(value)
+  if type(value) ~= "string" or value == "" then
+    return value
+  end
+
+  local sanitized = string.gsub(value, "([Bb]earer%s+)([%w%._~%+%/%-]+=*)", function(prefix, token)
+    if #token < 12 then
+      return prefix .. token
+    end
+    return prefix .. redaction_marker(token)
+  end)
+  sanitized = string.gsub(sanitized, "(sk%-[%w%._%-]+)", function(token)
+    if #token < 12 then
+      return token
+    end
+    return redaction_marker(token)
+  end)
+  sanitized = string.gsub(sanitized, "([%w_%-%+/%=%.]+)", function(blob)
+    if #blob < 48 then
+      return blob
+    end
+    return redaction_marker(blob)
+  end)
+
+  return sanitized
+end
+
+local split_uri_query = function(uri)
+  if type(uri) ~= "string" then
+    return uri, nil
+  end
+
+  local query_at = string.find(uri, "?", 1, true)
+  if not query_at then
+    return uri, nil
+  end
+
+  return string.sub(uri, 1, query_at - 1), string.sub(uri, query_at + 1)
+end
+
+local sanitize_query_key = function(key)
+  key = sanitize_secret_text(key or "")
+  key, _ = trim_string(key, 120)
+  return key
+end
+
+local query_key_is_sensitive = function(key)
+  local normalized = string.lower(key or "")
+  normalized = string.gsub(normalized, "[^a-z0-9]", "")
+  return normalized == "apikey"
+      or normalized == "key"
+      or normalized == "token"
+      or normalized == "authorization"
+      or string.find(normalized, "apikey", 1, true) ~= nil
+      or string.find(normalized, "secret", 1, true) ~= nil
+      or string.find(normalized, "password", 1, true) ~= nil
+      or string.find(normalized, "token", 1, true) ~= nil
+end
+
+local value_is_secret_like = function(value)
+  if type(value) ~= "string" then
+    return false
+  end
+  if string.find(value, "[Bb]earer%s+[%w%._~%+%/%-]+=*") then
+    return true
+  end
+  if string.find(value, "sk%-[%w%._%-]+") then
+    return true
+  end
+  return #value >= 48 and string.find(value, "^[%w_%-%+/%=%.]+$") ~= nil
+end
+
+local sanitize_query_metadata = function(query)
+  if type(query) ~= "string" or query == "" then
+    return nil
+  end
+
+  local metadata = {
+    present = true,
+    redacted = true,
+    param_count = 0,
+    param_names = {},
+    redacted_params = {},
+  }
+
+  for pair in string.gmatch(query, "([^&;]+)") do
+    local eq_at = string.find(pair, "=", 1, true)
+    local key = eq_at and string.sub(pair, 1, eq_at - 1) or pair
+    local value = eq_at and string.sub(pair, eq_at + 1) or ""
+    local sanitized_key = sanitize_query_key(key)
+    local sensitive = query_key_is_sensitive(key) or value_is_secret_like(value)
+
+    metadata.param_count = metadata.param_count + 1
+    metadata.param_names[#metadata.param_names + 1] = sanitized_key
+    if sensitive then
+      metadata.redacted_params[#metadata.redacted_params + 1] = {
+        name = sanitized_key,
+        value_hash = ngx.md5(value),
+        value_length = #value,
+      }
+    end
+  end
+
+  return metadata
+end
+
+local sanitize_event_value
+sanitize_event_value = function(value)
+  local kind = type(value)
+  if kind == "string" then
+    return sanitize_secret_text(value)
+  end
+  if kind ~= "table" then
+    return value
+  end
+
+  local sanitized = {}
+  for key, item in pairs(value) do
+    sanitized[key] = sanitize_event_value(item)
+  end
+  return sanitized
+end
+
+local sanitize_event = function(event)
+  local sanitized = sanitize_event_value(event)
+  if type(sanitized) ~= "table" then
+    return sanitized
+  end
+
+  if type(event.uri) == "string" then
+    local path, query = split_uri_query(event.uri)
+    sanitized.uri = sanitize_secret_text(path)
+    if query and query ~= "" then
+      sanitized.query = sanitize_query_metadata(query)
+    end
+  end
+
+  if type(event.matched_excerpt) == "string" then
+    local raw_excerpt = event.matched_excerpt
+    local limited, truncated = trim_string(raw_excerpt, 600)
+    sanitized.matched_excerpt = sanitize_secret_text(limited)
+    sanitized.matched_excerpt_hash = ngx.md5(raw_excerpt)
+    sanitized.matched_excerpt_truncated = truncated
+  end
+
+  return sanitized
+end
+
 local write_event = function(event)
+  event = sanitize_event(event)
   local encoded = ok_cjson and cjson and cjson.encode(event) or json_encode(event)
   if not encoded then
     return
@@ -917,6 +1158,38 @@ local cached_block_decision = function(remote_addr, key_fp)
   end
 
   return nil
+end
+
+local write_oversize_evidence = function(remote_addr, key_fp, token_suffix, model, scan_text, scan_meta)
+  local rule_id = "oversize_unreviewable_body"
+  local risk_case_id = new_case_id(rule_id, remote_addr, key_fp)
+  local scan_length = type(scan_text) == "string" and #scan_text or 0
+  write_event({
+    ts = ngx.utctime(),
+    risk_case_id = risk_case_id,
+    severity = "medium",
+    action = "evidence_only",
+    enforce = false,
+    rule_id = rule_id,
+    reason = "request body exceeded pre-risk scan limit without a high-confidence prefix hit",
+    remote_addr = remote_addr,
+    api_key_hash = key_fp,
+    api_key_suffix = token_suffix,
+    method = ngx.req.get_method(),
+    uri = ngx.var.request_uri,
+    host = ngx.var.host,
+    xff_raw = header_value("x-forwarded-for") or header_value("X-Forwarded-For"),
+    user_agent = header_value("user-agent") or header_value("User-Agent"),
+    content_type = ngx.var.content_type,
+    model = model,
+    body_scan_limit_bytes = BODY_SCAN_LIMIT,
+    body_truncated = true,
+    scan_scope = scan_meta and scan_meta.scan_scope,
+    scan_text_length = scan_length,
+    scan_text_fields = scan_meta and scan_meta.scan_text_fields,
+    matched_excerpt = scan_length > 0 and excerpt(scan_text) or nil,
+    request_id = ngx.var.request_id,
+  })
 end
 
 local evaluate = function()
@@ -964,6 +1237,10 @@ local evaluate = function()
 
   local model = model_from_body(body)
   local scan_text, scan_meta = scan_text_from_body(body, ngx.var.content_type)
+  if scan_text == "" and truncated and should_reject_truncated() then
+    write_oversize_evidence(remote_addr, key_fp, token_suffix, model, scan_text, scan_meta)
+    return nil
+  end
   if scan_text == "" then
     return nil
   end
@@ -971,33 +1248,7 @@ local evaluate = function()
   local rule, matched_pattern, match_from, match_to, matched_signals, risk_score = find_rule_hit(scan_text, rules_doc)
   if not rule then
     if truncated and should_reject_truncated() then
-      local rule_id = "oversize_unreviewable_body"
-      local risk_case_id = new_case_id(rule_id, remote_addr, key_fp)
-      write_event({
-        ts = ngx.utctime(),
-        risk_case_id = risk_case_id,
-        severity = "medium",
-        action = "evidence_only",
-        enforce = false,
-        rule_id = rule_id,
-        reason = "request body exceeded pre-risk scan limit without a high-confidence prefix hit",
-        remote_addr = remote_addr,
-        api_key_hash = key_fp,
-        api_key_suffix = token_suffix,
-        method = ngx.req.get_method(),
-        uri = ngx.var.request_uri,
-        host = ngx.var.host,
-        xff_raw = header_value("x-forwarded-for") or header_value("X-Forwarded-For"),
-        user_agent = header_value("user-agent") or header_value("User-Agent"),
-        content_type = ngx.var.content_type,
-        model = model,
-        body_scan_limit_bytes = BODY_SCAN_LIMIT,
-        body_truncated = true,
-        scan_scope = scan_meta and scan_meta.scan_scope,
-        scan_text_length = #scan_text,
-        matched_excerpt = excerpt(scan_text),
-        request_id = ngx.var.request_id,
-      })
+      write_oversize_evidence(remote_addr, key_fp, token_suffix, model, scan_text, scan_meta)
       return nil
     end
     return nil

@@ -47,6 +47,9 @@ func TestClassifyPolicyIncidentMatchesHighConfidenceText(t *testing.T) {
 		"上游返回：网络滥用封禁",
 		"当前 API key 已永久禁用",
 		"API key 已永久禁用",
+		"api key has been deactivated due to policy",
+		"account is suspended for policy reasons",
+		"账号已停用",
 	}
 
 	for _, message := range tests {
@@ -73,7 +76,13 @@ func TestClassifyPolicyIncidentSeparatesClientAndUpstreamKeyCausality(t *testing
 	upstreamKeyClassification := ClassifyPolicyIncident(upstreamKeyErr)
 	assert.True(t, upstreamKeyClassification.Detected)
 	assert.False(t, upstreamKeyClassification.ClientTokenActionAllowed)
-	assert.Equal(t, policyIncidentCausalityUpstreamKey, upstreamKeyClassification.Causality)
+	assert.Equal(t, policyIncidentCausalityAmbiguous, upstreamKeyClassification.Causality)
+
+	upstreamKeyOnlyErr := types.NewOpenAIError(errors.New("api key has been deactivated by provider"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	upstreamKeyOnlyClassification := ClassifyPolicyIncident(upstreamKeyOnlyErr)
+	assert.True(t, upstreamKeyOnlyClassification.Detected)
+	assert.False(t, upstreamKeyOnlyClassification.ClientTokenActionAllowed)
+	assert.Equal(t, policyIncidentCausalityUpstreamKey, upstreamKeyOnlyClassification.Causality)
 }
 
 func TestClassifyPolicyIncidentDoesNotMatchOrdinaryErrors(t *testing.T) {
@@ -242,7 +251,9 @@ func TestPolicyIncidentEvidenceWriteFailureDoesNotBlockEvent(t *testing.T) {
 
 	var metadata map[string]any
 	require.NoError(t, common.Unmarshal(event.Metadata, &metadata))
-	assert.NotEmpty(t, metadata["case_id"])
+	caseID, _ := metadata["case_id"].(string)
+	assert.NotEmpty(t, caseID)
+	assert.Equal(t, caseID, ctx.GetString(PolicyIncidentCaseIDContextKey))
 	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), metadata["evidence_body_sha256"])
 	assert.NotEmpty(t, metadata["evidence_error"])
 	assert.NotContains(t, string(event.Metadata), "safe prompt for evidence failure")
@@ -308,11 +319,56 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamKeyPermanentBan(t *test
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
-	assert.Equal(t, policyIncidentCausalityUpstreamKey, event.Causality)
+	assert.Equal(t, policyIncidentCausalityAmbiguous, event.Causality)
 	assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
 	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
 	assert.Contains(t, event.ActionResult, "client_attribution_missing")
 	assert.Contains(t, event.ActionTaken, "upstream_isolated")
+}
+
+func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing.T) {
+	truncate(t)
+	setting := operation_setting.GetPolicyIncidentSetting()
+	original := setting.DisableClientTokenPersistently
+	setting.DisableClientTokenPersistently = true
+	t.Cleanup(func() {
+		setting.DisableClientTokenPersistently = original
+	})
+
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{name: "disabled_key", message: "API key is disabled by provider policy"},
+		{name: "deactivated_account", message: "account has been deactivated"},
+		{name: "suspended_account", message: "账号已暂停"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token := &model.Token{UserId: 42, Key: "client-token-key-" + tt.name, Status: common.TokenStatusEnabled, Name: "client-token"}
+			require.NoError(t, model.DB.Create(token).Error)
+			channel := &model.Channel{Key: "upstream-key-" + tt.name, Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
+			require.NoError(t, model.DB.Create(channel).Error)
+
+			ctx := newPolicyIncidentTestContext(t)
+			ctx.Set("token_id", token.Id)
+			ctx.Set(common.RequestIdKey, "req-policy-test-"+tt.name)
+			err := types.NewOpenAIError(errors.New(tt.message), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+			HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, true), err)
+
+			var reloaded model.Token
+			require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
+			assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
+
+			var event model.PolicyIncidentEvent
+			require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test-"+tt.name).First(&event).Error)
+			assert.Equal(t, policyIncidentCausalityUpstreamKey, event.Causality)
+			assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
+			assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+		})
+	}
 }
 
 func TestTaskRelayPolicyIncidentSkipsLocalErrors(t *testing.T) {

@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -129,6 +131,94 @@ func TestPublicOpenAIErrorNoisyUpstreamMessageIsSanitized(t *testing.T) {
 	require.NotContains(t, openAIError.Message, "https://")
 }
 
+func TestPublicOpenAIErrorUnsafeUpstreamMessageClearsPublicFields(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-unsafe-upstream-public")
+	ctx.Request.Header.Set("Authorization", "Bearer sk-client-public-secret")
+	ctx.Set("token_key", "client-public-secret")
+	common.SetContextKey(ctx, constant.ContextKeyChannelKey, "upstream-public-secret")
+	metadata, err := common.Marshal(map[string]any{
+		"authorization": "Bearer sk-client-public-secret",
+		"nested": map[string]any{
+			"upstream_key": "upstream-public-secret",
+		},
+	})
+	require.NoError(t, err)
+	apiErr := types.WithOpenAIError(types.OpenAIError{
+		Message:  "provider leaked Authorization: Bearer sk-client-public-secret and upstream-public-secret",
+		Type:     "upstream_error",
+		Param:    "sk-client-public-secret",
+		Code:     "bad_response_status_code",
+		Metadata: metadata,
+		CaseID:   "upstream-case-should-not-pass",
+	}, http.StatusBadGateway)
+
+	statusCode, openAIError := publicOpenAIError(ctx, apiErr)
+
+	require.Equal(t, http.StatusBadGateway, statusCode)
+	require.Equal(t, types.PublicMessageUpstreamError, openAIError.Message)
+	require.Equal(t, types.ErrorTypeUpstreamError, openAIError.Code)
+	require.Empty(t, openAIError.Param)
+	require.Empty(t, openAIError.Metadata)
+	require.Empty(t, openAIError.CaseID)
+}
+
+func TestPublicOpenAIErrorNewAPIUpstreamErrorMessageIsSanitized(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-newapi-upstream-public")
+	apiErr := types.NewError(
+		errors.New("provider leaked upstream key Authorization: Bearer sk-upstream-public-secret"),
+		types.ErrorCodeBadResponseBody,
+	)
+
+	statusCode, openAIError := publicOpenAIError(ctx, apiErr)
+
+	require.Equal(t, http.StatusInternalServerError, statusCode)
+	require.Equal(t, types.PublicMessageUpstreamError, openAIError.Message)
+	require.Equal(t, types.ErrorTypeUpstreamError, openAIError.Code)
+	require.NotContains(t, openAIError.Message, "sk-upstream-public-secret")
+	require.NotContains(t, openAIError.Message, "Authorization")
+}
+
+func TestPublicOpenAIErrorPassthroughScrubsParamSecret(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-passthrough-scrub-public")
+	ctx.Request.Header.Set("Authorization", "Bearer sk-client-visible-secret")
+	ctx.Set("token_key", "client-visible-secret")
+	common.SetContextKey(ctx, constant.ContextKeyChannelKey, "upstream-visible-secret")
+	metadata, err := common.Marshal(map[string]any{
+		"client_token":  "sk-client-visible-secret",
+		"safe_property": "kept",
+	})
+	require.NoError(t, err)
+	apiErr := types.WithOpenAIError(types.OpenAIError{
+		Message:  "ordinary upstream validation failed",
+		Type:     "invalid_request_error",
+		Param:    "Bearer sk-client-visible-secret",
+		Code:     "invalid_request",
+		Metadata: metadata,
+	}, http.StatusBadRequest)
+
+	statusCode, openAIError := publicOpenAIError(ctx, apiErr)
+
+	require.Equal(t, http.StatusBadRequest, statusCode)
+	require.Equal(t, types.PublicMessageUpstreamError, openAIError.Message)
+	require.Empty(t, openAIError.Param)
+	require.Empty(t, openAIError.Metadata)
+}
+
+func TestPublicClaudeErrorUsesUnifiedSanitizedClassifier(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-claude-scrub-public")
+	apiErr := types.WithClaudeError(types.ClaudeError{
+		Type:    "upstream_error",
+		Message: "provider says buy key at https://ads.example with Bearer sk-client-secret",
+	}, http.StatusBadGateway)
+
+	statusCode, claudeError := publicClaudeError(ctx, apiErr)
+
+	require.Equal(t, http.StatusBadGateway, statusCode)
+	require.Equal(t, types.PublicMessageUpstreamError, claudeError.Message)
+	require.Equal(t, string(types.ErrorTypeUpstreamError), claudeError.Type)
+	require.Empty(t, claudeError.CaseID)
+}
+
 func TestPublicTaskErrorNoisyUpstreamMessageIsSanitized(t *testing.T) {
 	ctx := newPublicErrorTestContext("req-noisy-task-public")
 	taskErr := &dto.TaskError{
@@ -164,4 +254,22 @@ func TestPublicTaskErrorPolicyBreakerIsUnavailable(t *testing.T) {
 	require.Equal(t, string(types.ErrorCodeUpstreamUnavailable), publicErr.Code)
 	require.NotContains(t, publicErr.Message, "policy")
 	require.NotContains(t, publicErr.Message, "key")
+}
+
+func TestPublicTaskErrorAmbiguousPolicySignalIsUnavailableWithCaseID(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-task-ambiguous-public")
+	ctx.Set(service.PolicyIncidentCaseIDContextKey, "policy-case-context")
+	taskErr := &dto.TaskError{
+		Code:       "bad_response_status_code",
+		Message:    "cyber_policy current API key has been disabled",
+		StatusCode: http.StatusForbidden,
+		Error:      errors.New("cyber_policy current API key has been disabled"),
+	}
+
+	publicErr := publicTaskError(ctx, taskErr)
+
+	require.Equal(t, http.StatusServiceUnavailable, publicErr.StatusCode)
+	require.Equal(t, types.PublicMessageUpstreamUnavailable, publicErr.Message)
+	require.Equal(t, string(types.ErrorCodeUpstreamUnavailable), publicErr.Code)
+	require.Equal(t, "policy-case-context", publicErr.CaseID)
 }

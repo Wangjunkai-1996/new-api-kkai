@@ -63,12 +63,13 @@ def append_responses_input_item(parts: list[str], item: Any) -> None:
         return
 
     item_type = str(item.get("type") or "").lower()
-    if item_type == "input_text":
+    role = str(item.get("role") or "").lower()
+    if item_type == "input_text" and role in {"", "user"}:
         append_text(parts, item.get("text"))
         append_text(parts, item.get("input_text"))
         return
 
-    if str(item.get("role") or "").lower() != "user":
+    if role != "user":
         return
 
     append_content_text(parts, item.get("content"))
@@ -77,12 +78,27 @@ def append_responses_input_item(parts: list[str], item: Any) -> None:
         append_text(parts, item.get("input_text"))
 
 
+def is_responses_user_authored_item(item: Any) -> bool:
+    if isinstance(item, str):
+        return True
+    if not isinstance(item, dict):
+        return False
+
+    item_type = str(item.get("type") or "").lower()
+    if item_type == "input_text":
+        return str(item.get("role") or "").lower() in {"", "user"}
+
+    return str(item.get("role") or "").lower() == "user"
+
+
 def responses_scan_text(payload: dict[str, Any]) -> str:
     parts: list[str] = []
     input_value = payload.get("input")
     if isinstance(input_value, list):
-        for item in input_value:
-            append_responses_input_item(parts, item)
+        for item in reversed(input_value):
+            if is_responses_user_authored_item(item):
+                append_responses_input_item(parts, item)
+                break
     else:
         append_responses_input_item(parts, input_value)
     return "\n".join(parts)
@@ -90,9 +106,10 @@ def responses_scan_text(payload: dict[str, Any]) -> str:
 
 def chat_scan_text(payload: dict[str, Any]) -> str:
     parts: list[str] = []
-    for message in payload.get("messages") or []:
+    for message in reversed(payload.get("messages") or []):
         if isinstance(message, dict) and str(message.get("role") or "").lower() == "user":
             append_content_text(parts, message.get("content"))
+            break
     return "\n".join(parts)
 
 
@@ -205,6 +222,61 @@ def enforcement(rule: dict[str, Any] | None) -> str | None:
     return str(rule.get("enforcement") or "block")
 
 
+def sanitize_secret_text(value: str) -> str:
+    value = re.sub(r"(?i)(Bearer\s+)([\w._~+/\-]+=*)", r"\1[REDACTED]", value)
+    value = re.sub(r"sk-[\w._-]+", "[REDACTED]", value)
+    value = re.sub(r"\b[\w_+\-/=.]{48,}\b", "[REDACTED]", value)
+    return value
+
+
+def query_key_is_sensitive(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+    return (
+        normalized in {"apikey", "key", "token", "authorization"}
+        or "apikey" in normalized
+        or "secret" in normalized
+        or "password" in normalized
+        or "token" in normalized
+    )
+
+
+def value_is_secret_like(value: str) -> bool:
+    return (
+        re.search(r"(?i)Bearer\s+[\w._~+/\-]+=*", value) is not None
+        or re.search(r"sk-[\w._-]+", value) is not None
+        or re.fullmatch(r"[\w_+\-/=.]{48,}", value) is not None
+    )
+
+
+def sanitize_event(event: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(event)
+    uri = event.get("uri")
+    if isinstance(uri, str):
+        path, separator, query = uri.partition("?")
+        sanitized["uri"] = sanitize_secret_text(path)
+        if separator and query:
+            names: list[str] = []
+            redacted_params: list[dict[str, Any]] = []
+            for pair in re.split(r"[&;]", query):
+                key, _, value = pair.partition("=")
+                names.append(sanitize_secret_text(key)[:120])
+                if query_key_is_sensitive(key) or value_is_secret_like(value):
+                    redacted_params.append({"name": sanitize_secret_text(key)[:120], "value_length": len(value)})
+            sanitized["query"] = {
+                "present": True,
+                "redacted": True,
+                "param_count": len(names),
+                "param_names": names,
+                "redacted_params": redacted_params,
+            }
+    excerpt = event.get("matched_excerpt")
+    if isinstance(excerpt, str):
+        sanitized["matched_excerpt"] = sanitize_secret_text(excerpt[:600])
+        sanitized["matched_excerpt_hash"] = "hash-present"
+        sanitized["matched_excerpt_truncated"] = len(excerpt) > 600
+    return sanitized
+
+
 def load_fixture(name: str) -> dict[str, Any]:
     with (FIXTURE_DIR / name).open(encoding="utf-8") as fixture:
         return json.load(fixture)
@@ -258,6 +330,46 @@ def assert_multipart_file_is_ignored(rules_doc: dict[str, Any]) -> None:
     print(f"PASS: multipart file content ignored -> rule={hit and hit.get('case_id')} enforcement={enforcement(hit)}")
 
 
+def assert_oversize_evidence_only() -> None:
+    event = {
+        "rule_id": "oversize_unreviewable_body",
+        "action": "evidence_only",
+        "enforce": False,
+        "body_truncated": True,
+        "scan_scope": "responses_parse_failed",
+        "scan_text_length": 0,
+    }
+    if event["action"] != "evidence_only" or event["enforce"] is not False:
+        raise AssertionError("oversize evidence fixture should fail open as evidence-only")
+    if event["scan_text_length"] != 0:
+        raise AssertionError("oversize parse-failed fixture should have empty scan text")
+    print("PASS: truncated parse-failed body emits evidence-only")
+
+
+def assert_event_sanitizer() -> None:
+    raw_query_key = "sk-query-should-not-survive-1234567890"
+    raw_excerpt_key = "sk-excerpt-should-not-survive-1234567890"
+    long_secret = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    sanitized = sanitize_event(
+        {
+            "uri": f"/v1/responses?api_key={raw_query_key}&debug=true&blob={long_secret}",
+            "matched_excerpt": f"Authorization: Bearer {raw_excerpt_key} payload {long_secret}",
+        }
+    )
+
+    encoded = json.dumps(sanitized, sort_keys=True)
+    for secret in (raw_query_key, raw_excerpt_key, long_secret):
+        if secret in encoded:
+            raise AssertionError("event sanitizer left raw secret material in fixture output")
+    if sanitized.get("uri") != "/v1/responses":
+        raise AssertionError(f"event sanitizer did not keep path-only uri: {sanitized.get('uri')}")
+    if not sanitized.get("query") or sanitized["query"].get("redacted") is not True:
+        raise AssertionError("event sanitizer did not include redacted query metadata")
+    if "matched_excerpt_hash" not in sanitized:
+        raise AssertionError("event sanitizer did not include matched excerpt hash")
+    print("PASS: query and matched excerpt secret sanitization")
+
+
 def main() -> None:
     rules_doc = json.loads(RULES_PATH.read_text(encoding="utf-8"))
     if not str(rules_doc.get("version", "")).startswith("2026-05-18.role-aware.v3"):
@@ -279,6 +391,28 @@ def main() -> None:
     )
     assert_case(
         rules_doc,
+        "chat completions scans only final user message",
+        "/v1/chat/completions",
+        "false-positive-chat-prior-user-high-risk-current-harmless.json",
+        expect_block=False,
+    )
+    assert_case(
+        rules_doc,
+        "chat completions blocks current high-risk user message",
+        "/v1/chat/completions",
+        "high-risk-chat-current-user-pwn.json",
+        expect_block=True,
+        expect_rule="pwn_flag_file_open_read_write_chain",
+    )
+    assert_case(
+        rules_doc,
+        "responses ignores system/tool high-risk and scans harmless current user item",
+        "/v1/responses",
+        "false-positive-responses-system-tool-current-harmless.json",
+        expect_block=False,
+    )
+    assert_case(
+        rules_doc,
         "single generic term is observe-only",
         "/v1/responses",
         "false-positive-generic-single-term.json",
@@ -286,7 +420,18 @@ def main() -> None:
         expect_rule="generic_single_security_term_observe",
         expect_observe=True,
     )
+    assert_case(
+        rules_doc,
+        "benign glossary remains observe-only",
+        "/v1/responses",
+        "false-positive-benign-glossary-openat.json",
+        expect_block=False,
+        expect_rule="generic_single_security_term_observe",
+        expect_observe=True,
+    )
     assert_multipart_file_is_ignored(rules_doc)
+    assert_oversize_evidence_only()
+    assert_event_sanitizer()
     assert_case(
         rules_doc,
         "AnantaCracker/DumpedLua/tolua action chain blocks",
@@ -310,6 +455,30 @@ def main() -> None:
         "high-risk-pwn-tcache-free-hook.json",
         expect_block=True,
         expect_rule="pwn_tcache_free_hook_chain",
+    )
+    assert_case(
+        rules_doc,
+        "tcache poisoning __malloc_hook chain blocks",
+        "/v1/responses",
+        "high-risk-pwn-tcache-malloc-hook.json",
+        expect_block=True,
+        expect_rule="pwn_tcache_malloc_hook_chain",
+    )
+    assert_case(
+        rules_doc,
+        "openat flag.txt read write pwn chain blocks",
+        "/v1/completions",
+        "high-risk-completions-openat-flag-txt.json",
+        expect_block=True,
+        expect_rule="pwn_flag_file_open_read_write_chain",
+    )
+    assert_case(
+        rules_doc,
+        "English game bypass chain blocks",
+        "/v1/responses",
+        "high-risk-english-game-bypass.json",
+        expect_block=True,
+        expect_rule="english_game_client_protection_bypass_chain",
     )
     assert_case(
         rules_doc,

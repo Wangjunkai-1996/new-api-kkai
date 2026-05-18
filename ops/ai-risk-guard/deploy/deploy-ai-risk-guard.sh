@@ -10,7 +10,7 @@ BACKUP_DIR="${BACKUP_DIR:-$BACKUP_ROOT/$TIMESTAMP}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
 NGINX_RELOAD_CMD="${NGINX_RELOAD_CMD:-systemctl reload nginx}"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
-RESTART_AI_RISK_GUARD="${RESTART_AI_RISK_GUARD:-1}"
+RESTART_AI_RISK_GUARD="${RESTART_AI_RISK_GUARD:-0}"
 
 TARGET_DIR="${TARGET_DIR:-/opt/ai-risk-guard}"
 BIN_DIR="${BIN_DIR:-$TARGET_DIR/bin}"
@@ -263,6 +263,7 @@ main() {
 
 Deployment completed.
 Backup dir: $BACKUP_DIR
+ai-risk-guard restart: $([[ "$RESTART_AI_RISK_GUARD" == "1" ]] && printf 'performed' || printf 'skipped (set RESTART_AI_RISK_GUARD=1 to restart explicitly)')
 Rollback:
   CONFIRM_ROLLBACK=rollback-ai-risk-guard BACKUP_DIR='$BACKUP_DIR' $SCRIPT_DIR/rollback-ai-risk-guard.sh
 MSG
