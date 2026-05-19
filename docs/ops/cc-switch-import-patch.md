@@ -11,7 +11,7 @@ The KKAI patch makes new CC Switch imports work as expected:
 - Provider name defaults to `KKAI`.
 - Provider endpoint is `https://api.kkrich.ltd/v1`.
 - CC Switch receives a usage script during import.
-- The usage script queries the imported token's own usage through `/api/usage/token/`.
+- The usage script authenticates with the imported token and displays the owning user's account balance from `/api/usage/token/`.
 - Users do not need to generate or paste a New API access token.
 - Users do not need to know their New API user ID.
 
@@ -44,9 +44,10 @@ The usage script must:
 
 - Send `GET {{baseUrl}}/api/usage/token/`.
 - Authenticate with `Authorization: Bearer {{apiKey}}`.
-- Parse `response.data.total_available`, `response.data.total_granted`, `response.data.total_used`, and `response.data.unlimited_quota`.
-- Convert quota units using `500000` quota per displayed unit.
-- Handle unlimited tokens without treating negative `total_available` as a failure.
+- Prefer user account fields: `response.data.user_total_available`, `response.data.user_total_granted`, and `response.data.user_total_used`.
+- Keep token fields (`token_total_available`, `token_total_granted`, `token_total_used`) only as metadata/fallbacks, not as the primary displayed balance.
+- Convert quota units using `response.data.quota_per_unit` and `response.data.quota_display_type`.
+- Handle unlimited tokens without mistaking token-level negative `token_total_available` for a user-balance failure.
 
 ## Upgrade Guard
 

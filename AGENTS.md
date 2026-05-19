@@ -234,6 +234,7 @@ Required behavior:
 - CC Switch one-click import must use `https://api.kkrich.ltd/v1` as the imported provider endpoint.
 - The import deep link must include CC Switch usage-query parameters so imported tokens can display usage without requiring a New API user access token or user ID.
 - The usage query must use the imported token key against `/api/usage/token/`, not the New API `/api/user/self` access-token flow.
+- `/api/usage/token/` must expose user-balance fields (`user_total_available`, `user_total_used`, `user_total_granted`) so CC Switch displays the user's account balance rather than the token's own quota cap.
 - The patch must be preserved in both frontend variants:
   - `web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx`
   - `web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx`

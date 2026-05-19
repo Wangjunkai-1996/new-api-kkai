@@ -70,32 +70,45 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
     }
 
     const data = response.data || response;
-    const quotaPerUnit = 500000;
-    const totalUsed = Number(data.total_used || 0);
-    const totalAvailable = Number(data.total_available || 0);
-    const totalGranted = Number(data.total_granted || totalUsed + totalAvailable);
-    const used = totalUsed / quotaPerUnit;
+    const quotaPerUnit = Number(data.quota_per_unit || 500000);
+    const displayType = data.quota_display_type || "USD";
+    const usdExchangeRate = Number(data.usd_exchange_rate || 1);
+    const customExchangeRate = Number(data.custom_currency_exchange_rate || 1);
+    const displayUnit = displayType === "CUSTOM"
+      ? (data.custom_currency_symbol || "CUSTOM")
+      : displayType;
+    const convertQuota = function(quota) {
+      const value = Number(quota || 0);
+      if (displayType === "TOKENS") return value;
+      if (displayType === "CNY") return value / quotaPerUnit * usdExchangeRate;
+      if (displayType === "CUSTOM") return value / quotaPerUnit * customExchangeRate;
+      return value / quotaPerUnit;
+    };
 
-    if (data.unlimited_quota) {
+    const userUsed = Number(data.user_total_used ?? data.total_used ?? 0);
+    const userAvailable = Number(data.user_total_available ?? data.total_available ?? 0);
+    const userGranted = Number(
+      data.user_total_granted ?? data.total_granted ?? userUsed + userAvailable
+    );
+    const tokenAvailable = Number(data.token_total_available ?? data.total_available ?? 0);
+
+    if (userAvailable <= 0 && tokenAvailable > 0) {
       return {
-        planName: data.name || "Token",
-        remaining: 100000000,
-        total: 100000000,
-        used,
-        unit: "USD",
-        extra: "Unlimited quota"
+        isValid: false,
+        invalidMessage: "User balance exhausted"
       };
     }
 
-    const remaining = totalAvailable / quotaPerUnit;
-    const total = totalGranted / quotaPerUnit;
+    const remaining = convertQuota(userAvailable);
+    const total = convertQuota(userGranted);
+    const used = convertQuota(userUsed);
 
     return {
-      planName: data.name || "Token",
+      planName: "User Balance",
       remaining,
       total,
       used,
-      unit: "USD",
+      unit: displayUnit,
       isValid: remaining > 0
     };
   }
