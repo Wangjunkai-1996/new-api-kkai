@@ -80,6 +80,13 @@ var policyIncidentUpstreamKeyKeywords = []string{
 	"account is suspended",
 	"account has been banned",
 	"account is banned",
+	"invalid api key",
+	"api key is invalid",
+	"api key has become invalid",
+	"invalid key",
+	"key is invalid",
+	"invalid account",
+	"account is invalid",
 	"账户已禁用",
 	"账号已禁用",
 	"账户被禁用",
@@ -94,6 +101,10 @@ var policyIncidentUpstreamKeyKeywords = []string{
 	"账号被暂停",
 	"账户封禁",
 	"账号封禁",
+	"api key 无效",
+	"key 无效",
+	"账户无效",
+	"账号无效",
 }
 
 type PolicyIncidentClassification struct {
@@ -130,7 +141,7 @@ func classifyPolicyIncidentText(statusCode int, errorCode string, message string
 		EvidenceLevel: policyIncidentEvidenceHigh,
 		Causality:     policyIncidentCausalityAmbiguous,
 	}
-	if clientPolicyDetected && !upstreamKeyDetected {
+	if clientPolicyDetected {
 		classification.Causality = policyIncidentCausalityClientPolicyRequest
 		classification.ClientTokenActionAllowed = true
 		return classification
@@ -202,12 +213,15 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 		tokenBreakerAction, tokenBreakerResult := setPolicyTokenBreakerAction(tokenId)
 		actions = append(actions, tokenBreakerAction)
 		results = append(results, tokenBreakerResult)
-		tokenAction, tokenResult := disablePolicyToken(tokenId, userId)
+		tokenAction, tokenResult := disablePolicyToken(tokenId, userId, true)
 		actions = append(actions, tokenAction)
 		results = append(results, tokenResult)
+		userAction, userResult := disablePolicyUser(userId)
+		actions = append(actions, userAction)
+		results = append(results, userResult)
 	} else {
-		actions = append(actions, "token_breaker_skipped", "token_db_disable_skipped")
-		results = append(results, "client_attribution_missing", "client_attribution_missing")
+		actions = append(actions, "token_unchanged", "user_unchanged")
+		results = append(results, "upstream_key_attribution", "upstream_key_attribution")
 	}
 
 	if lockAcquired {
@@ -255,22 +269,40 @@ func policyBreakerSetFailureResult(err error) string {
 	return "redis_error"
 }
 
-func disablePolicyToken(tokenId int, userId int) (string, string) {
-	if !operation_setting.GetPolicyIncidentSetting().DisableClientTokenPersistently {
-		return "token_db_disable_skipped", "config_disabled"
+func disablePolicyToken(tokenId int, userId int, force bool) (string, string) {
+	if !force && !operation_setting.GetPolicyIncidentSetting().DisableClientTokenPersistently {
+		return "token_unchanged", "config_disabled"
 	}
 	if tokenId <= 0 || userId <= 0 {
-		return "token_disable_failed", "token_context_missing"
+		return "token_unchanged", "token_context_missing"
 	}
 	_, changed, err := model.DisableTokenByIds(tokenId, userId)
 	if err != nil {
 		common.SysLog("failed to disable policy incident token: " + err.Error())
-		return "token_disable_failed", "db_error"
+		return "token_unchanged", "db_error"
 	}
 	if changed {
 		return "token_disabled", policyIncidentResultSuccess
 	}
 	return "token_unchanged", "already_disabled"
+}
+
+func disablePolicyUser(userId int) (string, string) {
+	if userId <= 0 {
+		return "user_unchanged", "user_context_missing"
+	}
+	_, changed, err := model.DisableUserForPolicyIncident(userId)
+	if errors.Is(err, model.ErrPolicyIncidentPrivilegedUser) {
+		return "user_disable_skipped_privileged", "privileged_user"
+	}
+	if err != nil {
+		common.SysLog("failed to disable policy incident user: " + err.Error())
+		return "user_unchanged", "db_error"
+	}
+	if changed {
+		return "user_disabled", policyIncidentResultSuccess
+	}
+	return "user_unchanged", "already_disabled"
 }
 
 func isolatePolicyUpstream(channelError types.ChannelError, classification PolicyIncidentClassification) (string, string) {
@@ -335,9 +367,9 @@ func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, c
 
 func policyIncidentAttributionNote(classification PolicyIncidentClassification) string {
 	if classification.ClientTokenActionAllowed {
-		return "该上游策略事件未包含上游 key 永久禁用特征，按客户请求策略命中处置；仍建议结合请求证据复核。"
+		return "该上游策略事件包含 cyber_policy 客户请求策略命中特征，即使同时出现上游 key/account 禁用文本，也按客户请求策略命中处置；仍建议结合请求证据复核。"
 	}
-	return "该事件只证明当前上游 key 遇到策略/永久禁用状态，不等于当前客户是源头；已隔离上游并跳过客户 token 持久封禁。"
+	return "该事件只证明当前上游 key/account 遇到禁用、无效或暂停状态，不等于当前客户是源头；已隔离上游并跳过客户 token/user 封禁。"
 }
 
 func redactPolicyIncidentMessage(message string, upstreamKey string) string {

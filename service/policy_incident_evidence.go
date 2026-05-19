@@ -23,7 +23,7 @@ import (
 
 const (
 	policyIncidentEvidenceDirEnv     = "NEW_API_POLICY_EVIDENCE_DIR"
-	defaultPolicyIncidentEvidenceDir = "/var/lib/new-api/policy-evidence"
+	defaultPolicyIncidentEvidenceDir = "/data/policy-evidence"
 	policyIncidentEvidenceFilePerm   = 0600
 	policyIncidentEvidenceDirPerm    = 0700
 )
@@ -172,7 +172,7 @@ func buildPolicyIncidentEvidenceFile(
 		Status:                 classification.StatusCode,
 		Error: policyIncidentEvidenceError{
 			Code:    classification.ErrorCode,
-			Message: redactPolicyIncidentMessage(classification.ErrorMessage, channelError.UsingKey),
+			Message: redactPolicyIncidentEvidenceMessage(classification.ErrorMessage, c, channelError.UsingKey),
 		},
 		BodySHA256:   policyIncidentHexSHA256(body),
 		Body:         bodyText,
@@ -182,7 +182,7 @@ func buildPolicyIncidentEvidenceFile(
 		payload.RemoteIP = policyIncidentRemoteIP(c)
 		payload.XForwardedFor = c.Request.Header.Get("X-Forwarded-For")
 		if c.Request.URL != nil {
-			payload.Path = redactPolicyIncidentMessage(c.Request.URL.Path, channelError.UsingKey)
+			payload.Path = redactPolicyIncidentEvidenceMessage(c.Request.URL.Path, c, channelError.UsingKey)
 		}
 	}
 	return common.Marshal(payload)
@@ -272,6 +272,13 @@ func redactPolicyIncidentEvidenceText(text string, c *gin.Context, upstreamKey s
 		redacted = strings.ReplaceAll(redacted, secret, model.PolicyIncidentMetadataRedacted)
 	}
 	return redacted, redacted != text
+}
+
+func redactPolicyIncidentEvidenceMessage(text string, c *gin.Context, upstreamKey string) string {
+	text, _ = redactPolicyIncidentEvidenceText(text, c, upstreamKey)
+	text = common.MaskSensitiveInfo(text)
+	text, _ = redactPolicyIncidentEvidenceText(text, c, upstreamKey)
+	return text
 }
 
 func policyIncidentEvidenceSecrets(c *gin.Context, upstreamKey string) []string {

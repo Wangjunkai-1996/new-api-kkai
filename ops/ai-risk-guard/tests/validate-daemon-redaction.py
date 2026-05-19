@@ -23,16 +23,18 @@ def assert_not_contains(path: Path, secret: str) -> None:
 
 
 class FakePg:
-    def __init__(self, token_owner_user_id: int) -> None:
+    def __init__(self, token_owner_user_id: int, user_role: int = 1) -> None:
         self.token_owner_user_id = token_owner_user_id
+        self.user_role = user_role
+        self.token_key = "db-owner-token-secret"
         self.queries: list[str] = []
 
     def query(self, sql: str) -> str:
         self.queries.append(sql)
         if sql.startswith("SELECT id,user_id,status,key FROM tokens WHERE id=42"):
-            return f"42|{self.token_owner_user_id}|1|db-owner-token-secret"
-        if sql.startswith(f"SELECT id,status FROM users WHERE id={self.token_owner_user_id}"):
-            return f"{self.token_owner_user_id}|1"
+            return f"42|{self.token_owner_user_id}|1|{self.token_key}"
+        if sql.startswith(f"SELECT id,status,role FROM users WHERE id={self.token_owner_user_id}"):
+            return f"{self.token_owner_user_id}|1|{self.user_role}"
         if sql.startswith("UPDATE tokens SET status=2 WHERE id=42"):
             return ""
         if sql.startswith(f"UPDATE users SET status=2 WHERE id={self.token_owner_user_id}"):
@@ -150,6 +152,8 @@ def main() -> None:
                     "risk_case_id": "risk-attribution-test",
                     "enforce": True,
                     "token_id": 42,
+                    "api_key_hash": daemon["md5_token_key"](guard.pg.token_key),
+                    "api_key_suffix": guard.pg.token_key[-8:],
                     "user_id": 1001,
                     "rule_id": "test_rule",
                 },
@@ -165,15 +169,120 @@ def main() -> None:
             for action in actions
         ):
             raise AssertionError("daemon did not log attribution_mismatch for event/token owner disagreement")
+        if not any(
+            action.get("action") == "disable_user"
+            and action.get("result") == "user_disable_skipped_attribution_mismatch"
+            and action.get("target", {}).get("user_id") == 9001
+            for action in actions
+        ):
+            raise AssertionError("daemon did not log user disable skip for attribution mismatch")
         disabled_users = [
             action.get("target", {}).get("user_id")
             for action in actions
             if action.get("action") == "disable_user" and action.get("result") == "disabled"
         ]
-        if disabled_users != [9001]:
-            raise AssertionError(f"daemon disabled wrong user(s): {disabled_users}")
+        if disabled_users:
+            raise AssertionError(f"daemon disabled user(s) despite attribution mismatch: {disabled_users}")
+        if any(sql.startswith("UPDATE users SET status=2") for sql in guard.pg.queries):
+            raise AssertionError("daemon updated users table despite attribution mismatch")
 
-    print("PASS: daemon evidence redacts raw token material and preserves token-owner attribution")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state = root / "state"
+        args = daemon["parse_args"](
+            [
+                "--events",
+                str(root / "events.jsonl"),
+                "--state-dir",
+                str(state),
+                "--black-ip-file",
+                str(root / "black_ip"),
+                "--bridge-black-log-file",
+                "",
+                "--lock-file",
+                str(root / "guard.lock"),
+                "--once",
+            ]
+        )
+        guard = daemon["Guard"](args)
+        guard.pg = FakePg(token_owner_user_id=9001)
+        guard.setup()
+        guard.process_line(
+            json.dumps(
+                {
+                    "risk_case_id": "risk-token-lookup-mismatch-test",
+                    "enforce": True,
+                    "token_id": 42,
+                    "api_key_hash": "0" * 32,
+                    "api_key_suffix": "wrong999",
+                    "rule_id": "test_rule",
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        actions = read_jsonl(state / "actions.jsonl")
+        if not any(
+            action.get("action") == "attribution_mismatch"
+            and action.get("result") == "token_lookup_mismatch"
+            for action in actions
+        ):
+            raise AssertionError("daemon did not log token lookup attribution mismatch")
+        if any(
+            sql.startswith("UPDATE tokens SET status=2") or sql.startswith("UPDATE users SET status=2")
+            for sql in guard.pg.queries
+        ):
+            raise AssertionError("daemon mutated DB after token lookup attribution mismatch")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state = root / "state"
+        args = daemon["parse_args"](
+            [
+                "--events",
+                str(root / "events.jsonl"),
+                "--state-dir",
+                str(state),
+                "--black-ip-file",
+                str(root / "black_ip"),
+                "--bridge-black-log-file",
+                "",
+                "--lock-file",
+                str(root / "guard.lock"),
+                "--once",
+            ]
+        )
+        guard = daemon["Guard"](args)
+        guard.pg = FakePg(token_owner_user_id=9001, user_role=10)
+        guard.setup()
+        guard.process_line(
+            json.dumps(
+                {
+                    "risk_case_id": "risk-privileged-user-test",
+                    "enforce": True,
+                    "token_id": 42,
+                    "api_key_hash": daemon["md5_token_key"](guard.pg.token_key),
+                    "api_key_suffix": guard.pg.token_key[-8:],
+                    "user_id": 9001,
+                    "rule_id": "test_rule",
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        actions = read_jsonl(state / "actions.jsonl")
+        if not any(
+            action.get("action") == "disable_user"
+            and action.get("result") == "user_disable_skipped_privileged"
+            and action.get("previous_status") == 1
+            and action.get("role") == 10
+            for action in actions
+        ):
+            raise AssertionError("daemon did not skip privileged user disable with status/role evidence")
+        if any(sql.startswith("UPDATE users SET status=2") for sql in guard.pg.queries):
+            raise AssertionError("daemon updated users table for privileged user")
+
+    print("PASS: daemon evidence redacts raw token material and enforces safe token/user attribution")
 
 
 if __name__ == "__main__":

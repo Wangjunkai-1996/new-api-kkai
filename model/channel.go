@@ -695,11 +695,13 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 		channel.ChannelInfo.MultiKeyDisabledTime[keyIndex] = common.GetTimestamp()
 	}
 
-	multiKeySize := channel.ChannelInfo.MultiKeySize
-	if multiKeySize <= 0 || multiKeySize > len(keys) {
-		multiKeySize = len(keys)
+	disabledKeyCount := 0
+	for i := range keys {
+		if storedStatus, ok := channel.ChannelInfo.MultiKeyStatusList[i]; ok && storedStatus != common.ChannelStatusEnabled {
+			disabledKeyCount++
+		}
 	}
-	if len(channel.ChannelInfo.MultiKeyStatusList) >= multiKeySize {
+	if disabledKeyCount >= len(keys) {
 		channel.Status = common.ChannelStatusAutoDisabled
 		info := channel.GetOtherInfo()
 		info["status_reason"] = "All keys are disabled"

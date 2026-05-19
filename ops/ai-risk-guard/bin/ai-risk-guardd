@@ -133,6 +133,16 @@ def safe_user_id(raw: Any) -> int | None:
     return user_id if user_id > 0 else None
 
 
+def safe_non_negative_int(raw: Any) -> int | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
 def first_present(event: dict[str, Any], fields: tuple[str, ...]) -> Any:
     for field in fields:
         if field in event and event[field] not in ("", None):
@@ -518,7 +528,7 @@ class Guard:
         if token_hash and token_suffix:
             actual_hash = md5_token_key(token_key)
             actual_suffix = token_key[-len(token_suffix) :] if token_suffix and token_key else None
-            if actual_hash and (actual_hash != token_hash or actual_suffix != token_suffix):
+            if actual_hash != token_hash or actual_suffix != token_suffix:
                 self.log_action(
                     case_id,
                     "attribution_mismatch",
@@ -530,6 +540,7 @@ class Guard:
                         "db_token_key_md5": actual_hash,
                     },
                 )
+                return None
 
         if previous_status == 2:
             result = "already_disabled"
@@ -580,15 +591,25 @@ class Guard:
         if self.args.dry_run:
             self.log_action(case_id, "disable_user", {"user_id": user_id}, "dry_run", {})
             return
-        row = self.pg.query(f"SELECT id,status FROM users WHERE id={user_id} ORDER BY id LIMIT 1;")
+        row = self.pg.query(f"SELECT id,status,role FROM users WHERE id={user_id} ORDER BY id LIMIT 1;")
         if not row:
             self.log_action(case_id, "disable_user", {"user_id": user_id}, "not_found", {})
             return
-        db_user_id_s, previous_status_s = (row.split("|") + ["", ""])[:2]
+        db_user_id_s, previous_status_s, role_s = (row.split("|") + ["", "", ""])[:3]
         db_user_id = safe_user_id(db_user_id_s)
-        previous_status = safe_user_id(previous_status_s)
-        if db_user_id is None:
+        previous_status = safe_non_negative_int(previous_status_s)
+        role = safe_non_negative_int(role_s)
+        if db_user_id is None or role is None:
             self.log_action(case_id, "disable_user", {"user_id": user_id}, "invalid_db_row", {"row": row})
+            return
+        if role >= 10:
+            self.log_action(
+                case_id,
+                "disable_user",
+                {"user_id": db_user_id},
+                "user_disable_skipped_privileged",
+                {"previous_status": previous_status, "role": role},
+            )
             return
         if previous_status == 2:
             result = "already_disabled"
@@ -649,8 +670,19 @@ class Guard:
                 "attribution_mismatch",
                 {"token_owner_user_id": token_owner_user_id},
                 "event_user_id_mismatch",
-                {"event_user_id": event_user_id},
+                {
+                    "event_user_id": event_user_id,
+                    "user_disable_result": "user_disable_skipped_attribution_mismatch",
+                },
             )
+            self.log_action(
+                case_id,
+                "disable_user",
+                {"user_id": token_owner_user_id},
+                "user_disable_skipped_attribution_mismatch",
+                {"event_user_id": event_user_id, "token_owner_user_id": token_owner_user_id},
+            )
+            return
         if token_owner_user_id and not self.args.no_db:
             self.disable_user(case_id, token_owner_user_id)
         if not any((ip, token_id, token_key, token_hash and token_suffix, token_owner_user_id)):

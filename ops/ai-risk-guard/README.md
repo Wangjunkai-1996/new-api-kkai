@@ -10,7 +10,7 @@ Local-only guard artifacts for consuming high-risk Nginx Lua JSONL events and ap
 - IP blacklist: `/var/lib/ai-bridge/black_ip`
 - Database: podman container `new-api-postgres`, database `newapi`, user `newapi`
 - Token table: `tokens(id,user_id,key,status,...)`; keys are stored without the `sk-` prefix
-- User table: `users(id,username,email,status,...)`
+- User table: `users(id,username,email,status,role,...)`
 - Enabled status: `1`; disabled status: `2`
 
 The daemon is intentionally local. These files do not SSH to, deploy to, or mutate remote production by themselves.
@@ -38,6 +38,8 @@ For every valid event, `ai-risk-guardd`:
 - Appends case metadata to `/var/lib/ai-risk-guard/cases.jsonl`.
 - Adds the source IP to `/var/lib/ai-bridge/black_ip` only if absent.
 - Looks up `tokens.key` without the `sk-` prefix, sets `tokens.status=2` if not already disabled, and then disables the owning `users.id`.
+- Skips user disable for privileged accounts with `users.role >= 10`, logging `user_disable_skipped_privileged` with the previous status and role.
+- Treats token/user attribution mismatches as user-disable no-ops: token-id lookups with mismatched `api_key_hash` plus `api_key_suffix` fail closed without disabling the token or user, and event `user_id` values that disagree with the verified token owner skip user disable with attribution-mismatch evidence.
 - Appends every durable containment action to `/var/lib/ai-risk-guard/actions.jsonl`.
 
 The daemon also tails ai-bridge's `/var/lib/ai-bridge/black_log` for future

@@ -80,6 +80,9 @@ func TestPublicOpenAIErrorPolicyIncidentIsCleanAndIncludesCaseID(t *testing.T) {
 	require.Equal(t, types.PublicMessageRequestBlockedByPolicy, openAIError.Message)
 	require.Equal(t, types.ErrorCodePolicyBlocked, openAIError.Code)
 	require.Equal(t, "policy-case-123", openAIError.CaseID)
+	var metadata map[string]string
+	require.NoError(t, common.Unmarshal(openAIError.Metadata, &metadata))
+	require.Equal(t, "policy-case-123", metadata["case_id"])
 	require.NotContains(t, openAIError.Message, "cyber_policy")
 	require.NotContains(t, openAIError.Message, "ads.example")
 }
@@ -87,7 +90,7 @@ func TestPublicOpenAIErrorPolicyIncidentIsCleanAndIncludesCaseID(t *testing.T) {
 func TestPublicOpenAIErrorUpstreamKeyPolicyIncidentIsUnavailable(t *testing.T) {
 	ctx := newPublicErrorTestContext("req-upstream-key-policy-public")
 	apiErr := types.NewOpenAIError(
-		errors.New("网络滥用封禁：上游返回 cyber_policy，当前 API key 已永久禁用，请联系 https://ads.example"),
+		errors.New("provider rejected request because api key has been deactivated; contact https://ads.example"),
 		types.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
 	)
@@ -98,7 +101,29 @@ func TestPublicOpenAIErrorUpstreamKeyPolicyIncidentIsUnavailable(t *testing.T) {
 	require.Equal(t, types.PublicMessageUpstreamUnavailable, openAIError.Message)
 	require.Equal(t, types.ErrorCodeUpstreamUnavailable, openAIError.Code)
 	require.NotContains(t, openAIError.Message, "cyber_policy")
+	require.NotContains(t, openAIError.Message, "deactivated")
 	require.NotContains(t, openAIError.Message, "API key")
+}
+
+func TestPublicOpenAIErrorPolicyBreakerContextStaysUnavailable(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-policy-breaker-public")
+	ctx.Set(service.PolicyIncidentCaseIDContextKey, "policy-case-upstream")
+	common.SetContextKey(ctx, constant.ContextKeyPolicyIncidentDetected, true)
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New("policy breaker open: upstream key temporarily isolated, buy key at https://ads.example"),
+		types.ErrorCodePolicyUpstreamKeyIsolated,
+		http.StatusServiceUnavailable,
+	)
+
+	statusCode, openAIError := publicOpenAIError(ctx, apiErr)
+
+	require.Equal(t, http.StatusServiceUnavailable, statusCode)
+	require.Equal(t, types.PublicMessageUpstreamUnavailable, openAIError.Message)
+	require.Equal(t, types.ErrorCodeUpstreamUnavailable, openAIError.Code)
+	require.NotContains(t, openAIError.Message, "cyber_policy")
+	require.NotContains(t, openAIError.Message, "ads.example")
+	require.NotContains(t, openAIError.Message, "disabled")
+	require.NotContains(t, openAIError.Message, "key")
 }
 
 func TestPublicOpenAIErrorNoAvailableKeyIsUnavailable(t *testing.T) {
@@ -256,14 +281,14 @@ func TestPublicTaskErrorPolicyBreakerIsUnavailable(t *testing.T) {
 	require.NotContains(t, publicErr.Message, "key")
 }
 
-func TestPublicTaskErrorAmbiguousPolicySignalIsUnavailableWithCaseID(t *testing.T) {
-	ctx := newPublicErrorTestContext("req-task-ambiguous-public")
+func TestPublicTaskErrorUpstreamKeyPolicySignalIsUnavailableWithCaseID(t *testing.T) {
+	ctx := newPublicErrorTestContext("req-task-upstream-key-public")
 	ctx.Set(service.PolicyIncidentCaseIDContextKey, "policy-case-context")
 	taskErr := &dto.TaskError{
 		Code:       "bad_response_status_code",
-		Message:    "cyber_policy current API key has been disabled",
+		Message:    "provider api key has been deactivated",
 		StatusCode: http.StatusForbidden,
-		Error:      errors.New("cyber_policy current API key has been disabled"),
+		Error:      errors.New("provider api key has been deactivated"),
 	}
 
 	publicErr := publicTaskError(ctx, taskErr)
@@ -272,4 +297,6 @@ func TestPublicTaskErrorAmbiguousPolicySignalIsUnavailableWithCaseID(t *testing.
 	require.Equal(t, types.PublicMessageUpstreamUnavailable, publicErr.Message)
 	require.Equal(t, string(types.ErrorCodeUpstreamUnavailable), publicErr.Code)
 	require.Equal(t, "policy-case-context", publicErr.CaseID)
+	require.NotContains(t, publicErr.Message, "deactivated")
+	require.NotContains(t, publicErr.Message, "key")
 }

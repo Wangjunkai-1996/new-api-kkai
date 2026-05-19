@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,20 @@ func newPolicyIncidentTestContext(t *testing.T) *gin.Context {
 	common.SetContextKey(ctx, constant.ContextKeyRequestStartTime, time.Unix(1710000000, 123000000))
 	common.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, 1)
 	return ctx
+}
+
+func createPolicyIncidentUser(t *testing.T, id int, role int) *model.User {
+	t.Helper()
+	user := &model.User{
+		Id:       id,
+		Username: "policy-user-" + strconv.Itoa(id),
+		Role:     role,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		AffCode:  "aff-policy-" + strconv.Itoa(id),
+	}
+	require.NoError(t, model.DB.Create(user).Error)
+	return user
 }
 
 func TestClassifyPolicyIncidentMatchesHighConfidenceText(t *testing.T) {
@@ -72,11 +87,11 @@ func TestClassifyPolicyIncidentSeparatesClientAndUpstreamKeyCausality(t *testing
 	assert.True(t, clientClassification.ClientTokenActionAllowed)
 	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, clientClassification.Causality)
 
-	upstreamKeyErr := types.NewOpenAIError(errors.New("网络滥用封禁：上游返回 cyber_policy，当前 API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
-	upstreamKeyClassification := ClassifyPolicyIncident(upstreamKeyErr)
-	assert.True(t, upstreamKeyClassification.Detected)
-	assert.False(t, upstreamKeyClassification.ClientTokenActionAllowed)
-	assert.Equal(t, policyIncidentCausalityAmbiguous, upstreamKeyClassification.Causality)
+	mixedErr := types.NewOpenAIError(errors.New("网络滥用封禁：上游返回 cyber_policy，当前 API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	mixedClassification := ClassifyPolicyIncident(mixedErr)
+	assert.True(t, mixedClassification.Detected)
+	assert.True(t, mixedClassification.ClientTokenActionAllowed)
+	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, mixedClassification.Causality)
 
 	upstreamKeyOnlyErr := types.NewOpenAIError(errors.New("api key has been deactivated by provider"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 	upstreamKeyOnlyClassification := ClassifyPolicyIncident(upstreamKeyOnlyErr)
@@ -108,6 +123,7 @@ func TestPolicyIncidentSetsNoRetryEvenWhenTokenDisableFails(t *testing.T) {
 func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) {
 	truncate(t)
 
+	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
 	token := &model.Token{UserId: 42, Key: "client-token-key", Status: common.TokenStatusEnabled, Name: "client-token"}
 	require.NoError(t, model.DB.Create(token).Error)
 	channel := &model.Channel{
@@ -134,6 +150,10 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	require.NoError(t, model.DB.First(&disabledToken, token.Id).Error)
 	assert.Equal(t, common.TokenStatusDisabled, disabledToken.Status)
 
+	var disabledUser model.User
+	require.NoError(t, model.DB.First(&disabledUser, 42).Error)
+	assert.Equal(t, common.UserStatusDisabled, disabledUser.Status)
+
 	reloaded, errGet := model.GetChannelById(channel.Id, true)
 	require.NoError(t, errGet)
 	assert.Equal(t, common.ChannelStatusEnabled, reloaded.Status)
@@ -153,6 +173,7 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	assert.Contains(t, event.ActionTaken, "token_breaker_set")
 	assert.Contains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.Contains(t, event.ActionTaken, "token_disabled")
+	assert.Contains(t, event.ActionTaken, "user_disabled")
 	assert.Contains(t, event.ActionTaken, "upstream_isolated")
 	assert.Contains(t, event.ActionResult, "redis_unavailable")
 	assert.Contains(t, event.ActionResult, policyIncidentResultSuccess)
@@ -263,7 +284,7 @@ func TestPolicyIncidentEvidenceWriteFailureDoesNotBlockEvent(t *testing.T) {
 	assert.False(t, hasEvidenceHash)
 }
 
-func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.T) {
+func TestPolicyIncidentForcesCustomerDisableWhenConfiguredOff(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
 	original := setting.DisableClientTokenPersistently
@@ -272,6 +293,7 @@ func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.
 		setting.DisableClientTokenPersistently = original
 	})
 
+	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
 	token := &model.Token{UserId: 42, Key: "client-token-key-configured", Status: common.TokenStatusEnabled, Name: "client-token"}
 	require.NoError(t, model.DB.Create(token).Error)
 	channel := &model.Channel{Key: "upstream-key", Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
@@ -285,15 +307,20 @@ func TestPolicyIncidentCanSkipPermanentTokenDisableWhenConfiguredOff(t *testing.
 
 	var reloaded model.Token
 	require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
-	assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
+	assert.Equal(t, common.TokenStatusDisabled, reloaded.Status)
+
+	var user model.User
+	require.NoError(t, model.DB.First(&user, 42).Error)
+	assert.Equal(t, common.UserStatusDisabled, user.Status)
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
-	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
-	assert.Contains(t, event.ActionResult, "config_disabled")
+	assert.Contains(t, event.ActionTaken, "token_disabled")
+	assert.Contains(t, event.ActionTaken, "user_disabled")
+	assert.NotContains(t, event.ActionResult, "config_disabled")
 }
 
-func TestPolicyIncidentSkipsClientTokenActionsForUpstreamKeyPermanentBan(t *testing.T) {
+func TestPolicyIncidentHandlesMixedCyberPolicyAndKeyDisabledAsClientPolicy(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
 	original := setting.DisableClientTokenPersistently
@@ -302,7 +329,8 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamKeyPermanentBan(t *test
 		setting.DisableClientTokenPersistently = original
 	})
 
-	token := &model.Token{UserId: 42, Key: "client-token-key-upstream-only", Status: common.TokenStatusEnabled, Name: "client-token"}
+	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
+	token := &model.Token{UserId: 42, Key: "client-token-key-mixed", Status: common.TokenStatusEnabled, Name: "client-token"}
 	require.NoError(t, model.DB.Create(token).Error)
 	channel := &model.Channel{Key: "upstream-key", Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
 	require.NoError(t, model.DB.Create(channel).Error)
@@ -315,14 +343,17 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamKeyPermanentBan(t *test
 
 	var reloaded model.Token
 	require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
-	assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
+	assert.Equal(t, common.TokenStatusDisabled, reloaded.Status)
+
+	var user model.User
+	require.NoError(t, model.DB.First(&user, 42).Error)
+	assert.Equal(t, common.UserStatusDisabled, user.Status)
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
-	assert.Equal(t, policyIncidentCausalityAmbiguous, event.Causality)
-	assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
-	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
-	assert.Contains(t, event.ActionResult, "client_attribution_missing")
+	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
+	assert.Contains(t, event.ActionTaken, "token_disabled")
+	assert.Contains(t, event.ActionTaken, "user_disabled")
 	assert.Contains(t, event.ActionTaken, "upstream_isolated")
 }
 
@@ -340,18 +371,22 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing
 		message string
 	}{
 		{name: "disabled_key", message: "API key is disabled by provider policy"},
+		{name: "invalid_key", message: "invalid api key"},
 		{name: "deactivated_account", message: "account has been deactivated"},
 		{name: "suspended_account", message: "账号已暂停"},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token := &model.Token{UserId: 42, Key: "client-token-key-" + tt.name, Status: common.TokenStatusEnabled, Name: "client-token"}
+			userId := 420 + i
+			createPolicyIncidentUser(t, userId, common.RoleCommonUser)
+			token := &model.Token{UserId: userId, Key: "client-token-key-" + tt.name, Status: common.TokenStatusEnabled, Name: "client-token"}
 			require.NoError(t, model.DB.Create(token).Error)
 			channel := &model.Channel{Key: "upstream-key-" + tt.name, Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
 			require.NoError(t, model.DB.Create(channel).Error)
 
 			ctx := newPolicyIncidentTestContext(t)
+			ctx.Set("id", userId)
 			ctx.Set("token_id", token.Id)
 			ctx.Set(common.RequestIdKey, "req-policy-test-"+tt.name)
 			err := types.NewOpenAIError(errors.New(tt.message), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
@@ -362,11 +397,68 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing
 			require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
 			assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
 
+			var user model.User
+			require.NoError(t, model.DB.First(&user, userId).Error)
+			assert.Equal(t, common.UserStatusEnabled, user.Status)
+
 			var event model.PolicyIncidentEvent
 			require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test-"+tt.name).First(&event).Error)
 			assert.Equal(t, policyIncidentCausalityUpstreamKey, event.Causality)
-			assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
-			assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+			assert.Contains(t, event.ActionTaken, "token_unchanged")
+			assert.Contains(t, event.ActionTaken, "user_unchanged")
+			assert.Contains(t, event.ActionResult, "upstream_key_attribution")
+		})
+	}
+}
+
+func TestPolicyIncidentSkipsPrivilegedUserDisableButDisablesToken(t *testing.T) {
+	truncate(t)
+	setting := operation_setting.GetPolicyIncidentSetting()
+	original := setting.DisableClientTokenPersistently
+	setting.DisableClientTokenPersistently = true
+	t.Cleanup(func() {
+		setting.DisableClientTokenPersistently = original
+	})
+
+	tests := []struct {
+		name string
+		role int
+	}{
+		{name: "admin", role: common.RoleAdminUser},
+		{name: "root", role: common.RoleRootUser},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			userId := 520 + i
+			createPolicyIncidentUser(t, userId, tt.role)
+			token := &model.Token{UserId: userId, Key: "client-token-key-" + tt.name, Status: common.TokenStatusEnabled, Name: "client-token"}
+			require.NoError(t, model.DB.Create(token).Error)
+			channel := &model.Channel{Key: "upstream-key-" + tt.name, Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
+			require.NoError(t, model.DB.Create(channel).Error)
+
+			ctx := newPolicyIncidentTestContext(t)
+			ctx.Set("id", userId)
+			ctx.Set("token_id", token.Id)
+			ctx.Set(common.RequestIdKey, "req-policy-test-privileged-"+tt.name)
+			err := types.NewOpenAIError(errors.New("cyber_policy request rejected by upstream"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+			HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, true), err)
+
+			var reloadedToken model.Token
+			require.NoError(t, model.DB.First(&reloadedToken, token.Id).Error)
+			assert.Equal(t, common.TokenStatusDisabled, reloadedToken.Status)
+
+			var user model.User
+			require.NoError(t, model.DB.First(&user, userId).Error)
+			assert.Equal(t, common.UserStatusEnabled, user.Status)
+
+			var event model.PolicyIncidentEvent
+			require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test-privileged-"+tt.name).First(&event).Error)
+			assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
+			assert.Contains(t, event.ActionTaken, "token_disabled")
+			assert.Contains(t, event.ActionTaken, "user_disable_skipped_privileged")
+			assert.Contains(t, event.ActionTaken, "upstream_isolated")
 		})
 	}
 }

@@ -99,6 +99,37 @@ func TestUpdateChannelStatus_MultiKeyOnlyUpdatesMatchingKey(t *testing.T) {
 	assert.Equal(t, "policy", reloaded.ChannelInfo.MultiKeyDisabledReason[1])
 }
 
+func TestUpdateChannelStatus_MultiKeyKeepsChannelEnabledWhenAlternateKeyStillSelectable(t *testing.T) {
+	truncateTables(t)
+
+	channel := &Channel{
+		Key:    "upstream-key-a\nupstream-key-b",
+		Status: common.ChannelStatusEnabled,
+		Name:   "multi-key-policy-channel-stale-state",
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:             true,
+			MultiKeySize:           1,
+			MultiKeyStatusList:     map[int]int{99: common.ChannelStatusAutoDisabled},
+			MultiKeyDisabledReason: map[int]string{99: "stale"},
+		},
+	}
+	require.NoError(t, DB.Create(channel).Error)
+
+	changed := UpdateChannelStatus(channel.Id, "upstream-key-a", common.ChannelStatusAutoDisabled, "policy-a")
+	assert.True(t, changed)
+
+	reloaded, err := GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, reloaded.Status)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, reloaded.ChannelInfo.MultiKeyStatusList[0])
+	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyStatusList, 1)
+
+	key, index, apiErr := reloaded.GetNextEnabledKey()
+	require.Nil(t, apiErr)
+	assert.Equal(t, "upstream-key-b", key)
+	assert.Equal(t, 1, index)
+}
+
 func TestUpdateChannelStatus_MultiKeyIgnoresEmptyOrUnknownUsingKey(t *testing.T) {
 	truncateTables(t)
 
