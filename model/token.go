@@ -48,6 +48,49 @@ func MaskTokenKey(key string) string {
 	return key[:4] + "**********" + key[len(key)-4:]
 }
 
+const (
+	TokenUsageInvalidReasonStatusUnavailable = "token_status_unavailable"
+	TokenUsageInvalidReasonDisabled          = "token_disabled"
+	TokenUsageInvalidReasonExpired           = "token_expired"
+	TokenUsageInvalidReasonExhausted         = "token_exhausted"
+)
+
+func (token *Token) GetUsageValidity(now int64) (bool, string) {
+	if token == nil {
+		return false, TokenUsageInvalidReasonStatusUnavailable
+	}
+
+	switch token.Status {
+	case common.TokenStatusEnabled:
+	case common.TokenStatusDisabled:
+		return false, TokenUsageInvalidReasonDisabled
+	case common.TokenStatusExpired:
+		return false, TokenUsageInvalidReasonExpired
+	case common.TokenStatusExhausted:
+		return false, TokenUsageInvalidReasonExhausted
+	default:
+		return false, TokenUsageInvalidReasonStatusUnavailable
+	}
+
+	if token.ExpiredTime != -1 && token.ExpiredTime < now {
+		return false, TokenUsageInvalidReasonExpired
+	}
+	if !token.UnlimitedQuota && token.RemainQuota <= 0 {
+		return false, TokenUsageInvalidReasonExhausted
+	}
+	return true, ""
+}
+
+func tokenKeyColumn() string {
+	if commonKeyCol != "" {
+		return commonKeyCol
+	}
+	if common.UsingPostgreSQL {
+		return `"key"`
+	}
+	return "`key`"
+}
+
 func (token *Token) GetFullKey() string {
 	return token.Key
 }
@@ -166,7 +209,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		baseQuery = baseQuery.Where(tokenKeyColumn()+" LIKE ? ESCAPE '!'", tokenPattern)
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -272,7 +315,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
+	err = DB.Where(tokenKeyColumn()+" = ?", key).First(&token).Error
 	return token, err
 }
 
@@ -531,7 +574,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
+	err := DB.Select("id", tokenKeyColumn()).
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -549,7 +592,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", tokenKeyColumn()).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err

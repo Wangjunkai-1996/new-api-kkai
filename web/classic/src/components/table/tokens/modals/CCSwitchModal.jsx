@@ -70,6 +70,13 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
     }
 
     const data = response.data || response;
+    if (data.token_is_valid === false) {
+      return {
+        isValid: false,
+        invalidMessage: data.token_invalid_reason || "Token unavailable"
+      };
+    }
+
     const quotaPerUnit = Number(data.quota_per_unit || 500000);
     const displayType = data.quota_display_type || "USD";
     const usdExchangeRate = Number(data.usd_exchange_rate || 1);
@@ -90,12 +97,25 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
     const userGranted = Number(
       data.user_total_granted ?? data.total_granted ?? userUsed + userAvailable
     );
-    const tokenAvailable = Number(data.token_total_available ?? data.total_available ?? 0);
+    const hasTokenAvailable =
+      data.token_total_available != null || data.total_available != null;
+    const tokenAvailable = Number(
+      data.token_total_available ?? data.total_available ?? 0
+    );
+    const isUnlimitedToken =
+      data.unlimited_quota === true || (hasTokenAvailable && tokenAvailable < 0);
 
-    if (userAvailable <= 0 && tokenAvailable > 0) {
+    if (userAvailable <= 0) {
       return {
         isValid: false,
         invalidMessage: "User balance exhausted"
+      };
+    }
+
+    if (hasTokenAvailable && !isUnlimitedToken && tokenAvailable <= 0) {
+      return {
+        isValid: false,
+        invalidMessage: data.token_invalid_reason || "Token unavailable"
       };
     }
 

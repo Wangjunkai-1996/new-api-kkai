@@ -11,7 +11,8 @@ The KKAI patch makes new CC Switch imports work as expected:
 - Provider name defaults to `KKAI`.
 - Provider endpoint is `https://api.kkrich.ltd/v1`.
 - CC Switch receives a usage script during import.
-- The usage script authenticates with the imported token and displays the owning user's account balance from `/api/usage/token/`.
+- The usage script authenticates with the imported token and displays the owning user's account balance from `/api/usage/token/` when that token is currently valid.
+- Invalid, expired, disabled, or exhausted tokens return token-level status and invalid-reason fields; backend returns `user_total_*` as zero for invalid tokens as a safety fallback.
 - Users do not need to generate or paste a New API access token.
 - Users do not need to know their New API user ID.
 
@@ -44,10 +45,17 @@ The usage script must:
 
 - Send `GET {{baseUrl}}/api/usage/token/`.
 - Authenticate with `Authorization: Bearer {{apiKey}}`.
-- Prefer user account fields: `response.data.user_total_available`, `response.data.user_total_granted`, and `response.data.user_total_used`.
+- Check `response.data.token_is_valid` and `response.data.token_invalid_reason`; when the token is invalid, surface that reason instead of treating zero `user_total_*` as a real account balance.
+- For valid tokens, prefer user account fields: `response.data.user_total_available`, `response.data.user_total_granted`, and `response.data.user_total_used`.
 - Keep token fields (`token_total_available`, `token_total_granted`, `token_total_used`) only as metadata/fallbacks, not as the primary displayed balance.
 - Convert quota units using `response.data.quota_per_unit` and `response.data.quota_display_type`.
 - Handle unlimited tokens without mistaking token-level negative `token_total_available` for a user-balance failure.
+
+## Existing Provider Re-import
+
+CC Switch stores the imported usage script in the local provider record. Providers imported before this hotfix keep the old script and should be re-imported from New API to get the improved invalid-token message and script behavior.
+
+The backend still zeroes `user_total_available`, `user_total_granted`, and `user_total_used` for invalid tokens as a safety fallback. That fallback prevents account-balance exposure if an old script or manual client keeps querying with an invalid token, but it does not update old CC Switch provider scripts automatically.
 
 ## Upgrade Guard
 

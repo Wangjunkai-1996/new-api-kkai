@@ -42,27 +42,34 @@ type tokenKeyResponse struct {
 	Key string `json:"key"`
 }
 
+type tokenUsageAPIResponse struct {
+	Code    bool                       `json:"code"`
+	Success bool                       `json:"success"`
+	Message string                     `json:"message"`
+	Data    map[string]json.RawMessage `json:"data"`
+}
+
 type sqliteColumnInfo struct {
 	Name string `gorm:"column:name"`
 	Type string `gorm:"column:type"`
 }
 
 type legacyToken struct {
-	Id                 int            `gorm:"primaryKey"`
-	UserId             int            `gorm:"index"`
-	Key                string         `gorm:"column:key;type:char(48);uniqueIndex"`
-	Status             int            `gorm:"default:1"`
-	Name               string         `gorm:"index"`
-	CreatedTime        int64          `gorm:"bigint"`
-	AccessedTime       int64          `gorm:"bigint"`
-	ExpiredTime        int64          `gorm:"bigint;default:-1"`
-	RemainQuota        int            `gorm:"default:0"`
+	Id                 int    `gorm:"primaryKey"`
+	UserId             int    `gorm:"index"`
+	Key                string `gorm:"column:key;type:char(48);uniqueIndex"`
+	Status             int    `gorm:"default:1"`
+	Name               string `gorm:"index"`
+	CreatedTime        int64  `gorm:"bigint"`
+	AccessedTime       int64  `gorm:"bigint"`
+	ExpiredTime        int64  `gorm:"bigint;default:-1"`
+	RemainQuota        int    `gorm:"default:0"`
 	UnlimitedQuota     bool
 	ModelLimitsEnabled bool
-	ModelLimits        string         `gorm:"type:text"`
-	AllowIps           *string        `gorm:"default:''"`
-	UsedQuota          int            `gorm:"default:0"`
-	Group              string         `gorm:"column:group;default:''"`
+	ModelLimits        string  `gorm:"type:text"`
+	AllowIps           *string `gorm:"default:''"`
+	UsedQuota          int     `gorm:"default:0"`
+	Group              string  `gorm:"column:group;default:''"`
 	CrossGroupRetry    bool
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
@@ -111,6 +118,16 @@ func setupTokenControllerTestDB(t *testing.T) *gorm.DB {
 
 	db := openTokenControllerTestDB(t)
 	migrateTokenControllerTestDB(t, db)
+	return db
+}
+
+func setupTokenUsageControllerTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	db := setupTokenControllerTestDB(t)
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		t.Fatalf("failed to migrate user table: %v", err)
+	}
 	return db
 }
 
@@ -182,6 +199,51 @@ func seedToken(t *testing.T, db *gorm.DB, userID int, name string, rawKey string
 	return token
 }
 
+func seedTokenUsageUser(t *testing.T, db *gorm.DB, userID int, quota int, usedQuota int) {
+	t.Helper()
+
+	user := &model.User{
+		Id:          userID,
+		Username:    fmt.Sprintf("usage-user-%d", userID),
+		Password:    "password123",
+		DisplayName: fmt.Sprintf("Usage User %d", userID),
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Email:       fmt.Sprintf("usage-user-%d@example.com", userID),
+		Quota:       quota,
+		UsedQuota:   usedQuota,
+		Group:       "default",
+		AffCode:     fmt.Sprintf("usage-aff-%d", userID),
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatalf("failed to create usage user: %v", err)
+	}
+}
+
+func seedTokenUsageToken(t *testing.T, db *gorm.DB, token model.Token) *model.Token {
+	t.Helper()
+
+	if token.Status == 0 {
+		token.Status = common.TokenStatusEnabled
+	}
+	if token.CreatedTime == 0 {
+		token.CreatedTime = 1
+	}
+	if token.AccessedTime == 0 {
+		token.AccessedTime = 1
+	}
+	if token.ExpiredTime == 0 {
+		token.ExpiredTime = -1
+	}
+	if token.Group == "" {
+		token.Group = "default"
+	}
+	if err := db.Create(&token).Error; err != nil {
+		t.Fatalf("failed to create usage token: %v", err)
+	}
+	return &token
+}
+
 func newAuthenticatedContext(t *testing.T, method string, target string, body any, userID int) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 
@@ -206,6 +268,18 @@ func newAuthenticatedContext(t *testing.T, method string, target string, body an
 	return ctx, recorder
 }
 
+func newTokenUsageContext(t *testing.T, authorization string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/usage/token/", nil)
+	if authorization != "" {
+		ctx.Request.Header.Set("Authorization", authorization)
+	}
+	return ctx, recorder
+}
+
 func decodeAPIResponse(t *testing.T, recorder *httptest.ResponseRecorder) tokenAPIResponse {
 	t.Helper()
 
@@ -214,6 +288,64 @@ func decodeAPIResponse(t *testing.T, recorder *httptest.ResponseRecorder) tokenA
 		t.Fatalf("failed to decode api response: %v", err)
 	}
 	return response
+}
+
+func decodeTokenUsageAPIResponse(t *testing.T, recorder *httptest.ResponseRecorder) tokenUsageAPIResponse {
+	t.Helper()
+
+	var response tokenUsageAPIResponse
+	if err := common.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode token usage response: %v", err)
+	}
+	return response
+}
+
+func requireTokenUsageBool(t *testing.T, data map[string]json.RawMessage, key string, want bool) {
+	t.Helper()
+
+	raw, ok := data[key]
+	if !ok {
+		t.Fatalf("expected token usage field %q to be present", key)
+	}
+	var got bool
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("failed to decode %s as bool: %v", key, err)
+	}
+	if got != want {
+		t.Fatalf("expected %s to be %v, got %v", key, want, got)
+	}
+}
+
+func requireTokenUsageInt(t *testing.T, data map[string]json.RawMessage, key string, want int) {
+	t.Helper()
+
+	raw, ok := data[key]
+	if !ok {
+		t.Fatalf("expected token usage field %q to be present", key)
+	}
+	var got int
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("failed to decode %s as int: %v", key, err)
+	}
+	if got != want {
+		t.Fatalf("expected %s to be %d, got %d", key, want, got)
+	}
+}
+
+func requireTokenUsageString(t *testing.T, data map[string]json.RawMessage, key string, want string) {
+	t.Helper()
+
+	raw, ok := data[key]
+	if !ok {
+		t.Fatalf("expected token usage field %q to be present", key)
+	}
+	var got string
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("failed to decode %s as string: %v", key, err)
+	}
+	if got != want {
+		t.Fatalf("expected %s to be %q, got %q", key, want, got)
+	}
 }
 
 func getSQLiteColumnType(t *testing.T, db *gorm.DB, tableName string, columnName string) string {
@@ -537,5 +669,189 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	}
 	if strings.Contains(unauthorizedRecorder.Body.String(), token.Key) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
+	}
+}
+
+func TestGetTokenUsageValidityAndBalanceVisibility(t *testing.T) {
+	userID := 2210
+	now := common.GetTimestamp()
+	tests := []struct {
+		name              string
+		token             model.Token
+		userQuota         int
+		userUsedQuota     int
+		wantValid         bool
+		wantReason        string
+		wantUserGranted   int
+		wantUserUsed      int
+		wantUserAvailable int
+	}{
+		{
+			name: "active finite token",
+			token: model.Token{
+				Status:      common.TokenStatusEnabled,
+				ExpiredTime: -1,
+				RemainQuota: 40,
+				UsedQuota:   10,
+			},
+			userQuota:         70,
+			userUsedQuota:     30,
+			wantValid:         true,
+			wantReason:        "",
+			wantUserGranted:   100,
+			wantUserUsed:      30,
+			wantUserAvailable: 70,
+		},
+		{
+			name: "disabled token",
+			token: model.Token{
+				Status:      common.TokenStatusDisabled,
+				ExpiredTime: -1,
+				RemainQuota: 40,
+				UsedQuota:   10,
+			},
+			userQuota:         70,
+			userUsedQuota:     30,
+			wantValid:         false,
+			wantReason:        model.TokenUsageInvalidReasonDisabled,
+			wantUserGranted:   0,
+			wantUserUsed:      0,
+			wantUserAvailable: 0,
+		},
+		{
+			name: "expired token",
+			token: model.Token{
+				Status:      common.TokenStatusEnabled,
+				ExpiredTime: now - 1,
+				RemainQuota: 40,
+				UsedQuota:   10,
+			},
+			userQuota:         70,
+			userUsedQuota:     30,
+			wantValid:         false,
+			wantReason:        model.TokenUsageInvalidReasonExpired,
+			wantUserGranted:   0,
+			wantUserUsed:      0,
+			wantUserAvailable: 0,
+		},
+		{
+			name: "exhausted finite token",
+			token: model.Token{
+				Status:      common.TokenStatusEnabled,
+				ExpiredTime: -1,
+				RemainQuota: 0,
+				UsedQuota:   25,
+			},
+			userQuota:         70,
+			userUsedQuota:     30,
+			wantValid:         false,
+			wantReason:        model.TokenUsageInvalidReasonExhausted,
+			wantUserGranted:   0,
+			wantUserUsed:      0,
+			wantUserAvailable: 0,
+		},
+		{
+			name: "unlimited token",
+			token: model.Token{
+				Status:         common.TokenStatusEnabled,
+				ExpiredTime:    -1,
+				RemainQuota:    0,
+				UsedQuota:      25,
+				UnlimitedQuota: true,
+			},
+			userQuota:         5,
+			userUsedQuota:     95,
+			wantValid:         true,
+			wantReason:        "",
+			wantUserGranted:   100,
+			wantUserUsed:      95,
+			wantUserAvailable: 5,
+		},
+		{
+			name: "user balance exhausted",
+			token: model.Token{
+				Status:      common.TokenStatusEnabled,
+				ExpiredTime: -1,
+				RemainQuota: 30,
+				UsedQuota:   20,
+			},
+			userQuota:         0,
+			userUsedQuota:     100,
+			wantValid:         true,
+			wantReason:        "",
+			wantUserGranted:   100,
+			wantUserUsed:      100,
+			wantUserAvailable: 0,
+		},
+	}
+
+	for idx, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := setupTokenUsageControllerTestDB(t)
+			seedTokenUsageUser(t, db, userID+idx, tt.userQuota, tt.userUsedQuota)
+			tt.token.UserId = userID + idx
+			tt.token.Name = tt.name
+			tt.token.Key = fmt.Sprintf("usage-token-%d", idx)
+			token := seedTokenUsageToken(t, db, tt.token)
+
+			ctx, recorder := newTokenUsageContext(t, "Bearer sk-"+token.Key)
+			GetTokenUsage(ctx)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", recorder.Code)
+			}
+			response := decodeTokenUsageAPIResponse(t, recorder)
+			if !response.Code {
+				t.Fatalf("expected token usage success, got message: %s", response.Message)
+			}
+			if response.Data == nil {
+				t.Fatalf("expected token usage data")
+			}
+
+			requireTokenUsageBool(t, response.Data, "token_is_valid", tt.wantValid)
+			requireTokenUsageString(t, response.Data, "token_invalid_reason", tt.wantReason)
+			requireTokenUsageInt(t, response.Data, "user_total_granted", tt.wantUserGranted)
+			requireTokenUsageInt(t, response.Data, "user_total_used", tt.wantUserUsed)
+			requireTokenUsageInt(t, response.Data, "user_total_available", tt.wantUserAvailable)
+
+			if _, ok := response.Data["user_id"]; ok {
+				t.Fatalf("expected token usage response to omit user_id")
+			}
+		})
+	}
+}
+
+func TestGetTokenUsageQuotaLookupFailureDoesNotExposeRawError(t *testing.T) {
+	db := setupTokenUsageControllerTestDB(t)
+	userID := 3301
+	seedTokenUsageUser(t, db, userID, 70, 30)
+	token := seedTokenUsageToken(t, db, model.Token{
+		UserId:      userID,
+		Name:        "quota failure token",
+		Key:         "usage-quota-failure",
+		Status:      common.TokenStatusEnabled,
+		ExpiredTime: -1,
+		RemainQuota: 40,
+		UsedQuota:   10,
+	})
+	if err := db.Migrator().DropTable(&model.User{}); err != nil {
+		t.Fatalf("failed to drop users table: %v", err)
+	}
+
+	ctx, recorder := newTokenUsageContext(t, "Bearer "+token.Key)
+	GetTokenUsage(ctx)
+
+	response := decodeTokenUsageAPIResponse(t, recorder)
+	if response.Code || response.Success {
+		t.Fatalf("expected quota lookup failure response")
+	}
+	body := strings.ToLower(recorder.Body.String())
+	for _, rawFragment := range []string{"no such table", "select", "users"} {
+		if strings.Contains(body, rawFragment) {
+			t.Fatalf("quota lookup failure leaked raw database detail %q in response: %s", rawFragment, recorder.Body.String())
+		}
+	}
+	if response.Message == "" {
+		t.Fatalf("expected generic quota lookup failure message")
 	}
 }
