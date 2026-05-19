@@ -120,12 +120,12 @@ func classifyPublicAPIError(c *gin.Context, apiErr *types.NewAPIError) publicErr
 		return publicErrorClassification{Category: publicErrorUpstreamUnavailable, StatusCode: http.StatusServiceUnavailable, CaseID: policyIncidentCaseID(c)}
 	}
 
-	if isPolicyIncidentContext(c) {
-		return publicErrorClassification{Category: publicErrorPolicyBlocked, StatusCode: http.StatusForbidden, CaseID: policyIncidentCaseID(c)}
-	}
-
 	if types.IsUpstreamUnavailableError(apiErr) {
 		return publicErrorClassification{Category: publicErrorUpstreamUnavailable, StatusCode: http.StatusServiceUnavailable}
+	}
+
+	if isPolicyIncidentContext(c) {
+		return publicErrorClassification{Category: publicErrorPolicyBlocked, StatusCode: http.StatusForbidden, CaseID: policyIncidentCaseID(c)}
 	}
 
 	statusCode := apiErr.StatusCode

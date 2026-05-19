@@ -27,6 +27,8 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+var isUpstreamKeyPolicyBreakerOpenForDistributor = service.IsUpstreamKeyPolicyBreakerOpen
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
@@ -375,7 +377,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 
 	policyBreakerFilteredKey := false
 	key, index, newAPIError := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
-		isOpen := service.IsUpstreamKeyPolicyBreakerOpen(channel.Id, key)
+		isOpen := isUpstreamKeyPolicyBreakerOpenForDistributor(channel.Id, key)
 		policyBreakerFilteredKey = policyBreakerFilteredKey || isOpen
 		return !isOpen
 	})

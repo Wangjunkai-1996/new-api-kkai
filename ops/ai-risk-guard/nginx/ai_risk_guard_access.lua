@@ -9,6 +9,7 @@ local RULE_RELOAD_SECONDS = 10
 local STATE_KEY = "__ai_risk_guard_state_v3"
 
 local ok_cjson, cjson = pcall(require, "cjson.safe")
+local ok_sha256, resty_sha256 = pcall(require, "resty.sha256")
 
 local BUILTIN_RULES = {
   version = RULES_VERSION .. ".builtin",
@@ -969,6 +970,32 @@ local trim_string = function(value, limit)
   return string.sub(value, 1, limit) .. "...[truncated]", true
 end
 
+local binary_to_hex = function(value)
+  return (string.gsub(value, ".", function(char)
+    return string.format("%02x", string.byte(char))
+  end))
+end
+
+local sha256_hex = function(value)
+  if not ok_sha256 or not resty_sha256 then
+    return nil
+  end
+
+  local digest = resty_sha256:new()
+  if not digest then
+    return nil
+  end
+  local ok = digest:update(tostring(value or ""))
+  if not ok then
+    return nil
+  end
+  local final = digest:final()
+  if not final then
+    return nil
+  end
+  return binary_to_hex(final)
+end
+
 local sanitize_secret_text = function(value)
   if type(value) ~= "string" or value == "" then
     return value
@@ -1108,10 +1135,11 @@ local sanitize_event = function(event)
 
   if type(event.matched_excerpt) == "string" then
     local raw_excerpt = event.matched_excerpt
-    local limited, truncated = trim_string(raw_excerpt, 600)
-    sanitized.matched_excerpt = sanitize_secret_text(limited)
-    sanitized.matched_excerpt_hash = ngx.md5(raw_excerpt)
-    sanitized.matched_excerpt_truncated = truncated
+    sanitized.matched_excerpt = nil
+    sanitized.matched_excerpt_hash = nil
+    sanitized.matched_excerpt_truncated = nil
+    sanitized.matched_excerpt_sha256 = sha256_hex(raw_excerpt)
+    sanitized.matched_excerpt_length = #raw_excerpt
   end
 
   return sanitized

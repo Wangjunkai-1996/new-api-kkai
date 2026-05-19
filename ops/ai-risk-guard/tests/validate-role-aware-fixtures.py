@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -271,9 +272,11 @@ def sanitize_event(event: dict[str, Any]) -> dict[str, Any]:
             }
     excerpt = event.get("matched_excerpt")
     if isinstance(excerpt, str):
-        sanitized["matched_excerpt"] = sanitize_secret_text(excerpt[:600])
-        sanitized["matched_excerpt_hash"] = "hash-present"
-        sanitized["matched_excerpt_truncated"] = len(excerpt) > 600
+        sanitized.pop("matched_excerpt", None)
+        sanitized.pop("matched_excerpt_hash", None)
+        sanitized.pop("matched_excerpt_truncated", None)
+        sanitized["matched_excerpt_sha256"] = hashlib.sha256(excerpt.encode()).hexdigest()
+        sanitized["matched_excerpt_length"] = len(excerpt)
     return sanitized
 
 
@@ -350,23 +353,28 @@ def assert_event_sanitizer() -> None:
     raw_query_key = "sk-query-should-not-survive-1234567890"
     raw_excerpt_key = "sk-excerpt-should-not-survive-1234567890"
     long_secret = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    raw_excerpt = f"Authorization: Bearer {raw_excerpt_key} payload {long_secret}"
     sanitized = sanitize_event(
         {
             "uri": f"/v1/responses?api_key={raw_query_key}&debug=true&blob={long_secret}",
-            "matched_excerpt": f"Authorization: Bearer {raw_excerpt_key} payload {long_secret}",
+            "matched_excerpt": raw_excerpt,
         }
     )
 
     encoded = json.dumps(sanitized, sort_keys=True)
-    for secret in (raw_query_key, raw_excerpt_key, long_secret):
+    for secret in (raw_query_key, raw_excerpt_key, long_secret, raw_excerpt):
         if secret in encoded:
             raise AssertionError("event sanitizer left raw secret material in fixture output")
+    if "matched_excerpt" in sanitized:
+        raise AssertionError("event sanitizer emitted raw matched excerpt")
     if sanitized.get("uri") != "/v1/responses":
         raise AssertionError(f"event sanitizer did not keep path-only uri: {sanitized.get('uri')}")
     if not sanitized.get("query") or sanitized["query"].get("redacted") is not True:
         raise AssertionError("event sanitizer did not include redacted query metadata")
-    if "matched_excerpt_hash" not in sanitized:
-        raise AssertionError("event sanitizer did not include matched excerpt hash")
+    if sanitized.get("matched_excerpt_sha256") != hashlib.sha256(raw_excerpt.encode()).hexdigest():
+        raise AssertionError("event sanitizer did not include matched excerpt SHA-256")
+    if sanitized.get("matched_excerpt_length") != len(raw_excerpt):
+        raise AssertionError("event sanitizer did not include matched excerpt length")
     print("PASS: query and matched excerpt secret sanitization")
 
 

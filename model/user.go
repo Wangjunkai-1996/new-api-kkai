@@ -19,6 +19,8 @@ import (
 
 const UserNameMaxLength = 20
 
+var ErrPolicyIncidentPrivilegedUser = errors.New("policy incident user disable skipped for privileged user")
+
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
@@ -731,6 +733,56 @@ func IsAdmin(userId int) bool {
 		return false
 	}
 	return user.Role >= common.RoleAdminUser
+}
+
+func DisableUserForPolicyIncident(id int) (*User, bool, error) {
+	if id <= 0 {
+		return nil, false, errors.New("id 无效！")
+	}
+
+	var user User
+	if err := DB.First(&user, "id = ?", id).Error; err != nil {
+		return nil, false, err
+	}
+	if user.Role >= common.RoleAdminUser {
+		return &user, false, ErrPolicyIncidentPrivilegedUser
+	}
+	if user.Status == common.UserStatusDisabled {
+		invalidatePolicyIncidentUserCaches(id)
+		return &user, false, nil
+	}
+
+	result := DB.Model(&User{}).
+		Where("id = ? and role < ? and status <> ?", id, common.RoleAdminUser, common.UserStatusDisabled).
+		Update("status", common.UserStatusDisabled)
+	if result.Error != nil {
+		return &user, false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		if err := DB.First(&user, "id = ?", id).Error; err != nil {
+			return nil, false, err
+		}
+		if user.Role >= common.RoleAdminUser {
+			return &user, false, ErrPolicyIncidentPrivilegedUser
+		}
+		if user.Status == common.UserStatusDisabled {
+			invalidatePolicyIncidentUserCaches(id)
+		}
+		return &user, false, nil
+	}
+
+	user.Status = common.UserStatusDisabled
+	invalidatePolicyIncidentUserCaches(id)
+	return &user, true, nil
+}
+
+func invalidatePolicyIncidentUserCaches(id int) {
+	if err := InvalidateUserCache(id); err != nil {
+		common.SysLog(fmt.Sprintf("failed to invalidate policy incident user cache for user %d: %s", id, err.Error()))
+	}
+	if err := InvalidateUserTokensCache(id); err != nil {
+		common.SysLog(fmt.Sprintf("failed to invalidate policy incident token cache for user %d: %s", id, err.Error()))
+	}
 }
 
 //// IsUserEnabled checks user status from Redis first, falls back to DB if needed
