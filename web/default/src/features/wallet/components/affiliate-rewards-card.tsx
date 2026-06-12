@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatQuota } from '@/lib/format'
@@ -24,12 +25,19 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CopyButton } from '@/components/copy-button'
+import {
+  getInvitationFeatureStatus,
+  getMyCode,
+} from '@/features/invitations/api'
+import { formatRebateAmount } from '@/features/invitations/lib/format'
+import { generateAffiliateLink } from '../lib'
 import type { UserWalletData } from '../types'
 
 interface AffiliateRewardsCardProps {
   user: UserWalletData | null
   affiliateLink: string
   onTransfer: () => void
+  onInvitationRebateTransfer?: () => void
   complianceConfirmed?: boolean
   loading?: boolean
 }
@@ -38,11 +46,53 @@ export function AffiliateRewardsCard({
   user,
   affiliateLink,
   onTransfer,
+  onInvitationRebateTransfer,
   complianceConfirmed = true,
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
-  if (loading) {
+
+  const featureQuery = useQuery({
+    queryKey: ['walletInvitationFeatureStatus'],
+    queryFn: async () => {
+      const response = await getInvitationFeatureStatus()
+      return response.success ? response.data : null
+    },
+    retry: false,
+    staleTime: 60_000,
+  })
+
+  const invitationFeature = featureQuery.data
+  const canUseInvitationBackend = Boolean(
+    invitationFeature?.available &&
+    invitationFeature.userInvitationRebateEnabled &&
+    (invitationFeature.orderRebateEnabled ||
+      invitationFeature.invitationSignupRewardEnabled)
+  )
+
+  const invitationStatsQuery = useQuery({
+    queryKey: ['walletInvitationStats'],
+    queryFn: async () => {
+      const response = await getMyCode({
+        skipBusinessError: true,
+        skipErrorHandler: true,
+      })
+      return response.success ? response.data : null
+    },
+    enabled: canUseInvitationBackend,
+    retry: false,
+    staleTime: 60_000,
+  })
+
+  const invitationStats = invitationStatsQuery.data
+  const usingInvitationBackend = Boolean(
+    canUseInvitationBackend && invitationStats
+  )
+  const statsLoading =
+    featureQuery.isLoading ||
+    (canUseInvitationBackend && invitationStatsQuery.isLoading)
+
+  if (loading || statsLoading) {
     return (
       <Card className='bg-muted/20 py-0'>
         <CardContent className='grid gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,0.72fr)_minmax(320px,1.15fr)] lg:items-center'>
@@ -57,7 +107,33 @@ export function AffiliateRewardsCard({
     )
   }
 
-  const hasRewards = (user?.aff_quota ?? 0) > 0
+  const pendingAmount = usingInvitationBackend
+    ? (invitationStats?.pendingRebate ?? 0)
+    : (user?.aff_quota ?? 0)
+  const totalAmount = usingInvitationBackend
+    ? (invitationStats?.totalRebate ?? 0)
+    : (user?.aff_history_quota ?? 0)
+  const inviteCount = usingInvitationBackend
+    ? (invitationStats?.invitedCount ?? 0)
+    : (user?.aff_count ?? 0)
+  const displayAffiliateLink =
+    usingInvitationBackend && invitationStats?.invitationCode
+      ? generateAffiliateLink(invitationStats.invitationCode)
+      : affiliateLink
+  const pendingDisplay = usingInvitationBackend
+    ? formatRebateAmount(pendingAmount)
+    : formatQuota(pendingAmount)
+  const totalDisplay = usingInvitationBackend
+    ? formatRebateAmount(totalAmount)
+    : formatQuota(totalAmount)
+  const hasRewards = pendingAmount > 0
+  const canTransferInvitationRebate =
+    usingInvitationBackend && invitationFeature?.rebateToBalanceEnabled === true
+  const handleTransfer = canTransferInvitationRebate
+    ? (onInvitationRebateTransfer ?? onTransfer)
+    : onTransfer
+  const showTransferButton =
+    hasRewards && (!usingInvitationBackend || canTransferInvitationRebate)
 
   return (
     <Card className='bg-muted/20 py-0'>
@@ -80,9 +156,9 @@ export function AffiliateRewardsCard({
 
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
-            [t('Pending'), formatQuota(user?.aff_quota ?? 0)],
-            [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
-            [t('Invites'), String(user?.aff_count ?? 0)],
+            [t('Pending'), pendingDisplay],
+            [t('Total Earned'), totalDisplay],
+            [t('Invites'), String(inviteCount)],
           ].map(([label, value]) => (
             <div key={label}>
               <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
@@ -97,21 +173,21 @@ export function AffiliateRewardsCard({
 
         <div className='flex items-center gap-2'>
           <Input
-            value={affiliateLink}
+            value={displayAffiliateLink}
             readOnly
             className='border-muted bg-background/70 h-9 min-w-0 flex-1 font-mono text-xs'
           />
           <CopyButton
-            value={affiliateLink}
+            value={displayAffiliateLink}
             variant='outline'
             className='bg-background size-9 shrink-0'
             iconClassName='size-4'
             tooltip={t('Copy referral link')}
             aria-label={t('Copy referral link')}
           />
-          {hasRewards && (
+          {showTransferButton && (
             <Button
-              onClick={onTransfer}
+              onClick={handleTransfer}
               disabled={!complianceConfirmed}
               className='h-9 shrink-0 px-3'
               size='sm'

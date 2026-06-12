@@ -17,29 +17,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  LayoutDashboard,
   Activity,
-  Key,
-  FileText,
-  Wallet,
   Box,
+  CreditCard,
+  FileText,
+  FlaskConical,
+  Gift,
+  Key,
+  LayoutDashboard,
+  Wallet,
   Users,
   Ticket,
   User,
   Command,
   Radio,
-  FlaskConical,
   MessageSquare,
-  CreditCard,
   ListTodo,
   Settings,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WORKSPACE_IDS } from '@/components/layout/lib/workspace-registry'
 import { type SidebarData } from '@/components/layout/types'
+import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const invitationFeature = useInvitationFeatureStatus()
 
   return {
     workspaces: [
@@ -109,6 +112,15 @@ export function useSidebarData(): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
+          ...(invitationFeature.userVisible
+            ? [
+                {
+                  title: t('Invitations'),
+                  url: '/invitations',
+                  icon: Gift,
+                },
+              ]
+            : []),
           {
             title: t('Profile'),
             url: '/profile',
@@ -145,6 +157,15 @@ export function useSidebarData(): SidebarData {
             url: '/subscriptions',
             icon: CreditCard,
           },
+          ...(invitationFeature.available
+            ? [
+                {
+                  title: t('Rebate Management'),
+                  url: '/invitations/admin',
+                  icon: Gift,
+                },
+              ]
+            : []),
           {
             title: t('System Settings'),
             url: '/system-settings/site',
