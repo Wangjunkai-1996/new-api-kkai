@@ -184,10 +184,12 @@ export function RebateRequestsTable({
                       <Button
                         variant='ghost'
                         size='sm'
-                        onClick={() => handleAction(request, 'complete')}
-                        title={t('Complete')}
+                        disabled
+                        title={t(
+                          'Use voucher payout actions to create a balance ledger entry'
+                        )}
                       >
-                        <Check className='size-4 text-blue-600' />
+                        <Check className='text-muted-foreground size-4' />
                       </Button>
                     )}
                     {request.status === 'completed' && (

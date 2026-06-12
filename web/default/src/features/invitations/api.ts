@@ -35,6 +35,10 @@ import type {
   UpdateRebateOrderRecordsData,
   RebateOrderRecordIdsData,
   ExtendRebateInitializationData,
+  RebatePayoutAction,
+  RebatePayoutActionData,
+  RebatePayoutActionResponse,
+  RebatePayoutStatusResponse,
 } from './types'
 
 const BASE_PATH = '/invitations/api/invitations'
@@ -113,6 +117,37 @@ export async function getMyRebateRequests(
 // ============================================================================
 
 const ADMIN_BASE_PATH = '/invitations/api/admin'
+
+function createIdempotencySuffix(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID()
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+export function createRebatePayoutIdempotencyKey(
+  recordId: number,
+  action: RebatePayoutAction
+): string {
+  return `rebate-payout:${recordId}:${action}:${createIdempotencySuffix()}`
+}
+
+function payoutActionConfig(
+  action: RebatePayoutAction,
+  data: RebatePayoutActionData
+): ApiRequestConfig {
+  return {
+    headers: {
+      'Idempotency-Key': data.idempotencyKey,
+      'X-KKAI-Payout-Action': action,
+    },
+    skipErrorHandler: true,
+  }
+}
 
 /**
  * 获取返利规则列表
@@ -299,6 +334,48 @@ export async function getAdminRebateRecords(
   const res = await api.get(`${ADMIN_BASE_PATH}/rebate-records`, {
     params,
   })
+  return res.data
+}
+
+/**
+ * 获取兑换券/订单返利的余额发放流水状态
+ */
+export async function getAdminRebatePayoutStatus(
+  id: number
+): Promise<ApiResponse<RebatePayoutStatusResponse>> {
+  const res = await api.get(`${ADMIN_BASE_PATH}/rebate-payouts/${id}/status`, {
+    skipErrorHandler: true,
+  })
+  return res.data
+}
+
+/**
+ * 通过 payout service 发放兑换券/订单返利到余额
+ */
+export async function payAdminRebatePayout(
+  id: number,
+  data: RebatePayoutActionData
+): Promise<ApiResponse<RebatePayoutActionResponse>> {
+  const res = await api.post(
+    `${ADMIN_BASE_PATH}/rebate-payouts/${id}/pay`,
+    undefined,
+    payoutActionConfig('pay', data)
+  )
+  return res.data
+}
+
+/**
+ * 通过 payout service 冲正兑换券/订单返利的余额发放流水
+ */
+export async function reverseAdminRebatePayout(
+  id: number,
+  data: RebatePayoutActionData
+): Promise<ApiResponse<RebatePayoutActionResponse>> {
+  const res = await api.post(
+    `${ADMIN_BASE_PATH}/rebate-payouts/${id}/reverse`,
+    undefined,
+    payoutActionConfig('reverse', data)
+  )
   return res.data
 }
 

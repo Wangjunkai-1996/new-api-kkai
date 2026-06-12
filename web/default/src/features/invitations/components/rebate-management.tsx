@@ -208,6 +208,10 @@ export function RebateManagement() {
     const types: Record<OrderType, string> = {
       topup: t('Top-up'),
       subscription: t('Subscription'),
+      redemption: t('Voucher Rebate'),
+      redemption_code: t('Voucher Rebate'),
+      redeem: t('Voucher Rebate'),
+      voucher: t('Voucher Rebate'),
       invite_inviter: t('Invitation Reward'),
       invite_invitee: t('New User Invitation Reward'),
       other: t('Other'),
