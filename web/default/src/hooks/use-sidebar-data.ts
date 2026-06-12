@@ -22,6 +22,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  Gift,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { type SidebarData } from '@/components/layout/types'
+import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -44,6 +46,7 @@ import { type SidebarData } from '@/components/layout/types'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const invitationFeature = useInvitationFeatureStatus()
 
   return {
     navGroups: [
@@ -105,6 +108,15 @@ export function useSidebarData(): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
+          ...(invitationFeature.userVisible
+            ? [
+                {
+                  title: t('Invitations'),
+                  url: '/invitations',
+                  icon: Gift,
+                },
+              ]
+            : []),
           {
             title: t('Profile'),
             url: '/profile',
@@ -141,6 +153,15 @@ export function useSidebarData(): SidebarData {
             url: '/subscriptions',
             icon: CreditCard,
           },
+          ...(invitationFeature.available
+            ? [
+                {
+                  title: t('Rebate Management'),
+                  url: '/invitations/admin',
+                  icon: Gift,
+                },
+              ]
+            : []),
           {
             title: t('System Settings'),
             url: '/system-settings/site',

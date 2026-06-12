@@ -21,6 +21,7 @@ import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
 import { Route as ConsoleLogRouteImport } from './routes/console/log'
+import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
@@ -46,10 +47,12 @@ import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authent
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
+import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_authenticated/invitations/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
+import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -127,6 +130,12 @@ const ConsoleLogRoute = ConsoleLogRouteImport.update({
   path: '/console/log',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedInvitationsRoute =
+  AuthenticatedInvitationsRouteImport.update({
+    id: '/invitations',
+    path: '/invitations',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   id: '/chat2link',
   path: '/chat2link',
@@ -261,6 +270,12 @@ const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
   path: '/keys/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedInvitationsIndexRoute =
+  AuthenticatedInvitationsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedInvitationsRoute,
+  } as any)
 const AuthenticatedDashboardIndexRoute =
   AuthenticatedDashboardIndexRouteImport.update({
     id: '/dashboard/',
@@ -284,6 +299,12 @@ const AuthenticatedModelsSectionRoute =
     id: '/models/$section',
     path: '/models/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedInvitationsAdminRoute =
+  AuthenticatedInvitationsAdminRouteImport.update({
+    id: '/admin',
+    path: '/admin',
+    getParentRoute: () => AuthenticatedInvitationsRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
@@ -410,6 +431,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/invitations': typeof AuthenticatedInvitationsRouteWithChildren
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -421,10 +443,12 @@ export interface FileRoutesByFullPath {
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/invitations/': typeof AuthenticatedInvitationsIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -479,10 +503,12 @@ export interface FileRoutesByTo {
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
+  '/invitations': typeof AuthenticatedInvitationsIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
@@ -530,6 +556,7 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
+  '/_authenticated/invitations': typeof AuthenticatedInvitationsRouteWithChildren
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
@@ -541,10 +568,12 @@ export interface FileRoutesById {
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/_authenticated/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/_authenticated/invitations/': typeof AuthenticatedInvitationsIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
@@ -591,6 +620,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/invitations'
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
@@ -602,10 +632,12 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
+    | '/invitations/admin'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/channels/'
     | '/dashboard/'
+    | '/invitations/'
     | '/keys/'
     | '/models/'
     | '/playground/'
@@ -660,10 +692,12 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
+    | '/invitations/admin'
     | '/models/$section'
     | '/usage-logs/$section'
     | '/channels'
     | '/dashboard'
+    | '/invitations'
     | '/keys'
     | '/models'
     | '/playground'
@@ -710,6 +744,7 @@ export interface FileRouteTypes {
     | '/(errors)/500'
     | '/(errors)/503'
     | '/_authenticated/chat2link'
+    | '/_authenticated/invitations'
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
@@ -721,10 +756,12 @@ export interface FileRouteTypes {
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
+    | '/_authenticated/invitations/admin'
     | '/_authenticated/models/$section'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
+    | '/_authenticated/invitations/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
     | '/_authenticated/playground/'
@@ -858,6 +895,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/console/log'
       preLoaderRoute: typeof ConsoleLogRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/invitations': {
+      id: '/_authenticated/invitations'
+      path: '/invitations'
+      fullPath: '/invitations'
+      preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/chat2link': {
       id: '/_authenticated/chat2link'
@@ -1034,6 +1078,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedKeysIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/invitations/': {
+      id: '/_authenticated/invitations/'
+      path: '/'
+      fullPath: '/invitations/'
+      preLoaderRoute: typeof AuthenticatedInvitationsIndexRouteImport
+      parentRoute: typeof AuthenticatedInvitationsRoute
+    }
     '/_authenticated/dashboard/': {
       id: '/_authenticated/dashboard/'
       path: '/dashboard'
@@ -1061,6 +1112,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/models/$section'
       preLoaderRoute: typeof AuthenticatedModelsSectionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/invitations/admin': {
+      id: '/_authenticated/invitations/admin'
+      path: '/admin'
+      fullPath: '/invitations/admin'
+      preLoaderRoute: typeof AuthenticatedInvitationsAdminRouteImport
+      parentRoute: typeof AuthenticatedInvitationsRoute
     }
     '/_authenticated/errors/$error': {
       id: '/_authenticated/errors/$error'
@@ -1274,9 +1332,26 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
     AuthenticatedSystemSettingsRouteRouteChildren,
   )
 
+interface AuthenticatedInvitationsRouteChildren {
+  AuthenticatedInvitationsAdminRoute: typeof AuthenticatedInvitationsAdminRoute
+  AuthenticatedInvitationsIndexRoute: typeof AuthenticatedInvitationsIndexRoute
+}
+
+const AuthenticatedInvitationsRouteChildren: AuthenticatedInvitationsRouteChildren =
+  {
+    AuthenticatedInvitationsAdminRoute: AuthenticatedInvitationsAdminRoute,
+    AuthenticatedInvitationsIndexRoute: AuthenticatedInvitationsIndexRoute,
+  }
+
+const AuthenticatedInvitationsRouteWithChildren =
+  AuthenticatedInvitationsRoute._addFileChildren(
+    AuthenticatedInvitationsRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRouteWithChildren
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
@@ -1299,6 +1374,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedInvitationsRoute: AuthenticatedInvitationsRouteWithChildren,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,

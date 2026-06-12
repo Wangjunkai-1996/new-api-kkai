@@ -33,6 +33,11 @@ function SectionPageLayoutTitle(_props: SlotProps) {
 }
 SectionPageLayoutTitle.displayName = 'SectionPageLayout.Title'
 
+function SectionPageLayoutDescription(_props: SlotProps) {
+  return null
+}
+SectionPageLayoutDescription.displayName = 'SectionPageLayout.Description'
+
 function SectionPageLayoutActions(_props: SlotProps) {
   return null
 }
@@ -59,6 +64,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
   )
 
   let title: ReactNode = null
+  let description: ReactNode = null
   let actions: ReactNode = null
   let content: ReactNode = null
   let breadcrumb: ReactNode = null
@@ -67,6 +73,8 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
     if (!isValidElement(node)) return
     const child = node as ReactElement<SlotProps>
     if (child.type === SectionPageLayoutTitle) title = child.props.children
+    else if (child.type === SectionPageLayoutDescription)
+      description = child.props.children
     else if (child.type === SectionPageLayoutActions)
       actions = child.props.children
     else if (child.type === SectionPageLayoutContent)
@@ -87,6 +95,11 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
               <h2 className='truncate text-base font-bold tracking-tight sm:text-lg'>
                 {title}
               </h2>
+              {description != null && (
+                <p className='text-muted-foreground mt-1 max-w-2xl text-sm'>
+                  {description}
+                </p>
+              )}
             </div>
             {actions != null && (
               <div className='flex shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-x-4'>
@@ -116,6 +129,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
 }
 
 SectionPageLayout.Title = SectionPageLayoutTitle
+SectionPageLayout.Description = SectionPageLayoutDescription
 SectionPageLayout.Actions = SectionPageLayoutActions
 SectionPageLayout.Content = SectionPageLayoutContent
 SectionPageLayout.Breadcrumb = SectionPageLayoutBreadcrumb
