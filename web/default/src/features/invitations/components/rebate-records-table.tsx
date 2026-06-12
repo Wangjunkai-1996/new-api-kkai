@@ -115,6 +115,10 @@ export function RebateRecordsTable() {
           const typeLabels: Record<OrderType, string> = {
             topup: t('Topup'),
             subscription: t('Subscription'),
+            redemption: t('Voucher Rebate'),
+            redemption_code: t('Voucher Rebate'),
+            redeem: t('Voucher Rebate'),
+            voucher: t('Voucher Rebate'),
             invite_inviter: t('Invitation Reward'),
             invite_invitee: t('New User Invitation Reward'),
             other: t('Other'),

@@ -90,6 +90,7 @@ import type {
   RebateRecord,
   RebateStatus,
 } from '../../types'
+import { VoucherRebatePayoutRecordsPanel } from './voucher-rebate-payout-records-panel'
 
 type OrderTypeFilter = 'all' | 'topup' | 'subscription'
 type DialogState =
@@ -1031,6 +1032,7 @@ export function RebateOrderRecordsTab() {
           </DialogContent>
         </Dialog>
       </Card>
+      <VoucherRebatePayoutRecordsPanel />
       <SignupRewardRecordsPanel />
     </div>
   )

@@ -47,9 +47,57 @@ export type RebateStatus =
 export type OrderType =
   | 'topup'
   | 'subscription'
+  | 'redemption'
+  | 'redemption_code'
+  | 'redeem'
+  | 'voucher'
   | 'invite_inviter'
   | 'invite_invitee'
   | 'other'
+
+// 兑换券返利发放状态
+export type RebatePayoutStatus =
+  | 'pending'
+  | 'unpaid'
+  | 'processing'
+  | 'paid'
+  | 'completed'
+  | 'success'
+  | 'failed'
+  | 'reversed'
+  | 'reverted'
+  | 'not_found'
+  | 'none'
+  | 'unknown'
+  | (string & {})
+
+export type RebatePayoutAction = 'pay' | 'reverse'
+
+export interface RebatePayoutStatusResponse {
+  id?: number | string | null
+  rebateRecordId?: number | null
+  recordId?: number | null
+  status?: RebatePayoutStatus | null
+  amount?: number | null
+  balanceLogId?: number | string | null
+  balanceLogID?: number | string | null
+  payoutId?: number | string | null
+  canPay?: boolean | null
+  canReverse?: boolean | null
+  paidAt?: string | null
+  reversedAt?: string | null
+  updatedAt?: string | null
+  message?: string | null
+}
+
+export interface RebatePayoutActionResponse extends RebatePayoutStatusResponse {
+  action?: RebatePayoutAction
+  changed?: boolean
+}
+
+export interface RebatePayoutActionData {
+  idempotencyKey: string
+}
 
 // 管理员返利记录展示状态
 export type AdminRebateOrderStatus =
@@ -69,12 +117,27 @@ export type RebateDisplayStatus =
 export interface RebateRecord {
   id: number
   inviterId: number
+  inviterName?: string | null
+  userId?: number | null
+  userName?: string | null
+  source?: 'order' | 'signup' | string
   orderType: OrderType
+  orderId?: number | string | null
+  orderNo?: string | null
   orderAmount: number
   rebateAmount: number
   rebateRatio?: number | null
   status: RebateStatus
   displayStatus?: RebateDisplayStatus
+  payoutStatus?: RebatePayoutStatus | null
+  payout?: RebatePayoutStatusResponse | null
+  payoutId?: number | string | null
+  payoutBalanceLogId?: number | string | null
+  payoutBalanceLogID?: number | string | null
+  payoutPaidAt?: string | null
+  payoutReversedAt?: string | null
+  canPay?: boolean | null
+  canReverse?: boolean | null
   unlockRequired: boolean
   unlockedAt?: string | null
   effectiveAt?: string
@@ -173,6 +236,10 @@ export interface SystemConfig {
 // 管理员返利申请
 export interface RebateRequestAdmin extends RebateRequest {
   userName: string
+  source?: 'order' | 'signup' | string
+  payoutManaged?: boolean | null
+  usesPayoutService?: boolean | null
+  includesOrderRebates?: boolean | null
 }
 
 // 返利统计
