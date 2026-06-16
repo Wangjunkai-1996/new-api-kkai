@@ -21,6 +21,16 @@ import i18next from 'i18next'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    disableDuplicate?: boolean
+    skipBusinessError?: boolean
+    skipErrorHandler?: boolean
+  }
+}
+
+export type ApiRequestConfig = import('axios').AxiosRequestConfig
+
 // ============================================================================
 // Axios Instance Configuration
 // ============================================================================
