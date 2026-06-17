@@ -24,6 +24,7 @@ import {
   QUOTA_TYPES,
   ENDPOINT_TYPES,
   DEFAULT_TOKEN_UNIT,
+  DEFAULT_SHOW_RECHARGE_PRICE,
   VIEW_MODES,
   type ViewMode,
 } from '../constants'
@@ -75,7 +76,8 @@ export function useFilters(models: PricingModel[]) {
   const tokenUnit: TokenUnit =
     filterState.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
   const viewMode = normalizeViewMode(filterState.view)
-  const showRechargePrice = filterState.rechargePrice === true
+  const showRechargePrice =
+    filterState.rechargePrice ?? DEFAULT_SHOW_RECHARGE_PRICE
 
   const updateFilters = useCallback((updates: Record<string, unknown>) => {
     setFilterState((prev) => {
@@ -133,7 +135,10 @@ export function useFilters(models: PricingModel[]) {
     [updateFilters]
   )
   const setShowRechargePrice = useCallback(
-    (v: boolean) => updateFilters({ rechargePrice: v || undefined }),
+    (v: boolean) =>
+      updateFilters({
+        rechargePrice: v === DEFAULT_SHOW_RECHARGE_PRICE ? undefined : v,
+      }),
     [updateFilters]
   )
 

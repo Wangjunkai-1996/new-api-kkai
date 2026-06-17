@@ -132,6 +132,9 @@ export const TOKEN_UNIT_DIVISORS = {
 /** Default token unit for pricing display */
 export const DEFAULT_TOKEN_UNIT: TokenUnit = 'M'
 
+/** KKAI defaults public model pricing to recharge display. */
+export const DEFAULT_SHOW_RECHARGE_PRICE = true
+
 /** View mode options */
 export const VIEW_MODES = {
   CARD: 'card',

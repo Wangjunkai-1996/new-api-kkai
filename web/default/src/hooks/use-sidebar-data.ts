@@ -25,34 +25,30 @@ import {
   Gift,
   Key,
   LayoutDashboard,
-  Wallet,
-  Users,
+  ListTodo,
+  MessageSquare,
+  Radio,
+  Settings,
   Ticket,
   User,
-  Command,
-  Radio,
-  MessageSquare,
-  ListTodo,
-  Settings,
+  Users,
+  Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { WORKSPACE_IDS } from '@/components/layout/lib/workspace-registry'
 import { type SidebarData } from '@/components/layout/types'
 import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 
+/**
+ * Root navigation groups for the application sidebar.
+ *
+ * These are shown when the URL does not match any nested sidebar view
+ * registered in `layout/lib/sidebar-view-registry.ts`.
+ */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const invitationFeature = useInvitationFeatureStatus()
 
   return {
-    workspaces: [
-      {
-        id: WORKSPACE_IDS.DEFAULT,
-        name: '', // Dynamically fetches system name
-        logo: Command,
-        plan: '', // Dynamically fetches system version
-      },
-    ],
     navGroups: [
       {
         id: 'chat',
