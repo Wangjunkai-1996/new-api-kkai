@@ -75,7 +75,11 @@ func main() {
 		// for compatibility with old versions
 		common.MemoryCacheEnabled = true
 	}
-	if common.MemoryCacheEnabled {
+	backgroundTasksDisabled := common.GetEnvOrDefaultBool("DISABLE_BACKGROUND_TASKS", false)
+	if backgroundTasksDisabled {
+		common.SysLog("background tasks disabled by DISABLE_BACKGROUND_TASKS")
+	}
+	if common.MemoryCacheEnabled && !backgroundTasksDisabled {
 		common.SysLog("memory cache enabled")
 		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
 
@@ -95,29 +99,33 @@ func main() {
 		}()
 
 		go model.SyncChannelCache(common.SyncFrequency)
+	} else if common.MemoryCacheEnabled {
+		common.SysLog("memory cache background sync disabled")
 	}
 
-	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
+	if !backgroundTasksDisabled {
+		// 热更新配置
+		go model.SyncOptions(common.SyncFrequency)
 
-	// 数据看板
-	go model.UpdateQuotaData()
+		// 数据看板
+		go model.UpdateQuotaData()
 
-	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
-		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
-		if err != nil {
-			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
+		if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
+			frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
+			if err != nil {
+				common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
+			}
+			go controller.AutomaticallyUpdateChannels(frequency)
 		}
-		go controller.AutomaticallyUpdateChannels(frequency)
+
+		go controller.AutomaticallyTestChannels()
+
+		// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
+		service.StartCodexCredentialAutoRefreshTask()
+
+		// Subscription quota reset task (daily/weekly/monthly/custom)
+		service.StartSubscriptionQuotaResetTask()
 	}
-
-	go controller.AutomaticallyTestChannels()
-
-	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
-	service.StartCodexCredentialAutoRefreshTask()
-
-	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
@@ -129,9 +137,11 @@ func main() {
 	}
 
 	// Channel upstream model update check task
-	controller.StartChannelUpstreamModelUpdateTask()
+	if !backgroundTasksDisabled {
+		controller.StartChannelUpstreamModelUpdateTask()
+	}
 
-	if common.IsMasterNode && constant.UpdateTask {
+	if common.IsMasterNode && constant.UpdateTask && !backgroundTasksDisabled {
 		gopool.Go(func() {
 			controller.UpdateMidjourneyTaskBulk()
 		})
@@ -139,7 +149,7 @@ func main() {
 			controller.UpdateTaskBulk()
 		})
 	}
-	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
+	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" && !backgroundTasksDisabled {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
 		model.InitBatchUpdater()
