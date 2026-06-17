@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { Share2 } from 'lucide-react'
+import { ArrowRight, Gift, Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatQuota } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -129,46 +129,91 @@ export function AffiliateRewardsCard({
   const hasRewards = pendingAmount > 0
   const canTransferInvitationRebate =
     usingInvitationBackend && invitationFeature?.rebateToBalanceEnabled === true
-  const handleTransfer = canTransferInvitationRebate
+  const handleAction = usingInvitationBackend
     ? (onInvitationRebateTransfer ?? onTransfer)
     : onTransfer
   const showTransferButton =
     hasRewards && (!usingInvitationBackend || canTransferInvitationRebate)
+  const showActionButton = usingInvitationBackend || showTransferButton
+  const actionButtonLabel =
+    usingInvitationBackend && (!hasRewards || !canTransferInvitationRebate)
+      ? t('Rebate Center')
+      : usingInvitationBackend
+        ? t('Apply Rebate to Balance')
+        : t('Transfer to Balance')
+  const actionButtonVariant =
+    usingInvitationBackend && (!hasRewards || !canTransferInvitationRebate)
+      ? 'outline'
+      : 'default'
+  const actionButtonDisabled =
+    !complianceConfirmed &&
+    hasRewards &&
+    (!usingInvitationBackend || canTransferInvitationRebate)
+  const statItems = usingInvitationBackend
+    ? [
+        [t('Pending Rebate'), pendingDisplay],
+        [t('Total Rebate'), totalDisplay],
+        [t('Invites'), String(inviteCount)],
+      ]
+    : [
+        [t('Pending'), pendingDisplay],
+        [t('Total Earned'), totalDisplay],
+        [t('Invites'), String(inviteCount)],
+      ]
 
   return (
     <Card className='bg-muted/20 py-0'>
-      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(280px,1fr)] lg:items-center'>
-        <div className='flex min-w-0 items-center gap-2.5'>
-          <div className='bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border'>
-            <Share2 className='text-muted-foreground size-4' />
-          </div>
-          <div className='min-w-0'>
-            <h3 className='truncate text-sm font-semibold'>
-              {t('Referral Program')}
-            </h3>
-            <p className='text-muted-foreground line-clamp-1 text-xs'>
-              {t(
-                'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4'>
+        <div className='grid gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,0.72fr)_auto] lg:items-center'>
+          <div className='flex min-w-0 items-center gap-2.5'>
+            <div className='bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border'>
+              {usingInvitationBackend ? (
+                <Gift className='text-muted-foreground size-4' />
+              ) : (
+                <Share2 className='text-muted-foreground size-4' />
               )}
-            </p>
-          </div>
-        </div>
-
-        <div className='grid grid-cols-3 gap-1.5 text-center'>
-          {[
-            [t('Pending'), pendingDisplay],
-            [t('Total Earned'), totalDisplay],
-            [t('Invites'), String(inviteCount)],
-          ].map(([label, value]) => (
-            <div key={label}>
-              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
-                {label}
-              </div>
-              <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
-                {value}
-              </div>
             </div>
-          ))}
+            <div className='min-w-0'>
+              <h3 className='truncate text-sm font-semibold'>
+                {usingInvitationBackend
+                  ? t('Invitation Rebate')
+                  : t('Referral Program')}
+              </h3>
+              <p className='text-muted-foreground line-clamp-1 text-xs'>
+                {usingInvitationBackend
+                  ? t('Share your invitation code to earn rebates')
+                  : t(
+                      'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+                    )}
+              </p>
+            </div>
+          </div>
+
+          <div className='grid grid-cols-3 gap-1.5 text-center'>
+            {statItems.map(([label, value]) => (
+              <div key={label}>
+                <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+                  {label}
+                </div>
+                <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
+                  {value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {showActionButton && (
+            <Button
+              onClick={handleAction}
+              disabled={actionButtonDisabled}
+              variant={actionButtonVariant}
+              className='h-9 w-full shrink-0 gap-2 px-3 lg:w-auto'
+              size='sm'
+            >
+              {actionButtonLabel}
+              {usingInvitationBackend && <ArrowRight className='size-3.5' />}
+            </Button>
+          )}
         </div>
 
         <div className='flex items-center gap-2'>
@@ -185,19 +230,9 @@ export function AffiliateRewardsCard({
             tooltip={t('Copy referral link')}
             aria-label={t('Copy referral link')}
           />
-          {showTransferButton && (
-            <Button
-              onClick={handleTransfer}
-              disabled={!complianceConfirmed}
-              className='h-9 shrink-0 px-3'
-              size='sm'
-            >
-              {t('Transfer to Balance')}
-            </Button>
-          )}
         </div>
         {!complianceConfirmed ? (
-          <p className='text-muted-foreground text-xs lg:col-span-3'>
+          <p className='text-muted-foreground text-xs'>
             {t(
               'Referral reward transfer is disabled until the administrator confirms compliance terms.'
             )}
