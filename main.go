@@ -55,6 +55,14 @@ func main() {
 		common.FatalLog("failed to initialize resources: " + err.Error())
 		return
 	}
+	if forcedTheme := strings.TrimSpace(os.Getenv("FORCE_FRONTEND_THEME")); forcedTheme != "" {
+		if forcedTheme != "default" && forcedTheme != "classic" {
+			common.FatalLog("invalid FORCE_FRONTEND_THEME, expected default or classic")
+			return
+		}
+		common.SetTheme(forcedTheme)
+		common.SysLog("frontend theme forced by FORCE_FRONTEND_THEME=" + forcedTheme)
+	}
 
 	common.SysLog("New API " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {

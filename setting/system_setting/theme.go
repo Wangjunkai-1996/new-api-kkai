@@ -1,6 +1,8 @@
 package system_setting
 
 import (
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
 )
@@ -19,6 +21,10 @@ func init() {
 }
 
 func syncThemeToCommon() {
+	if forcedTheme := strings.TrimSpace(common.GetEnvOrDefaultString("FORCE_FRONTEND_THEME", "")); forcedTheme != "" {
+		common.SetTheme(forcedTheme)
+		return
+	}
 	common.SetTheme(themeSettings.Frontend)
 }
 
