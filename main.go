@@ -87,9 +87,9 @@ func main() {
 	if backgroundTasksDisabled {
 		common.SysLog("background tasks disabled by DISABLE_BACKGROUND_TASKS")
 	}
-	if common.MemoryCacheEnabled && !backgroundTasksDisabled {
+	initChannelCache, syncChannelCache := channelCacheStartupPlan(common.MemoryCacheEnabled, backgroundTasksDisabled)
+	if initChannelCache {
 		common.SysLog("memory cache enabled")
-		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
 
 		// Add panic recovery and retry for InitChannelCache
 		func() {
@@ -106,9 +106,12 @@ func main() {
 			model.InitChannelCache()
 		}()
 
-		go model.SyncChannelCache(common.SyncFrequency)
-	} else if common.MemoryCacheEnabled {
-		common.SysLog("memory cache background sync disabled")
+		if syncChannelCache {
+			common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
+			go model.SyncChannelCache(common.SyncFrequency)
+		} else {
+			common.SysLog("memory cache background sync disabled")
+		}
 	}
 
 	if !backgroundTasksDisabled {
@@ -272,6 +275,13 @@ func InjectGoogleAnalytics() {
 	placeholder := []byte("<!--Google Analytics-->\n")
 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
 	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
+}
+
+func channelCacheStartupPlan(memoryCacheEnabled bool, backgroundTasksDisabled bool) (initOnce bool, syncInBackground bool) {
+	if !memoryCacheEnabled {
+		return false, false
+	}
+	return true, !backgroundTasksDisabled
 }
 
 func InitResources() error {
