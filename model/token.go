@@ -85,7 +85,7 @@ func tokenKeyColumn() string {
 	if commonKeyCol != "" {
 		return commonKeyCol
 	}
-	if common.UsingPostgreSQL {
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		return `"key"`
 	}
 	return "`key`"

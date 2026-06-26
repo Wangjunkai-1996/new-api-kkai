@@ -19,12 +19,14 @@ func setupAuthPolicyTestDB(t *testing.T) {
 	originalDB := model.DB
 	originalLogDB := model.LOG_DB
 	originalRedisEnabled := common.RedisEnabled
-	originalUsingSQLite := common.UsingSQLite
+	originalMainDatabaseType := common.MainDatabaseType()
+	originalLogDatabaseType := common.LogDatabaseType()
 	originalSQLitePath := common.SQLitePath
 	originalIsMasterNode := common.IsMasterNode
 
 	common.SQLitePath = "file:" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
 	common.IsMasterNode = false
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	require.NoError(t, model.InitDB())
 	db := model.DB
 	sqlDB, err := db.DB()
@@ -40,7 +42,7 @@ func setupAuthPolicyTestDB(t *testing.T) {
 		model.DB = originalDB
 		model.LOG_DB = originalLogDB
 		common.RedisEnabled = originalRedisEnabled
-		common.UsingSQLite = originalUsingSQLite
+		common.SetDatabaseTypes(originalMainDatabaseType, originalLogDatabaseType)
 		common.SQLitePath = originalSQLitePath
 		common.IsMasterNode = originalIsMasterNode
 	})

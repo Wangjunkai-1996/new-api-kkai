@@ -74,13 +74,9 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
       accessorKey: 'name',
       header: t('Name'),
       meta: { mobileTitle: true },
-      cell: ({ row }) => {
-        return (
-          <div className='max-w-[150px] truncate font-medium'>
-            {row.getValue('name')}
-          </div>
-        )
-      },
+      cell: ({ row }) => (
+        <span className='font-medium'>{row.getValue('name')}</span>
+      ),
       size: 180,
     },
     {
@@ -259,7 +255,6 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
       header: () => t('Actions'),
       cell: ({ row }) => <DataTableRowActions row={row} />,
       meta: { pinned: 'right' as const },
-      size: 88,
     },
   ]
 }

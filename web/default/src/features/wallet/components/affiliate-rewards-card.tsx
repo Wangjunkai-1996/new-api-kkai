@@ -94,7 +94,7 @@ export function AffiliateRewardsCard({
 
   if (loading || statsLoading) {
     return (
-      <Card className='bg-muted/20 py-0'>
+      <Card data-card-hover='false' className='bg-muted/20 py-0'>
         <CardContent className='grid gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,0.72fr)_minmax(320px,1.15fr)] lg:items-center'>
           <div>
             <Skeleton className='h-5 w-32' />
@@ -162,52 +162,67 @@ export function AffiliateRewardsCard({
       ]
 
   return (
-    <Card className='bg-muted/20 py-0'>
-      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4'>
-        <div className='grid gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(240px,0.72fr)_auto] lg:items-center'>
-          <div className='flex min-w-0 items-center gap-2.5'>
-            <div className='bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border'>
-              {usingInvitationBackend ? (
-                <Gift className='text-muted-foreground size-4' />
-              ) : (
-                <Share2 className='text-muted-foreground size-4' />
-              )}
-            </div>
-            <div className='min-w-0'>
-              <h3 className='truncate text-sm font-semibold'>
-                {usingInvitationBackend
-                  ? t('Invitation Rebate')
-                  : t('Referral Program')}
-              </h3>
-              <p className='text-muted-foreground line-clamp-1 text-xs'>
-                {usingInvitationBackend
-                  ? t('Share your invitation code to earn rebates')
-                  : t(
-                      'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
-                    )}
-              </p>
-            </div>
+    <Card data-card-hover='false' className='bg-muted/20 py-0'>
+      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(360px,1.2fr)] lg:items-center'>
+        <div className='flex min-w-0 items-center gap-2.5'>
+          <div className='bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border'>
+            {usingInvitationBackend ? (
+              <Gift className='text-muted-foreground size-4' />
+            ) : (
+              <Share2 className='text-muted-foreground size-4' />
+            )}
           </div>
+          <div className='min-w-0'>
+            <h3 className='truncate text-sm font-semibold'>
+              {usingInvitationBackend
+                ? t('Invitation Rebate')
+                : t('Referral Program')}
+            </h3>
+            <p className='text-muted-foreground line-clamp-1 text-xs'>
+              {usingInvitationBackend
+                ? t('Share your invitation code to earn rebates')
+                : t(
+                    'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+                  )}
+            </p>
+          </div>
+        </div>
 
-          <div className='grid grid-cols-3 gap-1.5 text-center'>
-            {statItems.map(([label, value]) => (
-              <div key={label}>
-                <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
-                  {label}
-                </div>
-                <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
-                  {value}
-                </div>
+        <div className='grid grid-cols-3 gap-1.5 text-center'>
+          {statItems.map(([label, value]) => (
+            <div key={label}>
+              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+                {label}
               </div>
-            ))}
-          </div>
+              <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>
+                {value}
+              </div>
+            </div>
+          ))}
+        </div>
 
+        <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] lg:flex lg:items-center'>
+          <div className='flex min-w-0 items-center gap-2'>
+            <Input
+              value={displayAffiliateLink}
+              readOnly
+              className='border-muted bg-background/70 h-9 min-w-0 flex-1 font-mono text-xs'
+            />
+            <CopyButton
+              value={displayAffiliateLink}
+              variant='outline'
+              className='bg-background size-9 shrink-0'
+              iconClassName='size-4'
+              tooltip={t('Copy referral link')}
+              aria-label={t('Copy referral link')}
+            />
+          </div>
           {showActionButton && (
             <Button
               onClick={handleAction}
               disabled={actionButtonDisabled}
               variant={actionButtonVariant}
-              className='h-9 w-full shrink-0 gap-2 px-3 lg:w-auto'
+              className='h-9 w-full shrink-0 gap-2 px-3 sm:w-auto'
               size='sm'
             >
               {actionButtonLabel}
@@ -215,24 +230,8 @@ export function AffiliateRewardsCard({
             </Button>
           )}
         </div>
-
-        <div className='flex items-center gap-2'>
-          <Input
-            value={displayAffiliateLink}
-            readOnly
-            className='border-muted bg-background/70 h-9 min-w-0 flex-1 font-mono text-xs'
-          />
-          <CopyButton
-            value={displayAffiliateLink}
-            variant='outline'
-            className='bg-background size-9 shrink-0'
-            iconClassName='size-4'
-            tooltip={t('Copy referral link')}
-            aria-label={t('Copy referral link')}
-          />
-        </div>
         {!complianceConfirmed ? (
-          <p className='text-muted-foreground text-xs'>
+          <p className='text-muted-foreground text-xs lg:col-span-3'>
             {t(
               'Referral reward transfer is disabled until the administrator confirms compliance terms.'
             )}
