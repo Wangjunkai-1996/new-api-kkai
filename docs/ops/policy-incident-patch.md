@@ -2,19 +2,20 @@
 
 ## Purpose
 
-This fork intentionally adds a production safety guard for high-confidence upstream policy incidents. When an upstream NewAPI-like provider reports safety-policy failures such as `cyber_policy` or a permanently disabled upstream API key, the fork must stop retry fan-out, isolate the affected upstream key/channel, and decide whether client-token action is allowed from the incident causality.
+This fork intentionally adds a production safety guard for high-confidence upstream policy incidents. When an upstream NewAPI-like provider reports safety-policy failures such as `cyber_policy` or a permanently disabled upstream API key, the fork must stop retry fan-out and decide whether client-token action is allowed from the incident causality.
 
-The goal is to avoid replaying the same risky request across additional channels while keeping enough append-only audit evidence for administrator review. Client tokens may be blocked only when the incident is attributable to the client request, not when the only proven cause is an upstream key ban or permanent-disable state.
+The goal is to avoid replaying the same risky request across additional channels while keeping enough append-only audit evidence for administrator review. Client tokens may be blocked only when the incident is attributable to the client request, not when the only proven cause is an upstream key ban or permanent-disable state. Upstream key/channel isolation is intentionally disabled by default to avoid impacting unrelated users who share the same upstream provider key.
 
 ## Behavior Contract
 
 - Detect high-confidence policy incident errors from normal relay and task relay paths.
 - Mark the request context as no-retry after detection.
 - Classify incident causality before taking client-token actions.
-- Set short-lived breaker state for the upstream key when Redis is available.
+- Do not set short-lived breaker state for the upstream key unless `policy_incident_setting.isolate_upstream_on_policy_incident` is explicitly enabled.
 - Set client-token breaker state and persistently disable the implicated client token only when causality is `client_policy_request` and `ClientTokenActionAllowed` is true.
 - Never set client-token breaker state and never persistently disable the client token when causality is `upstream_key_encountered`; record `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing` instead.
-- Auto-disable the implicated upstream channel/key through the existing channel status update path.
+- Do not auto-disable the implicated upstream channel/key unless `policy_incident_setting.isolate_upstream_on_policy_incident` is explicitly enabled.
+- When upstream isolation is disabled, audit `upstream_breaker_skipped` and `upstream_isolation_skipped` with `config_disabled`.
 - Insert an append-only `policy_incident_events` audit record.
 - Store `causality` and `client_token_action_allowed` so operators can audit why client-token action was or was not taken.
 - Store upstream keys only as fingerprints and redact sensitive text from metadata.
@@ -26,8 +27,8 @@ The goal is to avoid replaying the same risky request across additional channels
 
 | Causality | Meaning | Client token action | Upstream action | Required audit markers |
 | --- | --- | --- | --- | --- |
-| `client_policy_request` | The upstream policy error is attributable to the client's request, such as a clear `cyber_policy` request-policy hit without an upstream-key permanent-disable marker. | Allowed. Set token breaker and, if enabled by config, persistently disable the client token. | Isolate the implicated upstream channel/key. | `client_token_action_allowed=true`; action includes `token_breaker_set`; persistent disable may be `token_disabled`, `token_unchanged`, or `token_db_disable_skipped` depending on config/state. |
-| `upstream_key_encountered` | The event proves the upstream key encountered a policy/permanent-disable state, such as `当前 API key 已永久禁用`; it does not prove the current client caused it. | Forbidden. Do not set token breaker and do not persistently disable the client token. | Isolate the implicated upstream channel/key. | `client_token_action_allowed=false`; action includes `token_breaker_skipped,token_db_disable_skipped`; result includes `client_attribution_missing`. |
+| `client_policy_request` | The upstream policy error is attributable to the client's request, such as a clear `cyber_policy` request-policy hit without an upstream-key permanent-disable marker. | Allowed. Set token breaker and, if enabled by config, persistently disable the client token. | Disabled by default. Only isolate the implicated upstream channel/key when `isolate_upstream_on_policy_incident=true`. | `client_token_action_allowed=true`; action includes `token_breaker_set`; persistent disable may be `token_disabled`, `token_unchanged`, or `token_db_disable_skipped` depending on config/state. With default upstream behavior, action also includes `upstream_breaker_skipped,upstream_isolation_skipped`. |
+| `upstream_key_encountered` | The event proves the upstream key encountered a policy/permanent-disable state, such as `当前 API key 已永久禁用`; it does not prove the current client caused it. | Forbidden. Do not set token breaker and do not persistently disable the client token. | Disabled by default. Only isolate the implicated upstream channel/key when `isolate_upstream_on_policy_incident=true`. | `client_token_action_allowed=false`; action includes upstream isolation skipped markers by default; result includes `config_disabled` for upstream breaker/isolation. |
 
 ## Patch Touch Points
 
@@ -54,7 +55,7 @@ Keep these files in mind during upstream syncs:
 - `service/policy_incident.go`
   - classification, no-retry marking, token disable, upstream isolation, audit event, notification
 - `setting/operation_setting/policy_incident_setting.go`
-  - persistent token disable setting, enabled by default
+  - persistent token disable setting, enabled by default; upstream isolation setting, disabled by default
 - `types/error.go`
   - policy incident error typing
 
@@ -125,7 +126,7 @@ order by id desc
 limit 10;
 ```
 
-Expected result: the table exists after app startup. It may be empty until a real policy incident occurs. When events exist, `upstream_key_encountered` rows must show `client_token_action_allowed=false`, `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing`. `client_policy_request` rows may show client-token breaker or disable actions according to `policy_incident_setting.disable_client_token_persistently`.
+Expected result: the table exists after app startup. It may be empty until a real policy incident occurs. With the default upstream-isolation setting, policy incident rows must not show `upstream_breaker_set` or `upstream_isolated`; they should show `upstream_breaker_skipped`, `upstream_isolation_skipped`, and `config_disabled`. `client_policy_request` rows may show client-token breaker or disable actions according to `policy_incident_setting.disable_client_token_persistently`.
 
 ## Rollback
 
@@ -140,4 +141,4 @@ This patch adds a table but does not require destructive schema migration. Rollb
 
 When working in a new Codex/AI window, start with:
 
-> Read `AGENTS.md`, `docs/ops/frt-header-patch.md`, and `docs/ops/policy-incident-patch.md` first. Upgrade NewAPI from official upstream while preserving fork-only patches: FRT Header Display and the causality-aware Policy Incident Guard. Preserve commits `828998d1`, `91259f4a`, and `ce78d522`; never disable client tokens for `upstream_key_encountered` incidents. Run `scripts/check-frt-header-patch.sh` plus focused policy tests before build or deploy.
+> Read `AGENTS.md`, `docs/ops/frt-header-patch.md`, and `docs/ops/policy-incident-patch.md` first. Upgrade NewAPI from official upstream while preserving fork-only patches: FRT Header Display and the causality-aware Policy Incident Guard. Preserve commits `828998d1`, `91259f4a`, and `ce78d522`; never disable client tokens for `upstream_key_encountered` incidents, and keep upstream key/channel isolation disabled by default unless `policy_incident_setting.isolate_upstream_on_policy_incident` is explicitly enabled. Run `scripts/check-frt-header-patch.sh` plus focused policy tests before build or deploy.

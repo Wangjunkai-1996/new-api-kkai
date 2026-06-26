@@ -206,7 +206,7 @@ Required behavior:
   - `client_policy_request`: the incident is attributable to the client request, `ClientTokenActionAllowed` must be true, and the client token breaker plus optional persistent disable are allowed.
   - `upstream_key_encountered`: the incident only proves the upstream API key is banned, permanently disabled, or otherwise encountered an upstream-key policy state; `ClientTokenActionAllowed` must be false.
 - For `upstream_key_encountered`, never set the client-token breaker and never persistently disable the client token. The incident action/result should show `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing`.
-- The implicated upstream channel/key must be isolated through the existing channel status and breaker mechanisms.
+- The implicated upstream channel/key must not be isolated by default; isolate it through the existing channel status and breaker mechanisms only when `policy_incident_setting.isolate_upstream_on_policy_incident` is explicitly enabled.
 - `policy_incident_events` must remain append-only and must store only redacted metadata plus upstream key fingerprints, never raw upstream keys or request prompts.
 - Each incident event must preserve the causality decision in `causality` and metadata such as `client_token_action_allowed` so future operators can audit why a client token was or was not touched.
 - Task relay and normal relay paths must both call the policy-incident handling flow.

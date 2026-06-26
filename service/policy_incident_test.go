@@ -56,6 +56,16 @@ func createPolicyIncidentUser(t *testing.T, id int, role int) *model.User {
 	return user
 }
 
+func setPolicyIncidentUpstreamIsolation(t *testing.T, enabled bool) {
+	t.Helper()
+	setting := operation_setting.GetPolicyIncidentSetting()
+	original := setting.IsolateUpstreamOnPolicyIncident
+	setting.IsolateUpstreamOnPolicyIncident = enabled
+	t.Cleanup(func() {
+		setting.IsolateUpstreamOnPolicyIncident = original
+	})
+}
+
 func TestClassifyPolicyIncidentMatchesHighConfidenceText(t *testing.T) {
 	tests := []string{
 		"upstream rejected: cyber_policy",
@@ -120,7 +130,7 @@ func TestPolicyIncidentSetsNoRetryEvenWhenTokenDisableFails(t *testing.T) {
 	assert.True(t, ShouldSkipRetryAfterPolicyIncident(ctx))
 }
 
-func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) {
+func TestPolicyIncidentRecordsEventAndSkipsUpstreamIsolationByDefault(t *testing.T) {
 	truncate(t)
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
@@ -158,8 +168,7 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	require.NoError(t, errGet)
 	assert.Equal(t, common.ChannelStatusEnabled, reloaded.Status)
 	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyStatusList, 0)
-	assert.Equal(t, common.ChannelStatusAutoDisabled, reloaded.ChannelInfo.MultiKeyStatusList[1])
-	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyDisabledReason[1], "upstream-b")
+	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyStatusList, 1)
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
@@ -171,12 +180,54 @@ func TestPolicyIncidentRecordsEventAndIsolatesOnlyCurrentMultiKey(t *testing.T) 
 	assert.NotContains(t, formatPolicyIncidentNotification(&event), "upstream-b")
 	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
 	assert.Contains(t, event.ActionTaken, "token_breaker_set")
-	assert.Contains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.Contains(t, event.ActionTaken, "token_disabled")
 	assert.Contains(t, event.ActionTaken, "user_disabled")
+	assert.Contains(t, event.ActionTaken, "upstream_breaker_skipped")
+	assert.Contains(t, event.ActionTaken, "upstream_isolation_skipped")
+	assert.NotContains(t, event.ActionTaken, "upstream_breaker_set")
+	assert.NotContains(t, event.ActionTaken, "upstream_isolated")
+	assert.Contains(t, event.ActionResult, "redis_unavailable")
+	assert.Contains(t, event.ActionResult, policyIncidentResultConfigDisabled)
+	assert.Contains(t, event.ActionResult, policyIncidentResultSuccess)
+}
+
+func TestPolicyIncidentCanIsolateUpstreamWhenExplicitlyEnabled(t *testing.T) {
+	truncate(t)
+	setPolicyIncidentUpstreamIsolation(t, true)
+
+	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
+	token := &model.Token{UserId: 42, Key: "client-token-key-enabled", Status: common.TokenStatusEnabled, Name: "client-token"}
+	require.NoError(t, model.DB.Create(token).Error)
+	channel := &model.Channel{
+		Key:    "upstream-a\nupstream-b",
+		Status: common.ChannelStatusEnabled,
+		Name:   "policy-channel-enabled",
+		Type:   1,
+		ChannelInfo: model.ChannelInfo{
+			IsMultiKey:   true,
+			MultiKeySize: 2,
+		},
+	}
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	ctx := newPolicyIncidentTestContext(t)
+	ctx.Set("token_id", token.Id)
+	ctx.Set(common.RequestIdKey, "req-policy-test-upstream-enabled")
+	err := types.NewOpenAIError(errors.New("cyber_policy request rejected for upstream-b"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, true, "upstream-b", true), err)
+
+	reloaded, errGet := model.GetChannelById(channel.Id, true)
+	require.NoError(t, errGet)
+	assert.Equal(t, common.ChannelStatusEnabled, reloaded.Status)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, reloaded.ChannelInfo.MultiKeyStatusList[1])
+	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyDisabledReason[1], "upstream-b")
+
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test-upstream-enabled").First(&event).Error)
+	assert.Contains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.Contains(t, event.ActionTaken, "upstream_isolated")
 	assert.Contains(t, event.ActionResult, "redis_unavailable")
-	assert.Contains(t, event.ActionResult, policyIncidentResultSuccess)
 }
 
 func TestPolicyIncidentWritesGzipEvidenceAndSafeMetadata(t *testing.T) {
@@ -317,7 +368,8 @@ func TestPolicyIncidentForcesCustomerDisableWhenConfiguredOff(t *testing.T) {
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
 	assert.Contains(t, event.ActionTaken, "token_disabled")
 	assert.Contains(t, event.ActionTaken, "user_disabled")
-	assert.NotContains(t, event.ActionResult, "config_disabled")
+	assert.NotContains(t, event.ActionTaken, "token_unchanged")
+	assert.NotContains(t, event.ActionTaken, "user_unchanged")
 }
 
 func TestPolicyIncidentHandlesMixedCyberPolicyAndKeyDisabledAsClientPolicy(t *testing.T) {
@@ -354,7 +406,10 @@ func TestPolicyIncidentHandlesMixedCyberPolicyAndKeyDisabledAsClientPolicy(t *te
 	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
 	assert.Contains(t, event.ActionTaken, "token_disabled")
 	assert.Contains(t, event.ActionTaken, "user_disabled")
-	assert.Contains(t, event.ActionTaken, "upstream_isolated")
+	assert.Contains(t, event.ActionTaken, "upstream_breaker_skipped")
+	assert.Contains(t, event.ActionTaken, "upstream_isolation_skipped")
+	assert.NotContains(t, event.ActionTaken, "upstream_breaker_set")
+	assert.NotContains(t, event.ActionTaken, "upstream_isolated")
 }
 
 func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing.T) {
@@ -458,9 +513,27 @@ func TestPolicyIncidentSkipsPrivilegedUserDisableButDisablesToken(t *testing.T) 
 			assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
 			assert.Contains(t, event.ActionTaken, "token_disabled")
 			assert.Contains(t, event.ActionTaken, "user_disable_skipped_privileged")
-			assert.Contains(t, event.ActionTaken, "upstream_isolated")
+			assert.Contains(t, event.ActionTaken, "upstream_breaker_skipped")
+			assert.Contains(t, event.ActionTaken, "upstream_isolation_skipped")
+			assert.NotContains(t, event.ActionTaken, "upstream_breaker_set")
+			assert.NotContains(t, event.ActionTaken, "upstream_isolated")
 		})
 	}
+}
+
+func TestPolicyUpstreamBreakerNoopsWhenUpstreamIsolationDisabled(t *testing.T) {
+	setPolicyIncidentUpstreamIsolation(t, false)
+	originalRedisEnabled := common.RedisEnabled
+	originalRDB := common.RDB
+	common.RedisEnabled = true
+	common.RDB = nil
+	t.Cleanup(func() {
+		common.RedisEnabled = originalRedisEnabled
+		common.RDB = originalRDB
+	})
+
+	require.NoError(t, SetPolicyUpstreamKeyBreaker(123, "upstream-key"))
+	assert.False(t, IsUpstreamKeyPolicyBreakerOpen(123, "upstream-key"))
 }
 
 func TestTaskRelayPolicyIncidentSkipsLocalErrors(t *testing.T) {
