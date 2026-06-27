@@ -31,9 +31,35 @@ import type {
   GroupConfidenceStatus,
   GroupExperienceLabel,
   GroupRecommendationLevel,
+  GroupStatusWindow,
 } from './types'
 
-export const WINDOW_OPTIONS = [1, 6, 24] as const
+export const WINDOW_OPTIONS: {
+  value: GroupStatusWindow
+  labelKey: string
+  detailKey: string
+}[] = [
+  {
+    value: 'now',
+    labelKey: 'Realtime',
+    detailKey: 'Just now signal',
+  },
+  {
+    value: '15m',
+    labelKey: '15 minutes',
+    detailKey: 'Recent short window',
+  },
+  {
+    value: '1h',
+    labelKey: '1 hour',
+    detailKey: 'One hour trend',
+  },
+  {
+    value: '6h',
+    labelKey: '6 hours',
+    detailKey: 'Six hour trend',
+  },
+]
 
 export const CONFIDENCE_META: Record<
   GroupConfidenceStatus,
@@ -152,6 +178,9 @@ export const MESSAGE_LABELS: Record<string, string> = {
   'Group status message: no routable models':
     'Group status message: no routable models',
   'Group status message: unknown': 'Group status message: unknown',
+  'Group status message: live success': 'Group status message: live success',
+  'Group status message: live waiting': 'Group status message: live waiting',
+  'Group status message: live failure': 'Group status message: live failure',
   'No routable models are currently enabled for this group.':
     'Group status message: no routable models',
   'Not enough recent traffic to determine health.':

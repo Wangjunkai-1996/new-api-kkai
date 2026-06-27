@@ -18,13 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { api } from '@/lib/api'
-import type { GroupStatusResponse, GroupStatusWindowHours } from './types'
+import type { GroupStatusResponse, GroupStatusWindow } from './types'
 
 export async function getGroupStatus(
-  hours: GroupStatusWindowHours
+  window: GroupStatusWindow
 ): Promise<GroupStatusResponse> {
   const res = await api.get('/api/status/groups', {
-    params: { hours },
+    params: { window },
   })
   const data = res.data as GroupStatusResponse
   if (!data.success) {

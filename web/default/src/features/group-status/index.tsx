@@ -35,15 +35,16 @@ import { GroupStatusSummary } from './group-status-summary'
 import { GroupStatusTable } from './group-status-table'
 import { sortGroupsForConfidence } from './status-display'
 import { WINDOW_OPTIONS } from './status-meta'
-import type { GroupStatusWindowHours } from './types'
+import type { GroupStatusWindow } from './types'
 
 export function GroupStatusPage() {
   const { t } = useTranslation()
-  const [hours, setHours] = useState<GroupStatusWindowHours>(6)
+  const [window, setWindow] = useState<GroupStatusWindow>('now')
   const query = useQuery({
-    queryKey: ['group-status', hours],
-    queryFn: () => getGroupStatus(hours),
-    staleTime: 30 * 1000,
+    queryKey: ['group-status', window],
+    queryFn: () => getGroupStatus(window),
+    staleTime: window === 'now' ? 10 * 1000 : 30 * 1000,
+    refetchInterval: window === 'now' ? 15 * 1000 : false,
   })
 
   const result = query.data?.data
@@ -62,14 +63,15 @@ export function GroupStatusPage() {
         <ButtonGroup aria-label={t('Status window')}>
           {WINDOW_OPTIONS.map((option) => (
             <Button
-              key={option}
+              key={option.value}
               type='button'
-              variant={hours === option ? 'default' : 'outline'}
+              variant={window === option.value ? 'default' : 'outline'}
               size='sm'
-              aria-pressed={hours === option}
-              onClick={() => setHours(option)}
+              aria-pressed={window === option.value}
+              title={t(option.detailKey)}
+              onClick={() => setWindow(option.value)}
             >
-              {t('{{hours}}h', { hours: option })}
+              {t(option.labelKey)}
             </Button>
           ))}
         </ButtonGroup>
@@ -107,10 +109,12 @@ export function GroupStatusPage() {
             <>
               <GroupStatusSummary
                 groups={sortedGroups}
-                windowHours={result?.window_hours}
+                window={result?.window ?? window}
+                windowMinutes={result?.window_minutes}
+                generatedAt={result?.generated_at}
               />
+              <GroupStatusCards groups={sortedGroups} generatedAt={result?.generated_at} />
               <GroupStatusTable groups={sortedGroups} />
-              <GroupStatusCards groups={sortedGroups} />
             </>
           )}
         </div>

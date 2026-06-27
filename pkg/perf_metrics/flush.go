@@ -19,6 +19,7 @@ func flushLoop() {
 			continue
 		}
 		flushCompletedBuckets()
+		CleanupRecentGroupEvents()
 		cleanupExpiredMetrics(setting.RetentionDays)
 	}
 }

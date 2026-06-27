@@ -23,7 +23,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber, formatPercent } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { GroupStatusEntry } from './types'
+import type { GroupStatusEntry, GroupStatusWindow } from './types'
 import {
   getBestGroup,
   getConfidenceStatus,
@@ -46,7 +46,9 @@ type SummaryStats = {
 
 export function GroupStatusSummary(props: {
   groups: GroupStatusEntry[]
-  windowHours?: number
+  window?: GroupStatusWindow | '24h'
+  windowMinutes?: number
+  generatedAt?: number
 }) {
   const { t } = useTranslation()
   const bestGroup = getBestGroup(props.groups)
@@ -54,6 +56,9 @@ export function GroupStatusSummary(props: {
   const bestMeta = bestGroup
     ? CONFIDENCE_META[getConfidenceStatus(bestGroup)]
     : CONFIDENCE_META.unknown
+  const headline = bestGroup
+    ? summaryHeadline(bestGroup, props.window)
+    : { key: 'Group Confidence', group: '' }
   const BestIcon = bestMeta.icon
 
   return (
@@ -80,14 +85,10 @@ export function GroupStatusSummary(props: {
             </div>
             <div className='space-y-1'>
               <h2 className='text-2xl font-semibold tracking-normal sm:text-3xl'>
-                {bestGroup
-                  ? t('Current top pick: {{group}}', { group: bestGroup.group })
-                  : t('Group Confidence')}
+                {t(headline.key, { group: headline.group })}
               </h2>
               <p className='text-muted-foreground max-w-2xl text-sm'>
-                {t(
-                  'Calculated from recent success rate and routable model coverage. Latency is not used to downgrade high-success groups.'
-                )}
+                {t(windowDescriptionKey(props.window))}
               </p>
             </div>
           </div>
@@ -143,12 +144,53 @@ export function GroupStatusSummary(props: {
           icon={Activity}
           label={t('Recent Samples')}
           value={formatNumber(stats.totalRequests)}
-          detail={t('{{hours}}h window', { hours: props.windowHours ?? 6 })}
+          detail={t(windowDetailKey(props.window), {
+            minutes: props.windowMinutes ?? 5,
+          })}
           accent='cyan'
         />
       </div>
     </div>
   )
+}
+
+function windowDescriptionKey(window?: GroupStatusWindow | '24h') {
+  if (window === 'now') {
+    return 'Realtime status uses actual recent requests and routable model coverage. It does not probe upstream or consume quota.'
+  }
+  return 'Calculated from recent success rate and routable model coverage. Latency is not used to downgrade high-success groups.'
+}
+
+function summaryHeadline(
+  group: GroupStatusEntry,
+  window?: GroupStatusWindow | '24h'
+) {
+  const status = getConfidenceStatus(group)
+  if (status === 'unavailable') {
+    return { key: 'No smooth group right now', group: group.group }
+  }
+  if (window === 'now' && group.request_count <= 0) {
+    return { key: 'Waiting for live signals', group: group.group }
+  }
+  if (window === 'now') {
+    return { key: 'Live top pick: {{group}}', group: group.group }
+  }
+  return { key: 'Current top pick: {{group}}', group: group.group }
+}
+
+function windowDetailKey(window?: GroupStatusWindow | '24h') {
+  switch (window) {
+    case 'now':
+      return 'Realtime recent requests'
+    case '15m':
+      return 'Last {{minutes}} minutes'
+    case '1h':
+      return 'Last hour'
+    case '6h':
+      return 'Last six hours'
+    default:
+      return 'Selected window'
+  }
 }
 
 function MetricCard(props: {

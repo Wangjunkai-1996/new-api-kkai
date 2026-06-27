@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/glebarez/sqlite"
@@ -21,6 +22,8 @@ func setupGroupStatusServiceTest(t *testing.T) *gorm.DB {
 
 	prepareGroupStatusModelColumns(t)
 	common.RedisEnabled = false
+	perfmetrics.ResetForTest()
+	t.Cleanup(perfmetrics.ResetForTest)
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -319,6 +322,82 @@ func TestGroupStatusServiceReturnsUnknownExperienceWhenTtftSamplesAreInsufficien
 	entry := groupStatusByName(result.Groups)["default"]
 	require.Equal(t, GroupConfidenceExcellent, entry.ConfidenceStatus)
 	require.Equal(t, GroupExperienceUnknown, entry.ExperienceLabel)
+}
+
+func TestGroupStatusServiceUsesRealtimeEventsForNowWindow(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+	perfmetrics.Record(perfmetrics.Sample{
+		Model:     "gpt-4o",
+		Group:     "default",
+		LatencyMs: 1800,
+		TtftMs:    600,
+		HasTtft:   true,
+		Success:   true,
+	})
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, "now", result.Window)
+	require.Equal(t, 5, result.WindowMinutes)
+	require.Equal(t, GroupHealthOperational, entry.Status)
+	require.Equal(t, GroupConfidenceStable, entry.ConfidenceStatus)
+	require.Equal(t, GroupRecommendationUsable, entry.RecommendationLevel)
+	require.Equal(t, groupStatusMessageLiveSuccess, entry.DisplayMessage)
+	require.Equal(t, int64(1), entry.RequestCount)
+	require.Equal(t, 100.0, entry.SuccessRate)
+	require.Len(t, entry.RecentEvents, 1)
+	require.Equal(t, "success", entry.RecentEvents[0].Status)
+}
+
+func TestGroupStatusServiceShowsLiveFailureWhenRecentEventsFail(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+	for i := 0; i < 8; i++ {
+		perfmetrics.Record(perfmetrics.Sample{
+			Model:     "gpt-4o",
+			Group:     "default",
+			LatencyMs: 900,
+			Success:   i < 2,
+		})
+	}
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, GroupHealthOutage, entry.Status)
+	require.Equal(t, GroupConfidenceUnavailable, entry.ConfidenceStatus)
+	require.Equal(t, GroupRecommendationUnavailable, entry.RecommendationLevel)
+	require.Equal(t, groupStatusMessageLiveFailure, entry.DisplayMessage)
+	require.Equal(t, int64(8), entry.RequestCount)
+	require.Equal(t, 25.0, entry.SuccessRate)
+	require.Len(t, entry.RecentEvents, 8)
+}
+
+func TestGroupStatusServiceKeepsRoutableNowWindowWaitingWithoutRecentEvents(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, GroupHealthUnknown, entry.Status)
+	require.Equal(t, GroupConfidenceUnknown, entry.ConfidenceStatus)
+	require.Equal(t, groupStatusMessageLiveWaiting, entry.DisplayMessage)
+	require.Empty(t, entry.RecentEvents)
 }
 
 func insertGroupAbility(t *testing.T, db *gorm.DB, group string, modelName string, channelID int, enabled bool) {

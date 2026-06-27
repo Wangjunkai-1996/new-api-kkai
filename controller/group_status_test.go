@@ -24,8 +24,10 @@ import (
 type groupStatusAPIResponse struct {
 	Success bool `json:"success"`
 	Data    struct {
-		WindowHours int                        `json:"window_hours"`
-		Groups      []service.GroupStatusEntry `json:"groups"`
+		Window        string                     `json:"window"`
+		WindowMinutes int                        `json:"window_minutes"`
+		WindowHours   int                        `json:"window_hours"`
+		Groups        []service.GroupStatusEntry `json:"groups"`
 	} `json:"data"`
 }
 
@@ -166,6 +168,46 @@ func TestGroupStatusControllerReturnsOnlyUserUsableGroupsAndNoSensitiveFields(t 
 	require.NotContains(t, body, "channel_name")
 	require.NotContains(t, body, "base_url")
 	require.NotContains(t, body, "key")
+}
+
+func TestGroupStatusControllerAcceptsRealtimeWindow(t *testing.T) {
+	db := setupGroupStatusControllerTest(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1003,
+		Username: "group-status-live-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:     1,
+		Name:   "default-channel",
+		Key:    "sk-default",
+		Status: common.ChannelStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-4o",
+		ChannelId: 1,
+		Enabled:   true,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/status/groups?window=now", nil)
+	ctx.Set("id", 1003)
+
+	GetGroupStatus(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response groupStatusAPIResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+	require.Equal(t, "now", response.Data.Window)
+	require.Equal(t, 5, response.Data.WindowMinutes)
+	require.Equal(t, 1, response.Data.WindowHours)
+	require.Equal(t, []string{"default", "vip"}, controllerGroupStatusNames(response.Data.Groups))
+	require.Equal(t, service.GroupConfidenceUnknown, response.Data.Groups[0].ConfidenceStatus)
 }
 
 func TestGroupStatusControllerHonorsSpecialUserUsableGroups(t *testing.T) {

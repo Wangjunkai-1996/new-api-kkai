@@ -16,6 +16,7 @@ func GetGroupStatus(c *gin.Context) {
 			hours = parsed
 		}
 	}
+	window := c.Query("window")
 
 	userGroup, err := model.GetUserGroup(c.GetInt("id"), false)
 	if err != nil {
@@ -26,6 +27,7 @@ func GetGroupStatus(c *gin.Context) {
 	result, err := service.GetUserGroupStatuses(service.GroupStatusRequest{
 		UsableGroups: service.GetUserUsableGroups(userGroup),
 		Hours:        hours,
+		Window:       window,
 	})
 	if err != nil {
 		common.ApiError(c, err)

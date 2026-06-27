@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-export type GroupStatusWindowHours = 1 | 6 | 24
+export type GroupStatusWindow = 'now' | '15m' | '1h' | '6h'
 
 export type GroupHealthStatus =
   | 'operational'
@@ -66,11 +66,21 @@ export interface GroupStatusEntry {
   avg_ttft_ms: number
   available_model_count: number
   updated_at: number
+  recent_events?: GroupRecentEvent[] | null
+}
+
+export interface GroupRecentEvent {
+  ts: number
+  status: 'success' | 'failure'
+  ttft_ms?: number
+  latency_ms?: number
 }
 
 export interface GroupStatusResult {
   generated_at: number
-  window_hours: GroupStatusWindowHours
+  window?: GroupStatusWindow | '24h'
+  window_minutes?: number
+  window_hours: number
   groups: GroupStatusEntry[]
 }
 

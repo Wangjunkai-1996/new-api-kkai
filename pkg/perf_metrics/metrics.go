@@ -2,6 +2,7 @@ package perfmetrics
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -15,6 +16,12 @@ import (
 )
 
 var hotBuckets sync.Map
+var recentGroupEvents sync.Map
+
+const (
+	recentGroupEventLimit          = 60
+	recentGroupEventRetentionHours = 6
+)
 
 // seriesSchema is a stable client cache/schema marker. Do not change it when
 // hiding fields or making response-only privacy hardening changes.
@@ -66,13 +73,15 @@ func Record(sample Sample) {
 		sample.LatencyMs = 0
 	}
 
+	now := time.Now()
 	key := bucketKey{
 		model:    sample.Model,
 		group:    sample.Group,
-		bucketTs: bucketStart(time.Now().Unix()),
+		bucketTs: bucketStart(now.Unix()),
 	}
 	actual, _ := hotBuckets.LoadOrStore(key, &atomicBucket{})
 	actual.(*atomicBucket).add(sample)
+	recordRecentGroupEvent(sample, now.Unix())
 	recordRedis(key, sample)
 }
 
@@ -249,6 +258,157 @@ func QuerySummaryByGroup(hours int, groups []string) (GroupSummaryResult, error)
 	}
 
 	return GroupSummaryResult{Groups: groupsResult}, nil
+}
+
+func QueryRecentEventsByGroup(minutes int, groups []string) GroupRecentEventsResult {
+	if minutes <= 0 {
+		minutes = 5
+	}
+	endTs := time.Now().Unix()
+	startTs := endTs - int64(minutes)*60
+	allowedGroups := allowedGroupSet(groups)
+
+	eventsByGroup := queryRedisRecentGroupEvents(startTs, groups)
+	recentGroupEvents.Range(func(key, value any) bool {
+		group := key.(string)
+		if allowedGroups != nil {
+			if _, ok := allowedGroups[group]; !ok {
+				return true
+			}
+		}
+		if _, ok := eventsByGroup[group]; ok {
+			return true
+		}
+		events := value.(*recentEventBuffer).snapshotSince(startTs, recentGroupEventLimit)
+		if len(events) == 0 {
+			return true
+		}
+		eventsByGroup[group] = append(eventsByGroup[group], events...)
+		return true
+	})
+
+	result := make([]GroupRecentEvents, 0, len(eventsByGroup))
+	for group, events := range eventsByGroup {
+		events = limitRecentEvents(events, recentGroupEventLimit)
+		if len(events) == 0 {
+			continue
+		}
+		result = append(result, GroupRecentEvents{Group: group, Events: events})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Group < result[j].Group
+	})
+	return GroupRecentEventsResult{Groups: result}
+}
+
+func CleanupRecentGroupEvents() {
+	cutoffTs := time.Now().Add(-recentGroupEventRetentionHours * time.Hour).Unix()
+	recentGroupEvents.Range(func(key, value any) bool {
+		if value.(*recentEventBuffer).pruneBefore(cutoffTs) {
+			recentGroupEvents.Delete(key)
+		}
+		return true
+	})
+}
+
+func ResetRecentGroupEventsForTest() {
+	recentGroupEvents.Range(func(key, _ any) bool {
+		recentGroupEvents.Delete(key)
+		return true
+	})
+}
+
+func ResetForTest() {
+	hotBuckets.Range(func(key, _ any) bool {
+		hotBuckets.Delete(key)
+		return true
+	})
+	ResetRecentGroupEventsForTest()
+}
+
+func recordRecentGroupEvent(sample Sample, ts int64) {
+	actual, _ := recentGroupEvents.LoadOrStore(sample.Group, &recentEventBuffer{})
+	actual.(*recentEventBuffer).add(GroupRecentEvent{
+		Ts:        ts,
+		Success:   sample.Success,
+		LatencyMs: sample.LatencyMs,
+		TtftMs:    sample.TtftMs,
+		HasTtft:   sample.HasTtft,
+	}, recentGroupEventLimit)
+	recordRedisRecentGroupEvent(sample, ts)
+}
+
+func recordRedisRecentGroupEvent(sample Sample, ts int64) {
+	if !common.RedisEnabled || common.RDB == nil {
+		return
+	}
+	payload, err := json.Marshal(redisRecentEvent{
+		Ts:        ts,
+		Success:   sample.Success,
+		LatencyMs: sample.LatencyMs,
+		TtftMs:    sample.TtftMs,
+		HasTtft:   sample.HasTtft,
+	})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	key := redisRecentGroupKey(sample.Group)
+	pipe := common.RDB.TxPipeline()
+	pipe.LPush(ctx, key, string(payload))
+	pipe.LTrim(ctx, key, 0, recentGroupEventLimit-1)
+	pipe.Expire(ctx, key, recentGroupEventRetentionHours*time.Hour)
+	_, _ = pipe.Exec(ctx)
+}
+
+func queryRedisRecentGroupEvents(startTs int64, groups []string) map[string][]GroupRecentEvent {
+	eventsByGroup := map[string][]GroupRecentEvent{}
+	if !common.RedisEnabled || common.RDB == nil || len(groups) == 0 {
+		return eventsByGroup
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	for _, group := range groups {
+		values, err := common.RDB.LRange(ctx, redisRecentGroupKey(group), 0, recentGroupEventLimit-1).Result()
+		if err != nil || len(values) == 0 {
+			continue
+		}
+		events := make([]GroupRecentEvent, 0, len(values))
+		for _, value := range values {
+			var event redisRecentEvent
+			if err := json.Unmarshal([]byte(value), &event); err != nil || event.Ts < startTs {
+				continue
+			}
+			events = append(events, GroupRecentEvent{
+				Ts:        event.Ts,
+				Success:   event.Success,
+				LatencyMs: event.LatencyMs,
+				TtftMs:    event.TtftMs,
+				HasTtft:   event.HasTtft,
+			})
+		}
+		if len(events) > 0 {
+			eventsByGroup[group] = events
+		}
+	}
+	return eventsByGroup
+}
+
+func limitRecentEvents(events []GroupRecentEvent, limit int) []GroupRecentEvent {
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Ts < events[j].Ts
+	})
+	if len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+	return append([]GroupRecentEvent(nil), events...)
+}
+
+func redisRecentGroupKey(group string) string {
+	return fmt.Sprintf("perf:recent-group:%s", group)
 }
 
 func mergeModelTotals(totals map[string]counters, modelName string, value counters) {

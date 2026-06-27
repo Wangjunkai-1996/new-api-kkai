@@ -47,10 +47,15 @@ const (
 	groupStatusMessageUnavailable = "Group status message: unavailable"
 	groupStatusMessageNoModels    = "Group status message: no routable models"
 	groupStatusMessageUnknown     = "Group status message: unknown"
+	groupStatusMessageLiveSuccess = "Group status message: live success"
+	groupStatusMessageLiveWaiting = "Group status message: live waiting"
+	groupStatusMessageLiveFailure = "Group status message: live failure"
 
 	groupHealthMinSamples        = int64(20)
+	groupHealthLiveMinSamples    = int64(8)
 	groupHealthMediumSamples     = int64(100)
 	groupHealthOutageSuccessRate = 80.0
+	groupHealthLiveOutageRate    = 50.0
 	groupHealthDegradedRate      = 95.0
 	groupConfidenceStableRate    = 95.0
 	groupConfidenceSmoothRate    = 99.0
@@ -62,30 +67,41 @@ const (
 type GroupStatusRequest struct {
 	UsableGroups map[string]string
 	Hours        int
+	Window       string
 }
 
 type GroupStatusResult struct {
-	GeneratedAt int64              `json:"generated_at"`
-	WindowHours int                `json:"window_hours"`
-	Groups      []GroupStatusEntry `json:"groups"`
+	GeneratedAt   int64              `json:"generated_at"`
+	Window        string             `json:"window"`
+	WindowMinutes int                `json:"window_minutes"`
+	WindowHours   int                `json:"window_hours"`
+	Groups        []GroupStatusEntry `json:"groups"`
 }
 
 type GroupStatusEntry struct {
-	Group               string  `json:"group"`
-	Desc                string  `json:"desc"`
-	Status              string  `json:"status"`
-	Confidence          string  `json:"confidence"`
-	Message             string  `json:"message"`
-	ConfidenceStatus    string  `json:"confidence_status"`
-	ExperienceLabel     string  `json:"experience_label"`
-	RecommendationLevel string  `json:"recommendation_level"`
-	DisplayMessage      string  `json:"display_message"`
-	RequestCount        int64   `json:"request_count"`
-	SuccessRate         float64 `json:"success_rate"`
-	AvgLatencyMs        int64   `json:"avg_latency_ms"`
-	AvgTtftMs           int64   `json:"avg_ttft_ms"`
-	AvailableModelCount int64   `json:"available_model_count"`
-	UpdatedAt           int64   `json:"updated_at"`
+	Group               string             `json:"group"`
+	Desc                string             `json:"desc"`
+	Status              string             `json:"status"`
+	Confidence          string             `json:"confidence"`
+	Message             string             `json:"message"`
+	ConfidenceStatus    string             `json:"confidence_status"`
+	ExperienceLabel     string             `json:"experience_label"`
+	RecommendationLevel string             `json:"recommendation_level"`
+	DisplayMessage      string             `json:"display_message"`
+	RequestCount        int64              `json:"request_count"`
+	SuccessRate         float64            `json:"success_rate"`
+	AvgLatencyMs        int64              `json:"avg_latency_ms"`
+	AvgTtftMs           int64              `json:"avg_ttft_ms"`
+	AvailableModelCount int64              `json:"available_model_count"`
+	UpdatedAt           int64              `json:"updated_at"`
+	RecentEvents        []GroupRecentEvent `json:"recent_events"`
+}
+
+type GroupRecentEvent struct {
+	Ts        int64  `json:"ts"`
+	Status    string `json:"status"`
+	TtftMs    int64  `json:"ttft_ms,omitempty"`
+	LatencyMs int64  `json:"latency_ms,omitempty"`
 }
 
 type groupMetrics struct {
@@ -97,21 +113,28 @@ type groupMetrics struct {
 }
 
 func GetUserGroupStatuses(req GroupStatusRequest) (GroupStatusResult, error) {
-	hours := normalizeGroupStatusHours(req.Hours)
+	window := normalizeGroupStatusWindow(req)
 	groupNames := sortedUsableGroupNames(req.UsableGroups)
 	if len(groupNames) == 0 {
 		return GroupStatusResult{
-			GeneratedAt: time.Now().Unix(),
-			WindowHours: hours,
-			Groups:      []GroupStatusEntry{},
+			GeneratedAt:   time.Now().Unix(),
+			Window:        window.name,
+			WindowMinutes: window.minutes,
+			WindowHours:   window.compatHours,
+			Groups:        []GroupStatusEntry{},
 		}, nil
 	}
 
-	metrics, err := loadGroupMetrics(hours, groupNames)
+	metrics, err := loadGroupMetrics(window, groupNames)
 	if err != nil {
 		return GroupStatusResult{}, err
 	}
+	recentEvents := loadGroupRecentEvents(window, groupNames)
+	if window.usesRecentEventsAsMetrics() {
+		mergeRecentEventsIntoMetrics(metrics, recentEvents)
+	}
 	applyAutoGroupMetrics(metrics, req.UsableGroups)
+	applyAutoGroupRecentEvents(recentEvents, req.UsableGroups)
 	modelCounts, err := loadGroupModelCounts(groupNames)
 	if err != nil {
 		return GroupStatusResult{}, err
@@ -123,23 +146,47 @@ func GetUserGroupStatuses(req GroupStatusRequest) (GroupStatusResult, error) {
 	entries := make([]GroupStatusEntry, 0, len(groupNames))
 	now := time.Now().Unix()
 	for _, group := range groupNames {
-		entry := buildGroupStatusEntry(group, req.UsableGroups[group], metrics[group], modelCounts[group], now)
+		entry := buildGroupStatusEntry(group, req.UsableGroups[group], metrics[group], modelCounts[group], now, window, recentEvents[group])
 		entries = append(entries, entry)
 	}
 
 	return GroupStatusResult{
-		GeneratedAt: now,
-		WindowHours: hours,
-		Groups:      entries,
+		GeneratedAt:   now,
+		Window:        window.name,
+		WindowMinutes: window.minutes,
+		WindowHours:   window.compatHours,
+		Groups:        entries,
 	}, nil
 }
 
-func normalizeGroupStatusHours(hours int) int {
-	switch hours {
-	case 1, 6, 24:
-		return hours
+type groupStatusWindow struct {
+	name        string
+	minutes     int
+	compatHours int
+	live        bool
+}
+
+func normalizeGroupStatusWindow(req GroupStatusRequest) groupStatusWindow {
+	switch req.Window {
+	case "now", "realtime", "live":
+		return groupStatusWindow{name: "now", minutes: 5, compatHours: 1, live: true}
+	case "15m":
+		return groupStatusWindow{name: "15m", minutes: 15, compatHours: 1}
+	case "1h":
+		return groupStatusWindow{name: "1h", minutes: 60, compatHours: 1}
+	case "6h":
+		return groupStatusWindow{name: "6h", minutes: 360, compatHours: 6}
+	}
+
+	switch req.Hours {
+	case 1:
+		return groupStatusWindow{name: "1h", minutes: 60, compatHours: 1}
+	case 6:
+		return groupStatusWindow{name: "6h", minutes: 360, compatHours: 6}
+	case 24:
+		return groupStatusWindow{name: "24h", minutes: 1440, compatHours: 24}
 	default:
-		return 24
+		return groupStatusWindow{name: "now", minutes: 5, compatHours: 1, live: true}
 	}
 }
 
@@ -152,9 +199,12 @@ func sortedUsableGroupNames(groups map[string]string) []string {
 	return names
 }
 
-func loadGroupMetrics(hours int, groups []string) (map[string]groupMetrics, error) {
+func loadGroupMetrics(window groupStatusWindow, groups []string) (map[string]groupMetrics, error) {
+	if window.usesRecentEventsAsMetrics() {
+		return make(map[string]groupMetrics, len(groups)), nil
+	}
 	endTs := time.Now().Unix()
-	startTs := endTs - int64(hours)*3600
+	startTs := endTs - int64(window.minutes)*60
 	rows, err := model.GetPerfMetricGroupSummaries(startTs, endTs, groups)
 	if err != nil {
 		return nil, err
@@ -171,7 +221,7 @@ func loadGroupMetrics(hours int, groups []string) (map[string]groupMetrics, erro
 		metrics[row.Group] = current
 	}
 
-	hotResult, err := perfmetrics.QuerySummaryByGroup(hours, groups)
+	hotResult, err := perfmetrics.QuerySummaryByGroup(window.compatHours, groups)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +238,46 @@ func loadGroupMetrics(hours int, groups []string) (map[string]groupMetrics, erro
 	return metrics, nil
 }
 
+func loadGroupRecentEvents(window groupStatusWindow, groups []string) map[string][]GroupRecentEvent {
+	result := perfmetrics.QueryRecentEventsByGroup(window.minutes, groups)
+	eventsByGroup := make(map[string][]GroupRecentEvent, len(result.Groups))
+	for _, item := range result.Groups {
+		events := make([]GroupRecentEvent, 0, len(item.Events))
+		for _, event := range item.Events {
+			status := "failure"
+			if event.Success {
+				status = "success"
+			}
+			events = append(events, GroupRecentEvent{
+				Ts:        event.Ts,
+				Status:    status,
+				TtftMs:    event.TtftMs,
+				LatencyMs: event.LatencyMs,
+			})
+		}
+		eventsByGroup[item.Group] = events
+	}
+	return eventsByGroup
+}
+
+func mergeRecentEventsIntoMetrics(metrics map[string]groupMetrics, eventsByGroup map[string][]GroupRecentEvent) {
+	for group, events := range eventsByGroup {
+		current := metrics[group]
+		for _, event := range events {
+			current.requestCount++
+			if event.Status == "success" {
+				current.successCount++
+			}
+			current.totalLatencyMs += event.LatencyMs
+			if event.TtftMs > 0 {
+				current.ttftSumMs += event.TtftMs
+				current.ttftCount++
+			}
+		}
+		metrics[group] = current
+	}
+}
+
 func loadGroupModelCounts(groups []string) (map[string]int64, error) {
 	rows, err := model.GetEnabledAbilityGroupSummaries(groups)
 	if err != nil {
@@ -200,12 +290,12 @@ func loadGroupModelCounts(groups []string) (map[string]int64, error) {
 	return counts, nil
 }
 
-func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, modelCount int64, now int64) GroupStatusEntry {
+func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, modelCount int64, now int64, window groupStatusWindow, recentEvents []GroupRecentEvent) GroupStatusEntry {
 	successRate := roundPercent(metrics.successRate())
 	avgLatency := avgInt64(metrics.totalLatencyMs, metrics.requestCount)
 	avgTtft := avgInt64(metrics.ttftSumMs, metrics.ttftCount)
-	confidenceStatus, message := classifyGroupConfidence(metrics, modelCount, successRate)
-	experienceLabel := classifyGroupExperience(metrics, avgTtft)
+	confidenceStatus, message := classifyGroupConfidence(metrics, modelCount, successRate, window)
+	experienceLabel := classifyGroupExperience(metrics, avgTtft, window)
 
 	return GroupStatusEntry{
 		Group:               group,
@@ -223,14 +313,18 @@ func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, mode
 		AvgTtftMs:           avgTtft,
 		AvailableModelCount: modelCount,
 		UpdatedAt:           now,
+		RecentEvents:        recentEvents,
 	}
 }
 
-func classifyGroupConfidence(metrics groupMetrics, modelCount int64, successRate float64) (string, string) {
+func classifyGroupConfidence(metrics groupMetrics, modelCount int64, successRate float64, window groupStatusWindow) (string, string) {
 	if modelCount <= 0 {
 		return GroupConfidenceUnavailable, groupStatusMessageNoModels
 	}
-	if metrics.requestCount < groupHealthMinSamples {
+	if window.live {
+		return classifyLiveGroupConfidence(metrics, successRate)
+	}
+	if metrics.requestCount < minSamplesForWindow(window) {
 		return GroupConfidenceUnknown, groupStatusMessageUnknown
 	}
 	if successRate < groupHealthOutageSuccessRate {
@@ -251,8 +345,36 @@ func classifyGroupConfidence(metrics groupMetrics, modelCount int64, successRate
 	return GroupConfidenceUnstable, groupStatusMessageUnstable
 }
 
-func classifyGroupExperience(metrics groupMetrics, avgTtft int64) string {
-	if metrics.ttftCount < groupHealthMinSamples || avgTtft <= 0 {
+func classifyLiveGroupConfidence(metrics groupMetrics, successRate float64) (string, string) {
+	if metrics.requestCount == 0 {
+		return GroupConfidenceUnknown, groupStatusMessageLiveWaiting
+	}
+	if metrics.requestCount < groupHealthLiveMinSamples {
+		if successRate == 100 {
+			return GroupConfidenceStable, groupStatusMessageLiveSuccess
+		}
+		if successRate < groupHealthLiveOutageRate {
+			return GroupConfidenceUnavailable, groupStatusMessageLiveFailure
+		}
+		return GroupConfidenceUnstable, groupStatusMessageUnstable
+	}
+	if successRate < groupHealthLiveOutageRate {
+		return GroupConfidenceUnavailable, groupStatusMessageLiveFailure
+	}
+	if successRate < groupHealthOutageSuccessRate {
+		return GroupConfidenceUnstable, groupStatusMessageUnstable
+	}
+	if successRate >= groupConfidenceExcellentRate {
+		return GroupConfidenceExcellent, groupStatusMessageExcellent
+	}
+	if successRate >= groupConfidenceSmoothRate {
+		return GroupConfidenceSmooth, groupStatusMessageSmooth
+	}
+	return GroupConfidenceStable, groupStatusMessageLiveSuccess
+}
+
+func classifyGroupExperience(metrics groupMetrics, avgTtft int64, window groupStatusWindow) string {
+	if metrics.ttftCount < minSamplesForWindow(window) || avgTtft <= 0 {
 		return GroupExperienceUnknown
 	}
 	if avgTtft < groupExperienceLightningMs {
@@ -321,6 +443,29 @@ func applyAutoGroupMetrics(metrics map[string]groupMetrics, usableGroups map[str
 	metrics["auto"] = autoMetrics
 }
 
+func applyAutoGroupRecentEvents(eventsByGroup map[string][]GroupRecentEvent, usableGroups map[string]string) {
+	if _, ok := usableGroups["auto"]; !ok {
+		return
+	}
+	autoEvents := append([]GroupRecentEvent(nil), eventsByGroup["auto"]...)
+	for _, group := range setting.GetAutoGroups() {
+		if group == "auto" {
+			continue
+		}
+		if _, ok := usableGroups[group]; !ok {
+			continue
+		}
+		autoEvents = append(autoEvents, eventsByGroup[group]...)
+	}
+	sort.Slice(autoEvents, func(i, j int) bool {
+		return autoEvents[i].Ts < autoEvents[j].Ts
+	})
+	if len(autoEvents) > 60 {
+		autoEvents = autoEvents[len(autoEvents)-60:]
+	}
+	eventsByGroup["auto"] = autoEvents
+}
+
 func applyAutoGroupModelCount(modelCounts map[string]int64, usableGroups map[string]string) error {
 	if _, ok := usableGroups["auto"]; !ok {
 		return nil
@@ -363,6 +508,17 @@ func avgInt64(sum int64, count int64) int64 {
 		return 0
 	}
 	return sum / count
+}
+
+func minSamplesForWindow(window groupStatusWindow) int64 {
+	if window.live || window.minutes <= 15 {
+		return groupHealthLiveMinSamples
+	}
+	return groupHealthMinSamples
+}
+
+func (w groupStatusWindow) usesRecentEventsAsMetrics() bool {
+	return w.live || w.minutes <= 15
 }
 
 func roundPercent(value float64) float64 {
