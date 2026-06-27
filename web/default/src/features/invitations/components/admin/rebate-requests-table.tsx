@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
-import { CheckCircle, XCircle, Check, RotateCcw } from 'lucide-react'
+import { CheckCircle, XCircle, RotateCcw, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+
 import { formatRebateAmount } from '../../lib/format'
 import type { RebateRequestAdmin } from '../../types'
 import { RebateActionDialog } from './rebate-action-dialog'
@@ -36,6 +38,8 @@ import { RebateActionDialog } from './rebate-action-dialog'
 interface RebateRequestsTableProps {
   requests: RebateRequestAdmin[]
   loading: boolean
+  actionLoading?: boolean
+  onApproveAndPay: (request: RebateRequestAdmin) => void
 }
 
 type ActionType = 'approve' | 'reject' | 'reset' | 'complete' | 'undoComplete'
@@ -43,6 +47,8 @@ type ActionType = 'approve' | 'reject' | 'reset' | 'complete' | 'undoComplete'
 export function RebateRequestsTable({
   requests,
   loading,
+  actionLoading = false,
+  onApproveAndPay,
 }: RebateRequestsTableProps) {
   const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -180,16 +186,15 @@ export function RebateRequestsTable({
                         )}
                       </>
                     )}
-                    {request.status === 'approved' && (
+                    {canApproveAndPay(request) && (
                       <Button
                         variant='ghost'
                         size='sm'
-                        disabled
-                        title={t(
-                          'Use voucher payout actions to create a balance ledger entry'
-                        )}
+                        disabled={actionLoading}
+                        onClick={() => onApproveAndPay(request)}
+                        title={t('Approve and pay rebate to balance')}
                       >
-                        <Check className='text-muted-foreground size-4' />
+                        <WalletCards className='size-4 text-emerald-600' />
                       </Button>
                     )}
                     {request.status === 'completed' && (
@@ -221,4 +226,8 @@ export function RebateRequestsTable({
       />
     </>
   )
+}
+
+function canApproveAndPay(request: RebateRequestAdmin) {
+  return request.status === 'pending' || request.status === 'approved'
 }

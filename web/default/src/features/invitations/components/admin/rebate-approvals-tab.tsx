@@ -17,8 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
+import { WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import {
@@ -28,15 +33,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { getRebateRequests } from '../../api'
-import type { RebateRequestStatus } from '../../types'
+
+import {
+  approveAndPayRebateRequest,
+  batchApproveAndPayRebateRequests,
+  getRebateRequests,
+} from '../../api'
+import { getInvitationErrorMessage } from '../../lib/error'
+import type { RebateRequestAdmin, RebateRequestStatus } from '../../types'
+import { ApproveAndPayDialog } from './approve-and-pay-dialog'
 import { RebateRequestsTable } from './rebate-requests-table'
 
 export function RebateApprovalsTab() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [statusFilter, setStatusFilter] = useState<RebateRequestStatus | 'all'>(
     'all'
   )
+  const [approveAndPayRequests, setApproveAndPayRequests] = useState<
+    RebateRequestAdmin[]
+  >([])
 
   // 获取返利申请列表
   const { data: requestsData, isLoading } = useQuery({
@@ -47,13 +63,61 @@ export function RebateApprovalsTab() {
       return response.data
     },
   })
+  const requests = requestsData?.items ?? []
+  const actionableRequests = requests.filter(isApproveAndPayEligible)
+
+  const approveAndPayMutation = useMutation({
+    mutationFn: async (selectedRequests: RebateRequestAdmin[]) => {
+      if (selectedRequests.length === 1) {
+        return approveAndPayRebateRequest(selectedRequests[0].id)
+      }
+
+      return batchApproveAndPayRebateRequests({
+        requestIds: selectedRequests.map((request) => request.id),
+      })
+    },
+    onSuccess: (response) => {
+      const data = response.data
+      toast.success(approveAndPaySuccessMessage(t, data))
+      queryClient.invalidateQueries({ queryKey: ['adminRebateRequests'] })
+      queryClient.invalidateQueries({ queryKey: ['rebateStats'] })
+      queryClient.invalidateQueries({ queryKey: ['adminRebateRecords'] })
+      setApproveAndPayRequests([])
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        getInvitationErrorMessage(error, t('Failed to approve and pay rebates'))
+      )
+    },
+  })
+
+  const openApproveAndPayDialog = (selectedRequests: RebateRequestAdmin[]) => {
+    setApproveAndPayRequests(selectedRequests.filter(isApproveAndPayEligible))
+  }
+
+  const closeApproveAndPayDialog = () => {
+    if (approveAndPayMutation.isPending) return
+    setApproveAndPayRequests([])
+  }
 
   return (
     <Card>
       <CardHeader>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
           <CardTitle>{t('Rebate Approvals')}</CardTitle>
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Button
+              type='button'
+              size='sm'
+              disabled={
+                actionableRequests.length === 0 ||
+                approveAndPayMutation.isPending
+              }
+              onClick={() => openApproveAndPayDialog(actionableRequests)}
+            >
+              <WalletCards className='size-4' />
+              {t('Approve and Pay All')}
+            </Button>
             <Label htmlFor='status-filter' className='whitespace-nowrap'>
               {t('Status')}:
             </Label>
@@ -79,10 +143,55 @@ export function RebateApprovalsTab() {
       </CardHeader>
       <CardContent>
         <RebateRequestsTable
-          requests={requestsData?.items ?? []}
+          requests={requests}
           loading={isLoading}
+          actionLoading={approveAndPayMutation.isPending}
+          onApproveAndPay={(request) => openApproveAndPayDialog([request])}
         />
       </CardContent>
+      <ApproveAndPayDialog
+        open={approveAndPayRequests.length > 0}
+        requests={approveAndPayRequests}
+        loading={approveAndPayMutation.isPending}
+        onClose={closeApproveAndPayDialog}
+        onConfirm={() => approveAndPayMutation.mutate(approveAndPayRequests)}
+      />
     </Card>
+  )
+}
+
+function isApproveAndPayEligible(request: RebateRequestAdmin) {
+  return request.status === 'pending' || request.status === 'approved'
+}
+
+function approveAndPaySuccessMessage(t: TFunction, data: unknown) {
+  if (!data || typeof data !== 'object') {
+    return t('Rebate approve and pay completed')
+  }
+
+  const result = data as {
+    paidCount?: number
+    alreadyPaidCount?: number
+    failedCount?: number
+    failedRequests?: number
+  }
+  const failedCount = (result.failedCount ?? 0) + (result.failedRequests ?? 0)
+  if (failedCount > 0) {
+    return t(
+      'Approve and pay completed with {{paid}} paid, {{alreadyPaid}} already paid, and {{failed}} failed',
+      {
+        paid: result.paidCount ?? 0,
+        alreadyPaid: result.alreadyPaidCount ?? 0,
+        failed: failedCount,
+      }
+    )
+  }
+
+  return t(
+    'Approve and pay completed: {{paid}} paid, {{alreadyPaid}} already paid',
+    {
+      paid: result.paidCount ?? 0,
+      alreadyPaid: result.alreadyPaidCount ?? 0,
+    }
   )
 }

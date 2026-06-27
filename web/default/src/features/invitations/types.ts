@@ -168,6 +168,43 @@ export interface RebateRequest {
   rejectReason?: string
 }
 
+export interface ApproveAndPayRebateRecordResult {
+  recordId: number
+  outcome: 'paid' | 'already_paid' | 'already_completed' | 'failed' | string
+  amountCents?: number | null
+  quotaDelta?: number | null
+  payoutId?: number | null
+  newapiLogId?: number | null
+  newapiMarkId?: number | null
+  error?: string | null
+}
+
+export interface ApproveAndPayRebateResponse {
+  requestId: number
+  status: RebateRequestStatus | string
+  totalAmount: number
+  paidCount: number
+  alreadyPaidCount: number
+  failedCount: number
+  items: ApproveAndPayRebateRecordResult[]
+}
+
+export interface BatchApproveAndPayRebateError {
+  requestId: number
+  error: string
+}
+
+export interface BatchApproveAndPayRebateResponse {
+  totalRequests: number
+  succeededRequests: number
+  failedRequests: number
+  paidCount: number
+  alreadyPaidCount: number
+  failedCount: number
+  items: ApproveAndPayRebateResponse[]
+  errors: BatchApproveAndPayRebateError[]
+}
+
 // API 响应格式
 export interface ApiResponse<T = unknown> {
   success: boolean

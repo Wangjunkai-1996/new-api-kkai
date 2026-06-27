@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api, type ApiRequestConfig } from '@/lib/api'
+
 import type {
   ApiResponse,
   InvitationFeatureStatus,
@@ -39,6 +40,8 @@ import type {
   RebatePayoutActionData,
   RebatePayoutActionResponse,
   RebatePayoutStatusResponse,
+  ApproveAndPayRebateResponse,
+  BatchApproveAndPayRebateResponse,
 } from './types'
 
 const BASE_PATH = '/invitations/api/invitations'
@@ -134,6 +137,10 @@ export function createRebatePayoutIdempotencyKey(
   action: RebatePayoutAction
 ): string {
   return `rebate-payout:${recordId}:${action}:${createIdempotencySuffix()}`
+}
+
+export function createRebateApproveAndPayIdempotencyKey(scope: string): string {
+  return `rebate-approve-pay:${scope}:${createIdempotencySuffix()}`
 }
 
 function payoutActionConfig(
@@ -251,6 +258,48 @@ export async function approveRebateRequest(
     `${ADMIN_BASE_PATH}/rebate-requests/${id}/approve`,
     data,
     { skipErrorHandler: true }
+  )
+  return res.data
+}
+
+/**
+ * 通过返利申请并直接发放到余额
+ */
+export async function approveAndPayRebateRequest(
+  id: number,
+  data?: import('./types').RebateApprovalData
+): Promise<ApiResponse<ApproveAndPayRebateResponse>> {
+  const res = await api.post(
+    `${ADMIN_BASE_PATH}/rebate-requests/${id}/approve-and-pay`,
+    data ?? {},
+    {
+      headers: {
+        'Idempotency-Key': createRebateApproveAndPayIdempotencyKey(
+          `request:${id}`
+        ),
+      },
+      skipErrorHandler: true,
+    }
+  )
+  return res.data
+}
+
+/**
+ * 批量通过返利申请并直接发放到余额
+ */
+export async function batchApproveAndPayRebateRequests(data: {
+  requestIds: number[]
+  note?: string
+}): Promise<ApiResponse<BatchApproveAndPayRebateResponse>> {
+  const res = await api.post(
+    `${ADMIN_BASE_PATH}/rebate-requests/approve-and-pay-batch`,
+    data,
+    {
+      headers: {
+        'Idempotency-Key': createRebateApproveAndPayIdempotencyKey('batch'),
+      },
+      skipErrorHandler: true,
+    }
   )
   return res.data
 }
