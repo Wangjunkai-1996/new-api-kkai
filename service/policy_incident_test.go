@@ -27,6 +27,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type policyIncidentRootNotification struct {
+	notifyType string
+	subject    string
+	content    string
+}
+
 func newPolicyIncidentTestContext(t *testing.T) *gin.Context {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -40,6 +46,40 @@ func newPolicyIncidentTestContext(t *testing.T) *gin.Context {
 	common.SetContextKey(ctx, constant.ContextKeyRequestStartTime, time.Unix(1710000000, 123000000))
 	common.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, 1)
 	return ctx
+}
+
+func capturePolicyIncidentRootNotifications(t *testing.T) *[]policyIncidentRootNotification {
+	t.Helper()
+	notifications := make([]policyIncidentRootNotification, 0)
+	original := notifyPolicyIncidentRoot
+	notifyPolicyIncidentRoot = func(notifyType string, subject string, content string) {
+		notifications = append(notifications, policyIncidentRootNotification{
+			notifyType: notifyType,
+			subject:    subject,
+			content:    content,
+		})
+	}
+	t.Cleanup(func() {
+		notifyPolicyIncidentRoot = original
+	})
+	return &notifications
+}
+
+func setPolicyIncidentLockSequence(t *testing.T, results ...bool) {
+	t.Helper()
+	original := acquirePolicyIncidentLock
+	index := 0
+	acquirePolicyIncidentLock = func(channelId int, upstreamKey string) bool {
+		if index >= len(results) {
+			return results[len(results)-1]
+		}
+		result := results[index]
+		index++
+		return result
+	}
+	t.Cleanup(func() {
+		acquirePolicyIncidentLock = original
+	})
 }
 
 func createPolicyIncidentUser(t *testing.T, id int, role int) *model.User {
@@ -132,6 +172,7 @@ func TestPolicyIncidentSetsNoRetryEvenWhenTokenDisableFails(t *testing.T) {
 
 func TestPolicyIncidentRecordsEventAndSkipsUpstreamIsolationByDefault(t *testing.T) {
 	truncate(t)
+	notifications := capturePolicyIncidentRootNotifications(t)
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
 	token := &model.Token{UserId: 42, Key: "client-token-key", Status: common.TokenStatusEnabled, Name: "client-token"}
@@ -184,11 +225,49 @@ func TestPolicyIncidentRecordsEventAndSkipsUpstreamIsolationByDefault(t *testing
 	assert.Contains(t, event.ActionTaken, "user_disabled")
 	assert.Contains(t, event.ActionTaken, "upstream_breaker_skipped")
 	assert.Contains(t, event.ActionTaken, "upstream_isolation_skipped")
+	assert.Contains(t, event.ActionTaken, "root_notify_attempted")
 	assert.NotContains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.NotContains(t, event.ActionTaken, "upstream_isolated")
 	assert.Contains(t, event.ActionResult, "redis_unavailable")
 	assert.Contains(t, event.ActionResult, policyIncidentResultConfigDisabled)
 	assert.Contains(t, event.ActionResult, policyIncidentResultSuccess)
+	assert.Contains(t, event.ActionResult, "attempted")
+	require.Len(t, *notifications, 1)
+	assert.Equal(t, "[P0 风控] 检测到安全策略命中", (*notifications)[0].subject)
+	assert.Contains(t, (*notifications)[0].content, "客户处置：已封禁命中的客户 token/user")
+	assert.Contains(t, (*notifications)[0].content, "上游处置：配置关闭，未隔离上游 key")
+	assert.NotContains(t, (*notifications)[0].content, "上游 key 因安全策略被禁用")
+}
+
+func TestPolicyIncidentNotificationUsesIncidentLockForDeduplication(t *testing.T) {
+	truncate(t)
+	setPolicyIncidentLockSequence(t, true, false)
+	notifications := capturePolicyIncidentRootNotifications(t)
+
+	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
+	channel := &model.Channel{Key: "upstream-key-dedupe", Status: common.ChannelStatusEnabled, Name: "policy-channel-dedupe", Type: 1}
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	firstCtx := newPolicyIncidentTestContext(t)
+	firstCtx.Set(common.RequestIdKey, "req-policy-dedupe-1")
+	firstErr := types.NewOpenAIError(errors.New("cyber_policy request rejected by upstream"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	HandlePolicyIncident(firstCtx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, true), firstErr)
+
+	secondCtx := newPolicyIncidentTestContext(t)
+	secondCtx.Set(common.RequestIdKey, "req-policy-dedupe-2")
+	secondErr := types.NewOpenAIError(errors.New("cyber_policy request rejected by upstream again"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	HandlePolicyIncident(secondCtx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, true), secondErr)
+
+	require.Len(t, *notifications, 1)
+
+	var count int64
+	require.NoError(t, model.DB.Model(&model.PolicyIncidentEvent{}).Where("request_id IN ?", []string{"req-policy-dedupe-1", "req-policy-dedupe-2"}).Count(&count).Error)
+	assert.EqualValues(t, 2, count)
+
+	var secondEvent model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-dedupe-2").First(&secondEvent).Error)
+	assert.Contains(t, secondEvent.ActionTaken, "root_notify_skipped")
+	assert.Contains(t, secondEvent.ActionResult, "deduplicated")
 }
 
 func TestPolicyIncidentCanIsolateUpstreamWhenExplicitlyEnabled(t *testing.T) {

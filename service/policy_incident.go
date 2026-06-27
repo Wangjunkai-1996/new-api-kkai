@@ -107,6 +107,11 @@ var policyIncidentUpstreamKeyKeywords = []string{
 	"账号无效",
 }
 
+var (
+	acquirePolicyIncidentLock = acquirePolicyIncidentLockWithRedis
+	notifyPolicyIncidentRoot  = NotifyRootUser
+)
+
 type PolicyIncidentClassification struct {
 	Detected                 bool
 	StatusCode               int
@@ -222,16 +227,20 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 		results = append(results, "upstream_key_attribution", "upstream_key_attribution")
 	}
 
-	upstreamAction, upstreamResult, notifyUpstreamIncident := isolatePolicyUpstreamAction(channelError, classification)
+	incidentLockAcquired := acquirePolicyIncidentLock(channelError.ChannelId, channelError.UsingKey)
+	upstreamAction, upstreamResult := isolatePolicyUpstreamAction(channelError, classification, incidentLockAcquired)
 	actions = append(actions, upstreamAction)
 	results = append(results, upstreamResult)
+	notifyAction, notifyResult := rootPolicyIncidentNotifyAction(incidentLockAcquired)
+	actions = append(actions, notifyAction)
+	results = append(results, notifyResult)
 
 	event := buildPolicyIncidentEvent(c, channelError, classification, strings.Join(actions, ","), strings.Join(results, ","))
 	if err := model.InsertPolicyIncidentEvent(event); err != nil {
 		common.SysLog("failed to record policy incident event: " + err.Error())
 	}
-	if notifyUpstreamIncident {
-		NotifyRootUser(formatPolicyIncidentNotifyType(event), "[P0 风控] 上游 key 因安全策略被禁用", formatPolicyIncidentNotification(event))
+	if incidentLockAcquired {
+		notifyPolicyIncidentRoot(formatPolicyIncidentNotifyType(event), "[P0 风控] 检测到安全策略命中", formatPolicyIncidentNotification(event))
 	}
 }
 
@@ -262,15 +271,22 @@ func setPolicyUpstreamKeyBreakerResult(channelId int, upstreamKey string) string
 	return policyIncidentResultSuccess
 }
 
-func isolatePolicyUpstreamAction(channelError types.ChannelError, classification PolicyIncidentClassification) (string, string, bool) {
+func isolatePolicyUpstreamAction(channelError types.ChannelError, classification PolicyIncidentClassification, incidentLockAcquired bool) (string, string) {
 	if !operation_setting.GetPolicyIncidentSetting().IsolateUpstreamOnPolicyIncident {
-		return "upstream_isolation_skipped", policyIncidentResultConfigDisabled, false
+		return "upstream_isolation_skipped", policyIncidentResultConfigDisabled
 	}
-	if !acquirePolicyIncidentLock(channelError.ChannelId, channelError.UsingKey) {
-		return "incident_lock_skipped", "deduplicated", false
+	if !incidentLockAcquired {
+		return "incident_lock_skipped", "deduplicated"
 	}
 	action, result := isolatePolicyUpstream(channelError, classification)
-	return action, result, true
+	return action, result
+}
+
+func rootPolicyIncidentNotifyAction(incidentLockAcquired bool) (string, string) {
+	if !incidentLockAcquired {
+		return "root_notify_skipped", "deduplicated"
+	}
+	return "root_notify_attempted", "attempted"
 }
 
 func policyBreakerSetFailureResult(err error) string {
@@ -466,9 +482,11 @@ key 指纹：%s
 错误摘要：status=%d code=%s message=%s
 已执行动作：%s
 动作结果：%s
+客户处置：%s
+上游处置：%s
 归因置信度：%s / %s
 
-该用户是关联请求，不等于已确认源头。当前处置为风险隔离，不代表归因确认；建议人工复核。`,
+该用户是关联请求，不等于已确认源头。请结合请求证据、动作结果和归因置信度复核。`,
 		createdAt,
 		event.RequestId,
 		event.UserId,
@@ -483,9 +501,34 @@ key 指纹：%s
 		event.ErrorMessage,
 		event.ActionTaken,
 		event.ActionResult,
+		summarizePolicyIncidentClientDisposition(event.ActionTaken),
+		summarizePolicyIncidentUpstreamDisposition(event.ActionTaken, event.ActionResult),
 		event.EvidenceLevel,
 		event.Causality,
 	)
+}
+
+func summarizePolicyIncidentClientDisposition(actionTaken string) string {
+	if strings.Contains(actionTaken, "token_disabled") || strings.Contains(actionTaken, "user_disabled") {
+		return "已封禁命中的客户 token/user，详见已执行动作"
+	}
+	if strings.Contains(actionTaken, "token_unchanged") && strings.Contains(actionTaken, "user_unchanged") {
+		return "未封禁客户 token/user"
+	}
+	return "见已执行动作"
+}
+
+func summarizePolicyIncidentUpstreamDisposition(actionTaken string, actionResult string) string {
+	if strings.Contains(actionTaken, "upstream_isolated") {
+		return "已隔离上游 key"
+	}
+	if strings.Contains(actionTaken, "incident_lock_skipped") {
+		return "重复事件，已按去重策略跳过上游隔离"
+	}
+	if strings.Contains(actionTaken, "upstream_isolation_skipped") && strings.Contains(actionResult, policyIncidentResultConfigDisabled) {
+		return "配置关闭，未隔离上游 key"
+	}
+	return "见已执行动作"
 }
 
 var errPolicyBreakerRedisUnavailable = errors.New("policy breaker redis unavailable")
@@ -532,7 +575,7 @@ func IsPolicyTokenBreakerOpen(tokenId int) bool {
 	return err == nil
 }
 
-func acquirePolicyIncidentLock(channelId int, upstreamKey string) bool {
+func acquirePolicyIncidentLockWithRedis(channelId int, upstreamKey string) bool {
 	if channelId <= 0 || !common.RedisEnabled || common.RDB == nil {
 		return true
 	}
