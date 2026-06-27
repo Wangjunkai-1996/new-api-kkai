@@ -198,6 +198,59 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	return SummaryAllResult{Models: models}, nil
 }
 
+// QuerySummaryByGroup returns the in-memory, unflushed perf buckets only.
+// Callers that also need persisted metrics must merge DB rows separately.
+func QuerySummaryByGroup(hours int, groups []string) (GroupSummaryResult, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	if hours > 24*30 {
+		hours = 24 * 30
+	}
+	endTs := time.Now().Unix()
+	startTs := endTs - int64(hours)*3600
+	allowedGroups := allowedGroupSet(groups)
+
+	totals := map[string]counters{}
+	hotBuckets.Range(func(key, value any) bool {
+		k := key.(bucketKey)
+		if k.bucketTs < startTs || k.bucketTs > endTs {
+			return true
+		}
+		if allowedGroups != nil {
+			if _, ok := allowedGroups[k.group]; !ok {
+				return true
+			}
+		}
+		mergeGroupTotals(totals, k.group, value.(*atomicBucket).snapshot())
+		return true
+	})
+
+	groupNames := make([]string, 0, len(totals))
+	for group := range totals {
+		groupNames = append(groupNames, group)
+	}
+	sort.Strings(groupNames)
+
+	groupsResult := make([]GroupSummary, 0, len(groupNames))
+	for _, group := range groupNames {
+		total := totals[group]
+		if total.requestCount == 0 {
+			continue
+		}
+		groupsResult = append(groupsResult, GroupSummary{
+			Group:          group,
+			RequestCount:   total.requestCount,
+			SuccessCount:   total.successCount,
+			TotalLatencyMs: total.totalLatencyMs,
+			TtftSumMs:      total.ttftSumMs,
+			TtftCount:      total.ttftCount,
+		})
+	}
+
+	return GroupSummaryResult{Groups: groupsResult}, nil
+}
+
 func mergeModelTotals(totals map[string]counters, modelName string, value counters) {
 	if value.requestCount == 0 {
 		return
@@ -211,6 +264,19 @@ func mergeModelTotals(totals map[string]counters, modelName string, value counte
 	current.outputTokens += value.outputTokens
 	current.generationMs += value.generationMs
 	totals[modelName] = current
+}
+
+func mergeGroupTotals(totals map[string]counters, group string, value counters) {
+	if value.requestCount == 0 {
+		return
+	}
+	current := totals[group]
+	current.requestCount += value.requestCount
+	current.successCount += value.successCount
+	current.totalLatencyMs += value.totalLatencyMs
+	current.ttftSumMs += value.ttftSumMs
+	current.ttftCount += value.ttftCount
+	totals[group] = current
 }
 
 func mergeModelBucket(modelBuckets map[string]map[int64]counters, modelName string, bucketTs int64, value counters) {

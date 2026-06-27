@@ -78,6 +78,15 @@ type PerfMetricSummaryBucket struct {
 	GenerationMs   int64  `json:"generation_ms"`
 }
 
+type PerfMetricGroupSummary struct {
+	Group          string `json:"group" gorm:"column:group_name"`
+	RequestCount   int64  `json:"request_count"`
+	SuccessCount   int64  `json:"success_count"`
+	TotalLatencyMs int64  `json:"total_latency_ms"`
+	TtftSumMs      int64  `json:"ttft_sum_ms"`
+	TtftCount      int64  `json:"ttft_count"`
+}
+
 func GetPerfMetricsSummaryAll(startTs int64, endTs int64, groups []string) ([]PerfMetricSummary, error) {
 	var summaries []PerfMetricSummary
 	query := DB.Model(&PerfMetric{}).
@@ -91,6 +100,24 @@ func GetPerfMetricsSummaryAll(startTs int64, endTs int64, groups []string) ([]Pe
 	}
 	err := query.
 		Group("model_name").
+		Having("SUM(request_count) > 0").
+		Find(&summaries).Error
+	return summaries, err
+}
+
+func GetPerfMetricGroupSummaries(startTs int64, endTs int64, groups []string) ([]PerfMetricGroupSummary, error) {
+	var summaries []PerfMetricGroupSummary
+	query := DB.Model(&PerfMetric{}).
+		Select(commonGroupCol+" as group_name, SUM(request_count) as request_count, SUM(success_count) as success_count, SUM(total_latency_ms) as total_latency_ms, SUM(ttft_sum_ms) as ttft_sum_ms, SUM(ttft_count) as ttft_count").
+		Where("bucket_ts >= ? AND bucket_ts <= ?", startTs, endTs)
+	if groups != nil {
+		if len(groups) == 0 {
+			return summaries, nil
+		}
+		query = query.Where(commonGroupCol+" IN ?", groups)
+	}
+	err := query.
+		Clauses(clause.GroupBy{Columns: []clause.Column{{Name: "group"}}}).
 		Having("SUM(request_count) > 0").
 		Find(&summaries).Error
 	return summaries, err

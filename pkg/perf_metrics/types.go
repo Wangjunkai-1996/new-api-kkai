@@ -60,6 +60,19 @@ type SummaryAllResult struct {
 	Models []ModelSummary `json:"models"`
 }
 
+type GroupSummary struct {
+	Group          string `json:"group"`
+	RequestCount   int64  `json:"request_count"`
+	SuccessCount   int64  `json:"success_count"`
+	TotalLatencyMs int64  `json:"total_latency_ms"`
+	TtftSumMs      int64  `json:"ttft_sum_ms"`
+	TtftCount      int64  `json:"ttft_count"`
+}
+
+type GroupSummaryResult struct {
+	Groups []GroupSummary `json:"groups"`
+}
+
 type bucketKey struct {
 	model    string
 	group    string

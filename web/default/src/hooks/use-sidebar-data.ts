@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  BadgeCheck,
   Box,
   CreditCard,
   FileText,
@@ -91,6 +92,11 @@ export function useSidebarData(): SidebarData {
             title: t('Usage Logs'),
             url: '/usage-logs/common',
             icon: FileText,
+          },
+          {
+            title: t('Group Status'),
+            url: '/group-status',
+            icon: BadgeCheck,
           },
           {
             title: t('Task Logs'),

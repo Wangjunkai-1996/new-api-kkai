@@ -30,6 +30,11 @@ type AbilityWithChannel struct {
 	ChannelType int `json:"channel_type"`
 }
 
+type GroupAbilitySummary struct {
+	Group      string `json:"group" gorm:"column:group_name"`
+	ModelCount int64  `json:"model_count"`
+}
+
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").
@@ -38,6 +43,40 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
 	return abilities, err
+}
+
+func GetEnabledAbilityGroupSummaries(groups []string) ([]GroupAbilitySummary, error) {
+	var summaries []GroupAbilitySummary
+	abilityGroupCol := "abilities." + commonGroupCol
+	query := DB.Table("abilities").
+		Select(abilityGroupCol+" as group_name, COUNT(DISTINCT abilities.model) as model_count").
+		Joins("left join channels on abilities.channel_id = channels.id").
+		Where("abilities.enabled = ? and channels.status = ?", true, common.ChannelStatusEnabled)
+	if groups != nil {
+		if len(groups) == 0 {
+			return summaries, nil
+		}
+		query = query.Where(abilityGroupCol+" IN ?", groups)
+	}
+	err := query.Clauses(clause.GroupBy{
+		Columns: []clause.Column{{Table: "abilities", Name: "group"}},
+	}).Scan(&summaries).Error
+	return summaries, err
+}
+
+func CountEnabledAbilityModels(groups []string) (int64, error) {
+	if len(groups) == 0 {
+		return 0, nil
+	}
+	var count int64
+	abilityGroupCol := "abilities." + commonGroupCol
+	err := DB.Table("abilities").
+		Joins("left join channels on abilities.channel_id = channels.id").
+		Where("abilities.enabled = ? and channels.status = ?", true, common.ChannelStatusEnabled).
+		Where(abilityGroupCol+" IN ?", groups).
+		Distinct("abilities.model").
+		Count(&count).Error
+	return count, err
 }
 
 func GetGroupEnabledModels(group string) []string {
