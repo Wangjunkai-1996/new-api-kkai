@@ -17,16 +17,46 @@ const (
 	GroupHealthOutage      = "outage"
 	GroupHealthUnknown     = "unknown"
 
+	GroupConfidenceExcellent   = "excellent"
+	GroupConfidenceSmooth      = "smooth"
+	GroupConfidenceStable      = "stable"
+	GroupConfidenceUnstable    = "unstable"
+	GroupConfidenceUnavailable = "unavailable"
+	GroupConfidenceUnknown     = "unknown"
+
 	GroupHealthConfidenceHigh   = "high"
 	GroupHealthConfidenceMedium = "medium"
 	GroupHealthConfidenceLow    = "low"
+
+	GroupExperienceLightning = "lightning"
+	GroupExperienceSmooth    = "smooth"
+	GroupExperienceNormal    = "normal"
+	GroupExperienceUnknown   = "unknown"
+
+	GroupRecommendationBest        = "best"
+	GroupRecommendationRecommended = "recommended"
+	GroupRecommendationUsable      = "usable"
+	GroupRecommendationCaution     = "caution"
+	GroupRecommendationUnavailable = "unavailable"
+	GroupRecommendationUnknown     = "unknown"
+
+	groupStatusMessageExcellent   = "Group status message: excellent"
+	groupStatusMessageSmooth      = "Group status message: smooth"
+	groupStatusMessageStable      = "Group status message: stable"
+	groupStatusMessageUnstable    = "Group status message: unstable"
+	groupStatusMessageUnavailable = "Group status message: unavailable"
+	groupStatusMessageNoModels    = "Group status message: no routable models"
+	groupStatusMessageUnknown     = "Group status message: unknown"
 
 	groupHealthMinSamples        = int64(20)
 	groupHealthMediumSamples     = int64(100)
 	groupHealthOutageSuccessRate = 80.0
 	groupHealthDegradedRate      = 95.0
-	groupHealthBusyLatencyMs     = int64(15000)
-	groupHealthBusyTtftMs        = int64(5000)
+	groupConfidenceStableRate    = 95.0
+	groupConfidenceSmoothRate    = 99.0
+	groupConfidenceExcellentRate = 99.9
+	groupExperienceLightningMs   = int64(2000)
+	groupExperienceSmoothMs      = int64(5000)
 )
 
 type GroupStatusRequest struct {
@@ -46,6 +76,10 @@ type GroupStatusEntry struct {
 	Status              string  `json:"status"`
 	Confidence          string  `json:"confidence"`
 	Message             string  `json:"message"`
+	ConfidenceStatus    string  `json:"confidence_status"`
+	ExperienceLabel     string  `json:"experience_label"`
+	RecommendationLevel string  `json:"recommendation_level"`
+	DisplayMessage      string  `json:"display_message"`
 	RequestCount        int64   `json:"request_count"`
 	SuccessRate         float64 `json:"success_rate"`
 	AvgLatencyMs        int64   `json:"avg_latency_ms"`
@@ -170,14 +204,19 @@ func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, mode
 	successRate := roundPercent(metrics.successRate())
 	avgLatency := avgInt64(metrics.totalLatencyMs, metrics.requestCount)
 	avgTtft := avgInt64(metrics.ttftSumMs, metrics.ttftCount)
-	status, confidence, message := classifyGroupHealth(metrics, modelCount, avgLatency, avgTtft, successRate)
+	confidenceStatus, message := classifyGroupConfidence(metrics, modelCount, successRate)
+	experienceLabel := classifyGroupExperience(metrics, avgTtft)
 
 	return GroupStatusEntry{
 		Group:               group,
 		Desc:                desc,
-		Status:              status,
-		Confidence:          confidence,
+		Status:              legacyGroupHealthStatus(confidenceStatus),
+		Confidence:          groupHealthConfidence(metrics.requestCount),
 		Message:             message,
+		ConfidenceStatus:    confidenceStatus,
+		ExperienceLabel:     experienceLabel,
+		RecommendationLevel: groupRecommendationLevel(confidenceStatus),
+		DisplayMessage:      message,
 		RequestCount:        metrics.requestCount,
 		SuccessRate:         successRate,
 		AvgLatencyMs:        avgLatency,
@@ -187,26 +226,78 @@ func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, mode
 	}
 }
 
-func classifyGroupHealth(metrics groupMetrics, modelCount int64, avgLatency int64, avgTtft int64, successRate float64) (string, string, string) {
+func classifyGroupConfidence(metrics groupMetrics, modelCount int64, successRate float64) (string, string) {
 	if modelCount <= 0 {
-		return GroupHealthOutage, groupHealthConfidence(metrics.requestCount), "No routable models are currently enabled for this group."
+		return GroupConfidenceUnavailable, groupStatusMessageNoModels
 	}
 	if metrics.requestCount < groupHealthMinSamples {
-		return GroupHealthUnknown, GroupHealthConfidenceLow, "Not enough recent traffic to determine health."
+		return GroupConfidenceUnknown, groupStatusMessageUnknown
 	}
 	if successRate < groupHealthOutageSuccessRate {
-		return GroupHealthOutage, groupHealthConfidence(metrics.requestCount), "Recent requests are failing at a high rate."
+		return GroupConfidenceUnavailable, groupStatusMessageUnavailable
 	}
 	if successRate < groupHealthDegradedRate {
-		return GroupHealthDegraded, groupHealthConfidence(metrics.requestCount), "Recent success rate is below the healthy threshold."
+		return GroupConfidenceUnstable, groupStatusMessageUnstable
 	}
-	if avgLatency >= groupHealthBusyLatencyMs || avgTtft >= groupHealthBusyTtftMs {
-		return GroupHealthBusy, groupHealthConfidence(metrics.requestCount), "Requests are succeeding, but latency is elevated."
+	if successRate >= groupConfidenceExcellentRate {
+		return GroupConfidenceExcellent, groupStatusMessageExcellent
 	}
-	return GroupHealthOperational, groupHealthConfidence(metrics.requestCount), "Recent traffic is healthy."
+	if successRate >= groupConfidenceSmoothRate {
+		return GroupConfidenceSmooth, groupStatusMessageSmooth
+	}
+	if successRate >= groupConfidenceStableRate {
+		return GroupConfidenceStable, groupStatusMessageStable
+	}
+	return GroupConfidenceUnstable, groupStatusMessageUnstable
+}
+
+func classifyGroupExperience(metrics groupMetrics, avgTtft int64) string {
+	if metrics.ttftCount < groupHealthMinSamples || avgTtft <= 0 {
+		return GroupExperienceUnknown
+	}
+	if avgTtft < groupExperienceLightningMs {
+		return GroupExperienceLightning
+	}
+	if avgTtft <= groupExperienceSmoothMs {
+		return GroupExperienceSmooth
+	}
+	return GroupExperienceNormal
+}
+
+func groupRecommendationLevel(confidenceStatus string) string {
+	switch confidenceStatus {
+	case GroupConfidenceExcellent:
+		return GroupRecommendationBest
+	case GroupConfidenceSmooth:
+		return GroupRecommendationRecommended
+	case GroupConfidenceStable:
+		return GroupRecommendationUsable
+	case GroupConfidenceUnstable:
+		return GroupRecommendationCaution
+	case GroupConfidenceUnavailable:
+		return GroupRecommendationUnavailable
+	default:
+		return GroupRecommendationUnknown
+	}
+}
+
+func legacyGroupHealthStatus(confidenceStatus string) string {
+	switch confidenceStatus {
+	case GroupConfidenceExcellent, GroupConfidenceSmooth, GroupConfidenceStable:
+		return GroupHealthOperational
+	case GroupConfidenceUnstable:
+		return GroupHealthDegraded
+	case GroupConfidenceUnavailable:
+		return GroupHealthOutage
+	default:
+		return GroupHealthUnknown
+	}
 }
 
 func groupHealthConfidence(requestCount int64) string {
+	if requestCount < groupHealthMinSamples {
+		return GroupHealthConfidenceLow
+	}
 	if requestCount >= groupHealthMediumSamples {
 		return GroupHealthConfidenceHigh
 	}

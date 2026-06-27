@@ -133,11 +133,80 @@ func TestGroupStatusServiceClassifiesGroups(t *testing.T) {
 	byGroup := groupStatusByName(result.Groups)
 	require.Equal(t, GroupHealthOperational, byGroup["default"].Status)
 	require.Equal(t, GroupHealthConfidenceHigh, byGroup["default"].Confidence)
+	require.Equal(t, GroupConfidenceExcellent, byGroup["default"].ConfidenceStatus)
+	require.Equal(t, GroupExperienceLightning, byGroup["default"].ExperienceLabel)
 	require.Equal(t, GroupHealthDegraded, byGroup["vip"].Status)
-	require.Equal(t, GroupHealthBusy, byGroup["slow"].Status)
+	require.Equal(t, GroupConfidenceUnstable, byGroup["vip"].ConfidenceStatus)
+	require.Equal(t, GroupHealthOperational, byGroup["slow"].Status)
+	require.Equal(t, GroupConfidenceExcellent, byGroup["slow"].ConfidenceStatus)
+	require.Equal(t, GroupExperienceNormal, byGroup["slow"].ExperienceLabel)
 	require.Equal(t, GroupHealthOutage, byGroup["down"].Status)
+	require.Equal(t, GroupConfidenceUnavailable, byGroup["down"].ConfidenceStatus)
 	require.Equal(t, GroupHealthOutage, byGroup["empty"].Status)
+	require.Equal(t, GroupConfidenceUnavailable, byGroup["empty"].ConfidenceStatus)
 	require.Equal(t, int64(0), byGroup["empty"].AvailableModelCount)
+}
+
+func TestGroupStatusServiceKeepsHighSuccessGroupsPositiveDespiteLongLatency(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+	insertGroupMetric(t, db, "default", 2000, 1999, 45000, 1500)
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Hours:        6,
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, 99.95, entry.SuccessRate)
+	require.Equal(t, GroupHealthOperational, entry.Status)
+	require.Equal(t, GroupConfidenceExcellent, entry.ConfidenceStatus)
+	require.Equal(t, GroupRecommendationBest, entry.RecommendationLevel)
+	require.Equal(t, GroupExperienceLightning, entry.ExperienceLabel)
+	require.NotEqual(t, GroupHealthBusy, entry.Status)
+	require.NotEqual(t, GroupConfidenceUnstable, entry.ConfidenceStatus)
+}
+
+func TestGroupStatusServiceMapsSuccessRatesToConfidencePanelCopy(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "excellent", "gpt-4o", 11, true)
+	insertGroupAbility(t, db, "smooth", "gpt-4o", 12, true)
+	insertGroupAbility(t, db, "stable", "gpt-4o", 13, true)
+	insertGroupAbility(t, db, "unstable", "gpt-4o", 14, true)
+	insertGroupAbility(t, db, "down", "gpt-4o", 15, true)
+	insertGroupMetric(t, db, "excellent", 1000, 999, 1000, 1200)
+	insertGroupMetric(t, db, "smooth", 1000, 991, 1000, 2600)
+	insertGroupMetric(t, db, "stable", 1000, 972, 1000, 5200)
+	insertGroupMetric(t, db, "unstable", 1000, 920, 1000, 1200)
+	insertGroupMetric(t, db, "down", 1000, 305, 1000, 1200)
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{
+			"excellent": "Excellent",
+			"smooth":    "Smooth",
+			"stable":    "Stable",
+			"unstable":  "Unstable",
+			"down":      "Down",
+		},
+		Hours: 6,
+	})
+	require.NoError(t, err)
+
+	byGroup := groupStatusByName(result.Groups)
+	require.Equal(t, GroupConfidenceExcellent, byGroup["excellent"].ConfidenceStatus)
+	require.Equal(t, GroupRecommendationBest, byGroup["excellent"].RecommendationLevel)
+	require.Equal(t, GroupExperienceLightning, byGroup["excellent"].ExperienceLabel)
+	require.Equal(t, GroupConfidenceSmooth, byGroup["smooth"].ConfidenceStatus)
+	require.Equal(t, GroupRecommendationRecommended, byGroup["smooth"].RecommendationLevel)
+	require.Equal(t, GroupExperienceSmooth, byGroup["smooth"].ExperienceLabel)
+	require.Equal(t, GroupConfidenceStable, byGroup["stable"].ConfidenceStatus)
+	require.Equal(t, GroupRecommendationUsable, byGroup["stable"].RecommendationLevel)
+	require.Equal(t, GroupExperienceNormal, byGroup["stable"].ExperienceLabel)
+	require.Equal(t, GroupConfidenceUnstable, byGroup["unstable"].ConfidenceStatus)
+	require.Equal(t, GroupRecommendationCaution, byGroup["unstable"].RecommendationLevel)
+	require.Equal(t, GroupConfidenceUnavailable, byGroup["down"].ConfidenceStatus)
+	require.Equal(t, GroupRecommendationUnavailable, byGroup["down"].RecommendationLevel)
 }
 
 func TestGroupStatusServiceReturnsUnknownForLowTrafficRoutableGroup(t *testing.T) {
@@ -154,6 +223,8 @@ func TestGroupStatusServiceReturnsUnknownForLowTrafficRoutableGroup(t *testing.T
 	require.Len(t, result.Groups, 1)
 	require.Equal(t, GroupHealthUnknown, result.Groups[0].Status)
 	require.Equal(t, GroupHealthConfidenceLow, result.Groups[0].Confidence)
+	require.Equal(t, GroupConfidenceUnknown, result.Groups[0].ConfidenceStatus)
+	require.Equal(t, GroupExperienceUnknown, result.Groups[0].ExperienceLabel)
 }
 
 func TestGroupStatusServiceFiltersToUserUsableGroups(t *testing.T) {
@@ -189,6 +260,7 @@ func TestGroupStatusServiceAutoUsesUserAutoGroupsAsRoutableFallback(t *testing.T
 
 	byGroup := groupStatusByName(result.Groups)
 	require.Equal(t, GroupHealthUnknown, byGroup["auto"].Status)
+	require.Equal(t, GroupConfidenceUnknown, byGroup["auto"].ConfidenceStatus)
 	require.Equal(t, int64(1), byGroup["auto"].AvailableModelCount)
 }
 
@@ -211,6 +283,7 @@ func TestGroupStatusServiceAutoAggregatesUserAutoGroupMetrics(t *testing.T) {
 
 	auto := groupStatusByName(result.Groups)["auto"]
 	require.Equal(t, GroupHealthOperational, auto.Status)
+	require.Equal(t, GroupConfidenceExcellent, auto.ConfidenceStatus)
 	require.Equal(t, int64(80), auto.RequestCount)
 	require.Equal(t, 100.0, auto.SuccessRate)
 }
@@ -228,7 +301,24 @@ func TestGroupStatusServiceTreatsDisabledChannelsAsNotRoutable(t *testing.T) {
 
 	entry := groupStatusByName(result.Groups)["default"]
 	require.Equal(t, GroupHealthOutage, entry.Status)
+	require.Equal(t, GroupConfidenceUnavailable, entry.ConfidenceStatus)
 	require.Equal(t, int64(0), entry.AvailableModelCount)
+}
+
+func TestGroupStatusServiceReturnsUnknownExperienceWhenTtftSamplesAreInsufficient(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+	insertGroupMetricWithTtftCount(t, db, "default", 40, 40, 1000, 500, 10)
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Hours:        24,
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, GroupConfidenceExcellent, entry.ConfidenceStatus)
+	require.Equal(t, GroupExperienceUnknown, entry.ExperienceLabel)
 }
 
 func insertGroupAbility(t *testing.T, db *gorm.DB, group string, modelName string, channelID int, enabled bool) {
@@ -262,6 +352,18 @@ func insertGroupMetric(t *testing.T, db *gorm.DB, group string, requestCount int
 func insertGroupMetricAt(t *testing.T, db *gorm.DB, group string, modelName string, bucketTs int64, requestCount int64, successCount int64, avgLatencyMs int64, avgTtftMs int64) {
 	t.Helper()
 
+	insertGroupMetricAtWithTtftCount(t, db, group, modelName, bucketTs, requestCount, successCount, avgLatencyMs, avgTtftMs, requestCount)
+}
+
+func insertGroupMetricWithTtftCount(t *testing.T, db *gorm.DB, group string, requestCount int64, successCount int64, avgLatencyMs int64, avgTtftMs int64, ttftCount int64) {
+	t.Helper()
+
+	insertGroupMetricAtWithTtftCount(t, db, group, "gpt-4o", time.Now().Unix(), requestCount, successCount, avgLatencyMs, avgTtftMs, ttftCount)
+}
+
+func insertGroupMetricAtWithTtftCount(t *testing.T, db *gorm.DB, group string, modelName string, bucketTs int64, requestCount int64, successCount int64, avgLatencyMs int64, avgTtftMs int64, ttftCount int64) {
+	t.Helper()
+
 	require.NoError(t, db.Create(&model.PerfMetric{
 		ModelName:      modelName,
 		Group:          group,
@@ -269,8 +371,8 @@ func insertGroupMetricAt(t *testing.T, db *gorm.DB, group string, modelName stri
 		RequestCount:   requestCount,
 		SuccessCount:   successCount,
 		TotalLatencyMs: requestCount * avgLatencyMs,
-		TtftSumMs:      requestCount * avgTtftMs,
-		TtftCount:      requestCount,
+		TtftSumMs:      ttftCount * avgTtftMs,
+		TtftCount:      ttftCount,
 	}).Error)
 }
 

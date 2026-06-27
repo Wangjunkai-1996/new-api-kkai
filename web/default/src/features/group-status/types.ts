@@ -28,12 +28,38 @@ export type GroupHealthStatus =
 
 export type GroupHealthConfidence = 'high' | 'medium' | 'low'
 
+export type GroupConfidenceStatus =
+  | 'excellent'
+  | 'smooth'
+  | 'stable'
+  | 'unstable'
+  | 'unavailable'
+  | 'unknown'
+
+export type GroupExperienceLabel =
+  | 'lightning'
+  | 'smooth'
+  | 'normal'
+  | 'unknown'
+
+export type GroupRecommendationLevel =
+  | 'best'
+  | 'recommended'
+  | 'usable'
+  | 'caution'
+  | 'unavailable'
+  | 'unknown'
+
 export interface GroupStatusEntry {
   group: string
   desc: string
   status: GroupHealthStatus
   confidence: GroupHealthConfidence
   message: string
+  confidence_status?: GroupConfidenceStatus
+  experience_label?: GroupExperienceLabel
+  recommendation_level?: GroupRecommendationLevel
+  display_message?: string
   request_count: number
   success_rate: number
   avg_latency_ms: number

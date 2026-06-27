@@ -156,6 +156,10 @@ func TestGroupStatusControllerReturnsOnlyUserUsableGroupsAndNoSensitiveFields(t 
 	require.True(t, response.Success)
 	require.Equal(t, 6, response.Data.WindowHours)
 	require.Equal(t, []string{"default", "vip"}, controllerGroupStatusNames(response.Data.Groups))
+	require.Equal(t, service.GroupConfidenceExcellent, response.Data.Groups[0].ConfidenceStatus)
+	require.NotEmpty(t, response.Data.Groups[0].ExperienceLabel)
+	require.NotEmpty(t, response.Data.Groups[0].RecommendationLevel)
+	require.NotEmpty(t, response.Data.Groups[0].DisplayMessage)
 
 	body := recorder.Body.String()
 	require.NotContains(t, body, "channel_id")
