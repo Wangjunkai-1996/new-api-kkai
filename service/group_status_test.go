@@ -145,9 +145,8 @@ func TestGroupStatusServiceClassifiesGroups(t *testing.T) {
 	require.Equal(t, GroupExperienceNormal, byGroup["slow"].ExperienceLabel)
 	require.Equal(t, GroupHealthOutage, byGroup["down"].Status)
 	require.Equal(t, GroupConfidenceUnavailable, byGroup["down"].ConfidenceStatus)
-	require.Equal(t, GroupHealthOutage, byGroup["empty"].Status)
-	require.Equal(t, GroupConfidenceUnavailable, byGroup["empty"].ConfidenceStatus)
-	require.Equal(t, int64(0), byGroup["empty"].AvailableModelCount)
+	require.Equal(t, GroupHealthUnknown, byGroup["empty"].Status)
+	require.Equal(t, GroupConfidenceUnknown, byGroup["empty"].ConfidenceStatus)
 }
 
 func TestGroupStatusServiceKeepsHighSuccessGroupsPositiveDespiteLongLatency(t *testing.T) {
@@ -165,7 +164,6 @@ func TestGroupStatusServiceKeepsHighSuccessGroupsPositiveDespiteLongLatency(t *t
 	require.Equal(t, 99.95, entry.SuccessRate)
 	require.Equal(t, GroupHealthOperational, entry.Status)
 	require.Equal(t, GroupConfidenceExcellent, entry.ConfidenceStatus)
-	require.Equal(t, GroupRecommendationBest, entry.RecommendationLevel)
 	require.Equal(t, GroupExperienceLightning, entry.ExperienceLabel)
 	require.NotEqual(t, GroupHealthBusy, entry.Status)
 	require.NotEqual(t, GroupConfidenceUnstable, entry.ConfidenceStatus)
@@ -198,18 +196,13 @@ func TestGroupStatusServiceMapsSuccessRatesToConfidencePanelCopy(t *testing.T) {
 
 	byGroup := groupStatusByName(result.Groups)
 	require.Equal(t, GroupConfidenceExcellent, byGroup["excellent"].ConfidenceStatus)
-	require.Equal(t, GroupRecommendationBest, byGroup["excellent"].RecommendationLevel)
 	require.Equal(t, GroupExperienceLightning, byGroup["excellent"].ExperienceLabel)
 	require.Equal(t, GroupConfidenceSmooth, byGroup["smooth"].ConfidenceStatus)
-	require.Equal(t, GroupRecommendationRecommended, byGroup["smooth"].RecommendationLevel)
 	require.Equal(t, GroupExperienceSmooth, byGroup["smooth"].ExperienceLabel)
 	require.Equal(t, GroupConfidenceStable, byGroup["stable"].ConfidenceStatus)
-	require.Equal(t, GroupRecommendationUsable, byGroup["stable"].RecommendationLevel)
 	require.Equal(t, GroupExperienceNormal, byGroup["stable"].ExperienceLabel)
 	require.Equal(t, GroupConfidenceUnstable, byGroup["unstable"].ConfidenceStatus)
-	require.Equal(t, GroupRecommendationCaution, byGroup["unstable"].RecommendationLevel)
 	require.Equal(t, GroupConfidenceUnavailable, byGroup["down"].ConfidenceStatus)
-	require.Equal(t, GroupRecommendationUnavailable, byGroup["down"].RecommendationLevel)
 }
 
 func TestGroupStatusServiceReturnsUnknownForLowTrafficRoutableGroup(t *testing.T) {
@@ -246,7 +239,7 @@ func TestGroupStatusServiceFiltersToUserUsableGroups(t *testing.T) {
 	require.Equal(t, []string{"vip"}, groupStatusNames(result.Groups))
 }
 
-func TestGroupStatusServiceAutoUsesUserAutoGroupsAsRoutableFallback(t *testing.T) {
+func TestGroupStatusServiceAutoStaysUnknownWithoutRequestSignals(t *testing.T) {
 	db := setupGroupStatusServiceTest(t)
 	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
 	insertGroupAbility(t, db, "vip", "gpt-4o", 2, true)
@@ -264,7 +257,6 @@ func TestGroupStatusServiceAutoUsesUserAutoGroupsAsRoutableFallback(t *testing.T
 	byGroup := groupStatusByName(result.Groups)
 	require.Equal(t, GroupHealthUnknown, byGroup["auto"].Status)
 	require.Equal(t, GroupConfidenceUnknown, byGroup["auto"].ConfidenceStatus)
-	require.Equal(t, int64(1), byGroup["auto"].AvailableModelCount)
 }
 
 func TestGroupStatusServiceAutoAggregatesUserAutoGroupMetrics(t *testing.T) {
@@ -291,7 +283,7 @@ func TestGroupStatusServiceAutoAggregatesUserAutoGroupMetrics(t *testing.T) {
 	require.Equal(t, 100.0, auto.SuccessRate)
 }
 
-func TestGroupStatusServiceTreatsDisabledChannelsAsNotRoutable(t *testing.T) {
+func TestGroupStatusServiceUsesRequestSignalsInsteadOfChannelCoverage(t *testing.T) {
 	db := setupGroupStatusServiceTest(t)
 	insertGroupAbilityWithChannelStatus(t, db, "default", "gpt-4o", 1, true, common.ChannelStatusAutoDisabled)
 	insertGroupMetric(t, db, "default", 30, 30, 1000, 300)
@@ -303,9 +295,8 @@ func TestGroupStatusServiceTreatsDisabledChannelsAsNotRoutable(t *testing.T) {
 	require.NoError(t, err)
 
 	entry := groupStatusByName(result.Groups)["default"]
-	require.Equal(t, GroupHealthOutage, entry.Status)
-	require.Equal(t, GroupConfidenceUnavailable, entry.ConfidenceStatus)
-	require.Equal(t, int64(0), entry.AvailableModelCount)
+	require.Equal(t, GroupHealthOperational, entry.Status)
+	require.Equal(t, GroupConfidenceExcellent, entry.ConfidenceStatus)
 }
 
 func TestGroupStatusServiceReturnsUnknownExperienceWhenTtftSamplesAreInsufficient(t *testing.T) {
@@ -347,7 +338,6 @@ func TestGroupStatusServiceUsesRealtimeEventsForNowWindow(t *testing.T) {
 	require.Equal(t, 5, result.WindowMinutes)
 	require.Equal(t, GroupHealthOperational, entry.Status)
 	require.Equal(t, GroupConfidenceStable, entry.ConfidenceStatus)
-	require.Equal(t, GroupRecommendationUsable, entry.RecommendationLevel)
 	require.Equal(t, groupStatusMessageLiveSuccess, entry.DisplayMessage)
 	require.Equal(t, int64(1), entry.RequestCount)
 	require.Equal(t, 100.0, entry.SuccessRate)
@@ -376,7 +366,6 @@ func TestGroupStatusServiceShowsLiveFailureWhenRecentEventsFail(t *testing.T) {
 	entry := groupStatusByName(result.Groups)["default"]
 	require.Equal(t, GroupHealthOutage, entry.Status)
 	require.Equal(t, GroupConfidenceUnavailable, entry.ConfidenceStatus)
-	require.Equal(t, GroupRecommendationUnavailable, entry.RecommendationLevel)
 	require.Equal(t, groupStatusMessageLiveFailure, entry.DisplayMessage)
 	require.Equal(t, int64(8), entry.RequestCount)
 	require.Equal(t, 25.0, entry.SuccessRate)
@@ -409,7 +398,7 @@ func TestGroupStatusServiceShowsRollingSignalsWithoutUsingOldEventsForNowStatus(
 	require.Len(t, entry.RecentEvents, 3)
 }
 
-func TestGroupStatusServiceUsesRecentLogsForSignalStrip(t *testing.T) {
+func TestGroupStatusServiceDoesNotReadLogsForRealtimeSignalStrip(t *testing.T) {
 	db := setupGroupStatusServiceTest(t)
 	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
 	now := time.Now().Unix()
@@ -435,10 +424,7 @@ func TestGroupStatusServiceUsesRecentLogsForSignalStrip(t *testing.T) {
 	entry := groupStatusByName(result.Groups)["default"]
 	require.Equal(t, GroupHealthUnknown, entry.Status)
 	require.Equal(t, int64(0), entry.RequestCount)
-	require.Len(t, entry.RecentEvents, 60)
-	require.Equal(t, now-60, entry.RecentEvents[0].Ts)
-	require.Equal(t, now-1, entry.RecentEvents[59].Ts)
-	require.Equal(t, "failure", entry.RecentEvents[8].Status)
+	require.Empty(t, entry.RecentEvents)
 }
 
 func TestGroupStatusServiceKeepsRoutableNowWindowWaitingWithoutRecentEvents(t *testing.T) {

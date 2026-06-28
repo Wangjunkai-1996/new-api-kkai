@@ -30,7 +30,6 @@ import type { StatusVariant } from '@/components/status-badge'
 import type {
   GroupConfidenceStatus,
   GroupExperienceLabel,
-  GroupRecommendationLevel,
   GroupStatusWindow,
 } from './types'
 
@@ -155,18 +154,6 @@ export const EXPERIENCE_META: Record<
     icon: HelpCircle,
     visible: false,
   },
-}
-
-export const RECOMMENDATION_META: Record<
-  GroupRecommendationLevel,
-  { labelKey: string; rank: number; variant: StatusVariant }
-> = {
-  best: { labelKey: 'Top Pick', rank: 6, variant: 'light-green' },
-  recommended: { labelKey: 'Recommended Group', rank: 5, variant: 'teal' },
-  usable: { labelKey: 'Ready To Use', rank: 4, variant: 'success' },
-  unknown: { labelKey: 'Observe', rank: 3, variant: 'neutral' },
-  caution: { labelKey: 'Backup Only', rank: 2, variant: 'warning' },
-  unavailable: { labelKey: 'Skip For Now', rank: 0, variant: 'danger' },
 }
 
 export const MESSAGE_LABELS: Record<string, string> = {

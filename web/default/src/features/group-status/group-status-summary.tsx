@@ -17,31 +17,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { Activity, Gauge, Layers3, Sparkles } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldCheck,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { StatusBadge } from '@/components/status-badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { formatNumber, formatPercent } from '@/lib/format'
+import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { GroupStatusEntry, GroupStatusWindow } from './types'
-import {
-  getBestGroup,
-  getConfidenceStatus,
-  getExperienceLabel,
-  getRecommendationLevel,
-  shouldShowExperience,
-} from './status-display'
-import {
-  CONFIDENCE_META,
-  EXPERIENCE_META,
-  RECOMMENDATION_META,
-} from './status-meta'
+import { getConfidenceStatus } from './status-display'
 
 type SummaryStats = {
-  brightCount: number
+  healthyCount: number
   stableCount: number
+  issueCount: number
+  unknownCount: number
   totalRequests: number
-  availableModels: number
 }
 
 export function GroupStatusSummary(props: {
@@ -51,94 +45,46 @@ export function GroupStatusSummary(props: {
   generatedAt?: number
 }) {
   const { t } = useTranslation()
-  const bestGroup = getBestGroup(props.groups)
   const stats = buildSummaryStats(props.groups)
-  const bestMeta = bestGroup
-    ? CONFIDENCE_META[getConfidenceStatus(bestGroup)]
-    : CONFIDENCE_META.unknown
-  const headline = bestGroup
-    ? summaryHeadline(bestGroup, props.window)
-    : { key: 'Group Confidence', group: '' }
-  const BestIcon = bestMeta.icon
 
   return (
     <div className='space-y-3'>
-      <div className='relative overflow-hidden rounded-xl border border-emerald-500/20 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklch,var(--success)_24%,transparent),transparent_36%),linear-gradient(135deg,color-mix(in_oklch,var(--success)_12%,var(--card)),var(--card)_52%,color-mix(in_oklch,var(--info)_10%,var(--card)))] p-4 shadow-sm sm:p-5'>
-        <div className='pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent' />
-        <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
-          <div className='min-w-0 space-y-3'>
-            <div className='flex flex-wrap items-center gap-2'>
-              <StatusBadge
-                copyable={false}
-                icon={Sparkles}
-                label={t('Confidence Panel')}
-                variant='light-green'
-              />
-              {bestGroup && shouldShowExperience(bestGroup) && (
-                <StatusBadge
-                  copyable={false}
-                  icon={EXPERIENCE_META[getExperienceLabel(bestGroup)].icon}
-                  label={t(EXPERIENCE_META[getExperienceLabel(bestGroup)].labelKey)}
-                  variant={EXPERIENCE_META[getExperienceLabel(bestGroup)].variant}
-                />
-              )}
-            </div>
-            <div className='space-y-1'>
-              <h2 className='text-2xl font-semibold tracking-normal sm:text-3xl'>
-                {t(headline.key, { group: headline.group })}
-              </h2>
-              <p className='text-muted-foreground max-w-2xl text-sm'>
-                {t(windowDescriptionKey(props.window))}
-              </p>
-            </div>
+      <div className='rounded-xl border bg-card p-4 shadow-sm'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='min-w-0'>
+            <h2 className='text-lg font-semibold'>{t('Group Health')}</h2>
+            <p className='text-muted-foreground mt-1 max-w-2xl text-sm'>
+              {t(windowDescriptionKey(props.window))}
+            </p>
           </div>
-          {bestGroup && (
-            <div className='flex min-w-0 items-center gap-3 rounded-lg border border-emerald-400/20 bg-background/55 p-3 shadow-sm backdrop-blur'>
-              <div
-                className={cn(
-                  'flex size-11 shrink-0 items-center justify-center rounded-lg',
-                  'bg-emerald-400/15 text-emerald-500 dark:text-emerald-300'
-                )}
-              >
-                <BestIcon className='size-5' />
-              </div>
-              <div className='min-w-0'>
-                <div className={cn('text-xl font-semibold', bestMeta.toneClass)}>
-                  {formatPercent(bestGroup.success_rate)}
-                </div>
-                <div className='text-muted-foreground truncate text-xs'>
-                  {t(bestMeta.labelKey)} ·{' '}
-                  {t(
-                    RECOMMENDATION_META[getRecommendationLevel(bestGroup)]
-                      .labelKey
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          <div className='text-muted-foreground text-xs tabular-nums'>
+            {props.generatedAt
+              ? t('{{seconds}}s ago', { seconds: ageSeconds(props.generatedAt) })
+              : '-'}
+          </div>
         </div>
       </div>
       <div className='grid grid-cols-2 gap-2 lg:grid-cols-4'>
         <MetricCard
-          icon={Sparkles}
-          label={t('Smooth Groups')}
-          value={formatNumber(stats.brightCount)}
-          detail={t('Very smooth or smooth')}
+          icon={ShieldCheck}
+          label={t('Healthy Groups')}
+          value={formatNumber(stats.healthyCount)}
+          detail={t('Healthy or smooth')}
           accent='emerald'
         />
         <MetricCard
-          icon={Gauge}
+          icon={CheckCircle2}
           label={t('Stable Groups')}
           value={formatNumber(stats.stableCount)}
           detail={t('Stable and usable')}
           accent='green'
         />
         <MetricCard
-          icon={Layers3}
-          label={t('Routable Models')}
-          value={formatNumber(stats.availableModels)}
-          detail={t('Available model coverage')}
-          accent='teal'
+          icon={AlertTriangle}
+          label={t('Problem Groups')}
+          value={formatNumber(stats.issueCount)}
+          detail={t('Failing or unstable')}
+          accent='amber'
         />
         <MetricCard
           icon={Activity}
@@ -156,26 +102,9 @@ export function GroupStatusSummary(props: {
 
 function windowDescriptionKey(window?: GroupStatusWindow | '24h') {
   if (window === 'now') {
-    return 'Realtime status uses actual recent requests and routable model coverage. It does not probe upstream or consume quota.'
+    return 'Realtime status uses recent request signals only. It does not query logs, probe upstream, or consume quota.'
   }
-  return 'Calculated from recent success rate and routable model coverage. Latency is not used to downgrade high-success groups.'
-}
-
-function summaryHeadline(
-  group: GroupStatusEntry,
-  window?: GroupStatusWindow | '24h'
-) {
-  const status = getConfidenceStatus(group)
-  if (status === 'unavailable') {
-    return { key: 'No smooth group right now', group: group.group }
-  }
-  if (window === 'now' && group.request_count <= 0) {
-    return { key: 'Waiting for live signals', group: group.group }
-  }
-  if (window === 'now') {
-    return { key: 'Live top pick: {{group}}', group: group.group }
-  }
-  return { key: 'Current top pick: {{group}}', group: group.group }
+  return 'Calculated from recent request success rate. Latency is shown as experience context, not as a health downgrade.'
 }
 
 function windowDetailKey(window?: GroupStatusWindow | '24h') {
@@ -194,17 +123,17 @@ function windowDetailKey(window?: GroupStatusWindow | '24h') {
 }
 
 function MetricCard(props: {
-  icon: typeof Sparkles
+  icon: typeof Activity
   label: string
   value: string
   detail: string
-  accent: 'emerald' | 'green' | 'teal' | 'cyan'
+  accent: 'emerald' | 'green' | 'amber' | 'cyan'
 }) {
   const Icon = props.icon
   const accentClass = {
     emerald: 'text-emerald-500 bg-emerald-400/12',
     green: 'text-success bg-success/10',
-    teal: 'text-teal-500 bg-teal-400/12',
+    amber: 'text-warning bg-warning/10',
     cyan: 'text-cyan-500 bg-cyan-400/12',
   }[props.accent]
 
@@ -235,20 +164,33 @@ function buildSummaryStats(groups: GroupStatusEntry[]): SummaryStats {
         getConfidenceStatus(group) === 'excellent' ||
         getConfidenceStatus(group) === 'smooth'
       ) {
-        stats.brightCount += 1
+        stats.healthyCount += 1
       }
       if (getConfidenceStatus(group) === 'stable') {
         stats.stableCount += 1
       }
+      if (
+        getConfidenceStatus(group) === 'unstable' ||
+        getConfidenceStatus(group) === 'unavailable'
+      ) {
+        stats.issueCount += 1
+      }
+      if (getConfidenceStatus(group) === 'unknown') {
+        stats.unknownCount += 1
+      }
       stats.totalRequests += group.request_count
-      stats.availableModels += group.available_model_count
       return stats
     },
     {
-      brightCount: 0,
+      healthyCount: 0,
       stableCount: 0,
+      issueCount: 0,
+      unknownCount: 0,
       totalRequests: 0,
-      availableModels: 0,
     }
   )
+}
+
+function ageSeconds(timestamp: number) {
+  return Math.max(0, Math.floor(Date.now() / 1000 - timestamp))
 }

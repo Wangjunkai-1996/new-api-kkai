@@ -42,14 +42,6 @@ export type GroupExperienceLabel =
   | 'normal'
   | 'unknown'
 
-export type GroupRecommendationLevel =
-  | 'best'
-  | 'recommended'
-  | 'usable'
-  | 'caution'
-  | 'unavailable'
-  | 'unknown'
-
 export interface GroupStatusEntry {
   group: string
   desc: string
@@ -58,13 +50,11 @@ export interface GroupStatusEntry {
   message: string
   confidence_status?: GroupConfidenceStatus
   experience_label?: GroupExperienceLabel
-  recommendation_level?: GroupRecommendationLevel
   display_message?: string
   request_count: number
   success_rate: number
   avg_latency_ms: number
   avg_ttft_ms: number
-  available_model_count: number
   updated_at: number
   recent_events?: GroupRecentEvent[] | null
 }

@@ -34,14 +34,9 @@ import {
   getConfidenceStatus,
   getExperienceLabel,
   getMessageKey,
-  getRecommendationLevel,
   shouldShowExperience,
 } from './status-display'
-import {
-  CONFIDENCE_META,
-  EXPERIENCE_META,
-  RECOMMENDATION_META,
-} from './status-meta'
+import { CONFIDENCE_META, EXPERIENCE_META } from './status-meta'
 import type { GroupStatusEntry } from './types'
 
 export function GroupStatusTable({ groups }: { groups: GroupStatusEntry[] }) {
@@ -56,14 +51,12 @@ export function GroupStatusTable({ groups }: { groups: GroupStatusEntry[] }) {
         <Table>
           <TableHeader>
             <TableRow className='bg-muted/30'>
-              <TableHead className='w-32'>{t('Recommendation')}</TableHead>
               <TableHead className='min-w-52'>{t('Group')}</TableHead>
               <TableHead className='min-w-36'>{t('Flow Status')}</TableHead>
               <TableHead className='text-right'>{t('Success Rate')}</TableHead>
               <TableHead className='text-right'>{t('Samples')}</TableHead>
-              <TableHead className='text-right'>{t('Routable Models')}</TableHead>
               <TableHead className='min-w-32'>{t('Experience')}</TableHead>
-              <TableHead className='min-w-64'>{t('Suggestion')}</TableHead>
+              <TableHead className='min-w-64'>{t('Status Detail')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -80,7 +73,6 @@ export function GroupStatusTable({ groups }: { groups: GroupStatusEntry[] }) {
 function ConfidenceRow({ group }: { group: GroupStatusEntry }) {
   const { t } = useTranslation()
   const confidenceMeta = CONFIDENCE_META[getConfidenceStatus(group)]
-  const recommendationMeta = RECOMMENDATION_META[getRecommendationLevel(group)]
   const experienceMeta = EXPERIENCE_META[getExperienceLabel(group)]
   const ConfidenceIcon = confidenceMeta.icon
   const ExperienceIcon = experienceMeta.icon
@@ -95,13 +87,6 @@ function ConfidenceRow({ group }: { group: GroupStatusEntry }) {
           )}
           aria-hidden='true'
         />
-        <StatusBadge
-          copyable={false}
-          label={t(recommendationMeta.labelKey)}
-          variant={recommendationMeta.variant}
-        />
-      </TableCell>
-      <TableCell>
         <div className='min-w-0'>
           <div className='font-medium'>{group.group}</div>
           <div className='text-muted-foreground max-w-64 truncate text-xs'>
@@ -129,9 +114,6 @@ function ConfidenceRow({ group }: { group: GroupStatusEntry }) {
       </TableCell>
       <TableCell className='text-right tabular-nums'>
         {formatNumber(group.request_count)}
-      </TableCell>
-      <TableCell className='text-right tabular-nums'>
-        {formatNumber(group.available_model_count)}
       </TableCell>
       <TableCell>
         {shouldShowExperience(group) ? (

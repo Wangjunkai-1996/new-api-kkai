@@ -33,25 +33,16 @@ const (
 	GroupExperienceNormal    = "normal"
 	GroupExperienceUnknown   = "unknown"
 
-	GroupRecommendationBest        = "best"
-	GroupRecommendationRecommended = "recommended"
-	GroupRecommendationUsable      = "usable"
-	GroupRecommendationCaution     = "caution"
-	GroupRecommendationUnavailable = "unavailable"
-	GroupRecommendationUnknown     = "unknown"
-
 	groupStatusMessageExcellent   = "Group status message: excellent"
 	groupStatusMessageSmooth      = "Group status message: smooth"
 	groupStatusMessageStable      = "Group status message: stable"
 	groupStatusMessageUnstable    = "Group status message: unstable"
 	groupStatusMessageUnavailable = "Group status message: unavailable"
-	groupStatusMessageNoModels    = "Group status message: no routable models"
 	groupStatusMessageUnknown     = "Group status message: unknown"
 	groupStatusMessageLiveSuccess = "Group status message: live success"
 	groupStatusMessageLiveWaiting = "Group status message: live waiting"
 	groupStatusMessageLiveFailure = "Group status message: live failure"
 
-	groupRecentSignalLimit       = 60
 	groupHealthMinSamples        = int64(20)
 	groupHealthLiveMinSamples    = int64(8)
 	groupHealthMediumSamples     = int64(100)
@@ -87,13 +78,11 @@ type GroupStatusEntry struct {
 	Message             string             `json:"message"`
 	ConfidenceStatus    string             `json:"confidence_status"`
 	ExperienceLabel     string             `json:"experience_label"`
-	RecommendationLevel string             `json:"recommendation_level"`
 	DisplayMessage      string             `json:"display_message"`
 	RequestCount        int64              `json:"request_count"`
 	SuccessRate         float64            `json:"success_rate"`
 	AvgLatencyMs        int64              `json:"avg_latency_ms"`
 	AvgTtftMs           int64              `json:"avg_ttft_ms"`
-	AvailableModelCount int64              `json:"available_model_count"`
 	UpdatedAt           int64              `json:"updated_at"`
 	RecentEvents        []GroupRecentEvent `json:"recent_events"`
 }
@@ -135,20 +124,13 @@ func GetUserGroupStatuses(req GroupStatusRequest) (GroupStatusResult, error) {
 		mergeRecentEventsIntoMetrics(metrics, liveMetricEvents)
 	}
 	applyAutoGroupMetrics(metrics, req.UsableGroups)
-	recentEvents := loadGroupRecentSignalEvents(groupNames)
+	recentEvents := loadGroupRecentPerfEvents(groupNames)
 	applyAutoGroupRecentEvents(recentEvents, req.UsableGroups)
-	modelCounts, err := loadGroupModelCounts(groupNames)
-	if err != nil {
-		return GroupStatusResult{}, err
-	}
-	if err := applyAutoGroupModelCount(modelCounts, req.UsableGroups); err != nil {
-		return GroupStatusResult{}, err
-	}
 
 	entries := make([]GroupStatusEntry, 0, len(groupNames))
 	now := time.Now().Unix()
 	for _, group := range groupNames {
-		entry := buildGroupStatusEntry(group, req.UsableGroups[group], metrics[group], modelCounts[group], now, window, recentEvents[group])
+		entry := buildGroupStatusEntry(group, req.UsableGroups[group], metrics[group], now, window, recentEvents[group])
 		entries = append(entries, entry)
 	}
 
@@ -245,49 +227,9 @@ func loadGroupMetricEvents(window groupStatusWindow, groups []string) map[string
 	return normalizePerfMetricEvents(result)
 }
 
-func loadGroupRecentSignalEvents(groups []string) map[string][]GroupRecentEvent {
-	logEvents, err := loadGroupRecentLogEvents(groups)
-	if err != nil {
-		return loadGroupRecentPerfEvents(groups)
-	}
-
-	perfEvents := loadGroupRecentPerfEvents(groups)
-	for _, group := range groups {
-		if len(logEvents[group]) == 0 && len(perfEvents[group]) > 0 {
-			logEvents[group] = perfEvents[group]
-		}
-	}
-	return logEvents
-}
-
 func loadGroupRecentPerfEvents(groups []string) map[string][]GroupRecentEvent {
 	result := perfmetrics.QueryLastEventsByGroup(groups)
 	return normalizePerfMetricEvents(result)
-}
-
-func loadGroupRecentLogEvents(groups []string) (map[string][]GroupRecentEvent, error) {
-	signals, err := model.GetRecentGroupRequestSignals(groups, groupRecentSignalLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	eventsByGroup := make(map[string][]GroupRecentEvent, len(signals))
-	for group, groupSignals := range signals {
-		events := make([]GroupRecentEvent, 0, len(groupSignals))
-		for _, signal := range groupSignals {
-			status := "failure"
-			if signal.Success {
-				status = "success"
-			}
-			events = append(events, GroupRecentEvent{
-				Ts:        signal.CreatedAt,
-				Status:    status,
-				LatencyMs: int64(signal.UseTimeSeconds) * 1000,
-			})
-		}
-		eventsByGroup[group] = events
-	}
-	return eventsByGroup, nil
 }
 
 func normalizePerfMetricEvents(result perfmetrics.GroupRecentEventsResult) map[string][]GroupRecentEvent {
@@ -329,23 +271,11 @@ func mergeRecentEventsIntoMetrics(metrics map[string]groupMetrics, eventsByGroup
 	}
 }
 
-func loadGroupModelCounts(groups []string) (map[string]int64, error) {
-	rows, err := model.GetEnabledAbilityGroupSummaries(groups)
-	if err != nil {
-		return nil, err
-	}
-	counts := make(map[string]int64, len(rows))
-	for _, row := range rows {
-		counts[row.Group] = row.ModelCount
-	}
-	return counts, nil
-}
-
-func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, modelCount int64, now int64, window groupStatusWindow, recentEvents []GroupRecentEvent) GroupStatusEntry {
+func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, now int64, window groupStatusWindow, recentEvents []GroupRecentEvent) GroupStatusEntry {
 	successRate := roundPercent(metrics.successRate())
 	avgLatency := avgInt64(metrics.totalLatencyMs, metrics.requestCount)
 	avgTtft := avgInt64(metrics.ttftSumMs, metrics.ttftCount)
-	confidenceStatus, message := classifyGroupConfidence(metrics, modelCount, successRate, window)
+	confidenceStatus, message := classifyGroupConfidence(metrics, successRate, window)
 	experienceLabel := classifyGroupExperience(metrics, avgTtft, window)
 
 	return GroupStatusEntry{
@@ -356,22 +286,17 @@ func buildGroupStatusEntry(group string, desc string, metrics groupMetrics, mode
 		Message:             message,
 		ConfidenceStatus:    confidenceStatus,
 		ExperienceLabel:     experienceLabel,
-		RecommendationLevel: groupRecommendationLevel(confidenceStatus),
 		DisplayMessage:      message,
 		RequestCount:        metrics.requestCount,
 		SuccessRate:         successRate,
 		AvgLatencyMs:        avgLatency,
 		AvgTtftMs:           avgTtft,
-		AvailableModelCount: modelCount,
 		UpdatedAt:           now,
 		RecentEvents:        recentEvents,
 	}
 }
 
-func classifyGroupConfidence(metrics groupMetrics, modelCount int64, successRate float64, window groupStatusWindow) (string, string) {
-	if modelCount <= 0 {
-		return GroupConfidenceUnavailable, groupStatusMessageNoModels
-	}
+func classifyGroupConfidence(metrics groupMetrics, successRate float64, window groupStatusWindow) (string, string) {
 	if window.live {
 		return classifyLiveGroupConfidence(metrics, successRate)
 	}
@@ -437,23 +362,6 @@ func classifyGroupExperience(metrics groupMetrics, avgTtft int64, window groupSt
 	return GroupExperienceNormal
 }
 
-func groupRecommendationLevel(confidenceStatus string) string {
-	switch confidenceStatus {
-	case GroupConfidenceExcellent:
-		return GroupRecommendationBest
-	case GroupConfidenceSmooth:
-		return GroupRecommendationRecommended
-	case GroupConfidenceStable:
-		return GroupRecommendationUsable
-	case GroupConfidenceUnstable:
-		return GroupRecommendationCaution
-	case GroupConfidenceUnavailable:
-		return GroupRecommendationUnavailable
-	default:
-		return GroupRecommendationUnknown
-	}
-}
-
 func legacyGroupHealthStatus(confidenceStatus string) string {
 	switch confidenceStatus {
 	case GroupConfidenceExcellent, GroupConfidenceSmooth, GroupConfidenceStable:
@@ -515,27 +423,6 @@ func applyAutoGroupRecentEvents(eventsByGroup map[string][]GroupRecentEvent, usa
 		autoEvents = autoEvents[len(autoEvents)-60:]
 	}
 	eventsByGroup["auto"] = autoEvents
-}
-
-func applyAutoGroupModelCount(modelCounts map[string]int64, usableGroups map[string]string) error {
-	if _, ok := usableGroups["auto"]; !ok {
-		return nil
-	}
-	autoGroups := make([]string, 0)
-	for _, group := range setting.GetAutoGroups() {
-		if _, ok := usableGroups[group]; !ok {
-			continue
-		}
-		autoGroups = append(autoGroups, group)
-	}
-	autoModelCount, err := model.CountEnabledAbilityModels(autoGroups)
-	if err != nil {
-		return err
-	}
-	if autoModelCount > 0 {
-		modelCounts["auto"] = autoModelCount
-	}
-	return nil
 }
 
 func (m groupMetrics) successRate() float64 {
