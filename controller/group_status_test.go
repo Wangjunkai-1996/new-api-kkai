@@ -43,7 +43,7 @@ func setupGroupStatusControllerTest(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	model.DB = db
 	model.LOG_DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Ability{}, &model.PerfMetric{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Ability{}, &model.PerfMetric{}, &model.Log{}))
 	require.NoError(t, db.AutoMigrate(&model.Channel{}))
 
 	resetGroupStatusControllerSettings(t)

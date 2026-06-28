@@ -30,7 +30,7 @@ func setupGroupStatusServiceTest(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	model.DB = db
 	model.LOG_DB = db
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.PerfMetric{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.PerfMetric{}, &model.Log{}))
 
 	resetGroupStatusSettings(t)
 	t.Cleanup(func() {
@@ -381,6 +381,64 @@ func TestGroupStatusServiceShowsLiveFailureWhenRecentEventsFail(t *testing.T) {
 	require.Equal(t, int64(8), entry.RequestCount)
 	require.Equal(t, 25.0, entry.SuccessRate)
 	require.Len(t, entry.RecentEvents, 8)
+}
+
+func TestGroupStatusServiceShowsRollingSignalsWithoutUsingOldEventsForNowStatus(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+	insertGroupMetricAt(t, db, "default", "gpt-4o", time.Now().Add(-2*time.Hour).Unix(), 80, 80, 1000, 300)
+	for i := 0; i < 3; i++ {
+		perfmetrics.Record(perfmetrics.Sample{
+			Model:     "gpt-4o",
+			Group:     "default",
+			LatencyMs: 900,
+			Success:   false,
+		})
+	}
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, GroupHealthOutage, entry.Status)
+	require.Equal(t, GroupConfidenceUnavailable, entry.ConfidenceStatus)
+	require.Equal(t, int64(3), entry.RequestCount)
+	require.Len(t, entry.RecentEvents, 3)
+}
+
+func TestGroupStatusServiceUsesRecentLogsForSignalStrip(t *testing.T) {
+	db := setupGroupStatusServiceTest(t)
+	insertGroupAbility(t, db, "default", "gpt-4o", 1, true)
+	now := time.Now().Unix()
+	for i := 0; i < 70; i++ {
+		logType := model.LogTypeConsume
+		if i%9 == 0 {
+			logType = model.LogTypeError
+		}
+		require.NoError(t, db.Create(&model.Log{
+			CreatedAt: now - int64(70-i),
+			Type:      logType,
+			Group:     "default",
+			UseTime:   i,
+		}).Error)
+	}
+
+	result, err := GetUserGroupStatuses(GroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+
+	entry := groupStatusByName(result.Groups)["default"]
+	require.Equal(t, GroupHealthUnknown, entry.Status)
+	require.Equal(t, int64(0), entry.RequestCount)
+	require.Len(t, entry.RecentEvents, 60)
+	require.Equal(t, now-60, entry.RecentEvents[0].Ts)
+	require.Equal(t, now-1, entry.RecentEvents[59].Ts)
+	require.Equal(t, "failure", entry.RecentEvents[8].Status)
 }
 
 func TestGroupStatusServiceKeepsRoutableNowWindowWaitingWithoutRecentEvents(t *testing.T) {

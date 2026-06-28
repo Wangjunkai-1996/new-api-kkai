@@ -180,7 +180,9 @@ function GroupStatusCard({
               <span>{t('Recent 60 Signals')}</span>
             </div>
             <span className='text-muted-foreground shrink-0 text-xs'>
-              {events.length > 0 ? t('PAST to NOW') : t('Waiting for traffic')}
+              {events.length > 0
+                ? t('Latest {{count}} of 60', { count: events.length })
+                : t('Waiting for traffic')}
             </span>
           </div>
           <PulseBars events={events} />
@@ -229,27 +231,35 @@ function InlineMetric(props: { label: string; value: string }) {
 }
 
 function PulseBars({ events }: { events: GroupRecentEvent[] }) {
+  const { t } = useTranslation()
   const visibleEvents = events.slice(-PULSE_BAR_COUNT)
-  const placeholders = PULSE_BAR_COUNT - visibleEvents.length
+
+  if (visibleEvents.length === 0) {
+    return (
+      <div
+        className='bg-muted/15 text-muted-foreground flex h-10 items-center rounded-lg px-3 text-xs'
+        aria-label='recent group request signals'
+      >
+        {t('No recent request signals yet')}
+      </div>
+    )
+  }
 
   return (
     <div
-      className='grid h-10 items-end gap-1'
+      className='bg-muted/15 grid h-10 items-end gap-0.5 rounded-lg p-1 sm:gap-1'
       style={{
         gridTemplateColumns: `repeat(${PULSE_BAR_COUNT}, minmax(0, 1fr))`,
       }}
       aria-label='recent group request signals'
     >
-      {Array.from({ length: placeholders }).map((_, index) => (
-        <span
-          key={`empty-${index}`}
-          className='h-5 rounded-full bg-muted/60'
-          aria-hidden='true'
-        />
-      ))}
       {visibleEvents.map((event, index) => (
         <span
           key={`${event.ts}-${index}`}
+          style={{
+            gridColumnStart:
+              PULSE_BAR_COUNT - visibleEvents.length + index + 1,
+          }}
           className={cn(
             'rounded-full transition-transform hover:scale-y-110',
             event.status === 'success'

@@ -51,6 +51,7 @@ const (
 	groupStatusMessageLiveWaiting = "Group status message: live waiting"
 	groupStatusMessageLiveFailure = "Group status message: live failure"
 
+	groupRecentSignalLimit       = 60
 	groupHealthMinSamples        = int64(20)
 	groupHealthLiveMinSamples    = int64(8)
 	groupHealthMediumSamples     = int64(100)
@@ -129,11 +130,12 @@ func GetUserGroupStatuses(req GroupStatusRequest) (GroupStatusResult, error) {
 	if err != nil {
 		return GroupStatusResult{}, err
 	}
-	recentEvents := loadGroupRecentEvents(window, groupNames)
+	liveMetricEvents := loadGroupMetricEvents(window, groupNames)
 	if window.usesRecentEventsAsMetrics() {
-		mergeRecentEventsIntoMetrics(metrics, recentEvents)
+		mergeRecentEventsIntoMetrics(metrics, liveMetricEvents)
 	}
 	applyAutoGroupMetrics(metrics, req.UsableGroups)
+	recentEvents := loadGroupRecentSignalEvents(groupNames)
 	applyAutoGroupRecentEvents(recentEvents, req.UsableGroups)
 	modelCounts, err := loadGroupModelCounts(groupNames)
 	if err != nil {
@@ -238,8 +240,57 @@ func loadGroupMetrics(window groupStatusWindow, groups []string) (map[string]gro
 	return metrics, nil
 }
 
-func loadGroupRecentEvents(window groupStatusWindow, groups []string) map[string][]GroupRecentEvent {
+func loadGroupMetricEvents(window groupStatusWindow, groups []string) map[string][]GroupRecentEvent {
 	result := perfmetrics.QueryRecentEventsByGroup(window.minutes, groups)
+	return normalizePerfMetricEvents(result)
+}
+
+func loadGroupRecentSignalEvents(groups []string) map[string][]GroupRecentEvent {
+	logEvents, err := loadGroupRecentLogEvents(groups)
+	if err != nil {
+		return loadGroupRecentPerfEvents(groups)
+	}
+
+	perfEvents := loadGroupRecentPerfEvents(groups)
+	for _, group := range groups {
+		if len(logEvents[group]) == 0 && len(perfEvents[group]) > 0 {
+			logEvents[group] = perfEvents[group]
+		}
+	}
+	return logEvents
+}
+
+func loadGroupRecentPerfEvents(groups []string) map[string][]GroupRecentEvent {
+	result := perfmetrics.QueryLastEventsByGroup(groups)
+	return normalizePerfMetricEvents(result)
+}
+
+func loadGroupRecentLogEvents(groups []string) (map[string][]GroupRecentEvent, error) {
+	signals, err := model.GetRecentGroupRequestSignals(groups, groupRecentSignalLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	eventsByGroup := make(map[string][]GroupRecentEvent, len(signals))
+	for group, groupSignals := range signals {
+		events := make([]GroupRecentEvent, 0, len(groupSignals))
+		for _, signal := range groupSignals {
+			status := "failure"
+			if signal.Success {
+				status = "success"
+			}
+			events = append(events, GroupRecentEvent{
+				Ts:        signal.CreatedAt,
+				Status:    status,
+				LatencyMs: int64(signal.UseTimeSeconds) * 1000,
+			})
+		}
+		eventsByGroup[group] = events
+	}
+	return eventsByGroup, nil
+}
+
+func normalizePerfMetricEvents(result perfmetrics.GroupRecentEventsResult) map[string][]GroupRecentEvent {
 	eventsByGroup := make(map[string][]GroupRecentEvent, len(result.Groups))
 	for _, item := range result.Groups {
 		events := make([]GroupRecentEvent, 0, len(item.Events))

@@ -5279,6 +5279,8 @@
     "{{seconds}}s ago": "{{seconds}}s ago",
     "Recent 60 Signals": "Recent 60 Signals",
     "PAST to NOW": "PAST to NOW",
+    "Latest {{count}} of 60": "Latest {{count}} / 60",
+    "No recent request signals yet": "No recent request signals yet",
     "Waiting for traffic": "Waiting for traffic",
     "Group status message: live success": "Someone just used this group successfully. It is a good first choice.",
     "Group status message: live waiting": "This group is routable, but there are not enough live requests yet to judge it.",

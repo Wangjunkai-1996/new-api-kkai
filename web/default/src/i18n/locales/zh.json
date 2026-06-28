@@ -5279,6 +5279,8 @@
     "{{seconds}}s ago": "{{seconds}} 秒前",
     "Recent 60 Signals": "近 60 次信号",
     "PAST to NOW": "过去到现在",
+    "Latest {{count}} of 60": "最近 {{count}} / 60 条",
+    "No recent request signals yet": "暂无最近请求信号",
     "Waiting for traffic": "等待流量",
     "Group status message: live success": "刚刚已有用户成功使用，可以优先尝试。",
     "Group status message: live waiting": "这个分组当前可路由，但刚刚还没有足够站内请求可判断。",

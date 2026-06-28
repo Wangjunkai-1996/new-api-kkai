@@ -301,6 +301,42 @@ func QueryRecentEventsByGroup(minutes int, groups []string) GroupRecentEventsRes
 	return GroupRecentEventsResult{Groups: result}
 }
 
+func QueryLastEventsByGroup(groups []string) GroupRecentEventsResult {
+	allowedGroups := allowedGroupSet(groups)
+
+	eventsByGroup := queryRedisLastGroupEvents(groups)
+	recentGroupEvents.Range(func(key, value any) bool {
+		group := key.(string)
+		if allowedGroups != nil {
+			if _, ok := allowedGroups[group]; !ok {
+				return true
+			}
+		}
+		if _, ok := eventsByGroup[group]; ok {
+			return true
+		}
+		events := value.(*recentEventBuffer).snapshotLast(recentGroupEventLimit)
+		if len(events) == 0 {
+			return true
+		}
+		eventsByGroup[group] = append(eventsByGroup[group], events...)
+		return true
+	})
+
+	result := make([]GroupRecentEvents, 0, len(eventsByGroup))
+	for group, events := range eventsByGroup {
+		events = limitRecentEvents(events, recentGroupEventLimit)
+		if len(events) == 0 {
+			continue
+		}
+		result = append(result, GroupRecentEvents{Group: group, Events: events})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Group < result[j].Group
+	})
+	return GroupRecentEventsResult{Groups: result}
+}
+
 func CleanupRecentGroupEvents() {
 	cutoffTs := time.Now().Add(-recentGroupEventRetentionHours * time.Hour).Unix()
 	recentGroupEvents.Range(func(key, value any) bool {
@@ -377,9 +413,45 @@ func queryRedisRecentGroupEvents(startTs int64, groups []string) map[string][]Gr
 			continue
 		}
 		events := make([]GroupRecentEvent, 0, len(values))
-		for _, value := range values {
+		for i := len(values) - 1; i >= 0; i-- {
+			value := values[i]
 			var event redisRecentEvent
 			if err := json.Unmarshal([]byte(value), &event); err != nil || event.Ts < startTs {
+				continue
+			}
+			events = append(events, GroupRecentEvent{
+				Ts:        event.Ts,
+				Success:   event.Success,
+				LatencyMs: event.LatencyMs,
+				TtftMs:    event.TtftMs,
+				HasTtft:   event.HasTtft,
+			})
+		}
+		if len(events) > 0 {
+			eventsByGroup[group] = events
+		}
+	}
+	return eventsByGroup
+}
+
+func queryRedisLastGroupEvents(groups []string) map[string][]GroupRecentEvent {
+	eventsByGroup := map[string][]GroupRecentEvent{}
+	if !common.RedisEnabled || common.RDB == nil || len(groups) == 0 {
+		return eventsByGroup
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	for _, group := range groups {
+		values, err := common.RDB.LRange(ctx, redisRecentGroupKey(group), 0, recentGroupEventLimit-1).Result()
+		if err != nil || len(values) == 0 {
+			continue
+		}
+		events := make([]GroupRecentEvent, 0, len(values))
+		for i := len(values) - 1; i >= 0; i-- {
+			value := values[i]
+			var event redisRecentEvent
+			if err := json.Unmarshal([]byte(value), &event); err != nil {
 				continue
 			}
 			events = append(events, GroupRecentEvent{

@@ -202,10 +202,7 @@ func (b *recentEventBuffer) add(event GroupRecentEvent, limit int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.events = append(b.events, event)
-	if overflow := len(b.events) - limit; overflow > 0 {
-		b.events = append([]GroupRecentEvent(nil), b.events[overflow:]...)
-	}
+	b.addLocked(event, limit)
 }
 
 func (b *recentEventBuffer) snapshotSince(startTs int64, limit int) []GroupRecentEvent {
@@ -224,6 +221,17 @@ func (b *recentEventBuffer) snapshotSince(startTs int64, limit int) []GroupRecen
 	return append([]GroupRecentEvent(nil), events...)
 }
 
+func (b *recentEventBuffer) snapshotLast(limit int) []GroupRecentEvent {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	events := b.events
+	if len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+	return append([]GroupRecentEvent(nil), events...)
+}
+
 func (b *recentEventBuffer) pruneBefore(cutoffTs int64) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -236,4 +244,11 @@ func (b *recentEventBuffer) pruneBefore(cutoffTs int64) bool {
 		b.events = append([]GroupRecentEvent(nil), b.events[firstKept:]...)
 	}
 	return len(b.events) == 0
+}
+
+func (b *recentEventBuffer) addLocked(event GroupRecentEvent, limit int) {
+	b.events = append(b.events, event)
+	if overflow := len(b.events) - limit; overflow > 0 {
+		b.events = append([]GroupRecentEvent(nil), b.events[overflow:]...)
+	}
 }
