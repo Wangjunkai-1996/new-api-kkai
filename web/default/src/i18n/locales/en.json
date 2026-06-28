@@ -5284,6 +5284,13 @@
     "Waiting for traffic": "Waiting for traffic",
     "Group status message: live success": "Someone just used this group successfully. It is a good first choice.",
     "Group status message: live waiting": "This group is routable, but there are not enough live requests yet to judge it.",
-    "Group status message: live failure": "Recent live requests are failing often. It may not be only your side, so try another group first."
+    "Group status message: live failure": "Recent live requests are failing often. It may not be only your side, so try another group first.",
+    "Healthy Groups": "Healthy Groups",
+    "Healthy or smooth": "Healthy or smooth",
+    "Problem Groups": "Problem Groups",
+    "Failing or unstable": "Failing or unstable",
+    "Status Detail": "Status Detail",
+    "Realtime status uses recent request signals only. It does not query logs, probe upstream, or consume quota.": "Realtime status uses recent request signals only. It does not query logs, probe upstream, or consume quota.",
+    "Calculated from recent request success rate. Latency is shown as experience context, not as a health downgrade.": "Calculated from recent request success rate. Latency is shown as experience context, not as a health downgrade."
   }
 }

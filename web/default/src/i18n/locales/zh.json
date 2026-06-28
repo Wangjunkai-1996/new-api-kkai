@@ -5284,6 +5284,13 @@
     "Waiting for traffic": "等待流量",
     "Group status message: live success": "刚刚已有用户成功使用，可以优先尝试。",
     "Group status message: live waiting": "这个分组当前可路由，但刚刚还没有足够站内请求可判断。",
-    "Group status message: live failure": "刚刚失败较多，可能不是你一个人的问题，建议先换其他分组。"
+    "Group status message: live failure": "刚刚失败较多，可能不是你一个人的问题，建议先换其他分组。",
+    "Healthy Groups": "健康分组",
+    "Healthy or smooth": "健康或顺畅",
+    "Problem Groups": "异常分组",
+    "Failing or unstable": "失败率高或不稳定",
+    "Status Detail": "状态说明",
+    "Realtime status uses recent request signals only. It does not query logs, probe upstream, or consume quota.": "实时状态只使用近期请求信号，不查询日志、不探测上游、不消耗额度。",
+    "Calculated from recent request success rate. Latency is shown as experience context, not as a health downgrade.": "根据近期请求成功率计算；延迟只作为体验参考，不会降低高成功率分组的健康度。"
   }
 }

@@ -20,23 +20,12 @@ For commercial licensing, please contact support@quantumnous.com
 import type {
   GroupConfidenceStatus,
   GroupExperienceLabel,
-  GroupRecommendationLevel,
   GroupStatusEntry,
 } from './types'
-import {
-  CONFIDENCE_META,
-  EXPERIENCE_META,
-  MESSAGE_LABELS,
-  RECOMMENDATION_META,
-} from './status-meta'
+import { CONFIDENCE_META, EXPERIENCE_META, MESSAGE_LABELS } from './status-meta'
 
 export function sortGroupsForConfidence(groups: GroupStatusEntry[]) {
   return [...groups].sort((left, right) => {
-    const recommendationDiff =
-      RECOMMENDATION_META[getRecommendationLevel(right)].rank -
-      RECOMMENDATION_META[getRecommendationLevel(left)].rank
-    if (recommendationDiff !== 0) return recommendationDiff
-
     const confidenceDiff =
       CONFIDENCE_META[getConfidenceStatus(right)].score -
       CONFIDENCE_META[getConfidenceStatus(left)].score
@@ -48,15 +37,8 @@ export function sortGroupsForConfidence(groups: GroupStatusEntry[]) {
     const requestDiff = right.request_count - left.request_count
     if (requestDiff !== 0) return requestDiff
 
-    const modelDiff = right.available_model_count - left.available_model_count
-    if (modelDiff !== 0) return modelDiff
-
     return left.group.localeCompare(right.group)
   })
-}
-
-export function getBestGroup(groups: GroupStatusEntry[]) {
-  return sortGroupsForConfidence(groups)[0]
 }
 
 export function getMessageKey(group: GroupStatusEntry) {
@@ -88,30 +70,4 @@ export function getExperienceLabel(
 
 export function shouldShowExperience(group: GroupStatusEntry): boolean {
   return EXPERIENCE_META[getExperienceLabel(group)].visible
-}
-
-export function getRecommendationLevel(
-  group: GroupStatusEntry
-): GroupRecommendationLevel {
-  if (group.recommendation_level) return group.recommendation_level
-  return groupRecommendationFromConfidence(getConfidenceStatus(group))
-}
-
-function groupRecommendationFromConfidence(
-  confidenceStatus: GroupConfidenceStatus
-): GroupRecommendationLevel {
-  switch (confidenceStatus) {
-    case 'excellent':
-      return 'best'
-    case 'smooth':
-      return 'recommended'
-    case 'stable':
-      return 'usable'
-    case 'unstable':
-      return 'caution'
-    case 'unavailable':
-      return 'unavailable'
-    default:
-      return 'unknown'
-  }
 }

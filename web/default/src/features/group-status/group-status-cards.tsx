@@ -27,14 +27,9 @@ import {
   getConfidenceStatus,
   getExperienceLabel,
   getMessageKey,
-  getRecommendationLevel,
   shouldShowExperience,
 } from './status-display'
-import {
-  CONFIDENCE_META,
-  EXPERIENCE_META,
-  RECOMMENDATION_META,
-} from './status-meta'
+import { CONFIDENCE_META, EXPERIENCE_META } from './status-meta'
 import type { GroupRecentEvent, GroupStatusEntry } from './types'
 
 const PULSE_BAR_COUNT = 60
@@ -47,7 +42,7 @@ export function GroupStatusCards({
   generatedAt?: number
 }) {
   return (
-    <div className='grid gap-3 xl:grid-cols-2'>
+    <div className='grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
       {groups.map((group) => (
         <GroupStatusCard
           key={group.group}
@@ -68,7 +63,6 @@ function GroupStatusCard({
 }) {
   const { t } = useTranslation()
   const confidenceMeta = CONFIDENCE_META[getConfidenceStatus(group)]
-  const recommendationMeta = RECOMMENDATION_META[getRecommendationLevel(group)]
   const experienceMeta = EXPERIENCE_META[getExperienceLabel(group)]
   const ConfidenceIcon = confidenceMeta.icon
   const ExperienceIcon = shouldShowExperience(group) ? experienceMeta.icon : Zap
@@ -87,20 +81,19 @@ function GroupStatusCard({
           confidenceMeta.barClass
         )}
       />
-      <div className='pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/60 to-transparent' />
-      <CardContent className='space-y-5 p-4 sm:p-5'>
-        <div className='flex min-w-0 items-start justify-between gap-3'>
-          <div className='flex min-w-0 items-start gap-3'>
+      <CardContent className='space-y-3 p-3'>
+        <div className='flex min-w-0 items-start justify-between gap-2'>
+          <div className='flex min-w-0 items-start gap-2'>
             <div
               className={cn(
-                'flex size-12 shrink-0 items-center justify-center rounded-xl',
+                'flex size-9 shrink-0 items-center justify-center rounded-lg',
                 'bg-emerald-400/12 text-emerald-500 dark:text-emerald-300'
               )}
             >
-              <ConfidenceIcon className='size-5' />
+              <ConfidenceIcon className='size-4' />
             </div>
             <div className='min-w-0 space-y-1'>
-              <div className='truncate text-lg font-semibold sm:text-xl'>
+              <div className='truncate text-base font-semibold'>
                 {group.group}
               </div>
               <div className='flex min-w-0 flex-wrap items-center gap-2'>
@@ -108,7 +101,6 @@ function GroupStatusCard({
                   copyable={false}
                   label={t(confidenceMeta.labelKey)}
                   variant={confidenceMeta.badgeVariant}
-                  size='lg'
                 />
                 <span className='text-muted-foreground min-w-0 truncate text-sm'>
                   {group.desc || t('User group')}
@@ -116,15 +108,12 @@ function GroupStatusCard({
               </div>
             </div>
           </div>
-          <StatusBadge
-            copyable={false}
-            label={t(recommendationMeta.labelKey)}
-            variant={recommendationMeta.variant}
-            size='lg'
-          />
+          <span className={cn('shrink-0 text-lg font-semibold', confidenceMeta.toneClass)}>
+            {formatSuccessRate(group)}
+          </span>
         </div>
 
-        <div className='grid grid-cols-2 gap-3'>
+        <div className='grid grid-cols-2 gap-2'>
           <SignalMetric
             icon={Activity}
             label={t('Success Rate')}
@@ -154,14 +143,10 @@ function GroupStatusCard({
           />
         </div>
 
-        <div className='grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3'>
+        <div className='grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm'>
           <InlineMetric
             label={t('Samples')}
             value={formatNumber(group.request_count)}
-          />
-          <InlineMetric
-            label={t('Routable Models')}
-            value={formatNumber(group.available_model_count)}
           />
           <InlineMetric
             label={t('Refreshed')}
@@ -173,7 +158,7 @@ function GroupStatusCard({
           />
         </div>
 
-        <div className='space-y-2 border-t pt-4'>
+        <div className='space-y-2 border-t pt-3'>
           <div className='flex items-center justify-between gap-3'>
             <div className='flex min-w-0 items-center gap-2 text-sm font-medium'>
               <Radio className='text-muted-foreground size-4 shrink-0' />
@@ -204,14 +189,14 @@ function SignalMetric(props: {
 }) {
   const Icon = props.icon
   return (
-    <div className='rounded-xl border bg-background/50 p-3' title={props.title}>
+    <div className='rounded-lg border bg-background/50 p-2.5' title={props.title}>
       <div className='text-muted-foreground flex items-center gap-2 text-xs font-medium'>
         <Icon className='size-3.5' />
         <span>{props.label}</span>
       </div>
       <div
         className={cn(
-          'mt-2 truncate text-2xl font-semibold tabular-nums sm:text-3xl',
+          'mt-1 truncate text-lg font-semibold tabular-nums',
           props.valueClassName
         )}
       >
@@ -237,7 +222,7 @@ function PulseBars({ events }: { events: GroupRecentEvent[] }) {
   if (visibleEvents.length === 0) {
     return (
       <div
-        className='bg-muted/15 text-muted-foreground flex h-10 items-center rounded-lg px-3 text-xs'
+        className='bg-muted/15 text-muted-foreground flex h-8 items-center rounded-lg px-3 text-xs'
         aria-label='recent group request signals'
       >
         {t('No recent request signals yet')}
@@ -247,7 +232,7 @@ function PulseBars({ events }: { events: GroupRecentEvent[] }) {
 
   return (
     <div
-      className='bg-muted/15 grid h-10 items-end gap-0.5 rounded-lg p-1 sm:gap-1'
+      className='bg-muted/15 grid h-8 items-end gap-0.5 rounded-lg p-1'
       style={{
         gridTemplateColumns: `repeat(${PULSE_BAR_COUNT}, minmax(0, 1fr))`,
       }}
@@ -255,7 +240,7 @@ function PulseBars({ events }: { events: GroupRecentEvent[] }) {
     >
       {visibleEvents.map((event, index) => (
         <span
-          key={`${event.ts}-${index}`}
+          key={`${event.ts}-${event.status}-${event.ttft_ms ?? 0}-${event.latency_ms ?? 0}`}
           style={{
             gridColumnStart:
               PULSE_BAR_COUNT - visibleEvents.length + index + 1,
@@ -263,8 +248,8 @@ function PulseBars({ events }: { events: GroupRecentEvent[] }) {
           className={cn(
             'rounded-full transition-transform hover:scale-y-110',
             event.status === 'success'
-              ? 'h-9 bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.35)]'
-              : 'h-6 bg-destructive/80'
+              ? 'h-7 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.28)]'
+              : 'h-5 bg-destructive/80'
           )}
           title={event.status}
         />
