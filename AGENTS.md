@@ -152,9 +152,15 @@ This fork carries local production patches for the KKAI/Kkrich deployment. Offic
 **Production branch and build source:**
 
 - The fixed production branch for KKAI/Kkrich is `production/kkrich`.
-- Production artifacts must come from that branch, or from a verified temporary release branch merged back into it before deployment is complete.
+- Production artifacts must come from that branch. A verified temporary release branch may be used only if the exact deployed commit is merged or fast-forwarded back into `production/kkrich` and pushed before deployment is considered complete.
+- Do not deploy directly from `feature/*`, `fix/*`, `hotfix/*`, `upgrade/*`, or ad hoc `release/*` branches. Those branches are integration inputs, not production identity.
+- Create new feature, fix, hotfix, and upstream-sync branches from current `production/kkrich` unless the user explicitly asks for a different base.
+- Production image/version tags should use `kkai-prod-YYYYMMDD.N-<shortsha>` after this rule is in place; avoid feature-branch names in production tags.
 - Do not build production artifacts from `/root/new-api` unless it is clean and checked out to the intended production commit.
 - Build locally or on an external builder, never on the small production server.
+- Current production uses blue-green app containers named `new-api-green` and `new-api-blue` behind OpenResty. Either color can be active; verify the real active target and `x-new-api-version` before and after rollout.
+- After production rollout cleanup, leave exactly the active NewAPI container plus one rollback NewAPI container. Remove obsolete NewAPI containers, unused NewAPI images, temporary tarballs, and deployment backup files.
+- The detailed release governance is documented in `docs/ops/production-branch.md`; follow it before production work.
 
 **Policy incident guard patch:**
 

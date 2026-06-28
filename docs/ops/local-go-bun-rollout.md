@@ -1,5 +1,8 @@
 # Local Go+Bun Rollout
 
+> [!NOTE]
+> This document records an older single-app-container rollout pattern. Current KKAI/Kkrich production governance and blue-green rules are defined in `docs/ops/production-branch.md`. Use that document as the source of truth for production branch, image tag, and cleanup requirements.
+
 ## Purpose
 
 This document records the proven low-risk rollout path used on this fork when we want to ship a small frontend/backend change without building on the production server.
