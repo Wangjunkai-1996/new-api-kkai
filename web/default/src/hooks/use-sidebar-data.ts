@@ -37,9 +37,9 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
-import { type SidebarData } from '@/components/layout/types'
-import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -49,7 +49,6 @@ import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-inv
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
-  const invitationFeature = useInvitationFeatureStatus()
 
   return {
     navGroups: [
@@ -116,15 +115,11 @@ export function useSidebarData(): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
-          ...(invitationFeature.userVisible
-            ? [
-                {
-                  title: t('Invitations'),
-                  url: '/invitations',
-                  icon: Gift,
-                },
-              ]
-            : []),
+          {
+            title: t('Invitations'),
+            url: '/invitations',
+            icon: Gift,
+          },
           {
             title: t('Profile'),
             url: '/profile',
@@ -161,15 +156,11 @@ export function useSidebarData(): SidebarData {
             url: '/subscriptions',
             icon: CreditCard,
           },
-          ...(invitationFeature.available
-            ? [
-                {
-                  title: t('Rebate Management'),
-                  url: '/invitations/admin',
-                  icon: Gift,
-                },
-              ]
-            : []),
+          {
+            title: t('Rebate Management'),
+            url: '/invitations/admin',
+            icon: Gift,
+          },
           {
             title: t('System Info'),
             url: '/system-info',
