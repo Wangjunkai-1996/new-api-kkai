@@ -9,7 +9,9 @@ Official upstream New API imports a provider into CC Switch with endpoint, API k
 The KKAI patch makes new CC Switch imports work as expected:
 
 - Provider name defaults to `KKAI`.
-- Provider endpoint is `https://api.kkrich.ltd/v1`.
+- Provider endpoint follows the imported app:
+  - Codex uses the OpenAI-compatible base URL with `/v1`, for example `https://api.kkrich.ltd/v1`.
+  - Claude and Gemini use the server root address without `/v1`, for example `https://api.kkrich.ltd`.
 - CC Switch receives a usage script during import.
 - The usage script authenticates with the imported token and displays the owning user's account balance from `/api/usage/token/` when that token is currently valid.
 - Invalid, expired, disabled, or exhausted tokens return token-level status and invalid-reason fields; backend returns `user_total_*` as zero for invalid tokens as a safety fallback.
@@ -66,7 +68,7 @@ grep -R "CC_SWITCH_TOKEN_USAGE_SCRIPT" \
   web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx \
   web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx
 
-grep -R "https://api.kkrich.ltd/v1" \
+grep -R "buildProviderEndpoint" \
   web/classic/src/components/table/tokens/modals/CCSwitchModal.jsx \
   web/default/src/features/keys/components/dialogs/cc-switch-dialog.tsx
 

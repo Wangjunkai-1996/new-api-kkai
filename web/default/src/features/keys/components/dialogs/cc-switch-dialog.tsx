@@ -132,9 +132,23 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
   }
 })`
 
-const CC_SWITCH_ENDPOINT = 'https://api.kkrich.ltd/v1'
-
 type AppType = keyof typeof APP_CONFIGS
+
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '')
+}
+
+function stripV1Suffix(value: string): string {
+  return trimTrailingSlashes(value).replace(/\/v1$/, '')
+}
+
+function buildProviderEndpoint(app: AppType, serverAddress: string): string {
+  const baseAddress = stripV1Suffix(serverAddress)
+  if (app === 'codex') {
+    return `${baseAddress}/v1`
+  }
+  return baseAddress
+}
 
 function getServerAddress(): string {
   try {
@@ -150,7 +164,7 @@ function getServerAddress(): string {
 }
 
 function buildCCSwitchURL(
-  app: string,
+  app: AppType,
   name: string,
   models: Record<string, string>,
   apiKey: string
@@ -160,7 +174,7 @@ function buildCCSwitchURL(
   params.set('resource', 'provider')
   params.set('app', app)
   params.set('name', name)
-  params.set('endpoint', CC_SWITCH_ENDPOINT)
+  params.set('endpoint', buildProviderEndpoint(app, serverAddress))
   params.set('apiKey', apiKey)
   for (const [k, v] of Object.entries(models)) {
     if (v) params.set(k, v)
@@ -283,7 +297,7 @@ export function CCSwitchDialog(props: Props) {
             onValueChange={setName}
             placeholder={currentConfig.defaultName}
             emptyText=''
-            allowCustomValue={true}
+            allowCustomValue
           />
         </div>
 

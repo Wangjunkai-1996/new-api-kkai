@@ -134,7 +134,21 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
   }
 })`;
 
-const CC_SWITCH_ENDPOINT = 'https://api.kkrich.ltd/v1';
+function trimTrailingSlashes(value) {
+  return value.replace(/\/+$/, '');
+}
+
+function stripV1Suffix(value) {
+  return trimTrailingSlashes(value).replace(/\/v1$/, '');
+}
+
+function buildProviderEndpoint(app, serverAddress) {
+  const baseAddress = stripV1Suffix(serverAddress);
+  if (app === 'codex') {
+    return `${baseAddress}/v1`;
+  }
+  return baseAddress;
+}
 
 function getServerAddress() {
   try {
@@ -143,7 +157,7 @@ function getServerAddress() {
       const status = JSON.parse(raw);
       if (status.server_address) return status.server_address;
     }
-  } catch (_) {}
+  } catch {}
   return window.location.origin;
 }
 
@@ -153,7 +167,7 @@ function buildCCSwitchURL(app, name, models, apiKey) {
   params.set('resource', 'provider');
   params.set('app', app);
   params.set('name', name);
-  params.set('endpoint', CC_SWITCH_ENDPOINT);
+  params.set('endpoint', buildProviderEndpoint(app, serverAddress));
   params.set('apiKey', apiKey);
   for (const [k, v] of Object.entries(models)) {
     if (v) params.set(k, v);
@@ -204,7 +218,7 @@ export default function CCSwitchModal({
       Toast.warning(t('请选择主模型'));
       return;
     }
-    const url = buildCCSwitchURL(app, name, models, 'sk-' + tokenKey);
+    const url = buildCCSwitchURL(app, name, models, `sk-${tokenKey}`);
     window.open(url, '_blank');
     onClose();
   };
