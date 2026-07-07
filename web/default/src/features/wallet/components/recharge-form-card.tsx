@@ -1,3 +1,11 @@
+import {
+  Gift,
+  ExternalLink,
+  Loader2,
+  Receipt,
+  Ticket,
+  WalletCards,
+} from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,17 +25,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect } from 'react'
-import {
-  Gift,
-  ExternalLink,
-  Loader2,
-  Receipt,
-  Ticket,
-  WalletCards,
-} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatNumber } from '@/lib/format'
-import { cn } from '@/lib/utils'
+
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -41,6 +40,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { formatNumber } from '@/lib/format'
+import { cn } from '@/lib/utils'
+
 import {
   formatCurrency,
   getDiscountLabel,
@@ -522,7 +524,11 @@ export function RechargeFormCard({
               </div>
               <Button
                 render={
-                  <a href={topupLink} target='_blank' rel='noopener noreferrer' />
+                  <a
+                    href={topupLink}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                  />
                 }
                 className='w-full gap-2 sm:w-auto'
               >

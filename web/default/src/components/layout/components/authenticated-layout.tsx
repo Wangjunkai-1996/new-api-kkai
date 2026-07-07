@@ -1,9 +1,3 @@
-import { CommandMenu } from '@/components/command-menu'
-import { AnimatedOutlet } from '@/components/page-transition'
-import { SkipToMain } from '@/components/skip-to-main'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
-import { LayoutProvider } from '@/context/layout-provider'
-import { SearchProvider } from '@/context/search-provider'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -22,6 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AnimatedOutlet } from '@/components/page-transition'
+import { SkipToMain } from '@/components/skip-to-main'
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import { LayoutProvider } from '@/context/layout-provider'
+import { SearchProvider } from '@/context/search-provider'
 import { getCookie } from '@/lib/cookies'
 import { cn } from '@/lib/utils'
 
@@ -40,7 +39,6 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
       <SearchProvider>
         <SidebarProvider defaultOpen={defaultOpen} className='flex-col'>
           <SkipToMain />
-          <CommandMenu />
           <AppHeader />
           <div className='flex min-h-0 w-full flex-1'>
             <AppSidebar />

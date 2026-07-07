@@ -19,17 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Gift, Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatQuota } from '@/lib/format'
+
+import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CopyButton } from '@/components/copy-button'
 import {
   getInvitationFeatureStatus,
   getMyCode,
 } from '@/features/invitations/api'
 import { formatRebateAmount } from '@/features/invitations/lib/format'
+import { formatQuota } from '@/lib/format'
+
 import { generateAffiliateLink } from '../lib'
 import type { UserWalletData } from '../types'
 
