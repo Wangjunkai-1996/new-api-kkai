@@ -107,6 +107,8 @@ const STATUS_COLORS: Record<AdminRebateOrderStatus, string> = {
   initializing: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
   estimated: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
   claimable: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  requested: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  approved: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400',
   paid: 'bg-slate-500/10 text-slate-700 dark:text-slate-400',
   closed: 'bg-red-500/10 text-red-700 dark:text-red-400',
 }
@@ -162,6 +164,8 @@ function statusLabel(
     initializing: t('Initializing'),
     estimated: t('Estimated Rebate'),
     claimable: t('Claimable Rebate'),
+    requested: t('Requested Rebate'),
+    approved: t('Approved Rebate'),
     paid: t('Paid Rebate'),
     closed: t('Closed'),
   }

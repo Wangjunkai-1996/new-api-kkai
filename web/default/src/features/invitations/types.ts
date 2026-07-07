@@ -104,6 +104,8 @@ export type AdminRebateOrderStatus =
   | 'initializing'
   | 'estimated'
   | 'claimable'
+  | 'requested'
+  | 'approved'
   | 'paid'
   | 'closed'
 
