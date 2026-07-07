@@ -9,23 +9,27 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-func TestChannelBaseURLIsWritableWithoutManagedDefault(t *testing.T) {
+func TestChannelFieldsAvoidManagedDefaultsOnHotTable(t *testing.T) {
 	var cache sync.Map
 	parsed, err := schema.Parse(&Channel{}, &cache, schema.NamingStrategy{})
 	require.NoError(t, err)
 
-	field := parsed.LookUpField("base_url")
-	require.NotNil(t, field)
-	assert.True(t, field.Creatable)
-	assert.True(t, field.Updatable)
-	assert.True(t, field.Readable)
-	assert.False(t, field.HasDefaultValue)
+	for _, name := range []string{"base_url", "status_code_mapping"} {
+		field := parsed.LookUpField(name)
+		require.NotNil(t, field)
+		assert.True(t, field.Creatable)
+		assert.True(t, field.Updatable)
+		assert.True(t, field.Readable)
+		assert.False(t, field.HasDefaultValue)
+	}
 }
 
-func TestChannelBeforeCreateNormalizesNilBaseURL(t *testing.T) {
+func TestChannelBeforeCreateNormalizesNilTextFields(t *testing.T) {
 	channel := &Channel{}
 
 	require.NoError(t, channel.BeforeCreate(nil))
 	require.NotNil(t, channel.BaseURL)
 	assert.Equal(t, "", *channel.BaseURL)
+	require.NotNil(t, channel.StatusCodeMapping)
+	assert.Equal(t, "", *channel.StatusCodeMapping)
 }
