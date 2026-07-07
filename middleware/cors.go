@@ -15,7 +15,7 @@ func CORS() gin.HandlerFunc {
 	return cors.New(config)
 }
 
-func Version() gin.HandlerFunc {
+func PoweredBy() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("X-New-Api-Version", common.Version)
 		c.Next()

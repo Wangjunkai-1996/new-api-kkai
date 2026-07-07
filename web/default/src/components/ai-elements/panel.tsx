@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Panel as PanelPrimitive } from '@xyflow/react'
 import type { ComponentProps } from 'react'
-
+import { Panel as PanelPrimitive } from '@xyflow/react'
 import { cn } from '@/lib/utils'
 
 type PanelProps = ComponentProps<typeof PanelPrimitive>

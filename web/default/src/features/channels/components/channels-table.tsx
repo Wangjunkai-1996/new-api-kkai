@@ -16,25 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import type {
-  ColumnFiltersState,
-  OnChangeFn,
-  SortingState,
-  Row,
-} from '@tanstack/react-table'
+import type { OnChangeFn, SortingState, Row } from '@tanstack/react-table'
 import { Eye, EyeOff } from 'lucide-react'
-import { useState, useMemo, useEffect } from 'react'
+import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
-
-import {
-  DISABLED_ROW_DESKTOP,
-  DISABLED_ROW_MOBILE,
-  DataTablePage,
-  useDebouncedColumnFilter,
-  useDataTable,
-} from '@/components/data-table'
+import { getLobeIcon } from '@/lib/lobe-icon'
+import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -42,10 +32,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { useMediaQuery } from '@/hooks'
-import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { getLobeIcon } from '@/lib/lobe-icon'
-
+import {
+  DISABLED_ROW_DESKTOP,
+  DISABLED_ROW_MOBILE,
+  DataTablePage,
+  useDebouncedColumnFilter,
+  useDataTable,
+} from '@/components/data-table'
 import { getChannels, searchChannels, getGroups } from '../api'
 import {
   DEFAULT_PAGE_SIZE,
@@ -60,15 +53,15 @@ import {
   getChannelTypeLabel,
 } from '../lib'
 import type { Channel, ChannelSortBy } from '../types'
-import { ChannelCard } from './channel-card'
 import { useChannelsColumns } from './channels-columns'
+import { ChannelCard } from './channel-card'
 import { useChannels } from './channels-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 
 const route = getRouteApi('/_authenticated/channels/')
-const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
+const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY =
+  'channels:column-visibility'
 const CHANNELS_VIEW_MODE_STORAGE_KEY = 'channels:view-mode'
-const CHANNELS_STATUS_FILTER_STORAGE_KEY = 'channel-status-filter'
 
 const CHANNEL_SORTABLE_COLUMNS = new Set<ChannelSortBy>([
   'id',
@@ -90,7 +83,6 @@ export function ChannelsTable() {
   const {
     enableTagMode,
     idSort,
-    batchMode,
     sensitiveVisible,
     setSensitiveVisible,
   } = useChannels()
@@ -117,39 +109,12 @@ export function ChannelsTable() {
     },
     globalFilter: { enabled: true, key: 'filter' },
     columnFilters: [
-      {
-        columnId: 'status',
-        searchKey: 'status',
-        type: 'array',
-        deserialize: (value) => {
-          if (value !== undefined) return value
-          const stored = localStorage.getItem(
-            CHANNELS_STATUS_FILTER_STORAGE_KEY
-          )
-          return stored === 'enabled' || stored === 'disabled' ? [stored] : []
-        },
-      },
+      { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'type', searchKey: 'type', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
       { columnId: 'model', searchKey: 'model', type: 'string' },
     ],
   })
-
-  const handleColumnFiltersChange: OnChangeFn<ColumnFiltersState> = (
-    updater
-  ) => {
-    onColumnFiltersChange((previous) => {
-      const next = typeof updater === 'function' ? updater(previous) : updater
-      const status = next.find((f) => f.id === 'status')?.value as
-        | string[]
-        | undefined
-      localStorage.setItem(
-        CHANNELS_STATUS_FILTER_STORAGE_KEY,
-        status?.[0] ?? 'all'
-      )
-      return next
-    })
-  }
 
   // Extract filters from column filters
   const statusFilter =
@@ -303,7 +268,7 @@ export function ChannelsTable() {
   const typeCounts = data?.data?.type_counts
 
   // Columns configuration
-  const columns = useChannelsColumns({ enableSelection: batchMode })
+  const columns = useChannelsColumns()
 
   // React Table instance
   const { table } = useDataTable({
@@ -319,11 +284,9 @@ export function ChannelsTable() {
     columnFilters,
     pagination,
     globalFilter,
-    enableRowSelection: batchMode
-      ? (row: Row<Channel>) => !isTagAggregateRow(row.original)
-      : false,
+    enableRowSelection: (row: Row<Channel>) => !isTagAggregateRow(row.original),
     onSortingChange: handleSortingChange,
-    onColumnFiltersChange: handleColumnFiltersChange,
+    onColumnFiltersChange,
     onPaginationChange,
     onGlobalFilterChange,
     getSubRows: (row: Channel & { children?: Channel[] }) => row.children,
@@ -333,12 +296,6 @@ export function ChannelsTable() {
     withExpandedRowModel: true,
     ensurePageInRange,
   })
-
-  useEffect(() => {
-    if (!batchMode) {
-      table.resetRowSelection()
-    }
-  }, [batchMode, table])
 
   // Prepare filter options from existing channel types only.
   const typeFilterOptions = useMemo(() => {
@@ -484,7 +441,7 @@ export function ChannelsTable() {
         }
         return DISABLED_ROW_DESKTOP
       }}
-      bulkActions={batchMode ? <DataTableBulkActions table={table} /> : null}
+      bulkActions={<DataTableBulkActions table={table} />}
     />
   )
 }

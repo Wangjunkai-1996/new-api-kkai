@@ -16,18 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { RefreshCw, Loader2 } from 'lucide-react'
 import { useState } from 'react'
+import { RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-
-import { CopyButton } from '@/components/copy-button'
-import { Dialog } from '@/components/dialog'
+import { regenerate2FABackupCodes } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { regenerate2FABackupCodes } from '@/lib/api'
+import { CopyButton } from '@/components/copy-button'
+import { Dialog } from '@/components/dialog'
 
 // ============================================================================
 // Two-FA Backup Codes Dialog Component

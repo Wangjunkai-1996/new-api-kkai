@@ -16,12 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { Table } from '@tanstack/react-table'
-import { ChevronDown, Loader2 } from 'lucide-react'
 import { useState, type ComponentProps, type ReactNode } from 'react'
+import type { Table } from '@tanstack/react-table'
+import { useMediaQuery } from '@/hooks'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { DataTableViewOptions } from '@/components/data-table'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,8 +34,7 @@ import {
   DrawerTrigger,
 } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
-import { useMediaQuery } from '@/hooks'
-import { cn } from '@/lib/utils'
+import { DataTableViewOptions } from '@/components/data-table'
 
 interface LogsFilterToolbarProps<TData> {
   table: Table<TData>

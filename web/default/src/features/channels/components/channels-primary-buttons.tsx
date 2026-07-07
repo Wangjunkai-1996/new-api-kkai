@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
@@ -25,15 +26,11 @@ import {
   Tags,
   TestTube,
   DollarSign,
-  ListChecks,
   SortAsc,
   RefreshCw,
   ArrowUpFromLine,
 } from 'lucide-react'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -46,18 +43,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
-  ADMIN_PERMISSION_ACTIONS,
-  ADMIN_PERMISSION_RESOURCES,
-  hasPermission,
-} from '@/lib/admin-permissions'
-import { useAuthStore } from '@/stores/auth-store'
-
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
   handleDeleteAllDisabled,
   handleFixAbilities,
@@ -75,20 +61,10 @@ export function ChannelsPrimaryButtons() {
     setEnableTagMode,
     idSort,
     setIdSort,
-    batchMode,
-    setBatchMode,
     upstream,
   } = useChannels()
   const queryClient = useQueryClient()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [showConsistencyDialog, setShowConsistencyDialog] = useState(false)
-  const [isRepairingConsistency, setIsRepairingConsistency] = useState(false)
-  const currentUser = useAuthStore((s) => s.auth.user)
-  const canEditSensitive = hasPermission(
-    currentUser,
-    ADMIN_PERMISSION_RESOURCES.CHANNEL,
-    ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
-  )
 
   const handleTagModeToggle = (checked: boolean) => {
     localStorage.setItem('enable-tag-mode', String(checked))
@@ -100,29 +76,10 @@ export function ChannelsPrimaryButtons() {
     setIdSort(checked)
   }
 
-  const handleBatchModeToggle = (checked: boolean) => {
-    setBatchMode(checked)
-  }
-
   return (
     <>
       <div className='flex items-center gap-2'>
         {/* Desktop: Toggle switches visible */}
-        <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
-          <ListChecks className='text-muted-foreground h-4 w-4' />
-          <Label
-            htmlFor='channel-batch-mode'
-            className='cursor-pointer text-sm'
-          >
-            {t('Batch Operations')}
-          </Label>
-          <Switch
-            id='channel-batch-mode'
-            checked={batchMode}
-            onCheckedChange={handleBatchModeToggle}
-          />
-        </div>
-
         <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
           <Tags className='text-muted-foreground h-4 w-4' />
           <Label htmlFor='tag-mode' className='cursor-pointer text-sm'>
@@ -148,28 +105,17 @@ export function ChannelsPrimaryButtons() {
         </div>
 
         {/* Create Channel */}
-        <Tooltip>
-          <TooltipTrigger render={<span className='inline-flex' />}>
-            <Button
-              onClick={() => {
-                if (!canEditSensitive) return
-                setCurrentRow(null)
-                setOpen('create-channel')
-              }}
-              size='sm'
-              disabled={!canEditSensitive}
-            >
-              <Plus className='h-4 w-4' />
-              <span className='max-sm:hidden'>{t('Create Channel')}</span>
-              <span className='sm:hidden'>{t('Create')}</span>
-            </Button>
-          </TooltipTrigger>
-          {!canEditSensitive && (
-            <TooltipContent>
-              {t('No permission to perform this action')}
-            </TooltipContent>
-          )}
-        </Tooltip>
+        <Button
+          onClick={() => {
+            setCurrentRow(null)
+            setOpen('create-channel')
+          }}
+          size='sm'
+        >
+          <Plus className='h-4 w-4' />
+          <span className='max-sm:hidden'>{t('Create Channel')}</span>
+          <span className='sm:hidden'>{t('Create')}</span>
+        </Button>
 
         {/* More Actions */}
         <DropdownMenu>
@@ -178,15 +124,6 @@ export function ChannelsPrimaryButtons() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align='end' className='w-56'>
             {/* Mobile-only: toggle switches */}
-            <DropdownMenuCheckboxItem
-              className='sm:hidden'
-              checked={batchMode}
-              onCheckedChange={handleBatchModeToggle}
-            >
-              <ListChecks className='mr-2 h-4 w-4' />
-              {t('Batch Operations')}
-            </DropdownMenuCheckboxItem>
-
             <DropdownMenuCheckboxItem
               className='sm:hidden'
               checked={enableTagMode}
@@ -254,12 +191,14 @@ export function ChannelsPrimaryButtons() {
             <DropdownMenuSeparator />
 
             <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault()
-                setShowConsistencyDialog(true)
+              onClick={() => {
+                handleFixAbilities(queryClient, (_result) => {
+                  // eslint-disable-next-line no-console
+                  console.log('Fix abilities result:', _result)
+                })
               }}
             >
-              {t('Repair Channel Consistency')}
+              {t('Fix Abilities')}
               <DropdownMenuShortcut>
                 <Settings2 className='h-4 w-4' />
               </DropdownMenuShortcut>
@@ -270,10 +209,8 @@ export function ChannelsPrimaryButtons() {
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault()
-                if (!canEditSensitive) return
                 setShowDeleteDialog(true)
               }}
-              disabled={!canEditSensitive}
               className='text-destructive focus:text-destructive'
             >
               {t('Delete All Disabled')}
@@ -294,35 +231,11 @@ export function ChannelsPrimaryButtons() {
         )}
         destructive
         handleConfirm={() => {
-          if (!canEditSensitive) return
           handleDeleteAllDisabled(queryClient, (_count) => {
             // eslint-disable-next-line no-console
             console.log(`Deleted ${_count} channels`)
           })
           setShowDeleteDialog(false)
-        }}
-      />
-
-      <ConfirmDialog
-        open={showConsistencyDialog}
-        onOpenChange={setShowConsistencyDialog}
-        title={t('Repair channel consistency?')}
-        desc={t(
-          'This will rebuild the channel routing index from every channel configuration, including supported models, groups, priorities, and weights. Routing may be briefly incomplete while the rebuild is running. Continue?'
-        )}
-        confirmText={t('Repair')}
-        isLoading={isRepairingConsistency}
-        handleConfirm={async () => {
-          setIsRepairingConsistency(true)
-          try {
-            await handleFixAbilities(queryClient, (_result) => {
-              // eslint-disable-next-line no-console
-              console.log('Repair channel consistency result:', _result)
-            })
-            setShowConsistencyDialog(false)
-          } finally {
-            setIsRepairingConsistency(false)
-          }
         }}
       />
     </>

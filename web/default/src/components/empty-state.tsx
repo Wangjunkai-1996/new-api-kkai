@@ -16,11 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Database, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { Database, type LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { FadeIn } from '@/components/page-transition'
+import { cn } from '@/lib/utils'
 import {
   Empty,
   EmptyContent,
@@ -29,7 +28,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
-import { cn } from '@/lib/utils'
+import { FadeIn } from '@/components/page-transition'
 
 interface EmptyStateProps {
   icon?: LucideIcon

@@ -18,9 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
-
-import { getSuccessRateDotClass } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
+import { getSuccessRateDotClass } from '@/features/performance-metrics/lib/format'
 
 export type ModelPerfBadgeData = {
   avg_latency_ms: number

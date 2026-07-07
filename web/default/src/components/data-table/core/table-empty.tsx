@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Database } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
 import {
   Empty,
   EmptyDescription,

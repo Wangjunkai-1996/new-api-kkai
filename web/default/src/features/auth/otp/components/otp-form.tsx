@@ -16,14 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useState } from 'react'
+import type { z } from 'zod'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useState } from 'react'
-import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { z } from 'zod'
-
+import { useAuthStore } from '@/stores/auth-store'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -56,8 +57,6 @@ import {
   cleanBackupCode,
 } from '@/features/auth/lib/validation'
 import type { User } from '@/features/users/types'
-import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/auth-store'
 
 type OtpFormProps = React.HTMLAttributes<HTMLFormElement>
 

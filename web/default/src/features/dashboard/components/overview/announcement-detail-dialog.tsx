@@ -17,11 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-
-import { Dialog } from '@/components/dialog'
-import { RichContent } from '@/components/rich-content'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { formatDateTimeObject } from '@/lib/time'
+import { Markdown } from '@/components/ui/markdown'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Dialog } from '@/components/dialog'
 
 interface AnnouncementDetailModalProps {
   open: boolean
@@ -60,7 +59,7 @@ export function AnnouncementDetailModal({
           {announcement?.content && (
             <div>
               <h4 className='mb-2 font-medium'>{t('Content')}</h4>
-              <RichContent breaks content={announcement.content} />
+              <Markdown>{announcement.content}</Markdown>
             </div>
           )}
           {announcement?.extra && (
@@ -68,11 +67,9 @@ export function AnnouncementDetailModal({
               <h4 className='mb-2 font-medium'>
                 {t('Additional Information')}
               </h4>
-              <RichContent
-                breaks
-                content={announcement.extra}
-                className='text-muted-foreground'
-              />
+              <Markdown className='text-muted-foreground'>
+                {announcement.extra}
+              </Markdown>
             </div>
           )}
         </div>

@@ -17,6 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  type DragEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
+import {
   ChevronDown,
   ChevronUp,
   Copy,
@@ -25,18 +33,9 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
-import {
-  type DragEvent,
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-
-import { Dialog } from '@/components/dialog'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,7 +55,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { cn } from '@/lib/utils'
+import { Dialog } from '@/components/dialog'
 
 // ---------------------------------------------------------------------------
 // Types

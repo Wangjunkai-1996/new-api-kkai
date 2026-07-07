@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ResetSubscriptionsDialog } from './dialogs/reset-subscriptions-dialog'
 import { ToggleStatusDialog } from './dialogs/toggle-status-dialog'
 import { SubscriptionsMutateDrawer } from './subscriptions-mutate-drawer'
 import { useSubscriptions } from './subscriptions-provider'
@@ -33,7 +32,6 @@ export function SubscriptionsDialogs() {
         currentRow={isUpdate ? currentRow || undefined : undefined}
       />
       <ToggleStatusDialog />
-      <ResetSubscriptionsDialog />
     </>
   )
 }

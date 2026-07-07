@@ -1,3 +1,4 @@
+import { LayoutDashboard } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { LayoutDashboard } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -113,6 +113,11 @@ export function SidebarModulesCard() {
           key: 'topup',
           title: t('Wallet Management'),
           description: t('Balance and top-up management'),
+        },
+        {
+          key: 'invitations',
+          title: t('Invitations'),
+          description: t('Invite friends to earn rebates'),
         },
         {
           key: 'personal',

@@ -16,11 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
+import { Link } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { Settings2 } from 'lucide-react'
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -30,7 +29,6 @@ import {
 } from '@/components/ui/tooltip'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
-
 import { getChannelOps } from './api'
 import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
@@ -50,7 +48,9 @@ export function Channels() {
   })
   const retryTimes = channelOpsQuery.data?.data?.retry_times
   const retryLabel =
-    typeof retryTimes === 'number' ? `${t('Max Retries')}: ${retryTimes}` : null
+    typeof retryTimes === 'number'
+      ? `${t('Max Retries')}: ${retryTimes}`
+      : null
   let retryBadge = null
   if (retryLabel) {
     retryBadge = isRoot ? (

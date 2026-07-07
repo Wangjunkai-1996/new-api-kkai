@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { type QueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
-
 import { deleteVendor as deleteVendorAPI } from '../api'
 import { vendorsQueryKeys, modelsQueryKeys } from './query-keys'
 

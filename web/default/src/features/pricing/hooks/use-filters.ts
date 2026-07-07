@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useSearch } from '@tanstack/react-router'
 import { useMemo, useCallback, useState } from 'react'
-
+import { useSearch } from '@tanstack/react-router'
 import {
   FILTER_ALL,
   SORT_OPTIONS,

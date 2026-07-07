@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Experimental_GeneratedImage } from 'ai'
-
 import { cn } from '@/lib/utils'
 
 export type ImageProps = Experimental_GeneratedImage & {

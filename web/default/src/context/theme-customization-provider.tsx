@@ -24,7 +24,6 @@ import {
   useMemo,
   useState,
 } from 'react'
-
 import { getCookie, removeCookie, setCookie } from '@/lib/cookies'
 import {
   CONTENT_LAYOUT_VALUES,

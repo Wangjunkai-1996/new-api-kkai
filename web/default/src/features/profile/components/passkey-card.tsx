@@ -16,12 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AlertTriangle, KeyRound, Loader2, ShieldAlert } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
+import { AlertTriangle, KeyRound, Loader2, ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-
-import { StatusBadge } from '@/components/status-badge'
+import dayjs from '@/lib/dayjs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +41,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StatusBadge } from '@/components/status-badge'
 import { usePasskeyManagement } from '@/features/auth/passkey'
 import {
   SecureVerificationDialog,
@@ -49,7 +49,6 @@ import {
   type VerificationMethod,
   type VerificationMethods,
 } from '@/features/auth/secure-verification'
-import dayjs from '@/lib/dayjs'
 
 interface PasskeyCardProps {
   loading: boolean

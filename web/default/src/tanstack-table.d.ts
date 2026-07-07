@@ -28,6 +28,5 @@ declare module '@tanstack/react-table' {
     mobileTitle?: boolean // card title area (left, larger text)
     mobileBadge?: boolean // status badge alongside title (right)
     mobileHidden?: boolean // hide this column on mobile entirely
-    mobileOrder?: number // lower values appear first in card field area
   }
 }

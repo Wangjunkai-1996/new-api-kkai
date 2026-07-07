@@ -16,12 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
-
-import { Pricing } from '@/features/pricing'
-import { getFreshModuleAccess } from '@/lib/nav-modules'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth-store'
+import { getFreshModuleAccess } from '@/lib/nav-modules'
+import { Pricing } from '@/features/pricing'
 
 const pricingSearchSchema = z.object({
   search: z.string().optional(),

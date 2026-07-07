@@ -18,19 +18,18 @@ For commercial licensing, please contact support@quantumnous.com
 */
 'use client'
 
-import { ArrowDownIcon } from 'lucide-react'
 import { type ComponentProps, useCallback } from 'react'
+import { ArrowDownIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
-
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
-    className={cn('relative min-h-0 flex-1 overflow-hidden', className)}
+    className={cn('relative flex-1 overflow-y-auto', className)}
     initial='smooth'
     resize='smooth'
     role='log'

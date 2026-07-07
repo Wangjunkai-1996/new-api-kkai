@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import * as React from 'react'
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -36,7 +37,6 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import * as React from 'react'
 
 type DataTableFeatureOptions<TData> = Pick<
   TableOptions<TData>,

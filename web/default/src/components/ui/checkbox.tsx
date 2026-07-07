@@ -21,7 +21,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox'
 import { Tick02Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-
 import { cn } from '@/lib/utils'
 
 function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {

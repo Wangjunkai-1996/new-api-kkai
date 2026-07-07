@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { redirect } from '@tanstack/react-router'
 import * as z from 'zod'
+import { redirect } from '@tanstack/react-router'
 
 /**
  * Create search schema for settings routes with section parameter

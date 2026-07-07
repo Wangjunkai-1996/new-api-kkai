@@ -18,12 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { Dialog } from '@/components/dialog'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { Dialog } from '@/components/dialog'
 
 interface FailReasonDialogProps {
   failReason: string

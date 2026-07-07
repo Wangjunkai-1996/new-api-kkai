@@ -20,7 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { Toggle as TogglePrimitive } from '@base-ui/react/toggle'
 import { cva, type VariantProps } from 'class-variance-authority'
-
 import { cn } from '@/lib/utils'
 
 const toggleVariants = cva(

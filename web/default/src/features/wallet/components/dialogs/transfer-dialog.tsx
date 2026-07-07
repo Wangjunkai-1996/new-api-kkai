@@ -16,23 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Loader2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { Dialog } from '@/components/dialog'
+import { formatQuota } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  formatQuota,
-  parseQuotaFromDollars,
-  quotaUnitsToDollars,
-} from '@/lib/format'
-import {
-  DEFAULT_CURRENCY_CONFIG,
-  useSystemConfigStore,
-} from '@/stores/system-config-store'
+import { Dialog } from '@/components/dialog'
+import { QUOTA_PER_DOLLAR } from '../../constants'
 
 interface TransferDialogProps {
   open: boolean
@@ -50,34 +42,17 @@ export function TransferDialog({
   transferring,
 }: TransferDialogProps) {
   const { t } = useTranslation()
-  const currencyConfig = useSystemConfigStore(
-    (state) => state.config.currency
-  )
-  const minimumQuota = Math.ceil(
-    currencyConfig.quotaPerUnit > 0
-      ? currencyConfig.quotaPerUnit
-      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
-  )
-  const minimumAmount = quotaUnitsToDollars(minimumQuota)
-  const maximumAmount = quotaUnitsToDollars(availableQuota)
-  const [amount, setAmount] = useState(minimumAmount)
-  const transferQuota = parseQuotaFromDollars(amount)
-  const canTransfer =
-    Number.isFinite(amount) &&
-    transferQuota >= minimumQuota &&
-    transferQuota <= availableQuota
+  const [amount, setAmount] = useState(QUOTA_PER_DOLLAR)
 
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAmount(minimumAmount)
+      setAmount(QUOTA_PER_DOLLAR)
     }
-  }, [minimumAmount, open])
+  }, [open])
 
   const handleConfirm = async () => {
-    if (!canTransfer) return
-
-    const success = await onConfirm(transferQuota)
+    const success = await onConfirm(amount)
     if (success) {
       onOpenChange(false)
     }
@@ -103,10 +78,7 @@ export function TransferDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={transferring || !canTransfer}
-          >
+          <Button onClick={handleConfirm} disabled={transferring}>
             {transferring && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Transfer')}
           </Button>
@@ -135,13 +107,13 @@ export function TransferDialog({
             type='number'
             value={amount}
             onChange={(e) => setAmount(Number(e.target.value))}
-            min={minimumAmount}
-            max={maximumAmount}
-            step={minimumAmount}
+            min={QUOTA_PER_DOLLAR}
+            max={availableQuota}
+            step={QUOTA_PER_DOLLAR}
             className='font-mono text-lg'
           />
           <p className='text-muted-foreground text-xs'>
-            {t('Minimum:')} {formatQuota(minimumQuota)}
+            {t('Minimum:')} {formatQuota(QUOTA_PER_DOLLAR)}
           </p>
         </div>
       </div>

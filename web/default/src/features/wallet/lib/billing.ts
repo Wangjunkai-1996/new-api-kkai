@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { StatusBadgeProps } from '@/components/status-badge'
 import { formatTimestampToDate } from '@/lib/format'
-
+import type { StatusBadgeProps } from '@/components/status-badge'
 import type { TopupStatus } from '../types'
 
 // ============================================================================

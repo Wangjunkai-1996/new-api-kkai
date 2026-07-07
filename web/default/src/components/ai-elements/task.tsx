@@ -18,15 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 'use client'
 
-import { ChevronDownIcon, SearchIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
-
+import { ChevronDownIcon, SearchIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { cn } from '@/lib/utils'
 
 export type TaskItemFileProps = ComponentProps<'div'>
 

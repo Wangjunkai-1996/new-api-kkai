@@ -16,15 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import i18next from 'i18next'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import i18next from 'i18next'
 import { toast } from 'sonner'
-
 import {
   extractVerificationInfo,
   isVerificationRequiredError,
 } from '@/lib/secure-verification'
-
 import { checkVerificationMethods, verify } from '../api'
 import type {
   SecureVerificationState,

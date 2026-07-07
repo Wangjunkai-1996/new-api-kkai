@@ -18,10 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SearchIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { useSearch } from '@/context/search-provider'
 import { cn } from '@/lib/utils'
-
+import { useSearch } from '@/context/search-provider'
 import { Button } from './ui/button'
 
 type SearchProps = {

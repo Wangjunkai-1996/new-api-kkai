@@ -297,7 +297,8 @@ describe('dashboard flow data', () => {
 
     assert.equal(
       result.filterOptions.nodes.some(
-        (option) => option.kind === 'model' && option.value === 'model:model-c'
+        (option) =>
+          option.kind === 'model' && option.value === 'model:model-c'
       ),
       true
     )
@@ -778,7 +779,8 @@ describe('dashboard flow data', () => {
     )
     const dimmedLink = values.links.find(
       (link: Record<string, unknown>) =>
-        link.source === 'model:claude-4-sonnet' && link.target === 'channel:101'
+        link.source === 'model:claude-4-sonnet' &&
+        link.target === 'channel:101'
     )
     const nodeOpacity = flowSpec.node.style.fillOpacity
     const linkOpacity = flowSpec.link.style.fillOpacity

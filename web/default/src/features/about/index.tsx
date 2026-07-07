@@ -19,13 +19,23 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { Construction } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { PublicLayout } from '@/components/layout'
-import { RichContent } from '@/components/rich-content'
+import { Markdown } from '@/components/ui/markdown'
 import { Skeleton } from '@/components/ui/skeleton'
-import { isHttpUrl, isLikelyHtml } from '@/lib/content-format'
-
+import { PublicLayout } from '@/components/layout'
 import { getAboutContent } from './api'
+
+function isValidUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function isLikelyHtml(value: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(value)
+}
 
 function EmptyAboutState() {
   const { t } = useTranslation()
@@ -121,8 +131,8 @@ export function About() {
 
   const rawContent = data?.data?.trim() ?? ''
   const hasContent = rawContent.length > 0
-  const isUrl = hasContent && isHttpUrl(rawContent)
-  const contentIsHtml = hasContent && isLikelyHtml(rawContent)
+  const isUrl = hasContent && isValidUrl(rawContent)
+  const isHtml = hasContent && !isUrl && isLikelyHtml(rawContent)
 
   if (isLoading) {
     return (
@@ -152,20 +162,6 @@ export function About() {
           src={rawContent}
           className='h-[calc(100vh-3.5rem)] w-full border-0'
           title={t('About')}
-          sandbox='allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts'
-        />
-      </PublicLayout>
-    )
-  }
-
-  if (contentIsHtml) {
-    return (
-      <PublicLayout showMainContainer={false}>
-        <RichContent
-          mode='html'
-          htmlVariant='isolated'
-          content={rawContent}
-          className='prose-neutral dark:prose-invert max-w-none'
         />
       </PublicLayout>
     )
@@ -174,11 +170,16 @@ export function About() {
   return (
     <PublicLayout>
       <div className='mx-auto max-w-6xl px-4 py-8'>
-        <RichContent
-          mode='markdown'
-          content={rawContent}
-          className='prose-neutral dark:prose-invert max-w-none'
-        />
+        {isHtml ? (
+          <div
+            className='prose prose-neutral dark:prose-invert max-w-none'
+            dangerouslySetInnerHTML={{ __html: rawContent }}
+          />
+        ) : (
+          <Markdown className='prose-neutral dark:prose-invert max-w-none'>
+            {rawContent}
+          </Markdown>
+        )}
       </div>
     </PublicLayout>
   )

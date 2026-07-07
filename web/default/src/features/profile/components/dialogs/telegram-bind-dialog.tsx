@@ -18,9 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { Dialog } from '@/components/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Dialog } from '@/components/dialog'
 
 // ============================================================================
 // Telegram Bind Dialog Component

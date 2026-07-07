@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { DirectionProvider as BaseDirectionProvider } from '@base-ui/react/direction-provider'
 import { createContext, useContext, useEffect, useState } from 'react'
-
+import { DirectionProvider as BaseDirectionProvider } from '@base-ui/react/direction-provider'
 import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 
 export type Direction = 'ltr' | 'rtl'

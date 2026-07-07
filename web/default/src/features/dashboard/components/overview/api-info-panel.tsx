@@ -16,10 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Route } from 'lucide-react'
 import { useState, useCallback } from 'react'
+import { Route } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useApiInfo } from '@/features/dashboard/hooks/use-status-data'
 import {
@@ -27,7 +26,6 @@ import {
   getDefaultPingStatus,
 } from '@/features/dashboard/lib/api-info'
 import type { PingStatusMap, ApiInfoItem } from '@/features/dashboard/types'
-
 import { PanelWrapper } from '../ui/panel-wrapper'
 import { ApiInfoItemComponent } from './api-info-item'
 

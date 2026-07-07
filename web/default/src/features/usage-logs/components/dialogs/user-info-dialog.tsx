@@ -16,15 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-
-import { Dialog } from '@/components/dialog'
-import { Label } from '@/components/ui/label'
 import { formatQuota, formatCompactNumber } from '@/lib/format'
-
+import { Label } from '@/components/ui/label'
+import { Dialog } from '@/components/dialog'
 import { getUserInfo } from '../../api'
 import type { UserInfo } from '../../types'
 

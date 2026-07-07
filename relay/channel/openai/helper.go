@@ -206,5 +206,5 @@ func sendResponsesStreamData(c *gin.Context, streamResponse dto.ResponsesStreamR
 	if data == "" {
 		return
 	}
-	_ = helper.ResponseChunkData(c, streamResponse, data)
+	helper.ResponseChunkData(c, streamResponse, data)
 }

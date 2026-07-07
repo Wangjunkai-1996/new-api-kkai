@@ -24,7 +24,10 @@ import { z } from 'zod'
 
 export const loginFormSchema = z.object({
   username: z.string().min(1, 'Please enter your username or email'),
-  password: z.string().min(1, 'Please enter your password'),
+  password: z
+    .string()
+    .min(1, 'Please enter your password')
+    .min(8, 'Password must be at least 8 characters long'),
 })
 
 export const registerFormSchema = z
@@ -34,7 +37,7 @@ export const registerFormSchema = z
     password: z
       .string()
       .min(1, 'Please enter your password')
-      .min(8, 'Password must be between 8 and 20 characters')
+      .min(8, 'Password must be at least 8 characters long')
       .max(20, 'Password must be at most 20 characters long'),
     confirmPassword: z.string().min(1, 'Please confirm your password'),
   })

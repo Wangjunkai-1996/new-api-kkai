@@ -16,17 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-
-import { Dialog } from '@/components/dialog'
+import { useCountdown } from '@/hooks/use-countdown'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useCountdown } from '@/hooks/use-countdown'
-
+import { Dialog } from '@/components/dialog'
 import { sendEmailVerification, bindEmail } from '../../api'
 
 // ============================================================================

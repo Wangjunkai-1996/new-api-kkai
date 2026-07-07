@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useRender } from '@base-ui/react/use-render'
 import * as React from 'react'
 import {
   Controller,
@@ -27,10 +26,10 @@ import {
   type FieldPath,
   type FieldValues,
 } from 'react-hook-form'
+import { useRender } from '@base-ui/react/use-render'
 import { useTranslation } from 'react-i18next'
-
-import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { Label } from '@/components/ui/label'
 
 type FormRootContextValue = {
   id: string

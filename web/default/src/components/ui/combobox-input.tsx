@@ -16,12 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, ChevronsUpDown } from 'lucide-react'
 import * as React from 'react'
+import { Check, ChevronsUpDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { Input } from '@/components/ui/input'
 
 export type ComboboxInputOption = {
   value: string
@@ -38,7 +37,6 @@ interface ComboboxInputProps {
   className?: string
   id?: string
   allowCustomValue?: boolean
-  openOnFocus?: boolean
 }
 
 export function ComboboxInput({
@@ -50,7 +48,6 @@ export function ComboboxInput({
   className,
   id,
   allowCustomValue = false,
-  openOnFocus = true,
 }: ComboboxInputProps) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
@@ -59,7 +56,6 @@ export function ComboboxInput({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const listRef = React.useRef<HTMLUListElement>(null)
-  const pointerFocusRef = React.useRef(false)
   const selectedOption = React.useMemo(
     () => options.find((option) => option.value === value),
     [options, value]
@@ -179,18 +175,9 @@ export function ComboboxInput({
           }
           if (!open) setOpen(true)
         }}
-        onPointerDown={() => {
-          pointerFocusRef.current = true
-          if (document.activeElement === inputRef.current && !open) {
-            setOpen(true)
-          }
-        }}
         onFocus={() => {
           setSearchValue(allowCustomValue && !selectedOption ? value : '')
-          if (openOnFocus || pointerFocusRef.current) {
-            setOpen(true)
-          }
-          pointerFocusRef.current = false
+          setOpen(true)
         }}
         onKeyDown={handleKeyDown}
         className={cn('pr-9', className)}

@@ -16,11 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Minus, Plus } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
-
-import { Label } from '@/components/ui/label'
+import { Minus, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Label } from '@/components/ui/label'
 
 interface NumericSpinnerInputProps {
   value: number | null | undefined

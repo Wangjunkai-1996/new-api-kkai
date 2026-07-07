@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
-
 import { StatusBadge, type StatusBadgeProps } from './status-badge'
 
 type ProviderBadgeProps = Omit<StatusBadgeProps, 'children' | 'label'> & {

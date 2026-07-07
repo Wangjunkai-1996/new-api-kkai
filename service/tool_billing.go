@@ -1,6 +1,8 @@
 package service
 
 import (
+	"math"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
@@ -47,7 +49,7 @@ func ComputeToolCallQuota(usage ToolCallUsage, groupRatio float64) ToolCallResul
 			return
 		}
 		totalPrice := pricePer1K * float64(count) / 1000
-		quota := common.QuotaRound(totalPrice * common.QuotaPerUnit * groupRatio)
+		quota := int(math.Round(totalPrice * common.QuotaPerUnit * groupRatio))
 		items = append(items, ToolCallItem{
 			Name:       toolName,
 			CallCount:  count,
@@ -68,7 +70,7 @@ func ComputeToolCallQuota(usage ToolCallUsage, groupRatio float64) ToolCallResul
 
 	if usage.ImageGenerationCall {
 		price := operation_setting.GetGPTImage1PriceOnceCall(usage.ImageGenerationQuality, usage.ImageGenerationSize)
-		quota := common.QuotaRound(price * common.QuotaPerUnit * groupRatio)
+		quota := int(math.Round(price * common.QuotaPerUnit * groupRatio))
 		items = append(items, ToolCallItem{
 			Name:       "image_generation",
 			CallCount:  1,

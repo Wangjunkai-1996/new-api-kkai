@@ -17,8 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-
-import { StaticDataTable } from '@/components/data-table'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { StaticDataTable } from '@/components/data-table'
 
 export type ConflictItem = {
   channel: string
