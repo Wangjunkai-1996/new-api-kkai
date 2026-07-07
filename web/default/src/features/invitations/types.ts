@@ -110,6 +110,8 @@ export type AdminRebateOrderStatus =
 export type RebateDisplayStatus =
   | 'estimated'
   | 'claimable'
+  | 'requested'
+  | 'approved'
   | 'paid'
   | 'waiting_unlock'
 

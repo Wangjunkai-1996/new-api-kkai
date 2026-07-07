@@ -1,3 +1,6 @@
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation } from '@tanstack/react-query'
+import { Search } from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,12 +20,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
-import { z } from 'zod'
 import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
-import { Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { z } from 'zod'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,15 +37,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+
 import { getUserRebateDetails } from '../../api'
 import { formatRebateAmount } from '../../lib/format'
-import type { OrderType, RebateDisplayStatus, RebateRecord } from '../../types'
+import {
+  deriveRebateDisplayStatus,
+  getRebateDisplayStatusClass,
+  getRebateDisplayStatusLabel,
+} from '../../lib/rebate-display-status'
+import type { OrderType, RebateRecord } from '../../types'
 
 const formSchema = z.object({
   userId: z
     .string()
     .min(1, 'User ID is required')
-    .refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
+    .refine((val) => !Number.isNaN(Number(val)) && Number(val) > 0, {
       message: 'User ID must be a positive number',
     }),
 })
@@ -86,35 +93,32 @@ export function UserRebateDetails() {
   }
 
   const getStatusBadge = (record: RebateRecord) => {
-    const status: RebateDisplayStatus =
-      record.displayStatus ??
-      (record.status === 'pending' ? 'claimable' : 'paid')
-    const labels: Record<RebateDisplayStatus, string> = {
-      estimated: t('Estimated Rebate'),
-      claimable: t('Claimable Rebate'),
-      paid: t('Paid Rebate'),
-      waiting_unlock: t(
-        'Pending rebate (waiting for first top-up/subscription to unlock)'
-      ),
-    }
-    const classes: Record<RebateDisplayStatus, string> = {
-      estimated: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-      claimable: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-      paid: 'bg-gray-500/10 text-gray-700 dark:text-gray-400',
-      waiting_unlock: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
-    }
+    const status =
+      record.displayStatus ?? deriveRebateDisplayStatus(record.status)
     return (
       <Badge
         variant='outline'
-        className={`h-auto max-w-[14rem] justify-start py-1 text-left leading-tight whitespace-normal ${classes[status]}`}
+        className={`h-auto max-w-[14rem] justify-start py-1 text-left leading-tight whitespace-normal ${getRebateDisplayStatusClass(status)}`}
       >
-        {labels[status]}
+        {getRebateDisplayStatusLabel(t, status)}
       </Badge>
     )
   }
 
   const isInvitationSignupReward = (type: OrderType) =>
     type === 'invite_inviter' || type === 'invite_invitee'
+
+  const formatRebateRatio = (record: RebateRecord) => {
+    if (isInvitationSignupReward(record.orderType)) {
+      return '-'
+    }
+
+    if (record.rebateRatio == null) {
+      return t('Not configured')
+    }
+
+    return `${(record.rebateRatio * 100).toFixed(2)}%`
+  }
 
   const formatOrderType = (type: OrderType) => {
     const types: Record<OrderType, string> = {
@@ -192,13 +196,7 @@ export function UserRebateDetails() {
                       <TableCell className='font-medium'>
                         {formatRebateAmount(record.rebateAmount)}
                       </TableCell>
-                      <TableCell>
-                        {isInvitationSignupReward(record.orderType)
-                          ? '-'
-                          : record.rebateRatio == null
-                            ? t('Not configured')
-                            : `${(record.rebateRatio * 100).toFixed(2)}%`}
-                      </TableCell>
+                      <TableCell>{formatRebateRatio(record)}</TableCell>
                       <TableCell>{getStatusBadge(record)}</TableCell>
                       <TableCell className='text-muted-foreground'>
                         {formatDate(record.createdAt)}

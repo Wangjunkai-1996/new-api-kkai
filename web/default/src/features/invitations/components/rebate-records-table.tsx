@@ -1,3 +1,12 @@
+import { useQuery } from '@tanstack/react-query'
+import {
+  createColumnHelper,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type PaginationState,
+} from '@tanstack/react-table'
+import { format } from 'date-fns'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,16 +26,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type PaginationState,
-} from '@tanstack/react-table'
-import { format } from 'date-fns'
 import { useTranslation } from 'react-i18next'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -51,28 +52,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+
 import { getRebateRecords } from '../api'
 import { formatRebateAmount } from '../lib/format'
-import type {
-  RebateDisplayStatus,
-  RebateRecord,
-  RebateStatus,
-  OrderType,
-} from '../types'
+import {
+  deriveRebateDisplayStatus,
+  getRebateDisplayStatusClass,
+  getRebateDisplayStatusLabel,
+} from '../lib/rebate-display-status'
+import type { RebateRecord, RebateStatus, OrderType } from '../types'
 
 const columnHelper = createColumnHelper<RebateRecord>()
-
-// 状态徽章颜色映射
-const STATUS_COLORS: Record<RebateDisplayStatus, string> = {
-  estimated: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-  claimable: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-  paid: 'bg-gray-500/10 text-gray-700 dark:text-gray-400',
-  waiting_unlock: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
-}
-
-function fallbackDisplayStatus(status: RebateStatus): RebateDisplayStatus {
-  return status === 'pending' ? 'claimable' : 'paid'
-}
 
 function isInvitationSignupReward(orderType: OrderType): boolean {
   return orderType === 'invite_inviter' || orderType === 'invite_invitee'
@@ -158,21 +148,13 @@ export function RebateRecordsTable() {
         cell: (info) => {
           const status =
             info.row.original.displayStatus ??
-            fallbackDisplayStatus(info.getValue())
-          const statusLabels: Record<RebateDisplayStatus, string> = {
-            estimated: t('Estimated Rebate'),
-            claimable: t('Claimable Rebate'),
-            paid: t('Paid Rebate'),
-            waiting_unlock: t(
-              'Pending rebate (waiting for first top-up/subscription to unlock)'
-            ),
-          }
+            deriveRebateDisplayStatus(info.getValue())
           return (
             <Badge
               variant='outline'
-              className={`h-auto max-w-[14rem] justify-start py-1 text-left leading-tight whitespace-normal ${STATUS_COLORS[status]}`}
+              className={`h-auto max-w-[14rem] justify-start py-1 text-left leading-tight whitespace-normal ${getRebateDisplayStatusClass(status)}`}
             >
-              {statusLabels[status]}
+              {getRebateDisplayStatusLabel(t, status)}
             </Badge>
           )
         },
