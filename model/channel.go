@@ -32,7 +32,7 @@ type Channel struct {
 	CreatedTime        int64   `json:"created_time" gorm:"bigint"`
 	TestTime           int64   `json:"test_time" gorm:"bigint"`
 	ResponseTime       int     `json:"response_time"` // in milliseconds
-	BaseURL            *string `json:"base_url" gorm:"column:base_url;default:''"`
+	BaseURL            *string `json:"base_url" gorm:"column:base_url"`
 	Other              string  `json:"other"`
 	Balance            float64 `json:"balance"` // in USD
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
@@ -590,6 +590,13 @@ func (channel *Channel) Update() error {
 	DB.Model(channel).First(channel, "id = ?", channel.Id)
 	err = channel.UpdateAbilities(nil)
 	return err
+}
+
+func (channel *Channel) BeforeCreate(*gorm.DB) error {
+	if channel.BaseURL == nil {
+		channel.BaseURL = common.GetPointer("")
+	}
+	return nil
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
