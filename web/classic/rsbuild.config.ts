@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv } from '@rsbuild/core';
@@ -14,6 +15,13 @@ const semiFoundationDir = path.resolve(
   path.dirname(require.resolve('@douyinfe/semi-foundation')),
   '../../..',
 );
+const semiDateFnsDir = path.resolve(
+  semiFoundationDir,
+  'node_modules/date-fns',
+);
+const dateFnsDir = fs.existsSync(semiDateFnsDir)
+  ? semiDateFnsDir
+  : path.dirname(require.resolve('date-fns/package.json'));
 
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] });
@@ -48,7 +56,7 @@ export default defineConfig(({ envMode }) => {
           semiUiDir,
           'dist/css/semi.css',
         ),
-        'date-fns': path.resolve(semiFoundationDir, 'node_modules/date-fns'),
+        'date-fns': dateFnsDir,
       },
     },
     html: {
