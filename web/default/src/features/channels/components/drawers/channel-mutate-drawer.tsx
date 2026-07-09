@@ -1,3 +1,24 @@
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowRight,
+  ClipboardPaste,
+  HelpCircle,
+  Loader2,
+  Sparkles,
+  Trash2,
+  Copy,
+  FileText,
+  Eraser,
+  Plus,
+  Eye,
+  RefreshCw,
+  Code,
+  Route,
+  Settings,
+  SlidersHorizontal,
+  Wand2,
+} from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -25,31 +46,19 @@ import {
   useRef,
 } from 'react'
 import { type SubmitErrorHandler, useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  ArrowRight,
-  HelpCircle,
-  Loader2,
-  Sparkles,
-  Trash2,
-  Copy,
-  FileText,
-  Eraser,
-  Plus,
-  Eye,
-  RefreshCw,
-  Code,
-  Route,
-  Settings,
-  SlidersHorizontal,
-  Wand2,
-} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { getLobeIcon } from '@/lib/lobe-icon'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+
+import {
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+  sideDrawerSectionClassName,
+  sideDrawerSwitchItemClassName,
+} from '@/components/drawer-layout'
+import { JsonEditor } from '@/components/json-editor'
+import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -91,19 +100,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
-  sideDrawerSectionClassName,
-  sideDrawerSwitchItemClassName,
-} from '@/components/drawer-layout'
-import { JsonEditor } from '@/components/json-editor'
-import { MultiSelect } from '@/components/multi-select'
-import {
   SecureVerificationDialog,
   useSecureVerification,
 } from '@/features/auth/secure-verification'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import {
+  parseChannelConnectionInfo,
+  type ChannelConnectionInfo,
+} from '@/lib/channel-connection-info'
+import { getLobeIcon } from '@/lib/lobe-icon'
+
 import {
   fetchModels,
   getAllModels,
@@ -304,15 +311,22 @@ export function ChannelMutateDrawer({
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
   const [advancedCustomEditorOpen, setAdvancedCustomEditorOpen] =
     useState(false)
+  const [clipboardConnectionInfo, setClipboardConnectionInfo] =
+    useState<ChannelConnectionInfo | null>(null)
 
   const isEditing = Boolean(currentRow)
   const channelId = currentRow?.id ?? null
 
   // Fetch channel details if editing
   const { data: channelData, isLoading: isChannelLoading } = useQuery({
-    queryKey: channelsQueryKeys.detail(currentRow?.id || 0),
-    queryFn: () => getChannel(currentRow!.id),
-    enabled: isEditing && Boolean(currentRow?.id),
+    queryKey: channelsQueryKeys.detail(channelId ?? 0),
+    queryFn: () => {
+      if (!channelId) {
+        throw new Error('Missing channel ID')
+      }
+      return getChannel(channelId)
+    },
+    enabled: Boolean(channelId),
   })
 
   // Fetch available groups
@@ -400,6 +414,67 @@ export function ChannelMutateDrawer({
     }
   }, [open, resetDoubaoApiUnlock])
 
+  const applyConnectionInfo = useCallback(
+    (connectionInfo: ChannelConnectionInfo) => {
+      form.setValue('key', connectionInfo.key, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      form.setValue('base_url', connectionInfo.url, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      setClipboardConnectionInfo(null)
+      toast.success(t('Connection info filled in'))
+    },
+    [form, t]
+  )
+
+  const pasteConnectionInfoFromClipboard = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+      toast.error(t('Unable to read clipboard'))
+      return
+    }
+
+    try {
+      const text = await navigator.clipboard.readText()
+      const parsed = parseChannelConnectionInfo(text)
+      if (parsed) {
+        applyConnectionInfo(parsed)
+        return
+      }
+      toast.info(t('No connection info found in clipboard'))
+    } catch {
+      toast.error(t('Unable to read clipboard'))
+    }
+  }, [applyConnectionInfo, t])
+
+  useEffect(() => {
+    if (!open || isEditing) {
+      setClipboardConnectionInfo(null)
+      return
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+      return
+    }
+
+    let cancelled = false
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (cancelled) return
+        setClipboardConnectionInfo(parseChannelConnectionInfo(text))
+      })
+      .catch(() => {
+        /* Clipboard detection is best-effort on drawer open. */
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isEditing, open])
+
   // Helper computed values
   const isBatchMode =
     multiKeyMode === 'batch' || multiKeyMode === 'multi_to_single'
@@ -447,7 +522,7 @@ export function ChannelMutateDrawer({
   const groupOptions = useMemo(() => {
     if (!groupsData?.data) return []
     const allGroups = new Set([...groupsData.data, ...(currentGroups || [])])
-    return Array.from(allGroups).map((group) => ({
+    return [...allGroups].map((group) => ({
       value: group,
       label: group,
     }))
@@ -497,7 +572,7 @@ export function ChannelMutateDrawer({
   // Transform models to multi-select options
   const modelOptions = useMemo(() => {
     const allModels = new Set([...allModelsList, ...currentModelsArray])
-    return Array.from(allModels).map((model) => ({
+    return [...allModels].map((model) => ({
       value: model,
       label: model,
     }))
@@ -528,8 +603,8 @@ export function ChannelMutateDrawer({
         return acc
       }, [])
 
-      const missingSourceModels = Array.from(
-        new Set(
+      const missingSourceModels = [
+        ...new Set(
           entries
             .filter(
               (entry) =>
@@ -537,11 +612,11 @@ export function ChannelMutateDrawer({
                 !currentModelsArray.includes(entry.source)
             )
             .map((entry) => entry.source)
-        )
-      )
+        ),
+      ]
 
-      const exposedTargetModels = Array.from(
-        new Set(
+      const exposedTargetModels = [
+        ...new Set(
           entries
             .filter(
               (entry) =>
@@ -549,8 +624,8 @@ export function ChannelMutateDrawer({
                 currentModelsArray.includes(entry.target)
             )
             .map((entry) => entry.target)
-        )
-      )
+        ),
+      ]
 
       return {
         invalidJson: false,
@@ -584,7 +659,7 @@ export function ChannelMutateDrawer({
 
     return {
       lastCheckTime: settings.upstream_model_update_last_check_time,
-      detectedModels: Array.from(new Set(detectedModels)),
+      detectedModels: [...new Set(detectedModels)],
     }
   }, [currentSettings])
 
@@ -988,12 +1063,12 @@ export function ChannelMutateDrawer({
       }
 
       // Validate model_mapping JSON format
-      const hasModelMapping =
-        typeof data.model_mapping === 'string' &&
-        data.model_mapping.trim() !== ''
+      const modelMapping =
+        typeof data.model_mapping === 'string' ? data.model_mapping : ''
+      const hasModelMapping = modelMapping.trim() !== ''
 
       if (hasModelMapping) {
-        const validation = validateModelMappingJson(data.model_mapping!)
+        const validation = validateModelMappingJson(modelMapping)
         if (!validation.valid) {
           toast.error(t(validation.error || 'Invalid model mapping'))
           return
@@ -1006,7 +1081,7 @@ export function ChannelMutateDrawer({
       // Check for missing models in model_mapping
       if (hasModelMapping) {
         const missingModels = findMissingModelsInMapping(
-          data.model_mapping!,
+          modelMapping,
           normalizedModels
         )
 
@@ -1025,9 +1100,9 @@ export function ChannelMutateDrawer({
             return
           }
           if (confirmAction === 'add') {
-            const updatedModels = Array.from(
-              new Set([...normalizedModels, ...missingModels])
-            )
+            const updatedModels = [
+              ...new Set([...normalizedModels, ...missingModels]),
+            ]
             data.models = formatModelsArray(updatedModels)
             form.setValue('models', data.models)
           }
@@ -1073,6 +1148,7 @@ export function ChannelMutateDrawer({
       if (!v) {
         form.reset(CHANNEL_FORM_DEFAULT_VALUES)
         setAdvancedSettingsOpen(false)
+        setClipboardConnectionInfo(null)
       }
     },
     [onOpenChange, form]
@@ -1083,27 +1159,71 @@ export function ChannelMutateDrawer({
       <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent className={sideDrawerContentClassName('sm:max-w-3xl')}>
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle className='flex items-center gap-3'>
-              <span className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-md'>
-                {getLobeIcon(`${getChannelTypeIcon(currentType)}.Color`, 22)}
-              </span>
-              <span>
-                {isEditing ? t('Edit Channel') : t('Create Channel')}
-                <span className='text-muted-foreground ml-2 text-sm font-normal'>
-                  {t(currentTypeLabel)}
-                </span>
-              </span>
-            </SheetTitle>
-            <SheetDescription>
-              {isEditing
-                ? t(
-                    "Update channel configuration and click save when you're done."
-                  )
-                : t(
-                    'Add a new channel by providing the necessary information.'
-                  )}
-            </SheetDescription>
+            <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+              <div className='min-w-0'>
+                <SheetTitle className='flex items-center gap-3'>
+                  <span className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-md'>
+                    {getLobeIcon(
+                      `${getChannelTypeIcon(currentType)}.Color`,
+                      22
+                    )}
+                  </span>
+                  <span>
+                    {isEditing ? t('Edit Channel') : t('Create Channel')}
+                    <span className='text-muted-foreground ml-2 text-sm font-normal'>
+                      {t(currentTypeLabel)}
+                    </span>
+                  </span>
+                </SheetTitle>
+                <SheetDescription className='mt-1'>
+                  {isEditing
+                    ? t(
+                        "Update channel configuration and click save when you're done."
+                      )
+                    : t(
+                        'Add a new channel by providing the necessary information.'
+                      )}
+                </SheetDescription>
+              </div>
+              {!isEditing && (
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='shrink-0'
+                  onClick={pasteConnectionInfoFromClipboard}
+                >
+                  <ClipboardPaste className='size-4' />
+                  <span>{t('Paste Connection Info')}</span>
+                </Button>
+              )}
+            </div>
           </SheetHeader>
+
+          {!isEditing && clipboardConnectionInfo && (
+            <Alert>
+              <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+                <span>{t('Connection info detected in clipboard')}</span>
+                <span className='flex shrink-0 gap-2'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    onClick={() => applyConnectionInfo(clipboardConnectionInfo)}
+                  >
+                    {t('Fill in')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => setClipboardConnectionInfo(null)}
+                  >
+                    {t('Ignore')}
+                  </Button>
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
 
           <Form {...form}>
             <form
@@ -1600,9 +1720,7 @@ export function ChannelMutateDrawer({
                                 multiple={isBatchMode}
                                 onChange={async (e) => {
                                   const fileList = e.target.files
-                                  const files = fileList
-                                    ? Array.from(fileList)
-                                    : []
+                                  const files = fileList ? [...fileList] : []
                                   // allow re-selecting the same file
                                   e.target.value = ''
 
@@ -1882,12 +2000,10 @@ export function ChannelMutateDrawer({
                             <FormItem>
                               <FormLabel>{t('Add Mode')}</FormLabel>
                               <Select
-                                items={[
-                                  ...addModeOptions.map((option) => ({
-                                    value: option.value,
-                                    label: t(option.label),
-                                  })),
-                                ]}
+                                items={addModeOptions.map((option) => ({
+                                  value: option.value,
+                                  label: t(option.label),
+                                }))}
                                 onValueChange={field.onChange}
                                 value={field.value}
                               >
@@ -1953,6 +2069,30 @@ export function ChannelMutateDrawer({
                             }
                             return t(getKeyPromptForType(currentType))
                           })()
+                          let keyDescription: ReactNode = t(
+                            FIELD_DESCRIPTIONS.KEY
+                          )
+                          if (isEditing) {
+                            keyDescription = (
+                              <>
+                                {t(
+                                  'Enter new key to update, or leave empty to keep current key'
+                                )}
+                                {isMultiKeyChannel && (
+                                  <span className='text-warning mt-1 block'>
+                                    {t('Multi-key channel: Keys will be')}{' '}
+                                    {keyMode === 'replace'
+                                      ? t('replaced')
+                                      : t('appended')}
+                                  </span>
+                                )}
+                              </>
+                            )
+                          } else if (isBatchMode) {
+                            keyDescription = t(
+                              'Enter one API key per line for batch creation'
+                            )
+                          }
                           return (
                             <FormItem>
                               <FormLabel>{t('API Key *')}</FormLabel>
@@ -1965,31 +2105,7 @@ export function ChannelMutateDrawer({
                               </FormControl>
                               <FormDescription>
                                 <div className='flex flex-col gap-2'>
-                                  <span>
-                                    {isEditing ? (
-                                      <>
-                                        {t(
-                                          'Enter new key to update, or leave empty to keep current key'
-                                        )}
-                                        {isMultiKeyChannel && (
-                                          <span className='text-warning mt-1 block'>
-                                            {t(
-                                              'Multi-key channel: Keys will be'
-                                            )}{' '}
-                                            {keyMode === 'replace'
-                                              ? t('replaced')
-                                              : t('appended')}
-                                          </span>
-                                        )}
-                                      </>
-                                    ) : isBatchMode ? (
-                                      t(
-                                        'Enter one API key per line for batch creation'
-                                      )
-                                    ) : (
-                                      t(FIELD_DESCRIPTIONS.KEY)
-                                    )}
-                                  </span>
+                                  <span>{keyDescription}</span>
                                   {isBatchMode && (
                                     <Button
                                       type='button'
@@ -2900,7 +3016,7 @@ export function ChannelMutateDrawer({
                                         field.onChange(
                                           JSON.stringify(parsed, null, 2)
                                         )
-                                      } catch (_e) {
+                                      } catch {
                                         /* ignore invalid JSON */
                                       }
                                     }}

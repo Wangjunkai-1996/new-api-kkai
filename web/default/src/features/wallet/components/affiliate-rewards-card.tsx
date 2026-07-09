@@ -19,17 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Gift, Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatQuota } from '@/lib/format'
+
+import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CopyButton } from '@/components/copy-button'
 import {
   getInvitationFeatureStatus,
   getMyCode,
 } from '@/features/invitations/api'
 import { formatRebateAmount } from '@/features/invitations/lib/format'
+import { formatQuota } from '@/lib/format'
+
 import { generateAffiliateLink } from '../lib'
 import type { UserWalletData } from '../types'
 
@@ -135,12 +137,13 @@ export function AffiliateRewardsCard({
   const showTransferButton =
     hasRewards && (!usingInvitationBackend || canTransferInvitationRebate)
   const showActionButton = usingInvitationBackend || showTransferButton
-  const actionButtonLabel =
-    usingInvitationBackend && (!hasRewards || !canTransferInvitationRebate)
-      ? t('Rebate Center')
-      : usingInvitationBackend
-        ? t('Apply Rebate to Balance')
-        : t('Transfer to Balance')
+  let actionButtonLabel = t('Transfer to Balance')
+  if (usingInvitationBackend) {
+    actionButtonLabel =
+      !hasRewards || !canTransferInvitationRebate
+        ? t('Rebate Center')
+        : t('Apply Rebate to Balance')
+  }
   const actionButtonVariant =
     usingInvitationBackend && (!hasRewards || !canTransferInvitationRebate)
       ? 'outline'
@@ -182,7 +185,7 @@ export function AffiliateRewardsCard({
               {usingInvitationBackend
                 ? t('Share your invitation code to earn rebates')
                 : t(
-                    'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+                    'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
                   )}
             </p>
           </div>

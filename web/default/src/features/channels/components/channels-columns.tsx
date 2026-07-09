@@ -508,7 +508,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
             onCheckedChange={(value) =>
               table.toggleAllPageRowsSelected(!!value)
             }
-            aria-label='Select all'
+            aria-label={t('Select all')}
           />
         ),
         cell: ({ row }) => {
@@ -523,12 +523,13 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
             <Checkbox
               checked={row.getIsSelected()}
               onCheckedChange={(value) => row.toggleSelected(!!value)}
-              aria-label='Select row'
+              aria-label={t('Select row')}
             />
           )
         },
         enableSorting: false,
         enableHiding: false,
+        enableResizing: false,
         size: 40,
       },
 
@@ -592,13 +593,13 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           const hasParamOverride = Boolean(channel.param_override?.trim())
 
           return (
-            <div className='flex items-center gap-2'>
-              <div className='flex flex-col gap-1'>
-                <div className='flex items-center gap-1.5'>
+            <div className='flex max-w-full min-w-0 items-center gap-2'>
+              <div className='flex max-w-full min-w-0 flex-col gap-1'>
+                <div className='flex max-w-full min-w-0 items-center gap-1.5'>
                   <TruncatedText
                     text={sensitiveVisible ? name : SENSITIVE_MASK}
                     className='font-medium'
-                    maxWidth='max-w-[180px]'
+                    maxWidth='max-w-full'
                   />
                   {isPassThrough && (
                     <TooltipProvider delay={100}>
@@ -652,6 +653,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
             </div>
           )
         },
+        size: 260,
         minSize: 200,
       },
 
