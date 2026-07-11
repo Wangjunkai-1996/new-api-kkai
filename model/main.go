@@ -50,6 +50,12 @@ func initCol() {
 	}
 }
 
+// SetDatabaseTypes keeps database type flags and their derived SQL literals in sync.
+func SetDatabaseTypes(mainType common.DatabaseType, logType common.DatabaseType) {
+	common.SetDatabaseTypes(mainType, logType)
+	initCol()
+}
+
 var DB *gorm.DB
 
 var LOG_DB *gorm.DB

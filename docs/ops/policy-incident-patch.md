@@ -14,6 +14,8 @@ The goal is to avoid replaying the same risky request across additional channels
 - Do not set short-lived breaker state for the upstream key unless `policy_incident_setting.isolate_upstream_on_policy_incident` is explicitly enabled.
 - Set client-token breaker state and persistently disable the implicated client token only when causality is `client_policy_request` and `ClientTokenActionAllowed` is true.
 - Never set client-token breaker state and never persistently disable the client token when causality is `upstream_key_encountered`; record `token_breaker_skipped`, `token_db_disable_skipped`, and `client_attribution_missing` instead.
+- Treat combined client-policy and upstream-key markers as `ambiguous_mixed_attribution`, including markers split across error code/message fields or task relay fields. Stop retries and record the event, but never set the client-token breaker or persistently disable the client token/user.
+- Keep `disable_client_token_persistently` disabled by default. When explicitly enabled, persist token/user state changes and the append-only event in one main-database transaction; invalidate caches only after commit.
 - Do not auto-disable the implicated upstream channel/key unless `policy_incident_setting.isolate_upstream_on_policy_incident` is explicitly enabled.
 - When upstream isolation is disabled, audit `upstream_breaker_skipped` and `upstream_isolation_skipped` with `config_disabled`.
 - Insert an append-only `policy_incident_events` audit record.
@@ -29,6 +31,7 @@ The goal is to avoid replaying the same risky request across additional channels
 | --- | --- | --- | --- | --- |
 | `client_policy_request` | The upstream policy error is attributable to the client's request, such as a clear `cyber_policy` request-policy hit without an upstream-key permanent-disable marker. | Allowed. Set token breaker and, if enabled by config, persistently disable the client token. | Disabled by default. Only isolate the implicated upstream channel/key when `isolate_upstream_on_policy_incident=true`. | `client_token_action_allowed=true`; action includes `token_breaker_set`; persistent disable may be `token_disabled`, `token_unchanged`, or `token_db_disable_skipped` depending on config/state. With default upstream behavior, action also includes `upstream_breaker_skipped,upstream_isolation_skipped`. |
 | `upstream_key_encountered` | The event proves the upstream key encountered a policy/permanent-disable state, such as `当前 API key 已永久禁用`; it does not prove the current client caused it. | Forbidden. Do not set token breaker and do not persistently disable the client token. | Disabled by default. Only isolate the implicated upstream channel/key when `isolate_upstream_on_policy_incident=true`. | `client_token_action_allowed=false`; action includes upstream isolation skipped markers by default; result includes `config_disabled` for upstream breaker/isolation. |
+| `ambiguous_mixed_attribution` | Client-request policy markers and upstream-key/account markers both appear in the combined error evidence. | Forbidden. Do not set the token breaker and do not persistently disable the client token/user. | Disabled by default. Explicit upstream-isolation configuration still governs upstream action. | `client_token_action_allowed=false`; action includes `token_breaker_skipped`, `token_db_disable_skipped`, `user_db_disable_skipped`, and `client_attribution_missing`; result includes `ambiguous_attribution`. |
 
 ## Patch Touch Points
 
@@ -55,7 +58,7 @@ Keep these files in mind during upstream syncs:
 - `service/policy_incident.go`
   - classification, no-retry marking, token disable, upstream isolation, audit event, notification
 - `setting/operation_setting/policy_incident_setting.go`
-  - persistent token disable setting, enabled by default; upstream isolation setting, disabled by default
+  - persistent token disable setting and upstream isolation setting, both disabled by default
 - `types/error.go`
   - policy incident error typing
 

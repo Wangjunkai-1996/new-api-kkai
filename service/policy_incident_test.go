@@ -140,8 +140,17 @@ func TestClassifyPolicyIncidentSeparatesClientAndUpstreamKeyCausality(t *testing
 	mixedErr := types.NewOpenAIError(errors.New("网络滥用封禁：上游返回 cyber_policy，当前 API key 已永久禁用"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 	mixedClassification := ClassifyPolicyIncident(mixedErr)
 	assert.True(t, mixedClassification.Detected)
-	assert.True(t, mixedClassification.ClientTokenActionAllowed)
-	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, mixedClassification.Causality)
+	assert.False(t, mixedClassification.ClientTokenActionAllowed)
+	assert.Equal(t, policyIncidentCausalityAmbiguousMixedAttribution, mixedClassification.Causality)
+
+	mixedCodeMessageErr := types.WithOpenAIError(types.OpenAIError{
+		Code:    "cyber_policy",
+		Message: "current API key has been permanently disabled",
+	}, http.StatusForbidden)
+	mixedCodeMessageClassification := ClassifyPolicyIncident(mixedCodeMessageErr)
+	assert.True(t, mixedCodeMessageClassification.Detected)
+	assert.False(t, mixedCodeMessageClassification.ClientTokenActionAllowed)
+	assert.Equal(t, policyIncidentCausalityAmbiguousMixedAttribution, mixedCodeMessageClassification.Causality)
 
 	upstreamKeyOnlyErr := types.NewOpenAIError(errors.New("api key has been deactivated by provider"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 	upstreamKeyOnlyClassification := ClassifyPolicyIncident(upstreamKeyOnlyErr)
@@ -173,6 +182,12 @@ func TestPolicyIncidentSetsNoRetryEvenWhenTokenDisableFails(t *testing.T) {
 func TestPolicyIncidentRecordsEventAndSkipsUpstreamIsolationByDefault(t *testing.T) {
 	truncate(t)
 	notifications := capturePolicyIncidentRootNotifications(t)
+	setting := operation_setting.GetPolicyIncidentSetting()
+	originalPersistentDisable := setting.DisableClientTokenPersistently
+	setting.DisableClientTokenPersistently = true
+	t.Cleanup(func() {
+		setting.DisableClientTokenPersistently = originalPersistentDisable
+	})
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
 	token := &model.Token{UserId: 42, Key: "client-token-key", Status: common.TokenStatusEnabled, Name: "client-token"}
@@ -414,7 +429,7 @@ func TestPolicyIncidentEvidenceWriteFailureDoesNotBlockEvent(t *testing.T) {
 	assert.False(t, hasEvidenceHash)
 }
 
-func TestPolicyIncidentForcesCustomerDisableWhenConfiguredOff(t *testing.T) {
+func TestPolicyIncidentRespectsPersistentDisableConfig(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
 	original := setting.DisableClientTokenPersistently
@@ -437,21 +452,23 @@ func TestPolicyIncidentForcesCustomerDisableWhenConfiguredOff(t *testing.T) {
 
 	var reloaded model.Token
 	require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
-	assert.Equal(t, common.TokenStatusDisabled, reloaded.Status)
+	assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
 
 	var user model.User
 	require.NoError(t, model.DB.First(&user, 42).Error)
-	assert.Equal(t, common.UserStatusDisabled, user.Status)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
-	assert.Contains(t, event.ActionTaken, "token_disabled")
-	assert.Contains(t, event.ActionTaken, "user_disabled")
-	assert.NotContains(t, event.ActionTaken, "token_unchanged")
-	assert.NotContains(t, event.ActionTaken, "user_unchanged")
+	assert.Contains(t, event.ActionTaken, "token_breaker_set")
+	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+	assert.Contains(t, event.ActionTaken, "user_db_disable_skipped")
+	assert.Contains(t, event.ActionResult, policyIncidentResultConfigDisabled)
+	assert.NotContains(t, event.ActionTaken, "token_disabled")
+	assert.NotContains(t, event.ActionTaken, "user_disabled")
 }
 
-func TestPolicyIncidentHandlesMixedCyberPolicyAndKeyDisabledAsClientPolicy(t *testing.T) {
+func TestPolicyIncidentTreatsMixedCyberPolicyAndKeyDisabledAsAmbiguous(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
 	original := setting.DisableClientTokenPersistently
@@ -474,21 +491,70 @@ func TestPolicyIncidentHandlesMixedCyberPolicyAndKeyDisabledAsClientPolicy(t *te
 
 	var reloaded model.Token
 	require.NoError(t, model.DB.First(&reloaded, token.Id).Error)
-	assert.Equal(t, common.TokenStatusDisabled, reloaded.Status)
+	assert.Equal(t, common.TokenStatusEnabled, reloaded.Status)
 
 	var user model.User
 	require.NoError(t, model.DB.First(&user, 42).Error)
-	assert.Equal(t, common.UserStatusDisabled, user.Status)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test").First(&event).Error)
-	assert.Equal(t, policyIncidentCausalityClientPolicyRequest, event.Causality)
-	assert.Contains(t, event.ActionTaken, "token_disabled")
-	assert.Contains(t, event.ActionTaken, "user_disabled")
+	assert.Equal(t, policyIncidentCausalityAmbiguousMixedAttribution, event.Causality)
+	assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
+	assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+	assert.Contains(t, event.ActionTaken, "user_db_disable_skipped")
 	assert.Contains(t, event.ActionTaken, "upstream_breaker_skipped")
 	assert.Contains(t, event.ActionTaken, "upstream_isolation_skipped")
+	assert.Contains(t, event.ActionResult, "ambiguous_attribution")
+	assert.NotContains(t, event.ActionTaken, "token_breaker_set")
+	assert.NotContains(t, event.ActionTaken, "token_disabled")
+	assert.NotContains(t, event.ActionTaken, "user_disabled")
 	assert.NotContains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.NotContains(t, event.ActionTaken, "upstream_isolated")
+	assert.True(t, ShouldSkipRetryAfterPolicyIncident(ctx))
+}
+
+func TestTaskRelayPolicyIncidentTreatsSplitMixedMarkersAsAmbiguous(t *testing.T) {
+	truncate(t)
+	setting := operation_setting.GetPolicyIncidentSetting()
+	original := setting.DisableClientTokenPersistently
+	setting.DisableClientTokenPersistently = true
+	t.Cleanup(func() {
+		setting.DisableClientTokenPersistently = original
+	})
+
+	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
+	token := &model.Token{UserId: 42, Key: "client-token-key-task-mixed", Status: common.TokenStatusEnabled, Name: "client-token"}
+	require.NoError(t, model.DB.Create(token).Error)
+	channel := &model.Channel{Key: "upstream-key", Status: common.ChannelStatusEnabled, Name: "policy-channel", Type: 1}
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	ctx := newPolicyIncidentTestContext(t)
+	ctx.Set("token_id", token.Id)
+	ctx.Set(common.RequestIdKey, "req-policy-task-mixed")
+	taskErr := &dto.TaskError{
+		Code:       "cyber_policy",
+		Message:    "task failed",
+		Error:      errors.New("current API key has been permanently disabled"),
+		StatusCode: http.StatusForbidden,
+	}
+
+	HandleTaskRelayPolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, true), taskErr)
+
+	var reloadedToken model.Token
+	require.NoError(t, model.DB.First(&reloadedToken, token.Id).Error)
+	assert.Equal(t, common.TokenStatusEnabled, reloadedToken.Status)
+
+	var user model.User
+	require.NoError(t, model.DB.First(&user, 42).Error)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
+
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-task-mixed").First(&event).Error)
+	assert.Equal(t, policyIncidentCausalityAmbiguousMixedAttribution, event.Causality)
+	assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
+	assert.NotContains(t, event.ActionTaken, "token_breaker_set")
+	assert.True(t, ShouldSkipRetryAfterPolicyIncident(ctx))
 }
 
 func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing.T) {
@@ -538,8 +604,12 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing
 			var event model.PolicyIncidentEvent
 			require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test-"+tt.name).First(&event).Error)
 			assert.Equal(t, policyIncidentCausalityUpstreamKey, event.Causality)
-			assert.Contains(t, event.ActionTaken, "token_unchanged")
-			assert.Contains(t, event.ActionTaken, "user_unchanged")
+			assert.Contains(t, event.ActionTaken, "token_breaker_skipped")
+			assert.Contains(t, event.ActionTaken, "token_db_disable_skipped")
+			assert.Contains(t, event.ActionTaken, "user_db_disable_skipped")
+			assert.NotContains(t, event.ActionTaken, "token_breaker_set")
+			assert.NotContains(t, event.ActionTaken, "token_disabled")
+			assert.NotContains(t, event.ActionTaken, "user_disabled")
 			assert.Contains(t, event.ActionResult, "upstream_key_attribution")
 		})
 	}

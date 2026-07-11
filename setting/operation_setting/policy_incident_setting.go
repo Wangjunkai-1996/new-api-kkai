@@ -8,7 +8,7 @@ type PolicyIncidentSetting struct {
 }
 
 var policyIncidentSetting = PolicyIncidentSetting{
-	DisableClientTokenPersistently:  true,
+	DisableClientTokenPersistently:  false,
 	IsolateUpstreamOnPolicyIncident: false,
 }
 
