@@ -5,7 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"math"
+	"regexp"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,12 +15,21 @@ import (
 
 const (
 	policyIncidentFingerprintPrefix = "sha256:"
-	PolicyIncidentMetadataRedacted  = "[redacted]"
+	PolicyIncidentErrorDetected     = "policy_incident_detected"
+	policyIncidentMetadataMaxBytes  = 512
 )
 
 var (
 	ErrNilPolicyIncidentEvent        = errors.New("policy incident event is nil")
 	ErrPolicyIncidentEventAppendOnly = errors.New("policy incident events are append-only")
+	ErrInvalidPolicyIncidentMetadata = errors.New("invalid policy incident metadata")
+	policyIncidentCaseIDPattern      = regexp.MustCompile(`^policy-[0-9]{1,19}-[0-9a-f]{16}$`)
+	policyIncidentMetadataKeys       = map[string]struct{}{
+		"case_id":                     {},
+		"request_body_sha256":         {},
+		"request_body_bytes":          {},
+		"client_token_action_allowed": {},
+	}
 )
 
 // PolicyIncidentEvent is an append-only audit record for cyber policy actions.
@@ -75,7 +85,8 @@ func (e *PolicyIncidentEvent) BeforeCreate(tx *gorm.DB) error {
 	if e.CreatedAt == 0 {
 		e.CreatedAt = common.GetTimestamp()
 	}
-	e.ErrorMessage = redactPolicyIncidentText(e.ErrorMessage, e.UpstreamKeyFingerprint)
+	e.ErrorCode = PolicyIncidentErrorDetected
+	e.ErrorMessage = PolicyIncidentErrorDetected
 	e.UpstreamKeyFingerprint = NormalizePolicyIncidentKeyFingerprint(e.UpstreamKeyFingerprint)
 
 	metadata, err := NormalizePolicyIncidentMetadata(e.Metadata)
@@ -198,83 +209,83 @@ func normalizePolicyIncidentMetadataBytes(raw []byte) (JSONValue, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-
-	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		encoded, marshalErr := json.Marshal(string(raw))
-		if marshalErr != nil {
-			return nil, marshalErr
-		}
-		return JSONValue(encoded), nil
+	if len(raw) > policyIncidentMetadataMaxBytes {
+		return nil, ErrInvalidPolicyIncidentMetadata
 	}
 
-	sanitized := sanitizePolicyIncidentMetadataValue(decoded)
-	encoded, err := json.Marshal(sanitized)
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, ErrInvalidPolicyIncidentMetadata
+	}
+	sanitized, err := sanitizePolicyIncidentMetadata(decoded)
 	if err != nil {
 		return nil, err
+	}
+	encoded, err := json.Marshal(sanitized)
+	if err != nil || len(encoded) > policyIncidentMetadataMaxBytes {
+		return nil, ErrInvalidPolicyIncidentMetadata
 	}
 	return JSONValue(encoded), nil
 }
 
-func sanitizePolicyIncidentMetadataValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		sanitized := make(map[string]any, len(v))
-		for key, item := range v {
-			switch {
-			case isPolicyIncidentPromptMetadataKey(key):
-				sanitized[key] = PolicyIncidentMetadataRedacted
-			case isPolicyIncidentUpstreamKeyMetadataKey(key):
-				sanitized[key] = fingerprintMetadataValue(item)
-			default:
-				sanitized[key] = sanitizePolicyIncidentMetadataValue(item)
+func sanitizePolicyIncidentMetadata(decoded map[string]any) (map[string]any, error) {
+	if decoded == nil {
+		return nil, ErrInvalidPolicyIncidentMetadata
+	}
+	sanitized := make(map[string]any, len(decoded))
+	for key, value := range decoded {
+		if _, allowed := policyIncidentMetadataKeys[key]; !allowed {
+			return nil, ErrInvalidPolicyIncidentMetadata
+		}
+		switch key {
+		case "case_id":
+			caseID, ok := value.(string)
+			if !ok || !policyIncidentCaseIDPattern.MatchString(caseID) {
+				return nil, ErrInvalidPolicyIncidentMetadata
 			}
+			sanitized[key] = caseID
+		case "request_body_sha256":
+			digest, ok := value.(string)
+			if !ok || !isSHA256Hex(digest) {
+				return nil, ErrInvalidPolicyIncidentMetadata
+			}
+			sanitized[key] = digest
+		case "request_body_bytes":
+			bytes, ok := policyIncidentMetadataInteger(value)
+			if !ok || bytes < 0 {
+				return nil, ErrInvalidPolicyIncidentMetadata
+			}
+			sanitized[key] = bytes
+		case "client_token_action_allowed":
+			allowed, ok := value.(bool)
+			if !ok {
+				return nil, ErrInvalidPolicyIncidentMetadata
+			}
+			sanitized[key] = allowed
 		}
-		return sanitized
-	case []any:
-		sanitized := make([]any, len(v))
-		for i, item := range v {
-			sanitized[i] = sanitizePolicyIncidentMetadataValue(item)
+	}
+	_, hasDigest := sanitized["request_body_sha256"]
+	_, hasBytes := sanitized["request_body_bytes"]
+	if hasDigest != hasBytes {
+		return nil, ErrInvalidPolicyIncidentMetadata
+	}
+	return sanitized, nil
+}
+
+func policyIncidentMetadataInteger(value any) (int64, bool) {
+	switch number := value.(type) {
+	case int:
+		return int64(number), true
+	case int64:
+		return number, true
+	case float64:
+		if number > math.MaxInt64 || number < math.MinInt64 || math.Trunc(number) != number {
+			return 0, false
 		}
-		return sanitized
+		return int64(number), true
 	default:
-		return v
+		return 0, false
 	}
-}
-
-func fingerprintMetadataValue(value any) string {
-	switch v := value.(type) {
-	case string:
-		return NormalizePolicyIncidentKeyFingerprint(v)
-	default:
-		return FingerprintPolicyIncidentUpstreamKey(fmt.Sprint(v))
-	}
-}
-
-func isPolicyIncidentPromptMetadataKey(key string) bool {
-	switch normalizePolicyIncidentMetadataKey(key) {
-	case "prompt", "messages", "message", "input", "inputs":
-		return true
-	default:
-		return false
-	}
-}
-
-func isPolicyIncidentUpstreamKeyMetadataKey(key string) bool {
-	switch normalizePolicyIncidentMetadataKey(key) {
-	case "upstreamkey", "upstreamapikey", "apikey", "authorization":
-		return true
-	default:
-		return false
-	}
-}
-
-func normalizePolicyIncidentMetadataKey(key string) string {
-	key = strings.ToLower(strings.TrimSpace(key))
-	key = strings.ReplaceAll(key, "_", "")
-	key = strings.ReplaceAll(key, "-", "")
-	key = strings.ReplaceAll(key, " ", "")
-	return key
 }
 
 func isSHA256Hex(value string) bool {
@@ -296,13 +307,4 @@ func cloneJSONValue(value JSONValue) JSONValue {
 	cloned := make([]byte, len(value))
 	copy(cloned, value)
 	return JSONValue(cloned)
-}
-
-func redactPolicyIncidentText(text string, upstreamKey string) string {
-	text = common.MaskSensitiveInfo(text)
-	upstreamKey = strings.TrimSpace(upstreamKey)
-	if upstreamKey == "" {
-		return text
-	}
-	return strings.ReplaceAll(text, upstreamKey, PolicyIncidentMetadataRedacted)
 }

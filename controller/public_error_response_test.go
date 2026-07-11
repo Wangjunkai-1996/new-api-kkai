@@ -60,7 +60,7 @@ func TestPublicOpenAIErrorPolicyIncidentIsCleanAndIncludesCaseID(t *testing.T) {
 	setupPublicErrorControllerTestDB(t)
 	ctx := newPublicErrorTestContext("req-policy-public")
 	event := &model.PolicyIncidentEvent{RequestId: "req-policy-public"}
-	require.NoError(t, event.SetMetadata(map[string]any{"case_id": "policy-case-123"}))
+	require.NoError(t, event.SetMetadata(map[string]any{"case_id": "policy-1710000000123-0123456789abcdef"}))
 	require.NoError(t, model.InsertPolicyIncidentEvent(event))
 
 	apiErr := types.NewOpenAIError(
@@ -74,10 +74,10 @@ func TestPublicOpenAIErrorPolicyIncidentIsCleanAndIncludesCaseID(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, statusCode)
 	require.Equal(t, types.PublicMessageRequestBlockedByPolicy, openAIError.Message)
 	require.Equal(t, types.ErrorCodePolicyBlocked, openAIError.Code)
-	require.Equal(t, "policy-case-123", openAIError.CaseID)
+	require.Equal(t, "policy-1710000000123-0123456789abcdef", openAIError.CaseID)
 	var metadata map[string]string
 	require.NoError(t, common.Unmarshal(openAIError.Metadata, &metadata))
-	require.Equal(t, "policy-case-123", metadata["case_id"])
+	require.Equal(t, "policy-1710000000123-0123456789abcdef", metadata["case_id"])
 	require.NotContains(t, openAIError.Message, "cyber_policy")
 	require.NotContains(t, openAIError.Message, "ads.example")
 }

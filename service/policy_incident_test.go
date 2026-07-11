@@ -1,14 +1,12 @@
 package service
 
 import (
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,7 +40,6 @@ func newPolicyIncidentTestContext(t *testing.T) *gin.Context {
 	ctx.Set("token_name", "client-token")
 	ctx.Set("original_model", "gpt-policy")
 	ctx.Set(common.RequestIdKey, "req-policy-test")
-	t.Setenv(policyIncidentEvidenceDirEnv, filepath.Join(t.TempDir(), "policy-evidence"))
 	common.SetContextKey(ctx, constant.ContextKeyRequestStartTime, time.Unix(1710000000, 123000000))
 	common.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, 1)
 	return ctx
@@ -99,10 +96,11 @@ func createPolicyIncidentUser(t *testing.T, id int, role int) *model.User {
 func setPolicyIncidentUpstreamIsolation(t *testing.T, enabled bool) {
 	t.Helper()
 	setting := operation_setting.GetPolicyIncidentSetting()
-	original := setting.IsolateUpstreamOnPolicyIncident
+	original := setting
 	setting.IsolateUpstreamOnPolicyIncident = enabled
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.IsolateUpstreamOnPolicyIncident = original
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(original))
 	})
 }
 
@@ -183,10 +181,11 @@ func TestPolicyIncidentRecordsEventAndSkipsUpstreamIsolationByDefault(t *testing
 	truncate(t)
 	notifications := capturePolicyIncidentRootNotifications(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
-	originalPersistentDisable := setting.DisableClientTokenPersistently
+	originalPersistentDisable := setting
 	setting.DisableClientTokenPersistently = true
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.DisableClientTokenPersistently = originalPersistentDisable
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(originalPersistentDisable))
 	})
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
@@ -285,9 +284,33 @@ func TestPolicyIncidentNotificationUsesIncidentLockForDeduplication(t *testing.T
 	assert.Contains(t, secondEvent.ActionResult, "deduplicated")
 }
 
+func TestPolicyIncidentDoesNotNotifyWhenAuditInsertFails(t *testing.T) {
+	truncate(t)
+	notifications := capturePolicyIncidentRootNotifications(t)
+	ctx := newPolicyIncidentTestContext(t)
+	ctx.Set(common.RequestIdKey, "req-policy-audit-failure")
+	require.NoError(t, model.DB.Exec(`
+		CREATE TRIGGER reject_policy_incident_audit
+		BEFORE INSERT ON policy_incident_events
+		BEGIN
+			SELECT RAISE(FAIL, 'forced audit failure');
+		END
+	`).Error)
+	t.Cleanup(func() { model.DB.Exec("DROP TRIGGER IF EXISTS reject_policy_incident_audit") })
+	apiErr := types.NewOpenAIError(errors.New("cyber_policy request rejected"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(89, 1, "policy-channel", false, "upstream-key", true), apiErr)
+
+	assert.Empty(t, *notifications)
+	var count int64
+	require.NoError(t, model.DB.Model(&model.PolicyIncidentEvent{}).Where("request_id = ?", "req-policy-audit-failure").Count(&count).Error)
+	assert.Zero(t, count)
+}
+
 func TestPolicyIncidentCanIsolateUpstreamWhenExplicitlyEnabled(t *testing.T) {
 	truncate(t)
 	setPolicyIncidentUpstreamIsolation(t, true)
+	const upstreamPII = "cyber_policy prompt echo patient Alice Example SSN 123-45-6789 for upstream-b"
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
 	token := &model.Token{UserId: 42, Key: "client-token-key-enabled", Status: common.TokenStatusEnabled, Name: "client-token"}
@@ -307,7 +330,9 @@ func TestPolicyIncidentCanIsolateUpstreamWhenExplicitlyEnabled(t *testing.T) {
 	ctx := newPolicyIncidentTestContext(t)
 	ctx.Set("token_id", token.Id)
 	ctx.Set(common.RequestIdKey, "req-policy-test-upstream-enabled")
-	err := types.NewOpenAIError(errors.New("cyber_policy request rejected for upstream-b"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	common.SetContextKey(ctx, constant.ContextKeyAdminRejectReason, upstreamPII)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions/"+url.PathEscape(upstreamPII), nil)
+	err := types.NewOpenAIError(errors.New(upstreamPII), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, true, "upstream-b", true), err)
 
@@ -315,24 +340,67 @@ func TestPolicyIncidentCanIsolateUpstreamWhenExplicitlyEnabled(t *testing.T) {
 	require.NoError(t, errGet)
 	assert.Equal(t, common.ChannelStatusEnabled, reloaded.Status)
 	assert.Equal(t, common.ChannelStatusAutoDisabled, reloaded.ChannelInfo.MultiKeyStatusList[1])
-	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyDisabledReason[1], "upstream-b")
+	assert.Equal(t, policyIncidentChannelDisableReason, reloaded.ChannelInfo.MultiKeyDisabledReason[1])
+	assert.NotContains(t, reloaded.ChannelInfo.MultiKeyDisabledReason[1], "Alice")
 
 	var event model.PolicyIncidentEvent
 	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-test-upstream-enabled").First(&event).Error)
+	assert.Equal(t, model.PolicyIncidentErrorDetected, event.ErrorCode)
+	assert.Equal(t, model.PolicyIncidentErrorDetected, event.ErrorMessage)
+	assert.NotContains(t, event.ErrorMessage, "Alice")
+	assert.NotContains(t, string(event.Metadata), "Alice")
 	assert.Contains(t, event.ActionTaken, "upstream_breaker_set")
 	assert.Contains(t, event.ActionTaken, "upstream_isolated")
 	assert.Contains(t, event.ActionResult, "redis_unavailable")
+
+	assert.NotContains(t, reloaded.OtherInfo, "Alice")
+	assert.NotContains(t, reloaded.OtherInfo, "123-45-6789")
 }
 
-func TestPolicyIncidentWritesGzipEvidenceAndSafeMetadata(t *testing.T) {
+func TestPolicyIncidentSingleChannelIsolationUsesFixedStatusReason(t *testing.T) {
 	truncate(t)
-	evidenceDir := filepath.Join(t.TempDir(), "policy-evidence")
+	setPolicyIncidentUpstreamIsolation(t, true)
+	capturePolicyIncidentRootNotifications(t)
+	const upstreamPII = "cyber_policy prompt echo patient Alice Example SSN 123-45-6789"
+
+	channel := &model.Channel{
+		Key:    "upstream-single",
+		Status: common.ChannelStatusEnabled,
+		Name:   "policy-channel-single",
+		Type:   1,
+	}
+	require.NoError(t, model.DB.Create(channel).Error)
+	ctx := newPolicyIncidentTestContext(t)
+	ctx.Set(common.RequestIdKey, "req-policy-single-channel")
+	apiErr := types.NewOpenAIError(errors.New(upstreamPII), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+
+	HandlePolicyIncident(ctx, *types.NewChannelError(channel.Id, channel.Type, channel.Name, false, channel.Key, true), apiErr)
+
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, reloaded.Status)
+	assert.Equal(t, policyIncidentChannelDisableReason, reloaded.GetOtherInfo()["status_reason"])
+	assert.NotContains(t, reloaded.OtherInfo, "Alice")
+	assert.NotContains(t, reloaded.OtherInfo, "123-45-6789")
+	var event model.PolicyIncidentEvent
+	require.NoError(t, model.DB.Where("request_id = ?", "req-policy-single-channel").First(&event).Error)
+	assert.Equal(t, model.PolicyIncidentErrorDetected, event.ErrorCode)
+	assert.Equal(t, model.PolicyIncidentErrorDetected, event.ErrorMessage)
+	assert.NotContains(t, string(event.Metadata), "Alice")
+}
+
+func TestPolicyIncidentPersistsDBOnlyAuditMetadata(t *testing.T) {
+	truncate(t)
+	evidenceDir := filepath.Join(t.TempDir(), "legacy-policy-evidence")
+	require.NoError(t, os.MkdirAll(evidenceDir, 0700))
+	legacyFile := filepath.Join(evidenceDir, "legacy.json.gz")
+	require.NoError(t, os.WriteFile(legacyFile, []byte("legacy"), 0600))
+	t.Setenv("NEW_API_POLICY_EVIDENCE_DIR", evidenceDir)
 
 	const upstreamKey = "upstream-raw-key"
 	const clientToken = "sk-client-token-secret"
 	rawBody := `{"model":"gpt-policy","messages":[{"role":"user","content":"investigate policy prompt with upstream-raw-key and sk-client-token-secret"}]}`
 	ctx := newPolicyIncidentTestContext(t)
-	t.Setenv(policyIncidentEvidenceDirEnv, evidenceDir)
 	ctx.Set("token_key", "client-token-secret")
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions/"+upstreamKey, strings.NewReader(rawBody))
 	ctx.Request.RemoteAddr = "203.0.113.10:4444"
@@ -350,64 +418,22 @@ func TestPolicyIncidentWritesGzipEvidenceAndSafeMetadata(t *testing.T) {
 	caseID, ok := metadata["case_id"].(string)
 	require.True(t, ok)
 	assert.True(t, strings.HasPrefix(caseID, "policy-1710000000123-"))
-	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), metadata["evidence_body_sha256"])
+	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), metadata["request_body_sha256"])
+	assert.EqualValues(t, len(rawBody), metadata["request_body_bytes"])
+	assert.Equal(t, true, metadata["client_token_action_allowed"])
+	assert.Len(t, metadata, 4)
 	assert.NotContains(t, string(event.Metadata), "investigate policy prompt")
-
-	evidencePath, ok := metadata["evidence_path"].(string)
-	require.True(t, ok)
-	assert.Equal(t, filepath.Join(evidenceDir, caseID+".json.gz"), evidencePath)
-	assert.Empty(t, metadata["evidence_error"])
-
-	dirInfo, err := os.Stat(evidenceDir)
+	require.FileExists(t, legacyFile)
+	entries, err := os.ReadDir(evidenceDir)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(policyIncidentEvidenceDirPerm), dirInfo.Mode().Perm())
-	fileInfo, err := os.Stat(evidencePath)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(policyIncidentEvidenceFilePerm), fileInfo.Mode().Perm())
-
-	gzipPayload, err := os.ReadFile(evidencePath)
-	require.NoError(t, err)
-	assert.Equal(t, testPolicyIncidentHexSHA256(gzipPayload), metadata["evidence_sha256"])
-
-	var evidence policyIncidentEvidenceFile
-	decodedEvidence, err := readPolicyIncidentEvidenceGzip(gzipPayload, &evidence)
-	require.NoError(t, err)
-	assert.Equal(t, caseID, evidence.CaseID)
-	assert.Equal(t, "2024-03-09T16:00:00.123Z", evidence.RequestTime)
-	assert.Equal(t, "req-policy-test", evidence.RequestID)
-	assert.Equal(t, 42, evidence.UserID)
-	assert.Equal(t, 77, evidence.TokenID)
-	assert.Equal(t, "client-token", evidence.TokenName)
-	assert.Equal(t, "gpt-policy", evidence.Model)
-	assert.Equal(t, "/v1/chat/completions/"+model.PolicyIncidentMetadataRedacted, evidence.Path)
-	assert.Equal(t, "203.0.113.10", evidence.RemoteIP)
-	assert.Equal(t, "198.51.100.2, 203.0.113.10", evidence.XForwardedFor)
-	assert.Equal(t, 88, evidence.ChannelID)
-	assert.Equal(t, 1, evidence.MultiKeyIndex)
-	assert.Equal(t, model.FingerprintPolicyIncidentUpstreamKey(upstreamKey), evidence.UpstreamKeyFingerprint)
-	assert.Equal(t, http.StatusForbidden, evidence.Status)
-	assert.Equal(t, string(types.ErrorCodeBadResponseStatusCode), evidence.Error.Code)
-	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), evidence.BodySHA256)
-	assert.Contains(t, evidence.Body, "investigate policy prompt")
-	assert.True(t, evidence.BodyRedacted)
-	assert.NotContains(t, evidence.Body, upstreamKey)
-	assert.NotContains(t, evidence.Body, clientToken)
-	assert.NotContains(t, evidence.Error.Message, upstreamKey)
-	assert.NotContains(t, string(decodedEvidence), upstreamKey)
-	assert.NotContains(t, string(decodedEvidence), clientToken)
-	assert.NotContains(t, string(decodedEvidence), "Authorization")
+	require.Len(t, entries, 1)
 }
 
-func TestPolicyIncidentEvidenceWriteFailureDoesNotBlockEvent(t *testing.T) {
+func TestPolicyIncidentBodyDigestFailureDoesNotBlockEvent(t *testing.T) {
 	truncate(t)
-	tempDir := t.TempDir()
-	blockedPath := filepath.Join(tempDir, "not-a-directory")
-	require.NoError(t, os.WriteFile(blockedPath, []byte("blocked"), 0600))
-
-	rawBody := `{"messages":[{"role":"user","content":"safe prompt for evidence failure"}]}`
 	ctx := newPolicyIncidentTestContext(t)
-	t.Setenv(policyIncidentEvidenceDirEnv, blockedPath)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(rawBody))
+	ctx.Request = nil
+	ctx.Set(common.KeyBodyStorage, &failingPolicyIncidentBody{})
 	err := types.NewOpenAIError(errors.New("cyber_policy request rejected"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	HandlePolicyIncident(ctx, *types.NewChannelError(89, 1, "policy-channel", false, "upstream-key", true), err)
@@ -420,22 +446,20 @@ func TestPolicyIncidentEvidenceWriteFailureDoesNotBlockEvent(t *testing.T) {
 	caseID, _ := metadata["case_id"].(string)
 	assert.NotEmpty(t, caseID)
 	assert.Equal(t, caseID, ctx.GetString(PolicyIncidentCaseIDContextKey))
-	assert.Equal(t, testPolicyIncidentHexSHA256([]byte(rawBody)), metadata["evidence_body_sha256"])
-	assert.NotEmpty(t, metadata["evidence_error"])
-	assert.NotContains(t, string(event.Metadata), "safe prompt for evidence failure")
-	_, hasPath := metadata["evidence_path"]
-	assert.False(t, hasPath)
-	_, hasEvidenceHash := metadata["evidence_sha256"]
-	assert.False(t, hasEvidenceHash)
+	_, hasDigest := metadata["request_body_sha256"]
+	assert.False(t, hasDigest)
+	_, hasBytes := metadata["request_body_bytes"]
+	assert.False(t, hasBytes)
 }
 
 func TestPolicyIncidentRespectsPersistentDisableConfig(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
-	original := setting.DisableClientTokenPersistently
+	original := setting
 	setting.DisableClientTokenPersistently = false
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.DisableClientTokenPersistently = original
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(original))
 	})
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
@@ -471,10 +495,11 @@ func TestPolicyIncidentRespectsPersistentDisableConfig(t *testing.T) {
 func TestPolicyIncidentTreatsMixedCyberPolicyAndKeyDisabledAsAmbiguous(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
-	original := setting.DisableClientTokenPersistently
+	original := setting
 	setting.DisableClientTokenPersistently = true
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.DisableClientTokenPersistently = original
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(original))
 	})
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
@@ -517,10 +542,11 @@ func TestPolicyIncidentTreatsMixedCyberPolicyAndKeyDisabledAsAmbiguous(t *testin
 func TestTaskRelayPolicyIncidentTreatsSplitMixedMarkersAsAmbiguous(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
-	original := setting.DisableClientTokenPersistently
+	original := setting
 	setting.DisableClientTokenPersistently = true
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.DisableClientTokenPersistently = original
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(original))
 	})
 
 	createPolicyIncidentUser(t, 42, common.RoleCommonUser)
@@ -560,10 +586,11 @@ func TestTaskRelayPolicyIncidentTreatsSplitMixedMarkersAsAmbiguous(t *testing.T)
 func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
-	original := setting.DisableClientTokenPersistently
+	original := setting
 	setting.DisableClientTokenPersistently = true
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.DisableClientTokenPersistently = original
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(original))
 	})
 
 	tests := []struct {
@@ -618,10 +645,11 @@ func TestPolicyIncidentSkipsClientTokenActionsForUpstreamOnlyVariants(t *testing
 func TestPolicyIncidentSkipsPrivilegedUserDisableButDisablesToken(t *testing.T) {
 	truncate(t)
 	setting := operation_setting.GetPolicyIncidentSetting()
-	original := setting.DisableClientTokenPersistently
+	original := setting
 	setting.DisableClientTokenPersistently = true
+	require.NoError(t, operation_setting.PublishPolicyIncidentSetting(setting))
 	t.Cleanup(func() {
-		setting.DisableClientTokenPersistently = original
+		require.NoError(t, operation_setting.PublishPolicyIncidentSetting(original))
 	})
 
 	tests := []struct {
@@ -708,18 +736,4 @@ func TestTaskRelayPolicyIncidentSkipsLocalErrors(t *testing.T) {
 func testPolicyIncidentHexSHA256(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
-}
-
-func readPolicyIncidentEvidenceGzip(payload []byte, v any) ([]byte, error) {
-	reader, err := gzip.NewReader(bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	decoded, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-	return decoded, common.Unmarshal(decoded, v)
 }
