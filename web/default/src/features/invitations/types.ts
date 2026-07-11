@@ -174,7 +174,13 @@ export interface RebateRequest {
 
 export interface ApproveAndPayRebateRecordResult {
   recordId: number
-  outcome: 'paid' | 'already_paid' | 'already_completed' | 'failed' | string
+  outcome:
+    | 'pending'
+    | 'paid'
+    | 'already_paid'
+    | 'already_completed'
+    | 'failed'
+    | string
   amountCents?: number | null
   quotaDelta?: number | null
   payoutId?: number | null
@@ -189,6 +195,7 @@ export interface ApproveAndPayRebateResponse {
   totalAmount: number
   paidCount: number
   alreadyPaidCount: number
+  pendingCount: number
   failedCount: number
   items: ApproveAndPayRebateRecordResult[]
 }
@@ -204,6 +211,7 @@ export interface BatchApproveAndPayRebateResponse {
   failedRequests: number
   paidCount: number
   alreadyPaidCount: number
+  pendingCount: number
   failedCount: number
   items: ApproveAndPayRebateResponse[]
   errors: BatchApproveAndPayRebateError[]

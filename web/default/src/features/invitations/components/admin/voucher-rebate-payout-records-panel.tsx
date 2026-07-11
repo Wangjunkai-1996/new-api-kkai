@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PaginationState } from '@tanstack/react-table'
 import { Loader2, RotateCcw, Wallet } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -47,6 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+
 import {
   createRebatePayoutIdempotencyKey,
   getAdminRebateRecords,
@@ -282,11 +284,7 @@ export function VoucherRebatePayoutRecordsPanel() {
         : reverseAdminRebatePayout(recordId, payload)
     },
     onSuccess: (_response, variables) => {
-      toast.success(
-        variables.action === 'pay'
-          ? t('Voucher rebate paid to balance')
-          : t('Voucher rebate payout reversed')
-      )
+      toast.success(t('Settlement request submitted; waiting for settlement'))
       queryClient.invalidateQueries({ queryKey: ['adminRebateRecords'] })
       queryClient.invalidateQueries({ queryKey: ['adminRebateRequests'] })
       queryClient.invalidateQueries({ queryKey: ['rebateStats'] })
@@ -476,6 +474,41 @@ function VoucherRebatePayoutRow({
   const actionsDisabled = disabled || statusLoading || isError
   const payDisabled = actionsDisabled || !canPayPayout(record, data)
   const reverseDisabled = actionsDisabled || !canReversePayout(record, data)
+  let payoutStatusContent
+
+  if (statusLoading) {
+    payoutStatusContent = (
+      <Badge variant='outline' className='text-muted-foreground'>
+        {t('Loading...')}
+      </Badge>
+    )
+  } else if (isError) {
+    payoutStatusContent = (
+      <Badge
+        variant='outline'
+        className='bg-red-500/10 text-red-700 dark:text-red-400'
+        title={getInvitationErrorMessage(
+          error,
+          t('Failed to load payout status')
+        )}
+      >
+        {t('Payout status unavailable')}
+      </Badge>
+    )
+  } else {
+    payoutStatusContent = (
+      <div className='flex flex-col gap-1'>
+        <Badge variant='outline' className={payoutStatusClass(value)}>
+          {payoutStatusLabel(t, value)}
+        </Badge>
+        {payoutTimestamp(record, data) && (
+          <span className='text-muted-foreground text-xs'>
+            {formatDateTime(payoutTimestamp(record, data))}
+          </span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <TableRow>
@@ -493,35 +526,7 @@ function VoucherRebatePayoutRow({
           {rebateStatusLabel(t, record.status)}
         </Badge>
       </TableCell>
-      <TableCell>
-        {statusLoading ? (
-          <Badge variant='outline' className='text-muted-foreground'>
-            {t('Loading...')}
-          </Badge>
-        ) : isError ? (
-          <Badge
-            variant='outline'
-            className='bg-red-500/10 text-red-700 dark:text-red-400'
-            title={getInvitationErrorMessage(
-              error,
-              t('Failed to load payout status')
-            )}
-          >
-            {t('Payout status unavailable')}
-          </Badge>
-        ) : (
-          <div className='flex flex-col gap-1'>
-            <Badge variant='outline' className={payoutStatusClass(value)}>
-              {payoutStatusLabel(t, value)}
-            </Badge>
-            {payoutTimestamp(record, data) && (
-              <span className='text-muted-foreground text-xs'>
-                {formatDateTime(payoutTimestamp(record, data))}
-              </span>
-            )}
-          </div>
-        )}
-      </TableCell>
+      <TableCell>{payoutStatusContent}</TableCell>
       <TableCell>
         {ledgerId ? (
           <span

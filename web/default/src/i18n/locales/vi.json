@@ -3949,6 +3949,8 @@
     "Settings": "Cài đặt",
     "Settings & Preferences": "Cài đặt & Tùy chọn",
     "Settings updated successfully": "Cài đặt đã được cập nhật thành công",
+    "Settlement request submitted; waiting for settlement": "Yêu cầu quyết toán đã được gửi và đang chờ xử lý",
+    "Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed": "Kết quả quyết toán: {{pending}} đã gửi và đang chờ, {{paid}} đã thanh toán, {{alreadyPaid}} đã thanh toán trước đó, {{failed}} thất bại",
     "Setup guide": "Hướng dẫn thiết lập",
     "Setup guide complete": "Đã hoàn tất hướng dẫn thiết lập",
     "Setup guide is collapsed. Expand it anytime.": "Hướng dẫn thiết lập đã được thu gọn. Bạn có thể mở lại bất cứ lúc nào.",

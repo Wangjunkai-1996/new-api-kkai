@@ -3949,6 +3949,8 @@
     "Settings": "設定",
     "Settings & Preferences": "設定と環境設定",
     "Settings updated successfully": "設定が正常に更新されました",
+    "Settlement request submitted; waiting for settlement": "精算リクエストを送信しました。精算待ちです",
+    "Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed": "精算結果：送信済み・精算待ち {{pending}} 件、支払い済み {{paid}} 件、既払い {{alreadyPaid}} 件、失敗 {{failed}} 件",
     "Setup guide": "セットアップガイド",
     "Setup guide complete": "セットアップガイド完了",
     "Setup guide is collapsed. Expand it anytime.": "セットアップガイドは折りたたまれています。いつでも展開できます。",

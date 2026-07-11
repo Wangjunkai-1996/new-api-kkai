@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { WalletCards } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -40,7 +40,12 @@ import {
   getRebateRequests,
 } from '../../api'
 import { getInvitationErrorMessage } from '../../lib/error'
-import type { RebateRequestAdmin, RebateRequestStatus } from '../../types'
+import type {
+  ApproveAndPayRebateResponse,
+  BatchApproveAndPayRebateResponse,
+  RebateRequestAdmin,
+  RebateRequestStatus,
+} from '../../types'
 import { ApproveAndPayDialog } from './approve-and-pay-dialog'
 import { RebateRequestsTable } from './rebate-requests-table'
 
@@ -164,34 +169,28 @@ function isApproveAndPayEligible(request: RebateRequestAdmin) {
   return request.status === 'pending' || request.status === 'approved'
 }
 
-function approveAndPaySuccessMessage(t: TFunction, data: unknown) {
-  if (!data || typeof data !== 'object') {
-    return t('Rebate approve and pay completed')
+function approveAndPaySuccessMessage(
+  t: TFunction,
+  data:
+    | ApproveAndPayRebateResponse
+    | BatchApproveAndPayRebateResponse
+    | undefined
+) {
+  if (!data) {
+    return t('Settlement request submitted; waiting for settlement')
   }
 
-  const result = data as {
-    paidCount?: number
-    alreadyPaidCount?: number
-    failedCount?: number
-    failedRequests?: number
-  }
-  const failedCount = (result.failedCount ?? 0) + (result.failedRequests ?? 0)
-  if (failedCount > 0) {
-    return t(
-      'Approve and pay completed with {{paid}} paid, {{alreadyPaid}} already paid, and {{failed}} failed',
-      {
-        paid: result.paidCount ?? 0,
-        alreadyPaid: result.alreadyPaidCount ?? 0,
-        failed: failedCount,
-      }
-    )
-  }
+  const failedRequests =
+    'failedRequests' in data ? (data.failedRequests ?? 0) : 0
+  const failedCount = (data.failedCount ?? 0) + failedRequests
 
   return t(
-    'Approve and pay completed: {{paid}} paid, {{alreadyPaid}} already paid',
+    'Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed',
     {
-      paid: result.paidCount ?? 0,
-      alreadyPaid: result.alreadyPaidCount ?? 0,
+      pending: data.pendingCount ?? 0,
+      paid: data.paidCount ?? 0,
+      alreadyPaid: data.alreadyPaidCount ?? 0,
+      failed: failedCount,
     }
   )
 }

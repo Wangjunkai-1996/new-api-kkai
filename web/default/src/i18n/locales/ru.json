@@ -3949,6 +3949,8 @@
     "Settings": "Настройки",
     "Settings & Preferences": "Настройки и предпочтения",
     "Settings updated successfully": "Настройки успешно обновлены",
+    "Settlement request submitted; waiting for settlement": "Запрос на расчет отправлен и ожидает обработки",
+    "Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed": "Результат расчета: отправлено и ожидает {{pending}}, выплачено {{paid}}, уже выплачено {{alreadyPaid}}, ошибок {{failed}}",
     "Setup guide": "Руководство по настройке",
     "Setup guide complete": "Руководство по настройке завершено",
     "Setup guide is collapsed. Expand it anytime.": "Руководство по настройке свернуто. Его можно открыть в любой момент.",

@@ -3952,6 +3952,8 @@
     "Settings": "Settings",
     "Settings & Preferences": "Settings & Preferences",
     "Settings updated successfully": "Settings updated successfully",
+    "Settlement request submitted; waiting for settlement": "Settlement request submitted; waiting for settlement",
+    "Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed": "Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed",
     "Setup guide": "Setup guide",
     "Setup guide complete": "Setup guide complete",
     "Setup guide is collapsed. Expand it anytime.": "Setup guide is collapsed. Expand it anytime.",
