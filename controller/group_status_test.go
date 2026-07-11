@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -34,9 +33,27 @@ type groupStatusAPIResponse struct {
 func setupGroupStatusControllerTest(t *testing.T) *gorm.DB {
 	t.Helper()
 
+	originalDB := model.DB
+	originalLogDB := model.LOG_DB
+	originalMainDatabaseType := common.MainDatabaseType()
+	originalLogDatabaseType := common.LogDatabaseType()
+	originalRedisEnabled := common.RedisEnabled
+	originalRedisClient := common.RDB
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		model.DB = originalDB
+		model.LOG_DB = originalLogDB
+		model.SetDatabaseTypes(originalMainDatabaseType, originalLogDatabaseType)
+		common.RedisEnabled = originalRedisEnabled
+		common.RDB = originalRedisClient
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+	})
+
 	gin.SetMode(gin.TestMode)
-	prepareGroupStatusControllerModelColumns(t)
+	model.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
+	common.RDB = nil
+	common.MemoryCacheEnabled = false
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -55,37 +72,6 @@ func setupGroupStatusControllerTest(t *testing.T) *gorm.DB {
 	})
 
 	return db
-}
-
-func prepareGroupStatusControllerModelColumns(t *testing.T) {
-	t.Helper()
-
-	originalIsMasterNode := common.IsMasterNode
-	originalSQLitePath := common.SQLitePath
-	originalMainDatabaseType := common.MainDatabaseType()
-	originalLogDatabaseType := common.LogDatabaseType()
-	originalSQLDSN, hadSQLDSN := os.LookupEnv("SQL_DSN")
-
-	common.IsMasterNode = false
-	common.SQLitePath = fmt.Sprintf("file:%s_init?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
-	require.NoError(t, os.Setenv("SQL_DSN", "local"))
-	require.NoError(t, model.InitDB())
-	if model.DB != nil {
-		sqlDB, err := model.DB.DB()
-		if err == nil {
-			_ = sqlDB.Close()
-		}
-	}
-
-	common.IsMasterNode = originalIsMasterNode
-	common.SQLitePath = originalSQLitePath
-	common.SetDatabaseTypes(originalMainDatabaseType, originalLogDatabaseType)
-	if hadSQLDSN {
-		require.NoError(t, os.Setenv("SQL_DSN", originalSQLDSN))
-	} else {
-		require.NoError(t, os.Unsetenv("SQL_DSN"))
-	}
 }
 
 func resetGroupStatusControllerSettings(t *testing.T) {

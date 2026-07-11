@@ -414,21 +414,28 @@ func cacheTokenAsync(token Token) {
 }
 
 func DisableTokenByIds(id int, userId int) (*Token, bool, error) {
+	token, changed, err := disableTokenByIds(DB, id, userId)
+	if err == nil && token != nil {
+		cacheTokenAsync(*token)
+	}
+	return token, changed, err
+}
+
+func disableTokenByIds(db *gorm.DB, id int, userId int) (*Token, bool, error) {
 	if id <= 0 || userId <= 0 {
 		return nil, false, errors.New("id 或 userId 无效！")
 	}
 
 	var token Token
-	if err := DB.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
+	if err := db.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
 		return nil, false, err
 	}
 	if token.Status == common.TokenStatusDisabled {
-		cacheTokenAsync(token)
 		return &token, false, nil
 	}
 
 	now := common.GetTimestamp()
-	result := DB.Model(&Token{}).
+	result := db.Model(&Token{}).
 		Where("id = ? and user_id = ? and status <> ?", id, userId, common.TokenStatusDisabled).
 		Updates(map[string]interface{}{
 			"status":        common.TokenStatusDisabled,
@@ -438,18 +445,14 @@ func DisableTokenByIds(id int, userId int) (*Token, bool, error) {
 		return &token, false, result.Error
 	}
 	if result.RowsAffected == 0 {
-		if err := DB.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
+		if err := db.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
 			return nil, false, err
-		}
-		if token.Status == common.TokenStatusDisabled {
-			cacheTokenAsync(token)
 		}
 		return &token, false, nil
 	}
 
 	token.Status = common.TokenStatusDisabled
 	token.AccessedTime = now
-	cacheTokenAsync(token)
 	return &token, true, nil
 }
 
