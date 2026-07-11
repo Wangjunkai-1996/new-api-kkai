@@ -745,43 +745,46 @@ func IsAdmin(userId int) bool {
 }
 
 func DisableUserForPolicyIncident(id int) (*User, bool, error) {
+	user, changed, err := disableUserForPolicyIncident(DB, id)
+	if err == nil && user != nil {
+		invalidatePolicyIncidentUserCaches(id)
+	}
+	return user, changed, err
+}
+
+func disableUserForPolicyIncident(db *gorm.DB, id int) (*User, bool, error) {
 	if id <= 0 {
 		return nil, false, errors.New("id 无效！")
 	}
 
 	var user User
-	if err := DB.First(&user, "id = ?", id).Error; err != nil {
+	if err := db.First(&user, "id = ?", id).Error; err != nil {
 		return nil, false, err
 	}
 	if user.Role >= common.RoleAdminUser {
 		return &user, false, ErrPolicyIncidentPrivilegedUser
 	}
 	if user.Status == common.UserStatusDisabled {
-		invalidatePolicyIncidentUserCaches(id)
 		return &user, false, nil
 	}
 
-	result := DB.Model(&User{}).
+	result := db.Model(&User{}).
 		Where("id = ? and role < ? and status <> ?", id, common.RoleAdminUser, common.UserStatusDisabled).
 		Update("status", common.UserStatusDisabled)
 	if result.Error != nil {
 		return &user, false, result.Error
 	}
 	if result.RowsAffected == 0 {
-		if err := DB.First(&user, "id = ?", id).Error; err != nil {
+		if err := db.First(&user, "id = ?", id).Error; err != nil {
 			return nil, false, err
 		}
 		if user.Role >= common.RoleAdminUser {
 			return &user, false, ErrPolicyIncidentPrivilegedUser
 		}
-		if user.Status == common.UserStatusDisabled {
-			invalidatePolicyIncidentUserCaches(id)
-		}
 		return &user, false, nil
 	}
 
 	user.Status = common.UserStatusDisabled
-	invalidatePolicyIncidentUserCaches(id)
 	return &user, true, nil
 }
 

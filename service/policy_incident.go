@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	policyIncidentEvidenceHigh                 = "high"
-	policyIncidentCausalityClientPolicyRequest = "client_policy_request"
-	policyIncidentCausalityUpstreamKey         = "upstream_key_encountered"
-	PolicyIncidentCaseIDContextKey             = "policy_incident_case_id"
+	policyIncidentEvidenceHigh                       = "high"
+	policyIncidentCausalityClientPolicyRequest       = "client_policy_request"
+	policyIncidentCausalityUpstreamKey               = "upstream_key_encountered"
+	policyIncidentCausalityAmbiguousMixedAttribution = "ambiguous_mixed_attribution"
+	PolicyIncidentCaseIDContextKey                   = "policy_incident_case_id"
 
 	policyIncidentResultSuccess        = "success"
 	policyIncidentResultPartial        = "partial"
@@ -146,6 +147,10 @@ func classifyPolicyIncidentText(statusCode int, errorCode string, message string
 		EvidenceLevel: policyIncidentEvidenceHigh,
 		Causality:     policyIncidentCausalityUpstreamKey,
 	}
+	if clientPolicyDetected && upstreamKeyDetected {
+		classification.Causality = policyIncidentCausalityAmbiguousMixedAttribution
+		return classification
+	}
 	if clientPolicyDetected {
 		classification.Causality = policyIncidentCausalityClientPolicyRequest
 		classification.ClientTokenActionAllowed = true
@@ -192,10 +197,11 @@ func HandleTaskRelayPolicyIncident(c *gin.Context, channelError types.ChannelErr
 	if taskErr.LocalError {
 		return
 	}
-	classification := classifyPolicyIncidentText(taskErr.StatusCode, taskErr.Code, taskErr.Message)
-	if !classification.Detected && taskErr.Error != nil {
-		classification = classifyPolicyIncidentText(taskErr.StatusCode, taskErr.Code, taskErr.Error.Error())
+	message := taskErr.Message
+	if taskErr.Error != nil {
+		message += " " + taskErr.Error.Error()
 	}
+	classification := classifyPolicyIncidentText(taskErr.StatusCode, taskErr.Code, message)
 	handlePolicyIncident(c, channelError, classification)
 }
 
@@ -211,20 +217,24 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 	upstreamBreakerAction, upstreamBreakerResult := setPolicyUpstreamKeyBreakerAction(channelError.ChannelId, channelError.UsingKey)
 	actions := []string{upstreamBreakerAction}
 	results := []string{upstreamBreakerResult}
+	persistentClientDisable := classification.ClientTokenActionAllowed &&
+		operation_setting.GetPolicyIncidentSetting().DisableClientTokenPersistently
 
 	if classification.ClientTokenActionAllowed {
 		tokenBreakerAction, tokenBreakerResult := setPolicyTokenBreakerAction(tokenId)
 		actions = append(actions, tokenBreakerAction)
 		results = append(results, tokenBreakerResult)
-		tokenAction, tokenResult := disablePolicyToken(tokenId, userId, true)
-		actions = append(actions, tokenAction)
-		results = append(results, tokenResult)
-		userAction, userResult := disablePolicyUser(userId)
-		actions = append(actions, userAction)
-		results = append(results, userResult)
+		if !persistentClientDisable {
+			actions = append(actions, "token_db_disable_skipped", "user_db_disable_skipped")
+			results = append(results, policyIncidentResultConfigDisabled, policyIncidentResultConfigDisabled)
+		}
 	} else {
-		actions = append(actions, "token_unchanged", "user_unchanged")
-		results = append(results, "upstream_key_attribution", "upstream_key_attribution")
+		attributionResult := "upstream_key_attribution"
+		if classification.Causality == policyIncidentCausalityAmbiguousMixedAttribution {
+			attributionResult = "ambiguous_attribution"
+		}
+		actions = append(actions, "token_breaker_skipped", "token_db_disable_skipped", "user_db_disable_skipped", "client_attribution_missing")
+		results = append(results, attributionResult, attributionResult, attributionResult, attributionResult)
 	}
 
 	incidentLockAcquired := acquirePolicyIncidentLock(channelError.ChannelId, channelError.UsingKey)
@@ -236,8 +246,15 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 	results = append(results, notifyResult)
 
 	event := buildPolicyIncidentEvent(c, channelError, classification, strings.Join(actions, ","), strings.Join(results, ","))
-	if err := model.InsertPolicyIncidentEvent(event); err != nil {
-		common.SysLog("failed to record policy incident event: " + err.Error())
+	var persistErr error
+	if persistentClientDisable {
+		persistErr = model.PersistPolicyIncidentClientDisable(event, tokenId, userId)
+	} else {
+		persistErr = model.InsertPolicyIncidentEvent(event)
+	}
+	if persistErr != nil {
+		common.SysLog("failed to record policy incident event: " + persistErr.Error())
+		return
 	}
 	if incidentLockAcquired {
 		notifyPolicyIncidentRoot(formatPolicyIncidentNotifyType(event), "[P0 风控] 检测到安全策略命中", formatPolicyIncidentNotification(event))
@@ -294,42 +311,6 @@ func policyBreakerSetFailureResult(err error) string {
 		return "redis_unavailable"
 	}
 	return "redis_error"
-}
-
-func disablePolicyToken(tokenId int, userId int, force bool) (string, string) {
-	if !force && !operation_setting.GetPolicyIncidentSetting().DisableClientTokenPersistently {
-		return "token_unchanged", "config_disabled"
-	}
-	if tokenId <= 0 || userId <= 0 {
-		return "token_unchanged", "token_context_missing"
-	}
-	_, changed, err := model.DisableTokenByIds(tokenId, userId)
-	if err != nil {
-		common.SysLog("failed to disable policy incident token: " + err.Error())
-		return "token_unchanged", "db_error"
-	}
-	if changed {
-		return "token_disabled", policyIncidentResultSuccess
-	}
-	return "token_unchanged", "already_disabled"
-}
-
-func disablePolicyUser(userId int) (string, string) {
-	if userId <= 0 {
-		return "user_unchanged", "user_context_missing"
-	}
-	_, changed, err := model.DisableUserForPolicyIncident(userId)
-	if errors.Is(err, model.ErrPolicyIncidentPrivilegedUser) {
-		return "user_disable_skipped_privileged", "privileged_user"
-	}
-	if err != nil {
-		common.SysLog("failed to disable policy incident user: " + err.Error())
-		return "user_unchanged", "db_error"
-	}
-	if changed {
-		return "user_disabled", policyIncidentResultSuccess
-	}
-	return "user_unchanged", "already_disabled"
 }
 
 func isolatePolicyUpstream(channelError types.ChannelError, classification PolicyIncidentClassification) (string, string) {
@@ -393,8 +374,11 @@ func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, c
 }
 
 func policyIncidentAttributionNote(classification PolicyIncidentClassification) string {
+	if classification.Causality == policyIncidentCausalityAmbiguousMixedAttribution {
+		return "该事件同时出现客户请求策略和上游 key/account 禁用特征，无法安全归因；已跳过客户 token/user 封禁，保留审计证据供人工复核。"
+	}
 	if classification.ClientTokenActionAllowed {
-		return "该上游策略事件包含 cyber_policy 客户请求策略命中特征，即使同时出现上游 key/account 禁用文本，也按客户请求策略命中处置；仍建议结合请求证据复核。"
+		return "该上游策略事件仅包含高置信客户请求策略命中特征，客户 token 熔断和配置允许的持久处置可执行；仍建议结合请求证据复核。"
 	}
 	if operation_setting.GetPolicyIncidentSetting().IsolateUpstreamOnPolicyIncident {
 		return "该事件只证明当前上游 key/account 遇到禁用、无效或暂停状态，不等于当前客户是源头；已隔离上游并跳过客户 token/user 封禁。"
@@ -511,6 +495,9 @@ key 指纹：%s
 func summarizePolicyIncidentClientDisposition(actionTaken string) string {
 	if strings.Contains(actionTaken, "token_disabled") || strings.Contains(actionTaken, "user_disabled") {
 		return "已封禁命中的客户 token/user，详见已执行动作"
+	}
+	if strings.Contains(actionTaken, "token_db_disable_skipped") && strings.Contains(actionTaken, "user_db_disable_skipped") {
+		return "未封禁客户 token/user"
 	}
 	if strings.Contains(actionTaken, "token_unchanged") && strings.Contains(actionTaken, "user_unchanged") {
 		return "未封禁客户 token/user"
