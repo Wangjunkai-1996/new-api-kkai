@@ -180,17 +180,25 @@ function approveAndPaySuccessMessage(
     return t('Settlement request submitted; waiting for settlement')
   }
 
-  const failedRequests =
-    'failedRequests' in data ? (data.failedRequests ?? 0) : 0
-  const failedCount = (data.failedCount ?? 0) + failedRequests
+  const recordCounts = {
+    pending: data.pendingCount ?? 0,
+    paid: data.paidCount ?? 0,
+    alreadyPaid: data.alreadyPaidCount ?? 0,
+    failed: data.failedCount ?? 0,
+  }
+
+  if ('failedRequests' in data) {
+    return t(
+      'Settlement records: {{pending}} pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed; failed requests: {{failedRequests}}',
+      {
+        ...recordCounts,
+        failedRequests: data.failedRequests ?? 0,
+      }
+    )
+  }
 
   return t(
-    'Settlement results: {{pending}} submitted and pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed',
-    {
-      pending: data.pendingCount ?? 0,
-      paid: data.paidCount ?? 0,
-      alreadyPaid: data.alreadyPaidCount ?? 0,
-      failed: failedCount,
-    }
+    'Settlement records: {{pending}} pending, {{paid}} paid, {{alreadyPaid}} already paid, {{failed}} failed',
+    recordCounts
   )
 }
