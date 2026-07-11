@@ -27,6 +27,7 @@ const (
 	policyIncidentResultSuccess        = "success"
 	policyIncidentResultPartial        = "partial"
 	policyIncidentResultConfigDisabled = "config_disabled"
+	policyIncidentChannelDisableReason = "policy_incident_upstream_isolated"
 )
 
 var policyIncidentClientPolicyKeywords = []string{
@@ -212,13 +213,14 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 
 	MarkPolicyIncidentNoRetry(c)
 
+	policySetting := operation_setting.GetPolicyIncidentSetting()
 	tokenId := c.GetInt("token_id")
 	userId := c.GetInt("id")
-	upstreamBreakerAction, upstreamBreakerResult := setPolicyUpstreamKeyBreakerAction(channelError.ChannelId, channelError.UsingKey)
+	upstreamBreakerAction, upstreamBreakerResult := setPolicyUpstreamKeyBreakerAction(policySetting, channelError.ChannelId, channelError.UsingKey)
 	actions := []string{upstreamBreakerAction}
 	results := []string{upstreamBreakerResult}
 	persistentClientDisable := classification.ClientTokenActionAllowed &&
-		operation_setting.GetPolicyIncidentSetting().DisableClientTokenPersistently
+		policySetting.DisableClientTokenPersistently
 
 	if classification.ClientTokenActionAllowed {
 		tokenBreakerAction, tokenBreakerResult := setPolicyTokenBreakerAction(tokenId)
@@ -238,14 +240,15 @@ func handlePolicyIncident(c *gin.Context, channelError types.ChannelError, class
 	}
 
 	incidentLockAcquired := acquirePolicyIncidentLock(channelError.ChannelId, channelError.UsingKey)
-	upstreamAction, upstreamResult := isolatePolicyUpstreamAction(channelError, classification, incidentLockAcquired)
+	upstreamAction, upstreamResult := isolatePolicyUpstreamAction(policySetting, channelError, incidentLockAcquired)
 	actions = append(actions, upstreamAction)
 	results = append(results, upstreamResult)
 	notifyAction, notifyResult := rootPolicyIncidentNotifyAction(incidentLockAcquired)
 	actions = append(actions, notifyAction)
 	results = append(results, notifyResult)
 
-	event := buildPolicyIncidentEvent(c, channelError, classification, strings.Join(actions, ","), strings.Join(results, ","))
+	auditMetadata := preparePolicyIncidentAuditMetadata(c, classification.ClientTokenActionAllowed)
+	event := buildPolicyIncidentEvent(c, channelError, classification, auditMetadata, strings.Join(actions, ","), strings.Join(results, ","))
 	var persistErr error
 	if persistentClientDisable {
 		persistErr = model.PersistPolicyIncidentClientDisable(event, tokenId, userId)
@@ -271,8 +274,8 @@ func setPolicyTokenBreakerAction(tokenId int) (string, string) {
 	return "token_breaker_set", policyIncidentResultSuccess
 }
 
-func setPolicyUpstreamKeyBreakerAction(channelId int, upstreamKey string) (string, string) {
-	if !operation_setting.GetPolicyIncidentSetting().IsolateUpstreamOnPolicyIncident {
+func setPolicyUpstreamKeyBreakerAction(setting operation_setting.PolicyIncidentSetting, channelId int, upstreamKey string) (string, string) {
+	if !setting.IsolateUpstreamOnPolicyIncident {
 		return "upstream_breaker_skipped", policyIncidentResultConfigDisabled
 	}
 	return "upstream_breaker_set", setPolicyUpstreamKeyBreakerResult(channelId, upstreamKey)
@@ -282,20 +285,20 @@ func setPolicyUpstreamKeyBreakerResult(channelId int, upstreamKey string) string
 	if channelId <= 0 || strings.TrimSpace(upstreamKey) == "" {
 		return "upstream_context_missing"
 	}
-	if err := SetPolicyUpstreamKeyBreaker(channelId, upstreamKey); err != nil {
+	if err := setPolicyUpstreamKeyBreakerEnabled(channelId, upstreamKey); err != nil {
 		return policyBreakerSetFailureResult(err)
 	}
 	return policyIncidentResultSuccess
 }
 
-func isolatePolicyUpstreamAction(channelError types.ChannelError, classification PolicyIncidentClassification, incidentLockAcquired bool) (string, string) {
-	if !operation_setting.GetPolicyIncidentSetting().IsolateUpstreamOnPolicyIncident {
+func isolatePolicyUpstreamAction(setting operation_setting.PolicyIncidentSetting, channelError types.ChannelError, incidentLockAcquired bool) (string, string) {
+	if !setting.IsolateUpstreamOnPolicyIncident {
 		return "upstream_isolation_skipped", policyIncidentResultConfigDisabled
 	}
 	if !incidentLockAcquired {
 		return "incident_lock_skipped", "deduplicated"
 	}
-	action, result := isolatePolicyUpstream(channelError, classification)
+	action, result := isolatePolicyUpstream(channelError)
 	return action, result
 }
 
@@ -313,13 +316,11 @@ func policyBreakerSetFailureResult(err error) string {
 	return "redis_error"
 }
 
-func isolatePolicyUpstream(channelError types.ChannelError, classification PolicyIncidentClassification) (string, string) {
+func isolatePolicyUpstream(channelError types.ChannelError) (string, string) {
 	if channelError.IsMultiKey && strings.TrimSpace(channelError.UsingKey) == "" {
 		return "upstream_isolation_failed", "missing_using_key"
 	}
-	reason := fmt.Sprintf("P0 cyber policy incident: status_code=%d error_code=%s message=%s",
-		classification.StatusCode, classification.ErrorCode, redactPolicyIncidentMessage(classification.ErrorMessage, channelError.UsingKey))
-	if model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason) {
+	if model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, policyIncidentChannelDisableReason) {
 		return "upstream_isolated", policyIncidentResultSuccess
 	}
 	if channelError.IsMultiKey {
@@ -328,28 +329,7 @@ func isolatePolicyUpstream(channelError types.ChannelError, classification Polic
 	return "upstream_isolation_failed", "channel_not_found_or_already_disabled"
 }
 
-func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, classification PolicyIncidentClassification, actionTaken string, actionResult string) *model.PolicyIncidentEvent {
-	errorMessage := redactPolicyIncidentMessage(classification.ErrorMessage, channelError.UsingKey)
-	evidence := recordPolicyIncidentEvidence(c, channelError, classification)
-	metadata := map[string]any{
-		"client_token_action_allowed": classification.ClientTokenActionAllowed,
-		"note":                        policyIncidentAttributionNote(classification),
-		"use_channel":                 c.GetStringSlice("use_channel"),
-	}
-	for key, value := range evidence.Metadata() {
-		metadata[key] = value
-	}
-	if c.Request != nil && c.Request.URL != nil {
-		metadata["request_path"] = redactPolicyIncidentMessage(c.Request.URL.Path, channelError.UsingKey)
-	}
-	if channelError.IsMultiKey {
-		metadata["is_multi_key"] = true
-		metadata["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-	}
-	if adminRejectReason := common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason); adminRejectReason != "" {
-		metadata["admin_reject_reason"] = redactPolicyIncidentMessage(adminRejectReason, channelError.UsingKey)
-	}
-
+func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, classification PolicyIncidentClassification, auditMetadata policyIncidentAuditMetadata, actionTaken string, actionResult string) *model.PolicyIncidentEvent {
 	event := &model.PolicyIncidentEvent{
 		RequestId:              c.GetString(common.RequestIdKey),
 		UserId:                 c.GetInt("id"),
@@ -360,76 +340,17 @@ func buildPolicyIncidentEvent(c *gin.Context, channelError types.ChannelError, c
 		ChannelType:            channelError.ChannelType,
 		UpstreamKeyFingerprint: model.FingerprintPolicyIncidentUpstreamKey(channelError.UsingKey),
 		StatusCode:             classification.StatusCode,
-		ErrorCode:              classification.ErrorCode,
-		ErrorMessage:           errorMessage,
+		ErrorCode:              model.PolicyIncidentErrorDetected,
+		ErrorMessage:           model.PolicyIncidentErrorDetected,
 		EvidenceLevel:          classification.EvidenceLevel,
 		Causality:              classification.Causality,
 		ActionTaken:            actionTaken,
 		ActionResult:           actionResult,
 	}
-	if err := event.SetMetadata(metadata); err != nil {
+	if err := event.SetMetadata(auditMetadata.Map()); err != nil {
 		common.SysLog("failed to set policy incident metadata: " + err.Error())
 	}
 	return event
-}
-
-func policyIncidentAttributionNote(classification PolicyIncidentClassification) string {
-	if classification.Causality == policyIncidentCausalityAmbiguousMixedAttribution {
-		return "该事件同时出现客户请求策略和上游 key/account 禁用特征，无法安全归因；已跳过客户 token/user 封禁，保留审计证据供人工复核。"
-	}
-	if classification.ClientTokenActionAllowed {
-		return "该上游策略事件仅包含高置信客户请求策略命中特征，客户 token 熔断和配置允许的持久处置可执行；仍建议结合请求证据复核。"
-	}
-	if operation_setting.GetPolicyIncidentSetting().IsolateUpstreamOnPolicyIncident {
-		return "该事件只证明当前上游 key/account 遇到禁用、无效或暂停状态，不等于当前客户是源头；已隔离上游并跳过客户 token/user 封禁。"
-	}
-	return "该事件只证明当前上游 key/account 遇到禁用、无效或暂停状态，不等于当前客户是源头；当前配置已跳过上游隔离和客户 token/user 封禁。"
-}
-
-func redactPolicyIncidentMessage(message string, upstreamKey string) string {
-	message = redactPolicyIncidentKeyVariants(message, upstreamKey)
-	message = common.MaskSensitiveInfo(message)
-	message = redactPolicyIncidentKeyVariants(message, upstreamKey)
-	return message
-}
-
-func redactPolicyIncidentKeyVariants(message string, upstreamKey string) string {
-	upstreamKey = strings.TrimSpace(upstreamKey)
-	if upstreamKey == "" {
-		return message
-	}
-	for _, variant := range policyIncidentKeyRedactionVariants(upstreamKey) {
-		message = strings.ReplaceAll(message, variant, model.PolicyIncidentMetadataRedacted)
-	}
-	return message
-}
-
-func policyIncidentKeyRedactionVariants(upstreamKey string) []string {
-	variants := make([]string, 0, 4)
-	addVariant := func(value string) {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			return
-		}
-		for _, existing := range variants {
-			if existing == value {
-				return
-			}
-		}
-		variants = append(variants, value)
-	}
-
-	addVariant(upstreamKey)
-	fields := strings.Fields(upstreamKey)
-	if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") {
-		addVariant(fields[1])
-		addVariant("Bearer " + fields[1])
-		addVariant("bearer " + fields[1])
-	} else {
-		addVariant("Bearer " + upstreamKey)
-		addVariant("bearer " + upstreamKey)
-	}
-	return variants
 }
 
 func summarizePolicyActionResult(results []string) string {
@@ -527,6 +448,10 @@ func SetPolicyUpstreamKeyBreaker(channelId int, upstreamKey string) error {
 	if !operation_setting.GetPolicyIncidentSetting().IsolateUpstreamOnPolicyIncident {
 		return nil
 	}
+	return setPolicyUpstreamKeyBreakerEnabled(channelId, upstreamKey)
+}
+
+func setPolicyUpstreamKeyBreakerEnabled(channelId int, upstreamKey string) error {
 	if !common.RedisEnabled || common.RDB == nil {
 		return errPolicyBreakerRedisUnavailable
 	}

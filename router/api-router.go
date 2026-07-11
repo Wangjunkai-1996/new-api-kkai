@@ -19,6 +19,11 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	{
+		internalRoute := apiRouter.Group("/internal")
+		internalRoute.Use(middleware.InternalBalanceAdjustmentAuth(), anonymousRequestBodyLimit)
+		{
+			internalRoute.POST("/balance-adjustments", controller.CreateInternalBalanceAdjustment)
+		}
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)

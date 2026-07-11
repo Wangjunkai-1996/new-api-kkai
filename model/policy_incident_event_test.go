@@ -17,154 +17,105 @@ func TestPolicyIncidentEventAutoMigrateCreatesTable(t *testing.T) {
 	assert.True(t, DB.Migrator().HasColumn(&PolicyIncidentEvent{}, "created_at"))
 }
 
-func TestInsertPolicyIncidentEventPersistsSafeAppendOnlyRecord(t *testing.T) {
+func TestInsertPolicyIncidentEventPersistsStrictSafeMetadata(t *testing.T) {
 	truncatePolicyIncidentEvents(t)
 	rawKey := "sk-policy-raw-secret"
-
+	digest := strings.Repeat("a", 64)
 	event := &PolicyIncidentEvent{
 		RequestId:              "req-policy-1",
 		UserId:                 10,
 		TokenId:                20,
-		TokenName:              "prod-token",
-		ModelName:              "gpt-test",
 		ChannelId:              30,
 		ChannelType:            2,
 		UpstreamKeyFingerprint: rawKey,
 		StatusCode:             403,
-		ErrorCode:              "policy_denied",
-		ErrorMessage:           "blocked by cyber policy",
+		ErrorCode:              "provider free-form code",
+		ErrorMessage:           "prompt echoed patient Alice Example SSN 123-45-6789",
 		EvidenceLevel:          "high",
-		Causality:              "upstream_policy",
-		ActionTaken:            "channel_disabled",
+		Causality:              "client_policy_request",
+		ActionTaken:            "token_breaker_set",
 		ActionResult:           "success",
 	}
 	require.NoError(t, event.SetMetadata(map[string]any{
-		"rule_id":      "cyber-p0",
-		"prompt":       "do not persist this",
-		"upstream_key": rawKey,
-		"nested": map[string]any{
-			"messages": []any{"do not persist this either"},
-		},
+		"case_id":                     "policy-1710000000123-0123456789abcdef",
+		"request_body_sha256":         digest,
+		"request_body_bytes":          int64(17),
+		"client_token_action_allowed": true,
 	}))
 
 	require.NoError(t, InsertPolicyIncidentEvent(event))
 
 	var reloaded PolicyIncidentEvent
 	require.NoError(t, DB.First(&reloaded, event.Id).Error)
-	assert.NotZero(t, reloaded.Id)
-	assert.NotZero(t, reloaded.CreatedAt)
-	assert.Equal(t, "req-policy-1", reloaded.RequestId)
 	assert.Equal(t, FingerprintPolicyIncidentUpstreamKey(rawKey), reloaded.UpstreamKeyFingerprint)
+	assert.Equal(t, PolicyIncidentErrorDetected, reloaded.ErrorCode)
+	assert.Equal(t, PolicyIncidentErrorDetected, reloaded.ErrorMessage)
 	assert.NotContains(t, string(reloaded.Metadata), rawKey)
-	assert.NotContains(t, string(reloaded.Metadata), "do not persist this")
-
+	assert.NotContains(t, reloaded.ErrorMessage, "Alice")
 	var metadata map[string]any
 	require.NoError(t, json.Unmarshal(reloaded.Metadata, &metadata))
-	assert.Equal(t, "cyber-p0", metadata["rule_id"])
-	assert.Equal(t, PolicyIncidentMetadataRedacted, metadata["prompt"])
-	assert.Equal(t, FingerprintPolicyIncidentUpstreamKey(rawKey), metadata["upstream_key"])
-	assert.Equal(t, PolicyIncidentMetadataRedacted, metadata["nested"].(map[string]any)["messages"])
+	assert.Equal(t, digest, metadata["request_body_sha256"])
+	assert.EqualValues(t, 17, metadata["request_body_bytes"])
+	assert.Equal(t, true, metadata["client_token_action_allowed"])
 }
 
-func TestPolicyIncidentEventMetadataAcceptsJSONString(t *testing.T) {
+func TestPolicyIncidentMetadataRejectsUnknownAndFreeFormValues(t *testing.T) {
+	tests := map[string]any{
+		"unknown field":   map[string]any{"note": "patient Alice Example"},
+		"prompt":          map[string]any{"prompt": "do not persist this"},
+		"path":            map[string]any{"path": "/v1/chat/completions"},
+		"plain string":    "header policy fired",
+		"nested metadata": map[string]any{"case_id": map[string]any{"value": "policy-1"}},
+	}
+	for name, metadata := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := NormalizePolicyIncidentMetadata(metadata)
+			require.ErrorIs(t, err, ErrInvalidPolicyIncidentMetadata)
+		})
+	}
+}
+
+func TestPolicyIncidentBeforeCreateRejectsUnknownMetadataBoundaryBypass(t *testing.T) {
 	truncatePolicyIncidentEvents(t)
-
 	event := &PolicyIncidentEvent{
-		RequestId: "req-policy-json",
-		Metadata:  JSONValue(`{"evidence":"header-match","input":"remove me"}`),
+		RequestId: "req-policy-boundary-bypass",
+		Metadata:  JSONValue(`{"note":"patient Alice Example"}`),
 	}
-
-	require.NoError(t, InsertPolicyIncidentEvent(event))
-
-	var reloaded PolicyIncidentEvent
-	require.NoError(t, DB.First(&reloaded, event.Id).Error)
-	assert.JSONEq(t, `{"evidence":"header-match","input":"[redacted]"}`, string(reloaded.Metadata))
+	require.ErrorIs(t, InsertPolicyIncidentEvent(event), ErrInvalidPolicyIncidentMetadata)
+	var count int64
+	require.NoError(t, DB.Model(&PolicyIncidentEvent{}).Where("request_id = ?", event.RequestId).Count(&count).Error)
+	assert.Zero(t, count)
 }
 
-func TestPolicyIncidentEventRedactsRawKeyFromErrorMessage(t *testing.T) {
-	truncatePolicyIncidentEvents(t)
-	rawKey := "sk-policy-message-secret"
-
-	event := &PolicyIncidentEvent{
-		RequestId:              "req-policy-message",
-		UpstreamKeyFingerprint: rawKey,
-		ErrorMessage:           "provider disabled upstream key " + rawKey,
+func TestPolicyIncidentMetadataRequiresTypedCompleteBodyDigest(t *testing.T) {
+	tests := []map[string]any{
+		{"request_body_sha256": strings.Repeat("a", 64)},
+		{"request_body_bytes": int64(1)},
+		{"request_body_sha256": "short", "request_body_bytes": int64(1)},
+		{"request_body_sha256": strings.Repeat("a", 64), "request_body_bytes": -1},
+		{"client_token_action_allowed": "true"},
 	}
-	require.NoError(t, InsertPolicyIncidentEvent(event))
-
-	var reloaded PolicyIncidentEvent
-	require.NoError(t, DB.First(&reloaded, event.Id).Error)
-	assert.Equal(t, FingerprintPolicyIncidentUpstreamKey(rawKey), reloaded.UpstreamKeyFingerprint)
-	assert.NotContains(t, reloaded.ErrorMessage, rawKey)
-	assert.Contains(t, reloaded.ErrorMessage, PolicyIncidentMetadataRedacted)
+	for _, metadata := range tests {
+		_, err := NormalizePolicyIncidentMetadata(metadata)
+		require.ErrorIs(t, err, ErrInvalidPolicyIncidentMetadata)
+	}
 }
 
-func TestPolicyIncidentEventMetadataAcceptsPlainString(t *testing.T) {
-	metadata, err := NormalizePolicyIncidentMetadata("header policy fired")
-	require.NoError(t, err)
-	assert.JSONEq(t, `"header policy fired"`, string(metadata))
-}
-
-func TestPolicyIncidentEventAdminNotificationPayload(t *testing.T) {
-	metadata := JSONValue(`{"rule_id":"cyber-p0"}`)
-	event := &PolicyIncidentEvent{
-		Id:                     99,
-		RequestId:              "req-notify",
-		UserId:                 1,
-		TokenId:                2,
-		TokenName:              "token",
-		ModelName:              "model",
-		ChannelId:              3,
-		ChannelType:            4,
-		UpstreamKeyFingerprint: FingerprintPolicyIncidentUpstreamKey("secret"),
-		StatusCode:             403,
-		ErrorCode:              "policy_denied",
-		ErrorMessage:           "blocked",
-		EvidenceLevel:          "high",
-		Causality:              "provider_policy",
-		ActionTaken:            "disabled",
-		ActionResult:           "success",
-		Metadata:               metadata,
-		CreatedAt:              123456,
-	}
-
+func TestPolicyIncidentEventAdminNotificationPayloadClonesMetadata(t *testing.T) {
+	metadata := JSONValue(`{"case_id":"policy-1710000000123-0123456789abcdef"}`)
+	event := &PolicyIncidentEvent{Id: 99, Metadata: metadata}
 	payload := event.AdminNotificationPayload()
-
-	assert.Equal(t, event.Id, payload.IncidentId)
-	assert.Equal(t, event.RequestId, payload.RequestId)
-	assert.Equal(t, event.UserId, payload.UserId)
-	assert.Equal(t, event.TokenId, payload.TokenId)
-	assert.Equal(t, event.TokenName, payload.TokenName)
-	assert.Equal(t, event.ModelName, payload.ModelName)
-	assert.Equal(t, event.ChannelId, payload.ChannelId)
-	assert.Equal(t, event.ChannelType, payload.ChannelType)
-	assert.Equal(t, event.UpstreamKeyFingerprint, payload.UpstreamKeyFingerprint)
-	assert.Equal(t, event.StatusCode, payload.StatusCode)
-	assert.Equal(t, event.ErrorCode, payload.ErrorCode)
-	assert.Equal(t, event.ErrorMessage, payload.ErrorMessage)
-	assert.Equal(t, event.EvidenceLevel, payload.EvidenceLevel)
-	assert.Equal(t, event.Causality, payload.Causality)
-	assert.Equal(t, event.ActionTaken, payload.ActionTaken)
-	assert.Equal(t, event.ActionResult, payload.ActionResult)
-	assert.Equal(t, event.CreatedAt, payload.CreatedAt)
-	assert.JSONEq(t, string(metadata), string(payload.Metadata))
-
-	payload.Metadata[0] = '{'
-	assert.Equal(t, `{"rule_id":"cyber-p0"}`, string(event.Metadata))
+	payload.Metadata[0] = '['
+	assert.Equal(t, `{"case_id":"policy-1710000000123-0123456789abcdef"}`, string(event.Metadata))
 }
 
 func TestPolicyIncidentEventAppendOnly(t *testing.T) {
 	truncatePolicyIncidentEvents(t)
-
 	event := &PolicyIncidentEvent{RequestId: "req-append-only"}
 	require.NoError(t, InsertPolicyIncidentEvent(event))
-
 	event.ErrorMessage = "mutated"
-	err := DB.Save(event).Error
-	require.ErrorIs(t, err, ErrPolicyIncidentEventAppendOnly)
-
-	err = DB.Delete(event).Error
-	require.ErrorIs(t, err, ErrPolicyIncidentEventAppendOnly)
+	require.ErrorIs(t, DB.Save(event).Error, ErrPolicyIncidentEventAppendOnly)
+	require.ErrorIs(t, DB.Delete(event).Error, ErrPolicyIncidentEventAppendOnly)
 }
 
 func TestNormalizePolicyIncidentKeyFingerprint(t *testing.T) {
@@ -180,7 +131,5 @@ func TestNormalizePolicyIncidentKeyFingerprint(t *testing.T) {
 func truncatePolicyIncidentEvents(t *testing.T) {
 	t.Helper()
 	require.NoError(t, DB.AutoMigrate(&PolicyIncidentEvent{}))
-	t.Cleanup(func() {
-		DB.Exec("DELETE FROM policy_incident_events")
-	})
+	t.Cleanup(func() { DB.Exec("DELETE FROM policy_incident_events") })
 }
