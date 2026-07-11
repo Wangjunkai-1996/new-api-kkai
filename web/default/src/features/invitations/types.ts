@@ -73,6 +73,15 @@ export type RebatePayoutStatus =
 
 export type RebatePayoutAction = 'pay' | 'reverse'
 
+export type RebatePayoutActionOutcome =
+  | 'pending'
+  | 'already_paid'
+  | 'already_reversed'
+  | 'paid'
+  | 'reversed'
+  | 'dry_run'
+  | (string & {})
+
 export interface RebatePayoutStatusResponse {
   id?: number | string | null
   rebateRecordId?: number | null
@@ -90,9 +99,18 @@ export interface RebatePayoutStatusResponse {
   message?: string | null
 }
 
-export interface RebatePayoutActionResponse extends RebatePayoutStatusResponse {
-  action?: RebatePayoutAction
-  changed?: boolean
+export interface RebatePayoutActionResponse {
+  outcome: RebatePayoutActionOutcome
+  payoutId?: number | null
+  recordId: number
+  requestId: string
+  amountCents: number
+  quotaDelta: number
+  balanceAfter?: number | null
+  newapiLogId?: number | null
+  newapiMarkId?: number | null
+  message?: string | null
+  payoutEnabled: boolean
 }
 
 export interface RebatePayoutActionData {

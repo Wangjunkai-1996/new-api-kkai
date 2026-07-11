@@ -60,6 +60,7 @@ import { getInvitationErrorMessage } from '../../lib/error'
 import { formatRebateAmount } from '../../lib/format'
 import type {
   RebatePayoutAction,
+  RebatePayoutActionOutcome,
   RebatePayoutStatusResponse,
   RebateRecord,
   RebateStatus,
@@ -240,6 +241,30 @@ function formatRebateUser(record: RebateRecord): string {
   return userName ? `${userName} (#${userId})` : `#${userId}`
 }
 
+function payoutActionSuccessMessage(
+  t: ReturnType<typeof useTranslation>['t'],
+  outcome?: RebatePayoutActionOutcome
+): string {
+  switch (outcome) {
+    case 'pending':
+      return t('Settlement request submitted; waiting for settlement')
+    case 'already_paid':
+      return t('Voucher rebate was already paid; no duplicate payout was made')
+    case 'already_reversed':
+      return t(
+        'Voucher rebate payout was already reversed; no duplicate reversal was made'
+      )
+    case 'paid':
+      return t('Voucher rebate paid to balance')
+    case 'reversed':
+      return t('Voucher rebate payout reversed')
+    default:
+      return t(
+        'Settlement response received; refresh payout status to confirm the result'
+      )
+  }
+}
+
 export function VoucherRebatePayoutRecordsPanel() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -283,8 +308,8 @@ export function VoucherRebatePayoutRecordsPanel() {
         ? payAdminRebatePayout(recordId, payload)
         : reverseAdminRebatePayout(recordId, payload)
     },
-    onSuccess: (_response, variables) => {
-      toast.success(t('Settlement request submitted; waiting for settlement'))
+    onSuccess: (response, variables) => {
+      toast.success(payoutActionSuccessMessage(t, response.data?.outcome))
       queryClient.invalidateQueries({ queryKey: ['adminRebateRecords'] })
       queryClient.invalidateQueries({ queryKey: ['adminRebateRequests'] })
       queryClient.invalidateQueries({ queryKey: ['rebateStats'] })
