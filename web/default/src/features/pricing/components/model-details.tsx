@@ -61,7 +61,6 @@ import { cn } from '@/lib/utils'
 import {
   DEFAULT_SHOW_RECHARGE_PRICE,
   DEFAULT_TOKEN_UNIT,
-  QUOTA_TYPE_VALUES,
 } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
