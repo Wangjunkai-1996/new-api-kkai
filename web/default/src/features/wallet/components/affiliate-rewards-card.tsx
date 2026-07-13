@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -168,13 +169,13 @@ export function AffiliateRewardsCard({
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
       <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(360px,1.2fr)] lg:items-center'>
         <div className='flex min-w-0 items-center gap-2.5'>
-          <div className='bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border'>
+          <IconBadge tone='chart-3'>
             {usingInvitationBackend ? (
-              <Gift className='text-muted-foreground size-4' />
+              <Gift />
             ) : (
-              <Share2 className='text-muted-foreground size-4' />
+              <Share2 />
             )}
-          </div>
+          </IconBadge>
           <div className='min-w-0'>
             <h3 className='truncate text-sm font-semibold'>
               {usingInvitationBackend

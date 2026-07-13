@@ -112,7 +112,7 @@ func Distribute() func(c *gin.Context) {
 								abortWithAffinityChannelDisabled(c)
 								return
 							}
-						} else if !channelSupportsRequestPath(preferred, c.Request.URL.Path) {
+						} else if !channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
 							affinityUsable = false
 						} else if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
@@ -186,7 +186,7 @@ func Distribute() func(c *gin.Context) {
 // channelSupportsRequestPath reports whether a channel can serve the request path.
 // Only Advanced Custom (type 58) channels are path-checked; all other channel types
 // always pass. A type-58 channel is usable only when one of its routes matches.
-func channelSupportsRequestPath(channel *model.Channel, requestPath string) bool {
+func channelSupportsRequestPath(channel *model.Channel, requestPath string, requestModel string) bool {
 	if channel == nil {
 		return false
 	}
@@ -194,7 +194,7 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string) bool
 		return true
 	}
 	config := channel.GetOtherSettings().AdvancedCustom
-	return config != nil && config.SupportsPath(requestPath)
+	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
 }
 
 // getModelFromRequest 从请求中读取模型信息
