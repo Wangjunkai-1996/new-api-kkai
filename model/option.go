@@ -230,9 +230,13 @@ func loadOptionsFromDatabase() {
 func SyncOptions(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing options from database")
-		loadOptionsFromDatabase()
+		syncOptionsOnce()
 	}
+}
+
+func syncOptionsOnce() {
+	common.SysLog("syncing options from database")
+	loadOptionsFromDatabase()
 }
 
 func UpdateOption(key string, value string) error {

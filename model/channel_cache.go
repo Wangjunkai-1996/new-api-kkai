@@ -106,9 +106,13 @@ func InitChannelCache() {
 func SyncChannelCache(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing channels from database")
-		InitChannelCache()
+		syncChannelCacheOnce()
 	}
+}
+
+func syncChannelCacheOnce() {
+	common.SysLog("syncing channels from database")
+	InitChannelCache()
 }
 
 func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {

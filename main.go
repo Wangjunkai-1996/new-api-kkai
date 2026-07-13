@@ -90,9 +90,9 @@ func main() {
 	}
 	backgroundTasksDisabled := common.GetEnvOrDefaultBool("DISABLE_BACKGROUND_TASKS", false)
 	if backgroundTasksDisabled {
-		common.SysLog("background tasks disabled by DISABLE_BACKGROUND_TASKS")
+		common.SysLog("write background tasks disabled by DISABLE_BACKGROUND_TASKS")
 	}
-	initChannelCache, syncChannelCache := channelCacheStartupPlan(common.MemoryCacheEnabled, backgroundTasksDisabled)
+	initChannelCache, syncChannelCache := channelCacheStartupPlan(common.MemoryCacheEnabled)
 	if initChannelCache {
 		common.SysLog("memory cache enabled")
 
@@ -123,13 +123,12 @@ func main() {
 	// endpoint inference can read cached route settings on first request.
 	model.GetPricing()
 
+	// Read-only configuration sync must run on every node, including standby
+	// instances with DISABLE_BACKGROUND_TASKS enabled.
+	go model.SyncOptions(common.SyncFrequency)
+	go authz.StartPolicySync(common.SyncFrequency)
+
 	if !backgroundTasksDisabled {
-		// 热更新配置
-		go model.SyncOptions(common.SyncFrequency)
-
-		// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-		go authz.StartPolicySync(common.SyncFrequency)
-
 		// 数据看板
 		go model.UpdateQuotaData()
 
@@ -314,11 +313,11 @@ func InjectGoogleAnalytics() {
 	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
 }
 
-func channelCacheStartupPlan(memoryCacheEnabled bool, backgroundTasksDisabled bool) (initOnce bool, syncInBackground bool) {
+func channelCacheStartupPlan(memoryCacheEnabled bool) (initOnce bool, syncInBackground bool) {
 	if !memoryCacheEnabled {
 		return false, false
 	}
-	return true, !backgroundTasksDisabled
+	return true, true
 }
 
 func InitResources() error {
