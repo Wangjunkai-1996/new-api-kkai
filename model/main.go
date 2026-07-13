@@ -304,6 +304,8 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&CasbinRule{},
+		&AuthzRole{},
 		&InternalBalanceAdjustment{},
 	)
 	if err != nil {
@@ -358,6 +360,8 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&CasbinRule{}, "CasbinRule"},
+		{&AuthzRole{}, "AuthzRole"},
 		{&InternalBalanceAdjustment{}, "InternalBalanceAdjustment"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
