@@ -17,7 +17,8 @@ func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 	require.NoError(t, err)
 	result, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
-	require.Len(t, result.Applied, 2)
+	require.Empty(t, result.Pending)
+	require.NoError(t, kkaimigrate.Check(context.Background(), db, kkaimigrate.CurrentVersion))
 }
 
 func TestFirstNonEmptyIgnoresWhitespace(t *testing.T) {

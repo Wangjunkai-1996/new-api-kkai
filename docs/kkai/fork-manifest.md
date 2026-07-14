@@ -30,7 +30,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Invitation rebate and balance adjustments | API, idempotent ledger, admin/user UI | invitation commit series through `656e79e6` | Pending |
 | Dynamic billing expressions | KKAI model ratios, tier variables, tests | production fork ratio changes | Pending |
 | Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Pending |
-| Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Pending |
+| Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Implemented; dual-process DB verification pending |
 | Group status monitoring | Read API, aggregation, default frontend | `6f931ccf` through `c6ce2a85` | Pending |
 | CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Pending |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Pending |

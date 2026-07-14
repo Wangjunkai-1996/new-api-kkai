@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -36,16 +35,6 @@ type QuotaDataLogParams struct {
 	TokenID   int
 	ChannelID int
 	NodeName  string
-}
-
-func UpdateQuotaData() {
-	for {
-		if common.DataExportEnabled {
-			common.SysLog("正在更新数据看板数据...")
-			SaveQuotaDataCache()
-		}
-		time.Sleep(time.Duration(common.DataExportInterval) * time.Minute)
-	}
 }
 
 var CacheQuotaData = make(map[string]*QuotaData)

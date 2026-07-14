@@ -10,6 +10,7 @@ tables.
 | --- | --- | --- |
 | 1 | `risk_incidents_and_outbox` | `kkai_policy_incidents`, `kkai_outbox` |
 | 2 | `internal_balance_ledger` | `kkai_internal_balance_adjustments` |
+| 3 | `background_job_leases` | `kkai_job_leases` |
 
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
@@ -28,7 +29,7 @@ Use `KKAI_MIGRATION_DSN` or `SQL_DSN`. The command never prints the DSN.
 ```bash
 ./kkai-migrate --dry-run
 ./kkai-migrate
-./kkai-migrate --check --min-version 2
+./kkai-migrate --check --min-version 3
 ```
 
 `--dry-run` is schema-read-only. If the migration metadata table does not

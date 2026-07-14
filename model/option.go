@@ -1,9 +1,10 @@
 package model
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
@@ -187,21 +188,24 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
-	options, _ := AllOption()
-	for _, option := range options {
-		err := updateOptionMap(option.Key, option.Value)
-		if err != nil {
-			common.SysLog("failed to update option map: " + err.Error())
-		}
+	if err := SyncOptionsOnce(); err != nil {
+		common.SysLog("failed to load options from database: " + err.Error())
 	}
 }
 
-func SyncOptions(frequency int) {
-	for {
-		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing options from database")
-		loadOptionsFromDatabase()
+func SyncOptionsOnce() error {
+	options, err := AllOption()
+	if err != nil {
+		return err
 	}
+	var syncErrors []error
+	for _, option := range options {
+		err := updateOptionMap(option.Key, option.Value)
+		if err != nil {
+			syncErrors = append(syncErrors, fmt.Errorf("option %s: %w", option.Key, err))
+		}
+	}
+	return errors.Join(syncErrors...)
 }
 
 func UpdateOption(key string, value string) error {

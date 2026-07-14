@@ -23,9 +23,10 @@ const (
 	DialectMySQL    = "mysql"
 	DialectPostgres = "postgres"
 
-	CurrentVersion      int64 = 2
-	RiskSchemaVersion   int64 = 1
-	LedgerSchemaVersion int64 = 2
+	CurrentVersion        int64 = 3
+	RiskSchemaVersion     int64 = 1
+	LedgerSchemaVersion   int64 = 2
+	JobLeaseSchemaVersion int64 = 3
 )
 
 var (
@@ -381,6 +382,12 @@ func migrationSet() []migration {
 			LegacyImportSpec: "copy internal_balance_adjustments by operation_id; preserve balances and reversal link; never reapply delta",
 			ImportLegacy:     importLegacyBalanceAdjustments,
 		},
+		{
+			Version:    3,
+			Name:       "background_job_leases",
+			Statements: jobLeaseSchemaStatements,
+			Indexes:    jobLeaseIndexes,
+		},
 	}
 }
 
@@ -577,6 +584,40 @@ created_at BIGINT NOT NULL
 var ledgerIndexes = []indexSpec{
 	{Name: "idx_kkai_balance_user", Table: "kkai_internal_balance_adjustments", Columns: []string{"user_id"}},
 	{Name: "idx_kkai_balance_created", Table: "kkai_internal_balance_adjustments", Columns: []string{"created_at"}},
+}
+
+var jobLeaseSchemaStatements = map[string][]string{
+	DialectSQLite: {
+		`CREATE TABLE IF NOT EXISTS kkai_job_leases (
+lease_name VARCHAR(128) PRIMARY KEY,
+holder VARCHAR(128) NOT NULL,
+lease_until BIGINT NOT NULL,
+fence BIGINT NOT NULL,
+updated_at BIGINT NOT NULL
+)`,
+	},
+	DialectMySQL: {
+		`CREATE TABLE IF NOT EXISTS kkai_job_leases (
+lease_name VARCHAR(128) PRIMARY KEY,
+holder VARCHAR(128) NOT NULL,
+lease_until BIGINT NOT NULL,
+fence BIGINT NOT NULL,
+updated_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+	},
+	DialectPostgres: {
+		`CREATE TABLE IF NOT EXISTS kkai_job_leases (
+lease_name VARCHAR(128) PRIMARY KEY,
+holder VARCHAR(128) NOT NULL,
+lease_until BIGINT NOT NULL,
+fence BIGINT NOT NULL,
+updated_at BIGINT NOT NULL
+)`,
+	},
+}
+
+var jobLeaseIndexes = []indexSpec{
+	{Name: "idx_kkai_job_leases_until", Table: "kkai_job_leases", Columns: []string{"lease_until"}},
 }
 
 type legacyPolicyIncident struct {

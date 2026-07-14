@@ -26,32 +26,34 @@ func TestApplyCreatesVersionedSchemaAndIsIdempotent(t *testing.T) {
 	db := newMigrationTestDB(t)
 	result, err := Apply(context.Background(), db, Options{})
 	require.NoError(t, err)
-	require.Len(t, result.Applied, 2)
+	require.Len(t, result.Applied, 3)
 	require.Empty(t, result.Pending)
 	require.NoError(t, Check(context.Background(), db, CurrentVersion))
 	require.True(t, db.Migrator().HasTable("kkai_policy_incidents"))
 	require.True(t, db.Migrator().HasTable("kkai_outbox"))
 	require.True(t, db.Migrator().HasTable("kkai_internal_balance_adjustments"))
+	require.True(t, db.Migrator().HasTable("kkai_job_leases"))
 
 	second, err := Apply(context.Background(), db, Options{})
 	require.NoError(t, err)
-	require.Len(t, second.Applied, 2)
+	require.Len(t, second.Applied, 3)
 	require.Empty(t, second.Pending)
 
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&count).Error)
-	require.EqualValues(t, 2, count)
+	require.EqualValues(t, 3, count)
 }
 
 func TestApplyDryRunDoesNotChangeSchema(t *testing.T) {
 	db := newMigrationTestDB(t)
 	result, err := Apply(context.Background(), db, Options{DryRun: true})
 	require.NoError(t, err)
-	require.Len(t, result.Pending, 2)
+	require.Len(t, result.Pending, 3)
 	require.False(t, db.Migrator().HasTable("kkai_schema_migrations"))
 	require.False(t, db.Migrator().HasTable("kkai_policy_incidents"))
 	require.False(t, db.Migrator().HasTable("kkai_outbox"))
 	require.False(t, db.Migrator().HasTable("kkai_internal_balance_adjustments"))
+	require.False(t, db.Migrator().HasTable("kkai_job_leases"))
 }
 
 func TestCheckRejectsMissingAndTamperedMigrations(t *testing.T) {
@@ -167,7 +169,7 @@ func TestApplyImportsLegacyAuditRowsWithoutReplayingActions(t *testing.T) {
 
 func TestPlanHasStableNonEmptyChecksums(t *testing.T) {
 	plan := Plan()
-	require.Len(t, plan, 2)
+	require.Len(t, plan, 3)
 	for _, item := range plan {
 		require.Len(t, item.Checksum, 64)
 		require.NotEmpty(t, item.Name)
@@ -196,5 +198,5 @@ func TestApplySerializesConcurrentCallers(t *testing.T) {
 
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&count).Error)
-	require.EqualValues(t, 2, count)
+	require.EqualValues(t, 3, count)
 }

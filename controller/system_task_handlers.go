@@ -15,8 +15,8 @@ import (
 // RegisterScheduledSystemTasks wires the periodic channel test, upstream model
 // update, and async task polling (Midjourney / Suno / video) jobs into the
 // system task framework so a DB lease dedups execution across multiple master
-// instances and each run is recorded as one task row. Call this before
-// service.StartSystemTaskRunner.
+// instances and each run is recorded as one task row. Call this before the
+// application background job registry starts.
 func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(channelTestHandler{})
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})

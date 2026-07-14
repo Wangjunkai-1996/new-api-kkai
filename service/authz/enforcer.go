@@ -3,7 +3,6 @@ package authz
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/casbin/casbin/v2"
@@ -31,7 +30,7 @@ m = r.sub == p.sub && r.obj == p.obj && r.act == p.act && p.eft == "allow"
 `
 
 func Init(db *gorm.DB) error {
-	if common.IsMasterNode {
+	if common.CanRunSchemaMigrations() {
 		if err := seedBuiltInRoles(db); err != nil {
 			return err
 		}
@@ -54,7 +53,7 @@ func Init(db *gorm.DB) error {
 	enforcer = e
 	enforcerMu.Unlock()
 
-	if !common.IsMasterNode {
+	if !common.CanRunSchemaMigrations() {
 		return nil
 	}
 	return seedDefaultPolicies()
@@ -73,22 +72,4 @@ func ReloadPolicy() error {
 		return fmt.Errorf("authz enforcer is not initialized")
 	}
 	return enforcer.LoadPolicy()
-}
-
-// StartPolicySync periodically reloads the authorization policy from the database.
-// The enforcer keeps an in-memory snapshot, and permission changes are written
-// straight to the DB (see SetUserPermissionsInTx) with only the local node's
-// snapshot refreshed afterwards. Without this loop other instances in a
-// multi-node deployment would keep serving stale permissions (including not
-// honoring a revoked grant) until restart. Mirrors model.SyncOptions polling.
-func StartPolicySync(frequency int) {
-	if frequency <= 0 {
-		return
-	}
-	for {
-		time.Sleep(time.Duration(frequency) * time.Second)
-		if err := ReloadPolicy(); err != nil {
-			common.SysError("failed to reload authz policy: " + err.Error())
-		}
-	}
 }

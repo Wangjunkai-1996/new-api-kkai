@@ -3,11 +3,8 @@ package model
 import (
 	"errors"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
-
-	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
 
@@ -28,15 +25,6 @@ func init() {
 		batchUpdateStores = append(batchUpdateStores, make(map[int]int))
 		batchUpdateLocks = append(batchUpdateLocks, sync.Mutex{})
 	}
-}
-
-func InitBatchUpdater() {
-	gopool.Go(func() {
-		for {
-			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
-			batchUpdate()
-		}
-	})
 }
 
 func addNewRecord(type_ int, id int, value int) {

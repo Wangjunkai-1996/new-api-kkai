@@ -24,7 +24,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
-	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/router"
@@ -85,55 +84,15 @@ func main() {
 	if common.MemoryCacheEnabled {
 		common.SysLog("memory cache enabled")
 		common.SysLog(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
-
-		// Add panic recovery and retry for InitChannelCache
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					common.SysLog(fmt.Sprintf("InitChannelCache panic: %v, retrying once", r))
-					// Retry once
-					_, _, fixErr := model.FixAbility()
-					if fixErr != nil {
-						common.FatalLog(fmt.Sprintf("InitChannelCache failed: %s", fixErr.Error()))
-					}
-				}
-			}()
-			model.InitChannelCache()
-		}()
-
-		go model.SyncChannelCache(common.SyncFrequency)
+		if err := model.SyncChannelCacheOnce(); err != nil {
+			common.FatalLog("failed to initialize channel cache: " + err.Error())
+			return
+		}
 	}
 
 	// Warm pricing after channel cache initialization so Advanced Custom
 	// endpoint inference can read cached route settings on first request.
 	model.GetPricing()
-
-	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
-
-	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-	go authz.StartPolicySync(common.SyncFrequency)
-
-	// 数据看板
-	go model.UpdateQuotaData()
-
-	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
-		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
-		if err != nil {
-			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
-		}
-		go controller.AutomaticallyUpdateChannels(frequency)
-	}
-
-	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
-	service.StartCodexCredentialAutoRefreshTask()
-
-	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
-
-	// Report this process as a system instance so the System Info page can show
-	// all currently alive nodes in multi-instance deployments.
-	service.StartSystemInstanceReporter()
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler
@@ -146,19 +105,23 @@ func main() {
 		return a
 	}
 
-	// Register the periodic channel test, upstream model update, and async task
-	// polling (Midjourney / Suno / video) jobs as scheduled system tasks
-	// (DB-lease dedup across masters + run history), then start the runner that
-	// schedules and executes them. Master-only execution and the UpdateTask
-	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
-	service.StartSystemTaskRunner()
-
-	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
-		common.BatchUpdateEnabled = true
-		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
-		model.InitBatchUpdater()
+	backgroundWorker := backgroundWorkerID()
+	backgroundJobs, err := newApplicationBackgroundJobs(backgroundWorker)
+	if err != nil {
+		common.FatalLog("failed to configure background jobs: " + err.Error())
+		return
 	}
+	backgroundCtx, stopBackgroundJobs := context.WithCancel(context.Background())
+	backgroundDone := make(chan error, 1)
+	go func() {
+		backgroundDone <- backgroundJobs.Run(backgroundCtx, currentBackgroundJobRuntime(backgroundWorker))
+	}()
+	common.SysLog(fmt.Sprintf(
+		"background jobs started: role=%s write_jobs=%t",
+		common.CurrentNodeRole(),
+		common.CanRunWriteBackgroundJobs(),
+	))
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		gopool.Go(func() {
@@ -243,9 +206,14 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
 	}
-	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
-	if common.DataExportEnabled {
-		model.SaveQuotaDataCache()
+	stopBackgroundJobs()
+	select {
+	case err := <-backgroundDone:
+		if err != nil {
+			common.SysError("background jobs stopped with error: " + err.Error())
+		}
+	case <-time.After(10 * time.Second):
+		common.SysError("background jobs did not stop within 10 seconds")
 	}
 	common.SysLog("server exited")
 }
@@ -307,6 +275,9 @@ func InitResources() error {
 
 	// 加载环境变量
 	common.InitEnv()
+	if err = common.InitNodeRoleFromEnvironment(); err != nil {
+		return err
+	}
 	if err = relaychannel.InitInternalAttribution(); err != nil {
 		return fmt.Errorf("invalid KKAI internal attribution configuration: %w", err)
 	}
@@ -325,6 +296,11 @@ func InitResources() error {
 	if err != nil {
 		common.FatalLog("failed to initialize database: " + err.Error())
 		return err
+	}
+	if common.IsStandbyReadonly() {
+		if err = model.EnableStandbyReadOnlyGuard(model.DB); err != nil {
+			return err
+		}
 	}
 	if err = kkaimigrate.Check(context.Background(), model.DB, kkaimigrate.CurrentVersion); err != nil {
 		return fmt.Errorf("KKAI schema check failed; run cmd/kkai-migrate before starting NewAPI: %w", err)
@@ -347,14 +323,17 @@ func InitResources() error {
 	if err != nil {
 		return err
 	}
+	if common.IsStandbyReadonly() && model.LOG_DB != model.DB {
+		if err = model.EnableStandbyReadOnlyGuard(model.LOG_DB); err != nil {
+			return err
+		}
+	}
 
 	// Initialize Redis
 	err = common.InitRedisClient()
 	if err != nil {
 		return err
 	}
-
-	perfmetrics.Init()
 
 	// 启动系统监控
 	common.StartSystemMonitor()

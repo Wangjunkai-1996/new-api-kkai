@@ -20,8 +20,20 @@ var hotBuckets sync.Map
 // hiding fields or making response-only privacy hardening changes.
 const seriesSchema = "dbcd0a3c01b55203"
 
-func Init() {
-	go flushLoop()
+func RunMaintenance(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	setting := perf_metrics_setting.GetSetting()
+	if !setting.Enabled {
+		return nil
+	}
+	flushCompletedBuckets()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cleanupExpiredMetrics(setting.RetentionDays)
+	return nil
 }
 
 func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens int64) {
