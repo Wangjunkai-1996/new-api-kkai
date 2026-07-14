@@ -27,7 +27,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | --- | --- | --- | --- |
 | FRT upstream response timing | Backend relay and log metadata | `d84a322e` and patch guard | Complete |
 | Policy Incident Guard | Evidence, public errors, durable actions, audit | `828998d1` through `7ca9c8bc` | Pending |
-| Invitation rebate and balance adjustments | API, idempotent ledger, admin/user UI | invitation commit series through `656e79e6` | Pending |
+| Invitation rebate and balance adjustments | API, idempotent ledger, admin/user UI | invitation commit series through `656e79e6` | Balance API complete; admin/user UI pending |
 | Dynamic billing expressions | KKAI model ratios, tier variables, tests | production fork ratio changes | Pending |
 | Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Pending |
 | Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Complete; PostgreSQL dual-process verification included |
