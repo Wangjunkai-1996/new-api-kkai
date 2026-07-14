@@ -18,6 +18,9 @@ Quality checks compare the working tree with that commit. They do not require
 the current commit to equal `origin/production/kkrich`, and they never use SSH,
 VPN, proxy, or production-server state.
 
+The immutable 206-path legacy snapshot is in `legacy-fork-files.txt`; its
+port/rewrite/drop decisions are in `legacy-port-plan.md`.
+
 ## Scope
 
 | Capability | Fork ownership | Legacy source | Rebuild status |
