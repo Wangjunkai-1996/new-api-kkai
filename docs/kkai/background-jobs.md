@@ -38,6 +38,13 @@ from database time, not container clocks. Business jobs must honor context
 cancellation; the fence is not a substitute for cancellation inside a
 long-running external request or database transaction.
 
+During a blue/green handoff, a temporary `serving` process from the candidate
+image carries public traffic without running background writers. The previous
+leader is retired before the candidate starts as leader, so the first upgrade
+from a legacy image never depends on that legacy process honoring the lease.
+After the candidate acquires the single database lease and the selected release
+passes final validation, the temporary handoff is removed.
+
 ## Standby Safety
 
 The standby GORM callback rejects ORM writes and allows only a conservative set

@@ -32,11 +32,11 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Complete; upstream implementation retained with fork acceptance tests |
 | Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Complete; PostgreSQL dual-process verification included |
 | Group status monitoring | Read API, aggregation, default frontend | `6f931ccf` through `c6ce2a85` | Complete |
-| CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Blocked: CC Switch `c8b0d60c` rejects remote `configUrl` exchange |
+| CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Approved exclusion: CC Switch `c8b0d60c` rejects remote `configUrl` exchange; unsafe URI credentials are forbidden |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Complete; upstream Waffo retained and fork UI restored |
 | Classic frontend customization | KKAI-compatible classic build and UI, excluding CC Switch | production fork | Complete; build compatibility and recharge-pricing default restored |
-| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` rebuild branch | Pending |
-| Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Pending |
+| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` rebuild branch | Implementation complete; production-clone rehearsal pending |
+| Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Implementation complete; edge activation remains a separate post-promotion release |
 | Signed internal attribution | Exact origin allowlist, HMAC, timestamp, nonce contract | legacy private-IP headers | Complete |
 
 ## Explicit Exclusions
@@ -71,6 +71,12 @@ compatibility behavior rather than presented as general upstream cleanup.
    replacement is independent from active-slot switching.
 8. CC Switch URLs carry a short-lived one-time ticket, never a reusable API
    key.
+9. A candidate may receive writer credentials only during a bounded private
+   `serving` canary. It has no public alias, runs no background writers, and is
+   force-recreated as read-only before promotion continues.
+10. Public continuity during promotion is carried by a temporary candidate
+    `serving` handoff. The previous leader stops before the candidate starts as
+    leader, so legacy releases cannot create a double-writer overlap.
 
 ## Migration Rules
 
@@ -110,8 +116,9 @@ KKAI. Any additional warning or error introduced by the fork fails the gate.
 
 - Keep commits separated by concern: baseline/tooling, backend capability,
   risk pipeline, standby/infra, frontend, and verification documentation.
-- A candidate is built only after all manifest rows are marked complete and
-  the full gate passes from a clean checkout.
+- A candidate is built only after every manifest row is complete, explicitly
+  deferred to a later release phase, or recorded as an approved external
+  exclusion, and the full gate passes from a clean checkout.
 - The only production artifact is an immutable Linux AMD64 image named
   `kkai-prod-YYYYMMDD.N-<shortsha>` with digest, SHA-256, SBOM, and scan report.
 - Production deployment remains frozen until the isolated production-database
