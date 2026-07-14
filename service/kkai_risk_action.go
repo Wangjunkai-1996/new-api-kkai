@@ -216,7 +216,7 @@ func (s *RiskActionService) Apply(ctx context.Context, input RiskActionInput) (*
 			return err
 		}
 
-		outboxPayload, err := json.Marshal(riskActionOutboxPayload{
+		outboxPayload, err := common.Marshal(riskActionOutboxPayload{
 			IncidentID:         incident.ID,
 			EventID:            incident.EventID,
 			RequestID:          incident.RequestID,
@@ -311,7 +311,7 @@ func normalizeRiskActionInput(input RiskActionInput) (*normalizedRiskAction, err
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := json.Marshal(struct {
+	canonical, err := common.Marshal(struct {
 		EventID                string             `json:"event_id"`
 		Source                 string             `json:"source"`
 		OccurredAt             int64              `json:"occurred_at"`
@@ -422,7 +422,7 @@ func normalizeRiskMetadata(metadata map[string]any) (string, error) {
 	if hasDigest != hasBytes {
 		return "", ErrRiskActionInvalidInput
 	}
-	encoded, err := json.Marshal(normalized)
+	encoded, err := common.Marshal(normalized)
 	if err != nil || len(encoded) > 2048 {
 		return "", ErrRiskActionInvalidInput
 	}
