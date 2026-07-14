@@ -20,6 +20,11 @@ import { useSearch } from '@tanstack/react-router'
 import { useMemo, useCallback, useState } from 'react'
 
 import {
+  resolveRechargePriceDisplay,
+  serializeRechargePriceDisplay,
+} from '@/features/kkai-pricing/recharge-price'
+
+import {
   FILTER_ALL,
   SORT_OPTIONS,
   QUOTA_TYPES,
@@ -76,7 +81,9 @@ export function useFilters(models: PricingModel[]) {
   const tokenUnit: TokenUnit =
     filterState.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
   const viewMode = normalizeViewMode(filterState.view)
-  const showRechargePrice = filterState.rechargePrice === true
+  const showRechargePrice = resolveRechargePriceDisplay(
+    filterState.rechargePrice
+  )
 
   const updateFilters = useCallback((updates: Record<string, unknown>) => {
     setFilterState((prev) => {
@@ -134,7 +141,8 @@ export function useFilters(models: PricingModel[]) {
     [updateFilters]
   )
   const setShowRechargePrice = useCallback(
-    (v: boolean) => updateFilters({ rechargePrice: v || undefined }),
+    (v: boolean) =>
+      updateFilters({ rechargePrice: serializeRechargePriceDisplay(v) }),
     [updateFilters]
   )
 
