@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/router"
@@ -320,6 +321,9 @@ func InitResources() error {
 	if err != nil {
 		common.FatalLog("failed to initialize database: " + err.Error())
 		return err
+	}
+	if err = kkaimigrate.Check(context.Background(), model.DB, kkaimigrate.CurrentVersion); err != nil {
+		return fmt.Errorf("KKAI schema check failed; run cmd/kkai-migrate before starting NewAPI: %w", err)
 	}
 	if err = authz.Init(model.DB); err != nil {
 		common.FatalLog("failed to initialize authorization: " + err.Error())
