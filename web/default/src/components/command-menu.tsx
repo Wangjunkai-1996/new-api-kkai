@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useLocation, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, ChevronRight, Laptop, Moon, Sun } from 'lucide-react'
-import React, { useMemo } from 'react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -33,10 +33,7 @@ import {
 } from '@/components/ui/command'
 import { useSearch } from '@/context/search-provider'
 import { useTheme } from '@/context/theme-provider'
-import { filterRootSidebarNavGroups } from '@/hooks/sidebar-nav-filter'
-import { useSidebarConfig } from '@/hooks/use-sidebar-config'
 import { useSidebarData } from '@/hooks/use-sidebar-data'
-import { useAuthStore } from '@/stores/auth-store'
 
 import { getNavGroupsForPath } from './layout/lib/sidebar-view-registry'
 import { ScrollArea } from './ui/scroll-area'
@@ -47,15 +44,11 @@ export function CommandMenu() {
   const { setTheme } = useTheme()
   const { open, setOpen } = useSearch()
   const { pathname } = useLocation()
-  const userRole = useAuthStore((s) => s.auth.user?.role)
-  const rootSidebarData = useSidebarData()
-  const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
-  const rootNavGroups = useMemo(
-    () => filterRootSidebarNavGroups(configFilteredRoot, userRole),
-    [configFilteredRoot, userRole]
-  )
+  const sidebarData = useSidebarData()
 
-  const navGroups = getNavGroupsForPath(pathname, t) ?? rootNavGroups
+  // Use the active nested sidebar view's nav groups when one matches
+  // the current URL; otherwise fall back to the root navigation.
+  const navGroups = getNavGroupsForPath(pathname, t) ?? sidebarData.navGroups
 
   const runCommand = React.useCallback(
     (command: () => unknown) => {
@@ -74,11 +67,11 @@ export function CommandMenu() {
             <CommandEmpty>{t('No results found.')}</CommandEmpty>
             {navGroups.map((group) => (
               <CommandGroup key={group.id || group.title} heading={group.title}>
-                {group.items.map((navItem) => {
-                  if (navItem.url) {
+                {group.items.map((navItem, i) => {
+                  if (navItem.url)
                     return (
                       <CommandItem
-                        key={navItem.url}
+                        key={`${navItem.url}-${i}`}
                         value={navItem.title}
                         onSelect={() => {
                           runCommand(() => navigate({ to: navItem.url }))
@@ -90,11 +83,10 @@ export function CommandMenu() {
                         {navItem.title}
                       </CommandItem>
                     )
-                  }
 
-                  return navItem.items?.map((subItem) => (
+                  return navItem.items?.map((subItem, i) => (
                     <CommandItem
-                      key={`${navItem.title}-${subItem.url}`}
+                      key={`${navItem.title}-${subItem.url}-${i}`}
                       value={`${navItem.title}-${subItem.url}`}
                       onSelect={() => {
                         runCommand(() => navigate({ to: subItem.url }))

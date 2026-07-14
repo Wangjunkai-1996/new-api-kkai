@@ -19,13 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Modal } from '@douyinfe/semi-ui';
-import { resetPricingFilters } from '../../../../helpers/utils';
+import { resetKkaiPricingFilters } from '../../../../kkai/reset-pricing-filters';
 import FilterModalContent from './components/FilterModalContent';
 import FilterModalFooter from './components/FilterModalFooter';
 
 const PricingFilterModal = ({ visible, onClose, sidebarProps, t }) => {
   const handleResetFilters = () =>
-    resetPricingFilters({
+    resetKkaiPricingFilters({
       handleChange: sidebarProps.handleChange,
       setShowWithRecharge: sidebarProps.setShowWithRecharge,
       setCurrency: sidebarProps.setCurrency,

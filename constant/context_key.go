@@ -10,10 +10,6 @@ const (
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
 
-	/* policy incident related keys */
-	ContextKeyPolicyIncidentDetected ContextKey = "policy_incident_detected"
-	ContextKeyPolicyNoRetry          ContextKey = "no_retry"
-
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
 	ContextKeyTokenKey               ContextKey = "token_key"

@@ -1,24 +1,17 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-
-	"github.com/bytedance/gopkg/util/gopool"
 )
 
-const systemInstanceReportInterval = 30 * time.Second
-
-var systemInstanceReporterOnce sync.Once
+const SystemInstanceReportInterval = 30 * time.Second
 
 type SystemInstanceInfo struct {
 	SchemaVersion int                       `json:"schema_version"`
@@ -31,7 +24,8 @@ type SystemInstanceInfo struct {
 }
 
 type SystemInstanceRoleInfo struct {
-	IsMaster bool `json:"is_master"`
+	IsMaster bool            `json:"is_master"`
+	NodeRole common.NodeRole `json:"node_role"`
 }
 
 type SystemInstanceRuntimeInfo struct {
@@ -62,20 +56,6 @@ type SystemInstanceStorageMetrics struct {
 	UsedPercent float64 `json:"used_percent"`
 }
 
-func StartSystemInstanceReporter() {
-	systemInstanceReporterOnce.Do(func() {
-		gopool.Go(func() {
-			reportSystemInstanceWithLog()
-
-			ticker := time.NewTicker(systemInstanceReportInterval)
-			defer ticker.Stop()
-			for range ticker.C {
-				reportSystemInstanceWithLog()
-			}
-		})
-	})
-}
-
 func ReportCurrentSystemInstance() error {
 	identity := common.GetNodeIdentity()
 	hostname, hostnameErr := os.Hostname()
@@ -95,6 +75,7 @@ func ReportCurrentSystemInstance() error {
 		Node:          identity,
 		Role: SystemInstanceRoleInfo{
 			IsMaster: common.IsMasterNode,
+			NodeRole: common.CurrentNodeRole(),
 		},
 		Runtime: SystemInstanceRuntimeInfo{
 			Version:   common.Version,
@@ -121,10 +102,4 @@ func ReportCurrentSystemInstance() error {
 		},
 	}
 	return model.UpsertSystemInstance(identity.Name, info, common.StartTime, common.GetTimestamp())
-}
-
-func reportSystemInstanceWithLog() {
-	if err := ReportCurrentSystemInstance(); err != nil {
-		logger.LogWarn(context.Background(), fmt.Sprintf("system instance report failed: %v", err))
-	}
 }

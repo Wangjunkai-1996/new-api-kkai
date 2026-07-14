@@ -81,7 +81,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if frtMs, ok := firstResponseDisplayMs(relayInfo); ok {
 		other["frt"] = float64(frtMs)
 	}
-	if firstSSEMs, ok := firstSSEMs(relayInfo); ok {
+	if firstSSEMs, ok := firstSSELatencyMs(relayInfo); ok {
 		other["first_sse_ms"] = float64(firstSSEMs)
 	}
 	if relayInfo.ReasoningEffort != "" {
@@ -126,16 +126,13 @@ func firstResponseDisplayMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
 	if relayInfo == nil || relayInfo.StartTime.IsZero() {
 		return 0, false
 	}
-	if !relayInfo.UpstreamHeaderTime.IsZero() {
+	if !relayInfo.UpstreamHeaderTime.IsZero() && relayInfo.UpstreamHeaderTime.After(relayInfo.StartTime) {
 		return relayInfo.UpstreamHeaderTime.Sub(relayInfo.StartTime).Milliseconds(), true
 	}
-	if !relayInfo.FirstResponseTime.IsZero() && relayInfo.FirstResponseTime.After(relayInfo.StartTime) {
-		return relayInfo.FirstResponseTime.Sub(relayInfo.StartTime).Milliseconds(), true
-	}
-	return 0, false
+	return firstSSELatencyMs(relayInfo)
 }
 
-func firstSSEMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
+func firstSSELatencyMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
 	if relayInfo == nil || relayInfo.StartTime.IsZero() {
 		return 0, false
 	}

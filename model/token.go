@@ -48,49 +48,6 @@ func MaskTokenKey(key string) string {
 	return key[:4] + "**********" + key[len(key)-4:]
 }
 
-const (
-	TokenUsageInvalidReasonStatusUnavailable = "token_status_unavailable"
-	TokenUsageInvalidReasonDisabled          = "token_disabled"
-	TokenUsageInvalidReasonExpired           = "token_expired"
-	TokenUsageInvalidReasonExhausted         = "token_exhausted"
-)
-
-func (token *Token) GetUsageValidity(now int64) (bool, string) {
-	if token == nil {
-		return false, TokenUsageInvalidReasonStatusUnavailable
-	}
-
-	switch token.Status {
-	case common.TokenStatusEnabled:
-	case common.TokenStatusDisabled:
-		return false, TokenUsageInvalidReasonDisabled
-	case common.TokenStatusExpired:
-		return false, TokenUsageInvalidReasonExpired
-	case common.TokenStatusExhausted:
-		return false, TokenUsageInvalidReasonExhausted
-	default:
-		return false, TokenUsageInvalidReasonStatusUnavailable
-	}
-
-	if token.ExpiredTime != -1 && token.ExpiredTime < now {
-		return false, TokenUsageInvalidReasonExpired
-	}
-	if !token.UnlimitedQuota && token.RemainQuota <= 0 {
-		return false, TokenUsageInvalidReasonExhausted
-	}
-	return true, ""
-}
-
-func tokenKeyColumn() string {
-	if commonKeyCol != "" {
-		return commonKeyCol
-	}
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		return `"key"`
-	}
-	return "`key`"
-}
-
 func (token *Token) GetFullKey() string {
 	return token.Key
 }
@@ -216,7 +173,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(tokenKeyColumn()+" LIKE ? ESCAPE '!'", tokenPattern)
+		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -322,7 +279,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Where(tokenKeyColumn()+" = ?", key).First(&token).Error
+	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
 	return token, err
 }
 
@@ -407,65 +364,6 @@ func DisableModelLimits(tokenId int) error {
 	token.ModelLimitsEnabled = false
 	token.ModelLimits = ""
 	return token.Update()
-}
-
-func cacheTokenAsync(token Token) {
-	if !common.RedisEnabled {
-		return
-	}
-	gopool.Go(func() {
-		if err := cacheSetToken(token); err != nil {
-			common.SysLog("failed to update token cache: " + err.Error())
-		}
-	})
-}
-
-func DisableTokenByIds(id int, userId int) (*Token, bool, error) {
-	token, changed, err := disableTokenByIds(DB, id, userId)
-	if err == nil && token != nil {
-		cacheTokenAsync(*token)
-	}
-	return token, changed, err
-}
-
-func disableTokenByIds(db *gorm.DB, id int, userId int) (*Token, bool, error) {
-	if id <= 0 || userId <= 0 {
-		return nil, false, errors.New("id 或 userId 无效！")
-	}
-
-	var token Token
-	if err := db.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
-		return nil, false, err
-	}
-	if token.Status == common.TokenStatusDisabled {
-		return &token, false, nil
-	}
-
-	now := common.GetTimestamp()
-	result := db.Model(&Token{}).
-		Where("id = ? and user_id = ? and status <> ?", id, userId, common.TokenStatusDisabled).
-		Updates(map[string]interface{}{
-			"status":        common.TokenStatusDisabled,
-			"accessed_time": now,
-		})
-	if result.Error != nil {
-		return &token, false, result.Error
-	}
-	if result.RowsAffected == 0 {
-		if err := db.First(&token, "id = ? and user_id = ?", id, userId).Error; err != nil {
-			return nil, false, err
-		}
-		return &token, false, nil
-	}
-
-	token.Status = common.TokenStatusDisabled
-	token.AccessedTime = now
-	return &token, true, nil
-}
-
-func DisableTokenById(id int, userId int) (bool, error) {
-	_, changed, err := DisableTokenByIds(id, userId)
-	return changed, err
 }
 
 func DeleteTokenById(id int, userId int) (err error) {
@@ -584,7 +482,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", tokenKeyColumn()).
+	err := DB.Select("id", commonKeyCol).
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -602,7 +500,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", tokenKeyColumn()).
+		Select("id", commonKeyCol).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err

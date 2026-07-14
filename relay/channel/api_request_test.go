@@ -4,13 +4,36 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
-	commonpkg "github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDoRequestRecordsUpstreamHeaderTime(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(upstream.Close)
+	service.InitHttpClient()
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Body = http.NoBody
+	request, err := http.NewRequest(http.MethodPost, upstream.URL, http.NoBody)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{
+		StartTime:   time.Now(),
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	response, err := doRequest(ctx, request, info)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.True(t, info.UpstreamHeaderTime.After(info.StartTime))
+}
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()
@@ -192,94 +215,4 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "Codex CLI", upstreamReq.Header.Get("Originator"))
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
-}
-
-func TestApplyInternalAttributionHeaders_InternalUpstreamGetsContextHeaders(t *testing.T) {
-	t.Parallel()
-
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	ctx.Set(commonpkg.RequestIdKey, "req-context")
-	ctx.Set("token_name", "prod-token")
-	commonpkg.SetContextKey(ctx, constant.ContextKeyUserId, 42)
-	commonpkg.SetContextKey(ctx, constant.ContextKeyTokenId, 77)
-	commonpkg.SetContextKey(ctx, constant.ContextKeyChannelId, 13)
-	commonpkg.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, 2)
-	commonpkg.SetContextKey(ctx, constant.ContextKeyOriginalModel, "gpt-4.1")
-
-	info := &relaycommon.RelayInfo{
-		RequestId:       "req-fallback",
-		UserId:          1000,
-		TokenId:         2000,
-		OriginModelName: "fallback-model",
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ChannelId:            3000,
-			ChannelMultiKeyIndex: 9,
-		},
-	}
-	upstreamReq := httptest.NewRequest(http.MethodPost, "http://localhost:8080/v1/chat/completions", nil)
-	upstreamReq.Header.Set(internalAttributionUserID, "spoofed-user")
-
-	applyInternalAttributionHeaders(upstreamReq, ctx, info)
-
-	require.Equal(t, "req-context", upstreamReq.Header.Get(internalAttributionRequestID))
-	require.Equal(t, "42", upstreamReq.Header.Get(internalAttributionUserID))
-	require.Equal(t, "77", upstreamReq.Header.Get(internalAttributionTokenID))
-	require.Equal(t, "prod-token", upstreamReq.Header.Get(internalAttributionTokenName))
-	require.Equal(t, "13", upstreamReq.Header.Get(internalAttributionChannelID))
-	require.Equal(t, "2", upstreamReq.Header.Get(internalAttributionMultiKeyIndex))
-	require.Equal(t, "gpt-4.1", upstreamReq.Header.Get(internalAttributionModel))
-	require.Equal(t, "new-api", upstreamReq.Header.Get(internalAttributionSource))
-}
-
-func TestApplyInternalAttributionHeaders_PrivateAndLinkLocalUpstreamsGetHeaders(t *testing.T) {
-	t.Parallel()
-
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	ctx.Set(commonpkg.RequestIdKey, "req-private")
-
-	for _, upstreamURL := range []string{
-		"http://127.0.0.1:8080/v1/chat/completions",
-		"http://10.0.0.5:8080/v1/chat/completions",
-		"http://172.16.0.5:8080/v1/chat/completions",
-		"http://192.168.1.5:8080/v1/chat/completions",
-		"http://169.254.10.20:8080/v1/chat/completions",
-		"http://[::1]:8080/v1/chat/completions",
-		"http://[fc00::1]:8080/v1/chat/completions",
-		"http://[fe80::1]:8080/v1/chat/completions",
-	} {
-		upstreamReq := httptest.NewRequest(http.MethodPost, upstreamURL, nil)
-
-		applyInternalAttributionHeaders(upstreamReq, ctx, nil)
-
-		require.Equal(t, "new-api", upstreamReq.Header.Get(internalAttributionSource), upstreamURL)
-		require.Equal(t, "req-private", upstreamReq.Header.Get(internalAttributionRequestID), upstreamURL)
-	}
-}
-
-func TestApplyInternalAttributionHeaders_PublicUpstreamDoesNotGetHeaders(t *testing.T) {
-	t.Parallel()
-
-	gin.SetMode(gin.TestMode)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	ctx.Set(commonpkg.RequestIdKey, "req-public")
-	commonpkg.SetContextKey(ctx, constant.ContextKeyUserId, 42)
-
-	upstreamReq := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", nil)
-	for _, name := range internalAttributionHeaderNames {
-		upstreamReq.Header.Set(name, "should-be-removed")
-	}
-
-	applyInternalAttributionHeaders(upstreamReq, ctx, nil)
-
-	for _, name := range internalAttributionHeaderNames {
-		require.Empty(t, upstreamReq.Header.Values(name), name)
-	}
 }

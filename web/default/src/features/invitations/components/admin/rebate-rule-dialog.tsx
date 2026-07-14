@@ -16,266 +16,121 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect } from 'react'
-import { z } from 'zod'
-import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+
 import {
   createRebateRule,
+  getInvitationUserGroups,
   updateRebateRule,
-  getRebateRules,
-  getUserGroups,
 } from '../../api'
-import { getInvitationErrorMessage } from '../../lib/error'
-import { ALL_USER_GROUP, type RebateRuleFormData } from '../../types'
+import { requireInvitationData } from '../../api/result'
+import { getInvitationErrorMessage } from '../../format'
+import { rebateRuleSchema, type RebateRuleFormValues } from '../../schemas'
+import { ALL_USER_GROUP, type RebateRule } from '../../types'
+import { RebateRuleFields } from './rebate-rule-fields'
 
-const formSchema = z.object({
-  user_group: z.string().min(1, 'User group is required'),
-  rule_type: z.enum(['subscription', 'topup']),
-  rebate_rate: z
-    .string()
-    .min(1, 'Rebate rate is required')
-    .refine(
-      (val) => {
-        const num = parseFloat(val)
-        return !isNaN(num) && num >= 0 && num <= 100
-      },
-      { message: 'Rebate rate must be between 0 and 100' }
-    ),
-})
-
-type FormData = z.infer<typeof formSchema>
-
-interface RebateRuleDialogProps {
+export const RebateRuleDialog = (props: {
   open: boolean
+  rule: RebateRule | null
   onClose: () => void
-  editingRuleId: number | null
-}
-
-export function RebateRuleDialog({
-  open,
-  onClose,
-  editingRuleId,
-}: RebateRuleDialogProps) {
+}) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    reset,
-    setValue,
-    watch,
-  } = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+  const form = useForm<RebateRuleFormValues>({
+    resolver: zodResolver(rebateRuleSchema),
     defaultValues: {
       user_group: ALL_USER_GROUP,
       rule_type: 'subscription',
       rebate_rate: '',
     },
   })
-
-  const ruleType = watch('rule_type')
-  const userGroup = watch('user_group')
-
-  // 获取用户组列表
-  const { data: userGroupsData } = useQuery({
-    queryKey: ['userGroups'],
-    queryFn: async () => {
-      const response = await getUserGroups()
-      return response.data ?? []
-    },
-    enabled: open,
+  const groupsQuery = useQuery({
+    queryKey: ['kkai', 'invitations', 'admin', 'user-groups'],
+    queryFn: async () =>
+      requireInvitationData(
+        await getInvitationUserGroups(),
+        'Failed to load user groups'
+      ),
+    enabled: props.open,
   })
-
-  // 获取编辑的规则数据
-  const { data: rulesData } = useQuery({
-    queryKey: ['rebateRules'],
-    queryFn: async () => {
-      const response = await getRebateRules()
-      return response.data ?? []
-    },
-    enabled: open && editingRuleId !== null,
-  })
-
-  // 创建规则
-  const createMutation = useMutation({
-    mutationFn: (data: RebateRuleFormData) => createRebateRule(data),
-    onSuccess: () => {
-      toast.success(t('Rule created successfully'))
-      queryClient.invalidateQueries({ queryKey: ['rebateRules'] })
-      onClose()
-      reset()
-    },
-    onError: (error: unknown) => {
-      toast.error(getInvitationErrorMessage(error, t('Failed to create rule')))
-    },
-  })
-
-  // 更新规则
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: RebateRuleFormData }) =>
-      updateRebateRule(id, data),
-    onSuccess: () => {
-      toast.success(t('Rule updated successfully'))
-      queryClient.invalidateQueries({ queryKey: ['rebateRules'] })
-      onClose()
-      reset()
-    },
-    onError: (error: unknown) => {
-      toast.error(getInvitationErrorMessage(error, t('Failed to update rule')))
-    },
-  })
-
-  // 加载编辑数据
-  useEffect(() => {
-    if (editingRuleId && rulesData) {
-      const rule = rulesData.find((r) => r.id === editingRuleId)
-      if (rule) {
-        setValue('user_group', rule.user_group)
-        setValue('rule_type', rule.rule_type)
-        // 转换为百分比显示
-        const percentage = (parseFloat(rule.rebate_rate) * 100).toString()
-        setValue('rebate_rate', percentage)
+  const mutation = useMutation({
+    mutationFn: async (values: RebateRuleFormValues) => {
+      const data = {
+        ...values,
+        rebate_rate: String(Number(values.rebate_rate) / 100),
       }
-    } else {
-      reset()
-    }
-  }, [editingRuleId, rulesData, setValue, reset])
+      const response = props.rule
+        ? await updateRebateRule(props.rule.id, data)
+        : await createRebateRule(data)
+      return requireInvitationData(response, 'Failed to save rebate rule')
+    },
+    onSuccess: async () => {
+      toast.success(t('Rebate rule saved'))
+      await queryClient.invalidateQueries({
+        queryKey: ['kkai', 'invitations', 'admin', 'rules'],
+      })
+      props.onClose()
+    },
+    onError: (error) =>
+      toast.error(
+        getInvitationErrorMessage(error, t('Failed to save rebate rule'))
+      ),
+  })
 
-  const onSubmit = (data: FormData) => {
-    // 转换百分比为小数
-    const rebateRate = (parseFloat(data.rebate_rate) / 100).toString()
-    const formData: RebateRuleFormData = {
-      ...data,
-      rebate_rate: rebateRate,
-    }
-
-    if (editingRuleId) {
-      updateMutation.mutate({ id: editingRuleId, data: formData })
-    } else {
-      createMutation.mutate(formData)
-    }
-  }
-
-  const isPending = createMutation.isPending || updateMutation.isPending
+  useEffect(() => {
+    form.reset(
+      props.rule
+        ? {
+            user_group: props.rule.user_group,
+            rule_type: props.rule.rule_type,
+            rebate_rate: String(Number(props.rule.rebate_rate) * 100),
+          }
+        : {
+            user_group: ALL_USER_GROUP,
+            rule_type: 'subscription',
+            rebate_rate: '',
+          }
+    )
+  }, [form, props.rule, props.open])
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className='sm:max-w-[500px]'>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) props.onClose()
+      }}
+    >
+      <DialogContent className='sm:max-w-md'>
         <DialogHeader>
           <DialogTitle>
-            {editingRuleId ? t('Edit Rule') : t('Create Rule')}
+            {props.rule ? t('Edit Rebate Rule') : t('Create Rebate Rule')}
           </DialogTitle>
-          <DialogDescription>
-            {t('Configure rebate rules for different user groups')}
-          </DialogDescription>
         </DialogHeader>
-
-        <form onSubmit={handleSubmit(onSubmit)} className='space-y-4'>
-          <div className='space-y-2'>
-            <Label htmlFor='user_group'>{t('User Group')}</Label>
-            <Select
-              value={userGroup ?? ''}
-              onValueChange={(value) => {
-                if (value) setValue('user_group', value)
-              }}
-            >
-              <SelectTrigger id='user_group'>
-                <SelectValue placeholder={t('Select user group')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_USER_GROUP}>
-                  {t('All User Groups')}
-                </SelectItem>
-                {userGroupsData?.map((group) => (
-                  <SelectItem key={group.name} value={group.name}>
-                    {group.name} ({group.user_count} {t('users')})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.user_group && (
-              <p className='text-destructive text-sm'>
-                {errors.user_group.message}
-              </p>
-            )}
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='rule_type'>{t('Rule Type')}</Label>
-            <Select
-              value={ruleType ?? 'subscription'}
-              onValueChange={(value) =>
-                setValue('rule_type', value as 'subscription' | 'topup')
-              }
-            >
-              <SelectTrigger id='rule_type'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='subscription'>
-                  {t('Subscription')}
-                </SelectItem>
-                <SelectItem value='topup'>{t('Top-up')}</SelectItem>
-              </SelectContent>
-            </Select>
-            {errors.rule_type && (
-              <p className='text-destructive text-sm'>
-                {errors.rule_type.message}
-              </p>
-            )}
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='rebate_rate'>{t('Rebate Rate')} (%)</Label>
-            <Input
-              id='rebate_rate'
-              type='number'
-              step='0.01'
-              min='0'
-              max='100'
-              placeholder='5.00'
-              {...register('rebate_rate')}
-            />
-            {errors.rebate_rate && (
-              <p className='text-destructive text-sm'>
-                {errors.rebate_rate.message}
-              </p>
-            )}
-            <p className='text-muted-foreground text-sm'>
-              {t('Enter percentage value (0-100)')}
-            </p>
-          </div>
-
+        <form
+          className='space-y-4'
+          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        >
+          <RebateRuleFields form={form} groups={groupsQuery.data} />
           <DialogFooter>
-            <Button type='button' variant='outline' onClick={onClose}>
+            <Button type='button' variant='outline' onClick={props.onClose}>
               {t('Cancel')}
             </Button>
-            <Button type='submit' disabled={isPending}>
-              {isPending ? t('Saving...') : t('Save')}
+            <Button type='submit' disabled={mutation.isPending}>
+              {mutation.isPending ? t('Saving...') : t('Save')}
             </Button>
           </DialogFooter>
         </form>

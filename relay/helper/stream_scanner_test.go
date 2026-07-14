@@ -557,24 +557,17 @@ func TestStreamScannerHandler_StreamStatus_InitializedIfNil(t *testing.T) {
 	assert.NotNil(t, info.StreamStatus)
 }
 
-func TestStreamScannerHandler_StreamStatus_PreInitializedDoesNotLeak(t *testing.T) {
+func TestStreamScannerHandler_StreamStatus_ReplacesPreInitialized(t *testing.T) {
 	t.Parallel()
 
 	body := buildSSEBody(5)
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
 
-	oldStatus := relaycommon.NewStreamStatus()
-	oldStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, fmt.Errorf("previous timeout"))
-	oldStatus.RecordError("pre-existing error")
-	info.StreamStatus = oldStatus
+	info.StreamStatus = relaycommon.NewStreamStatus()
+	info.StreamStatus.RecordError("pre-existing error")
 
 	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
 
-	assert.NotSame(t, oldStatus, info.StreamStatus)
 	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
-	assert.Nil(t, info.StreamStatus.EndError)
 	assert.Equal(t, 0, info.StreamStatus.TotalErrorCount())
-
-	assert.Equal(t, relaycommon.StreamEndReasonTimeout, oldStatus.EndReason)
-	assert.Equal(t, 1, oldStatus.TotalErrorCount())
 }

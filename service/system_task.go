@@ -17,14 +17,9 @@ import (
 const (
 	// systemTaskRunnerIdleInterval is the fallback poll interval used to pick up
 	// tasks created on other nodes and mark expired leases failed.
-	systemTaskRunnerIdleInterval = 15 * time.Second
-	systemTaskLockTTL            = 60 * time.Second
-	logCleanupBatchSize          = 100
-
-	// systemTaskSchedulerInterval throttles how often the scheduler/stale-lock
-	// pass runs, independent of how often the runner wakes to claim tasks.
-	systemTaskSchedulerInterval = 15 * time.Second
-	systemTaskStaleLockInterval = 30 * time.Second
+	SystemTaskMaintenanceInterval = 15 * time.Second
+	systemTaskLockTTL             = 60 * time.Second
+	logCleanupBatchSize           = 100
 )
 
 // SystemTaskHandler executes a claimed task of a specific type. Run owns the
@@ -52,8 +47,8 @@ var (
 )
 
 // RegisterSystemTaskHandler registers a handler keyed by its Type(). It must be
-// called before StartSystemTaskRunner (or any time, since the runner snapshots
-// the registry every pass). Re-registering a type replaces the previous handler.
+// called before the background job registry starts. Re-registering a type
+// replaces the previous handler.
 func RegisterSystemTaskHandler(h SystemTaskHandler) {
 	if h == nil {
 		return
@@ -104,7 +99,6 @@ type LogCleanupResult struct {
 }
 
 var (
-	systemTaskRunnerOnce sync.Once
 	// systemTaskWakeup signals the runner to check for runnable tasks
 	// immediately instead of waiting for the idle poll. Buffered so a signal
 	// raised while the runner is busy is not lost and is handled on the next loop.
@@ -120,49 +114,8 @@ func notifySystemTaskRunner() {
 	}
 }
 
-func StartSystemTaskRunner() {
-	systemTaskRunnerOnce.Do(func() {
-		if !common.IsMasterNode {
-			return
-		}
-
-		runnerID := fmt.Sprintf("%s-%s", common.NodeName, common.GetRandomString(8))
-		gopool.Go(func() {
-			logger.LogInfo(context.Background(), fmt.Sprintf("system task runner started: runner=%s idle_interval=%s", runnerID, systemTaskRunnerIdleInterval))
-
-			ticker := time.NewTicker(systemTaskRunnerIdleInterval)
-			defer ticker.Stop()
-
-			var lastScheduler time.Time
-			var lastStaleLockCleanup time.Time
-			runPass := func() {
-				// The scheduler/stale-lock pass is throttled independently of the
-				// claim pass: wakeups (e.g. a manual log cleanup) should claim
-				// immediately without re-running the scheduler every time.
-				now := time.Now()
-				if now.Sub(lastStaleLockCleanup) >= systemTaskStaleLockInterval {
-					lastStaleLockCleanup = now
-					if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
-						logger.LogWarn(context.Background(), fmt.Sprintf("system task stale lock cleanup failed: %v", err))
-					}
-				}
-				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
-					lastScheduler = now
-					runSystemTaskScheduler()
-				}
-				runSystemTaskClaimPass(runnerID)
-			}
-
-			runPass()
-			for {
-				select {
-				case <-ticker.C:
-				case <-systemTaskWakeup:
-				}
-				runPass()
-			}
-		})
-	})
+func SystemTaskWakeup() <-chan struct{} {
+	return systemTaskWakeup
 }
 
 func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
@@ -223,6 +176,19 @@ func EnqueueSystemTask(taskType string, payload any) (*model.SystemTask, bool, e
 // and dispatches each claimed task in its own goroutine so a long-running
 // handler (e.g. channel test) never blocks another type (e.g. log cleanup).
 func runSystemTaskClaimPass(runnerID string) {
+	runSystemTaskClaimPassWithContext(context.Background(), runnerID)
+}
+
+func RunSystemTaskMaintenance(ctx context.Context, runnerID string) error {
+	if err := model.ExpireStaleSystemTaskLocks(common.GetTimestamp()); err != nil {
+		return err
+	}
+	runSystemTaskScheduler()
+	runSystemTaskClaimPassWithContext(ctx, runnerID)
+	return nil
+}
+
+func runSystemTaskClaimPassWithContext(ctx context.Context, runnerID string) {
 	handlers := registeredSystemTaskHandlers()
 	taskTypes := make([]string, 0, len(handlers))
 	for _, handler := range handlers {
@@ -249,7 +215,7 @@ func runSystemTaskClaimPass(runnerID string) {
 		dispatchHandler := handler
 		dispatchTask := claimedTask
 		gopool.Go(func() {
-			runWithLeaseHeartbeat(dispatchTask, runnerID, func(ctx context.Context) {
+			runWithLeaseHeartbeat(ctx, dispatchTask, runnerID, func(ctx context.Context) {
 				dispatchHandler.Run(ctx, dispatchTask, runnerID)
 			})
 		})
@@ -305,8 +271,8 @@ func runSystemTaskScheduler() {
 // runWithLeaseHeartbeat renews the per-type lock on a background ticker while
 // fn runs. The TTL is a crash-detection window, not a task time limit: an
 // arbitrarily long handler stays alive as long as the heartbeat succeeds.
-func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx context.Context)) {
-	ctx, cancel := context.WithCancel(context.Background())
+func runWithLeaseHeartbeat(parent context.Context, task *model.SystemTask, runnerID string, fn func(ctx context.Context)) {
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	interval := systemTaskLockTTL / 3
@@ -320,6 +286,8 @@ func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx 
 	go func() {
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-done:
 				return
 			case <-ticker.C:

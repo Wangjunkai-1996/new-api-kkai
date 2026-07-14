@@ -17,66 +17,65 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, RefreshCw, Signal } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { RefreshCw, Signal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
-import { Card, CardContent } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+
 import { getGroupStatus } from './api'
-import { GroupStatusCards } from './group-status-cards'
-import { GroupStatusSummary } from './group-status-summary'
-import { GroupStatusTable } from './group-status-table'
-import { sortGroupsForConfidence } from './status-display'
-import { WINDOW_OPTIONS } from './status-meta'
+import { GroupStatusList } from './components/group-status-list'
+import { GroupStatusSkeleton } from './components/group-status-skeleton'
+import { GroupStatusSummary } from './components/group-status-summary'
+import { sortGroupStatuses } from './status'
 import type {
   GroupStatusEntry,
   GroupStatusResult,
   GroupStatusWindow,
 } from './types'
 
-const SUMMARY_SKELETON_KEYS = ['summary-1', 'summary-2', 'summary-3', 'summary-4']
-const TABLE_SKELETON_KEYS = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5']
+const WINDOW_OPTIONS: { value: GroupStatusWindow; labelKey: string }[] = [
+  { value: 'now', labelKey: 'Now' },
+  { value: '15m', labelKey: '15m' },
+  { value: '1h', labelKey: '1h' },
+  { value: '6h', labelKey: '6h' },
+  { value: '24h', labelKey: '24h' },
+]
 
 export function GroupStatusPage() {
   const { t } = useTranslation()
   const [window, setWindow] = useState<GroupStatusWindow>('now')
   const query = useQuery({
-    queryKey: ['group-status', window],
+    queryKey: ['kkai', 'group-status', window],
     queryFn: () => getGroupStatus(window),
-    placeholderData: keepPreviousData,
-    staleTime: window === 'now' ? 10 * 1000 : 30 * 1000,
-    refetchInterval: window === 'now' ? 15 * 1000 : false,
+    staleTime: window === 'now' ? 10_000 : 30_000,
+    refetchInterval: window === 'now' ? 15_000 : false,
+    refetchIntervalInBackground: false,
   })
-
-  const result = query.data?.data
-  const sortedGroups = useMemo(
-    () => sortGroupsForConfidence(result?.groups ?? []),
-    [result?.groups]
+  const groups = useMemo(
+    () => sortGroupStatuses(query.data?.groups ?? []),
+    [query.data?.groups]
   )
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Group Flow')}</SectionPageLayout.Title>
-      <SectionPageLayout.Description>
-        {t('A confidence panel for choosing the smoothest group.')}
-      </SectionPageLayout.Description>
+      <SectionPageLayout.Title>{t('Group Status')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <ButtonGroup aria-label={t('Status window')}>
           {WINDOW_OPTIONS.map((option) => (
             <Button
               key={option.value}
               type='button'
-              variant={window === option.value ? 'default' : 'outline'}
               size='sm'
+              variant={window === option.value ? 'default' : 'outline'}
               aria-pressed={window === option.value}
-              title={t(option.detailKey)}
               onClick={() => setWindow(option.value)}
             >
               {t(option.labelKey)}
@@ -85,26 +84,44 @@ export function GroupStatusPage() {
         </ButtonGroup>
         <Button
           type='button'
+          size='icon-sm'
           variant='outline'
-          size='sm'
           disabled={query.isFetching}
-          onClick={() => query.refetch()}
+          aria-label={t('Refresh')}
+          title={t('Refresh')}
+          onClick={() => void query.refetch()}
         >
-          <RefreshCw
-            className={cn('size-3.5', query.isFetching && 'animate-spin')}
-          />
-          {t('Refresh')}
+          <RefreshCw className={cn(query.isFetching && 'animate-spin')} />
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='space-y-3 sm:space-y-4'>
+        <div className='space-y-4'>
+          {query.isError && query.data && (
+            <Alert variant='destructive'>
+              <AlertTriangle aria-hidden='true' />
+              <AlertDescription>
+                {t('Refresh failed. Showing the latest available data.')}
+              </AlertDescription>
+              <AlertAction>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon-xs'
+                  aria-label={t('Retry')}
+                  title={t('Retry')}
+                  onClick={() => void query.refetch()}
+                >
+                  <RefreshCw />
+                </Button>
+              </AlertAction>
+            </Alert>
+          )}
           <GroupStatusContent
-            isInitialLoading={query.isLoading && !result}
-            isError={query.isError}
-            groups={sortedGroups}
-            result={result}
-            window={window}
-            onRetry={() => query.refetch()}
+            isLoading={query.isLoading && !query.data}
+            error={query.error}
+            result={query.data}
+            groups={groups}
+            onRetry={() => void query.refetch()}
           />
         </div>
       </SectionPageLayout.Content>
@@ -113,28 +130,25 @@ export function GroupStatusPage() {
 }
 
 function GroupStatusContent(props: {
-  isInitialLoading: boolean
-  isError: boolean
-  groups: GroupStatusEntry[]
+  isLoading: boolean
+  error: Error | null
   result?: GroupStatusResult
-  window: GroupStatusWindow
+  groups: GroupStatusEntry[]
   onRetry: () => void
 }) {
   const { t } = useTranslation()
 
-  if (props.isInitialLoading) {
-    return <GroupStatusSkeleton />
-  }
-  if (props.isError) {
+  if (props.isLoading) return <GroupStatusSkeleton />
+  if (props.error && !props.result) {
     return (
       <ErrorState
         title={t('Failed to load group status')}
-        description={t('Please retry after checking your session.')}
+        description={props.error.message}
         onRetry={props.onRetry}
       />
     )
   }
-  if (props.groups.length === 0) {
+  if (!props.result || props.groups.length === 0) {
     return (
       <EmptyState
         icon={Signal}
@@ -146,49 +160,8 @@ function GroupStatusContent(props: {
   }
   return (
     <>
-      <GroupStatusSummary
-        groups={props.groups}
-        window={props.result?.window ?? props.window}
-        windowMinutes={props.result?.window_minutes}
-        generatedAt={props.result?.generated_at}
-      />
-      <GroupStatusCards
-        groups={props.groups}
-        generatedAt={props.result?.generated_at}
-      />
-      <GroupStatusTable groups={props.groups} />
+      <GroupStatusSummary groups={props.groups} result={props.result} />
+      <GroupStatusList groups={props.groups} />
     </>
-  )
-}
-
-function GroupStatusSkeleton() {
-  return (
-    <div className='space-y-3'>
-      <Card className='rounded-xl'>
-        <CardContent className='space-y-3'>
-          <Skeleton className='h-5 w-32' />
-          <Skeleton className='h-9 w-72 max-w-full' />
-          <Skeleton className='h-4 w-full max-w-xl' />
-        </CardContent>
-      </Card>
-      <div className='grid grid-cols-2 gap-2 lg:grid-cols-4'>
-        {SUMMARY_SKELETON_KEYS.map((key) => (
-          <Card key={key} size='sm' className='rounded-lg'>
-            <CardContent className='space-y-2'>
-              <Skeleton className='h-4 w-20' />
-              <Skeleton className='h-7 w-28' />
-              <Skeleton className='h-3 w-full' />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <Card className='rounded-lg'>
-        <CardContent className='space-y-2'>
-          {TABLE_SKELETON_KEYS.map((key) => (
-            <Skeleton key={key} className='h-10 w-full' />
-          ))}
-        </CardContent>
-      </Card>
-    </div>
   )
 }

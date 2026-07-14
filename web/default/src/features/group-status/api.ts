@@ -18,17 +18,21 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { api } from '@/lib/api'
-import type { GroupStatusResponse, GroupStatusWindow } from './types'
+
+import type {
+  GroupStatusResponse,
+  GroupStatusResult,
+  GroupStatusWindow,
+} from './types'
 
 export async function getGroupStatus(
   window: GroupStatusWindow
-): Promise<GroupStatusResponse> {
-  const res = await api.get('/api/status/groups', {
+): Promise<GroupStatusResult> {
+  const response = await api.get<GroupStatusResponse>('/api/status/groups', {
     params: { window },
   })
-  const data = res.data as GroupStatusResponse
-  if (!data.success) {
-    throw new Error(data.message || 'Failed to load group status')
+  if (!response.data.success || !response.data.data) {
+    throw new Error(response.data.message || 'Failed to load group status')
   }
-  return data
+  return response.data.data
 }

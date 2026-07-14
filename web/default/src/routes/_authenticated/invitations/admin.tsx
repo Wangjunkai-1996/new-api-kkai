@@ -16,28 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { z } from 'zod'
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { useAuthStore } from '@/stores/auth-store'
-import { ROLE } from '@/lib/roles'
+import { z } from 'zod'
+
 import { InvitationsAdmin } from '@/features/invitations/admin'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 const searchSchema = z.object({
   tab: z
-    .enum(['rules', 'records', 'registrations', 'approvals', 'statistics'])
+    .enum(['settings', 'records', 'registrations', 'approvals', 'statistics'])
     .optional()
-    .catch('rules'),
+    .catch('settings'),
 })
 
 export const Route = createFileRoute('/_authenticated/invitations/admin')({
   beforeLoad: () => {
-    const { auth } = useAuthStore.getState()
-
-    if (!auth.user || auth.user.role < ROLE.ADMIN) {
-      throw redirect({
-        to: '/403',
-      })
-    }
+    const user = useAuthStore.getState().auth.user
+    if (!user || user.role < ROLE.ADMIN) throw redirect({ to: '/403' })
   },
   component: InvitationsAdmin,
   validateSearch: searchSchema,

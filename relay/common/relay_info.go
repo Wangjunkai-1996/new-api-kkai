@@ -641,15 +641,6 @@ func (info *RelayInfo) GetFinalRequestRelayFormat() types.RelayFormat {
 	return info.RelayFormat
 }
 
-func (info *RelayInfo) BeginStreamAttempt() *StreamStatus {
-	streamStatus := NewStreamStatus()
-	if info == nil {
-		return streamStatus
-	}
-	info.StreamStatus = streamStatus
-	return streamStatus
-}
-
 func GenRelayInfoResponsesCompaction(c *gin.Context, request *dto.OpenAIResponsesCompactionRequest) *RelayInfo {
 	info := genBaseRelayInfo(c, request)
 	if info.RelayMode == relayconstant.RelayModeUnknown {

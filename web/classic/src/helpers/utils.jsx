@@ -1055,7 +1055,7 @@ export const createCardProPagination = ({
 // 模型定价筛选条件默认值
 const DEFAULT_PRICING_FILTERS = {
   search: '',
-  showWithRecharge: true,
+  showWithRecharge: false,
   currency: 'USD',
   showRatio: false,
   viewMode: 'card',

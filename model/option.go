@@ -1,11 +1,10 @@
 package model
 
 import (
-	"database/sql"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
@@ -21,8 +20,6 @@ type Option struct {
 	Key   string `json:"key" gorm:"primaryKey"`
 	Value string `json:"value"`
 }
-
-var policyIncidentOptionUpdateMu sync.Mutex
 
 func AllOption() ([]*Option, error) {
 	var options []*Option
@@ -185,79 +182,44 @@ func InitOptionMap() {
 	for k, v := range modelConfigs {
 		common.OptionMap[k] = v
 	}
-	for k, v := range operation_setting.PolicyIncidentSettingOptions(operation_setting.GetPolicyIncidentSetting()) {
-		common.OptionMap[k] = v
-	}
 
 	common.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
 }
 
 func loadOptionsFromDatabase() {
-	policyIncidentOptionUpdateMu.Lock()
+	if err := SyncOptionsOnce(); err != nil {
+		common.SysLog("failed to load options from database: " + err.Error())
+	}
+}
+
+func SyncOptionsOnce() error {
 	options, err := AllOption()
 	if err != nil {
-		common.SysError("policy_incident_config_load_failed code=io_failed")
-		publishPolicyIncidentFailClosed()
-		policyIncidentOptionUpdateMu.Unlock()
-		return
+		return err
 	}
-	policyValues := make(map[string]string)
-	otherOptions := make([]*Option, 0, len(options))
+	var syncErrors []error
 	for _, option := range options {
-		if operation_setting.IsPolicyIncidentOption(option.Key) {
-			policyValues[option.Key] = option.Value
-			continue
-		}
-		otherOptions = append(otherOptions, option)
-	}
-	candidate, err := operation_setting.BuildPolicyIncidentSettingCandidate(operation_setting.DefaultPolicyIncidentSetting(), policyValues)
-	if err != nil {
-		publishPolicyIncidentFailClosed()
-		common.SysError("policy_incident_config_load_failed code=invalid_config")
-	} else {
-		_ = publishPolicyIncidentOptions(candidate)
-	}
-	policyIncidentOptionUpdateMu.Unlock()
-
-	for _, option := range otherOptions {
-		if err = updateOptionMap(option.Key, option.Value); err != nil {
-			common.SysLog("failed to update option map: " + err.Error())
+		err := updateOptionMap(option.Key, option.Value)
+		if err != nil {
+			syncErrors = append(syncErrors, fmt.Errorf("option %s: %w", option.Key, err))
 		}
 	}
-}
-
-func SyncOptions(frequency int) {
-	for {
-		time.Sleep(time.Duration(frequency) * time.Second)
-		syncOptionsOnce()
-	}
-}
-
-func syncOptionsOnce() {
-	common.SysLog("syncing options from database")
-	loadOptionsFromDatabase()
+	return errors.Join(syncErrors...)
 }
 
 func UpdateOption(key string, value string) error {
-	if operation_setting.IsPolicyIncidentOption(key) {
-		return updatePolicyIncidentOptions(map[string]string{key: value})
-	}
 	// Save to database first
 	option := Option{
 		Key: key,
 	}
 	// https://gorm.io/docs/update.html#Save-All-Fields
-	if err := DB.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-		return err
-	}
+	DB.FirstOrCreate(&option, Option{Key: key})
 	option.Value = value
 	// Save is a combination function.
 	// If save value does not contain primary key, it will execute Create,
 	// otherwise it will execute Update (with all fields).
-	if err := DB.Save(&option).Error; err != nil {
-		return err
-	}
+	DB.Save(&option)
 	// Update OptionMap
 	return updateOptionMap(key, value)
 }
@@ -271,25 +233,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	policyValues := make(map[string]string)
-	for key, value := range values {
-		if operation_setting.IsPolicyIncidentOption(key) {
-			policyValues[key] = value
-		}
-	}
-	var candidate operation_setting.PolicyIncidentSetting
-	if len(policyValues) > 0 {
-		policyIncidentOptionUpdateMu.Lock()
-		defer policyIncidentOptionUpdateMu.Unlock()
-	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if len(policyValues) > 0 {
-			var err error
-			candidate, err = buildPersistedPolicyIncidentSettingCandidate(tx, policyValues)
-			if err != nil {
-				return err
-			}
-		}
 		for k, v := range values {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
@@ -301,19 +245,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 			}
 		}
 		return nil
-	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	})
 	if err != nil {
 		return err
 	}
-	if len(policyValues) > 0 {
-		if err = publishPolicyIncidentOptions(candidate); err != nil {
-			return err
-		}
-	}
 	for k, v := range values {
-		if operation_setting.IsPolicyIncidentOption(k) {
-			continue
-		}
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}
@@ -321,79 +257,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return nil
 }
 
-func updatePolicyIncidentOptions(values map[string]string) error {
-	policyIncidentOptionUpdateMu.Lock()
-	defer policyIncidentOptionUpdateMu.Unlock()
-
-	var candidate operation_setting.PolicyIncidentSetting
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var err error
-		candidate, err = buildPersistedPolicyIncidentSettingCandidate(tx, values)
-		if err != nil {
-			return err
-		}
-		for key, value := range values {
-			option := Option{Key: key}
-			if err := tx.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
-				return err
-			}
-			option.Value = value
-			if err := tx.Save(&option).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return err
-	}
-	return publishPolicyIncidentOptions(candidate)
-}
-
-func buildPersistedPolicyIncidentSettingCandidate(tx *gorm.DB, overrides map[string]string) (operation_setting.PolicyIncidentSetting, error) {
-	var persistedOptions []Option
-	if err := tx.Where("key LIKE ?", operation_setting.PolicyIncidentOptionPrefix+"%").Find(&persistedOptions).Error; err != nil {
-		return operation_setting.PolicyIncidentSetting{}, err
-	}
-	values := make(map[string]string, len(persistedOptions)+len(overrides))
-	for _, option := range persistedOptions {
-		values[option.Key] = option.Value
-	}
-	for key, value := range overrides {
-		values[key] = value
-	}
-	return operation_setting.BuildPolicyIncidentSettingCandidate(operation_setting.DefaultPolicyIncidentSetting(), values)
-}
-
-func publishPolicyIncidentOptions(candidate operation_setting.PolicyIncidentSetting) error {
-	if err := operation_setting.PublishPolicyIncidentSetting(candidate); err != nil {
-		publishPolicyIncidentFailClosed()
-		common.SysError("policy_incident_config_publish_failed code=invalid_config")
-		return err
-	}
-	publishPolicyIncidentOptionMap(candidate)
-	return nil
-}
-
-func publishPolicyIncidentFailClosed() {
-	publishPolicyIncidentOptionMap(operation_setting.PublishPolicyIncidentSettingFailClosed())
-}
-
-func publishPolicyIncidentOptionMap(candidate operation_setting.PolicyIncidentSetting) {
-	common.OptionMapRWMutex.Lock()
-	defer common.OptionMapRWMutex.Unlock()
-	if common.OptionMap == nil {
-		common.OptionMap = make(map[string]string)
-	}
-	for key, value := range operation_setting.PolicyIncidentSettingOptions(candidate) {
-		common.OptionMap[key] = value
-	}
-}
-
 func updateOptionMap(key string, value string) (err error) {
-	if operation_setting.IsPolicyIncidentOption(key) {
-		return publishPolicyIncidentOptionsFromSync(map[string]string{key: value})
-	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
@@ -716,16 +580,6 @@ func updateOptionMap(key string, value string) (err error) {
 	return err
 }
 
-func publishPolicyIncidentOptionsFromSync(values map[string]string) error {
-	policyIncidentOptionUpdateMu.Lock()
-	defer policyIncidentOptionUpdateMu.Unlock()
-	candidate, err := operation_setting.BuildPolicyIncidentSettingCandidate(operation_setting.GetPolicyIncidentSetting(), values)
-	if err != nil {
-		return err
-	}
-	return publishPolicyIncidentOptions(candidate)
-}
-
 // handleConfigUpdate 处理分层配置更新，返回是否已处理
 func handleConfigUpdate(key, value string) bool {
 	parts := strings.SplitN(key, ".", 2)
@@ -734,9 +588,6 @@ func handleConfigUpdate(key, value string) bool {
 	}
 
 	configName := parts[0]
-	if configName == "policy_incident_setting" {
-		return false
-	}
 	configKey := parts[1]
 
 	// 获取配置对象

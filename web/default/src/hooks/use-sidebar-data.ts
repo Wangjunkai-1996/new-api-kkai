@@ -23,7 +23,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
-  Gift,
+  HandCoins,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -38,7 +38,8 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
+import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -49,6 +50,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const invitationFeature = useInvitationFeatureStatus()
 
   return {
     navGroups: [
@@ -115,11 +117,15 @@ export function useSidebarData(): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
-          {
-            title: t('Invitations'),
-            url: '/invitations',
-            icon: Gift,
-          },
+          ...(invitationFeature.userVisible
+            ? [
+                {
+                  title: t('Invitation Rebate'),
+                  url: '/invitations',
+                  icon: HandCoins,
+                },
+              ]
+            : []),
           {
             title: t('Profile'),
             url: '/profile',
@@ -146,6 +152,16 @@ export function useSidebarData(): SidebarData {
             url: '/users',
             icon: Users,
           },
+          ...(invitationFeature.adminVisible
+            ? [
+                {
+                  title: t('Invitation Operations'),
+                  url: '/invitations/admin',
+                  icon: HandCoins,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
@@ -155,11 +171,6 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
-          },
-          {
-            title: t('Rebate Management'),
-            url: '/invitations/admin',
-            icon: Gift,
           },
           {
             title: t('System Info'),

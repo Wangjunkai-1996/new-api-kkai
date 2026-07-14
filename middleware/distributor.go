@@ -29,8 +29,6 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
-var isUpstreamKeyPolicyBreakerOpenForDistributor = service.IsUpstreamKeyPolicyBreakerOpen
-
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
@@ -52,7 +50,7 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if channel.Status != common.ChannelStatusEnabled {
-				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable)
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
 		} else {
@@ -106,15 +104,9 @@ func Distribute() func(c *gin.Context) {
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
-					if err == nil && preferred != nil {
-						if preferred.Status != common.ChannelStatusEnabled {
-							if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-								abortWithAffinityChannelDisabled(c)
-								return
-							}
-						} else if !channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
-							affinityUsable = false
-						} else if usingGroup == "auto" {
+					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
+						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
@@ -158,24 +150,18 @@ func Distribute() func(c *gin.Context) {
 						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
 						//	message = "数据库一致性已被破坏，请联系管理员"
 						//}
-						common.SysLog(fmt.Sprintf("distributor get channel failed request_id=%s: %s", c.GetString(common.RequestIdKey), message))
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable)
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
 						return
 					}
 					if channel == nil {
-						common.SysLog(fmt.Sprintf("distributor no channel available request_id=%s group=%s model=%s", c.GetString(common.RequestIdKey), usingGroup, modelRequest.Model))
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, types.PublicMessageUpstreamUnavailable, types.ErrorCodeUpstreamUnavailable)
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					}
 				}
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil {
-			common.SysLog(fmt.Sprintf("distributor setup channel failed request_id=%s channel_id=%d error=%s", c.GetString(common.RequestIdKey), c.GetInt("channel_id"), setupErr.ErrorWithStatusCode()))
-			abortWithPublicAPIError(c, setupErr)
-			return
-		}
+		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
@@ -479,16 +465,8 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	policyBreakerFilteredKey := false
-	key, index, newAPIError := channel.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
-		isOpen := isUpstreamKeyPolicyBreakerOpenForDistributor(channel.Id, key)
-		policyBreakerFilteredKey = policyBreakerFilteredKey || isOpen
-		return !isOpen
-	})
+	key, index, newAPIError := channel.GetNextEnabledKey()
 	if newAPIError != nil {
-		if policyBreakerFilteredKey && newAPIError.GetErrorCode() == types.ErrorCodeChannelNoAvailableKey {
-			return service.PolicyBreakerError()
-		}
 		return newAPIError
 	}
 	if channel.ChannelInfo.IsMultiKey {

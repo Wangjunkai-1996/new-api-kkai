@@ -434,13 +434,7 @@ func UpdateCompletionRatioByJSONString(jsonStr string) error {
 }
 
 func GetCompletionRatio(name string) float64 {
-	name = FormatMatchingModelName(name)
-
-	if ratio, ok := completionRatioMap.Get(name); ok {
-		return ratio
-	}
-	hardCodedRatio, _ := getHardcodedCompletionModelRatio(name)
-	return hardCodedRatio
+	return resolveKKAICompletionRatio(name).Ratio
 }
 
 type CompletionRatioInfo struct {
@@ -449,20 +443,7 @@ type CompletionRatioInfo struct {
 }
 
 func GetCompletionRatioInfo(name string) CompletionRatioInfo {
-	name = FormatMatchingModelName(name)
-
-	if ratio, ok := completionRatioMap.Get(name); ok {
-		return CompletionRatioInfo{
-			Ratio:  ratio,
-			Locked: false,
-		}
-	}
-
-	hardCodedRatio, locked := getHardcodedCompletionModelRatio(name)
-	return CompletionRatioInfo{
-		Ratio:  hardCodedRatio,
-		Locked: locked,
-	}
+	return resolveKKAICompletionRatio(name)
 }
 
 func getHardcodedCompletionModelRatio(name string) (float64, bool) {

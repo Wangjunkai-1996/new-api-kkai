@@ -1,15 +1,3 @@
-import type { Row } from '@tanstack/react-table'
-import {
-  Trash2,
-  Edit,
-  Power,
-  PowerOff,
-  ExternalLink,
-  ArrowRightLeft,
-  Copy,
-  Link,
-  Loader2,
-} from 'lucide-react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -28,6 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { Row } from '@tanstack/react-table'
+import {
+  Trash2,
+  Edit,
+  Power,
+  PowerOff,
+  ExternalLink,
+  ArrowRightLeft,
+  Copy,
+  Link,
+  Loader2,
+} from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'

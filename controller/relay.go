@@ -89,32 +89,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
-				_, openAIError := publicOpenAIError(c, newAPIError)
-				if openAIError.CaseID != "" {
-					logger.LogInfo(c, fmt.Sprintf("policy incident sanitized response: request_id=%s case_id=%s", requestId, openAIError.CaseID))
-				}
-				openAIError.Message = common.MessageWithRequestId(openAIError.Message, requestId)
-				helper.WssError(c, ws, openAIError)
+				_, publicError := kkaiPublicOpenAIError(c, newAPIError)
+				helper.WssError(c, ws, publicError)
 			case types.RelayFormatClaude:
-				statusCode, claudeError := publicClaudeError(c, newAPIError)
-				if claudeError.CaseID != "" {
-					logger.LogInfo(c, fmt.Sprintf("policy incident sanitized response: request_id=%s case_id=%s", requestId, claudeError.CaseID))
-				}
-				claudeError.Message = common.MessageWithRequestId(claudeError.Message, requestId)
-				c.JSON(statusCode, gin.H{
+				status, publicError := kkaiPublicClaudeError(c, newAPIError)
+				c.JSON(status, gin.H{
 					"type":  "error",
-					"error": claudeError,
+					"error": publicError,
 				})
 			default:
-				statusCode, openAIError := publicOpenAIError(c, newAPIError)
-				if openAIError.CaseID != "" {
-					logger.LogInfo(c, fmt.Sprintf("policy incident sanitized response: request_id=%s case_id=%s", requestId, openAIError.CaseID))
-				}
-				openAIError.Message = common.MessageWithRequestId(openAIError.Message, requestId)
-				c.JSON(statusCode, gin.H{
-					"error": openAIError,
+				status, publicError := kkaiPublicOpenAIError(c, newAPIError)
+				c.JSON(status, gin.H{
+					"error": publicError,
 				})
 			}
 		}
@@ -337,7 +326,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
-	if service.ShouldSkipRetryAfterPolicyIncident(c) {
+	if service.ShouldSkipRetryAfterKKAIPolicy(c) {
 		return false
 	}
 	if openaiErr == nil {
@@ -372,15 +361,15 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
-	processPolicyIncident(c, channelError, err)
-	processChannelErrorAfterPolicy(c, channelError, err)
+	policyDetected := processKKAIPolicyAPIError(c, channelError, err)
+	processChannelErrorAfterKKAIPolicy(c, channelError, err, policyDetected)
 }
 
-func processChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+func processChannelErrorAfterKKAIPolicy(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, policyDetected bool) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	if !policyDetected && service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})
@@ -421,10 +410,6 @@ func processChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 
-}
-
-func processPolicyIncident(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
-	service.HandlePolicyIncident(c, channelError, err)
 }
 
 func RelayMidjourney(c *gin.Context) {
@@ -548,7 +533,7 @@ func RelayTask(c *gin.Context) {
 			channel = lockedCh
 			if retryParam.GetRetry() > 0 {
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = taskErrorFromAPIError(setupErr)
+					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
 					break
 				}
 			}
@@ -557,7 +542,7 @@ func RelayTask(c *gin.Context) {
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
-				taskErr = taskErrorFromAPIError(channelErr)
+				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
 				break
 			}
 		}
@@ -579,12 +564,13 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 
-		channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-			common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
-		processTaskRelayPolicyIncident(c, channelError, taskErr)
-
 		if !taskErr.LocalError {
-			processChannelErrorAfterPolicy(c, channelError, types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+			channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
+				common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+			policyDetected := processKKAIPolicyTaskError(c, channelError, taskErr)
+			processChannelErrorAfterKKAIPolicy(c, channelError,
+				kkaiTaskAPIError(taskErr),
+				policyDetected)
 		}
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
@@ -632,27 +618,9 @@ func RelayTask(c *gin.Context) {
 	}
 }
 
-func taskErrorFromAPIError(apiErr *types.NewAPIError) *dto.TaskError {
-	if apiErr == nil {
-		return nil
-	}
-	if isPolicyBreakerAPIError(apiErr) {
-		err := apiErr.Err
-		if err == nil {
-			err = errors.New(apiErr.Error())
-		}
-		return service.TaskErrorWrapperLocal(err, "policy_breaker_open", apiErr.StatusCode)
-	}
-	return service.TaskErrorFromAPIError(apiErr)
-}
-
-func isPolicyBreakerAPIError(apiErr *types.NewAPIError) bool {
-	return apiErr != nil && apiErr.StatusCode == http.StatusServiceUnavailable && strings.Contains(strings.ToLower(apiErr.Error()), "policy breaker")
-}
-
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
-	taskErr = publicTaskError(c, taskErr)
+	taskErr = kkaiPublicTaskError(c, taskErr)
 	if taskErr == nil {
 		return
 	}
@@ -663,7 +631,7 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError, retryTimes int) bool {
-	if service.ShouldSkipRetryAfterPolicyIncident(c) {
+	if service.ShouldSkipRetryAfterKKAIPolicy(c) {
 		return false
 	}
 	if taskErr == nil {
@@ -705,8 +673,4 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 		return false
 	}
 	return true
-}
-
-func processTaskRelayPolicyIncident(c *gin.Context, channelError types.ChannelError, taskErr *dto.TaskError) {
-	service.HandleTaskRelayPolicyIncident(c, channelError, taskErr)
 }

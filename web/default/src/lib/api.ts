@@ -24,9 +24,9 @@ import { useAuthStore } from '@/stores/auth-store'
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
-    disableDuplicate?: boolean
     skipBusinessError?: boolean
     skipErrorHandler?: boolean
+    disableDuplicate?: boolean
   }
 }
 

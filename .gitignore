@@ -5,7 +5,9 @@
 upload
 *.exe
 *.db
-build
+build/*
+!build/kkai-image/
+!build/kkai-image/**
 *.db-journal
 logs
 web/default/dist
