@@ -34,7 +34,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Group status monitoring | Read API, aggregation, default frontend | `6f931ccf` through `c6ce2a85` | Complete |
 | CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Blocked: CC Switch `c8b0d60c` rejects remote `configUrl` exchange |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Complete; upstream Waffo retained and fork UI restored |
-| Classic frontend customization | KKAI-compatible classic build and UI | production fork | In progress; recharge-pricing default restored |
+| Classic frontend customization | KKAI-compatible classic build and UI, excluding CC Switch | production fork | Complete; build compatibility and recharge-pricing default restored |
 | Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` rebuild branch | Pending |
 | Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Pending |
 | Signed internal attribution | Exact origin allowlist, HMAC, timestamp, nonce contract | legacy private-IP headers | Complete |

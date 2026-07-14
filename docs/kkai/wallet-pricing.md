@@ -36,3 +36,5 @@ the authoritative fallback.
   explicit `false` route value remains effective.
 - Default typecheck/lint/build and the classic production build cover the two
   integration points.
+- `classic-verification.md` records the legacy-diff audit and keeps the unsafe
+  CC Switch deep-link customization outside this completed scope.
