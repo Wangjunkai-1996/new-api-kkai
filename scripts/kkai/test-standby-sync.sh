@@ -291,13 +291,13 @@ standby_dml_count="$(admin_sql "${database}" "
 ")"
 [[ "${standby_dml_count}" == '0' ]]
 
-if rg -i 'standby-readonly node rejected a database write|permission denied|cannot execute (insert|update|delete|create|alter|drop)' "${standby_output}" >/dev/null; then
+if grep -Eiq 'standby-readonly node rejected a database write|permission denied|cannot execute (insert|update|delete|create|alter|drop)' "${standby_output}"; then
   echo "standby attempted a database write" >&2
-  rg -n -i 'standby-readonly node rejected a database write|permission denied|cannot execute' "${standby_output}" >&2
+  grep -Ein 'standby-readonly node rejected a database write|permission denied|cannot execute' "${standby_output}" >&2
   exit 1
 fi
 if docker logs "${postgres_container}" 2>&1 |
-  rg -i "user=${standby_role}.*statement:.*(insert|update|delete|merge|truncate|create|alter|drop|grant|revoke)" >/dev/null; then
+  grep -Ei "user=${standby_role}.*statement:.*(insert|update|delete|merge|truncate|create|alter|drop|grant|revoke)" >/dev/null; then
   echo "PostgreSQL logged a standby DML or DDL attempt" >&2
   exit 1
 fi

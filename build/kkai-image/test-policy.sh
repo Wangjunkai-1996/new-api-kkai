@@ -12,64 +12,72 @@ fail() {
   exit 1
 }
 
+contains_fixed() {
+  grep -Fq -- "$1" "$2"
+}
+
+contains_regex() {
+  grep -Eq -- "$1" "$2"
+}
+
 for script in export-release.sh smoke-compose.sh verify-image.sh; do
   [[ -x "${BUILD_ROOT}/${script}" ]] || fail "${script} is not executable"
 done
 
 for image_arg in BUN_IMAGE GO_IMAGE BUSYBOX_IMAGE DISTROLESS_IMAGE; do
-  rg -e "^ARG ${image_arg}=[^[:space:]]+@sha256:[0-9a-f]{64}$" \
-    "${BUILD_ROOT}/Dockerfile" >/dev/null ||
+  contains_regex "^ARG ${image_arg}=[^[:space:]]+@sha256:[0-9a-f]{64}$" \
+    "${BUILD_ROOT}/Dockerfile" ||
     fail "${image_arg} is not pinned to an immutable manifest"
 done
-[[ "$(rg -c '^ARG BUN_IMAGE=' "${BUILD_ROOT}/Dockerfile")" -eq 1 ]] ||
+[[ "$(grep -Ec '^ARG BUN_IMAGE=' "${BUILD_ROOT}/Dockerfile")" -eq 1 ]] ||
   fail "Bun image definition is duplicated"
-[[ "$(rg -c '^ARG GO_IMAGE=' "${BUILD_ROOT}/Dockerfile")" -eq 1 ]] ||
+[[ "$(grep -Ec '^ARG GO_IMAGE=' "${BUILD_ROOT}/Dockerfile")" -eq 1 ]] ||
   fail "Go image definition is duplicated"
 
-rg -F 'COPY --from=kkai_image' "${BUILD_ROOT}/Dockerfile" >/dev/null ||
+contains_fixed 'COPY --from=kkai_image' "${BUILD_ROOT}/Dockerfile" ||
   fail "runtime tools are not sourced from the repository build context"
-rg -F -- '-o /out/new-api .' "${BUILD_ROOT}/Dockerfile" >/dev/null ||
+contains_fixed '-o /out/new-api .' "${BUILD_ROOT}/Dockerfile" ||
   fail "image build does not compile the complete root package"
-if rg -n 'go get|go mod tidy|./main\.go' "${BUILD_ROOT}/Dockerfile" >/dev/null; then
+if contains_regex 'go get|go mod tidy|./main\.go' "${BUILD_ROOT}/Dockerfile"; then
   fail "image build mutates dependencies or compiles a single source file"
 fi
 
 for role in leader serving; do
-  rg -F "NEWAPI_NODE_ROLE=${role}" "${BUILD_ROOT}/smoke-compose.sh" >/dev/null ||
+  contains_fixed "NEWAPI_NODE_ROLE=${role}" "${BUILD_ROOT}/smoke-compose.sh" ||
     fail "smoke test does not exercise ${role} startup"
 done
-rg -F -- '--dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" >/dev/null ||
+contains_fixed '--dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not exercise migration stdin"
 
-rg -F 'refs/heads/production/kkrich' "${WORKFLOW}" >/dev/null ||
+contains_fixed 'refs/heads/production/kkrich' "${WORKFLOW}" ||
   fail "workflow is not restricted to production/kkrich"
-rg -F 'packages: write' "${WORKFLOW}" >/dev/null ||
+contains_fixed 'packages: write' "${WORKFLOW}" ||
   fail "workflow cannot publish to GHCR"
-rg -F 'sbom: true' "${WORKFLOW}" >/dev/null ||
+contains_fixed 'sbom: true' "${WORKFLOW}" ||
   fail "workflow does not publish BuildKit SBOM provenance"
-rg -F 'cosign sign --yes' "${WORKFLOW}" >/dev/null ||
+contains_fixed 'cosign sign --yes' "${WORKFLOW}" ||
   fail "workflow does not sign the immutable digest"
-rg -F 'candidate-${{ steps.release.outputs.version }}' "${WORKFLOW}" >/dev/null ||
+contains_fixed "candidate-\${{ steps.release.outputs.version }}" "${WORKFLOW}" ||
   fail "workflow does not isolate the unscanned candidate tag"
-rg -F 'imagetools create' "${WORKFLOW}" >/dev/null ||
+contains_fixed 'imagetools create' "${WORKFLOW}" ||
   fail "workflow does not promote the scanned digest"
-if rg -n 'calciumion/new-api|docker\.io|ssh|ansible|workflow_run' "${WORKFLOW}" >/dev/null; then
+if contains_regex 'calciumion/new-api|docker\.io|ssh|ansible|workflow_run' "${WORKFLOW}"; then
   fail "production image workflow targets upstream or contains deployment behavior"
 fi
-if rg -n 'uses: [^ ]+@v[0-9]' "${WORKFLOW}" >/dev/null; then
+if contains_regex 'uses: [^ ]+@v[0-9]' "${WORKFLOW}"; then
   fail "workflow contains an unpinned action reference"
 fi
 
 for branch_pattern in "'rebuild/**'" "'integration/**'"; do
-  rg -F -- "- ${branch_pattern}" "${CANDIDATE_WORKFLOW}" >/dev/null ||
+  contains_fixed "- ${branch_pattern}" "${CANDIDATE_WORKFLOW}" ||
     fail "candidate workflow does not build ${branch_pattern}"
 done
-rg -F 'load: true' "${CANDIDATE_WORKFLOW}" >/dev/null ||
+contains_fixed 'load: true' "${CANDIDATE_WORKFLOW}" ||
   fail "candidate workflow does not load the image for smoke tests"
-if rg -n 'packages: write|push: true|cosign sign|ssh|ansible' "${CANDIDATE_WORKFLOW}" >/dev/null; then
+if contains_regex 'packages: write|push: true|cosign sign|ssh|ansible' "${CANDIDATE_WORKFLOW}"; then
   fail "candidate workflow can publish or deploy"
 fi
-if rg -n 'uses: [^ ]+@v[0-9]' "${CANDIDATE_WORKFLOW}" >/dev/null; then
+if contains_regex 'uses: [^ ]+@v[0-9]' "${CANDIDATE_WORKFLOW}"; then
   fail "candidate workflow contains an unpinned action reference"
 fi
 

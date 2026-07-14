@@ -13,7 +13,7 @@ require_match() {
   local pattern="$1"
   local path="$2"
   local description="$3"
-  rg --quiet --regexp "${pattern}" "${root}/${path}" || fail "${description} (${path})"
+  grep -Eq -- "${pattern}" "${root}/${path}" || fail "${description} (${path})"
 }
 
 require_match 'UpstreamHeaderTime[[:space:]]+time\.Time' \
