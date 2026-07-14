@@ -66,6 +66,7 @@ while IFS= read -r path; do
   [[ -f "$path" ]] || continue
   bash -n "$path"
 done < <(git diff --name-only --diff-filter=ACMR "$BASE" -- '*.sh')
+"$ROOT/scripts/kkai/check-frt-header-patch.sh"
 
 echo "[2/8] Building default frontend and running typecheck"
 (

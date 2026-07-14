@@ -4,11 +4,36 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDoRequestRecordsUpstreamHeaderTime(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(upstream.Close)
+	service.InitHttpClient()
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Body = http.NoBody
+	request, err := http.NewRequest(http.MethodPost, upstream.URL, http.NoBody)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{
+		StartTime:   time.Now(),
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	response, err := doRequest(ctx, request, info)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.True(t, info.UpstreamHeaderTime.After(info.StartTime))
+}
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()
