@@ -16,134 +16,106 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { Gift, History, Wallet } from 'lucide-react'
+import { Gift, History, RefreshCw, WalletCards } from 'lucide-react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
 import { SectionPageLayout } from '@/components/layout'
-import { getMyCode, getRebateRecords } from './api'
-import { InvitationCodeCard } from './components/invitation-code-card'
-import { RebateManagement } from './components/rebate-management'
-import { RebateRecordsTable } from './components/rebate-records-table'
-import { RebateTrendChart } from './components/rebate-trend-chart'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
+
+import { InvitationSummary } from './components/user/invitation-summary'
+import { RebateRecords } from './components/user/rebate-records'
+import { RebateRequests } from './components/user/rebate-requests'
+import { RebateTransfer } from './components/user/rebate-transfer'
 import { useInvitationFeatureStatus } from './hooks/use-invitation-feature-status'
 
-type TabValue = 'invite' | 'records' | 'rebate'
+type InvitationTab = 'invite' | 'records' | 'rebate'
 
-const DEFAULT_TAB: TabValue = 'invite'
-
-export function Invitations() {
+export const Invitations = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const search = useSearch({ from: '/_authenticated/invitations/' })
-  const invitationFeature = useInvitationFeatureStatus()
-
-  // 从 URL query 获取当前 tab，默认为 'invite'
-  const currentTab = (search.tab as TabValue) || DEFAULT_TAB
+  const feature = useInvitationFeatureStatus()
+  const requestedTab = (search.tab ?? 'invite') as InvitationTab
   const activeTab =
-    (currentTab === 'records' && !invitationFeature.rebateRecordsVisible) ||
-    (currentTab === 'rebate' && !invitationFeature.rebateManagementVisible)
-      ? DEFAULT_TAB
-      : currentTab
+    (requestedTab === 'records' && !feature.rebateRecordsVisible) ||
+    (requestedTab === 'rebate' && !feature.rebateManagementVisible)
+      ? 'invite'
+      : requestedTab
 
-  // 获取邀请码和统计信息
-  const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['invitationStats'],
-    queryFn: async () => {
-      const response = await getMyCode()
-      return response.data
-    },
-    enabled: invitationFeature.userVisible,
-  })
+  useEffect(() => {
+    if (feature.query.isPending || feature.userVisible) return
+    void navigate({ to: '/wallet', replace: true })
+  }, [feature.query.isPending, feature.userVisible, navigate])
 
-  // 获取返利记录（用于图表）
-  const { data: recordsData } = useQuery({
-    queryKey: ['rebateRecordsForChart'],
-    queryFn: async () => {
-      const response = await getRebateRecords({ pageSize: 1000 })
-      return response.data
-    },
-    enabled: invitationFeature.rebateRecordsVisible,
-  })
-
-  // Tab 切换处理
-  const handleTabChange = useCallback(
-    (value: string) => {
-      navigate({
-        to: '/invitations',
-        search: { tab: value as TabValue },
-      })
-    },
-    [navigate]
-  )
-
-  if (!invitationFeature.userVisible) {
-    return null
-  }
+  if (!feature.userVisible) return null
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {invitationFeature.hasAnyRebateFeature
-          ? t('Invitation Rebate')
-          : t('My Invitation')}
+        {t('Invitation Rebate')}
       </SectionPageLayout.Title>
-      <SectionPageLayout.Description>
-        {invitationFeature.hasAnyRebateFeature
-          ? t('Invite friends to earn rebates')
-          : t('View your invitation count')}
-      </SectionPageLayout.Description>
+      <SectionPageLayout.Actions>
+        <Button
+          type='button'
+          size='icon-sm'
+          variant='outline'
+          disabled={feature.query.isFetching}
+          aria-label={t('Refresh')}
+          title={t('Refresh')}
+          onClick={() => void feature.query.refetch()}
+        >
+          <RefreshCw
+            className={cn(feature.query.isFetching && 'animate-spin')}
+          />
+        </Button>
+      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto w-full max-w-7xl'>
-          <Tabs value={activeTab} onValueChange={handleTabChange}>
-            <TabsList className='mb-6'>
-              <TabsTrigger value='invite' className='gap-2'>
-                <Gift className='size-4' />
-                {t('My Invitation')}
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) =>
+            void navigate({
+              to: '/invitations',
+              search: { tab: value as InvitationTab },
+            })
+          }
+        >
+          <TabsList className='mb-4 h-auto max-w-full flex-wrap justify-start'>
+            <TabsTrigger value='invite'>
+              <Gift aria-hidden='true' />
+              {t('My Invitation')}
+            </TabsTrigger>
+            {feature.rebateRecordsVisible && (
+              <TabsTrigger value='records'>
+                <History aria-hidden='true' />
+                {t('Rebate Records')}
               </TabsTrigger>
-              {invitationFeature.rebateRecordsVisible && (
-                <TabsTrigger value='records' className='gap-2'>
-                  <History className='size-4' />
-                  {t('Rebate Records')}
-                </TabsTrigger>
-              )}
-              {invitationFeature.rebateManagementVisible && (
-                <TabsTrigger value='rebate' className='gap-2'>
-                  <Wallet className='size-4' />
-                  {t('Rebate Management')}
-                </TabsTrigger>
-              )}
-            </TabsList>
-
-            <TabsContent value='invite'>
-              <InvitationCodeCard
-                stats={statsData ?? null}
-                loading={statsLoading}
-                showRebateStats={invitationFeature.hasAnyRebateFeature}
-              />
+            )}
+            {feature.rebateManagementVisible && (
+              <TabsTrigger value='rebate'>
+                <WalletCards aria-hidden='true' />
+                {t('Transfer to Balance')}
+              </TabsTrigger>
+            )}
+          </TabsList>
+          <TabsContent value='invite'>
+            <InvitationSummary showRebates={feature.rebateRecordsVisible} />
+          </TabsContent>
+          {feature.rebateRecordsVisible && (
+            <TabsContent value='records'>
+              <RebateRecords />
             </TabsContent>
-
-            {invitationFeature.rebateRecordsVisible && (
-              <TabsContent value='records'>
-                <div className='space-y-6'>
-                  <RebateTrendChart
-                    records={recordsData?.items ?? []}
-                    days={30}
-                  />
-                  <RebateRecordsTable />
-                </div>
-              </TabsContent>
-            )}
-
-            {invitationFeature.rebateManagementVisible && (
-              <TabsContent value='rebate'>
-                <RebateManagement />
-              </TabsContent>
-            )}
-          </Tabs>
-        </div>
+          )}
+          {feature.rebateManagementVisible && (
+            <TabsContent value='rebate' className='space-y-4'>
+              <RebateTransfer />
+              <RebateRequests />
+            </TabsContent>
+          )}
+        </Tabs>
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

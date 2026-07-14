@@ -18,8 +18,6 @@ import (
 
 const UserNameMaxLength = 20
 
-var ErrPolicyIncidentPrivilegedUser = errors.New("policy incident user disable skipped for privileged user")
-
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
@@ -931,89 +929,6 @@ func IsAdmin(userId int) bool {
 	}
 	return user.Role >= common.RoleAdminUser
 }
-
-func DisableUserForPolicyIncident(id int) (*User, bool, error) {
-	user, changed, err := disableUserForPolicyIncident(DB, id)
-	if err == nil && user != nil {
-		invalidatePolicyIncidentUserCaches(id)
-	}
-	return user, changed, err
-}
-
-func disableUserForPolicyIncident(db *gorm.DB, id int) (*User, bool, error) {
-	if id <= 0 {
-		return nil, false, errors.New("id 无效！")
-	}
-
-	var user User
-	if err := db.First(&user, "id = ?", id).Error; err != nil {
-		return nil, false, err
-	}
-	if user.Role >= common.RoleAdminUser {
-		return &user, false, ErrPolicyIncidentPrivilegedUser
-	}
-	if user.Status == common.UserStatusDisabled {
-		return &user, false, nil
-	}
-
-	result := db.Model(&User{}).
-		Where("id = ? and role < ? and status <> ?", id, common.RoleAdminUser, common.UserStatusDisabled).
-		Update("status", common.UserStatusDisabled)
-	if result.Error != nil {
-		return &user, false, result.Error
-	}
-	if result.RowsAffected == 0 {
-		if err := db.First(&user, "id = ?", id).Error; err != nil {
-			return nil, false, err
-		}
-		if user.Role >= common.RoleAdminUser {
-			return &user, false, ErrPolicyIncidentPrivilegedUser
-		}
-		return &user, false, nil
-	}
-
-	user.Status = common.UserStatusDisabled
-	return &user, true, nil
-}
-
-func invalidatePolicyIncidentUserCaches(id int) {
-	if err := InvalidateUserCache(id); err != nil {
-		common.SysLog(fmt.Sprintf("failed to invalidate policy incident user cache for user %d: %s", id, err.Error()))
-	}
-	if err := InvalidateUserTokensCache(id); err != nil {
-		common.SysLog(fmt.Sprintf("failed to invalidate policy incident token cache for user %d: %s", id, err.Error()))
-	}
-}
-
-//// IsUserEnabled checks user status from Redis first, falls back to DB if needed
-//func IsUserEnabled(id int, fromDB bool) (status bool, err error) {
-//	defer func() {
-//		// Update Redis cache asynchronously on successful DB read
-//		if shouldUpdateRedis(fromDB, err) {
-//			gopool.Go(func() {
-//				if err := updateUserStatusCache(id, status); err != nil {
-//					common.SysError("failed to update user status cache: " + err.Error())
-//				}
-//			})
-//		}
-//	}()
-//	if !fromDB && common.RedisEnabled {
-//		// Try Redis first
-//		status, err := getUserStatusCache(id)
-//		if err == nil {
-//			return status == common.UserStatusEnabled, nil
-//		}
-//		// Don't return error - fall through to DB
-//	}
-//	fromDB = true
-//	var user User
-//	err = DB.Where("id = ?", id).Select("status").Find(&user).Error
-//	if err != nil {
-//		return false, err
-//	}
-//
-//	return user.Status == common.UserStatusEnabled, nil
-//}
 
 func ValidateAccessToken(token string) (*User, error) {
 	if token == "" {

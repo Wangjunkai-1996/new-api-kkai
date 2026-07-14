@@ -124,10 +124,6 @@ export function SidebarModulesSection({
         title: t('Wallet'),
         description: t('Top up balance and view billing history.'),
       },
-      invitations: {
-        title: t('Invitations'),
-        description: t('Invite friends to earn rebates'),
-      },
       personal: {
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
@@ -157,12 +153,6 @@ export function SidebarModulesSection({
       subscription: {
         title: t('Subscription Management'),
         description: t('Manage subscription plans and pricing.'),
-      },
-      rebateManagement: {
-        title: t('Rebate Management'),
-        description: t(
-          'Manage rebate rules, rebate records, invitation registrations, rebate approvals, and statistics'
-        ),
       },
     },
   }

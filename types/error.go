@@ -16,13 +16,11 @@ type OpenAIError struct {
 	Param    string          `json:"param"`
 	Code     any             `json:"code"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
-	CaseID   string          `json:"case_id,omitempty"`
 }
 
 type ClaudeError struct {
 	Type    string `json:"type,omitempty"`
 	Message string `json:"message,omitempty"`
-	CaseID  string `json:"case_id,omitempty"`
 }
 
 type ErrorType string
@@ -61,7 +59,6 @@ const (
 	ErrorCodeChannelAwsClientError        ErrorCode = "channel:aws_client_error"
 	ErrorCodeChannelInvalidKey            ErrorCode = "channel:invalid_key"
 	ErrorCodeChannelResponseTimeExceeded  ErrorCode = "channel:response_time_exceeded"
-	ErrorCodePolicyUpstreamKeyIsolated    ErrorCode = "policy_upstream_key_isolated"
 
 	// client request error
 	ErrorCodeReadRequestBodyFailed ErrorCode = "read_request_body_failed"
@@ -88,11 +85,6 @@ const (
 	// quota error
 	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
 	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
-
-	// public response error
-	ErrorCodePolicyBlocked          ErrorCode = "policy_blocked"
-	ErrorCodeTemporarilyUnavailable ErrorCode = "temporarily_unavailable"
-	ErrorCodeUpstreamUnavailable    ErrorCode = "upstream_unavailable"
 )
 
 type NewAPIError struct {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -452,11 +453,22 @@ func UpdateChannelBalance(c *gin.Context) {
 }
 
 func updateAllChannelsBalance() error {
+	return updateAllChannelsBalanceWithContext(context.Background())
+}
+
+func RunAutomaticChannelBalanceUpdate(ctx context.Context) error {
+	return updateAllChannelsBalanceWithContext(ctx)
+}
+
+func updateAllChannelsBalanceWithContext(ctx context.Context) error {
 	channels, err := model.GetAllChannels(0, 0, true, false)
 	if err != nil {
 		return err
 	}
 	for _, channel := range channels {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if channel.Status != common.ChannelStatusEnabled {
 			continue
 		}
@@ -476,7 +488,15 @@ func updateAllChannelsBalance() error {
 				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), "余额不足")
 			}
 		}
-		time.Sleep(common.RequestInterval)
+		if common.RequestInterval > 0 {
+			timer := time.NewTimer(common.RequestInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
 	}
 	return nil
 }
@@ -493,13 +513,4 @@ func UpdateAllChannelsBalance(c *gin.Context) {
 		"message": "",
 	})
 	return
-}
-
-func AutomaticallyUpdateChannels(frequency int) {
-	for {
-		time.Sleep(time.Duration(frequency) * time.Minute)
-		common.SysLog("updating all channels")
-		_ = updateAllChannelsBalance()
-		common.SysLog("channels update done")
-	}
 }

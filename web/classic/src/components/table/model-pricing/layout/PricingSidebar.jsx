@@ -25,8 +25,8 @@ import PricingEndpointTypes from '../filter/PricingEndpointTypes';
 import PricingVendors from '../filter/PricingVendors';
 import PricingTags from '../filter/PricingTags';
 
-import { resetPricingFilters } from '../../../../helpers/utils';
 import { usePricingFilterCounts } from '../../../../hooks/model-pricing/usePricingFilterCounts';
+import { resetKkaiPricingFilters } from '../../../../kkai/reset-pricing-filters';
 
 const PricingSidebar = ({
   showWithRecharge,
@@ -75,7 +75,7 @@ const PricingSidebar = ({
   });
 
   const handleResetFilters = () =>
-    resetPricingFilters({
+    resetKkaiPricingFilters({
       handleChange,
       setShowWithRecharge,
       setCurrency,

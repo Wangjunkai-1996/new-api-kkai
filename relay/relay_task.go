@@ -30,8 +30,6 @@ type TaskSubmitResult struct {
 	//PerCallPrice   types.PriceData
 }
 
-var isUpstreamKeyPolicyBreakerOpenForTask = service.IsUpstreamKeyPolicyBreakerOpen
-
 // ResolveOriginTask 处理基于已有任务的提交（remix / continuation）：
 // 查找原始任务、从中提取模型名称、将渠道锁定到原始任务的渠道
 // （通过 info.LockedChannel，重试时复用同一渠道并轮换 key），
@@ -92,9 +90,9 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 	info.LockedChannel = ch
 
 	if originTask.ChannelId != info.ChannelId {
-		key, _, taskErr := getNextEnabledTaskKey(ch)
-		if taskErr != nil {
-			return taskErr
+		key, _, newAPIError := ch.GetNextEnabledKey()
+		if newAPIError != nil {
+			return service.TaskErrorWrapper(newAPIError, "channel_no_available_key", newAPIError.StatusCode)
 		}
 		common.SetContextKey(c, constant.ContextKeyChannelKey, key)
 		common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
@@ -572,28 +570,4 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Username:   task.Username,
 		Data:       task.Data,
 	}
-}
-func getNextEnabledTaskKey(ch *model.Channel) (string, int, *dto.TaskError) {
-	breakerOpen := false
-	key, index, newAPIError := ch.GetNextEnabledKeyWithFilter(func(key string, index int) bool {
-		if isUpstreamKeyPolicyBreakerOpenForTask(ch.Id, key) {
-			breakerOpen = true
-			return false
-		}
-		return true
-	})
-	if newAPIError != nil {
-		if breakerOpen {
-			return "", 0, policyBreakerTaskError()
-		}
-		return "", 0, service.TaskErrorWrapper(newAPIError, "channel_no_available_key", newAPIError.StatusCode)
-	}
-	if isUpstreamKeyPolicyBreakerOpenForTask(ch.Id, key) {
-		return "", 0, policyBreakerTaskError()
-	}
-	return key, index, nil
-}
-
-func policyBreakerTaskError() *dto.TaskError {
-	return service.TaskErrorWrapperLocal(errors.New("upstream key is temporarily isolated by cyber policy breaker"), "policy_breaker_open", http.StatusServiceUnavailable)
 }

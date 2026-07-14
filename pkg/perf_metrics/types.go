@@ -1,9 +1,6 @@
 package perfmetrics
 
-import (
-	"sync"
-	"sync/atomic"
-)
+import "sync/atomic"
 
 type Store interface {
 	Record(sample Sample)
@@ -63,44 +60,6 @@ type SummaryAllResult struct {
 	Models []ModelSummary `json:"models"`
 }
 
-type GroupSummary struct {
-	Group          string `json:"group"`
-	RequestCount   int64  `json:"request_count"`
-	SuccessCount   int64  `json:"success_count"`
-	TotalLatencyMs int64  `json:"total_latency_ms"`
-	TtftSumMs      int64  `json:"ttft_sum_ms"`
-	TtftCount      int64  `json:"ttft_count"`
-}
-
-type GroupSummaryResult struct {
-	Groups []GroupSummary `json:"groups"`
-}
-
-type GroupRecentEvent struct {
-	Ts        int64 `json:"ts"`
-	Success   bool  `json:"success"`
-	LatencyMs int64 `json:"latency_ms"`
-	TtftMs    int64 `json:"ttft_ms"`
-	HasTtft   bool  `json:"has_ttft"`
-}
-
-type redisRecentEvent struct {
-	Ts        int64 `json:"ts"`
-	Success   bool  `json:"success"`
-	LatencyMs int64 `json:"latency_ms,omitempty"`
-	TtftMs    int64 `json:"ttft_ms,omitempty"`
-	HasTtft   bool  `json:"has_ttft,omitempty"`
-}
-
-type GroupRecentEvents struct {
-	Group  string             `json:"group"`
-	Events []GroupRecentEvent `json:"events"`
-}
-
-type GroupRecentEventsResult struct {
-	Groups []GroupRecentEvents `json:"groups"`
-}
-
 type bucketKey struct {
 	model    string
 	group    string
@@ -125,11 +84,6 @@ type atomicBucket struct {
 	ttftCount      atomic.Int64
 	outputTokens   atomic.Int64
 	generationMs   atomic.Int64
-}
-
-type recentEventBuffer struct {
-	mu     sync.Mutex
-	events []GroupRecentEvent
 }
 
 func (b *atomicBucket) add(sample Sample) {
@@ -195,60 +149,5 @@ func (b *atomicBucket) addCounters(c counters) {
 	}
 	if c.generationMs != 0 {
 		b.generationMs.Add(c.generationMs)
-	}
-}
-
-func (b *recentEventBuffer) add(event GroupRecentEvent, limit int) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.addLocked(event, limit)
-}
-
-func (b *recentEventBuffer) snapshotSince(startTs int64, limit int) []GroupRecentEvent {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	events := make([]GroupRecentEvent, 0, len(b.events))
-	for _, event := range b.events {
-		if event.Ts >= startTs {
-			events = append(events, event)
-		}
-	}
-	if len(events) > limit {
-		events = events[len(events)-limit:]
-	}
-	return append([]GroupRecentEvent(nil), events...)
-}
-
-func (b *recentEventBuffer) snapshotLast(limit int) []GroupRecentEvent {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	events := b.events
-	if len(events) > limit {
-		events = events[len(events)-limit:]
-	}
-	return append([]GroupRecentEvent(nil), events...)
-}
-
-func (b *recentEventBuffer) pruneBefore(cutoffTs int64) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	firstKept := 0
-	for firstKept < len(b.events) && b.events[firstKept].Ts < cutoffTs {
-		firstKept++
-	}
-	if firstKept > 0 {
-		b.events = append([]GroupRecentEvent(nil), b.events[firstKept:]...)
-	}
-	return len(b.events) == 0
-}
-
-func (b *recentEventBuffer) addLocked(event GroupRecentEvent, limit int) {
-	b.events = append(b.events, event)
-	if overflow := len(b.events) - limit; overflow > 0 {
-		b.events = append([]GroupRecentEvent(nil), b.events[overflow:]...)
 	}
 }

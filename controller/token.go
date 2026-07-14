@@ -142,58 +142,25 @@ func GetTokenUsage(c *gin.Context) {
 		return
 	}
 
-	tokenIsValid, tokenInvalidReason := token.GetUsageValidity(common.GetTimestamp())
-	userQuota := 0
-	userUsedQuota := 0
-	if tokenIsValid {
-		userQuota, err = model.GetUserQuota(token.UserId, false)
-		if err != nil {
-			common.SysError("failed to get user quota by token: " + err.Error())
-			common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
-			return
-		}
-		userUsedQuota, err = model.GetUserUsedQuota(token.UserId)
-		if err != nil {
-			common.SysError("failed to get user used quota by token: " + err.Error())
-			common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
-			return
-		}
-	}
-
 	expiredAt := token.ExpiredTime
 	if expiredAt == -1 {
 		expiredAt = 0
 	}
-	generalSetting := operation_setting.GetGeneralSetting()
 
-	data := gin.H{
-		"object":                        "token_usage",
-		"name":                          token.Name,
-		"total_granted":                 token.RemainQuota + token.UsedQuota,
-		"total_used":                    token.UsedQuota,
-		"total_available":               token.RemainQuota,
-		"user_total_granted":            userQuota + userUsedQuota,
-		"user_total_used":               userUsedQuota,
-		"user_total_available":          userQuota,
-		"token_total_granted":           token.RemainQuota + token.UsedQuota,
-		"token_total_used":              token.UsedQuota,
-		"token_total_available":         token.RemainQuota,
-		"token_is_valid":                tokenIsValid,
-		"token_invalid_reason":          tokenInvalidReason,
-		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
-		"quota_per_unit":                common.QuotaPerUnit,
-		"usd_exchange_rate":             operation_setting.USDExchangeRate,
-		"custom_currency_exchange_rate": generalSetting.CustomCurrencyExchangeRate,
-		"custom_currency_symbol":        generalSetting.CustomCurrencySymbol,
-		"unlimited_quota":               token.UnlimitedQuota,
-		"model_limits":                  token.GetModelLimitsMap(),
-		"model_limits_enabled":          token.ModelLimitsEnabled,
-		"expires_at":                    expiredAt,
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"code":    true,
 		"message": "ok",
-		"data":    data,
+		"data": gin.H{
+			"object":               "token_usage",
+			"name":                 token.Name,
+			"total_granted":        token.RemainQuota + token.UsedQuota,
+			"total_used":           token.UsedQuota,
+			"total_available":      token.RemainQuota,
+			"unlimited_quota":      token.UnlimitedQuota,
+			"model_limits":         token.GetModelLimitsMap(),
+			"model_limits_enabled": token.ModelLimitsEnabled,
+			"expires_at":           expiredAt,
+		},
 	})
 }
 

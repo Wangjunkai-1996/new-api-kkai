@@ -62,41 +62,6 @@
 
 ---
 
-## KKAI Fork Production Workflow
-
-This fork is operated for the KKAI/Kkrich production deployment. To keep releases auditable and rollback-safe, production has one stable source branch:
-
-```text
-production/kkrich
-```
-
-Rules for this fork:
-
-- Production builds must come from `production/kkrich`.
-- Do not deploy directly from `feature/*`, `fix/*`, `hotfix/*`, `upgrade/*`, or ad hoc `release/*` branches.
-- Feature, fix, hotfix, and upstream-sync branches are temporary integration inputs. They must be merged or fast-forwarded into `production/kkrich` before the rollout is considered complete.
-- Image/version tags should use a production-oriented format such as `kkai-prod-YYYYMMDD.N-<shortsha>` instead of feature-branch names.
-- The production server uses blue-green app containers. Keep the two live rollback slots, verify the active OpenResty target and `x-new-api-version`, and clean obsolete containers/images after each rollout.
-- Before deployment, run the fork patch guards and focused tests documented in [`docs/ops/production-branch.md`](./docs/ops/production-branch.md).
-
-Recommended branch flow:
-
-```text
-official/main
-    -> upgrade/kkai-upstream-YYYYMMDD
-production/kkrich
-    -> feature/kkai-<scope>-YYYYMMDD
-    -> fix/kkai-<scope>-YYYYMMDD
-    -> hotfix/kkai-<scope>-YYYYMMDD
-    -> merge back to production/kkrich
-    -> build kkai-prod-YYYYMMDD.N-<shortsha>
-    -> blue-green deploy
-```
-
-If a future AI/code-assistant session needs to ship production code, it must first fetch `github-kkai`, switch to `production/kkrich`, and treat that branch as the release source of truth.
-
----
-
 ## 🤝 Trusted Partners
 
 <p align="center">

@@ -13,8 +13,7 @@ import (
 
 func newLogInfoTestContext() *gin.Context {
 	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	return ctx
 }
 
@@ -51,14 +50,25 @@ func TestGenerateTextOtherInfoFallsBackToFirstSSEWhenHeaderTimeMissing(t *testin
 	require.Equal(t, float64(8000), other["first_sse_ms"])
 }
 
-func TestGenerateTextOtherInfoOmitsFirstSSEWhenNoResponseWasReceived(t *testing.T) {
+func TestGenerateTextOtherInfoIgnoresInvalidHeaderTime(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0)
 	relayInfo := newLogInfoTestRelayInfo(start)
-	relayInfo.UpstreamHeaderTime = start.Add(1200 * time.Millisecond)
+	relayInfo.UpstreamHeaderTime = start.Add(-time.Second)
+	relayInfo.FirstResponseTime = start.Add(4 * time.Second)
+
+	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+
+	require.Equal(t, float64(4000), other["frt"])
+	require.Equal(t, float64(4000), other["first_sse_ms"])
+}
+
+func TestGenerateTextOtherInfoOmitsInvalidResponseTimings(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	relayInfo := newLogInfoTestRelayInfo(start)
 	relayInfo.FirstResponseTime = start.Add(-time.Second)
 
 	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
 
-	require.Equal(t, float64(1200), other["frt"])
+	require.NotContains(t, other, "frt")
 	require.NotContains(t, other, "first_sse_ms")
 }

@@ -2,98 +2,67 @@ package channel
 
 import (
 	"net/http"
-	"net/netip"
-	"net/url"
-	"strconv"
-	"strings"
 
 	commonpkg "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/kkaiattribution"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	internalAttributionRequestID     = "X-NewAPI-Request-Id"
-	internalAttributionUserID        = "X-NewAPI-User-Id"
-	internalAttributionTokenID       = "X-NewAPI-Token-Id"
-	internalAttributionTokenName     = "X-NewAPI-Token-Name"
-	internalAttributionChannelID     = "X-NewAPI-Channel-Id"
-	internalAttributionMultiKeyIndex = "X-NewAPI-Multi-Key-Index"
-	internalAttributionModel         = "X-NewAPI-Model"
-	internalAttributionSource        = "X-NewAPI-Source"
-)
+var internalAttributionSigner *kkaiattribution.Signer
 
-var internalAttributionHeaderNames = []string{
-	internalAttributionRequestID,
-	internalAttributionUserID,
-	internalAttributionTokenID,
-	internalAttributionTokenName,
-	internalAttributionChannelID,
-	internalAttributionMultiKeyIndex,
-	internalAttributionModel,
-	internalAttributionSource,
-}
-
-func applyInternalAttributionHeaders(req *http.Request, c *gin.Context, info *relaycommon.RelayInfo) {
-	if req == nil || req.URL == nil {
-		return
-	}
-	applyInternalAttributionHeadersForURL(req.Header, req.URL.String(), c, info)
-}
-
-func applyInternalAttributionHeadersForURL(headers http.Header, upstreamURL string, c *gin.Context, info *relaycommon.RelayInfo) {
-	if headers == nil {
-		return
-	}
-	if !isInternalAttributionUpstreamURL(upstreamURL) {
-		removeInternalAttributionHeaders(headers)
-		return
-	}
-
-	headers.Set(internalAttributionRequestID, attributionRequestID(c, info))
-	headers.Set(internalAttributionUserID, strconv.Itoa(attributionUserID(c, info)))
-	headers.Set(internalAttributionTokenID, strconv.Itoa(attributionTokenID(c, info)))
-	headers.Set(internalAttributionTokenName, attributionTokenName(c))
-	headers.Set(internalAttributionChannelID, strconv.Itoa(attributionChannelID(c, info)))
-	headers.Set(internalAttributionMultiKeyIndex, strconv.Itoa(attributionMultiKeyIndex(c, info)))
-	headers.Set(internalAttributionModel, attributionModel(c, info))
-	headers.Set(internalAttributionSource, "new-api")
-}
-
-func removeInternalAttributionHeaders(headers http.Header) {
-	for _, name := range internalAttributionHeaderNames {
-		headers.Del(name)
-	}
-}
-
-func isInternalAttributionUpstreamURL(upstreamURL string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(upstreamURL))
+func InitInternalAttribution() error {
+	signer, err := kkaiattribution.NewSignerFromEnvironment()
 	if err != nil {
-		return false
+		internalAttributionSigner = nil
+		return err
 	}
-	return isInternalAttributionHost(parsed.Hostname())
+	internalAttributionSigner = signer
+	return nil
 }
 
-func isInternalAttributionHost(host string) bool {
-	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
-	if host == "" {
-		return false
+func applyInternalAttributionHeaders(req *http.Request, c *gin.Context, info *relaycommon.RelayInfo) error {
+	if req == nil {
+		return kkaiattribution.ErrInvalidEnvelope
 	}
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
+	_, err := internalAttributionSigner.ApplyRequest(req, internalAttributionClaims(c, info))
+	return err
+}
+
+func applyInternalAttributionHeadersForURL(
+	headers http.Header,
+	method string,
+	upstreamURL string,
+	authority string,
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+) error {
+	_, err := internalAttributionSigner.Apply(headers, method, upstreamURL, authority, internalAttributionClaims(c, info))
+	return err
+}
+
+func internalAttributionClaims(c *gin.Context, info *relaycommon.RelayInfo) kkaiattribution.Claims {
+	claims := kkaiattribution.Claims{
+		RequestID: attributionRequestID(c, info),
+		Model:     attributionModel(c, info),
+		Source:    "new-api",
+	}
+	if info != nil {
+		claims.UserID = info.UserId
+		claims.TokenID = info.TokenId
+		if info.ChannelMeta != nil {
+			claims.ChannelID = info.ChannelId
+			claims.MultiKeyIndex = info.ChannelMultiKeyIndex
+		}
 	}
 
-	if zoneIndex := strings.LastIndex(host, "%"); zoneIndex >= 0 {
-		host = host[:zoneIndex]
-	}
-	addr, err := netip.ParseAddr(host)
-	if err != nil {
-		return false
-	}
-	addr = addr.Unmap()
-	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
+	claims.UserID = attributionContextInt(c, constant.ContextKeyUserId, claims.UserID)
+	claims.TokenID = attributionContextInt(c, constant.ContextKeyTokenId, claims.TokenID)
+	claims.ChannelID = attributionContextInt(c, constant.ContextKeyChannelId, claims.ChannelID)
+	claims.MultiKeyIndex = attributionContextInt(c, constant.ContextKeyChannelMultiKeyIndex, claims.MultiKeyIndex)
+	return claims
 }
 
 func attributionRequestID(c *gin.Context, info *relaycommon.RelayInfo) string {
@@ -102,53 +71,10 @@ func attributionRequestID(c *gin.Context, info *relaycommon.RelayInfo) string {
 			return requestID
 		}
 	}
-	if info != nil {
-		return info.RequestId
-	}
-	return ""
-}
-
-func attributionUserID(c *gin.Context, info *relaycommon.RelayInfo) int {
-	return contextIntWithFallback(c, constant.ContextKeyUserId, func() int {
-		if info == nil {
-			return 0
-		}
-		return info.UserId
-	})
-}
-
-func attributionTokenID(c *gin.Context, info *relaycommon.RelayInfo) int {
-	return contextIntWithFallback(c, constant.ContextKeyTokenId, func() int {
-		if info == nil {
-			return 0
-		}
-		return info.TokenId
-	})
-}
-
-func attributionTokenName(c *gin.Context) string {
-	if c == nil {
+	if info == nil {
 		return ""
 	}
-	return c.GetString("token_name")
-}
-
-func attributionChannelID(c *gin.Context, info *relaycommon.RelayInfo) int {
-	return contextIntWithFallback(c, constant.ContextKeyChannelId, func() int {
-		if info == nil || info.ChannelMeta == nil {
-			return 0
-		}
-		return info.ChannelId
-	})
-}
-
-func attributionMultiKeyIndex(c *gin.Context, info *relaycommon.RelayInfo) int {
-	return contextIntWithFallback(c, constant.ContextKeyChannelMultiKeyIndex, func() int {
-		if info == nil || info.ChannelMeta == nil {
-			return 0
-		}
-		return info.ChannelMultiKeyIndex
-	})
+	return info.RequestId
 }
 
 func attributionModel(c *gin.Context, info *relaycommon.RelayInfo) string {
@@ -169,11 +95,11 @@ func attributionModel(c *gin.Context, info *relaycommon.RelayInfo) string {
 	return ""
 }
 
-func contextIntWithFallback(c *gin.Context, key constant.ContextKey, fallback func() int) int {
+func attributionContextInt(c *gin.Context, key constant.ContextKey, fallback int) int {
 	if c != nil {
-		if _, ok := commonpkg.GetContextKey(c, key); ok {
+		if _, exists := commonpkg.GetContextKey(c, key); exists {
 			return commonpkg.GetContextKeyInt(c, key)
 		}
 	}
-	return fallback()
+	return fallback
 }

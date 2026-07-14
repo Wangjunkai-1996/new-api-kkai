@@ -23,8 +23,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var isPolicyTokenBreakerOpen = service.IsPolicyTokenBreakerOpen
-
 func validUserInfo(username string, role int) bool {
 	// check username is empty
 	if strings.TrimSpace(username) == "" {
@@ -414,11 +412,6 @@ func TokenAuth() func(c *gin.Context) {
 		userEnabled := userCache.Status == common.UserStatusEnabled
 		if !userEnabled {
 			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
-			return
-		}
-		if isPolicyTokenBreakerOpen(token.Id) {
-			logger.LogWarn(c, fmt.Sprintf("policy token breaker open: request_id=%s token_id=%d user_id=%d", c.GetString(common.RequestIdKey), token.Id, token.UserId))
-			abortWithOpenAiMessage(c, http.StatusLocked, types.PublicMessageRequestTemporarilyUnavailable, types.ErrorCodeTemporarilyUnavailable)
 			return
 		}
 

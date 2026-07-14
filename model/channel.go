@@ -32,7 +32,7 @@ type Channel struct {
 	CreatedTime        int64   `json:"created_time" gorm:"bigint"`
 	TestTime           int64   `json:"test_time" gorm:"bigint"`
 	ResponseTime       int     `json:"response_time"` // in milliseconds
-	BaseURL            *string `json:"base_url" gorm:"column:base_url"`
+	BaseURL            *string `json:"base_url" gorm:"column:base_url;default:''"`
 	Other              string  `json:"other"`
 	Balance            float64 `json:"balance"` // in USD
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
@@ -41,7 +41,7 @@ type Channel struct {
 	UsedQuota          int64   `json:"used_quota" gorm:"bigint;default:0"`
 	ModelMapping       *string `json:"model_mapping" gorm:"type:text"`
 	//MaxInputTokens     *int    `json:"max_input_tokens" gorm:"default:0"`
-	StatusCodeMapping *string `json:"status_code_mapping"`
+	StatusCodeMapping *string `json:"status_code_mapping" gorm:"type:varchar(1024);default:''"`
 	Priority          *int64  `json:"priority" gorm:"bigint;default:0"`
 	AutoBan           *int    `json:"auto_ban" gorm:"default:1"`
 	OtherInfo         string  `json:"other_info"`
@@ -197,19 +197,8 @@ func (channel *Channel) GetKeys() []string {
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
-	return channel.GetNextEnabledKeyWithFilter(nil)
-}
-
-func (channel *Channel) GetNextEnabledKeyWithFilter(allow func(key string, index int) bool) (string, int, *types.NewAPIError) {
-	keyAllowed := func(key string, index int) bool {
-		return allow == nil || allow(key, index)
-	}
-
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
-		if !keyAllowed(channel.Key, 0) {
-			return "", 0, types.NewError(errors.New("no available keys"), types.ErrorCodeChannelNoAvailableKey)
-		}
 		return channel.Key, 0, nil
 	}
 
@@ -236,33 +225,24 @@ func (channel *Channel) GetNextEnabledKeyWithFilter(allow func(key string, index
 		return common.ChannelStatusEnabled
 	}
 
-	// Collect indexes of keys that are enabled and accepted by the caller's filter.
-	available := make([]bool, len(keys))
-	availableIdx := make([]int, 0, len(keys))
-	enabledCount := 0
+	// Collect indexes of enabled keys
+	enabledIdx := make([]int, 0, len(keys))
 	for i := range keys {
 		if getStatus(i) == common.ChannelStatusEnabled {
-			enabledCount++
-			if keyAllowed(keys[i], i) {
-				available[i] = true
-				availableIdx = append(availableIdx, i)
-			}
+			enabledIdx = append(enabledIdx, i)
 		}
 	}
 	// If no specific status list or none enabled, return an explicit error so caller can
 	// properly handle a channel with no available keys (e.g. mark channel disabled).
 	// Returning the first key here caused requests to keep using an already-disabled key.
-	if len(availableIdx) == 0 {
-		if enabledCount > 0 {
-			return "", 0, types.NewError(errors.New("no available keys"), types.ErrorCodeChannelNoAvailableKey)
-		}
+	if len(enabledIdx) == 0 {
 		return "", 0, types.NewError(errors.New("no enabled keys"), types.ErrorCodeChannelNoAvailableKey)
 	}
 
 	switch channel.ChannelInfo.MultiKeyMode {
 	case constant.MultiKeyModeRandom:
-		// Randomly pick one available key.
-		selectedIdx := availableIdx[rand.Intn(len(availableIdx))]
+		// Randomly pick one enabled key
+		selectedIdx := enabledIdx[rand.Intn(len(enabledIdx))]
 		return keys[selectedIdx], selectedIdx, nil
 	case constant.MultiKeyModePolling:
 		// Use channel-specific lock to ensure thread-safe polling
@@ -288,17 +268,17 @@ func (channel *Channel) GetNextEnabledKeyWithFilter(allow func(key string, index
 		}
 		for i := 0; i < len(keys); i++ {
 			idx := (start + i) % len(keys)
-			if available[idx] {
+			if getStatus(idx) == common.ChannelStatusEnabled {
 				// update polling index for next call (point to the next position)
 				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
 				return keys[idx], idx, nil
 			}
 		}
-		// Fallback – should not happen, but return first available key.
-		return keys[availableIdx[0]], availableIdx[0], nil
+		// Fallback – should not happen, but return first enabled key
+		return keys[enabledIdx[0]], enabledIdx[0], nil
 	default:
-		// Unknown mode, default to first available key (or original key string)
-		return keys[availableIdx[0]], availableIdx[0], nil
+		// Unknown mode, default to first enabled key (or original key string)
+		return keys[enabledIdx[0]], enabledIdx[0], nil
 	}
 }
 
@@ -592,16 +572,6 @@ func (channel *Channel) Update() error {
 	return err
 }
 
-func (channel *Channel) BeforeCreate(*gorm.DB) error {
-	if channel.BaseURL == nil {
-		channel.BaseURL = common.GetPointer("")
-	}
-	if channel.StatusCodeMapping == nil {
-		channel.StatusCodeMapping = common.GetPointer("")
-	}
-	return nil
-}
-
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
 	err := DB.Model(channel).Select("response_time", "test_time").Updates(Channel{
 		TestTime:     common.GetTimestamp(),
@@ -668,84 +638,56 @@ func CleanupChannelPollingLocks() {
 	})
 }
 
-func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason string) bool {
+func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason string) {
 	keys := channel.GetKeys()
 	if len(keys) == 0 {
-		if channel.Status == status {
-			return false
-		}
 		channel.Status = status
-		info := channel.GetOtherInfo()
-		info["status_reason"] = reason
-		info["status_time"] = common.GetTimestamp()
-		channel.SetOtherInfo(info)
-		return true
-	}
-
-	if usingKey == "" {
-		return false
-	}
-
-	keyIndex := -1
-	for i, key := range keys {
-		if key == usingKey {
-			keyIndex = i
-			break
-		}
-	}
-
-	if keyIndex == -1 {
-		common.SysLog(fmt.Sprintf("failed to update multi-key status: channel_id=%d, using key not found", channel.Id))
-		return false
-	}
-
-	if channel.ChannelInfo.MultiKeyStatusList == nil {
-		channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
-	}
-	currentStatus := common.ChannelStatusEnabled
-	if storedStatus, ok := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; ok {
-		currentStatus = storedStatus
-	}
-	if currentStatus == status {
-		return false
-	}
-
-	if status == common.ChannelStatusEnabled {
-		delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
-		if channel.ChannelInfo.MultiKeyDisabledReason != nil {
-			delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
-		}
-		if channel.ChannelInfo.MultiKeyDisabledTime != nil {
-			delete(channel.ChannelInfo.MultiKeyDisabledTime, keyIndex)
-		}
 	} else {
-		channel.ChannelInfo.MultiKeyStatusList[keyIndex] = status
-		if channel.ChannelInfo.MultiKeyDisabledReason == nil {
-			channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
+		keyIndex := -1
+		for i, key := range keys {
+			if key == usingKey {
+				keyIndex = i
+				break
+			}
 		}
-		if channel.ChannelInfo.MultiKeyDisabledTime == nil {
-			channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
+		if keyIndex < 0 {
+			if usingKey != "" {
+				common.SysLog(fmt.Sprintf("failed to update multi-key status: channel_id=%d, using key not found", channel.Id))
+				return
+			}
+			channel.Status = status
+			info := channel.GetOtherInfo()
+			info["status_reason"] = reason
+			info["status_time"] = common.GetTimestamp()
+			channel.SetOtherInfo(info)
+			return
 		}
-		channel.ChannelInfo.MultiKeyDisabledReason[keyIndex] = reason
-		channel.ChannelInfo.MultiKeyDisabledTime[keyIndex] = common.GetTimestamp()
-	}
-
-	disabledKeyCount := 0
-	for i := range keys {
-		if storedStatus, ok := channel.ChannelInfo.MultiKeyStatusList[i]; ok && storedStatus != common.ChannelStatusEnabled {
-			disabledKeyCount++
+		if channel.ChannelInfo.MultiKeyStatusList == nil {
+			channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
+		}
+		if status == common.ChannelStatusEnabled {
+			delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
+		} else {
+			channel.ChannelInfo.MultiKeyStatusList[keyIndex] = status
+			if channel.ChannelInfo.MultiKeyDisabledReason == nil {
+				channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
+			}
+			if channel.ChannelInfo.MultiKeyDisabledTime == nil {
+				channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
+			}
+			channel.ChannelInfo.MultiKeyDisabledReason[keyIndex] = reason
+			channel.ChannelInfo.MultiKeyDisabledTime[keyIndex] = common.GetTimestamp()
+		}
+		if !hasEnabledMultiKey(keys, channel.ChannelInfo.MultiKeyStatusList) {
+			channel.Status = common.ChannelStatusAutoDisabled
+			info := channel.GetOtherInfo()
+			info["status_reason"] = "All keys are disabled"
+			info["status_time"] = common.GetTimestamp()
+			channel.SetOtherInfo(info)
+		} else if status == common.ChannelStatusEnabled {
+			channel.Status = common.ChannelStatusEnabled
 		}
 	}
-	if disabledKeyCount >= len(keys) {
-		channel.Status = common.ChannelStatusAutoDisabled
-		info := channel.GetOtherInfo()
-		info["status_reason"] = "All keys are disabled"
-		info["status_time"] = common.GetTimestamp()
-		channel.SetOtherInfo(info)
-	} else if status == common.ChannelStatusEnabled && channel.Status == common.ChannelStatusAutoDisabled {
-		channel.Status = common.ChannelStatusEnabled
-	}
-	return true
 }
 
 func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
@@ -805,7 +747,7 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	if err != nil {
 		return false
 	} else {
-		if !channel.ChannelInfo.IsMultiKey && channel.Status == status {
+		if channel.Status == status {
 			return false
 		}
 
@@ -814,11 +756,8 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			// Protect map writes with the same per-channel lock used by readers
 			pollingLock := GetChannelPollingLock(channelId)
 			pollingLock.Lock()
-			changed := handlerMultiKeyUpdate(channel, usingKey, status, reason)
+			handlerMultiKeyUpdate(channel, usingKey, status, reason)
 			pollingLock.Unlock()
-			if !changed {
-				return false
-			}
 			if beforeStatus != channel.Status {
 				shouldUpdateAbilities = true
 			}

@@ -80,13 +80,6 @@ type Log struct {
 	Other             string `json:"other"`
 }
 
-type RecentGroupRequestSignal struct {
-	Group          string
-	CreatedAt      int64
-	Success        bool
-	UseTimeSeconds int
-}
-
 // don't use iota, avoid change log type value
 const (
 	LogTypeUnknown = 0
@@ -108,52 +101,6 @@ func ensureLogRequestId(log *Log) {
 func createLog(log *Log) error {
 	ensureLogRequestId(log)
 	return LOG_DB.Create(log).Error
-}
-
-func GetRecentGroupRequestSignals(groups []string, limit int) (map[string][]RecentGroupRequestSignal, error) {
-	signalsByGroup := make(map[string][]RecentGroupRequestSignal, len(groups))
-	if len(groups) == 0 {
-		return signalsByGroup, nil
-	}
-	if limit <= 0 {
-		limit = 60
-	}
-
-	for _, group := range groups {
-		var logs []Log
-		err := LOG_DB.Model(&Log{}).
-			Select("created_at, type, use_time").
-			Where("type IN ? AND "+logGroupCol+" = ?", []int{LogTypeConsume, LogTypeError}, group).
-			Order(recentGroupSignalOrder()).
-			Limit(limit).
-			Find(&logs).Error
-		if err != nil {
-			return nil, err
-		}
-		if len(logs) == 0 {
-			continue
-		}
-		signals := make([]RecentGroupRequestSignal, 0, len(logs))
-		for i := len(logs) - 1; i >= 0; i-- {
-			log := logs[i]
-			signals = append(signals, RecentGroupRequestSignal{
-				Group:          group,
-				CreatedAt:      log.CreatedAt,
-				Success:        log.Type == LogTypeConsume,
-				UseTimeSeconds: log.UseTime,
-			})
-		}
-		signalsByGroup[group] = signals
-	}
-
-	return signalsByGroup, nil
-}
-
-func recentGroupSignalOrder() string {
-	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
-		return clickHouseLogOrder("logs.")
-	}
-	return "created_at desc, id desc"
 }
 
 func clickHouseLogOrder(prefix string) string {

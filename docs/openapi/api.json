@@ -3569,7 +3569,7 @@
       "get": {
         "summary": "获取令牌使用情况",
         "deprecated": false,
-        "description": "🔑 需要令牌只读认证（TokenAuthReadOnly）。Authorization: Bearer {sk-token} accepts existing token keys for read-only usage lookup. Account-level user balance fields (user_total_*) are exposed only for currently valid tokens; invalid tokens return token_is_valid=false, token_invalid_reason, and zero user_total_* values as a safety fallback.",
+        "description": "🔑 需要令牌认证（TokenAuth）",
         "tags": [
           "令牌管理"
         ],
@@ -3577,9 +3577,9 @@
           {
             "name": "Authorization",
             "in": "header",
-            "description": "Bearer token key, for example Bearer sk-...; TokenAuthReadOnly accepts existing token keys for read-only usage lookup.",
-            "required": true,
-            "example": "Bearer sk-...",
+            "description": "",
+            "required": false,
+            "example": "",
             "schema": {
               "type": "string"
             }
@@ -3588,85 +3588,15 @@
         "responses": {
           "200": {
             "description": "成功",
-            "headers": {},
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenUsageResponse"
-                },
-                "examples": {
-                  "validToken": {
-                    "summary": "Valid token",
-                    "value": {
-                      "code": true,
-                      "message": "ok",
-                      "data": {
-                        "object": "token_usage",
-                        "name": "CC Switch",
-                        "token_is_valid": true,
-                        "token_invalid_reason": "",
-                        "total_granted": 100000,
-                        "total_used": 25000,
-                        "total_available": 75000,
-                        "token_total_granted": 100000,
-                        "token_total_used": 25000,
-                        "token_total_available": 75000,
-                        "user_total_granted": 500000,
-                        "user_total_used": 125000,
-                        "user_total_available": 375000,
-                        "quota_display_type": "USD",
-                        "quota_per_unit": 500000,
-                        "usd_exchange_rate": 7.2,
-                        "custom_currency_exchange_rate": 1,
-                        "custom_currency_symbol": "",
-                        "unlimited_quota": false,
-                        "model_limits": {
-                          "gpt-4o-mini": true
-                        },
-                        "model_limits_enabled": true,
-                        "expires_at": 0
-                      }
-                    }
-                  },
-                  "invalidToken": {
-                    "summary": "Existing but invalid token",
-                    "value": {
-                      "code": true,
-                      "message": "ok",
-                      "data": {
-                        "object": "token_usage",
-                        "name": "CC Switch",
-                        "token_is_valid": false,
-                        "token_invalid_reason": "token_disabled",
-                        "total_granted": 100000,
-                        "total_used": 100000,
-                        "total_available": 0,
-                        "token_total_granted": 100000,
-                        "token_total_used": 100000,
-                        "token_total_available": 0,
-                        "user_total_granted": 0,
-                        "user_total_used": 0,
-                        "user_total_available": 0,
-                        "quota_display_type": "USD",
-                        "quota_per_unit": 500000,
-                        "usd_exchange_rate": 7.2,
-                        "custom_currency_exchange_rate": 1,
-                        "custom_currency_symbol": "",
-                        "unlimited_quota": false,
-                        "model_limits": {},
-                        "model_limits_enabled": false,
-                        "expires_at": 0
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "headers": {}
           }
         },
         "security": [
           {
-            "TokenAuthReadOnly": []
+            "Combination343": []
+          },
+          {
+            "Combination1243": []
           }
         ]
       }
@@ -5188,175 +5118,6 @@
           },
           "redeemed_time": {
             "type": "integer"
-          }
-        }
-      },
-      "TokenUsageData": {
-        "type": "object",
-        "required": [
-          "object",
-          "name",
-          "token_is_valid",
-          "token_invalid_reason",
-          "total_granted",
-          "total_used",
-          "total_available",
-          "token_total_granted",
-          "token_total_used",
-          "token_total_available",
-          "user_total_granted",
-          "user_total_used",
-          "user_total_available",
-          "quota_display_type",
-          "quota_per_unit",
-          "usd_exchange_rate",
-          "custom_currency_exchange_rate",
-          "custom_currency_symbol",
-          "unlimited_quota",
-          "model_limits",
-          "model_limits_enabled",
-          "expires_at"
-        ],
-        "properties": {
-          "object": {
-            "type": "string",
-            "description": "Fixed object type for token usage lookups.",
-            "example": "token_usage"
-          },
-          "name": {
-            "type": "string",
-            "description": "Token display name."
-          },
-          "token_is_valid": {
-            "type": "boolean",
-            "description": "Whether the token currently passes normal usage checks. Read-only lookup can return false for existing but disabled, expired, exhausted, or otherwise invalid tokens."
-          },
-          "token_invalid_reason": {
-            "type": "string",
-            "nullable": true,
-            "description": "Stable reason literal when token_is_valid is false. Runtime invalid reasons are token_disabled, token_expired, token_exhausted, and token_status_unavailable. Empty string or null means the token is valid.",
-            "enum": [
-              "",
-              "token_disabled",
-              "token_expired",
-              "token_exhausted",
-              "token_status_unavailable"
-            ]
-          },
-          "total_granted": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Legacy token-level granted quota alias; equals token_total_granted."
-          },
-          "total_used": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Legacy token-level used quota alias; equals token_total_used."
-          },
-          "total_available": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Legacy token-level available quota alias; equals token_total_available."
-          },
-          "token_total_granted": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Quota granted to this token key."
-          },
-          "token_total_used": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Quota used by this token key."
-          },
-          "token_total_available": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Quota still available to this token key. For unlimited tokens, use unlimited_quota when deciding display behavior."
-          },
-          "user_total_granted": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Account-level granted quota for the token owner. Exposed only when token_is_valid is true; invalid tokens return 0 as a safety fallback."
-          },
-          "user_total_used": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Account-level used quota for the token owner. Exposed only when token_is_valid is true; invalid tokens return 0 as a safety fallback."
-          },
-          "user_total_available": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Account-level available quota for the token owner. Exposed only when token_is_valid is true; invalid tokens return 0 as a safety fallback."
-          },
-          "quota_display_type": {
-            "type": "string",
-            "enum": [
-              "USD",
-              "CNY",
-              "TOKENS",
-              "CUSTOM"
-            ],
-            "description": "Configured quota display mode."
-          },
-          "quota_per_unit": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Internal quota units per display unit."
-          },
-          "usd_exchange_rate": {
-            "type": "number",
-            "format": "double",
-            "description": "USD exchange rate used for quota display."
-          },
-          "custom_currency_exchange_rate": {
-            "type": "number",
-            "format": "double",
-            "description": "Custom currency exchange rate used when quota_display_type is CUSTOM."
-          },
-          "custom_currency_symbol": {
-            "type": "string",
-            "description": "Custom currency symbol used when quota_display_type is CUSTOM."
-          },
-          "unlimited_quota": {
-            "type": "boolean",
-            "description": "Whether this token has unlimited token-level quota."
-          },
-          "model_limits": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "boolean"
-            },
-            "description": "Model allow-list map for this token."
-          },
-          "model_limits_enabled": {
-            "type": "boolean",
-            "description": "Whether model_limits are enforced for this token."
-          },
-          "expires_at": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Token expiration Unix timestamp. 0 means no expiration."
-          }
-        }
-      },
-      "TokenUsageResponse": {
-        "type": "object",
-        "required": [
-          "code",
-          "message",
-          "data"
-        ],
-        "properties": {
-          "code": {
-            "type": "boolean",
-            "description": "Whether the lookup request succeeded."
-          },
-          "message": {
-            "type": "string",
-            "description": "Response message."
-          },
-          "data": {
-            "$ref": "#/components/schemas/TokenUsageData"
           }
         }
       }
@@ -8042,12 +7803,6 @@
           }
         ],
         "type": "combination"
-      },
-      "TokenAuthReadOnly": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "Authorization",
-        "description": "Read-only token authentication. Use Authorization: Bearer {sk-token}. Existing token keys are accepted for usage lookup, but account-level user balance fields are populated only for currently valid tokens."
       }
     }
   },

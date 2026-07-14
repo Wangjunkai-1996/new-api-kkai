@@ -7,22 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 )
-
-func flushLoop() {
-	for {
-		interval := perf_metrics_setting.GetFlushIntervalMinutes()
-		time.Sleep(time.Duration(interval) * time.Minute)
-		setting := perf_metrics_setting.GetSetting()
-		if !setting.Enabled {
-			continue
-		}
-		flushCompletedBuckets()
-		CleanupRecentGroupEvents()
-		cleanupExpiredMetrics(setting.RetentionDays)
-	}
-}
 
 func flushCompletedBuckets() {
 	currentBucket := bucketStart(time.Now().Unix())

@@ -14,11 +14,14 @@ import (
 )
 
 func NotifyRootUser(t string, subject string, content string) {
-	user := model.GetRootUser().ToBaseUser()
-	err := NotifyUser(user.Id, user.Email, user.GetSetting(), dto.NewNotify(t, subject, content, nil))
-	if err != nil {
+	if err := notifyRootUser(t, subject, content); err != nil {
 		common.SysLog(fmt.Sprintf("failed to notify root user: %s", err.Error()))
 	}
+}
+
+func notifyRootUser(t string, subject string, content string) error {
+	user := model.GetRootUser().ToBaseUser()
+	return NotifyUser(user.Id, user.Email, user.GetSetting(), dto.NewNotify(t, subject, content, nil))
 }
 
 func NotifyUpstreamModelUpdateWatchers(subject string, content string) {

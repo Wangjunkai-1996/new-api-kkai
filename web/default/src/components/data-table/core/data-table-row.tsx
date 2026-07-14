@@ -1,9 +1,3 @@
-import {
-  flexRender,
-  type Cell,
-  type Row,
-  type Table as TanstackTable,
-} from '@tanstack/react-table'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -22,6 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  flexRender,
+  type Cell,
+  type Row,
+  type Table as TanstackTable,
+} from '@tanstack/react-table'
 import * as React from 'react'
 
 import { TableCell, TableRow } from '@/components/ui/table'

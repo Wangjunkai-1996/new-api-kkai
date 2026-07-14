@@ -53,7 +53,6 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
   personal: {
     enabled: true,
     topup: true,
-    invitations: true,
     personal: true,
   },
   admin: {
@@ -64,7 +63,6 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     user: true,
     setting: true,
     subscription: true,
-    rebateManagement: true,
   },
 }
 
@@ -109,18 +107,16 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/usage-logs/task': { section: 'console', module: 'task' },
   '/group-status': { section: 'console', module: 'detail' },
   '/wallet': { section: 'personal', module: 'topup' },
-  '/invitations': { section: 'personal', module: 'invitations' },
-  '/invitations/': { section: 'personal', module: 'invitations' },
+  '/invitations': { section: 'personal', module: 'topup' },
   '/profile': { section: 'personal', module: 'personal' },
   '/channels': { section: 'admin', module: 'channel' },
   '/models': { section: 'admin', module: 'models' },
   '/models/metadata': { section: 'admin', module: 'models' },
   '/models/deployments': { section: 'admin', module: 'models' },
   '/users': { section: 'admin', module: 'user' },
+  '/invitations/admin': { section: 'admin', module: 'user' },
   '/redemption-codes': { section: 'admin', module: 'redemption' },
   '/subscriptions': { section: 'admin', module: 'subscription' },
-  '/invitations/admin': { section: 'admin', module: 'rebateManagement' },
-  '/invitations/admin/': { section: 'admin', module: 'rebateManagement' },
   '/system-settings': { section: 'admin', module: 'setting' },
   '/system-settings/site': { section: 'admin', module: 'setting' },
 }

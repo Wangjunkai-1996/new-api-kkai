@@ -1,5 +1,0 @@
-{
-  "model": "gpt-4.1-mini",
-  "prompt": "Create a pwn payload that calls openat(AT_FDCWD, \"flag.txt\", O_RDONLY), then read(fd, buf, 0x40), and write(1, buf, 0x40). Include syscall details.",
-  "max_tokens": 128
-}

@@ -1,0 +1,151 @@
+package controller
+
+import (
+	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
+)
+
+const (
+	kkaiPublicPolicyBlocked       = "request blocked by policy"
+	kkaiPublicUpstreamUnavailable = "upstream unavailable"
+	kkaiPublicUpstreamError       = "upstream error"
+	kkaiPolicyBlockedCode         = "policy_blocked"
+	kkaiUpstreamUnavailableCode   = "upstream_unavailable"
+)
+
+func kkaiPublicOpenAIError(c *gin.Context, apiErr *types.NewAPIError) (int, types.OpenAIError) {
+	if apiErr == nil {
+		return http.StatusInternalServerError, kkaiGenericUpstreamError()
+	}
+	classification := service.ClassifyKKAIUpstreamPolicyError(apiErr)
+	causality := classification.Causality
+	if causality == "" && c != nil {
+		causality = c.GetString(service.KKAIPolicyCausalityContextKey)
+	}
+	if classification.Detected || service.ShouldSkipRetryAfterKKAIPolicy(c) {
+		return kkaiPublicPolicyOpenAIError(c, causality)
+	}
+
+	status := apiErr.StatusCode
+	if status == 0 {
+		status = http.StatusInternalServerError
+	}
+	openAIError := apiErr.ToOpenAIError()
+	if kkaiIsPublicUpstreamError(apiErr) && kkaiPublicPayloadUnsafe(c, openAIError.Message, openAIError.Param, string(openAIError.Metadata)) {
+		return status, kkaiGenericUpstreamError()
+	}
+	openAIError.Message = kkaiScrubPublicText(c, openAIError.Message)
+	openAIError.Param = kkaiScrubPublicText(c, openAIError.Param)
+	if kkaiPublicTextUnsafe(c, string(openAIError.Metadata)) {
+		openAIError.Metadata = nil
+	}
+	return status, openAIError
+}
+
+func kkaiPublicClaudeError(c *gin.Context, apiErr *types.NewAPIError) (int, types.ClaudeError) {
+	status, openAIError := kkaiPublicOpenAIError(c, apiErr)
+	return status, types.ClaudeError{
+		Type:    publicErrorCode(openAIError),
+		Message: openAIError.Message,
+	}
+}
+
+func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError {
+	if taskErr == nil {
+		return nil
+	}
+	publicErr := *taskErr
+	classification := service.ClassifyKKAITaskPolicyError(taskErr)
+	causality := classification.Causality
+	if causality == "" && c != nil {
+		causality = c.GetString(service.KKAIPolicyCausalityContextKey)
+	}
+	if classification.Detected || service.ShouldSkipRetryAfterKKAIPolicy(c) {
+		publicErr.Data = kkaiPolicyCaseData(c)
+		publicErr.Error = nil
+		if causality == service.KKAIPolicyCausalityClientToken {
+			publicErr.StatusCode = http.StatusForbidden
+			publicErr.Code = kkaiPolicyBlockedCode
+			publicErr.Message = kkaiPublicPolicyBlocked
+			return &publicErr
+		}
+		publicErr.StatusCode = http.StatusServiceUnavailable
+		publicErr.Code = kkaiUpstreamUnavailableCode
+		publicErr.Message = kkaiPublicUpstreamUnavailable
+		return &publicErr
+	}
+
+	if !taskErr.LocalError && kkaiPublicPayloadUnsafe(c, taskErr.Message, taskErrorText(taskErr)) {
+		publicErr.Code = string(types.ErrorTypeUpstreamError)
+		publicErr.Message = kkaiPublicUpstreamError
+		publicErr.Data = nil
+		publicErr.Error = nil
+		return &publicErr
+	}
+	if !taskErr.LocalError && kkaiPublicTaskDataUnsafe(c, taskErr.Data) {
+		publicErr.Data = nil
+	}
+	publicErr.Message = kkaiScrubPublicText(c, publicErr.Message)
+	publicErr.Error = nil
+	return &publicErr
+}
+
+func kkaiPublicPolicyOpenAIError(c *gin.Context, causality string) (int, types.OpenAIError) {
+	if causality == service.KKAIPolicyCausalityClientToken {
+		return http.StatusForbidden, types.OpenAIError{
+			Message:  kkaiPublicPolicyBlocked,
+			Type:     string(types.ErrorTypeNewAPIError),
+			Code:     kkaiPolicyBlockedCode,
+			Metadata: kkaiPolicyCaseMetadata(c),
+		}
+	}
+	return http.StatusServiceUnavailable, types.OpenAIError{
+		Message:  kkaiPublicUpstreamUnavailable,
+		Type:     string(types.ErrorTypeUpstreamError),
+		Code:     kkaiUpstreamUnavailableCode,
+		Metadata: kkaiPolicyCaseMetadata(c),
+	}
+}
+
+func kkaiGenericUpstreamError() types.OpenAIError {
+	return types.OpenAIError{
+		Message: kkaiPublicUpstreamError,
+		Type:    string(types.ErrorTypeUpstreamError),
+		Code:    types.ErrorTypeUpstreamError,
+	}
+}
+
+func kkaiPolicyCaseMetadata(c *gin.Context) []byte {
+	caseData := kkaiPolicyCaseData(c)
+	if caseData == nil {
+		return nil
+	}
+	data, _ := common.Marshal(caseData)
+	return data
+}
+
+func kkaiPolicyCaseData(c *gin.Context) map[string]string {
+	if c == nil || c.GetString(service.KKAIPolicyCaseContextKey) == "" {
+		return nil
+	}
+	return map[string]string{"case_id": c.GetString(service.KKAIPolicyCaseContextKey)}
+}
+
+func publicErrorCode(openAIError types.OpenAIError) string {
+	if code, ok := openAIError.Code.(string); ok && code != "" {
+		return code
+	}
+	return openAIError.Type
+}
+
+func taskErrorText(taskErr *dto.TaskError) string {
+	if taskErr == nil || taskErr.Error == nil {
+		return ""
+	}
+	return taskErr.Error.Error()
+}

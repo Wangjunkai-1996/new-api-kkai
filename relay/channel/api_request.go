@@ -327,7 +327,9 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
-	applyInternalAttributionHeaders(req, c, info)
+	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
+		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -360,7 +362,9 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
-	applyInternalAttributionHeaders(req, c, info)
+	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
+		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -387,7 +391,9 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	for key, value := range headerOverride {
 		targetHeader.Set(key, value)
 	}
-	applyInternalAttributionHeadersForURL(targetHeader, fullRequestURL, c, info)
+	if err := applyInternalAttributionHeadersForURL(targetHeader, http.MethodGet, fullRequestURL, targetHeader.Get("Host"), c, info); err != nil {
+		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
+	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
 	if err != nil {
@@ -546,7 +552,9 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	applyInternalAttributionHeaders(req, c, info)
+	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
+		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
