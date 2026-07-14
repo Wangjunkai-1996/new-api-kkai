@@ -6,6 +6,7 @@ readonly ROOT
 readonly BUILD_ROOT="${ROOT}/build/kkai-image"
 readonly WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
 readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
+readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 
 fail() {
   echo "KKAI image policy: $*" >&2
@@ -61,6 +62,8 @@ contains_fixed "candidate-\${{ steps.release.outputs.version }}" "${WORKFLOW}" |
   fail "workflow does not isolate the unscanned candidate tag"
 contains_fixed 'imagetools create' "${WORKFLOW}" ||
   fail "workflow does not promote the scanned digest"
+contains_fixed "go-version: '1.26.5'" "${QUALITY_WORKFLOW}" ||
+  fail "fork quality does not use the production Go toolchain"
 if contains_regex 'calciumion/new-api|docker\.io|ssh|ansible|workflow_run' "${WORKFLOW}"; then
   fail "production image workflow targets upstream or contains deployment behavior"
 fi
