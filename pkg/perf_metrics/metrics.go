@@ -78,14 +78,16 @@ func Record(sample Sample) {
 		sample.LatencyMs = 0
 	}
 
+	observedAt := time.Now()
 	key := bucketKey{
 		model:    sample.Model,
 		group:    sample.Group,
-		bucketTs: bucketStart(time.Now().Unix()),
+		bucketTs: bucketStart(observedAt.Unix()),
 	}
+	recordKKAILocalGroupSignal(sample, observedAt)
 	actual, _ := hotBuckets.LoadOrStore(key, &atomicBucket{})
 	actual.(*atomicBucket).add(sample)
-	recordRedis(key, sample)
+	recordRedis(key, sample, observedAt)
 }
 
 func Query(params QueryParams) (QueryResult, error) {
@@ -389,7 +391,7 @@ func avgTps(value counters) float64 {
 	return float64(value.outputTokens) / (float64(value.generationMs) / 1000)
 }
 
-func recordRedis(key bucketKey, sample Sample) {
+func recordRedis(key bucketKey, sample Sample, observedAt time.Time) {
 	if !common.RedisEnabled || common.RDB == nil {
 		return
 	}
@@ -413,6 +415,7 @@ func recordRedis(key bucketKey, sample Sample) {
 		pipe.HIncrBy(ctx, redisKey, "out", sample.OutputTokens)
 		pipe.HIncrBy(ctx, redisKey, "gen_ms", sample.GenerationMs)
 	}
+	appendKKAIRedisGroupSignal(pipe, sample, observedAt)
 	pipe.Expire(ctx, redisKey, time.Hour)
 	_, _ = pipe.Exec(ctx)
 }

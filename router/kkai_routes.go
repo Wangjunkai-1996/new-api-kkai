@@ -7,6 +7,8 @@ import (
 )
 
 func registerKKAIRoutes(apiRouter *gin.RouterGroup, anonymousRequestBodyLimit gin.HandlerFunc) {
+	apiRouter.GET("/status/groups", middleware.UserAuth(), controller.GetKKAIGroupStatus)
+
 	internalRoute := apiRouter.Group("/internal")
 	internalRoute.Use(middleware.KKAIBalanceAdjustmentAuth(), anonymousRequestBodyLimit)
 	internalRoute.POST("/balance-adjustments", controller.CreateKKAIBalanceAdjustment)
