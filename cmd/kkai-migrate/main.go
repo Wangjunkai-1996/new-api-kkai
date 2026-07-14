@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -20,22 +21,25 @@ import (
 func main() {
 	var (
 		dsn            string
+		dsnFromStdin   bool
 		dryRun         bool
 		checkOnly      bool
 		minimumVersion int64
 		timeout        time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
+	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
 	flag.BoolVar(&dryRun, "dry-run", false, "show pending migrations without applying them")
 	flag.BoolVar(&checkOnly, "check", false, "verify the minimum schema version and exit")
 	flag.Int64Var(&minimumVersion, "min-version", kkaimigrate.CurrentVersion, "minimum schema version for --check")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
 	flag.Parse()
 
-	if strings.TrimSpace(dsn) == "" {
-		log.Fatal("KKAI_MIGRATION_DSN or SQL_DSN is required")
+	resolvedDSN, err := resolveMigrationDSN(dsn, dsnFromStdin, os.Stdin)
+	if err != nil {
+		log.Fatal(err)
 	}
-	db, err := openDatabase(dsn)
+	db, err := openDatabase(resolvedDSN)
 	if err != nil {
 		log.Fatal("failed to open migration database")
 	}
@@ -68,6 +72,46 @@ func main() {
 	for _, item := range result.Applied {
 		fmt.Printf("applied %04d %s %s\n", item.Version, item.Name, item.Checksum)
 	}
+}
+
+func resolveMigrationDSN(explicitDSN string, fromStdin bool, reader io.Reader) (string, error) {
+	const maximumDSNBytes = 8192
+
+	explicitDSN = strings.TrimSpace(explicitDSN)
+	if !fromStdin {
+		if explicitDSN == "" {
+			return "", fmt.Errorf("KKAI_MIGRATION_DSN, SQL_DSN, --dsn, or --dsn-stdin is required")
+		}
+		return explicitDSN, nil
+	}
+	if explicitDSN != "" {
+		return "", fmt.Errorf("--dsn-stdin cannot be combined with --dsn, KKAI_MIGRATION_DSN, or SQL_DSN")
+	}
+
+	rawDSN, err := io.ReadAll(io.LimitReader(reader, maximumDSNBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read migration DSN from stdin: %w", err)
+	}
+	if len(rawDSN) > maximumDSNBytes {
+		return "", fmt.Errorf("migration DSN exceeds %d bytes", maximumDSNBytes)
+	}
+
+	dsnInput := string(rawDSN)
+	switch {
+	case strings.HasSuffix(dsnInput, "\r\n"):
+		dsnInput = strings.TrimSuffix(dsnInput, "\r\n")
+	case strings.HasSuffix(dsnInput, "\n"):
+		dsnInput = strings.TrimSuffix(dsnInput, "\n")
+	}
+	if strings.ContainsAny(dsnInput, "\r\n") {
+		return "", fmt.Errorf("migration DSN from stdin must contain exactly one line")
+	}
+
+	dsn := strings.TrimSpace(dsnInput)
+	if dsn == "" {
+		return "", fmt.Errorf("migration DSN from stdin is empty")
+	}
+	return dsn, nil
 }
 
 func openDatabase(dsn string) (*gorm.DB, error) {

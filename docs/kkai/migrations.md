@@ -24,13 +24,22 @@ Build the migration binary on the external build machine:
 go build -trimpath -o kkai-migrate ./cmd/kkai-migrate
 ```
 
-Use `KKAI_MIGRATION_DSN` or `SQL_DSN`. The command never prints the DSN.
+Use `KKAI_MIGRATION_DSN`, `SQL_DSN`, or `--dsn-stdin`. Release automation uses
+stdin so the DSN never appears in a process argument, container environment,
+or release manifest. The command never prints the DSN.
 
 ```bash
 ./kkai-migrate --dry-run
 ./kkai-migrate
 ./kkai-migrate --check --min-version 3
 ```
+
+The production image contains `/kkai-migrate` built from the same source
+revision as `/new-api`. Release automation runs it as a read-only,
+capability-free, one-shot container on the private data network. Application
+startup verifies the KKAI schema version and never applies KKAI migrations
+implicitly. The existing upstream NewAPI schema migration path is unchanged and
+must be rehearsed against the isolated production database clone.
 
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.
