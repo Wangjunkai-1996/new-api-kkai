@@ -9,6 +9,7 @@ on:
     branches:
       - production/kkrich
       - 'rebuild/**'
+      - 'integration/**'
       - 'upgrade/**'
   workflow_dispatch:
 
