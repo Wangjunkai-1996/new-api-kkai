@@ -23,6 +23,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  HandCoins,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -38,6 +39,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -48,6 +50,7 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const invitationFeature = useInvitationFeatureStatus()
 
   return {
     navGroups: [
@@ -114,6 +117,15 @@ export function useSidebarData(): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
+          ...(invitationFeature.userVisible
+            ? [
+                {
+                  title: t('Invitation Rebate'),
+                  url: '/invitations',
+                  icon: HandCoins,
+                },
+              ]
+            : []),
           {
             title: t('Profile'),
             url: '/profile',
@@ -140,6 +152,16 @@ export function useSidebarData(): SidebarData {
             url: '/users',
             icon: Users,
           },
+          ...(invitationFeature.adminVisible
+            ? [
+                {
+                  title: t('Invitation Operations'),
+                  url: '/invitations/admin',
+                  icon: HandCoins,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
