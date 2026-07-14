@@ -28,8 +28,8 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | FRT upstream response timing | Backend relay and log metadata | `d84a322e` and patch guard | Complete |
 | Policy Incident Guard | Evidence, public errors, durable actions, audit | `828998d1` through `7ca9c8bc` | Pending |
 | Invitation rebate and balance adjustments | API, idempotent ledger, admin/user UI | invitation commit series through `656e79e6` | Complete |
-| Dynamic billing expressions | KKAI model ratios, tier variables, tests | production fork ratio changes | Pending |
-| Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Pending |
+| Dynamic billing expressions | KKAI model ratios, tier variables, tests | production fork ratio changes | Complete; exact configured completion ratios override official fallbacks |
+| Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Complete; upstream implementation retained with fork acceptance tests |
 | Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Complete; PostgreSQL dual-process verification included |
 | Group status monitoring | Read API, aggregation, default frontend | `6f931ccf` through `c6ce2a85` | Complete |
 | CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Blocked: CC Switch `c8b0d60c` rejects remote `configUrl` exchange |
