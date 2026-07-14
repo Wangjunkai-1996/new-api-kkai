@@ -1,0 +1,25 @@
+{
+  "version": "edge_guard_v1",
+  "rules": [
+    {
+      "id": "pwn_tcache_hook_chain",
+      "all": ["(?i)\\btcache(?:[-_ ]*poison(?:ing)?)?\\b", "(?i)__(?:free|malloc)_hook"],
+      "any": ["(?i)\\b(?:overwrite|one_gadget|getshell|exploit|pwn)\\b", "覆盖|劫持|写入"]
+    },
+    {
+      "id": "pwn_rop_flag_chain",
+      "all": ["(?i)\\b(?:rop|return[- ]oriented)\\b", "(?i)\\bopen(?:at)?\\s*\\([^)]*(?:flag|flag\\.txt)", "(?i)\\bread\\s*\\(", "(?i)\\bwrite\\s*\\("],
+      "any": ["(?i)\\b(?:syscall|gadget|ret2libc|payload|exploit|sendfile)\\b"]
+    },
+    {
+      "id": "game_runtime_bypass_chain",
+      "all": ["(?i)\\b(?:frida|xposed|zygisk|anantacracker|dumpedlua|lual_loadbuffer|tolua|xlua)\\b", "(?i)\\b(?:hook|dump|bypass|disable|remove|patch)\\b|绕过|反截图|去水印"],
+      "any": ["(?i)\\b(?:game|client|unity|apk|mobile|lua)\\b|游戏|客户端|手游|登录|创角"]
+    },
+    {
+      "id": "game_account_flow_bypass",
+      "all": ["(?i)\\b(?:checkaccount|trylogin|requestentergame)\\b|创角|创建角色", "(?i)\\b(?:bypass|spoof|skip|hook)\\b|绕过|伪造|跳过"],
+      "any": ["(?i)\\b(?:game|client|rpc)\\b|游戏|客户端|已有角色"]
+    }
+  ]
+}
