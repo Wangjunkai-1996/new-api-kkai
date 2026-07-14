@@ -37,6 +37,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Classic frontend customization | KKAI-compatible classic build and UI | production fork | Pending |
 | Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` rebuild branch | Pending |
 | Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Pending |
+| Signed internal attribution | Exact origin allowlist, HMAC, timestamp, nonce contract | legacy private-IP headers | Complete |
 
 ## Explicit Exclusions
 

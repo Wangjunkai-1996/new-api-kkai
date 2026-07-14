@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
@@ -306,6 +307,9 @@ func InitResources() error {
 
 	// 加载环境变量
 	common.InitEnv()
+	if err = relaychannel.InitInternalAttribution(); err != nil {
+		return fmt.Errorf("invalid KKAI internal attribution configuration: %w", err)
+	}
 
 	logger.SetupLogger()
 
