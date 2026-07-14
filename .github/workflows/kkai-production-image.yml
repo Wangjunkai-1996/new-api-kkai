@@ -170,6 +170,20 @@ jobs:
           build/kkai-image/export-release.sh \
             "${IMAGE}@${DIGEST}" "${VERSION}" "${SOURCE_SHA}" "${DIGEST}" dist
 
+      - name: Sign and verify the offline release manifest
+        env:
+          CERTIFICATE_IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/kkai-production-image.yml@${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+          cosign sign-blob --yes \
+            --bundle dist/offline-release.sigstore.json \
+            dist/offline-release.yml
+          cosign verify-blob \
+            --bundle dist/offline-release.sigstore.json \
+            --certificate-identity "${CERTIFICATE_IDENTITY}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            dist/offline-release.yml
+
       - name: Upload immutable release evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
