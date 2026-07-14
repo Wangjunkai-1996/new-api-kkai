@@ -24,6 +24,8 @@ contains_regex() {
 for script in export-release.sh smoke-compose.sh verify-image.sh; do
   [[ -x "${BUILD_ROOT}/${script}" ]] || fail "${script} is not executable"
 done
+contains_fixed '/build' "${ROOT}/.dockerignore" ||
+  fail "fork-owned image tools leak into the application build context"
 
 for image_arg in BUN_IMAGE GO_IMAGE BUSYBOX_IMAGE DISTROLESS_IMAGE; do
   contains_regex "^ARG ${image_arg}=[^[:space:]]+@sha256:[0-9a-f]{64}$" \
