@@ -26,7 +26,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Capability | Fork ownership | Legacy source | Rebuild status |
 | --- | --- | --- | --- |
 | FRT upstream response timing | Backend relay and log metadata | `d84a322e` and patch guard | Complete |
-| Policy Incident Guard | Evidence, public errors, durable actions, audit | `828998d1` through `7ca9c8bc` | Pending |
+| Policy Incident Guard | Evidence, public errors, durable actions, audit | `828998d1` through `7ca9c8bc` | Complete; local relay and signed edge events share one durable action service |
 | Invitation rebate and balance adjustments | API, idempotent ledger, admin/user UI | invitation commit series through `656e79e6` | Complete |
 | Dynamic billing expressions | KKAI model ratios, tier variables, tests | production fork ratio changes | Complete; exact configured completion ratios override official fallbacks |
 | Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Complete; upstream implementation retained with fork acceptance tests |

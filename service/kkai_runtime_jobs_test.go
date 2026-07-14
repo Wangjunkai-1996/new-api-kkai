@@ -12,10 +12,11 @@ import (
 
 func TestDecideKKAIRiskStreamEventRequiresConfirmedCausality(t *testing.T) {
 	tests := []struct {
-		name        string
-		event       RiskStreamEvent
-		wantActions RiskDurableActions
-		wantErr     error
+		name         string
+		event        RiskStreamEvent
+		wantDecision string
+		wantActions  RiskDurableActions
+		wantErr      error
 	}{
 		{
 			name: "observe records without durable action",
@@ -39,7 +40,7 @@ func TestDecideKKAIRiskStreamEventRequiresConfirmedCausality(t *testing.T) {
 			wantActions: RiskDurableActions{DisableToken: true, DisableUser: true},
 		},
 		{
-			name: "confirmed upstream key disables channel",
+			name: "confirmed upstream key is recorded without implicit channel disable",
 			event: RiskStreamEvent{
 				Source:         RiskSourceUpstreamPolicy,
 				Recommendation: RiskDecisionDisable,
@@ -49,7 +50,7 @@ func TestDecideKKAIRiskStreamEventRequiresConfirmedCausality(t *testing.T) {
 					"causality":      "upstream_key",
 				},
 			},
-			wantActions: RiskDurableActions{DisableChannel: true},
+			wantDecision: RiskDecisionReject,
 		},
 		{
 			name: "unconfirmed evidence is rejected",
@@ -73,7 +74,11 @@ func TestDecideKKAIRiskStreamEventRequiresConfirmedCausality(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, test.event.Recommendation, decision)
+			wantDecision := test.wantDecision
+			if wantDecision == "" {
+				wantDecision = test.event.Recommendation
+			}
+			require.Equal(t, wantDecision, decision)
 			require.Equal(t, test.wantActions, actions)
 		})
 	}

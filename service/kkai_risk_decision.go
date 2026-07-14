@@ -16,17 +16,23 @@ func DecideKKAIRiskStreamEvent(event RiskStreamEvent) (string, RiskDurableAction
 	}
 
 	switch causality {
-	case "client_token":
+	case KKAIPolicyCausalityClientToken:
 		allowed, _ := event.Metadata["client_token_action_allowed"].(bool)
 		if !allowed || event.UserID <= 0 || event.TokenID <= 0 {
 			return "", RiskDurableActions{}, fmt.Errorf("%w: client token action is not authorized", ErrRiskStreamDecisionRejected)
 		}
 		return event.Recommendation, RiskDurableActions{DisableToken: true, DisableUser: true}, nil
-	case "upstream_key":
+	case KKAIPolicyCausalityUpstreamKey:
+		allowed, _ := event.Metadata["upstream_action_allowed"].(bool)
+		if !allowed {
+			return RiskDecisionReject, RiskDurableActions{}, nil
+		}
 		if event.Source != RiskSourceUpstreamPolicy || event.ChannelID <= 0 {
 			return "", RiskDurableActions{}, fmt.Errorf("%w: upstream channel action is not authorized", ErrRiskStreamDecisionRejected)
 		}
 		return event.Recommendation, RiskDurableActions{DisableChannel: true}, nil
+	case KKAIPolicyCausalityAmbiguous:
+		return RiskDecisionReject, RiskDurableActions{}, nil
 	default:
 		return "", RiskDurableActions{}, fmt.Errorf("%w: unsupported causality", ErrRiskStreamDecisionRejected)
 	}
