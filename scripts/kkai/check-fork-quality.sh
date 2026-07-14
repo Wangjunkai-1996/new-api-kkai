@@ -49,6 +49,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[1/8] Checking fork ancestry and changed-file hygiene"
+"$ROOT/scripts/kkai/check-fork-source-size_test.sh"
 "$ROOT/scripts/kkai/check-fork-source-size.sh" "$BASE"
 
 GOFMT_ISSUES="$TMP_ROOT/gofmt-issues.txt"

@@ -167,14 +167,24 @@ func TestApplyImportsLegacyAuditRowsWithoutReplayingActions(t *testing.T) {
 	require.True(t, db.Migrator().HasTable("internal_balance_adjustments"))
 }
 
-func TestPlanHasStableNonEmptyChecksums(t *testing.T) {
-	plan := Plan()
-	require.Len(t, plan, 3)
-	for _, item := range plan {
-		require.Len(t, item.Checksum, 64)
-		require.NotEmpty(t, item.Name)
-	}
-	require.NotEqual(t, plan[0].Checksum, plan[1].Checksum)
+func TestPlanHasImmutableChecksums(t *testing.T) {
+	require.Equal(t, []AppliedMigration{
+		{
+			Version:  RiskSchemaVersion,
+			Name:     "risk_incidents_and_outbox",
+			Checksum: "96efb7eaeb9be70f3f9feba02ba68ac31aa55a61c026645c249aa4c87fb323ae",
+		},
+		{
+			Version:  LedgerSchemaVersion,
+			Name:     "internal_balance_ledger",
+			Checksum: "28be60ae8ec61dde922cc726be1073fa795e7de33ff662dc30ebf731ac25a8d1",
+		},
+		{
+			Version:  JobLeaseSchemaVersion,
+			Name:     "background_job_leases",
+			Checksum: "cdd37df49c8171159556679f8733cda0301256a290653bd9f0e9fdf8c2029a6f",
+		},
+	}, Plan())
 }
 
 func TestApplySerializesConcurrentCallers(t *testing.T) {

@@ -87,8 +87,13 @@ compatibility behavior rather than presented as general upstream cleanup.
 `scripts/kkai/check-fork-quality.sh` enforces the following:
 
 - the pinned upstream commit is an ancestor of the candidate;
-- fork-owned feature source files stay at or below 250 lines and other
-  fork-owned source files stay at or below 800 lines, excluding generated code;
+- new fork-owned feature source files stay at or below 250 lines and other new
+  fork-owned source files stay at or below 500 lines, excluding generated code;
+- changes to existing upstream source add at most 100 lines per file, reduced
+  to 25 lines once the upstream file has 800 lines and 10 lines once it has
+  1200 lines; modified upstream feature files have a 50-line ceiling;
+- the source-size gate runs its own regression suite so additions, modifications,
+  oversized upstream files, and generated-file exemptions cannot silently drift;
 - changed Go files are formatted and changed shell scripts parse;
 - default typecheck and both frontend builds succeed;
 - changed frontend files are formatted;
