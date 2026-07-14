@@ -78,6 +78,13 @@ printf '%s\n' 'smoke-session-secret-0123456789abcdef' >"${TEST_ROOT}/session-sec
 printf '%s\n' 'smoke-crypto-secret-0123456789abcdef0' >"${TEST_ROOT}/crypto-secret"
 printf '%s\n' 'smoke-invitations-secret-0123456789abc' >"${TEST_ROOT}/invitations-secret"
 printf '%s\n' 'smoke-risk-signing-secret-0123456789ab' >"${TEST_ROOT}/risk-signing-secret"
+chmod 0444 \
+  "${TEST_ROOT}/database-password" \
+  "${TEST_ROOT}/redis-password" \
+  "${TEST_ROOT}/session-secret" \
+  "${TEST_ROOT}/crypto-secret" \
+  "${TEST_ROOT}/invitations-secret" \
+  "${TEST_ROOT}/risk-signing-secret"
 
 {
   printf '%s\n' \
