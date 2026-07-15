@@ -1,13 +1,9 @@
 name: KKAI Production Image
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_sequence:
-        description: Release sequence for the UTC build date
-        required: true
-        default: '1'
-        type: string
+  push:
+    branches:
+      - production/kkrich
 
 concurrency:
   group: kkai-production-image
@@ -31,12 +27,11 @@ jobs:
 
       - name: Require the current production branch HEAD
         id: release
-        env:
-          RELEASE_SEQUENCE: ${{ inputs.release_sequence }}
         run: |
           set -Eeuo pipefail
+          RELEASE_SEQUENCE="${GITHUB_RUN_NUMBER}"
           [[ "${GITHUB_REF}" == 'refs/heads/production/kkrich' ]]
-          [[ "${RELEASE_SEQUENCE}" =~ ^[1-9][0-9]{0,2}$ ]]
+          [[ "${RELEASE_SEQUENCE}" =~ ^[1-9][0-9]*$ ]]
           git fetch --no-tags origin production/kkrich
           SOURCE_SHA="$(git rev-parse HEAD)"
           [[ "${SOURCE_SHA}" == "$(git rev-parse origin/production/kkrich)" ]]
