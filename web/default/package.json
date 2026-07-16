@@ -15,6 +15,8 @@
     "format": "node scripts/format-with-protected-headers.mjs --write",
     "copyright:check": "node scripts/add-copyright.mjs --check",
     "copyright": "node scripts/add-copyright.mjs",
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "i18n:test": "node --test scripts/check-i18n.test.mjs",
     "i18n:sync": "node scripts/sync-i18n.mjs",
     "knip": "knip"
   },

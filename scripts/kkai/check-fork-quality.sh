@@ -80,6 +80,8 @@ echo "[2/9] Checking production image policy and runtime tools"
 echo "[3/9] Building default frontend and running typecheck"
 (
   cd "$ROOT/web/default"
+  bun run i18n:test
+  bun run i18n:check
   bun run typecheck
   bun run build
 )

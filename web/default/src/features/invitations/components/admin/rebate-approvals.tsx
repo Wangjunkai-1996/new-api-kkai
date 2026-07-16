@@ -105,20 +105,20 @@ export const RebateApprovals = () => {
       <CardHeader className='flex-row flex-wrap items-center justify-between gap-3'>
         <CardTitle>{t('Rebate Approvals')}</CardTitle>
         <div className='flex flex-wrap gap-2'>
-          {selectedIds.length > 0 && (
-            <Button
-              size='sm'
-              onClick={() =>
-                setAction({
-                  kind: 'batch-approve-pay',
-                  requestIds: selectedIds,
-                  command: createApproveAndPayCommand('batch'),
-                })
-              }
-            >
-              {t('Approve and Pay')} ({selectedIds.length})
-            </Button>
-          )}
+          <Button
+            size='sm'
+            disabled={selectedIds.length === 0 || mutation.isPending}
+            onClick={() =>
+              setAction({
+                kind: 'batch-approve-pay',
+                requestIds: selectedIds,
+                command: createApproveAndPayCommand('batch'),
+              })
+            }
+          >
+            {t('Approve and Pay')}
+            {selectedIds.length > 0 && ` (${selectedIds.length})`}
+          </Button>
           <Select
             value={status}
             onValueChange={(value) => {
