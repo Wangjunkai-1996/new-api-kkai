@@ -7,6 +7,7 @@ readonly BUILD_ROOT="${ROOT}/build/kkai-image"
 readonly WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
 readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
+readonly AGENT_RULES="${ROOT}/AGENTS.md"
 
 fail() {
   echo "KKAI image policy: $*" >&2
@@ -54,6 +55,10 @@ contains_fixed '--dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
 
 contains_fixed 'refs/heads/production/kkrich' "${WORKFLOW}" ||
   fail "workflow is not restricted to production/kkrich"
+contains_fixed '    paths-ignore:' "${WORKFLOW}" ||
+  fail "workflow does not separate documentation from production releases"
+contains_fixed "      - '**/*.md'" "${WORKFLOW}" ||
+  fail "Markdown-only policy changes can trigger a production release"
 contains_fixed 'packages: write' "${WORKFLOW}" ||
   fail "workflow cannot publish to GHCR"
 contains_fixed 'sbom: true' "${WORKFLOW}" ||
@@ -72,6 +77,15 @@ fi
 if contains_regex 'uses: [^ ]+@v[0-9]' "${WORKFLOW}"; then
   fail "workflow contains an unpinned action reference"
 fi
+
+contains_fixed '## KKAI Production Delivery (Mandatory)' "${AGENT_RULES}" ||
+  fail "repository agent rules omit the production delivery entrypoint"
+contains_fixed 'make -C ../kkai-infra newapi-status' "${AGENT_RULES}" ||
+  fail "repository agent rules omit the live production status gate"
+contains_fixed 'docs/runbooks/15-newapi-automated-deployment.md' "${AGENT_RULES}" ||
+  fail "repository agent rules omit the automated deployment runbook"
+contains_fixed 'Application workflows must not SSH to production' "${AGENT_RULES}" ||
+  fail "repository agent rules do not preserve deployment ownership"
 
 for branch_pattern in "'rebuild/**'" "'integration/**'"; do
   contains_fixed "- ${branch_pattern}" "${CANDIDATE_WORKFLOW}" ||

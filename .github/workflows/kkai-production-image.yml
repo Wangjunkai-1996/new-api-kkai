@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - production/kkrich
+    paths-ignore:
+      - '**/*.md'
 
 concurrency:
   group: kkai-production-image
