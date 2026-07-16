@@ -13,6 +13,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      version: ${{ steps.release.outputs.version }}
+      digest: ${{ steps.image.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -196,4 +200,52 @@ jobs:
             echo "- Version: \`${{ steps.release.outputs.version }}\`"
             echo "- Source: \`${{ steps.release.outputs.source_sha }}\`"
             echo "- Digest: \`${{ steps.image.outputs.digest }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  notify-infra:
+    name: Notify private infrastructure intake
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Dispatch the immutable release coordinates
+        env:
+          GH_TOKEN: ${{ secrets.KKAI_INFRA_DISPATCH_TOKEN }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          VERSION: ${{ needs.build.outputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "${GH_TOKEN}" ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${VERSION}" =~ ^kkai-prod-[0-9]{8}\.[1-9][0-9]*-[0-9a-f]{9}$ ]]
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # jq expands these named arguments.
+          # shellcheck disable=SC2016
+          jq --null-input \
+            --arg source_sha "${SOURCE_SHA}" \
+            --arg version "${VERSION}" \
+            --arg digest "${DIGEST}" \
+            '{
+              event_type: "newapi_image_ready",
+              client_payload: {
+                source_sha: $source_sha,
+                version: $version,
+                digest: $digest
+              }
+            }' | gh api \
+              --method POST \
+              repos/Wangjunkai-1996/kkai-infra/dispatches \
+              --input -
+
+      - name: Publish infrastructure intake summary
+        run: |
+          {
+            echo '### Private infrastructure intake requested'
+            echo "- Version: \`${{ needs.build.outputs.version }}\`"
+            echo "- Source: \`${{ needs.build.outputs.source_sha }}\`"
+            echo "- Digest: \`${{ needs.build.outputs.digest }}\`"
+            echo "- Target: \`Wangjunkai-1996/kkai-infra\`"
           } >> "${GITHUB_STEP_SUMMARY}"
