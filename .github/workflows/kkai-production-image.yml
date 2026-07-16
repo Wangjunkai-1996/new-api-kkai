@@ -216,6 +216,8 @@ jobs:
           SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
           VERSION: ${{ needs.build.outputs.version }}
           DIGEST: ${{ needs.build.outputs.digest }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -Eeuo pipefail
           [[ -n "${GH_TOKEN}" ]]
@@ -228,12 +230,16 @@ jobs:
             --arg source_sha "${SOURCE_SHA}" \
             --arg version "${VERSION}" \
             --arg digest "${DIGEST}" \
+            --arg build_run_id "${BUILD_RUN_ID}" \
+            --arg build_run_attempt "${BUILD_RUN_ATTEMPT}" \
             '{
               event_type: "newapi_image_ready",
               client_payload: {
                 source_sha: $source_sha,
                 version: $version,
-                digest: $digest
+                digest: $digest,
+                build_run_id: $build_run_id,
+                build_run_attempt: $build_run_attempt
               }
             }' | gh api \
               --method POST \
@@ -247,5 +253,6 @@ jobs:
             echo "- Version: \`${{ needs.build.outputs.version }}\`"
             echo "- Source: \`${{ needs.build.outputs.source_sha }}\`"
             echo "- Digest: \`${{ needs.build.outputs.digest }}\`"
+            echo "- Build run: \`${{ github.run_id }}\` attempt \`${{ github.run_attempt }}\`"
             echo "- Target: \`Wangjunkai-1996/kkai-infra\`"
           } >> "${GITHUB_STEP_SUMMARY}"
