@@ -6,6 +6,41 @@ DO NOT send optional commentary
 
 This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI providers (OpenAI, Claude, Gemini, Azure, AWS Bedrock, etc.) behind a unified API, with user management, billing, rate limiting, and an admin dashboard.
 
+## KKAI Production Delivery (Mandatory)
+
+For every task involving KKAI production builds, releases, deployment status,
+GitHub Actions, GHCR, blue-green slots, rollback, or `api.kkrich.ltd`:
+
+1. Read the sibling `kkai-infra/AGENTS.md` completely. If the infrastructure
+   checkout is elsewhere, locate the `Wangjunkai-1996/kkai-infra` repository
+   first. Do not perform a production mutation without the infrastructure rules.
+2. Read these infrastructure runbooks completely:
+   - `docs/runbooks/13-github-actions-runner.md`
+   - `docs/runbooks/14-newapi-image-intake.md`
+   - `docs/runbooks/15-newapi-automated-deployment.md`
+   - `docs/runbooks/10-newapi-blue-green-upgrade.md` when slots or rollback matter
+3. Run `make -C ../kkai-infra newapi-status` before treating any application SHA,
+   infrastructure SHA, image digest, active slot, runner state, or deployment
+   result as current. Never reuse mutable production state from an old chat.
+
+The only production application branch is `production/kkrich`. A runtime change
+merged to that branch automatically runs the immutable production image build,
+security gates, signing, cross-repository intake, and production deployment when
+`KKAI_NEWAPI_AUTO_DEPLOY_ENABLED` is `true`. The normal path has no manual
+approval step.
+
+- Build formal images only in GitHub Actions. Never build or retag one locally or
+  on production.
+- Never use `latest`, a floating branch ref, or an unverified image tag.
+- Application workflows must not SSH to production or contain deployment logic;
+  deployment ownership remains in `kkai-infra`.
+- Do not manually dispatch or rebuild a release that already completed. Use the
+  recovery entrypoint documented by `kkai-infra` only after identifying failure.
+- Markdown-only policy or documentation changes do not create a production image.
+  Any push containing a runtime file still follows the full production path.
+- Do not claim release readiness unless the repository-owned status command
+  reports `HEALTHY` and the relevant GitHub runs completed successfully.
+
 ## Tech Stack
 
 - **Backend**: Go 1.22+, Gin web framework, GORM v2 ORM
