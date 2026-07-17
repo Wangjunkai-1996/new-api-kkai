@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,12 +14,16 @@ import (
 	"gorm.io/gorm"
 )
 
-const KKAIOutboxTopicTopUpCompleted = "kkai.billing.topup.completed"
+const (
+	KKAIOutboxTopicTopUpCompleted = "kkai.billing.topup.completed"
+	topUpRebateActiveFromIDEnv    = "TOPUP_REBATE_ACTIVE_FROM_ID"
+)
 
 var (
 	ErrTopUpFinalizationInvalidInput = errors.New("invalid topup finalization input")
 	ErrTopUpQuotaInvalid             = errors.New("invalid topup quota delta")
 	ErrTopUpPaymentProviderInvalid   = errors.New("invalid topup payment provider")
+	errTopUpRebateBoundaryInvalid    = errors.New("invalid topup rebate active boundary")
 )
 
 type TopUpUserPatch struct {
@@ -147,24 +153,14 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 			return ErrTopUpQuotaInvalid
 		}
 
-		payload, err := buildTopUpCompletedEvent(tx, topUp, user, completion.QuotaDelta, completedAt)
+		activeFromID, err := topUpRebateActiveFromID()
 		if err != nil {
 			return err
 		}
-		payloadJSON, err := common.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		if err := tx.Create(&KKAIOutboxEvent{
-			EventKey:    payload.EventKey,
-			Topic:       KKAIOutboxTopicTopUpCompleted,
-			AggregateID: fmt.Sprintf("%d", topUp.Id),
-			Payload:     string(payloadJSON),
-			Status:      KKAIOutboxStatusPending,
-			AvailableAt: completedAt,
-			CreatedAt:   completedAt,
-		}).Error; err != nil {
-			return err
+		if int64(topUp.Id) >= activeFromID {
+			if err := enqueueTopUpCompletedEvent(tx, topUp, user, completion.QuotaDelta, completedAt); err != nil {
+				return err
+			}
 		}
 
 		result.TopUp = *topUp
@@ -174,6 +170,38 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 		return nil, err
 	}
 	return result, nil
+}
+
+func topUpRebateActiveFromID() (int64, error) {
+	raw := strings.TrimSpace(os.Getenv(topUpRebateActiveFromIDEnv))
+	if raw == "" {
+		return 1, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, errTopUpRebateBoundaryInvalid
+	}
+	return value, nil
+}
+
+func enqueueTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, creditedQuota int64, completedAt int64) error {
+	payload, err := buildTopUpCompletedEvent(tx, topUp, invitee, creditedQuota, completedAt)
+	if err != nil {
+		return err
+	}
+	payloadJSON, err := common.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return tx.Create(&KKAIOutboxEvent{
+		EventKey:    payload.EventKey,
+		Topic:       KKAIOutboxTopicTopUpCompleted,
+		AggregateID: fmt.Sprintf("%d", topUp.Id),
+		Payload:     string(payloadJSON),
+		Status:      KKAIOutboxStatusPending,
+		AvailableAt: completedAt,
+		CreatedAt:   completedAt,
+	}).Error
 }
 
 func completedTopUpReplay(input FinalizeTopUpInput) (*FinalizeTopUpResult, error) {

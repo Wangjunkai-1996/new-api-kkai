@@ -112,6 +112,57 @@ func TestFinalizeTopUpCommitsOrderQuotaAndOutboxAtomically(t *testing.T) {
 	require.EqualValues(t, 1001, *payload.InviterID)
 }
 
+func TestFinalizeTopUpBeforeRebateBoundaryCreditsQuotaWithoutOutbox(t *testing.T) {
+	db := setupTopUpFinalizeTestDB(t)
+	topUp := seedTopUpFinalizeFixture(t, db)
+	t.Setenv(topUpRebateActiveFromIDEnv, "843")
+
+	result, err := FinalizeTopUp(FinalizeTopUpInput{
+		TradeNo:          topUp.TradeNo,
+		ExpectedProvider: PaymentProviderEpay,
+		CompletedAt:      1_784_211_072,
+		Prepare: func(*TopUp, *User) (TopUpCompletion, error) {
+			return TopUpCompletion{QuotaDelta: 500}, nil
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.AlreadyCompleted)
+
+	var storedTopUp TopUp
+	require.NoError(t, db.First(&storedTopUp, topUp.Id).Error)
+	require.Equal(t, common.TopUpStatusSuccess, storedTopUp.Status)
+	require.EqualValues(t, 1_784_211_072, storedTopUp.CompleteTime)
+	var storedUser User
+	require.NoError(t, db.First(&storedUser, topUp.UserId).Error)
+	require.Equal(t, 510, storedUser.Quota)
+	var outboxCount int64
+	require.NoError(t, db.Model(&KKAIOutboxEvent{}).Count(&outboxCount).Error)
+	require.Zero(t, outboxCount)
+}
+
+func TestFinalizeTopUpInvalidRebateBoundaryRollsBack(t *testing.T) {
+	db := setupTopUpFinalizeTestDB(t)
+	topUp := seedTopUpFinalizeFixture(t, db)
+	t.Setenv(topUpRebateActiveFromIDEnv, "invalid")
+
+	_, err := FinalizeTopUp(FinalizeTopUpInput{
+		TradeNo:          topUp.TradeNo,
+		ExpectedProvider: PaymentProviderEpay,
+		Prepare: func(*TopUp, *User) (TopUpCompletion, error) {
+			return TopUpCompletion{QuotaDelta: 500}, nil
+		},
+	})
+	require.ErrorIs(t, err, errTopUpRebateBoundaryInvalid)
+
+	var storedTopUp TopUp
+	require.NoError(t, db.First(&storedTopUp, topUp.Id).Error)
+	require.Equal(t, common.TopUpStatusPending, storedTopUp.Status)
+	require.Zero(t, storedTopUp.CompleteTime)
+	var storedUser User
+	require.NoError(t, db.First(&storedUser, topUp.UserId).Error)
+	require.Equal(t, 10, storedUser.Quota)
+}
+
 func TestFinalizeTopUpReplayDoesNotDoubleCreditOrDuplicateOutbox(t *testing.T) {
 	db := setupTopUpFinalizeTestDB(t)
 	topUp := seedTopUpFinalizeFixture(t, db)
