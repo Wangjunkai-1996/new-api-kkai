@@ -2,12 +2,20 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
+	"gorm.io/gorm"
+)
+
+var (
+	ErrWaffoPancakeWebhookInvalid   = errors.New("invalid Waffo Pancake webhook reference")
+	ErrWaffoPancakeTopUpNotFound    = errors.New("Waffo Pancake topup not found")
+	ErrWaffoPancakeIdentityMismatch = errors.New("Waffo Pancake buyer identity mismatch")
 )
 
 // WaffoPancakePriceSnapshot is the per-session price override sent with checkout.
@@ -198,27 +206,38 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 // trade_no via OrderMerchantExternalID, and rejects buyer-identity mismatches.
 func ResolveWaffoPancakeTradeNo(event *WaffoPancakeWebhookEvent) (string, error) {
 	if event == nil {
-		return "", fmt.Errorf("missing webhook event")
+		return "", fmt.Errorf("%w: missing webhook event", ErrWaffoPancakeWebhookInvalid)
 	}
 	tradeNo := strings.TrimSpace(event.Data.OrderMerchantExternalID)
 	if tradeNo == "" {
-		return "", fmt.Errorf("missing webhook orderMerchantExternalId")
+		return "", fmt.Errorf("%w: missing orderMerchantExternalId", ErrWaffoPancakeWebhookInvalid)
 	}
-	topUp := model.GetTopUpByTradeNo(tradeNo)
-	if topUp == nil || topUp.PaymentProvider != model.PaymentProviderWaffoPancake {
-		return "", fmt.Errorf("waffo pancake order not found for tradeNo=%s", tradeNo)
+	topUp, err := model.FindTopUpByTradeNo(tradeNo)
+	if errors.Is(err, gorm.ErrRecordNotFound) ||
+		(err == nil && topUp.PaymentProvider != model.PaymentProviderWaffoPancake) {
+		return "", fmt.Errorf("%w: tradeNo=%s", ErrWaffoPancakeTopUpNotFound, tradeNo)
+	}
+	if err != nil {
+		return "", fmt.Errorf("lookup Waffo Pancake topup tradeNo=%s: %w", tradeNo, err)
 	}
 	expectedIdentity := WaffoPancakeBuyerIdentityFromUserID(topUp.UserId)
 	actualIdentity := strings.TrimSpace(event.Data.MerchantProvidedBuyerIdentity)
 	if actualIdentity != expectedIdentity {
 		return "", fmt.Errorf(
-			"waffo pancake buyer identity mismatch for tradeNo=%s: expected=%q actual=%q",
+			"%w for tradeNo=%s: expected=%q actual=%q",
+			ErrWaffoPancakeIdentityMismatch,
 			tradeNo,
 			expectedIdentity,
 			actualIdentity,
 		)
 	}
 	return tradeNo, nil
+}
+
+func IsPermanentWaffoPancakeResolutionError(err error) bool {
+	return errors.Is(err, ErrWaffoPancakeWebhookInvalid) ||
+		errors.Is(err, ErrWaffoPancakeTopUpNotFound) ||
+		errors.Is(err, ErrWaffoPancakeIdentityMismatch)
 }
 
 // ResolveWaffoPancakeSubscriptionTradeNo is the SubscriptionOrder counterpart

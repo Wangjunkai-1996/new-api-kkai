@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/Wangjunkai-1996/new-api-kkai/build/kkai-image/internal/secretfile"
@@ -38,6 +39,23 @@ func setEnvironment(name, value string) {
 	if err := os.Setenv(name, value); err != nil {
 		fatalf("set %s: %v", name, err)
 	}
+}
+
+func configureRebateEventDelivery() error {
+	endpointConfigured := strings.TrimSpace(os.Getenv("REBATE_EVENT_INGEST_URL")) != ""
+	secretPath := strings.TrimSpace(os.Getenv("NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE"))
+	secretConfigured := secretPath != ""
+	if endpointConfigured != secretConfigured {
+		return fmt.Errorf("REBATE_EVENT_INGEST_URL and NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE must be configured together")
+	}
+	if !endpointConfigured {
+		return os.Unsetenv("REBATE_EVENT_INGEST_SECRET")
+	}
+	secret, err := secretfile.Read(secretPath)
+	if err != nil {
+		return fmt.Errorf("read NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE: %w", err)
+	}
+	return os.Setenv("REBATE_EVENT_INGEST_SECRET", secret)
 }
 
 func databaseDSN(password string) string {
@@ -86,6 +104,9 @@ func main() {
 	setEnvironment("SESSION_SECRET", readSecret("NEWAPI_SESSION_SECRET_FILE"))
 	setEnvironment("CRYPTO_SECRET", readSecret("NEWAPI_CRYPTO_SECRET_FILE"))
 	setEnvironment("INVITATIONS_INTERNAL_SECRET", readSecret("NEWAPI_INVITATIONS_INTERNAL_SECRET_FILE"))
+	if err := configureRebateEventDelivery(); err != nil {
+		fatalf("configure rebate event delivery: %v", err)
+	}
 	setEnvironment("KKAI_RISK_STREAM_SECRET", readSecret("NEWAPI_RISK_STREAM_SECRET_FILE"))
 
 	arguments := append([]string{"/new-api"}, os.Args[1:]...)

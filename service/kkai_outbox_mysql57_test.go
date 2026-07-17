@@ -45,7 +45,7 @@ func TestKKAIOutboxMySQL57MigrationAndClaim(t *testing.T) {
 	require.Equal(t, 1, result.Delivered)
 }
 
-func TestKKAIOutboxMySQL57CompatDoesNotApplyLegacyEventKeyMigration(t *testing.T) {
+func TestKKAIOutboxMySQL57UpgradesLegacyEventKeyLength(t *testing.T) {
 	db := mysql57KKAIIntegrationDB(t)
 	require.NoError(t, db.AutoMigrate(&kkaimigrate.AppliedMigration{}))
 	require.NoError(t, db.Exec(`CREATE TABLE kkai_outbox (
@@ -60,7 +60,7 @@ event_key VARCHAR(192) NOT NULL UNIQUE
 
 	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
-	require.EqualValues(t, 192, mysql57EventKeyLength(t, db))
+	require.EqualValues(t, 191, mysql57EventKeyLength(t, db))
 }
 
 func mysql57KKAIIntegrationDB(t *testing.T) *gorm.DB {

@@ -503,14 +503,15 @@ func WaffoPancakeWebhook(c *gin.Context) {
 
 	tradeNo, err := service.ResolveWaffoPancakeTradeNo(event)
 	if err != nil {
-		// LogError (not LogWarn): covers order-not-found and buyer-identity
-		// mismatch — both warrant human attention. 200 OK so Waffo doesn't
-		// retry a permanently-unresolvable webhook.
 		logger.LogError(c.Request.Context(), fmt.Sprintf(
 			"Waffo Pancake webhook 订单解析失败 event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q",
 			event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, c.ClientIP(), err.Error(),
 		))
-		c.String(http.StatusOK, "OK")
+		if service.IsPermanentWaffoPancakeResolutionError(err) {
+			c.String(http.StatusOK, "OK")
+		} else {
+			c.String(http.StatusInternalServerError, "retry")
+		}
 		return
 	}
 
