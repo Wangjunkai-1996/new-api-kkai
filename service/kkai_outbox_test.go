@@ -95,6 +95,44 @@ func TestKKAIOutboxProcessorRetriesThenMarksDead(t *testing.T) {
 	require.Equal(t, 2, event.Attempts)
 }
 
+func TestKKAIOutboxProcessorLeavesUnregisteredTopicsPending(t *testing.T) {
+	db := newOutboxTestDB(t)
+	now := time.Unix(1_720_000_000, 0)
+	event := seedOutboxEvent(t, db, "future.topic", now.Unix())
+	processor := NewKKAIOutboxProcessor(db, "worker-a")
+	processor.now = func() time.Time { return now }
+	require.NoError(t, processor.Register("known.topic", func(context.Context, model.KKAIOutboxEvent) error {
+		return nil
+	}))
+
+	result, err := processor.ProcessBatch(context.Background(), 10)
+	require.NoError(t, err)
+	require.Zero(t, result.Claimed)
+	require.NoError(t, db.First(&event, event.ID).Error)
+	require.Equal(t, model.KKAIOutboxStatusPending, event.Status)
+	require.Zero(t, event.Attempts)
+	require.Empty(t, event.LockedBy)
+}
+
+func TestKKAIOutboxProcessorMarksPermanentFailureDeadImmediately(t *testing.T) {
+	db := newOutboxTestDB(t)
+	now := time.Unix(1_720_000_000, 0)
+	event := seedOutboxEvent(t, db, "test.permanent", now.Unix())
+	processor := NewKKAIOutboxProcessor(db, "worker-a")
+	processor.now = func() time.Time { return now }
+	require.NoError(t, processor.Register("test.permanent", func(context.Context, model.KKAIOutboxEvent) error {
+		return PermanentKKAIOutboxError(errors.New("payload conflict"))
+	}))
+
+	result, err := processor.ProcessBatch(context.Background(), 10)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Dead)
+	require.NoError(t, db.First(&event, event.ID).Error)
+	require.Equal(t, model.KKAIOutboxStatusDead, event.Status)
+	require.Equal(t, 1, event.Attempts)
+	require.Contains(t, event.LastError, "payload conflict")
+}
+
 func TestKKAIOutboxProcessorDoesNotDoubleClaimLiveLock(t *testing.T) {
 	db := newOutboxTestDB(t)
 	now := time.Unix(1_720_000_000, 0)

@@ -26,6 +26,25 @@ var (
 
 type KKAIOutboxHandler func(context.Context, model.KKAIOutboxEvent) error
 
+type permanentKKAIOutboxError struct {
+	err error
+}
+
+func (e permanentKKAIOutboxError) Error() string {
+	return e.err.Error()
+}
+
+func (e permanentKKAIOutboxError) Unwrap() error {
+	return e.err
+}
+
+func PermanentKKAIOutboxError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentKKAIOutboxError{err: err}
+}
+
 type KKAIOutboxProcessor struct {
 	db          *gorm.DB
 	workerID    string
@@ -74,7 +93,11 @@ func (p *KKAIOutboxProcessor) ProcessBatch(ctx context.Context, limit int) (*KKA
 		return nil, ErrKKAIOutboxInvalidConfiguration
 	}
 	now := p.now()
-	events, err := p.claim(ctx, limit, now)
+	topics := p.registeredTopics()
+	if len(topics) == 0 {
+		return &KKAIOutboxBatchResult{}, nil
+	}
+	events, err := p.claim(ctx, limit, now, topics)
 	if err != nil {
 		return nil, err
 	}
@@ -113,12 +136,23 @@ func (p *KKAIOutboxProcessor) ProcessBatch(ctx context.Context, limit int) (*KKA
 	return result, nil
 }
 
-func (p *KKAIOutboxProcessor) claim(ctx context.Context, limit int, now time.Time) ([]model.KKAIOutboxEvent, error) {
+func (p *KKAIOutboxProcessor) registeredTopics() []string {
+	p.handlersMu.RLock()
+	defer p.handlersMu.RUnlock()
+	topics := make([]string, 0, len(p.handlers))
+	for topic := range p.handlers {
+		topics = append(topics, topic)
+	}
+	return topics
+}
+
+func (p *KKAIOutboxProcessor) claim(ctx context.Context, limit int, now time.Time, topics []string) ([]model.KKAIOutboxEvent, error) {
 	events := make([]model.KKAIOutboxEvent, 0, limit)
 	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		staleBefore := now.Add(-p.lockTimeout).Unix()
 		query := tx.Where(
-			"status = ? AND available_at <= ? AND (locked_at = 0 OR locked_at <= ?)",
+			"topic IN ? AND status = ? AND available_at <= ? AND (locked_at = 0 OR locked_at <= ?)",
+			topics,
 			model.KKAIOutboxStatusPending,
 			now.Unix(),
 			staleBefore,
@@ -170,7 +204,8 @@ func (p *KKAIOutboxProcessor) markDelivered(ctx context.Context, id int64, deliv
 
 func (p *KKAIOutboxProcessor) markFailed(ctx context.Context, event model.KKAIOutboxEvent, handlerErr error, now time.Time) (bool, error) {
 	attempts := event.Attempts + 1
-	dead := attempts >= p.maxAttempts
+	var permanent permanentKKAIOutboxError
+	dead := errors.As(handlerErr, &permanent) || attempts >= p.maxAttempts
 	status := model.KKAIOutboxStatusPending
 	availableAt := now.Add(p.retryDelay(attempts)).Unix()
 	if dead {
