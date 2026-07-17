@@ -35,6 +35,30 @@ newapi_environment() {
   docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}"
 }
 
+delivery_disabled_stage_version() {
+  docker run --rm --pull=never --platform linux/amd64 \
+    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+    --env NEWAPI_DATABASE_HOST=postgres \
+    --env NEWAPI_DATABASE_USER=newapi_stage \
+    --env NEWAPI_DATABASE_NAME=newapi_stage \
+    --env NEWAPI_REDIS_HOST=redis \
+    --env NEWAPI_REDIS_USER=newapi_stage \
+    --env NEWAPI_REDIS_DATABASE=0 \
+    --env NEWAPI_DATABASE_PASSWORD_FILE=/run/secrets/database_password \
+    --env NEWAPI_REDIS_PASSWORD_FILE=/run/secrets/redis_password \
+    --env NEWAPI_SESSION_SECRET_FILE=/run/secrets/session_secret \
+    --env NEWAPI_CRYPTO_SECRET_FILE=/run/secrets/crypto_secret \
+    --env NEWAPI_INVITATIONS_INTERNAL_SECRET_FILE=/run/secrets/invitations_internal_secret \
+    --env NEWAPI_RISK_STREAM_SECRET_FILE=/run/secrets/risk_signing_secret \
+    --mount type=bind,src="${TEST_ROOT}/database-password",dst=/run/secrets/database_password,readonly \
+    --mount type=bind,src="${TEST_ROOT}/redis-password",dst=/run/secrets/redis_password,readonly \
+    --mount type=bind,src="${TEST_ROOT}/session-secret",dst=/run/secrets/session_secret,readonly \
+    --mount type=bind,src="${TEST_ROOT}/crypto-secret",dst=/run/secrets/crypto_secret,readonly \
+    --mount type=bind,src="${TEST_ROOT}/invitations-secret",dst=/run/secrets/invitations_internal_secret,readonly \
+    --mount type=bind,src="${TEST_ROOT}/risk-signing-secret",dst=/run/secrets/risk_signing_secret,readonly \
+    "${IMAGE_REF}" --version
+}
+
 cleanup() {
   local exit_status="$?"
   trap - EXIT
@@ -77,6 +101,7 @@ printf '%s\n' "${REDIS_PASSWORD}" >"${TEST_ROOT}/redis-password"
 printf '%s\n' 'smoke-session-secret-0123456789abcdef' >"${TEST_ROOT}/session-secret"
 printf '%s\n' 'smoke-crypto-secret-0123456789abcdef0' >"${TEST_ROOT}/crypto-secret"
 printf '%s\n' 'smoke-invitations-secret-0123456789abc' >"${TEST_ROOT}/invitations-secret"
+printf '%s\n' 'smoke-rebate-ingest-secret-0123456789' >"${TEST_ROOT}/rebate-event-ingest-secret"
 printf '%s\n' 'smoke-risk-signing-secret-0123456789ab' >"${TEST_ROOT}/risk-signing-secret"
 chmod 0444 \
   "${TEST_ROOT}/database-password" \
@@ -84,6 +109,7 @@ chmod 0444 \
   "${TEST_ROOT}/session-secret" \
   "${TEST_ROOT}/crypto-secret" \
   "${TEST_ROOT}/invitations-secret" \
+  "${TEST_ROOT}/rebate-event-ingest-secret" \
   "${TEST_ROOT}/risk-signing-secret"
 
 {
@@ -108,6 +134,9 @@ chmod 0444 "${TEST_ROOT}/redis.conf" "${TEST_ROOT}/redis-users.acl"
 
 export IMAGE_REF POSTGRES_IMAGE REDIS_IMAGE TEST_ROOT
 compose config --quiet
+stage_version="$(delivery_disabled_stage_version)"
+readonly stage_version
+grep -Fx "${EXPECTED_VERSION}" <<<"${stage_version}" >/dev/null
 compose up --detach --wait --wait-timeout 300 postgres redis
 
 printf '%s\n' \

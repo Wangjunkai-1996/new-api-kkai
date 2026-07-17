@@ -52,6 +52,26 @@ for role in leader serving; do
 done
 contains_fixed '--dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not exercise migration stdin"
+contains_fixed 'NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE: /run/secrets/rebate_event_ingest_secret' \
+  "${BUILD_ROOT}/smoke-compose.yml" ||
+  fail "smoke runtime does not mount the rebate event ingest credential"
+contains_fixed 'REBATE_EVENT_INGEST_URL: http://127.0.0.1:9/api/internal/rebate-source-events' \
+  "${BUILD_ROOT}/smoke-compose.yml" ||
+  fail "smoke runtime does not exercise delivery-enabled startup"
+contains_fixed 'rebate-event-ingest-secret' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not provision the rebate event ingest credential"
+contains_fixed 'delivery_disabled_stage_version' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not exercise delivery-disabled startup"
+contains_fixed 'stage_version="$(delivery_disabled_stage_version)"' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not assert delivery-disabled stage startup"
+delivery_disabled_stage_smoke="$(
+  sed -n '/^delivery_disabled_stage_version() {$/,/^}$/p' "${BUILD_ROOT}/smoke-compose.sh"
+)"
+[[ -n "${delivery_disabled_stage_smoke}" ]] ||
+  fail "delivery-disabled stage smoke function is empty"
+if grep -Eq 'REBATE_EVENT_INGEST_(URL|SECRET)' <<<"${delivery_disabled_stage_smoke}"; then
+  fail "delivery-disabled stage smoke mounts or configures rebate delivery"
+fi
 
 contains_fixed 'refs/heads/production/kkrich' "${WORKFLOW}" ||
   fail "workflow is not restricted to production/kkrich"

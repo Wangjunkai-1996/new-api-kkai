@@ -22,6 +22,15 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 	if err := outbox.Register(KKAIOutboxTopicRiskActionCommitted, riskOutboxHandler.Handle); err != nil {
 		return err
 	}
+	rebateHandler, err := NewTopUpRebateOutboxHandlerFromEnvironment()
+	if err != nil {
+		return err
+	}
+	if rebateHandler != nil {
+		if err := outbox.Register(model.KKAIOutboxTopicTopUpCompleted, rebateHandler.Handle); err != nil {
+			return err
+		}
+	}
 	if err := registry.Register(BackgroundJob{
 		Name:                "kkai-outbox-delivery",
 		Interval:            2 * time.Second,

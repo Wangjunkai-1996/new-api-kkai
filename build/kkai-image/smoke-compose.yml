@@ -68,6 +68,8 @@ services:
       NEWAPI_SESSION_SECRET_FILE: /run/secrets/session_secret
       NEWAPI_CRYPTO_SECRET_FILE: /run/secrets/crypto_secret
       NEWAPI_INVITATIONS_INTERNAL_SECRET_FILE: /run/secrets/invitations_internal_secret
+      NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE: /run/secrets/rebate_event_ingest_secret
+      REBATE_EVENT_INGEST_URL: http://127.0.0.1:9/api/internal/rebate-source-events
       NEWAPI_RISK_STREAM_SECRET_FILE: /run/secrets/risk_signing_secret
     secrets:
       - database_password
@@ -75,6 +77,7 @@ services:
       - session_secret
       - crypto_secret
       - invitations_internal_secret
+      - rebate_event_ingest_secret
       - risk_signing_secret
     tmpfs:
       - /data:rw,nosuid,nodev,noexec,size=256m,uid=10007,gid=10007,mode=0700
@@ -95,6 +98,7 @@ secrets:
   session_secret: {file: "${TEST_ROOT:?TEST_ROOT is required}/session-secret"}
   crypto_secret: {file: "${TEST_ROOT:?TEST_ROOT is required}/crypto-secret"}
   invitations_internal_secret: {file: "${TEST_ROOT:?TEST_ROOT is required}/invitations-secret"}
+  rebate_event_ingest_secret: {file: "${TEST_ROOT:?TEST_ROOT is required}/rebate-event-ingest-secret"}
   risk_signing_secret: {file: "${TEST_ROOT:?TEST_ROOT is required}/risk-signing-secret"}
 
 volumes:

@@ -56,6 +56,7 @@ docker run --rm --pull=never --platform linux/amd64 --entrypoint /new-api "${IMA
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /usr/bin/wget "${IMAGE_REF}" --help >/dev/null
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /new-api-canary-probe "${IMAGE_REF}" -h >/dev/null
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-migrate "${IMAGE_REF}" -h >/dev/null
+docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-topup-recovery "${IMAGE_REF}" plan -h >/dev/null
 risk_guard_probe="$(
   docker run --rm --pull=never --platform linux/amd64 --entrypoint /newapi-risk-guard "${IMAGE_REF}" 2>&1 || true
 )"

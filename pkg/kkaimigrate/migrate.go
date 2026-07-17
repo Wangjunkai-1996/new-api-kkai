@@ -19,7 +19,7 @@ const (
 	DialectMySQL    = "mysql"
 	DialectPostgres = "postgres"
 
-	CurrentVersion    int64 = 3
+	CurrentVersion    int64 = 4
 	CompatibleVersion int64 = 4 // May exceed CurrentVersion in a rollback-compatible image.
 
 	RiskSchemaVersion           int64 = 1

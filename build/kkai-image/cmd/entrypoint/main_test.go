@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -46,5 +47,68 @@ func TestReadSecretRemovesOnlyFileTerminator(t *testing.T) {
 
 	if got := readSecret("TEST_SECRET_FILE"); got != " preserved value " {
 		t.Fatalf("unexpected secret value %q", got)
+	}
+}
+
+func TestConfigureRebateEventDeliveryAllowsDisabledRuntime(t *testing.T) {
+	t.Setenv("REBATE_EVENT_INGEST_URL", "")
+	t.Setenv("NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE", "")
+	t.Setenv("REBATE_EVENT_INGEST_SECRET", "stale-secret-must-be-cleared")
+
+	if err := configureRebateEventDelivery(); err != nil {
+		t.Fatal(err)
+	}
+	if value := os.Getenv("REBATE_EVENT_INGEST_SECRET"); value != "" {
+		t.Fatalf("disabled delivery retained runtime secret %q", value)
+	}
+}
+
+func TestConfigureRebateEventDeliveryLoadsEnabledSecret(t *testing.T) {
+	secretPath := filepath.Join(t.TempDir(), "rebate-secret")
+	if err := os.WriteFile(secretPath, []byte("rebate-secret-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("REBATE_EVENT_INGEST_URL", "https://invitations.internal/api/internal/rebate-source-events")
+	t.Setenv("NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE", secretPath)
+
+	if err := configureRebateEventDelivery(); err != nil {
+		t.Fatal(err)
+	}
+	if value := os.Getenv("REBATE_EVENT_INGEST_SECRET"); value != "rebate-secret-value" {
+		t.Fatalf("unexpected runtime secret %q", value)
+	}
+}
+
+func TestConfigureRebateEventDeliveryRejectsHalfConfiguration(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		endpoint   string
+		secretPath string
+	}{
+		{name: "endpoint only", endpoint: "https://invitations.internal/api/internal/rebate-source-events"},
+		{name: "secret file only", secretPath: "/run/secrets/rebate_event_ingest_secret"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("REBATE_EVENT_INGEST_URL", testCase.endpoint)
+			t.Setenv("NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE", testCase.secretPath)
+			if err := configureRebateEventDelivery(); err == nil {
+				t.Fatal("expected half-configured delivery to fail")
+			}
+		})
+	}
+}
+
+func TestSelectExecutableRoutesOnlyTheRecoverySubcommand(t *testing.T) {
+	executable, arguments := selectExecutable([]string{"topup-recovery", "plan", "--cutoff-topup-id", "842"})
+	if executable != "/kkai-topup-recovery" {
+		t.Fatalf("unexpected recovery executable %q", executable)
+	}
+	if strings.Join(arguments, " ") != "plan --cutoff-topup-id 842" {
+		t.Fatalf("unexpected recovery arguments %q", arguments)
+	}
+
+	executable, arguments = selectExecutable([]string{"--version"})
+	if executable != "/new-api" || strings.Join(arguments, " ") != "--version" {
+		t.Fatalf("unexpected application command %q %q", executable, arguments)
 	}
 }
