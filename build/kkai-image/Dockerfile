@@ -34,6 +34,7 @@ RUN test -n "${APP_VERSION}" \
 FROM ${GO_IMAGE} AS backend
 
 ARG APP_VERSION
+ARG SOURCE_REVISION
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ENV CGO_ENABLED=0 \
@@ -50,11 +51,15 @@ COPY --from=web-default /build/web/default/dist ./web/default/dist
 COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
 RUN go test ./...
 RUN test -n "${APP_VERSION}" \
+    && test -n "${SOURCE_REVISION}" \
     && go build -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}'" \
       -o /out/new-api . \
     && go build -trimpath -ldflags '-s -w -buildid=' \
-      -o /out/kkai-migrate ./cmd/kkai-migrate
+      -o /out/kkai-migrate ./cmd/kkai-migrate \
+    && go build -trimpath \
+      -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}'" \
+      -o /out/kkai-topup-recovery ./cmd/kkai-topup-recovery
 
 FROM ${GO_IMAGE} AS runtime-tools
 
@@ -84,6 +89,7 @@ LABEL org.opencontainers.image.title="KKAI New API" \
 
 COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend --chown=10007:10007 /out/kkai-topup-recovery /kkai-topup-recovery
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-canary-probe /new-api-canary-probe
 COPY --from=runtime-tools --chown=10007:10007 /out/newapi-risk-guard /newapi-risk-guard

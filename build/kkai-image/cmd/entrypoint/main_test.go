@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,20 @@ func TestConfigureRebateEventDeliveryRejectsHalfConfiguration(t *testing.T) {
 				t.Fatal("expected half-configured delivery to fail")
 			}
 		})
+	}
+}
+
+func TestSelectExecutableRoutesOnlyTheRecoverySubcommand(t *testing.T) {
+	executable, arguments := selectExecutable([]string{"topup-recovery", "plan", "--cutoff-topup-id", "842"})
+	if executable != "/kkai-topup-recovery" {
+		t.Fatalf("unexpected recovery executable %q", executable)
+	}
+	if strings.Join(arguments, " ") != "plan --cutoff-topup-id 842" {
+		t.Fatalf("unexpected recovery arguments %q", arguments)
+	}
+
+	executable, arguments = selectExecutable([]string{"--version"})
+	if executable != "/new-api" || strings.Join(arguments, " ") != "--version" {
+		t.Fatalf("unexpected application command %q %q", executable, arguments)
 	}
 }
