@@ -157,9 +157,7 @@ func (p *KKAIOutboxProcessor) claim(ctx context.Context, limit int, now time.Tim
 			now.Unix(),
 			staleBefore,
 		).Order("id ASC").Limit(limit)
-		if tx.Dialector.Name() != "sqlite" {
-			query = query.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
-		}
+		query = lockKKAIOutboxClaim(query)
 		var candidates []model.KKAIOutboxEvent
 		if err := query.Find(&candidates).Error; err != nil {
 			return err
@@ -181,6 +179,17 @@ func (p *KKAIOutboxProcessor) claim(ctx context.Context, limit int, now time.Tim
 		return nil
 	})
 	return events, err
+}
+
+func lockKKAIOutboxClaim(query *gorm.DB) *gorm.DB {
+	switch query.Dialector.Name() {
+	case "postgres":
+		return query.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"})
+	case "mysql":
+		return query.Clauses(clause.Locking{Strength: "UPDATE"})
+	default:
+		return query
+	}
 }
 
 func (p *KKAIOutboxProcessor) markDelivered(ctx context.Context, id int64, deliveredAt int64) error {

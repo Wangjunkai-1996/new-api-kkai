@@ -71,13 +71,43 @@ func TestCheckRejectsUnknownFutureMigration(t *testing.T) {
 	_, err := Apply(context.Background(), db, Options{})
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&AppliedMigration{
-		Version:     CurrentVersion + 1,
+		Version:     CompatibleVersion + 1,
 		Name:        "future",
 		Checksum:    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		AppliedAt:   1,
 		ExecutionMS: 1,
 	}).Error)
 	require.ErrorIs(t, Check(context.Background(), db, CurrentVersion), ErrFutureMigration)
+}
+
+func TestCompatVersionAcceptsNewerKnownDatabaseWithoutApplyingIt(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, OutboxEventKeySchemaVersion, OutboxEventKeySchemaVersion)
+	require.NoError(t, err)
+
+	result, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, OutboxEventKeySchemaVersion)
+	require.NoError(t, err)
+	require.Len(t, result.Applied, 3)
+	require.Empty(t, result.Pending)
+	require.NoError(t, checkThroughVersion(
+		context.Background(),
+		db,
+		JobLeaseSchemaVersion,
+		JobLeaseSchemaVersion,
+		OutboxEventKeySchemaVersion,
+	))
+}
+
+func TestCompatVersionApplyStopsAtCurrentVersion(t *testing.T) {
+	db := newMigrationTestDB(t)
+	result, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, OutboxEventKeySchemaVersion)
+	require.NoError(t, err)
+	require.Len(t, result.Applied, 3)
+	require.Empty(t, result.Pending)
+
+	var count int64
+	require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", OutboxEventKeySchemaVersion).Count(&count).Error)
+	require.Zero(t, count)
 }
 
 type testLegacyPolicyIncident struct {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -181,4 +182,17 @@ func TestKKAIOutboxProcessorReclaimsStaleLock(t *testing.T) {
 	result, err := processor.ProcessBatch(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Delivered)
+}
+
+func TestKKAIOutboxMySQLClaimUsesMySQL57CompatibleLock(t *testing.T) {
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		DSN:                       "root@tcp(127.0.0.1:3306)/kkai_test_dry_run?charset=utf8mb4&parseTime=True&loc=Local",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	require.NoError(t, err)
+
+	var events []model.KKAIOutboxEvent
+	statement := lockKKAIOutboxClaim(db.Where("status = ?", model.KKAIOutboxStatusPending)).Find(&events).Statement.SQL.String()
+	require.Contains(t, statement, "FOR UPDATE")
+	require.NotContains(t, statement, "SKIP LOCKED")
 }
