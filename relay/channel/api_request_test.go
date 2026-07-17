@@ -35,6 +35,23 @@ func TestDoRequestRecordsUpstreamHeaderTime(t *testing.T) {
 	require.True(t, info.UpstreamHeaderTime.After(info.StartTime))
 }
 
+func TestSetupApiRequestHeaderUsesUpstreamStreamWithoutChangingClientMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	info := &relaycommon.RelayInfo{
+		IsStream:         false,
+		UpstreamIsStream: true,
+	}
+	header := http.Header{}
+
+	SetupApiRequestHeader(info, c, &header)
+
+	require.Equal(t, "text/event-stream", header.Get("Accept"))
+	require.False(t, info.IsStream)
+}
+
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 	t.Parallel()
 

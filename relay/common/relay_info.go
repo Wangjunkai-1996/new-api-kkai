@@ -99,6 +99,7 @@ type RelayInfo struct {
 	isFirstResponse    bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
+	UpstreamIsStream       bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
 	UsePrice               bool
@@ -258,6 +259,7 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "RelayFormat: %s, ", info.RelayFormat)
 	fmt.Fprintf(b, "RelayMode: %d, ", info.RelayMode)
 	fmt.Fprintf(b, "IsStream: %t, ", info.IsStream)
+	fmt.Fprintf(b, "UpstreamIsStream: %t, ", info.UpstreamIsStream)
 	fmt.Fprintf(b, "IsPlayground: %t, ", info.IsPlayground)
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)

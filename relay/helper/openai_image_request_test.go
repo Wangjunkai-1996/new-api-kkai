@@ -29,6 +29,7 @@ func TestGetAndValidOpenAIImageRequestMultipartStream(t *testing.T) {
 		require.NoError(t, writer.WriteField("model", "gpt-image-1"))
 		require.NoError(t, writer.WriteField("prompt", "edit this image"))
 		require.NoError(t, writer.WriteField("stream", streamValue))
+		require.NoError(t, writer.WriteField("response_format", "url"))
 		if withImage {
 			part, err := writer.CreateFormFile("image", "input.png")
 			require.NoError(t, err)
@@ -52,6 +53,7 @@ func TestGetAndValidOpenAIImageRequestMultipartStream(t *testing.T) {
 		require.NotNil(t, req.Stream)
 		require.True(t, *req.Stream)
 		require.True(t, req.IsStream(c))
+		require.Equal(t, "url", req.ResponseFormat)
 
 		bodyAfterValidation, err := io.ReadAll(c.Request.Body)
 		require.NoError(t, err)

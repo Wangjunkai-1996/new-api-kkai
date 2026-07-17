@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -95,4 +96,98 @@ func TestConvertImageEditRequestMultipart(t *testing.T) {
 
 		convertAndReplay(t, c, prompt)
 	})
+}
+
+func TestConvertImageEditRequestMultipartAppliesParamOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "gpt-image-2-4k"))
+	require.NoError(t, writer.WriteField("prompt", "edit this image"))
+	require.NoError(t, writer.WriteField("quality", "high"))
+	require.NoError(t, writer.WriteField("stream", "false"))
+	require.NoError(t, writer.WriteField("partial_images", "0"))
+	require.NoError(t, writer.WriteField("custom_parameter", "preserved"))
+	imagePart, err := writer.CreateFormFile("image", "input.png")
+	require.NoError(t, err)
+	_, err = imagePart.Write([]byte("first image bytes"))
+	require.NoError(t, err)
+	secondImagePart, err := writer.CreateFormFile("image", "second.png")
+	require.NoError(t, err)
+	_, err = secondImagePart.Write([]byte("second image bytes"))
+	require.NoError(t, err)
+	maskPart, err := writer.CreateFormFile("mask", "mask.png")
+	require.NoError(t, err)
+	_, err = maskPart.Write([]byte("mask bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", &body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, c.Request.ParseMultipartForm(32<<20))
+	c.Request.PostForm = url.Values(c.Request.MultipartForm.Value)
+
+	var paramOverride map[string]interface{}
+	require.NoError(t, common.Unmarshal([]byte(`{
+		"operations": [
+			{
+				"path": "quality",
+				"mode": "delete",
+				"conditions": [{"path":"original_model","mode":"full","value":"gpt-image-2-4k"}]
+			},
+			{"path":"stream","mode":"set","value":true},
+			{
+				"path":"partial_images",
+				"mode":"set",
+				"value":1,
+				"conditions":[{"path":"partial_images","mode":"lte","value":0,"pass_missing_key":true}]
+			}
+		]
+	}`), &paramOverride))
+	info := &relaycommon.RelayInfo{
+		RelayMode:       relayconstant.RelayModeImagesEdits,
+		OriginModelName: "gpt-image-2-4k",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ParamOverride: paramOverride,
+		},
+	}
+	request := dto.ImageRequest{Model: "mapped-image-model", Prompt: "edit this image"}
+
+	converted, err := (&Adaptor{}).ConvertImageRequest(c, info, request)
+	require.NoError(t, err)
+	convertedBody, ok := converted.(*bytes.Buffer)
+	require.True(t, ok)
+
+	replayed := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(convertedBody.Bytes()))
+	replayed.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	require.NoError(t, replayed.ParseMultipartForm(32<<20))
+	require.Equal(t, "mapped-image-model", replayed.PostForm.Get("model"))
+	require.Equal(t, "edit this image", replayed.PostForm.Get("prompt"))
+	require.Equal(t, "true", replayed.PostForm.Get("stream"))
+	require.Equal(t, "1", replayed.PostForm.Get("partial_images"))
+	require.Equal(t, "preserved", replayed.PostForm.Get("custom_parameter"))
+	require.False(t, replayed.PostForm.Has("quality"))
+	require.Len(t, replayed.PostForm["model"], 1)
+	require.Len(t, replayed.PostForm["stream"], 1)
+	require.Len(t, replayed.PostForm["partial_images"], 1)
+	require.True(t, info.UpstreamIsStream)
+
+	assertMultipartFileContents(t, replayed.MultipartForm, "image[]", []byte("first image bytes"), []byte("second image bytes"))
+	assertMultipartFileContents(t, replayed.MultipartForm, "mask", []byte("mask bytes"))
+}
+
+func assertMultipartFileContents(t *testing.T, form *multipart.Form, field string, want ...[]byte) {
+	t.Helper()
+	require.NotNil(t, form)
+	require.Len(t, form.File[field], len(want))
+	for index, fileHeader := range form.File[field] {
+		file, err := fileHeader.Open()
+		require.NoError(t, err)
+		got, err := io.ReadAll(file)
+		require.NoError(t, file.Close())
+		require.NoError(t, err)
+		require.Equal(t, want[index], got)
+	}
 }
