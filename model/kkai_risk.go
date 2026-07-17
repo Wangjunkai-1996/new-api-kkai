@@ -45,7 +45,7 @@ func (KKAIPolicyIncident) TableName() string {
 // business transaction that produced them.
 type KKAIOutboxEvent struct {
 	ID          int64  `json:"id" gorm:"primaryKey;autoIncrement"`
-	EventKey    string `json:"event_key" gorm:"type:varchar(192);not null;uniqueIndex"`
+	EventKey    string `json:"event_key" gorm:"type:varchar(191);not null;uniqueIndex"`
 	Topic       string `json:"topic" gorm:"type:varchar(128);not null;index"`
 	AggregateID string `json:"aggregate_id" gorm:"type:varchar(128);not null;default:'';index"`
 	Payload     string `json:"payload" gorm:"type:text;not null"`

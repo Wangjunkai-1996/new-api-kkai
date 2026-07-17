@@ -19,10 +19,13 @@ const (
 	DialectMySQL    = "mysql"
 	DialectPostgres = "postgres"
 
-	CurrentVersion        int64 = 3
-	RiskSchemaVersion     int64 = 1
-	LedgerSchemaVersion   int64 = 2
-	JobLeaseSchemaVersion int64 = 3
+	CurrentVersion    int64 = 3
+	CompatibleVersion int64 = 4 // May exceed CurrentVersion in a rollback-compatible image.
+
+	RiskSchemaVersion           int64 = 1
+	LedgerSchemaVersion         int64 = 2
+	JobLeaseSchemaVersion       int64 = 3
+	OutboxEventKeySchemaVersion int64 = 4
 )
 
 var (
@@ -71,7 +74,14 @@ type migration struct {
 }
 
 func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	return applyThroughVersion(ctx, db, options, CurrentVersion, CompatibleVersion)
+}
+
+func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
 	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if currentVersion <= 0 || currentVersion > compatibleVersion || compatibleVersion > latestKnownVersion() {
 		return nil, ErrSchemaNotReady
 	}
 	dialect, err := dialectName(db)
@@ -83,7 +93,7 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	err = withMigrationLock(ctx, db, dialect, func(lockedDB *gorm.DB) error {
 		if !lockedDB.Migrator().HasTable((AppliedMigration{}).TableName()) {
 			if options.DryRun {
-				result = &Result{Pending: Plan()}
+				result = &Result{Pending: planThroughVersion(currentVersion)}
 				return nil
 			}
 			if err := ensureMigrationTable(lockedDB, dialect); err != nil {
@@ -94,12 +104,24 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 		if err != nil {
 			return err
 		}
-		if err := validateApplied(applied); err != nil {
+		if err := validateApplied(applied, compatibleVersion); err != nil {
 			return err
+		}
+		// Migration v1 is immutable. Precreate the 191-byte-safe shape so a fresh
+		// MySQL 5.7 instance can apply v1 even with the legacy 767-byte index limit.
+		if dialect == DialectMySQL && !options.DryRun {
+			if _, riskSchemaApplied := applied[RiskSchemaVersion]; !riskSchemaApplied {
+				if err := ensureMySQL57OutboxBootstrap(lockedDB.WithContext(ctx)); err != nil {
+					return err
+				}
+			}
 		}
 
 		result = &Result{}
 		for _, item := range migrationSet() {
+			if item.Version > currentVersion {
+				break
+			}
 			checksum := migrationChecksum(item)
 			if stored, ok := applied[item.Version]; ok {
 				result.Applied = append(result.Applied, stored)
@@ -131,7 +153,12 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 }
 
 func Check(ctx context.Context, db *gorm.DB, minimumVersion int64) error {
-	if db == nil || minimumVersion <= 0 || minimumVersion > CurrentVersion {
+	return checkThroughVersion(ctx, db, minimumVersion, CurrentVersion, CompatibleVersion)
+}
+
+func checkThroughVersion(ctx context.Context, db *gorm.DB, minimumVersion int64, currentVersion int64, compatibleVersion int64) error {
+	if db == nil || minimumVersion <= 0 || minimumVersion > currentVersion ||
+		currentVersion > compatibleVersion || compatibleVersion > latestKnownVersion() {
 		return ErrSchemaNotReady
 	}
 	if !db.Migrator().HasTable((AppliedMigration{}).TableName()) {
@@ -141,7 +168,7 @@ func Check(ctx context.Context, db *gorm.DB, minimumVersion int64) error {
 	if err != nil {
 		return err
 	}
-	if err := validateApplied(applied); err != nil {
+	if err := validateApplied(applied, compatibleVersion); err != nil {
 		return err
 	}
 	for _, item := range migrationSet() {
@@ -156,9 +183,16 @@ func Check(ctx context.Context, db *gorm.DB, minimumVersion int64) error {
 }
 
 func Plan() []AppliedMigration {
+	return planThroughVersion(CurrentVersion)
+}
+
+func planThroughVersion(currentVersion int64) []AppliedMigration {
 	items := migrationSet()
-	result := make([]AppliedMigration, 0, len(items))
+	result := make([]AppliedMigration, 0, currentVersion)
 	for _, item := range items {
+		if item.Version > currentVersion {
+			break
+		}
 		result = append(result, AppliedMigration{
 			Version:  item.Version,
 			Name:     item.Name,
@@ -248,14 +282,14 @@ func loadApplied(db *gorm.DB) (map[int64]AppliedMigration, error) {
 	return result, nil
 }
 
-func validateApplied(applied map[int64]AppliedMigration) error {
+func validateApplied(applied map[int64]AppliedMigration, compatibleVersion int64) error {
 	known := make(map[int64]migration)
 	for _, item := range migrationSet() {
 		known[item.Version] = item
 	}
 	for version, stored := range applied {
 		item, ok := known[version]
-		if !ok {
+		if !ok || version > compatibleVersion {
 			return fmt.Errorf("%w: version %d", ErrFutureMigration, version)
 		}
 		if stored.Name != item.Name || stored.Checksum != migrationChecksum(item) {
@@ -263,6 +297,14 @@ func validateApplied(applied map[int64]AppliedMigration) error {
 		}
 	}
 	return nil
+}
+
+func latestKnownVersion() int64 {
+	items := migrationSet()
+	if len(items) == 0 {
+		return 0
+	}
+	return items[len(items)-1].Version
 }
 
 func migrationChecksum(item migration) string {
@@ -383,6 +425,11 @@ func migrationSet() []migration {
 			Name:       "background_job_leases",
 			Statements: jobLeaseSchemaStatements,
 			Indexes:    jobLeaseIndexes,
+		},
+		{
+			Version:    4,
+			Name:       "outbox_event_key_mysql57_compat",
+			Statements: outboxEventKeySchemaStatements,
 		},
 	}
 }
