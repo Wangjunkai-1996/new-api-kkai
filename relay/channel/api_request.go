@@ -304,13 +304,29 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+func newUpstreamRequest(c *gin.Context, targetURL string, body io.Reader) (*http.Request, error) {
+	if c == nil || c.Request == nil {
+		return nil, errors.New("missing client request context")
+	}
+	return http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, body)
+}
+
+func applyRelayRequestID(req *http.Request, c *gin.Context) {
+	if req == nil || c == nil {
+		return
+	}
+	if requestID := c.GetString(common2.RequestIdKey); requestID != "" {
+		req.Header.Set(common2.StandardRequestIdKey, requestID)
+	}
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := newUpstreamRequest(c, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -327,6 +343,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
+	applyRelayRequestID(req, c)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
@@ -343,7 +360,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := newUpstreamRequest(c, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -362,6 +379,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
+	applyRelayRequestID(req, c)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
@@ -525,7 +543,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	info.SetUpstreamHeaderTime()
 
-	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
+	if upID := upstreamRequestID(resp.Header); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
 
@@ -539,7 +557,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := newUpstreamRequest(c, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -552,6 +570,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	applyRelayRequestID(req, c)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
@@ -560,4 +579,11 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
 	return resp, nil
+}
+
+func upstreamRequestID(header http.Header) string {
+	if requestID := header.Get(common2.StandardRequestIdKey); requestID != "" {
+		return requestID
+	}
+	return header.Get(common2.RequestIdKey)
 }

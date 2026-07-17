@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 
+	commonpkg "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -108,13 +109,16 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	err = Sign(c, req, info.ApiKey)
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	if requestID := c.GetString(commonpkg.RequestIdKey); requestID != "" {
+		req.Header.Set(commonpkg.StandardRequestIdKey, requestID)
 	}
 	resp, err := channel.DoRequest(c, req, info)
 	if err != nil {

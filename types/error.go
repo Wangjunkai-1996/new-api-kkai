@@ -43,13 +43,17 @@ const (
 	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
 
 	// new api error
-	ErrorCodeCountTokenFailed   ErrorCode = "count_token_failed"
-	ErrorCodeModelPriceError    ErrorCode = "model_price_error"
-	ErrorCodeInvalidApiType     ErrorCode = "invalid_api_type"
-	ErrorCodeJsonMarshalFailed  ErrorCode = "json_marshal_failed"
-	ErrorCodeDoRequestFailed    ErrorCode = "do_request_failed"
-	ErrorCodeGetChannelFailed   ErrorCode = "get_channel_failed"
-	ErrorCodeGenRelayInfoFailed ErrorCode = "gen_relay_info_failed"
+	ErrorCodeCountTokenFailed             ErrorCode = "count_token_failed"
+	ErrorCodeModelPriceError              ErrorCode = "model_price_error"
+	ErrorCodeInvalidApiType               ErrorCode = "invalid_api_type"
+	ErrorCodeJsonMarshalFailed            ErrorCode = "json_marshal_failed"
+	ErrorCodeDoRequestFailed              ErrorCode = "do_request_failed"
+	ErrorCodeGetChannelFailed             ErrorCode = "get_channel_failed"
+	ErrorCodeGenRelayInfoFailed           ErrorCode = "gen_relay_info_failed"
+	ErrorCodeImageSyncDeadlineExceeded    ErrorCode = "image_sync_deadline_exceeded"
+	ErrorCodeImageSyncConcurrencyExceeded ErrorCode = "image_sync_concurrency_exceeded"
+	ErrorCodeImageDeliveryFailed          ErrorCode = "image_delivery_failed"
+	ErrorCodeImageClientGone              ErrorCode = "image_client_gone"
 
 	// channel error
 	ErrorCodeChannelNoAvailableKey        ErrorCode = "channel:no_available_key"

@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type DeliveryOutcome string
+
+const (
+	DeliveryOutcomeDelivered   DeliveryOutcome = "delivered"
+	DeliveryOutcomeClientGone  DeliveryOutcome = "client_gone"
+	DeliveryOutcomeWriteFailed DeliveryOutcome = "write_failed"
+)
+
+const responseDeliveryOutcomeKey = "response_delivery_outcome"
 
 func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	if httpResponse == nil || httpResponse.Body == nil {
@@ -32,7 +43,7 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 	if strings.EqualFold(k, "Content-Length") {
 		return false
 	}
-	if strings.EqualFold(k, common.RequestIdKey) {
+	if strings.EqualFold(k, common.RequestIdKey) || strings.EqualFold(k, common.StandardRequestIdKey) {
 		if c != nil && len(v) > 0 {
 			c.Set(common.UpstreamRequestIdKey, v[0])
 		}
@@ -41,9 +52,15 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 	return true
 }
 
-func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
+func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) DeliveryOutcome {
+	if c == nil {
+		return DeliveryOutcomeWriteFailed
+	}
 	if c.Writer == nil {
-		return
+		return recordDeliveryOutcome(c, DeliveryOutcomeWriteFailed)
+	}
+	if clientRequestCanceled(c) {
+		return recordDeliveryOutcome(c, DeliveryOutcomeClientGone)
 	}
 
 	body := io.NopCloser(bytes.NewBuffer(data))
@@ -71,9 +88,51 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 		c.Writer.WriteHeader(http.StatusOK)
 	}
 
-	_, err := io.Copy(c.Writer, body)
+	written, err := io.Copy(c.Writer, body)
 	if err != nil {
 		logger.LogError(c, fmt.Sprintf("failed to copy response body: %s", err.Error()))
+		return recordDeliveryOutcome(c, failedDeliveryOutcome(c))
+	}
+	if written != int64(len(data)) {
+		logger.LogError(c, fmt.Sprintf("failed to copy complete response body: wrote %d of %d bytes", written, len(data)))
+		return recordDeliveryOutcome(c, failedDeliveryOutcome(c))
 	}
 	c.Writer.Flush()
+	if clientRequestCanceled(c) {
+		return recordDeliveryOutcome(c, DeliveryOutcomeClientGone)
+	}
+	return recordDeliveryOutcome(c, DeliveryOutcomeDelivered)
+}
+
+func ResponseDeliveryOutcome(c *gin.Context) (DeliveryOutcome, bool) {
+	if c == nil {
+		return "", false
+	}
+	value, exists := c.Get(responseDeliveryOutcomeKey)
+	if !exists {
+		return "", false
+	}
+	outcome, ok := value.(DeliveryOutcome)
+	return outcome, ok
+}
+
+func recordDeliveryOutcome(c *gin.Context, outcome DeliveryOutcome) DeliveryOutcome {
+	if c != nil {
+		c.Set(responseDeliveryOutcomeKey, outcome)
+	}
+	return outcome
+}
+
+func failedDeliveryOutcome(c *gin.Context) DeliveryOutcome {
+	if clientRequestCanceled(c) {
+		return DeliveryOutcomeClientGone
+	}
+	return DeliveryOutcomeWriteFailed
+}
+
+func clientRequestCanceled(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return c.Request.Context().Err() == context.Canceled
 }

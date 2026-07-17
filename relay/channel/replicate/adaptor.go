@@ -284,8 +284,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	c.Writer.Header().Set("Content-Type", "application/json")
-	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = c.Writer.Write(responseBytes)
+	service.IOCopyBytesGracefully(c, nil, responseBytes)
 
 	usage := &dto.Usage{}
 	return usage, nil
