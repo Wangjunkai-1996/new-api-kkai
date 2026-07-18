@@ -130,6 +130,11 @@ type observedUpstreamColumn struct {
 	DefaultExists   bool
 }
 
+const (
+	postgresUnconstrainedNumericPrecision int64 = 65535
+	postgresUnconstrainedNumericScale     int64 = 65531
+)
+
 func observedColumns(db *gorm.DB, dialect, table string, columnTypes []gorm.ColumnType) (map[string]observedUpstreamColumn, error) {
 	if dialect == upstreamDialectSQLite {
 		return observedSQLiteColumns(db, table)
@@ -176,7 +181,10 @@ func enrichObservedTypeShape(dialect string, shape upstreamColumnTypeShape, colu
 	}
 	if typeShapeUsesPrecision(shape) && shape.Precision == 0 {
 		if precision, scale, known := columnType.DecimalSize(); known && precision > 0 {
-			if dialect == upstreamDialectPostgres && precision == 65535 && scale == 65531 {
+			if dialect == upstreamDialectPostgres && shape.Family == upstreamTypeNumeric &&
+				shape.Variant == "decimal" &&
+				precision == postgresUnconstrainedNumericPrecision &&
+				scale == postgresUnconstrainedNumericScale {
 				return shape
 			}
 			shape.Precision = precision
