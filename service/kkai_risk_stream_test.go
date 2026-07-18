@@ -24,6 +24,8 @@ type fakeRiskStreamStore struct {
 	claimErr   error
 	ackErr     error
 	rejectErr  error
+	status     RiskStreamStoreStatus
+	statusErr  error
 }
 
 func (s *fakeRiskStreamStore) EnsureGroup(context.Context) error { return s.ensureErr }
@@ -45,6 +47,9 @@ func (s *fakeRiskStreamStore) Reject(_ context.Context, message RiskStreamMessag
 	s.deadReason = append(s.deadReason, reason)
 	s.acked = append(s.acked, message.ID)
 	return nil
+}
+func (s *fakeRiskStreamStore) Status(context.Context) (RiskStreamStoreStatus, error) {
+	return s.status, s.statusErr
 }
 
 type fakeRiskActionApplier struct {
@@ -200,6 +205,41 @@ func TestRiskStreamConsumerLeavesTransientDecisionFailurePending(t *testing.T) {
 	require.Equal(t, 1, result.Pending)
 	require.Empty(t, store.acked)
 	require.Empty(t, store.dead)
+}
+
+func TestRiskStreamConsumerStatusTracksSuccessErrorsAndRedisBacklog(t *testing.T) {
+	now := time.Unix(1_720_000_000, 0)
+	store := &fakeRiskStreamStore{status: RiskStreamStoreStatus{
+		Pending: 4, OldestPendingAt: now.Add(-2 * time.Minute).Unix(), DeadLetter: 2,
+	}}
+	consumer := newRiskStreamTestConsumer(t, store, &fakeRiskActionApplier{}, now)
+
+	_, err := consumer.ProcessOnce(context.Background())
+	require.NoError(t, err)
+	status := consumer.Status(context.Background())
+	require.Equal(t, now.Unix(), status.LastSuccessAt)
+	require.Zero(t, status.LastErrorAt)
+	require.Empty(t, status.LastError)
+	require.EqualValues(t, 4, status.Pending)
+	require.Equal(t, now.Add(-2*time.Minute).Unix(), status.OldestPendingAt)
+	require.EqualValues(t, 2, status.DeadLetter)
+
+	store.ensureErr = errors.New("redis temporarily unavailable")
+	_, err = consumer.ProcessOnce(context.Background())
+	require.Error(t, err)
+	status = consumer.Status(context.Background())
+	require.Equal(t, now.Unix(), status.LastErrorAt)
+	require.Contains(t, status.LastError, "redis temporarily unavailable")
+}
+
+func TestRiskStreamRuntimeStatusReturnsNonBlockingConsumerSnapshot(t *testing.T) {
+	consumer := newRiskStreamTestConsumer(t, &fakeRiskStreamStore{}, &fakeRiskActionApplier{}, time.Unix(1_720_000_000, 0))
+	setKKAIRiskStreamRuntimeConsumer(consumer)
+	t.Cleanup(func() { setKKAIRiskStreamRuntimeConsumer(nil) })
+
+	status, enabled := KKAIRiskStreamRuntimeStatus()
+	require.True(t, enabled)
+	require.Equal(t, RiskStreamConsumerStatus{}, status)
 }
 
 func TestVerifyRiskStreamMessageRejectsTamperingAndStaleTimestamp(t *testing.T) {

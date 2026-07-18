@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -52,6 +53,13 @@ type RiskStreamStore interface {
 	ClaimPending(context.Context, string, int64, time.Duration) ([]RiskStreamMessage, error)
 	Ack(context.Context, ...string) error
 	Reject(context.Context, RiskStreamMessage, string) error
+	Status(context.Context) (RiskStreamStoreStatus, error)
+}
+
+type RiskStreamStoreStatus struct {
+	Pending         int64
+	OldestPendingAt int64
+	DeadLetter      int64
 }
 
 type RiskActionApplier interface {
@@ -72,6 +80,28 @@ type RiskStreamConsumer struct {
 	claimIdle  time.Duration
 	readBlock  time.Duration
 	batchSize  int64
+	statusMu   sync.RWMutex
+	status     RiskStreamConsumerStatus
+}
+
+// RiskStreamConsumerStatus is operational telemetry only. It intentionally
+// does not change application readiness or release health semantics.
+type RiskStreamConsumerStatus struct {
+	LastSuccessAt   int64  `json:"last_success_at"`
+	LastErrorAt     int64  `json:"last_error_at"`
+	LastError       string `json:"last_error,omitempty"`
+	Pending         int64  `json:"pending"`
+	OldestPendingAt int64  `json:"oldest_pending_at"`
+	DeadLetter      int64  `json:"dead_letter"`
+}
+
+func (c *RiskStreamConsumer) snapshotStatus() RiskStreamConsumerStatus {
+	if c == nil {
+		return RiskStreamConsumerStatus{}
+	}
+	c.statusMu.RLock()
+	defer c.statusMu.RUnlock()
+	return c.status
 }
 
 type RiskStreamBatchResult struct {
@@ -110,7 +140,15 @@ func NewRiskStreamConsumer(
 	}, nil
 }
 
-func (c *RiskStreamConsumer) ProcessOnce(ctx context.Context) (*RiskStreamBatchResult, error) {
+func (c *RiskStreamConsumer) ProcessOnce(ctx context.Context) (result *RiskStreamBatchResult, err error) {
+	defer func() {
+		if err != nil {
+			c.recordStatusError(err)
+			return
+		}
+		c.recordStatusSuccess()
+		c.refreshStoreStatus(ctx)
+	}()
 	if c == nil || c.store == nil || c.applier == nil || c.decide == nil || c.batchSize <= 0 {
 		return nil, ErrRiskStreamInvalidEvent
 	}
@@ -118,7 +156,7 @@ func (c *RiskStreamConsumer) ProcessOnce(ctx context.Context) (*RiskStreamBatchR
 		return nil, err
 	}
 
-	result := &RiskStreamBatchResult{}
+	result = &RiskStreamBatchResult{}
 	reclaimed, err := c.store.ClaimPending(ctx, c.consumerID, c.batchSize, c.claimIdle)
 	if err != nil {
 		return nil, err
@@ -138,6 +176,49 @@ func (c *RiskStreamConsumer) ProcessOnce(ctx context.Context) (*RiskStreamBatchR
 		return nil, err
 	}
 	return result, nil
+}
+
+func (c *RiskStreamConsumer) Status(ctx context.Context) RiskStreamConsumerStatus {
+	if c == nil {
+		return RiskStreamConsumerStatus{}
+	}
+	c.refreshStoreStatus(ctx)
+	return c.snapshotStatus()
+}
+
+func (c *RiskStreamConsumer) recordStatusSuccess() {
+	if c == nil || c.now == nil {
+		return
+	}
+	c.statusMu.Lock()
+	c.status.LastSuccessAt = c.now().Unix()
+	c.statusMu.Unlock()
+}
+
+func (c *RiskStreamConsumer) recordStatusError(err error) {
+	if c == nil || err == nil || c.now == nil {
+		return
+	}
+	c.statusMu.Lock()
+	c.status.LastErrorAt = c.now().Unix()
+	c.status.LastError = sanitizeKKAIOutboxError(err)
+	c.statusMu.Unlock()
+}
+
+func (c *RiskStreamConsumer) refreshStoreStatus(ctx context.Context) {
+	if c == nil || c.store == nil {
+		return
+	}
+	storeStatus, err := c.store.Status(ctx)
+	if err != nil {
+		c.recordStatusError(err)
+		return
+	}
+	c.statusMu.Lock()
+	c.status.Pending = storeStatus.Pending
+	c.status.OldestPendingAt = storeStatus.OldestPendingAt
+	c.status.DeadLetter = storeStatus.DeadLetter
+	c.statusMu.Unlock()
 }
 
 func (c *RiskStreamConsumer) processMessages(ctx context.Context, messages []RiskStreamMessage, result *RiskStreamBatchResult) error {

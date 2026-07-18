@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,6 +26,10 @@ type fakeRiskStreamRedisClient struct {
 	evalScript string
 	evalKeys   []string
 	evalArgs   []interface{}
+	pending    *redis.XPending
+	pendingErr error
+	deadLetter int64
+	xlenErr    error
 }
 
 func (c *fakeRiskStreamRedisClient) XGroupCreateMkStream(ctx context.Context, _, _, _ string) *redis.StatusCmd {
@@ -72,6 +76,20 @@ func (c *fakeRiskStreamRedisClient) Eval(ctx context.Context, script string, key
 	cmd := redis.NewCmd(ctx)
 	cmd.SetVal("2-0")
 	cmd.SetErr(c.evalErr)
+	return cmd
+}
+
+func (c *fakeRiskStreamRedisClient) XPending(ctx context.Context, _, _ string) *redis.XPendingCmd {
+	cmd := redis.NewXPendingCmd(ctx)
+	cmd.SetVal(c.pending)
+	cmd.SetErr(c.pendingErr)
+	return cmd
+}
+
+func (c *fakeRiskStreamRedisClient) XLen(ctx context.Context, _ string) *redis.IntCmd {
+	cmd := redis.NewIntCmd(ctx)
+	cmd.SetVal(c.deadLetter)
+	cmd.SetErr(c.xlenErr)
 	return cmd
 }
 
@@ -139,4 +157,17 @@ func TestRedisRiskStreamStorePublishesSignedEnvelope(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, values["payload"])
 	require.NotEmpty(t, values["signature"])
+}
+
+func TestRedisRiskStreamStoreStatusReportsPendingAgeAndDeadLetters(t *testing.T) {
+	store := newRedisRiskStreamStore(&fakeRiskStreamRedisClient{
+		pending:    &redis.XPending{Count: 3, Lower: "1720000000123-0"},
+		deadLetter: 2,
+	})
+
+	status, err := store.Status(context.Background())
+	require.NoError(t, err)
+	require.EqualValues(t, 3, status.Pending)
+	require.EqualValues(t, 1_720_000_000, status.OldestPendingAt)
+	require.EqualValues(t, 2, status.DeadLetter)
 }

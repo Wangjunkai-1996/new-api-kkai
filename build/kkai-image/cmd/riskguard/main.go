@@ -11,7 +11,7 @@ import (
 
 	"github.com/Wangjunkai-1996/new-api-kkai/build/kkai-image/internal/riskguard"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {

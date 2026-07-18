@@ -7,8 +7,10 @@ readonly BUILD_ROOT="${ROOT}/build/kkai-image"
 readonly WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
 readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
+readonly RISK_INTEGRATION_TEST="${ROOT}/service/kkai_risk_stream_redis_integration_test.go"
 readonly SCHEMA_OBSERVER_SOURCE="${ROOT}/cmd/kkai-schema-observe/main.go"
 readonly AGENT_RULES="${ROOT}/AGENTS.md"
+readonly REDIS_CI_IMAGE='redis:8.6.3@sha256:48e78eb9d1e1adcfb10184b2cc3c7fc5ed21e5a3be08875f239257d194bab8c9'
 
 fail() {
   echo "KKAI image policy: $*" >&2
@@ -108,6 +110,53 @@ if contains_fixed 'KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE' "${BUILD_ROOT}/smoke-com
   contains_fixed 'KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE' "${ROOT}/common/node_role.go"; then
   fail "production application runtime still exposes the legacy one-shot upstream migration mode"
 fi
+if contains_fixed "image: ${REDIS_CI_IMAGE}" "${WORKFLOW}" ||
+  contains_fixed 'KKAI_TEST_REDIS_ADDRESS' "${WORKFLOW}" ||
+  contains_fixed 'KKAI_TEST_REDIS_REQUIRED' "${WORKFLOW}"; then
+  fail "ordinary production image builds have a fixed Redis integration dependency"
+fi
+contains_fixed 'risk-stream-redis-integration:' "${QUALITY_WORKFLOW}" ||
+  fail "fork quality has no independent Risk Redis integration check"
+risk_integration_job="$(
+  sed -n '/^  risk-stream-redis-integration:$/,$p' "${QUALITY_WORKFLOW}"
+)"
+readonly risk_integration_job
+[[ -n "${risk_integration_job}" ]] ||
+  fail "Risk Redis integration job is empty"
+[[ "$(grep -Fc "image: ${REDIS_CI_IMAGE}" "${QUALITY_WORKFLOW}")" -eq 1 ]] ||
+  fail "reviewed Redis CI image must appear exactly once"
+contains_fixed "image: ${REDIS_CI_IMAGE}" <(printf '%s\n' "${risk_integration_job}") ||
+  fail "Risk Redis integration is not pinned to the reviewed linux/amd64 digest"
+ordinary_quality_jobs="$(
+  sed '/^  risk-stream-redis-integration:$/,$d' "${QUALITY_WORKFLOW}"
+)"
+readonly ordinary_quality_jobs
+if grep -Eq 'image: redis:|KKAI_TEST_REDIS_(ADDRESS|REQUIRED)' <<<"${ordinary_quality_jobs}"; then
+  fail "ordinary fork quality jobs have a fixed Redis integration dependency"
+fi
+contains_fixed "if: needs.risk-integration-scope.outputs.required == 'true'" "${QUALITY_WORKFLOW}" ||
+  fail "Risk Redis integration is not path-gated"
+contains_fixed "KKAI_TEST_REDIS_REQUIRED: 'true'" "${QUALITY_WORKFLOW}" ||
+  fail "Risk Redis integration can silently skip when its service is unavailable"
+contains_fixed "go test ./service -run '^TestRedis86RiskStreamConsumerLifecycle$' -count=1" \
+  "${QUALITY_WORKFLOW}" ||
+  fail "Risk Redis integration does not run the reviewed lifecycle test"
+for risk_scope_path in \
+  'build/kkai-image/internal/riskguard/*' \
+  'service/kkai_risk_*.go' \
+  'service/kkai_runtime_jobs.go'; do
+  contains_fixed "${risk_scope_path}" "${QUALITY_WORKFLOW}" ||
+    fail "Risk integration scope omits ${risk_scope_path}"
+done
+for lifecycle_operation in \
+  'client.XAutoClaim' \
+  'store.ReadNew' \
+  'store.Ack' \
+  'store.Reject' \
+  'client.XRangeN'; do
+  contains_fixed "${lifecycle_operation}" "${RISK_INTEGRATION_TEST}" ||
+    fail "Risk Redis lifecycle test omits ${lifecycle_operation}"
+done
 contains_fixed '/schema-compatibility.json' "${BUILD_ROOT}/Dockerfile" ||
   fail "production image does not embed schema compatibility metadata"
 contains_fixed '/upstream-schema-compatibility.json' "${BUILD_ROOT}/Dockerfile" ||
