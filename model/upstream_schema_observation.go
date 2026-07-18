@@ -130,6 +130,11 @@ type observedUpstreamColumn struct {
 	DefaultExists   bool
 }
 
+const (
+	postgresUnconstrainedNumericPrecision int64 = 65535
+	postgresUnconstrainedNumericScale     int64 = 65531
+)
+
 func observedColumns(db *gorm.DB, dialect, table string, columnTypes []gorm.ColumnType) (map[string]observedUpstreamColumn, error) {
 	if dialect == upstreamDialectSQLite {
 		return observedSQLiteColumns(db, table)
@@ -147,7 +152,7 @@ func observedColumns(db *gorm.DB, dialect, table string, columnTypes []gorm.Colu
 		databaseType := columnType.DatabaseTypeName()
 		typeShape, typeErr := normalizedColumnTypeShape(dialect, databaseType, fullType)
 		if typeErr == nil {
-			typeShape = enrichObservedTypeShape(typeShape, columnType)
+			typeShape = enrichObservedTypeShape(dialect, typeShape, columnType)
 		}
 		nullable, nullableKnown := columnType.Nullable()
 		primaryKey, primaryKeyKnown := columnType.PrimaryKey()
@@ -168,7 +173,7 @@ func observedColumns(db *gorm.DB, dialect, table string, columnTypes []gorm.Colu
 	return columns, nil
 }
 
-func enrichObservedTypeShape(shape upstreamColumnTypeShape, columnType gorm.ColumnType) upstreamColumnTypeShape {
+func enrichObservedTypeShape(dialect string, shape upstreamColumnTypeShape, columnType gorm.ColumnType) upstreamColumnTypeShape {
 	if typeShapeUsesLength(shape) && shape.Length == 0 {
 		if length, known := columnType.Length(); known && length > 0 {
 			shape.Length = length
@@ -176,6 +181,12 @@ func enrichObservedTypeShape(shape upstreamColumnTypeShape, columnType gorm.Colu
 	}
 	if typeShapeUsesPrecision(shape) && shape.Precision == 0 {
 		if precision, scale, known := columnType.DecimalSize(); known && precision > 0 {
+			if dialect == upstreamDialectPostgres && shape.Family == upstreamTypeNumeric &&
+				shape.Variant == "decimal" &&
+				precision == postgresUnconstrainedNumericPrecision &&
+				scale == postgresUnconstrainedNumericScale {
+				return shape
+			}
 			shape.Precision = precision
 			shape.Scale = scale
 		}
