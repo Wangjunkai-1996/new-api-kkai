@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +13,29 @@ import (
 )
 
 const KKAIRiskStreamSecretEnvironmentVariable = "KKAI_RISK_STREAM_SECRET"
+
+var kkaiRiskStreamRuntimeState struct {
+	sync.RWMutex
+	consumer *RiskStreamConsumer
+}
+
+// KKAIRiskStreamRuntimeStatus returns the latest in-memory stream telemetry.
+// It never probes Redis and is therefore safe for periodic instance reporting.
+func KKAIRiskStreamRuntimeStatus() (RiskStreamConsumerStatus, bool) {
+	kkaiRiskStreamRuntimeState.RLock()
+	consumer := kkaiRiskStreamRuntimeState.consumer
+	kkaiRiskStreamRuntimeState.RUnlock()
+	if consumer == nil {
+		return RiskStreamConsumerStatus{}, false
+	}
+	return consumer.snapshotStatus(), true
+}
+
+func setKKAIRiskStreamRuntimeConsumer(consumer *RiskStreamConsumer) {
+	kkaiRiskStreamRuntimeState.Lock()
+	kkaiRiskStreamRuntimeState.consumer = consumer
+	kkaiRiskStreamRuntimeState.Unlock()
+}
 
 func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID string) error {
 	if registry == nil || !leaderLeaseNamePattern.MatchString(workerID) {
@@ -50,8 +74,10 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		return err
 	}
 	if consumer == nil {
+		setKKAIRiskStreamRuntimeConsumer(nil)
 		return nil
 	}
+	setKKAIRiskStreamRuntimeConsumer(consumer)
 	return registry.Register(BackgroundJob{
 		Name:                "kkai-risk-stream",
 		Interval:            time.Second,

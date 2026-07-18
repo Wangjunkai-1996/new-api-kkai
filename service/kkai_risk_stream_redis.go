@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -33,6 +33,8 @@ type riskStreamRedisClient interface {
 	XAutoClaim(context.Context, *redis.XAutoClaimArgs) *redis.XAutoClaimCmd
 	XAck(context.Context, string, string, ...string) *redis.IntCmd
 	XAdd(context.Context, *redis.XAddArgs) *redis.StringCmd
+	XPending(context.Context, string, string) *redis.XPendingCmd
+	XLen(context.Context, string) *redis.IntCmd
 	Eval(context.Context, string, []string, ...interface{}) *redis.Cmd
 }
 
@@ -142,6 +144,26 @@ func (s *RedisRiskStreamStore) Reject(ctx context.Context, message RiskStreamMes
 	).Err()
 }
 
+func (s *RedisRiskStreamStore) Status(ctx context.Context) (RiskStreamStoreStatus, error) {
+	if !s.configured() {
+		return RiskStreamStoreStatus{}, errors.New("risk stream Redis client is unavailable")
+	}
+	pending, err := s.client.XPending(ctx, s.stream, s.group).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return RiskStreamStoreStatus{}, err
+	}
+	deadLetter, err := s.client.XLen(ctx, s.deadLetterStream).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return RiskStreamStoreStatus{}, err
+	}
+	status := RiskStreamStoreStatus{DeadLetter: deadLetter}
+	if pending != nil {
+		status.Pending = pending.Count
+		status.OldestPendingAt = riskStreamUnixFromID(pending.Lower)
+	}
+	return status, nil
+}
+
 func (s *RedisRiskStreamStore) Publish(ctx context.Context, event RiskStreamEvent, secret string) (string, error) {
 	if !s.configured() {
 		return "", errors.New("risk stream Redis client is unavailable")
@@ -188,4 +210,16 @@ func riskStreamRedisString(value any) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func riskStreamUnixFromID(id string) int64 {
+	parts := strings.SplitN(id, "-", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	milliseconds, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || milliseconds < 0 {
+		return 0
+	}
+	return milliseconds / 1000
 }

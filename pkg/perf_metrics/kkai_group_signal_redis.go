@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt time.Time) {
@@ -66,7 +66,7 @@ func queryKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 	type command struct {
 		group    string
 		bucketTs int64
-		cmd      *redis.StringStringMapCmd
+		cmd      *redis.MapStringStringCmd
 	}
 	commands := make([]command, 0)
 	startBucket, endBucket := startTs-startTs%resolution, endTs-endTs%resolution

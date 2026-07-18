@@ -101,5 +101,8 @@ func ReportCurrentSystemInstance() error {
 			},
 		},
 	}
+	if riskStream, enabled := KKAIRiskStreamRuntimeStatus(); enabled {
+		info.Extra = map[string]any{"risk_stream": riskStream}
+	}
 	return model.UpsertSystemInstance(identity.Name, info, common.StartTime, common.GetTimestamp())
 }

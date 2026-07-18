@@ -18,6 +18,87 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  risk-integration-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Detect Risk integration scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -Eeuo pipefail
+          required=false
+          case "${EVENT_NAME}" in
+            workflow_dispatch)
+              required=true
+              ;;
+            pull_request)
+              base_sha="${PULL_REQUEST_BASE_SHA}"
+              ;;
+            push)
+              base_sha="${PUSH_BEFORE_SHA}"
+              if [[ -z "${base_sha}" || "${base_sha}" =~ ^0+$ ]]; then
+                required=true
+              fi
+              ;;
+            *)
+              echo "unsupported event: ${EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "${required}" == false ]]; then
+            [[ "${base_sha}" =~ ^[0-9a-f]{40}$ ]]
+            git cat-file -e "${base_sha}^{commit}"
+            mapfile -t changed_paths < <(git diff --name-only "${base_sha}" HEAD)
+            for path in "${changed_paths[@]}"; do
+              case "${path}" in
+                .github/workflows/kkai-fork-quality.yml|\
+                .github/workflows/kkai-production-image.yml|\
+                build/kkai-image/Dockerfile|\
+                build/kkai-image/cmd/entrypoint/main.go|\
+                build/kkai-image/cmd/riskguard/*|\
+                build/kkai-image/internal/riskguard/*|\
+                build/kkai-image/smoke-compose.yml|\
+                build/kkai-image/test-policy.sh|\
+                common/limiter/*|\
+                common/redis.go|\
+                middleware/model-rate-limit.go|\
+                model/kkai_risk*.go|\
+                pkg/cachex/hybrid_cache.go|\
+                pkg/kkaimigrate/schema_outbox_event_key.go|\
+                pkg/kkaimigrate/schema_risk.go|\
+                pkg/perf_metrics/kkai_group_signal_redis.go|\
+                service/kkai_outbox*.go|\
+                service/kkai_risk_*.go|\
+                service/kkai_runtime_jobs.go|\
+                service/system_instance.go)
+                  required=true
+                  break
+                  ;;
+              esac
+            done
+
+            if [[ "${required}" == false ]] &&
+              git diff --unified=0 "${base_sha}" HEAD -- \
+                go.mod go.sum build/kkai-image/go.mod build/kkai-image/go.sum |
+                grep -Eq 'github.com/(go-redis/redis/v8|redis/go-redis/v9)|dgryski/go-rendezvous'; then
+              required=true
+            fi
+          fi
+
+          echo "required=${required}" >> "${GITHUB_OUTPUT}"
+
   fork-quality:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -44,3 +125,34 @@ jobs:
 
       - name: Run baseline-aware fork gate
         run: scripts/kkai/check-fork-quality.sh --full
+
+  risk-stream-redis-integration:
+    needs: risk-integration-scope
+    if: needs.risk-integration-scope.outputs.required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:8.6.3@sha256:48e78eb9d1e1adcfb10184b2cc3c7fc5ed21e5a3be08875f239257d194bab8c9
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      KKAI_TEST_REDIS_ADDRESS: 127.0.0.1:6379
+      KKAI_TEST_REDIS_REQUIRED: 'true'
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Run Redis 8.6 Risk stream lifecycle integration
+        run: go test ./service -run '^TestRedis86RiskStreamConsumerLifecycle$' -count=1

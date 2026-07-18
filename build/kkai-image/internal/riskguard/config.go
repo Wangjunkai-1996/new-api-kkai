@@ -10,7 +10,7 @@ import (
 
 	"github.com/Wangjunkai-1996/new-api-kkai/build/kkai-image/internal/secretfile"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 var redisUserPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)

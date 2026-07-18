@@ -2,7 +2,7 @@ module github.com/Wangjunkai-1996/new-api-kkai/build/kkai-image
 
 go 1.26.0
 
-require github.com/go-redis/redis/v8 v8.11.5
+require github.com/redis/go-redis/v9 v9.17.1
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
