@@ -302,7 +302,7 @@ func InitResources() error {
 			return err
 		}
 	}
-	if err = kkaimigrate.Check(context.Background(), model.DB, kkaimigrate.CurrentVersion); err != nil {
+	if err = kkaimigrate.Check(context.Background(), model.DB, kkaimigrate.RuntimeMinVersion); err != nil {
 		return fmt.Errorf("KKAI schema check failed; run cmd/kkai-migrate before starting NewAPI: %w", err)
 	}
 	if err = authz.Init(model.DB); err != nil {

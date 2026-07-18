@@ -111,4 +111,9 @@ func TestSelectExecutableRoutesOnlyTheRecoverySubcommand(t *testing.T) {
 	if executable != "/new-api" || strings.Join(arguments, " ") != "--version" {
 		t.Fatalf("unexpected application command %q %q", executable, arguments)
 	}
+
+	executable, arguments = selectExecutable([]string{"bootstrap-empty-upstream-baseline"})
+	if executable != "/new-api" || strings.Join(arguments, " ") != "bootstrap-empty-upstream-baseline" {
+		t.Fatalf("application entrypoint exposed schema bootstrap %q %q", executable, arguments)
+	}
 }

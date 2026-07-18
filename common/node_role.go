@@ -21,6 +21,10 @@ const (
 var (
 	ErrInvalidNodeRole = errors.New("invalid node role configuration")
 
+	// ProductionImageRuntime is set to true by the production image build.
+	// It is a binary property rather than an environment-controlled permission.
+	ProductionImageRuntime = "false"
+
 	nodeRole                     = NodeRoleLeader
 	writeBackgroundTasksDisabled bool
 )
@@ -68,7 +72,20 @@ func CanRunWriteBackgroundJobs() bool {
 }
 
 func CanRunSchemaMigrations() bool {
-	return IsMasterNode && nodeRole == NodeRoleLeader
+	return CanRunUpstreamSchemaMigrations()
+}
+
+// CanRunUpstreamSchemaMigrations preserves the development default while making
+// every application process in the production image fail closed. Production
+// schema changes are owned by the versioned migrator, never by application startup.
+func CanRunUpstreamSchemaMigrations() bool {
+	if !IsMasterNode || nodeRole != NodeRoleLeader {
+		return false
+	}
+	if ProductionImageRuntime == "true" {
+		return false
+	}
+	return true
 }
 
 func IsStandbyReadonly() bool {

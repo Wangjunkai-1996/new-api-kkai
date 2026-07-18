@@ -22,6 +22,7 @@ Build the migration binary on the external build machine:
 
 ```bash
 go build -trimpath -o kkai-migrate ./cmd/kkai-migrate
+go build -trimpath -o kkai-schema-observe ./cmd/kkai-schema-observe
 ```
 
 Use `KKAI_MIGRATION_DSN`, `SQL_DSN`, or `--dsn-stdin`. Release automation uses
@@ -34,12 +35,20 @@ or release manifest. The command never prints the DSN.
 ./kkai-migrate --check --min-version 3
 ```
 
-The production image contains `/kkai-migrate` built from the same source
-revision as `/new-api`. Release automation runs it as a read-only,
-capability-free, one-shot container on the private data network. Application
-startup verifies the KKAI schema version and never applies KKAI migrations
-implicitly. The existing upstream NewAPI schema migration path is unchanged and
-must be rehearsed against the isolated production database clone.
+The production image contains both tools built from the same source revision as
+`/new-api`. `/kkai-migrate` owns describe, check, dry-run, bootstrap and apply
+operations. Routine release observation uses `/kkai-schema-observe`, which only
+accepts `--current` or `--check-upstream-baseline` with canonical JSON output
+and has no migration or bootstrap command surface:
+
+```bash
+./kkai-schema-observe --current --json --dsn-stdin
+./kkai-schema-observe --check-upstream-baseline --json \
+  --source-revision "$SOURCE_REVISION" --dsn-stdin
+```
+
+Application startup verifies the KKAI schema version and never applies KKAI
+migrations implicitly.
 
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.

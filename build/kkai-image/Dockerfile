@@ -53,10 +53,15 @@ RUN go test ./...
 RUN test -n "${APP_VERSION}" \
     && test -n "${SOURCE_REVISION}" \
     && go build -trimpath \
-      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}'" \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.ProductionImageRuntime=true'" \
       -o /out/new-api . \
-    && go build -trimpath -ldflags '-s -w -buildid=' \
+    && go build -trimpath -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}'" \
       -o /out/kkai-migrate ./cmd/kkai-migrate \
+    && go build -trimpath \
+      -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}' -X 'github.com/QuantumNous/new-api/common.ProductionImageRuntime=true'" \
+      -o /out/kkai-schema-observe ./cmd/kkai-schema-observe \
+    && /out/kkai-migrate --describe --json --source-revision "${SOURCE_REVISION}" > /out/schema-compatibility.json \
+    && /out/kkai-migrate --describe-upstream-schema --json --source-revision "${SOURCE_REVISION}" > /out/upstream-schema-compatibility.json \
     && go build -trimpath \
       -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}'" \
       -o /out/kkai-topup-recovery ./cmd/kkai-topup-recovery
@@ -80,15 +85,29 @@ FROM ${DISTROLESS_IMAGE}
 
 ARG APP_VERSION
 ARG SOURCE_REVISION
+ARG SCHEMA_COMPATIBILITY_SCHEMA
+ARG SCHEMA_RUNTIME_MIN_VERSION
+ARG SCHEMA_RUNTIME_MAX_VERSION
+ARG SCHEMA_MIGRATION_TARGET_VERSION
+ARG SCHEMA_MIGRATION_KIND
+ARG SCHEMA_MIGRATION_SET_DIGEST
 LABEL org.opencontainers.image.title="KKAI New API" \
       org.opencontainers.image.description="Hardened KKAI production New API image" \
       org.opencontainers.image.source="https://github.com/Wangjunkai-1996/new-api-kkai" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.kkai.schema.min-compatible="${SCHEMA_RUNTIME_MIN_VERSION}" \
+      com.kkai.schema.max-compatible="${SCHEMA_RUNTIME_MAX_VERSION}" \
+      com.kkai.schema.migration-target="${SCHEMA_MIGRATION_TARGET_VERSION}" \
+      com.kkai.schema.migration-kind="${SCHEMA_MIGRATION_KIND}" \
+      com.kkai.schema.migration-set-digest="${SCHEMA_MIGRATION_SET_DIGEST}" \
       org.opencontainers.image.licenses="AGPL-3.0"
 
 COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend --chown=10007:10007 /out/kkai-schema-observe /kkai-schema-observe
+COPY --from=backend --chown=10007:10007 /out/schema-compatibility.json /schema-compatibility.json
+COPY --from=backend --chown=10007:10007 /out/upstream-schema-compatibility.json /upstream-schema-compatibility.json
 COPY --from=backend --chown=10007:10007 /out/kkai-topup-recovery /kkai-topup-recovery
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-canary-probe /new-api-canary-probe

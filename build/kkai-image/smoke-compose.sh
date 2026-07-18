@@ -145,7 +145,31 @@ printf '%s\n' \
     --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
     --network "${PROJECT_NAME}_default" \
     --entrypoint /kkai-migrate "${IMAGE_REF}" \
+    --bootstrap-empty-upstream-baseline --dsn-stdin --timeout 2m
+
+printf '%s\n' \
+  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
+  docker run --rm --interactive --pull=never --platform linux/amd64 \
+    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+    --network "${PROJECT_NAME}_default" \
+    --entrypoint /kkai-schema-observe "${IMAGE_REF}" \
+    --check-upstream-baseline --json --dsn-stdin --timeout 2m
+
+printf '%s\n' \
+  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
+  docker run --rm --interactive --pull=never --platform linux/amd64 \
+    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+    --network "${PROJECT_NAME}_default" \
+    --entrypoint /kkai-migrate "${IMAGE_REF}" \
     --dsn-stdin --timeout 2m
+
+printf '%s\n' \
+  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
+  docker run --rm --interactive --pull=never --platform linux/amd64 \
+    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+    --network "${PROJECT_NAME}_default" \
+    --entrypoint /kkai-schema-observe "${IMAGE_REF}" \
+    --current --json --dsn-stdin --timeout 2m
 
 NEWAPI_NODE_TYPE=master NEWAPI_NODE_ROLE=leader \
   compose up --detach --no-deps --force-recreate --wait --wait-timeout 300 newapi
