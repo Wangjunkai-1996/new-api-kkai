@@ -15,11 +15,11 @@ GitHub-hosted Linux runners for rebuild and integration branches. Candidate
 images are loaded only into the ephemeral runner for verification and smoke;
 the workflow has no package-write permission and cannot publish or deploy.
 
-The smoke test applies KKAI migrations over stdin, starts an isolated leader
-with write background tasks disabled so the existing upstream schema path can
-initialize an empty fixture, then force-recreates the application as the
-writer-disabled `serving` role. This fixture behavior is not a production
-migration procedure.
+The smoke test uses `/kkai-migrate` only to bootstrap the disposable upstream
+fixture and apply KKAI migrations. It uses the independently built,
+read-only `/kkai-schema-observe` binary for exact upstream adoption and current
+KKAI schema evidence before starting an isolated writer-disabled application.
+This fixture behavior is not a production migration procedure.
 
 Local builds are development evidence only. A dirty local image must never be
 used as a production release artifact.

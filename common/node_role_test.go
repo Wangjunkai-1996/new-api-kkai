@@ -77,13 +77,41 @@ func TestInitNodeRoleFromEnvironmentRejectsInvalidValues(t *testing.T) {
 	require.ErrorIs(t, InitNodeRoleFromEnvironment(), ErrInvalidNodeRole)
 }
 
+func TestProductionImageNeverRunsUpstreamSchemaMigrations(t *testing.T) {
+	restore := snapshotNodeRoleState()
+	t.Cleanup(restore)
+	ProductionImageRuntime = "true"
+	for _, role := range []NodeRole{NodeRoleLeader, NodeRoleServing, NodeRoleStandbyReadonly} {
+		for _, legacyMode := range []string{"", "one-shot"} {
+			t.Run(string(role)+"/legacy-mode="+legacyMode, func(t *testing.T) {
+				t.Setenv(NodeRoleEnvironmentVariable, string(role))
+				t.Setenv("KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE", legacyMode)
+				require.NoError(t, InitNodeRoleFromEnvironment())
+				require.False(t, CanRunUpstreamSchemaMigrations())
+			})
+		}
+	}
+}
+
+func TestCanRunUpstreamSchemaMigrationsKeepsNonImageDevelopmentDefault(t *testing.T) {
+	restore := snapshotNodeRoleState()
+	t.Cleanup(restore)
+	ProductionImageRuntime = "false"
+	t.Setenv("KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE", "")
+	t.Setenv(NodeRoleEnvironmentVariable, string(NodeRoleLeader))
+	require.NoError(t, InitNodeRoleFromEnvironment())
+	require.True(t, CanRunUpstreamSchemaMigrations())
+}
+
 func snapshotNodeRoleState() func() {
 	role := nodeRole
 	disabled := writeBackgroundTasksDisabled
 	master := IsMasterNode
+	productionImageRuntime := ProductionImageRuntime
 	return func() {
 		nodeRole = role
 		writeBackgroundTasksDisabled = disabled
 		IsMasterNode = master
+		ProductionImageRuntime = productionImageRuntime
 	}
 }

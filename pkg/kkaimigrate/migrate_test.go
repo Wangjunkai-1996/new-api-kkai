@@ -28,7 +28,7 @@ func TestApplyCreatesVersionedSchemaAndIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Applied, 4)
 	require.Empty(t, result.Pending)
-	require.NoError(t, Check(context.Background(), db, CurrentVersion))
+	require.NoError(t, Check(context.Background(), db, MigrationTargetVersion))
 	require.True(t, db.Migrator().HasTable("kkai_policy_incidents"))
 	require.True(t, db.Migrator().HasTable("kkai_outbox"))
 	require.True(t, db.Migrator().HasTable("kkai_internal_balance_adjustments"))
@@ -80,6 +80,20 @@ func TestCheckRejectsUnknownFutureMigration(t *testing.T) {
 	require.ErrorIs(t, Check(context.Background(), db, CurrentVersion), ErrFutureMigration)
 }
 
+func TestCheckRejectsInvalidMigrationCatalog(t *testing.T) {
+	db := newMigrationTestDB(t)
+	invalid := []migration{{
+		Version: 2, Name: "wrong_start", Kind: MigrationKindExpand,
+		ImplementationID: "wrong_start_v1", ChecksumVersion: migrationChecksumSchemaCurrent,
+		Statements: completeDialectStatements("CREATE TABLE wrong_start (id BIGINT)"),
+	}}
+	require.ErrorIs(
+		t,
+		checkThroughMigrationSet(context.Background(), db, 2, 2, 2, invalid),
+		ErrUnsafeMigration,
+	)
+}
+
 func TestCompatVersionAcceptsNewerKnownDatabaseWithoutApplyingIt(t *testing.T) {
 	db := newMigrationTestDB(t)
 	_, err := applyThroughVersion(context.Background(), db, Options{}, OutboxEventKeySchemaVersion, OutboxEventKeySchemaVersion)
@@ -108,6 +122,46 @@ func TestCompatVersionApplyStopsAtCurrentVersion(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", OutboxEventKeySchemaVersion).Count(&count).Error)
 	require.Zero(t, count)
+}
+
+func TestMigrationTargetControlsBridgeAndExpandApplication(t *testing.T) {
+	migrations := append(migrationSet(), migration{
+		Version:          5,
+		Name:             "synthetic_expand",
+		Kind:             MigrationKindExpand,
+		ImplementationID: "synthetic_expand_v1",
+		ChecksumVersion:  migrationChecksumSchemaCurrent,
+		Statements: completeDialectOperations(
+			migrationStatement{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE kkai_synthetic_expand (id INTEGER PRIMARY KEY)`},
+			migrationStatement{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_kkai_synthetic_expand_id ON kkai_synthetic_expand (id)`},
+		),
+	})
+
+	for _, test := range []struct {
+		name            string
+		targetVersion   int64
+		expectsVersion5 bool
+	}{
+		{name: "bridge does not apply the next expansion", targetVersion: 4, expectsVersion5: false},
+		{name: "expand applies the next expansion", targetVersion: 5, expectsVersion5: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := newMigrationTestDB(t)
+			_, err := applyThroughMigrationSet(context.Background(), db, Options{}, 4, 5, migrations)
+			require.NoError(t, err)
+
+			result, err := applyThroughMigrationSet(context.Background(), db, Options{}, test.targetVersion, 5, migrations)
+			require.NoError(t, err)
+			require.Len(t, result.Applied, int(test.targetVersion))
+			require.Empty(t, result.Pending)
+			require.NoError(t, checkThroughMigrationSet(context.Background(), db, test.targetVersion, 4, 5, migrations))
+
+			var appliedVersion5 int64
+			require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", 5).Count(&appliedVersion5).Error)
+			require.Equal(t, test.expectsVersion5, appliedVersion5 == 1)
+			require.Equal(t, test.expectsVersion5, db.Migrator().HasIndex("kkai_synthetic_expand", "idx_kkai_synthetic_expand_id"))
+		})
+	}
 }
 
 type testLegacyPolicyIncident struct {

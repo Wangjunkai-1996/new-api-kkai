@@ -10,30 +10,71 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/kkaischemacli"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
+var sourceRevision string
+
 func main() {
 	var (
-		dsn            string
-		dsnFromStdin   bool
-		dryRun         bool
-		checkOnly      bool
-		minimumVersion int64
-		timeout        time.Duration
+		dsn              string
+		dsnFromStdin     bool
+		dryRun           bool
+		checkOnly        bool
+		current          bool
+		describe         bool
+		describeUpstream bool
+		checkUpstream    bool
+		bootstrapEmpty   bool
+		jsonOutput       bool
+		describeSource   string
+		minimumVersion   int64
+		timeout          time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
 	flag.BoolVar(&dryRun, "dry-run", false, "show pending migrations without applying them")
 	flag.BoolVar(&checkOnly, "check", false, "verify the minimum schema version and exit")
-	flag.Int64Var(&minimumVersion, "min-version", kkaimigrate.CurrentVersion, "minimum schema version for --check")
+	flag.BoolVar(&current, "current", false, "read the current KKAI schema version without applying migrations")
+	flag.BoolVar(&describe, "describe", false, "print the image schema compatibility contract and exit")
+	flag.BoolVar(&describeUpstream, "describe-upstream-schema", false, "print the versioned upstream model schema contract and exit")
+	flag.BoolVar(&checkUpstream, "check-upstream-baseline", false, "read-only exact check of the upstream database schema")
+	flag.BoolVar(&bootstrapEmpty, "bootstrap-empty-upstream-baseline", false, "create the upstream baseline in a strictly empty database")
+	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON for --describe or --check")
+	flag.StringVar(&describeSource, "source-revision", sourceRevision, "source revision for --describe")
+	flag.Int64Var(&minimumVersion, "min-version", kkaimigrate.RuntimeMinVersion, "minimum schema version for --check")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
 	flag.Parse()
+	if enabledModeCount(dryRun, checkOnly, current, describe, describeUpstream, checkUpstream, bootstrapEmpty) > 1 {
+		log.Fatal("migration operation modes cannot be combined")
+	}
+	if describe {
+		if !jsonOutput {
+			log.Fatal("--describe requires --json")
+		}
+		encoded, err := describeJSON(describeSource)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(string(encoded))
+		return
+	}
+	if describeUpstream {
+		if !jsonOutput {
+			log.Fatal("--describe-upstream-schema requires --json")
+		}
+		encoded, err := describeUpstreamJSON(describeSource)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(string(encoded))
+		return
+	}
 
 	resolvedDSN, err := resolveMigrationDSN(dsn, dsnFromStdin, os.Stdin)
 	if err != nil {
@@ -51,9 +92,65 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if checkUpstream {
+		if !jsonOutput {
+			log.Fatal("--check-upstream-baseline requires --json")
+		}
+		adoption, err := kkaimigrate.ObserveUpstreamSchema(ctx, db, describeSource)
+		if err != nil {
+			log.Fatalf("upstream schema baseline check failed: %v", err)
+		}
+		encoded, err := adoption.CanonicalJSON()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(string(encoded))
+		if !adoption.Ready {
+			log.Fatal("upstream schema baseline is incomplete")
+		}
+		return
+	}
+	if bootstrapEmpty {
+		if err := validateEmptyBootstrapRuntime(os.Getenv(common.NodeRoleEnvironmentVariable)); err != nil {
+			log.Fatal(err)
+		}
+		if err := model.BootstrapEmptyUpstreamSchema(ctx, db); err != nil {
+			log.Fatalf("upstream schema baseline bootstrap failed: %v", err)
+		}
+		fmt.Println("upstream schema baseline bootstrapped")
+		return
+	}
+	if current {
+		observed, err := kkaimigrate.Observe(ctx, db)
+		if err != nil {
+			log.Fatalf("KKAI schema observation failed: %v", err)
+		}
+		if jsonOutput {
+			encoded, err := currentJSON(observed)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(string(encoded))
+			return
+		}
+		fmt.Printf("KKAI schema is currently at version %d\n", observed.CurrentVersion)
+		return
+	}
 	if checkOnly {
 		if err := kkaimigrate.Check(ctx, db, minimumVersion); err != nil {
 			log.Fatalf("KKAI schema check failed: %v", err)
+		}
+		if jsonOutput {
+			observed, err := kkaimigrate.Observe(ctx, db)
+			if err != nil {
+				log.Fatalf("KKAI schema observation failed: %v", err)
+			}
+			encoded, err := checkJSON(observed, kkaimigrate.SchemaCompatibility(sourceRevision))
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(string(encoded))
+			return
 		}
 		fmt.Printf("KKAI schema is ready at version %d\n", minimumVersion)
 		return
@@ -74,71 +171,72 @@ func main() {
 	}
 }
 
-func resolveMigrationDSN(explicitDSN string, fromStdin bool, reader io.Reader) (string, error) {
-	const maximumDSNBytes = 8192
+func validateEmptyBootstrapRuntime(nodeRole string) error {
+	if strings.TrimSpace(nodeRole) != "" {
+		return fmt.Errorf("--bootstrap-empty-upstream-baseline is unavailable in application node roles")
+	}
+	return nil
+}
 
-	explicitDSN = strings.TrimSpace(explicitDSN)
-	if !fromStdin {
-		if explicitDSN == "" {
-			return "", fmt.Errorf("KKAI_MIGRATION_DSN, SQL_DSN, --dsn, or --dsn-stdin is required")
+func enabledModeCount(modes ...bool) int {
+	count := 0
+	for _, enabled := range modes {
+		if enabled {
+			count++
 		}
-		return explicitDSN, nil
 	}
-	if explicitDSN != "" {
-		return "", fmt.Errorf("--dsn-stdin cannot be combined with --dsn, KKAI_MIGRATION_DSN, or SQL_DSN")
-	}
+	return count
+}
 
-	rawDSN, err := io.ReadAll(io.LimitReader(reader, maximumDSNBytes+1))
+func describeJSON(sourceRevision string) ([]byte, error) {
+	return kkaimigrate.SchemaCompatibility(sourceRevision).CanonicalJSON()
+}
+
+func describeUpstreamJSON(sourceRevision string) ([]byte, error) {
+	contract, err := kkaimigrate.UpstreamSchemaCompatibility(sourceRevision)
 	if err != nil {
-		return "", fmt.Errorf("read migration DSN from stdin: %w", err)
+		return nil, err
 	}
-	if len(rawDSN) > maximumDSNBytes {
-		return "", fmt.Errorf("migration DSN exceeds %d bytes", maximumDSNBytes)
-	}
+	return contract.CanonicalJSON()
+}
 
-	dsnInput := string(rawDSN)
-	switch {
-	case strings.HasSuffix(dsnInput, "\r\n"):
-		dsnInput = strings.TrimSuffix(dsnInput, "\r\n")
-	case strings.HasSuffix(dsnInput, "\n"):
-		dsnInput = strings.TrimSuffix(dsnInput, "\n")
-	}
-	if strings.ContainsAny(dsnInput, "\r\n") {
-		return "", fmt.Errorf("migration DSN from stdin must contain exactly one line")
-	}
+func checkJSON(observed kkaimigrate.SchemaObservation, contract kkaimigrate.SchemaContract) ([]byte, error) {
+	return common.Marshal(struct {
+		Schema                 int    `json:"schema"`
+		Ready                  bool   `json:"ready"`
+		CurrentVersion         int64  `json:"current_version"`
+		MigrationSetDigest     string `json:"migration_set_digest"`
+		RuntimeMinVersion      int64  `json:"runtime_min_version"`
+		RuntimeMaxVersion      int64  `json:"runtime_max_version"`
+		MigrationTargetVersion int64  `json:"migration_target_version"`
+	}{
+		Schema:                 1,
+		Ready:                  true,
+		CurrentVersion:         observed.CurrentVersion,
+		MigrationSetDigest:     observed.MigrationSetDigest,
+		RuntimeMinVersion:      contract.RuntimeMinVersion,
+		RuntimeMaxVersion:      contract.RuntimeMaxVersion,
+		MigrationTargetVersion: contract.MigrationTargetVersion,
+	})
+}
 
-	dsn := strings.TrimSpace(dsnInput)
-	if dsn == "" {
-		return "", fmt.Errorf("migration DSN from stdin is empty")
-	}
-	return dsn, nil
+func currentJSON(observed kkaimigrate.SchemaObservation) ([]byte, error) {
+	return common.Marshal(observed)
+}
+
+func resolveMigrationDSN(explicitDSN string, fromStdin bool, reader io.Reader) (string, error) {
+	return kkaischemacli.ResolveDSN(
+		explicitDSN,
+		fromStdin,
+		reader,
+		"KKAI_MIGRATION_DSN, SQL_DSN, --dsn, or --dsn-stdin is required",
+	)
 }
 
 func openDatabase(dsn string) (*gorm.DB, error) {
-	switch {
-	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
-		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
-	case strings.HasPrefix(dsn, "sqlite://"):
-		return gorm.Open(sqlite.Open(strings.TrimPrefix(dsn, "sqlite://")), &gorm.Config{})
-	case strings.HasPrefix(dsn, "file:"):
-		return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	default:
-		if !strings.Contains(dsn, "parseTime=") {
-			separator := "?"
-			if strings.Contains(dsn, "?") {
-				separator = "&"
-			}
-			dsn += separator + "parseTime=true"
-		}
-		return gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	}
+	return kkaischemacli.OpenDatabase(dsn)
 }
 
 func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
+	return kkaischemacli.FirstNonEmpty(values...)
 }

@@ -7,6 +7,7 @@ readonly BUILD_ROOT="${ROOT}/build/kkai-image"
 readonly WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
 readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
+readonly SCHEMA_OBSERVER_SOURCE="${ROOT}/cmd/kkai-schema-observe/main.go"
 readonly AGENT_RULES="${ROOT}/AGENTS.md"
 
 fail() {
@@ -42,9 +43,41 @@ contains_fixed 'COPY --from=kkai_image' "${BUILD_ROOT}/Dockerfile" ||
   fail "runtime tools are not sourced from the repository build context"
 contains_fixed '-o /out/new-api .' "${BUILD_ROOT}/Dockerfile" ||
   fail "image build does not compile the complete root package"
+contains_fixed "common.ProductionImageRuntime=true" "${BUILD_ROOT}/Dockerfile" ||
+  fail "production application binary does not carry the immutable image runtime marker"
+contains_fixed '-o /out/kkai-schema-observe ./cmd/kkai-schema-observe' "${BUILD_ROOT}/Dockerfile" ||
+  fail "production image does not build the schema observer"
+observer_build_block="$(
+  grep -B 2 -F -- '-o /out/kkai-schema-observe ./cmd/kkai-schema-observe' "${BUILD_ROOT}/Dockerfile"
+)"
+readonly observer_build_block
+grep -Fq -- "common.ProductionImageRuntime=true" <<<"${observer_build_block}" ||
+  fail "production schema observer does not carry the immutable runtime marker"
+contains_fixed '/out/kkai-schema-observe /kkai-schema-observe' "${BUILD_ROOT}/Dockerfile" ||
+  fail "production image does not contain the schema observer"
 if contains_regex 'go get|go mod tidy|./main\.go' "${BUILD_ROOT}/Dockerfile"; then
   fail "image build mutates dependencies or compiles a single source file"
 fi
+
+contains_fixed 'kkaimigrate.Observe(ctx, db)' "${SCHEMA_OBSERVER_SOURCE}" ||
+  fail "schema observer does not use validated KKAI schema observation"
+contains_fixed 'kkaimigrate.ObserveUpstreamSchema(ctx, db, describeSource)' "${SCHEMA_OBSERVER_SOURCE}" ||
+  fail "schema observer does not use exact upstream adoption observation"
+if contains_regex 'kkaimigrate\.(Apply|Check)|BootstrapEmptyUpstreamSchema|AutoMigrate|\.Exec\(' \
+  "${SCHEMA_OBSERVER_SOURCE}"; then
+  fail "schema observer source exposes a database mutation capability"
+fi
+for forbidden_observer_flag in \
+  '"apply"' \
+  '"bootstrap-empty-upstream-baseline"' \
+  '"check"' \
+  '"describe"' \
+  '"dry-run"' \
+  '"min-version"'; do
+  if contains_fixed "${forbidden_observer_flag}" "${SCHEMA_OBSERVER_SOURCE}"; then
+    fail "schema observer declares forbidden flag ${forbidden_observer_flag}"
+  fi
+done
 
 for role in leader serving; do
   contains_fixed "NEWAPI_NODE_ROLE=${role}" "${BUILD_ROOT}/smoke-compose.sh" ||
@@ -52,6 +85,55 @@ for role in leader serving; do
 done
 contains_fixed '--dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not exercise migration stdin"
+if ! ruby -ryaml -e 'YAML.safe_load_file(ARGV.fetch(0), aliases: true)' "${BUILD_ROOT}/smoke-compose.yml" >/dev/null; then
+  fail "smoke-compose.yml is not valid YAML"
+fi
+contains_fixed 'compose config --quiet' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not validate the resolved Compose configuration"
+contains_fixed '--bootstrap-empty-upstream-baseline' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not bootstrap the upstream baseline through the strict empty-database migrator mode"
+contains_fixed '--check-upstream-baseline --json --dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not verify read-only upstream baseline adoption evidence"
+contains_fixed '--current --json --dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not verify the current KKAI schema through the observer"
+[[ "$(grep -Fc -- '--entrypoint /kkai-schema-observe' "${BUILD_ROOT}/smoke-compose.sh")" -eq 2 ]] ||
+  fail "smoke test does not isolate both read-only observations in the schema observer"
+[[ "$(grep -Fc -- '--entrypoint /kkai-migrate' "${BUILD_ROOT}/smoke-compose.sh")" -eq 2 ]] ||
+  fail "smoke test does not isolate bootstrap and apply in the migrator"
+contains_fixed '--entrypoint /kkai-schema-observe' "${BUILD_ROOT}/verify-image.sh" ||
+  fail "image verification does not inspect the schema observer command surface"
+contains_fixed '--entrypoint /kkai-schema-observe' "${BUILD_ROOT}/export-release.sh" ||
+  fail "offline release export does not verify the schema observer"
+if contains_fixed 'KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE' "${BUILD_ROOT}/smoke-compose.yml" ||
+  contains_fixed 'KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE' "${ROOT}/common/node_role.go"; then
+  fail "production application runtime still exposes the legacy one-shot upstream migration mode"
+fi
+contains_fixed '/schema-compatibility.json' "${BUILD_ROOT}/Dockerfile" ||
+  fail "production image does not embed schema compatibility metadata"
+contains_fixed '/upstream-schema-compatibility.json' "${BUILD_ROOT}/Dockerfile" ||
+  fail "production image does not embed upstream schema ownership metadata"
+contains_fixed '--describe-upstream-schema' "${BUILD_ROOT}/Dockerfile" ||
+  fail "production image build does not validate versioned upstream schema ownership"
+contains_fixed '"check-upstream-baseline"' "${SCHEMA_OBSERVER_SOURCE}" ||
+  fail "schema observer does not expose read-only upstream baseline adoption evidence"
+for upstream_transition_field in \
+  'before_model_schema_digest' \
+  'after_model_schema_digest' \
+  'migration_version' \
+  'migration_kind' \
+  'ownership_implementation_id'; do
+  contains_fixed "${upstream_transition_field}" "${ROOT}/.github/workflows/kkai-production-image.yml" ||
+    fail "production image workflow does not validate upstream transition field ${upstream_transition_field}"
+done
+for schema_label in \
+  'com.kkai.schema.min-compatible' \
+  'com.kkai.schema.max-compatible' \
+  'com.kkai.schema.migration-target' \
+  'com.kkai.schema.migration-kind' \
+  'com.kkai.schema.migration-set-digest'; do
+  contains_fixed "${schema_label}" "${BUILD_ROOT}/Dockerfile" ||
+    fail "production image is missing ${schema_label}"
+done
 contains_fixed 'NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE: /run/secrets/rebate_event_ingest_secret' \
   "${BUILD_ROOT}/smoke-compose.yml" ||
   fail "smoke runtime does not mount the rebate event ingest credential"

@@ -272,38 +272,7 @@ func migrateDB() error {
 		return err
 	}
 
-	err := DB.AutoMigrate(
-		&Channel{},
-		&Token{},
-		&User{},
-		&PasskeyCredential{},
-		&Option{},
-		&Redemption{},
-		&Ability{},
-		&Log{},
-		&Midjourney{},
-		&TopUp{},
-		&QuotaData{},
-		&Task{},
-		&Model{},
-		&Vendor{},
-		&PrefillGroup{},
-		&Setup{},
-		&TwoFA{},
-		&TwoFABackupCode{},
-		&Checkin{},
-		&SubscriptionOrder{},
-		&UserSubscription{},
-		&SubscriptionPreConsumeRecord{},
-		&CustomOAuthProvider{},
-		&UserOAuthBinding{},
-		&PerfMetric{},
-		&SystemInstance{},
-		&SystemTask{},
-		&SystemTaskLock{},
-		&CasbinRule{},
-		&AuthzRole{},
-	)
+	err := DB.AutoMigrate(upstreamPrimarySchemaModels()...)
 	if err != nil {
 		return err
 	}
@@ -316,7 +285,7 @@ func migrateDB() error {
 			return err
 		}
 	}
-	return nil
+	return recordUpstreamSchemaBaseline()
 }
 
 func migrateDBFast() error {
