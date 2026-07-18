@@ -147,7 +147,7 @@ func observedColumns(db *gorm.DB, dialect, table string, columnTypes []gorm.Colu
 		databaseType := columnType.DatabaseTypeName()
 		typeShape, typeErr := normalizedColumnTypeShape(dialect, databaseType, fullType)
 		if typeErr == nil {
-			typeShape = enrichObservedTypeShape(typeShape, columnType)
+			typeShape = enrichObservedTypeShape(dialect, typeShape, columnType)
 		}
 		nullable, nullableKnown := columnType.Nullable()
 		primaryKey, primaryKeyKnown := columnType.PrimaryKey()
@@ -168,7 +168,7 @@ func observedColumns(db *gorm.DB, dialect, table string, columnTypes []gorm.Colu
 	return columns, nil
 }
 
-func enrichObservedTypeShape(shape upstreamColumnTypeShape, columnType gorm.ColumnType) upstreamColumnTypeShape {
+func enrichObservedTypeShape(dialect string, shape upstreamColumnTypeShape, columnType gorm.ColumnType) upstreamColumnTypeShape {
 	if typeShapeUsesLength(shape) && shape.Length == 0 {
 		if length, known := columnType.Length(); known && length > 0 {
 			shape.Length = length
@@ -176,6 +176,9 @@ func enrichObservedTypeShape(shape upstreamColumnTypeShape, columnType gorm.Colu
 	}
 	if typeShapeUsesPrecision(shape) && shape.Precision == 0 {
 		if precision, scale, known := columnType.DecimalSize(); known && precision > 0 {
+			if dialect == upstreamDialectPostgres && precision == 65535 && scale == 65531 {
+				return shape
+			}
 			shape.Precision = precision
 			shape.Scale = scale
 		}

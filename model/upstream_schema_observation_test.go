@@ -104,6 +104,34 @@ func TestObservedColumnsFailsClosedOnUnknownMetadata(t *testing.T) {
 	require.False(t, columns["value"].NullableKnown)
 }
 
+func TestObservedColumnsNormalizesPostgresUnconstrainedNumericSentinel(t *testing.T) {
+	columns, err := observedColumns(nil, upstreamDialectPostgres, "fixture", []gorm.ColumnType{
+		fixtureColumnType{
+			name: "amount", databaseType: "numeric", columnType: "numeric",
+			precision: 65535, scale: 65531, decimalKnown: true,
+			nullableKnown: true, primaryKnown: true,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, upstreamColumnTypeShape{
+		Family: upstreamTypeNumeric, Variant: "decimal",
+	}, columns["amount"].TypeShape)
+}
+
+func TestObservedColumnsPreservesPostgresNumericPrecision(t *testing.T) {
+	columns, err := observedColumns(nil, upstreamDialectPostgres, "fixture", []gorm.ColumnType{
+		fixtureColumnType{
+			name: "amount", databaseType: "numeric", columnType: "numeric",
+			precision: 12, scale: 4, decimalKnown: true,
+			nullableKnown: true, primaryKnown: true,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, upstreamColumnTypeShape{
+		Family: upstreamTypeNumeric, Variant: "decimal", Precision: 12, Scale: 4,
+	}, columns["amount"].TypeShape)
+}
+
 func TestUniqueIndexSignaturesAcrossMySQLAndPostgres(t *testing.T) {
 	indexes := []gorm.Index{
 		fixtureIndex{name: "primary", columns: []string{"id"}, primary: true, primaryKnown: true, unique: true, uniqueKnown: true},

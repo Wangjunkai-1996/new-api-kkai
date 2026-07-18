@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -36,8 +35,6 @@ var (
 	ErrFutureMigration    = errors.New("database contains an unknown KKAI migration")
 	ErrSchemaNotReady     = errors.New("KKAI schema is not ready")
 	ErrUnsafeMigration    = errors.New("KKAI migration catalog is not safe for automatic execution")
-
-	migrationMu sync.Mutex
 )
 
 type AppliedMigration struct {
@@ -448,135 +445,4 @@ func migrationKindForRange(runtimeMinVersion, targetVersion int64, migrations []
 		return "", ErrSchemaNotReady
 	}
 	return kind, nil
-}
-
-func dialectName(db *gorm.DB) (string, error) {
-	switch db.Dialector.Name() {
-	case DialectSQLite:
-		return DialectSQLite, nil
-	case DialectMySQL:
-		return DialectMySQL, nil
-	case DialectPostgres:
-		return DialectPostgres, nil
-	default:
-		return "", fmt.Errorf("%w: %s", ErrUnsupportedDialect, db.Dialector.Name())
-	}
-}
-
-func withMigrationLock(ctx context.Context, db *gorm.DB, dialect string, fn func(*gorm.DB) error) error {
-	migrationMu.Lock()
-	defer migrationMu.Unlock()
-
-	switch dialect {
-	case DialectPostgres, DialectMySQL:
-		sqlDB, err := db.DB()
-		if err != nil {
-			return err
-		}
-		conn, err := sqlDB.Conn(ctx)
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-		lockedDB := db.Session(&gorm.Session{NewDB: true, Context: ctx})
-		lockedDB.Statement.ConnPool = conn
-		if dialect == DialectPostgres {
-			if err := lockedDB.Exec("SELECT pg_advisory_lock(hashtext(?))", "kkai_schema_migrations").Error; err != nil {
-				return err
-			}
-			defer lockedDB.WithContext(context.Background()).Exec("SELECT pg_advisory_unlock(hashtext(?))", "kkai_schema_migrations")
-		} else {
-			var acquired int
-			if err := lockedDB.Raw("SELECT GET_LOCK(?, 30)", "kkai_schema_migrations").Scan(&acquired).Error; err != nil {
-				return err
-			}
-			if acquired != 1 {
-				return errors.New("failed to acquire KKAI migration lock")
-			}
-			defer lockedDB.WithContext(context.Background()).Exec("SELECT RELEASE_LOCK(?)", "kkai_schema_migrations")
-		}
-		return fn(lockedDB)
-	}
-	return fn(db.WithContext(ctx))
-}
-
-var migrationTableStatements = map[string]string{
-	DialectSQLite: `CREATE TABLE IF NOT EXISTS kkai_schema_migrations (
-version INTEGER PRIMARY KEY,
-name VARCHAR(128) NOT NULL UNIQUE,
-checksum CHAR(64) NOT NULL,
-applied_at BIGINT NOT NULL,
-execution_ms BIGINT NOT NULL
-)`,
-	DialectMySQL: `CREATE TABLE IF NOT EXISTS kkai_schema_migrations (
-version BIGINT PRIMARY KEY,
-name VARCHAR(128) NOT NULL UNIQUE,
-checksum CHAR(64) NOT NULL,
-applied_at BIGINT NOT NULL,
-execution_ms BIGINT NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-	DialectPostgres: `CREATE TABLE IF NOT EXISTS kkai_schema_migrations (
-version BIGINT PRIMARY KEY,
-name VARCHAR(128) NOT NULL UNIQUE,
-checksum CHAR(64) NOT NULL,
-applied_at BIGINT NOT NULL,
-execution_ms BIGINT NOT NULL
-)`,
-}
-
-func migrationSet() []migration {
-	return []migration{
-		{
-			Version:          1,
-			Name:             "risk_incidents_and_outbox",
-			Kind:             MigrationKindExpand,
-			ImplementationID: "risk_incidents_and_outbox_v1",
-			ChecksumVersion:  migrationChecksumSchemaLegacy,
-			Statements:       migrationStatements(migrationOperationCreateTable, riskSchemaStatements),
-			Indexes:          riskIndexes,
-			LegacyImportSpec: "copy policy_incident_events by legacy id; omit token names and raw content; never replay actions",
-			LegacyImportID:   "import_legacy_policy_incidents_v1",
-			ImportLegacy:     importLegacyPolicyIncidents,
-		},
-		{
-			Version:          2,
-			Name:             "internal_balance_ledger",
-			Kind:             MigrationKindExpand,
-			ImplementationID: "internal_balance_ledger_v1",
-			ChecksumVersion:  migrationChecksumSchemaLegacy,
-			Statements:       migrationStatements(migrationOperationCreateTable, ledgerSchemaStatements),
-			Indexes:          ledgerIndexes,
-			LegacyImportSpec: "copy internal_balance_adjustments by operation_id; preserve balances and reversal link; never reapply delta",
-			LegacyImportID:   "import_legacy_balance_adjustments_v1",
-			ImportLegacy:     importLegacyBalanceAdjustments,
-		},
-		{
-			Version:          3,
-			Name:             "background_job_leases",
-			Kind:             MigrationKindExpand,
-			ImplementationID: "background_job_leases_v1",
-			ChecksumVersion:  migrationChecksumSchemaLegacy,
-			Statements:       migrationStatements(migrationOperationCreateTable, jobLeaseSchemaStatements),
-			Indexes:          jobLeaseIndexes,
-		},
-		{
-			Version:          4,
-			Name:             "outbox_event_key_mysql57_compat",
-			Kind:             MigrationKindContract,
-			ImplementationID: "outbox_event_key_mysql57_compat_v1",
-			ChecksumVersion:  migrationChecksumSchemaLegacy,
-			Statements:       migrationStatements(migrationOperationContract, outboxEventKeySchemaStatements),
-		},
-	}
-}
-
-func migrationStatements(operation string, statements map[string][]string) map[string][]migrationStatement {
-	result := make(map[string][]migrationStatement, len(statements))
-	for dialect, dialectStatements := range statements {
-		result[dialect] = make([]migrationStatement, 0, len(dialectStatements))
-		for _, statement := range dialectStatements {
-			result[dialect] = append(result[dialect], migrationStatement{Operation: operation, SQL: statement})
-		}
-	}
-	return result
 }
