@@ -249,6 +249,35 @@ contains_fixed "candidate-\${{ steps.release.outputs.version }}" "${WORKFLOW}" |
   fail "workflow does not isolate the unscanned candidate tag"
 contains_fixed 'imagetools create' "${WORKFLOW}" ||
   fail "workflow does not promote the scanned digest"
+promotion_step="$(
+  sed -n '/^[[:space:]]*- name: Promote the scanned digest to production tags$/,/^[[:space:]]*- name: Sign the immutable image digest$/p' \
+    "${WORKFLOW}"
+)"
+readonly promotion_step
+[[ -n "${promotion_step}" ]] ||
+  fail "workflow promotion step is empty"
+for promotion_contract in \
+  'timeout 120s bash -Eeuo pipefail' \
+  "version_ref=\"\${IMAGE}:\${VERSION}\"" \
+  "sha_ref=\"\${IMAGE}:sha-\${SOURCE_SHA}\"" \
+  'while true; do' \
+  "if ! version_digest=\"\$(" \
+  "if ! sha_digest=\"\$(" \
+  'sleep 2' \
+  "[[ -n \"\${version_digest}\" ]]" \
+  "[[ -n \"\${sha_digest}\" ]]" \
+  "[[ \"\${version_digest}\" == \"\${DIGEST}\" ]]" \
+  "[[ \"\${sha_digest}\" == \"\${DIGEST}\" ]]"; do
+  grep -Fq -- "${promotion_contract}" <<<"${promotion_step}" ||
+    fail "workflow promotion does not enforce ${promotion_contract}"
+done
+[[ "$(grep -Fc "docker buildx imagetools inspect \"\${version_ref}\"" <<<"${promotion_step}")" -eq 1 ]] ||
+  fail "workflow promotion does not inspect the version tag exactly once per retry"
+[[ "$(grep -Fc "docker buildx imagetools inspect \"\${sha_ref}\"" <<<"${promotion_step}")" -eq 1 ]] ||
+  fail "workflow promotion does not inspect the source SHA tag exactly once per retry"
+if grep -Fq 'PROMOTED_DIGEST=' <<<"${promotion_step}"; then
+  fail "workflow promotion still uses the immediate single-tag digest check"
+fi
 contains_fixed "go-version: '1.26.5'" "${QUALITY_WORKFLOW}" ||
   fail "fork quality does not use the production Go toolchain"
 if contains_regex 'calciumion/new-api|docker\.io|ssh|ansible|workflow_run' "${WORKFLOW}"; then
