@@ -8,16 +8,19 @@ infinite-loop goroutines for database-writing maintenance.
 
 `KKAI_NODE_ROLE` accepts three values:
 
-| Role | Serves requests | Read-only sync | Write jobs | Schema migration |
+| Role | Serves requests | Read-only sync | Write jobs | Runtime AutoMigrate |
 | --- | --- | --- | --- | --- |
 | `standby-readonly` | Yes, when routed directly for canary checks | Yes | No | No |
 | `serving` | Yes | Yes | No | No |
-| `leader` | Yes | Yes | Only while holding the global lease | Yes |
+| `leader` | Yes | Yes | Only while holding the global lease | No |
 
 For compatibility, `NODE_TYPE=slave` maps to `standby-readonly` when
 `KKAI_NODE_ROLE` is unset. `DISABLE_BACKGROUND_TASKS=true` disables write jobs
 only; options, channel cache, authorization policy, and pricing continue to
-refresh on every node.
+refresh on every node. Generic development builds retain upstream AutoMigrate.
+Formal images are compiled with immutable `schema_management=external`, so
+production startup never runs GORM AutoMigrate regardless of role or environment
+drift.
 
 ## Registry Rules
 

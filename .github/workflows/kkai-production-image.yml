@@ -19,12 +19,6 @@ jobs:
       source_sha: ${{ steps.release.outputs.source_sha }}
       version: ${{ steps.release.outputs.version }}
       digest: ${{ steps.image.outputs.digest }}
-      schema_compatibility_schema: ${{ steps.schema.outputs.schema }}
-      schema_runtime_min_version: ${{ steps.schema.outputs.runtime_min_version }}
-      schema_runtime_max_version: ${{ steps.schema.outputs.runtime_max_version }}
-      schema_migration_target_version: ${{ steps.schema.outputs.migration_target_version }}
-      schema_migration_kind: ${{ steps.schema.outputs.migration_kind }}
-      schema_migration_set_digest: ${{ steps.schema.outputs.migration_set_digest }}
     permissions:
       contents: read
       packages: write
@@ -70,42 +64,14 @@ jobs:
       - name: Run the complete fork quality gate
         run: scripts/kkai/check-fork-quality.sh --full
 
-      - name: Generate canonical schema compatibility metadata
+      - name: Resolve the PostgreSQL schema contract
         id: schema
         run: |
           set -Eeuo pipefail
-          mkdir -p dist
-          go run ./cmd/kkai-migrate --describe --json --source-revision "${{ steps.release.outputs.source_sha }}" > dist/schema-compatibility.json
-          go run ./cmd/kkai-migrate --describe-upstream-schema --json --source-revision "${{ steps.release.outputs.source_sha }}" > dist/upstream-schema-compatibility.json
-          jq --exit-status '
-            .schema == 1 and
-            (.runtime_min_version | type == "number") and
-            (.runtime_max_version | type == "number") and
-            (.migration_target_version | type == "number") and
-            (.migration_kind | IN("none", "expand", "contract")) and
-            (.migration_set_digest | test("^sha256:[0-9a-f]{64}$"))
-          ' dist/schema-compatibility.json >/dev/null
-          jq --exit-status '
-            .schema == 1 and
-            .source_revision == "${{ steps.release.outputs.source_sha }}" and
-            (.catalog_version | type == "number") and
-            (.model_schema_digest | test("^sha256:[0-9a-f]{64}$")) and
-            (.before_model_schema_digest | test("^sha256:[0-9a-f]{64}$")) and
-            (.after_model_schema_digest | test("^sha256:[0-9a-f]{64}$")) and
-            .model_schema_digest == .after_model_schema_digest and
-            (.migration_version | type == "number") and
-            (.migration_kind | IN("baseline", "expand", "contract")) and
-            (.ownership_implementation_id | type == "string") and
-            (.ownership_implementation_id | length > 0)
-          ' dist/upstream-schema-compatibility.json >/dev/null
-          {
-            echo "schema=$(jq --raw-output .schema dist/schema-compatibility.json)"
-            echo "runtime_min_version=$(jq --raw-output .runtime_min_version dist/schema-compatibility.json)"
-            echo "runtime_max_version=$(jq --raw-output .runtime_max_version dist/schema-compatibility.json)"
-            echo "migration_target_version=$(jq --raw-output .migration_target_version dist/schema-compatibility.json)"
-            echo "migration_kind=$(jq --raw-output .migration_kind dist/schema-compatibility.json)"
-            echo "migration_set_digest=$(jq --raw-output .migration_set_digest dist/schema-compatibility.json)"
-          } >> "${GITHUB_OUTPUT}"
+          build/kkai-image/export-schema-contract.sh postgres >> "${GITHUB_OUTPUT}"
+
+      - name: Build the isolated application schema fixture
+        run: go build -trimpath -o "${RUNNER_TEMP}/new-api-schema-bootstrap" .
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
@@ -132,10 +98,11 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.release.outputs.version }}
             SOURCE_REVISION=${{ steps.release.outputs.source_sha }}
-            SCHEMA_COMPATIBILITY_SCHEMA=${{ steps.schema.outputs.schema }}
+            SCHEMA_MANAGEMENT=${{ steps.schema.outputs.schema_management }}
+            SCHEMA_COMPATIBLE_PREFIXES=${{ steps.schema.outputs.compatible_prefixes }}
             SCHEMA_RUNTIME_MIN_VERSION=${{ steps.schema.outputs.runtime_min_version }}
             SCHEMA_RUNTIME_MAX_VERSION=${{ steps.schema.outputs.runtime_max_version }}
-            SCHEMA_MIGRATION_TARGET_VERSION=${{ steps.schema.outputs.migration_target_version }}
+            SCHEMA_MIGRATION_TARGET=${{ steps.schema.outputs.migration_target }}
             SCHEMA_MIGRATION_KIND=${{ steps.schema.outputs.migration_kind }}
             SCHEMA_MIGRATION_SET_DIGEST=${{ steps.schema.outputs.migration_set_digest }}
           labels: |
@@ -151,19 +118,38 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
           VERSION: ${{ steps.release.outputs.version }}
-          EXPECTED_SCHEMA_COMPATIBILITY: dist/schema-compatibility.json
-          EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY: dist/upstream-schema-compatibility.json
+          SCHEMA_MANAGEMENT: ${{ steps.schema.outputs.schema_management }}
+          SCHEMA_COMPATIBLE_PREFIXES: ${{ steps.schema.outputs.compatible_prefixes }}
+          SCHEMA_RUNTIME_MIN_VERSION: ${{ steps.schema.outputs.runtime_min_version }}
+          SCHEMA_RUNTIME_MAX_VERSION: ${{ steps.schema.outputs.runtime_max_version }}
+          SCHEMA_MIGRATION_TARGET: ${{ steps.schema.outputs.migration_target }}
+          SCHEMA_MIGRATION_KIND: ${{ steps.schema.outputs.migration_kind }}
+          SCHEMA_MIGRATION_SET_DIGEST: ${{ steps.schema.outputs.migration_set_digest }}
         run: |
           set -Eeuo pipefail
           docker pull "${IMAGE}@${DIGEST}"
-          EXPECTED_SHA="${SOURCE_SHA}" EXPECTED_VERSION="${VERSION}" \
+            EXPECTED_SHA="${SOURCE_SHA}" EXPECTED_VERSION="${VERSION}" \
             EXPECTED_REGISTRY_DIGEST="${DIGEST}" \
-            EXPECTED_SCHEMA_COMPATIBILITY="${EXPECTED_SCHEMA_COMPATIBILITY}" \
-            EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY="${EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY}" \
+            EXPECTED_SCHEMA_MANAGEMENT="${SCHEMA_MANAGEMENT}" \
+            EXPECTED_SCHEMA_COMPATIBLE_PREFIXES="${SCHEMA_COMPATIBLE_PREFIXES}" \
+            EXPECTED_SCHEMA_RUNTIME_MIN_VERSION="${SCHEMA_RUNTIME_MIN_VERSION}" \
+            EXPECTED_SCHEMA_RUNTIME_MAX_VERSION="${SCHEMA_RUNTIME_MAX_VERSION}" \
+            EXPECTED_SCHEMA_MIGRATION_TARGET="${SCHEMA_MIGRATION_TARGET}" \
+            EXPECTED_SCHEMA_MIGRATION_KIND="${SCHEMA_MIGRATION_KIND}" \
+            EXPECTED_SCHEMA_MIGRATION_SET_DIGEST="${SCHEMA_MIGRATION_SET_DIGEST}" \
             build/kkai-image/verify-image.sh "${IMAGE}@${DIGEST}"
           IMAGE_REF="${IMAGE}@${DIGEST}" EXPECTED_VERSION="${VERSION}" \
+            EXPECTED_SCHEMA_MANAGEMENT="${SCHEMA_MANAGEMENT}" \
+            EXPECTED_SCHEMA_COMPATIBLE_PREFIXES="${SCHEMA_COMPATIBLE_PREFIXES}" \
+            EXPECTED_SCHEMA_MIGRATION_TARGET="${SCHEMA_MIGRATION_TARGET}" \
+            EXPECTED_SCHEMA_MIGRATION_KIND="${SCHEMA_MIGRATION_KIND}" \
+            EXPECTED_SCHEMA_MIGRATION_SET_DIGEST="${SCHEMA_MIGRATION_SET_DIGEST}" \
+            SCHEMA_BOOTSTRAP_BINARY="${RUNNER_TEMP}/new-api-schema-bootstrap" \
             PULL_DEPENDENCIES=true \
             build/kkai-image/smoke-compose.sh
+
+      - name: Prepare security reports
+        run: mkdir -p dist
 
       - name: Generate CycloneDX SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
@@ -211,6 +197,23 @@ jobs:
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Verify the image signature identity
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          CERTIFICATE_IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/kkai-production-image.yml@${{ github.ref }}
+        run: |
+          set -Eeuo pipefail
+          signature_verification="$(cosign verify --output json \
+            --certificate-identity "${CERTIFICATE_IDENTITY}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            "${IMAGE}@${DIGEST}")"
+          jq --exit-status --arg digest "${DIGEST}" \
+            'type == "array" and length > 0 and
+             all(.[]; .critical.image["docker-manifest-digest"] == $digest)' \
+            <<<"${signature_verification}" >/dev/null
+          jq --sort-keys . <<<"${signature_verification}" \
+            >dist/image-signature-verification.json
 
       - name: Export the offline release bundle
         env:
@@ -270,24 +273,12 @@ jobs:
           DIGEST: ${{ needs.build.outputs.digest }}
           BUILD_RUN_ID: ${{ github.run_id }}
           BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}
-          SCHEMA_COMPATIBILITY_SCHEMA: ${{ needs.build.outputs.schema_compatibility_schema }}
-          SCHEMA_RUNTIME_MIN_VERSION: ${{ needs.build.outputs.schema_runtime_min_version }}
-          SCHEMA_RUNTIME_MAX_VERSION: ${{ needs.build.outputs.schema_runtime_max_version }}
-          SCHEMA_MIGRATION_TARGET_VERSION: ${{ needs.build.outputs.schema_migration_target_version }}
-          SCHEMA_MIGRATION_KIND: ${{ needs.build.outputs.schema_migration_kind }}
-          SCHEMA_MIGRATION_SET_DIGEST: ${{ needs.build.outputs.schema_migration_set_digest }}
         run: |
           set -Eeuo pipefail
           [[ -n "${GH_TOKEN}" ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${VERSION}" =~ ^kkai-prod-[0-9]{8}\.[1-9][0-9]*-[0-9a-f]{9}$ ]]
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          [[ "${SCHEMA_COMPATIBILITY_SCHEMA}" == '1' ]]
-          [[ "${SCHEMA_RUNTIME_MIN_VERSION}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${SCHEMA_RUNTIME_MAX_VERSION}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${SCHEMA_MIGRATION_TARGET_VERSION}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${SCHEMA_MIGRATION_KIND}" =~ ^(none|expand|contract)$ ]]
-          [[ "${SCHEMA_MIGRATION_SET_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           # jq expands these named arguments.
           # shellcheck disable=SC2016
           jq --null-input \
@@ -296,13 +287,6 @@ jobs:
             --arg digest "${DIGEST}" \
             --arg build_run_id "${BUILD_RUN_ID}" \
             --arg build_run_attempt "${BUILD_RUN_ATTEMPT}" \
-            --argjson schema_compatibility_schema "${SCHEMA_COMPATIBILITY_SCHEMA}" \
-            --argjson schema_runtime_min_version "${SCHEMA_RUNTIME_MIN_VERSION}" \
-            --argjson schema_runtime_max_version "${SCHEMA_RUNTIME_MAX_VERSION}" \
-            --argjson schema_migration_target_version "${SCHEMA_MIGRATION_TARGET_VERSION}" \
-            --arg schema_migration_kind "${SCHEMA_MIGRATION_KIND}" \
-            --arg schema_migration_set_digest "${SCHEMA_MIGRATION_SET_DIGEST}" \
-            --arg schema_source_revision "${SOURCE_SHA}" \
             '{
               event_type: "newapi_image_ready",
               client_payload: {
@@ -310,16 +294,7 @@ jobs:
                 version: $version,
                 digest: $digest,
                 build_run_id: $build_run_id,
-                build_run_attempt: $build_run_attempt,
-                schema_compatibility: {
-                  schema: $schema_compatibility_schema,
-                  source_revision: $schema_source_revision,
-                  runtime_min_version: $schema_runtime_min_version,
-                  runtime_max_version: $schema_runtime_max_version,
-                  migration_target_version: $schema_migration_target_version,
-                  migration_kind: $schema_migration_kind,
-                  migration_set_digest: $schema_migration_set_digest
-                }
+                build_run_attempt: $build_run_attempt
               }
             }' | gh api \
               --method POST \

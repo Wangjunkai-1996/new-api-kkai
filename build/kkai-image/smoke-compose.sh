@@ -3,6 +3,12 @@ set -Eeuo pipefail
 
 readonly IMAGE_REF="${IMAGE_REF:-}"
 readonly EXPECTED_VERSION="${EXPECTED_VERSION:-}"
+readonly EXPECTED_SCHEMA_MANAGEMENT="${EXPECTED_SCHEMA_MANAGEMENT:-}"
+readonly EXPECTED_SCHEMA_COMPATIBLE_PREFIXES="${EXPECTED_SCHEMA_COMPATIBLE_PREFIXES:-}"
+readonly EXPECTED_SCHEMA_MIGRATION_TARGET="${EXPECTED_SCHEMA_MIGRATION_TARGET:-}"
+readonly EXPECTED_SCHEMA_MIGRATION_KIND="${EXPECTED_SCHEMA_MIGRATION_KIND:-}"
+readonly EXPECTED_SCHEMA_MIGRATION_SET_DIGEST="${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST:-}"
+readonly SCHEMA_BOOTSTRAP_BINARY="${SCHEMA_BOOTSTRAP_BINARY:-}"
 readonly PULL_DEPENDENCIES="${PULL_DEPENDENCIES:-false}"
 readonly POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18.4-alpine@sha256:b6a16ed0eb96e2c362811f7eeb951eac8b459e7b40be4149ea5444aa7c65569b}"
 readonly REDIS_IMAGE="${REDIS_IMAGE:-redis:8.6.3@sha256:48e78eb9d1e1adcfb10184b2cc3c7fc5ed21e5a3be08875f239257d194bab8c9}"
@@ -14,6 +20,14 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kkai-newapi-compose-smoke.XXXXXX")"
 readonly TEST_ROOT
 readonly DATABASE_PASSWORD='smoke-database-password-0123456789abcdef'
 readonly REDIS_PASSWORD='smoke-redis-password-0123456789abcdef'
+bootstrap_pid=''
+
+for command_name in awk curl docker grep jq python3 sed seq sha256sum; do
+  command -v "${command_name}" >/dev/null || {
+    echo "required command not found: ${command_name}" >&2
+    exit 69
+  }
+done
 
 if [[ -z "${IMAGE_REF}" ]]; then
   echo "IMAGE_REF is required" >&2
@@ -23,6 +37,36 @@ if [[ -z "${EXPECTED_VERSION}" ]]; then
   echo "EXPECTED_VERSION is required" >&2
   exit 64
 fi
+[[ "${EXPECTED_SCHEMA_MANAGEMENT}" == external ]] || {
+  echo "formal smoke requires EXPECTED_SCHEMA_MANAGEMENT=external" >&2
+  exit 64
+}
+[[ -x "${SCHEMA_BOOTSTRAP_BINARY}" ]] || {
+  echo "SCHEMA_BOOTSTRAP_BINARY must be an executable generic build" >&2
+  exit 64
+}
+[[ "${EXPECTED_SCHEMA_MIGRATION_TARGET}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "EXPECTED_SCHEMA_MIGRATION_TARGET is invalid" >&2
+  exit 64
+}
+[[ "${EXPECTED_SCHEMA_MIGRATION_TARGET}" == 3 ]] || {
+  echo "PostgreSQL smoke requires the reviewed schema v3 target" >&2
+  exit 64
+}
+[[ "${EXPECTED_SCHEMA_MIGRATION_KIND}" == none ]] || {
+  echo "PostgreSQL smoke requires migration kind none" >&2
+  exit 64
+}
+[[ "${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  echo "EXPECTED_SCHEMA_MIGRATION_SET_DIGEST is invalid" >&2
+  exit 64
+}
+canonical_compatible_prefixes="$(
+  jq --compact-output --sort-keys \
+    'if type == "object" and length > 0 and all(.[]; test("^sha256:[0-9a-f]{64}$")) then . else error("invalid compatible prefixes") end' \
+    <<<"${EXPECTED_SCHEMA_COMPATIBLE_PREFIXES}"
+)"
+readonly canonical_compatible_prefixes
 
 compose() {
   docker compose --project-name "${PROJECT_NAME}" --file "${COMPOSE_FILE}" "$@"
@@ -59,9 +103,95 @@ delivery_disabled_stage_version() {
     "${IMAGE_REF}" --version
 }
 
+run_migrator() {
+  printf '%s\n' "${migration_dsn}" |
+    docker run --rm --interactive --pull=never --platform linux/amd64 \
+      --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+      --network "${PROJECT_NAME}_default" \
+      --entrypoint /kkai-migrate "${IMAGE_REF}" \
+      --dsn-stdin --timeout 2m
+}
+
+observe_schema() {
+  printf '%s\n' "${migration_dsn}" |
+    docker run --rm --interactive --pull=never --platform linux/amd64 \
+      --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
+      --network "${PROJECT_NAME}_default" \
+      --entrypoint /kkai-migrate "${IMAGE_REF}" \
+      --observe --current --json --dsn-stdin --timeout 1m
+}
+
+outbox_event_key_length() {
+  compose exec --no-TTY postgres \
+    psql --username=newapi_stage --dbname=newapi_stage --tuples-only --no-align \
+    --command "SELECT character_maximum_length FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'kkai_outbox' AND column_name = 'event_key'"
+}
+
+schema_fingerprint() {
+  compose exec --no-TTY postgres \
+    pg_dump --username=newapi_stage --dbname=newapi_stage \
+    --schema=public --schema-only --no-owner --no-privileges --no-comments |
+    sed '/^\\restrict /d; /^\\unrestrict /d' |
+    sha256sum | awk '{print $1}'
+}
+
+ledger_fingerprint() {
+  compose exec --no-TTY postgres \
+    psql --username=newapi_stage --dbname=newapi_stage --tuples-only --no-align \
+    --command "COPY (SELECT version, name, checksum, applied_at, execution_ms FROM kkai_schema_migrations ORDER BY version) TO STDOUT WITH (FORMAT csv)" |
+    sha256sum | awk '{print $1}'
+}
+
+free_port() {
+  python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+bootstrap_application_schema() {
+  local database_port bootstrap_port bootstrap_log
+  database_port="$(compose port postgres 5432 | awk -F: 'NR == 1 {print $NF}')"
+  bootstrap_port="$(free_port)"
+  bootstrap_log="${TEST_ROOT}/schema-bootstrap.log"
+
+  env \
+    PORT="${bootstrap_port}" \
+    SQL_DSN="postgres://newapi_stage:${DATABASE_PASSWORD}@127.0.0.1:${database_port}/newapi_stage?sslmode=disable" \
+    KKAI_NODE_ROLE=leader \
+    DISABLE_BACKGROUND_TASKS=true \
+    BATCH_UPDATE_ENABLED=false \
+    UPDATE_TASK=false \
+    MEMORY_CACHE_ENABLED=true \
+    SESSION_SECRET='smoke-session-secret-0123456789abcdef' \
+    CRYPTO_SECRET='smoke-crypto-secret-0123456789abcdef0' \
+    INVITATIONS_INTERNAL_SECRET='smoke-invitations-secret-0123456789abc' \
+    KKAI_RISK_STREAM_SECRET='smoke-risk-signing-secret-0123456789ab' \
+    GIN_MODE=release \
+    "${SCHEMA_BOOTSTRAP_BINARY}" --log-dir '' >"${bootstrap_log}" 2>&1 &
+  bootstrap_pid="$!"
+  for _ in $(seq 1 120); do
+    if curl --fail --silent "http://127.0.0.1:${bootstrap_port}/api/status" >/dev/null; then
+      kill -TERM "${bootstrap_pid}"
+      wait "${bootstrap_pid}" || true
+      bootstrap_pid=''
+      return
+    fi
+    if ! kill -0 "${bootstrap_pid}" >/dev/null 2>&1; then
+      sed -n '1,200p' "${bootstrap_log}" >&2
+      return 1
+    fi
+    sleep 0.25
+  done
+  sed -n '1,200p' "${bootstrap_log}" >&2
+  return 1
+}
+
 cleanup() {
   local exit_status="$?"
   trap - EXIT
+
+  if [[ -n "${bootstrap_pid}" ]] && kill -0 "${bootstrap_pid}" >/dev/null 2>&1; then
+    kill -TERM "${bootstrap_pid}" >/dev/null 2>&1 || true
+    wait "${bootstrap_pid}" >/dev/null 2>&1 || true
+  fi
 
   if [[ "${exit_status}" -ne 0 ]]; then
     compose ps >&2 || true
@@ -73,13 +203,6 @@ cleanup() {
   exit "${exit_status}"
 }
 trap cleanup EXIT
-
-for command_name in docker grep; do
-  command -v "${command_name}" >/dev/null || {
-    echo "required command not found: ${command_name}" >&2
-    exit 69
-  }
-done
 
 case "${PULL_DEPENDENCIES}" in
   true)
@@ -94,6 +217,28 @@ case "${PULL_DEPENDENCIES}" in
 esac
 
 docker image inspect "${IMAGE_REF}" "${POSTGRES_IMAGE}" "${REDIS_IMAGE}" >/dev/null
+image_contract_json="$(
+  docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-migrate "${IMAGE_REF}" \
+    --describe-contract --dialect postgres --json
+)"
+readonly image_contract_json
+image_schema_management="$(docker image inspect --format '{{index .Config.Labels "com.kkai.runtime.schema-management"}}' "${IMAGE_REF}")"
+readonly image_schema_management
+image_compatible_prefixes="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.compatible-prefixes"}}' "${IMAGE_REF}")"
+readonly image_compatible_prefixes
+canonical_image_compatible_prefixes="$(jq --compact-output --sort-keys . <<<"${image_compatible_prefixes}")"
+readonly canonical_image_compatible_prefixes
+[[ "${image_compatible_prefixes}" == "${canonical_image_compatible_prefixes}" ]]
+[[ "${image_schema_management}" == "${EXPECTED_SCHEMA_MANAGEMENT}" ]]
+[[ "${image_schema_management}" == "$(jq --raw-output '.schema_management' <<<"${image_contract_json}")" ]]
+[[ "${canonical_image_compatible_prefixes}" == "${canonical_compatible_prefixes}" ]]
+[[ "${canonical_image_compatible_prefixes}" == "$(jq --compact-output --sort-keys '.compatible_prefixes' <<<"${image_contract_json}")" ]]
+jq --exit-status \
+  --argjson target "${EXPECTED_SCHEMA_MIGRATION_TARGET}" \
+  --arg kind "${EXPECTED_SCHEMA_MIGRATION_KIND}" \
+  --arg digest "${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST}" \
+  '.migration_target_version == $target and .migration_kind == $kind and
+   .migration_set_digest == $digest' <<<"${image_contract_json}" >/dev/null
 
 umask 077
 printf '%s\n' "${DATABASE_PASSWORD}" >"${TEST_ROOT}/database-password"
@@ -139,37 +284,33 @@ readonly stage_version
 grep -Fx "${EXPECTED_VERSION}" <<<"${stage_version}" >/dev/null
 compose up --detach --wait --wait-timeout 300 postgres redis
 
-printf '%s\n' \
-  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
-  docker run --rm --interactive --pull=never --platform linux/amd64 \
-    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
-    --network "${PROJECT_NAME}_default" \
-    --entrypoint /kkai-migrate "${IMAGE_REF}" \
-    --bootstrap-empty-upstream-baseline --dsn-stdin --timeout 2m
+migration_dsn="postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable"
+readonly migration_dsn
+run_migrator
+bootstrap_application_schema
 
-printf '%s\n' \
-  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
-  docker run --rm --interactive --pull=never --platform linux/amd64 \
-    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
-    --network "${PROJECT_NAME}_default" \
-    --entrypoint /kkai-schema-observe "${IMAGE_REF}" \
-    --check-upstream-baseline --json --dsn-stdin --timeout 2m
+schema_observation="$(observe_schema)"
+readonly schema_observation
+jq --exit-status \
+  --argjson prefixes "${EXPECTED_SCHEMA_COMPATIBLE_PREFIXES}" \
+  --argjson target "${EXPECTED_SCHEMA_MIGRATION_TARGET}" \
+  --arg digest "${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST}" \
+  'keys == ["current_version", "migration_set_digest", "schema"] and
+   .schema == 1 and .current_version == $target and
+   .migration_set_digest == $digest and
+   .migration_set_digest == $prefixes[($target | tostring)]' \
+  <<<"${schema_observation}" >/dev/null
 
-printf '%s\n' \
-  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
-  docker run --rm --interactive --pull=never --platform linux/amd64 \
-    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
-    --network "${PROJECT_NAME}_default" \
-    --entrypoint /kkai-migrate "${IMAGE_REF}" \
-    --dsn-stdin --timeout 2m
+event_key_length="$(outbox_event_key_length)"
+readonly event_key_length
+[[ "${event_key_length}" == 192 ]]
 
-printf '%s\n' \
-  "postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable" |
-  docker run --rm --interactive --pull=never --platform linux/amd64 \
-    --read-only --cap-drop=ALL --security-opt=no-new-privileges:true \
-    --network "${PROJECT_NAME}_default" \
-    --entrypoint /kkai-schema-observe "${IMAGE_REF}" \
-    --current --json --dsn-stdin --timeout 2m
+schema_fingerprint_before="$(schema_fingerprint)"
+readonly schema_fingerprint_before
+ledger_fingerprint_before="$(ledger_fingerprint)"
+readonly ledger_fingerprint_before
+
+run_migrator
 
 NEWAPI_NODE_TYPE=master NEWAPI_NODE_ROLE=leader \
   compose up --detach --no-deps --force-recreate --wait --wait-timeout 300 newapi
@@ -193,6 +334,17 @@ readonly status_response
 
 grep -F '"success":true' <<<"${status_response}" >/dev/null
 grep -F "\"version\":\"${EXPECTED_VERSION}\"" <<<"${status_response}" >/dev/null
+
+final_schema_observation="$(observe_schema)"
+readonly final_schema_observation
+[[ "${final_schema_observation}" == "${schema_observation}" ]]
+schema_fingerprint_after="$(schema_fingerprint)"
+readonly schema_fingerprint_after
+ledger_fingerprint_after="$(ledger_fingerprint)"
+readonly ledger_fingerprint_after
+[[ "${schema_fingerprint_after}" == "${schema_fingerprint_before}" ]]
+[[ "${ledger_fingerprint_after}" == "${ledger_fingerprint_before}" ]]
+[[ "$(outbox_event_key_length)" == 192 ]]
 
 echo "Compose smoke passed for ${IMAGE_REF}"
 echo "status: ${status_response}"

@@ -8,7 +8,7 @@ readonly WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
 readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 readonly RISK_INTEGRATION_TEST="${ROOT}/service/kkai_risk_stream_redis_integration_test.go"
-readonly SCHEMA_OBSERVER_SOURCE="${ROOT}/cmd/kkai-schema-observe/main.go"
+readonly SCHEMA_CONTRACT_EXPORTER="${BUILD_ROOT}/export-schema-contract.sh"
 readonly AGENT_RULES="${ROOT}/AGENTS.md"
 readonly REDIS_CI_IMAGE='redis:8.6.3@sha256:48e78eb9d1e1adcfb10184b2cc3c7fc5ed21e5a3be08875f239257d194bab8c9'
 
@@ -25,7 +25,7 @@ contains_regex() {
   grep -Eq -- "$1" "$2"
 }
 
-for script in export-release.sh smoke-compose.sh verify-image.sh; do
+for script in export-release.sh export-schema-contract.sh smoke-compose.sh verify-image.sh; do
   [[ -x "${BUILD_ROOT}/${script}" ]] || fail "${script} is not executable"
 done
 contains_fixed '/build' "${ROOT}/.dockerignore" ||
@@ -45,41 +45,29 @@ contains_fixed 'COPY --from=kkai_image' "${BUILD_ROOT}/Dockerfile" ||
   fail "runtime tools are not sourced from the repository build context"
 contains_fixed '-o /out/new-api .' "${BUILD_ROOT}/Dockerfile" ||
   fail "image build does not compile the complete root package"
-contains_fixed "common.ProductionImageRuntime=true" "${BUILD_ROOT}/Dockerfile" ||
-  fail "production application binary does not carry the immutable image runtime marker"
-contains_fixed '-o /out/kkai-schema-observe ./cmd/kkai-schema-observe' "${BUILD_ROOT}/Dockerfile" ||
-  fail "production image does not build the schema observer"
-observer_build_block="$(
-  grep -B 2 -F -- '-o /out/kkai-schema-observe ./cmd/kkai-schema-observe' "${BUILD_ROOT}/Dockerfile"
-)"
-readonly observer_build_block
-grep -Fq -- "common.ProductionImageRuntime=true" <<<"${observer_build_block}" ||
-  fail "production schema observer does not carry the immutable runtime marker"
-contains_fixed '/out/kkai-schema-observe /kkai-schema-observe' "${BUILD_ROOT}/Dockerfile" ||
-  fail "production image does not contain the schema observer"
+contains_fixed '-o /out/kkai-migrate ./cmd/kkai-migrate' "${BUILD_ROOT}/Dockerfile" ||
+  fail "image build does not compile the unified schema command"
+contains_fixed '-o /out/kkai-topup-recovery ./cmd/kkai-topup-recovery' "${BUILD_ROOT}/Dockerfile" ||
+  fail "image build omits top-up recovery"
+contains_fixed "common.SchemaManagementMode=\${SCHEMA_MANAGEMENT}" "${BUILD_ROOT}/Dockerfile" ||
+  fail "formal binaries do not compile the immutable schema management mode"
+contains_fixed "com.kkai.runtime.schema-management=\"\${SCHEMA_MANAGEMENT}\"" "${BUILD_ROOT}/Dockerfile" ||
+  fail "Dockerfile does not publish external schema management"
+for delivery_file in \
+  "${BUILD_ROOT}/Dockerfile" \
+  "${BUILD_ROOT}/smoke-compose.sh" \
+  "${BUILD_ROOT}/verify-image.sh" \
+  "${BUILD_ROOT}/export-release.sh" \
+  "${WORKFLOW}" \
+  "${CANDIDATE_WORKFLOW}"; do
+  if contains_regex 'kkai-schema-observe|describe-upstream-schema|upstream-schema-compatibility|check-upstream-baseline|bootstrap-empty-upstream-baseline' \
+    "${delivery_file}"; then
+    fail "delivery path still depends on the retired upstream adoption stack: ${delivery_file}"
+  fi
+done
 if contains_regex 'go get|go mod tidy|./main\.go' "${BUILD_ROOT}/Dockerfile"; then
   fail "image build mutates dependencies or compiles a single source file"
 fi
-
-contains_fixed 'kkaimigrate.Observe(ctx, db)' "${SCHEMA_OBSERVER_SOURCE}" ||
-  fail "schema observer does not use validated KKAI schema observation"
-contains_fixed 'kkaimigrate.ObserveUpstreamSchema(ctx, db, describeSource)' "${SCHEMA_OBSERVER_SOURCE}" ||
-  fail "schema observer does not use exact upstream adoption observation"
-if contains_regex 'kkaimigrate\.(Apply|Check)|BootstrapEmptyUpstreamSchema|AutoMigrate|\.Exec\(' \
-  "${SCHEMA_OBSERVER_SOURCE}"; then
-  fail "schema observer source exposes a database mutation capability"
-fi
-for forbidden_observer_flag in \
-  '"apply"' \
-  '"bootstrap-empty-upstream-baseline"' \
-  '"check"' \
-  '"describe"' \
-  '"dry-run"' \
-  '"min-version"'; do
-  if contains_fixed "${forbidden_observer_flag}" "${SCHEMA_OBSERVER_SOURCE}"; then
-    fail "schema observer declares forbidden flag ${forbidden_observer_flag}"
-  fi
-done
 
 for role in leader serving; do
   contains_fixed "NEWAPI_NODE_ROLE=${role}" "${BUILD_ROOT}/smoke-compose.sh" ||
@@ -92,20 +80,20 @@ if ! ruby -ryaml -e 'YAML.safe_load_file(ARGV.fetch(0), aliases: true)' "${BUILD
 fi
 contains_fixed 'compose config --quiet' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not validate the resolved Compose configuration"
-contains_fixed '--bootstrap-empty-upstream-baseline' "${BUILD_ROOT}/smoke-compose.sh" ||
-  fail "smoke test does not bootstrap the upstream baseline through the strict empty-database migrator mode"
-contains_fixed '--check-upstream-baseline --json --dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
-  fail "smoke test does not verify read-only upstream baseline adoption evidence"
-contains_fixed '--current --json --dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
-  fail "smoke test does not verify the current KKAI schema through the observer"
-[[ "$(grep -Fc -- '--entrypoint /kkai-schema-observe' "${BUILD_ROOT}/smoke-compose.sh")" -eq 2 ]] ||
-  fail "smoke test does not isolate both read-only observations in the schema observer"
-[[ "$(grep -Fc -- '--entrypoint /kkai-migrate' "${BUILD_ROOT}/smoke-compose.sh")" -eq 2 ]] ||
-  fail "smoke test does not isolate bootstrap and apply in the migrator"
-contains_fixed '--entrypoint /kkai-schema-observe' "${BUILD_ROOT}/verify-image.sh" ||
-  fail "image verification does not inspect the schema observer command surface"
-contains_fixed '--entrypoint /kkai-schema-observe' "${BUILD_ROOT}/export-release.sh" ||
-  fail "offline release export does not verify the schema observer"
+contains_fixed '--observe --current --json --dsn-stdin' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not use the unified migrator observer"
+contains_fixed 'EXPECTED_SCHEMA_MIGRATION_KIND' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "smoke test does not validate the exported migration kind"
+for fingerprint in schema_fingerprint ledger_fingerprint; do
+  contains_fixed "${fingerprint}_before" "${BUILD_ROOT}/smoke-compose.sh" ||
+    fail "smoke test does not capture the initial ${fingerprint}"
+  contains_fixed "${fingerprint}_after" "${BUILD_ROOT}/smoke-compose.sh" ||
+    fail "smoke test does not capture the final ${fingerprint}"
+done
+if contains_regex 'ALTER TABLE kkai_outbox|outbox_event_key_mysql57_compat|current_version == 4|== 191' \
+  "${BUILD_ROOT}/smoke-compose.sh"; then
+  fail "PostgreSQL v3 smoke must not execute or emulate the MySQL-only v4 migration"
+fi
 if contains_fixed 'KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE' "${BUILD_ROOT}/smoke-compose.yml" ||
   contains_fixed 'KKAI_UPSTREAM_SCHEMA_MIGRATION_MODE' "${ROOT}/common/node_role.go"; then
   fail "production application runtime still exposes the legacy one-shot upstream migration mode"
@@ -157,24 +145,8 @@ for lifecycle_operation in \
   contains_fixed "${lifecycle_operation}" "${RISK_INTEGRATION_TEST}" ||
     fail "Risk Redis lifecycle test omits ${lifecycle_operation}"
 done
-contains_fixed '/schema-compatibility.json' "${BUILD_ROOT}/Dockerfile" ||
-  fail "production image does not embed schema compatibility metadata"
-contains_fixed '/upstream-schema-compatibility.json' "${BUILD_ROOT}/Dockerfile" ||
-  fail "production image does not embed upstream schema ownership metadata"
-contains_fixed '--describe-upstream-schema' "${BUILD_ROOT}/Dockerfile" ||
-  fail "production image build does not validate versioned upstream schema ownership"
-contains_fixed '"check-upstream-baseline"' "${SCHEMA_OBSERVER_SOURCE}" ||
-  fail "schema observer does not expose read-only upstream baseline adoption evidence"
-for upstream_transition_field in \
-  'before_model_schema_digest' \
-  'after_model_schema_digest' \
-  'migration_version' \
-  'migration_kind' \
-  'ownership_implementation_id'; do
-  contains_fixed "${upstream_transition_field}" "${ROOT}/.github/workflows/kkai-production-image.yml" ||
-    fail "production image workflow does not validate upstream transition field ${upstream_transition_field}"
-done
 for schema_label in \
+  'com.kkai.schema.compatible-prefixes' \
   'com.kkai.schema.min-compatible' \
   'com.kkai.schema.max-compatible' \
   'com.kkai.schema.migration-target' \
@@ -183,6 +155,49 @@ for schema_label in \
   contains_fixed "${schema_label}" "${BUILD_ROOT}/Dockerfile" ||
     fail "production image is missing ${schema_label}"
 done
+[[ "$(grep -c 'com\.kkai\.schema\.' "${BUILD_ROOT}/Dockerfile")" == 6 ]] ||
+  fail "production image must publish exactly six com.kkai.schema labels"
+contains_fixed 'com.kkai.runtime.schema-management' "${BUILD_ROOT}/Dockerfile" ||
+  fail "production image is missing the external schema management label"
+for workflow in "${WORKFLOW}" "${CANDIDATE_WORKFLOW}"; do
+  contains_fixed 'build/kkai-image/export-schema-contract.sh postgres' "${workflow}" ||
+    fail "workflow does not consume the App-owned contract exporter: ${workflow}"
+  for schema_arg in \
+    'SCHEMA_MANAGEMENT' \
+    'SCHEMA_COMPATIBLE_PREFIXES' \
+    'SCHEMA_RUNTIME_MIN_VERSION' \
+    'SCHEMA_RUNTIME_MAX_VERSION' \
+    'SCHEMA_MIGRATION_TARGET' \
+    'SCHEMA_MIGRATION_KIND' \
+    'SCHEMA_MIGRATION_SET_DIGEST'; do
+    contains_fixed "${schema_arg}=" "${workflow}" ||
+      fail "workflow does not pass ${schema_arg}: ${workflow}"
+  done
+done
+schema_contract_outputs="$("${SCHEMA_CONTRACT_EXPORTER}" postgres)"
+readonly schema_contract_outputs
+[[ "$(wc -l <<<"${schema_contract_outputs}" | tr -d ' ')" == 7 ]] ||
+  fail "schema contract exporter must emit exactly seven outputs"
+for exact_output in \
+  'runtime_min_version=3' \
+  'runtime_max_version=4' \
+  'migration_target=3' \
+  'migration_kind=none' \
+  'schema_management=external'; do
+  grep -Fx "${exact_output}" <<<"${schema_contract_outputs}" >/dev/null ||
+    fail "schema contract exporter is missing reviewed output ${exact_output}"
+done
+compatible_prefixes="$(sed -n 's/^compatible_prefixes=//p' <<<"${schema_contract_outputs}")"
+readonly compatible_prefixes
+migration_set_digest="$(sed -n 's/^migration_set_digest=//p' <<<"${schema_contract_outputs}")"
+readonly migration_set_digest
+[[ "${migration_set_digest}" =~ ^sha256:[0-9a-f]{64}$ ]] ||
+  fail "schema contract exporter emitted an invalid migration-set digest"
+jq --exit-status --arg digest "${migration_set_digest}" \
+  'keys == ["3", "4"] and .["3"] == $digest and
+   all(.[]; test("^sha256:[0-9a-f]{64}$"))' \
+  <<<"${compatible_prefixes}" >/dev/null ||
+  fail "schema contract exporter emitted an invalid PostgreSQL compatible-prefix map"
 contains_fixed 'NEWAPI_REBATE_EVENT_INGEST_SECRET_FILE: /run/secrets/rebate_event_ingest_secret' \
   "${BUILD_ROOT}/smoke-compose.yml" ||
   fail "smoke runtime does not mount the rebate event ingest credential"
@@ -193,7 +208,7 @@ contains_fixed 'rebate-event-ingest-secret' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not provision the rebate event ingest credential"
 contains_fixed 'delivery_disabled_stage_version' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not exercise delivery-disabled startup"
-contains_fixed 'stage_version="$(delivery_disabled_stage_version)"' "${BUILD_ROOT}/smoke-compose.sh" ||
+contains_fixed "stage_version=\"\$(delivery_disabled_stage_version)\"" "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not assert delivery-disabled stage startup"
 delivery_disabled_stage_smoke="$(
   sed -n '/^delivery_disabled_stage_version() {$/,/^}$/p' "${BUILD_ROOT}/smoke-compose.sh"
@@ -216,6 +231,10 @@ contains_fixed 'sbom: true' "${WORKFLOW}" ||
   fail "workflow does not publish BuildKit SBOM provenance"
 contains_fixed 'cosign sign --yes' "${WORKFLOW}" ||
   fail "workflow does not sign the immutable digest"
+contains_fixed 'cosign verify --output json' "${WORKFLOW}" ||
+  fail "workflow does not verify the signed immutable digest"
+contains_fixed 'dist/image-signature-verification.json' "${WORKFLOW}" ||
+  fail "workflow does not retain Cosign identity evidence"
 contains_fixed "candidate-\${{ steps.release.outputs.version }}" "${WORKFLOW}" ||
   fail "workflow does not isolate the unscanned candidate tag"
 contains_fixed 'imagetools create' "${WORKFLOW}" ||

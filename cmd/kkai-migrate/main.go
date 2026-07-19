@@ -18,62 +18,49 @@ import (
 	"gorm.io/gorm"
 )
 
-var sourceRevision string
-
 func main() {
 	var (
-		dsn              string
-		dsnFromStdin     bool
-		dryRun           bool
-		checkOnly        bool
-		current          bool
-		describe         bool
-		describeUpstream bool
-		checkUpstream    bool
-		bootstrapEmpty   bool
-		jsonOutput       bool
-		describeSource   string
-		minimumVersion   int64
-		timeout          time.Duration
+		dsn            string
+		dsnFromStdin   bool
+		dryRun         bool
+		checkOnly      bool
+		currentOnly    bool
+		describe       bool
+		dialect        string
+		minimumVersion int64
+		observe        bool
+		jsonOutput     bool
+		timeout        time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
 	flag.BoolVar(&dryRun, "dry-run", false, "show pending migrations without applying them")
 	flag.BoolVar(&checkOnly, "check", false, "verify the minimum schema version and exit")
-	flag.BoolVar(&current, "current", false, "read the current KKAI schema version without applying migrations")
-	flag.BoolVar(&describe, "describe", false, "print the image schema compatibility contract and exit")
-	flag.BoolVar(&describeUpstream, "describe-upstream-schema", false, "print the versioned upstream model schema contract and exit")
-	flag.BoolVar(&checkUpstream, "check-upstream-baseline", false, "read-only exact check of the upstream database schema")
-	flag.BoolVar(&bootstrapEmpty, "bootstrap-empty-upstream-baseline", false, "create the upstream baseline in a strictly empty database")
-	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON for --describe or --check")
-	flag.StringVar(&describeSource, "source-revision", sourceRevision, "source revision for --describe")
-	flag.Int64Var(&minimumVersion, "min-version", kkaimigrate.RuntimeMinVersion, "minimum schema version for --check")
+	flag.BoolVar(&currentOnly, "current", false, "observe the current database migration prefix")
+	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
+	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
+	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
+	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
+	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
 	flag.Parse()
-	if enabledModeCount(dryRun, checkOnly, current, describe, describeUpstream, checkUpstream, bootstrapEmpty) > 1 {
-		log.Fatal("migration operation modes cannot be combined")
-	}
 	if describe {
-		if !jsonOutput {
-			log.Fatal("--describe requires --json")
+		if strings.TrimSpace(dialect) == "" || !jsonOutput || observe || checkOnly || dryRun || currentOnly || minimumVersion != 0 || dsnFromStdin {
+			log.Fatal("--describe-contract requires --dialect and --json and cannot be combined with database operations")
 		}
-		encoded, err := describeJSON(describeSource)
+		output, err := describeContractJSON(dialect)
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println(string(encoded))
+		fmt.Println(output)
 		return
 	}
-	if describeUpstream {
-		if !jsonOutput {
-			log.Fatal("--describe-upstream-schema requires --json")
+	if observe {
+		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-		encoded, err := describeUpstreamJSON(describeSource)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println(string(encoded))
-		return
+	} else if currentOnly || jsonOutput || dialect != "" {
+		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
 	resolvedDSN, err := resolveMigrationDSN(dsn, dsnFromStdin, os.Stdin)
@@ -92,67 +79,28 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	if checkUpstream {
-		if !jsonOutput {
-			log.Fatal("--check-upstream-baseline requires --json")
-		}
-		adoption, err := kkaimigrate.ObserveUpstreamSchema(ctx, db, describeSource)
-		if err != nil {
-			log.Fatalf("upstream schema baseline check failed: %v", err)
-		}
-		encoded, err := adoption.CanonicalJSON()
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println(string(encoded))
-		if !adoption.Ready {
-			log.Fatal("upstream schema baseline is incomplete")
-		}
-		return
-	}
-	if bootstrapEmpty {
-		if err := validateEmptyBootstrapRuntime(os.Getenv(common.NodeRoleEnvironmentVariable)); err != nil {
-			log.Fatal(err)
-		}
-		if err := model.BootstrapEmptyUpstreamSchema(ctx, db); err != nil {
-			log.Fatalf("upstream schema baseline bootstrap failed: %v", err)
-		}
-		fmt.Println("upstream schema baseline bootstrapped")
-		return
-	}
-	if current {
-		observed, err := kkaimigrate.Observe(ctx, db)
+	if observe {
+		observation, err := observeCurrentSchema(ctx, db)
 		if err != nil {
 			log.Fatalf("KKAI schema observation failed: %v", err)
 		}
-		if jsonOutput {
-			encoded, err := currentJSON(observed)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println(string(encoded))
-			return
+		encoded, err := common.Marshal(observation)
+		if err != nil {
+			log.Fatal("failed to encode KKAI schema observation")
 		}
-		fmt.Printf("KKAI schema is currently at version %d\n", observed.CurrentVersion)
+		fmt.Println(string(encoded))
 		return
 	}
 	if checkOnly {
-		if err := kkaimigrate.Check(ctx, db, minimumVersion); err != nil {
+		if minimumVersion == 0 {
+			err = kkaimigrate.CheckRequired(ctx, db)
+		} else {
+			err = kkaimigrate.Check(ctx, db, minimumVersion)
+		}
+		if err != nil {
 			log.Fatalf("KKAI schema check failed: %v", err)
 		}
-		if jsonOutput {
-			observed, err := kkaimigrate.Observe(ctx, db)
-			if err != nil {
-				log.Fatalf("KKAI schema observation failed: %v", err)
-			}
-			encoded, err := checkJSON(observed, kkaimigrate.SchemaCompatibility(sourceRevision))
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println(string(encoded))
-			return
-		}
-		fmt.Printf("KKAI schema is ready at version %d\n", minimumVersion)
+		fmt.Println("KKAI schema is ready")
 		return
 	}
 
@@ -171,57 +119,34 @@ func main() {
 	}
 }
 
-func validateEmptyBootstrapRuntime(nodeRole string) error {
-	if strings.TrimSpace(nodeRole) != "" {
-		return fmt.Errorf("--bootstrap-empty-upstream-baseline is unavailable in application node roles")
-	}
-	return nil
-}
-
-func enabledModeCount(modes ...bool) int {
-	count := 0
-	for _, enabled := range modes {
-		if enabled {
-			count++
-		}
-	}
-	return count
-}
-
-func describeJSON(sourceRevision string) ([]byte, error) {
-	return kkaimigrate.SchemaCompatibility(sourceRevision).CanonicalJSON()
-}
-
-func describeUpstreamJSON(sourceRevision string) ([]byte, error) {
-	contract, err := kkaimigrate.UpstreamSchemaCompatibility(sourceRevision)
+func observeCurrentSchema(ctx context.Context, db *gorm.DB) (*kkaimigrate.Observation, error) {
+	observation, err := kkaimigrate.Observe(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	return contract.CanonicalJSON()
+	if err := model.ValidateMainSchemaPrerequisites(db.WithContext(ctx)); err != nil {
+		return nil, err
+	}
+	return observation, nil
 }
 
-func checkJSON(observed kkaimigrate.SchemaObservation, contract kkaimigrate.SchemaContract) ([]byte, error) {
-	return common.Marshal(struct {
-		Schema                 int    `json:"schema"`
-		Ready                  bool   `json:"ready"`
-		CurrentVersion         int64  `json:"current_version"`
-		MigrationSetDigest     string `json:"migration_set_digest"`
-		RuntimeMinVersion      int64  `json:"runtime_min_version"`
-		RuntimeMaxVersion      int64  `json:"runtime_max_version"`
-		MigrationTargetVersion int64  `json:"migration_target_version"`
+func describeContractJSON(dialect string) (string, error) {
+	contract, err := kkaimigrate.ContractForDialect(strings.TrimSpace(dialect))
+	if err != nil {
+		return "", err
+	}
+	output := struct {
+		kkaimigrate.SchemaContract
+		SchemaManagement string `json:"schema_management"`
 	}{
-		Schema:                 1,
-		Ready:                  true,
-		CurrentVersion:         observed.CurrentVersion,
-		MigrationSetDigest:     observed.MigrationSetDigest,
-		RuntimeMinVersion:      contract.RuntimeMinVersion,
-		RuntimeMaxVersion:      contract.RuntimeMaxVersion,
-		MigrationTargetVersion: contract.MigrationTargetVersion,
-	})
-}
-
-func currentJSON(observed kkaimigrate.SchemaObservation) ([]byte, error) {
-	return common.Marshal(observed)
+		SchemaContract:   contract,
+		SchemaManagement: common.SchemaManagementMode,
+	}
+	encoded, err := common.Marshal(output)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func resolveMigrationDSN(explicitDSN string, fromStdin bool, reader io.Reader) (string, error) {

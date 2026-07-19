@@ -208,7 +208,7 @@ func InitDB() (err error) {
 		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
-		if !common.CanRunSchemaMigrations() {
+		if !common.CanRunRuntimeAutoMigrate() {
 			return nil
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -252,7 +252,7 @@ func InitLogDB() (err error) {
 		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
-		if !common.CanRunSchemaMigrations() {
+		if !common.CanRunRuntimeAutoMigrate() {
 			return nil
 		}
 		common.SysLog("database migration started")
@@ -272,7 +272,7 @@ func migrateDB() error {
 		return err
 	}
 
-	err := DB.AutoMigrate(upstreamPrimarySchemaModels()...)
+	err := DB.AutoMigrate(mainDatabaseAutoMigrateModels()...)
 	if err != nil {
 		return err
 	}
@@ -285,57 +285,25 @@ func migrateDB() error {
 			return err
 		}
 	}
-	return recordUpstreamSchemaBaseline()
+	return nil
 }
 
 func migrateDBFast() error {
 
 	var wg sync.WaitGroup
 
-	migrations := []struct {
-		model interface{}
-		name  string
-	}{
-		{&Channel{}, "Channel"},
-		{&Token{}, "Token"},
-		{&User{}, "User"},
-		{&PasskeyCredential{}, "PasskeyCredential"},
-		{&Option{}, "Option"},
-		{&Redemption{}, "Redemption"},
-		{&Ability{}, "Ability"},
-		{&Log{}, "Log"},
-		{&Midjourney{}, "Midjourney"},
-		{&TopUp{}, "TopUp"},
-		{&QuotaData{}, "QuotaData"},
-		{&Task{}, "Task"},
-		{&Model{}, "Model"},
-		{&Vendor{}, "Vendor"},
-		{&PrefillGroup{}, "PrefillGroup"},
-		{&Setup{}, "Setup"},
-		{&TwoFA{}, "TwoFA"},
-		{&TwoFABackupCode{}, "TwoFABackupCode"},
-		{&Checkin{}, "Checkin"},
-		{&SubscriptionOrder{}, "SubscriptionOrder"},
-		{&UserSubscription{}, "UserSubscription"},
-		{&SubscriptionPreConsumeRecord{}, "SubscriptionPreConsumeRecord"},
-		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
-		{&UserOAuthBinding{}, "UserOAuthBinding"},
-		{&PerfMetric{}, "PerfMetric"},
-		{&SystemInstance{}, "SystemInstance"},
-		{&SystemTask{}, "SystemTask"},
-		{&SystemTaskLock{}, "SystemTaskLock"},
-	}
+	migrations := mainDatabaseAutoMigrateModels()
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
 
-	for _, m := range migrations {
+	for _, migrationModel := range migrations {
 		wg.Add(1)
-		go func(model interface{}, name string) {
+		go func(model any) {
 			defer wg.Done()
 			if err := DB.AutoMigrate(model); err != nil {
-				errChan <- fmt.Errorf("failed to migrate %s: %v", name, err)
+				errChan <- fmt.Errorf("failed to migrate %T: %w", model, err)
 			}
-		}(m.model, m.name)
+		}(migrationModel)
 	}
 
 	// Wait for all migrations to complete
