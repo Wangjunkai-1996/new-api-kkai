@@ -190,35 +190,8 @@ jobs:
             --tag "${IMAGE}:${VERSION}" \
             --tag "${IMAGE}:sha-${SOURCE_SHA}" \
             "${IMAGE}@${DIGEST}"
-          timeout 120s bash -Eeuo pipefail <<'VERIFY_PROMOTED_TAGS'
-          readonly version_ref="${IMAGE}:${VERSION}"
-          readonly sha_ref="${IMAGE}:sha-${SOURCE_SHA}"
-          while true; do
-            version_digest=''
-            sha_digest=''
-            if ! version_digest="$(
-              docker buildx imagetools inspect "${version_ref}" 2>/dev/null |
-                awk '$1 == "Digest:" {print $2; exit}'
-            )"; then
-              version_digest=''
-            fi
-            if ! sha_digest="$(
-              docker buildx imagetools inspect "${sha_ref}" 2>/dev/null |
-                awk '$1 == "Digest:" {print $2; exit}'
-            )"; then
-              sha_digest=''
-            fi
-            if
-              [[ -n "${version_digest}" ]] &&
-              [[ -n "${sha_digest}" ]] &&
-              [[ "${version_digest}" == "${DIGEST}" ]] &&
-              [[ "${sha_digest}" == "${DIGEST}" ]]
-            then
-              exit 0
-            fi
-            sleep 2
-          done
-          VERIFY_PROMOTED_TAGS
+          build/kkai-image/wait-for-promoted-tags.sh \
+            "${DIGEST}" "${IMAGE}:${VERSION}" "${IMAGE}:sha-${SOURCE_SHA}"
 
       - name: Sign the immutable image digest
         env:
