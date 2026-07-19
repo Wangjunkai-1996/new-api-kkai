@@ -163,7 +163,6 @@ bootstrap_application_schema() {
     SESSION_SECRET='smoke-session-secret-0123456789abcdef' \
     CRYPTO_SECRET='smoke-crypto-secret-0123456789abcdef0' \
     INVITATIONS_INTERNAL_SECRET='smoke-invitations-secret-0123456789abc' \
-    KKAI_RISK_STREAM_SECRET='smoke-risk-signing-secret-0123456789ab' \
     GIN_MODE=release \
     "${SCHEMA_BOOTSTRAP_BINARY}" --log-dir '' >"${bootstrap_log}" 2>&1 &
   bootstrap_pid="$!"

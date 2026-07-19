@@ -210,6 +210,16 @@ contains_fixed 'delivery_disabled_stage_version' "${BUILD_ROOT}/smoke-compose.sh
   fail "smoke test does not exercise delivery-disabled startup"
 contains_fixed "stage_version=\"\$(delivery_disabled_stage_version)\"" "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "smoke test does not assert delivery-disabled stage startup"
+schema_bootstrap_smoke="$(
+  sed -n '/^bootstrap_application_schema() {$/,/^}$/p' "${BUILD_ROOT}/smoke-compose.sh"
+)"
+readonly schema_bootstrap_smoke
+[[ -n "${schema_bootstrap_smoke}" ]] ||
+  fail "schema bootstrap smoke function is empty"
+if grep -Fq 'KKAI_RISK_STREAM_SECRET=' <<<"${schema_bootstrap_smoke}" &&
+  ! grep -Fq 'REDIS_CONN_STRING=' <<<"${schema_bootstrap_smoke}"; then
+  fail "schema bootstrap enables the Risk stream without Redis"
+fi
 delivery_disabled_stage_smoke="$(
   sed -n '/^delivery_disabled_stage_version() {$/,/^}$/p' "${BUILD_ROOT}/smoke-compose.sh"
 )"
