@@ -13,6 +13,7 @@ readonly SHA_REF=$3
 readonly DEADLINE_SECONDS="${KKAI_PROMOTED_TAG_DEADLINE_SECONDS:-120}"
 readonly INSPECT_TIMEOUT_SECONDS="${KKAI_PROMOTED_TAG_INSPECT_TIMEOUT_SECONDS:-10}"
 readonly RETRY_INTERVAL_SECONDS="${KKAI_PROMOTED_TAG_RETRY_INTERVAL_SECONDS:-2}"
+readonly KILL_AFTER_SECONDS=2
 
 [[ "${EXPECTED_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] ||
   die "expected digest must be sha256 followed by 64 lowercase hex characters"
@@ -38,7 +39,7 @@ trap 'rm -rf "${temporary}"' EXIT
 
 run_inspect() {
   local ref=$1 output_file=$2 status_file=$3 timeout_seconds=$4 status=0
-  if timeout "${timeout_seconds}s" \
+  if timeout --kill-after=2s "${timeout_seconds}s" \
     docker buildx imagetools inspect "${ref}" >"${output_file}" 2>&1; then
     status=0
   else
@@ -109,9 +110,10 @@ version_last=not_inspected
 sha_last=not_inspected
 while ((SECONDS < deadline)); do
   remaining=$((deadline - SECONDS))
-  ((remaining > 0)) || break
+  ((remaining > KILL_AFTER_SECONDS)) || break
+  maximum_soft_timeout=$((remaining - KILL_AFTER_SECONDS))
   call_timeout=${INSPECT_TIMEOUT_SECONDS}
-  ((call_timeout <= remaining)) || call_timeout=${remaining}
+  ((call_timeout <= maximum_soft_timeout)) || call_timeout=${maximum_soft_timeout}
 
   run_inspect "${VERSION_REF}" "${temporary}/version.out" "${temporary}/version.status" \
     "${call_timeout}" &

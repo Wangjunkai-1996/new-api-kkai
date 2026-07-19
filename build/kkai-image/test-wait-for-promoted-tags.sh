@@ -20,8 +20,21 @@ test_root="$(mktemp -d)"
 readonly test_root
 trap 'rm -rf "${test_root}"' EXIT
 fixture_bin="${test_root}/bin"
+gnu_timeout_bin="${test_root}/gnu-timeout-bin"
 state_dir="${test_root}/state"
-mkdir -p "${fixture_bin}" "${state_dir}"
+mkdir -p "${fixture_bin}" "${gnu_timeout_bin}" "${state_dir}"
+
+real_gnu_timeout=''
+for timeout_candidate in \
+  "$(command -v timeout 2>/dev/null || true)" \
+  "$(command -v gtimeout 2>/dev/null || true)"; do
+  [[ -n "${timeout_candidate}" ]] || continue
+  if "${timeout_candidate}" --version 2>/dev/null | grep -Fq 'GNU coreutils'; then
+    real_gnu_timeout=${timeout_candidate}
+    ln -s "${real_gnu_timeout}" "${gnu_timeout_bin}/timeout"
+    break
+  fi
+done
 
 cat >"${fixture_bin}/timeout" <<'PYTHON'
 #!/usr/bin/env python3
@@ -29,6 +42,9 @@ import subprocess
 import sys
 
 raw_seconds = sys.argv[1]
+if raw_seconds.startswith("--kill-after="):
+    sys.argv.pop(1)
+    raw_seconds = sys.argv[1]
 seconds = float(raw_seconds[:-1] if raw_seconds.endswith("s") else raw_seconds)
 try:
     result = subprocess.run(sys.argv[2:], timeout=seconds, check=False)
@@ -109,6 +125,13 @@ case "${FAKE_MODE}" in
     fi
     emit_digest "${FAKE_EXPECTED_DIGEST}"
     ;;
+  ignore_term)
+    if [[ "${key}" == version && "${count}" == 1 ]]; then
+      trap '' TERM
+      while :; do :; done
+    fi
+    emit_digest "${FAKE_EXPECTED_DIGEST}"
+    ;;
   always_retry)
     echo "${FAKE_RETRY_MESSAGE}" >&2
     exit 1
@@ -124,11 +147,12 @@ chmod +x "${fixture_bin}/timeout" "${fixture_bin}/docker"
 run_wait() {
   local expected_digest=$1 mode=$2 deadline=$3 inspect_timeout=$4 interval=$5
   local retry_message=${6:-manifest unknown}
+  local timeout_bin=${7:-${fixture_bin}}
   rm -rf "${state_dir}"
   mkdir -p "${state_dir}"
   : >"${test_root}/calls"
   set +e
-  PATH="${fixture_bin}:${PATH}" \
+  PATH="${timeout_bin}:${fixture_bin}:${PATH}" \
     FAKE_MODE="${mode}" \
     FAKE_RETRY_MESSAGE="${retry_message}" \
     FAKE_EXPECTED_DIGEST="${EXPECTED_DIGEST}" \
@@ -186,7 +210,18 @@ run_wait "${EXPECTED_DIGEST}" inspect_timeout 5 1 0
 [[ "${run_status}" == 0 ]] || fail "single-call timeout did not retry"
 [[ "$(call_count)" == 4 ]] || fail "single-call timeout did not retry both tags"
 
-run_wait "${EXPECTED_DIGEST}" always_retry 1 1 1 'manifest unknown'
+if [[ -n "${real_gnu_timeout}" ]]; then
+  kill_test_started=${SECONDS}
+  run_wait "${EXPECTED_DIGEST}" ignore_term 7 1 0 '' "${gnu_timeout_bin}"
+  kill_test_elapsed=$((SECONDS - kill_test_started))
+  [[ "${run_status}" == 0 ]] || fail "TERM-ignoring inspect did not recover after KILL"
+  [[ "$(call_count)" == 4 ]] || fail "TERM-ignoring inspect did not retry both tags"
+  ((kill_test_elapsed <= 6)) || fail "TERM-ignoring inspect exceeded the bounded KILL window"
+else
+  echo "wait-for-promoted-tags test: GNU timeout unavailable; TERM/KILL case skipped"
+fi
+
+run_wait "${EXPECTED_DIGEST}" always_retry 3 1 1 'manifest unknown'
 [[ "${run_status}" != 0 ]] || fail "overall deadline did not fail closed"
 grep -Fq "${VERSION_REF}: retry_manifest_unknown" "${test_root}/stderr" ||
   fail "deadline diagnostic omits the version tag classification"

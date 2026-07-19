@@ -9,6 +9,7 @@ readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 readonly RISK_INTEGRATION_TEST="${ROOT}/service/kkai_risk_stream_redis_integration_test.go"
 readonly SCHEMA_CONTRACT_EXPORTER="${BUILD_ROOT}/export-schema-contract.sh"
+readonly TAG_CONVERGENCE_SCRIPT="${BUILD_ROOT}/wait-for-promoted-tags.sh"
 readonly TAG_CONVERGENCE_TEST="${BUILD_ROOT}/test-wait-for-promoted-tags.sh"
 readonly AGENT_RULES="${ROOT}/AGENTS.md"
 readonly REDIS_CI_IMAGE='redis:8.6.3@sha256:48e78eb9d1e1adcfb10184b2cc3c7fc5ed21e5a3be08875f239257d194bab8c9'
@@ -271,6 +272,8 @@ readonly create_line verify_line sign_line
 if contains_fixed 'imagetools inspect' "${WORKFLOW}"; then
   fail "workflow contains inline tag inspection instead of the reviewed domain script"
 fi
+contains_fixed "timeout --kill-after=2s \"\${timeout_seconds}s\"" "${TAG_CONVERGENCE_SCRIPT}" ||
+  fail "tag convergence inspect has no bounded KILL fallback"
 "${TAG_CONVERGENCE_TEST}"
 contains_fixed "go-version: '1.26.5'" "${QUALITY_WORKFLOW}" ||
   fail "fork quality does not use the production Go toolchain"
