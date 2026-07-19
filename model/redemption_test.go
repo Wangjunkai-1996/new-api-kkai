@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"sync"
 	"testing"
 
@@ -134,7 +135,7 @@ func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 
 	var user User
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
-	assert.Equal(t, 500, user.Quota)
+	assert.Equal(t, int64(500), user.Quota)
 
 	var redemption Redemption
 	require.NoError(t, DB.First(&redemption, "name = ?", "redeem-test").Error)
@@ -145,7 +146,25 @@ func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 	_, err = Redeem(key, userId)
 	require.Error(t, err)
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
-	assert.Equal(t, 500, user.Quota)
+	assert.Equal(t, int64(500), user.Quota)
+}
+
+func TestRedeemOverflowRollsBackWalletAndCode(t *testing.T) {
+	userId, key := setupRedeemFixture(t, 1)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", userId).Update("quota", math.MaxInt64).Error)
+
+	_, err := Redeem(key, userId)
+	require.ErrorIs(t, err, ErrRedeemFailed)
+
+	var user User
+	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
+	require.Equal(t, int64(math.MaxInt64), user.Quota)
+
+	var redemption Redemption
+	require.NoError(t, DB.First(&redemption, "key = ?", key).Error)
+	require.Equal(t, common.RedemptionCodeStatusEnabled, redemption.Status)
+	require.Zero(t, redemption.RedeemedTime)
+	require.Zero(t, redemption.UsedUserId)
 }
 
 // Exactly one of several concurrent redeems of the same code may win, and
@@ -177,5 +196,5 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 
 	var user User
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
-	assert.Equal(t, 300, user.Quota, "quota must be credited exactly once")
+	assert.Equal(t, int64(300), user.Quota, "quota must be credited exactly once")
 }

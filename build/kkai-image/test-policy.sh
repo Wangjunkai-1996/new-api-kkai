@@ -245,6 +245,14 @@ if grep -Eq 'PORT=|REDIS|SESSION_SECRET|CRYPTO_SECRET|GIN_MODE|&$|/api/status' <
 fi
 contains_fixed 'application_business_row_count' "${BUILD_ROOT}/smoke-compose.sh" ||
   fail "schema bootstrap smoke does not prove business data remains empty"
+contains_fixed 'application_quota_column_types' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "schema bootstrap smoke does not verify the PostgreSQL wallet BIGINT contract"
+contains_fixed "quota|bigint\\nused_quota|bigint" "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "schema bootstrap smoke does not require both PostgreSQL wallet columns to be BIGINT"
+contains_fixed 'CREATE EVENT TRIGGER kkai_smoke_runtime_ddl' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "schema bootstrap smoke does not install a PostgreSQL runtime DDL audit"
+contains_fixed 'runtime_ddl_event_count' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "schema bootstrap smoke does not verify zero runtime DDL events"
 delivery_disabled_stage_smoke="$(
   sed -n '/^delivery_disabled_stage_version() {$/,/^}$/p' "${BUILD_ROOT}/smoke-compose.sh"
 )"

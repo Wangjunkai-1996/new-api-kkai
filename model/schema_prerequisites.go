@@ -86,6 +86,22 @@ func ValidateMainSchemaPrerequisites(db *gorm.DB) error {
 
 func validatePostgresApplicationColumnTypes(table string, columns map[string]gorm.ColumnType) error {
 	switch table {
+	case "users":
+		for _, columnName := range []string{"quota", "used_quota"} {
+			column, ok := columns[columnName]
+			if !ok {
+				return fmt.Errorf("%w: missing column users.%s", ErrMainSchemaNotReady, columnName)
+			}
+			actualType := strings.ToLower(column.DatabaseTypeName())
+			if actualType != "int8" && actualType != "bigint" {
+				return fmt.Errorf(
+					"%w: PostgreSQL users.%s must be BIGINT, found %s",
+					ErrMainSchemaNotReady,
+					columnName,
+					actualType,
+				)
+			}
+		}
 	case "tokens":
 		modelLimits, ok := columns["model_limits"]
 		if !ok {

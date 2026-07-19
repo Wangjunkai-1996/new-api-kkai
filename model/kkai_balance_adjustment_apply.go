@@ -115,7 +115,7 @@ func validKKAIBalanceAdjustmentInput(input KKAIBalanceAdjustmentInput) bool {
 	if input.OperationID == "" || len(input.OperationID) > 128 || input.UserID <= 0 {
 		return false
 	}
-	if input.Delta == 0 || input.Delta > math.MaxInt32 || input.Delta < -math.MaxInt32 {
+	if input.Delta == 0 || input.Delta == math.MinInt64 {
 		return false
 	}
 	if len(input.Metadata) > 2048 || len(input.PayloadSHA256) != 64 || input.CreatedAt <= 0 {
@@ -159,7 +159,7 @@ func updateKKAIBalanceUserQuota(tx *gorm.DB, userID int, delta int64) (int64, er
 	if delta < 0 {
 		query = query.Where("COALESCE(quota, 0) >= ?", -delta)
 	} else {
-		query = query.Where("COALESCE(quota, 0) <= ?", int64(math.MaxInt32)-delta)
+		query = query.Where("COALESCE(quota, 0) <= ?", int64(math.MaxInt64)-delta)
 	}
 	update := query.UpdateColumn("quota", gorm.Expr("COALESCE(quota, 0) + ?", delta))
 	if update.Error != nil {

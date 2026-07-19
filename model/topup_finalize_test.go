@@ -2,11 +2,13 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -54,7 +56,7 @@ func TestFinalizeTopUpConcurrentReplaySerializesOnTheOrder(t *testing.T) {
 	require.NotEqual(t, first.AlreadyCompleted, second.AlreadyCompleted)
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, 510, user.Quota)
+	require.Equal(t, int64(510), user.Quota)
 }
 
 func seedTopUpFinalizeFixture(t *testing.T, db *gorm.DB) TopUp {
@@ -99,7 +101,7 @@ func TestFinalizeTopUpCommitsOrderQuotaAndOutboxAtomically(t *testing.T) {
 	require.EqualValues(t, 1_784_211_072, storedTopUp.CompleteTime)
 	var storedUser User
 	require.NoError(t, db.First(&storedUser, topUp.UserId).Error)
-	require.Equal(t, 510, storedUser.Quota)
+	require.Equal(t, int64(510), storedUser.Quota)
 	var outbox KKAIOutboxEvent
 	require.NoError(t, db.Where("event_key = ?", "newapi:topup:842").First(&outbox).Error)
 	require.Equal(t, KKAIOutboxTopicTopUpCompleted, outbox.Topic)
@@ -134,7 +136,7 @@ func TestFinalizeTopUpBeforeRebateBoundaryCreditsQuotaWithoutOutbox(t *testing.T
 	require.EqualValues(t, 1_784_211_072, storedTopUp.CompleteTime)
 	var storedUser User
 	require.NoError(t, db.First(&storedUser, topUp.UserId).Error)
-	require.Equal(t, 510, storedUser.Quota)
+	require.Equal(t, int64(510), storedUser.Quota)
 	var outboxCount int64
 	require.NoError(t, db.Model(&KKAIOutboxEvent{}).Count(&outboxCount).Error)
 	require.Zero(t, outboxCount)
@@ -160,7 +162,7 @@ func TestFinalizeTopUpInvalidRebateBoundaryRollsBack(t *testing.T) {
 	require.Zero(t, storedTopUp.CompleteTime)
 	var storedUser User
 	require.NoError(t, db.First(&storedUser, topUp.UserId).Error)
-	require.Equal(t, 10, storedUser.Quota)
+	require.Equal(t, int64(10), storedUser.Quota)
 }
 
 func TestFinalizeTopUpReplayDoesNotDoubleCreditOrDuplicateOutbox(t *testing.T) {
@@ -180,7 +182,7 @@ func TestFinalizeTopUpReplayDoesNotDoubleCreditOrDuplicateOutbox(t *testing.T) {
 	require.True(t, replayed.AlreadyCompleted)
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, 510, user.Quota)
+	require.Equal(t, int64(510), user.Quota)
 	var count int64
 	require.NoError(t, db.Model(&KKAIOutboxEvent{}).Count(&count).Error)
 	require.EqualValues(t, 1, count)
@@ -212,33 +214,102 @@ func TestFinalizeTopUpRollsBackWhenOutboxInsertFails(t *testing.T) {
 	require.Zero(t, storedTopUp.CompleteTime)
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, 10, user.Quota)
+	require.Equal(t, int64(10), user.Quota)
 }
 
-func TestFinalizeTopUpRejectsQuotaOutsideDatabaseRange(t *testing.T) {
+func TestFinalizeTopUpAcceptsQuotaAboveRequestBillingRange(t *testing.T) {
 	db := setupTopUpFinalizeTestDB(t)
 	topUp := seedTopUpFinalizeFixture(t, db)
+	quotaDelta := int64(math.MaxInt32) + 1
+	result, err := FinalizeTopUp(FinalizeTopUpInput{
+		TradeNo:          topUp.TradeNo,
+		ExpectedProvider: PaymentProviderEpay,
+		Prepare: func(*TopUp, *User) (TopUpCompletion, error) {
+			return TopUpCompletion{QuotaDelta: quotaDelta}, nil
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, quotaDelta, result.QuotaDelta)
+
+	var storedTopUp TopUp
+	require.NoError(t, db.First(&storedTopUp, topUp.Id).Error)
+	require.Equal(t, common.TopUpStatusSuccess, storedTopUp.Status)
+	var user User
+	require.NoError(t, db.First(&user, topUp.UserId).Error)
+	require.Equal(t, quotaDelta+10, user.Quota)
+}
+
+func TestRechargeEpayCreditsConfiguredBigIntAmounts(t *testing.T) {
+	tests := []struct {
+		name          string
+		amount        int64
+		expectedQuota int64
+	}{
+		{name: "5000 units", amount: 5_000, expectedQuota: 2_500_000_000},
+		{name: "10000 units", amount: 10_000, expectedQuota: 5_000_000_000},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupTopUpFinalizeTestDB(t)
+			topUp := seedTopUpFinalizeFixture(t, db)
+			require.NoError(t, db.Model(&topUp).Update("amount", test.amount).Error)
+
+			result, err := RechargeEpay(topUp.TradeNo, "alipay")
+			require.NoError(t, err)
+			require.Equal(t, test.expectedQuota, result.QuotaDelta)
+
+			var user User
+			require.NoError(t, db.First(&user, topUp.UserId).Error)
+			require.Equal(t, test.expectedQuota+10, user.Quota)
+		})
+	}
+}
+
+func TestFinalizeTopUpCreditsMaximumInt64Balance(t *testing.T) {
+	db := setupTopUpFinalizeTestDB(t)
+	topUp := seedTopUpFinalizeFixture(t, db)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", 0).Error)
+
 	_, err := FinalizeTopUp(FinalizeTopUpInput{
 		TradeNo:          topUp.TradeNo,
 		ExpectedProvider: PaymentProviderEpay,
 		Prepare: func(*TopUp, *User) (TopUpCompletion, error) {
-			return TopUpCompletion{QuotaDelta: int64(common.MaxQuota) + 1}, nil
+			return TopUpCompletion{QuotaDelta: math.MaxInt64}, nil
 		},
 	})
-	require.ErrorIs(t, err, ErrTopUpQuotaInvalid)
+	require.NoError(t, err)
 
-	var storedTopUp TopUp
-	require.NoError(t, db.First(&storedTopUp, topUp.Id).Error)
-	require.Equal(t, common.TopUpStatusPending, storedTopUp.Status)
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, 10, user.Quota)
+	require.Equal(t, int64(math.MaxInt64), user.Quota)
 }
 
-func TestFinalizeTopUpRejectsQuotaThatWouldOverflowUserBalance(t *testing.T) {
+func TestFinalizeTopUpCreditsBalanceAlreadyAboveMaxInt32(t *testing.T) {
 	db := setupTopUpFinalizeTestDB(t)
 	topUp := seedTopUpFinalizeFixture(t, db)
-	require.NoError(t, db.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", common.MaxQuota-100).Error)
+	startingQuota := int64(math.MaxInt32) + 100
+	require.NoError(t, db.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", startingQuota).Error)
+
+	_, err := FinalizeTopUp(FinalizeTopUpInput{
+		TradeNo:          topUp.TradeNo,
+		ExpectedProvider: PaymentProviderEpay,
+		Prepare: func(*TopUp, *User) (TopUpCompletion, error) {
+			return TopUpCompletion{QuotaDelta: 500}, nil
+		},
+	})
+	require.NoError(t, err)
+
+	var user User
+	require.NoError(t, db.First(&user, topUp.UserId).Error)
+	require.Equal(t, startingQuota+500, user.Quota)
+}
+
+func TestFinalizeTopUpRejectsQuotaThatWouldOverflowInt64Balance(t *testing.T) {
+	db := setupTopUpFinalizeTestDB(t)
+	topUp := seedTopUpFinalizeFixture(t, db)
+	startingQuota := int64(math.MaxInt64 - 100)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", startingQuota).Error)
 
 	_, err := FinalizeTopUp(FinalizeTopUpInput{
 		TradeNo:          topUp.TradeNo,
@@ -254,7 +325,7 @@ func TestFinalizeTopUpRejectsQuotaThatWouldOverflowUserBalance(t *testing.T) {
 	require.Equal(t, common.TopUpStatusPending, storedTopUp.Status)
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, common.MaxQuota-100, user.Quota)
+	require.Equal(t, startingQuota, user.Quota)
 }
 
 func TestFinalizeTopUpMissingInviterDoesNotRollBackCredit(t *testing.T) {
@@ -273,7 +344,7 @@ func TestFinalizeTopUpMissingInviterDoesNotRollBackCredit(t *testing.T) {
 
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, 510, user.Quota)
+	require.Equal(t, int64(510), user.Quota)
 	var outbox KKAIOutboxEvent
 	require.NoError(t, db.Where("event_key = ?", "newapi:topup:842").First(&outbox).Error)
 	var payload TopUpCompletedEvent
@@ -291,6 +362,8 @@ func TestManualTopUpCompletionUsesProviderQuotaSemantics(t *testing.T) {
 		expectedQuota int64
 	}{
 		{name: "epay amount units", provider: PaymentProviderEpay, amount: 2, money: 1.25, expectedQuota: 1_000_000},
+		{name: "epay 5000 units", provider: PaymentProviderEpay, amount: 5_000, expectedQuota: 2_500_000_000},
+		{name: "epay 10000 units", provider: PaymentProviderEpay, amount: 10_000, expectedQuota: 5_000_000_000},
 		{name: "stripe paid money", provider: PaymentProviderStripe, amount: 2, money: 1.25, expectedQuota: 625_000},
 		{name: "creem final quota", provider: PaymentProviderCreem, amount: 12_345, money: 1.25, expectedQuota: 12_345},
 		{name: "waffo amount units", provider: PaymentProviderWaffo, amount: 2, money: 1.25, expectedQuota: 1_000_000},
@@ -304,6 +377,34 @@ func TestManualTopUpCompletionUsesProviderQuotaSemantics(t *testing.T) {
 			}, nil)
 			require.NoError(t, err)
 			require.Equal(t, testCase.expectedQuota, completion.QuotaDelta)
+		})
+	}
+}
+
+func TestTopUpQuotaFromDecimalUsesRoundedPositiveInt64Range(t *testing.T) {
+	tests := []struct {
+		name     string
+		quota    decimal.Decimal
+		expected int64
+		wantErr  bool
+	}{
+		{name: "round down", quota: decimal.RequireFromString("41.4"), expected: 41},
+		{name: "round half away", quota: decimal.RequireFromString("41.5"), expected: 42},
+		{name: "max int64", quota: decimal.NewFromInt(math.MaxInt64), expected: math.MaxInt64},
+		{name: "zero after rounding", quota: decimal.RequireFromString("0.4"), wantErr: true},
+		{name: "negative", quota: decimal.NewFromInt(-1), wantErr: true},
+		{name: "overflow", quota: decimal.NewFromInt(math.MaxInt64).Add(decimal.RequireFromString("0.5")), wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			quota, err := topUpQuotaFromDecimal(test.quota)
+			if test.wantErr {
+				require.ErrorIs(t, err, ErrTopUpQuotaInvalid)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, test.expected, quota)
 		})
 	}
 }
@@ -332,7 +433,7 @@ func TestManualCompleteTopUpRejectsUnknownProviderWithoutMutation(t *testing.T) 
 	require.Equal(t, common.TopUpStatusPending, storedTopUp.Status)
 	var user User
 	require.NoError(t, db.First(&user, topUp.UserId).Error)
-	require.Equal(t, 10, user.Quota)
+	require.Equal(t, int64(10), user.Quota)
 	var outboxCount int64
 	require.NoError(t, db.Model(&KKAIOutboxEvent{}).Count(&outboxCount).Error)
 	require.Zero(t, outboxCount)

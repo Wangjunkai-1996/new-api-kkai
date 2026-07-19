@@ -133,7 +133,7 @@ func Recharge(referenceId string, customerId string, callerIp string) (err error
 		return errors.New("充值失败，请稍后重试")
 	}
 	if !result.AlreadyCompleted {
-		RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%d", logger.FormatQuota(int(result.QuotaDelta)), result.TopUp.Amount), callerIp, result.TopUp.PaymentMethod, PaymentMethodStripe)
+		RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%d", logger.FormatQuota(result.QuotaDelta), result.TopUp.Amount), callerIp, result.TopUp.PaymentMethod, PaymentMethodStripe)
 	}
 	return nil
 }
@@ -305,7 +305,7 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 		return err
 	}
 	if !result.AlreadyCompleted {
-		RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("管理员补单成功，充值金额: %v，支付金额：%f", logger.FormatQuota(int(result.QuotaDelta)), result.TopUp.Money), callerIp, result.TopUp.PaymentMethod, "admin")
+		RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("管理员补单成功，充值金额: %v，支付金额：%f", logger.FormatQuota(result.QuotaDelta), result.TopUp.Money), callerIp, result.TopUp.PaymentMethod, "admin")
 	}
 	return nil
 }
@@ -316,7 +316,11 @@ func RechargeCreem(referenceId string, customerEmail string, customerName string
 		TradeNo:          referenceId,
 		ExpectedProvider: PaymentProviderCreem,
 		Prepare: func(topUp *TopUp, _ *User) (TopUpCompletion, error) {
-			completion := TopUpCompletion{QuotaDelta: topUp.Amount}
+			quotaDelta, err := quotaFromTopUpCredits(topUp.Amount)
+			if err != nil {
+				return TopUpCompletion{}, err
+			}
+			completion := TopUpCompletion{QuotaDelta: quotaDelta}
 			if customerEmail != "" {
 				completion.UserPatch.EmailIfEmpty = &customerEmail
 			}
@@ -347,7 +351,7 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 		return errors.New("充值失败，请稍后重试")
 	}
 	if !result.AlreadyCompleted {
-		RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("Waffo充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(int(result.QuotaDelta)), result.TopUp.Money), callerIp, result.TopUp.PaymentMethod, PaymentMethodWaffo)
+		RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("Waffo充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(result.QuotaDelta), result.TopUp.Money), callerIp, result.TopUp.PaymentMethod, PaymentMethodWaffo)
 	}
 	return nil
 }
@@ -366,7 +370,7 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 		return errors.New("充值失败，请稍后重试")
 	}
 	if !result.AlreadyCompleted {
-		RecordLog(result.TopUp.UserId, LogTypeTopup, fmt.Sprintf("Waffo Pancake充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(int(result.QuotaDelta)), result.TopUp.Money))
+		RecordLog(result.TopUp.UserId, LogTypeTopup, fmt.Sprintf("Waffo Pancake充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(result.QuotaDelta), result.TopUp.Money))
 	}
 	return nil
 }

@@ -1,9 +1,14 @@
 package common
 
 import (
+	"math"
+	"net/http/httptest"
 	"testing"
 
+	rootcommon "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,4 +42,16 @@ func TestRelayInfoGetFinalRequestRelayFormatFallsBackToRelayFormat(t *testing.T)
 func TestRelayInfoGetFinalRequestRelayFormatNilReceiver(t *testing.T) {
 	var info *RelayInfo
 	require.Equal(t, types.RelayFormat(""), info.GetFinalRequestRelayFormat())
+}
+
+func TestRelayInfoPreservesInt64UserQuotaFromContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	expected := int64(math.MaxInt32) + 5_000_000_000
+	rootcommon.SetContextKey(context, constant.ContextKeyUserQuota, expected)
+
+	info := genBaseRelayInfo(context, nil)
+
+	require.Equal(t, expected, info.UserQuota)
 }

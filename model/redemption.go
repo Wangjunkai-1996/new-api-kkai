@@ -175,7 +175,10 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("该兑换码已被使用")
 		}
-		return tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
+		if redemption.Quota <= 0 {
+			return errors.New("兑换额度必须大于零")
+		}
+		return increaseUserQuotaWithDB(tx, userId, int64(redemption.Quota))
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())
