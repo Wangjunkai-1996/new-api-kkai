@@ -190,8 +190,8 @@ jobs:
             --tag "${IMAGE}:${VERSION}" \
             --tag "${IMAGE}:sha-${SOURCE_SHA}" \
             "${IMAGE}@${DIGEST}"
-          PROMOTED_DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" | awk '$1 == "Digest:" {print $2; exit}')"
-          [[ "${PROMOTED_DIGEST}" == "${DIGEST}" ]]
+          build/kkai-image/wait-for-promoted-tags.sh \
+            "${DIGEST}" "${IMAGE}:${VERSION}" "${IMAGE}:sha-${SOURCE_SHA}"
 
       - name: Sign the immutable image digest
         env:

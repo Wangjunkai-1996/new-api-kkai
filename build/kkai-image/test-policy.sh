@@ -9,6 +9,8 @@ readonly CANDIDATE_WORKFLOW="${ROOT}/.github/workflows/kkai-image-candidate.yml"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 readonly RISK_INTEGRATION_TEST="${ROOT}/service/kkai_risk_stream_redis_integration_test.go"
 readonly SCHEMA_CONTRACT_EXPORTER="${BUILD_ROOT}/export-schema-contract.sh"
+readonly TAG_CONVERGENCE_SCRIPT="${BUILD_ROOT}/wait-for-promoted-tags.sh"
+readonly TAG_CONVERGENCE_TEST="${BUILD_ROOT}/test-wait-for-promoted-tags.sh"
 readonly AGENT_RULES="${ROOT}/AGENTS.md"
 readonly REDIS_CI_IMAGE='redis:8.6.3@sha256:48e78eb9d1e1adcfb10184b2cc3c7fc5ed21e5a3be08875f239257d194bab8c9'
 
@@ -25,7 +27,13 @@ contains_regex() {
   grep -Eq -- "$1" "$2"
 }
 
-for script in export-release.sh export-schema-contract.sh smoke-compose.sh verify-image.sh; do
+for script in \
+  export-release.sh \
+  export-schema-contract.sh \
+  smoke-compose.sh \
+  verify-image.sh \
+  wait-for-promoted-tags.sh \
+  test-wait-for-promoted-tags.sh; do
   [[ -x "${BUILD_ROOT}/${script}" ]] || fail "${script} is not executable"
 done
 contains_fixed '/build' "${ROOT}/.dockerignore" ||
@@ -249,6 +257,24 @@ contains_fixed "candidate-\${{ steps.release.outputs.version }}" "${WORKFLOW}" |
   fail "workflow does not isolate the unscanned candidate tag"
 contains_fixed 'imagetools create' "${WORKFLOW}" ||
   fail "workflow does not promote the scanned digest"
+contains_fixed 'build/kkai-image/wait-for-promoted-tags.sh' "${WORKFLOW}" ||
+  fail "workflow does not wait for both promoted tags"
+contains_fixed "\"\${DIGEST}\" \"\${IMAGE}:\${VERSION}\" \"\${IMAGE}:sha-\${SOURCE_SHA}\"" \
+  "${WORKFLOW}" || fail "workflow does not bind both promoted tags to the scanned digest"
+create_line="$(grep -nF 'docker buildx imagetools create' "${WORKFLOW}" | cut -d: -f1)"
+verify_line="$(grep -nF 'build/kkai-image/wait-for-promoted-tags.sh' "${WORKFLOW}" | cut -d: -f1)"
+sign_line="$(grep -nF "run: cosign sign --yes \"\${IMAGE}@\${DIGEST}\"" "${WORKFLOW}" | cut -d: -f1)"
+readonly create_line verify_line sign_line
+[[ "${create_line}" =~ ^[0-9]+$ && "${verify_line}" =~ ^[0-9]+$ && "${sign_line}" =~ ^[0-9]+$ ]] ||
+  fail "workflow create/verify/sign order cannot be determined"
+((create_line < verify_line && verify_line < sign_line)) ||
+  fail "workflow must create tags, verify convergence, then sign the digest"
+if contains_fixed 'imagetools inspect' "${WORKFLOW}"; then
+  fail "workflow contains inline tag inspection instead of the reviewed domain script"
+fi
+contains_fixed "timeout --kill-after=2s \"\${timeout_seconds}s\"" "${TAG_CONVERGENCE_SCRIPT}" ||
+  fail "tag convergence inspect has no bounded KILL fallback"
+"${TAG_CONVERGENCE_TEST}"
 contains_fixed "go-version: '1.26.5'" "${QUALITY_WORKFLOW}" ||
   fail "fork quality does not use the production Go toolchain"
 if contains_regex 'calciumion/new-api|docker\.io|ssh|ansible|workflow_run' "${WORKFLOW}"; then
