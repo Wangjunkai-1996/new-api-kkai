@@ -57,6 +57,9 @@ contains_fixed '-o /out/kkai-migrate ./cmd/kkai-migrate' "${BUILD_ROOT}/Dockerfi
   fail "image build does not compile the unified schema command"
 contains_fixed '-o /out/kkai-topup-recovery ./cmd/kkai-topup-recovery' "${BUILD_ROOT}/Dockerfile" ||
   fail "image build omits top-up recovery"
+if contains_fixed 'newapi-schema-bootstrap' "${BUILD_ROOT}/Dockerfile"; then
+  fail "host-only schema bootstrap must not be copied into the formal image"
+fi
 contains_fixed "common.SchemaManagementMode=\${SCHEMA_MANAGEMENT}" "${BUILD_ROOT}/Dockerfile" ||
   fail "formal binaries do not compile the immutable schema management mode"
 contains_fixed "com.kkai.runtime.schema-management=\"\${SCHEMA_MANAGEMENT}\"" "${BUILD_ROOT}/Dockerfile" ||
@@ -170,6 +173,12 @@ contains_fixed 'com.kkai.runtime.schema-management' "${BUILD_ROOT}/Dockerfile" |
 for workflow in "${WORKFLOW}" "${CANDIDATE_WORKFLOW}"; do
   contains_fixed 'build/kkai-image/export-schema-contract.sh postgres' "${workflow}" ||
     fail "workflow does not consume the App-owned contract exporter: ${workflow}"
+  contains_fixed './cmd/newapi-schema-bootstrap' "${workflow}" ||
+    fail "workflow does not build the dedicated schema bootstrap: ${workflow}"
+  contains_fixed 'main.sourceRevision=' "${workflow}" ||
+    fail "workflow does not bind the schema bootstrap source revision: ${workflow}"
+  contains_fixed 'new-api-schema-bootstrap" --source-revision' "${workflow}" ||
+    fail "workflow does not verify the schema bootstrap source revision: ${workflow}"
   for schema_arg in \
     'SCHEMA_MANAGEMENT' \
     'SCHEMA_COMPATIBLE_PREFIXES' \
@@ -182,6 +191,9 @@ for workflow in "${WORKFLOW}" "${CANDIDATE_WORKFLOW}"; do
       fail "workflow does not pass ${schema_arg}: ${workflow}"
   done
 done
+if contains_regex 'mkdir -p web/(default|classic)/dist|schema fixture</title>' "${CANDIDATE_WORKFLOW}"; then
+  fail "candidate workflow still fabricates frontend assets for schema bootstrap"
+fi
 schema_contract_outputs="$("${SCHEMA_CONTRACT_EXPORTER}" postgres)"
 readonly schema_contract_outputs
 [[ "$(wc -l <<<"${schema_contract_outputs}" | tr -d ' ')" == 7 ]] ||
@@ -224,10 +236,15 @@ schema_bootstrap_smoke="$(
 readonly schema_bootstrap_smoke
 [[ -n "${schema_bootstrap_smoke}" ]] ||
   fail "schema bootstrap smoke function is empty"
-if grep -Fq 'KKAI_RISK_STREAM_SECRET=' <<<"${schema_bootstrap_smoke}" &&
-  ! grep -Fq 'REDIS_CONN_STRING=' <<<"${schema_bootstrap_smoke}"; then
-  fail "schema bootstrap enables the Risk stream without Redis"
+# The literal shell expression is the contract being checked.
+# shellcheck disable=SC2016
+grep -Fq -- '"${SCHEMA_BOOTSTRAP_BINARY}" --dsn-stdin' <<<"${schema_bootstrap_smoke}" ||
+  fail "schema bootstrap smoke does not use the dedicated stdin-only command"
+if grep -Eq 'PORT=|REDIS|SESSION_SECRET|CRYPTO_SECRET|GIN_MODE|&$|/api/status' <<<"${schema_bootstrap_smoke}"; then
+  fail "schema bootstrap smoke still starts application runtime resources"
 fi
+contains_fixed 'application_business_row_count' "${BUILD_ROOT}/smoke-compose.sh" ||
+  fail "schema bootstrap smoke does not prove business data remains empty"
 delivery_disabled_stage_smoke="$(
   sed -n '/^delivery_disabled_stage_version() {$/,/^}$/p' "${BUILD_ROOT}/smoke-compose.sh"
 )"

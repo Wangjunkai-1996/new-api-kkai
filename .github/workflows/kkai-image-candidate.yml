@@ -51,11 +51,14 @@ jobs:
           set -Eeuo pipefail
           [[ ! -e web/default/dist ]]
           [[ ! -e web/classic/dist ]]
-          trap 'rm -rf web/default/dist web/classic/dist' EXIT
-          mkdir -p web/default/dist web/classic/dist
-          printf '%s\n' '<!doctype html><title>schema fixture</title>' >web/default/dist/index.html
-          printf '%s\n' '<!doctype html><title>schema fixture</title>' >web/classic/dist/index.html
-          go build -trimpath -o "${RUNNER_TEMP}/new-api-schema-bootstrap" .
+          go build -trimpath \
+            -ldflags "-s -w -buildid= -X main.sourceRevision=${{ steps.candidate.outputs.source_sha }}" \
+            -o "${RUNNER_TEMP}/new-api-schema-bootstrap" \
+            ./cmd/newapi-schema-bootstrap
+          [[ "$("${RUNNER_TEMP}/new-api-schema-bootstrap" --source-revision)" == \
+            '${{ steps.candidate.outputs.source_sha }}' ]]
+          [[ ! -e web/default/dist ]]
+          [[ ! -e web/classic/dist ]]
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
