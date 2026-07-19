@@ -34,6 +34,29 @@ jobs:
           echo "source_sha=${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Resolve the PostgreSQL schema contract
+        id: schema
+        run: |
+          set -Eeuo pipefail
+          build/kkai-image/export-schema-contract.sh postgres >> "${GITHUB_OUTPUT}"
+
+      - name: Build the isolated application schema fixture
+        run: |
+          set -Eeuo pipefail
+          [[ ! -e web/default/dist ]]
+          [[ ! -e web/classic/dist ]]
+          trap 'rm -rf web/default/dist web/classic/dist' EXIT
+          mkdir -p web/default/dist web/classic/dist
+          printf '%s\n' '<!doctype html><title>schema fixture</title>' >web/default/dist/index.html
+          printf '%s\n' '<!doctype html><title>schema fixture</title>' >web/classic/dist/index.html
+          go build -trimpath -o "${RUNNER_TEMP}/new-api-schema-bootstrap" .
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
@@ -50,6 +73,13 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.candidate.outputs.version }}
             SOURCE_REVISION=${{ steps.candidate.outputs.source_sha }}
+            SCHEMA_MANAGEMENT=${{ steps.schema.outputs.schema_management }}
+            SCHEMA_COMPATIBLE_PREFIXES=${{ steps.schema.outputs.compatible_prefixes }}
+            SCHEMA_RUNTIME_MIN_VERSION=${{ steps.schema.outputs.runtime_min_version }}
+            SCHEMA_RUNTIME_MAX_VERSION=${{ steps.schema.outputs.runtime_max_version }}
+            SCHEMA_MIGRATION_TARGET=${{ steps.schema.outputs.migration_target }}
+            SCHEMA_MIGRATION_KIND=${{ steps.schema.outputs.migration_kind }}
+            SCHEMA_MIGRATION_SET_DIGEST=${{ steps.schema.outputs.migration_set_digest }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -59,11 +89,24 @@ jobs:
         env:
           EXPECTED_SHA: ${{ steps.candidate.outputs.source_sha }}
           EXPECTED_VERSION: ${{ steps.candidate.outputs.version }}
+          EXPECTED_SCHEMA_MANAGEMENT: ${{ steps.schema.outputs.schema_management }}
+          EXPECTED_SCHEMA_COMPATIBLE_PREFIXES: ${{ steps.schema.outputs.compatible_prefixes }}
+          EXPECTED_SCHEMA_RUNTIME_MIN_VERSION: ${{ steps.schema.outputs.runtime_min_version }}
+          EXPECTED_SCHEMA_RUNTIME_MAX_VERSION: ${{ steps.schema.outputs.runtime_max_version }}
+          EXPECTED_SCHEMA_MIGRATION_TARGET: ${{ steps.schema.outputs.migration_target }}
+          EXPECTED_SCHEMA_MIGRATION_KIND: ${{ steps.schema.outputs.migration_kind }}
+          EXPECTED_SCHEMA_MIGRATION_SET_DIGEST: ${{ steps.schema.outputs.migration_set_digest }}
         run: build/kkai-image/verify-image.sh "kkai-newapi:${EXPECTED_VERSION}"
 
       - name: Run PostgreSQL and Redis startup smoke
         env:
           IMAGE_REF: kkai-newapi:${{ steps.candidate.outputs.version }}
           EXPECTED_VERSION: ${{ steps.candidate.outputs.version }}
+          EXPECTED_SCHEMA_MANAGEMENT: ${{ steps.schema.outputs.schema_management }}
+          EXPECTED_SCHEMA_COMPATIBLE_PREFIXES: ${{ steps.schema.outputs.compatible_prefixes }}
+          EXPECTED_SCHEMA_MIGRATION_TARGET: ${{ steps.schema.outputs.migration_target }}
+          EXPECTED_SCHEMA_MIGRATION_KIND: ${{ steps.schema.outputs.migration_kind }}
+          EXPECTED_SCHEMA_MIGRATION_SET_DIGEST: ${{ steps.schema.outputs.migration_set_digest }}
+          SCHEMA_BOOTSTRAP_BINARY: ${{ runner.temp }}/new-api-schema-bootstrap
           PULL_DEPENDENCIES: 'true'
         run: build/kkai-image/smoke-compose.sh

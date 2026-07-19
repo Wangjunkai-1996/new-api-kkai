@@ -5,25 +5,64 @@ readonly IMAGE_REF="${1:?usage: $0 IMAGE_REF}"
 readonly EXPECTED_SHA="${EXPECTED_SHA:-}"
 readonly EXPECTED_VERSION="${EXPECTED_VERSION:-}"
 readonly EXPECTED_REGISTRY_DIGEST="${EXPECTED_REGISTRY_DIGEST:-}"
-readonly EXPECTED_SCHEMA_COMPATIBILITY="${EXPECTED_SCHEMA_COMPATIBILITY:-}"
-readonly EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY="${EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY:-}"
+readonly EXPECTED_SCHEMA_MANAGEMENT="${EXPECTED_SCHEMA_MANAGEMENT:-}"
+readonly EXPECTED_SCHEMA_COMPATIBLE_PREFIXES="${EXPECTED_SCHEMA_COMPATIBLE_PREFIXES:-}"
+readonly EXPECTED_SCHEMA_RUNTIME_MIN_VERSION="${EXPECTED_SCHEMA_RUNTIME_MIN_VERSION:-}"
+readonly EXPECTED_SCHEMA_RUNTIME_MAX_VERSION="${EXPECTED_SCHEMA_RUNTIME_MAX_VERSION:-}"
+readonly EXPECTED_SCHEMA_MIGRATION_TARGET="${EXPECTED_SCHEMA_MIGRATION_TARGET:-}"
+readonly EXPECTED_SCHEMA_MIGRATION_KIND="${EXPECTED_SCHEMA_MIGRATION_KIND:-}"
+readonly EXPECTED_SCHEMA_MIGRATION_SET_DIGEST="${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST:-}"
 
-if [[ ! "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "EXPECTED_SHA must be an explicit 40-character commit" >&2
-  exit 64
-fi
-
-if [[ -z "${EXPECTED_VERSION}" ]]; then
-  echo "EXPECTED_VERSION is required" >&2
-  exit 64
-fi
-
-for command_name in docker grep jq mktemp; do
+for command_name in docker grep jq; do
   command -v "${command_name}" >/dev/null || {
     echo "required command not found: ${command_name}" >&2
     exit 69
   }
 done
+
+if [[ ! "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "EXPECTED_SHA must be an explicit 40-character commit" >&2
+  exit 64
+fi
+if [[ -z "${EXPECTED_VERSION}" ]]; then
+  echo "EXPECTED_VERSION is required" >&2
+  exit 64
+fi
+[[ "${EXPECTED_SCHEMA_MANAGEMENT}" == external ]] || {
+  echo "formal images require EXPECTED_SCHEMA_MANAGEMENT=external" >&2
+  exit 64
+}
+for version in \
+  "${EXPECTED_SCHEMA_RUNTIME_MIN_VERSION}" \
+  "${EXPECTED_SCHEMA_RUNTIME_MAX_VERSION}" \
+  "${EXPECTED_SCHEMA_MIGRATION_TARGET}"; do
+  [[ "${version}" =~ ^[1-9][0-9]*$ ]] || {
+    echo "expected schema versions must be positive canonical integers" >&2
+    exit 64
+  }
+done
+[[ "${EXPECTED_SCHEMA_MIGRATION_KIND}" == none || "${EXPECTED_SCHEMA_MIGRATION_KIND}" == expand ]] || {
+  echo "EXPECTED_SCHEMA_MIGRATION_KIND is invalid" >&2
+  exit 64
+}
+((EXPECTED_SCHEMA_RUNTIME_MIN_VERSION <= EXPECTED_SCHEMA_MIGRATION_TARGET)) || {
+  echo "schema migration target is below the runtime minimum" >&2
+  exit 64
+}
+((EXPECTED_SCHEMA_MIGRATION_TARGET <= EXPECTED_SCHEMA_RUNTIME_MAX_VERSION)) || {
+  echo "schema migration target exceeds the runtime maximum" >&2
+  exit 64
+}
+[[ "${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  echo "EXPECTED_SCHEMA_MIGRATION_SET_DIGEST is invalid" >&2
+  exit 64
+}
+canonical_compatible_prefixes="$(
+  jq --compact-output --sort-keys \
+    'if type == "object" and length > 0 and all(.[]; test("^sha256:[0-9a-f]{64}$")) then . else error("invalid compatible prefixes") end' \
+    <<<"${EXPECTED_SCHEMA_COMPATIBLE_PREFIXES}"
+)"
+readonly canonical_compatible_prefixes
 
 ARCHITECTURE="$(docker image inspect --format '{{.Architecture}}' "${IMAGE_REF}")"
 readonly ARCHITECTURE
@@ -35,6 +74,26 @@ IMAGE_SHA="$(docker image inspect --format '{{index .Config.Labels "org.opencont
 readonly IMAGE_SHA
 IMAGE_VERSION="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "${IMAGE_REF}")"
 readonly IMAGE_VERSION
+SCHEMA_MANAGEMENT="$(docker image inspect --format '{{index .Config.Labels "com.kkai.runtime.schema-management"}}' "${IMAGE_REF}")"
+readonly SCHEMA_MANAGEMENT
+SCHEMA_COMPATIBLE_PREFIXES="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.compatible-prefixes"}}' "${IMAGE_REF}")"
+readonly SCHEMA_COMPATIBLE_PREFIXES
+canonical_image_compatible_prefixes="$(jq --compact-output --sort-keys . <<<"${SCHEMA_COMPATIBLE_PREFIXES}")"
+readonly canonical_image_compatible_prefixes
+[[ "${SCHEMA_COMPATIBLE_PREFIXES}" == "${canonical_image_compatible_prefixes}" ]] || {
+  echo "image compatible-prefixes label is not canonical compact JSON" >&2
+  exit 1
+}
+SCHEMA_RUNTIME_MIN_VERSION="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.min-compatible"}}' "${IMAGE_REF}")"
+readonly SCHEMA_RUNTIME_MIN_VERSION
+SCHEMA_RUNTIME_MAX_VERSION="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.max-compatible"}}' "${IMAGE_REF}")"
+readonly SCHEMA_RUNTIME_MAX_VERSION
+SCHEMA_MIGRATION_TARGET="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.migration-target"}}' "${IMAGE_REF}")"
+readonly SCHEMA_MIGRATION_TARGET
+SCHEMA_MIGRATION_KIND="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.migration-kind"}}' "${IMAGE_REF}")"
+readonly SCHEMA_MIGRATION_KIND
+SCHEMA_MIGRATION_SET_DIGEST="$(docker image inspect --format '{{index .Config.Labels "com.kkai.schema.migration-set-digest"}}' "${IMAGE_REF}")"
+readonly SCHEMA_MIGRATION_SET_DIGEST
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "${IMAGE_REF}")"
 readonly IMAGE_ID
 ROOTFS_DIFF_IDS="$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' "${IMAGE_REF}")"
@@ -45,58 +104,15 @@ readonly ROOTFS_DIFF_IDS
 [[ "${IMAGE_USER}" == "10007:10007" ]]
 [[ "${IMAGE_SHA}" == "${EXPECTED_SHA}" ]]
 [[ "${IMAGE_VERSION}" == "${EXPECTED_VERSION}" ]]
+[[ "${SCHEMA_MANAGEMENT}" == "${EXPECTED_SCHEMA_MANAGEMENT}" ]]
+[[ "${canonical_image_compatible_prefixes}" == "${canonical_compatible_prefixes}" ]]
+[[ "${SCHEMA_RUNTIME_MIN_VERSION}" == "${EXPECTED_SCHEMA_RUNTIME_MIN_VERSION}" ]]
+[[ "${SCHEMA_RUNTIME_MAX_VERSION}" == "${EXPECTED_SCHEMA_RUNTIME_MAX_VERSION}" ]]
+[[ "${SCHEMA_MIGRATION_TARGET}" == "${EXPECTED_SCHEMA_MIGRATION_TARGET}" ]]
+[[ "${SCHEMA_MIGRATION_KIND}" == "${EXPECTED_SCHEMA_MIGRATION_KIND}" ]]
+[[ "${SCHEMA_MIGRATION_SET_DIGEST}" == "${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST}" ]]
 [[ "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ -n "${ROOTFS_DIFF_IDS}" ]]
-
-if [[ -n "${EXPECTED_SCHEMA_COMPATIBILITY}" ]]; then
-  [[ -s "${EXPECTED_SCHEMA_COMPATIBILITY}" ]]
-  expected_contract="$(tr -d '\n' < "${EXPECTED_SCHEMA_COMPATIBILITY}")"
-  readonly expected_contract
-  declare -A schema_labels=(
-    [runtime_min_version]=com.kkai.schema.min-compatible
-    [runtime_max_version]=com.kkai.schema.max-compatible
-    [migration_target_version]=com.kkai.schema.migration-target
-    [migration_kind]=com.kkai.schema.migration-kind
-    [migration_set_digest]=com.kkai.schema.migration-set-digest
-  )
-  for field in runtime_min_version runtime_max_version migration_target_version migration_kind migration_set_digest; do
-    label_name="${schema_labels[${field}]}"
-    expected_value="$(jq --raw-output ".${field}" "${EXPECTED_SCHEMA_COMPATIBILITY}")"
-    actual_value="$(docker image inspect --format "{{index .Config.Labels \"${label_name}\"}}" "${IMAGE_REF}")"
-    [[ "${actual_value}" == "${expected_value}" ]]
-  done
-  image_contract="$(docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-migrate "${IMAGE_REF}" --describe --json)"
-  [[ "${image_contract}" == "${expected_contract}" ]]
-  container_id="$(docker create --pull=never "${IMAGE_REF}")"
-  contract_dir="$(mktemp --directory)"
-  contract_file="${contract_dir}/schema-compatibility.json"
-  trap 'docker rm --force "${container_id}" >/dev/null 2>&1 || true; rm -rf "${contract_dir}"' EXIT
-  docker cp "${container_id}:/schema-compatibility.json" "${contract_dir}"
-  [[ "$(tr -d '\n' < "${contract_file}")" == "${expected_contract}" ]]
-  docker rm --force "${container_id}" >/dev/null
-  trap - EXIT
-  rm -rf "${contract_dir}"
-fi
-
-if [[ -n "${EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY}" ]]; then
-  [[ -s "${EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY}" ]]
-  expected_upstream_contract="$(tr -d '\n' < "${EXPECTED_UPSTREAM_SCHEMA_COMPATIBILITY}")"
-  readonly expected_upstream_contract
-  image_upstream_contract="$(
-    docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-migrate \
-      "${IMAGE_REF}" --describe-upstream-schema --json
-  )"
-  [[ "${image_upstream_contract}" == "${expected_upstream_contract}" ]]
-  container_id="$(docker create --pull=never "${IMAGE_REF}")"
-  contract_dir="$(mktemp --directory)"
-  contract_file="${contract_dir}/upstream-schema-compatibility.json"
-  trap 'docker rm --force "${container_id}" >/dev/null 2>&1 || true; rm -rf "${contract_dir}"' EXIT
-  docker cp "${container_id}:/upstream-schema-compatibility.json" "${contract_dir}"
-  [[ "$(tr -d '\n' < "${contract_file}")" == "${expected_upstream_contract}" ]]
-  docker rm --force "${container_id}" >/dev/null
-  trap - EXIT
-  rm -rf "${contract_dir}"
-fi
 
 if [[ -n "${EXPECTED_REGISTRY_DIGEST}" ]]; then
   [[ "${EXPECTED_REGISTRY_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -109,19 +125,26 @@ docker run --rm --pull=never --platform linux/amd64 --entrypoint /new-api "${IMA
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /usr/bin/wget "${IMAGE_REF}" --help >/dev/null
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /new-api-canary-probe "${IMAGE_REF}" -h >/dev/null
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-migrate "${IMAGE_REF}" -h >/dev/null
-observer_help="$(
-  docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-schema-observe "${IMAGE_REF}" -h 2>&1
-)"
-readonly observer_help
-grep -Eq '^[[:space:]]+-current([[:space:]=]|$)' <<<"${observer_help}"
-grep -Eq '^[[:space:]]+-check-upstream-baseline([[:space:]=]|$)' <<<"${observer_help}"
-for forbidden_observer_flag in apply bootstrap-empty check describe dry-run min-version; do
-  if grep -Eq "^[[:space:]]+-${forbidden_observer_flag}([[:space:]=]|$)" <<<"${observer_help}"; then
-    echo "schema observer exposes forbidden migration flag --${forbidden_observer_flag}" >&2
-    exit 1
-  fi
-done
 docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-topup-recovery "${IMAGE_REF}" plan -h >/dev/null
+contract_json="$(
+  docker run --rm --pull=never --platform linux/amd64 --entrypoint /kkai-migrate "${IMAGE_REF}" \
+    --describe-contract --dialect postgres --json
+)"
+readonly contract_json
+jq --exit-status \
+  --argjson prefixes "${EXPECTED_SCHEMA_COMPATIBLE_PREFIXES}" \
+  --argjson minimum "${EXPECTED_SCHEMA_RUNTIME_MIN_VERSION}" \
+  --argjson maximum "${EXPECTED_SCHEMA_RUNTIME_MAX_VERSION}" \
+  --argjson target "${EXPECTED_SCHEMA_MIGRATION_TARGET}" \
+  --arg kind "${EXPECTED_SCHEMA_MIGRATION_KIND}" \
+  --arg digest "${EXPECTED_SCHEMA_MIGRATION_SET_DIGEST}" \
+  --arg schema_management "${EXPECTED_SCHEMA_MANAGEMENT}" \
+  'keys == ["compatible_prefixes", "migration_kind", "migration_set_digest", "migration_target_version", "runtime_max_version", "runtime_min_version", "schema_management"] and
+   .compatible_prefixes == $prefixes and
+   .schema_management == $schema_management and
+   .runtime_min_version == $minimum and .runtime_max_version == $maximum and
+   .migration_target_version == $target and .migration_kind == $kind and
+   .migration_set_digest == $digest' <<<"${contract_json}" >/dev/null
 risk_guard_probe="$(
   docker run --rm --pull=never --platform linux/amd64 --entrypoint /newapi-risk-guard "${IMAGE_REF}" 2>&1 || true
 )"

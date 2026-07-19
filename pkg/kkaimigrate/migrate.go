@@ -33,6 +33,7 @@ var (
 	ErrUnsupportedDialect = errors.New("unsupported KKAI migration dialect")
 	ErrChecksumMismatch   = errors.New("KKAI migration checksum mismatch")
 	ErrFutureMigration    = errors.New("database contains an unknown KKAI migration")
+	ErrMigrationHole      = errors.New("KKAI migration ledger contains a missing prefix")
 	ErrSchemaNotReady     = errors.New("KKAI schema is not ready")
 	ErrUnsafeMigration    = errors.New("KKAI migration catalog is not safe for automatic execution")
 )
@@ -65,17 +66,18 @@ type indexSpec struct {
 }
 
 type migration struct {
-	Version               int64
-	Name                  string
-	Kind                  string
-	ImplementationID      string
-	ChecksumVersion       int
-	Statements            map[string][]migrationStatement
-	Indexes               []indexSpec
-	LegacyImportSpec      string
-	LegacyImportID        string
-	UpstreamSchemaVersion int
-	ImportLegacy          func(*gorm.DB) error
+	Version          int64
+	Name             string
+	Kind             string
+	ImplementationID string
+	ChecksumVersion  int
+	Statements       map[string][]migrationStatement
+	Indexes          []indexSpec
+	LegacyImportSpec string
+	LegacyImportID   string
+	ImportLegacy     func(*gorm.DB) error
+	ApplyDialects    []string
+	LegacyDialects   []string
 }
 
 type migrationStatement struct {
@@ -84,7 +86,37 @@ type migrationStatement struct {
 }
 
 func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
-	return applyThroughVersion(ctx, db, options, MigrationTargetVersion, RuntimeMaxVersion)
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	dialect, err := dialectName(db)
+	if err != nil {
+		return nil, err
+	}
+	contract, err := ContractForDialect(dialect)
+	if err != nil {
+		return nil, err
+	}
+	return applyThroughVersion(ctx, db, options, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
+}
+
+// ApplyMySQL57Compatibility explicitly applies the historical MySQL-only v4
+// maintenance migration. Ordinary runtime Apply remains pinned to version 3.
+func ApplyMySQL57Compatibility(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	dialect, err := dialectName(db)
+	if err != nil {
+		return nil, err
+	}
+	if dialect != DialectMySQL {
+		return nil, fmt.Errorf("%w: MySQL 5.7 compatibility maintenance requires mysql", ErrUnsupportedDialect)
+	}
+	if err := CheckRequired(ctx, db); err != nil {
+		return nil, fmt.Errorf("MySQL 5.7 compatibility maintenance requires runtime schema %d: %w", RequiredRuntimeVersion, err)
+	}
+	return applyThroughVersion(ctx, db, options, OutboxEventKeySchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
@@ -110,7 +142,7 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 	err = withMigrationLock(ctx, db, dialect, func(lockedDB *gorm.DB) error {
 		if !lockedDB.Migrator().HasTable((AppliedMigration{}).TableName()) {
 			if options.DryRun {
-				result = &Result{Pending: planThroughMigrationSet(currentVersion, migrations)}
+				result = &Result{Pending: planItems(planItemsForDialectFromSet(dialect, currentVersion, migrations))}
 				return nil
 			}
 			if err := ensureMigrationTable(lockedDB, dialect); err != nil {
@@ -121,7 +153,7 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 		if err != nil {
 			return err
 		}
-		if err := validateAppliedAgainstMigrationSet(applied, compatibleVersion, migrations); err != nil {
+		if err := validateAppliedAgainstMigrationSet(applied, dialect, compatibleVersion, migrations); err != nil {
 			return err
 		}
 		// Migration v1 is immutable. Precreate the 191-byte-safe shape so a fresh
@@ -138,6 +170,9 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 		for _, item := range migrations {
 			if item.Version > currentVersion {
 				break
+			}
+			if !item.appliesTo(dialect) {
+				continue
 			}
 			checksum := storedMigrationChecksum(item)
 			if stored, ok := applied[item.Version]; ok {
@@ -172,7 +207,33 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 // Check verifies that the database has every migration through minimumVersion
 // and that its migration history is within this runtime's compatibility range.
 func Check(ctx context.Context, db *gorm.DB, minimumVersion int64) error {
-	return checkThroughVersion(ctx, db, minimumVersion, RuntimeMinVersion, RuntimeMaxVersion)
+	if db == nil {
+		return ErrSchemaNotReady
+	}
+	dialect, err := dialectName(db)
+	if err != nil {
+		return err
+	}
+	contract, err := ContractForDialect(dialect)
+	if err != nil {
+		return err
+	}
+	return checkThroughVersion(ctx, db, minimumVersion, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
+}
+
+func CheckRequired(ctx context.Context, db *gorm.DB) error {
+	if db == nil {
+		return ErrSchemaNotReady
+	}
+	dialect, err := dialectName(db)
+	if err != nil {
+		return err
+	}
+	contract, err := ContractForDialect(dialect)
+	if err != nil {
+		return err
+	}
+	return checkThroughVersion(ctx, db, contract.RuntimeMinVersion, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
 }
 
 func checkThroughVersion(ctx context.Context, db *gorm.DB, minimumVersion int64, runtimeMinVersion int64, runtimeMaxVersion int64) error {
@@ -188,63 +249,18 @@ func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion i
 	if err := validateMigrationCatalog(migrations); err != nil {
 		return err
 	}
-	if !db.Migrator().HasTable((AppliedMigration{}).TableName()) {
-		return ErrSchemaNotReady
-	}
-	applied, err := loadApplied(db.WithContext(ctx))
+	dialect, err := dialectName(db)
 	if err != nil {
 		return err
 	}
-	if err := validateAppliedAgainstMigrationSet(applied, runtimeMaxVersion, migrations); err != nil {
+	state, err := loadValidatedStateFromMigrationSet(ctx, db, dialect, runtimeMaxVersion, migrations)
+	if err != nil {
 		return err
 	}
-	for _, item := range migrations {
-		if item.Version > minimumVersion {
-			break
-		}
-		if _, ok := applied[item.Version]; !ok {
-			return fmt.Errorf("%w: missing version %d", ErrSchemaNotReady, item.Version)
-		}
+	if state.currentVersion < minimumVersion {
+		return fmt.Errorf("%w: current version %d is below required version %d", ErrSchemaNotReady, state.currentVersion, minimumVersion)
 	}
 	return nil
-}
-
-func Plan() []AppliedMigration {
-	return planThroughVersion(MigrationTargetVersion)
-}
-
-func planThroughVersion(currentVersion int64) []AppliedMigration {
-	return planThroughMigrationSet(currentVersion, migrationSet())
-}
-
-func planThroughMigrationSet(currentVersion int64, migrations []migration) []AppliedMigration {
-	result := make([]AppliedMigration, 0, currentVersion)
-	for _, item := range migrations {
-		if item.Version > currentVersion {
-			break
-		}
-		result = append(result, AppliedMigration{
-			Version:  item.Version,
-			Name:     item.Name,
-			Checksum: storedMigrationChecksum(item),
-		})
-	}
-	return result
-}
-
-func contractPlanThroughVersion(currentVersion int64) []AppliedMigration {
-	result := make([]AppliedMigration, 0, currentVersion)
-	for _, item := range migrationSet() {
-		if item.Version > currentVersion {
-			break
-		}
-		result = append(result, AppliedMigration{
-			Version:  item.Version,
-			Name:     item.Name,
-			Checksum: migrationContractChecksum(item),
-		})
-	}
-	return result
 }
 
 func applyMigration(db *gorm.DB, dialect string, item migration, checksum string, started time.Time) error {
@@ -327,11 +343,11 @@ func loadApplied(db *gorm.DB) (map[int64]AppliedMigration, error) {
 	return result, nil
 }
 
-func validateApplied(applied map[int64]AppliedMigration, compatibleVersion int64) error {
-	return validateAppliedAgainstMigrationSet(applied, compatibleVersion, migrationSet())
+func validateApplied(applied map[int64]AppliedMigration, dialect string, compatibleVersion int64) error {
+	return validateAppliedAgainstMigrationSet(applied, dialect, compatibleVersion, migrationSet())
 }
 
-func validateAppliedAgainstMigrationSet(applied map[int64]AppliedMigration, compatibleVersion int64, migrations []migration) error {
+func validateAppliedAgainstMigrationSet(applied map[int64]AppliedMigration, dialect string, compatibleVersion int64, migrations []migration) error {
 	known := make(map[int64]migration)
 	for _, item := range migrations {
 		known[item.Version] = item
@@ -341,8 +357,31 @@ func validateAppliedAgainstMigrationSet(applied map[int64]AppliedMigration, comp
 		if !ok || version > compatibleVersion {
 			return fmt.Errorf("%w: version %d", ErrFutureMigration, version)
 		}
+		if !item.acceptsStoredDialect(dialect) {
+			return fmt.Errorf("%w: version %d is not valid for %s", ErrFutureMigration, version, dialect)
+		}
 		if stored.Name != item.Name || stored.Checksum != storedMigrationChecksum(item) {
 			return fmt.Errorf("%w: version %d", ErrChecksumMismatch, version)
+		}
+	}
+	if len(applied) == 0 {
+		return nil
+	}
+	maxApplied := int64(0)
+	for version := range applied {
+		if version > maxApplied {
+			maxApplied = version
+		}
+	}
+	for _, item := range migrations {
+		if item.Version > maxApplied {
+			break
+		}
+		if !item.appliesTo(dialect) {
+			continue
+		}
+		if _, ok := applied[item.Version]; !ok {
+			return fmt.Errorf("%w: missing version %d before version %d", ErrMigrationHole, item.Version, maxApplied)
 		}
 	}
 	return nil
@@ -364,6 +403,10 @@ func storedMigrationChecksum(item migration) string {
 		return legacyMigrationChecksum(item)
 	}
 	return migrationContractChecksum(item)
+}
+
+func migrationChecksum(item migration) string {
+	return storedMigrationChecksum(item)
 }
 
 func legacyMigrationChecksum(item migration) string {
@@ -407,16 +450,11 @@ func migrationContractChecksum(item migration) string {
 		fmt.Fprintf(hash, "index=%s:%s:%s\n", index.Name, index.Table, strings.Join(index.Columns, ","))
 	}
 	fmt.Fprintf(hash, "legacy_import_id=%s\nlegacy=%s\n", item.LegacyImportID, item.LegacyImportSpec)
-	upstreamBeforeDigest, upstreamAfterDigest := upstreamSchemaDigestsForVersion(item.UpstreamSchemaVersion)
-	upstreamImplementationID := upstreamSchemaImplementationIDForVersion(item.UpstreamSchemaVersion)
-	fmt.Fprintf(
-		hash,
-		"upstream_schema_version=%d\nupstream_schema_implementation_id=%s\nupstream_schema_before_digest=%s\nupstream_schema_after_digest=%s\n",
-		item.UpstreamSchemaVersion,
-		upstreamImplementationID,
-		upstreamBeforeDigest,
-		upstreamAfterDigest,
-	)
+	applyDialects := append([]string(nil), item.ApplyDialects...)
+	legacyDialects := append([]string(nil), item.LegacyDialects...)
+	sort.Strings(applyDialects)
+	sort.Strings(legacyDialects)
+	fmt.Fprintf(hash, "apply_dialects=%s\nlegacy_dialects=%s\n", strings.Join(applyDialects, ","), strings.Join(legacyDialects, ","))
 	return hex.EncodeToString(hash.Sum(nil))
 }
 

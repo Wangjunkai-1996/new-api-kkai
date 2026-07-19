@@ -12,6 +12,8 @@ type NodeRole string
 
 const (
 	NodeRoleEnvironmentVariable = "KKAI_NODE_ROLE"
+	SchemaManagementRuntime     = "runtime"
+	SchemaManagementExternal    = "external"
 
 	NodeRoleStandbyReadonly NodeRole = "standby-readonly"
 	NodeRoleServing         NodeRole = "serving"
@@ -21,16 +23,14 @@ const (
 var (
 	ErrInvalidNodeRole = errors.New("invalid node role configuration")
 
-	// ProductionImageRuntime is set to true by the production image build.
-	// It is a binary property rather than an environment-controlled permission.
-	ProductionImageRuntime = "false"
-
+	SchemaManagementMode         = SchemaManagementRuntime
 	nodeRole                     = NodeRoleLeader
 	writeBackgroundTasksDisabled bool
 )
 
 func InitNodeRoleFromEnvironment() error {
-	role := NodeRole(strings.ToLower(strings.TrimSpace(os.Getenv(NodeRoleEnvironmentVariable))))
+	rawRole := strings.TrimSpace(os.Getenv(NodeRoleEnvironmentVariable))
+	role := NodeRole(strings.ToLower(rawRole))
 	if role == "" {
 		if strings.EqualFold(strings.TrimSpace(os.Getenv("NODE_TYPE")), "slave") {
 			role = NodeRoleStandbyReadonly
@@ -72,20 +72,14 @@ func CanRunWriteBackgroundJobs() bool {
 }
 
 func CanRunSchemaMigrations() bool {
-	return CanRunUpstreamSchemaMigrations()
+	return IsMasterNode && nodeRole == NodeRoleLeader
 }
 
-// CanRunUpstreamSchemaMigrations preserves the development default while making
-// every application process in the production image fail closed. Production
-// schema changes are owned by the versioned migrator, never by application startup.
-func CanRunUpstreamSchemaMigrations() bool {
-	if !IsMasterNode || nodeRole != NodeRoleLeader {
+func CanRunRuntimeAutoMigrate() bool {
+	if SchemaManagementMode != SchemaManagementRuntime {
 		return false
 	}
-	if ProductionImageRuntime == "true" {
-		return false
-	}
-	return true
+	return CanRunSchemaMigrations()
 }
 
 func IsStandbyReadonly() bool {

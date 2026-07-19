@@ -42,6 +42,8 @@ func migrationSet() []migration {
 			ImplementationID: "outbox_event_key_mysql57_compat_v1",
 			ChecksumVersion:  migrationChecksumSchemaLegacy,
 			Statements:       migrationStatements(migrationOperationContract, outboxEventKeySchemaStatements),
+			ApplyDialects:    []string{DialectMySQL},
+			LegacyDialects:   []string{DialectSQLite, DialectPostgres},
 		},
 	}
 }

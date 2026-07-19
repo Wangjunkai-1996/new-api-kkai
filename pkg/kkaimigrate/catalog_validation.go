@@ -81,11 +81,44 @@ func validateMigrationCatalog(migrations []migration) error {
 		default:
 			return unsafeMigrationCatalog("migration %d has no valid kind", item.Version)
 		}
+		if err := validateMigrationDialectScope(item); err != nil {
+			return err
+		}
 		if err := validateMigrationDialects(item); err != nil {
 			return err
 		}
 	}
-	return validateUpstreamSchemaOwnership(migrations)
+	return nil
+}
+
+func validateMigrationDialectScope(item migration) error {
+	applyDialects := make(map[string]struct{}, len(item.ApplyDialects))
+	for _, dialect := range item.ApplyDialects {
+		if !isRequiredMigrationDialect(dialect) {
+			return unsafeMigrationCatalog("migration %d has unsupported apply dialect %q", item.Version, dialect)
+		}
+		if _, duplicate := applyDialects[dialect]; duplicate {
+			return unsafeMigrationCatalog("migration %d repeats apply dialect %q", item.Version, dialect)
+		}
+		applyDialects[dialect] = struct{}{}
+	}
+	legacyDialects := make(map[string]struct{}, len(item.LegacyDialects))
+	for _, dialect := range item.LegacyDialects {
+		if !isRequiredMigrationDialect(dialect) {
+			return unsafeMigrationCatalog("migration %d has unsupported legacy dialect %q", item.Version, dialect)
+		}
+		if _, duplicate := legacyDialects[dialect]; duplicate {
+			return unsafeMigrationCatalog("migration %d repeats legacy dialect %q", item.Version, dialect)
+		}
+		if len(item.ApplyDialects) == 0 {
+			return unsafeMigrationCatalog("migration %d cannot add legacy dialects when it applies to every dialect", item.Version)
+		}
+		if _, applies := applyDialects[dialect]; applies {
+			return unsafeMigrationCatalog("migration %d dialect %q cannot be both applied and legacy-only", item.Version, dialect)
+		}
+		legacyDialects[dialect] = struct{}{}
+	}
+	return nil
 }
 
 func validateMigrationDialects(item migration) error {

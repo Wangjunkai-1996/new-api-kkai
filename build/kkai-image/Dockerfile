@@ -35,6 +35,13 @@ FROM ${GO_IMAGE} AS backend
 
 ARG APP_VERSION
 ARG SOURCE_REVISION
+ARG SCHEMA_MANAGEMENT
+ARG SCHEMA_COMPATIBLE_PREFIXES
+ARG SCHEMA_MIGRATION_KIND
+ARG SCHEMA_MIGRATION_SET_DIGEST
+ARG SCHEMA_MIGRATION_TARGET
+ARG SCHEMA_RUNTIME_MAX_VERSION
+ARG SCHEMA_RUNTIME_MIN_VERSION
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ENV CGO_ENABLED=0 \
@@ -52,16 +59,19 @@ COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
 RUN go test ./...
 RUN test -n "${APP_VERSION}" \
     && test -n "${SOURCE_REVISION}" \
+    && test "${SCHEMA_MANAGEMENT}" = external \
+    && test -n "${SCHEMA_COMPATIBLE_PREFIXES}" \
+    && test -n "${SCHEMA_RUNTIME_MIN_VERSION}" \
+    && test -n "${SCHEMA_RUNTIME_MAX_VERSION}" \
+    && test -n "${SCHEMA_MIGRATION_TARGET}" \
+    && test -n "${SCHEMA_MIGRATION_KIND}" \
+    && test -n "${SCHEMA_MIGRATION_SET_DIGEST}" \
     && go build -trimpath \
-      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.ProductionImageRuntime=true'" \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=${SCHEMA_MANAGEMENT}'" \
       -o /out/new-api . \
-    && go build -trimpath -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}'" \
-      -o /out/kkai-migrate ./cmd/kkai-migrate \
     && go build -trimpath \
-      -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}' -X 'github.com/QuantumNous/new-api/common.ProductionImageRuntime=true'" \
-      -o /out/kkai-schema-observe ./cmd/kkai-schema-observe \
-    && /out/kkai-migrate --describe --json --source-revision "${SOURCE_REVISION}" > /out/schema-compatibility.json \
-    && /out/kkai-migrate --describe-upstream-schema --json --source-revision "${SOURCE_REVISION}" > /out/upstream-schema-compatibility.json \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=${SCHEMA_MANAGEMENT}'" \
+      -o /out/kkai-migrate ./cmd/kkai-migrate \
     && go build -trimpath \
       -ldflags "-s -w -buildid= -X 'main.sourceRevision=${SOURCE_REVISION}'" \
       -o /out/kkai-topup-recovery ./cmd/kkai-topup-recovery
@@ -84,30 +94,30 @@ FROM ${BUSYBOX_IMAGE} AS health-tools
 FROM ${DISTROLESS_IMAGE}
 
 ARG APP_VERSION
-ARG SOURCE_REVISION
-ARG SCHEMA_COMPATIBILITY_SCHEMA
-ARG SCHEMA_RUNTIME_MIN_VERSION
-ARG SCHEMA_RUNTIME_MAX_VERSION
-ARG SCHEMA_MIGRATION_TARGET_VERSION
+ARG SCHEMA_MANAGEMENT
+ARG SCHEMA_COMPATIBLE_PREFIXES
 ARG SCHEMA_MIGRATION_KIND
 ARG SCHEMA_MIGRATION_SET_DIGEST
+ARG SCHEMA_MIGRATION_TARGET
+ARG SCHEMA_RUNTIME_MAX_VERSION
+ARG SCHEMA_RUNTIME_MIN_VERSION
+ARG SOURCE_REVISION
 LABEL org.opencontainers.image.title="KKAI New API" \
       org.opencontainers.image.description="Hardened KKAI production New API image" \
       org.opencontainers.image.source="https://github.com/Wangjunkai-1996/new-api-kkai" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.opencontainers.image.licenses="AGPL-3.0" \
+      com.kkai.runtime.schema-management="${SCHEMA_MANAGEMENT}" \
+      com.kkai.schema.compatible-prefixes="${SCHEMA_COMPATIBLE_PREFIXES}" \
       com.kkai.schema.min-compatible="${SCHEMA_RUNTIME_MIN_VERSION}" \
       com.kkai.schema.max-compatible="${SCHEMA_RUNTIME_MAX_VERSION}" \
-      com.kkai.schema.migration-target="${SCHEMA_MIGRATION_TARGET_VERSION}" \
+      com.kkai.schema.migration-target="${SCHEMA_MIGRATION_TARGET}" \
       com.kkai.schema.migration-kind="${SCHEMA_MIGRATION_KIND}" \
-      com.kkai.schema.migration-set-digest="${SCHEMA_MIGRATION_SET_DIGEST}" \
-      org.opencontainers.image.licenses="AGPL-3.0"
+      com.kkai.schema.migration-set-digest="${SCHEMA_MIGRATION_SET_DIGEST}"
 
 COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
-COPY --from=backend --chown=10007:10007 /out/kkai-schema-observe /kkai-schema-observe
-COPY --from=backend --chown=10007:10007 /out/schema-compatibility.json /schema-compatibility.json
-COPY --from=backend --chown=10007:10007 /out/upstream-schema-compatibility.json /upstream-schema-compatibility.json
 COPY --from=backend --chown=10007:10007 /out/kkai-topup-recovery /kkai-topup-recovery
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-canary-probe /new-api-canary-probe

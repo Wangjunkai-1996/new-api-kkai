@@ -21,7 +21,7 @@ func TestKKAIOutboxMySQL57MigrationAndClaim(t *testing.T) {
 
 	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
-	require.NoError(t, kkaimigrate.Check(context.Background(), db, kkaimigrate.CurrentVersion))
+	require.NoError(t, kkaimigrate.CheckRequired(context.Background(), db))
 	require.EqualValues(t, 191, mysql57EventKeyLength(t, db))
 
 	now := time.Unix(1_784_211_072, 0)
@@ -45,20 +45,20 @@ func TestKKAIOutboxMySQL57MigrationAndClaim(t *testing.T) {
 	require.Equal(t, 1, result.Delivered)
 }
 
-func TestKKAIOutboxMySQL57UpgradesLegacyEventKeyLength(t *testing.T) {
+func TestKKAIOutboxMySQL57CompatibilityRequiresExplicitMaintenance(t *testing.T) {
 	db := mysql57KKAIIntegrationDB(t)
-	require.NoError(t, db.AutoMigrate(&kkaimigrate.AppliedMigration{}))
-	require.NoError(t, db.Exec(`CREATE TABLE kkai_outbox (
-id BIGINT AUTO_INCREMENT PRIMARY KEY,
-event_key VARCHAR(192) NOT NULL UNIQUE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC`).Error)
-	for _, migration := range kkaimigrate.Plan()[:3] {
-		migration.AppliedAt = 1
-		require.NoError(t, db.Create(&migration).Error)
-	}
+	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(
+		"ALTER TABLE kkai_outbox MODIFY COLUMN event_key VARCHAR(192) NOT NULL",
+	).Error)
 	require.EqualValues(t, 192, mysql57EventKeyLength(t, db))
 
-	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	require.NoError(t, err)
+	require.EqualValues(t, 192, mysql57EventKeyLength(t, db))
+
+	_, err = kkaimigrate.ApplyMySQL57Compatibility(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.EqualValues(t, 191, mysql57EventKeyLength(t, db))
 }
