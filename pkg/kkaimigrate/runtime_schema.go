@@ -62,7 +62,7 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 			}
 		}
 		if requirement.Table == "kkai_outbox" && dialect == DialectPostgres {
-			if err := validatePostgresOutboxEventKey(columnTypes, currentVersion); err != nil {
+			if err := validatePostgresOutboxEventKey(db, columnTypes, currentVersion); err != nil {
 				return err
 			}
 		}
@@ -70,7 +70,33 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	return nil
 }
 
-func validatePostgresOutboxEventKey(columnTypes []gorm.ColumnType, currentVersion int64) error {
+func validatePostgresOutboxEventKey(db *gorm.DB, columnTypes []gorm.ColumnType, currentVersion int64) error {
+	if err := validatePostgresOutboxEventKeyShape(columnTypes, currentVersion); err != nil {
+		return err
+	}
+
+	var hasSingleColumnUnique bool
+	if err := db.Raw(`
+SELECT EXISTS (
+	SELECT 1
+	FROM pg_catalog.pg_constraint AS constraint_record
+	JOIN pg_catalog.pg_attribute AS column_record
+		ON column_record.attrelid = constraint_record.conrelid
+		AND column_record.attnum = constraint_record.conkey[1]
+	WHERE constraint_record.conrelid = pg_catalog.to_regclass(?)
+		AND constraint_record.contype = 'u'
+		AND pg_catalog.array_length(constraint_record.conkey, 1) = 1
+		AND column_record.attname = ?
+)`, "kkai_outbox", "event_key").Scan(&hasSingleColumnUnique).Error; err != nil {
+		return fmt.Errorf("inspect PostgreSQL kkai_outbox.event_key unique constraint: %w", err)
+	}
+	if !hasSingleColumnUnique {
+		return fmt.Errorf("%w: PostgreSQL kkai_outbox.event_key must have a single-column unique constraint", ErrSchemaNotReady)
+	}
+	return nil
+}
+
+func validatePostgresOutboxEventKeyShape(columnTypes []gorm.ColumnType, currentVersion int64) error {
 	var eventKey gorm.ColumnType
 	for _, columnType := range columnTypes {
 		if columnType.Name() == "event_key" {
@@ -99,10 +125,6 @@ func validatePostgresOutboxEventKey(columnTypes []gorm.ColumnType, currentVersio
 	nullable, hasNullable := eventKey.Nullable()
 	if !hasNullable || nullable {
 		return fmt.Errorf("%w: PostgreSQL kkai_outbox.event_key must be NOT NULL", ErrSchemaNotReady)
-	}
-	unique, hasUnique := eventKey.Unique()
-	if !hasUnique || !unique {
-		return fmt.Errorf("%w: PostgreSQL kkai_outbox.event_key must have a single-column unique constraint", ErrSchemaNotReady)
 	}
 	return nil
 }
