@@ -155,6 +155,27 @@ application_business_row_count() {
     --command 'SELECT (SELECT count(*) FROM users) + (SELECT count(*) FROM setups) + (SELECT count(*) FROM options)'
 }
 
+application_quota_column_types() {
+  compose exec --no-TTY postgres \
+    psql --username=newapi_stage --dbname=newapi_stage --tuples-only --no-align --field-separator='|' \
+    --command "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'users' AND column_name IN ('quota', 'used_quota') ORDER BY column_name"
+}
+
+install_runtime_ddl_audit() {
+  compose exec --no-TTY postgres \
+    psql --username=newapi_stage --dbname=newapi_stage --set=ON_ERROR_STOP=1 \
+    --command 'CREATE SCHEMA kkai_smoke_audit' \
+    --command 'CREATE TABLE kkai_smoke_audit.ddl_events (command_tag text NOT NULL, object_identity text NOT NULL)' \
+    --command "CREATE FUNCTION kkai_smoke_audit.capture_ddl() RETURNS event_trigger LANGUAGE plpgsql AS \$\$ BEGIN INSERT INTO kkai_smoke_audit.ddl_events(command_tag, object_identity) SELECT command_tag, object_identity FROM pg_event_trigger_ddl_commands(); END \$\$" \
+    --command 'CREATE EVENT TRIGGER kkai_smoke_runtime_ddl ON ddl_command_end EXECUTE FUNCTION kkai_smoke_audit.capture_ddl()'
+}
+
+runtime_ddl_event_count() {
+  compose exec --no-TTY postgres \
+    psql --username=newapi_stage --dbname=newapi_stage --tuples-only --no-align \
+    --command 'SELECT count(*) FROM kkai_smoke_audit.ddl_events'
+}
+
 cleanup() {
   local exit_status="$?"
   trap - EXIT
@@ -255,6 +276,9 @@ readonly migration_dsn
 run_migrator
 bootstrap_application_schema
 [[ "$(application_business_row_count)" == 0 ]]
+[[ "$(application_quota_column_types)" == $'quota|bigint\nused_quota|bigint' ]]
+install_runtime_ddl_audit
+[[ "$(runtime_ddl_event_count)" == 0 ]]
 
 compose up --detach --wait --wait-timeout 300 redis
 
@@ -314,6 +338,7 @@ readonly ledger_fingerprint_after
 [[ "${schema_fingerprint_after}" == "${schema_fingerprint_before}" ]]
 [[ "${ledger_fingerprint_after}" == "${ledger_fingerprint_before}" ]]
 [[ "$(outbox_event_key_length)" == 192 ]]
+[[ "$(runtime_ddl_event_count)" == 0 ]]
 
 echo "Compose smoke passed for ${IMAGE_REF}"
 echo "status: ${status_response}"

@@ -104,7 +104,7 @@ func validateKKAIBalanceAdjustment(
 	if !kkaiBalanceOperationIDPattern.MatchString(request.OperationID) || request.UserID <= 0 {
 		return ErrKKAIBalanceAdjustmentInvalidInput
 	}
-	if request.Delta == 0 || request.Delta > math.MaxInt32 || request.Delta < -math.MaxInt32 {
+	if request.Delta == 0 || request.Delta == math.MinInt64 {
 		return ErrKKAIBalanceAdjustmentInvalidInput
 	}
 	if metadata.RebateRecordID != nil && *metadata.RebateRecordID <= 0 {

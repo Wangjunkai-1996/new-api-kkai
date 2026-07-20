@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -57,8 +58,8 @@ func TestUserUpdateDoesNotOverwriteAccountingFields(t *testing.T) {
 	var got User
 	require.NoError(t, DB.First(&got, user.Id).Error)
 	assert.Equal(t, "after", got.DisplayName)
-	assert.Equal(t, 600, got.Quota)
-	assert.Equal(t, 420, got.UsedQuota)
+	assert.Equal(t, int64(600), got.Quota)
+	assert.Equal(t, int64(420), got.UsedQuota)
 	assert.Equal(t, 4, got.RequestCount)
 }
 
@@ -86,10 +87,85 @@ func TestUpdateUserSettingOnlyUpdatesSetting(t *testing.T) {
 
 	var got User
 	require.NoError(t, DB.First(&got, user.Id).Error)
-	assert.Equal(t, 750, got.Quota)
-	assert.Equal(t, 270, got.UsedQuota)
+	assert.Equal(t, int64(750), got.Quota)
+	assert.Equal(t, int64(270), got.UsedQuota)
 	assert.Equal(t, 4, got.RequestCount)
 	assert.Equal(t, "zh", got.GetSetting().Language)
+}
+
+func TestIncreaseUserQuotaRejectsInt64Overflow(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	user := User{
+		Id:       3,
+		Username: "quota-overflow-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    math.MaxInt64 - 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	require.NoError(t, IncreaseUserQuota(user.Id, 1, true))
+	err := IncreaseUserQuota(user.Id, 1, true)
+	require.ErrorIs(t, err, ErrUserQuotaOverflow)
+	require.ErrorIs(t, IncreaseUserQuota(999_999, 1, true), gorm.ErrRecordNotFound)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, int64(math.MaxInt64), stored.Quota)
+}
+
+func TestTransferAffQuotaRejectsInt64Overflow(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	transferQuota := int(common.QuotaPerUnit)
+	user := User{
+		Id:       4,
+		Username: "aff-quota-overflow-user",
+		Password: "password",
+		Status:   common.UserStatusEnabled,
+		Quota:    math.MaxInt64 - int64(transferQuota) + 1,
+		AffQuota: transferQuota,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	err := user.TransferAffQuotaToQuota(transferQuota)
+	require.ErrorIs(t, err, ErrUserQuotaOverflow)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, user.Quota, stored.Quota)
+	require.Equal(t, transferQuota, stored.AffQuota)
+
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", user.Id).
+		Update("quota", math.MaxInt64-int64(transferQuota)).Error)
+	require.NoError(t, user.TransferAffQuotaToQuota(transferQuota))
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, int64(math.MaxInt64), stored.Quota)
+	require.Zero(t, stored.AffQuota)
+}
+
+func TestBatchUserQuotaOverflowPreservesUsageAndRequestCount(t *testing.T) {
+	setupUserUpdateTestState(t)
+
+	user := User{
+		Id:           5,
+		Username:     "batch-quota-overflow-user",
+		Password:     "password",
+		Status:       common.UserStatusEnabled,
+		Quota:        math.MaxInt64,
+		UsedQuota:    10,
+		RequestCount: 2,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+
+	updateUserQuotaUsedQuotaAndRequestCount(user.Id, 1, 7, 1)
+
+	var stored User
+	require.NoError(t, DB.First(&stored, user.Id).Error)
+	require.Equal(t, int64(math.MaxInt64), stored.Quota)
+	require.Equal(t, int64(17), stored.UsedQuota)
+	require.Equal(t, 3, stored.RequestCount)
 }
 
 func TestEnsureEmailAvailableRejectsExistingEmailCaseInsensitive(t *testing.T) {

@@ -101,8 +101,7 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 		}
 
 		// 步骤2: 在事务中增加用户额度
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", quotaAwarded)).Error; err != nil {
+		if err := increaseUserQuotaWithDB(tx, userId, int64(quotaAwarded)); err != nil {
 			return errors.New("签到失败：更新额度出错")
 		}
 
@@ -113,10 +112,8 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 		return nil, err
 	}
 
-	// 事务成功后，异步更新缓存
-	go func() {
-		_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
-	}()
+	// 事务成功后更新缓存，避免数据库回滚时留下虚假余额。
+	updateUserQuotaCacheByDelta(userId, int64(quotaAwarded))
 
 	return checkin, nil
 }
@@ -131,7 +128,7 @@ func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded in
 
 	// 步骤2: 增加用户额度
 	// 使用 db=true 强制直接写入数据库，不使用批量更新
-	if err := IncreaseUserQuota(userId, quotaAwarded, true); err != nil {
+	if err := IncreaseUserQuota(userId, int64(quotaAwarded), true); err != nil {
 		// 如果增加额度失败，需要回滚签到记录
 		DB.Delete(checkin)
 		return nil, errors.New("签到失败：更新额度出错")

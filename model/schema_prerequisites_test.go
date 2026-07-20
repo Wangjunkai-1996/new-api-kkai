@@ -87,6 +87,22 @@ func TestValidatePostgresApplicationColumnTypesRejectsLegacyTypes(t *testing.T) 
 		columns map[string]gorm.ColumnType
 	}{
 		{
+			name:  "user quota integer",
+			table: "users",
+			columns: map[string]gorm.ColumnType{
+				"quota":      schemaColumnType{name: "quota", databaseType: "int4"},
+				"used_quota": schemaColumnType{name: "used_quota", databaseType: "int4"},
+			},
+		},
+		{
+			name:  "user used quota integer",
+			table: "users",
+			columns: map[string]gorm.ColumnType{
+				"quota":      schemaColumnType{name: "quota", databaseType: "int8"},
+				"used_quota": schemaColumnType{name: "used_quota", databaseType: "integer"},
+			},
+		},
+		{
 			name:  "token model limits varchar",
 			table: "tokens",
 			columns: map[string]gorm.ColumnType{
@@ -129,6 +145,10 @@ func TestValidatePostgresApplicationColumnTypesRejectsLegacyTypes(t *testing.T) 
 }
 
 func TestValidatePostgresApplicationColumnTypesAcceptsCanonicalTypes(t *testing.T) {
+	require.NoError(t, validatePostgresApplicationColumnTypes("users", map[string]gorm.ColumnType{
+		"quota":      schemaColumnType{name: "quota", databaseType: "int8"},
+		"used_quota": schemaColumnType{name: "used_quota", databaseType: "bigint"},
+	}))
 	require.NoError(t, validatePostgresApplicationColumnTypes("tokens", map[string]gorm.ColumnType{
 		"model_limits": schemaColumnType{name: "model_limits", databaseType: "text"},
 	}))

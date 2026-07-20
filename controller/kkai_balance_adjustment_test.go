@@ -95,7 +95,7 @@ func setupKKAIBalanceAdjustmentTest(t *testing.T) (*gorm.DB, http.Handler) {
 	return db, router
 }
 
-func seedKKAIBalanceUser(t *testing.T, db *gorm.DB, id int, quota int) {
+func seedKKAIBalanceUser(t *testing.T, db *gorm.DB, id int, quota int64) {
 	t.Helper()
 	require.NoError(t, db.Create(&model.User{
 		Id:       id,
@@ -204,7 +204,7 @@ func TestKKAIBalanceAdjustmentAppliesOnceAndRejectsPayloadConflict(t *testing.T)
 
 	var user model.User
 	require.NoError(t, db.First(&user, 201).Error)
-	assert.Equal(t, 125, user.Quota)
+	assert.Equal(t, int64(125), user.Quota)
 	var count int64
 	require.NoError(t, db.Model(&model.KKAIInternalBalanceAdjustment{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
@@ -255,7 +255,25 @@ func TestKKAIBalanceAdjustmentConcurrentReplayChangesBalanceOnce(t *testing.T) {
 
 	var user model.User
 	require.NoError(t, db.First(&user, 301).Error)
-	assert.Equal(t, 125, user.Quota)
+	assert.Equal(t, int64(125), user.Quota)
+}
+
+func TestKKAIBalanceAdjustmentCreditsBalanceAboveMaxInt32(t *testing.T) {
+	db, router := setupKKAIBalanceAdjustmentTest(t)
+	startingQuota := int64(math.MaxInt32) + 100
+	seedKKAIBalanceUser(t, db, 302, startingQuota)
+
+	recorder, response := performKKAIBalanceRequest(
+		t,
+		router,
+		kkaiBalanceTestSecret,
+		kkaiBalanceCreditPayload("bigint-credit-302", 302, 25),
+	)
+
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	require.NotNil(t, response.Data)
+	assert.Equal(t, startingQuota, response.Data.BalanceBefore)
+	assert.Equal(t, startingQuota+25, response.Data.BalanceAfter)
 }
 
 func TestKKAIBalanceAdjustmentRequiresExactReversalAndRollsBackFailedDebit(t *testing.T) {
@@ -321,7 +339,7 @@ func TestKKAIBalanceAdjustmentRequiresExactReversalAndRollsBackFailedDebit(t *te
 
 func TestKKAIBalanceAdjustmentRejectsInvalidNotFoundAndOverflowRequests(t *testing.T) {
 	db, router := setupKKAIBalanceAdjustmentTest(t)
-	seedKKAIBalanceUser(t, db, 501, math.MaxInt32)
+	seedKKAIBalanceUser(t, db, 501, math.MaxInt64)
 
 	tests := []struct {
 		name       string

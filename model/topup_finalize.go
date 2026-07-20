@@ -120,7 +120,7 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 		if err != nil {
 			return err
 		}
-		if completion.QuotaDelta <= 0 || completion.QuotaDelta > int64(common.MaxQuota) {
+		if completion.QuotaDelta <= 0 {
 			return ErrTopUpQuotaInvalid
 		}
 		if completion.PaymentMethod != "" {
@@ -139,13 +139,11 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 		if completion.UserPatch.EmailIfEmpty != nil && user.Email == "" {
 			updates["email"] = *completion.UserPatch.EmailIfEmpty
 		}
-		maximumQuotaBeforeCredit := int64(common.MaxQuota) - completion.QuotaDelta
-		if int64(user.Quota) > maximumQuotaBeforeCredit {
+		maximumQuotaBeforeCredit := int64(math.MaxInt64) - completion.QuotaDelta
+		if user.Quota > maximumQuotaBeforeCredit {
 			return ErrTopUpQuotaInvalid
 		}
-		updated := tx.Model(&User{}).
-			Where("id = ? AND quota <= ?", user.Id, maximumQuotaBeforeCredit).
-			Updates(updates)
+		updated := userQuotaCreditQuery(tx, user.Id, completion.QuotaDelta).Updates(updates)
 		if updated.Error != nil {
 			return updated.Error
 		}
@@ -287,22 +285,28 @@ func quotaFromTopUpMoney(money float64) (int64, error) {
 	if math.IsNaN(money) || math.IsInf(money, 0) || money <= 0 {
 		return 0, ErrTopUpQuotaInvalid
 	}
-	return quotaFromTopUpDecimal(decimal.NewFromFloat(money))
+	return topUpQuotaFromDecimal(
+		decimal.NewFromFloat(money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+	)
 }
 
 func quotaFromTopUpAmount(amount int64) (int64, error) {
 	if amount <= 0 {
 		return 0, ErrTopUpQuotaInvalid
 	}
-	return quotaFromTopUpDecimal(decimal.NewFromInt(amount))
+	return topUpQuotaFromDecimal(
+		decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+	)
 }
 
-func quotaFromTopUpDecimal(amount decimal.Decimal) (int64, error) {
-	quota, clamp := common.QuotaFromDecimalChecked(
-		amount.Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
-	)
-	if clamp != nil || quota <= 0 {
+func quotaFromTopUpCredits(quota int64) (int64, error) {
+	return topUpQuotaFromDecimal(decimal.NewFromInt(quota))
+}
+
+func topUpQuotaFromDecimal(quota decimal.Decimal) (int64, error) {
+	rounded := quota.Round(0)
+	if !rounded.IsPositive() || rounded.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
 		return 0, ErrTopUpQuotaInvalid
 	}
-	return int64(quota), nil
+	return rounded.IntPart(), nil
 }
