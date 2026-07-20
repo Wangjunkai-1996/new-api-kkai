@@ -442,8 +442,6 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 
 		var requestBody bytes.Buffer
 		writer := multipart.NewWriter(&requestBody)
-
-		writer.WriteField("model", request.Model)
 		// 使用已解析的 multipart 表单，避免重复解析
 		mf := c.Request.MultipartForm
 		if mf == nil {
@@ -456,16 +454,27 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 			mf = form
 		}
 
-		// 写入所有非文件字段
-		if mf != nil {
+		// 写入所有非文件字段。参数覆盖必须在重建 multipart 之前完成，
+		// 否则 JSON 请求和 multipart edit 会产生不同的上游行为。
+		if mf != nil && info.ChannelMeta != nil && len(info.ParamOverride) > 0 {
+			if err := writeOpenAIImageMultipartFields(writer, info, request.Model, mf.Value); err != nil {
+				return nil, err
+			}
+		} else if mf != nil {
+			if err := writer.WriteField("model", request.Model); err != nil {
+				return nil, fmt.Errorf("write model form field failed: %w", err)
+			}
 			for key, values := range mf.Value {
 				if key == "model" {
 					continue
 				}
 				for _, value := range values {
-					writer.WriteField(key, value)
+					if err := writer.WriteField(key, value); err != nil {
+						return nil, fmt.Errorf("write %s form field failed: %w", key, err)
+					}
 				}
 			}
+			info.UpstreamIsStream = request.Stream != nil && *request.Stream
 		}
 
 		if mf != nil && mf.File != nil {
@@ -558,7 +567,9 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 
 		// 关闭 multipart 编写器以设置分界线
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			return nil, fmt.Errorf("close image edit multipart writer failed: %w", err)
+		}
 		c.Request.Header.Set("Content-Type", writer.FormDataContentType())
 		return &requestBody, nil
 
@@ -638,6 +649,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	case relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits:
 		if info.IsStream {
 			usage, err = OpenaiImageStreamHandler(c, info, resp)
+		} else if info.UpstreamIsStream {
+			usage, err = OpenaiImageJSONBridgeHandler(c, info, resp)
 		} else {
 			usage, err = OpenaiImageHandler(c, info, resp)
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
@@ -32,6 +33,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to ImageRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	info.UpstreamIsStream = info.IsStream
 
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
@@ -75,6 +77,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 					return newAPIErrorFromParamOverride(err)
 				}
 			}
+			info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
 
 			logger.LogDebug(c, "image request body: %s", jsonData)
 			body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
@@ -97,7 +100,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	var httpResp *http.Response
 	if resp != nil {
 		httpResp = resp.(*http.Response)
-		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+		info.UpstreamIsStream = strings.HasPrefix(strings.ToLower(httpResp.Header.Get("Content-Type")), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
 			if httpResp.StatusCode == http.StatusCreated && info.ApiType == constant.APITypeReplicate {
 				// replicate channel returns 201 Created when using Prefer: wait, treat it as success.
