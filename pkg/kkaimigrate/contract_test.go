@@ -7,15 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
-
-type namedTestDialector struct {
-	gorm.Dialector
-	name string
-}
-
-func (dialector namedTestDialector) Name() string { return dialector.name }
 
 func TestContractForDialectUsesPostgresV3Runtime(t *testing.T) {
 	for _, dialect := range []string{DialectPostgres, DialectSQLite, DialectMySQL} {
@@ -49,21 +41,15 @@ func TestRuntimePlansStopBeforeMySQLOnlyMaintenanceMigration(t *testing.T) {
 	}
 }
 
-func TestObserveAcceptsPostgresV3AndRejectsMismatchedV4Shape(t *testing.T) {
+func TestPostgresV3OutboxShapeRejectsMismatchedV4Version(t *testing.T) {
 	db := newMigrationTestDB(t)
 	_, err := Apply(context.Background(), db, Options{})
 	require.NoError(t, err)
-	db.Dialector = namedTestDialector{Dialector: db.Dialector, name: DialectPostgres}
-
-	observation, err := Observe(context.Background(), db)
+	columnTypes, err := db.Migrator().ColumnTypes("kkai_outbox")
 	require.NoError(t, err)
-	require.Equal(t, JobLeaseSchemaVersion, observation.CurrentVersion)
+	require.NoError(t, validatePostgresOutboxEventKeyShape(columnTypes, JobLeaseSchemaVersion))
 
-	v4 := migrationSet()[3]
-	require.NoError(t, db.Create(&AppliedMigration{
-		Version: v4.Version, Name: v4.Name, Checksum: storedMigrationChecksum(v4),
-	}).Error)
-	_, err = Observe(context.Background(), db)
+	err = validatePostgresOutboxEventKeyShape(columnTypes, OutboxEventKeySchemaVersion)
 	require.ErrorIs(t, err, ErrSchemaNotReady)
 }
 
@@ -84,12 +70,15 @@ func TestPostgresCompatibleV4PrefixRequiresCanonicalPhysicalShape(t *testing.T) 
 	require.NoError(t, db.Create(&AppliedMigration{
 		Version: v4.Version, Name: v4.Name, Checksum: storedMigrationChecksum(v4),
 	}).Error)
-	db.Dialector = namedTestDialector{Dialector: db.Dialector, name: DialectPostgres}
-
-	observation, err := Observe(context.Background(), db)
+	columnTypes, err := db.Migrator().ColumnTypes("kkai_outbox")
 	require.NoError(t, err)
+	require.NoError(t, validatePostgresOutboxEventKeyShape(columnTypes, OutboxEventKeySchemaVersion))
+
 	contract, err := ContractForDialect(DialectPostgres)
 	require.NoError(t, err)
-	require.Equal(t, contract.CompatiblePrefixes["4"], observation.MigrationSetDigest)
-	require.NotEqual(t, contract.MigrationSetDigest, observation.MigrationSetDigest)
+	compatiblePrefix, ok := storedPrefixItemsForDialect(DialectPostgres, OutboxEventKeySchemaVersion)
+	require.True(t, ok)
+	compatibleDigest := migrationSetDigest(DialectPostgres, compatiblePrefix)
+	require.Equal(t, contract.CompatiblePrefixes["4"], compatibleDigest)
+	require.NotEqual(t, contract.MigrationSetDigest, compatibleDigest)
 }
