@@ -191,6 +191,19 @@ for workflow in "${WORKFLOW}" "${CANDIDATE_WORKFLOW}"; do
       fail "workflow does not pass ${schema_arg}: ${workflow}"
   done
 done
+setup_go_line="$(grep -nF '      - name: Set up Go' "${WORKFLOW}" | cut -d: -f1)"
+schema_bootstrap_line="$(grep -nF '      - name: Build the isolated application schema fixture' "${WORKFLOW}" | cut -d: -f1)"
+setup_bun_line="$(grep -nF '      - name: Set up Bun' "${WORKFLOW}" | cut -d: -f1)"
+full_quality_line="$(grep -nF '      - name: Run the complete fork quality gate' "${WORKFLOW}" | cut -d: -f1)"
+image_build_line="$(grep -nF '      - name: Build and push the immutable Linux AMD64 image' "${WORKFLOW}" | cut -d: -f1)"
+readonly setup_go_line schema_bootstrap_line setup_bun_line full_quality_line image_build_line
+[[ "${setup_go_line}" =~ ^[0-9]+$ && "${schema_bootstrap_line}" =~ ^[0-9]+$ &&
+  "${setup_bun_line}" =~ ^[0-9]+$ && "${full_quality_line}" =~ ^[0-9]+$ &&
+  "${image_build_line}" =~ ^[0-9]+$ ]] ||
+  fail "production setup/schema/quality/image order cannot be determined"
+((setup_go_line < schema_bootstrap_line && schema_bootstrap_line < setup_bun_line &&
+  setup_bun_line < full_quality_line && full_quality_line < image_build_line)) ||
+  fail "production workflow must set up Go, build the schema fixture, set up Bun, run full quality, then build the image"
 if contains_regex 'mkdir -p web/(default|classic)/dist|schema fixture</title>' "${CANDIDATE_WORKFLOW}"; then
   fail "candidate workflow still fabricates frontend assets for schema bootstrap"
 fi
