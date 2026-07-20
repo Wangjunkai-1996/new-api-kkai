@@ -48,15 +48,15 @@ func NewEPayProviderFromDatabase(db *gorm.DB, client *http.Client) (*EPayProvide
 	if db == nil {
 		return nil, ErrInvalidProviderEvidence
 	}
-	address, err := loadOption(db, "PayAddress")
+	address, err := loadRequiredOption(db, "PayAddress")
 	if err != nil {
 		return nil, err
 	}
-	partnerID, err := loadOption(db, "EpayId")
+	partnerID, err := loadRequiredOption(db, "EpayId")
 	if err != nil {
 		return nil, err
 	}
-	key, err := loadOption(db, "EpayKey")
+	key, err := loadRequiredOption(db, "EpayKey")
 	if err != nil {
 		return nil, err
 	}
@@ -138,14 +138,31 @@ func (provider *EPayProvider) Lookup(ctx context.Context, serviceTradeNo string)
 	}, nil
 }
 
-func loadOption(db *gorm.DB, name string) (string, error) {
+func loadRequiredOption(db *gorm.DB, name string) (string, error) {
+	value, found, err := loadOptionalOption(db, name)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("required option %s is missing", name)
+	}
+	return value, nil
+}
+
+func loadOptionalOption(db *gorm.DB, name string) (string, bool, error) {
+	if db == nil || strings.TrimSpace(name) == "" {
+		return "", false, fmt.Errorf("load option: invalid input")
+	}
 	row := optionRow{}
 	if err := db.Where(map[string]any{"key": name}).First(&row).Error; err != nil {
-		return "", fmt.Errorf("load EPay option %s: %w", name, err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("load option %s: %w", name, err)
 	}
 	value := strings.TrimSpace(row.Value)
 	if value == "" {
-		return "", fmt.Errorf("%w: EPay option %s is empty", ErrInvalidProviderEvidence, name)
+		return "", false, fmt.Errorf("option %s is empty", name)
 	}
-	return value, nil
+	return value, true, nil
 }

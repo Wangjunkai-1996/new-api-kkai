@@ -65,6 +65,40 @@ type TopUpCompletedEvent struct {
 	PaymentProvider string `json:"payment_provider"`
 }
 
+type TopUpCompletedEventInput struct {
+	SourceOrderID   int64
+	InviteeID       int64
+	InviterID       *int64
+	InviterGroup    string
+	CreditedQuota   int64
+	CompletedAt     int64
+	PaymentProvider string
+}
+
+func NewTopUpCompletedEvent(input TopUpCompletedEventInput) (*TopUpCompletedEvent, error) {
+	if input.SourceOrderID <= 0 || input.InviteeID <= 0 || input.CreditedQuota <= 0 ||
+		input.CompletedAt <= 0 || strings.TrimSpace(input.PaymentProvider) == "" ||
+		(input.InviterID != nil && *input.InviterID <= 0) {
+		return nil, ErrTopUpFinalizationInvalidInput
+	}
+	inviterGroup := strings.TrimSpace(input.InviterGroup)
+	if inviterGroup == "" {
+		inviterGroup = "default"
+	}
+	return &TopUpCompletedEvent{
+		SchemaVersion:   2,
+		EventKey:        fmt.Sprintf("newapi:topup:%d", input.SourceOrderID),
+		EventType:       "topup.completed",
+		SourceOrderID:   input.SourceOrderID,
+		InviteeID:       input.InviteeID,
+		InviterID:       input.InviterID,
+		InviterGroup:    inviterGroup,
+		CreditedQuota:   input.CreditedQuota,
+		CompletedAt:     input.CompletedAt,
+		PaymentProvider: strings.TrimSpace(input.PaymentProvider),
+	}, nil
+}
+
 func FinalizeTopUp(input FinalizeTopUpInput) (*FinalizeTopUpResult, error) {
 	if strings.TrimSpace(input.TradeNo) == "" || input.Prepare == nil {
 		return nil, ErrTopUpFinalizationInvalidInput
@@ -266,11 +300,7 @@ func buildTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, credited
 			}
 		}
 	}
-	eventKey := fmt.Sprintf("newapi:topup:%d", topUp.Id)
-	return &TopUpCompletedEvent{
-		SchemaVersion:   2,
-		EventKey:        eventKey,
-		EventType:       "topup.completed",
+	return NewTopUpCompletedEvent(TopUpCompletedEventInput{
 		SourceOrderID:   int64(topUp.Id),
 		InviteeID:       int64(topUp.UserId),
 		InviterID:       inviterID,
@@ -278,7 +308,7 @@ func buildTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, credited
 		CreditedQuota:   creditedQuota,
 		CompletedAt:     completedAt,
 		PaymentProvider: topUp.PaymentProvider,
-	}, nil
+	})
 }
 
 func quotaFromTopUpMoney(money float64) (int64, error) {
@@ -291,11 +321,15 @@ func quotaFromTopUpMoney(money float64) (int64, error) {
 }
 
 func quotaFromTopUpAmount(amount int64) (int64, error) {
-	if amount <= 0 {
+	return CreditedQuotaFromTopUpAmount(amount, common.QuotaPerUnit)
+}
+
+func CreditedQuotaFromTopUpAmount(amount int64, quotaPerUnit float64) (int64, error) {
+	if amount <= 0 || math.IsNaN(quotaPerUnit) || math.IsInf(quotaPerUnit, 0) || quotaPerUnit <= 0 {
 		return 0, ErrTopUpQuotaInvalid
 	}
 	return topUpQuotaFromDecimal(
-		decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
+		decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(quotaPerUnit)),
 	)
 }
 
