@@ -20,9 +20,8 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/kkai-newapi-compose-smoke.XXXXXX")"
 readonly TEST_ROOT
 readonly DATABASE_PASSWORD='smoke-database-password-0123456789abcdef'
 readonly REDIS_PASSWORD='smoke-redis-password-0123456789abcdef'
-bootstrap_pid=''
 
-for command_name in awk curl docker grep jq python3 sed seq sha256sum; do
+for command_name in awk docker grep jq sed sha256sum; do
   command -v "${command_name}" >/dev/null || {
     echo "required command not found: ${command_name}" >&2
     exit 69
@@ -142,55 +141,23 @@ ledger_fingerprint() {
     sha256sum | awk '{print $1}'
 }
 
-free_port() {
-  python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+bootstrap_application_schema() {
+  local database_port
+  database_port="$(compose port postgres 5432 | awk -F: 'NR == 1 {print $NF}')"
+  printf '%s\n' \
+    "postgres://newapi_stage:${DATABASE_PASSWORD}@127.0.0.1:${database_port}/newapi_stage?sslmode=disable" |
+    "${SCHEMA_BOOTSTRAP_BINARY}" --dsn-stdin
 }
 
-bootstrap_application_schema() {
-  local database_port bootstrap_port bootstrap_log
-  database_port="$(compose port postgres 5432 | awk -F: 'NR == 1 {print $NF}')"
-  bootstrap_port="$(free_port)"
-  bootstrap_log="${TEST_ROOT}/schema-bootstrap.log"
-
-  env \
-    PORT="${bootstrap_port}" \
-    SQL_DSN="postgres://newapi_stage:${DATABASE_PASSWORD}@127.0.0.1:${database_port}/newapi_stage?sslmode=disable" \
-    KKAI_NODE_ROLE=leader \
-    DISABLE_BACKGROUND_TASKS=true \
-    BATCH_UPDATE_ENABLED=false \
-    UPDATE_TASK=false \
-    MEMORY_CACHE_ENABLED=true \
-    SESSION_SECRET='smoke-session-secret-0123456789abcdef' \
-    CRYPTO_SECRET='smoke-crypto-secret-0123456789abcdef0' \
-    INVITATIONS_INTERNAL_SECRET='smoke-invitations-secret-0123456789abc' \
-    GIN_MODE=release \
-    "${SCHEMA_BOOTSTRAP_BINARY}" --log-dir '' >"${bootstrap_log}" 2>&1 &
-  bootstrap_pid="$!"
-  for _ in $(seq 1 120); do
-    if curl --fail --silent "http://127.0.0.1:${bootstrap_port}/api/status" >/dev/null; then
-      kill -TERM "${bootstrap_pid}"
-      wait "${bootstrap_pid}" || true
-      bootstrap_pid=''
-      return
-    fi
-    if ! kill -0 "${bootstrap_pid}" >/dev/null 2>&1; then
-      sed -n '1,200p' "${bootstrap_log}" >&2
-      return 1
-    fi
-    sleep 0.25
-  done
-  sed -n '1,200p' "${bootstrap_log}" >&2
-  return 1
+application_business_row_count() {
+  compose exec --no-TTY postgres \
+    psql --username=newapi_stage --dbname=newapi_stage --tuples-only --no-align \
+    --command 'SELECT (SELECT count(*) FROM users) + (SELECT count(*) FROM setups) + (SELECT count(*) FROM options)'
 }
 
 cleanup() {
   local exit_status="$?"
   trap - EXIT
-
-  if [[ -n "${bootstrap_pid}" ]] && kill -0 "${bootstrap_pid}" >/dev/null 2>&1; then
-    kill -TERM "${bootstrap_pid}" >/dev/null 2>&1 || true
-    wait "${bootstrap_pid}" >/dev/null 2>&1 || true
-  fi
 
   if [[ "${exit_status}" -ne 0 ]]; then
     compose ps >&2 || true
@@ -281,12 +248,15 @@ compose config --quiet
 stage_version="$(delivery_disabled_stage_version)"
 readonly stage_version
 grep -Fx "${EXPECTED_VERSION}" <<<"${stage_version}" >/dev/null
-compose up --detach --wait --wait-timeout 300 postgres redis
+compose up --detach --wait --wait-timeout 300 postgres
 
 migration_dsn="postgres://newapi_stage:${DATABASE_PASSWORD}@postgres:5432/newapi_stage?sslmode=disable"
 readonly migration_dsn
 run_migrator
 bootstrap_application_schema
+[[ "$(application_business_row_count)" == 0 ]]
+
+compose up --detach --wait --wait-timeout 300 redis
 
 schema_observation="$(observe_schema)"
 readonly schema_observation
