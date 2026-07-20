@@ -29,7 +29,7 @@ func main() {
 	mode := os.Args[1]
 	flags := flag.NewFlagSet(mode, flag.ExitOnError)
 	activeFromID := flags.Int64("active-from-topup-id", 0, "first eligible topup ID")
-	cutoffID := flags.Int64("cutoff-topup-id", 0, "inclusive historical topup cutoff")
+	cutoffID := flags.Int64("cutoff-topup-id", 0, "inclusive historical topup cutoff; defaults to the current high-water mark")
 	expectedSHA256 := flags.String("expected-sha256", "", "reviewed manifest SHA-256")
 	timeout := flags.Duration("timeout", 20*time.Minute, "overall recovery timeout")
 	if err := flags.Parse(os.Args[2:]); err != nil {
@@ -49,13 +49,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize EPay evidence provider: %v", err)
 	}
-	service := topuprecovery.New(db, provider, sourceRevision)
+	service, err := topuprecovery.NewFromDatabase(db, provider, sourceRevision)
+	if err != nil {
+		log.Fatalf("failed to initialize recovery quota configuration: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
 	switch mode {
 	case "plan":
-		manifest, err := service.Plan(ctx, *activeFromID, *cutoffID)
+		resolvedCutoffID := *cutoffID
+		if resolvedCutoffID == 0 {
+			resolvedCutoffID, err = service.LatestCutoff(ctx, *activeFromID)
+			if err != nil {
+				log.Fatalf("resolve recovery cutoff: %v", err)
+			}
+		}
+		manifest, err := service.Plan(ctx, *activeFromID, resolvedCutoffID)
 		if err != nil {
 			log.Fatalf("recovery plan failed: %v", err)
 		}
