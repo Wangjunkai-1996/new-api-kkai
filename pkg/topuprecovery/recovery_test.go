@@ -2,6 +2,7 @@ package topuprecovery
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,9 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	gormtests "gorm.io/gorm/utils/tests"
 )
 
 type recoveryUser struct {
@@ -27,6 +30,18 @@ func (recoveryUser) TableName() string {
 
 type fakeProvider struct {
 	orders map[string]ProviderOrder
+}
+
+type recoveryTransactionRecorder struct {
+	*sql.DB
+	isolation sql.IsolationLevel
+}
+
+func (recorder *recoveryTransactionRecorder) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql.Tx, error) {
+	if options != nil {
+		recorder.isolation = options.Isolation
+	}
+	return recorder.DB.BeginTx(ctx, options)
 }
 
 func (provider *fakeProvider) Lookup(_ context.Context, tradeNo string) (ProviderOrder, error) {
@@ -82,6 +97,154 @@ func TestRecoveryPlanApplyVerifyAndReplay(t *testing.T) {
 	verified, err := service.Verify(context.Background(), manifest, manifest.SHA256)
 	require.NoError(t, err)
 	assert.Equal(t, 1, verified.VerifiedCount)
+}
+
+func TestRecoveryExcludesSubscriptionTopUpsAcrossPlanApplyVerify(t *testing.T) {
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	createEligibleTopUp(t, db, 445, "subscription-trade-445", model.PaymentProviderEpay)
+	require.NoError(t, db.Create(&model.SubscriptionOrder{
+		UserId:  1,
+		TradeNo: "subscription-trade-445",
+		Status:  common.TopUpStatusSuccess,
+		PlanId:  1,
+		Money:   10,
+	}).Error)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("3", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+	require.Len(t, manifest.Orders, 1)
+	assert.EqualValues(t, 444, manifest.Orders[0].TopUpID)
+
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.NoError(t, err)
+	_, err = service.Verify(context.Background(), manifest, manifest.SHA256)
+	require.NoError(t, err)
+	assertTopUpCompletion(t, db, 445, 0)
+}
+
+func TestRecoveryApplyRejectsCandidateSetDriftBeforeWriting(t *testing.T) {
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("4", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+
+	createEligibleTopUp(t, db, 445, "trade-445", model.PaymentProviderEpay)
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.ErrorIs(t, err, ErrCandidateSetDrift)
+	assert.Contains(t, err.Error(), "candidate set")
+	assertTopUpCompletion(t, db, 444, 0)
+	assertTopUpCompletion(t, db, 445, 0)
+	assertOutboxCount(t, db, 0)
+}
+
+func TestRecoveryApplyRejectsCandidateRemovalBeforeWriting(t *testing.T) {
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("5", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Model(&recoveryUser{}).Where("id = ?", 1).Update("inviter_id", 0).Error)
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.ErrorIs(t, err, ErrCandidateSetDrift)
+	assertTopUpCompletion(t, db, 444, 0)
+	assertOutboxCount(t, db, 0)
+}
+
+func TestRecoveryVerifyRejectsCandidateSetDrift(t *testing.T) {
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("7", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.NoError(t, err)
+
+	createEligibleTopUp(t, db, 445, "trade-445", model.PaymentProviderEpay)
+	_, err = service.Verify(context.Background(), manifest, manifest.SHA256)
+	require.ErrorIs(t, err, ErrCandidateSetDrift)
+}
+
+func TestRecoveryCandidateQueryBuildsPostgresCompatibleSQL(t *testing.T) {
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  "host=localhost user=recovery dbname=recovery sslmode=disable",
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	require.NoError(t, err)
+
+	querySQL := db.ToSQL(func(tx *gorm.DB) *gorm.DB {
+		var sources []topUpSource
+		return topUpSourceQuery(tx).
+			Where("top_ups.id >= ? AND top_ups.id <= ?", 444, 500).
+			Order("top_ups.id ASC").
+			Find(&sources)
+	})
+	assert.Contains(t, querySQL, `inviters."group"`)
+	assert.NotContains(t, querySQL, "inviters.`group`")
+	assert.Contains(t, querySQL, "NOT EXISTS (SELECT 1 FROM subscription_orders")
+}
+
+func TestRecoveryCandidateDependencyLockCoversEligibilityRows(t *testing.T) {
+	db, err := gorm.Open(gormtests.DummyDialector{}, &gorm.Config{DryRun: true})
+	require.NoError(t, err)
+
+	statements := make([]string, 0, 3)
+	require.NoError(t, db.Callback().Query().After("gorm:query").Register("capture recovery dependency locks", func(tx *gorm.DB) {
+		statement := tx.Statement.SQL.String()
+		if strings.Contains(statement, "FOR UPDATE") {
+			statements = append(statements, statement)
+		}
+	}))
+
+	require.NoError(t, lockRecoveryCandidateDependencies(db, 444, 500))
+	require.Len(t, statements, 3)
+	assert.Contains(t, statements[0], "top_ups")
+	assert.Contains(t, statements[1], "users")
+	assert.Contains(t, statements[2], "users")
+	for _, statement := range statements {
+		assert.Contains(t, statement, "FOR UPDATE")
+	}
+}
+
+func TestRecoveryApplyRequestsSerializableTransaction(t *testing.T) {
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("8", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	recorder := &recoveryTransactionRecorder{DB: sqlDB}
+	db.Config.ConnPool = recorder
+	db.Statement.ConnPool = recorder
+
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.NoError(t, err)
+	assert.Equal(t, sql.LevelSerializable, recorder.isolation)
 }
 
 func TestRecoveryLatestCutoffCapturesTopUpHighWaterMark(t *testing.T) {
@@ -231,6 +394,63 @@ func TestRecoveryVerifyRequiresExpectedOutbox(t *testing.T) {
 	assert.Contains(t, err.Error(), "outbox")
 }
 
+func TestRecoveryVerifyAcceptsMutableDeliveryState(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      string
+		availableAt int64
+		deliveredAt int64
+	}{
+		{name: "pending retry", status: model.KKAIOutboxStatusPending, availableAt: 2_600},
+		{name: "delivered after retry", status: model.KKAIOutboxStatusDelivered, availableAt: 2_600, deliveredAt: 2_700},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, service, manifest := appliedRecovery(t)
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).
+				Where("event_key = ?", manifest.Orders[0].EventKey).
+				Updates(map[string]any{
+					"status":       test.status,
+					"attempts":     1,
+					"available_at": test.availableAt,
+					"delivered_at": test.deliveredAt,
+				}).Error)
+
+			verified, err := service.Verify(context.Background(), manifest, manifest.SHA256)
+			require.NoError(t, err)
+			assert.Equal(t, 1, verified.VerifiedCount)
+		})
+	}
+}
+
+func TestRecoveryVerifyRejectsInvalidDeliveryState(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      string
+		availableAt int64
+		deliveredAt int64
+	}{
+		{name: "available before completion", status: model.KKAIOutboxStatusPending, availableAt: 1_099},
+		{name: "pending marked delivered", status: model.KKAIOutboxStatusPending, availableAt: 1_100, deliveredAt: 1_200},
+		{name: "delivered before completion", status: model.KKAIOutboxStatusDelivered, availableAt: 1_100, deliveredAt: 1_099},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, service, manifest := appliedRecovery(t)
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).
+				Where("event_key = ?", manifest.Orders[0].EventKey).
+				Updates(map[string]any{
+					"status":       test.status,
+					"available_at": test.availableAt,
+					"delivered_at": test.deliveredAt,
+				}).Error)
+
+			_, err := service.Verify(context.Background(), manifest, manifest.SHA256)
+			require.ErrorIs(t, err, ErrOutboxConflict)
+		})
+	}
+}
+
 func TestRecoveryFailsClosedForUnsupportedProviderAndExcludesUninvitedOrders(t *testing.T) {
 	db := newRecoveryDatabase(t)
 	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderStripe)
@@ -270,8 +490,30 @@ func newRecoveryDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.TopUp{}, &recoveryUser{}, &model.KKAIOutboxEvent{}, &optionRow{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.TopUp{},
+		&model.SubscriptionOrder{},
+		&recoveryUser{},
+		&model.KKAIOutboxEvent{},
+		&optionRow{},
+	))
 	return db
+}
+
+func appliedRecovery(t *testing.T) (*gorm.DB, *Service, *Manifest) {
+	t.Helper()
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("6", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.NoError(t, err)
+	return db, service, manifest
 }
 
 func createEligibleTopUp(t *testing.T, db *gorm.DB, id int, tradeNo, provider string) {
