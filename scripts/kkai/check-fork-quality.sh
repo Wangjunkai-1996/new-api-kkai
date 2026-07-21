@@ -126,6 +126,8 @@ bun "$ROOT/scripts/kkai/compare-diagnostics.mjs" \
   oxlint "$TMP_ROOT/oxlint-base.json" "$TMP_ROOT/oxlint-current.json"
 
 echo "[8/9] Comparing Go vet diagnostics with upstream"
+(cd "$BASE_TREE" && go mod download)
+go mod download
 set +e
 (cd "$BASE_TREE" && go vet ./...) >"$TMP_ROOT/go-vet-base.txt" 2>&1
 BASE_VET_STATUS=$?
