@@ -101,7 +101,7 @@ func TestRecoveryLatestCutoffCapturesTopUpHighWaterMark(t *testing.T) {
 func TestRecoveryIncludesCompletedOrderAndCreatesOnlyMissingOutbox(t *testing.T) {
 	db := newRecoveryDatabase(t)
 	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
-	require.NoError(t, db.Model(&model.TopUp{}).Where("id = ?", 444).Update("complete_time", 1_100).Error)
+	require.NoError(t, db.Model(&model.TopUp{}).Where("id = ?", 444).Update("complete_time", 1_130).Error)
 	provider := &fakeProvider{orders: map[string]ProviderOrder{
 		"trade-444": successfulProviderOrder("trade-444", 1_100),
 	}}
@@ -111,14 +111,31 @@ func TestRecoveryIncludesCompletedOrderAndCreatesOnlyMissingOutbox(t *testing.T)
 	manifest, err := service.Plan(context.Background(), 444, 500)
 	require.NoError(t, err)
 	require.Len(t, manifest.Orders, 1)
+	assert.EqualValues(t, 1_130, manifest.Orders[0].CompletedAt)
 
 	result, err := service.Apply(context.Background(), manifest, manifest.SHA256)
 	require.NoError(t, err)
 	assert.Zero(t, result.UpdatedCount)
 	assert.Equal(t, 1, result.AlreadySetCount)
 	assert.Equal(t, 1, result.OutboxCreatedCount)
+	assertTopUpCompletion(t, db, 444, 1_130)
 	assertUserQuota(t, db, 1, 700_000_000)
 	assertTopUpOutbox(t, db, manifest.Orders[0])
+}
+
+func TestRecoveryRejectsStoredCompletionBeforeProviderEvidence(t *testing.T) {
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	require.NoError(t, db.Model(&model.TopUp{}).Where("id = ?", 444).Update("complete_time", 1_099).Error)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("d", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+
+	_, err := service.Plan(context.Background(), 444, 500)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside provider evidence bounds")
 }
 
 func TestRecoveryRejectsManifestAndProviderDriftWithoutWriting(t *testing.T) {
