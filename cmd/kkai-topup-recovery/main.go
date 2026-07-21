@@ -16,6 +16,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 const maximumManifestBytes = 8 * 1024 * 1024
@@ -117,13 +118,14 @@ func openDatabase(dsn string) (*gorm.DB, error) {
 	if dsn == "" {
 		return nil, fmt.Errorf("SQL_DSN is required")
 	}
+	config := &gorm.Config{Logger: logger.Discard}
 	switch {
 	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
-		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
+		return gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), config)
 	case strings.HasPrefix(dsn, "sqlite://"):
-		return gorm.Open(sqlite.Open(strings.TrimPrefix(dsn, "sqlite://")), &gorm.Config{})
+		return gorm.Open(sqlite.Open(strings.TrimPrefix(dsn, "sqlite://")), config)
 	case strings.HasPrefix(dsn, "file:"):
-		return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		return gorm.Open(sqlite.Open(dsn), config)
 	default:
 		if !strings.Contains(dsn, "parseTime=") {
 			separator := "?"
@@ -132,6 +134,6 @@ func openDatabase(dsn string) (*gorm.DB, error) {
 			}
 			dsn += separator + "parseTime=true"
 		}
-		return gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		return gorm.Open(mysql.Open(dsn), config)
 	}
 }
