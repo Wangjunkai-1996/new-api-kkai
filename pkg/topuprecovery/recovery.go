@@ -2,6 +2,7 @@ package topuprecovery
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -37,7 +38,7 @@ func (service *Service) Plan(ctx context.Context, activeFromID, cutoffID int64) 
 	if err := service.validate(activeFromID, cutoffID); err != nil {
 		return nil, err
 	}
-	sources, err := service.loadEligibleSources(ctx, activeFromID, cutoffID)
+	sources, err := service.loadEligibleSources(service.db.WithContext(ctx), activeFromID, cutoffID)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +69,9 @@ func (service *Service) Apply(ctx context.Context, manifest *Manifest, expectedS
 	if err := service.validateManifest(manifest, expectedSHA256); err != nil {
 		return nil, err
 	}
+	if err := service.validateManifestCandidateSet(service.db.WithContext(ctx), manifest); err != nil {
+		return nil, err
+	}
 	if err := service.preflightManifest(ctx, manifest); err != nil {
 		return nil, err
 	}
@@ -77,6 +81,12 @@ func (service *Service) Apply(ctx context.Context, manifest *Manifest, expectedS
 		OrderCount:     len(manifest.Orders),
 	}
 	err := service.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRecoveryCandidateDependencies(tx, manifest.ActiveFromID, manifest.CutoffID); err != nil {
+			return err
+		}
+		if err := service.validateManifestCandidateSet(tx, manifest); err != nil {
+			return err
+		}
 		for _, evidence := range manifest.Orders {
 			source, err := loadSourceByID(tx, evidence.TopUpID, true)
 			if err != nil {
@@ -116,7 +126,7 @@ func (service *Service) Apply(ctx context.Context, manifest *Manifest, expectedS
 			}
 		}
 		return nil
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +135,9 @@ func (service *Service) Apply(ctx context.Context, manifest *Manifest, expectedS
 
 func (service *Service) Verify(ctx context.Context, manifest *Manifest, expectedSHA256 string) (*Result, error) {
 	if err := service.validateManifest(manifest, expectedSHA256); err != nil {
+		return nil, err
+	}
+	if err := service.validateManifestCandidateSet(service.db.WithContext(ctx), manifest); err != nil {
 		return nil, err
 	}
 	if err := service.preflightManifest(ctx, manifest); err != nil {
@@ -180,60 +193,6 @@ func (service *Service) validateManifest(manifest *Manifest, expectedSHA256 stri
 		return fmt.Errorf("%w: quota configuration mismatch", ErrInvalidManifest)
 	}
 	return nil
-}
-
-func (service *Service) loadEligibleSources(ctx context.Context, activeFromID, cutoffID int64) ([]topUpSource, error) {
-	var missingInviterTopUpIDs []int64
-	err := service.db.WithContext(ctx).Table("top_ups").
-		Joins("JOIN users AS invitees ON invitees.id = top_ups.user_id").
-		Joins("LEFT JOIN users AS inviters ON inviters.id = invitees.inviter_id").
-		Where("top_ups.id >= ? AND top_ups.id <= ?", activeFromID, cutoffID).
-		Where("top_ups.status = ?", common.TopUpStatusSuccess).
-		Where("invitees.inviter_id > 0 AND inviters.id IS NULL").
-		Order("top_ups.id ASC").
-		Limit(2).
-		Pluck("top_ups.id", &missingInviterTopUpIDs).Error
-	if err != nil {
-		return nil, err
-	}
-	if len(missingInviterTopUpIDs) > 0 {
-		return nil, fmt.Errorf("topup %d references a missing inviter", missingInviterTopUpIDs[0])
-	}
-
-	var sources []topUpSource
-	err = topUpSourceQuery(service.db.WithContext(ctx)).
-		Where("top_ups.id >= ? AND top_ups.id <= ?", activeFromID, cutoffID).
-		Where("top_ups.status = ?", common.TopUpStatusSuccess).
-		Order("top_ups.id ASC").
-		Scan(&sources).Error
-	if err != nil {
-		return nil, err
-	}
-	for _, source := range sources {
-		if source.PaymentProvider != model.PaymentProviderEpay {
-			return nil, fmt.Errorf("topup %d requires unsupported provider evidence", source.ID)
-		}
-	}
-	return sources, nil
-}
-
-func topUpSourceQuery(db *gorm.DB) *gorm.DB {
-	inviterGroupColumn := "inviters.`group`"
-	if db.Dialector.Name() == "postgres" {
-		inviterGroupColumn = "inviters.\"group\""
-	}
-	columns := fmt.Sprintf(
-		"top_ups.id, top_ups.user_id, top_ups.amount, top_ups.trade_no, "+
-			"top_ups.payment_provider, top_ups.create_time, top_ups.complete_time, "+
-			"top_ups.status, invitees.inviter_id AS inviter_id, "+
-			"COALESCE(%s, '') AS inviter_group",
-		inviterGroupColumn,
-	)
-	return db.Table("top_ups").
-		Select(columns).
-		Joins("JOIN users AS invitees ON invitees.id = top_ups.user_id").
-		Joins("JOIN users AS inviters ON inviters.id = invitees.inviter_id").
-		Where("invitees.inviter_id > 0")
 }
 
 func (service *Service) collectEvidence(ctx context.Context, source topUpSource) (OrderEvidence, error) {
@@ -309,8 +268,8 @@ func (service *Service) preflightManifest(ctx context.Context, manifest *Manifes
 func loadSourceByID(db *gorm.DB, topUpID int64, lock bool) (topUpSource, error) {
 	var source topUpSource
 	query := topUpSourceQuery(db).Where("top_ups.id = ?", topUpID)
-	if lock && db.Dialector.Name() != "sqlite" {
-		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	if lock {
+		query = recoveryLockForUpdate(query)
 	}
 	err := query.Take(&source).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -416,12 +375,15 @@ func verifyExpectedOutbox(db *gorm.DB, evidence OrderEvidence, payload string) e
 		return fmt.Errorf("%w: topup %d expected exactly one event, found %d", ErrOutboxConflict, evidence.TopUpID, len(events))
 	}
 	event := events[0]
-	validStatus := event.Status == model.KKAIOutboxStatusPending || event.Status == model.KKAIOutboxStatusDelivered
+	validDeliveryState := event.Status == model.KKAIOutboxStatusPending && event.DeliveredAt == 0
+	if event.Status == model.KKAIOutboxStatusDelivered {
+		validDeliveryState = event.DeliveredAt >= evidence.CompletedAt
+	}
 	if event.Topic != model.KKAIOutboxTopicTopUpCompleted ||
 		event.AggregateID != strconv.FormatInt(evidence.TopUpID, 10) ||
 		event.Payload != payload || hashString(event.Payload) != evidence.EventPayloadSHA256 ||
-		event.AvailableAt != evidence.CompletedAt || event.CreatedAt != evidence.CompletedAt ||
-		!validStatus {
+		event.AvailableAt < evidence.CompletedAt || event.CreatedAt != evidence.CompletedAt ||
+		!validDeliveryState {
 		return fmt.Errorf("%w: topup %d event content differs", ErrOutboxConflict, evidence.TopUpID)
 	}
 	return nil

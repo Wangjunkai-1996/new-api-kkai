@@ -231,6 +231,63 @@ func TestRecoveryVerifyRequiresExpectedOutbox(t *testing.T) {
 	assert.Contains(t, err.Error(), "outbox")
 }
 
+func TestRecoveryVerifyAcceptsMutableDeliveryState(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      string
+		availableAt int64
+		deliveredAt int64
+	}{
+		{name: "pending retry", status: model.KKAIOutboxStatusPending, availableAt: 2_600},
+		{name: "delivered after retry", status: model.KKAIOutboxStatusDelivered, availableAt: 2_600, deliveredAt: 2_700},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, service, manifest := appliedRecovery(t)
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).
+				Where("event_key = ?", manifest.Orders[0].EventKey).
+				Updates(map[string]any{
+					"status":       test.status,
+					"attempts":     1,
+					"available_at": test.availableAt,
+					"delivered_at": test.deliveredAt,
+				}).Error)
+
+			verified, err := service.Verify(context.Background(), manifest, manifest.SHA256)
+			require.NoError(t, err)
+			assert.Equal(t, 1, verified.VerifiedCount)
+		})
+	}
+}
+
+func TestRecoveryVerifyRejectsInvalidDeliveryState(t *testing.T) {
+	tests := []struct {
+		name        string
+		status      string
+		availableAt int64
+		deliveredAt int64
+	}{
+		{name: "available before completion", status: model.KKAIOutboxStatusPending, availableAt: 1_099},
+		{name: "pending marked delivered", status: model.KKAIOutboxStatusPending, availableAt: 1_100, deliveredAt: 1_200},
+		{name: "delivered before completion", status: model.KKAIOutboxStatusDelivered, availableAt: 1_100, deliveredAt: 1_099},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, service, manifest := appliedRecovery(t)
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).
+				Where("event_key = ?", manifest.Orders[0].EventKey).
+				Updates(map[string]any{
+					"status":       test.status,
+					"available_at": test.availableAt,
+					"delivered_at": test.deliveredAt,
+				}).Error)
+
+			_, err := service.Verify(context.Background(), manifest, manifest.SHA256)
+			require.ErrorIs(t, err, ErrOutboxConflict)
+		})
+	}
+}
+
 func TestRecoveryFailsClosedForUnsupportedProviderAndExcludesUninvitedOrders(t *testing.T) {
 	db := newRecoveryDatabase(t)
 	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderStripe)
@@ -270,8 +327,30 @@ func newRecoveryDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.TopUp{}, &recoveryUser{}, &model.KKAIOutboxEvent{}, &optionRow{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.TopUp{},
+		&model.SubscriptionOrder{},
+		&recoveryUser{},
+		&model.KKAIOutboxEvent{},
+		&optionRow{},
+	))
 	return db
+}
+
+func appliedRecovery(t *testing.T) (*gorm.DB, *Service, *Manifest) {
+	t.Helper()
+	db := newRecoveryDatabase(t)
+	createEligibleTopUp(t, db, 444, "trade-444", model.PaymentProviderEpay)
+	provider := &fakeProvider{orders: map[string]ProviderOrder{
+		"trade-444": successfulProviderOrder("trade-444", 1_100),
+	}}
+	service := New(db, provider, strings.Repeat("6", 40), 500_000)
+	service.now = func() time.Time { return time.Unix(2_000, 0) }
+	manifest, err := service.Plan(context.Background(), 444, 500)
+	require.NoError(t, err)
+	_, err = service.Apply(context.Background(), manifest, manifest.SHA256)
+	require.NoError(t, err)
+	return db, service, manifest
 }
 
 func createEligibleTopUp(t *testing.T, db *gorm.DB, id int, tradeNo, provider string) {

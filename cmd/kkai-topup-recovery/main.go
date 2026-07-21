@@ -70,7 +70,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("recovery plan failed: %v", err)
 		}
-		writeJSON(manifest)
+		if err := writeJSON(os.Stdout, manifest); err != nil {
+			log.Fatalf("write recovery plan output: %v", err)
+		}
 	case "apply", "verify":
 		manifest, err := readManifest(os.Stdin)
 		if err != nil {
@@ -85,7 +87,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("recovery %s failed: %v", mode, err)
 		}
-		writeJSON(result)
+		if err := writeJSON(os.Stdout, result); err != nil {
+			log.Fatalf("write recovery %s output: %v", mode, err)
+		}
 	default:
 		log.Fatalf("unsupported recovery mode %q", mode)
 	}
@@ -106,12 +110,20 @@ func readManifest(reader io.Reader) (*topuprecovery.Manifest, error) {
 	return manifest, nil
 }
 
-func writeJSON(value any) {
+func writeJSON(writer io.Writer, value any) error {
 	encoded, err := common.Marshal(value)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	_, _ = os.Stdout.Write(append(encoded, '\n'))
+	encoded = append(encoded, '\n')
+	written, err := writer.Write(encoded)
+	if err != nil {
+		return err
+	}
+	if written != len(encoded) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 func openDatabase(dsn string) (*gorm.DB, error) {
