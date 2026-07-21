@@ -241,11 +241,16 @@ func (service *Service) collectEvidence(ctx context.Context, source topUpSource)
 	if err != nil {
 		return OrderEvidence{}, err
 	}
-	if providerOrder.CompletedAt < source.CreateTime || providerOrder.CompletedAt > service.now().Add(5*time.Minute).Unix() {
+	latestAllowedCompletion := service.now().Add(5 * time.Minute).Unix()
+	if providerOrder.CompletedAt < source.CreateTime || providerOrder.CompletedAt > latestAllowedCompletion {
 		return OrderEvidence{}, ErrInvalidProviderEvidence
 	}
-	if source.CompleteTime != 0 && source.CompleteTime != providerOrder.CompletedAt {
-		return OrderEvidence{}, fmt.Errorf("stored completion time disagrees with provider evidence")
+	completedAt := providerOrder.CompletedAt
+	if source.CompleteTime != 0 {
+		if source.CompleteTime < providerOrder.CompletedAt || source.CompleteTime > latestAllowedCompletion {
+			return OrderEvidence{}, fmt.Errorf("stored completion time is outside provider evidence bounds")
+		}
+		completedAt = source.CompleteTime
 	}
 	sourceSHA256, err := sourceDigest(source)
 	if err != nil {
@@ -255,7 +260,7 @@ func (service *Service) collectEvidence(ctx context.Context, source topUpSource)
 	if err != nil {
 		return OrderEvidence{}, err
 	}
-	event, payload, err := service.expectedEvent(source, providerOrder.CompletedAt)
+	event, payload, err := service.expectedEvent(source, completedAt)
 	if err != nil {
 		return OrderEvidence{}, err
 	}
@@ -270,7 +275,7 @@ func (service *Service) collectEvidence(ctx context.Context, source topUpSource)
 		TradeNoSHA256:          hashString(source.TradeNo),
 		SourceRowSHA256:        sourceSHA256,
 		ProviderResponseSHA256: providerSHA256,
-		CompletedAt:            providerOrder.CompletedAt,
+		CompletedAt:            completedAt,
 	}, nil
 }
 
@@ -294,7 +299,7 @@ func (service *Service) preflightManifest(ctx context.Context, manifest *Manifes
 		if err != nil {
 			return err
 		}
-		if providerOrder.CompletedAt != evidence.CompletedAt || providerSHA256 != evidence.ProviderResponseSHA256 {
+		if providerSHA256 != evidence.ProviderResponseSHA256 {
 			return fmt.Errorf("topup %d provider evidence drifted", source.ID)
 		}
 	}
