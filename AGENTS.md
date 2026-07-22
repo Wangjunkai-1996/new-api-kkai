@@ -6,41 +6,31 @@ DO NOT send optional commentary
 
 This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI providers (OpenAI, Claude, Gemini, Azure, AWS Bedrock, etc.) behind a unified API, with user management, billing, rate limiting, and an admin dashboard.
 
-## KKAI Production Delivery (Mandatory)
+## KKAI Manual Production Delivery (Mandatory)
 
 For every task involving KKAI production builds, releases, deployment status,
 GitHub Actions, GHCR, blue-green slots, rollback, or `api.kkrich.ltd`:
 
-1. Read the sibling `kkai-infra/AGENTS.md` completely. If the infrastructure
-   checkout is elsewhere, locate the `Wangjunkai-1996/kkai-infra` repository
-   first. Do not perform a production mutation without the infrastructure rules.
-2. Read these infrastructure runbooks completely:
-   - `docs/runbooks/13-github-actions-runner.md`
-   - `docs/runbooks/14-newapi-image-intake.md`
-   - `docs/runbooks/15-newapi-automated-deployment.md`
-   - `docs/runbooks/10-newapi-blue-green-upgrade.md` when slots or rollback matter
-3. Run `make -C ../kkai-infra newapi-status` before treating the production
+1. Read the sibling `kkai-infra/AGENTS.md` and
+   `docs/runbooks/15-newapi-manual-deployment.md` completely.
+2. Run `make -C ../kkai-infra newapi-status` before treating the production
    version, active slot, or basic health as current. Never reuse mutable
    production state from an old chat.
+3. Build with `scripts/kkai/build-manual-release.sh`, then deploy the generated
+   metadata file with `scripts/kkai/deploy-manual-release.sh`.
 
-The only production application branch is `production/kkrich`. A runtime change
-merged to that branch builds one Linux AMD64 image, publishes version and source
-SHA tags for the same digest, signs that digest, and dispatches only
-`source_sha`, `version`, and `digest` to `kkai-infra`. The infrastructure intake
-deploys that exact digest when `KKAI_NEWAPI_AUTO_DEPLOY_ENABLED` is `true`. The
-normal path then runs automatically.
+The only production application branch is `production/kkrich`. GitHub Actions
+must not build or deploy KKAI production images. An operator builds one Linux
+AMD64 image from a clean local checkout, transfers its archive over the private
+SSH path, and explicitly invokes the manual production deployer. The deployer
+loads the image, verifies its source/version/platform metadata, starts the idle
+slot read-only, checks `/api/status`, switches the stable alias, and retains the
+previous release for rollback.
 
-- Build formal images only in GitHub Actions. Never build or retag one locally or
-  on production.
-- Never use `latest`, a floating branch ref, or an unverified image tag.
-- Application workflows must not SSH to production or contain deployment logic;
-  deployment ownership remains in `kkai-infra`.
-- Do not manually republish an existing release coordinate. Fix a failed image
-  or deployment in source and let the next signed push use the normal path.
-- Markdown-only policy or documentation changes do not create a production image.
-  Any push containing a runtime file follows the normal production path.
-- Use the repository-owned status command only when reporting current production
-  state; it is not an application image build step.
+- Never build a production image on the production host.
+- Never use `latest`, reuse a release version, or deploy a dirty worktree.
+- Do not use raw `docker compose` commands to bypass the manual deployer.
+- Keep database and business-data maintenance separate from application delivery.
 
 ## Tech Stack
 
