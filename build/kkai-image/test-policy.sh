@@ -3,10 +3,11 @@ set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly ROOT
-readonly BUILD_ROOT="${ROOT}/build/kkai-image"
-readonly DOCKERFILE="${BUILD_ROOT}/Dockerfile"
-readonly PRODUCTION_WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
-readonly PRODUCTION_HEAD_CHECK="${ROOT}/scripts/kkai/require-production-head.sh"
+readonly DOCKERFILE="${ROOT}/build/kkai-image/Dockerfile"
+readonly BUILD_SCRIPT="${ROOT}/scripts/kkai/build-manual-release.sh"
+readonly DEPLOY_SCRIPT="${ROOT}/scripts/kkai/deploy-manual-release.sh"
+readonly RETIRED_WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
+readonly RETIRED_HEAD_CHECK="${ROOT}/scripts/kkai/require-production-head.sh"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 
 fail() {
@@ -18,113 +19,44 @@ contains() {
   grep -Fq -- "$1" "$2"
 }
 
-rejects() {
-  if grep -Eiq -- "$1" "$2"; then
-    fail "$2 still contains retired delivery behavior matching: $1"
-  fi
-}
+[[ ! -e "${RETIRED_WORKFLOW}" ]] || fail "automatic production workflow still exists"
+[[ ! -e "${RETIRED_HEAD_CHECK}" ]] || fail "automatic production head check still exists"
+[[ -x "${BUILD_SCRIPT}" ]] || fail "manual build script is missing or not executable"
+[[ -x "${DEPLOY_SCRIPT}" ]] || fail "manual deploy script is missing or not executable"
 
-for workflow in "${PRODUCTION_WORKFLOW}" "${QUALITY_WORKFLOW}"; do
-  ruby -ryaml -e 'YAML.safe_load_file(ARGV.fetch(0), aliases: true)' "${workflow}" >/dev/null ||
-    fail "invalid workflow YAML: ${workflow}"
-  if grep -Eq 'uses: [^ ]+@v[0-9]' "${workflow}"; then
-    fail "workflow contains an unpinned action reference: ${workflow}"
-  fi
-done
-
-ruby -ryaml -e '
-  jobs = YAML.safe_load_file(ARGV.fetch(0), aliases: true).fetch("jobs").keys.sort
-  exit(jobs == %w[build notify-infra] ? 0 : 1)
-' "${PRODUCTION_WORKFLOW}" ||
-  fail "production workflow must contain only build and notify-infra jobs"
+ruby -ryaml -e 'YAML.safe_load_file(ARGV.fetch(0), aliases: true)' "${QUALITY_WORKFLOW}" >/dev/null ||
+  fail "invalid quality workflow YAML"
+if grep -Eq 'uses: [^ ]+@v[0-9]' "${QUALITY_WORKFLOW}"; then
+  fail "quality workflow contains an unpinned action reference"
+fi
 
 for image_arg in BUN_IMAGE GO_IMAGE BUSYBOX_IMAGE DISTROLESS_IMAGE; do
   grep -Eq "^ARG ${image_arg}=[^[:space:]]+@sha256:[0-9a-f]{64}$" "${DOCKERFILE}" ||
     fail "${image_arg} is not pinned to an immutable digest"
 done
-
-contains '-o /out/new-api .' "${DOCKERFILE}" ||
-  fail "Dockerfile does not build the application"
+contains '-o /out/new-api .' "${DOCKERFILE}" || fail "Dockerfile does not build the application"
 contains '-o /out/kkai-migrate ./cmd/kkai-migrate' "${DOCKERFILE}" ||
   fail "Dockerfile does not retain /kkai-migrate"
 [[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 2 ]] ||
-  fail "application and migrator must compile with schema management fixed to external"
-rejects 'ARG SCHEMA_|com\.kkai\.(runtime\.schema-management|schema\.)' "${DOCKERFILE}"
-rejects 'go test|new-api-canary-probe|newapi-schema-bootstrap' "${DOCKERFILE}"
+  fail "application and migrator must compile with external schema management"
 
-for retired_path in \
-  build/kkai-image/export-release.sh \
-  build/kkai-image/export-schema-contract.sh \
-  build/kkai-image/smoke-compose.sh \
-  build/kkai-image/smoke-compose.yml \
-  build/kkai-image/verify-image.sh \
-  build/kkai-image/wait-for-promoted-tags.sh \
-  build/kkai-image/test-wait-for-promoted-tags.sh \
-  build/kkai-image/cmd/canaryprobe \
-  .github/workflows/kkai-image-candidate.yml \
-  cmd/kkai-topup-recovery \
-  cmd/newapi-schema-bootstrap \
-  pkg/topuprecovery; do
-  retired="${ROOT}/${retired_path}"
-  if [[ -f "${retired}" ]] ||
-    { [[ -d "${retired}" ]] && find "${retired}" -type f -print -quit | grep -q .; }; then
-    fail "retired path still contains files: ${retired_path}"
-  fi
-done
+contains '--platform linux/amd64' "${BUILD_SCRIPT}" || fail "manual build is not pinned to AMD64"
+contains 'production/kkrich' "${BUILD_SCRIPT}" || fail "manual build does not require the production branch"
+contains 'status --porcelain=v1 --untracked-files=all' "${BUILD_SCRIPT}" ||
+  fail "manual build does not require a clean worktree"
+contains '--output "type=docker,dest=${archive}"' "${BUILD_SCRIPT}" ||
+  fail "manual build does not export a Docker archive"
+contains 'archive_sha256' "${BUILD_SCRIPT}" || fail "manual build omits archive integrity metadata"
 
-contains 'refs/heads/production/kkrich' "${PRODUCTION_WORKFLOW}" ||
-  fail "production workflow is not restricted to production/kkrich"
-# This is GitHub expression syntax matched literally.
-# shellcheck disable=SC2016
-contains 'PUSH_TIMESTAMP: ${{ github.event.head_commit.timestamp }}' "${PRODUCTION_WORKFLOW}" ||
-  fail "release version date is not bound to the immutable push event"
-# This is workflow shell source matched literally.
-# shellcheck disable=SC2016
-contains 'RELEASE_DATE="$(date -u --date="${PUSH_TIMESTAMP}" +%Y%m%d)"' "${PRODUCTION_WORKFLOW}" ||
-  fail "release version date does not use the immutable push timestamp"
-rejects 'date[[:space:]]+-u[[:space:]]+\+%Y%m%d' "${PRODUCTION_WORKFLOW}"
-[[ -x "${PRODUCTION_HEAD_CHECK}" ]] ||
-  fail "production branch freshness check is missing or not executable"
-contains 'git ls-remote --exit-code origin refs/heads/production/kkrich' "${PRODUCTION_HEAD_CHECK}" ||
-  fail "production branch freshness check does not read the remote production HEAD"
-# This is workflow shell source matched literally.
-# shellcheck disable=SC2016
-[[ "$(grep -Fc 'scripts/kkai/require-production-head.sh "${SOURCE_SHA}"' "${PRODUCTION_WORKFLOW}")" -eq 3 ]] ||
-  fail "build, signing, and dispatch must each verify the remote production HEAD"
-contains '    paths-ignore:' "${PRODUCTION_WORKFLOW}" ||
-  fail "production workflow does not ignore documentation-only pushes"
-contains "      - '**/*.md'" "${PRODUCTION_WORKFLOW}" ||
-  fail "Markdown-only pushes can trigger a production image"
-contains '  cancel-in-progress: false' "${PRODUCTION_WORKFLOW}" ||
-  fail "production queue can cancel an in-progress release"
-contains 'permissions: {}' "${PRODUCTION_WORKFLOW}" ||
-  fail "production workflow lacks a deny-by-default permission boundary"
-contains '      packages: write' "${PRODUCTION_WORKFLOW}" ||
-  fail "production build cannot push to GHCR"
-contains '      id-token: write' "${PRODUCTION_WORKFLOW}" ||
-  fail "production build cannot obtain a Cosign identity token"
-contains '          push: true' "${PRODUCTION_WORKFLOW}" ||
-  fail "production build does not push its image"
-# These literals are GitHub expression syntax, not shell expansions.
-# shellcheck disable=SC2016
-contains '${{ env.IMAGE }}:${{ steps.release.outputs.version }}' "${PRODUCTION_WORKFLOW}" ||
-  fail "production build omits the version tag"
-# shellcheck disable=SC2016
-contains '${{ env.IMAGE }}:sha-${{ steps.release.outputs.source_sha }}' "${PRODUCTION_WORKFLOW}" ||
-  fail "production build omits the source SHA tag"
-# shellcheck disable=SC2016
-contains 'run: cosign sign --yes "${IMAGE}@${DIGEST}"' "${PRODUCTION_WORKFLOW}" ||
-  fail "production workflow does not sign the pushed digest"
-contains 'event_type: "newapi_image_ready"' "${PRODUCTION_WORKFLOW}" ||
-  fail "production workflow does not notify infrastructure intake"
-[[ "$(grep -Ec '^[[:space:]]+--arg (source_sha|version|digest) ' "${PRODUCTION_WORKFLOW}")" -eq 3 ]] ||
-  fail "infrastructure dispatch must contain source_sha, version, and digest only"
-rejects 'build_run|candidate-|imagetools|schema.contract|schema_contract|schema-bootstrap|check-fork-quality|verify-image|smoke-compose|trivy|sbom:[[:space:]]+true|upload-artifact|export-release|cosign verify|offline|evidence' "${PRODUCTION_WORKFLOW}"
-rejects 'ssh|ansible|workflow_run|workflow_dispatch|kkai-prod-deploy|kkai-newapi-deploy|systemctl|docker[[:space:]]+compose' "${PRODUCTION_WORKFLOW}"
-if contains '      - production/kkrich' "${QUALITY_WORKFLOW}"; then
-  fail "fork quality still runs beside every production release"
+contains 'tokk@10.203.0.1' "${DEPLOY_SCRIPT}" || fail "manual deploy does not use the private host"
+contains 'ProxyCommand=none' "${DEPLOY_SCRIPT}" || fail "manual deploy may use an SSH proxy"
+contains 'kkai-newapi-manual-deploy deploy' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not use the production controller"
+contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
+
+if grep -Eiq 'github actions|ghcr\.io|cosign|repository_dispatch|newapi_image_ready' \
+  "${BUILD_SCRIPT}" "${DEPLOY_SCRIPT}"; then
+  fail "manual delivery scripts still contain automatic delivery behavior"
 fi
-contains '  pull_request:' "${QUALITY_WORKFLOW}" ||
-  fail "fork quality no longer covers pull requests"
 
-echo "KKAI production image policy passed"
+echo "KKAI manual production image policy passed"
