@@ -35,8 +35,8 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Approved exclusion: CC Switch `c8b0d60c` rejects remote `configUrl` exchange; unsafe URI credentials are forbidden |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Complete; upstream Waffo retained and fork UI restored |
 | Classic frontend customization | KKAI-compatible classic build and UI, excluding CC Switch | production fork | Complete; build compatibility and recharge-pricing default restored |
-| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` rebuild branch | Implementation complete; production-clone rehearsal pending |
-| Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Implementation complete; edge activation remains a separate post-promotion release |
+| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` | Simple read-only idle-slot deployment |
+| Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Implementation complete; edge activation remains separate from application delivery |
 | Signed internal attribution | Exact origin allowlist, HMAC, timestamp, nonce contract | legacy private-IP headers | Complete |
 
 ## Explicit Exclusions
@@ -45,7 +45,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 - Broad cleanup or reformatting of upstream files.
 - Translation completeness work for this remediation.
 - Floating upgrades beyond the pinned upstream commit.
-- Direct edits to `production/kkrich` before candidate acceptance.
+- Direct edits to `production/kkrich` outside the normal reviewed merge flow.
 - Builds on the production server.
 
 An upstream defect may only be changed when it blocks a documented KKAI
@@ -71,28 +71,28 @@ compatibility behavior rather than presented as general upstream cleanup.
    replacement is independent from active-slot switching.
 8. CC Switch URLs carry a short-lived one-time ticket, never a reusable API
    key.
-9. A candidate may receive writer credentials only during a bounded private
-   `serving` canary. It has no public alias, runs no background writers, and is
-   force-recreated as read-only before promotion continues.
-10. Public continuity during promotion is carried by a temporary candidate
-    `serving` handoff. The previous leader stops before the candidate starts as
-    leader, so legacy releases cannot create a double-writer overlap.
+9. The new idle-slot instance always uses read-only database credentials and runs
+   no background writers while its health and version are checked.
+10. Release-link changes and systemd restarts are an infrastructure-owned
+    transaction. Application delivery never stops a slot or changes traffic;
+    after the switch, only the selected release may own the stable alias and
+    writer role, while the previous release remains available for rollback.
 
 ## Migration Rules
 
-- No destructive migration is allowed during blue/green rollout.
-- A schema diff containing a dropped column, changed column type, table rewrite,
-  or other irreversible operation stops the rollout.
+- Database maintenance is separate from ordinary blue/green application
+  delivery; the release path neither observes nor changes the schema.
+- Destructive schema changes require their own explicit operator plan.
 - Every fork migration must have an idempotency test and a production-clone
   smoke test on PostgreSQL.
 - SQLite, MySQL 8, and PostgreSQL 18 startup coverage remains mandatory even
   when production uses PostgreSQL.
 
-## Quality Gate
+## Development Quality Checks
 
 `scripts/kkai/check-fork-quality.sh` enforces the following:
 
-- the pinned upstream commit is an ancestor of the candidate;
+- the pinned upstream commit is an ancestor of the checked commit;
 - new fork-owned feature source files stay at or below 250 lines and other new
   fork-owned source files stay at or below 500 lines, excluding generated code;
 - changes to existing upstream source add at most 100 lines per file, reduced
@@ -111,15 +111,17 @@ compatibility behavior rather than presented as general upstream cleanup.
 The baseline is computed from a temporary detached worktree at the pinned
 commit. Existing upstream warnings remain visible but are not attributed to
 KKAI. Any additional warning or error introduced by the fork fails the gate.
+These checks run during review and development workflows; they do not run beside
+or block the production image workflow.
 
 ## Commit and Release Policy
 
 - Keep commits separated by concern: baseline/tooling, backend capability,
   risk pipeline, standby/infra, frontend, and verification documentation.
-- A candidate is built only after every manifest row is complete, explicitly
-  deferred to a later release phase, or recorded as an approved external
-  exclusion, and the full gate passes from a clean checkout.
-- The only production artifact is an immutable Linux AMD64 image named
-  `kkai-prod-YYYYMMDD.N-<shortsha>` with digest, SHA-256, SBOM, and scan report.
-- Production deployment remains frozen until the isolated production-database
-  clone rehearsal has passed.
+- The production workflow builds one Linux AMD64 image from each runtime push
+  to `production/kkrich` and publishes version and source-SHA tags for the same
+  digest.
+- The workflow signs the digest and dispatches only its source SHA, version, and
+  digest to `kkai-infra`.
+- Infrastructure verifies and deploys that exact digest through the read-only
+  idle-slot path. Database maintenance is not part of application delivery.

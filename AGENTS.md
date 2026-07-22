@@ -19,27 +19,28 @@ GitHub Actions, GHCR, blue-green slots, rollback, or `api.kkrich.ltd`:
    - `docs/runbooks/14-newapi-image-intake.md`
    - `docs/runbooks/15-newapi-automated-deployment.md`
    - `docs/runbooks/10-newapi-blue-green-upgrade.md` when slots or rollback matter
-3. Run `make -C ../kkai-infra newapi-status` before treating any application SHA,
-   infrastructure SHA, image digest, active slot, runner state, or deployment
-   result as current. Never reuse mutable production state from an old chat.
+3. Run `make -C ../kkai-infra newapi-status` before treating the production
+   version, active slot, or basic health as current. Never reuse mutable
+   production state from an old chat.
 
 The only production application branch is `production/kkrich`. A runtime change
-merged to that branch automatically runs the immutable production image build,
-security gates, signing, cross-repository intake, and production deployment when
-`KKAI_NEWAPI_AUTO_DEPLOY_ENABLED` is `true`. The normal path has no manual
-approval step.
+merged to that branch builds one Linux AMD64 image, publishes version and source
+SHA tags for the same digest, signs that digest, and dispatches only
+`source_sha`, `version`, and `digest` to `kkai-infra`. The infrastructure intake
+deploys that exact digest when `KKAI_NEWAPI_AUTO_DEPLOY_ENABLED` is `true`. The
+normal path then runs automatically.
 
 - Build formal images only in GitHub Actions. Never build or retag one locally or
   on production.
 - Never use `latest`, a floating branch ref, or an unverified image tag.
 - Application workflows must not SSH to production or contain deployment logic;
   deployment ownership remains in `kkai-infra`.
-- Do not manually dispatch or rebuild a release that already completed. Use the
-  recovery entrypoint documented by `kkai-infra` only after identifying failure.
+- Do not manually republish an existing release coordinate. Fix a failed image
+  or deployment in source and let the next signed push use the normal path.
 - Markdown-only policy or documentation changes do not create a production image.
-  Any push containing a runtime file still follows the full production path.
-- Do not claim release readiness unless the repository-owned status command
-  reports `HEALTHY` and the relevant GitHub runs completed successfully.
+  Any push containing a runtime file follows the normal production path.
+- Use the repository-owned status command only when reporting current production
+  state; it is not an application image build step.
 
 ## Tech Stack
 

@@ -1,30 +1,18 @@
 # KKAI production image
 
-This directory is the single source of truth for the hardened KKAI NewAPI
-image. It is fork-owned build and runtime tooling, not upstream NewAPI source.
+This directory contains the Dockerfile and runtime helpers used for the KKAI
+New API image.
 
-Production artifacts are built only by
-`.github/workflows/kkai-production-image.yml` from the current committed HEAD
-of `production/kkrich`. The workflow publishes an immutable Linux AMD64 image
-to GHCR, signs its digest, emits BuildKit provenance and SBOM attestations,
-runs a vulnerability gate, verifies every runtime binary, and exercises a
-PostgreSQL 18 plus Redis Compose smoke test.
+A push with runtime changes on `production/kkrich` builds the Linux AMD64 image
+once, pushes version and source-SHA tags for the same digest, signs that digest,
+and sends `source_sha`, `version`, and `digest` to the private infrastructure
+repository. Markdown-only pushes do not start the workflow.
 
-`.github/workflows/kkai-image-candidate.yml` builds the same Dockerfile on
-GitHub-hosted Linux runners for rebuild and integration branches. Candidate
-images are loaded only into the ephemeral runner for verification and smoke;
-the workflow has no package-write permission and cannot publish or deploy.
+The application and `/kkai-migrate` are compiled with
+`common.SchemaManagementMode=external`. The image therefore cannot run GORM
+AutoMigrate when it starts in the read-only idle slot. Database maintenance is
+separate from ordinary application delivery.
 
-The smoke test applies the PostgreSQL v3 fixture over stdin and uses the dedicated
-host-only `cmd/newapi-schema-bootstrap` command to initialize the otherwise empty
-application schema. The command performs only the canonical GORM schema bootstrap
-and prerequisite validation; it does not start HTTP, Redis, background jobs, root
-setup, or application runtime resources, and it is not copied into the image.
-The formal image is compiled with `schema_management=external`, so none of its
-runtime roles can invoke GORM AutoMigrate. After initialization, the test records
-the physical schema and migration-ledger fingerprints, runs the v3 no-op path,
-starts explicit `leader` and `serving` roles, and proves both fingerprints remain
-unchanged. The PostgreSQL smoke never applies or emulates the MySQL-only v4 DDL.
-
-Local builds are development evidence only. A dirty local image must never be
-used as a production release artifact.
+Formal images are built only by `.github/workflows/kkai-production-image.yml`.
+Local builds are for development and must not be published as production
+releases.
