@@ -6,6 +6,7 @@ readonly ROOT
 readonly BUILD_ROOT="${ROOT}/build/kkai-image"
 readonly DOCKERFILE="${BUILD_ROOT}/Dockerfile"
 readonly PRODUCTION_WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
+readonly PRODUCTION_HEAD_CHECK="${ROOT}/scripts/kkai/require-production-head.sh"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 
 fail() {
@@ -73,6 +74,23 @@ done
 
 contains 'refs/heads/production/kkrich' "${PRODUCTION_WORKFLOW}" ||
   fail "production workflow is not restricted to production/kkrich"
+# This is GitHub expression syntax matched literally.
+# shellcheck disable=SC2016
+contains 'PUSH_TIMESTAMP: ${{ github.event.head_commit.timestamp }}' "${PRODUCTION_WORKFLOW}" ||
+  fail "release version date is not bound to the immutable push event"
+# This is workflow shell source matched literally.
+# shellcheck disable=SC2016
+contains 'RELEASE_DATE="$(date -u --date="${PUSH_TIMESTAMP}" +%Y%m%d)"' "${PRODUCTION_WORKFLOW}" ||
+  fail "release version date does not use the immutable push timestamp"
+rejects 'date[[:space:]]+-u[[:space:]]+\+%Y%m%d' "${PRODUCTION_WORKFLOW}"
+[[ -x "${PRODUCTION_HEAD_CHECK}" ]] ||
+  fail "production branch freshness check is missing or not executable"
+contains 'git ls-remote --exit-code origin refs/heads/production/kkrich' "${PRODUCTION_HEAD_CHECK}" ||
+  fail "production branch freshness check does not read the remote production HEAD"
+# This is workflow shell source matched literally.
+# shellcheck disable=SC2016
+[[ "$(grep -Fc 'scripts/kkai/require-production-head.sh "${SOURCE_SHA}"' "${PRODUCTION_WORKFLOW}")" -eq 3 ]] ||
+  fail "build, signing, and dispatch must each verify the remote production HEAD"
 contains '    paths-ignore:' "${PRODUCTION_WORKFLOW}" ||
   fail "production workflow does not ignore documentation-only pushes"
 contains "      - '**/*.md'" "${PRODUCTION_WORKFLOW}" ||

@@ -35,14 +35,18 @@ jobs:
         id: release
         env:
           SOURCE_SHA: ${{ github.sha }}
+          PUSH_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
           RELEASE_SEQUENCE: ${{ github.run_number }}
         run: |
           set -Eeuo pipefail
           [[ "${GITHUB_REF}" == 'refs/heads/production/kkrich' ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${SOURCE_SHA}" == "$(git rev-parse HEAD)" ]]
+          scripts/kkai/require-production-head.sh "${SOURCE_SHA}"
           [[ "${RELEASE_SEQUENCE}" =~ ^[1-9][0-9]*$ ]]
-          VERSION="kkai-prod-$(date -u +%Y%m%d).${RELEASE_SEQUENCE}-${SOURCE_SHA:0:9}"
+          RELEASE_DATE="$(date -u --date="${PUSH_TIMESTAMP}" +%Y%m%d)"
+          [[ "${RELEASE_DATE}" =~ ^[0-9]{8}$ ]]
+          VERSION="kkai-prod-${RELEASE_DATE}.${RELEASE_SEQUENCE}-${SOURCE_SHA:0:9}"
           echo "source_sha=${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
@@ -80,6 +84,11 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
+      - name: Require the source is still production HEAD before signing
+        env:
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: scripts/kkai/require-production-head.sh "${SOURCE_SHA}"
+
       - name: Sign the pushed image digest
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
@@ -90,8 +99,12 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     steps:
+      - name: Check out the dispatched production commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
       - name: Dispatch the immutable release coordinates
         env:
           GH_TOKEN: ${{ secrets.KKAI_INFRA_DISPATCH_TOKEN }}
@@ -102,6 +115,7 @@ jobs:
           set -Eeuo pipefail
           [[ -n "${GH_TOKEN}" ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          scripts/kkai/require-production-head.sh "${SOURCE_SHA}"
           [[ "${VERSION}" =~ ^kkai-prod-[0-9]{8}\.[1-9][0-9]*-[0-9a-f]{9}$ ]]
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           jq --null-input \
