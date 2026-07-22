@@ -13,13 +13,12 @@ tables.
 | 3 | `background_job_leases` | `kkai_job_leases` |
 | 4 | `outbox_event_key_mysql57_compat` | MySQL only: shrink `kkai_outbox.event_key` to 191 bytes |
 
-The production database is PostgreSQL. Its required runtime version is 3 and
-the release contract is `migration_kind=none`; PostgreSQL must not execute
-version 4. SQLite and MySQL follow the same normal runtime contract. The generic
-application migrator keeps version 4 only as explicit MySQL 5.7 compatibility
-maintenance; ordinary `Apply` never selects it. A PostgreSQL ledger that already
-contains the known version-4 record is accepted as a compatible legacy state
-and is never downgraded.
+The production database is PostgreSQL and its required runtime version is 3;
+PostgreSQL must not execute version 4. The generic application migrator keeps
+version 4 only as explicit MySQL 5.7 compatibility maintenance; ordinary
+`Apply` never selects it. A PostgreSQL ledger that already contains the known
+version-4 record is accepted as a compatible legacy state and is never
+downgraded.
 
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
@@ -33,9 +32,9 @@ Build the migration binary on the external build machine:
 go build -trimpath -o kkai-migrate ./cmd/kkai-migrate
 ```
 
-Use `KKAI_MIGRATION_DSN`, `SQL_DSN`, or `--dsn-stdin`. Release automation uses
-stdin so the DSN never appears in a process argument, container environment,
-or release manifest. The command never prints the DSN.
+Use `KKAI_MIGRATION_DSN`, `SQL_DSN`, or `--dsn-stdin`. Prefer stdin for an
+operator-run migration so the DSN does not appear in a process argument. The
+command never prints the DSN.
 
 ```bash
 ./kkai-migrate --dry-run
@@ -46,22 +45,15 @@ or release manifest. The command never prints the DSN.
 ```
 
 The production image contains `/kkai-migrate` built from the same source
-revision as `/new-api`. Release automation runs it as a read-only,
-capability-free, one-shot container on the private data network. Application
-startup verifies the KKAI schema version and never applies KKAI migrations
-implicitly. Formal images are compiled with immutable
-`schema_management=external`, which disables upstream GORM `AutoMigrate`
-regardless of runtime role or environment drift. Production schema changes
-belong in a reviewed one-shot migration path, not application startup.
+revision as `/new-api`. Ordinary application delivery does not run it.
+Application startup verifies the KKAI schema version and never applies KKAI
+migrations implicitly. Formal images compile `common.SchemaManagementMode` as
+`external`, which disables upstream GORM `AutoMigrate` regardless of runtime
+role or environment drift. Database maintenance remains separate from ordinary
+application delivery.
 
-The six `com.kkai.schema.*` OCI labels and the immutable schema-management label are generated from
-`--describe-contract`, not hand-maintained in infrastructure. The read-only
-`--observe --current --json` command returns the exact validated database
-prefix and dialect-specific migration-set digest.
-
-`compatible_prefixes` is serialized with Go's canonical JSON map-key ordering
-before it becomes an OCI label. Consumers parse it as a JSON object and compare
-the prefix-to-digest mapping semantically; they do not depend on raw key order.
+The read-only `--observe --current --json` command returns the exact validated
+database prefix and dialect-specific migration-set digest.
 
 `--observe` validates the migration ledger and physical shape of the versioned
 KKAI schema. It also validates the unversioned main application tables and
@@ -70,8 +62,7 @@ maintaining a second model list. On PostgreSQL this includes the canonical
 `kkai_outbox.event_key` shape for the observed ledger version,
 `tokens.model_limits` as `TEXT`, and `subscription_plans.price_amount` as
 `NUMERIC(10,6)`. All checks use read-only schema metadata; observation never
-runs GORM `AutoMigrate` or changes database state. Candidate health, pricing,
-and protocol preflight continue to cover runtime semantics beyond schema shape.
+runs GORM `AutoMigrate` or changes database state.
 
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.
@@ -86,25 +77,22 @@ The first execution detects the old fork tables when present:
   changes are not replayed.
 
 Legacy tables remain untouched for rollback compatibility. Removing them is a
-separate post-stability operation and is not part of the candidate rollout.
+separate post-stability operation and is not part of ordinary delivery.
 
-## Rollout Rules
+## Operator Migration Rules
 
-For the current PostgreSQL contract, release automation runs observation and
-minimum-version checks only. It must not execute migration version 4 or add a
-transitional schema release.
+Ordinary release automation does not run schema observation or migrations. It
+does not execute migration version 4.
 
-If a future PostgreSQL contract explicitly declares an `expand` migration:
+If a future PostgreSQL migration is needed:
 
 1. Back up PostgreSQL and record the pre-migration schema hash.
 2. Run dry-run against the isolated production clone.
 3. Apply migrations to the clone and compare schema plus row counts.
 4. Reject any generated diff that drops a table/column, changes a column type,
    or rewrites an upstream-owned table without an independently reviewed plan.
-5. Apply the same migration binary and checksums through the infrastructure
-   transaction before starting the candidate application.
-6. Run `--check` and `--observe` from the release workflow and record their
-   outputs in the release manifest.
+5. Apply the migration separately from ordinary application delivery.
+6. Run `--check` and `--observe` before releasing the application.
 
 Normal runtime migrations must be additive and idempotent. The dormant MySQL v4
 column shrink is an explicit compatibility maintenance exception and requires

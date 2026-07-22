@@ -7,7 +7,6 @@ on:
   pull_request:
   push:
     branches:
-      - production/kkrich
       - 'rebuild/**'
       - 'integration/**'
       - 'upgrade/**'
@@ -64,13 +63,10 @@ jobs:
             for path in "${changed_paths[@]}"; do
               case "${path}" in
                 .github/workflows/kkai-fork-quality.yml|\
-                .github/workflows/kkai-production-image.yml|\
                 build/kkai-image/Dockerfile|\
                 build/kkai-image/cmd/entrypoint/main.go|\
                 build/kkai-image/cmd/riskguard/*|\
                 build/kkai-image/internal/riskguard/*|\
-                build/kkai-image/smoke-compose.yml|\
-                build/kkai-image/test-policy.sh|\
                 common/limiter/*|\
                 common/redis.go|\
                 middleware/model-rate-limit.go|\

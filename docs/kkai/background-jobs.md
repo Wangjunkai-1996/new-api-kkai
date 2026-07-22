@@ -10,7 +10,7 @@ infinite-loop goroutines for database-writing maintenance.
 
 | Role | Serves requests | Read-only sync | Write jobs | Runtime AutoMigrate |
 | --- | --- | --- | --- | --- |
-| `standby-readonly` | Yes, when routed directly for canary checks | Yes | No | No |
+| `standby-readonly` | Yes, for direct health checks | Yes | No | No |
 | `serving` | Yes | Yes | No | No |
 | `leader` | Yes | Yes | Only while holding the global lease | No |
 
@@ -32,7 +32,7 @@ drift.
 - Lease loss cancels the leadership context before another acquisition attempt.
 - Shutdown flushes run before the holder releases a lease it still owns.
 - `BATCH_UPDATE_ENABLED=true` is rejected because process-local quota buffers
-  cannot be transferred safely during a leader handoff.
+  cannot be transferred safely during a leader change.
 
 The lease is stored in `kkai_job_leases`. Acquisition and expired takeover are
 atomic, renewals require the current holder, releases are holder-safe, and the
@@ -41,12 +41,12 @@ from database time, not container clocks. Business jobs must honor context
 cancellation; the fence is not a substitute for cancellation inside a
 long-running external request or database transaction.
 
-During a blue/green handoff, a temporary `serving` process from the candidate
-image carries public traffic without running background writers. The previous
-leader is retired before the candidate starts as leader, so the first upgrade
-from a legacy image never depends on that legacy process honoring the lease.
-After the candidate acquires the single database lease and the selected release
-passes final validation, the temporary handoff is removed.
+During an ordinary blue/green release, the new idle-slot instance starts as
+`standby-readonly` for health and version checks. The restricted infrastructure
+deployer owns the release-link switch and systemd restart, then verifies that
+the selected release is the sole stable-alias owner and writer. The application
+workflow never stops or restarts production slots, and the previous release
+remains the rollback target.
 
 ## Standby Safety
 

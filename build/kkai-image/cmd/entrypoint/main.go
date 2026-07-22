@@ -98,13 +98,6 @@ func fatalf(format string, values ...any) {
 	os.Exit(1)
 }
 
-func selectExecutable(arguments []string) (string, []string) {
-	if len(arguments) > 0 && arguments[0] == "topup-recovery" {
-		return "/kkai-topup-recovery", arguments[1:]
-	}
-	return "/new-api", arguments
-}
-
 func main() {
 	setEnvironment("SQL_DSN", databaseDSN(readSecret("NEWAPI_DATABASE_PASSWORD_FILE")))
 	setEnvironment("REDIS_CONN_STRING", redisDSN(readSecret("NEWAPI_REDIS_PASSWORD_FILE")))
@@ -116,8 +109,7 @@ func main() {
 	}
 	setEnvironment("KKAI_RISK_STREAM_SECRET", readSecret("NEWAPI_RISK_STREAM_SECRET_FILE"))
 
-	executable, arguments := selectExecutable(os.Args[1:])
-	arguments = append([]string{executable}, arguments...)
+	arguments := append([]string{"/new-api"}, os.Args[1:]...)
 	if err := syscall.Exec(arguments[0], arguments, os.Environ()); err != nil {
 		fatalf("exec /new-api: %v", err)
 	}

@@ -40,7 +40,7 @@ none of them may be cherry-picked as an implementation shortcut.
 | ROUTES | `web/default/src/routeTree.gen.ts` | Regenerate | Router generator produces a clean tree |
 | I18N | all legacy locale JSON changes | Drop legacy translation churn; add only keys required by rebuilt UI | Default build; translation completeness is outside this remediation |
 | DOCS | `README.md`, `AGENTS.md`, legacy `docs/ops/**` | Drop or rewrite from final architecture | Final runbooks match tested commands and immutable artifacts |
-| LEGACY-CI | `.github/workflows/codex-build-ghcr-amd64.yml` | Drop | External reproducible build pipeline with digest, SBOM and scan |
+| LEGACY-CI | `.github/workflows/codex-build-ghcr-amd64.yml` | Drop | Signed digest delivery through the production workflow |
 
 ## Known Legacy Implementations That Must Not Return
 
@@ -66,7 +66,7 @@ none of them may be cherry-picked as an implementation shortcut.
 5. Invitation and group-status services.
 6. CC Switch ticket service and shared provider payload builder.
 7. Default/classic frontend integrations, generated routes, and API schema.
-8. Infrastructure slot identity, canary routing, build provenance, and runbooks.
+8. Infrastructure slot identity, idle-slot routing, build provenance, and runbooks.
 
 No frontend port may define a second business contract that differs from the
 backend. No infrastructure port may regain business-database write access.
