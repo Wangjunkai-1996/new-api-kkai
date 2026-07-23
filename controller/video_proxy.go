@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+var videoProxyRangePattern = regexp.MustCompile(`^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$`)
 
 // videoProxyError returns a standardized OpenAI-style error response.
 func videoProxyError(c *gin.Context, status int, errType, message string) {
@@ -82,6 +85,11 @@ func VideoProxy(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
+	rangeHeader, rangeErr := videoProxyRangeHeader(c.Request.Header)
+	if rangeErr != nil {
+		videoProxyError(c, http.StatusBadRequest, "invalid_request_error", "range header is invalid")
+		return
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "", nil)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create request: %s", err.Error()))
@@ -112,8 +120,11 @@ func VideoProxy(c *gin.Context) {
 			return
 		}
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
-		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
+		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", strings.TrimRight(baseURL, "/"), task.GetUpstreamTaskID())
 		req.Header.Set("Authorization", "Bearer "+channel.Key)
+		if proxy == "" {
+			client = service.GetHttpClient()
+		}
 	default:
 		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
 		videoURL = task.GetResultURL()
@@ -135,9 +146,9 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	var validateErr error
-	if proxy == "" {
+	if proxy == "" && !isProviderManagedVideoURL(channel.Type) {
 		validateErr = service.ValidateSSRFProtectedFetchURL(videoURL)
-	} else {
+	} else if proxy != "" && !isProviderManagedVideoURL(channel.Type) {
 		fetchSetting := system_setting.GetFetchSetting()
 		validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
 	}
@@ -153,6 +164,9 @@ func VideoProxy(c *gin.Context) {
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
+	if rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -162,7 +176,7 @@ func VideoProxy(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
@@ -180,6 +194,25 @@ func VideoProxy(c *gin.Context) {
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
 	}
+}
+
+func isProviderManagedVideoURL(channelType int) bool {
+	return channelType == constant.ChannelTypeOpenAI || channelType == constant.ChannelTypeSora
+}
+
+func videoProxyRangeHeader(header http.Header) (string, error) {
+	values := header.Values("Range")
+	if len(values) == 0 {
+		return "", nil
+	}
+	if len(values) > 1 {
+		return "", fmt.Errorf("multiple range headers")
+	}
+	value := strings.TrimSpace(values[0])
+	if len(value) > 128 || !videoProxyRangePattern.MatchString(value) {
+		return "", fmt.Errorf("invalid range header")
+	}
+	return value, nil
 }
 
 func writeVideoDataURL(c *gin.Context, dataURL string) error {
