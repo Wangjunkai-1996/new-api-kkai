@@ -48,6 +48,26 @@ func TestTopUpRebateOutboxHandlerDeliversTypedIntegerPayload(t *testing.T) {
 	require.NoError(t, handler.Handle(context.Background(), topUpRebateOutboxEvent(t)))
 }
 
+func TestTopUpRebateOutboxHandlerAcceptsRedemptionEventIdentity(t *testing.T) {
+	event := topUpRebateOutboxEvent(t)
+	payload := model.TopUpCompletedEvent{
+		SchemaVersion:   2,
+		EventKey:        "newapi:redemption:7878",
+		EventType:       "topup.completed",
+		SourceOrderID:   7878,
+		InviteeID:       3120,
+		InviterGroup:    "default",
+		CreditedQuota:   500_000_000,
+		CompletedAt:     1_784_010_626,
+		PaymentProvider: model.PaymentProviderRedemption,
+	}
+	encoded, err := common.Marshal(payload)
+	require.NoError(t, err)
+	event.EventKey = payload.EventKey
+	event.Payload = string(encoded)
+	require.True(t, validTopUpCompletedPayload(event, payload))
+}
+
 func TestTopUpRebateOutboxHandlerClassifiesPermanentAndRetryableFailures(t *testing.T) {
 	event := topUpRebateOutboxEvent(t)
 	for _, testCase := range []struct {
@@ -121,6 +141,7 @@ func TestTopUpRebateOutboxHandlerRejectsInvalidEventContractBeforeDelivery(t *te
 	for _, payload := range []model.TopUpCompletedEvent{
 		{SchemaVersion: 1, EventKey: event.EventKey, EventType: "topup.completed", SourceOrderID: 842, InviteeID: 3418, CreditedQuota: 1, CompletedAt: 1, PaymentProvider: "epay"},
 		{SchemaVersion: 2, EventKey: event.EventKey, EventType: "topup.completed", SourceOrderID: 842, InviteeID: 3418, CreditedQuota: 0, CompletedAt: 1, PaymentProvider: "epay"},
+		{SchemaVersion: 2, EventKey: event.EventKey, EventType: "topup.completed", SourceOrderID: 842, InviteeID: 3418, CreditedQuota: 1, CompletedAt: 1, PaymentProvider: model.PaymentProviderRedemption},
 	} {
 		encoded, err := common.Marshal(payload)
 		require.NoError(t, err)
