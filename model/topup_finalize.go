@@ -76,9 +76,19 @@ type TopUpCompletedEventInput struct {
 }
 
 func NewTopUpCompletedEvent(input TopUpCompletedEventInput) (*TopUpCompletedEvent, error) {
+	return newCompletedRebateEvent(input, "topup")
+}
+
+func NewRedemptionCompletedEvent(input TopUpCompletedEventInput) (*TopUpCompletedEvent, error) {
+	input.PaymentProvider = PaymentProviderRedemption
+	return newCompletedRebateEvent(input, "redemption")
+}
+
+func newCompletedRebateEvent(input TopUpCompletedEventInput, eventKeyPrefix string) (*TopUpCompletedEvent, error) {
 	if input.SourceOrderID <= 0 || input.InviteeID <= 0 || input.CreditedQuota <= 0 ||
 		input.CompletedAt <= 0 || strings.TrimSpace(input.PaymentProvider) == "" ||
-		(input.InviterID != nil && *input.InviterID <= 0) {
+		(input.InviterID != nil && *input.InviterID <= 0) ||
+		(eventKeyPrefix != "topup" && eventKeyPrefix != "redemption") {
 		return nil, ErrTopUpFinalizationInvalidInput
 	}
 	inviterGroup := strings.TrimSpace(input.InviterGroup)
@@ -87,7 +97,7 @@ func NewTopUpCompletedEvent(input TopUpCompletedEventInput) (*TopUpCompletedEven
 	}
 	return &TopUpCompletedEvent{
 		SchemaVersion:   2,
-		EventKey:        fmt.Sprintf("newapi:topup:%d", input.SourceOrderID),
+		EventKey:        fmt.Sprintf("newapi:%s:%d", eventKeyPrefix, input.SourceOrderID),
 		EventType:       "topup.completed",
 		SourceOrderID:   input.SourceOrderID,
 		InviteeID:       input.InviteeID,
@@ -221,6 +231,18 @@ func enqueueTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, credit
 	if err != nil {
 		return err
 	}
+	return enqueueCompletedRebateEvent(tx, payload, fmt.Sprintf("%d", topUp.Id), completedAt)
+}
+
+func enqueueRedemptionCompletedEvent(tx *gorm.DB, redemption *Redemption, invitee *User, completedAt int64) error {
+	payload, err := buildRedemptionCompletedEvent(tx, redemption, invitee, completedAt)
+	if err != nil {
+		return err
+	}
+	return enqueueCompletedRebateEvent(tx, payload, fmt.Sprintf("%d", redemption.Id), completedAt)
+}
+
+func enqueueCompletedRebateEvent(tx *gorm.DB, payload *TopUpCompletedEvent, aggregateID string, completedAt int64) error {
 	payloadJSON, err := common.Marshal(payload)
 	if err != nil {
 		return err
@@ -228,7 +250,7 @@ func enqueueTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, credit
 	return tx.Create(&KKAIOutboxEvent{
 		EventKey:    payload.EventKey,
 		Topic:       KKAIOutboxTopicTopUpCompleted,
-		AggregateID: fmt.Sprintf("%d", topUp.Id),
+		AggregateID: aggregateID,
 		Payload:     string(payloadJSON),
 		Status:      KKAIOutboxStatusPending,
 		AvailableAt: completedAt,
@@ -283,22 +305,9 @@ func lockTopUpByTradeNo(tx *gorm.DB, tradeNo string) (*TopUp, error) {
 }
 
 func buildTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, creditedQuota int64, completedAt int64) (*TopUpCompletedEvent, error) {
-	inviterGroup := "default"
-	var inviterID *int64
-	if invitee.InviterId > 0 {
-		inviter := &User{}
-		if err := lockForUpdate(tx).Select("id", "group").Where("id = ?", invitee.InviterId).First(inviter).Error; err != nil {
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, err
-			}
-			common.SysLog(fmt.Sprintf("topup inviter missing; completing without inviter invitee_id=%d inviter_id=%d topup_id=%d", invitee.Id, invitee.InviterId, topUp.Id))
-		} else {
-			value := int64(inviter.Id)
-			inviterID = &value
-			if strings.TrimSpace(inviter.Group) != "" {
-				inviterGroup = strings.TrimSpace(inviter.Group)
-			}
-		}
+	inviterID, inviterGroup, err := rebateInviterIdentity(tx, invitee, fmt.Sprintf("topup_id=%d", topUp.Id))
+	if err != nil {
+		return nil, err
 	}
 	return NewTopUpCompletedEvent(TopUpCompletedEventInput{
 		SourceOrderID:   int64(topUp.Id),
@@ -309,6 +318,41 @@ func buildTopUpCompletedEvent(tx *gorm.DB, topUp *TopUp, invitee *User, credited
 		CompletedAt:     completedAt,
 		PaymentProvider: topUp.PaymentProvider,
 	})
+}
+
+func buildRedemptionCompletedEvent(tx *gorm.DB, redemption *Redemption, invitee *User, completedAt int64) (*TopUpCompletedEvent, error) {
+	inviterID, inviterGroup, err := rebateInviterIdentity(tx, invitee, fmt.Sprintf("redemption_id=%d", redemption.Id))
+	if err != nil {
+		return nil, err
+	}
+	return NewRedemptionCompletedEvent(TopUpCompletedEventInput{
+		SourceOrderID: int64(redemption.Id),
+		InviteeID:     int64(invitee.Id),
+		InviterID:     inviterID,
+		InviterGroup:  inviterGroup,
+		CreditedQuota: int64(redemption.Quota),
+		CompletedAt:   completedAt,
+	})
+}
+
+func rebateInviterIdentity(tx *gorm.DB, invitee *User, source string) (*int64, string, error) {
+	inviterGroup := "default"
+	if invitee.InviterId <= 0 {
+		return nil, inviterGroup, nil
+	}
+	inviter := &User{}
+	if err := lockForUpdate(tx).Select("id", "group").Where("id = ?", invitee.InviterId).First(inviter).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "", err
+		}
+		common.SysLog(fmt.Sprintf("rebate inviter missing; completing without inviter invitee_id=%d inviter_id=%d %s", invitee.Id, invitee.InviterId, source))
+		return nil, inviterGroup, nil
+	}
+	value := int64(inviter.Id)
+	if strings.TrimSpace(inviter.Group) != "" {
+		inviterGroup = strings.TrimSpace(inviter.Group)
+	}
+	return &value, inviterGroup, nil
 }
 
 func quotaFromTopUpMoney(money float64) (int64, error) {

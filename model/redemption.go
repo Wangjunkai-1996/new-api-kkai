@@ -159,13 +159,14 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
 			return errors.New("该兑换码已过期")
 		}
+		redeemedAt := common.GetTimestamp()
 		// Compare-and-swap on status: only the transaction that flips
 		// enabled -> used may credit quota, so a concurrent redeem of the
 		// same code loses here even without a row lock (e.g. on SQLite).
 		result := tx.Model(&Redemption{}).
 			Where("id = ? AND status = ?", redemption.Id, common.RedemptionCodeStatusEnabled).
 			Updates(map[string]interface{}{
-				"redeemed_time": common.GetTimestamp(),
+				"redeemed_time": redeemedAt,
 				"status":        common.RedemptionCodeStatusUsed,
 				"used_user_id":  userId,
 			})
@@ -178,7 +179,14 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if redemption.Quota <= 0 {
 			return errors.New("兑换额度必须大于零")
 		}
-		return increaseUserQuotaWithDB(tx, userId, int64(redemption.Quota))
+		invitee := &User{}
+		if err := lockForUpdate(tx).Where("id = ?", userId).First(invitee).Error; err != nil {
+			return err
+		}
+		if err := increaseUserQuotaWithDB(tx, userId, int64(redemption.Quota)); err != nil {
+			return err
+		}
+		return enqueueRedemptionCompletedEvent(tx, redemption, invitee, redeemedAt)
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())

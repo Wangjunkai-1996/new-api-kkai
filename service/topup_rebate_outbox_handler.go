@@ -89,7 +89,11 @@ func (h *TopUpRebateOutboxHandler) Handle(ctx context.Context, event model.KKAIO
 }
 
 func validTopUpCompletedPayload(event model.KKAIOutboxEvent, payload model.TopUpCompletedEvent) bool {
-	expectedEventKey := fmt.Sprintf("newapi:topup:%d", payload.SourceOrderID)
+	eventKeyPrefix := "topup"
+	if payload.PaymentProvider == model.PaymentProviderRedemption {
+		eventKeyPrefix = "redemption"
+	}
+	expectedEventKey := fmt.Sprintf("newapi:%s:%d", eventKeyPrefix, payload.SourceOrderID)
 	return payload.SchemaVersion == 2 &&
 		payload.EventType == "topup.completed" &&
 		payload.EventKey == expectedEventKey &&
