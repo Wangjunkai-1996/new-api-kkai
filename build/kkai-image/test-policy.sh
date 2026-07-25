@@ -39,6 +39,16 @@ contains '-o /out/kkai-migrate ./cmd/kkai-migrate' "${DOCKERFILE}" ||
   fail "Dockerfile does not retain /kkai-migrate"
 [[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 2 ]] ||
   fail "application and migrator must compile with external schema management"
+[[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1' "${DOCKERFILE}")" -eq 1 ]] ||
+  fail "frontend dependencies must use one serialized, shared install stage"
+contains 'id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked' "${DOCKERFILE}" ||
+  fail "frontend dependency downloads do not use a persistent locked cache"
+contains 'FROM web-deps AS web-default' "${DOCKERFILE}" ||
+  fail "default frontend does not reuse the shared dependency stage"
+contains 'FROM web-deps AS web-classic' "${DOCKERFILE}" ||
+  fail "classic frontend does not reuse the shared dependency stage"
+[[ "$(grep -Fc -- 'id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked' "${DOCKERFILE}")" -eq 2 ]] ||
+  fail "Go module downloads do not use the shared persistent cache"
 
 contains '--platform linux/amd64' "${BUILD_SCRIPT}" || fail "manual build is not pinned to AMD64"
 contains 'production/kkrich' "${BUILD_SCRIPT}" || fail "manual build does not require the production branch"
@@ -47,6 +57,15 @@ contains 'status --porcelain=v1 --untracked-files=all' "${BUILD_SCRIPT}" ||
 contains '--output "type=docker,dest=${archive}"' "${BUILD_SCRIPT}" ||
   fail "manual build does not export a Docker archive"
 contains 'archive_sha256' "${BUILD_SCRIPT}" || fail "manual build omits archive integrity metadata"
+contains 'BUILD_HTTP_PROXY' "${BUILD_SCRIPT}" || fail "manual build cannot accept an HTTP proxy"
+contains '--build-arg "HTTP_PROXY=${build_http_proxy}"' "${BUILD_SCRIPT}" ||
+  fail "manual build does not forward the HTTP proxy into build stages"
+contains '--build-arg "HTTPS_PROXY=${build_https_proxy}"' "${BUILD_SCRIPT}" ||
+  fail "manual build does not forward the HTTPS proxy into build stages"
+contains '--build-arg "http_proxy=${build_http_proxy}"' "${BUILD_SCRIPT}" ||
+  fail "manual build does not forward the lowercase HTTP proxy into build stages"
+contains '--build-arg "https_proxy=${build_https_proxy}"' "${BUILD_SCRIPT}" ||
+  fail "manual build does not forward the lowercase HTTPS proxy into build stages"
 
 contains 'tokk@10.203.0.1' "${DEPLOY_SCRIPT}" || fail "manual deploy does not use the private host"
 contains 'ProxyCommand=none' "${DEPLOY_SCRIPT}" || fail "manual deploy may use an SSH proxy"

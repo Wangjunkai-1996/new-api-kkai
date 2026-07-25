@@ -12,6 +12,16 @@ The application and `/kkai-migrate` are compiled with
 AutoMigrate when it starts in the read-only idle slot. Database maintenance is
 separate from ordinary application delivery.
 
+When Docker build stages require the operator workstation proxy, pass it
+explicitly without changing the image definition:
+
+```bash
+BUILD_HTTP_PROXY=http://host.docker.internal:17897 \
+BUILD_HTTPS_PROXY=http://host.docker.internal:17897 \
+BUILDX_BUILDER=kkai-mirror-builder \
+scripts/kkai/build-manual-release.sh
+```
+
 Deploy the metadata file explicitly with
 `scripts/kkai/deploy-manual-release.sh`. No GitHub workflow builds or deploys
 KKAI production images.

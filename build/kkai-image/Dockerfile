@@ -5,27 +5,25 @@ ARG GO_IMAGE=golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2
 ARG BUSYBOX_IMAGE=busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
 
-FROM ${BUN_IMAGE} AS web-default
-
-ARG APP_VERSION
+FROM ${BUN_IMAGE} AS web-deps
 WORKDIR /build/web
 COPY web/package.json web/bun.lock ./
 COPY web/default/package.json ./default/package.json
 COPY web/classic/package.json ./classic/package.json
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked \
+    bun install --frozen-lockfile --network-concurrency=1
+
+FROM web-deps AS web-default
+
+ARG APP_VERSION
 COPY web/default ./default
 RUN test -n "${APP_VERSION}" \
     && cd default \
     && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
 
-FROM ${BUN_IMAGE} AS web-classic
+FROM web-deps AS web-classic
 
 ARG APP_VERSION
-WORKDIR /build/web
-COPY web/package.json web/bun.lock ./
-COPY web/default/package.json ./default/package.json
-COPY web/classic/package.json ./classic/package.json
-RUN bun install --filter ./classic --frozen-lockfile
 COPY web/classic ./classic
 RUN test -n "${APP_VERSION}" \
     && cd classic \
@@ -45,7 +43,8 @@ ENV CGO_ENABLED=0 \
 
 WORKDIR /build
 COPY go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    go mod download && go mod verify
 COPY . .
 COPY --from=web-default /build/web/default/dist ./web/default/dist
 COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
@@ -63,7 +62,8 @@ FROM ${GO_IMAGE} AS runtime-tools
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 WORKDIR /tools
 COPY --from=kkai_image go.mod go.sum ./
-RUN go mod download && go mod verify
+RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    go mod download && go mod verify
 COPY --from=kkai_image cmd ./cmd
 COPY --from=kkai_image internal ./internal
 RUN go build -trimpath -ldflags '-s -w -buildid=' -o /out/new-api-entrypoint ./cmd/entrypoint \
