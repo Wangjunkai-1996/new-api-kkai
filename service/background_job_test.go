@@ -49,6 +49,14 @@ func TestBackgroundJobRegistryRejectsUnsafeDeclarations(t *testing.T) {
 		WritesData: true,
 		Run:        func(context.Context) error { return nil },
 	}), ErrInvalidBackgroundJob)
+	require.ErrorIs(t, registry.Register(BackgroundJob{
+		Name:                     "ambiguous-local-writer",
+		Interval:                 time.Minute,
+		WritesData:               true,
+		RequiresLeaderLease:      true,
+		FlushesProcessLocalState: true,
+		Run:                      func(context.Context) error { return nil },
+	}), ErrInvalidBackgroundJob)
 
 	valid := BackgroundJob{
 		Name:                "safe-writer",
@@ -59,6 +67,95 @@ func TestBackgroundJobRegistryRejectsUnsafeDeclarations(t *testing.T) {
 	}
 	require.NoError(t, registry.Register(valid))
 	require.ErrorIs(t, registry.Register(valid), ErrDuplicateBackgroundJob)
+	require.NoError(t, registry.Register(BackgroundJob{
+		Name:                     "request-local-writer",
+		Interval:                 time.Minute,
+		WritesData:               true,
+		FlushesProcessLocalState: true,
+		Run:                      func(context.Context) error { return nil },
+	}))
+}
+
+func TestBackgroundJobRegistryRunsProcessLocalWriterOnServingRuntime(t *testing.T) {
+	registry := NewBackgroundJobRegistry()
+	localRan := make(chan struct{}, 1)
+	require.NoError(t, registry.Register(BackgroundJob{
+		Name:                     "request-local-writer",
+		Interval:                 time.Hour,
+		RunOnStart:               true,
+		WritesData:               true,
+		FlushesProcessLocalState: true,
+		Run: func(context.Context) error {
+			localRan <- struct{}{}
+			return nil
+		},
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- registry.Run(ctx, BackgroundJobRuntime{
+			Role:                  common.NodeRoleServing,
+			LocalWriteJobsEnabled: true,
+		})
+	}()
+
+	select {
+	case <-localRan:
+	case <-time.After(time.Second):
+		t.Fatal("process-local writer did not start on serving runtime")
+	}
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestBackgroundJobRegistryRejectsProcessLocalWriterOnStandby(t *testing.T) {
+	registry := NewBackgroundJobRegistry()
+	require.NoError(t, registry.Register(BackgroundJob{
+		Name:                     "request-local-writer",
+		Interval:                 time.Hour,
+		WritesData:               true,
+		FlushesProcessLocalState: true,
+		Run:                      func(context.Context) error { return nil },
+	}))
+
+	err := registry.Run(context.Background(), BackgroundJobRuntime{
+		Role:                  common.NodeRoleStandbyReadonly,
+		LocalWriteJobsEnabled: true,
+	})
+	require.ErrorIs(t, err, ErrInvalidJobRuntime)
+}
+
+func TestBackgroundJobRegistryFlushesProcessLocalStateOnShutdown(t *testing.T) {
+	registry := NewBackgroundJobRegistry()
+	flushed := make(chan struct{}, 1)
+	require.NoError(t, registry.Register(BackgroundJob{
+		Name:                     "request-local-writer",
+		Interval:                 time.Hour,
+		RunOnShutdown:            true,
+		WritesData:               true,
+		FlushesProcessLocalState: true,
+		Run: func(context.Context) error {
+			flushed <- struct{}{}
+			return nil
+		},
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- registry.Run(ctx, BackgroundJobRuntime{
+			Role:                  common.NodeRoleServing,
+			LocalWriteJobsEnabled: true,
+		})
+	}()
+	cancel()
+	require.NoError(t, <-done)
+	select {
+	case <-flushed:
+	default:
+		t.Fatal("process-local state was not flushed on shutdown")
+	}
 }
 
 func TestBackgroundJobRegistryRunsOnlyReadJobsWithoutLeaderCapability(t *testing.T) {

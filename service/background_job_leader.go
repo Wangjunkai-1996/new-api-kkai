@@ -50,11 +50,7 @@ func runLeadershipTerm(parent context.Context, runtime BackgroundJobRuntime, job
 			cancel()
 			jobsWG.Wait()
 			releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
-			for _, job := range jobs {
-				if job.RunOnShutdown {
-					runBackgroundJob(releaseCtx, job)
-				}
-			}
+			runBackgroundShutdownJobs(releaseCtx, jobs)
 			if err := runtime.Lease.Release(releaseCtx, runtime.HolderID); err != nil {
 				logger.LogWarn(context.Background(), fmt.Sprintf("background leader lease release failed: %v", err))
 			}

@@ -118,9 +118,10 @@ func main() {
 		backgroundDone <- backgroundJobs.Run(backgroundCtx, currentBackgroundJobRuntime(backgroundWorker))
 	}()
 	common.SysLog(fmt.Sprintf(
-		"background jobs started: role=%s write_jobs=%t",
+		"background jobs started: role=%s write_jobs=%t local_write_jobs=%t",
 		common.CurrentNodeRole(),
 		common.CanRunWriteBackgroundJobs(),
+		common.CanRunProcessLocalBackgroundJobs(),
 	))
 
 	if os.Getenv("ENABLE_PPROF") == "true" {

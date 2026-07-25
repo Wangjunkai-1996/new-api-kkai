@@ -6,17 +6,20 @@ infinite-loop goroutines for database-writing maintenance.
 
 ## Node Roles
 
-`KKAI_NODE_ROLE` accepts three values:
+`KKAI_NODE_ROLE` accepts three values. Request-local flushes persist data that
+exists only inside the process handling the request; they are not global
+maintenance ownership.
 
-| Role | Serves requests | Read-only sync | Write jobs | Runtime AutoMigrate |
-| --- | --- | --- | --- | --- |
-| `standby-readonly` | Yes, for direct health checks | Yes | No | No |
-| `serving` | Yes | Yes | No | No |
-| `leader` | Yes | Yes | Only while holding the global lease | No |
+| Role | Serves requests | Read-only sync | Request-local flushes | Global write jobs | Runtime AutoMigrate |
+| --- | --- | --- | --- | --- | --- |
+| `standby-readonly` | Yes, for direct health checks | Yes | No | No | No |
+| `serving` | Yes | Yes | Yes | No | No |
+| `leader` | Yes | Yes | Yes | Only while holding the global lease | No |
 
 For compatibility, `NODE_TYPE=slave` maps to `standby-readonly` when
-`KKAI_NODE_ROLE` is unset. `DISABLE_BACKGROUND_TASKS=true` disables write jobs
-only; options, channel cache, authorization policy, and pricing continue to
+`KKAI_NODE_ROLE` is unset. `DISABLE_BACKGROUND_TASKS=true` disables global write
+jobs only; a request-capable node still flushes state accumulated by its own
+requests. Options, channel cache, authorization policy, and pricing continue to
 refresh on every node. Generic development builds retain upstream AutoMigrate.
 Formal images are compiled with immutable `schema_management=external`, so
 production startup never runs GORM AutoMigrate regardless of role or environment
@@ -25,12 +28,15 @@ drift.
 ## Registry Rules
 
 - Every job has a stable name and positive interval.
-- A job is either read-only or a writer. Every writer must declare that it
-  requires the leader lease.
+- A job is read-only, a request-local state flush, or a global writer.
+- A request-local state flush must declare `FlushesProcessLocalState`; it runs
+  only on `serving` and `leader` roles and never on standby.
+- Every other writer must declare that it requires the leader lease.
 - Read-only jobs run on all roles.
 - Only a `leader` role with write jobs enabled attempts the lease.
 - Lease loss cancels the leadership context before another acquisition attempt.
-- Shutdown flushes run before the holder releases a lease it still owns.
+- Request-local and leader-owned shutdown flushes run before process exit; the
+  leader releases a lease only after its own shutdown flushes.
 - `BATCH_UPDATE_ENABLED=true` is rejected because process-local quota buffers
   cannot be transferred safely during a leader change.
 
@@ -65,10 +71,12 @@ migrations or implicit ability repair.
 The application registry contains these classes:
 
 - Read-only: runtime options, channel cache, authorization policy, pricing.
+- Request-local writes: quota dashboard flush.
 - Leader writes: system instance reporting, system task maintenance, Codex
-  credential refresh, subscription maintenance, quota dashboard flush,
-  performance metric flush, optional channel balance refresh, KKAI risk stream
-  consumption, and durable outbox delivery.
+  credential refresh, subscription maintenance, performance metric flush,
+  optional channel balance refresh, KKAI risk stream consumption, and durable
+  outbox delivery.
 
 Adding a recurring writer requires a registry entry, context-aware execution,
-and a regression test proving it cannot run without leader capability.
+and a regression test proving that it runs only within its declared request-local
+or leader-owned scope.

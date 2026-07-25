@@ -76,15 +76,15 @@ func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegist
 			Run:                 service.RunSubscriptionMaintenance,
 		},
 		{
-			Name:                "quota-dashboard-flush",
-			Interval:            positiveMinutes(common.DataExportInterval),
-			RunOnStart:          true,
-			RunOnShutdown:       true,
-			WritesData:          true,
-			RequiresLeaderLease: true,
+			Name:                     "quota-dashboard-flush",
+			Interval:                 positiveMinutes(common.DataExportInterval),
+			RunOnStart:               true,
+			RunOnShutdown:            true,
+			WritesData:               true,
+			FlushesProcessLocalState: true,
 			Run: func(context.Context) error {
 				if common.DataExportEnabled {
-					model.SaveQuotaDataCache()
+					return model.SaveQuotaDataCache()
 				}
 				return nil
 			},
@@ -171,8 +171,9 @@ func backgroundWorkerID() string {
 
 func currentBackgroundJobRuntime(workerID string) service.BackgroundJobRuntime {
 	runtime := service.BackgroundJobRuntime{
-		Role:             common.CurrentNodeRole(),
-		WriteJobsEnabled: common.CanRunWriteBackgroundJobs(),
+		Role:                  common.CurrentNodeRole(),
+		WriteJobsEnabled:      common.CanRunWriteBackgroundJobs(),
+		LocalWriteJobsEnabled: common.CanRunProcessLocalBackgroundJobs(),
 	}
 	if !runtime.WriteJobsEnabled {
 		return runtime

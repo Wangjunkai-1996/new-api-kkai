@@ -19,14 +19,15 @@ var (
 )
 
 type BackgroundJob struct {
-	Name                string
-	Interval            time.Duration
-	RunOnStart          bool
-	RunOnShutdown       bool
-	WritesData          bool
-	RequiresLeaderLease bool
-	Wakeup              <-chan struct{}
-	Run                 func(context.Context) error
+	Name                     string
+	Interval                 time.Duration
+	RunOnStart               bool
+	RunOnShutdown            bool
+	WritesData               bool
+	RequiresLeaderLease      bool
+	FlushesProcessLocalState bool
+	Wakeup                   <-chan struct{}
+	Run                      func(context.Context) error
 }
 
 type BackgroundJobLease interface {
@@ -36,12 +37,13 @@ type BackgroundJobLease interface {
 }
 
 type BackgroundJobRuntime struct {
-	Role               common.NodeRole
-	WriteJobsEnabled   bool
-	HolderID           string
-	Lease              BackgroundJobLease
-	LeaseTTL           time.Duration
-	LeaseRetryInterval time.Duration
+	Role                  common.NodeRole
+	WriteJobsEnabled      bool
+	LocalWriteJobsEnabled bool
+	HolderID              string
+	Lease                 BackgroundJobLease
+	LeaseTTL              time.Duration
+	LeaseRetryInterval    time.Duration
 }
 
 type BackgroundJobRegistry struct {
@@ -50,12 +52,13 @@ type BackgroundJobRegistry struct {
 }
 
 type BackgroundJobDescriptor struct {
-	Name                string
-	Interval            time.Duration
-	RunOnStart          bool
-	RunOnShutdown       bool
-	WritesData          bool
-	RequiresLeaderLease bool
+	Name                     string
+	Interval                 time.Duration
+	RunOnStart               bool
+	RunOnShutdown            bool
+	WritesData               bool
+	RequiresLeaderLease      bool
+	FlushesProcessLocalState bool
 }
 
 func NewBackgroundJobRegistry() *BackgroundJobRegistry {
@@ -63,8 +66,14 @@ func NewBackgroundJobRegistry() *BackgroundJobRegistry {
 }
 
 func (r *BackgroundJobRegistry) Register(job BackgroundJob) error {
-	if r == nil || !leaderLeaseNamePattern.MatchString(job.Name) || job.Interval <= 0 || job.Run == nil ||
-		job.WritesData != job.RequiresLeaderLease {
+	if r == nil || !leaderLeaseNamePattern.MatchString(job.Name) || job.Interval <= 0 || job.Run == nil {
+		return ErrInvalidBackgroundJob
+	}
+	if job.WritesData {
+		if job.RequiresLeaderLease == job.FlushesProcessLocalState {
+			return ErrInvalidBackgroundJob
+		}
+	} else if job.RequiresLeaderLease || job.FlushesProcessLocalState {
 		return ErrInvalidBackgroundJob
 	}
 	r.mu.Lock()
@@ -80,31 +89,46 @@ func (r *BackgroundJobRegistry) Run(ctx context.Context, runtime BackgroundJobRu
 	if r == nil {
 		return ErrInvalidJobRuntime
 	}
-	readJobs, writeJobs := r.partitionedJobs()
-	if runtime.WriteJobsEnabled && len(writeJobs) > 0 {
+	readJobs, localWriteJobs, leaderWriteJobs := r.partitionedJobs()
+	if runtime.LocalWriteJobsEnabled && len(localWriteJobs) > 0 {
+		if runtime.Role != common.NodeRoleServing && runtime.Role != common.NodeRoleLeader {
+			return ErrInvalidJobRuntime
+		}
+	}
+	if runtime.WriteJobsEnabled && len(leaderWriteJobs) > 0 {
 		if err := validateBackgroundJobRuntime(runtime); err != nil {
 			return err
 		}
 	}
-	var readWG sync.WaitGroup
-	for _, job := range readJobs {
-		readWG.Add(1)
+	jobs := make([]BackgroundJob, 0, len(readJobs)+len(localWriteJobs))
+	jobs = append(jobs, readJobs...)
+	if runtime.LocalWriteJobsEnabled {
+		jobs = append(jobs, localWriteJobs...)
+	}
+	var jobsWG sync.WaitGroup
+	for _, job := range jobs {
+		jobsWG.Add(1)
 		go func(job BackgroundJob) {
-			defer readWG.Done()
+			defer jobsWG.Done()
 			runBackgroundJobLoop(ctx, job)
 		}(job)
 	}
 
-	if runtime.WriteJobsEnabled && len(writeJobs) > 0 {
-		runLeaderBackgroundJobs(ctx, runtime, writeJobs)
+	if runtime.WriteJobsEnabled && len(leaderWriteJobs) > 0 {
+		runLeaderBackgroundJobs(ctx, runtime, leaderWriteJobs)
 	} else {
 		<-ctx.Done()
 	}
-	readWG.Wait()
+	jobsWG.Wait()
+	if runtime.LocalWriteJobsEnabled {
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		runBackgroundShutdownJobs(shutdownCtx, localWriteJobs)
+		cancel()
+	}
 	return nil
 }
 
-func (r *BackgroundJobRegistry) partitionedJobs() ([]BackgroundJob, []BackgroundJob) {
+func (r *BackgroundJobRegistry) partitionedJobs() ([]BackgroundJob, []BackgroundJob, []BackgroundJob) {
 	r.mu.RLock()
 	jobs := make([]BackgroundJob, 0, len(r.jobs))
 	for _, job := range r.jobs {
@@ -114,32 +138,40 @@ func (r *BackgroundJobRegistry) partitionedJobs() ([]BackgroundJob, []Background
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].Name < jobs[j].Name })
 
 	readJobs := make([]BackgroundJob, 0, len(jobs))
-	writeJobs := make([]BackgroundJob, 0, len(jobs))
+	localWriteJobs := make([]BackgroundJob, 0, len(jobs))
+	leaderWriteJobs := make([]BackgroundJob, 0, len(jobs))
 	for _, job := range jobs {
-		if job.WritesData {
-			writeJobs = append(writeJobs, job)
-		} else {
+		switch {
+		case job.FlushesProcessLocalState:
+			localWriteJobs = append(localWriteJobs, job)
+		case job.WritesData:
+			leaderWriteJobs = append(leaderWriteJobs, job)
+		default:
 			readJobs = append(readJobs, job)
 		}
 	}
-	return readJobs, writeJobs
+	return readJobs, localWriteJobs, leaderWriteJobs
 }
 
 func (r *BackgroundJobRegistry) Descriptors() []BackgroundJobDescriptor {
 	if r == nil {
 		return nil
 	}
-	readJobs, writeJobs := r.partitionedJobs()
-	jobs := append(readJobs, writeJobs...)
+	readJobs, localWriteJobs, leaderWriteJobs := r.partitionedJobs()
+	jobs := make([]BackgroundJob, 0, len(readJobs)+len(localWriteJobs)+len(leaderWriteJobs))
+	jobs = append(jobs, readJobs...)
+	jobs = append(jobs, localWriteJobs...)
+	jobs = append(jobs, leaderWriteJobs...)
 	descriptors := make([]BackgroundJobDescriptor, 0, len(jobs))
 	for _, job := range jobs {
 		descriptors = append(descriptors, BackgroundJobDescriptor{
-			Name:                job.Name,
-			Interval:            job.Interval,
-			RunOnStart:          job.RunOnStart,
-			RunOnShutdown:       job.RunOnShutdown,
-			WritesData:          job.WritesData,
-			RequiresLeaderLease: job.RequiresLeaderLease,
+			Name:                     job.Name,
+			Interval:                 job.Interval,
+			RunOnStart:               job.RunOnStart,
+			RunOnShutdown:            job.RunOnShutdown,
+			WritesData:               job.WritesData,
+			RequiresLeaderLease:      job.RequiresLeaderLease,
+			FlushesProcessLocalState: job.FlushesProcessLocalState,
 		})
 	}
 	sort.Slice(descriptors, func(i, j int) bool { return descriptors[i].Name < descriptors[j].Name })
@@ -175,6 +207,14 @@ func runBackgroundJobLoop(ctx context.Context, job BackgroundJob) {
 func runBackgroundJob(ctx context.Context, job BackgroundJob) {
 	if err := executeBackgroundJob(ctx, job); err != nil && !errors.Is(err, context.Canceled) {
 		logger.LogWarn(context.Background(), fmt.Sprintf("background job %s failed: %v", job.Name, err))
+	}
+}
+
+func runBackgroundShutdownJobs(ctx context.Context, jobs []BackgroundJob) {
+	for _, job := range jobs {
+		if job.RunOnShutdown {
+			runBackgroundJob(ctx, job)
+		}
 	}
 }
 

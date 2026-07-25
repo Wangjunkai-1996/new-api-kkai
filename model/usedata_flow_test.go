@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func seedFlowQuotaData(t *testing.T, quotaData QuotaData) {
@@ -175,7 +177,7 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 		TokenUsed: 10,
 	})
 
-	SaveQuotaDataCache()
+	require.NoError(t, SaveQuotaDataCache())
 
 	var rows []QuotaData
 	require.NoError(t, DB.Order("quota DESC").Find(&rows).Error)
@@ -190,4 +192,43 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	require.Equal(t, 60, rows[0].TokenUsed)
 	require.Equal(t, "default", rows[1].UseGroup)
 	require.Equal(t, 25, rows[1].Quota)
+}
+
+func TestSaveQuotaDataCacheRetainsRowsWhenDatabaseWriteFails(t *testing.T) {
+	failedDB, err := gorm.Open(sqlite.Open("file:quota-data-flush-failure?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	previousDB := DB
+	DB = failedDB
+	t.Cleanup(func() {
+		DB = previousDB
+		CacheQuotaDataLock.Lock()
+		CacheQuotaData = make(map[string]*QuotaData)
+		CacheQuotaDataLock.Unlock()
+	})
+
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+	LogQuotaData(QuotaDataLogParams{
+		UserID:    1,
+		Username:  "alice",
+		ModelName: "gpt-a",
+		CreatedAt: 3661,
+		UseGroup:  "vip",
+		TokenID:   11,
+		ChannelID: 1,
+		NodeName:  "node-a",
+		Quota:     100,
+		TokenUsed: 40,
+	})
+
+	require.Error(t, SaveQuotaDataCache())
+	CacheQuotaDataLock.Lock()
+	defer CacheQuotaDataLock.Unlock()
+	require.Len(t, CacheQuotaData, 1)
+	for _, quotaData := range CacheQuotaData {
+		require.Equal(t, 1, quotaData.Count)
+		require.Equal(t, 100, quotaData.Quota)
+		require.Equal(t, 40, quotaData.TokenUsed)
+	}
 }

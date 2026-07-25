@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -86,35 +87,55 @@ func LogQuotaData(params QuotaDataLogParams) {
 	logQuotaDataCache(quotaData)
 }
 
-func SaveQuotaDataCache() {
+func SaveQuotaDataCache() error {
 	CacheQuotaDataLock.Lock()
-	defer CacheQuotaDataLock.Unlock()
-	size := len(CacheQuotaData)
-	// 如果缓存中有数据，就保存到数据库中
-	// 1. 先查询数据库中是否有数据
-	// 2. 如果有数据，就更新数据
-	// 3. 如果没有数据，就插入数据
-	for _, quotaData := range CacheQuotaData {
-		quotaDataDB := &QuotaData{}
-		DB.Table("quota_data").
-			Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
-				quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
-			First(quotaDataDB)
-		if quotaDataDB.Id > 0 {
-			//quotaDataDB.Count += quotaData.Count
-			//quotaDataDB.Quota += quotaData.Quota
-			//DB.Table("quota_data").Save(quotaDataDB)
-			increaseQuotaData(quotaData)
-		} else {
-			DB.Table("quota_data").Create(quotaData)
+	pending := CacheQuotaData
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+
+	failed := make([]*QuotaData, 0)
+	var firstFlushError error
+	for _, quotaData := range pending {
+		if err := persistQuotaData(quotaData); err != nil {
+			failed = append(failed, quotaData)
+			if firstFlushError == nil {
+				firstFlushError = err
+			}
 		}
 	}
-	CacheQuotaData = make(map[string]*QuotaData)
-	common.SysLog(fmt.Sprintf("保存数据看板数据成功，共保存%d条数据", size))
+	if len(failed) > 0 {
+		CacheQuotaDataLock.Lock()
+		for _, quotaData := range failed {
+			logQuotaDataCache(quotaData)
+		}
+		CacheQuotaDataLock.Unlock()
+	}
+
+	saved := len(pending) - len(failed)
+	if firstFlushError == nil {
+		common.SysLog(fmt.Sprintf("保存数据看板数据成功，共保存%d条数据", saved))
+		return nil
+	}
+	return fmt.Errorf("保存数据看板数据失败，成功%d条，保留待重试%d条: %w", saved, len(failed), firstFlushError)
 }
 
-func increaseQuotaData(quotaData *QuotaData) {
+func persistQuotaData(quotaData *QuotaData) error {
+	quotaDataDB := &QuotaData{}
 	err := DB.Table("quota_data").
+		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
+			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
+		First(quotaDataDB).Error
+	if err == nil {
+		return increaseQuotaData(quotaData)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return DB.Table("quota_data").Create(quotaData).Error
+}
+
+func increaseQuotaData(quotaData *QuotaData) error {
+	return DB.Table("quota_data").
 		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 		Updates(map[string]interface{}{
@@ -122,9 +143,6 @@ func increaseQuotaData(quotaData *QuotaData) {
 			"quota":      gorm.Expr("quota + ?", quotaData.Quota),
 			"token_used": gorm.Expr("token_used + ?", quotaData.TokenUsed),
 		}).Error
-	if err != nil {
-		common.SysLog(fmt.Sprintf("increaseQuotaData error: %s", err))
-	}
 }
 
 func GetQuotaDataByUsername(username string, startTime int64, endTime int64) (quotaData []*QuotaData, err error) {

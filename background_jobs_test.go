@@ -30,11 +30,34 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 		if descriptor.Name == "runtime-cache-sync" {
 			require.False(t, descriptor.WritesData)
 			require.False(t, descriptor.RequiresLeaderLease)
+			require.False(t, descriptor.FlushesProcessLocalState)
+			continue
+		}
+		if descriptor.Name == "quota-dashboard-flush" {
+			require.True(t, descriptor.WritesData)
+			require.False(t, descriptor.RequiresLeaderLease)
+			require.True(t, descriptor.FlushesProcessLocalState)
 			continue
 		}
 		require.True(t, descriptor.WritesData, descriptor.Name)
 		require.True(t, descriptor.RequiresLeaderLease, descriptor.Name)
+		require.False(t, descriptor.FlushesProcessLocalState, descriptor.Name)
 	}
+}
+
+func TestServingBackgroundRuntimeOwnsProcessLocalFlushes(t *testing.T) {
+	t.Setenv(common.NodeRoleEnvironmentVariable, string(common.NodeRoleServing))
+	t.Setenv("DISABLE_BACKGROUND_TASKS", "true")
+	require.NoError(t, common.InitNodeRoleFromEnvironment())
+	t.Cleanup(func() {
+		t.Setenv(common.NodeRoleEnvironmentVariable, string(common.NodeRoleLeader))
+		t.Setenv("DISABLE_BACKGROUND_TASKS", "false")
+		require.NoError(t, common.InitNodeRoleFromEnvironment())
+	})
+
+	runtime := currentBackgroundJobRuntime("node-test-worker")
+	require.False(t, runtime.WriteJobsEnabled)
+	require.True(t, runtime.LocalWriteJobsEnabled)
 }
 
 func TestApplicationBackgroundJobsRejectLocalBatchQuotaBuffer(t *testing.T) {

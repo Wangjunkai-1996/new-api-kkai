@@ -71,6 +71,10 @@ func CanRunWriteBackgroundJobs() bool {
 	return nodeRole == NodeRoleLeader && !writeBackgroundTasksDisabled
 }
 
+func CanRunProcessLocalBackgroundJobs() bool {
+	return nodeRole == NodeRoleServing || nodeRole == NodeRoleLeader
+}
+
 func CanRunSchemaMigrations() bool {
 	return IsMasterNode && nodeRole == NodeRoleLeader
 }
