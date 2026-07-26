@@ -10,7 +10,7 @@ DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 
-.PHONY: all build-web build-web-classic build-all-web start-api dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup test-standby-sync
+.PHONY: all build-web build-web-classic build-all-web start-api dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup test-manual-deploy test-standby-sync
 
 all: build-all-web start-api
 
@@ -77,3 +77,6 @@ reset-setup:
 
 test-standby-sync:
 	@bash scripts/kkai/test-standby-sync.sh
+
+test-manual-deploy:
+	@bash scripts/kkai/deploy-manual-release_test.sh

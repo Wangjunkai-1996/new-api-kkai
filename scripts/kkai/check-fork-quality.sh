@@ -72,6 +72,7 @@ done < <(git diff --name-only --diff-filter=ACMR "$BASE" -- '*.sh')
 
 echo "[2/9] Checking production image policy and runtime tools"
 "$ROOT/build/kkai-image/test-policy.sh"
+"$ROOT/scripts/kkai/deploy-manual-release_test.sh"
 (
   cd "$ROOT/build/kkai-image"
   go test ./...

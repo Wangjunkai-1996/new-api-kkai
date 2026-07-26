@@ -6,6 +6,8 @@ readonly ROOT
 readonly DOCKERFILE="${ROOT}/build/kkai-image/Dockerfile"
 readonly BUILD_SCRIPT="${ROOT}/scripts/kkai/build-manual-release.sh"
 readonly DEPLOY_SCRIPT="${ROOT}/scripts/kkai/deploy-manual-release.sh"
+readonly DEPLOY_CONTRACT="${ROOT}/scripts/kkai/manual-deployment-contract.env"
+readonly DEPLOY_TEST="${ROOT}/scripts/kkai/deploy-manual-release_test.sh"
 readonly RETIRED_WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
 readonly RETIRED_HEAD_CHECK="${ROOT}/scripts/kkai/require-production-head.sh"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
@@ -23,6 +25,8 @@ contains() {
 [[ ! -e "${RETIRED_HEAD_CHECK}" ]] || fail "automatic production head check still exists"
 [[ -x "${BUILD_SCRIPT}" ]] || fail "manual build script is missing or not executable"
 [[ -x "${DEPLOY_SCRIPT}" ]] || fail "manual deploy script is missing or not executable"
+[[ -f "${DEPLOY_CONTRACT}" ]] || fail "manual deployment contract is missing"
+[[ -x "${DEPLOY_TEST}" ]] || fail "manual deploy client tests are missing or not executable"
 
 ruby -ryaml -e 'YAML.safe_load_file(ARGV.fetch(0), aliases: true)' "${QUALITY_WORKFLOW}" >/dev/null ||
   fail "invalid quality workflow YAML"
@@ -71,6 +75,12 @@ contains 'tokk@10.203.0.1' "${DEPLOY_SCRIPT}" || fail "manual deploy does not us
 contains 'ProxyCommand=none' "${DEPLOY_SCRIPT}" || fail "manual deploy may use an SSH proxy"
 contains 'kkai-newapi-manual-deploy deploy' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not use the production controller"
+contains 'kkai-newapi-manual-deploy preflight' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not run production preflight"
+contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not pin the infrastructure SHA"
+contains '--deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not pin the deployment protocol"
 contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
 
 if grep -Eiq 'github actions|ghcr\.io|cosign|repository_dispatch|newapi_image_ready' \

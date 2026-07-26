@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+readonly ROOT
+readonly CONTRACT="${ROOT}/scripts/kkai/manual-deployment-contract.env"
+
 die() {
   echo "deploy-manual-release: $*" >&2
   exit 1
@@ -18,9 +22,18 @@ sha256_file() {
 METADATA="$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")"
 readonly METADATA
 [[ -f "${METADATA}" ]] || die "metadata file is missing"
+[[ -f "${CONTRACT}" && ! -L "${CONTRACT}" ]] || die "deployment contract is missing or unsafe"
 for command_name in jq scp ssh; do
   command -v "${command_name}" >/dev/null 2>&1 || die "missing ${command_name}"
 done
+
+KKAI_INFRA_SHA=''
+KKAI_DEPLOYMENT_PROTOCOL=''
+# shellcheck source=manual-deployment-contract.env
+source "${CONTRACT}"
+readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
+[[ "${KKAI_INFRA_SHA}" =~ ^[0-9a-f]{40}$ ]] || die "invalid infrastructure SHA in deployment contract"
+[[ "${KKAI_DEPLOYMENT_PROTOCOL}" == router-v2 ]] || die "invalid deployment protocol in deployment contract"
 
 version="$(jq --exit-status --raw-output '.version' "${METADATA}")"
 source_sha="$(jq --exit-status --raw-output '.source_sha' "${METADATA}")"
@@ -53,6 +66,23 @@ readonly -a SSH_OPTIONS=(
   -o KexAlgorithms=curve25519-sha256
 )
 
+preflight_output=''
+if ! preflight_output="$(
+  ssh "${SSH_OPTIONS[@]}" "${HOST}" \
+    sudo -n /usr/local/sbin/kkai-newapi-manual-deploy preflight \
+      --expected-infra-sha "${KKAI_INFRA_SHA}" \
+      --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
+)"; then
+  die "production preflight failed; archive was not uploaded"
+fi
+grep -Fx "KKAI_PREFLIGHT_RESULT=ready" <<< "${preflight_output}" >/dev/null ||
+  die "production preflight did not report ready"
+grep -Fx "KKAI_INFRA_SHA=${KKAI_INFRA_SHA}" <<< "${preflight_output}" >/dev/null ||
+  die "production preflight infrastructure SHA mismatch"
+grep -Fx "KKAI_DEPLOYMENT_PROTOCOL=${KKAI_DEPLOYMENT_PROTOCOL}" <<< "${preflight_output}" >/dev/null ||
+  die "production preflight protocol mismatch"
+printf '%s\n' "${preflight_output}"
+
 scp "${SSH_OPTIONS[@]}" -- "${archive}" "${HOST}:${REMOTE_ARCHIVE}"
 ssh "${SSH_OPTIONS[@]}" "${HOST}" \
   sudo -n /usr/local/sbin/kkai-newapi-manual-deploy deploy \
@@ -60,4 +90,6 @@ ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     --archive-sha256 "${archive_sha256}" \
     --source-sha "${source_sha}" \
     --version "${version}" \
-    --image-tag "${image_tag}"
+    --image-tag "${image_tag}" \
+    --expected-infra-sha "${KKAI_INFRA_SHA}" \
+    --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"

@@ -11,13 +11,18 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 For every task involving KKAI production builds, releases, deployment status,
 GitHub Actions, GHCR, blue-green slots, rollback, or `api.kkrich.ltd`:
 
-1. Read the sibling `kkai-infra/AGENTS.md` and
-   `docs/runbooks/15-newapi-manual-deployment.md` completely.
+1. Read `../kkai-infra/AGENTS.md` and
+   `../kkai-infra/docs/runbooks/15-newapi-manual-deployment.md` completely.
 2. Run `make -C ../kkai-infra newapi-status` before treating the production
    version, active slot, or basic health as current. Never reuse mutable
    production state from an old chat.
 3. Build with `scripts/kkai/build-manual-release.sh`, then deploy the generated
    metadata file with `scripts/kkai/deploy-manual-release.sh`.
+
+The deploy script must use `scripts/kkai/manual-deployment-contract.env` and
+complete the controller's read-only preflight before uploading an image. Update
+that contract only together with installation of the exact pinned infra commit;
+never bypass its SHA or protocol checks.
 
 The only production application branch is `production/kkrich`. GitHub Actions
 must not build or deploy KKAI production images. An operator builds one Linux
