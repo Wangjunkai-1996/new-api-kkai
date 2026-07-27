@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,6 +22,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+type videoProxyTestRoundTripper func(*http.Request) (*http.Response, error)
+
+func (transport videoProxyTestRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
 
 func setupVideoProxyTestDB(t *testing.T) {
 	t.Helper()
@@ -159,6 +167,372 @@ func TestVideoProxyStillBlocksStoredPrivateResultURL(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "request blocked")
 	assert.NotContains(t, recorder.Body.String(), privateURL)
+}
+
+func TestVideoProxyRejectsAssetHostedTaskBeforeUpstreamLookup(t *testing.T) {
+	setupVideoProxyTestDB(t)
+
+	upstreamCalls := 0
+	client := service.GetHttpClient()
+	originalTransport := client.Transport
+	client.Transport = videoProxyTestRoundTripper(func(request *http.Request) (*http.Response, error) {
+		upstreamCalls++
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"video/mp4"}},
+			Body:       io.NopCloser(strings.NewReader("private video")),
+			Request:    request,
+		}, nil
+	})
+	t.Cleanup(func() { client.Transport = originalTransport })
+
+	upstreamURL := "https://provider.example"
+	channel := model.Channel{Id: 63, Type: constant.ChannelTypeSora, Key: "channel-key", BaseURL: common.GetPointer(upstreamURL)}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	require.NoError(t, model.DB.Create(&model.Task{
+		TaskID: "task_asset_hosted", UserId: 1, ChannelId: channel.Id, Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID:    "videos_private",
+			ResultURL:         upstreamURL + "/private.mp4",
+			ArchiveSource:     upstreamURL + "/private.mp4",
+			AssetHostedResult: true,
+		},
+	}).Error)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("id", 1)
+		c.Next()
+	})
+	router.GET("/v1/videos/:task_id/content", VideoProxy)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/videos/task_asset_hosted/content", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+	assert.Zero(t, upstreamCalls)
+	assert.NotContains(t, recorder.Body.String(), upstreamURL)
+}
+
+func TestProviderVideoURLHelpersRejectAssetHostedTasks(t *testing.T) {
+	task := &model.Task{
+		TaskID: "task_asset_hosted_helper",
+		Data:   []byte(`{"uri":"https://provider.example/private.mp4"}`),
+		PrivateData: model.TaskPrivateData{
+			ResultURL:         "https://provider.example/private.mp4",
+			AssetHostedResult: true,
+		},
+	}
+
+	tests := []struct {
+		name    string
+		resolve func() (string, error)
+	}{
+		{
+			name: "gemini",
+			resolve: func() (string, error) {
+				resolved, _, err := getGeminiVideoURL(&model.Channel{Type: constant.ChannelTypeGemini}, task, "private-key")
+				return resolved, err
+			},
+		},
+		{
+			name: "vertex",
+			resolve: func() (string, error) {
+				return getVertexVideoURL(&model.Channel{Type: constant.ChannelTypeVertexAi}, task)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved, err := tt.resolve()
+			require.Error(t, err)
+			assert.Empty(t, resolved)
+			assert.NotContains(t, err.Error(), "provider.example")
+			assert.NotContains(t, err.Error(), "private-key")
+		})
+	}
+}
+
+func TestGetGeminiVideoURLScopesCredentialsToProviderOrigin(t *testing.T) {
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeGemini,
+		BaseURL: common.GetPointer("https://generativelanguage.googleapis.com"),
+	}
+	tests := []struct {
+		name       string
+		videoURL   string
+		wantAPIKey bool
+	}{
+		{name: "same origin", videoURL: "https://generativelanguage.googleapis.com/v1beta/files/video?key=stale-key&api_key=stale-api-key&alt=media", wantAPIKey: true},
+		{name: "cross origin", videoURL: "https://media.example/private.mp4"},
+		{name: "cross origin opaque credential-like query", videoURL: "https://media.example/private.mp4?key=cdn-object-key&api_key=cdn-signature&alt=media"},
+		{name: "plaintext same host", videoURL: "http://generativelanguage.googleapis.com/private.mp4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := &model.Task{Data: []byte(fmt.Sprintf(`{"uri":%q}`, tt.videoURL))}
+			resolved, useAPIKey, err := getGeminiVideoURL(channel, task, "private-key")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAPIKey, useAPIKey)
+			if tt.wantAPIKey {
+				assert.NotContains(t, resolved, "private-key")
+				assert.NotContains(t, resolved, "stale-key")
+				assert.NotContains(t, resolved, "stale-api-key")
+				assert.Contains(t, resolved, "alt=media")
+			} else {
+				assert.Equal(t, tt.videoURL, resolved)
+				assert.NotContains(t, resolved, "private-key")
+			}
+		})
+	}
+}
+
+func TestVideoProxyPreservesCrossOriginGeminiMediaQueryWithoutProviderHeader(t *testing.T) {
+	setupVideoProxyTestDB(t)
+	system_setting.GetFetchSetting().EnableSSRFProtection = false
+
+	providerAPIKey := "provider-secret"
+	mediaURL := "https://media.example/private.mp4?key=cdn-object-key&api_key=cdn-signature&alt=media"
+	channel := model.Channel{
+		Id:      69,
+		Type:    constant.ChannelTypeGemini,
+		Key:     "channel-key",
+		BaseURL: common.GetPointer("https://generativelanguage.googleapis.com"),
+	}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	require.NoError(t, model.DB.Create(&model.Task{
+		TaskID:    "task_gemini_cross_origin_query",
+		UserId:    1,
+		ChannelId: channel.Id,
+		Status:    model.TaskStatusSuccess,
+		Data:      []byte(fmt.Sprintf(`{"uri":%q}`, mediaURL)),
+		PrivateData: model.TaskPrivateData{
+			Key: providerAPIKey,
+		},
+	}).Error)
+
+	client := service.GetHttpClient()
+	originalTransport := client.Transport
+	requestedURL := ""
+	providerHeader := ""
+	client.Transport = videoProxyTestRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requestedURL = request.URL.String()
+		providerHeader = request.Header.Get("x-goog-api-key")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"video/mp4"}},
+			Body:       io.NopCloser(strings.NewReader("video")),
+			Request:    request,
+		}, nil
+	})
+	t.Cleanup(func() { client.Transport = originalTransport })
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("id", 1)
+		c.Next()
+	})
+	router.GET("/v1/videos/:task_id/content", VideoProxy)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/videos/task_gemini_cross_origin_query/content", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "video", recorder.Body.String())
+	assert.Equal(t, mediaURL, requestedURL)
+	assert.Empty(t, providerHeader)
+	assert.NotContains(t, requestedURL, providerAPIKey)
+}
+
+func TestVideoProxyScopesGeminiAPIKeyAcrossRedirects(t *testing.T) {
+	tests := []struct {
+		name            string
+		redirectURL     string
+		wantRedirectKey string
+	}{
+		{
+			name:            "same origin keeps provider header",
+			redirectURL:     "https://generativelanguage.googleapis.com/v1beta/files/video:download?alt=media",
+			wantRedirectKey: "provider-secret",
+		},
+		{
+			name:        "cross origin strips provider header",
+			redirectURL: "https://media.example/private.mp4?alt=media",
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupVideoProxyTestDB(t)
+			system_setting.GetFetchSetting().EnableSSRFProtection = false
+
+			const providerAPIKey = "provider-secret"
+			const baseURL = "https://generativelanguage.googleapis.com"
+			initialURL := baseURL + "/v1beta/files/video?alt=media"
+			channelID := 690 + index
+			taskID := fmt.Sprintf("task_gemini_redirect_%d", index)
+			require.NoError(t, model.DB.Create(&model.Channel{
+				Id: channelID, Type: constant.ChannelTypeGemini, Key: "channel-key", BaseURL: common.GetPointer(baseURL),
+			}).Error)
+			require.NoError(t, model.DB.Create(&model.Task{
+				TaskID: taskID, UserId: 1, ChannelId: channelID, Status: model.TaskStatusSuccess,
+				Data:        []byte(fmt.Sprintf(`{"uri":%q}`, initialURL)),
+				PrivateData: model.TaskPrivateData{Key: providerAPIKey},
+			}).Error)
+
+			client := service.GetHttpClient()
+			originalTransport := client.Transport
+			requestCount := 0
+			redirectKey := ""
+			client.Transport = videoProxyTestRoundTripper(func(request *http.Request) (*http.Response, error) {
+				requestCount++
+				switch requestCount {
+				case 1:
+					assert.Equal(t, initialURL, request.URL.String())
+					assert.Equal(t, providerAPIKey, request.Header.Get("x-goog-api-key"))
+					return &http.Response{
+						StatusCode: http.StatusFound,
+						Header:     http.Header{"Location": []string{test.redirectURL}},
+						Body:       io.NopCloser(strings.NewReader("")),
+						Request:    request,
+					}, nil
+				case 2:
+					redirectKey = request.Header.Get("x-goog-api-key")
+					assert.Equal(t, test.redirectURL, request.URL.String())
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"video/mp4"}},
+						Body:       io.NopCloser(strings.NewReader("video")),
+						Request:    request,
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected request %d", requestCount)
+				}
+			})
+			t.Cleanup(func() { client.Transport = originalTransport })
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set("id", 1)
+				c.Next()
+			})
+			router.GET("/v1/videos/:task_id/content", VideoProxy)
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/v1/videos/"+taskID+"/content", nil)
+			router.ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			assert.Equal(t, "video", recorder.Body.String())
+			assert.Equal(t, 2, requestCount)
+			assert.Equal(t, test.wantRedirectKey, redirectKey)
+		})
+	}
+}
+
+func TestVideoProxyNeverLeaksGeminiAPIKeyThroughURLLogsOrResponse(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport videoProxyTestRoundTripper
+	}{
+		{
+			name: "request error",
+			transport: func(request *http.Request) (*http.Response, error) {
+				return nil, fmt.Errorf("dial failed for %s", request.URL.String())
+			},
+		},
+		{
+			name: "non-2xx response",
+			transport: func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusBadGateway,
+					Header:     http.Header{"Content-Type": []string{"text/plain"}},
+					Body:       io.NopCloser(strings.NewReader("upstream failed")),
+					Request:    request,
+				}, nil
+			},
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupVideoProxyTestDB(t)
+			system_setting.GetFetchSetting().ApplyIPFilterForDomain = false
+
+			apiKey := fmt.Sprintf("gemini-secret-%d", index)
+			baseURL := "https://generativelanguage.googleapis.com"
+			videoURL := baseURL + "/v1beta/files/video?key=" + apiKey + "&alt=media"
+			channelID := 70 + index
+			require.NoError(t, model.DB.Create(&model.Channel{
+				Id: channelID, Type: constant.ChannelTypeGemini, Key: "channel-key", BaseURL: common.GetPointer(baseURL),
+			}).Error)
+			require.NoError(t, model.DB.Create(&model.Task{
+				TaskID: "task_gemini_secret_" + fmt.Sprint(index), UserId: 1, ChannelId: channelID,
+				Status: model.TaskStatusSuccess,
+				Data:   []byte(fmt.Sprintf(`{"uri":%q}`, videoURL)),
+				PrivateData: model.TaskPrivateData{
+					Key: apiKey,
+				},
+			}).Error)
+
+			client := service.GetSSRFProtectedHTTPClient()
+			originalTransport := client.Transport
+			requestedURL := ""
+			requestedKey := ""
+			client.Transport = videoProxyTestRoundTripper(func(request *http.Request) (*http.Response, error) {
+				requestedURL = request.URL.String()
+				requestedKey = request.Header.Get("x-goog-api-key")
+				return test.transport(request)
+			})
+			t.Cleanup(func() { client.Transport = originalTransport })
+
+			var logs bytes.Buffer
+			common.LogWriterMu.Lock()
+			originalErrorWriter := gin.DefaultErrorWriter
+			gin.DefaultErrorWriter = &logs
+			common.LogWriterMu.Unlock()
+			t.Cleanup(func() {
+				common.LogWriterMu.Lock()
+				gin.DefaultErrorWriter = originalErrorWriter
+				common.LogWriterMu.Unlock()
+			})
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set("id", 1)
+				c.Next()
+			})
+			router.GET("/v1/videos/:task_id/content", VideoProxy)
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/v1/videos/task_gemini_secret_"+fmt.Sprint(index)+"/content", nil)
+			router.ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusBadGateway, recorder.Code)
+			assert.Equal(t, apiKey, requestedKey)
+			assert.NotContains(t, requestedURL, apiKey)
+			assert.Contains(t, requestedURL, "alt=media")
+			assert.NotContains(t, logs.String(), apiKey)
+			assert.NotContains(t, recorder.Body.String(), apiKey)
+		})
+	}
+}
+
+func TestRedactVideoProxySensitiveQuery(t *testing.T) {
+	raw := "request failed for https://provider.example/video?key=secret-key&alt=media and https://backup.example/video?ACCESS_TOKEN=secret-token&X-Goog-Signature=public-signature"
+
+	redacted := redactVideoProxySensitiveQuery(raw)
+
+	assert.NotContains(t, redacted, "secret-key")
+	assert.NotContains(t, redacted, "secret-token")
+	assert.Contains(t, redacted, "key=[REDACTED]")
+	assert.Contains(t, redacted, "ACCESS_TOKEN=[REDACTED]")
+	assert.Contains(t, redacted, "alt=media")
+	assert.Contains(t, redacted, "X-Goog-Signature=public-signature")
 }
 
 func TestVideoProxyRejectsInvalidRangeBeforeUpstreamFetch(t *testing.T) {

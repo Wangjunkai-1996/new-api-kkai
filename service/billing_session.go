@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,6 +27,7 @@ import (
 type BillingSession struct {
 	relayInfo        *relaycommon.RelayInfo
 	funding          FundingSource
+	task             *model.Task
 	preConsumedQuota int  // 实际预扣额度（信任用户可能为 0）
 	tokenConsumed    int  // 令牌额度实际扣减量
 	extraReserved    int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
@@ -42,6 +45,20 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.settled {
+		return nil
+	}
+	if s.task != nil && s.task.ID > 0 {
+		mutation, err := model.AdjustTaskBilling(context.Background(), s.task.ID, actualQuota)
+		if err != nil {
+			return err
+		}
+		if mutation != nil && mutation.Task != nil {
+			*s.task = *mutation.Task
+			s.preConsumedQuota = mutation.CurrentQuota
+			s.tokenConsumed = mutation.Task.PrivateData.TokenQuota
+			s.syncRelayInfo()
+		}
+		s.settled = true
 		return nil
 	}
 	delta := actualQuota - s.preConsumedQuota
@@ -82,6 +99,20 @@ func (s *BillingSession) Settle(actualQuota int) error {
 func (s *BillingSession) Refund(c *gin.Context) {
 	s.mu.Lock()
 	if s.settled || s.refunded || !s.needsRefundLocked() {
+		s.mu.Unlock()
+		return
+	}
+	if s.task != nil && s.task.ID > 0 {
+		task := s.task
+		s.mu.Unlock()
+		if err := refundDurableTaskQuota(context.WithoutCancel(c), task, "task submission failed"); err != nil {
+			common.SysLog("error refunding durable task billing: " + err.Error())
+			return
+		}
+		s.mu.Lock()
+		s.refunded = true
+		s.preConsumedQuota = 0
+		s.tokenConsumed = 0
 		s.mu.Unlock()
 		return
 	}
@@ -137,11 +168,123 @@ func (s *BillingSession) needsRefundLocked() bool {
 	if s.tokenConsumed > 0 {
 		return true
 	}
+	if s.task != nil && s.preConsumedQuota > 0 {
+		return true
+	}
 	// 订阅可能在 tokenConsumed=0 时仍预扣了额度
 	if sub, ok := s.funding.(*SubscriptionFunding); ok && sub.preConsumed > 0 {
 		return true
 	}
 	return false
+}
+
+func PreConsumeTaskBilling(c *gin.Context, task *model.Task, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if task == nil || task.ID <= 0 || relayInfo == nil || preConsumedQuota < 0 {
+		return types.NewError(ErrTaskBillingRequest, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if relayInfo.QuotaClamp != nil {
+		return types.NewErrorWithStatusCode(relayInfo.QuotaClamp, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	reserve := func(source string) (*BillingSession, *types.NewAPIError) {
+		mutation, err := model.ReserveTaskBilling(context.WithoutCancel(c), task.ID, model.TaskBillingReservationRequest{
+			Source:    source,
+			Quota:     preConsumedQuota,
+			TokenID:   relayInfo.TokenId,
+			TokenKey:  relayInfo.TokenKey,
+			SkipToken: relayInfo.IsPlayground,
+		})
+		if err != nil {
+			return nil, taskBillingReservationError(err)
+		}
+		if mutation == nil || mutation.Task == nil {
+			return nil, types.NewError(ErrTaskBillingRequest, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		*task = *mutation.Task
+
+		var funding FundingSource
+		switch task.PrivateData.BillingSource {
+		case BillingSourceSubscription:
+			funding = &SubscriptionFunding{
+				requestId:       task.TaskID,
+				userId:          task.UserId,
+				modelName:       taskModelName(task),
+				subscriptionId:  task.PrivateData.SubscriptionId,
+				preConsumed:     int64(task.Quota),
+				AmountTotal:     mutation.SubscriptionAmountTotal,
+				AmountUsedAfter: mutation.SubscriptionAmountUsed,
+				PlanId:          mutation.SubscriptionPlanID,
+				PlanTitle:       mutation.SubscriptionPlanTitle,
+			}
+		default:
+			funding = &WalletFunding{userId: task.UserId, consumed: task.Quota}
+		}
+		session := &BillingSession{
+			relayInfo:        relayInfo,
+			funding:          funding,
+			task:             task,
+			preConsumedQuota: task.Quota,
+			tokenConsumed:    task.PrivateData.TokenQuota,
+		}
+		session.syncRelayInfo()
+		return session, nil
+	}
+
+	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+	var session *BillingSession
+	var apiErr *types.NewAPIError
+	switch pref {
+	case "wallet_only":
+		session, apiErr = reserve(BillingSourceWallet)
+	case "subscription_only":
+		session, apiErr = reserve(BillingSourceSubscription)
+	case "wallet_first":
+		session, apiErr = reserve(BillingSourceWallet)
+		if apiErr != nil && apiErr.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
+			session, apiErr = reserve(BillingSourceSubscription)
+		}
+	default:
+		hasSubscription, err := model.HasActiveUserSubscription(relayInfo.UserId)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		if !hasSubscription {
+			session, apiErr = reserve(BillingSourceWallet)
+			break
+		}
+		session, apiErr = reserve(BillingSourceSubscription)
+		if apiErr != nil && apiErr.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
+			allowWallet, err := model.UserActiveSubscriptionsAllowWalletOverflow(relayInfo.UserId)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+			}
+			if allowWallet {
+				session, apiErr = reserve(BillingSourceWallet)
+			}
+		}
+	}
+	if apiErr != nil {
+		return apiErr
+	}
+	relayInfo.Billing = session
+	return nil
+}
+
+var ErrTaskBillingRequest = errors.New("invalid durable task billing request")
+
+func taskBillingReservationError(err error) *types.NewAPIError {
+	switch {
+	case errors.Is(err, model.ErrTaskBillingInsufficientWallet),
+		errors.Is(err, model.ErrTaskBillingNoActiveSubscription),
+		errors.Is(err, model.ErrTaskBillingInsufficientSubscription):
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	case errors.Is(err, model.ErrTaskBillingInsufficientToken):
+		return types.NewErrorWithStatusCode(err, types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	case errors.Is(err, model.ErrTaskBillingInvalidRequest), errors.Is(err, model.ErrTaskBillingStateConflict):
+		return types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	default:
+		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+	}
 }
 
 // GetPreConsumedQuota 返回实际预扣的额度。

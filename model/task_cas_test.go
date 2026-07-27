@@ -51,6 +51,7 @@ func TestMain(m *testing.M) {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&KKAIOutboxEvent{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -77,6 +78,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM system_instances")
 		DB.Exec("DELETE FROM system_task_locks")
 		DB.Exec("DELETE FROM system_tasks")
+		DB.Exec("DELETE FROM kkai_outbox")
 	})
 }
 
@@ -243,4 +245,257 @@ func TestUpdateWithStatus_ConcurrentWinner(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, winCount, "exactly one goroutine should win the CAS")
+}
+
+func TestUpdateWithStatusPreservingBillingDoesNotOverwriteConcurrentSettlement(t *testing.T) {
+	truncateTables(t)
+
+	targetQuota := 150
+	task := &Task{
+		TaskID:   "task_billing_cas",
+		Status:   TaskStatusSubmitted,
+		Progress: "10%",
+		Quota:    100,
+		PrivateData: TaskPrivateData{
+			ResultURL:    "",
+			BillingState: TaskBillingStateAccepted,
+			TokenQuota:   100,
+			TokenBilling: true,
+			TargetQuota:  &targetQuota,
+			BillingContext: &TaskBillingContext{
+				OriginModelName: "frozen-model",
+				MaxQuota:        &targetQuota,
+			},
+		},
+		Data: json.RawMessage(`{"id":"upstream"}`),
+	}
+	insertTask(t, task)
+	stalePollerTask := *task
+	staleSnapshot := stalePollerTask.Snapshot()
+
+	settledTask := *task
+	settledTask.Quota = targetQuota
+	settledTask.PrivateData.TokenQuota = targetQuota
+	settledTask.PrivateData.TargetQuota = nil
+	require.NoError(t, DB.Save(&settledTask).Error)
+
+	stalePollerTask.Status = TaskStatusSuccess
+	stalePollerTask.Progress = "100%"
+	stalePollerTask.PrivateData.ResultURL = "https://example.com/result.mp4"
+	stalePollerTask.PrivateData.ArchiveSource = "data:video/mp4;base64,dmlkZW8="
+	won, err := stalePollerTask.UpdateWithStatusPreservingBilling(staleSnapshot)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	var reloaded Task
+	require.NoError(t, DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, TaskStatusSuccess, reloaded.Status)
+	assert.Equal(t, "100%", reloaded.Progress)
+	assert.Equal(t, targetQuota, reloaded.Quota)
+	assert.Equal(t, targetQuota, reloaded.PrivateData.TokenQuota)
+	assert.Nil(t, reloaded.PrivateData.TargetQuota)
+	assert.Equal(t, TaskBillingStateAccepted, reloaded.PrivateData.BillingState)
+	assert.Equal(t, "https://example.com/result.mp4", reloaded.PrivateData.ResultURL)
+	assert.Equal(t, "data:video/mp4;base64,dmlkZW8=", reloaded.PrivateData.ArchiveSource)
+}
+
+func TestUpdateWithStatusPreservingBillingRejectsStaleSameStatusPoller(t *testing.T) {
+	truncateTables(t)
+
+	task := &Task{
+		TaskID:   "task_same_status_stale",
+		Status:   TaskStatusInProgress,
+		Progress: "10%",
+		Data:     json.RawMessage(`{"frame":"initial"}`),
+	}
+	insertTask(t, task)
+	initialSnapshot := task.Snapshot()
+	newerPoller := *task
+	stalePoller := *task
+
+	newerPoller.Progress = "60%"
+	newerPoller.PrivateData.ResultURL = "https://example.com/new.mp4"
+	newerPoller.Data = json.RawMessage(`{"frame":"new"}`)
+	won, err := newerPoller.UpdateWithStatusPreservingBilling(initialSnapshot)
+	require.NoError(t, err)
+	require.True(t, won)
+
+	stalePoller.Progress = "30%"
+	stalePoller.PrivateData.ResultURL = "https://example.com/stale.mp4"
+	stalePoller.Data = json.RawMessage(`{"frame":"stale"}`)
+	won, err = stalePoller.UpdateWithStatusPreservingBilling(initialSnapshot)
+	require.NoError(t, err)
+	assert.False(t, won)
+
+	var reloaded Task
+	require.NoError(t, DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, "60%", reloaded.Progress)
+	assert.Equal(t, "https://example.com/new.mp4", reloaded.PrivateData.ResultURL)
+	assert.JSONEq(t, `{"frame":"new"}`, string(reloaded.Data))
+
+	currentSnapshot := reloaded.Snapshot()
+	reloaded.Progress = "40%"
+	won, err = reloaded.UpdateWithStatusPreservingBilling(currentSnapshot)
+	require.NoError(t, err)
+	assert.False(t, won, "a fresh same-status poll must not move percentage backwards")
+}
+
+func TestFailTaskBeforeSubmissionRefusesLiveDispatcher(t *testing.T) {
+	truncateTables(t)
+
+	task := &Task{
+		TaskID:   "task_live_dispatcher",
+		Status:   TaskStatusNotStart,
+		Progress: "0%",
+		Quota:    100,
+		PrivateData: TaskPrivateData{
+			BillingState: TaskBillingStateDispatching,
+			TokenQuota:   100,
+			TokenBilling: true,
+		},
+		Data: json.RawMessage(`{}`),
+	}
+	insertTask(t, task)
+
+	updated, failed, err := FailTaskBeforeSubmission(nil, task.ID, "task submission failed")
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.False(t, failed)
+	assert.Equal(t, TaskBillingStateDispatching, updated.PrivateData.BillingState)
+	assert.EqualValues(t, TaskStatusNotStart, updated.Status)
+
+	var reloaded Task
+	require.NoError(t, DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, TaskBillingStateDispatching, reloaded.PrivateData.BillingState)
+	assert.EqualValues(t, TaskStatusNotStart, reloaded.Status)
+}
+
+func TestMarkTaskSubmissionAmbiguousPreservesBillingSnapshot(t *testing.T) {
+	truncateTables(t)
+
+	targetQuota := 120
+	maxQuota := 150
+	task := &Task{
+		TaskID:   "task_ambiguous_submission",
+		Status:   TaskStatusNotStart,
+		Progress: "0%",
+		Quota:    100,
+		PrivateData: TaskPrivateData{
+			BillingState: TaskBillingStateDispatching,
+			TokenQuota:   100,
+			TokenBilling: true,
+			BillingContext: &TaskBillingContext{
+				OriginModelName: "frozen-model",
+				MaxQuota:        &maxQuota,
+				OtherRatios:     map[string]float64{"duration": 2},
+			},
+		},
+		Data: json.RawMessage(`{"request":"snapshot"}`),
+	}
+	insertTask(t, task)
+
+	markedTask, marked, err := MarkTaskSubmissionAmbiguous(nil, task.ID, TaskSubmissionAmbiguity{
+		Reason:      "upstream response was lost",
+		TargetQuota: &targetQuota,
+	})
+	require.NoError(t, err)
+	require.True(t, marked)
+	require.NotNil(t, markedTask)
+	assert.EqualValues(t, TaskStatusUnknown, markedTask.Status)
+	assert.Equal(t, "100%", markedTask.Progress)
+	assert.Equal(t, "upstream response was lost", markedTask.FailReason)
+	assert.NotZero(t, markedTask.FinishTime)
+	assert.Equal(t, TaskBillingStateAmbiguous, markedTask.PrivateData.BillingState)
+	assert.True(t, markedTask.PrivateData.AccountingRequired)
+	assert.Equal(t, TaskAccountingStatePending, markedTask.PrivateData.AccountingState)
+	require.NotNil(t, markedTask.PrivateData.TargetQuota)
+	assert.Equal(t, targetQuota, *markedTask.PrivateData.TargetQuota)
+	assert.Equal(t, 100, markedTask.Quota)
+	assert.Equal(t, 100, markedTask.PrivateData.TokenQuota)
+	assert.True(t, markedTask.PrivateData.TokenBilling)
+	require.NotNil(t, markedTask.PrivateData.BillingContext)
+	assert.Equal(t, maxQuota, *markedTask.PrivateData.BillingContext.MaxQuota)
+	assert.Equal(t, 2.0, markedTask.PrivateData.BillingContext.OtherRatios["duration"])
+	assert.JSONEq(t, `{"request":"snapshot"}`, string(markedTask.Data))
+
+	firstFinishTime := markedTask.FinishTime
+	markedTask, marked, err = MarkTaskSubmissionAmbiguous(nil, task.ID, TaskSubmissionAmbiguity{
+		Reason: "retry must not replace the original reason",
+	})
+	require.NoError(t, err)
+	require.True(t, marked)
+	assert.Equal(t, firstFinishTime, markedTask.FinishTime)
+	assert.Equal(t, "upstream response was lost", markedTask.FailReason)
+	require.NotNil(t, markedTask.PrivateData.TargetQuota)
+	assert.Equal(t, targetQuota, *markedTask.PrivateData.TargetQuota)
+}
+
+func TestMarkTaskSubmissionAmbiguousRefusesAcceptedTask(t *testing.T) {
+	truncateTables(t)
+
+	task := &Task{
+		TaskID:   "task_already_accepted",
+		Status:   TaskStatusSubmitted,
+		Progress: "10%",
+		Quota:    100,
+		PrivateData: TaskPrivateData{
+			BillingState:       TaskBillingStateAccepted,
+			UpstreamTaskID:     "upstream-task",
+			AccountingRequired: true,
+			AccountingState:    TaskAccountingStatePending,
+		},
+		Data: json.RawMessage(`{"id":"upstream-task"}`),
+	}
+	insertTask(t, task)
+
+	markedTask, marked, err := MarkTaskSubmissionAmbiguous(nil, task.ID, TaskSubmissionAmbiguity{
+		Reason: "stale dispatcher",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, markedTask)
+	assert.False(t, marked)
+	assert.Equal(t, TaskBillingStateAccepted, markedTask.PrivateData.BillingState)
+	assert.EqualValues(t, TaskStatusSubmitted, markedTask.Status)
+	assert.Equal(t, "upstream-task", markedTask.PrivateData.UpstreamTaskID)
+}
+
+func TestPersistTaskSubmissionAcceptanceRefusesRecoveredTask(t *testing.T) {
+	truncateTables(t)
+
+	task := &Task{
+		TaskID:   "task_recovered_before_acceptance",
+		Status:   TaskStatusUnknown,
+		Progress: "100%",
+		Quota:    100,
+		PrivateData: TaskPrivateData{
+			BillingState: TaskBillingStateCompleted,
+			TokenQuota:   100,
+			TokenBilling: true,
+			BillingContext: &TaskBillingContext{
+				OriginModelName: "frozen-model",
+			},
+		},
+		Data: json.RawMessage(`{}`),
+	}
+	insertTask(t, task)
+
+	updated, accepted, err := PersistTaskSubmissionAcceptance(nil, task.ID, TaskSubmissionAcceptance{
+		UpstreamTaskID: "late-upstream-id",
+		TaskData:       json.RawMessage(`{"id":"late-upstream-id"}`),
+		Status:         TaskStatusSubmitted,
+		Progress:       "10%",
+		TargetQuota:    100,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.False(t, accepted)
+	assert.Equal(t, TaskBillingStateCompleted, updated.PrivateData.BillingState)
+	assert.Empty(t, updated.PrivateData.UpstreamTaskID)
+	assert.EqualValues(t, TaskStatusUnknown, updated.Status)
+
+	var reloaded Task
+	require.NoError(t, DB.First(&reloaded, task.ID).Error)
+	assert.Equal(t, TaskBillingStateCompleted, reloaded.PrivateData.BillingState)
+	assert.Empty(t, reloaded.PrivateData.UpstreamTaskID)
+	assert.EqualValues(t, TaskStatusUnknown, reloaded.Status)
 }

@@ -1,8 +1,10 @@
 package channel
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"testing"
 	"time"
 
@@ -11,6 +13,37 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecuteTaskRequestClassifiesRequestWritePhase(t *testing.T) {
+	tests := []struct {
+		name               string
+		writeAttempted     bool
+		submissionPossible bool
+	}{
+		{name: "pre-write failure", submissionPossible: false},
+		{name: "post-write failure", writeAttempted: true, submissionPossible: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "https://example.invalid/tasks", nil)
+			_, err := executeTaskRequest(request, func(tracedRequest *http.Request) (*http.Response, error) {
+				if test.writeAttempted {
+					trace := httptrace.ContextClientTrace(tracedRequest.Context())
+					require.NotNil(t, trace)
+					require.NotNil(t, trace.WroteRequest)
+					trace.WroteRequest(httptrace.WroteRequestInfo{})
+				}
+				return nil, errors.New("transport failure")
+			})
+			require.Error(t, err)
+
+			var requestErr *TaskRequestError
+			require.ErrorAs(t, err, &requestErr)
+			require.Equal(t, test.submissionPossible, requestErr.SubmissionPossible())
+		})
+	}
+}
 
 func TestDoRequestRecordsUpstreamHeaderTime(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -97,15 +99,44 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	Key               string `json:"key,omitempty"`
+	UpstreamTaskID    string `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
+	ResultURL         string `json:"result_url,omitempty"`          // 任务成功后的结果 URL（视频地址等）
+	ArchiveSource     string `json:"archive_source,omitempty"`      // 仅供内部资产归档读取，可能是临时 URL 或 data URI
+	AssetHostedResult bool   `json:"asset_hosted_result,omitempty"` // 结果由资产系统托管，禁止通用 Task 出口暴露或代理
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
-	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
-	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
-	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
-	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
-	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingSource      string                 `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
+	SubscriptionId     int                    `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
+	TokenId            int                    `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
+	NodeName           string                 `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
+	BillingContext     *TaskBillingContext    `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingState       string                 `json:"billing_state,omitempty"`
+	TokenQuota         int                    `json:"token_quota,omitempty"`
+	TokenBilling       bool                   `json:"token_billing,omitempty"`
+	RecoveryAt         int64                  `json:"billing_recovery_at,omitempty"`
+	TargetQuota        *int                   `json:"billing_target_quota,omitempty"`
+	BillingRevision    int64                  `json:"billing_revision,omitempty"`
+	AccountingState    string                 `json:"accounting_state,omitempty"`
+	AccountingQuota    int                    `json:"accounting_quota,omitempty"`
+	AccountingRequired bool                   `json:"accounting_required,omitempty"`
+	AccountingContext  *TaskAccountingContext `json:"accounting_context,omitempty"`
+}
+
+const (
+	TaskAccountingStatePending       = "pending"
+	TaskAccountingStateStatsRecorded = "stats_recorded"
+	TaskAccountingStateCompleted     = "completed"
+)
+
+// TaskAccountingContext freezes request-scoped values needed by asynchronous
+// accounting after the originating HTTP request has ended.
+type TaskAccountingContext struct {
+	RequestPath       string             `json:"request_path,omitempty"`
+	Username          string             `json:"username,omitempty"`
+	TokenName         string             `json:"token_name,omitempty"`
+	HasUserGroupRatio bool               `json:"has_user_group_ratio,omitempty"`
+	UserGroupRatio    float64            `json:"user_group_ratio,omitempty"`
+	QuotaClamp        *common.QuotaClamp `json:"quota_clamp,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
@@ -116,6 +147,7 @@ type TaskBillingContext struct {
 	OtherRatios     map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
 	OriginModelName string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
 	PerCallBilling  bool               `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	MaxQuota        *int               `json:"max_quota,omitempty"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -293,7 +325,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
-		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess, TaskStatusUnknown}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -379,36 +411,68 @@ func (Task *Task) Insert() error {
 	return err
 }
 
-type taskSnapshot struct {
-	Status     TaskStatus
-	Progress   string
-	StartTime  int64
-	FinishTime int64
-	FailReason string
-	ResultURL  string
-	Data       json.RawMessage
+type TaskSnapshot struct {
+	Status        TaskStatus
+	Progress      string
+	SubmitTime    int64
+	StartTime     int64
+	FinishTime    int64
+	FailReason    string
+	ResultURL     string
+	ArchiveSource string
+	Data          json.RawMessage
 }
 
-func (s taskSnapshot) Equal(other taskSnapshot) bool {
+type taskSnapshot = TaskSnapshot
+
+func (s TaskSnapshot) Equal(other TaskSnapshot) bool {
 	return s.Status == other.Status &&
 		s.Progress == other.Progress &&
+		s.SubmitTime == other.SubmitTime &&
 		s.StartTime == other.StartTime &&
 		s.FinishTime == other.FinishTime &&
 		s.FailReason == other.FailReason &&
 		s.ResultURL == other.ResultURL &&
+		s.ArchiveSource == other.ArchiveSource &&
 		bytes.Equal(s.Data, other.Data)
 }
 
-func (t *Task) Snapshot() taskSnapshot {
-	return taskSnapshot{
-		Status:     t.Status,
-		Progress:   t.Progress,
-		StartTime:  t.StartTime,
-		FinishTime: t.FinishTime,
-		FailReason: t.FailReason,
-		ResultURL:  t.PrivateData.ResultURL,
-		Data:       t.Data,
+func (t *Task) Snapshot() TaskSnapshot {
+	return TaskSnapshot{
+		Status:        t.Status,
+		Progress:      t.Progress,
+		SubmitTime:    t.SubmitTime,
+		StartTime:     t.StartTime,
+		FinishTime:    t.FinishTime,
+		FailReason:    t.FailReason,
+		ResultURL:     t.PrivateData.ResultURL,
+		ArchiveSource: t.PrivateData.ArchiveSource,
+		Data:          t.Data,
 	}
+}
+
+func (s TaskSnapshot) Allows(next TaskSnapshot) bool {
+	if (s.Status == TaskStatusSuccess || s.Status == TaskStatusFailure) && next.Status != s.Status {
+		return false
+	}
+	if s.Status != next.Status {
+		return true
+	}
+	currentProgress, currentOK := taskProgressPercent(s.Progress)
+	nextProgress, nextOK := taskProgressPercent(next.Progress)
+	return !currentOK || !nextOK || nextProgress >= currentProgress
+}
+
+func taskProgressPercent(progress string) (int, bool) {
+	value := strings.TrimSpace(progress)
+	if !strings.HasSuffix(value, "%") {
+		return 0, false
+	}
+	percent, err := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(value, "%")))
+	if err != nil || percent < 0 || percent > 100 {
+		return 0, false
+	}
+	return percent, true
 }
 
 func (Task *Task) Update() error {
@@ -534,6 +598,8 @@ func (t *Task) ToOpenAIVideo() *dto.OpenAIVideo {
 	openAIVideo.SetProgressStr(t.Progress)
 	openAIVideo.CreatedAt = t.CreatedAt
 	openAIVideo.CompletedAt = t.UpdatedAt
-	openAIVideo.SetMetadata("url", t.GetResultURL())
+	if resultURL := t.PublicResultURL(); resultURL != "" {
+		openAIVideo.SetMetadata("url", resultURL)
+	}
 	return openAIVideo
 }

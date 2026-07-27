@@ -18,6 +18,11 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 	t.Setenv("CHANNEL_UPDATE_FREQUENCY", "")
 	t.Setenv("BATCH_UPDATE_ENABLED", "false")
 	t.Setenv(service.KKAIRiskStreamSecretEnvironmentVariable, "")
+	db, err := gorm.Open(sqlite.Open("file:background-jobs-"+time.Now().Format("150405.000000000")+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
 	oldFrequency := common.SyncFrequency
 	common.SyncFrequency = 60
 	t.Cleanup(func() { common.SyncFrequency = oldFrequency })

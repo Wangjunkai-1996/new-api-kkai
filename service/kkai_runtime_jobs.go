@@ -41,31 +41,30 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 	if registry == nil || !leaderLeaseNamePattern.MatchString(workerID) {
 		return ErrInvalidBackgroundJob
 	}
-	outbox := NewKKAIOutboxProcessor(model.DB, workerID)
 	riskOutboxHandler := NewRiskActionOutboxHandler()
-	if err := outbox.Register(KKAIOutboxTopicRiskActionCommitted, riskOutboxHandler.Handle); err != nil {
-		return err
-	}
 	rebateHandler, err := NewTopUpRebateOutboxHandlerFromEnvironment()
 	if err != nil {
 		return err
 	}
+	var topUpCompleted KKAIOutboxHandler
 	if rebateHandler != nil {
-		if err := outbox.Register(model.KKAIOutboxTopicTopUpCompleted, rebateHandler.Handle); err != nil {
-			return err
-		}
+		topUpCompleted = rebateHandler.Handle
 	}
-	if err := registry.Register(BackgroundJob{
-		Name:                "kkai-outbox-delivery",
-		Interval:            2 * time.Second,
-		RunOnStart:          true,
-		WritesData:          true,
-		RequiresLeaderLease: true,
-		Run: func(ctx context.Context) error {
-			_, err := outbox.ProcessBatch(ctx, 50)
-			return err
-		},
-	}); err != nil {
+	outboxWorker, err := newKKAIOutboxRuntimeWorker(model.DB, workerID, kkaiOutboxRuntimeHandlers{
+		taskBillingAudit:          TaskBillingAuditHandler{}.Handle,
+		taskBillingCacheReconcile: TaskBillingCacheReconcileHandler{}.Handle,
+		taskBillingRecovery:       TaskBillingRecoveryHandler{}.Handle,
+		taskAccounting:            TaskAccountingHandler{}.Handle,
+		riskActionCommitted:       riskOutboxHandler.Handle,
+		topUpCompleted:            topUpCompleted,
+	})
+	if err != nil {
+		return err
+	}
+	if err := registerKKAIOutboxDeliveryJob(registry, outboxWorker); err != nil {
+		return err
+	}
+	if err := RegisterVideoStudioBackgroundJobs(registry, workerID); err != nil {
 		return err
 	}
 
@@ -88,6 +87,20 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 			_, err := consumer.ProcessOnce(ctx)
 			return err
 		},
+	})
+}
+
+func registerKKAIOutboxDeliveryJob(registry *BackgroundJobRegistry, worker *kkaiOutboxRuntimeWorker) error {
+	if registry == nil || !worker.valid() {
+		return ErrInvalidBackgroundJob
+	}
+	return registry.Register(BackgroundJob{
+		Name:                "kkai-outbox-delivery",
+		Interval:            2 * time.Second,
+		RunOnStart:          true,
+		WritesData:          true,
+		RequiresLeaderLease: true,
+		Run:                 worker.ProcessOnce,
 	})
 }
 

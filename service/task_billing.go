@@ -3,68 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
 )
-
-// LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
-// 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
-func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
-	tokenName := c.GetString("token_name")
-	logContent := fmt.Sprintf("操作 %s", info.Action)
-	// 支持任务仅按次计费
-	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
-		logContent = fmt.Sprintf("%s，按次计费", logContent)
-	} else {
-		if otherRatios := info.PriceData.OtherRatios(); len(otherRatios) > 0 {
-			var contents []string
-			for key, ra := range otherRatios {
-				if 1.0 != ra {
-					contents = append(contents, fmt.Sprintf("%s: %.2f", key, ra))
-				}
-			}
-			if len(contents) > 0 {
-				logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
-			}
-		}
-	}
-	other := make(map[string]interface{})
-	other["is_task"] = true
-	other["request_path"] = c.Request.URL.Path
-	other["model_price"] = info.PriceData.ModelPrice
-	if info.PriceData.ModelRatio > 0 {
-		other["model_ratio"] = info.PriceData.ModelRatio
-	}
-	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
-	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
-		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
-	}
-	if info.IsModelMapped {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = info.UpstreamModelName
-	}
-	attachQuotaSaturation(c, info, other)
-	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
-		TokenName: tokenName,
-		Quota:     info.PriceData.Quota,
-		Content:   logContent,
-		TokenId:   info.TokenId,
-		Group:     info.UsingGroup,
-		Other:     other,
-	})
-	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, int64(info.PriceData.Quota))
-	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
-}
 
 // ---------------------------------------------------------------------------
 // 异步任务计费辅助函数
@@ -163,6 +107,12 @@ func taskModelName(task *model.Task) string {
 // RefundTaskQuota 统一的任务失败退款逻辑。
 // 当异步任务失败时，将预扣的 quota 退还给用户（支持钱包和订阅），并退还令牌额度。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
+	if task != nil && task.PrivateData.BillingState != "" {
+		if err := refundDurableTaskQuota(ctx, task, reason); err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("退还持久化任务计费失败 task %s: %s", task.TaskID, err.Error()))
+		}
+		return
+	}
 	quota := task.Quota
 	if quota == 0 {
 		return
@@ -194,12 +144,38 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 	})
 }
 
+func refundDurableTaskQuota(ctx context.Context, task *model.Task, reason string) error {
+	if task == nil || task.ID <= 0 {
+		return model.ErrTaskBillingInvalidRequest
+	}
+	mutation, err := model.RefundTaskBillingWithAudit(ctx, task.ID, model.TaskBillingAuditRequest{Reason: reason})
+	if err != nil {
+		return err
+	}
+	if mutation == nil || mutation.Task == nil {
+		return nil
+	}
+	*task = *mutation.Task
+	if !mutation.Applied || mutation.PreviousQuota == 0 {
+		return nil
+	}
+
+	return nil
+}
+
 // RecalculateTaskQuota 通用的异步差额结算。
 // actualQuota 是任务完成后的实际应扣额度，与预扣额度 (task.Quota) 做差额结算。
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
-	if actualQuota <= 0 {
+	if task == nil || actualQuota < 0 {
+		return
+	}
+	if task.PrivateData.BillingState != "" {
+		recalculateDurableTaskQuota(ctx, task, actualQuota, reason, clamps...)
+		return
+	}
+	if actualQuota == 0 {
 		return
 	}
 	preConsumedQuota := task.Quota
@@ -265,6 +241,36 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	})
 }
 
+func recalculateDurableTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
+	mutation, err := model.AdjustTaskBillingWithAudit(ctx, task.ID, actualQuota, model.TaskBillingAuditRequest{
+		Reason:      reason,
+		QuotaClamps: clamps,
+	})
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("持久化任务差额结算失败 task %s: %s", task.TaskID, err.Error()))
+		return
+	}
+	if mutation == nil || mutation.Task == nil {
+		return
+	}
+	*task = *mutation.Task
+	quotaDelta := mutation.CurrentQuota - mutation.PreviousQuota
+	if !mutation.Applied || quotaDelta == 0 {
+		return
+	}
+	accountingState := task.PrivateData.AccountingState
+	if accountingState == model.TaskAccountingStatePending {
+		return
+	}
+
+	if quotaDelta > 0 {
+		if accountingState == "" {
+			model.UpdateUserUsedQuotaAndRequestCount(task.UserId, int64(quotaDelta))
+			model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
+		}
+	}
+}
+
 // RecalculateTaskQuotaByTokens 根据实际 token 消耗重新计费（异步差额结算）。
 // 当任务成功且返回了 totalTokens 时，根据模型倍率和分组倍率重新计算实际扣费额度，
 // 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
@@ -273,46 +279,20 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return
 	}
 
-	modelName := taskModelName(task)
-
-	// 获取模型价格和倍率
-	modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
-	// 只有配置了倍率(非固定价格)时才按 token 重新计费
-	if !hasRatioSetting || modelRatio <= 0 {
+	billingContext := task.PrivateData.BillingContext
+	if billingContext == nil || billingContext.ModelRatio <= 0 || billingContext.GroupRatio <= 0 {
 		return
-	}
-
-	// 获取用户和组的倍率信息
-	group := task.Group
-	if group == "" {
-		user, err := model.GetUserById(task.UserId, false)
-		if err == nil {
-			group = user.Group
-		}
-	}
-	if group == "" {
-		return
-	}
-
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
-	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
-	} else {
-		finalGroupRatio = groupRatio
 	}
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）
 	otherMultiplier := 1.0
-	if priceData := taskBillingContextPriceData(task.PrivateData.BillingContext); priceData != nil {
+	if priceData := taskBillingContextPriceData(billingContext); priceData != nil {
 		otherMultiplier = priceData.OtherRatioMultiplier()
 	}
 
 	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier（饱和转换，防止溢出成负数）
-	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
+	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * billingContext.ModelRatio * billingContext.GroupRatio * otherMultiplier)
 
-	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
+	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, billingContext.ModelRatio, billingContext.GroupRatio, otherMultiplier)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 }

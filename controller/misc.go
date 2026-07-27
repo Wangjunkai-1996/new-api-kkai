@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -49,6 +50,7 @@ func GetStatus(c *gin.Context) {
 
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
+	videoStudioSetting := video_studio_setting.Get()
 
 	data := gin.H{
 		"version":                     common.Version,
@@ -122,6 +124,11 @@ func GetStatus(c *gin.Context) {
 		"user_agreement_enabled":      legalSetting.UserAgreement != "",
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+		"VideoStudioAccessMode":       videoStudioSetting.AccessMode,
+		"video_studio": gin.H{
+			"access_mode":   videoStudioSetting.AccessMode,
+			"upload_limits": videoStudioSetting.UploadLimits(),
+		},
 	}
 
 	// 根据启用状态注入可选内容

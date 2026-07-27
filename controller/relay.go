@@ -494,6 +494,38 @@ func RelayTaskFetch(c *gin.Context) {
 	}
 }
 
+func PreparePlaygroundTaskContext(c *gin.Context) *dto.TaskError {
+	if c.GetBool("use_access_token") {
+		return service.TaskErrorWrapperLocal(errors.New("playground does not support access tokens"), "access_denied", http.StatusForbidden)
+	}
+
+	userID := c.GetInt("id")
+	userCache, err := model.GetUserCache(userID)
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "query_user_failed", http.StatusInternalServerError)
+	}
+	userCache.WriteContext(c)
+
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	tempToken := &model.Token{
+		UserId: userID,
+		Name:   fmt.Sprintf("playground-video-%s", usingGroup),
+		Group:  usingGroup,
+	}
+	if err := middleware.SetupContextForToken(c, tempToken); err != nil {
+		return service.TaskErrorWrapperLocal(err, "setup_playground_token_failed", http.StatusInternalServerError)
+	}
+	return nil
+}
+
+func PlaygroundTask(c *gin.Context) {
+	if taskErr := PreparePlaygroundTaskContext(c); taskErr != nil {
+		respondTaskError(c, taskErr)
+		return
+	}
+	RelayTask(c)
+}
+
 func RelayTask(c *gin.Context) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
@@ -511,10 +543,22 @@ func RelayTask(c *gin.Context) {
 	}
 
 	var result *relay.TaskSubmitResult
+	var task *model.Task
 	var taskErr *dto.TaskError
 	defer func() {
-		if taskErr != nil && relayInfo.Billing != nil {
+		if taskErr == nil || (result != nil && !result.CanRefund()) {
+			return
+		}
+		if relayInfo.Billing != nil {
 			relayInfo.Billing.Refund(c)
+		}
+		if task != nil && task.ID > 0 {
+			failedTask, _, finalizeErr := model.FailTaskBeforeSubmission(c, task.ID, "task submission failed")
+			if finalizeErr != nil {
+				common.SysError("finalize failed task error: " + finalizeErr.Error())
+			} else if failedTask != nil {
+				*task = *failedTask
+			}
 		}
 	}()
 
@@ -559,7 +603,12 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
-		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		attemptResult, attemptErr := relay.RelayTaskSubmit(c, relayInfo, task)
+		if attemptResult != nil {
+			result = attemptResult
+			task = attemptResult.Task
+		}
+		taskErr = attemptErr
 		if taskErr == nil {
 			break
 		}
@@ -573,6 +622,9 @@ func RelayTask(c *gin.Context) {
 				policyDetected)
 		}
 
+		if result != nil && !result.CanRetry() {
+			break
+		}
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
@@ -584,32 +636,26 @@ func RelayTask(c *gin.Context) {
 		logger.LogInfo(c, retryLogStr)
 	}
 
-	// ── 成功：结算 + 日志 + 插入任务 ──
-	if taskErr == nil {
+	if taskErr == nil && result != nil {
 		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 			common.SysError("settle task billing error: " + settleErr.Error())
 		}
-		service.LogTaskConsumption(c, relayInfo)
 
-		task := model.InitTask(result.Platform, relayInfo)
-		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
-		task.PrivateData.BillingSource = relayInfo.BillingSource
-		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
-		task.PrivateData.TokenId = relayInfo.TokenId
-		task.PrivateData.NodeName = common.NodeName
-		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+		otherRatios := relayInfo.PriceData.OtherRatios()
+		if otherRatios == nil {
+			otherRatios = map[string]float64{}
 		}
-		task.Quota = result.Quota
-		task.Data = result.TaskData
-		task.Action = relayInfo.Action
-		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
+		if ratiosJSON, marshalErr := common.Marshal(otherRatios); marshalErr == nil {
+			c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
+		}
+		if result.Response == nil {
+			taskErr = service.TaskErrorWrapperLocal(errors.New("task response is empty"), "empty_task_response", http.StatusInternalServerError)
+		} else if writeErr := result.Response.WriteTo(c); writeErr != nil {
+			common.SysError("write task response error: " + writeErr.Error())
+		}
+	} else if taskErr != nil && result != nil && !result.CanRefund() {
+		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+			common.SysError("settle unknown task billing error: " + settleErr.Error())
 		}
 	}
 

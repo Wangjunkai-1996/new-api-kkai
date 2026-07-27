@@ -21,7 +21,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var videoProxyRangePattern = regexp.MustCompile(`^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$`)
+var (
+	videoProxyRangePattern              = regexp.MustCompile(`^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$`)
+	videoProxySensitiveQueryPattern     = regexp.MustCompile(`(?i)([?&](?:key|api[_-]?key|apikey|x-goog-api-key|access[_-]?token|authorization)=)[^&#\s]+`)
+	videoProxyProviderCredentialHeaders = []string{
+		"Authorization",
+		"Api-Key",
+		"X-Api-Key",
+		"X-Goog-Api-Key",
+	}
+)
+
+func redactVideoProxySensitiveQuery(value string) string {
+	return videoProxySensitiveQueryPattern.ReplaceAllString(value, `${1}[REDACTED]`)
+}
 
 // videoProxyError returns a standardized OpenAI-style error response.
 func videoProxyError(c *gin.Context, status int, errType, message string) {
@@ -49,6 +62,10 @@ func VideoProxy(c *gin.Context) {
 	}
 	if !exists || task == nil {
 		videoProxyError(c, http.StatusNotFound, "invalid_request_error", "Task not found")
+		return
+	}
+	if task.IsAssetHostedResult() {
+		videoProxyError(c, http.StatusNotFound, "invalid_request_error", "Video content is not available through this endpoint")
 		return
 	}
 
@@ -105,17 +122,21 @@ func VideoProxy(c *gin.Context) {
 			videoProxyError(c, http.StatusInternalServerError, "server_error", "API key not stored for task")
 			return
 		}
-		videoURL, err = getGeminiVideoURL(channel, task, apiKey)
+		var useAPIKey bool
+		videoURL, useAPIKey, err = getGeminiVideoURL(channel, task, apiKey)
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Gemini video URL for task %s: %s", taskID, err.Error()))
+			logger.LogError(c.Request.Context(), redactVideoProxySensitiveQuery(fmt.Sprintf("Failed to resolve Gemini video URL for task %s: %s", taskID, err.Error())))
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Gemini video URL")
 			return
 		}
-		req.Header.Set("x-goog-api-key", apiKey)
+		if useAPIKey {
+			req.Header.Set("x-goog-api-key", apiKey)
+			client = videoProxyClientWithScopedProviderCredentials(client, videoURL)
+		}
 	case constant.ChannelTypeVertexAi:
 		videoURL, err = getVertexVideoURL(channel, task)
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Vertex video URL for task %s: %s", taskID, err.Error()))
+			logger.LogError(c.Request.Context(), redactVideoProxySensitiveQuery(fmt.Sprintf("Failed to resolve Vertex video URL for task %s: %s", taskID, err.Error())))
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Vertex video URL")
 			return
 		}
@@ -153,14 +174,14 @@ func VideoProxy(c *gin.Context) {
 		validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
 	}
 	if validateErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, validateErr))
-		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", validateErr))
+		logger.LogError(c.Request.Context(), redactVideoProxySensitiveQuery(fmt.Sprintf("Video URL blocked for task %s: %v", taskID, validateErr)))
+		videoProxyError(c, http.StatusForbidden, "server_error", redactVideoProxySensitiveQuery(fmt.Sprintf("request blocked: %v", validateErr)))
 		return
 	}
 
 	req.URL, err = url.Parse(videoURL)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), redactVideoProxySensitiveQuery(fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error())))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
 	}
@@ -170,14 +191,14 @@ func VideoProxy(c *gin.Context) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video from %s: %s", videoURL, err.Error()))
+		logger.LogError(c.Request.Context(), redactVideoProxySensitiveQuery(fmt.Sprintf("Failed to fetch video from %s: %s", videoURL, err.Error())))
 		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
+		logger.LogError(c.Request.Context(), redactVideoProxySensitiveQuery(fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL)))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
 		return
@@ -198,6 +219,30 @@ func VideoProxy(c *gin.Context) {
 
 func isProviderManagedVideoURL(channelType int) bool {
 	return channelType == constant.ChannelTypeOpenAI || channelType == constant.ChannelTypeSora
+}
+
+func videoProxyClientWithScopedProviderCredentials(client *http.Client, credentialOrigin string) *http.Client {
+	if client == nil {
+		return nil
+	}
+	scoped := *client
+	baseCheckRedirect := client.CheckRedirect
+	scoped.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request != nil && request.URL != nil &&
+			!service.VideoSourceCanUseProviderCredentials(request.URL.String(), credentialOrigin) {
+			for _, header := range videoProxyProviderCredentialHeaders {
+				request.Header.Del(header)
+			}
+		}
+		if baseCheckRedirect != nil {
+			return baseCheckRedirect(request, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &scoped
 }
 
 func videoProxyRangeHeader(header http.Header) (string, error) {

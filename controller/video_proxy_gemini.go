@@ -10,29 +10,33 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/service"
 )
 
-func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) (string, error) {
+func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) (string, bool, error) {
 	if channel == nil || task == nil {
-		return "", fmt.Errorf("invalid channel or task")
+		return "", false, fmt.Errorf("invalid channel or task")
 	}
-
-	if url := extractGeminiVideoURLFromTaskData(task); url != "" {
-		return ensureAPIKey(url, apiKey), nil
+	if task.IsAssetHostedResult() {
+		return "", false, fmt.Errorf("asset-hosted task video is not available through the provider proxy")
 	}
 
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
+	if videoURL := extractGeminiVideoURLFromTaskData(task); videoURL != "" {
+		videoURL, useAPIKey := geminiVideoURLWithCredentials(baseURL, videoURL, apiKey)
+		return videoURL, useAPIKey, nil
+	}
 
 	adaptor := relay.GetTaskAdaptor(constant.TaskPlatform(strconv.Itoa(channel.Type)))
 	if adaptor == nil {
-		return "", fmt.Errorf("gemini task adaptor not found")
+		return "", false, fmt.Errorf("gemini task adaptor not found")
 	}
 
 	if apiKey == "" {
-		return "", fmt.Errorf("api key not available for task")
+		return "", false, fmt.Errorf("api key not available for task")
 	}
 
 	proxy := channel.GetSetting().Proxy
@@ -41,29 +45,39 @@ func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) 
 		"action":  task.Action,
 	}, proxy)
 	if err != nil {
-		return "", fmt.Errorf("fetch task failed: %w", err)
+		return "", false, fmt.Errorf("fetch task failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read task response failed: %w", err)
+		return "", false, fmt.Errorf("read task response failed: %w", err)
 	}
 
 	taskInfo, parseErr := adaptor.ParseTaskResult(body)
 	if parseErr == nil && taskInfo != nil && taskInfo.RemoteUrl != "" {
-		return ensureAPIKey(taskInfo.RemoteUrl, apiKey), nil
+		videoURL, useAPIKey := geminiVideoURLWithCredentials(baseURL, taskInfo.RemoteUrl, apiKey)
+		return videoURL, useAPIKey, nil
 	}
 
-	if url := extractGeminiVideoURLFromPayload(body); url != "" {
-		return ensureAPIKey(url, apiKey), nil
+	if videoURL := extractGeminiVideoURLFromPayload(body); videoURL != "" {
+		videoURL, useAPIKey := geminiVideoURLWithCredentials(baseURL, videoURL, apiKey)
+		return videoURL, useAPIKey, nil
 	}
 
 	if parseErr != nil {
-		return "", fmt.Errorf("parse task result failed: %w", parseErr)
+		return "", false, fmt.Errorf("parse task result failed: %w", parseErr)
 	}
 
-	return "", fmt.Errorf("gemini video url not found")
+	return "", false, fmt.Errorf("gemini video url not found")
+}
+
+func geminiVideoURLWithCredentials(baseURL string, videoURL string, apiKey string) (string, bool) {
+	if !service.VideoSourceCanUseProviderCredentials(videoURL, baseURL) {
+		return videoURL, false
+	}
+	videoURL = service.VideoSourceWithoutProviderCredentialQuery(videoURL)
+	return videoURL, apiKey != ""
 }
 
 func extractGeminiVideoURLFromTaskData(task *model.Task) string {
@@ -148,6 +162,9 @@ func extractGeminiVideoURLFromGeneratedSamples(gvr map[string]any) string {
 func getVertexVideoURL(channel *model.Channel, task *model.Task) (string, error) {
 	if channel == nil || task == nil {
 		return "", fmt.Errorf("invalid channel or task")
+	}
+	if task.IsAssetHostedResult() {
+		return "", fmt.Errorf("asset-hosted task video is not available through the provider proxy")
 	}
 	if url := strings.TrimSpace(task.GetResultURL()); url != "" && !isTaskProxyContentURL(url, task.TaskID) {
 		return url, nil
@@ -278,17 +295,4 @@ func buildVideoDataURL(mimeType string, encoding string, base64Data string) stri
 		}
 	}
 	return "data:" + mime + ";base64," + base64Data
-}
-
-func ensureAPIKey(uri, key string) string {
-	if key == "" || uri == "" {
-		return uri
-	}
-	if strings.Contains(uri, "key=") {
-		return uri
-	}
-	if strings.Contains(uri, "?") {
-		return fmt.Sprintf("%s&key=%s", uri, key)
-	}
-	return fmt.Sprintf("%s?key=%s", uri, key)
 }

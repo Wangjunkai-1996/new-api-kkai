@@ -78,27 +78,24 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
-		return
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError))
 	}
 	_ = resp.Body.Close()
 
 	var hResp VideoResponse
 	if err := common.Unmarshal(responseBody, &hResp); err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
-		return
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError))
 	}
 
 	if hResp.BaseResp.StatusCode != StatusSuccess {
-		taskErr = service.TaskErrorWrapper(
+		return nil, channel.NewRejectedTaskResponseError(service.TaskErrorWrapper(
 			fmt.Errorf("hailuo api error: %s", hResp.BaseResp.StatusMsg),
 			strconv.Itoa(hResp.BaseResp.StatusCode),
 			http.StatusBadRequest,
-		)
-		return
+		))
 	}
 
 	ov := dto.NewOpenAIVideo()
@@ -107,8 +104,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	ov.CreatedAt = time.Now().Unix()
 	ov.Model = info.OriginModelName
 
-	c.JSON(http.StatusOK, ov)
-	return hResp.TaskID, responseBody, nil
+	buffered, err := channel.NewJSONTaskSubmitResponse(hResp.TaskID, responseBody, ov)
+	if err != nil {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError))
+	}
+	return buffered, nil
 }
 
 func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {

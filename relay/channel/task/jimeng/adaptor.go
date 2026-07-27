@@ -44,7 +44,7 @@ type requestPayload struct {
 }
 
 type responsePayload struct {
-	Code      int    `json:"code"`
+	Code      *int   `json:"code"`
 	Message   string `json:"message"`
 	RequestId string `json:"request_id"`
 	Data      struct {
@@ -182,24 +182,27 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 }
 
 // DoResponse handles upstream response, returns taskID etc.
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
-		return
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError))
 	}
 	_ = resp.Body.Close()
 
 	// Parse Jimeng response
 	var jResp responsePayload
 	if err := common.Unmarshal(responseBody, &jResp); err != nil {
-		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
-		return
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError))
 	}
 
-	if jResp.Code != 10000 {
-		taskErr = service.TaskErrorWrapper(fmt.Errorf("%s", jResp.Message), fmt.Sprintf("%d", jResp.Code), http.StatusInternalServerError)
-		return
+	if jResp.Code == nil {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(errors.New("jimeng response is missing code"), "invalid_response", http.StatusBadGateway))
+	}
+	if *jResp.Code != 10000 {
+		return nil, channel.NewRejectedTaskResponseError(service.TaskErrorWrapper(fmt.Errorf("%s", jResp.Message), fmt.Sprintf("%d", *jResp.Code), http.StatusInternalServerError))
+	}
+	if strings.TrimSpace(jResp.Data.TaskID) == "" {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(errors.New("jimeng response is missing task_id"), "invalid_response", http.StatusBadGateway))
 	}
 
 	ov := dto.NewOpenAIVideo()
@@ -207,8 +210,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	ov.TaskID = info.PublicTaskID
 	ov.CreatedAt = time.Now().Unix()
 	ov.Model = info.OriginModelName
-	c.JSON(http.StatusOK, ov)
-	return jResp.Data.TaskID, responseBody, nil
+	buffered, err := channel.NewJSONTaskSubmitResponse(jResp.Data.TaskID, responseBody, ov)
+	if err != nil {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError))
+	}
+	return buffered, nil
 }
 
 // FetchTask fetch task status

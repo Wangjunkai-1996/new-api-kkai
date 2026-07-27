@@ -23,6 +23,12 @@ type TaskAdaptor struct {
 	ChannelType int
 }
 
+type submitResponse struct {
+	Code    *string `json:"code"`
+	Message string  `json:"message"`
+	Data    string  `json:"data"`
+}
+
 // ParseTaskResult is not used for Suno tasks.
 // Suno polling uses a dedicated batch-fetch path (service.UpdateSunoTasks) that
 // receives dto.TaskResponse[[]dto.SunoDataResponse] from the upstream /fetch API.
@@ -92,32 +98,38 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
 
-func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
-		return
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError))
 	}
-	var sunoResponse dto.TaskResponse[string]
+	_ = resp.Body.Close()
+	var sunoResponse submitResponse
 	err = common.Unmarshal(responseBody, &sunoResponse)
 	if err != nil {
-		taskErr = service.TaskErrorWrapper(err, "unmarshal_response_body_failed", http.StatusInternalServerError)
-		return
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "unmarshal_response_body_failed", http.StatusInternalServerError))
 	}
-	if !sunoResponse.IsSuccess() {
-		taskErr = service.TaskErrorWrapper(fmt.Errorf("%s", sunoResponse.Message), sunoResponse.Code, http.StatusInternalServerError)
-		return
+	if sunoResponse.Code == nil {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(fmt.Errorf("suno response is missing code"), "invalid_response", http.StatusBadGateway))
+	}
+	if *sunoResponse.Code != dto.TaskSuccessCode {
+		return nil, channel.NewRejectedTaskResponseError(service.TaskErrorWrapper(fmt.Errorf("%s", sunoResponse.Message), *sunoResponse.Code, http.StatusInternalServerError))
+	}
+	if strings.TrimSpace(sunoResponse.Data) == "" {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(fmt.Errorf("suno response is missing task id"), "invalid_response", http.StatusBadGateway))
 	}
 
 	// 使用公开 task_xxxx ID 替换上游 ID 返回给客户端
 	publicResponse := dto.TaskResponse[string]{
-		Code:    sunoResponse.Code,
+		Code:    *sunoResponse.Code,
 		Message: sunoResponse.Message,
 		Data:    info.PublicTaskID,
 	}
-	c.JSON(http.StatusOK, publicResponse)
-
-	return sunoResponse.Data, nil, nil
+	buffered, err := channel.NewJSONTaskSubmitResponse(sunoResponse.Data, responseBody, publicResponse)
+	if err != nil {
+		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError))
+	}
+	return buffered, nil
 }
 
 func (a *TaskAdaptor) GetModelList() []string {

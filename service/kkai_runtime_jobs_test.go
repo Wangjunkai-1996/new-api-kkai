@@ -4,11 +4,246 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 )
+
+func TestKKAIOutboxRuntimeJobIsolatesSlowWebhookFromRiskAndBilling(t *testing.T) {
+	db := newOutboxTestDB(t)
+	now := time.Unix(1_720_000_000, 0)
+	webhookEvent := seedOutboxEvent(t, db, model.KKAIOutboxTopicTopUpCompleted, now.Unix())
+	riskEvent := seedOutboxEvent(t, db, KKAIOutboxTopicRiskActionCommitted, now.Unix())
+	billingEvent := seedOutboxEvent(t, db, model.KKAIOutboxTopicTaskBillingAudit, now.Unix())
+
+	webhookStarted := make(chan struct{})
+	releaseWebhook := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseWebhook:
+		default:
+			close(releaseWebhook)
+		}
+	})
+	riskDelivered := make(chan struct{})
+	billingDelivered := make(chan struct{})
+	noopHandler := func(context.Context, model.KKAIOutboxEvent) error { return nil }
+	worker, err := newKKAIOutboxRuntimeWorker(db, "runtime-worker", kkaiOutboxRuntimeHandlers{
+		taskBillingAudit: func(context.Context, model.KKAIOutboxEvent) error {
+			close(billingDelivered)
+			return nil
+		},
+		taskBillingCacheReconcile: noopHandler,
+		taskBillingRecovery:       noopHandler,
+		taskAccounting:            noopHandler,
+		riskActionCommitted: func(context.Context, model.KKAIOutboxEvent) error {
+			close(riskDelivered)
+			return nil
+		},
+		topUpCompleted: func(context.Context, model.KKAIOutboxEvent) error {
+			close(webhookStarted)
+			<-releaseWebhook
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, worker.processors, 3)
+	for _, processor := range worker.processors {
+		processor.now = func() time.Time { return now }
+	}
+
+	registry := NewBackgroundJobRegistry()
+	require.NoError(t, registerKKAIOutboxDeliveryJob(registry, worker))
+	descriptors := registry.Descriptors()
+	require.Len(t, descriptors, 1)
+	require.Equal(t, "kkai-outbox-delivery", descriptors[0].Name)
+	require.True(t, descriptors[0].WritesData)
+	require.True(t, descriptors[0].RequiresLeaderLease)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- worker.ProcessOnce(context.Background())
+	}()
+	<-webhookStarted
+
+	select {
+	case <-riskDelivered:
+	case <-time.After(time.Second):
+		t.Fatal("risk outbox lane was blocked by the webhook handler")
+	}
+	select {
+	case <-billingDelivered:
+	case <-time.After(time.Second):
+		t.Fatal("billing outbox lane was blocked by the webhook handler")
+	}
+	require.Eventually(t, func() bool {
+		return db.First(&riskEvent, riskEvent.ID).Error == nil && riskEvent.Status == model.KKAIOutboxStatusDelivered
+	}, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return db.First(&billingEvent, billingEvent.ID).Error == nil && billingEvent.Status == model.KKAIOutboxStatusDelivered
+	}, time.Second, 5*time.Millisecond)
+	require.NoError(t, db.First(&webhookEvent, webhookEvent.ID).Error)
+	require.Equal(t, model.KKAIOutboxStatusPending, webhookEvent.Status)
+	require.NotEmpty(t, webhookEvent.LockedBy)
+
+	close(releaseWebhook)
+	require.NoError(t, <-done)
+	require.NoError(t, db.First(&webhookEvent, webhookEvent.ID).Error)
+	require.Equal(t, model.KKAIOutboxStatusDelivered, webhookEvent.Status)
+	require.Empty(t, webhookEvent.LockedBy)
+}
+
+func TestKKAIOutboxRuntimeWorkerRetriesHandlerPanicWithoutEscapingWorker(t *testing.T) {
+	db := newOutboxTestDB(t)
+	now := time.Unix(1_720_000_000, 0)
+	event := seedOutboxEvent(t, db, KKAIOutboxTopicRiskActionCommitted, now.Unix())
+	noopHandler := func(context.Context, model.KKAIOutboxEvent) error { return nil }
+	worker, err := newKKAIOutboxRuntimeWorker(db, "runtime-worker", kkaiOutboxRuntimeHandlers{
+		taskBillingAudit:          noopHandler,
+		taskBillingCacheReconcile: noopHandler,
+		taskBillingRecovery:       noopHandler,
+		taskAccounting:            noopHandler,
+		riskActionCommitted: func(context.Context, model.KKAIOutboxEvent) error {
+			panic("lane failure")
+		},
+	})
+	require.NoError(t, err)
+	for _, processor := range worker.processors {
+		processor.now = func() time.Time { return now }
+	}
+
+	err = worker.ProcessOnce(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, db.First(&event, event.ID).Error)
+	require.Equal(t, model.KKAIOutboxStatusPending, event.Status)
+	require.Equal(t, 1, event.Attempts)
+	require.Equal(t, now.Add(5*time.Second).Unix(), event.AvailableAt)
+	require.Empty(t, event.LockedBy)
+	require.Contains(t, event.LastError, "KKAI outbox handler panic: lane failure")
+}
+
+func TestKKAIOutboxRuntimeWorkerCancellationStopsAllLanes(t *testing.T) {
+	db := newOutboxTestDB(t)
+	now := time.Unix(1_720_000_000, 0)
+	events := []model.KKAIOutboxEvent{
+		seedOutboxEvent(t, db, model.KKAIOutboxTopicTaskBillingAudit, now.Unix()),
+		seedOutboxEvent(t, db, KKAIOutboxTopicRiskActionCommitted, now.Unix()),
+		seedOutboxEvent(t, db, model.KKAIOutboxTopicTopUpCompleted, now.Unix()),
+	}
+
+	started := make(chan string, len(events))
+	blockingHandler := func(ctx context.Context, event model.KKAIOutboxEvent) error {
+		started <- event.Topic
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	noopHandler := func(context.Context, model.KKAIOutboxEvent) error { return nil }
+	worker, err := newKKAIOutboxRuntimeWorker(db, "runtime-worker", kkaiOutboxRuntimeHandlers{
+		taskBillingAudit:          blockingHandler,
+		taskBillingCacheReconcile: noopHandler,
+		taskBillingRecovery:       noopHandler,
+		taskAccounting:            noopHandler,
+		riskActionCommitted:       blockingHandler,
+		topUpCompleted:            blockingHandler,
+	})
+	require.NoError(t, err)
+	for _, processor := range worker.processors {
+		processor.now = func() time.Time { return now }
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- worker.ProcessOnce(ctx)
+	}()
+	startedTopics := make(map[string]bool, len(events))
+	for range events {
+		select {
+		case topic := <-started:
+			startedTopics[topic] = true
+		case <-time.After(time.Second):
+			t.Fatal("not all KKAI outbox runtime lanes started")
+		}
+	}
+	require.Equal(t, map[string]bool{
+		model.KKAIOutboxTopicTaskBillingAudit: true,
+		KKAIOutboxTopicRiskActionCommitted:    true,
+		model.KKAIOutboxTopicTopUpCompleted:   true,
+	}, startedTopics)
+
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	for index := range events {
+		require.NoError(t, db.First(&events[index], events[index].ID).Error)
+		require.Equal(t, model.KKAIOutboxStatusPending, events[index].Status)
+		require.Equal(t, 1, events[index].Attempts)
+		require.Empty(t, events[index].LockedBy)
+		require.Equal(t, now.Add(5*time.Second).Unix(), events[index].AvailableAt)
+	}
+}
+
+func TestKKAIOutboxRuntimeWorkerUsesGlobalBatchBudgetAcrossLanes(t *testing.T) {
+	balancedTopics := make([]string, 0, 51)
+	for range 17 {
+		balancedTopics = append(balancedTopics,
+			model.KKAIOutboxTopicTaskBillingAudit,
+			KKAIOutboxTopicRiskActionCommitted,
+			model.KKAIOutboxTopicTopUpCompleted,
+		)
+	}
+	billingTopics := make([]string, 51)
+	for index := range billingTopics {
+		billingTopics[index] = model.KKAIOutboxTopicTaskBillingAudit
+	}
+	tests := []struct {
+		name   string
+		topics []string
+	}{
+		{
+			name:   "caps combined lanes at fifty",
+			topics: balancedTopics,
+		},
+		{
+			name:   "idle lanes return capacity to billing",
+			topics: billingTopics,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := newOutboxTestDB(t)
+			now := time.Unix(1_720_000_000, 0)
+			for _, topic := range test.topics {
+				seedOutboxEvent(t, db, topic, now.Unix())
+			}
+			noopHandler := func(context.Context, model.KKAIOutboxEvent) error { return nil }
+			worker, err := newKKAIOutboxRuntimeWorker(db, "runtime-worker", kkaiOutboxRuntimeHandlers{
+				taskBillingAudit:          noopHandler,
+				taskBillingCacheReconcile: noopHandler,
+				taskBillingRecovery:       noopHandler,
+				taskAccounting:            noopHandler,
+				riskActionCommitted:       noopHandler,
+				topUpCompleted:            noopHandler,
+			})
+			require.NoError(t, err)
+			for _, processor := range worker.processors {
+				processor.now = func() time.Time { return now }
+			}
+
+			require.NoError(t, worker.ProcessOnce(context.Background()))
+			var delivered int64
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).
+				Where("status = ?", model.KKAIOutboxStatusDelivered).Count(&delivered).Error)
+			require.EqualValues(t, defaultKKAIOutboxBatchLimit, delivered)
+			var pending int64
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).
+				Where("status = ?", model.KKAIOutboxStatusPending).Count(&pending).Error)
+			require.EqualValues(t, len(test.topics)-defaultKKAIOutboxBatchLimit, pending)
+		})
+	}
+}
 
 func TestDecideKKAIRiskStreamEventRequiresConfirmedCausality(t *testing.T) {
 	tests := []struct {

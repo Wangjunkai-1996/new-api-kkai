@@ -66,6 +66,15 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
+	videoStudioPlaygroundRouter := router.Group("/pg")
+	videoStudioPlaygroundRouter.Use(middleware.RouteTag("relay"))
+	videoStudioPlaygroundRouter.Use(middleware.SystemPerformanceCheck())
+	videoStudioPlaygroundRouter.Use(middleware.UserAuth(), middleware.VideoStudioAccess())
+	videoStudioPlaygroundRouter.Use(controller.PrepareVideoStudioTaskRequest, middleware.Distribute())
+	{
+		videoStudioPlaygroundRouter.POST("/videos/quote", controller.QuoteVideoStudioTask)
+		videoStudioPlaygroundRouter.POST("/videos", controller.SubmitVideoStudioTask)
+	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())

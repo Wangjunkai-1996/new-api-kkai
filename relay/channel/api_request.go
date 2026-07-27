@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
@@ -537,11 +539,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.BuildRequestURL(info)
 	if err != nil {
-		return nil, err
+		return nil, NewTaskRequestError(err, false)
 	}
 	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("new request failed: %w", err)
+		return nil, NewTaskRequestError(fmt.Errorf("new request failed: %w", err), false)
 	}
 	applyUpstreamContentLength(req, info)
 	req.GetBody = func() (io.ReadCloser, error) {
@@ -550,14 +552,34 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 
 	err = a.BuildRequestHeader(c, req, info)
 	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
+		return nil, NewTaskRequestError(fmt.Errorf("setup request header failed: %w", err), false)
 	}
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
-		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
+		return nil, NewTaskRequestError(fmt.Errorf("apply internal attribution headers failed: %w", err), false)
 	}
-	resp, err := doRequest(c, req, info)
+	return executeTaskRequest(req, func(tracedRequest *http.Request) (*http.Response, error) {
+		return doRequest(c, tracedRequest, info)
+	})
+}
+
+func executeTaskRequest(req *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+	if req == nil {
+		return nil, NewTaskRequestError(errors.New("task request is nil"), false)
+	}
+	if send == nil {
+		return nil, NewTaskRequestError(errors.New("task request sender is nil"), false)
+	}
+
+	var writeAttempted atomic.Bool
+	trace := &httptrace.ClientTrace{
+		WroteRequest: func(_ httptrace.WroteRequestInfo) {
+			writeAttempted.Store(true)
+		},
+	}
+	tracedRequest := req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	resp, err := send(tracedRequest)
 	if err != nil {
-		return nil, fmt.Errorf("do request failed: %w", err)
+		return nil, NewTaskRequestError(fmt.Errorf("do request failed: %w", err), writeAttempted.Load())
 	}
 	return resp, nil
 }
