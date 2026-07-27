@@ -49,7 +49,8 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
 COPY . .
 COPY --from=web-default /build/web/default/dist ./web/default/dist
 COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
-RUN test -n "${APP_VERSION}" \
+RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    test -n "${APP_VERSION}" \
     && test -n "${SOURCE_REVISION}" \
     && go build -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
@@ -67,7 +68,8 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
     go mod download && go mod verify
 COPY --from=kkai_image cmd ./cmd
 COPY --from=kkai_image internal ./internal
-RUN go build -trimpath -ldflags '-s -w -buildid=' -o /out/new-api-entrypoint ./cmd/entrypoint \
+RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    go build -trimpath -ldflags '-s -w -buildid=' -o /out/new-api-entrypoint ./cmd/entrypoint \
     && go build -trimpath -ldflags '-s -w -buildid=' -o /out/newapi-risk-guard ./cmd/riskguard
 
 FROM ${BUSYBOX_IMAGE} AS health-tools

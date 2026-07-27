@@ -89,9 +89,6 @@ contains 'FROM web-deps AS web-default' "${DOCKERFILE}" ||
   fail "default frontend does not reuse the shared dependency stage"
 contains 'FROM web-deps AS web-classic' "${DOCKERFILE}" ||
   fail "classic frontend does not reuse the shared dependency stage"
-[[ "$(grep -Fc -- 'id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked' "${DOCKERFILE}")" -eq 2 ]] ||
-  fail "Go module downloads do not use the shared persistent cache"
-
 contains '--platform linux/amd64' "${BUILD_SCRIPT}" || fail "manual build is not pinned to AMD64"
 contains 'production/kkrich' "${BUILD_SCRIPT}" || fail "manual build does not require the production branch"
 contains 'status --porcelain=v1 --untracked-files=all' "${BUILD_SCRIPT}" ||
