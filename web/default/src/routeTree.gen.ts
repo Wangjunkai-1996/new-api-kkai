@@ -35,9 +35,11 @@ import { Route as authRegisterRouteImport } from './routes/(auth)/register'
 import { Route as authOtpRouteImport } from './routes/(auth)/otp'
 import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
+import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
+import { Route as AuthenticatedVideoStudioIndexRouteImport } from './routes/_authenticated/video-studio/index'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
@@ -52,7 +54,11 @@ import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_aut
 import { Route as AuthenticatedGroupStatusIndexRouteImport } from './routes/_authenticated/group-status/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
+import { Route as AuthenticatedVideoStudioTasksRouteImport } from './routes/_authenticated/video-studio/tasks'
+import { Route as AuthenticatedVideoStudioLibraryRouteImport } from './routes/_authenticated/video-studio/library'
+import { Route as AuthenticatedVideoStudioCreateRouteImport } from './routes/_authenticated/video-studio/create'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
+import { Route as AuthenticatedSystemSettingsVideoStudioRouteImport } from './routes/_authenticated/system-settings/video-studio'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
@@ -203,6 +209,12 @@ const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => authRouteRoute,
 } as any)
+const AuthenticatedVideoStudioRouteRoute =
+  AuthenticatedVideoStudioRouteRouteImport.update({
+    id: '/video-studio',
+    path: '/video-studio',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsRouteRoute =
   AuthenticatedSystemSettingsRouteRouteImport.update({
     id: '/system-settings',
@@ -219,6 +231,12 @@ const AuthenticatedWalletIndexRoute =
     id: '/wallet/',
     path: '/wallet/',
     getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedVideoStudioIndexRoute =
+  AuthenticatedVideoStudioIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
   } as any)
 const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
   id: '/users/',
@@ -302,11 +320,35 @@ const AuthenticatedChannelsIndexRoute =
     path: '/channels/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedVideoStudioTasksRoute =
+  AuthenticatedVideoStudioTasksRouteImport.update({
+    id: '/tasks',
+    path: '/tasks',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
+const AuthenticatedVideoStudioLibraryRoute =
+  AuthenticatedVideoStudioLibraryRouteImport.update({
+    id: '/library',
+    path: '/library',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
+const AuthenticatedVideoStudioCreateRoute =
+  AuthenticatedVideoStudioCreateRouteImport.update({
+    id: '/create',
+    path: '/create',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
 const AuthenticatedUsageLogsSectionRoute =
   AuthenticatedUsageLogsSectionRouteImport.update({
     id: '/usage-logs/$section',
     path: '/usage-logs/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsVideoStudioRoute =
+  AuthenticatedSystemSettingsVideoStudioRouteImport.update({
+    id: '/video-studio',
+    path: '/video-studio',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
 const AuthenticatedModelsSectionRoute =
   AuthenticatedModelsSectionRouteImport.update({
@@ -432,6 +474,7 @@ export interface FileRoutesByFullPath {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
+  '/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
   '/otp': typeof authOtpRoute
@@ -459,7 +502,11 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
+  '/video-studio/library': typeof AuthenticatedVideoStudioLibraryRoute
+  '/video-studio/tasks': typeof AuthenticatedVideoStudioTasksRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/group-status/': typeof AuthenticatedGroupStatusIndexRoute
@@ -474,6 +521,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
+  '/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -521,7 +569,11 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
+  '/video-studio/library': typeof AuthenticatedVideoStudioLibraryRoute
+  '/video-studio/tasks': typeof AuthenticatedVideoStudioTasksRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/group-status': typeof AuthenticatedGroupStatusIndexRoute
@@ -536,6 +588,7 @@ export interface FileRoutesByTo {
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
+  '/video-studio': typeof AuthenticatedVideoStudioIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -561,6 +614,7 @@ export interface FileRoutesById {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
+  '/_authenticated/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
   '/(auth)/oauth': typeof authOauthRoute
   '/(auth)/otp': typeof authOtpRoute
@@ -588,7 +642,11 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/_authenticated/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
+  '/_authenticated/video-studio/library': typeof AuthenticatedVideoStudioLibraryRoute
+  '/_authenticated/video-studio/tasks': typeof AuthenticatedVideoStudioTasksRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/group-status/': typeof AuthenticatedGroupStatusIndexRoute
@@ -603,6 +661,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
+  '/_authenticated/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -627,6 +686,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/user-agreement'
     | '/system-settings'
+    | '/video-studio'
     | '/forgot-password'
     | '/oauth'
     | '/otp'
@@ -654,7 +714,11 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/invitations/admin'
     | '/models/$section'
+    | '/system-settings/video-studio'
     | '/usage-logs/$section'
+    | '/video-studio/create'
+    | '/video-studio/library'
+    | '/video-studio/tasks'
     | '/channels/'
     | '/dashboard/'
     | '/group-status/'
@@ -669,6 +733,7 @@ export interface FileRouteTypes {
     | '/system-settings/'
     | '/usage-logs/'
     | '/users/'
+    | '/video-studio/'
     | '/wallet/'
     | '/pricing/$modelId/'
     | '/system-settings/auth/$section'
@@ -716,7 +781,11 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/invitations/admin'
     | '/models/$section'
+    | '/system-settings/video-studio'
     | '/usage-logs/$section'
+    | '/video-studio/create'
+    | '/video-studio/library'
+    | '/video-studio/tasks'
     | '/channels'
     | '/dashboard'
     | '/group-status'
@@ -731,6 +800,7 @@ export interface FileRouteTypes {
     | '/system-settings'
     | '/usage-logs'
     | '/users'
+    | '/video-studio'
     | '/wallet'
     | '/pricing/$modelId'
     | '/system-settings/auth/$section'
@@ -755,6 +825,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/user-agreement'
     | '/_authenticated/system-settings'
+    | '/_authenticated/video-studio'
     | '/(auth)/forgot-password'
     | '/(auth)/oauth'
     | '/(auth)/otp'
@@ -782,7 +853,11 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/invitations/admin'
     | '/_authenticated/models/$section'
+    | '/_authenticated/system-settings/video-studio'
     | '/_authenticated/usage-logs/$section'
+    | '/_authenticated/video-studio/create'
+    | '/_authenticated/video-studio/library'
+    | '/_authenticated/video-studio/tasks'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/group-status/'
@@ -797,6 +872,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
+    | '/_authenticated/video-studio/'
     | '/_authenticated/wallet/'
     | '/pricing/$modelId/'
     | '/_authenticated/system-settings/auth/$section'
@@ -1020,6 +1096,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authForgotPasswordRouteImport
       parentRoute: typeof authRouteRoute
     }
+    '/_authenticated/video-studio': {
+      id: '/_authenticated/video-studio'
+      path: '/video-studio'
+      fullPath: '/video-studio'
+      preLoaderRoute: typeof AuthenticatedVideoStudioRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/system-settings': {
       id: '/_authenticated/system-settings'
       path: '/system-settings'
@@ -1040,6 +1123,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/wallet/'
       preLoaderRoute: typeof AuthenticatedWalletIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/video-studio/': {
+      id: '/_authenticated/video-studio/'
+      path: '/'
+      fullPath: '/video-studio/'
+      preLoaderRoute: typeof AuthenticatedVideoStudioIndexRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
     }
     '/_authenticated/users/': {
       id: '/_authenticated/users/'
@@ -1139,12 +1229,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChannelsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/video-studio/tasks': {
+      id: '/_authenticated/video-studio/tasks'
+      path: '/tasks'
+      fullPath: '/video-studio/tasks'
+      preLoaderRoute: typeof AuthenticatedVideoStudioTasksRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
+    '/_authenticated/video-studio/library': {
+      id: '/_authenticated/video-studio/library'
+      path: '/library'
+      fullPath: '/video-studio/library'
+      preLoaderRoute: typeof AuthenticatedVideoStudioLibraryRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
+    '/_authenticated/video-studio/create': {
+      id: '/_authenticated/video-studio/create'
+      path: '/create'
+      fullPath: '/video-studio/create'
+      preLoaderRoute: typeof AuthenticatedVideoStudioCreateRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
     '/_authenticated/usage-logs/$section': {
       id: '/_authenticated/usage-logs/$section'
       path: '/usage-logs/$section'
       fullPath: '/usage-logs/$section'
       preLoaderRoute: typeof AuthenticatedUsageLogsSectionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/system-settings/video-studio': {
+      id: '/_authenticated/system-settings/video-studio'
+      path: '/video-studio'
+      fullPath: '/system-settings/video-studio'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsVideoStudioRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
     '/_authenticated/models/$section': {
       id: '/_authenticated/models/$section'
@@ -1316,6 +1434,7 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
 )
 
 interface AuthenticatedSystemSettingsRouteRouteChildren {
+  AuthenticatedSystemSettingsVideoStudioRoute: typeof AuthenticatedSystemSettingsVideoStudioRoute
   AuthenticatedSystemSettingsIndexRoute: typeof AuthenticatedSystemSettingsIndexRoute
   AuthenticatedSystemSettingsAuthSectionRoute: typeof AuthenticatedSystemSettingsAuthSectionRoute
   AuthenticatedSystemSettingsBillingSectionRoute: typeof AuthenticatedSystemSettingsBillingSectionRoute
@@ -1335,6 +1454,8 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
 
 const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettingsRouteRouteChildren =
   {
+    AuthenticatedSystemSettingsVideoStudioRoute:
+      AuthenticatedSystemSettingsVideoStudioRoute,
     AuthenticatedSystemSettingsIndexRoute:
       AuthenticatedSystemSettingsIndexRoute,
     AuthenticatedSystemSettingsAuthSectionRoute:
@@ -1372,6 +1493,26 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
     AuthenticatedSystemSettingsRouteRouteChildren,
   )
 
+interface AuthenticatedVideoStudioRouteRouteChildren {
+  AuthenticatedVideoStudioCreateRoute: typeof AuthenticatedVideoStudioCreateRoute
+  AuthenticatedVideoStudioLibraryRoute: typeof AuthenticatedVideoStudioLibraryRoute
+  AuthenticatedVideoStudioTasksRoute: typeof AuthenticatedVideoStudioTasksRoute
+  AuthenticatedVideoStudioIndexRoute: typeof AuthenticatedVideoStudioIndexRoute
+}
+
+const AuthenticatedVideoStudioRouteRouteChildren: AuthenticatedVideoStudioRouteRouteChildren =
+  {
+    AuthenticatedVideoStudioCreateRoute: AuthenticatedVideoStudioCreateRoute,
+    AuthenticatedVideoStudioLibraryRoute: AuthenticatedVideoStudioLibraryRoute,
+    AuthenticatedVideoStudioTasksRoute: AuthenticatedVideoStudioTasksRoute,
+    AuthenticatedVideoStudioIndexRoute: AuthenticatedVideoStudioIndexRoute,
+  }
+
+const AuthenticatedVideoStudioRouteRouteWithChildren =
+  AuthenticatedVideoStudioRouteRoute._addFileChildren(
+    AuthenticatedVideoStudioRouteRouteChildren,
+  )
+
 interface AuthenticatedInvitationsRouteChildren {
   AuthenticatedInvitationsAdminRoute: typeof AuthenticatedInvitationsAdminRoute
   AuthenticatedInvitationsIndexRoute: typeof AuthenticatedInvitationsIndexRoute
@@ -1390,6 +1531,7 @@ const AuthenticatedInvitationsRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
+  AuthenticatedVideoStudioRouteRoute: typeof AuthenticatedVideoStudioRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRouteWithChildren
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
@@ -1415,6 +1557,8 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
+  AuthenticatedVideoStudioRouteRoute:
+    AuthenticatedVideoStudioRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRouteWithChildren,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,

@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 import {
   Box,
   CreditCard,
+  Film,
   Layout,
   Settings,
   Shield,
@@ -69,6 +70,11 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           title: t('Models & Routing'),
           icon: Box,
           items: getModelsSectionNavItems(t),
+        },
+        {
+          title: t('videoStudio.admin.title'),
+          icon: Film,
+          url: '/system-settings/video-studio',
         },
         {
           title: t('Security & Limits'),

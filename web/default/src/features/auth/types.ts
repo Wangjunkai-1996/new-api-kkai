@@ -85,6 +85,16 @@ export interface ApiResponse {
 // System Status
 // ============================================================================
 
+export interface VideoStudioUploadLimits {
+  reference_max_bytes: number
+  sample_max_bytes: number
+  archive_max_bytes: number
+}
+
+export interface VideoStudioStatus {
+  upload_limits?: VideoStudioUploadLimits
+}
+
 export interface SystemStatus {
   success?: boolean
   message?: string
@@ -128,6 +138,8 @@ export interface SystemStatus {
     register_enabled?: boolean
     password_login_enabled?: boolean
     password_register_enabled?: boolean
+    VideoStudioAccessMode?: 'off' | 'admin' | 'all'
+    video_studio?: VideoStudioStatus
     custom_oauth_providers?: CustomOAuthProviderInfo[]
     [key: string]: unknown
   }
@@ -171,6 +183,8 @@ export interface SystemStatus {
   register_enabled?: boolean
   password_login_enabled?: boolean
   password_register_enabled?: boolean
+  VideoStudioAccessMode?: 'off' | 'admin' | 'all'
+  video_studio?: VideoStudioStatus
   custom_oauth_providers?: CustomOAuthProviderInfo[]
   [key: string]: unknown
 }

@@ -22,6 +22,7 @@ import {
   Box,
   CreditCard,
   FileText,
+  Film,
   FlaskConical,
   HandCoins,
   Key,
@@ -40,6 +41,7 @@ import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
 import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
+import { useVideoStudioAccess } from '@/features/video-studio/hooks/use-video-studio-access'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -51,6 +53,7 @@ import { ROLE } from '@/lib/roles'
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const invitationFeature = useInvitationFeatureStatus()
+  const videoStudio = useVideoStudioAccess()
 
   return {
     navGroups: [
@@ -63,6 +66,16 @@ export function useSidebarData(): SidebarData {
             url: '/playground',
             icon: FlaskConical,
           },
+          ...(videoStudio.available
+            ? [
+                {
+                  title: t('videoStudio.title'),
+                  url: '/video-studio/create',
+                  activeUrls: ['/video-studio'],
+                  icon: Film,
+                },
+              ]
+            : []),
           {
             title: t('Chat'),
             icon: MessageSquare,

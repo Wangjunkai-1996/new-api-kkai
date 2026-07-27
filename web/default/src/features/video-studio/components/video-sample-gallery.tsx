@@ -1,0 +1,249 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { Film, LoaderCircle, RotateCw } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { Button } from '@/components/ui/button'
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Skeleton } from '@/components/ui/skeleton'
+
+import { useVideoModels, useVideoSamples } from '../queries'
+import type { VideoSample } from '../types'
+import { VideoSampleCard } from './video-sample-card'
+
+type VideoSampleGalleryProps = {
+  selectedSampleId?: number
+  onTrySample: (sample: VideoSample) => void
+}
+
+const getLaneCount = (width: number): number => {
+  if (width < 480) return 1
+  if (width < 760) return 2
+  if (width < 1_080) return 3
+  return 4
+}
+
+export function VideoSampleGallery(props: VideoSampleGalleryProps) {
+  const { t } = useTranslation()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  const [activePreviewId, setActivePreviewId] = useState<number | null>(null)
+  const [modelFilter, setModelFilter] = useState('')
+  const modelsQuery = useVideoModels()
+  const samplesQuery = useVideoSamples({
+    model: modelFilter || undefined,
+  })
+  const samples = useMemo(
+    () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [samplesQuery.data]
+  )
+  const lanes = getLaneCount(width)
+  const gap = 12
+  const columnWidth = Math.max(0, (width - gap * (lanes - 1)) / lanes)
+
+  useEffect(() => {
+    const element = scrollRef.current
+    if (!element) return
+    const observer = new ResizeObserver((entries) => {
+      setWidth(entries[0]?.contentRect.width ?? 0)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  const virtualizer = useVirtualizer({
+    count: samples.length,
+    getScrollElement: () => scrollRef.current,
+    getItemKey: (index) => samples[index]?.id ?? index,
+    estimateSize: (index) => {
+      const ratio = Math.min(
+        1.8,
+        Math.max(0.55, samples[index]?.aspect_ratio || 1)
+      )
+      return columnWidth / ratio + 108
+    },
+    lanes,
+    gap,
+    overscan: 5,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+
+  useEffect(() => {
+    virtualizer.measure()
+  }, [columnWidth, lanes, samples.length, virtualizer])
+
+  useEffect(() => {
+    const lastItem = virtualItems.at(-1)
+    if (
+      !lastItem ||
+      !samplesQuery.hasNextPage ||
+      samplesQuery.isFetchingNextPage
+    ) {
+      return
+    }
+    if (lastItem.index >= samples.length - lanes * 2) {
+      void samplesQuery.fetchNextPage()
+    }
+  }, [lanes, samples.length, samplesQuery, virtualItems])
+
+  const initialLoading = samplesQuery.isLoading && samples.length === 0
+  const initialError = samplesQuery.isError && samples.length === 0
+
+  return (
+    <section
+      className='flex min-h-0 flex-1 flex-col'
+      aria-labelledby='video-samples-heading'
+    >
+      <div className='bg-background/95 flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2.5 backdrop-blur sm:px-4'>
+        <h2
+          id='video-samples-heading'
+          className='me-auto text-sm font-semibold'
+        >
+          {t('videoStudio.samples')}
+        </h2>
+        <NativeSelect
+          size='sm'
+          value={modelFilter}
+          onChange={(event) => setModelFilter(event.target.value)}
+          aria-label={t('videoStudio.filterModel')}
+        >
+          <NativeSelectOption value=''>
+            {t('videoStudio.allModels')}
+          </NativeSelectOption>
+          {modelsQuery.data?.map((profile) => (
+            <NativeSelectOption key={profile.id} value={profile.model}>
+              {profile.display_name}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className='min-h-0 flex-1 overflow-y-auto p-3 sm:p-4'
+      >
+        {initialLoading && (
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+            {Array.from({ length: 9 }, (_, index) => (
+              <div key={`sample-skeleton-${index}`} className='space-y-2'>
+                <Skeleton className='aspect-[4/5] w-full rounded-lg' />
+                <Skeleton className='h-4 w-4/5' />
+                <Skeleton className='h-3 w-2/5' />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {initialError && (
+          <Empty className='min-h-72 border'>
+            <EmptyHeader>
+              <EmptyMedia variant='icon'>
+                <Film aria-hidden='true' />
+              </EmptyMedia>
+              <EmptyTitle>{t('videoStudio.samplesFailed')}</EmptyTitle>
+              <EmptyDescription>
+                {t('videoStudio.samplesFailedDescription')}
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => samplesQuery.refetch()}
+              >
+                <RotateCw aria-hidden='true' />
+                {t('videoStudio.retry')}
+              </Button>
+            </EmptyContent>
+          </Empty>
+        )}
+
+        {!initialLoading && !initialError && samples.length === 0 && (
+          <Empty className='min-h-72 border'>
+            <EmptyHeader>
+              <EmptyMedia variant='icon'>
+                <Film aria-hidden='true' />
+              </EmptyMedia>
+              <EmptyTitle>{t('videoStudio.noSamples')}</EmptyTitle>
+              <EmptyDescription>
+                {t('videoStudio.noSamplesDescription')}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+
+        {samples.length > 0 && width > 0 && (
+          <div
+            className='relative w-full'
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualItems.map((virtualItem) => {
+              const sample = samples[virtualItem.index]
+              if (!sample) return null
+              const x = virtualItem.lane * (columnWidth + gap)
+              return (
+                <div
+                  key={virtualItem.key}
+                  ref={virtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  className='absolute top-0 left-0'
+                  style={{
+                    width: columnWidth,
+                    transform: `translate3d(${x}px, ${virtualItem.start}px, 0)`,
+                  }}
+                >
+                  <VideoSampleCard
+                    sample={sample}
+                    active={activePreviewId === sample.id}
+                    selected={props.selectedSampleId === sample.id}
+                    onPreviewChange={setActivePreviewId}
+                    onTry={props.onTrySample}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {samplesQuery.isFetchingNextPage && (
+          <div
+            className='text-muted-foreground flex items-center justify-center gap-2 py-4 text-xs'
+            role='status'
+          >
+            <LoaderCircle
+              className='size-4 animate-spin motion-reduce:animate-none'
+              aria-hidden='true'
+            />
+            {t('videoStudio.loadingMore')}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
