@@ -22,6 +22,13 @@ BUILDX_BUILDER=kkai-mirror-builder \
 scripts/kkai/build-manual-release.sh
 ```
 
-Deploy the metadata file explicitly with
-`scripts/kkai/deploy-manual-release.sh`. No GitHub workflow builds or deploys
-KKAI production images.
+Stage the metadata file explicitly with:
+
+```bash
+scripts/kkai/deploy-manual-release.sh --stage .local-releases/<version>.json
+```
+
+This replaces only the inactive blue/green slot and exposes the candidate on
+the production host's loopback interface. It does not switch public traffic;
+promotion remains a separate operator action after acceptance. No GitHub
+workflow builds or deploys KKAI production images.

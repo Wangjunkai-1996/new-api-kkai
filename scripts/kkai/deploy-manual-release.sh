@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,8 +19,9 @@ sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
 
-[[ $# -eq 1 ]] || die "usage: deploy-manual-release.sh METADATA.json"
-METADATA="$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")"
+[[ $# -eq 2 && $1 == --stage ]] ||
+  die "usage: deploy-manual-release.sh --stage METADATA.json"
+METADATA="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
 readonly METADATA
 [[ -f "${METADATA}" ]] || die "metadata file is missing"
 [[ -f "${CONTRACT}" && ! -L "${CONTRACT}" ]] || die "deployment contract is missing or unsafe"
@@ -33,7 +35,8 @@ KKAI_DEPLOYMENT_PROTOCOL=''
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
 [[ "${KKAI_INFRA_SHA}" =~ ^[0-9a-f]{40}$ ]] || die "invalid infrastructure SHA in deployment contract"
-[[ "${KKAI_DEPLOYMENT_PROTOCOL}" == router-v2 ]] || die "invalid deployment protocol in deployment contract"
+[[ "${KKAI_DEPLOYMENT_PROTOCOL}" == router-v3-staged ]] ||
+  die "invalid deployment protocol in deployment contract"
 
 version="$(jq --exit-status --raw-output '.version' "${METADATA}")"
 source_sha="$(jq --exit-status --raw-output '.source_sha' "${METADATA}")"
@@ -85,7 +88,7 @@ printf '%s\n' "${preflight_output}"
 
 scp "${SSH_OPTIONS[@]}" -- "${archive}" "${HOST}:${REMOTE_ARCHIVE}"
 ssh "${SSH_OPTIONS[@]}" "${HOST}" \
-  sudo -n /usr/local/sbin/kkai-newapi-manual-deploy deploy \
+  sudo -n /usr/local/sbin/kkai-newapi-manual-deploy stage \
     --archive "${REMOTE_ARCHIVE}" \
     --archive-sha256 "${archive_sha256}" \
     --source-sha "${source_sha}" \

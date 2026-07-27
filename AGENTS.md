@@ -16,8 +16,8 @@ GitHub Actions, GHCR, blue-green slots, rollback, or `api.kkrich.ltd`:
 2. Run `make -C ../kkai-infra newapi-status` before treating the production
    version, active slot, or basic health as current. Never reuse mutable
    production state from an old chat.
-3. Build with `scripts/kkai/build-manual-release.sh`, then deploy the generated
-   metadata file with `scripts/kkai/deploy-manual-release.sh`.
+3. Build with `scripts/kkai/build-manual-release.sh`, then stage the generated
+   metadata file with `scripts/kkai/deploy-manual-release.sh --stage METADATA.json`.
 
 The deploy script must use `scripts/kkai/manual-deployment-contract.env` and
 complete the controller's read-only preflight before uploading an image. Update
@@ -27,10 +27,11 @@ never bypass its SHA or protocol checks.
 The only production application branch is `production/kkrich`. GitHub Actions
 must not build or deploy KKAI production images. An operator builds one Linux
 AMD64 image from a clean local checkout, transfers its archive over the private
-SSH path, and explicitly invokes the manual production deployer. The deployer
-loads the image, verifies its source/version/platform metadata, starts the idle
-slot read-only, checks `/api/status`, switches the stable alias, and retains the
-previous release for rollback.
+SSH path, and explicitly invokes the manual production deployer. Staging loads
+and verifies the image, replaces only the idle slot, and exposes it through a
+loopback-only candidate proxy. It does not switch the public router, stable
+alias, writer, Redis, release pointers, or rollback pointers. Promotion is a
+separate explicit operator action after acceptance.
 
 - Never build a production image on the production host.
 - Never use `latest`, reuse a release version, or deploy a dirty worktree.

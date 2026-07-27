@@ -73,8 +73,12 @@ contains '--build-arg "https_proxy=${build_https_proxy}"' "${BUILD_SCRIPT}" ||
 
 contains 'tokk@10.203.0.1' "${DEPLOY_SCRIPT}" || fail "manual deploy does not use the private host"
 contains 'ProxyCommand=none' "${DEPLOY_SCRIPT}" || fail "manual deploy may use an SSH proxy"
-contains 'kkai-newapi-manual-deploy deploy' "${DEPLOY_SCRIPT}" ||
-  fail "manual deploy does not use the production controller"
+contains 'usage: deploy-manual-release.sh --stage METADATA.json' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not require an explicit stage action"
+contains 'kkai-newapi-manual-deploy stage' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not stage through the production controller"
+! contains 'kkai-newapi-manual-deploy deploy' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy still invokes the legacy one-step action"
 contains 'kkai-newapi-manual-deploy preflight' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not run production preflight"
 contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
@@ -82,6 +86,10 @@ contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
 contains '--deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not pin the deployment protocol"
 contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
+contains 'KKAI_INFRA_SHA=132a9db95a921c8db084e1589ee11a67d926838f' "${DEPLOY_CONTRACT}" ||
+  fail "manual deployment contract does not pin the approved infrastructure commit"
+contains 'KKAI_DEPLOYMENT_PROTOCOL=router-v3-staged' "${DEPLOY_CONTRACT}" ||
+  fail "manual deployment contract does not pin the staged protocol"
 
 if grep -Eiq 'github actions|ghcr\.io|cosign|repository_dispatch|newapi_image_ready' \
   "${BUILD_SCRIPT}" "${DEPLOY_SCRIPT}"; then

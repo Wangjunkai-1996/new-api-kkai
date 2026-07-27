@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,6 +22,8 @@ mkdir -p -- "${mock_bin}"
 # shellcheck source=manual-deployment-contract.env
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
+readonly EXPECTED_INFRA_SHA=132a9db95a921c8db084e1589ee11a67d926838f
+readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
 export KKAI_TEST_EXPECTED_PROTOCOL="${KKAI_DEPLOYMENT_PROTOCOL}"
 
@@ -43,6 +46,12 @@ case "$*" in
         printf 'KKAI_INFRA_SHA=%040d\n' 0
         exit 0
         ;;
+      wrong-protocol)
+        printf 'KKAI_PREFLIGHT_RESULT=ready\n'
+        printf 'KKAI_DEPLOYMENT_PROTOCOL=router-v2\n'
+        printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
+        exit 0
+        ;;
       fail)
         exit 42
         ;;
@@ -51,8 +60,9 @@ case "$*" in
         ;;
     esac
     ;;
-  *'/kkai-newapi-manual-deploy deploy '*)
-    printf 'KKAI_DEPLOY_RESULT=deployed\n'
+  *'/kkai-newapi-manual-deploy stage '*)
+    printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+    printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
     exit 0
     ;;
   *)
@@ -70,6 +80,7 @@ chmod 0755 "${mock_bin}/ssh" "${mock_bin}/scp"
 
 readonly source_sha=1111111111111111111111111111111111111111
 readonly version=kkai-prod-20260726.1-111111111
+export KKAI_TEST_EXPECTED_VERSION="${version}"
 readonly archive="${test_root}/${version}.tar"
 readonly metadata="${test_root}/${version}.json"
 printf 'immutable archive fixture\n' > "${archive}"
@@ -90,58 +101,102 @@ jq --null-input \
     platform: "linux/amd64"
   }' > "${metadata}"
 
-run_deploy() {
+run_stage() {
   local mode=$1
 
   : > "${call_log}"
   PATH="${mock_bin}:${PATH}" \
     KKAI_TEST_LOG="${call_log}" \
     KKAI_TEST_PREFLIGHT_MODE="${mode}" \
-    "${DEPLOY_SCRIPT}" "${metadata}"
+    "${DEPLOY_SCRIPT}" --stage "${metadata}"
+}
+
+test_contract_pins_staged_controller() {
+  [[ "${KKAI_INFRA_SHA}" == "${EXPECTED_INFRA_SHA}" ]] ||
+    fail "deployment contract does not pin the approved infrastructure commit"
+  [[ "${KKAI_DEPLOYMENT_PROTOCOL}" == "${EXPECTED_DEPLOYMENT_PROTOCOL}" ]] ||
+    fail "deployment contract does not pin the staged protocol"
+}
+
+test_requires_explicit_stage_action() {
+  local output
+
+  : > "${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" \
+      KKAI_TEST_LOG="${call_log}" \
+      "${DEPLOY_SCRIPT}" "${metadata}" 2>&1
+  )"; then
+    fail "legacy one-step invocation unexpectedly succeeded"
+  fi
+  grep -F 'usage: deploy-manual-release.sh --stage METADATA.json' <<< "${output}" >/dev/null ||
+    fail "usage does not require the stage action"
+  [[ ! -s "${call_log}" ]] || fail "invalid invocation made a remote call"
 }
 
 test_preflight_failure_prevents_upload() {
   local output
 
-  if output="$(run_deploy fail 2>&1)"; then
-    fail "failed preflight unexpectedly allowed deployment"
+  if output="$(run_stage fail 2>&1)"; then
+    fail "failed preflight unexpectedly allowed staging"
   fi
   grep -F 'production preflight failed; archive was not uploaded' <<< "${output}" >/dev/null ||
     fail "failed preflight did not explain the upload boundary"
   ! grep -q '^scp ' "${call_log}" || fail "archive was uploaded after failed preflight"
-  ! grep -q '/kkai-newapi-manual-deploy deploy ' "${call_log}" ||
-    fail "deploy was invoked after failed preflight"
+  ! grep -q '/kkai-newapi-manual-deploy stage ' "${call_log}" ||
+    fail "stage was invoked after failed preflight"
 }
 
 test_preflight_output_must_match_contract() {
   local output
 
-  if output="$(run_deploy wrong-sha 2>&1)"; then
-    fail "mismatched preflight SHA unexpectedly allowed deployment"
+  if output="$(run_stage wrong-sha 2>&1)"; then
+    fail "mismatched preflight SHA unexpectedly allowed staging"
   fi
   grep -F 'production preflight infrastructure SHA mismatch' <<< "${output}" >/dev/null ||
     fail "mismatched preflight SHA was not rejected"
   ! grep -q '^scp ' "${call_log}" || fail "archive was uploaded after a preflight SHA mismatch"
 }
 
-test_successful_preflight_precedes_upload_and_deploy() {
-  local output preflight_line upload_line deploy_line contract_arguments
+test_preflight_protocol_must_match_contract() {
+  local output
 
-  output="$(run_deploy ready)"
-  grep -Fx 'KKAI_PREFLIGHT_RESULT=ready' <<< "${output}" >/dev/null ||
-    fail "ready preflight output was not preserved"
-  preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
-  upload_line="$(grep -n '^scp ' "${call_log}" | cut -d: -f1)"
-  deploy_line="$(grep -n '/kkai-newapi-manual-deploy deploy ' "${call_log}" | cut -d: -f1)"
-  [[ "${preflight_line}" -lt "${upload_line}" && "${upload_line}" -lt "${deploy_line}" ]] ||
-    fail "preflight, upload, and deploy order is invalid"
-  contract_arguments="--expected-infra-sha ${KKAI_INFRA_SHA} --deployment-protocol ${KKAI_DEPLOYMENT_PROTOCOL}"
-  [[ "$(grep -Fc -- "${contract_arguments}" "${call_log}")" -eq 2 ]] ||
-    fail "preflight and deploy did not share the pinned contract"
+  if output="$(run_stage wrong-protocol 2>&1)"; then
+    fail "mismatched preflight protocol unexpectedly allowed staging"
+  fi
+  grep -F 'production preflight protocol mismatch' <<< "${output}" >/dev/null ||
+    fail "mismatched preflight protocol was not rejected"
+  ! grep -q '^scp ' "${call_log}" || fail "archive was uploaded after a preflight protocol mismatch"
 }
 
+test_successful_preflight_precedes_upload_and_stage() {
+  local output preflight_line upload_line stage_line contract_arguments stage_arguments
+
+  output="$(run_stage ready)"
+  grep -Fx 'KKAI_PREFLIGHT_RESULT=ready' <<< "${output}" >/dev/null ||
+    fail "ready preflight output was not preserved"
+  grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<< "${output}" >/dev/null ||
+    fail "candidate stage output was not preserved"
+  preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
+  upload_line="$(grep -n '^scp ' "${call_log}" | cut -d: -f1)"
+  stage_line="$(grep -n '/kkai-newapi-manual-deploy stage ' "${call_log}" | cut -d: -f1)"
+  [[ "${preflight_line}" -lt "${upload_line}" && "${upload_line}" -lt "${stage_line}" ]] ||
+    fail "preflight, upload, and stage order is invalid"
+  contract_arguments="--expected-infra-sha ${KKAI_INFRA_SHA} --deployment-protocol ${KKAI_DEPLOYMENT_PROTOCOL}"
+  [[ "$(grep -Fc -- "${contract_arguments}" "${call_log}")" -eq 2 ]] ||
+    fail "preflight and stage did not share the pinned contract"
+  stage_arguments="--archive /tmp/newapi-manual-${version}.tar --archive-sha256 ${archive_sha256} --source-sha ${source_sha} --version ${version} --image-tag kkai-newapi-manual:${version}"
+  grep -F -- "${stage_arguments}" "${call_log}" >/dev/null ||
+    fail "stage did not receive the verified release metadata"
+  ! grep -q '/kkai-newapi-manual-deploy deploy ' "${call_log}" ||
+    fail "legacy deploy action was invoked"
+}
+
+test_contract_pins_staged_controller
+test_requires_explicit_stage_action
 test_preflight_failure_prevents_upload
 test_preflight_output_must_match_contract
-test_successful_preflight_precedes_upload_and_deploy
+test_preflight_protocol_must_match_contract
+test_successful_preflight_precedes_upload_and_stage
 
 echo 'New API manual deploy client tests passed'
