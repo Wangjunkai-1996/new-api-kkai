@@ -122,6 +122,20 @@ func TestParseVideoProbeOutputRejectsResourceAndFormatAbuse(t *testing.T) {
 	}
 }
 
+func TestParseVideoProbeOutputAcceptsSingleImageFrameDuration(t *testing.T) {
+	metadata, err := parseVideoProbeOutput([]byte(`{
+		"streams":[{"codec_type":"video","codec_name":"mjpeg","width":960,"height":540,"duration":"0.040000"}],
+		"format":{"format_name":"image2","duration":"0.040000"}
+	}`))
+
+	require.NoError(t, err)
+	require.Equal(t, "image/jpeg", metadata.MIMEType)
+	require.Equal(t, "mjpeg", metadata.Codec)
+	require.Equal(t, 960, metadata.Width)
+	require.Equal(t, 540, metadata.Height)
+	require.Zero(t, metadata.DurationSeconds)
+}
+
 func TestFFmpegVideoMediaProcessorCommandDeadlineStopsHungRunner(t *testing.T) {
 	input := filepath.Join(t.TempDir(), "source.mp4")
 	require.NoError(t, os.WriteFile(input, []byte("video"), 0o600))

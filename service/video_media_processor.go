@@ -258,6 +258,9 @@ func parseVideoProbeOutput(output []byte) (VideoMediaMetadata, error) {
 	if mimeType == "" {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
+	if strings.HasPrefix(mimeType, "image/") {
+		duration = 0
+	}
 	if strings.HasPrefix(mimeType, "video/") && (duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds) {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
@@ -278,10 +281,7 @@ func parseVideoMediaDuration(value string) float64 {
 func videoMediaMIMEType(formatName string, codec string, duration float64) string {
 	formatName = strings.ToLower(strings.TrimSpace(formatName))
 	codec = strings.ToLower(codec)
-	if duration <= 0 {
-		if formatName != "image2" {
-			return ""
-		}
+	if formatName == "image2" {
 		switch codec {
 		case "mjpeg", "jpeg":
 			return "image/jpeg"
@@ -289,7 +289,12 @@ func videoMediaMIMEType(formatName string, codec string, duration float64) strin
 			return "image/png"
 		case "webp":
 			return "image/webp"
+		default:
+			return ""
 		}
+	}
+	if duration <= 0 {
+		return ""
 	}
 	if formatName == "matroska,webm" || formatName == "webm,matroska" {
 		switch codec {
