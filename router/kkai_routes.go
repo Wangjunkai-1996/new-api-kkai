@@ -32,9 +32,13 @@ func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 		videoStudio.GET("/generations/:id", controller.GetVideoStudioGeneration)
 		videoStudio.DELETE("/generations/:id", controller.DeleteVideoStudioGeneration)
 		videoStudio.GET("/assets/:id", controller.GetVideoStudioAsset)
-		videoStudio.GET("/assets/:id/content", controller.GetVideoStudioAssetContent)
-		videoStudio.GET("/assets/:id/download", controller.DownloadVideoStudioAsset)
 		videoStudio.DELETE("/assets/:id", controller.DeleteVideoStudioReferenceAsset)
+	}
+	videoStudioMedia := apiRouter.Group("/video-studio")
+	videoStudioMedia.Use(middleware.VideoStudioMediaAuth(), middleware.VideoStudioAccess())
+	{
+		videoStudioMedia.GET("/assets/:id/content", controller.GetVideoStudioAssetContent)
+		videoStudioMedia.GET("/assets/:id/download", controller.DownloadVideoStudioAsset)
 	}
 
 	adminVideoStudio := apiRouter.Group("/admin/video-studio")

@@ -35,6 +35,10 @@ func validUserInfo(username string, role int) bool {
 }
 
 func authHelper(c *gin.Context, minRole int) {
+	authHelperWithOptions(c, minRole, false)
+}
+
+func authHelperWithOptions(c *gin.Context, minRole int, allowSessionWithoutUserHeader bool) {
 	session := sessions.Default(c)
 	username := session.Get("username")
 	role := session.Get("role")
@@ -96,30 +100,32 @@ func authHelper(c *gin.Context, minRole int) {
 	// get header New-Api-User
 	apiUserIdStr := c.Request.Header.Get("New-Api-User")
 	if apiUserIdStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserIdNotProvided),
-		})
-		c.Abort()
-		return
-	}
-	apiUserId, err := strconv.Atoi(apiUserIdStr)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserIdFormatError),
-		})
-		c.Abort()
-		return
-
-	}
-	if id != apiUserId {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserIdMismatch),
-		})
-		c.Abort()
-		return
+		if !allowSessionWithoutUserHeader || useAccessToken {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": common.TranslateMessage(c, i18n.MsgAuthUserIdNotProvided),
+			})
+			c.Abort()
+			return
+		}
+	} else {
+		apiUserId, err := strconv.Atoi(apiUserIdStr)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": common.TranslateMessage(c, i18n.MsgAuthUserIdFormatError),
+			})
+			c.Abort()
+			return
+		}
+		if id != apiUserId {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": common.TranslateMessage(c, i18n.MsgAuthUserIdMismatch),
+			})
+			c.Abort()
+			return
+		}
 	}
 	if status.(int) == common.UserStatusDisabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -181,6 +187,14 @@ func TryUserAuth() func(c *gin.Context) {
 func UserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelper(c, common.RoleCommonUser)
+	}
+}
+
+// VideoStudioMediaAuth allows browser media requests to authenticate with a
+// valid dashboard session when the browser cannot attach New-Api-User.
+func VideoStudioMediaAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		authHelperWithOptions(c, common.RoleCommonUser, true)
 	}
 }
 
