@@ -34,10 +34,48 @@ if grep -Eq 'uses: [^ ]+@v[0-9]' "${QUALITY_WORKFLOW}"; then
   fail "quality workflow contains an unpinned action reference"
 fi
 
-for image_arg in BUN_IMAGE GO_IMAGE BUSYBOX_IMAGE DISTROLESS_IMAGE; do
+for image_arg in BUN_IMAGE GO_IMAGE BUSYBOX_IMAGE DISTROLESS_IMAGE FFMPEG_IMAGE; do
   grep -Eq "^ARG ${image_arg}=[^[:space:]]+@sha256:[0-9a-f]{64}$" "${DOCKERFILE}" ||
     fail "${image_arg} is not pinned to an immutable digest"
 done
+contains 'ARG FFMPEG_IMAGE=mwader/static-ffmpeg:7.1.1@sha256:6769881cc02c80d33e387750a8e144d162adfab2775e934dd97899261dda3a0c' "${DOCKERFILE}" ||
+  fail "FFmpeg Linux AMD64 image digest changed without review"
+contains 'FROM ${FFMPEG_IMAGE} AS video-media-tools' "${DOCKERFILE}" ||
+  fail "FFmpeg source stage is missing"
+contains 'FROM ${BUSYBOX_IMAGE} AS video-media-audit' "${DOCKERFILE}" ||
+  fail "FFmpeg audit stage is missing"
+contains 'COPY --from=video-media-tools /ffmpeg ./ffmpeg' "${DOCKERFILE}" ||
+  fail "FFmpeg audit stage does not receive ffmpeg"
+contains 'COPY --from=video-media-tools /ffprobe ./ffprobe' "${DOCKERFILE}" ||
+  fail "FFmpeg audit stage does not receive ffprobe"
+contains '810f94020e76e2b58fb44759a322e86bea5d213ebededad7471f3a15b0bf2c5c  ffmpeg' "${DOCKERFILE}" ||
+  fail "FFmpeg audit does not verify the pinned binary digest"
+contains '4818b8964b5d7b699370628a4154c97e88205678ee506ca72e9330600e917667  ffprobe' "${DOCKERFILE}" ||
+  fail "FFprobe audit does not verify the pinned binary digest"
+contains "grep -Fq 'ffmpeg version 7.1.1'" "${DOCKERFILE}" ||
+  fail "FFmpeg audit does not verify the pinned version"
+contains "grep -Fq 'ffprobe version 7.1.1'" "${DOCKERFILE}" ||
+  fail "FFprobe audit does not verify the pinned version"
+[[ "$(grep -Fc "grep -Fq 'GNU General Public License'" "${DOCKERFILE}")" -eq 2 ]] ||
+  fail "FFmpeg and FFprobe license output must be verified"
+contains 'COPY --from=video-media-audit --chown=0:0 /video-media/ffmpeg /usr/local/bin/ffmpeg' "${DOCKERFILE}" ||
+  fail "runtime image does not copy the audited ffmpeg binary"
+contains 'COPY --from=video-media-audit --chown=0:0 /video-media/ffprobe /usr/local/bin/ffprobe' "${DOCKERFILE}" ||
+  fail "runtime image does not copy the audited ffprobe binary"
+contains 'VIDEO_STUDIO_FFMPEG_PATH=/usr/local/bin/ffmpeg' "${DOCKERFILE}" ||
+  fail "runtime ffmpeg path contract is missing"
+contains 'VIDEO_STUDIO_FFPROBE_PATH=/usr/local/bin/ffprobe' "${DOCKERFILE}" ||
+  fail "runtime ffprobe path contract is missing"
+contains 'VIDEO_STUDIO_FFMPEG_VERSION=7.1.1' "${DOCKERFILE}" ||
+  fail "runtime FFmpeg version contract is missing"
+contains 'VIDEO_STUDIO_FFMPEG_SHA256=810f94020e76e2b58fb44759a322e86bea5d213ebededad7471f3a15b0bf2c5c' "${DOCKERFILE}" ||
+  fail "runtime ffmpeg digest contract is missing"
+contains 'VIDEO_STUDIO_FFPROBE_SHA256=4818b8964b5d7b699370628a4154c97e88205678ee506ca72e9330600e917667' "${DOCKERFILE}" ||
+  fail "runtime ffprobe digest contract is missing"
+contains 'VIDEO_STUDIO_FFMPEG_LICENSE="GNU General Public License"' "${DOCKERFILE}" ||
+  fail "runtime FFmpeg license contract is missing"
+contains 'org.opencontainers.image.licenses="AGPL-3.0 AND GPL-3.0-or-later"' "${DOCKERFILE}" ||
+  fail "runtime image license metadata omits FFmpeg"
 contains '-o /out/new-api .' "${DOCKERFILE}" || fail "Dockerfile does not build the application"
 contains '-o /out/kkai-migrate ./cmd/kkai-migrate' "${DOCKERFILE}" ||
   fail "Dockerfile does not retain /kkai-migrate"
