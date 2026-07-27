@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Film, WandSparkles } from 'lucide-react'
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -25,7 +25,6 @@ import { StatusBadge } from '@/components/status-badge'
 import { MOTION_TRANSITION } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
-import { usePreviewPolicy } from '../hooks/use-preview-policy'
 import type { VideoSample } from '../types'
 import { VIDEO_MODE_LABEL_KEYS } from '../video-domain'
 
@@ -39,7 +38,7 @@ type VideoSampleCardProps = {
 
 export function VideoSampleCard(props: VideoSampleCardProps) {
   const { t } = useTranslation()
-  const previewPolicy = usePreviewPolicy()
+  const reducedMotion = useReducedMotion()
   const hoverTimerRef = useRef<number | null>(null)
   const activeRef = useRef(props.active)
   activeRef.current = props.active
@@ -50,7 +49,7 @@ export function VideoSampleCard(props: VideoSampleCardProps) {
   const previewUrl = props.sample.preview_url
 
   const beginPreview = () => {
-    if (!previewPolicy.autoplay || !previewUrl) return
+    if (!previewUrl) return
     if (hoverTimerRef.current !== null) {
       window.clearTimeout(hoverTimerRef.current)
     }
@@ -83,7 +82,7 @@ export function VideoSampleCard(props: VideoSampleCardProps) {
         'bg-card ring-border/70 relative z-0 overflow-hidden rounded-lg ring-1 transition-[box-shadow,ring-color] hover:z-10 hover:shadow-xl hover:shadow-black/10',
         props.selected && 'ring-primary ring-2'
       )}
-      animate={{ scale: props.active && previewPolicy.motion ? 1.025 : 1 }}
+      animate={{ scale: props.active && !reducedMotion ? 1.025 : 1 }}
       transition={MOTION_TRANSITION.spring}
       onPointerEnter={beginPreview}
       onPointerLeave={endPreview}
