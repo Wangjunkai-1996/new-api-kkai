@@ -67,26 +67,19 @@ func (s *S3VideoAssetStore) PresignUpload(ctx context.Context, key string, conte
 		return VideoAssetSignedRequest{}, ErrInvalidVideoAssetStoreRequest
 	}
 	request, err := s.presign.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(s.bucket),
-		Key:           aws.String(key),
-		ContentType:   aws.String(contentType),
-		ContentLength: aws.Int64(contentLength),
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
 	}, func(options *s3.PresignOptions) {
 		options.Expires = expires
 	})
 	if err != nil {
 		return VideoAssetSignedRequest{}, fmt.Errorf("presign video asset upload: %w", err)
 	}
-	headers := make(map[string]string, len(request.SignedHeader))
-	for name, values := range request.SignedHeader {
-		if len(values) > 0 {
-			headers[name] = values[0]
-		}
-	}
 	return VideoAssetSignedRequest{
 		URL:       request.URL,
 		Method:    http.MethodPut,
-		Headers:   headers,
+		Headers:   browserSettableVideoAssetHeaders(request.SignedHeader),
 		ExpiresAt: time.Now().Add(expires).Unix(),
 	}, nil
 }
@@ -242,22 +235,33 @@ func (s *S3VideoAssetStore) PresignUploadPart(
 	}
 	request, err := s.presign.PresignUploadPart(ctx, &s3.UploadPartInput{
 		Bucket: aws.String(s.bucket), Key: aws.String(key), UploadId: aws.String(uploadID),
-		PartNumber: aws.Int32(partNumber), ContentLength: aws.Int64(contentLength),
+		PartNumber: aws.Int32(partNumber),
 	}, func(options *s3.PresignOptions) {
 		options.Expires = expires
 	})
 	if err != nil {
 		return VideoAssetSignedRequest{}, fmt.Errorf("presign video multipart part: %w", err)
 	}
-	headers := make(map[string]string, len(request.SignedHeader))
-	for name, values := range request.SignedHeader {
+	return VideoAssetSignedRequest{
+		URL:       request.URL,
+		Method:    http.MethodPut,
+		Headers:   browserSettableVideoAssetHeaders(request.SignedHeader),
+		ExpiresAt: time.Now().Add(expires).Unix(),
+	}, nil
+}
+
+func browserSettableVideoAssetHeaders(signedHeaders http.Header) map[string]string {
+	headers := make(map[string]string, len(signedHeaders))
+	for name, values := range signedHeaders {
+		switch http.CanonicalHeaderKey(name) {
+		case "Host":
+			continue
+		}
 		if len(values) > 0 {
 			headers[name] = values[0]
 		}
 	}
-	return VideoAssetSignedRequest{
-		URL: request.URL, Method: http.MethodPut, Headers: headers, ExpiresAt: time.Now().Add(expires).Unix(),
-	}, nil
+	return headers
 }
 
 func (s *S3VideoAssetStore) ListUploadedParts(ctx context.Context, key string, uploadID string) ([]VideoAssetUploadedPart, error) {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -42,6 +44,59 @@ func TestVideoAssetObjectNotFoundRecognizesS3ErrorCodes(t *testing.T) {
 func TestVideoAssetObjectNotFoundRecognizesHTTP404(t *testing.T) {
 	require.True(t, isVideoAssetObjectNotFound(videoAssetHTTPStatusError{status: http.StatusNotFound}))
 	require.False(t, isVideoAssetObjectNotFound(videoAssetHTTPStatusError{status: http.StatusForbidden}))
+}
+
+func TestS3VideoAssetStorePresignedUploadHeadersOmitBrowserManagedHeaders(t *testing.T) {
+	client := s3.NewFromConfig(aws.Config{
+		Region:      "us-east-1",
+		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider("test-access-key", "test-secret-key", "")),
+	}, func(options *s3.Options) {
+		options.BaseEndpoint = aws.String("https://storage.example")
+		options.UsePathStyle = true
+	})
+	store := &S3VideoAssetStore{bucket: "video-test", client: client, presign: s3.NewPresignClient(client)}
+
+	tests := []struct {
+		name                  string
+		presign               func() (VideoAssetSignedRequest, error)
+		expectedSignedHeaders string
+		expectedHeaders       map[string]string
+	}{
+		{
+			name:                  "single part upload",
+			expectedSignedHeaders: "host",
+			expectedHeaders:       map[string]string{},
+			presign: func() (VideoAssetSignedRequest, error) {
+				return store.PresignUpload(context.Background(), "users/7/input.mp4", "video/mp4", 1024, time.Minute)
+			},
+		},
+		{
+			name:                  "multipart upload part",
+			expectedSignedHeaders: "host",
+			expectedHeaders:       map[string]string{},
+			presign: func() (VideoAssetSignedRequest, error) {
+				return store.PresignUploadPart(context.Background(), "users/7/input.mp4", "upload-id", 1, 1024, time.Minute)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			signedRequest, err := test.presign()
+			require.NoError(t, err)
+
+			parsedURL, err := url.Parse(signedRequest.URL)
+			require.NoError(t, err)
+
+			require.NotEmpty(t, parsedURL.Query().Get("X-Amz-Signature"))
+			require.Equal(t, test.expectedSignedHeaders, parsedURL.Query().Get("X-Amz-SignedHeaders"))
+			require.Equal(t, test.expectedHeaders, signedRequest.Headers)
+			for name := range signedRequest.Headers {
+				require.False(t, strings.EqualFold(name, "Host"), "browser-managed Host header must not be returned")
+				require.False(t, strings.EqualFold(name, "Content-Length"), "browser-managed Content-Length header must not be returned")
+			}
+		})
+	}
 }
 
 func TestS3VideoAssetStorePersistsArchiveContentAndSourceFingerprints(t *testing.T) {
