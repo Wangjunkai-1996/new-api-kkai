@@ -163,7 +163,7 @@ func TestFFmpegVideoMediaProcessorKeepsPosterWithinLimit(t *testing.T) {
 		ffmpegPath: "ffmpeg", ffprobePath: "ffprobe",
 		runner: videoMediaRunner(func(_ context.Context, name string, args ...string) ([]byte, error) {
 			if name == "ffprobe" {
-				return []byte(`{"streams":[{"codec_type":"video","codec_name":"mjpeg","width":720,"height":405,"duration":"0"}],"format":{"format_name":"image2","duration":"0"}}`), nil
+				return []byte(`{"streams":[{"codec_type":"video","codec_name":"mjpeg","width":720,"height":405,"duration":"0.040000"}],"format":{"format_name":"image2","duration":"0.040000"}}`), nil
 			}
 			attempts++
 			target := args[len(args)-1]
