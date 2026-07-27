@@ -44,7 +44,11 @@ var runtimeSchemaRequirements = []runtimeSchemaRequirement{
 }
 
 func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) error {
-	for _, requirement := range runtimeSchemaRequirements {
+	requirements := runtimeSchemaRequirements
+	if currentVersion >= VideoStudioSchemaVersion {
+		requirements = append(requirements, videoStudioRuntimeSchemaRequirements...)
+	}
+	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
 		}
@@ -68,6 +72,34 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		}
 	}
 	return nil
+}
+
+var videoStudioRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "kkai_video_model_profiles", Columns: []string{
+		"id", "model", "display_name", "description", "provider_label", "specification_version",
+		"specification", "default_parameters", "enabled", "sort_order", "created_at", "updated_at",
+	}},
+	{Table: "kkai_video_samples", Columns: []string{
+		"id", "model_profile_id", "title", "prompt", "mode", "model_version", "parameters",
+		"reference_asset_ids", "video_asset_id", "aspect_ratio", "status", "sort_order", "created_at", "updated_at",
+	}},
+	{Table: "kkai_video_generations", Columns: []string{
+		"id", "user_id", "task_id", "model_profile_id", "sample_id", "model", "mode", "prompt",
+		"parameters", "created_at", "updated_at", "deleted_at",
+	}},
+	{Table: "kkai_video_assets", Columns: []string{
+		"id", "owner_user_id", "scope", "kind", "state", "object_key", "poster_object_key",
+		"preview_object_key", "archive_source_url", "original_filename", "mime_type", "size_bytes",
+		"width", "height", "duration_seconds", "codec", "sha256", "failure_reason", "upload_mode",
+		"multipart_upload_id", "upload_part_size", "upload_expires_at",
+		"created_at", "updated_at", "deleted_at",
+	}},
+	{Table: "kkai_video_task_assets", Columns: []string{
+		"id", "task_id", "asset_id", "role", "position", "created_at",
+	}},
+	{Table: "kkai_idempotency_keys", Columns: []string{
+		"id", "user_id", "operation", "key", "request_hash", "resource_type", "resource_id", "created_at", "expires_at",
+	}},
 }
 
 func validatePostgresOutboxEventKey(db *gorm.DB, columnTypes []gorm.ColumnType, currentVersion int64) error {

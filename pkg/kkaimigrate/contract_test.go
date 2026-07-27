@@ -9,18 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestContractForDialectUsesPostgresV3Runtime(t *testing.T) {
+func TestContractForDialectUsesV3RuntimeAndAcceptsV5(t *testing.T) {
 	for _, dialect := range []string{DialectPostgres, DialectSQLite, DialectMySQL} {
 		t.Run(dialect, func(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
 			require.EqualValues(t, 3, contract.RuntimeMinVersion)
-			require.EqualValues(t, 4, contract.RuntimeMaxVersion)
+			require.EqualValues(t, 5, contract.RuntimeMaxVersion)
 			require.EqualValues(t, 3, contract.MigrationTargetVersion)
 			require.Equal(t, MigrationKindNone, contract.MigrationKind)
-			require.Len(t, contract.CompatiblePrefixes, 2)
+			require.Len(t, contract.CompatiblePrefixes, 3)
 			require.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes[strconv.FormatInt(contract.MigrationTargetVersion, 10)])
 			require.Regexp(t, `^sha256:[0-9a-f]{64}$`, contract.CompatiblePrefixes["4"])
+			require.Regexp(t, `^sha256:[0-9a-f]{64}$`, contract.CompatiblePrefixes["5"])
 		})
 	}
 }

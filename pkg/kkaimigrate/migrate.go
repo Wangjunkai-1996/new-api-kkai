@@ -27,6 +27,7 @@ const (
 	LedgerSchemaVersion         int64 = 2
 	JobLeaseSchemaVersion       int64 = 3
 	OutboxEventKeySchemaVersion int64 = 4
+	VideoStudioSchemaVersion    int64 = 5
 )
 
 var (
@@ -100,8 +101,20 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	return applyThroughVersion(ctx, db, options, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
 }
 
-// ApplyMySQL57Compatibility explicitly applies the historical MySQL-only v4
-// maintenance migration. Ordinary runtime Apply remains pinned to version 3.
+// ApplyOutboxEventKeyCompatibility applies the cross-dialect v4 maintenance.
+// SQLite records the migration as a no-op while MySQL and PostgreSQL normalize
+// kkai_outbox.event_key to the same 191-character shape.
+func ApplyOutboxEventKeyCompatibility(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := CheckRequired(ctx, db); err != nil {
+		return nil, fmt.Errorf("KKAI maintenance target %d requires runtime schema %d: %w", OutboxEventKeySchemaVersion, RequiredRuntimeVersion, err)
+	}
+	return applyThroughVersion(ctx, db, options, OutboxEventKeySchemaVersion, MaxCompatibleVersion)
+}
+
+// ApplyMySQL57Compatibility is kept for existing operators and automation.
 func ApplyMySQL57Compatibility(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if db == nil {
 		return nil, ErrSchemaNotReady
@@ -113,10 +126,20 @@ func ApplyMySQL57Compatibility(ctx context.Context, db *gorm.DB, options Options
 	if dialect != DialectMySQL {
 		return nil, fmt.Errorf("%w: MySQL 5.7 compatibility maintenance requires mysql", ErrUnsupportedDialect)
 	}
-	if err := CheckRequired(ctx, db); err != nil {
-		return nil, fmt.Errorf("MySQL 5.7 compatibility maintenance requires runtime schema %d: %w", RequiredRuntimeVersion, err)
+	return ApplyOutboxEventKeyCompatibility(ctx, db, options)
+}
+
+// ApplyVideoStudioExpand applies the additive v5 Video Studio schema after v4.
+// Runtime startup remains pinned to v3; operators invoke this separately from
+// application delivery after both rollback slots can understand v5.
+func ApplyVideoStudioExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
 	}
-	return applyThroughVersion(ctx, db, options, OutboxEventKeySchemaVersion, MaxCompatibleVersion)
+	if err := Check(ctx, db, OutboxEventKeySchemaVersion); err != nil {
+		return nil, fmt.Errorf("KKAI maintenance target %d requires validated bridge schema %d: %w", VideoStudioSchemaVersion, OutboxEventKeySchemaVersion, err)
+	}
+	return applyThroughVersion(ctx, db, options, VideoStudioSchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
@@ -266,7 +289,7 @@ func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion i
 func applyMigration(db *gorm.DB, dialect string, item migration, checksum string, started time.Time) error {
 	if dialect == DialectMySQL {
 		for _, statement := range item.Statements[dialect] {
-			if err := db.Exec(statement.SQL).Error; err != nil {
+			if err := executeMigrationStatement(db, dialect, statement); err != nil {
 				return err
 			}
 		}
@@ -281,7 +304,7 @@ func applyMigration(db *gorm.DB, dialect string, item migration, checksum string
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		for _, statement := range item.Statements[dialect] {
-			if err := tx.Exec(statement.SQL).Error; err != nil {
+			if err := executeMigrationStatement(tx, dialect, statement); err != nil {
 				return err
 			}
 		}
@@ -292,6 +315,54 @@ func applyMigration(db *gorm.DB, dialect string, item migration, checksum string
 		}
 		return importLegacyAndRecord(tx, item, checksum, started)
 	})
+}
+
+func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationStatement) error {
+	if statement.Operation == migrationOperationCreateIndex {
+		table, index, err := migrationCreateIndexIdentifiers(dialect, statement.SQL)
+		if err != nil {
+			return err
+		}
+		if db.Migrator().HasIndex(table, index) {
+			return nil
+		}
+	}
+	return db.Exec(statement.SQL).Error
+}
+
+func migrationCreateIndexIdentifiers(dialect string, sql string) (string, string, error) {
+	tokens, err := expandSQLTokens(dialect, sql)
+	if err != nil {
+		return "", "", err
+	}
+	position := 1
+	if len(tokens) > position && tokens[position] == "UNIQUE" {
+		position++
+	}
+	if len(tokens) <= position || tokens[position] != "INDEX" {
+		return "", "", fmt.Errorf("migration create-index statement has no INDEX token")
+	}
+	position++
+	if hasTokenPrefix(tokens[position:], "IF", "NOT", "EXISTS") {
+		position += 3
+	}
+	if len(tokens) <= position+2 || tokens[position+1] != "ON" {
+		return "", "", fmt.Errorf("migration create-index statement has no canonical target")
+	}
+	index := migrationIdentifierValue(tokens[position])
+	table := migrationIdentifierValue(tokens[position+2])
+	if index == "" || table == "" {
+		return "", "", fmt.Errorf("migration create-index statement has invalid identifiers")
+	}
+	return table, index, nil
+}
+
+func migrationIdentifierValue(token string) string {
+	token = strings.TrimPrefix(token, quotedSQLIdentifierTokenPrefix)
+	if !isCanonicalSQLIdentifier(token) {
+		return ""
+	}
+	return strings.ToLower(token)
 }
 
 func importLegacyAndRecord(tx *gorm.DB, item migration, checksum string, started time.Time) error {

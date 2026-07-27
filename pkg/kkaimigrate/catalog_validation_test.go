@@ -153,6 +153,28 @@ func TestMigrationCatalogRejectsQuotedIdentifierNewTableIndexBypass(t *testing.T
 	require.ErrorIs(t, validateMigrationCatalog(migrations), ErrUnsafeMigration)
 }
 
+func TestMigrationCatalogAllowsDialectQuotedColumnsOnNewTable(t *testing.T) {
+	migrations := []migration{{
+		Version: 1, Name: "quoted_new_table_column", Kind: MigrationKindExpand,
+		ImplementationID: "quoted_new_table_column_v1", ChecksumVersion: migrationChecksumSchemaCurrent,
+		Statements: map[string][]migrationStatement{
+			DialectSQLite: {
+				{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE safe_table (id BIGINT, "key" VARCHAR(128))`},
+				{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_safe_table_key ON safe_table ("key")`},
+			},
+			DialectMySQL: {
+				{Operation: migrationOperationCreateTable, SQL: "CREATE TABLE safe_table (id BIGINT, `key` VARCHAR(128))"},
+				{Operation: migrationOperationCreateIndex, SQL: "CREATE INDEX idx_safe_table_key ON safe_table (`key`)"},
+			},
+			DialectPostgres: {
+				{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE safe_table (id BIGINT, "key" VARCHAR(128))`},
+				{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_safe_table_key ON safe_table ("key")`},
+			},
+		},
+	}}
+	require.NoError(t, validateMigrationCatalog(migrations))
+}
+
 func TestMigrationCatalogRejectsOutOfBandOperationsInCurrentChecksumSchema(t *testing.T) {
 	base := migration{
 		Version: 1, Name: "safe_table", Kind: MigrationKindExpand,

@@ -28,6 +28,7 @@ func main() {
 		describe       bool
 		dialect        string
 		minimumVersion int64
+		targetVersion  int64
 		observe        bool
 		jsonOutput     bool
 		timeout        time.Duration
@@ -40,12 +41,13 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 4 or 5; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
 	flag.Parse()
 	if describe {
-		if strings.TrimSpace(dialect) == "" || !jsonOutput || observe || checkOnly || dryRun || currentOnly || minimumVersion != 0 || dsnFromStdin {
+		if strings.TrimSpace(dialect) == "" || !jsonOutput || observe || checkOnly || dryRun || currentOnly || minimumVersion != 0 || targetVersion != 0 || dsnFromStdin {
 			log.Fatal("--describe-contract requires --dialect and --json and cannot be combined with database operations")
 		}
 		output, err := describeContractJSON(dialect)
@@ -56,7 +58,7 @@ func main() {
 		return
 	}
 	if observe {
-		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
 	} else if currentOnly || jsonOutput || dialect != "" {
@@ -92,6 +94,9 @@ func main() {
 		return
 	}
 	if checkOnly {
+		if targetVersion != 0 {
+			log.Fatal("--check cannot be combined with --target")
+		}
 		if minimumVersion == 0 {
 			err = kkaimigrate.CheckRequired(ctx, db)
 		} else {
@@ -104,7 +109,7 @@ func main() {
 		return
 	}
 
-	result, err := kkaimigrate.Apply(ctx, db, kkaimigrate.Options{DryRun: dryRun})
+	result, err := applyMigrationTarget(ctx, db, targetVersion, kkaimigrate.Options{DryRun: dryRun})
 	if err != nil {
 		log.Fatalf("KKAI migration failed: %v", err)
 	}
@@ -116,6 +121,19 @@ func main() {
 	}
 	for _, item := range result.Applied {
 		fmt.Printf("applied %04d %s %s\n", item.Version, item.Name, item.Checksum)
+	}
+}
+
+func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64, options kkaimigrate.Options) (*kkaimigrate.Result, error) {
+	switch targetVersion {
+	case 0:
+		return kkaimigrate.Apply(ctx, db, options)
+	case kkaimigrate.OutboxEventKeySchemaVersion:
+		return kkaimigrate.ApplyOutboxEventKeyCompatibility(ctx, db, options)
+	case kkaimigrate.VideoStudioSchemaVersion:
+		return kkaimigrate.ApplyVideoStudioExpand(ctx, db, options)
+	default:
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 4 or 5", targetVersion)
 	}
 }
 

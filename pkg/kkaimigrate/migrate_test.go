@@ -56,6 +56,89 @@ func TestApplyDryRunDoesNotChangeSchema(t *testing.T) {
 	require.False(t, db.Migrator().HasTable("kkai_job_leases"))
 }
 
+func TestApplyVideoStudioExpandCreatesV5Schema(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := Apply(context.Background(), db, Options{})
+	require.NoError(t, err)
+	_, err = ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
+	require.NoError(t, err)
+
+	result, err := ApplyVideoStudioExpand(context.Background(), db, Options{})
+	require.NoError(t, err)
+	require.Len(t, result.Applied, int(VideoStudioSchemaVersion))
+	require.NoError(t, Check(context.Background(), db, VideoStudioSchemaVersion))
+
+	for _, table := range []string{
+		"kkai_video_model_profiles",
+		"kkai_video_samples",
+		"kkai_video_generations",
+		"kkai_video_assets",
+		"kkai_video_task_assets",
+		"kkai_idempotency_keys",
+	} {
+		require.True(t, db.Migrator().HasTable(table), table)
+	}
+}
+
+func TestExecuteMigrationStatementSkipsExistingIndex(t *testing.T) {
+	db := newMigrationTestDB(t)
+	require.NoError(t, db.Exec("CREATE TABLE retryable_index (id INTEGER NOT NULL)").Error)
+	statement := migrationStatement{
+		Operation: migrationOperationCreateIndex,
+		SQL:       "CREATE UNIQUE INDEX ux_retryable_index_id ON retryable_index (id)",
+	}
+
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	require.True(t, db.Migrator().HasIndex("retryable_index", "ux_retryable_index_id"))
+}
+
+func TestApplyVideoStudioExpandRequiresV4Bridge(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := Apply(context.Background(), db, Options{})
+	require.NoError(t, err)
+
+	_, err = ApplyVideoStudioExpand(context.Background(), db, Options{})
+	require.ErrorIs(t, err, ErrSchemaNotReady)
+	require.False(t, db.Migrator().HasTable("kkai_video_model_profiles"))
+	var count int64
+	require.NoError(t, db.Model(&AppliedMigration{}).Where("version > ?", JobLeaseSchemaVersion).Count(&count).Error)
+	require.Zero(t, count)
+}
+
+func TestVideoStudioRuntimeSchemaRequiresMultipartAssetColumns(t *testing.T) {
+	for _, column := range []string{"upload_mode", "multipart_upload_id", "upload_part_size"} {
+		t.Run(column, func(t *testing.T) {
+			db := newMigrationTestDB(t)
+			_, err := Apply(context.Background(), db, Options{})
+			require.NoError(t, err)
+			_, err = ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
+			require.NoError(t, err)
+			_, err = ApplyVideoStudioExpand(context.Background(), db, Options{})
+			require.NoError(t, err)
+			require.NoError(t, db.Exec("ALTER TABLE kkai_video_assets DROP COLUMN "+column).Error)
+
+			err = Check(context.Background(), db, VideoStudioSchemaVersion)
+			require.ErrorIs(t, err, ErrSchemaNotReady)
+		})
+	}
+}
+
+func TestVideoStudioMaintenanceCanRunV4ThenV5(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := Apply(context.Background(), db, Options{})
+	require.NoError(t, err)
+
+	result, err := ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
+	require.NoError(t, err)
+	require.Len(t, result.Applied, int(OutboxEventKeySchemaVersion))
+
+	result, err = ApplyVideoStudioExpand(context.Background(), db, Options{})
+	require.NoError(t, err)
+	require.Len(t, result.Applied, int(VideoStudioSchemaVersion))
+	require.NoError(t, Check(context.Background(), db, VideoStudioSchemaVersion))
+}
+
 func TestApplyResumesFromValidAppliedPrefix(t *testing.T) {
 	db := newMigrationTestDB(t)
 	first, err := applyThroughVersion(context.Background(), db, Options{}, RiskSchemaVersion, MaxCompatibleVersion)
@@ -265,6 +348,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  OutboxEventKeySchemaVersion,
 			Name:     "outbox_event_key_mysql57_compat",
 			Checksum: "453307264b9eabffe35597460ea35c60372eb40dcb7cf1bf5ae7e696a3eb92df",
+		},
+		{
+			Version:  VideoStudioSchemaVersion,
+			Name:     "video_studio",
+			Checksum: "ca0fcda4889bcaa6d0d0dbf37fef1f61402bb3a04a89e14e86bf76cec32287d4",
 		},
 	}, Plan())
 }

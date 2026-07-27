@@ -11,14 +11,25 @@ tables.
 | 1 | `risk_incidents_and_outbox` | `kkai_policy_incidents`, `kkai_outbox` |
 | 2 | `internal_balance_ledger` | `kkai_internal_balance_adjustments` |
 | 3 | `background_job_leases` | `kkai_job_leases` |
-| 4 | `outbox_event_key_mysql57_compat` | MySQL only: shrink `kkai_outbox.event_key` to 191 bytes |
+| 4 | `outbox_event_key_mysql57_compat` | Cross-dialect bridge: normalize `kkai_outbox.event_key` to 191 characters |
+| 5 | `video_studio` | Six additive Video Studio tables |
 
-The production database is PostgreSQL and its required runtime version is 3;
-PostgreSQL must not execute version 4. The generic application migrator keeps
-version 4 only as explicit MySQL 5.7 compatibility maintenance; ordinary
-`Apply` never selects it. A PostgreSQL ledger that already contains the known
-version-4 record is accepted as a compatible legacy state and is never
-downgraded.
+Version 4 is an explicit bridge on every supported dialect. MySQL 5.7 and
+PostgreSQL alter `kkai_outbox.event_key` to `VARCHAR(191)`; SQLite records the
+same immutable migration as a physical no-op. Keeping one v4 ledger prefix
+across SQLite, MySQL, and PostgreSQL makes the v5 rollout and rollback contract
+unambiguous. Ordinary runtime startup remains pinned to version 3 and never
+selects v4 or v5 automatically.
+
+Version 5 is an additive expand migration. It creates exactly these tables and
+does not modify or replace `tasks`:
+
+- `kkai_video_model_profiles`
+- `kkai_video_samples`
+- `kkai_video_generations`
+- `kkai_video_assets`
+- `kkai_video_task_assets`
+- `kkai_idempotency_keys`
 
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
@@ -40,6 +51,7 @@ command never prints the DSN.
 ./kkai-migrate --dry-run
 ./kkai-migrate
 ./kkai-migrate --check
+./kkai-migrate --check --min-version 5
 ./kkai-migrate --observe --current --json --dsn-stdin
 ./kkai-migrate --describe-contract --dialect postgres --json
 ```
@@ -67,6 +79,57 @@ runs GORM `AutoMigrate` or changes database state.
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.
 
+## Video Studio Bridge And Expand
+
+The bridge release contract is `runtime_min_version=3`,
+`runtime_max_version=5`, and `migration_target_version=3`. Verify it for the
+actual database dialect before rollout:
+
+```bash
+./kkai-migrate --describe-contract --dialect sqlite --json
+./kkai-migrate --describe-contract --dialect mysql --json
+./kkai-migrate --describe-contract --dialect postgres --json
+```
+
+Ship the bridge through both the current and rollback slots before changing the
+database. Both slots must advertise `runtime_max_version=5`. The ordinary
+migration command without `--target` stops at v3; v4 and v5 are separate,
+operator-invoked maintenance gates.
+
+Run v4 independently, using the same reviewed binary that produced the bridge
+contract:
+
+```bash
+./kkai-migrate --target 4 --dry-run --dsn-stdin
+./kkai-migrate --target 4 --dsn-stdin
+./kkai-migrate --check --min-version 4 --dsn-stdin
+./kkai-migrate --observe --current --json --dsn-stdin
+```
+
+Confirm that observation reports `current_version: 4` and the exact v4
+compatible-prefix digest from `--describe-contract`. Then run the v5 expand as
+a second gate. The migrator rejects `--target 5` until the validated v4 prefix
+already exists, so the bridge observation cannot be skipped:
+
+```bash
+./kkai-migrate --target 5 --dry-run --dsn-stdin
+./kkai-migrate --target 5 --dsn-stdin
+./kkai-migrate --check --min-version 5 --dsn-stdin
+./kkai-migrate --observe --current --json --dsn-stdin
+```
+
+The default `--check` validates the bridge runtime minimum, currently v3. It
+does not prove that Video Studio v5 exists; use `--min-version 5` for that gate.
+`--observe` additionally validates the physical tables and columns plus the
+immutable migration prefix.
+
+Only after both current and rollback slots are v5-compatible, v4 and v5 pass
+`--check`/`--observe`, and the candidate has been validated may a feature
+release raise its runtime minimum to 5. After v5, rollback is limited to a
+bridge image whose runtime range includes v5. There is no automatic down
+migration: never delete the v5 ledger row, drop its tables, or rewrite its
+checksum to make an older image start.
+
 ## Legacy Import
 
 The first execution detects the old fork tables when present:
@@ -82,7 +145,7 @@ separate post-stability operation and is not part of ordinary delivery.
 ## Operator Migration Rules
 
 Ordinary release automation does not run schema observation or migrations. It
-does not execute migration version 4.
+does not execute migration version 4 or 5.
 
 If a future PostgreSQL migration is needed:
 
@@ -94,8 +157,9 @@ If a future PostgreSQL migration is needed:
 5. Apply the migration separately from ordinary application delivery.
 6. Run `--check` and `--observe` before releasing the application.
 
-Normal runtime migrations must be additive and idempotent. The dormant MySQL v4
-column shrink is an explicit compatibility maintenance exception and requires
-its own reviewed rehearsal. MySQL DDL is executed outside the legacy-data
-transaction because MySQL implicitly commits DDL; every DDL and index operation
-must remain safe to retry. PostgreSQL and SQLite use transactional DDL.
+Normal runtime migrations must be additive and idempotent. The v4 column
+normalization is an explicit compatibility maintenance operation and requires
+its own reviewed rehearsal on SQLite, MySQL, and PostgreSQL. MySQL DDL is
+executed outside the legacy-data transaction because MySQL implicitly commits
+DDL; every DDL and index operation must remain safe to retry. PostgreSQL and
+SQLite use transactional DDL.

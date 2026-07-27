@@ -6,6 +6,8 @@ import (
 	"unicode/utf8"
 )
 
+const quotedSQLIdentifierTokenPrefix = "QUOTED_IDENTIFIER:"
+
 const migrationCatalogBaselineVersion int64 = RiskSchemaVersion
 
 const (
@@ -270,7 +272,7 @@ func validateCreateIndexOnNewTable(tokens []string, createdTables map[string]str
 		return fmt.Errorf("create_index_on_new_table targets table %s not created by this migration", table)
 	}
 	for _, column := range tokens[position+2:] {
-		if !isCanonicalSQLIdentifier(column) || column == "INCLUDE" || column == "USING" || column == "WHERE" {
+		if !isCanonicalSQLColumnIdentifier(column) || column == "INCLUDE" || column == "USING" || column == "WHERE" {
 			return fmt.Errorf("create_index_on_new_table has an unproven column or clause")
 		}
 	}
@@ -316,6 +318,16 @@ func isCanonicalSQLIdentifier(token string) bool {
 		}
 	}
 	return true
+}
+
+func isCanonicalSQLColumnIdentifier(token string) bool {
+	if isCanonicalSQLIdentifier(token) {
+		return true
+	}
+	if !strings.HasPrefix(token, quotedSQLIdentifierTokenPrefix) {
+		return false
+	}
+	return isCanonicalSQLIdentifier(strings.TrimPrefix(token, quotedSQLIdentifierTokenPrefix))
 }
 
 func isASCIIIdentifierStart(value byte) bool {
@@ -384,8 +396,22 @@ func lexMigrationSQL(dialect, statement string) ([][]string, error) {
 				return nil, err
 			}
 			index = next
+		case current == '"' && dialect != DialectMySQL:
+			token, next, err := consumeSQLQuotedIdentifier(statement, index, current)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, token)
+			index = next
+		case current == '`' && dialect == DialectMySQL:
+			token, next, err := consumeSQLQuotedIdentifier(statement, index, current)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, token)
+			index = next
 		case current == '"', current == '`':
-			return nil, fmt.Errorf("quoted SQL identifiers cannot be safely classified")
+			return nil, fmt.Errorf("unsupported quoted SQL identifier for dialect %s", dialect)
 		case current == '$' && dialect == DialectPostgres && sqlDollarQuoteDelimiter(statement[index:]) != "":
 			return nil, fmt.Errorf("PostgreSQL dollar-quoted SQL cannot be safely classified")
 		case current == ';':
@@ -456,6 +482,25 @@ func consumeSQLQuotedValue(statement string, index int, quote byte) (int, error)
 		}
 	}
 	return 0, fmt.Errorf("SQL contains an unterminated quoted value")
+}
+
+func consumeSQLQuotedIdentifier(statement string, index int, quote byte) (string, int, error) {
+	start := index + 1
+	for index = start; index < len(statement); index++ {
+		switch statement[index] {
+		case '\\':
+			return "", 0, fmt.Errorf("backslash escaping in quoted SQL identifiers cannot be safely classified")
+		case quote:
+			identifier := strings.ToUpper(statement[start:index])
+			if !isCanonicalSQLIdentifier(identifier) {
+				return "", 0, fmt.Errorf("quoted SQL identifier is not canonical")
+			}
+			return quotedSQLIdentifierTokenPrefix + identifier, index + 1, nil
+		case 0:
+			return "", 0, fmt.Errorf("SQL contains a NUL byte")
+		}
+	}
+	return "", 0, fmt.Errorf("SQL contains an unterminated quoted identifier")
 }
 
 func sqlDollarQuoteDelimiter(statement string) string {
