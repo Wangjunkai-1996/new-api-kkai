@@ -22,7 +22,7 @@ mkdir -p -- "${mock_bin}"
 # shellcheck source=manual-deployment-contract.env
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
-readonly EXPECTED_INFRA_SHA=2373a9dbb3a138db7adef10879431b5215b325d9
+readonly EXPECTED_INFRA_SHA=14686692671bc6e28cfce6a8796263bf1ed226ef
 readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
 export KKAI_TEST_EXPECTED_PROTOCOL="${KKAI_DEPLOYMENT_PROTOCOL}"

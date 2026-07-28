@@ -102,7 +102,7 @@ contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
 contains '--deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not pin the deployment protocol"
 contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
-contains 'KKAI_INFRA_SHA=2373a9dbb3a138db7adef10879431b5215b325d9' "${DEPLOY_CONTRACT}" ||
+contains 'KKAI_INFRA_SHA=14686692671bc6e28cfce6a8796263bf1ed226ef' "${DEPLOY_CONTRACT}" ||
   fail "manual deployment contract does not pin the approved infrastructure commit"
 contains 'KKAI_DEPLOYMENT_PROTOCOL=router-v3-staged' "${DEPLOY_CONTRACT}" ||
   fail "manual deployment contract does not pin the staged protocol"
