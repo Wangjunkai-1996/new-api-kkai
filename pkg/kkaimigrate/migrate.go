@@ -108,8 +108,8 @@ func ApplyOutboxEventKeyCompatibility(ctx context.Context, db *gorm.DB, options 
 	if db == nil {
 		return nil, ErrSchemaNotReady
 	}
-	if err := CheckRequired(ctx, db); err != nil {
-		return nil, fmt.Errorf("KKAI maintenance target %d requires runtime schema %d: %w", OutboxEventKeySchemaVersion, RequiredRuntimeVersion, err)
+	if err := checkThroughVersion(ctx, db, JobLeaseSchemaVersion, JobLeaseSchemaVersion, MaxCompatibleVersion); err != nil {
+		return nil, fmt.Errorf("KKAI maintenance target %d requires runtime schema %d: %w", OutboxEventKeySchemaVersion, JobLeaseSchemaVersion, err)
 	}
 	return applyThroughVersion(ctx, db, options, OutboxEventKeySchemaVersion, MaxCompatibleVersion)
 }
@@ -130,13 +130,13 @@ func ApplyMySQL57Compatibility(ctx context.Context, db *gorm.DB, options Options
 }
 
 // ApplyVideoStudioExpand applies the additive v5 Video Studio schema after v4.
-// Runtime startup remains pinned to v3; operators invoke this separately from
-// application delivery after both rollback slots can understand v5.
+// Operators invoke this separately from application delivery after both
+// rollback slots can understand v5.
 func ApplyVideoStudioExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if db == nil {
 		return nil, ErrSchemaNotReady
 	}
-	if err := Check(ctx, db, OutboxEventKeySchemaVersion); err != nil {
+	if err := checkThroughVersion(ctx, db, OutboxEventKeySchemaVersion, OutboxEventKeySchemaVersion, MaxCompatibleVersion); err != nil {
 		return nil, fmt.Errorf("KKAI maintenance target %d requires validated bridge schema %d: %w", VideoStudioSchemaVersion, OutboxEventKeySchemaVersion, err)
 	}
 	return applyThroughVersion(ctx, db, options, VideoStudioSchemaVersion, MaxCompatibleVersion)

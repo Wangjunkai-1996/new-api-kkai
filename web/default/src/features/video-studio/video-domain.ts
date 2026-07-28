@@ -243,6 +243,7 @@ export const buildVideoComposerValues = (
 export const buildVideoQuoteRequest = (
   values: VideoComposerValues,
   profile: VideoModelProfile,
+  tokenId: number,
   sampleId?: number
 ): VideoQuoteRequest => {
   const roles = getVideoReferenceRoles(profile, values.mode)
@@ -255,6 +256,7 @@ export const buildVideoQuoteRequest = (
   }, [])
 
   return {
+    token_id: tokenId,
     model: profile.model,
     mode: values.mode,
     prompt: values.prompt,
@@ -278,6 +280,7 @@ export const getVideoSubmissionRequestKey = (
   request: VideoQuoteRequest
 ): string =>
   JSON.stringify({
+    token_id: request.token_id,
     model: request.model,
     mode: request.mode,
     prompt: request.prompt,

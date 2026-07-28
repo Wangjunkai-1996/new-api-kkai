@@ -41,6 +41,18 @@ func videoStudioErrorStatus(err error) (int, string) {
 		return http.StatusBadRequest, "invalid_video_studio_request"
 	case errors.Is(err, service.ErrVideoAssetAccessDenied):
 		return http.StatusForbidden, "video_asset_access_denied"
+	case errors.Is(err, service.ErrVideoStudioTokenRequired):
+		return http.StatusBadRequest, "video_token_required"
+	case errors.Is(err, service.ErrVideoStudioTokenInvalid):
+		return http.StatusForbidden, "video_token_invalid"
+	case errors.Is(err, service.ErrVideoStudioTokenGroupInvalid):
+		return http.StatusForbidden, "video_token_group_invalid"
+	case errors.Is(err, service.ErrVideoStudioTokenModelForbidden):
+		return http.StatusForbidden, "video_token_model_forbidden"
+	case errors.Is(err, service.ErrVideoStudioTokenIPForbidden):
+		return http.StatusForbidden, "video_token_ip_forbidden"
+	case errors.Is(err, service.ErrVideoStudioTokenGroupUnavailable):
+		return http.StatusForbidden, "video_token_group_unavailable"
 	case errors.Is(err, service.ErrVideoAssetUploadExpired):
 		return http.StatusGone, "video_upload_expired"
 	case errors.Is(err, service.ErrVideoModelProfileNotFound),
@@ -64,6 +76,10 @@ func videoStudioErrorStatus(err error) (int, string) {
 		return http.StatusServiceUnavailable, "video_storage_unavailable"
 	case errors.Is(err, service.ErrVideoMultipartUnavailable):
 		return http.StatusServiceUnavailable, "video_storage_unavailable"
+	case errors.Is(err, service.ErrVideoStudioTokenLimitReached):
+		return http.StatusConflict, "video_token_limit_reached"
+	case errors.Is(err, service.ErrVideoStudioTokenModelsUnavailable):
+		return http.StatusServiceUnavailable, "video_token_models_unavailable"
 	default:
 		return http.StatusInternalServerError, "video_studio_internal_error"
 	}

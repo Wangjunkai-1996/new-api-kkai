@@ -19,6 +19,7 @@ sha256_file() {
 
 output_dir="${ROOT}/.local-releases"
 version=''
+schema_contract=feature
 build_http_proxy="${BUILD_HTTP_PROXY:-${HTTP_PROXY:-}}"
 build_https_proxy="${BUILD_HTTPS_PROXY:-${HTTPS_PROXY:-}}"
 build_no_proxy="${BUILD_NO_PROXY:-${NO_PROXY:-}}"
@@ -26,11 +27,16 @@ while (( $# > 0 )); do
   [[ $# -ge 2 ]] || die "missing value for $1"
   case "$1" in
     --output-dir) output_dir=$2 ;;
+    --schema-contract) schema_contract=$2 ;;
     --version) version=$2 ;;
     *) die "unsupported argument: $1" ;;
   esac
   shift 2
 done
+case "${schema_contract}" in
+  feature | bridge) ;;
+  *) die "schema contract must be feature or bridge" ;;
+esac
 
 for command_name in docker git jq; do
   command -v "${command_name}" >/dev/null 2>&1 || die "missing ${command_name}"
@@ -74,6 +80,7 @@ docker "${build_args[@]}" \
   --file "${ROOT}/build/kkai-image/Dockerfile" \
   --build-context "kkai_image=${ROOT}/build/kkai-image" \
   --build-arg "APP_VERSION=${version}" \
+  --build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}" \
   --build-arg "SOURCE_REVISION=${source_sha}" \
   --tag "${image_tag}" \
   --output "type=docker,dest=${archive}" \
@@ -84,12 +91,14 @@ jq --null-input \
   --arg version "${version}" \
   --arg source_sha "${source_sha}" \
   --arg image_tag "${image_tag}" \
+  --arg schema_contract "${schema_contract}" \
   --arg archive "$(basename -- "${archive}")" \
   --arg archive_sha256 "${archive_sha256}" \
   '{
     version: $version,
     source_sha: $source_sha,
     image_tag: $image_tag,
+    schema_contract: $schema_contract,
     archive: $archive,
     archive_sha256: $archive_sha256,
     platform: "linux/amd64"

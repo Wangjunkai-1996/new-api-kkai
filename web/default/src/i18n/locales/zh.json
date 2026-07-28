@@ -5481,6 +5481,24 @@
     "videoStudio.validation.promptRequired": "请输入提示词。",
     "videoStudio.validation.promptTooLong": "提示词过长。",
     "videoStudio.validation.sampleVideoRequired": "请上传样品视频。",
-    "videoStudio.validation.twoFramesRequired": "请同时上传首帧和尾帧。"
+    "videoStudio.validation.twoFramesRequired": "请同时上传首帧和尾帧。",
+    "videoStudio.videoKey.checkFailed": "无法检查视频 Key，请检查网络连接后重试。",
+    "videoStudio.videoKey.checking": "正在检查视频 Key……",
+    "videoStudio.videoKey.createAndContinue": "创建并继续",
+    "videoStudio.videoKey.createDescription": "生成视频需要一个属于“{{group}}”分组的 API Key。确认后系统会自动创建，并继续询价和生成。",
+    "videoStudio.videoKey.createFailed": "视频 Key 创建失败，请检查网络连接后重试。",
+    "videoStudio.videoKey.createTitle": "创建视频分组 Key？",
+    "videoStudio.videoKey.created": "视频 Key 已创建",
+    "videoStudio.videoKey.creating": "正在创建视频 Key……",
+    "videoStudio.videoKey.groupUnavailable": "当前账号无权使用“{{group}}”分组，请联系管理员开通视频生成权限。",
+    "videoStudio.videoKey.invalidated": "当前视频 Key 已不可用，请重新检查后再生成。",
+    "videoStudio.videoKey.invalidResponse": "无法验证服务端返回的视频 Key，请重试。",
+    "videoStudio.videoKey.limitReached": "API Key 数量已达上限，请删除不再使用的 Key 后重试。",
+    "videoStudio.videoKey.manageKeys": "管理 API Key",
+    "videoStudio.videoKey.modelsUnavailable": "管理员尚未启用可创建的视频模型，或当前模型无法加入视频 Key。",
+    "videoStudio.videoKey.ready": "视频 Key 已就绪",
+    "videoStudio.videoKey.requiredBeforePricing": "询价前需要先创建“{{group}}”分组的 Key。",
+    "videoStudio.videoKey.retryCheck": "重新检查 Key",
+    "videoStudio.videoKey.videoGroup": "视频分组"
   }
 }

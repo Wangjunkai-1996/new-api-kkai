@@ -256,9 +256,11 @@ test('quote request maps first and last frame assets by canonical role order', (
         parameters: { duration: 5, quality: 'standard' },
       },
       reversedReferenceProfile,
+      42,
       9
     ),
     {
+      token_id: 42,
       model: profile.model,
       mode: 'first_last_frame',
       prompt: 'Day becomes night',
@@ -281,7 +283,8 @@ test('create request carries the complete quote contract', () => {
       reference_asset_ids: [],
       parameters: { duration: 5, quality: 'standard' },
     },
-    profile
+    profile,
+    42
   )
 
   assert.deepEqual(
@@ -301,6 +304,7 @@ test('create request carries the complete quote contract', () => {
 
 test('submission request key is stable across parameter insertion order', () => {
   const request = {
+    token_id: 42,
     model: 'video-model',
     mode: 'text_to_video' as const,
     prompt: 'Ocean at sunrise',
@@ -314,6 +318,10 @@ test('submission request key is stable across parameter insertion order', () => 
       ...request,
       parameters: { quality: 'standard', duration: 5 },
     })
+  )
+  assert.notEqual(
+    getVideoSubmissionRequestKey(request),
+    getVideoSubmissionRequestKey({ ...request, token_id: 43 })
   )
 })
 

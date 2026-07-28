@@ -1,0 +1,26 @@
+//go:build !kkai_bridge
+
+package kkaimigrate
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestContractForDialectUsesVideoStudioRuntime(t *testing.T) {
+	for _, dialect := range []string{DialectPostgres, DialectSQLite, DialectMySQL} {
+		t.Run(dialect, func(t *testing.T) {
+			contract, err := ContractForDialect(dialect)
+			require.NoError(t, err)
+			require.EqualValues(t, 5, contract.RuntimeMinVersion)
+			require.EqualValues(t, 5, contract.RuntimeMaxVersion)
+			require.EqualValues(t, 5, contract.MigrationTargetVersion)
+			require.Equal(t, MigrationKindNone, contract.MigrationKind)
+			require.Equal(t, map[string]string{
+				"5": contract.MigrationSetDigest,
+			}, contract.CompatiblePrefixes)
+			require.Regexp(t, `^sha256:[0-9a-f]{64}$`, contract.MigrationSetDigest)
+		})
+	}
+}

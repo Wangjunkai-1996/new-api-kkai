@@ -3,7 +3,8 @@
 This file summarizes direct third-party dependencies used by distributed builds of this project.
 It is an engineering compliance artifact and should be kept with Docker images, standalone binaries, frontend bundles, and Electron installers.
 
-Scope: direct dependencies from `go.mod`, `web/default/package.json`, `web/classic/package.json`, and `electron/package.json`.
+Scope: direct dependencies from `go.mod`, `web/default/package.json`, `web/classic/package.json`, and `electron/package.json`,
+plus source-built media tools distributed in the production container image.
 Transitive dependencies should be audited before a final external release.
 
 ## Dependency Inventory
@@ -65,6 +66,8 @@ Transitive dependencies should be audited before a final external release.
 | backend     | production  | Go        | `gorm.io/driver/postgres`                             | `v1.5.2`                             | MIT                                                |
 | backend     | production  | Go        | `gorm.io/gorm`                                        | `v1.25.2`                            | MIT                                                |
 | backend     | production  | Go        | `github.com/expr-lang/expr`                           | `v1.17.8`                            | MIT                                                |
+| container   | production  | source    | `FFmpeg`                                              | `7.1.1`                              | GPL-3.0-or-later                                   |
+| container   | production  | source    | `x264`                                                | `b35605ace3ddf7c1a5d67a2eb553f034aef41d55` | GPL-2.0-or-later                           |
 | web/default | production  | npm       | `@base-ui/react`                                      | `1.4.1`                              | MIT                                                |
 | web/default | production  | npm       | `@fontsource-variable/public-sans`                    | `5.2.7`                              | OFL-1.1                                            |
 | web/default | production  | npm       | `@hookform/resolvers`                                 | `5.2.2`                              | MIT                                                |
@@ -194,6 +197,16 @@ Transitive dependencies should be audited before a final external release.
 | electron    | development | npm       | `cross-env`                                           | `7.0.3`                              | MIT                                                |
 | electron    | development | npm       | `electron`                                            | `39.8.5`                             | MIT                                                |
 | electron    | development | npm       | `electron-builder`                                    | `26.7.0`                             | MIT                                                |
+
+## Container Media Materials
+
+The production image builds FFmpeg and x264 from the pinned upstream source
+archives recorded in `/licenses/ffmpeg/PROVENANCE.md`. The same image includes
+the unchanged source archives, upstream license texts, exact build and
+verification scripts, resolved build environment, actual `ffmpeg -buildconf`
+output, and the generated `/licenses/ffmpeg/SHA256SUMS` integrity manifest.
+The resolved package build manifest is retained in
+`/licenses/ffmpeg/BUILD-ENVIRONMENT.txt`.
 
 ## License Texts
 

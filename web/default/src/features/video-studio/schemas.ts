@@ -24,6 +24,8 @@ import type {
   VideoModelProfileInput,
   VideoParameterValue,
   VideoSampleInput,
+  VideoTokenCapability,
+  VideoTokenCreateResult,
 } from './types'
 import { videoParameterAcceptsValue } from './video-domain'
 
@@ -34,6 +36,30 @@ export const VIDEO_GENERATION_MODES = [
 ] as const
 
 export const VIDEO_PROMPT_MAX_LENGTH = 8_000
+
+const videoTokenSummarySchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  group: z.string(),
+})
+
+export const videoTokenCapabilitySchema = z.object({
+  required_group: z.string().min(1),
+  has_usable_token: z.boolean(),
+  can_create: z.boolean(),
+  token: videoTokenSummarySchema.nullish(),
+  status: z.enum([
+    'ready',
+    'missing',
+    'group_unavailable',
+    'limit_reached',
+    'models_unavailable',
+  ]),
+}) satisfies z.ZodType<VideoTokenCapability>
+
+export const videoTokenCreateResultSchema = videoTokenCapabilitySchema.extend({
+  created: z.boolean(),
+}) satisfies z.ZodType<VideoTokenCreateResult>
 
 const videoParameterValueSchema = z.union([
   z.string(),

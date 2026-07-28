@@ -197,7 +197,7 @@ func TestNormalizeVideoStudioSubmissionRejectsUnpublishedCatalogReference(t *tes
 func TestVideoStudioIdempotencyFingerprintBindsCreativeRequestOnly(t *testing.T) {
 	assetID := int64(91)
 	base := VideoStudioSubmissionRequest{
-		Model: " video-model-v1 ", Group: " default ", Mode: VideoModeImageToVideo,
+		TokenID: 101, Model: " video-model-v1 ", Group: " default ", Mode: VideoModeImageToVideo,
 		Prompt: " A controlled camera move ", Parameters: map[string]any{"duration": float64(5)},
 		ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: assetID, Role: model.VideoTaskAssetRoleReference}},
 		MaxQuota:        intPointer(1000), QuoteHash: strings.Repeat("a", 64), QuoteExpiresAt: 100,
@@ -230,6 +230,12 @@ func TestVideoStudioIdempotencyFingerprintBindsCreativeRequestOnly(t *testing.T)
 	changedAssetsHash, err := VideoStudioIdempotencyFingerprint(changedAssets)
 	require.NoError(t, err)
 	require.NotEqual(t, first, changedAssetsHash)
+
+	changedToken := base
+	changedToken.TokenID++
+	changedTokenHash, err := VideoStudioIdempotencyFingerprint(changedToken)
+	require.NoError(t, err)
+	require.NotEqual(t, first, changedTokenHash)
 }
 
 func TestVideoStudioQuoteSignatureExpiresAndCannotBeExtended(t *testing.T) {
@@ -244,6 +250,21 @@ func TestVideoStudioQuoteSignatureExpiresAndCannotBeExtended(t *testing.T) {
 
 	normalized.QuoteExpiresAt++
 	require.ErrorIs(t, ValidateVideoStudioQuote(normalized, now), ErrVideoStudioQuoteMismatch)
+}
+
+func TestVideoStudioQuoteRequestHashBindsSelectedToken(t *testing.T) {
+	specification := VideoModelSpec{Version: 1, Modes: []string{VideoModeTextToVideo}}
+	first := &NormalizedVideoStudioSubmission{
+		UserID: 42, TokenID: 101, ProfileID: 1, SpecificationVersion: 1,
+		Model: "video-model-v1", Mode: VideoModeTextToVideo, Prompt: "A controlled camera move",
+		Parameters: map[string]any{}, specification: specification,
+	}
+	require.NoError(t, ApplyVideoStudioEffectiveGroup(first, VideoStudioTokenGroup))
+	second := *first
+	second.TokenID = 202
+	require.NoError(t, ApplyVideoStudioEffectiveGroup(&second, VideoStudioTokenGroup))
+
+	require.NotEqual(t, first.RequestHash, second.RequestHash)
 }
 
 func TestValidateVideoModelSpecRequiresImageMappings(t *testing.T) {

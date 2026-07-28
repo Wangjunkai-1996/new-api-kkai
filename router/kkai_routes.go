@@ -20,6 +20,8 @@ func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 	videoStudio.Use(middleware.UserAuth(), middleware.VideoStudioAccess())
 	{
 		videoStudio.GET("/models", controller.ListVideoStudioModels)
+		videoStudio.GET("/token", controller.GetVideoStudioTokenStatus)
+		videoStudio.POST("/token", controller.EnsureVideoStudioToken)
 		videoStudio.GET("/samples", controller.ListVideoStudioSamples)
 		videoStudio.GET("/samples/:id", controller.GetVideoStudioSample)
 		videoStudio.POST("/uploads", controller.CreateVideoStudioUpload)

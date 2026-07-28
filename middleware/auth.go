@@ -3,7 +3,6 @@ package middleware
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -400,16 +399,13 @@ func TokenAuth() func(c *gin.Context) {
 			return
 		}
 
-		allowIps := token.GetIpLimits()
-		if len(allowIps) > 0 {
-			clientIp := c.ClientIP()
+		clientIp := c.ClientIP()
+		if len(token.GetIpLimits()) > 0 {
 			logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
-			ip := net.ParseIP(clientIp)
-			if ip == nil {
+			if err := model.ValidateUserTokenIP(token, clientIp); errors.Is(err, model.ErrTokenClientIPInvalid) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, "无法解析客户端 IP 地址")
 				return
-			}
-			if common.IsIpInCIDRList(ip, allowIps) == false {
+			} else if err != nil {
 				abortWithOpenAiMessage(c, http.StatusForbidden, "您的 IP 不在令牌允许访问的列表中", types.ErrorCodeAccessDenied)
 				return
 			}

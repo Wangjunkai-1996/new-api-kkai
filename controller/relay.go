@@ -505,6 +505,9 @@ func PreparePlaygroundTaskContext(c *gin.Context) *dto.TaskError {
 		return service.TaskErrorWrapperLocal(err, "query_user_failed", http.StatusInternalServerError)
 	}
 	userCache.WriteContext(c)
+	if c.GetInt("token_id") > 0 {
+		return nil
+	}
 
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	tempToken := &model.Token{

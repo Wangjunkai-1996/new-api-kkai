@@ -198,38 +198,66 @@ func ValidateUserToken(key string) (token *Token, err error) {
 	}
 	token, err = GetTokenByKey(key, false)
 	if err == nil {
-		if token.Status == common.TokenStatusExhausted ||
-			token.Status == common.TokenStatusExpired ||
-			token.Status != common.TokenStatusEnabled {
-			return token, ErrTokenInvalid
-		}
-		if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {
-			if !common.RedisEnabled {
-				token.Status = common.TokenStatusExpired
-				err := token.SelectUpdate()
-				if err != nil {
-					common.SysLog("failed to update token status" + err.Error())
-				}
-			}
-			return token, ErrTokenInvalid
-		}
-		if !token.UnlimitedQuota && token.RemainQuota <= 0 {
-			if !common.RedisEnabled {
-				token.Status = common.TokenStatusExhausted
-				err := token.SelectUpdate()
-				if err != nil {
-					common.SysLog("failed to update token status" + err.Error())
-				}
-			}
-			return token, ErrTokenInvalid
-		}
-		return token, nil
+		return token, ValidateUserTokenRecord(token)
 	}
 	common.SysLog("ValidateUserToken: failed to get token: " + err.Error())
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrTokenInvalid
 	}
 	return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
+}
+
+// CheckUserTokenRecord validates token state without mutating the token or database.
+func CheckUserTokenRecord(token *Token) error {
+	_, err := invalidUserTokenStatus(token)
+	return err
+}
+
+// ValidateUserTokenRecord preserves bearer-token authentication's status updates.
+func ValidateUserTokenRecord(token *Token) error {
+	invalidStatus, err := invalidUserTokenStatus(token)
+	if err == nil {
+		return nil
+	}
+	if invalidStatus == 0 || common.RedisEnabled {
+		return err
+	}
+	token.Status = invalidStatus
+	if updateErr := token.SelectUpdate(); updateErr != nil {
+		common.SysLog("failed to update token status" + updateErr.Error())
+	}
+	return err
+}
+
+func invalidUserTokenStatus(token *Token) (int, error) {
+	if token == nil || token.Status != common.TokenStatusEnabled {
+		return 0, ErrTokenInvalid
+	}
+	if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {
+		return common.TokenStatusExpired, ErrTokenInvalid
+	}
+	if !token.UnlimitedQuota && token.RemainQuota <= 0 {
+		return common.TokenStatusExhausted, ErrTokenInvalid
+	}
+	return 0, nil
+}
+
+func ValidateUserTokenIP(token *Token, clientIP string) error {
+	if token == nil {
+		return ErrTokenInvalid
+	}
+	allowIPs := token.GetIpLimits()
+	if len(allowIPs) == 0 {
+		return nil
+	}
+	ip := common.ParseIP(strings.TrimSpace(clientIP))
+	if ip == nil {
+		return ErrTokenClientIPInvalid
+	}
+	if !common.IsIpInCIDRList(ip, allowIPs) {
+		return ErrTokenIPNotAllowed
+	}
+	return nil
 }
 
 func GetTokenByIds(id int, userId int) (*Token, error) {

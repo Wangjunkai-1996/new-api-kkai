@@ -2,6 +2,7 @@ package video_studio_setting
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -15,7 +16,10 @@ const (
 	AccessModeAll   = "all"
 )
 
-var ErrR2NotConfigured = errors.New("video studio R2 storage is not configured")
+var (
+	ErrR2NotConfigured            = errors.New("video studio R2 storage is not configured")
+	ErrR2CredentialFileUnreadable = errors.New("video studio R2 credential file is unreadable")
+)
 
 type Setting struct {
 	AccessMode            string `json:"access_mode"`
@@ -99,12 +103,20 @@ func CanAccess(role int) bool {
 }
 
 func LoadR2Config() (R2Config, error) {
+	accessKeyID, err := loadR2Credential("VIDEO_STUDIO_R2_ACCESS_KEY_ID", "VIDEO_STUDIO_R2_ACCESS_KEY_ID_FILE")
+	if err != nil {
+		return R2Config{}, err
+	}
+	secretAccessKey, err := loadR2Credential("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY", "VIDEO_STUDIO_R2_SECRET_ACCESS_KEY_FILE")
+	if err != nil {
+		return R2Config{}, err
+	}
 	result := R2Config{
 		Endpoint:        strings.TrimRight(strings.TrimSpace(os.Getenv("VIDEO_STUDIO_R2_ENDPOINT")), "/"),
 		Region:          strings.TrimSpace(os.Getenv("VIDEO_STUDIO_R2_REGION")),
 		Bucket:          strings.TrimSpace(os.Getenv("VIDEO_STUDIO_R2_BUCKET")),
-		AccessKeyID:     strings.TrimSpace(os.Getenv("VIDEO_STUDIO_R2_ACCESS_KEY_ID")),
-		SecretAccessKey: strings.TrimSpace(os.Getenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY")),
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
 	}
 	if result.Region == "" {
 		result.Region = "auto"
@@ -113,4 +125,16 @@ func LoadR2Config() (R2Config, error) {
 		return R2Config{}, ErrR2NotConfigured
 	}
 	return result, nil
+}
+
+func loadR2Credential(valueEnvironment, fileEnvironment string) (string, error) {
+	path := strings.TrimSpace(os.Getenv(fileEnvironment))
+	if path == "" {
+		return strings.TrimSpace(os.Getenv(valueEnvironment)), nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", fileEnvironment, ErrR2CredentialFileUnreadable)
+	}
+	return strings.TrimSpace(string(content)), nil
 }

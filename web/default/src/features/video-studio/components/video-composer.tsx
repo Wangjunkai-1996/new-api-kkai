@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Link } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
-import { ChevronDown, LoaderCircle, Sparkles } from 'lucide-react'
+import { ChevronDown, KeyRound, LoaderCircle, Sparkles } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -46,6 +47,7 @@ import { useDebounce } from '@/hooks/use-debounce'
 import { formatQuota } from '@/lib/format'
 import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
 
+import { useVideoTokenGate } from '../hooks/use-video-token-gate'
 import {
   useCreateVideoGeneration,
   useVideoModels,
@@ -88,13 +90,22 @@ import {
   getHydratedVideoReferences,
   getVideoReferenceHydrationRecovery,
 } from '../video-reference-hydration'
+import { getVideoTokenErrorKind } from '../video-token-access'
 import { VideoAssetUploader } from './video-asset-uploader'
 import { VideoParameterFields } from './video-parameter-fields'
+import { VideoTokenSetupDialog } from './video-token-setup-dialog'
 
 type VideoComposerProps = {
   sample?: VideoSample
   onSubmitted?: (receipt: VideoSubmissionReceipt) => void
 }
+
+const getVideoStudioResponseError = (
+  error: unknown
+): VideoStudioApiError | undefined =>
+  error instanceof AxiosError
+    ? (error.response?.data as VideoStudioApiError | undefined)
+    : undefined
 
 export function VideoComposer(props: VideoComposerProps) {
   const { t } = useTranslation()
@@ -138,6 +149,9 @@ export function VideoComposer(props: VideoComposerProps) {
   const selectedProfile = modelsQuery.data?.find(
     (profile) => profile.id === values.model_profile_id
   )
+  const videoTokenGate = useVideoTokenGate(selectedProfile?.model)
+  const videoTokenId = videoTokenGate.tokenId
+  const blockAndRecheckVideoToken = videoTokenGate.blockAndRecheck
   const referenceHydrationFailed =
     referenceHydrationIds.length > 0 &&
     referenceHydrationQueries.some((query) => query.isError)
@@ -202,6 +216,7 @@ export function VideoComposer(props: VideoComposerProps) {
   }, [referenceHydrationIds, referenceHydrationQueries])
 
   const quoteRequest = useMemo(() => {
+    if (!videoTokenId) return null
     const parsed = videoComposerSchema.safeParse(debouncedValues)
     if (!parsed.success) return null
     const profile = modelsQuery.data?.find(
@@ -210,8 +225,13 @@ export function VideoComposer(props: VideoComposerProps) {
     if (!profile || validateComposerForProfile(parsed.data, profile)) {
       return null
     }
-    return buildVideoQuoteRequest(parsed.data, profile, appliedSampleId)
-  }, [appliedSampleId, debouncedValues, modelsQuery.data])
+    return buildVideoQuoteRequest(
+      parsed.data,
+      profile,
+      videoTokenId,
+      appliedSampleId
+    )
+  }, [appliedSampleId, debouncedValues, modelsQuery.data, videoTokenId])
 
   const quoteQuery = useVideoQuote(quoteRequest, quoteRequest !== null)
   const refetchQuote = quoteQuery.refetch
@@ -257,6 +277,13 @@ export function VideoComposer(props: VideoComposerProps) {
       setSubmissionLock(null)
     }
   }, [quoteRequestKey, submissionLock])
+
+  useEffect(() => {
+    if (!quoteQuery.isError) return
+    const responseError = getVideoStudioResponseError(quoteQuery.error)
+    const errorKind = getVideoTokenErrorKind(responseError?.code)
+    blockAndRecheckVideoToken(errorKind)
+  }, [blockAndRecheckVideoToken, quoteQuery.error, quoteQuery.isError])
 
   const handleModelChange = (profileId: number) => {
     const profile = modelsQuery.data?.find((item) => item.id === profileId)
@@ -341,8 +368,13 @@ export function VideoComposer(props: VideoComposerProps) {
     focusReferenceUploader()
   }
 
+  const handleVideoTokenPrimaryAction = () => {
+    setSubmitError(null)
+    videoTokenGate.openOrRetry()
+  }
+
   const handleSubmit = form.handleSubmit(async (submittedValues) => {
-    if (!selectedProfile) return
+    if (!selectedProfile || !videoTokenId) return
     const validationError = validateComposerForProfile(
       submittedValues,
       selectedProfile
@@ -360,6 +392,7 @@ export function VideoComposer(props: VideoComposerProps) {
     const submissionRequest = buildVideoQuoteRequest(
       submittedValues,
       selectedProfile,
+      videoTokenId,
       appliedSampleId
     )
     const submissionRequestKey = getVideoSubmissionRequestKey(submissionRequest)
@@ -379,16 +412,30 @@ export function VideoComposer(props: VideoComposerProps) {
       toast.success(t('videoStudio.generationQueued'))
       props.onSubmitted?.(receipt)
     } catch (error) {
-      const responseError =
-        error instanceof AxiosError
-          ? (error.response?.data as VideoStudioApiError | undefined)
-          : undefined
+      const responseError = getVideoStudioResponseError(error)
       const responseStatus =
         error instanceof AxiosError ? error.response?.status : undefined
       if (isVideoQuoteStaleError(responseStatus, responseError)) {
         if (quoteKey) setInvalidQuoteKey(quoteKey)
         setSubmitError(t('videoStudio.quoteChanged'))
         await quoteQuery.refetch()
+        return
+      }
+      const videoTokenErrorKind = getVideoTokenErrorKind(responseError?.code)
+      if (videoTokenGate.blockAndRecheck(videoTokenErrorKind)) {
+        let message = t('videoStudio.videoKey.invalidated')
+        if (videoTokenErrorKind === 'group-unavailable') {
+          message = t('videoStudio.videoKey.groupUnavailable', {
+            group: videoTokenGate.requiredGroup,
+          })
+        }
+        if (videoTokenErrorKind === 'limit-reached') {
+          message = t('videoStudio.videoKey.limitReached')
+        }
+        if (videoTokenErrorKind === 'models-unavailable') {
+          message = t('videoStudio.videoKey.modelsUnavailable')
+        }
+        setSubmitError(message)
         return
       }
       const nextSubmissionLock = getVideoSubmissionLock(responseError)
@@ -447,20 +494,101 @@ export function VideoComposer(props: VideoComposerProps) {
         t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
       )
     : []
+  const videoTokenReady = videoTokenGate.access?.kind === 'ready'
+  const videoTokenMissing = videoTokenGate.access?.kind === 'missing'
+  const videoTokenGroupUnavailable =
+    videoTokenGate.access?.kind === 'group-unavailable'
+  const videoTokenLimitReached = videoTokenGate.access?.kind === 'limit-reached'
+  const videoTokenModelsUnavailable =
+    videoTokenGate.access?.kind === 'models-unavailable'
+  const videoTokenInvalid = videoTokenGate.access?.kind === 'invalid'
   let generateLabel = t('videoStudio.generate')
-  if (quoteReady) {
-    generateLabel = t('videoStudio.generateWithPrice', { price: quoteDisplay })
+  if (!videoTokenReady) {
+    if (
+      videoTokenGate.checking ||
+      (videoTokenGate.gateAction === 'recheck' && videoTokenGate.queryFetching)
+    ) {
+      generateLabel = t('videoStudio.videoKey.checking')
+    } else if (videoTokenMissing) {
+      generateLabel = t('videoStudio.videoKey.createAndContinue')
+    } else if (videoTokenGate.gateAction === 'recheck') {
+      generateLabel = t('videoStudio.videoKey.retryCheck')
+    }
+  } else {
+    if (quoteReady) {
+      generateLabel = t('videoStudio.generateWithPrice', {
+        price: quoteDisplay,
+      })
+    }
+    if (quoteQuery.isFetching) generateLabel = t('videoStudio.quoting')
   }
-  if (quoteQuery.isFetching) generateLabel = t('videoStudio.quoting')
   const quoteRetryAvailable =
-    quoteRequest !== null && quoteQuery.isError && !quoteQuery.isFetching
+    videoTokenReady &&
+    quoteRequest !== null &&
+    quoteQuery.isError &&
+    !quoteQuery.isFetching
   if (quoteRetryAvailable) generateLabel = t('videoStudio.retry')
-  let quoteStatusMessage: string | null = null
-  if (quoteReady) quoteStatusMessage = t('videoStudio.quoteReady')
+  let quoteStatusMessage: ReactNode = null
+  if (videoTokenGate.checking) {
+    quoteStatusMessage = t('videoStudio.videoKey.checking')
+  } else if (videoTokenGate.checkFailed) {
+    quoteStatusMessage = t('videoStudio.videoKey.checkFailed')
+  } else if (videoTokenMissing) {
+    quoteStatusMessage = t('videoStudio.videoKey.requiredBeforePricing', {
+      group: videoTokenGate.requiredGroup,
+    })
+  } else if (videoTokenGroupUnavailable) {
+    quoteStatusMessage = t('videoStudio.videoKey.groupUnavailable', {
+      group: videoTokenGate.requiredGroup,
+    })
+  } else if (videoTokenLimitReached) {
+    quoteStatusMessage = (
+      <span>
+        {t('videoStudio.videoKey.limitReached')}{' '}
+        <Link
+          to='/keys'
+          className='text-foreground underline underline-offset-2'
+        >
+          {t('videoStudio.videoKey.manageKeys')}
+        </Link>
+      </span>
+    )
+  } else if (videoTokenModelsUnavailable) {
+    quoteStatusMessage = t('videoStudio.videoKey.modelsUnavailable')
+  } else if (videoTokenInvalid) {
+    quoteStatusMessage = t('videoStudio.videoKey.invalidResponse')
+  } else if (quoteReady) {
+    quoteStatusMessage = t('videoStudio.quoteReady')
+  }
   if (submissionLock !== null) {
     quoteStatusMessage = submissionLock.taskId
       ? t('videoStudio.submissionLocked', { taskId: submissionLock.taskId })
       : t('videoStudio.submissionUnknown')
+  }
+  let primaryActionDisabled =
+    createMutation.isPending ||
+    videoTokenGate.creating ||
+    submissionLock !== null
+  if (videoTokenReady) {
+    primaryActionDisabled ||= !quoteReady && !quoteRetryAvailable
+  } else {
+    primaryActionDisabled ||=
+      !videoTokenGate.actionAvailable || videoTokenGate.queryFetching
+  }
+  const primaryActionBusy =
+    createMutation.isPending ||
+    videoTokenGate.checking ||
+    (videoTokenGate.gateAction === 'recheck' && videoTokenGate.queryFetching) ||
+    (videoTokenReady && quoteQuery.isFetching)
+  let primaryActionIcon = <Sparkles aria-hidden='true' />
+  if (!videoTokenReady) primaryActionIcon = <KeyRound aria-hidden='true' />
+  if (primaryActionBusy) {
+    primaryActionIcon = (
+      <LoaderCircle
+        className='animate-spin motion-reduce:animate-none'
+        aria-hidden='true'
+      />
+    )
   }
 
   return (
@@ -669,23 +797,15 @@ export function VideoComposer(props: VideoComposerProps) {
             </p>
           )}
           <Button
-            type='submit'
+            type={videoTokenReady ? 'submit' : 'button'}
             size='lg'
             className='w-full'
-            disabled={
-              (!quoteReady && !quoteRetryAvailable) ||
-              createMutation.isPending ||
-              submissionLock !== null
+            disabled={primaryActionDisabled}
+            onClick={
+              videoTokenReady ? undefined : handleVideoTokenPrimaryAction
             }
           >
-            {createMutation.isPending ? (
-              <LoaderCircle
-                className='animate-spin motion-reduce:animate-none'
-                aria-hidden='true'
-              />
-            ) : (
-              <Sparkles aria-hidden='true' />
-            )}
+            {primaryActionIcon}
             {generateLabel}
           </Button>
           <div
@@ -696,6 +816,15 @@ export function VideoComposer(props: VideoComposerProps) {
           </div>
         </div>
       </form>
+
+      <VideoTokenSetupDialog
+        open={videoTokenGate.dialogOpen}
+        requiredGroup={videoTokenGate.requiredGroup}
+        creating={videoTokenGate.creating}
+        errorMessage={videoTokenGate.createError}
+        onOpenChange={videoTokenGate.handleDialogOpenChange}
+        onConfirm={() => void videoTokenGate.createAndContinue()}
+      />
     </Form>
   )
 }

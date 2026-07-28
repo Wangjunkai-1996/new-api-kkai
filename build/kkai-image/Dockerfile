@@ -4,7 +4,14 @@ ARG BUN_IMAGE=oven/bun:1.3.13@sha256:bb35eafd10b2e969809384850ff0474ba36a491239d
 ARG GO_IMAGE=golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
 ARG BUSYBOX_IMAGE=busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
-ARG FFMPEG_IMAGE=mwader/static-ffmpeg:7.1.1@sha256:6769881cc02c80d33e387750a8e144d162adfab2775e934dd97899261dda3a0c
+ARG KKAI_SCHEMA_CONTRACT=feature
+ARG FFMPEG_VERSION=7.1.1
+ARG FFMPEG_SOURCE_SHA256=0c8da2f11579a01e014fc007cbacf5bb4da1d06afd0b43c7f8097ec7c0f143ba
+ARG X264_REVISION=b35605ace3ddf7c1a5d67a2eb553f034aef41d55
+ARG X264_SOURCE_SHA256=6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224
+ARG VIDEO_MEDIA_SOURCE_DATE_EPOCH=1749399863
+ARG FFMPEG_BINARY_SHA256=d003df00d4930e60f5e534c07e12064ec0abd5677fc638fd7202edfb01f8bc3f
+ARG FFPROBE_BINARY_SHA256=4df45ffe1eb3ebed143136499616e894a06e6c0d3ccb3abf8e72f84bb1ac8c6e
 
 FROM ${BUN_IMAGE} AS web-deps
 WORKDIR /build/web
@@ -33,6 +40,7 @@ RUN test -n "${APP_VERSION}" \
 FROM ${GO_IMAGE} AS backend
 
 ARG APP_VERSION
+ARG KKAI_SCHEMA_CONTRACT
 ARG SOURCE_REVISION
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -52,6 +60,11 @@ COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     test -n "${APP_VERSION}" \
     && test -n "${SOURCE_REVISION}" \
+    && case "${KKAI_SCHEMA_CONTRACT}" in \
+      feature) export GOFLAGS= ;; \
+      bridge) export GOFLAGS=-tags=kkai_bridge ;; \
+      *) echo "invalid KKAI schema contract: ${KKAI_SCHEMA_CONTRACT}" >&2; exit 1 ;; \
+    esac \
     && go build -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/new-api . \
@@ -74,53 +87,78 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
 
 FROM ${BUSYBOX_IMAGE} AS health-tools
 
-FROM ${FFMPEG_IMAGE} AS video-media-tools
+FROM ${GO_IMAGE} AS video-media-build
 
-FROM ${BUSYBOX_IMAGE} AS video-media-audit
-WORKDIR /video-media
-COPY --from=video-media-tools /ffmpeg ./ffmpeg
-COPY --from=video-media-tools /ffprobe ./ffprobe
-RUN set -eu; \
-    printf '%s\n' \
-      '810f94020e76e2b58fb44759a322e86bea5d213ebededad7471f3a15b0bf2c5c  ffmpeg' \
-      '4818b8964b5d7b699370628a4154c97e88205678ee506ca72e9330600e917667  ffprobe' \
-      | sha256sum -c -; \
-    ffmpeg_version="$(./ffmpeg -version 2>&1)"; \
-    printf '%s\n' "${ffmpeg_version}" | grep -Fq 'ffmpeg version 7.1.1'; \
-    ffprobe_version="$(./ffprobe -version 2>&1)"; \
-    printf '%s\n' "${ffprobe_version}" | grep -Fq 'ffprobe version 7.1.1'; \
-    ffmpeg_license="$(./ffmpeg -L 2>&1)"; \
-    printf '%s\n' "${ffmpeg_license}" | grep -Fq 'GNU General Public License'; \
-    ffprobe_license="$(./ffprobe -L 2>&1)"; \
-    printf '%s\n' "${ffprobe_license}" | grep -Fq 'GNU General Public License'
+ARG GO_IMAGE
+ARG FFMPEG_VERSION
+ARG FFMPEG_SOURCE_SHA256
+ARG X264_REVISION
+ARG X264_SOURCE_SHA256
+ARG VIDEO_MEDIA_SOURCE_DATE_EPOCH
+COPY --from=kkai_image ffmpeg/BUILD-PACKAGES.lock /opt/video-media-build/BUILD-PACKAGES.lock
+RUN xargs apk add --no-cache < /opt/video-media-build/BUILD-PACKAGES.lock
+COPY --from=kkai_image ffmpeg/build.sh /opt/video-media-build/build.sh
+COPY --from=kkai_image ffmpeg/verify-static.sh /opt/video-media-build/verify-static.sh
+COPY --from=kkai_image ffmpeg/verify.sh /opt/video-media-build/verify.sh
+COPY --from=kkai_image ffmpeg/PROVENANCE.md /opt/video-media-build/PROVENANCE.md
+RUN chmod 0755 \
+      /opt/video-media-build/build.sh \
+      /opt/video-media-build/verify-static.sh \
+      /opt/video-media-build/verify.sh \
+    && FFMPEG_VERSION="${FFMPEG_VERSION}" \
+       FFMPEG_SOURCE_SHA256="${FFMPEG_SOURCE_SHA256}" \
+       X264_REVISION="${X264_REVISION}" \
+       X264_SOURCE_SHA256="${X264_SOURCE_SHA256}" \
+       SOURCE_DATE_EPOCH="${VIDEO_MEDIA_SOURCE_DATE_EPOCH}" \
+       MEDIA_BUILD_IMAGE="${GO_IMAGE}" \
+       MEDIA_MATERIAL_DIR=/opt/video-media-build \
+       /opt/video-media-build/build.sh
+
+FROM ${GO_IMAGE} AS video-media-audit
+ARG FFMPEG_BINARY_SHA256
+ARG FFPROBE_BINARY_SHA256
+COPY --from=video-media-build /package /package
+RUN printf '%s  %s\n%s  %s\n' \
+      "${FFMPEG_BINARY_SHA256}" /package/usr/local/bin/ffmpeg \
+      "${FFPROBE_BINARY_SHA256}" /package/usr/local/bin/ffprobe \
+      | sha256sum -c - \
+    && /package/licenses/ffmpeg/build/verify.sh /package
+
+FROM scratch AS video-media-package
+COPY --from=video-media-audit /package /package
 
 FROM ${DISTROLESS_IMAGE}
 
 ARG APP_VERSION
+ARG KKAI_SCHEMA_CONTRACT
 ARG SOURCE_REVISION
+ARG FFMPEG_VERSION
+ARG FFMPEG_BINARY_SHA256
+ARG FFPROBE_BINARY_SHA256
 LABEL org.opencontainers.image.title="KKAI New API" \
       org.opencontainers.image.description="KKAI production New API image" \
       org.opencontainers.image.source="https://github.com/Wangjunkai-1996/new-api-kkai" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
-      org.opencontainers.image.licenses="AGPL-3.0 AND GPL-3.0-or-later"
+      org.opencontainers.image.licenses="AGPL-3.0 AND GPL-3.0-or-later" \
+      io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"
 
 COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/newapi-risk-guard /newapi-risk-guard
 COPY --from=health-tools --chown=10007:10007 /bin/busybox /usr/bin/wget
-COPY --from=video-media-audit --chown=0:0 /video-media/ffmpeg /usr/local/bin/ffmpeg
-COPY --from=video-media-audit --chown=0:0 /video-media/ffprobe /usr/local/bin/ffprobe
+COPY --from=video-media-package --chown=0:0 /package/usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=video-media-package --chown=0:0 /package/usr/local/bin/ffprobe /usr/local/bin/ffprobe
+COPY --from=video-media-package --chown=0:0 /package/licenses/ffmpeg /licenses/ffmpeg
 COPY --chown=0:0 LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
 
 ENV TZ=Asia/Shanghai \
     VIDEO_STUDIO_FFMPEG_PATH=/usr/local/bin/ffmpeg \
     VIDEO_STUDIO_FFPROBE_PATH=/usr/local/bin/ffprobe \
-    VIDEO_STUDIO_FFMPEG_VERSION=7.1.1 \
-    VIDEO_STUDIO_FFMPEG_SHA256=810f94020e76e2b58fb44759a322e86bea5d213ebededad7471f3a15b0bf2c5c \
-    VIDEO_STUDIO_FFPROBE_SHA256=4818b8964b5d7b699370628a4154c97e88205678ee506ca72e9330600e917667 \
-    VIDEO_STUDIO_FFMPEG_LICENSE="GNU General Public License"
+    VIDEO_STUDIO_FFMPEG_VERSION=${FFMPEG_VERSION} \
+    VIDEO_STUDIO_FFMPEG_SHA256=${FFMPEG_BINARY_SHA256} \
+    VIDEO_STUDIO_FFPROBE_SHA256=${FFPROBE_BINARY_SHA256}
 WORKDIR /data
 USER 10007:10007
 EXPOSE 3000

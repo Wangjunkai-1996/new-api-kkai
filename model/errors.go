@@ -18,8 +18,10 @@ var (
 
 // Token auth errors
 var (
-	ErrTokenNotProvided = errors.New("token not provided")
-	ErrTokenInvalid     = errors.New("token invalid")
+	ErrTokenNotProvided     = errors.New("token not provided")
+	ErrTokenInvalid         = errors.New("token invalid")
+	ErrTokenIPNotAllowed    = errors.New("token does not allow this client IP")
+	ErrTokenClientIPInvalid = errors.New("client IP is invalid")
 )
 
 // Redemption errors

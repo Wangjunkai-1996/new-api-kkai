@@ -5481,6 +5481,24 @@
     "videoStudio.validation.promptRequired": "Enter a prompt.",
     "videoStudio.validation.promptTooLong": "The prompt is too long.",
     "videoStudio.validation.sampleVideoRequired": "Upload a sample video.",
-    "videoStudio.validation.twoFramesRequired": "Upload both the first and last frames."
+    "videoStudio.validation.twoFramesRequired": "Upload both the first and last frames.",
+    "videoStudio.videoKey.checkFailed": "Could not check your video key. Check your connection and try again.",
+    "videoStudio.videoKey.checking": "Checking video key...",
+    "videoStudio.videoKey.createAndContinue": "Create and continue",
+    "videoStudio.videoKey.createDescription": "Video generation requires an API key in the \"{{group}}\" group. Create it now to continue with pricing and generation.",
+    "videoStudio.videoKey.createFailed": "Could not create the video key. Check your connection and try again.",
+    "videoStudio.videoKey.createTitle": "Create a video key?",
+    "videoStudio.videoKey.created": "Video key created",
+    "videoStudio.videoKey.creating": "Creating video key...",
+    "videoStudio.videoKey.groupUnavailable": "Your account cannot use the \"{{group}}\" group. Contact an administrator to enable video generation.",
+    "videoStudio.videoKey.invalidated": "Your video key is no longer usable. Check it again before generating.",
+    "videoStudio.videoKey.invalidResponse": "Could not verify the video key returned by the server. Try again.",
+    "videoStudio.videoKey.limitReached": "You have reached the API key limit. Delete an unused key and try again.",
+    "videoStudio.videoKey.manageKeys": "Manage API keys",
+    "videoStudio.videoKey.modelsUnavailable": "The administrator has not enabled a creatable video model, or the current model cannot be added to a video key.",
+    "videoStudio.videoKey.ready": "Video key is ready",
+    "videoStudio.videoKey.requiredBeforePricing": "Create a key in the \"{{group}}\" group before pricing this video.",
+    "videoStudio.videoKey.retryCheck": "Retry key check",
+    "videoStudio.videoKey.videoGroup": "video group"
   }
 }

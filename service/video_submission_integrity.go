@@ -38,6 +38,7 @@ func VideoStudioIdempotencyFingerprint(request VideoStudioSubmissionRequest) (st
 		parameters = map[string]any{}
 	}
 	canonical := struct {
+		TokenID    int                    `json:"token_id"`
 		Model      string                 `json:"model"`
 		Group      string                 `json:"group"`
 		Mode       string                 `json:"mode"`
@@ -46,7 +47,7 @@ func VideoStudioIdempotencyFingerprint(request VideoStudioSubmissionRequest) (st
 		References []referenceFingerprint `json:"references"`
 		SampleID   *int64                 `json:"sample_id,omitempty"`
 	}{
-		Model: strings.TrimSpace(request.Model), Group: strings.TrimSpace(request.Group),
+		TokenID: request.TokenID, Model: strings.TrimSpace(request.Model), Group: strings.TrimSpace(request.Group),
 		Mode: strings.TrimSpace(request.Mode), Prompt: strings.TrimSpace(request.Prompt),
 		Parameters: parameters, References: references, SampleID: request.SampleID,
 	}

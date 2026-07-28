@@ -9,11 +9,6 @@ import (
 
 const (
 	KnownCatalogVersion     int64 = 5
-	RequiredRuntimeVersion  int64 = 3
-	MaxCompatibleVersion    int64 = 5
-	RuntimeMinVersion       int64 = RequiredRuntimeVersion
-	RuntimeMaxVersion       int64 = MaxCompatibleVersion
-	MigrationTargetVersion  int64 = RequiredRuntimeVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"

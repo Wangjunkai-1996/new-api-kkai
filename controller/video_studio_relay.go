@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -31,6 +32,13 @@ func PrepareVideoStudioTaskRequest(c *gin.Context) {
 		c.Abort()
 		return
 	}
+	token, err := applyVideoStudioTokenContext(c, request.TokenID, request.Model)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		c.Abort()
+		return
+	}
+	request.Group = token.Group
 	if isVideoStudioSubmitRequest(c) {
 		if err := prepareVideoStudioIdempotency(c, request); err != nil {
 			respondVideoStudioSubmitGuardError(c, err)
@@ -67,6 +75,17 @@ func PrepareVideoStudioTaskRequest(c *gin.Context) {
 		c.Abort()
 		return
 	}
+	token, err = applyVideoStudioTokenContext(c, normalized.TokenID, normalized.Model)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		c.Abort()
+		return
+	}
+	if err := service.ApplyVideoStudioEffectiveGroup(normalized, token.Group); err != nil {
+		respondVideoStudioError(c, err)
+		c.Abort()
+		return
+	}
 	if err := replaceVideoStudioTaskBody(c, normalized.TaskPayload); err != nil {
 		respondVideoStudioError(c, err)
 		c.Abort()
@@ -97,7 +116,8 @@ func QuoteVideoStudioTask(c *gin.Context) {
 func SubmitVideoStudioTask(c *gin.Context) {
 	normalized, ok := videoStudioNormalizedSubmission(c)
 	if !ok || service.ValidateVideoStudioSubmitRequest(service.VideoStudioSubmissionRequest{
-		MaxQuota: normalized.MaxQuota, QuoteHash: normalized.QuoteHash, QuoteExpiresAt: normalized.QuoteExpiresAt,
+		TokenID: normalized.TokenID, MaxQuota: normalized.MaxQuota,
+		QuoteHash: normalized.QuoteHash, QuoteExpiresAt: normalized.QuoteExpiresAt,
 	}) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false, "message": "max_quota and quote_hash are required", "code": "video_quote_required",
@@ -137,6 +157,20 @@ func SubmitVideoStudioTask(c *gin.Context) {
 		return err
 	})
 	RelayTask(c)
+}
+
+func applyVideoStudioTokenContext(c *gin.Context, tokenID int, modelName string) (*model.Token, error) {
+	token, err := service.ValidateVideoStudioToken(
+		c.Request.Context(), model.DB, c.GetInt("id"), tokenID, modelName, c.ClientIP(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, token.Group)
+	if err := middleware.SetupContextForToken(c, token); err != nil {
+		return nil, err
+	}
+	return token, nil
 }
 
 func prepareVideoStudioIdempotency(c *gin.Context, request service.VideoStudioSubmissionRequest) error {

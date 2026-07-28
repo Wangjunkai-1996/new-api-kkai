@@ -211,6 +211,7 @@ export type VideoReferenceAssetInput = {
 }
 
 export type VideoQuoteRequest = {
+  token_id: number
   model: string
   mode: VideoGenerationMode
   prompt: string
@@ -226,6 +227,31 @@ export type VideoQuote = {
   request_hash: string
   expires_at: number
   other_ratios?: Record<string, number>
+}
+
+export type VideoTokenSummary = {
+  id: number
+  name: string
+  group: string
+}
+
+export type VideoTokenCapabilityStatus =
+  | 'ready'
+  | 'missing'
+  | 'group_unavailable'
+  | 'limit_reached'
+  | 'models_unavailable'
+
+export type VideoTokenCapability = {
+  required_group: string
+  has_usable_token: boolean
+  can_create: boolean
+  token?: VideoTokenSummary | null
+  status: VideoTokenCapabilityStatus
+}
+
+export type VideoTokenCreateResult = VideoTokenCapability & {
+  created: boolean
 }
 
 export type CreateVideoRequest = VideoQuoteRequest & {

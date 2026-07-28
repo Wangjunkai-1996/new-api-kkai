@@ -27,6 +27,7 @@ type VideoStudioReferenceAssetInput struct {
 }
 
 type VideoStudioSubmissionRequest struct {
+	TokenID         int                              `json:"token_id"`
 	Model           string                           `json:"model"`
 	Group           string                           `json:"group,omitempty"`
 	Mode            string                           `json:"mode"`
@@ -41,6 +42,7 @@ type VideoStudioSubmissionRequest struct {
 
 type NormalizedVideoStudioSubmission struct {
 	UserID               int
+	TokenID              int
 	ProfileID            int64
 	SpecificationVersion int
 	Model                string
@@ -75,7 +77,7 @@ type VideoStudioQuote struct {
 
 func ValidateVideoStudioSubmitRequest(request VideoStudioSubmissionRequest) error {
 	request.QuoteHash = strings.ToLower(strings.TrimSpace(request.QuoteHash))
-	if request.MaxQuota == nil || *request.MaxQuota < 0 || request.QuoteHash == "" ||
+	if request.TokenID <= 0 || request.MaxQuota == nil || *request.MaxQuota < 0 || request.QuoteHash == "" ||
 		!validVideoQuoteHash(request.QuoteHash) || request.QuoteExpiresAt <= 0 {
 		return ErrInvalidVideoStudioSubmission
 	}
@@ -170,7 +172,7 @@ func NormalizeVideoStudioSubmission(
 	}
 
 	normalized := &NormalizedVideoStudioSubmission{
-		UserID: userID, ProfileID: profile.ID, SpecificationVersion: profile.SpecificationVersion,
+		UserID: userID, TokenID: request.TokenID, ProfileID: profile.ID, SpecificationVersion: profile.SpecificationVersion,
 		Model: profile.Model, Group: request.Group, Mode: request.Mode,
 		Prompt: request.Prompt, Parameters: parameters, ReferenceAssets: references,
 		SampleID: request.SampleID, MaxQuota: request.MaxQuota, QuoteHash: request.QuoteHash,
@@ -227,6 +229,7 @@ func ApplyVideoStudioEffectiveGroup(normalized *NormalizedVideoStudioSubmission,
 		})
 	}
 	canonical := struct {
+		TokenID              int                  `json:"token_id"`
 		ProfileID            int64                `json:"profile_id"`
 		SpecificationVersion int                  `json:"specification_version"`
 		Model                string               `json:"model"`
@@ -237,7 +240,7 @@ func ApplyVideoStudioEffectiveGroup(normalized *NormalizedVideoStudioSubmission,
 		References           []canonicalReference `json:"references,omitempty"`
 		SampleID             *int64               `json:"sample_id,omitempty"`
 	}{
-		ProfileID: normalized.ProfileID, SpecificationVersion: normalized.SpecificationVersion,
+		TokenID: normalized.TokenID, ProfileID: normalized.ProfileID, SpecificationVersion: normalized.SpecificationVersion,
 		Model: normalized.Model, Group: group, Mode: normalized.Mode, Prompt: normalized.Prompt,
 		Parameters: parameterValues, References: referenceValues, SampleID: normalized.SampleID,
 	}

@@ -41,6 +41,7 @@ readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
 version="$(jq --exit-status --raw-output '.version' "${METADATA}")"
 source_sha="$(jq --exit-status --raw-output '.source_sha' "${METADATA}")"
 image_tag="$(jq --exit-status --raw-output '.image_tag' "${METADATA}")"
+schema_contract="$(jq --exit-status --raw-output '.schema_contract' "${METADATA}")"
 archive_name="$(jq --exit-status --raw-output '.archive' "${METADATA}")"
 archive_sha256="$(jq --exit-status --raw-output '.archive_sha256' "${METADATA}")"
 platform="$(jq --exit-status --raw-output '.platform' "${METADATA}")"
@@ -49,6 +50,10 @@ platform="$(jq --exit-status --raw-output '.platform' "${METADATA}")"
 [[ "${version}" =~ ^kkai-prod-[0-9]{8}\.[1-9][0-9]*-${source_sha:0:9}$ ]] ||
   die "invalid release version"
 [[ "${image_tag}" == "kkai-newapi-manual:${version}" ]] || die "invalid image tag"
+case "${schema_contract}" in
+  feature | bridge) ;;
+  *) die "invalid schema contract" ;;
+esac
 [[ "${archive_name}" == "$(basename -- "${archive_name}")" ]] || die "invalid archive name"
 [[ "${archive_sha256}" =~ ^[0-9a-f]{64}$ ]] || die "invalid archive checksum"
 [[ "${platform}" == linux/amd64 ]] || die "invalid release platform"
@@ -74,7 +79,8 @@ if ! preflight_output="$(
   ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     sudo -n /usr/local/sbin/kkai-newapi-manual-deploy preflight \
       --expected-infra-sha "${KKAI_INFRA_SHA}" \
-      --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
+      --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}" \
+      --schema-contract "${schema_contract}"
 )"; then
   die "production preflight failed; archive was not uploaded"
 fi
@@ -84,6 +90,8 @@ grep -Fx "KKAI_INFRA_SHA=${KKAI_INFRA_SHA}" <<< "${preflight_output}" >/dev/null
   die "production preflight infrastructure SHA mismatch"
 grep -Fx "KKAI_DEPLOYMENT_PROTOCOL=${KKAI_DEPLOYMENT_PROTOCOL}" <<< "${preflight_output}" >/dev/null ||
   die "production preflight protocol mismatch"
+grep -Fx "KKAI_SCHEMA_CONTRACT=${schema_contract}" <<< "${preflight_output}" >/dev/null ||
+  die "production preflight schema contract mismatch"
 printf '%s\n' "${preflight_output}"
 
 scp "${SSH_OPTIONS[@]}" -- "${archive}" "${HOST}:${REMOTE_ARCHIVE}"
@@ -95,4 +103,5 @@ ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     --version "${version}" \
     --image-tag "${image_tag}" \
     --expected-infra-sha "${KKAI_INFRA_SHA}" \
-    --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
+    --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}" \
+    --schema-contract "${schema_contract}"

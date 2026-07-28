@@ -38,3 +38,20 @@ func TestVideoStudioOutboxRedriveRouteIsReachableOnlyThroughAdminAuth(t *testing
 	engine.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 }
+
+func TestVideoStudioTokenRoutesAreRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	registerVideoStudioAPIRoutes(engine.Group("/api"))
+
+	routes := engine.Routes()
+	methodsByPath := map[string]map[string]bool{}
+	for _, route := range routes {
+		if methodsByPath[route.Path] == nil {
+			methodsByPath[route.Path] = map[string]bool{}
+		}
+		methodsByPath[route.Path][route.Method] = true
+	}
+	require.True(t, methodsByPath["/api/video-studio/token"][http.MethodGet])
+	require.True(t, methodsByPath["/api/video-studio/token"][http.MethodPost])
+}

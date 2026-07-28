@@ -208,6 +208,23 @@ func TestFFmpegVideoMediaProcessorCreatesLowRatePreview(t *testing.T) {
 	require.Positive(t, info.Size())
 }
 
+func TestVerifyPinnedVideoMediaToolUsesDigestAndVersionOnly(t *testing.T) {
+	toolPath := filepath.Join(t.TempDir(), "ffmpeg")
+	require.NoError(t, os.WriteFile(toolPath, []byte("pinned-binary"), 0o700))
+	digest, err := fileSHA256(toolPath)
+	require.NoError(t, err)
+	var commands [][]string
+	runner := videoMediaRunner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		require.Equal(t, toolPath, name)
+		commands = append(commands, append([]string(nil), args...))
+		return []byte("ffmpeg version 7.1.1"), nil
+	})
+
+	err = verifyPinnedVideoMediaTool(context.Background(), runner, toolPath, "7.1.1", digest)
+	require.NoError(t, err)
+	require.Equal(t, [][]string{{"-version"}}, commands)
+}
+
 func validVideoProbeOutput() []byte {
 	return []byte(`{
 		"streams":[{"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"duration":"5.25"}],

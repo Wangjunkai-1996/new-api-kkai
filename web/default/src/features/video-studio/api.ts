@@ -18,6 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+import {
+  videoTokenCapabilitySchema,
+  videoTokenCreateResultSchema,
+} from './schemas'
 import type {
   CompleteVideoUploadRequest,
   CreateVideoRequest,
@@ -34,6 +38,8 @@ import type {
   VideoSampleFilters,
   VideoSampleInput,
   VideoSubmissionReceipt,
+  VideoTokenCapability,
+  VideoTokenCreateResult,
   VideoUploadReservation,
   VideoUploadSignedRequest,
   VideoUploadedPart,
@@ -78,6 +84,32 @@ export const getVideoSamples = async (
 export const getVideoSample = async (id: number): Promise<VideoSample> => {
   const response = await api.get(`/api/video-studio/samples/${id}`)
   return unwrapVideoStudioResponse<VideoSample>(response.data)
+}
+
+export const getVideoTokenCapability = async (
+  model: string
+): Promise<VideoTokenCapability> => {
+  const response = await api.get('/api/video-studio/token', {
+    params: { model },
+    disableDuplicate: true,
+    skipErrorHandler: true,
+  })
+  return videoTokenCapabilitySchema.parse(
+    unwrapVideoStudioResponse<unknown>(response.data)
+  )
+}
+
+export const createVideoToken = async (
+  model: string
+): Promise<VideoTokenCreateResult> => {
+  const response = await api.post(
+    '/api/video-studio/token',
+    { model },
+    { skipErrorHandler: true }
+  )
+  return videoTokenCreateResultSchema.parse(
+    unwrapVideoStudioResponse<unknown>(response.data)
+  )
 }
 
 export const quoteVideoGeneration = async (

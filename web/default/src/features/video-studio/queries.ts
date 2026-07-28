@@ -17,7 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  type MutationFilters,
+  type QueryClient,
   useInfiniteQuery,
+  useIsMutating,
   useMutation,
   useQuery,
   useQueryClient,
@@ -31,6 +34,7 @@ import {
   createAdminVideoModel,
   createAdminVideoSample,
   createVideoGeneration,
+  createVideoToken,
   deleteAdminVideoModel,
   deleteAdminVideoSample,
   deleteVideoGeneration,
@@ -42,6 +46,7 @@ import {
   getVideoModels,
   getVideoSample,
   getVideoSamples,
+  getVideoTokenCapability,
   quoteVideoGeneration,
   updateAdminVideoModel,
   updateAdminVideoSample,
@@ -53,6 +58,7 @@ import type {
   VideoQuoteRequest,
   VideoSampleFilters,
   VideoSampleInput,
+  VideoTokenCreateResult,
 } from './types'
 import { getVideoTaskPollInterval } from './video-domain'
 import { shouldRetryVideoReferenceHydration } from './video-reference-hydration'
@@ -64,6 +70,10 @@ export const videoStudioQueryKeys = {
   samples: (filters: Omit<VideoSampleFilters, 'cursor'>) =>
     ['video-studio', 'samples', filters] as const,
   sample: (id: number) => ['video-studio', 'sample', id] as const,
+  tokens: (userId: number) =>
+    privateUserQueryKey(userId, 'video-studio', 'token'),
+  token: (userId: number, model: string) =>
+    [...videoStudioQueryKeys.tokens(userId), model] as const,
   quote: (userId: number, request: VideoQuoteRequest) =>
     privateUserQueryKey(userId, 'video-studio', 'quote', request),
   generations: (
@@ -86,6 +96,10 @@ export const videoStudioQueryKeys = {
     privateUserQueryKey(userId, 'video-studio', 'admin', 'models'),
   adminSamples: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'admin', 'samples'),
+}
+
+export const videoStudioMutationKeys = {
+  createToken: ['video-studio', 'create-token'] as const,
 }
 
 const useVideoStudioUserId = (): number =>
@@ -116,6 +130,114 @@ export const useVideoSample = (id?: number) =>
     enabled: Boolean(id),
   })
 
+export const useVideoTokenCapability = (model?: string) => {
+  const userId = useVideoStudioUserId()
+  return useQuery({
+    queryKey: videoStudioQueryKeys.token(userId, model ?? ''),
+    queryFn: () => {
+      if (!model) throw new Error('Video model is unavailable')
+      return getVideoTokenCapability(model)
+    },
+    enabled: userId > 0 && Boolean(model),
+    retry: false,
+    staleTime: 30_000,
+  })
+}
+
+export type CreateVideoTokenMutationVariables = Readonly<{
+  userId: number
+  model: string
+}>
+
+export type CreateVideoTokenMutationContext = Readonly<{
+  userId: number
+  model: string
+}>
+
+export const captureVideoTokenMutationContext = (
+  variables: Pick<CreateVideoTokenMutationVariables, 'userId' | 'model'>
+): CreateVideoTokenMutationContext =>
+  Object.freeze({ userId: variables.userId, model: variables.model })
+
+const isVideoTokenCreateMutationVariables = (
+  value: unknown
+): value is CreateVideoTokenMutationVariables => {
+  if (!value || typeof value !== 'object') return false
+  const variables = value as Partial<CreateVideoTokenMutationVariables>
+  return (
+    Number.isInteger(variables.userId) && typeof variables.model === 'string'
+  )
+}
+
+export const videoTokenCreateMutationFilters = (
+  userId: number,
+  model?: string
+): MutationFilters => ({
+  mutationKey: videoStudioMutationKeys.createToken,
+  predicate: (mutation) => {
+    const variables = mutation.state.variables
+    return (
+      isVideoTokenCreateMutationVariables(variables) &&
+      variables.userId === userId &&
+      variables.model === model
+    )
+  },
+})
+
+export const useIsCreatingVideoToken = (
+  userId: number,
+  model?: string
+): boolean => useIsMutating(videoTokenCreateMutationFilters(userId, model)) > 0
+
+export const canStartVideoTokenCreate = (
+  queryClient: QueryClient,
+  userId: number,
+  model: string
+): boolean =>
+  queryClient.isMutating(videoTokenCreateMutationFilters(userId, model)) === 0
+
+export const applyVideoTokenCreateSuccess = async (
+  queryClient: QueryClient,
+  capability: VideoTokenCreateResult,
+  context: CreateVideoTokenMutationContext | undefined,
+  activeUserId: number
+): Promise<boolean> => {
+  if (!context || activeUserId !== context.userId) return false
+
+  const tokenQueries = videoStudioQueryKeys.tokens(context.userId)
+  queryClient.removeQueries({
+    queryKey: tokenQueries,
+    type: 'inactive',
+  })
+  queryClient.setQueryData(
+    videoStudioQueryKeys.token(context.userId, context.model),
+    capability
+  )
+  await queryClient.invalidateQueries({
+    queryKey: tokenQueries,
+    refetchType: 'active',
+    predicate: (query) => query.queryKey.at(-1) !== context.model,
+  })
+  return true
+}
+
+export const useCreateVideoToken = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationKey: videoStudioMutationKeys.createToken,
+    mutationFn: (variables: CreateVideoTokenMutationVariables) =>
+      createVideoToken(variables.model),
+    onMutate: captureVideoTokenMutationContext,
+    onSuccess: (capability, _variables, context) =>
+      applyVideoTokenCreateSuccess(
+        queryClient,
+        capability,
+        context,
+        useAuthStore.getState().auth.user?.id ?? 0
+      ),
+  })
+}
+
 export const useVideoQuote = (
   request: VideoQuoteRequest | null,
   enabled: boolean
@@ -125,6 +247,7 @@ export const useVideoQuote = (
     queryKey: videoStudioQueryKeys.quote(
       userId,
       request ?? {
+        token_id: 0,
         model: '',
         mode: 'text_to_video',
         prompt: '',

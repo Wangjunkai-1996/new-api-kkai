@@ -30,7 +30,6 @@ const (
 	videoMediaVersionEnvironment        = "VIDEO_STUDIO_FFMPEG_VERSION"
 	videoFFmpegDigestEnvironment        = "VIDEO_STUDIO_FFMPEG_SHA256"
 	videoFFprobeDigestEnvironment       = "VIDEO_STUDIO_FFPROBE_SHA256"
-	videoMediaLicenseEnvironment        = "VIDEO_STUDIO_FFMPEG_LICENSE"
 	videoPosterMaximumBytes       int64 = 120 * 1024
 	videoPreviewMaximumBytes      int64 = 20 << 20
 	videoMediaMaximumStreams            = 8
@@ -84,17 +83,16 @@ func NewPinnedFFmpegVideoMediaProcessorFromEnvironment(ctx context.Context) (*FF
 		return nil, err
 	}
 	version := strings.TrimSpace(os.Getenv(videoMediaVersionEnvironment))
-	license := strings.TrimSpace(os.Getenv(videoMediaLicenseEnvironment))
 	ffmpegDigest := strings.ToLower(strings.TrimSpace(os.Getenv(videoFFmpegDigestEnvironment)))
 	ffprobeDigest := strings.ToLower(strings.TrimSpace(os.Getenv(videoFFprobeDigestEnvironment)))
-	if version == "" || license == "" || !validSHA256Hex(ffmpegDigest) || !validSHA256Hex(ffprobeDigest) {
+	if version == "" || !validSHA256Hex(ffmpegDigest) || !validSHA256Hex(ffprobeDigest) {
 		return nil, ErrVideoMediaToolsNotConfigured
 	}
 	runner := execVideoMediaCommandRunner{}
-	if err := verifyPinnedVideoMediaTool(ctx, runner, ffmpegPath, version, license, ffmpegDigest); err != nil {
+	if err := verifyPinnedVideoMediaTool(ctx, runner, ffmpegPath, version, ffmpegDigest); err != nil {
 		return nil, err
 	}
-	if err := verifyPinnedVideoMediaTool(ctx, runner, ffprobePath, version, license, ffprobeDigest); err != nil {
+	if err := verifyPinnedVideoMediaTool(ctx, runner, ffprobePath, version, ffprobeDigest); err != nil {
 		return nil, err
 	}
 	return &FFmpegVideoMediaProcessor{ffmpegPath: ffmpegPath, ffprobePath: ffprobePath, runner: runner}, nil
@@ -379,7 +377,7 @@ func resolveVideoMediaTool(configured string, fallback string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
-func verifyPinnedVideoMediaTool(ctx context.Context, runner videoMediaCommandRunner, path string, version string, license string, expectedDigest string) error {
+func verifyPinnedVideoMediaTool(ctx context.Context, runner videoMediaCommandRunner, path string, version string, expectedDigest string) error {
 	digest, err := fileSHA256(path)
 	if err != nil || !strings.EqualFold(digest, expectedDigest) {
 		return ErrVideoMediaToolsNotConfigured
@@ -388,12 +386,6 @@ func verifyPinnedVideoMediaTool(ctx context.Context, runner videoMediaCommandRun
 	versionOutput, err := runner.Run(versionContext, path, "-version")
 	cancelVersion()
 	if err != nil || !strings.Contains(string(versionOutput), version) {
-		return ErrVideoMediaToolsNotConfigured
-	}
-	licenseContext, cancelLicense := context.WithTimeout(ctx, videoMediaVerificationTimeout)
-	licenseOutput, err := runner.Run(licenseContext, path, "-L")
-	cancelLicense()
-	if err != nil || !strings.Contains(string(licenseOutput), license) {
 		return ErrVideoMediaToolsNotConfigured
 	}
 	return nil

@@ -95,7 +95,7 @@ func TestExecuteMigrationStatementSkipsExistingIndex(t *testing.T) {
 
 func TestApplyVideoStudioExpandRequiresV4Bridge(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
 	require.NoError(t, err)
 
 	_, err = ApplyVideoStudioExpand(context.Background(), db, Options{})
@@ -126,7 +126,7 @@ func TestVideoStudioRuntimeSchemaRequiresMultipartAssetColumns(t *testing.T) {
 
 func TestVideoStudioMaintenanceCanRunV4ThenV5(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
 	require.NoError(t, err)
 
 	result, err := ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
