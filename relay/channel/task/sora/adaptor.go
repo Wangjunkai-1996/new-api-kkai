@@ -2,11 +2,13 @@ package sora
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -36,6 +38,19 @@ type ContentItem struct {
 
 type ImageURL struct {
 	URL string `json:"url"`
+}
+
+type specialCreateInput struct {
+	Model          string          `json:"model"`
+	Prompt         string          `json:"prompt"`
+	Ratio          json.RawMessage `json:"ratio,omitempty"`
+	Resolution     json.RawMessage `json:"resolution,omitempty"`
+	Duration       json.RawMessage `json:"duration,omitempty"`
+	Seconds        json.RawMessage `json:"seconds,omitempty"`
+	ReferenceImage json.RawMessage `json:"reference_image,omitempty"`
+	InputReference json.RawMessage `json:"input_reference,omitempty"`
+	ReferenceVideo json.RawMessage `json:"reference_video,omitempty"`
+	GenerateAudio  json.RawMessage `json:"generate_audio,omitempty"`
 }
 
 type responseTask struct {
@@ -155,6 +170,13 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	contentType := c.GetHeader("Content-Type")
 
 	if strings.HasPrefix(contentType, "application/json") {
+		if shouldProjectVideoStudioSpecialRequest(c, info) {
+			newBody, err := buildVideoStudioSpecialRequest(cachedBody, info.UpstreamModelName)
+			if err != nil {
+				return nil, err
+			}
+			return bytes.NewReader(newBody), nil
+		}
 		var bodyMap map[string]interface{}
 		if err := common.Unmarshal(cachedBody, &bodyMap); err == nil {
 			bodyMap["model"] = info.UpstreamModelName
@@ -217,6 +239,72 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	return common.ReaderOnly(storage), nil
+}
+
+func shouldProjectVideoStudioSpecialRequest(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	if c == nil || c.Request == nil || info == nil || info.ChannelMeta == nil {
+		return false
+	}
+	if c.Request.Method != http.MethodPost || strings.TrimRight(c.Request.URL.Path, "/") != "/pg/videos" {
+		return false
+	}
+	switch info.UpstreamModelName {
+	case "sd_2.0_fast_special_720p",
+		"sd_2.0_special_720p",
+		"sd_2.0_special_1080p",
+		"sd_2.0_special_2k",
+		"sd_2.0_special_4k",
+		"sd_2.0_fast_special_720p_with_video_ref",
+		"sd_2.0_special_720p_with_video_ref",
+		"sd_2.0_special_1080p_with_video_ref",
+		"sd_2.0_special_2k_with_video_ref",
+		"sd_2.0_special_4k_with_video_ref":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildVideoStudioSpecialRequest(body []byte, upstreamModel string) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(body, &fields); err != nil {
+		return nil, errors.Wrap(err, "decode_video_studio_special_request_failed")
+	}
+
+	_, hasReferenceImage := fields["reference_image"]
+	_, hasInputReference := fields["input_reference"]
+	_, hasReferenceVideo := fields["reference_video"]
+	hasCanonicalReference := hasReferenceImage || hasInputReference || hasReferenceVideo
+
+	unsupportedFields := make([]string, 0)
+	for field := range fields {
+		switch field {
+		case "model", "prompt", "ratio", "resolution", "duration", "seconds",
+			"reference_image", "input_reference", "reference_video", "generate_audio",
+			"group", "mode", "metadata":
+		case "image", "images":
+			if !hasCanonicalReference {
+				unsupportedFields = append(unsupportedFields, field)
+			}
+		default:
+			unsupportedFields = append(unsupportedFields, field)
+		}
+	}
+	if len(unsupportedFields) > 0 {
+		sort.Strings(unsupportedFields)
+		return nil, fmt.Errorf("unsupported video studio fields for special adapter: %s", strings.Join(unsupportedFields, ", "))
+	}
+
+	var input specialCreateInput
+	if err := common.Unmarshal(body, &input); err != nil {
+		return nil, errors.Wrap(err, "decode_video_studio_special_input_failed")
+	}
+	input.Model = upstreamModel
+	newBody, err := common.Marshal(input)
+	if err != nil {
+		return nil, errors.Wrap(err, "encode_video_studio_special_input_failed")
+	}
+	return newBody, nil
 }
 
 // DoRequest delegates to common helper.
