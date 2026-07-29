@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly ROOT
 readonly DOCKERFILE="${ROOT}/build/kkai-image/Dockerfile"
+readonly ENTRYPOINT_SOURCE="${ROOT}/build/kkai-image/cmd/entrypoint/main.go"
 readonly BUILD_SCRIPT="${ROOT}/scripts/kkai/build-manual-release.sh"
 readonly DEPLOY_SCRIPT="${ROOT}/scripts/kkai/deploy-manual-release.sh"
 readonly DEPLOY_CONTRACT="${ROOT}/scripts/kkai/manual-deployment-contract.env"
@@ -44,14 +45,20 @@ done
 contains '-o /out/new-api .' "${DOCKERFILE}" || fail "Dockerfile does not build the application"
 contains '-o /out/kkai-migrate ./cmd/kkai-migrate' "${DOCKERFILE}" ||
   fail "Dockerfile does not retain /kkai-migrate"
+contains '-o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once' "${DOCKERFILE}" ||
+  fail "Dockerfile does not build /kkai-video-archive-once"
+contains '/out/kkai-video-archive-once /kkai-video-archive-once' "${DOCKERFILE}" ||
+  fail "runtime image does not contain /kkai-video-archive-once"
+contains 'arguments[0] == "kkai-video-archive-once"' "${ENTRYPOINT_SOURCE}" ||
+  fail "entrypoint does not dispatch the exact archive command"
 contains 'ARG KKAI_SCHEMA_CONTRACT=feature' "${DOCKERFILE}" ||
   fail "Dockerfile does not default to the feature schema contract"
 contains 'GOFLAGS=-tags=kkai_bridge' "${DOCKERFILE}" ||
   fail "Dockerfile cannot compile the explicit bridge schema contract"
 contains 'io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"' "${DOCKERFILE}" ||
   fail "runtime image does not identify its schema contract"
-[[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 2 ]] ||
-  fail "application and migrator must compile with external schema management"
+[[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 3 ]] ||
+  fail "application, migrator, and archive executor must compile with external schema management"
 [[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "frontend dependencies must use one serialized, shared install stage"
 contains 'id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked' "${DOCKERFILE}" ||

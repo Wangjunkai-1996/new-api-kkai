@@ -28,6 +28,8 @@ type VideoAssetPipeline struct {
 	store               VideoAssetStore
 	media               VideoMediaProcessor
 	fetcher             VideoArchiveSourceFetcher
+	inspectTopic        string
+	posterTopic         string
 	tempDir             string
 	now                 func() time.Time
 	archiveFetchTimeout time.Duration
@@ -62,7 +64,9 @@ func NewVideoAssetPipeline(db *gorm.DB, store VideoAssetStore, media VideoMediaP
 		return nil, ErrVideoTemporaryStorageUnavailable
 	}
 	return &VideoAssetPipeline{
-		db: db, store: store, media: media, fetcher: fetcher, tempDir: tempDir, now: time.Now,
+		db: db, store: store, media: media, fetcher: fetcher,
+		inspectTopic: VideoOutboxTopicInspect, posterTopic: VideoOutboxTopicPoster,
+		tempDir: tempDir, now: time.Now,
 		archiveFetchTimeout: videoArchiveFetchHardTimeout,
 		archivePutTimeout:   videoArchivePutHardTimeout,
 	}, nil
@@ -132,7 +136,7 @@ func (pipeline *VideoAssetPipeline) HandleArchive(ctx context.Context, event mod
 		return nil
 	}
 	if asset.ArchiveSourceURL == "" {
-		return pipeline.enqueueAssetEvent(ctx, asset.ID, VideoOutboxTopicInspect, "inspect:v1")
+		return pipeline.enqueueAssetEvent(ctx, asset.ID, pipeline.inspectTopic, "inspect:v1")
 	}
 	archiveSource, err := pipeline.resolveVideoArchiveSource(ctx, *asset)
 	if err != nil {
@@ -259,7 +263,7 @@ func (pipeline *VideoAssetPipeline) completeVideoAssetArchive(
 			}
 		}
 		return EnqueueVideoOutboxEvent(ctx, tx,
-			fmt.Sprintf("video:asset:%d:inspect:v1", assetID), VideoOutboxTopicInspect,
+			fmt.Sprintf("video:asset:%d:inspect:v1", assetID), pipeline.inspectTopic,
 			strconv.FormatInt(assetID, 10), VideoAssetEventPayload{AssetID: assetID},
 		)
 	})
@@ -451,7 +455,7 @@ func (pipeline *VideoAssetPipeline) HandleInspect(ctx context.Context, event mod
 			return update.Error
 		}
 		return EnqueueVideoOutboxEvent(ctx, tx,
-			fmt.Sprintf("video:asset:%d:poster:v1", asset.ID), VideoOutboxTopicPoster,
+			fmt.Sprintf("video:asset:%d:poster:v1", asset.ID), pipeline.posterTopic,
 			strconv.FormatInt(asset.ID, 10), VideoAssetEventPayload{AssetID: asset.ID},
 		)
 	})

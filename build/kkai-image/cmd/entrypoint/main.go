@@ -98,6 +98,13 @@ func fatalf(format string, values ...any) {
 	os.Exit(1)
 }
 
+func commandArguments(arguments []string) []string {
+	if len(arguments) > 0 && arguments[0] == "kkai-video-archive-once" {
+		return append([]string{"/kkai-video-archive-once"}, arguments[1:]...)
+	}
+	return append([]string{"/new-api"}, arguments...)
+}
+
 func main() {
 	setEnvironment("SQL_DSN", databaseDSN(readSecret("NEWAPI_DATABASE_PASSWORD_FILE")))
 	setEnvironment("REDIS_CONN_STRING", redisDSN(readSecret("NEWAPI_REDIS_PASSWORD_FILE")))
@@ -109,8 +116,8 @@ func main() {
 	}
 	setEnvironment("KKAI_RISK_STREAM_SECRET", readSecret("NEWAPI_RISK_STREAM_SECRET_FILE"))
 
-	arguments := append([]string{"/new-api"}, os.Args[1:]...)
+	arguments := commandArguments(os.Args[1:])
 	if err := syscall.Exec(arguments[0], arguments, os.Environ()); err != nil {
-		fatalf("exec /new-api: %v", err)
+		fatalf("exec %s: %v", arguments[0], err)
 	}
 }

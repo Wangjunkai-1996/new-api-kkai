@@ -70,7 +70,10 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
       -o /out/new-api . \
     && go build -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
-      -o /out/kkai-migrate ./cmd/kkai-migrate
+      -o /out/kkai-migrate ./cmd/kkai-migrate \
+    && go build -trimpath \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
+      -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
 
 FROM ${GO_IMAGE} AS runtime-tools
 
@@ -145,6 +148,7 @@ LABEL org.opencontainers.image.title="KKAI New API" \
 
 COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/newapi-risk-guard /newapi-risk-guard
 COPY --from=health-tools --chown=10007:10007 /bin/busybox /usr/bin/wget

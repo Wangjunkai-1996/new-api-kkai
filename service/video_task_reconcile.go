@@ -29,6 +29,24 @@ func parseVideoTaskResultArchiveSource(source string) (int64, bool) {
 	return taskID, err == nil && taskID > 0
 }
 
+func videoTaskArchiveSource(task model.Task) string {
+	archiveSource := strings.TrimSpace(task.PrivateData.ArchiveSource)
+	if archiveSource == "" {
+		archiveSource = strings.TrimSpace(task.PrivateData.ResultURL)
+	}
+	if archiveSource != "" {
+		return archiveSource
+	}
+	legacySource := strings.TrimSpace(task.FailReason)
+	normalizedLegacySource := strings.ToLower(legacySource)
+	if strings.HasPrefix(normalizedLegacySource, "http://") ||
+		strings.HasPrefix(normalizedLegacySource, "https://") ||
+		strings.HasPrefix(normalizedLegacySource, "data:video/") {
+		return legacySource
+	}
+	return ""
+}
+
 type videoTaskOutputReconciler struct {
 	lastGenerationID int64
 }
@@ -111,6 +129,15 @@ func (reconciler *videoTaskOutputReconciler) Reconcile(ctx context.Context, db *
 }
 
 func reconcileVideoTaskOutput(ctx context.Context, db *gorm.DB, generationID int64) (bool, error) {
+	return reconcileVideoTaskOutputExpected(ctx, db, generationID, nil)
+}
+
+func reconcileVideoTaskOutputExpected(
+	ctx context.Context,
+	db *gorm.DB,
+	generationID int64,
+	expected *VideoTaskArchiveOnceInput,
+) (bool, error) {
 	created := false
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var generation model.KKAIVideoGeneration
@@ -124,23 +151,38 @@ func reconcileVideoTaskOutput(ctx context.Context, db *gorm.DB, generationID int
 		if err := lockVideoRowsForUpdate(tx.WithContext(ctx)).First(&task, "id = ?", generation.TaskID).Error; err != nil {
 			return err
 		}
+		if expected != nil {
+			if err := validateVideoTaskArchiveOncePair(*expected, generation, task); err != nil {
+				return err
+			}
+			var links []model.KKAIVideoTaskAsset
+			if err := lockVideoRowsForUpdate(tx.WithContext(ctx)).Where(
+				"task_id = ? AND role = ?", task.ID, model.VideoTaskAssetRoleOutput,
+			).Order("position ASC").Find(&links).Error; err != nil {
+				return err
+			}
+			if len(links) > 0 {
+				if len(links) != 1 || links[0].Position != 0 || links[0].AssetID <= 0 {
+					return ErrVideoTaskArchiveOnceCorrupt
+				}
+				var asset model.KKAIVideoAsset
+				if err := lockVideoRowsForUpdate(tx.WithContext(ctx)).First(&asset, "id = ?", links[0].AssetID).Error; err != nil {
+					return err
+				}
+				if err := validateVideoTaskArchiveOnceAsset(*expected, task, asset); err != nil {
+					return err
+				}
+				return nil
+			}
+		}
 		if task.Status != model.TaskStatusSuccess {
 			return nil
 		}
-		archiveSource := strings.TrimSpace(task.PrivateData.ArchiveSource)
+		archiveSource := videoTaskArchiveSource(task)
 		if archiveSource == "" {
-			archiveSource = strings.TrimSpace(task.PrivateData.ResultURL)
-		}
-		if archiveSource == "" {
-			legacySource := strings.TrimSpace(task.FailReason)
-			normalizedLegacySource := strings.ToLower(legacySource)
-			if strings.HasPrefix(normalizedLegacySource, "http://") ||
-				strings.HasPrefix(normalizedLegacySource, "https://") ||
-				strings.HasPrefix(normalizedLegacySource, "data:video/") {
-				archiveSource = legacySource
+			if expected != nil {
+				return ErrVideoTaskArchiveOnceBlocked
 			}
-		}
-		if archiveSource == "" {
 			return nil
 		}
 		privateDataChanged := task.PrivateData.ArchiveSource != archiveSource
@@ -181,8 +223,12 @@ func reconcileVideoTaskOutput(ctx context.Context, db *gorm.DB, generationID int
 		if err := tx.Create(&link).Error; err != nil {
 			return err
 		}
+		archiveTopic := VideoOutboxTopicArchive
+		if expected != nil {
+			archiveTopic = videoOutboxTopicArchiveOnce
+		}
 		if err := EnqueueVideoOutboxEvent(ctx, tx,
-			fmt.Sprintf("video:task:%d:archive:v1", generation.TaskID), VideoOutboxTopicArchive,
+			fmt.Sprintf("video:task:%d:archive:v1", generation.TaskID), archiveTopic,
 			strconv.FormatInt(asset.ID, 10), VideoAssetEventPayload{AssetID: asset.ID},
 		); err != nil {
 			return err

@@ -96,3 +96,34 @@ func TestConfigureRebateEventDeliveryRejectsHalfConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandArgumentsDefaultsToApplication(t *testing.T) {
+	arguments := commandArguments([]string{"--port", "3001"})
+	if len(arguments) != 3 || arguments[0] != "/new-api" || arguments[1] != "--port" || arguments[2] != "3001" {
+		t.Fatalf("unexpected application arguments %#v", arguments)
+	}
+}
+
+func TestCommandArgumentsDispatchesExactArchiveCommand(t *testing.T) {
+	arguments := commandArguments([]string{
+		"kkai-video-archive-once",
+		"--task-id", "101",
+		"--generation-id", "3",
+	})
+	want := []string{"/kkai-video-archive-once", "--task-id", "101", "--generation-id", "3"}
+	if len(arguments) != len(want) {
+		t.Fatalf("unexpected archive arguments %#v", arguments)
+	}
+	for index := range want {
+		if arguments[index] != want[index] {
+			t.Fatalf("unexpected archive arguments %#v", arguments)
+		}
+	}
+}
+
+func TestCommandArgumentsDoesNotDispatchSimilarCommand(t *testing.T) {
+	arguments := commandArguments([]string{"kkai-video-archive-once-extra"})
+	if len(arguments) != 2 || arguments[0] != "/new-api" {
+		t.Fatalf("similar command was dispatched unexpectedly: %#v", arguments)
+	}
+}
