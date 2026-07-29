@@ -322,6 +322,7 @@ func (pipeline *VideoAssetPipeline) resolveVideoArchiveSource(ctx context.Contex
 			}
 			resolved.fetch.Source = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, url.PathEscape(task.GetUpstreamTaskID()))
 			resolved.fetch.Headers = map[string]string{"Authorization": "Bearer " + channel.Key}
+			resolved.fetch.ProviderContentBaseURL = baseURL
 		default:
 			refreshed, err := pipeline.refreshVideoArchiveSource(ctx, task, channel)
 			if err != nil {

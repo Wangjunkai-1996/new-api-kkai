@@ -4,14 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -345,18 +342,17 @@ func TestVideoAssetPipelineArchivesManagedDataResultWithoutPublicProxy(t *testin
 func TestVideoAssetPipelineArchivesManagedProviderContentWithoutPublicProxy(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
 	providerCalls := atomic.Int32{}
-	providerURL := "https://provider.example"
 	requestPath := make(chan string, 1)
 	authorization := make(chan string, 1)
-	providerServer := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	providerServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		providerCalls.Add(1)
 		requestPath <- request.URL.Path
 		authorization <- request.Header.Get("Authorization")
 		writer.Header().Set("Content-Type", "video/mp4")
 		_, _ = io.WriteString(writer, "provider-video")
 	}))
-	providerServer.StartTLS()
 	t.Cleanup(providerServer.Close)
+	providerURL := providerServer.URL
 
 	channel := model.Channel{
 		Id: 91, Type: constant.ChannelTypeSora, Key: "provider-key", BaseURL: common.GetPointer(providerURL),
@@ -387,17 +383,12 @@ func TestVideoAssetPipelineArchivesManagedProviderContentWithoutPublicProxy(t *t
 	tempDir := t.TempDir()
 	fetcher := NewHTTPVideoArchiveFetcher(tempDir)
 	fetcher.availableBytes = func(string) (uint64, error) { return 2 << 30, nil }
-	fetcher.validateURL = func(context.Context, *url.URL) error { return nil }
-	fetcher.proxyResolver = staticSSRFResolver{
-		"provider.example": {{IP: net.ParseIP("8.8.8.8")}},
+	providerClientCalls := atomic.Int32{}
+	fetcher.providerClient = func(proxy string) (*http.Client, error) {
+		require.Empty(t, proxy)
+		providerClientCalls.Add(1)
+		return providerServer.Client(), nil
 	}
-	dialed := make(chan string, 1)
-	netDialer := &net.Dialer{}
-	fetcher.proxyDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		dialed <- address
-		return netDialer.DialContext(ctx, network, providerServer.Listener.Addr().String())
-	}
-	fetcher.tlsConfig = &tls.Config{InsecureSkipVerify: true} // test certificate
 	store := newMemoryVideoAssetStore()
 	pipeline, err := NewVideoAssetPipeline(db, store, staticVideoMediaProcessor{}, fetcher, tempDir)
 	require.NoError(t, err)
@@ -408,7 +399,7 @@ func TestVideoAssetPipelineArchivesManagedProviderContentWithoutPublicProxy(t *t
 	}))
 
 	require.EqualValues(t, 1, providerCalls.Load())
-	require.Equal(t, "8.8.8.8:443", <-dialed)
+	require.EqualValues(t, 1, providerClientCalls.Load())
 	require.Equal(t, "/v1/videos/upstream-video/content", <-requestPath)
 	require.Equal(t, "Bearer provider-key", <-authorization)
 	require.Equal(t, []byte("provider-video"), store.objects[asset.ObjectKey])

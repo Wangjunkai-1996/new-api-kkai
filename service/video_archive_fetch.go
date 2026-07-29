@@ -35,9 +35,10 @@ type VideoArchiveSourceFetcher interface {
 }
 
 type videoArchiveTaskSource struct {
-	Source   string
-	Headers  map[string]string
-	ProxyURL string
+	Source                 string
+	Headers                map[string]string
+	ProxyURL               string
+	ProviderContentBaseURL string
 }
 
 type videoArchiveTaskSourceFetcher interface {
@@ -61,6 +62,7 @@ func (archive *FetchedVideoArchive) Remove() {
 
 type HTTPVideoArchiveFetcher struct {
 	client           *http.Client
+	providerClient   func(string) (*http.Client, error)
 	tempDir          string
 	availableBytes   func(string) (uint64, error)
 	validateURL      func(context.Context, *url.URL) error
@@ -83,6 +85,7 @@ func NewHTTPVideoArchiveFetcher(tempDir string) *HTTPVideoArchiveFetcher {
 	)
 	fetcher := &HTTPVideoArchiveFetcher{
 		client:           client,
+		providerClient:   configuredProviderContentHTTPClient,
 		tempDir:          strings.TrimSpace(tempDir),
 		availableBytes:   videoTemporaryAvailableBytes,
 		validateURL:      validateStrictVideoArchiveURL,
@@ -127,7 +130,14 @@ func (fetcher *HTTPVideoArchiveFetcher) fetchURL(ctx context.Context, source vid
 	if err != nil || parsed == nil || !parsed.IsAbs() {
 		return nil, ErrVideoArchiveSourceRejected
 	}
+	configuredProviderContent := false
 	if err := fetcher.validateURL(ctx, parsed); err != nil {
+		configuredProviderContent = matchesConfiguredProviderContentURL(parsed, source.ProviderContentBaseURL)
+		if !configuredProviderContent || len(source.Headers) == 0 {
+			return nil, ErrVideoArchiveSourceRejected
+		}
+	}
+	if configuredProviderContent && fetcher.providerClient == nil {
 		return nil, ErrVideoArchiveSourceRejected
 	}
 	available, err := fetcher.availableBytes(fetcher.tempDir)
@@ -143,7 +153,7 @@ func (fetcher *HTTPVideoArchiveFetcher) fetchURL(ctx context.Context, source vid
 	for name, value := range source.Headers {
 		request.Header.Set(name, value)
 	}
-	client, err := fetcher.clientForTaskSource(source.ProxyURL, len(source.Headers) > 0)
+	client, err := fetcher.clientForTaskSource(source.ProxyURL, len(source.Headers) > 0, configuredProviderContent)
 	if err != nil {
 		return nil, ErrVideoArchiveSourceRejected
 	}
@@ -180,7 +190,14 @@ func (fetcher *HTTPVideoArchiveFetcher) fetchURL(ctx context.Context, source vid
 	return fetcher.writeArchiveFile(response.Body, strings.ToLower(mediaType), maxBytes)
 }
 
-func (fetcher *HTTPVideoArchiveFetcher) clientForTaskSource(proxyURL string, pinDirectTarget bool) (*http.Client, error) {
+func (fetcher *HTTPVideoArchiveFetcher) clientForTaskSource(proxyURL string, pinDirectTarget bool, configuredProviderContent bool) (*http.Client, error) {
+	if configuredProviderContent {
+		client, err := fetcher.providerClient(strings.TrimSpace(proxyURL))
+		if err != nil || client == nil {
+			return nil, ErrVideoArchiveSourceRejected
+		}
+		return client, nil
+	}
 	proxyURL = strings.TrimSpace(proxyURL)
 	if proxyURL == "" && !pinDirectTarget {
 		return fetcher.client, nil
@@ -225,6 +242,87 @@ func (fetcher *HTTPVideoArchiveFetcher) clientForTaskSource(proxyURL string, pin
 		return fetcher.validateURL(request.Context(), request.URL)
 	}
 	return client, nil
+}
+
+func configuredProviderContentHTTPClient(proxyURL string) (*http.Client, error) {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL != "" {
+		return GetHttpClientWithProxy(proxyURL)
+	}
+	baseClient := GetHttpClient()
+	if baseClient == nil {
+		return nil, ErrVideoArchiveSourceRejected
+	}
+	baseTransport := baseClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	httpTransport, ok := baseTransport.(*http.Transport)
+	if !ok || httpTransport == nil {
+		return nil, ErrVideoArchiveSourceRejected
+	}
+	transportCopy := httpTransport.Clone()
+	transportCopy.Proxy = nil
+	clientCopy := *baseClient
+	clientCopy.Transport = transportCopy
+	return &clientCopy, nil
+}
+
+func matchesConfiguredProviderContentURL(source *url.URL, rawProviderBase string) bool {
+	providerBase, err := url.ParseRequestURI(strings.TrimSpace(rawProviderBase))
+	if err != nil || source == nil || providerBase == nil || !source.IsAbs() || !providerBase.IsAbs() ||
+		source.Hostname() == "" || providerBase.Hostname() == "" || source.User != nil || providerBase.User != nil ||
+		source.Fragment != "" || providerBase.Fragment != "" || source.RawQuery != "" || providerBase.RawQuery != "" {
+		return false
+	}
+	sourceScheme := strings.ToLower(source.Scheme)
+	providerScheme := strings.ToLower(providerBase.Scheme)
+	if (sourceScheme != "http" && sourceScheme != "https") || sourceScheme != providerScheme ||
+		!strings.EqualFold(source.Hostname(), providerBase.Hostname()) {
+		return false
+	}
+	sourcePort := source.Port()
+	if sourcePort == "" {
+		if sourceScheme == "https" {
+			sourcePort = "443"
+		} else {
+			sourcePort = "80"
+		}
+	}
+	providerPort := providerBase.Port()
+	if providerPort == "" {
+		if providerScheme == "https" {
+			providerPort = "443"
+		} else {
+			providerPort = "80"
+		}
+	}
+	if sourcePort != providerPort {
+		return false
+	}
+
+	basePath := strings.TrimSuffix(providerBase.EscapedPath(), "/")
+	prefix := basePath + "/v1/videos/"
+	sourcePath := source.EscapedPath()
+	if !strings.HasPrefix(sourcePath, prefix) || !strings.HasSuffix(sourcePath, "/content") {
+		return false
+	}
+	escapedTaskID := strings.TrimSuffix(strings.TrimPrefix(sourcePath, prefix), "/content")
+	decodedTaskID, err := url.PathUnescape(escapedTaskID)
+	if err != nil || decodedTaskID == "" || len(decodedTaskID) > 256 || decodedTaskID == "." || decodedTaskID == ".." {
+		return false
+	}
+	for _, character := range decodedTaskID {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '_' || character == '-' || character == '.' || character == '~' {
+			continue
+		}
+		return false
+	}
+	if url.PathEscape(decodedTaskID) != escapedTaskID {
+		return false
+	}
+	return sourcePath == prefix+url.PathEscape(decodedTaskID)+"/content"
 }
 
 type videoArchivePinnedRoundTripper struct {

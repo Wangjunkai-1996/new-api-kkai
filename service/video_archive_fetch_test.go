@@ -57,6 +57,152 @@ func TestHTTPVideoArchiveFetcherRejectsUnsafeSourcesBeforeRequest(t *testing.T) 
 	require.Zero(t, requests)
 }
 
+func TestHTTPVideoArchiveFetcherAllowsConfiguredProviderContentOnPrivateHTTP(t *testing.T) {
+	authorization := make(chan string, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorization <- request.Header.Get("Authorization")
+		writer.Header().Set("Content-Type", "video/mp4")
+		_, _ = io.WriteString(writer, "provider-video")
+	}))
+	t.Cleanup(provider.Close)
+
+	fetcher := NewHTTPVideoArchiveFetcher(t.TempDir())
+	fetcher.availableBytes = func(string) (uint64, error) { return 1 << 30, nil }
+	fetcher.providerClient = func(string) (*http.Client, error) { return provider.Client(), nil }
+	fetched, err := fetcher.FetchTaskSource(context.Background(), videoArchiveTaskSource{
+		Source:                 provider.URL + "/v1/videos/upstream-task/content",
+		Headers:                map[string]string{"Authorization": "Bearer provider-secret"},
+		ProviderContentBaseURL: provider.URL,
+	}, 1024)
+	require.NoError(t, err)
+	t.Cleanup(fetched.Remove)
+
+	require.Equal(t, "Bearer provider-secret", <-authorization)
+	content, err := os.ReadFile(fetched.Path)
+	require.NoError(t, err)
+	require.Equal(t, "provider-video", string(content))
+}
+
+func TestHTTPVideoArchiveFetcherRejectsUnscopedProviderContentBeforeRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		sourcePath string
+		baseURL    string
+	}{
+		{name: "different origin", sourcePath: "/v1/videos/upstream-task/content", baseURL: "http://other-provider.invalid:8080"},
+		{name: "different endpoint", sourcePath: "/admin/secrets", baseURL: ""},
+		{name: "dot segment", sourcePath: "/v1/videos/../content", baseURL: ""},
+		{name: "encoded dot segment", sourcePath: "/v1/videos/%2e%2e/content", baseURL: ""},
+		{name: "encoded slash", sourcePath: "/v1/videos/task%2Fadmin/content", baseURL: ""},
+		{name: "encoded backslash", sourcePath: "/v1/videos/task%5Cadmin/content", baseURL: ""},
+		{name: "double encoded dot segment", sourcePath: "/v1/videos/%252e%252e/content", baseURL: ""},
+		{name: "double encoded slash", sourcePath: "/v1/videos/task%252Fadmin/content", baseURL: ""},
+		{name: "double encoded backslash", sourcePath: "/v1/videos/task%255Cadmin/content", baseURL: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			provider := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				requests.Add(1)
+			}))
+			t.Cleanup(provider.Close)
+			baseURL := test.baseURL
+			if baseURL == "" {
+				baseURL = provider.URL
+			}
+			var clientCalls atomic.Int32
+			fetcher := NewHTTPVideoArchiveFetcher(t.TempDir())
+			fetcher.availableBytes = func(string) (uint64, error) { return 1 << 30, nil }
+			fetcher.providerClient = func(string) (*http.Client, error) {
+				clientCalls.Add(1)
+				return provider.Client(), nil
+			}
+
+			_, err := fetcher.FetchTaskSource(context.Background(), videoArchiveTaskSource{
+				Source:                 provider.URL + test.sourcePath,
+				Headers:                map[string]string{"Authorization": "Bearer provider-secret"},
+				ProviderContentBaseURL: baseURL,
+			}, 1024)
+
+			require.ErrorIs(t, err, ErrVideoArchiveSourceRejected)
+			require.Zero(t, clientCalls.Load())
+			require.Zero(t, requests.Load())
+		})
+	}
+}
+
+func TestConfiguredProviderContentHTTPClientDoesNotUseImplicitProxy(t *testing.T) {
+	providerRequests := atomic.Int32{}
+	authorization := make(chan string, 1)
+	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		providerRequests.Add(1)
+		authorization <- request.Header.Get("Authorization")
+		writer.Header().Set("Content-Type", "video/mp4")
+		_, _ = io.WriteString(writer, "provider-video")
+	}))
+	t.Cleanup(provider.Close)
+	proxyRequests := atomic.Int32{}
+	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		proxyRequests.Add(1)
+	}))
+	t.Cleanup(proxy.Close)
+	proxyURL, err := url.Parse(proxy.URL)
+	require.NoError(t, err)
+
+	previousClient := httpClient
+	netDialer := &net.Dialer{}
+	httpClient = &http.Client{Transport: &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) { return proxyURL, nil },
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, _, splitErr := net.SplitHostPort(address)
+			if splitErr == nil && host == "provider.internal" {
+				return netDialer.DialContext(ctx, network, provider.Listener.Addr().String())
+			}
+			return netDialer.DialContext(ctx, network, address)
+		},
+	}}
+	t.Cleanup(func() { httpClient = previousClient })
+
+	fetcher := NewHTTPVideoArchiveFetcher(t.TempDir())
+	fetcher.availableBytes = func(string) (uint64, error) { return 1 << 30, nil }
+	fetched, err := fetcher.FetchTaskSource(context.Background(), videoArchiveTaskSource{
+		Source:                 "http://provider.internal:8080/v1/videos/upstream-task/content",
+		Headers:                map[string]string{"Authorization": "Bearer provider-secret"},
+		ProviderContentBaseURL: "http://provider.internal:8080",
+	}, 1024)
+	require.NoError(t, err)
+	t.Cleanup(fetched.Remove)
+
+	require.EqualValues(t, 1, providerRequests.Load())
+	require.Zero(t, proxyRequests.Load())
+	require.Equal(t, "Bearer provider-secret", <-authorization)
+}
+
+func TestHTTPVideoArchiveFetcherRejectsConfiguredProviderRedirect(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	redirected := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirectedRequests.Add(1)
+	}))
+	t.Cleanup(redirected.Close)
+	provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, redirected.URL+"/video.mp4", http.StatusFound)
+	}))
+	t.Cleanup(provider.Close)
+
+	fetcher := NewHTTPVideoArchiveFetcher(t.TempDir())
+	fetcher.availableBytes = func(string) (uint64, error) { return 1 << 30, nil }
+	fetcher.providerClient = func(string) (*http.Client, error) { return provider.Client(), nil }
+	_, err := fetcher.FetchTaskSource(context.Background(), videoArchiveTaskSource{
+		Source:                 provider.URL + "/v1/videos/upstream-task/content",
+		Headers:                map[string]string{"Authorization": "Bearer provider-secret"},
+		ProviderContentBaseURL: provider.URL,
+	}, 1024)
+
+	require.ErrorIs(t, err, ErrVideoArchiveSourceRejected)
+	require.Zero(t, redirectedRequests.Load())
+}
+
 func TestHTTPVideoArchiveFetcherEnforcesMIMEAndStreamLimit(t *testing.T) {
 	tests := []struct {
 		name        string

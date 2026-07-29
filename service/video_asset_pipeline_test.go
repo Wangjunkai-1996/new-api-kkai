@@ -107,3 +107,37 @@ func TestResolveVideoArchiveSourceScopesGeminiAPIKeyToProviderOrigin(t *testing.
 		})
 	}
 }
+
+func TestResolveVideoArchiveSourceScopesSoraProviderContentToConfiguredBase(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	providerBaseURL := "http://seedance-special-adapter:8080"
+	channel := model.Channel{
+		Id: 55, Type: constant.ChannelTypeSora, Key: "provider-key",
+		BaseURL: common.GetPointer(providerBaseURL),
+	}
+	require.NoError(t, db.Create(&channel).Error)
+	task := model.Task{
+		TaskID: "task_public", UserId: 7, ChannelId: channel.Id, Status: model.TaskStatusSuccess,
+		PrivateData: model.TaskPrivateData{
+			ArchiveSource:     "https://api.kkrich.ltd/v1/videos/task_public/content",
+			UpstreamTaskID:    "upstream-private",
+			AssetHostedResult: true,
+		},
+	}
+	require.NoError(t, db.Create(&task).Error)
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindOutput,
+		State: model.VideoAssetStateProcessing, ObjectKey: "output.mp4",
+		ArchiveSourceURL: videoTaskResultArchiveSource(task.ID), MIMEType: "video/mp4",
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	require.NoError(t, db.Create(&model.KKAIVideoTaskAsset{
+		TaskID: task.ID, AssetID: asset.ID, Role: model.VideoTaskAssetRoleOutput, Position: 0,
+	}).Error)
+
+	resolved, err := (&VideoAssetPipeline{db: db}).resolveVideoArchiveSource(context.Background(), asset)
+	require.NoError(t, err)
+	require.Equal(t, providerBaseURL+"/v1/videos/upstream-private/content", resolved.fetch.Source)
+	require.Equal(t, providerBaseURL, resolved.fetch.ProviderContentBaseURL)
+	require.Equal(t, "Bearer provider-key", resolved.fetch.Headers["Authorization"])
+}
