@@ -146,12 +146,14 @@ func validatePrompt(prompt string) *dto.TaskError {
 const MaxTaskDurationSeconds = 3600
 
 func validateTaskDurationBounds(req TaskSubmitReq) *dto.TaskError {
-	seconds := req.Duration
-	if seconds == 0 && req.Seconds != "" {
-		seconds, _ = strconv.Atoi(req.Seconds)
-	}
-	if seconds < 0 || seconds > MaxTaskDurationSeconds {
+	if req.Duration < 0 || req.Duration > MaxTaskDurationSeconds {
 		return createTaskError(fmt.Errorf("seconds must be between 1 and %d", MaxTaskDurationSeconds), "invalid_seconds", http.StatusBadRequest, true)
+	}
+	if req.Seconds != "" {
+		seconds, err := strconv.Atoi(req.Seconds)
+		if err != nil || seconds < 0 || seconds > MaxTaskDurationSeconds {
+			return createTaskError(fmt.Errorf("seconds must be between 1 and %d", MaxTaskDurationSeconds), "invalid_seconds", http.StatusBadRequest, true)
+		}
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	appcommon "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,49 @@ func TestValidateMultipartDirectNormalizesImageField(t *testing.T) {
 	require.Equal(t, constant.TaskActionGenerate, info.Action)
 }
 
+func TestTaskSubmitReqNormalizesIntegerDurationFields(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantDuration int
+		wantSeconds  string
+	}{
+		{name: "numeric seconds", body: `{"seconds":5}`, wantSeconds: "5"},
+		{name: "string seconds", body: `{"seconds":"5"}`, wantSeconds: "5"},
+		{name: "numeric duration", body: `{"duration":5}`, wantDuration: 5},
+		{name: "string duration", body: `{"duration":"5"}`, wantDuration: 5},
+		{name: "empty seconds", body: `{"seconds":""}`},
+		{name: "null seconds", body: `{"seconds":null}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var request TaskSubmitReq
+			require.NoError(t, appcommon.Unmarshal([]byte(test.body), &request))
+			require.Equal(t, test.wantDuration, request.Duration)
+			require.Equal(t, test.wantSeconds, request.Seconds)
+		})
+	}
+}
+
+func TestTaskSubmitReqRejectsInvalidDurationFields(t *testing.T) {
+	tests := []string{
+		`{"seconds":5.5}`,
+		`{"seconds":"5.5"}`,
+		`{"seconds":true}`,
+		`{"seconds":{}}`,
+		`{"seconds":[]}`,
+		`{"seconds":9223372036854775808}`,
+		`{"duration":5.5}`,
+		`{"duration":false}`,
+	}
+	for _, body := range tests {
+		t.Run(body, func(t *testing.T) {
+			var request TaskSubmitReq
+			require.Error(t, appcommon.Unmarshal([]byte(body), &request))
+		})
+	}
+}
+
 // TestTaskDurationBounds guards the billing invariant that user-supplied
 // video duration (a quota multiplier via OtherRatio "seconds") is bounded, so
 // it can never overflow quota calculation into a negative charge.
@@ -107,6 +151,11 @@ func TestTaskDurationBounds(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "seconds remains bounded when duration is also present",
+			body:    `{"model":"sora-2","prompt":"a cat","duration":1,"seconds":"9999999999"}`,
+			wantErr: true,
+		},
+		{
 			name:    "negative duration is rejected",
 			body:    `{"model":"sora-2","prompt":"a cat","duration":-8}`,
 			wantErr: true,
@@ -114,6 +163,10 @@ func TestTaskDurationBounds(t *testing.T) {
 		{
 			name: "normal duration is accepted",
 			body: `{"model":"sora-2","prompt":"a cat","seconds":"8"}`,
+		},
+		{
+			name: "numeric seconds is accepted",
+			body: `{"model":"sora-2","prompt":"a cat","seconds":8}`,
 		},
 	}
 

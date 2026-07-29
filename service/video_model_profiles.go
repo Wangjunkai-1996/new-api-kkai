@@ -191,7 +191,13 @@ func runtimeVideoModelProfileView(modelName string) VideoModelProfileView {
 	}
 	lowerModel := strings.ToLower(modelName)
 	if strings.HasSuffix(lowerModel, "_with_video_ref") {
+		minimum, maximum, step := float64(4), float64(15), float64(1)
+		specification.Version = 2
 		specification.Modes = []string{VideoModeImageToVideo}
+		specification.Parameters = []VideoParameterSpec{{
+			Key: "duration", Label: "Duration", Control: VideoControlNumber, RequestKey: "seconds",
+			Required: true, Default: float64(5), Min: &minimum, Max: &maximum, Step: &step,
+		}}
 		specification.ReferenceInputs = []VideoReferenceInputSpec{{
 			Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
 		}}

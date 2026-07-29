@@ -722,26 +722,34 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	aux := &struct {
 		Metadata json.RawMessage `json:"metadata,omitempty"`
 		Duration json.RawMessage `json:"duration,omitempty"`
+		Seconds  json.RawMessage `json:"seconds,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
 	}
 
+	t.Duration = 0
+	t.Seconds = ""
 	if err := common.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 
 	if len(aux.Duration) > 0 {
-		var durationInt int
-		if err := common.Unmarshal(aux.Duration, &durationInt); err == nil {
-			t.Duration = durationInt
-		} else {
-			var durationStr string
-			if err := common.Unmarshal(aux.Duration, &durationStr); err == nil && durationStr != "" {
-				if v, err := strconv.Atoi(durationStr); err == nil {
-					t.Duration = v
-				}
-			}
+		duration, provided, err := parseTaskDurationField(aux.Duration)
+		if err != nil {
+			return fmt.Errorf("invalid duration: %w", err)
+		}
+		if provided {
+			t.Duration = duration
+		}
+	}
+	if len(aux.Seconds) > 0 {
+		seconds, provided, err := parseTaskDurationField(aux.Seconds)
+		if err != nil {
+			return fmt.Errorf("invalid seconds: %w", err)
+		}
+		if provided {
+			t.Seconds = strconv.Itoa(seconds)
 		}
 	}
 
@@ -762,6 +770,34 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+func parseTaskDurationField(raw json.RawMessage) (int, bool, error) {
+	switch common.GetJsonType(raw) {
+	case "null":
+		return 0, false, nil
+	case "number":
+		value, err := strconv.Atoi(string(raw))
+		if err != nil {
+			return 0, false, err
+		}
+		return value, true, nil
+	case "string":
+		var value string
+		if err := common.Unmarshal(raw, &value); err != nil {
+			return 0, false, err
+		}
+		if value == "" {
+			return 0, false, nil
+		}
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, false, err
+		}
+		return parsed, true, nil
+	default:
+		return 0, false, fmt.Errorf("value must be an integer number or integer string")
+	}
 }
 func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 	metadata := t.Metadata

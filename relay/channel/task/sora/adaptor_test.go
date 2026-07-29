@@ -81,6 +81,34 @@ func TestBuildRequestBodyProjectsVideoStudioSpecialRequest(t *testing.T) {
 	}, readSoraRequestBody(t, body))
 }
 
+func TestVideoStudioReferenceSecondsDriveBillingAndProjection(t *testing.T) {
+	ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", `{
+		"model":"video-studio-model",
+		"prompt":"continue the movement",
+		"seconds":5,
+		"reference_video":"https://assets.example/reference.mp4",
+		"group":"Seedance video",
+		"mode":"image_to_video",
+		"metadata":{
+			"seconds":5,
+			"reference_video":"https://assets.example/reference.mp4"
+		}
+	}`)
+	info := newSoraRelayInfo("sd_2.0_special_1080p_with_video_ref")
+	adaptor := &TaskAdaptor{}
+
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+	require.Equal(t, float64(5), adaptor.EstimateBilling(ctx, info)["seconds"])
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"model":           "sd_2.0_special_1080p_with_video_ref",
+		"prompt":          "continue the movement",
+		"seconds":         float64(5),
+		"reference_video": "https://assets.example/reference.mp4",
+	}, readSoraRequestBody(t, body))
+}
+
 func TestBuildRequestBodyProjectsEverySpecialVideoModel(t *testing.T) {
 	models := []string{
 		"sd_2.0_fast_special_720p",

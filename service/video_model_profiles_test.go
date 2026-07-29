@@ -14,6 +14,56 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestRuntimeVideoReferenceProfileDefinesSecondsContract(t *testing.T) {
+	profile := runtimeVideoModelProfileView("sd_2.0_special_1080p_with_video_ref")
+
+	require.Equal(t, 2, profile.SpecificationVersion)
+	require.Equal(t, 2, profile.Specification.Version)
+	require.Equal(t, []string{VideoModeImageToVideo}, profile.Specification.Modes)
+	require.Empty(t, profile.DefaultParameters)
+	require.Equal(t, []VideoReferenceInputSpec{{
+		Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
+	}}, profile.Specification.ReferenceInputs)
+	require.Len(t, profile.Specification.Parameters, 1)
+	duration := profile.Specification.Parameters[0]
+	require.Equal(t, "duration", duration.Key)
+	require.Equal(t, "seconds", duration.RequestKey)
+	require.Equal(t, VideoControlNumber, duration.Control)
+	require.True(t, duration.Required)
+	require.Equal(t, float64(5), duration.Default)
+	require.Equal(t, float64(4), *duration.Min)
+	require.Equal(t, float64(15), *duration.Max)
+	require.Equal(t, float64(1), *duration.Step)
+	require.NoError(t, ValidateVideoModelSpec(profile.Specification, profile.DefaultParameters))
+
+	ordinary := runtimeVideoModelProfileView("wan2.7-i2v")
+	require.Equal(t, 1, ordinary.SpecificationVersion)
+	require.Empty(t, ordinary.Specification.Parameters)
+}
+
+func TestResolveVideoModelProfilePrefersPersistedVideoReferenceProfile(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	specification := VideoModelSpec{Version: 7, Modes: []string{VideoModeTextToVideo}}
+	encoded, err := common.Marshal(specification)
+	require.NoError(t, err)
+	profile := model.KKAIVideoModelProfile{
+		Model: "sd_2.0_special_1080p_with_video_ref", DisplayName: "Persisted override",
+		SpecificationVersion: specification.Version, Specification: string(encoded),
+		DefaultParameters: `{}`, Enabled: true, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&profile).Error)
+
+	profileID, version, resolvedModel, resolvedSpec, defaults, err := resolveVideoModelProfile(
+		context.Background(), db, profile.Model,
+	)
+	require.NoError(t, err)
+	require.Equal(t, profile.ID, profileID)
+	require.Equal(t, specification.Version, version)
+	require.Equal(t, profile.Model, resolvedModel)
+	require.Equal(t, specification, resolvedSpec)
+	require.Empty(t, defaults)
+}
+
 func TestUpdateVideoModelProfileProtectsPublishedSampleReferenceSchema(t *testing.T) {
 	tests := []struct {
 		name       string

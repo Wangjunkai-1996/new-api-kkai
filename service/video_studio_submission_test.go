@@ -164,7 +164,7 @@ func TestNormalizeVideoStudioSubmissionRuntimeI2VRequiresImage(t *testing.T) {
 	require.Equal(t, model.VideoTaskAssetRoleReference, normalized.ReferenceAssets[0].Role)
 }
 
-func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceRejectsImages(t *testing.T) {
+func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceUsesSecondsContract(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	now := time.Now().Unix()
 	assets := []model.KKAIVideoAsset{
@@ -187,12 +187,65 @@ func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceRejectsImages(t *tes
 	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
 	require.NoError(t, err)
 	require.Zero(t, normalized.ProfileID)
+	require.Equal(t, 2, normalized.SpecificationVersion)
+	require.Equal(t, map[string]any{"duration": float64(5)}, normalized.Parameters)
 	require.Equal(t, model.VideoTaskAssetRoleReferenceVideo, normalized.ReferenceAssets[0].Role)
 	var payload map[string]any
 	require.NoError(t, common.Unmarshal(normalized.TaskPayload, &payload))
+	require.Equal(t, float64(5), payload["seconds"])
 	require.Equal(t, "https://assets.invalid/reference.mp4", payload["reference_video"])
 	require.NotContains(t, payload, "image")
 	require.NotContains(t, payload, "images")
+	metadata, ok := payload["metadata"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(5), metadata["seconds"])
+	require.Equal(t, "https://assets.invalid/reference.mp4", metadata["reference_video"])
+	legacyVersion := *normalized
+	legacyVersion.SpecificationVersion = 1
+	require.NoError(t, ApplyVideoStudioEffectiveGroup(&legacyVersion, normalized.Group))
+	require.NotEqual(t, legacyVersion.RequestHash, normalized.RequestHash)
+
+	explicitDefault := request
+	explicitDefault.Parameters = map[string]any{"duration": 5}
+	explicitNormalized, err := NormalizeVideoStudioSubmission(
+		context.Background(), db, videoSubmissionTestStore{}, 42, explicitDefault,
+	)
+	require.NoError(t, err)
+	require.Equal(t, normalized.Parameters, explicitNormalized.Parameters)
+	require.Equal(t, normalized.RequestHash, explicitNormalized.RequestHash)
+
+	for _, duration := range []int{4, 15} {
+		t.Run(fmt.Sprintf("accepts %d seconds", duration), func(t *testing.T) {
+			candidate := request
+			candidate.Parameters = map[string]any{"duration": duration}
+			got, err := NormalizeVideoStudioSubmission(
+				context.Background(), db, videoSubmissionTestStore{}, 42, candidate,
+			)
+			require.NoError(t, err)
+			require.Equal(t, float64(duration), got.Parameters["duration"])
+		})
+	}
+
+	invalidDurations := []struct {
+		name  string
+		value any
+	}{
+		{name: "below minimum", value: 3},
+		{name: "above maximum", value: 16},
+		{name: "fractional", value: 5.5},
+		{name: "string", value: "5"},
+		{name: "boolean", value: true},
+	}
+	for _, test := range invalidDurations {
+		t.Run("rejects "+test.name, func(t *testing.T) {
+			candidate := request
+			candidate.Parameters = map[string]any{"duration": test.value}
+			_, err := NormalizeVideoStudioSubmission(
+				context.Background(), db, videoSubmissionTestStore{}, 42, candidate,
+			)
+			require.ErrorIs(t, err, ErrInvalidVideoParameters)
+		})
+	}
 }
 
 func TestNormalizeVideoStudioSubmissionUsesPersistedSampleReferenceMapping(t *testing.T) {
