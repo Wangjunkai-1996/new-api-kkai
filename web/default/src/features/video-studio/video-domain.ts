@@ -320,6 +320,25 @@ export const isVideoGenerationActive = (generation: VideoGeneration): boolean =>
 export const isVideoAssetInspectionPending = (asset: VideoAsset): boolean =>
   asset.state === 'uploaded' || asset.state === 'processing'
 
+export const getVideoAssetInspectionPollInterval = (
+  asset: VideoAsset,
+  elapsedMs: number
+): number | false => {
+  if (!isVideoAssetInspectionPending(asset) || elapsedMs >= 60_000) {
+    return false
+  }
+  const interval = elapsedMs < 30_000 ? 2_000 : 5_000
+  return Math.min(interval, 60_000 - Math.max(0, elapsedMs))
+}
+
+export const isVideoAssetInspectionTakingLong = (
+  asset: VideoAsset,
+  elapsedMs: number
+): boolean => isVideoAssetInspectionPending(asset) && elapsedMs >= 60_000
+
+export const shouldRenderVideoAssetMedia = (asset: VideoAsset): boolean =>
+  asset.state === 'ready'
+
 export type VideoSubmissionLock = {
   taskId: string | null
 }

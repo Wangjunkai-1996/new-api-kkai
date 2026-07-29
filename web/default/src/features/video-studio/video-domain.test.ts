@@ -36,14 +36,17 @@ import {
   encodeVideoParameterOptionValue,
   getVideoQuoteRefreshDelay,
   getVideoReferenceRoles,
+  getVideoAssetInspectionPollInterval,
   getVideoSubmissionRequestKey,
   getVideoSubmissionLock,
   getVideoParametersForMode,
   getVideoTaskPollInterval,
   isVideoAssetInspectionPending,
+  isVideoAssetInspectionTakingLong,
   isVideoQuoteStaleError,
   normalizeVideoStudioAccessMode,
   restoreVideoComposerDraft,
+  shouldRenderVideoAssetMedia,
 } from './video-domain'
 
 const profile: VideoModelProfile = {
@@ -484,11 +487,41 @@ test('polling is adaptive and stops for hidden or terminal work', () => {
   )
 })
 
-test('asset inspection polling stops at ready or failed', () => {
+test('asset inspection polling slows after 30 seconds and stops after 60', () => {
   assert.equal(isVideoAssetInspectionPending(asset('uploaded')), true)
   assert.equal(isVideoAssetInspectionPending(asset('processing')), true)
   assert.equal(isVideoAssetInspectionPending(asset('ready')), false)
   assert.equal(isVideoAssetInspectionPending(asset('failed')), false)
+  assert.equal(getVideoAssetInspectionPollInterval(asset('uploaded'), 0), 2_000)
+  assert.equal(
+    getVideoAssetInspectionPollInterval(asset('processing'), 29_999),
+    2_000
+  )
+  assert.equal(
+    getVideoAssetInspectionPollInterval(asset('processing'), 30_000),
+    5_000
+  )
+  assert.equal(
+    getVideoAssetInspectionPollInterval(asset('processing'), 59_999),
+    1
+  )
+  assert.equal(
+    getVideoAssetInspectionPollInterval(asset('processing'), 60_000),
+    false
+  )
+  assert.equal(getVideoAssetInspectionPollInterval(asset('ready'), 1), false)
+  assert.equal(
+    isVideoAssetInspectionTakingLong(asset('processing'), 60_000),
+    true
+  )
+  assert.equal(isVideoAssetInspectionTakingLong(asset('ready'), 60_000), false)
+})
+
+test('only ready assets may mount media content', () => {
+  assert.equal(shouldRenderVideoAssetMedia(asset('uploaded')), false)
+  assert.equal(shouldRenderVideoAssetMedia(asset('processing')), false)
+  assert.equal(shouldRenderVideoAssetMedia(asset('failed')), false)
+  assert.equal(shouldRenderVideoAssetMedia(asset('ready')), true)
 })
 
 test('video studio access fails closed and respects admin mode', () => {

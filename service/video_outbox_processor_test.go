@@ -1034,6 +1034,37 @@ func TestNewVideoOutboxWorkerUsesTwoThirtySecondProcessors(t *testing.T) {
 	}
 }
 
+func TestVideoOutboxWorkerAdvancesUploadedAssetToReady(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMemoryVideoAssetStore()
+	store.objects["reference.mp4"] = []byte("video")
+	store.contentType["reference.mp4"] = "video/mp4"
+	now := time.Now().Unix()
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateUploaded, ObjectKey: "reference.mp4", MIMEType: "video/mp4",
+		SizeBytes: 5, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	require.NoError(t, EnqueueVideoOutboxEvent(
+		context.Background(), db, fmt.Sprintf("video:asset:%d:inspect:v1", asset.ID),
+		VideoOutboxTopicInspect, fmt.Sprintf("%d", asset.ID), VideoAssetEventPayload{AssetID: asset.ID},
+	))
+	worker, err := NewVideoOutboxWorker(
+		db, "worker-lifecycle", store, staticVideoMediaProcessor{}, &staticVideoArchiveFetcher{}, t.TempDir(), 1,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, worker.ProcessOnce(context.Background()))
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateProcessing, asset.State)
+
+	require.NoError(t, worker.ProcessOnce(context.Background()))
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateReady, asset.State)
+	require.NotEmpty(t, asset.PosterObjectKey)
+}
+
 func TestVideoOutboxDeadLetterConvergesAggregateAndRedriveReusesEvent(t *testing.T) {
 	tests := []struct {
 		name             string
