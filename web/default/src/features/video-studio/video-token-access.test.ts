@@ -175,7 +175,7 @@ test('fails closed for malformed or wrong-group token capabilities', () => {
   )
 })
 
-test('remembers an automatic prompt across model switches in the same user group', () => {
+test('remembers an automatic prompt for the bound key scope', () => {
   const promptedScopes = new Set<string>()
   const missingAccess = {
     kind: 'missing' as const,
@@ -268,39 +268,28 @@ test('keeps a token request blocker over stale ready data until a check succeeds
   assert.ok(blockedAccess)
   const blocker = {
     userId: 11,
-    model: 'model-a',
     access: blockedAccess,
   }
 
   assert.deepEqual(
-    getVideoTokenScopeAccess(readyAccess, blocker, 11, 'model-a'),
+    getVideoTokenScopeAccess(readyAccess, blocker, 11),
     { kind: 'invalid', requiredGroup }
   )
-  const afterFailedCheck = releaseVideoTokenScopeBlocker(
-    blocker,
-    11,
-    'model-a',
-    false
-  )
+  const afterFailedCheck = releaseVideoTokenScopeBlocker(blocker, 11, false)
   assert.equal(afterFailedCheck, blocker)
   assert.deepEqual(
-    getVideoTokenScopeAccess(readyAccess, afterFailedCheck, 11, 'model-a'),
+    getVideoTokenScopeAccess(readyAccess, afterFailedCheck, 11),
     { kind: 'invalid', requiredGroup }
   )
 
-  const afterSuccessfulCheck = releaseVideoTokenScopeBlocker(
-    blocker,
-    11,
-    'model-a',
-    true
-  )
+  const afterSuccessfulCheck = releaseVideoTokenScopeBlocker(blocker, 11, true)
   assert.equal(afterSuccessfulCheck, null)
   assert.equal(
-    getVideoTokenScopeAccess(readyAccess, afterSuccessfulCheck, 11, 'model-a'),
+    getVideoTokenScopeAccess(readyAccess, afterSuccessfulCheck, 11),
     readyAccess
   )
   assert.equal(
-    getVideoTokenScopeAccess(readyAccess, blocker, 22, 'model-a'),
+    getVideoTokenScopeAccess(readyAccess, blocker, 22),
     readyAccess
   )
 })

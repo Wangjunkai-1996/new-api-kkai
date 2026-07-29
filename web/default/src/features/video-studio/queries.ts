@@ -66,16 +66,23 @@ import { shouldRetryVideoReferenceHydration } from './video-reference-hydration'
 export const videoStudioQueryKeys = {
   all: ['video-studio'] as const,
   privateAll: (userId: number) => privateUserQueryKey(userId, 'video-studio'),
-  models: (userId: number) =>
+  modelsAll: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'models'),
-  samples: (userId: number, filters: Omit<VideoSampleFilters, 'cursor'>) =>
-    privateUserQueryKey(userId, 'video-studio', 'samples', filters),
-  sample: (userId: number, id: number) =>
-    privateUserQueryKey(userId, 'video-studio', 'sample', id),
-  tokens: (userId: number) =>
+  models: (userId: number, tokenId: number) =>
+    [...videoStudioQueryKeys.modelsAll(userId), tokenId] as const,
+  samplesAll: (userId: number) =>
+    privateUserQueryKey(userId, 'video-studio', 'samples'),
+  samples: (
+    userId: number,
+    tokenId: number,
+    filters: Omit<VideoSampleFilters, 'cursor'>
+  ) => [...videoStudioQueryKeys.samplesAll(userId), tokenId, filters] as const,
+  sampleAll: (userId: number) =>
+    privateUserQueryKey(userId, 'video-studio', 'sample'),
+  sample: (userId: number, tokenId: number, id: number) =>
+    [...videoStudioQueryKeys.sampleAll(userId), tokenId, id] as const,
+  token: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'token'),
-  token: (userId: number, model: string) =>
-    [...videoStudioQueryKeys.tokens(userId), model] as const,
   quote: (userId: number, request: VideoQuoteRequest) =>
     privateUserQueryKey(userId, 'video-studio', 'quote', request),
   generations: (
@@ -107,49 +114,52 @@ export const videoStudioMutationKeys = {
 const useVideoStudioUserId = (): number =>
   useAuthStore((state) => state.auth.user?.id ?? 0)
 
-export const useVideoModels = () => {
+export const useVideoModels = (tokenId?: number | null) => {
   const userId = useVideoStudioUserId()
   return useQuery({
-    queryKey: videoStudioQueryKeys.models(userId),
-    queryFn: getVideoModels,
-    enabled: userId > 0,
+    queryKey: videoStudioQueryKeys.models(userId, tokenId ?? 0),
+    queryFn: () => getVideoModels(tokenId ?? 0),
+    enabled: userId > 0 && Boolean(tokenId),
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
   })
 }
 
 export const useVideoSamples = (
+  tokenId?: number | null,
   filters: Omit<VideoSampleFilters, 'cursor'> = {}
 ) => {
   const userId = useVideoStudioUserId()
   return useInfiniteQuery({
-    queryKey: videoStudioQueryKeys.samples(userId, filters),
+    queryKey: videoStudioQueryKeys.samples(userId, tokenId ?? 0, filters),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
-      getVideoSamples({ ...filters, cursor: pageParam, limit: 24 }),
+      getVideoSamples(tokenId ?? 0, {
+        ...filters,
+        cursor: pageParam,
+        limit: 24,
+      }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
+    enabled: userId > 0 && Boolean(tokenId),
+  })
+}
+
+export const useVideoSample = (id?: number, tokenId?: number | null) => {
+  const userId = useVideoStudioUserId()
+  return useQuery({
+    queryKey: videoStudioQueryKeys.sample(userId, tokenId ?? 0, id ?? 0),
+    queryFn: () => getVideoSample(id ?? 0, tokenId ?? 0),
+    enabled: userId > 0 && Boolean(tokenId) && Boolean(id),
+  })
+}
+
+export const useVideoTokenCapability = () => {
+  const userId = useVideoStudioUserId()
+  return useQuery({
+    queryKey: videoStudioQueryKeys.token(userId),
+    queryFn: getVideoTokenCapability,
     enabled: userId > 0,
-  })
-}
-
-export const useVideoSample = (id?: number) => {
-  const userId = useVideoStudioUserId()
-  return useQuery({
-    queryKey: videoStudioQueryKeys.sample(userId, id ?? 0),
-    queryFn: () => getVideoSample(id ?? 0),
-    enabled: userId > 0 && Boolean(id),
-  })
-}
-
-export const useVideoTokenCapability = (model?: string) => {
-  const userId = useVideoStudioUserId()
-  return useQuery({
-    queryKey: videoStudioQueryKeys.token(userId, model ?? ''),
-    queryFn: () => {
-      if (!model) throw new Error('Video model is unavailable')
-      return getVideoTokenCapability(model)
-    },
-    enabled: userId > 0 && Boolean(model),
     retry: false,
     staleTime: 30_000,
   })
@@ -157,55 +167,47 @@ export const useVideoTokenCapability = (model?: string) => {
 
 export type CreateVideoTokenMutationVariables = Readonly<{
   userId: number
-  model: string
 }>
 
 export type CreateVideoTokenMutationContext = Readonly<{
   userId: number
-  model: string
 }>
 
 export const captureVideoTokenMutationContext = (
-  variables: Pick<CreateVideoTokenMutationVariables, 'userId' | 'model'>
+  variables: Pick<CreateVideoTokenMutationVariables, 'userId'>
 ): CreateVideoTokenMutationContext =>
-  Object.freeze({ userId: variables.userId, model: variables.model })
+  Object.freeze({ userId: variables.userId })
 
 const isVideoTokenCreateMutationVariables = (
   value: unknown
 ): value is CreateVideoTokenMutationVariables => {
   if (!value || typeof value !== 'object') return false
   const variables = value as Partial<CreateVideoTokenMutationVariables>
-  return (
-    Number.isInteger(variables.userId) && typeof variables.model === 'string'
-  )
+  return Number.isInteger(variables.userId)
 }
 
 export const videoTokenCreateMutationFilters = (
-  userId: number,
-  model?: string
+  userId: number
 ): MutationFilters => ({
   mutationKey: videoStudioMutationKeys.createToken,
   predicate: (mutation) => {
     const variables = mutation.state.variables
     return (
       isVideoTokenCreateMutationVariables(variables) &&
-      variables.userId === userId &&
-      variables.model === model
+      variables.userId === userId
     )
   },
 })
 
 export const useIsCreatingVideoToken = (
-  userId: number,
-  model?: string
-): boolean => useIsMutating(videoTokenCreateMutationFilters(userId, model)) > 0
+  userId: number
+): boolean => useIsMutating(videoTokenCreateMutationFilters(userId)) > 0
 
 export const canStartVideoTokenCreate = (
   queryClient: QueryClient,
-  userId: number,
-  model: string
+  userId: number
 ): boolean =>
-  queryClient.isMutating(videoTokenCreateMutationFilters(userId, model)) === 0
+  queryClient.isMutating(videoTokenCreateMutationFilters(userId)) === 0
 
 export const applyVideoTokenCreateSuccess = async (
   queryClient: QueryClient,
@@ -215,22 +217,16 @@ export const applyVideoTokenCreateSuccess = async (
 ): Promise<boolean> => {
   if (!context || activeUserId !== context.userId) return false
 
-  const tokenQueries = videoStudioQueryKeys.tokens(context.userId)
-  queryClient.removeQueries({
-    queryKey: tokenQueries,
-    type: 'inactive',
-  })
   queryClient.setQueryData(
-    videoStudioQueryKeys.token(context.userId, context.model),
+    videoStudioQueryKeys.token(context.userId),
     capability
   )
   await queryClient.invalidateQueries({
-    queryKey: tokenQueries,
+    queryKey: videoStudioQueryKeys.modelsAll(context.userId),
     refetchType: 'active',
-    predicate: (query) => query.queryKey.at(-1) !== context.model,
   })
   await queryClient.invalidateQueries({
-    queryKey: videoStudioQueryKeys.models(context.userId),
+    queryKey: videoStudioQueryKeys.samplesAll(context.userId),
     refetchType: 'active',
   })
   return true
@@ -240,8 +236,8 @@ export const useCreateVideoToken = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationKey: videoStudioMutationKeys.createToken,
-    mutationFn: (variables: CreateVideoTokenMutationVariables) =>
-      createVideoToken(variables.model),
+    mutationFn: (_variables: CreateVideoTokenMutationVariables) =>
+      createVideoToken(),
     onMutate: captureVideoTokenMutationContext,
     onSuccess: (capability, _variables, context) =>
       applyVideoTokenCreateSuccess(
@@ -402,7 +398,7 @@ export const useSaveAdminVideoModel = () => {
         queryKey: videoStudioQueryKeys.adminModels(userId),
       })
       void queryClient.invalidateQueries({
-        queryKey: videoStudioQueryKeys.models(userId),
+        queryKey: videoStudioQueryKeys.modelsAll(userId),
       })
     },
   })
@@ -418,7 +414,7 @@ export const useDeleteAdminVideoModel = () => {
         queryKey: videoStudioQueryKeys.adminModels(userId),
       })
       void queryClient.invalidateQueries({
-        queryKey: videoStudioQueryKeys.models(userId),
+        queryKey: videoStudioQueryKeys.modelsAll(userId),
       })
     },
   })
@@ -437,7 +433,7 @@ export const useSaveAdminVideoSample = () => {
         queryKey: videoStudioQueryKeys.adminSamples(userId),
       })
       void queryClient.invalidateQueries({
-        queryKey: ['video-studio', 'samples'],
+        queryKey: videoStudioQueryKeys.samplesAll(userId),
       })
     },
   })

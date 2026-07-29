@@ -75,12 +75,12 @@ describe('video studio private query ownership', () => {
     unsubscribe = installAuthQueryCacheBoundary(queryClient)
     const userAGenerations = videoStudioQueryKeys.generations(11, {})
     const userAAsset = videoStudioQueryKeys.asset(11, 101)
-    const userAToken = videoStudioQueryKeys.token(11, 'video-model')
+    const userAToken = videoStudioQueryKeys.token(11)
     const userBGenerations = videoStudioQueryKeys.generations(22, {})
-    const userAModels = videoStudioQueryKeys.models(11)
-    const userBModels = videoStudioQueryKeys.models(22)
-    const userASamples = videoStudioQueryKeys.samples(11, {})
-    const userBSamples = videoStudioQueryKeys.samples(22, {})
+    const userAModels = videoStudioQueryKeys.models(11, 17)
+    const userBModels = videoStudioQueryKeys.models(22, 23)
+    const userASamples = videoStudioQueryKeys.samples(11, 17, {})
+    const userBSamples = videoStudioQueryKeys.samples(22, 23, {})
 
     queryClient.setQueryData(userAGenerations, ['user-a-generation'])
     queryClient.setQueryData(userAAsset, { id: 101 })
@@ -116,7 +116,7 @@ describe('video studio private query ownership', () => {
       parameters: {},
       reference_assets: [],
     })
-    const privateModels = videoStudioQueryKeys.models(11)
+    const privateModels = videoStudioQueryKeys.models(11, 7)
 
     queryClient.setQueryData(privateQuote, { request_hash: 'private' })
     queryClient.setQueryData(privateModels, ['private-model'])
@@ -128,23 +128,20 @@ describe('video studio private query ownership', () => {
   })
 
   test('does not write a completed user A token mutation after switching to user B', async () => {
-    const userAModel = videoStudioQueryKeys.token(11, 'model-a')
-    const userBModel = videoStudioQueryKeys.token(22, 'model-a')
+    const userAToken = videoStudioQueryKeys.token(11)
+    const userBToken = videoStudioQueryKeys.token(22)
     const userAMissing = { status: 'missing' }
     const userBReady = { status: 'ready', token: { id: 22 } }
-    queryClient.setQueryData(userAModel, userAMissing)
-    queryClient.setQueryData(userBModel, userBReady)
+    queryClient.setQueryData(userAToken, userAMissing)
+    queryClient.setQueryData(userBToken, userBReady)
     const userBObserver = new QueryObserver(queryClient, {
-      queryKey: userBModel,
+      queryKey: userBToken,
       queryFn: async () => userBReady,
       staleTime: Number.POSITIVE_INFINITY,
     })
     const unsubscribeObserver = userBObserver.subscribe(() => undefined)
 
-    const context = captureVideoTokenMutationContext({
-      userId: 11,
-      model: 'model-a',
-    })
+    const context = captureVideoTokenMutationContext({ userId: 11 })
     const applied = await applyVideoTokenCreateSuccess(
       queryClient,
       readyVideoToken(17),
@@ -154,72 +151,58 @@ describe('video studio private query ownership', () => {
 
     assert.equal(Object.isFrozen(context), true)
     assert.equal(applied, false)
-    assert.deepEqual(queryClient.getQueryData(userAModel), userAMissing)
-    assert.deepEqual(queryClient.getQueryData(userBModel), userBReady)
+    assert.deepEqual(queryClient.getQueryData(userAToken), userAMissing)
+    assert.deepEqual(queryClient.getQueryData(userBToken), userBReady)
     assert.deepEqual(userBObserver.getCurrentResult().data, userBReady)
     unsubscribeObserver()
   })
 
-  test('clears stale capabilities for every model before caching the created token', async () => {
-    const modelA = videoStudioQueryKeys.token(11, 'model-a')
-    const modelB = videoStudioQueryKeys.token(11, 'model-b')
+  test('caches the created key once for the active user', async () => {
+    const tokenKey = videoStudioQueryKeys.token(11)
     const capability = readyVideoToken(17)
-    queryClient.setQueryData(modelA, { status: 'missing' })
-    queryClient.setQueryData(modelB, { status: 'missing' })
-    const modelBObserver = new QueryObserver(queryClient, {
-      queryKey: modelB,
+    queryClient.setQueryData(tokenKey, { status: 'missing' })
+    const tokenObserver = new QueryObserver(queryClient, {
+      queryKey: tokenKey,
       queryFn: async () => capability,
       staleTime: Number.POSITIVE_INFINITY,
     })
-    const unsubscribeObserver = modelBObserver.subscribe(() => undefined)
+    const unsubscribeObserver = tokenObserver.subscribe(() => undefined)
 
     const applied = await applyVideoTokenCreateSuccess(
       queryClient,
       capability,
-      captureVideoTokenMutationContext({ userId: 11, model: 'model-b' }),
+      captureVideoTokenMutationContext({ userId: 11 }),
       11
     )
 
     assert.equal(applied, true)
-    assert.equal(queryClient.getQueryData(modelA), undefined)
-    assert.deepEqual(queryClient.getQueryData(modelB), capability)
-    assert.deepEqual(modelBObserver.getCurrentResult().data, capability)
+    assert.deepEqual(queryClient.getQueryData(tokenKey), capability)
+    assert.deepEqual(tokenObserver.getCurrentResult().data, capability)
     unsubscribeObserver()
   })
 
-  test('refetches the active model after another model finishes creating a token', async () => {
-    const modelA = videoStudioQueryKeys.token(11, 'model-a')
-    const modelB = videoStudioQueryKeys.token(11, 'model-b')
-    const modelBReady = readyVideoToken(23)
-    let modelBFetches = 0
-    queryClient.setQueryData(modelA, { status: 'missing' })
-    queryClient.setQueryData(modelB, { status: 'missing' })
-    const modelBObserver = new QueryObserver(queryClient, {
-      queryKey: modelB,
-      queryFn: async () => {
-        modelBFetches += 1
-        return modelBReady
-      },
-      staleTime: Number.POSITIVE_INFINITY,
-    })
-    const unsubscribeObserver = modelBObserver.subscribe(() => undefined)
-
-    const applied = await applyVideoTokenCreateSuccess(
-      queryClient,
-      readyVideoToken(17),
-      captureVideoTokenMutationContext({ userId: 11, model: 'model-a' }),
-      11
+  test('isolates model and sample catalogs by both user and bound key', () => {
+    assert.notDeepEqual(
+      videoStudioQueryKeys.models(11, 17),
+      videoStudioQueryKeys.models(11, 18)
     )
-
-    assert.equal(applied, true)
-    assert.equal(modelBFetches, 1)
-    assert.deepEqual(modelBObserver.getCurrentResult().data, modelBReady)
-    unsubscribeObserver()
+    assert.notDeepEqual(
+      videoStudioQueryKeys.samples(11, 17, { model: 'model-a' }),
+      videoStudioQueryKeys.samples(11, 18, { model: 'model-a' })
+    )
+    assert.notDeepEqual(
+      videoStudioQueryKeys.sample(11, 17, 9),
+      videoStudioQueryKeys.sample(11, 18, 9)
+    )
+    assert.notDeepEqual(
+      videoStudioQueryKeys.models(11, 17),
+      videoStudioQueryKeys.models(22, 17)
+    )
   })
 
-  test('tracks concurrent pending token creation independently for each scope', async () => {
-    const variablesA = { userId: 11, model: 'model-a' }
-    const variablesB = { userId: 22, model: 'model-b' }
+  test('tracks concurrent pending token creation independently for each user', async () => {
+    const variablesA = { userId: 11 }
+    const variablesB = { userId: 22 }
     let finishMutationA: (value: VideoTokenCreateResult) => void = () =>
       undefined
     let finishMutationB: (value: VideoTokenCreateResult) => void = () =>
@@ -243,35 +226,35 @@ describe('video studio private query ownership', () => {
     await Promise.resolve()
 
     assert.equal(
-      queryClient.isMutating(videoTokenCreateMutationFilters(11, 'model-a')),
+      queryClient.isMutating(videoTokenCreateMutationFilters(11)),
       1
     )
     assert.equal(
-      queryClient.isMutating(videoTokenCreateMutationFilters(22, 'model-b')),
+      queryClient.isMutating(videoTokenCreateMutationFilters(22)),
       1
     )
 
     finishMutationB(readyVideoToken(22))
     await pendingB
     assert.equal(
-      queryClient.isMutating(videoTokenCreateMutationFilters(11, 'model-a')),
+      queryClient.isMutating(videoTokenCreateMutationFilters(11)),
       1
     )
     assert.equal(
-      queryClient.isMutating(videoTokenCreateMutationFilters(22, 'model-b')),
+      queryClient.isMutating(videoTokenCreateMutationFilters(22)),
       0
     )
 
     finishMutationA(readyVideoToken(17))
     await pendingA
     assert.equal(
-      queryClient.isMutating(videoTokenCreateMutationFilters(11, 'model-a')),
+      queryClient.isMutating(videoTokenCreateMutationFilters(11)),
       0
     )
   })
 
   test('blocks a remounted instance while an earlier same-scope create is pending', async () => {
-    const variables = { userId: 11, model: 'model-a' }
+    const variables = { userId: 11 }
     let finishMutation: (value: VideoTokenCreateResult) => void = () =>
       undefined
     const mutationResult = new Promise<VideoTokenCreateResult>((resolve) => {
@@ -286,13 +269,13 @@ describe('video studio private query ownership', () => {
     oldInstanceMutation.reset()
 
     assert.equal(
-      queryClient.isMutating(videoTokenCreateMutationFilters(11, 'model-a')),
+      queryClient.isMutating(videoTokenCreateMutationFilters(11)),
       1
     )
-    assert.equal(canStartVideoTokenCreate(queryClient, 11, 'model-a'), false)
+    assert.equal(canStartVideoTokenCreate(queryClient, 11), false)
 
     finishMutation(readyVideoToken(17))
     await pendingMutation
-    assert.equal(canStartVideoTokenCreate(queryClient, 11, 'model-a'), true)
+    assert.equal(canStartVideoTokenCreate(queryClient, 11), true)
   })
 })

@@ -41,6 +41,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { VideoComposer } from './components/video-composer'
 import { VideoSampleGallery } from './components/video-sample-gallery'
 import { VideoStudioNav } from './components/video-studio-nav'
+import { useVideoTokenGate } from './hooks/use-video-token-gate'
 import { useVideoSample } from './queries'
 import type { VideoSample, VideoSubmissionReceipt } from './types'
 
@@ -66,7 +67,11 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
   const navigate = useNavigate()
   const desktop = useMediaQuery('(min-width: 1180px)')
   const mobile = useMediaQuery('(max-width: 767px)')
-  const initialSampleQuery = useVideoSample(props.initialSampleId)
+  const videoTokenGate = useVideoTokenGate()
+  const initialSampleQuery = useVideoSample(
+    props.initialSampleId,
+    videoTokenGate.tokenId
+  )
   const composerButtonRef = useRef<HTMLButtonElement>(null)
   const [selectedSample, setSelectedSample] = useState<
     VideoSample | undefined
@@ -110,6 +115,7 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
   const composer = (
     <VideoComposer
       sample={selectedSample}
+      videoTokenGate={videoTokenGate}
       onSubmitted={handleSubmitted}
       onSubmissionUnknown={navigateToLibrary}
     />
@@ -134,6 +140,7 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
       <VideoStudioNav action={composerAction} />
       <div className='flex min-h-0 flex-1'>
         <VideoSampleGallery
+          tokenId={videoTokenGate.tokenId}
           selectedSampleId={selectedSample?.id}
           onTrySample={trySample}
         />

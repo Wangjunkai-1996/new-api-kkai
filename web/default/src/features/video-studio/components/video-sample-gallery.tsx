@@ -45,6 +45,7 @@ import type { VideoSample } from '../types'
 import { VideoSampleCard } from './video-sample-card'
 
 type VideoSampleGalleryProps = {
+  tokenId?: number | null
   selectedSampleId?: number
   onTrySample: (sample: VideoSample) => void
 }
@@ -111,8 +112,8 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     VIDEO_SAMPLE_PREVIEW_INITIAL_STATE
   )
   const [modelFilter, setModelFilter] = useState('')
-  const modelsQuery = useVideoModels()
-  const samplesQuery = useVideoSamples({
+  const modelsQuery = useVideoModels(props.tokenId)
+  const samplesQuery = useVideoSamples(props.tokenId, {
     model: modelFilter || undefined,
   })
   const samples = useMemo(

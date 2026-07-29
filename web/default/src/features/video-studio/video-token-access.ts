@@ -42,7 +42,6 @@ export type VideoTokenGateAction = 'create' | 'recheck' | 'none'
 
 export type VideoTokenScopeBlocker = Readonly<{
   userId: number
-  model: string
   access: VideoTokenAccess
 }>
 
@@ -145,10 +144,9 @@ export const getVideoTokenRequestFailureAccess = (
 export const getVideoTokenScopeAccess = (
   queriedAccess: VideoTokenAccess | null,
   blocker: VideoTokenScopeBlocker | null,
-  userId: number,
-  model?: string
+  userId: number
 ): VideoTokenAccess | null => {
-  if (blocker?.userId !== userId || blocker.model !== model) {
+  if (blocker?.userId !== userId) {
     return queriedAccess
   }
   return blocker.access
@@ -157,14 +155,9 @@ export const getVideoTokenScopeAccess = (
 export const releaseVideoTokenScopeBlocker = (
   blocker: VideoTokenScopeBlocker | null,
   userId: number,
-  model: string,
   checkSucceeded: boolean
 ): VideoTokenScopeBlocker | null => {
-  if (
-    !checkSucceeded ||
-    blocker?.userId !== userId ||
-    blocker.model !== model
-  ) {
+  if (!checkSucceeded || blocker?.userId !== userId) {
     return blocker
   }
   return null

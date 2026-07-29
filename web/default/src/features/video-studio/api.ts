@@ -66,31 +66,43 @@ const unwrapVideoStudioResponse = <T>(payload: T | ApiEnvelope<T>): T => {
   return payload as T
 }
 
-export const getVideoModels = async (): Promise<VideoModelProfile[]> => {
-  const response = await api.get('/api/video-studio/models')
+export const getVideoModels = async (
+  tokenId: number
+): Promise<VideoModelProfile[]> => {
+  const response = await api.get('/api/video-studio/models', {
+    params: { token_id: tokenId },
+    disableDuplicate: true,
+    skipErrorHandler: true,
+  })
   return unwrapVideoStudioResponse<VideoModelProfile[]>(response.data)
 }
 
 export const getVideoSamples = async (
+  tokenId: number,
   filters: VideoSampleFilters
 ): Promise<CursorPage<VideoSample>> => {
   const response = await api.get('/api/video-studio/samples', {
-    params: filters,
+    params: { ...filters, token_id: tokenId },
     disableDuplicate: true,
+    skipErrorHandler: true,
   })
   return unwrapVideoStudioResponse<CursorPage<VideoSample>>(response.data)
 }
 
-export const getVideoSample = async (id: number): Promise<VideoSample> => {
-  const response = await api.get(`/api/video-studio/samples/${id}`)
+export const getVideoSample = async (
+  id: number,
+  tokenId: number
+): Promise<VideoSample> => {
+  const response = await api.get(`/api/video-studio/samples/${id}`, {
+    params: { token_id: tokenId },
+    disableDuplicate: true,
+    skipErrorHandler: true,
+  })
   return unwrapVideoStudioResponse<VideoSample>(response.data)
 }
 
-export const getVideoTokenCapability = async (
-  model: string
-): Promise<VideoTokenCapability> => {
+export const getVideoTokenCapability = async (): Promise<VideoTokenCapability> => {
   const response = await api.get('/api/video-studio/token', {
-    params: { model },
     disableDuplicate: true,
     skipErrorHandler: true,
   })
@@ -99,12 +111,10 @@ export const getVideoTokenCapability = async (
   )
 }
 
-export const createVideoToken = async (
-  model: string
-): Promise<VideoTokenCreateResult> => {
+export const createVideoToken = async (): Promise<VideoTokenCreateResult> => {
   const response = await api.post(
     '/api/video-studio/token',
-    { model },
+    {},
     { skipErrorHandler: true }
   )
   return videoTokenCreateResultSchema.parse(

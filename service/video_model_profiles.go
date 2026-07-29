@@ -76,20 +76,13 @@ func ListEffectiveVideoModelProfiles(
 	ctx context.Context,
 	db *gorm.DB,
 	userID int,
+	tokenID int,
 	clientIP string,
 ) ([]VideoModelProfileView, error) {
-	if db == nil || userID <= 0 {
+	if db == nil || userID <= 0 || tokenID <= 0 {
 		return nil, ErrVideoStudioTokenInvalid
 	}
-	user, err := getCurrentVideoStudioUser(ctx, db, userID)
-	if err != nil {
-		return nil, err
-	}
-	if !videoStudioUserCanUseGroup(user) {
-		return nil, ErrVideoStudioTokenGroupUnavailable
-	}
-	models, migrated, err := effectiveVideoStudioModels(ctx, db, userID, clientIP)
-	invalidateMigratedVideoStudioTokenCache(userID, migrated)
+	models, err := effectiveVideoStudioModelsForToken(ctx, db, userID, tokenID, clientIP)
 	if err != nil || len(models) == 0 {
 		return []VideoModelProfileView{}, err
 	}

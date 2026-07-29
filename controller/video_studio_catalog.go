@@ -12,8 +12,13 @@ import (
 )
 
 func ListVideoStudioModels(c *gin.Context) {
+	tokenID, err := videoStudioCatalogTokenID(c)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
 	profiles, err := service.ListEffectiveVideoModelProfiles(
-		c.Request.Context(), model.DB, c.GetInt("id"), c.ClientIP(),
+		c.Request.Context(), model.DB, c.GetInt("id"), tokenID, c.ClientIP(),
 	)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -23,9 +28,14 @@ func ListVideoStudioModels(c *gin.Context) {
 }
 
 func ListVideoStudioSamples(c *gin.Context) {
+	tokenID, err := videoStudioCatalogTokenID(c)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	profiles, err := service.ListEffectiveVideoModelProfiles(
-		c.Request.Context(), model.DB, c.GetInt("id"), c.ClientIP(),
+		c.Request.Context(), model.DB, c.GetInt("id"), tokenID, c.ClientIP(),
 	)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -51,8 +61,13 @@ func GetVideoStudioSample(c *gin.Context) {
 		respondVideoStudioError(c, err)
 		return
 	}
+	tokenID, err := videoStudioCatalogTokenID(c)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
 	profiles, err := service.ListEffectiveVideoModelProfiles(
-		c.Request.Context(), model.DB, c.GetInt("id"), c.ClientIP(),
+		c.Request.Context(), model.DB, c.GetInt("id"), tokenID, c.ClientIP(),
 	)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -68,6 +83,14 @@ func GetVideoStudioSample(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, sample)
+}
+
+func videoStudioCatalogTokenID(c *gin.Context) (int, error) {
+	tokenID, err := strconv.Atoi(c.Query("token_id"))
+	if err != nil || tokenID <= 0 {
+		return 0, service.ErrVideoStudioTokenRequired
+	}
+	return tokenID, nil
 }
 
 func AdminListVideoStudioModelProfiles(c *gin.Context) {

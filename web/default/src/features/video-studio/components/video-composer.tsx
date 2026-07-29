@@ -47,7 +47,7 @@ import { useDebounce } from '@/hooks/use-debounce'
 import { formatQuota } from '@/lib/format'
 import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
 
-import { useVideoTokenGate } from '../hooks/use-video-token-gate'
+import type { VideoTokenGateState } from '../hooks/use-video-token-gate'
 import {
   useCreateVideoGeneration,
   useVideoModels,
@@ -97,6 +97,7 @@ import { VideoTokenSetupDialog } from './video-token-setup-dialog'
 
 type VideoComposerProps = {
   sample?: VideoSample
+  videoTokenGate: VideoTokenGateState
   onSubmitted?: (receipt: VideoSubmissionReceipt) => void
   onSubmissionUnknown?: (taskId: string) => void
 }
@@ -110,7 +111,7 @@ const getVideoStudioResponseError = (
 
 export function VideoComposer(props: VideoComposerProps) {
   const { t } = useTranslation()
-  const modelsQuery = useVideoModels()
+  const modelsQuery = useVideoModels(props.videoTokenGate.tokenId)
   const draft = useVideoStudioDraftStore((state) => state.draft)
   const saveDraft = useVideoStudioDraftStore((state) => state.saveDraft)
   const clearDraft = useVideoStudioDraftStore((state) => state.clearDraft)
@@ -150,7 +151,7 @@ export function VideoComposer(props: VideoComposerProps) {
   const selectedProfile = modelsQuery.data?.find(
     (profile) => profile.id === values.model_profile_id
   )
-  const videoTokenGate = useVideoTokenGate(selectedProfile?.model)
+  const videoTokenGate = props.videoTokenGate
   const videoTokenId = videoTokenGate.tokenId
   const blockAndRecheckVideoToken = videoTokenGate.blockAndRecheck
   const referenceHydrationFailed =

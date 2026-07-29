@@ -83,7 +83,7 @@ func createVideoStudioTestToken(t *testing.T, db *gorm.DB, mutate func(*model.To
 	return token
 }
 
-func TestGetVideoStudioTokenStatusSelectsOnlyUsableTokenForModel(t *testing.T) {
+func TestGetVideoStudioTokenStatusBindsTheFirstUsableKeyBeforeApplyingLegacyModelHint(t *testing.T) {
 	db := setupVideoStudioTokenTest(t)
 	ctx := context.Background()
 
@@ -95,11 +95,14 @@ func TestGetVideoStudioTokenStatusSelectsOnlyUsableTokenForModel(t *testing.T) {
 	assert.Equal(t, VideoStudioTokenStatusMissing, status.Status)
 	assert.Nil(t, status.Token)
 
-	createVideoStudioTestToken(t, db, nil)
+	bound := createVideoStudioTestToken(t, db, nil)
+	createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimits = "video-model-b"
+	})
 	status, err = GetVideoStudioTokenStatus(ctx, db, 42, "video-model-a", "192.0.2.1")
 	require.NoError(t, err)
 	assert.True(t, status.HasUsableToken)
-	assert.True(t, status.CanCreate)
+	assert.False(t, status.CanCreate)
 	assert.Equal(t, VideoStudioTokenStatusReady, status.Status)
 	require.NotNil(t, status.Token)
 	assert.Positive(t, status.Token.ID)
@@ -107,9 +110,12 @@ func TestGetVideoStudioTokenStatusSelectsOnlyUsableTokenForModel(t *testing.T) {
 
 	status, err = GetVideoStudioTokenStatus(ctx, db, 42, "video-model-b", "192.0.2.1")
 	require.NoError(t, err)
-	assert.False(t, status.HasUsableToken)
-	assert.True(t, status.CanCreate)
-	assert.Nil(t, status.Token)
+	assert.True(t, status.HasUsableToken)
+	assert.False(t, status.CanCreate)
+	assert.Equal(t, VideoStudioTokenStatusModelsUnavailable, status.Status)
+	require.NotNil(t, status.Token)
+	assert.Equal(t, bound.Id, status.Token.ID)
+	assert.Equal(t, []string{"video-model-a"}, status.EffectiveModels)
 }
 
 func TestEnsureVideoStudioTokenIsIdempotentAndUsesEnabledModelWhitelist(t *testing.T) {
@@ -177,7 +183,7 @@ func TestSameNamedRestrictedVideoTokenKeepsExplicitModelLimits(t *testing.T) {
 		token.ModelLimits = "video-model-a"
 	})
 
-	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
 	require.NoError(t, err)
 	require.Len(t, profiles, 1)
 	require.Equal(t, "video-model-a", profiles[0].Model)
@@ -303,7 +309,7 @@ func TestOrdinaryRestrictedVideoTokenKeepsExplicitModelIntersection(t *testing.T
 	db := setupVideoStudioTokenTest(t)
 	token := createVideoStudioTestToken(t, db, nil)
 
-	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
 	require.NoError(t, err)
 	require.Len(t, profiles, 1)
 	require.Equal(t, "video-model-a", profiles[0].Model)
@@ -313,17 +319,91 @@ func TestOrdinaryRestrictedVideoTokenKeepsExplicitModelIntersection(t *testing.T
 	require.Equal(t, "video-model-a", token.ModelLimits)
 }
 
-func TestEffectiveVideoCatalogUsesUnionOfUsableRestrictedTokens(t *testing.T) {
+func TestEffectiveVideoCatalogIsScopedToTheRequestedToken(t *testing.T) {
 	db := setupVideoStudioTokenTest(t)
-	createVideoStudioTestToken(t, db, nil)
-	createVideoStudioTestToken(t, db, func(token *model.Token) {
+	modelAToken := createVideoStudioTestToken(t, db, nil)
+	modelBToken := createVideoStudioTestToken(t, db, func(token *model.Token) {
 		token.ModelLimits = "video-model-b"
 	})
 
-	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, modelAToken.Id, "192.0.2.1")
 	require.NoError(t, err)
-	require.Len(t, profiles, 2)
-	require.ElementsMatch(t, []string{"video-model-a", "video-model-b"}, []string{profiles[0].Model, profiles[1].Model})
+	require.Len(t, profiles, 1)
+	require.Equal(t, "video-model-a", profiles[0].Model)
+
+	profiles, err = ListEffectiveVideoModelProfiles(context.Background(), db, 42, modelBToken.Id, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	require.Equal(t, "video-model-b", profiles[0].Model)
+}
+
+func TestEffectiveVideoCatalogRevalidatesRequestedTokenBoundary(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(*model.Token)
+		userID    int
+		clientIP  string
+		wantError error
+	}{
+		{name: "foreign token", userID: 99, clientIP: "192.0.2.1", wantError: ErrVideoStudioTokenInvalid},
+		{name: "disabled token", userID: 42, clientIP: "192.0.2.1", mutate: func(token *model.Token) {
+			token.Status = common.TokenStatusDisabled
+		}, wantError: ErrVideoStudioTokenInvalid},
+		{name: "wrong group", userID: 42, clientIP: "192.0.2.1", mutate: func(token *model.Token) {
+			token.Group = "default"
+		}, wantError: ErrVideoStudioTokenGroupInvalid},
+		{name: "outside IP allowlist", userID: 42, clientIP: "203.0.113.8", mutate: func(token *model.Token) {
+			allowIPs := "10.0.0.0/8"
+			token.AllowIps = &allowIPs
+		}, wantError: ErrVideoStudioTokenIPForbidden},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupVideoStudioTokenTest(t)
+			token := createVideoStudioTestToken(t, db, test.mutate)
+			profiles, err := ListEffectiveVideoModelProfiles(
+				context.Background(), db, test.userID, token.Id, test.clientIP,
+			)
+			require.ErrorIs(t, err, test.wantError)
+			require.Empty(t, profiles)
+		})
+	}
+}
+
+func TestEffectiveVideoCatalogDynamicallyFollowsBoundUnlimitedTokenAbilities(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	token := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimitsEnabled = false
+		token.ModelLimits = ""
+	})
+	const runtimeModel = "runtime-added-video-model"
+	priority := int64(0)
+
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
+	require.NoError(t, err)
+	require.NotContains(t, videoProfileModels(profiles), runtimeModel)
+
+	require.NoError(t, db.Create(&model.Ability{
+		Group: VideoStudioTokenGroup, Model: runtimeModel, ChannelId: 99, Enabled: true, Priority: &priority,
+	}).Error)
+	profiles, err = ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
+	require.NoError(t, err)
+	require.Contains(t, videoProfileModels(profiles), runtimeModel)
+
+	require.NoError(t, db.Model(&model.Ability{}).
+		Where(&model.Ability{Group: VideoStudioTokenGroup, Model: runtimeModel}).
+		Update("enabled", false).Error)
+	profiles, err = ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
+	require.NoError(t, err)
+	require.NotContains(t, videoProfileModels(profiles), runtimeModel)
+}
+
+func videoProfileModels(profiles []VideoModelProfileView) []string {
+	models := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		models = append(models, profile.Model)
+	}
+	return models
 }
 
 func TestEffectiveVideoCatalogIncludesAbilityWithoutProfile(t *testing.T) {
@@ -333,10 +413,14 @@ func TestEffectiveVideoCatalogIncludesAbilityWithoutProfile(t *testing.T) {
 		Group: VideoStudioTokenGroup, Model: "runtime-text-model", ChannelId: 99,
 		Enabled: true, Priority: &priority,
 	}).Error)
+	token := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimitsEnabled = false
+		token.ModelLimits = ""
+	})
 
-	first, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	first, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
 	require.NoError(t, err)
-	second, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	second, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
 	require.NoError(t, err)
 	require.Len(t, first, 3)
 
@@ -361,11 +445,15 @@ func TestEffectiveVideoCatalogIncludesAbilityWithoutProfile(t *testing.T) {
 
 func TestEffectiveVideoCatalogExcludesAbilityWithDisabledProfile(t *testing.T) {
 	db := setupVideoStudioTokenTest(t)
+	token := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimitsEnabled = false
+		token.ModelLimits = ""
+	})
 	require.NoError(t, db.Model(&model.KKAIVideoModelProfile{}).
 		Where("model = ?", "video-model-b").
 		Update("enabled", false).Error)
 
-	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
 	require.NoError(t, err)
 	require.Len(t, profiles, 1)
 	require.Equal(t, "video-model-a", profiles[0].Model)
@@ -517,7 +605,7 @@ func TestVideoStudioTokenStatusReportsStableUnavailableReasons(t *testing.T) {
 		})
 		status, err := GetVideoStudioTokenStatus(context.Background(), db, 42, "missing-video-model", "192.0.2.1")
 		require.NoError(t, err)
-		assert.False(t, status.HasUsableToken)
+		assert.True(t, status.HasUsableToken)
 		assert.False(t, status.CanCreate)
 		assert.Equal(t, VideoStudioTokenStatusModelsUnavailable, status.Status)
 	})

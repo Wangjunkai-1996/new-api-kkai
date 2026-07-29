@@ -44,28 +44,27 @@ import {
   type VideoTokenScopeBlocker,
 } from '../video-token-access'
 
-export const useVideoTokenGate = (model?: string) => {
+export const useVideoTokenGate = () => {
   const { t } = useTranslation()
-  const capabilityQuery = useVideoTokenCapability(model)
+  const capabilityQuery = useVideoTokenCapability()
   const createMutation = useCreateVideoToken()
   const queryClient = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
-  const creating = useIsCreatingVideoToken(userId, model)
+  const creating = useIsCreatingVideoToken(userId)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [tokenBlocker, setTokenBlocker] =
     useState<VideoTokenScopeBlocker | null>(null)
   const promptedScopesRef = useRef<Set<string>>(new Set())
-  const currentScopeRef = useRef({ userId, model })
-  currentScopeRef.current = { userId, model }
+  const currentUserIdRef = useRef(userId)
+  currentUserIdRef.current = userId
   const queriedAccess = capabilityQuery.data
     ? resolveVideoTokenAccess(capabilityQuery.data)
     : null
   const access = getVideoTokenScopeAccess(
     queriedAccess,
     tokenBlocker,
-    userId,
-    model
+    userId
   )
   const refetch = capabilityQuery.refetch
   const requiredGroup =
@@ -73,9 +72,9 @@ export const useVideoTokenGate = (model?: string) => {
     capabilityQuery.data?.required_group ||
     t('videoStudio.videoKey.videoGroup')
   const checking =
-    Boolean(model) && !capabilityQuery.data && capabilityQuery.isFetching
+    userId > 0 && !capabilityQuery.data && capabilityQuery.isFetching
   const checkFailed =
-    Boolean(model) &&
+    userId > 0 &&
     !capabilityQuery.data &&
     capabilityQuery.isError &&
     !capabilityQuery.isFetching
@@ -85,7 +84,7 @@ export const useVideoTokenGate = (model?: string) => {
     setDialogOpen(false)
     setCreateError(null)
     setTokenBlocker(null)
-  }, [model, userId])
+  }, [userId])
 
   useEffect(() => {
     if (!access || access.kind === 'missing') return
@@ -95,7 +94,6 @@ export const useVideoTokenGate = (model?: string) => {
 
   useEffect(() => {
     if (
-      !model ||
       !access ||
       !shouldAutoPromptVideoToken(promptedScopesRef.current, userId, access)
     ) {
@@ -107,36 +105,33 @@ export const useVideoTokenGate = (model?: string) => {
       access.requiredGroup
     )
     setDialogOpen(true)
-  }, [access, model, userId])
+  }, [access, userId])
 
   const recheckCapability = useCallback(async () => {
-    if (!model || userId <= 0) return
+    if (userId <= 0) return
     const result = await refetch()
-    const currentScope = currentScopeRef.current
-    if (currentScope.userId !== userId || currentScope.model !== model) {
-      return
-    }
+    if (currentUserIdRef.current !== userId) return
     setTokenBlocker((current) =>
-      releaseVideoTokenScopeBlocker(current, userId, model, result.isSuccess)
+      releaseVideoTokenScopeBlocker(current, userId, result.isSuccess)
     )
-  }, [model, refetch, userId])
+  }, [refetch, userId])
 
   const blockAndRecheck = useCallback(
     (errorKind: VideoTokenErrorKind): boolean => {
-      if (!model || userId <= 0) return false
+      if (userId <= 0) return false
       const blockedAccess = getVideoTokenRequestFailureAccess(
         errorKind,
         requiredGroup
       )
       if (!blockedAccess) return false
 
-      setTokenBlocker({ userId, model, access: blockedAccess })
+      setTokenBlocker({ userId, access: blockedAccess })
       setDialogOpen(false)
       setCreateError(null)
       void recheckCapability()
       return true
     },
-    [model, recheckCapability, requiredGroup, userId]
+    [recheckCapability, requiredGroup, userId]
   )
 
   const openOrRetry = useCallback(() => {
@@ -155,21 +150,16 @@ export const useVideoTokenGate = (model?: string) => {
 
   const createAndContinue = useCallback(async () => {
     if (
-      !model ||
       userId <= 0 ||
       access?.kind !== 'missing' ||
-      !canStartVideoTokenCreate(queryClient, userId, model)
+      !canStartVideoTokenCreate(queryClient, userId)
     ) {
       return
     }
 
-    const variables = { userId, model }
+    const variables = { userId }
     const isCurrentRequestScope = () => {
-      const currentScope = currentScopeRef.current
-      return (
-        currentScope.userId === variables.userId &&
-        currentScope.model === variables.model
-      )
+      return currentUserIdRef.current === variables.userId
     }
     setCreateError(null)
     try {
@@ -182,7 +172,7 @@ export const useVideoTokenGate = (model?: string) => {
           nextAccess.kind === 'limit-reached' ||
           nextAccess.kind === 'models-unavailable'
         ) {
-          setTokenBlocker({ userId, model, access: nextAccess })
+          setTokenBlocker({ userId, access: nextAccess })
           setDialogOpen(false)
           void recheckCapability()
           return
@@ -211,7 +201,6 @@ export const useVideoTokenGate = (model?: string) => {
     access,
     blockAndRecheck,
     createMutation,
-    model,
     queryClient,
     recheckCapability,
     t,
@@ -236,3 +225,5 @@ export const useVideoTokenGate = (model?: string) => {
     createAndContinue,
   }
 }
+
+export type VideoTokenGateState = ReturnType<typeof useVideoTokenGate>

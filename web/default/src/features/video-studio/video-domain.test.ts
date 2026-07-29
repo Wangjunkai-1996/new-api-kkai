@@ -182,6 +182,29 @@ test('draft restore follows the persisted profile across model reordering', () =
   )
 })
 
+test('draft restore drops a model that is outside the bound key catalog', () => {
+  const unavailableProfile: VideoModelProfile = {
+    ...profile,
+    id: 2,
+    model: 'other-key-only-model',
+  }
+  const restored = restoreVideoComposerDraft([profile], {
+    model_profile_id: unavailableProfile.id,
+    mode: 'image_to_video',
+    prompt: 'Keep only the prompt',
+    reference_asset_ids: [42],
+    parameters: { duration: 12 },
+  })
+
+  assert.deepEqual(restored, {
+    model_profile_id: profile.id,
+    mode: 'text_to_video',
+    prompt: '',
+    reference_asset_ids: [],
+    parameters: { duration: 5, quality: 'standard' },
+  })
+})
+
 test('draft refresh preserves reference IDs and revalidates updated model parameters', () => {
   const updatedProfile: VideoModelProfile = {
     ...profile,
