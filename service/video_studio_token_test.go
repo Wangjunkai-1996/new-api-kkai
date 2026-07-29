@@ -24,7 +24,7 @@ func newVideoStudioTokenTestDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:video-token-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.KKAIVideoModelProfile{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.KKAIVideoModelProfile{}, &model.Ability{}))
 	return db
 }
 
@@ -55,8 +55,14 @@ func setupVideoStudioTokenTest(t *testing.T) *gorm.DB {
 	for index, modelName := range []string{"video-model-b", "video-model-a"} {
 		require.NoError(t, db.Create(&model.KKAIVideoModelProfile{
 			Model: modelName, DisplayName: modelName, Description: "test", SpecificationVersion: 1,
-			Specification: `{}`, DefaultParameters: `{}`, Enabled: true, SortOrder: index,
+			Specification:     `{"version":1,"modes":["text_to_video"],"parameters":[]}`,
+			DefaultParameters: `{}`, Enabled: true, SortOrder: index,
 			CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+		}).Error)
+		priority := int64(0)
+		require.NoError(t, db.Create(&model.Ability{
+			Group: VideoStudioTokenGroup, Model: modelName, ChannelId: index + 1,
+			Enabled: true, Priority: &priority,
 		}).Error)
 	}
 	return db
@@ -132,10 +138,238 @@ func TestEnsureVideoStudioTokenIsIdempotentAndUsesEnabledModelWhitelist(t *testi
 	assert.Equal(t, common.TokenStatusEnabled, token.Status)
 	assert.Equal(t, int64(-1), token.ExpiredTime)
 	assert.True(t, token.UnlimitedQuota)
-	assert.True(t, token.ModelLimitsEnabled)
-	assert.Equal(t, "video-model-a,video-model-b", token.ModelLimits)
+	assert.False(t, token.ModelLimitsEnabled)
+	assert.Empty(t, token.ModelLimits)
 	assert.Equal(t, VideoStudioTokenGroup, token.Group)
 	assert.False(t, token.CrossGroupRetry)
+}
+
+func TestLegacyVideoStudioTokenLazilyFollowsNewGroupAbilities(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: VideoStudioTokenGroup, Model: "runtime-video-model", ChannelId: 99,
+		Enabled: true, Priority: &priority,
+	}).Error)
+	legacy := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.Name = videoStudioTokenName
+		token.ModelLimits = "video-model-a,video-model-b"
+	})
+
+	status, err := GetVideoStudioTokenStatus(
+		context.Background(), db, 42, "runtime-video-model", "192.0.2.1",
+	)
+	require.NoError(t, err)
+	require.Equal(t, VideoStudioTokenStatusReady, status.Status)
+	require.NotNil(t, status.Token)
+	require.Equal(t, legacy.Id, status.Token.ID)
+	require.ElementsMatch(t, []string{"runtime-video-model", "video-model-a", "video-model-b"}, status.EffectiveModels)
+
+	require.NoError(t, db.First(&legacy, legacy.Id).Error)
+	require.False(t, legacy.ModelLimitsEnabled)
+	require.Empty(t, legacy.ModelLimits)
+}
+
+func TestSameNamedRestrictedVideoTokenKeepsExplicitModelLimits(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	token := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.Name = videoStudioTokenName
+		token.ModelLimits = "video-model-a"
+	})
+
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	require.Equal(t, "video-model-a", profiles[0].Model)
+
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.True(t, token.ModelLimitsEnabled)
+	require.Equal(t, "video-model-a", token.ModelLimits)
+}
+
+func TestLegacyVideoStudioTokenRepairPreservesUserChangedSignature(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*model.Token)
+	}{
+		{name: "reordered model limits", mutate: func(token *model.Token) {
+			token.ModelLimits = "video-model-b,video-model-a"
+		}},
+		{name: "finite quota", mutate: func(token *model.Token) {
+			token.UnlimitedQuota = false
+			token.RemainQuota = 1
+		}},
+		{name: "custom expiry", mutate: func(token *model.Token) {
+			token.ExpiredTime = time.Now().Add(time.Hour).Unix()
+		}},
+		{name: "cross group retry", mutate: func(token *model.Token) {
+			token.CrossGroupRetry = true
+		}},
+		{name: "ip allowlist", mutate: func(token *model.Token) {
+			allowIPs := "192.0.2.0/24"
+			token.AllowIps = &allowIPs
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupVideoStudioTokenTest(t)
+			token := createVideoStudioTestToken(t, db, func(token *model.Token) {
+				token.Name = videoStudioTokenName
+				token.ModelLimits = "video-model-a,video-model-b"
+				test.mutate(token)
+			})
+
+			migrated, err := repairLegacyVideoStudioTokenLimits(context.Background(), db, &token)
+			require.NoError(t, err)
+			require.False(t, migrated)
+			require.NoError(t, db.First(&token, token.Id).Error)
+			require.True(t, token.ModelLimitsEnabled)
+			require.NotEmpty(t, token.ModelLimits)
+		})
+	}
+}
+
+func TestLegacyVideoStudioTokenRepairDoesNotOverwriteConcurrentModelLimitEdit(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	stale := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.Name = videoStudioTokenName
+		token.ModelLimits = "video-model-a,video-model-b"
+	})
+	require.NoError(t, db.Model(&model.Token{}).Where("id = ?", stale.Id).Update("model_limits", "video-model-a").Error)
+
+	migrated, err := repairLegacyVideoStudioTokenLimits(context.Background(), db, &stale)
+	require.NoError(t, err)
+	require.False(t, migrated)
+	require.True(t, stale.ModelLimitsEnabled)
+	require.Equal(t, "video-model-a", stale.ModelLimits)
+
+	validated, err := ValidateVideoStudioToken(
+		context.Background(), db, 42, stale.Id, "video-model-b", "192.0.2.1",
+	)
+	require.ErrorIs(t, err, ErrVideoStudioTokenModelForbidden)
+	require.Nil(t, validated)
+}
+
+func TestEnsureVideoStudioTokenInvalidatesLegacyRepairAfterTransactionCommit(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	legacy := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.Name = videoStudioTokenName
+		token.ModelLimits = "video-model-a,video-model-b"
+	})
+
+	previousInvalidator := videoStudioTokenCacheInvalidator
+	observedCommittedState := make(chan bool, 4)
+	videoStudioTokenCacheInvalidator = func(userID int) error {
+		var stored model.Token
+		if err := db.Where("id = ? AND user_id = ?", legacy.Id, userID).First(&stored).Error; err != nil {
+			return err
+		}
+		observedCommittedState <- !stored.ModelLimitsEnabled && stored.ModelLimits == ""
+		return nil
+	}
+	t.Cleanup(func() { videoStudioTokenCacheInvalidator = previousInvalidator })
+
+	type ensureOutcome struct {
+		result VideoStudioTokenEnsureResult
+		err    error
+	}
+	done := make(chan ensureOutcome, 1)
+	go func() {
+		result, err := EnsureVideoStudioToken(context.Background(), db, 42, "video-model-a", "192.0.2.1")
+		done <- ensureOutcome{result: result, err: err}
+	}()
+
+	select {
+	case outcome := <-done:
+		require.NoError(t, outcome.err)
+		require.NotNil(t, outcome.result.Token)
+		require.Equal(t, legacy.Id, outcome.result.Token.ID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("video studio token ensure blocked while repairing a legacy token in a single-connection transaction")
+	}
+
+	select {
+	case committed := <-observedCommittedState:
+		require.True(t, committed)
+	case <-time.After(time.Second):
+		t.Fatal("legacy token cache was not invalidated after the transaction committed")
+	}
+}
+
+func TestOrdinaryRestrictedVideoTokenKeepsExplicitModelIntersection(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	token := createVideoStudioTestToken(t, db, nil)
+
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	require.Equal(t, "video-model-a", profiles[0].Model)
+
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.True(t, token.ModelLimitsEnabled)
+	require.Equal(t, "video-model-a", token.ModelLimits)
+}
+
+func TestEffectiveVideoCatalogUsesUnionOfUsableRestrictedTokens(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	createVideoStudioTestToken(t, db, nil)
+	createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimits = "video-model-b"
+	})
+
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, profiles, 2)
+	require.ElementsMatch(t, []string{"video-model-a", "video-model-b"}, []string{profiles[0].Model, profiles[1].Model})
+}
+
+func TestEffectiveVideoCatalogIncludesAbilityWithoutProfile(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: VideoStudioTokenGroup, Model: "runtime-text-model", ChannelId: 99,
+		Enabled: true, Priority: &priority,
+	}).Error)
+
+	first, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	require.NoError(t, err)
+	second, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, first, 3)
+
+	var runtimeFirst, runtimeSecond *VideoModelProfileView
+	for index := range first {
+		if first[index].Model == "runtime-text-model" {
+			runtimeFirst = &first[index]
+		}
+	}
+	for index := range second {
+		if second[index].Model == "runtime-text-model" {
+			runtimeSecond = &second[index]
+		}
+	}
+	require.NotNil(t, runtimeFirst)
+	require.NotNil(t, runtimeSecond)
+	require.Negative(t, runtimeFirst.ID)
+	require.NotZero(t, runtimeFirst.ID)
+	require.Equal(t, runtimeFirst.ID, runtimeSecond.ID)
+	require.Equal(t, []string{VideoModeTextToVideo}, runtimeFirst.Specification.Modes)
+}
+
+func TestEffectiveVideoCatalogExcludesAbilityWithDisabledProfile(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	require.NoError(t, db.Model(&model.KKAIVideoModelProfile{}).
+		Where("model = ?", "video-model-b").
+		Update("enabled", false).Error)
+
+	profiles, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	require.Equal(t, "video-model-a", profiles[0].Model)
+	require.Positive(t, profiles[0].ID)
 }
 
 func TestEnsureVideoStudioTokenConcurrentRequestsConvergeOnOneToken(t *testing.T) {

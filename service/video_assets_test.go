@@ -30,6 +30,25 @@ func TestCreateVideoAssetUploadRestrictsCatalogSamplesToAdministrators(t *testin
 	require.Positive(t, upload.UploadLimits.ReferenceMaxBytes)
 }
 
+func TestCreateVideoAssetUploadAcceptsUserVideoReferences(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMemoryVideoAssetStore()
+	upload, err := CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
+		Purpose: model.VideoUploadPurposeReferenceVideo, Filename: "reference.mp4",
+		MIMEType: "video/mp4", SizeBytes: 1024,
+	})
+	require.NoError(t, err)
+	require.Equal(t, model.VideoAssetScopeUser, upload.Asset.Scope)
+	require.Equal(t, model.VideoAssetKindReference, upload.Asset.Kind)
+	require.Equal(t, upload.UploadLimits.ArchiveMaxBytes, upload.MaxSizeBytes)
+
+	_, err = CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
+		Purpose: model.VideoUploadPurposeReferenceVideo, Filename: "reference.png",
+		MIMEType: "image/png", SizeBytes: 1024,
+	})
+	require.ErrorIs(t, err, ErrInvalidVideoAssetUpload)
+}
+
 func TestCompleteVideoAssetUploadRejectsAnotherUser(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
 	store := newMemoryVideoAssetStore()

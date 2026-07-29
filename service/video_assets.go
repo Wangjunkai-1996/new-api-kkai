@@ -98,6 +98,11 @@ func CreateVideoAssetUpload(
 		if !isSupportedReferenceMIME(request.MIMEType) {
 			return nil, ErrInvalidVideoAssetUpload
 		}
+	case model.VideoUploadPurposeReferenceVideo:
+		if !isSupportedVideoMIME(request.MIMEType) {
+			return nil, ErrInvalidVideoAssetUpload
+		}
+		maxBytes = uploadLimits.ArchiveMaxBytes
 	case model.VideoAssetKindSample:
 		if !isAdmin || !isSupportedVideoMIME(request.MIMEType) {
 			return nil, ErrInvalidVideoAssetUpload

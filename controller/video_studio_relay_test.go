@@ -43,6 +43,7 @@ func newVideoStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Task{}, &model.KKAIIdempotencyKey{}, &model.Token{}, &model.KKAIVideoModelProfile{},
+		&model.KKAIVideoSample{}, &model.Ability{},
 	))
 	require.NoError(t, db.Create(&model.User{
 		Id: 7, Username: "video-relay-user", Password: "password", DisplayName: "Video User",
@@ -54,6 +55,11 @@ func newVideoStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 		ExpiredTime: -1, UnlimitedQuota: true, Group: service.VideoStudioTokenGroup,
 	}
 	require.NoError(t, db.Create(&token).Error)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: service.VideoStudioTokenGroup, Model: "video-model-v1", ChannelId: 1,
+		Enabled: true, Priority: &priority,
+	}).Error)
 	return db, token
 }
 
@@ -129,6 +135,50 @@ func TestPrepareVideoStudioTaskRequestForcesValidatedTokenGroup(t *testing.T) {
 	var payload map[string]any
 	require.NoError(t, common.Unmarshal(rewritten, &payload))
 	require.Equal(t, service.VideoStudioTokenGroup, payload["group"])
+}
+
+func TestPrepareVideoStudioTaskRequestRejectsSampleDerivedModelWithoutGroupAbility(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, token := newVideoStudioRelayTestDB(t)
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	specification, err := common.Marshal(service.VideoModelSpec{
+		Version: 1, Modes: []string{service.VideoModeTextToVideo},
+	})
+	require.NoError(t, err)
+	profile := model.KKAIVideoModelProfile{
+		Model: "sample-only-model", DisplayName: "Sample-only Model", Description: "test",
+		SpecificationVersion: 1, Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&profile).Error)
+	sample := model.KKAIVideoSample{
+		ModelProfileID: profile.ID, Title: "Unavailable sample", Prompt: "test", Mode: service.VideoModeTextToVideo,
+		ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, Status: model.VideoSampleStatusPublished,
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&sample).Error)
+
+	body, err := common.Marshal(map[string]any{
+		"token_id": token.Id, "sample_id": sample.ID,
+	})
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, "/pg/videos/quote", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = request
+	ctx.Set("id", 7)
+	ctx.Set("user_group", "default")
+	ctx.Set(videoStudioAssetStoreContextKey, videoStudioRelayTestStore{})
+
+	PrepareVideoStudioTaskRequest(ctx)
+
+	require.True(t, ctx.IsAborted())
+	require.Equal(t, http.StatusForbidden, response.Code)
+	require.Contains(t, response.Body.String(), "video_token_model_forbidden")
 }
 
 func TestVideoStudioDistributionUsesValidatedTokenGroup(t *testing.T) {

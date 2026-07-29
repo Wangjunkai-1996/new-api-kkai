@@ -274,6 +274,58 @@ test('quote request maps first and last frame assets by canonical role order', (
   )
 })
 
+test('video-reference runtime profiles submit the reference_video role', () => {
+  const videoReferenceProfile: VideoModelProfile = {
+    ...profile,
+    id: -42,
+    model: 'sd_2.0_special_1080p_with_video_ref',
+    specification: {
+      version: 1,
+      modes: ['image_to_video'],
+      parameters: [],
+      reference_inputs: [
+        {
+          role: 'reference_video',
+          request_key: 'reference_video',
+          required: true,
+        },
+      ],
+    },
+  }
+
+  assert.deepEqual(
+    getVideoReferenceRoles(videoReferenceProfile, 'image_to_video'),
+    ['reference_video']
+  )
+  assert.equal(
+    validateComposerForProfile(
+      {
+        model_profile_id: videoReferenceProfile.id,
+        mode: 'image_to_video',
+        prompt: 'Extend this video',
+        reference_asset_ids: [77],
+        parameters: {},
+      },
+      videoReferenceProfile
+    ),
+    null
+  )
+  assert.deepEqual(
+    buildVideoQuoteRequest(
+      {
+        model_profile_id: videoReferenceProfile.id,
+        mode: 'image_to_video',
+        prompt: 'Extend this video',
+        reference_asset_ids: [77],
+        parameters: {},
+      },
+      videoReferenceProfile,
+      42
+    ).reference_assets,
+    [{ asset_id: 77, role: 'reference_video' }]
+  )
+})
+
 test('create request carries the complete quote contract', () => {
   const request = buildVideoQuoteRequest(
     {

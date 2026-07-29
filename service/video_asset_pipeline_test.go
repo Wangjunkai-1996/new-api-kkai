@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -140,4 +141,62 @@ func TestResolveVideoArchiveSourceScopesSoraProviderContentToConfiguredBase(t *t
 	require.Equal(t, providerBaseURL+"/v1/videos/upstream-private/content", resolved.fetch.Source)
 	require.Equal(t, providerBaseURL, resolved.fetch.ProviderContentBaseURL)
 	require.Equal(t, "Bearer provider-key", resolved.fetch.Headers["Authorization"])
+}
+
+func TestVideoAssetPipelineInspectsVideoReferenceAndCreatesPoster(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMemoryVideoAssetStore()
+	store.objects["reference.mp4"] = []byte("video")
+	store.contentType["reference.mp4"] = "video/mp4"
+	now := time.Now().Unix()
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateUploaded, ObjectKey: "reference.mp4", MIMEType: "video/mp4",
+		SizeBytes: 5, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	pipeline, err := NewVideoAssetPipeline(
+		db, store, staticVideoMediaProcessor{}, &staticVideoArchiveFetcher{}, t.TempDir(),
+	)
+	require.NoError(t, err)
+	payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
+	require.NoError(t, err)
+	event := model.KKAIOutboxEvent{Payload: string(payload)}
+
+	require.NoError(t, pipeline.HandleInspect(context.Background(), event))
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateProcessing, asset.State)
+	require.NoError(t, pipeline.HandlePoster(context.Background(), event))
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateReady, asset.State)
+	require.NotEmpty(t, asset.PosterObjectKey)
+}
+
+func TestVideoAssetPipelineRejectsImageContentReservedAsVideoReference(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMemoryVideoAssetStore()
+	store.objects["disguised-reference.mp4"] = []byte("image")
+	store.contentType["disguised-reference.mp4"] = "video/mp4"
+	now := time.Now().Unix()
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateUploaded, ObjectKey: "disguised-reference.mp4", MIMEType: "video/mp4",
+		SizeBytes: 5, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	media := callbackVideoMediaProcessor{inspect: func(context.Context, string) (VideoMediaMetadata, error) {
+		return VideoMediaMetadata{MIMEType: "image/png", Width: 1920, Height: 1080, Codec: "png"}, nil
+	}}
+	pipeline, err := NewVideoAssetPipeline(
+		db, store, media, &staticVideoArchiveFetcher{}, t.TempDir(),
+	)
+	require.NoError(t, err)
+	payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
+	require.NoError(t, err)
+
+	err = pipeline.HandleInspect(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)})
+	require.ErrorIs(t, err, ErrVideoMediaInvalid)
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateFailed, asset.State)
+	require.Equal(t, "video/mp4", asset.MIMEType)
 }

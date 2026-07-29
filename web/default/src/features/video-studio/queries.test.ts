@@ -48,6 +48,7 @@ const readyVideoToken = (id: number): VideoTokenCreateResult => ({
   required_group: 'Seedance 视频',
   has_usable_token: true,
   can_create: true,
+  effective_models: ['model-a', 'model-b'],
   status: 'ready',
   token: { id, name: '视频工作室', group: 'Seedance 视频' },
   created: true,
@@ -69,22 +70,26 @@ describe('video studio private query ownership', () => {
     queryClient.clear()
   })
 
-  test('removes user A private data on an A to B switch without touching B or public catalogs', () => {
+  test('removes user A private data on an A to B switch without touching B data', () => {
     useAuthStore.getState().auth.setUser(authUser(11))
     unsubscribe = installAuthQueryCacheBoundary(queryClient)
     const userAGenerations = videoStudioQueryKeys.generations(11, {})
     const userAAsset = videoStudioQueryKeys.asset(11, 101)
     const userAToken = videoStudioQueryKeys.token(11, 'video-model')
     const userBGenerations = videoStudioQueryKeys.generations(22, {})
-    const publicModels = videoStudioQueryKeys.models()
-    const publicSamples = videoStudioQueryKeys.samples({})
+    const userAModels = videoStudioQueryKeys.models(11)
+    const userBModels = videoStudioQueryKeys.models(22)
+    const userASamples = videoStudioQueryKeys.samples(11, {})
+    const userBSamples = videoStudioQueryKeys.samples(22, {})
 
     queryClient.setQueryData(userAGenerations, ['user-a-generation'])
     queryClient.setQueryData(userAAsset, { id: 101 })
     queryClient.setQueryData(userAToken, { token: { id: 7 } })
     queryClient.setQueryData(userBGenerations, ['user-b-generation'])
-    queryClient.setQueryData(publicModels, ['public-model'])
-    queryClient.setQueryData(publicSamples, ['public-sample'])
+    queryClient.setQueryData(userAModels, ['user-a-model'])
+    queryClient.setQueryData(userBModels, ['user-b-model'])
+    queryClient.setQueryData(userASamples, ['user-a-sample'])
+    queryClient.setQueryData(userBSamples, ['user-b-sample'])
 
     useAuthStore.getState().auth.setUser(authUser(22))
 
@@ -94,8 +99,10 @@ describe('video studio private query ownership', () => {
     assert.deepEqual(queryClient.getQueryData(userBGenerations), [
       'user-b-generation',
     ])
-    assert.deepEqual(queryClient.getQueryData(publicModels), ['public-model'])
-    assert.deepEqual(queryClient.getQueryData(publicSamples), ['public-sample'])
+    assert.equal(queryClient.getQueryData(userAModels), undefined)
+    assert.deepEqual(queryClient.getQueryData(userBModels), ['user-b-model'])
+    assert.equal(queryClient.getQueryData(userASamples), undefined)
+    assert.deepEqual(queryClient.getQueryData(userBSamples), ['user-b-sample'])
   })
 
   test('removes the authenticated user private data when the session is reset', () => {
@@ -109,15 +116,15 @@ describe('video studio private query ownership', () => {
       parameters: {},
       reference_assets: [],
     })
-    const publicModels = videoStudioQueryKeys.models()
+    const privateModels = videoStudioQueryKeys.models(11)
 
     queryClient.setQueryData(privateQuote, { request_hash: 'private' })
-    queryClient.setQueryData(publicModels, ['public-model'])
+    queryClient.setQueryData(privateModels, ['private-model'])
 
     useAuthStore.getState().auth.reset()
 
     assert.equal(queryClient.getQueryData(privateQuote), undefined)
-    assert.deepEqual(queryClient.getQueryData(publicModels), ['public-model'])
+    assert.equal(queryClient.getQueryData(privateModels), undefined)
   })
 
   test('does not write a completed user A token mutation after switching to user B', async () => {

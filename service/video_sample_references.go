@@ -81,7 +81,8 @@ func validateVideoSampleReferenceSnapshots(snapshots []VideoSampleReferenceSnaps
 			return ErrInvalidVideoSample
 		}
 		switch snapshot.Role {
-		case model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame:
+		case model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo,
+			model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame:
 		default:
 			return ErrInvalidVideoSample
 		}

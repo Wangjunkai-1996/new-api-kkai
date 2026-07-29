@@ -51,7 +51,7 @@ export const sanitizeVideoStudioDraft = (
   if (
     !isRecord(value) ||
     !Number.isSafeInteger(value.model_profile_id) ||
-    Number(value.model_profile_id) <= 0 ||
+    Number(value.model_profile_id) === 0 ||
     typeof value.mode !== 'string' ||
     !videoGenerationModes.has(value.mode) ||
     typeof value.prompt !== 'string' ||

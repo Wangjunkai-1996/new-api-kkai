@@ -47,6 +47,7 @@ export const videoTokenCapabilitySchema = z.object({
   required_group: z.string().min(1),
   has_usable_token: z.boolean(),
   can_create: z.boolean(),
+  effective_models: z.array(z.string().min(1)).optional(),
   token: videoTokenSummarySchema.nullish(),
   status: z.enum([
     'ready',
@@ -71,7 +72,7 @@ export const videoComposerSchema = z.object({
   model_profile_id: z
     .number()
     .int()
-    .positive('videoStudio.validation.modelRequired'),
+    .refine((value) => value !== 0, 'videoStudio.validation.modelRequired'),
   mode: z.enum(VIDEO_GENERATION_MODES),
   prompt: z
     .string()
@@ -130,7 +131,12 @@ export const videoModelSpecSchema = z.object({
   reference_inputs: z
     .array(
       z.object({
-        role: z.enum(['reference', 'first_frame', 'last_frame']),
+        role: z.enum([
+          'reference',
+          'reference_video',
+          'first_frame',
+          'last_frame',
+        ]),
         request_key: z.string().min(1),
         required: z.boolean(),
       })
@@ -234,7 +240,9 @@ export const validateComposerForProfile = (
     profile.specification.reference_inputs ?? []
   ).filter((input) => {
     if (!input.required || values.mode === 'text_to_video') return false
-    if (values.mode === 'image_to_video') return input.role === 'reference'
+    if (values.mode === 'image_to_video') {
+      return input.role === 'reference' || input.role === 'reference_video'
+    }
     return input.role === 'first_frame' || input.role === 'last_frame'
   }).length
   if (values.reference_asset_ids.length !== requiredReferences) {

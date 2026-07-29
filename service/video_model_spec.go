@@ -248,7 +248,8 @@ func validateVideoReferenceInputs(inputs []VideoReferenceInputSpec, modes map[st
 	referenceRequestKeys := make(map[string]string, len(inputs))
 	for _, input := range inputs {
 		switch input.Role {
-		case model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame:
+		case model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo,
+			model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame:
 		default:
 			return fmt.Errorf("%w: unsupported reference role %q", ErrInvalidVideoModelSpec, input.Role)
 		}
@@ -271,9 +272,14 @@ func validateVideoReferenceInputs(inputs []VideoReferenceInputSpec, modes map[st
 		roles[input.Role] = input
 	}
 	if _, supported := modes[VideoModeImageToVideo]; supported {
-		input, ok := roles[model.VideoTaskAssetRoleReference]
-		if !ok || !input.Required {
-			return fmt.Errorf("%w: image_to_video requires a required reference input mapping", ErrInvalidVideoModelSpec)
+		requiredReferences := 0
+		for _, role := range []string{model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo} {
+			if input, ok := roles[role]; ok && input.Required {
+				requiredReferences++
+			}
+		}
+		if requiredReferences != 1 {
+			return fmt.Errorf("%w: image_to_video requires exactly one image or video reference mapping", ErrInvalidVideoModelSpec)
 		}
 	}
 	if _, supported := modes[VideoModeFirstLastFrame]; supported {

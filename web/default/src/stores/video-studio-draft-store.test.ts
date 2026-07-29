@@ -22,7 +22,10 @@ import { after, beforeEach, describe, test } from 'node:test'
 import type { VideoComposerValues } from '@/features/video-studio/types'
 import type { VideoUploadResumeRecord } from '@/features/video-studio/video-upload-resume'
 import { type AuthUser, useAuthStore } from '@/stores/auth-store'
-import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
+import {
+  sanitizeVideoStudioDraft,
+  useVideoStudioDraftStore,
+} from '@/stores/video-studio-draft-store'
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>()
@@ -164,5 +167,14 @@ describe('Video Studio draft user isolation', () => {
     assert.equal(storage.getItem('video-studio-draft'), null)
     assert.equal(useVideoStudioDraftStore.getState().draft, null)
     assert.deepEqual(useVideoStudioDraftStore.getState().uploadResumes, [])
+  })
+
+  test('restores a runtime model draft with a stable negative profile id', () => {
+    const runtimeDraft = {
+      ...draft('runtime model', []),
+      model_profile_id: -4_200_001,
+    }
+
+    assert.deepEqual(sanitizeVideoStudioDraft(runtimeDraft), runtimeDraft)
   })
 })

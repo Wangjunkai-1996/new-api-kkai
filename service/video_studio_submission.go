@@ -137,11 +137,11 @@ func NormalizeVideoStudioSubmission(
 		return nil, ErrInvalidVideoStudioSubmission
 	}
 
-	profile, specification, defaults, err := GetEnabledVideoModelProfileByModel(ctx, db, request.Model)
+	profileID, specificationVersion, resolvedModel, specification, defaults, err := resolveVideoModelProfile(ctx, db, request.Model)
 	if err != nil {
 		return nil, err
 	}
-	if sample != nil && sample.ModelProfileID != profile.ID {
+	if sample != nil && sample.ModelProfileID != profileID {
 		return nil, ErrInvalidVideoStudioSubmission
 	}
 	if sample != nil && len(request.ReferenceAssets) == 0 {
@@ -172,8 +172,8 @@ func NormalizeVideoStudioSubmission(
 	}
 
 	normalized := &NormalizedVideoStudioSubmission{
-		UserID: userID, TokenID: request.TokenID, ProfileID: profile.ID, SpecificationVersion: profile.SpecificationVersion,
-		Model: profile.Model, Group: request.Group, Mode: request.Mode,
+		UserID: userID, TokenID: request.TokenID, ProfileID: profileID, SpecificationVersion: specificationVersion,
+		Model: resolvedModel, Group: request.Group, Mode: request.Mode,
 		Prompt: request.Prompt, Parameters: parameters, ReferenceAssets: references,
 		SampleID: request.SampleID, MaxQuota: request.MaxQuota, QuoteHash: request.QuoteHash,
 		QuoteExpiresAt: request.QuoteExpiresAt,
@@ -311,8 +311,13 @@ func normalizeVideoReferences(
 		if err := db.WithContext(ctx).First(&asset, "id = ?", input.AssetID).Error; err != nil {
 			return nil, ErrInvalidVideoStudioSubmission
 		}
+		expectsVideo := role == model.VideoTaskAssetRoleReferenceVideo
+		validMIME := strings.HasPrefix(asset.MIMEType, "image/")
+		if expectsVideo {
+			validMIME = strings.HasPrefix(asset.MIMEType, "video/")
+		}
 		if asset.DeletedAt != 0 || asset.Kind != model.VideoAssetKindReference ||
-			asset.State != model.VideoAssetStateReady || !strings.HasPrefix(asset.MIMEType, "image/") {
+			asset.State != model.VideoAssetStateReady || !validMIME {
 			return nil, ErrInvalidVideoStudioSubmission
 		}
 		if asset.Scope == model.VideoAssetScopeCatalog {
@@ -368,11 +373,13 @@ func buildVideoTaskPayload(
 		payload[reference.RequestKey] = reference.SignedURL
 		metadata[reference.RequestKey] = reference.SignedURL
 	}
-	if len(references) > 0 {
-		images := make([]string, 0, len(references))
-		for _, reference := range references {
+	images := make([]string, 0, len(references))
+	for _, reference := range references {
+		if reference.Role != model.VideoTaskAssetRoleReferenceVideo {
 			images = append(images, reference.SignedURL)
 		}
+	}
+	if len(images) > 0 {
 		payload["images"] = images
 		if len(images) == 1 {
 			payload["image"] = images[0]

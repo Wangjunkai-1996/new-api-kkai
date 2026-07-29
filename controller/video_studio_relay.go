@@ -63,6 +63,11 @@ func PrepareVideoStudioTaskRequest(c *gin.Context) {
 		c.Abort()
 		return
 	}
+	if err := service.ValidateVideoStudioModelAvailability(c.Request.Context(), model.DB, request.Model); err != nil {
+		respondVideoStudioError(c, err)
+		c.Abort()
+		return
+	}
 	store, err := videoStudioAssetStore(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -71,6 +76,11 @@ func PrepareVideoStudioTaskRequest(c *gin.Context) {
 	}
 	normalized, err := service.NormalizeVideoStudioSubmission(c.Request.Context(), model.DB, store, c.GetInt("id"), request)
 	if err != nil {
+		respondVideoStudioError(c, err)
+		c.Abort()
+		return
+	}
+	if err := service.ValidateVideoStudioModelAvailability(c.Request.Context(), model.DB, normalized.Model); err != nil {
 		respondVideoStudioError(c, err)
 		c.Abort()
 		return

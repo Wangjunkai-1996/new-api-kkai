@@ -25,6 +25,7 @@ import type {
 } from './types'
 
 export const VIDEO_REFERENCE_FALLBACK_MAX_BYTES = 20 * 1024 * 1024
+export const VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES = 1024 * 1024 * 1024
 export const VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES = 1024 * 1024 * 1024
 
 export type VideoUploadFingerprint = {
@@ -63,11 +64,16 @@ export const getVideoUploadMaxBytes = (
   admin: boolean,
   limits?: VideoStudioUploadLimits
 ): number => {
-  const serverLimit =
-    admin && purpose === 'sample'
-      ? limits?.sample_max_bytes
-      : limits?.reference_max_bytes
+  let serverLimit = limits?.reference_max_bytes
+  if (purpose === 'reference_video') {
+    serverLimit = limits?.archive_max_bytes
+  } else if (admin && purpose === 'sample') {
+    serverLimit = limits?.sample_max_bytes
+  }
   if (isPositiveInteger(serverLimit)) return serverLimit
+  if (purpose === 'reference_video') {
+    return VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES
+  }
   return admin && purpose === 'sample'
     ? VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES
     : VIDEO_REFERENCE_FALLBACK_MAX_BYTES
@@ -128,7 +134,9 @@ export const sanitizeVideoUploadResumeRecords = (
       !isPositiveInteger(candidate.assetId) ||
       assetIds.has(candidate.assetId) ||
       typeof candidate.admin !== 'boolean' ||
-      (candidate.purpose !== 'reference' && candidate.purpose !== 'sample') ||
+      (candidate.purpose !== 'reference' &&
+        candidate.purpose !== 'reference_video' &&
+        candidate.purpose !== 'sample') ||
       candidate.uploadMode !== 'multipart' ||
       !isPositiveInteger(candidate.partSize) ||
       !isPositiveInteger(candidate.expiresAt) ||

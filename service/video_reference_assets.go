@@ -86,7 +86,8 @@ JOIN tasks AS active_reference_task ON active_reference_task.id = active_referen
 WHERE active_reference.asset_id = kkai_video_assets.id
   AND active_reference.role IN ?
   AND active_reference_task.status NOT IN ?
-)`, []string{model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame},
+)`, []string{model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo,
+				model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame},
 				[]model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure}).
 			Order("id ASC").Limit(batchLimit).Find(&assets).Error
 		if err != nil {
@@ -166,7 +167,8 @@ func videoReferenceAssetInUse(ctx context.Context, db *gorm.DB, assetID int64) (
 	if err := db.WithContext(ctx).Model(&model.KKAIVideoTaskAsset{}).
 		Joins("JOIN tasks AS video_reference_tasks ON video_reference_tasks.id = kkai_video_task_assets.task_id").
 		Where("kkai_video_task_assets.asset_id = ? AND kkai_video_task_assets.role IN ? AND video_reference_tasks.status NOT IN ?", assetID, []string{
-			model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame,
+			model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo,
+			model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame,
 		}, []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure}).Count(&taskReferences).Error; err != nil {
 		return false, fmt.Errorf("audit video task references: %w", err)
 	}

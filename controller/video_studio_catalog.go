@@ -12,7 +12,9 @@ import (
 )
 
 func ListVideoStudioModels(c *gin.Context) {
-	profiles, err := service.ListVideoModelProfiles(c.Request.Context(), model.DB, false)
+	profiles, err := service.ListEffectiveVideoModelProfiles(
+		c.Request.Context(), model.DB, c.GetInt("id"), c.ClientIP(),
+	)
 	if err != nil {
 		respondVideoStudioError(c, err)
 		return
@@ -22,7 +24,20 @@ func ListVideoStudioModels(c *gin.Context) {
 
 func ListVideoStudioSamples(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	page, err := service.ListVideoSamples(c.Request.Context(), model.DB, c.Query("model"), c.Query("cursor"), limit, false)
+	profiles, err := service.ListEffectiveVideoModelProfiles(
+		c.Request.Context(), model.DB, c.GetInt("id"), c.ClientIP(),
+	)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
+	allowedModels := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		allowedModels = append(allowedModels, profile.Model)
+	}
+	page, err := service.ListVideoSamples(
+		c.Request.Context(), model.DB, c.Query("model"), c.Query("cursor"), limit, false, allowedModels,
+	)
 	if err != nil {
 		respondVideoStudioError(c, err)
 		return
@@ -36,7 +51,18 @@ func GetVideoStudioSample(c *gin.Context) {
 		respondVideoStudioError(c, err)
 		return
 	}
-	sample, err := service.GetVideoSample(c.Request.Context(), model.DB, id, false)
+	profiles, err := service.ListEffectiveVideoModelProfiles(
+		c.Request.Context(), model.DB, c.GetInt("id"), c.ClientIP(),
+	)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
+	allowedModels := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		allowedModels = append(allowedModels, profile.Model)
+	}
+	sample, err := service.GetVideoSample(c.Request.Context(), model.DB, id, false, allowedModels)
 	if err != nil {
 		respondVideoStudioError(c, err)
 		return
@@ -115,7 +141,7 @@ func AdminDeleteVideoStudioModelProfile(c *gin.Context) {
 
 func AdminListVideoStudioSamples(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	page, err := service.ListVideoSamples(c.Request.Context(), model.DB, c.Query("model"), c.Query("cursor"), limit, true)
+	page, err := service.ListVideoSamples(c.Request.Context(), model.DB, c.Query("model"), c.Query("cursor"), limit, true, nil)
 	if err != nil {
 		respondVideoStudioError(c, err)
 		return
@@ -129,7 +155,7 @@ func AdminGetVideoStudioSample(c *gin.Context) {
 		respondVideoStudioError(c, err)
 		return
 	}
-	sample, err := service.GetVideoSample(c.Request.Context(), model.DB, id, true)
+	sample, err := service.GetVideoSample(c.Request.Context(), model.DB, id, true, nil)
 	if err != nil {
 		respondVideoStudioError(c, err)
 		return

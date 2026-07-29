@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -36,6 +37,7 @@ var (
 	ErrVideoStudioTokenLimitReached      = errors.New("video studio token cannot be created because the token limit was reached")
 	ErrVideoStudioTokenModelsUnavailable = errors.New("no enabled video studio models are available")
 	ErrVideoStudioTokenIPForbidden       = errors.New("video studio token cannot be used from this IP address")
+	videoStudioTokenCacheInvalidator     = model.InvalidateUserTokensCache
 )
 
 type VideoStudioTokenView struct {
@@ -45,11 +47,12 @@ type VideoStudioTokenView struct {
 }
 
 type VideoStudioTokenCapability struct {
-	RequiredGroup  string                 `json:"required_group"`
-	HasUsableToken bool                   `json:"has_usable_token"`
-	CanCreate      bool                   `json:"can_create"`
-	Status         VideoStudioTokenStatus `json:"status"`
-	Token          *VideoStudioTokenView  `json:"token,omitempty"`
+	RequiredGroup   string                 `json:"required_group"`
+	HasUsableToken  bool                   `json:"has_usable_token"`
+	CanCreate       bool                   `json:"can_create"`
+	EffectiveModels []string               `json:"effective_models"`
+	Status          VideoStudioTokenStatus `json:"status"`
+	Token           *VideoStudioTokenView  `json:"token,omitempty"`
 }
 
 type VideoStudioTokenEnsureResult struct {
@@ -65,8 +68,9 @@ func GetVideoStudioTokenStatus(
 	clientIP string,
 ) (VideoStudioTokenCapability, error) {
 	capability := VideoStudioTokenCapability{
-		RequiredGroup: VideoStudioTokenGroup,
-		Status:        VideoStudioTokenStatusMissing,
+		RequiredGroup:   VideoStudioTokenGroup,
+		EffectiveModels: []string{},
+		Status:          VideoStudioTokenStatusMissing,
 	}
 	if db == nil || userID <= 0 {
 		return capability, ErrVideoStudioTokenInvalid
@@ -79,6 +83,12 @@ func GetVideoStudioTokenStatus(
 		capability.Status = VideoStudioTokenStatusGroupUnavailable
 		return capability, nil
 	}
+	effectiveModels, migrated, err := effectiveVideoStudioModels(ctx, db, userID, clientIP)
+	invalidateMigratedVideoStudioTokenCache(userID, migrated)
+	if err != nil {
+		return capability, err
+	}
+	capability.EffectiveModels = effectiveModels
 
 	modelName = strings.TrimSpace(modelName)
 	modelAvailable, err := videoStudioModelAvailable(ctx, db, modelName)
@@ -89,7 +99,8 @@ func GetVideoStudioTokenStatus(
 		capability.Status = VideoStudioTokenStatusModelsUnavailable
 		return capability, nil
 	}
-	token, err := findUsableVideoStudioToken(ctx, db, userID, modelName, clientIP)
+	token, migrated, err := findUsableVideoStudioToken(ctx, db, userID, modelName, clientIP)
+	invalidateMigratedVideoStudioTokenCache(userID, migrated)
 	if err != nil {
 		return capability, err
 	}
@@ -144,13 +155,38 @@ func ValidateVideoStudioToken(
 	if token.Group != VideoStudioTokenGroup {
 		return nil, ErrVideoStudioTokenGroupInvalid
 	}
-	if !videoStudioTokenAllowsModel(&token, modelName) {
-		return nil, ErrVideoStudioTokenModelForbidden
+	if err := validateVideoStudioTokenIP(&token, clientIP); err != nil {
+		return nil, err
+	}
+	migrated, err := repairLegacyVideoStudioTokenLimits(ctx, db, &token)
+	invalidateMigratedVideoStudioTokenCache(userID, migrated)
+	if err != nil {
+		return nil, err
+	}
+	if err := model.CheckUserTokenRecord(&token); err != nil {
+		return nil, ErrVideoStudioTokenInvalid
+	}
+	if token.Group != VideoStudioTokenGroup {
+		return nil, ErrVideoStudioTokenGroupInvalid
 	}
 	if err := validateVideoStudioTokenIP(&token, clientIP); err != nil {
 		return nil, err
 	}
+	if !videoStudioTokenAllowsModel(&token, modelName) {
+		return nil, ErrVideoStudioTokenModelForbidden
+	}
 	return &token, nil
+}
+
+func ValidateVideoStudioModelAvailability(ctx context.Context, db *gorm.DB, modelName string) error {
+	available, err := videoStudioModelAvailable(ctx, db, strings.TrimSpace(modelName))
+	if err != nil {
+		return err
+	}
+	if !available {
+		return ErrVideoStudioTokenModelForbidden
+	}
+	return nil
 }
 
 func findUsableVideoStudioToken(
@@ -159,28 +195,132 @@ func findUsableVideoStudioToken(
 	userID int,
 	modelName string,
 	clientIP string,
-) (*model.Token, error) {
+) (*model.Token, bool, error) {
+	tokens, migrated, err := listUsableVideoStudioTokens(ctx, db, userID, clientIP)
+	if err != nil {
+		return nil, migrated, err
+	}
+	for index := range tokens {
+		if videoStudioTokenAllowsModel(&tokens[index], modelName) {
+			return &tokens[index], migrated, nil
+		}
+	}
+	return nil, migrated, nil
+}
+
+func listUsableVideoStudioTokens(
+	ctx context.Context,
+	db *gorm.DB,
+	userID int,
+	clientIP string,
+) ([]model.Token, bool, error) {
 	var tokens []model.Token
 	if err := db.WithContext(ctx).
 		Where("user_id = ?", userID).
 		Order("id ASC").Find(&tokens).Error; err != nil {
-		return nil, fmt.Errorf("list video studio tokens: %w", err)
+		return nil, false, fmt.Errorf("list video studio tokens: %w", err)
 	}
+	migrated := false
 	for index := range tokens {
-		token := &tokens[index]
-		if token.Group != VideoStudioTokenGroup || model.CheckUserTokenRecord(token) != nil ||
-			!videoStudioTokenAllowsModel(token, modelName) {
-			continue
+		if hasVideoStudioManagedTokenSignature(&tokens[index]) {
+			repaired, err := repairLegacyVideoStudioTokenLimits(ctx, db, &tokens[index])
+			migrated = migrated || repaired
+			if err != nil {
+				return nil, migrated, err
+			}
 		}
-		if err := model.ValidateUserTokenIP(token, clientIP); err != nil {
-			if errors.Is(err, model.ErrTokenIPNotAllowed) {
+	}
+	usable := make([]model.Token, 0, len(tokens))
+	for pass := 0; pass < 2; pass++ {
+		for index := range tokens {
+			token := &tokens[index]
+			isSystemToken := hasVideoStudioManagedTokenSignature(token) && !token.ModelLimitsEnabled
+			if (pass == 0) != isSystemToken || token.Group != VideoStudioTokenGroup || model.CheckUserTokenRecord(token) != nil {
 				continue
 			}
-			return nil, validateVideoStudioTokenIPError(err)
+			if err := model.ValidateUserTokenIP(token, clientIP); err != nil {
+				if errors.Is(err, model.ErrTokenIPNotAllowed) {
+					continue
+				}
+				return nil, migrated, validateVideoStudioTokenIPError(err)
+			}
+			usable = append(usable, *token)
 		}
-		return token, nil
 	}
-	return nil, nil
+	return usable, migrated, nil
+}
+
+func repairLegacyVideoStudioTokenLimits(ctx context.Context, db *gorm.DB, token *model.Token) (bool, error) {
+	if token == nil || !hasVideoStudioManagedTokenSignature(token) || !token.ModelLimitsEnabled {
+		return false, nil
+	}
+	legacyModels, err := legacyVideoStudioProfileSnapshot(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	if len(legacyModels) == 0 || token.ModelLimits != strings.Join(legacyModels, ",") {
+		return false, nil
+	}
+	expectedLimits := token.ModelLimits
+	result := db.WithContext(ctx).Model(&model.Token{}).
+		Where(map[string]any{
+			"id":                   token.Id,
+			"user_id":              token.UserId,
+			"name":                 videoStudioTokenName,
+			"status":               common.TokenStatusEnabled,
+			"expired_time":         int64(-1),
+			"unlimited_quota":      true,
+			"model_limits_enabled": true,
+			"model_limits":         expectedLimits,
+			"group":                VideoStudioTokenGroup,
+			"cross_group_retry":    false,
+		}).
+		Where("(allow_ips IS NULL OR allow_ips = '')").
+		Updates(map[string]any{
+			"model_limits_enabled": false,
+			"model_limits":         "",
+		})
+	if result.Error != nil {
+		return false, fmt.Errorf("repair legacy video studio token: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		if err := db.WithContext(ctx).First(token, "id = ? AND user_id = ?", token.Id, token.UserId).Error; err != nil {
+			return false, fmt.Errorf("reload video studio token after concurrent update: %w", err)
+		}
+		return false, nil
+	}
+	token.ModelLimitsEnabled = false
+	token.ModelLimits = ""
+	return true, nil
+}
+
+func invalidateMigratedVideoStudioTokenCache(userID int, migrated bool) {
+	if !migrated {
+		return
+	}
+	if err := videoStudioTokenCacheInvalidator(userID); err != nil {
+		common.SysLog("failed to invalidate repaired video studio token cache: " + err.Error())
+	}
+}
+
+func hasVideoStudioManagedTokenSignature(token *model.Token) bool {
+	if token == nil || token.Name != videoStudioTokenName || token.Group != VideoStudioTokenGroup ||
+		token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 || !token.UnlimitedQuota || token.CrossGroupRetry {
+		return false
+	}
+	return token.AllowIps == nil || *token.AllowIps == ""
+}
+
+func legacyVideoStudioProfileSnapshot(ctx context.Context, db *gorm.DB) ([]string, error) {
+	var models []string
+	if err := db.WithContext(ctx).Model(&model.KKAIVideoModelProfile{}).
+		Where("enabled = ?", true).
+		Distinct("model").
+		Pluck("model", &models).Error; err != nil {
+		return nil, fmt.Errorf("list legacy video studio profile snapshot: %w", err)
+	}
+	sort.Strings(models)
+	return models, nil
 }
 
 func getCurrentVideoStudioUser(ctx context.Context, db *gorm.DB, userID int) (*model.User, error) {
@@ -219,13 +359,52 @@ func videoStudioModelAvailable(ctx context.Context, db *gorm.DB, modelName strin
 		return true, nil
 	}
 	var count int64
-	err := db.WithContext(ctx).Model(&model.KKAIVideoModelProfile{}).
-		Where("enabled = ? AND model = ?", true, modelName).
+	err := db.WithContext(ctx).Model(&model.Ability{}).
+		Where(&model.Ability{Group: VideoStudioTokenGroup, Model: modelName, Enabled: true}).
 		Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("check video studio model availability: %w", err)
 	}
 	return count > 0, nil
+}
+
+func effectiveVideoStudioModels(ctx context.Context, db *gorm.DB, userID int, clientIP string) ([]string, bool, error) {
+	models, err := enabledVideoStudioTokenModels(ctx, db)
+	if err != nil || len(models) == 0 {
+		return models, false, err
+	}
+	tokens, migrated, err := listUsableVideoStudioTokens(ctx, db, userID, clientIP)
+	if err != nil {
+		return nil, migrated, err
+	}
+	allowedModels := make(map[string]struct{}, len(models))
+	for index := range tokens {
+		token := &tokens[index]
+		if !token.ModelLimitsEnabled {
+			return models, migrated, nil
+		}
+		for _, modelName := range models {
+			if videoStudioTokenAllowsModel(token, modelName) {
+				allowedModels[modelName] = struct{}{}
+			}
+		}
+	}
+	if len(tokens) == 0 {
+		creationStatus, _, err := videoStudioTokenCreationState(ctx, db, userID, "")
+		if err != nil {
+			return nil, migrated, err
+		}
+		if creationStatus == VideoStudioTokenStatusMissing {
+			return models, migrated, nil
+		}
+	}
+	filtered := make([]string, 0, len(models))
+	for _, modelName := range models {
+		if _, allowed := allowedModels[modelName]; allowed {
+			filtered = append(filtered, modelName)
+		}
+	}
+	return filtered, migrated, nil
 }
 
 func videoStudioTokenView(token *model.Token) *VideoStudioTokenView {

@@ -23,8 +23,9 @@ func EnsureVideoStudioToken(
 ) (VideoStudioTokenEnsureResult, error) {
 	result := VideoStudioTokenEnsureResult{
 		VideoStudioTokenCapability: VideoStudioTokenCapability{
-			RequiredGroup: VideoStudioTokenGroup,
-			Status:        VideoStudioTokenStatusMissing,
+			RequiredGroup:   VideoStudioTokenGroup,
+			EffectiveModels: []string{},
+			Status:          VideoStudioTokenStatusMissing,
 		},
 	}
 	if db == nil || userID <= 0 {
@@ -42,12 +43,18 @@ func EnsureVideoStudioToken(
 	modelName = strings.TrimSpace(modelName)
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		selected, created, err := ensureVideoStudioTokenOnce(ctx, db, userID, modelName, clientIP)
+		selected, created, migrated, err := ensureVideoStudioTokenOnce(ctx, db, userID, modelName, clientIP)
 		if err == nil {
+			invalidateMigratedVideoStudioTokenCache(userID, migrated)
 			result.HasUsableToken = true
 			result.Status = VideoStudioTokenStatusReady
 			result.Token = videoStudioTokenView(selected)
 			result.Created = created
+			result.EffectiveModels, migrated, err = effectiveVideoStudioModels(ctx, db, userID, clientIP)
+			invalidateMigratedVideoStudioTokenCache(userID, migrated)
+			if err != nil {
+				return result, err
+			}
 			creationStatus, _, stateErr := videoStudioTokenCreationState(ctx, db, userID, modelName)
 			if stateErr != nil {
 				return result, stateErr
@@ -70,9 +77,10 @@ func ensureVideoStudioTokenOnce(
 	userID int,
 	modelName string,
 	clientIP string,
-) (*model.Token, bool, error) {
+) (*model.Token, bool, bool, error) {
 	var selected *model.Token
 	createdToken := false
+	migratedToken := false
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		user, err := model.LockUserForTokenCreation(ctx, tx, userID)
 		if err != nil {
@@ -88,7 +96,8 @@ func ensureVideoStudioTokenOnce(
 		if !modelAvailable {
 			return ErrVideoStudioTokenModelsUnavailable
 		}
-		existing, err := findUsableVideoStudioToken(ctx, tx, userID, modelName, clientIP)
+		existing, migrated, err := findUsableVideoStudioToken(ctx, tx, userID, modelName, clientIP)
+		migratedToken = migratedToken || migrated
 		if err != nil {
 			return err
 		}
@@ -97,7 +106,7 @@ func ensureVideoStudioTokenOnce(
 			return nil
 		}
 
-		creationStatus, enabledModels, err := videoStudioTokenCreationState(ctx, tx, userID, modelName)
+		creationStatus, _, err := videoStudioTokenCreationState(ctx, tx, userID, modelName)
 		if err != nil {
 			return err
 		}
@@ -119,7 +128,7 @@ func ensureVideoStudioTokenOnce(
 		created := &model.Token{
 			UserId: userID, Key: key, Status: common.TokenStatusEnabled, Name: videoStudioTokenName,
 			CreatedTime: now, AccessedTime: now, ExpiredTime: -1, UnlimitedQuota: true,
-			ModelLimitsEnabled: true, ModelLimits: strings.Join(enabledModels, ","),
+			ModelLimitsEnabled: false, ModelLimits: "",
 			Group: VideoStudioTokenGroup, CrossGroupRetry: false,
 		}
 		if err := tx.Create(created).Error; err != nil {
@@ -130,9 +139,9 @@ func ensureVideoStudioTokenOnce(
 		return nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, false, false, err
 	}
-	return selected, createdToken, nil
+	return selected, createdToken, migratedToken, nil
 }
 
 func videoStudioTokenCreationState(
@@ -160,8 +169,9 @@ func videoStudioTokenCreationState(
 
 func enabledVideoStudioTokenModels(ctx context.Context, db *gorm.DB) ([]string, error) {
 	var models []string
-	if err := db.WithContext(ctx).Model(&model.KKAIVideoModelProfile{}).
-		Where("enabled = ?", true).Pluck("model", &models).Error; err != nil {
+	if err := db.WithContext(ctx).Model(&model.Ability{}).
+		Where(&model.Ability{Group: VideoStudioTokenGroup, Enabled: true}).
+		Distinct("model").Pluck("model", &models).Error; err != nil {
 		return nil, fmt.Errorf("list enabled video studio models: %w", err)
 	}
 	sort.Strings(models)

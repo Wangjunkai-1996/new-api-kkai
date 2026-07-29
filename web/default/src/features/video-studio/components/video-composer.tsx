@@ -98,6 +98,7 @@ import { VideoTokenSetupDialog } from './video-token-setup-dialog'
 type VideoComposerProps = {
   sample?: VideoSample
   onSubmitted?: (receipt: VideoSubmissionReceipt) => void
+  onSubmissionUnknown?: (taskId: string) => void
 }
 
 const getVideoStudioResponseError = (
@@ -182,7 +183,7 @@ export function VideoComposer(props: VideoComposerProps) {
     referenceSyncBlockedRef.current = false
     setReferenceHydrationIds([])
     form.reset(buildVideoComposerValues(profile, props.sample))
-    setReferenceAssets(getSampleReferenceAssets(props.sample))
+    setReferenceAssets(getSampleReferenceAssets(props.sample, profile))
     setAppliedSampleId(props.sample.id)
     setSubmissionLock(null)
   }, [form, modelsQuery.data, props.sample])
@@ -441,13 +442,16 @@ export function VideoComposer(props: VideoComposerProps) {
       const nextSubmissionLock = getVideoSubmissionLock(responseError)
       if (nextSubmissionLock) {
         setSubmissionLock(nextSubmissionLock)
-        setSubmitError(
-          nextSubmissionLock.taskId
-            ? t('videoStudio.submissionUnknownWithTask', {
-                taskId: nextSubmissionLock.taskId,
-              })
-            : t('videoStudio.submissionUnknown')
-        )
+        if (nextSubmissionLock.taskId) {
+          const message = t('videoStudio.submissionUnknownWithTask', {
+            taskId: nextSubmissionLock.taskId,
+          })
+          setSubmitError(message)
+          toast.warning(message)
+          props.onSubmissionUnknown?.(nextSubmissionLock.taskId)
+        } else {
+          setSubmitError(t('videoStudio.submissionUnknown'))
+        }
         return
       }
       const message =
@@ -486,14 +490,14 @@ export function VideoComposer(props: VideoComposerProps) {
     )
   }
 
-  const referenceLimit = selectedProfile
-    ? getVideoReferenceRoles(selectedProfile, values.mode).length
-    : 0
-  const referenceLabels = selectedProfile
-    ? getVideoReferenceRoles(selectedProfile, values.mode).map((role) =>
-        t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
-      )
+  const referenceRoles = selectedProfile
+    ? getVideoReferenceRoles(selectedProfile, values.mode)
     : []
+  const referenceLimit = referenceRoles.length
+  const referenceLabels = referenceRoles.map((role) =>
+    t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
+  )
+  const usesVideoReference = referenceRoles.includes('reference_video')
   const videoTokenReady = videoTokenGate.access?.kind === 'ready'
   const videoTokenMissing = videoTokenGate.access?.kind === 'missing'
   const videoTokenGroupUnavailable =
@@ -528,6 +532,7 @@ export function VideoComposer(props: VideoComposerProps) {
     quoteQuery.isError &&
     !quoteQuery.isFetching
   if (quoteRetryAvailable) generateLabel = t('videoStudio.retry')
+  if (createMutation.isPending) generateLabel = t('Submitting...')
   let quoteStatusMessage: ReactNode = null
   if (videoTokenGate.checking) {
     quoteStatusMessage = t('videoStudio.videoKey.checking')
@@ -671,7 +676,11 @@ export function VideoComposer(props: VideoComposerProps) {
               <span className='text-sm font-medium'>
                 {values.mode === 'first_last_frame'
                   ? t('videoStudio.firstLastFrames')
-                  : t('videoStudio.referenceImage')}
+                  : t(
+                      usesVideoReference
+                        ? 'videoStudio.referenceVideo'
+                        : 'videoStudio.referenceImage'
+                    )}
               </span>
               {referenceHydrationIds.length > 0 ? (
                 <div
@@ -734,13 +743,21 @@ export function VideoComposer(props: VideoComposerProps) {
                 </div>
               ) : (
                 <VideoAssetUploader
-                  key={`${values.mode}-${referenceLimit}`}
+                  key={`${values.mode}-${referenceLimit}-${usesVideoReference ? 'video' : 'image'}`}
                   assets={referenceAssets}
                   onAssetsChange={setReferenceAssets}
-                  purpose='reference'
+                  purpose={usesVideoReference ? 'reference_video' : 'reference'}
                   maxFiles={referenceLimit}
-                  accept={['image/jpeg', 'image/png', 'image/webp']}
-                  label={t('videoStudio.addImage')}
+                  accept={
+                    usesVideoReference
+                      ? ['video/mp4', 'video/webm', 'video/quicktime']
+                      : ['image/jpeg', 'image/png', 'image/webp']
+                  }
+                  label={t(
+                    usesVideoReference
+                      ? 'videoStudio.addVideo'
+                      : 'videoStudio.addImage'
+                  )}
                   assetLabels={referenceLabels}
                   inputRef={referenceUploadInputRef}
                 />

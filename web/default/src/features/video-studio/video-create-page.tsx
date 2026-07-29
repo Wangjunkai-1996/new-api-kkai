@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import { SlidersHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -41,14 +42,28 @@ import { VideoComposer } from './components/video-composer'
 import { VideoSampleGallery } from './components/video-sample-gallery'
 import { VideoStudioNav } from './components/video-studio-nav'
 import { useVideoSample } from './queries'
-import type { VideoSample } from './types'
+import type { VideoSample, VideoSubmissionReceipt } from './types'
 
 type VideoCreatePageProps = {
   initialSampleId?: number
 }
 
+const normalizeVideoTaskId = (...candidates: unknown[]): string | undefined => {
+  for (const candidate of candidates) {
+    if (
+      typeof candidate === 'string' &&
+      candidate.length <= 128 &&
+      /^task_[0-9A-Za-z_-]+$/.test(candidate)
+    ) {
+      return candidate
+    }
+  }
+  return undefined
+}
+
 export function VideoCreatePage(props: VideoCreatePageProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const desktop = useMediaQuery('(min-width: 1180px)')
   const mobile = useMediaQuery('(max-width: 767px)')
   const initialSampleQuery = useVideoSample(props.initialSampleId)
@@ -74,7 +89,31 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
     }
   }
 
-  const composer = <VideoComposer sample={selectedSample} />
+  const navigateToLibrary = useCallback(
+    (...taskIdCandidates: unknown[]) => {
+      const task = normalizeVideoTaskId(...taskIdCandidates)
+      void navigate({
+        to: '/video-studio/library',
+        search: task ? { task } : {},
+      })
+    },
+    [navigate]
+  )
+
+  const handleSubmitted = useCallback(
+    (receipt: VideoSubmissionReceipt) => {
+      navigateToLibrary(receipt.task_id, receipt.id)
+    },
+    [navigateToLibrary]
+  )
+
+  const composer = (
+    <VideoComposer
+      sample={selectedSample}
+      onSubmitted={handleSubmitted}
+      onSubmissionUnknown={navigateToLibrary}
+    />
+  )
   const composerAction = desktop ? null : (
     <Button
       ref={composerButtonRef}

@@ -53,6 +53,7 @@ export const VIDEO_REFERENCE_ROLE_LABEL_KEYS: Record<
   string
 > = {
   reference: 'videoStudio.referenceImage',
+  reference_video: 'videoStudio.referenceVideo',
   first_frame: 'videoStudio.firstFrame',
   last_frame: 'videoStudio.lastFrame',
 }
@@ -69,6 +70,7 @@ export const getVideoReferenceRoles = (
       .map((input) => input.role)
   )
   if (mode === 'image_to_video') {
+    if (requiredRoles.has('reference_video')) return ['reference_video']
     return requiredRoles.has('reference') ? ['reference'] : []
   }
 
@@ -182,14 +184,18 @@ export const buildClearedVideoComposerValues = (
   parameters: getVideoParametersForMode(profile, mode),
 })
 
-export const getSampleReferenceAssets = (sample: VideoSample): VideoAsset[] =>
-  sample.reference_asset_ids.map((id, index) => ({
+export const getSampleReferenceAssets = (
+  sample: VideoSample,
+  profile?: VideoModelProfile
+): VideoAsset[] => {
+  const roles = profile ? getVideoReferenceRoles(profile, sample.mode) : []
+  return sample.reference_asset_ids.map((id, index) => ({
     id,
     scope: 'catalog',
     kind: 'reference',
     state: 'ready',
     original_filename: `reference-${index + 1}`,
-    mime_type: 'image/jpeg',
+    mime_type: roles[index] === 'reference_video' ? 'video/mp4' : 'image/jpeg',
     size_bytes: 0,
     width: 0,
     height: 0,
@@ -199,6 +205,7 @@ export const getSampleReferenceAssets = (sample: VideoSample): VideoAsset[] =>
     created_at: sample.created_at,
     updated_at: sample.updated_at,
   }))
+}
 
 export const getSampleVideoAsset = (sample: VideoSample): VideoAsset => ({
   id: sample.video_asset_id,

@@ -34,6 +34,7 @@ import {
   shouldDeleteVideoAssetOnRemove,
   VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES,
   VIDEO_REFERENCE_FALLBACK_MAX_BYTES,
+  VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES,
 } from './video-upload-resume'
 import { prepareVideoUploadSelection } from './video-upload-selection'
 
@@ -454,12 +455,20 @@ test('upload limits distinguish references from administrator sample videos', ()
     VIDEO_ADMIN_SAMPLE_FALLBACK_MAX_BYTES
   )
   assert.equal(
+    getVideoUploadMaxBytes('reference_video', false),
+    VIDEO_REFERENCE_VIDEO_FALLBACK_MAX_BYTES
+  )
+  assert.equal(
     getVideoUploadMaxBytes('reference', false, serverLimits),
     serverLimits.reference_max_bytes
   )
   assert.equal(
     getVideoUploadMaxBytes('sample', true, serverLimits),
     serverLimits.sample_max_bytes
+  )
+  assert.equal(
+    getVideoUploadMaxBytes('reference_video', false, serverLimits),
+    serverLimits.archive_max_bytes
   )
 })
 

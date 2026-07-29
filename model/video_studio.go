@@ -16,18 +16,20 @@ const (
 	VideoAssetStateDeleting      = "deleting"
 	VideoAssetStateDeleted       = "deleted"
 
-	VideoUploadModeSingle    = "single"
-	VideoUploadModeMultipart = "multipart"
+	VideoUploadModeSingle            = "single"
+	VideoUploadModeMultipart         = "multipart"
+	VideoUploadPurposeReferenceVideo = "reference_video"
 
 	VideoSampleStatusDraft     = "draft"
 	VideoSampleStatusPublished = "published"
 
-	VideoTaskAssetRoleReference     = "reference"
-	VideoTaskAssetRoleFirstFrame    = "first_frame"
-	VideoTaskAssetRoleLastFrame     = "last_frame"
-	VideoTaskAssetRoleOutput        = "output"
-	VideoIdempotencyResourceTask    = "task"
-	VideoIdempotencyOperationSubmit = "video.submit"
+	VideoTaskAssetRoleReference      = "reference"
+	VideoTaskAssetRoleReferenceVideo = "reference_video"
+	VideoTaskAssetRoleFirstFrame     = "first_frame"
+	VideoTaskAssetRoleLastFrame      = "last_frame"
+	VideoTaskAssetRoleOutput         = "output"
+	VideoIdempotencyResourceTask     = "task"
+	VideoIdempotencyOperationSubmit  = "video.submit"
 )
 
 type KKAIVideoModelProfile struct {

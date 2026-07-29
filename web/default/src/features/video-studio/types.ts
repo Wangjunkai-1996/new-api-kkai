@@ -65,7 +65,11 @@ export type VideoParameterControl =
   | VideoNumericParameter
   | VideoSwitchParameter
 
-export type VideoReferenceRole = 'reference' | 'first_frame' | 'last_frame'
+export type VideoReferenceRole =
+  | 'reference'
+  | 'reference_video'
+  | 'first_frame'
+  | 'last_frame'
 
 export type VideoReferenceInput = {
   role: VideoReferenceRole
@@ -246,6 +250,7 @@ export type VideoTokenCapability = {
   required_group: string
   has_usable_token: boolean
   can_create: boolean
+  effective_models?: string[]
   token?: VideoTokenSummary | null
   status: VideoTokenCapabilityStatus
 }
@@ -271,7 +276,7 @@ export type VideoSubmissionReceipt = {
   [key: string]: unknown
 }
 
-export type VideoUploadPurpose = 'reference' | 'sample'
+export type VideoUploadPurpose = 'reference' | 'reference_video' | 'sample'
 
 export type VideoUploadMode = 'single' | 'multipart'
 

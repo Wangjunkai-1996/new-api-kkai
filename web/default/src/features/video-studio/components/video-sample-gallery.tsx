@@ -18,7 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Film, LoaderCircle, RotateCw } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -42,6 +49,52 @@ type VideoSampleGalleryProps = {
   onTrySample: (sample: VideoSample) => void
 }
 
+type VideoSamplePreviewRegistry = {
+  activeId: number | null
+  warmedIds: readonly number[]
+}
+
+type VideoSamplePreviewAction =
+  | { type: 'warm'; id: number }
+  | { type: 'start'; id: number }
+  | { type: 'stop'; id: number }
+  | { type: 'reset' }
+
+const MAX_WARMED_PREVIEWS = 2
+
+const VIDEO_SAMPLE_PREVIEW_INITIAL_STATE: VideoSamplePreviewRegistry = {
+  activeId: null,
+  warmedIds: [],
+}
+
+// oxlint-disable-next-line react/only-export-components -- Exported for deterministic preview ownership regression tests.
+export const reduceVideoSamplePreviewRegistry = (
+  state: VideoSamplePreviewRegistry,
+  action: VideoSamplePreviewAction
+): VideoSamplePreviewRegistry => {
+  if (action.type === 'reset') return VIDEO_SAMPLE_PREVIEW_INITIAL_STATE
+
+  if (action.type === 'stop') {
+    if (state.activeId !== action.id) return state
+    return { ...state, activeId: null }
+  }
+
+  const activeIds =
+    state.activeId !== null && state.activeId !== action.id
+      ? [state.activeId]
+      : []
+  const warmedIds = [
+    action.id,
+    ...activeIds,
+    ...state.warmedIds.filter(
+      (id) => id !== action.id && id !== state.activeId
+    ),
+  ].slice(0, MAX_WARMED_PREVIEWS)
+
+  if (action.type === 'warm') return { ...state, warmedIds }
+  return { activeId: action.id, warmedIds }
+}
+
 const getLaneCount = (width: number): number => {
   if (width < 480) return 1
   if (width < 760) return 2
@@ -53,7 +106,10 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
-  const [activePreviewId, setActivePreviewId] = useState<number | null>(null)
+  const [previewRegistry, dispatchPreview] = useReducer(
+    reduceVideoSamplePreviewRegistry,
+    VIDEO_SAMPLE_PREVIEW_INITIAL_STATE
+  )
   const [modelFilter, setModelFilter] = useState('')
   const modelsQuery = useVideoModels()
   const samplesQuery = useVideoSamples({
@@ -66,6 +122,18 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const lanes = getLaneCount(width)
   const gap = 12
   const columnWidth = Math.max(0, (width - gap * (lanes - 1)) / lanes)
+
+  const warmPreview = useCallback((id: number) => {
+    dispatchPreview({ type: 'warm', id })
+  }, [])
+
+  const startPreview = useCallback((id: number) => {
+    dispatchPreview({ type: 'start', id })
+  }, [])
+
+  const stopPreview = useCallback((id: number) => {
+    dispatchPreview({ type: 'stop', id })
+  }, [])
 
   useEffect(() => {
     const element = scrollRef.current
@@ -130,7 +198,10 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
         <NativeSelect
           size='sm'
           value={modelFilter}
-          onChange={(event) => setModelFilter(event.target.value)}
+          onChange={(event) => {
+            dispatchPreview({ type: 'reset' })
+            setModelFilter(event.target.value)
+          }}
           aria-label={t('videoStudio.filterModel')}
         >
           <NativeSelectOption value=''>
@@ -220,9 +291,12 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
                 >
                   <VideoSampleCard
                     sample={sample}
-                    active={activePreviewId === sample.id}
+                    active={previewRegistry.activeId === sample.id}
+                    warmed={previewRegistry.warmedIds.includes(sample.id)}
                     selected={props.selectedSampleId === sample.id}
-                    onPreviewChange={setActivePreviewId}
+                    onPreviewWarm={warmPreview}
+                    onPreviewStart={startPreview}
+                    onPreviewEnd={stopPreview}
                     onTry={props.onTrySample}
                   />
                 </div>

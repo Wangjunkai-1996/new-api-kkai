@@ -427,8 +427,10 @@ func (pipeline *VideoAssetPipeline) HandleInspect(ctx context.Context, event mod
 	if err != nil {
 		return pipeline.assetProcessingError(ctx, asset.ID, err)
 	}
-	if asset.Kind == model.VideoAssetKindReference && !strings.HasPrefix(metadata.MIMEType, "image/") {
-		return pipeline.assetProcessingError(ctx, asset.ID, ErrVideoMediaInvalid)
+	if asset.Kind == model.VideoAssetKindReference {
+		if !videoReferenceMediaCategoryMatches(asset.MIMEType, metadata.MIMEType) {
+			return pipeline.assetProcessingError(ctx, asset.ID, ErrVideoMediaInvalid)
+		}
 	}
 	if asset.Kind != model.VideoAssetKindReference && !strings.HasPrefix(metadata.MIMEType, "video/") {
 		return pipeline.assetProcessingError(ctx, asset.ID, ErrVideoMediaInvalid)
@@ -460,6 +462,19 @@ func (pipeline *VideoAssetPipeline) HandleInspect(ctx context.Context, event mod
 			strconv.FormatInt(asset.ID, 10), VideoAssetEventPayload{AssetID: asset.ID},
 		)
 	})
+}
+
+func videoReferenceMediaCategoryMatches(reservedMIME string, detectedMIME string) bool {
+	reservedMIME = normalizedVideoObjectContentType(reservedMIME)
+	detectedMIME = normalizedVideoObjectContentType(detectedMIME)
+	switch {
+	case isSupportedReferenceMIME(reservedMIME):
+		return strings.HasPrefix(detectedMIME, "image/")
+	case isSupportedVideoMIME(reservedMIME):
+		return strings.HasPrefix(detectedMIME, "video/")
+	default:
+		return false
+	}
 }
 
 func (pipeline *VideoAssetPipeline) HandlePoster(ctx context.Context, event model.KKAIOutboxEvent) error {
@@ -672,20 +687,21 @@ func (pipeline *VideoAssetPipeline) copyObjectToTemporaryFile(ctx context.Contex
 		return "", func() {}, err
 	}
 	defer object.Body.Close()
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(object.ContentType, ";")[0]))
 	maxBytes := video_studio_setting.Get().MaxArchivedVideoBytes
 	if asset.Kind == model.VideoAssetKindReference {
-		maxBytes = video_studio_setting.Get().MaxReferenceBytes
-	}
-	if object.ContentLength <= 0 || object.ContentLength > maxBytes {
-		return "", func() {}, ErrVideoArchiveTooLarge
-	}
-	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(object.ContentType, ";")[0]))
-	if asset.Kind == model.VideoAssetKindReference {
-		if !isSupportedReferenceMIME(mediaType) {
+		switch {
+		case isSupportedReferenceMIME(mediaType):
+			maxBytes = video_studio_setting.Get().MaxReferenceBytes
+		case isSupportedVideoMIME(mediaType):
+		default:
 			return "", func() {}, ErrVideoArchiveMIMERejected
 		}
 	} else if !isSupportedVideoMIME(mediaType) {
 		return "", func() {}, ErrVideoArchiveMIMERejected
+	}
+	if object.ContentLength <= 0 || object.ContentLength > maxBytes {
+		return "", func() {}, ErrVideoArchiveTooLarge
 	}
 	available, err := videoTemporaryAvailableBytes(pipeline.tempDir)
 	if err != nil || available < uint64(object.ContentLength)+videoTemporaryStorageReserveBytes {

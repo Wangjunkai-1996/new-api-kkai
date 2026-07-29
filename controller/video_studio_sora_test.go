@@ -43,6 +43,11 @@ func TestVideoStudioQuotePayloadSubmitsThroughSpecialSoraContract(t *testing.T) 
 		SpecificationVersion: 1, Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
 		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}).Error)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: service.VideoStudioTokenGroup, Model: studioModel, ChannelId: 2,
+		Enabled: true, Priority: &priority,
+	}).Error)
 
 	creativeRequest := service.VideoStudioSubmissionRequest{
 		TokenID: token.Id,

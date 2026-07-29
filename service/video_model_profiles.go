@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -70,6 +72,63 @@ func ListVideoModelProfiles(ctx context.Context, db *gorm.DB, includeDisabled bo
 	return views, nil
 }
 
+func ListEffectiveVideoModelProfiles(
+	ctx context.Context,
+	db *gorm.DB,
+	userID int,
+	clientIP string,
+) ([]VideoModelProfileView, error) {
+	if db == nil || userID <= 0 {
+		return nil, ErrVideoStudioTokenInvalid
+	}
+	user, err := getCurrentVideoStudioUser(ctx, db, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !videoStudioUserCanUseGroup(user) {
+		return nil, ErrVideoStudioTokenGroupUnavailable
+	}
+	models, migrated, err := effectiveVideoStudioModels(ctx, db, userID, clientIP)
+	invalidateMigratedVideoStudioTokenCache(userID, migrated)
+	if err != nil || len(models) == 0 {
+		return []VideoModelProfileView{}, err
+	}
+
+	var profiles []model.KKAIVideoModelProfile
+	if err := db.WithContext(ctx).
+		Where("model IN ?", models).
+		Find(&profiles).Error; err != nil {
+		return nil, fmt.Errorf("list effective video model profiles: %w", err)
+	}
+	profilesByModel := make(map[string]model.KKAIVideoModelProfile, len(profiles))
+	for _, profile := range profiles {
+		profilesByModel[profile.Model] = profile
+	}
+	views := make([]VideoModelProfileView, 0, len(models))
+	for _, modelName := range models {
+		profile, exists := profilesByModel[modelName]
+		if exists {
+			if !profile.Enabled {
+				continue
+			}
+			view, err := videoModelProfileView(profile)
+			if err != nil {
+				return nil, err
+			}
+			views = append(views, view)
+			continue
+		}
+		views = append(views, runtimeVideoModelProfileView(modelName))
+	}
+	sort.SliceStable(views, func(left, right int) bool {
+		if views[left].SortOrder != views[right].SortOrder {
+			return views[left].SortOrder < views[right].SortOrder
+		}
+		return views[left].Model < views[right].Model
+	})
+	return views, nil
+}
+
 func GetVideoModelProfileByID(ctx context.Context, db *gorm.DB, id int64) (*VideoModelProfileView, error) {
 	var profile model.KKAIVideoModelProfile
 	if db == nil || id <= 0 {
@@ -101,6 +160,69 @@ func GetEnabledVideoModelProfileByModel(ctx context.Context, db *gorm.DB, modelN
 		return nil, VideoModelSpec{}, nil, err
 	}
 	return &profile, specification, defaults, nil
+}
+
+func resolveVideoModelProfile(
+	ctx context.Context,
+	db *gorm.DB,
+	modelName string,
+) (int64, int, string, VideoModelSpec, map[string]any, error) {
+	modelName = strings.TrimSpace(modelName)
+	if db == nil || !videoModelNamePattern.MatchString(modelName) {
+		return 0, 0, "", VideoModelSpec{}, nil, ErrVideoModelProfileNotFound
+	}
+	var profile model.KKAIVideoModelProfile
+	err := db.WithContext(ctx).Where("model = ?", modelName).First(&profile).Error
+	if err == nil {
+		if !profile.Enabled {
+			return 0, 0, "", VideoModelSpec{}, nil, ErrVideoModelProfileNotFound
+		}
+		specification, defaults, err := decodeVideoModelProfile(profile)
+		if err != nil {
+			return 0, 0, "", VideoModelSpec{}, nil, err
+		}
+		return profile.ID, profile.SpecificationVersion, profile.Model, specification, defaults, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, 0, "", VideoModelSpec{}, nil, err
+	}
+	fallback := runtimeVideoModelProfileView(modelName)
+	return 0, fallback.SpecificationVersion, fallback.Model, fallback.Specification, fallback.DefaultParameters, nil
+}
+
+func runtimeVideoModelProfileView(modelName string) VideoModelProfileView {
+	specification := VideoModelSpec{
+		Version:    1,
+		Modes:      []string{VideoModeTextToVideo},
+		Parameters: []VideoParameterSpec{},
+	}
+	lowerModel := strings.ToLower(modelName)
+	if strings.HasSuffix(lowerModel, "_with_video_ref") {
+		specification.Modes = []string{VideoModeImageToVideo}
+		specification.ReferenceInputs = []VideoReferenceInputSpec{{
+			Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
+		}}
+	} else if strings.Contains(lowerModel, "i2v") {
+		specification.Modes = []string{VideoModeImageToVideo}
+		specification.ReferenceInputs = []VideoReferenceInputSpec{{
+			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
+		}}
+	}
+	return VideoModelProfileView{
+		ID: runtimeVideoModelProfileID(modelName), Model: modelName, DisplayName: modelName,
+		ProviderLabel: VideoStudioTokenGroup, SpecificationVersion: specification.Version,
+		Specification: specification, DefaultParameters: map[string]any{}, Enabled: true,
+	}
+}
+
+func runtimeVideoModelProfileID(modelName string) int64 {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(modelName))
+	value := hash.Sum64() & ((1 << 53) - 1)
+	if value == 0 {
+		value = 1
+	}
+	return -int64(value)
 }
 
 func CreateVideoModelProfile(ctx context.Context, db *gorm.DB, input VideoModelProfileInput) (*VideoModelProfileView, error) {

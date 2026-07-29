@@ -69,7 +69,15 @@ type videoSampleCursor struct {
 	ID        int64 `json:"id"`
 }
 
-func ListVideoSamples(ctx context.Context, db *gorm.DB, modelName string, cursor string, limit int, includeDrafts bool) (VideoSamplePage, error) {
+func ListVideoSamples(
+	ctx context.Context,
+	db *gorm.DB,
+	modelName string,
+	cursor string,
+	limit int,
+	includeDrafts bool,
+	allowedModels []string,
+) (VideoSamplePage, error) {
 	if db == nil {
 		return VideoSamplePage{}, ErrVideoSampleNotFound
 	}
@@ -86,6 +94,12 @@ func ListVideoSamples(ctx context.Context, db *gorm.DB, modelName string, cursor
 	} else {
 		query = query.Select("kkai_video_samples.*").
 			Where("kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?", model.VideoSampleStatusPublished, true)
+	}
+	if allowedModels != nil {
+		if len(allowedModels) == 0 {
+			return VideoSamplePage{Items: []VideoSampleView{}}, nil
+		}
+		query = query.Where("kkai_video_model_profiles.model IN ?", allowedModels)
 	}
 	if strings.TrimSpace(modelName) != "" {
 		query = query.Where("kkai_video_model_profiles.model = ?", strings.TrimSpace(modelName))
@@ -120,12 +134,24 @@ func ListVideoSamples(ctx context.Context, db *gorm.DB, modelName string, cursor
 	return page, err
 }
 
-func GetVideoSample(ctx context.Context, db *gorm.DB, id int64, includeDrafts bool) (*VideoSampleView, error) {
+func GetVideoSample(
+	ctx context.Context,
+	db *gorm.DB,
+	id int64,
+	includeDrafts bool,
+	allowedModels []string,
+) (*VideoSampleView, error) {
 	query := db.WithContext(ctx).Model(&model.KKAIVideoSample{}).
 		Joins("JOIN kkai_video_model_profiles ON kkai_video_model_profiles.id = kkai_video_samples.model_profile_id").
 		Select("kkai_video_samples.*").Where("kkai_video_samples.id = ?", id)
 	if !includeDrafts {
 		query = query.Where("kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?", model.VideoSampleStatusPublished, true)
+	}
+	if allowedModels != nil {
+		if len(allowedModels) == 0 {
+			return nil, ErrVideoSampleNotFound
+		}
+		query = query.Where("kkai_video_model_profiles.model IN ?", allowedModels)
 	}
 	var sample model.KKAIVideoSample
 	if err := query.First(&sample).Error; err != nil {
@@ -170,7 +196,7 @@ func CreateVideoSample(ctx context.Context, db *gorm.DB, adminUserID int, input 
 	if err != nil {
 		return nil, fmt.Errorf("create video sample: %w", err)
 	}
-	return GetVideoSample(ctx, db, created.ID, true)
+	return GetVideoSample(ctx, db, created.ID, true, nil)
 }
 
 func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID int, input VideoSampleInput) (*VideoSampleView, error) {
@@ -206,7 +232,7 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 	if err != nil {
 		return nil, fmt.Errorf("update video sample: %w", err)
 	}
-	return GetVideoSample(ctx, db, id, true)
+	return GetVideoSample(ctx, db, id, true, nil)
 }
 
 func DeleteVideoSample(ctx context.Context, db *gorm.DB, id int64) error {
@@ -291,9 +317,14 @@ func prepareVideoSampleInput(ctx context.Context, tx *gorm.DB, adminUserID int, 
 	if videoAsset.State != model.VideoAssetStateReady || !strings.HasPrefix(videoAsset.MIMEType, "video/") {
 		return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
 	}
-	for _, referenceID := range input.ReferenceAssetIDs {
+	for index, referenceID := range input.ReferenceAssetIDs {
 		reference := assetsByID[referenceID]
-		if reference.State != model.VideoAssetStateReady || !strings.HasPrefix(reference.MIMEType, "image/") {
+		expectsVideo := expectedReferences[index].Role == model.VideoTaskAssetRoleReferenceVideo
+		validMIME := strings.HasPrefix(reference.MIMEType, "image/")
+		if expectsVideo {
+			validMIME = strings.HasPrefix(reference.MIMEType, "video/")
+		}
+		if reference.State != model.VideoAssetStateReady || !validMIME {
 			return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
 		}
 	}
@@ -436,10 +467,16 @@ func expectedVideoReferenceInputs(specification VideoModelSpec, mode string) []V
 	if mode == VideoModeTextToVideo {
 		return nil
 	}
-	roles := []string{model.VideoTaskAssetRoleReference}
-	if mode == VideoModeFirstLastFrame {
-		roles = []string{model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame}
+	if mode == VideoModeImageToVideo {
+		inputs := make([]VideoReferenceInputSpec, 0, 1)
+		for _, input := range specification.ReferenceInputs {
+			if input.Required && (input.Role == model.VideoTaskAssetRoleReference || input.Role == model.VideoTaskAssetRoleReferenceVideo) {
+				inputs = append(inputs, input)
+			}
+		}
+		return inputs
 	}
+	roles := []string{model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame}
 	inputs := make([]VideoReferenceInputSpec, 0, len(roles))
 	for _, role := range roles {
 		for _, input := range specification.ReferenceInputs {

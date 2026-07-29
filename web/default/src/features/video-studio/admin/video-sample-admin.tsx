@@ -122,8 +122,13 @@ export function VideoSampleAdmin() {
   useEffect(() => {
     form.reset(selected ? sampleValues(selected) : emptyValues())
     setVideoAssets(selected ? [getSampleVideoAsset(selected)] : [])
-    setReferenceAssets(selected ? getSampleReferenceAssets(selected) : [])
-  }, [form, selected])
+    const profile = modelsQuery.data?.find(
+      (candidate) => candidate.id === selected?.model_profile_id
+    )
+    setReferenceAssets(
+      selected ? getSampleReferenceAssets(selected, profile) : []
+    )
+  }, [form, modelsQuery.data, selected])
 
   useEffect(() => {
     form.setValue('video_asset_id', videoAssets[0]?.id ?? 0, {
@@ -143,14 +148,14 @@ export function VideoSampleAdmin() {
     () => selectedProfile?.specification.modes ?? ['text_to_video'],
     [selectedProfile?.specification.modes]
   )
-  const referenceLimit = selectedProfile
-    ? getVideoReferenceRoles(selectedProfile, selectedMode).length
-    : 0
-  const referenceLabels = selectedProfile
-    ? getVideoReferenceRoles(selectedProfile, selectedMode).map((role) =>
-        t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
-      )
+  const referenceRoles = selectedProfile
+    ? getVideoReferenceRoles(selectedProfile, selectedMode)
     : []
+  const referenceLimit = referenceRoles.length
+  const referenceLabels = referenceRoles.map((role) =>
+    t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
+  )
+  const usesVideoReference = referenceRoles.includes('reference_video')
   const videoAssetReady =
     videoAssets.length === 1 && videoAssets[0]?.state === 'ready'
   const referenceAssetsReady =
@@ -477,13 +482,21 @@ export function VideoSampleAdmin() {
                 {t('videoStudio.admin.references')}
               </span>
               <VideoAssetUploader
-                key={`${selectedProfileId}-${selectedMode}-${referenceLimit}`}
+                key={`${selectedProfileId}-${selectedMode}-${referenceLimit}-${usesVideoReference ? 'video' : 'image'}`}
                 assets={referenceAssets}
                 onAssetsChange={setReferenceAssets}
-                purpose='reference'
+                purpose={usesVideoReference ? 'reference_video' : 'reference'}
                 maxFiles={referenceLimit}
-                accept={['image/jpeg', 'image/png', 'image/webp']}
-                label={t('videoStudio.addImage')}
+                accept={
+                  usesVideoReference
+                    ? ['video/mp4', 'video/webm', 'video/quicktime']
+                    : ['image/jpeg', 'image/png', 'image/webp']
+                }
+                label={t(
+                  usesVideoReference
+                    ? 'videoStudio.addVideo'
+                    : 'videoStudio.addImage'
+                )}
                 assetLabels={referenceLabels}
                 compact
                 adminUpload

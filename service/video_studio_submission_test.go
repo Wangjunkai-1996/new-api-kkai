@@ -111,6 +111,90 @@ func TestNormalizeVideoStudioSubmissionDerivesModelFromSample(t *testing.T) {
 	require.Equal(t, sample.Mode, normalized.Mode)
 }
 
+func TestNormalizeVideoStudioSubmissionUsesRuntimeTextProfile(t *testing.T) {
+	db := newVideoSubmissionTestDB(t)
+	normalized, err := NormalizeVideoStudioSubmission(
+		context.Background(), db, videoSubmissionTestStore{}, 42,
+		VideoStudioSubmissionRequest{
+			TokenID: 1, Model: "runtime-text-model", Mode: VideoModeTextToVideo, Prompt: "A calm orbit",
+		},
+	)
+	require.NoError(t, err)
+	require.Zero(t, normalized.ProfileID)
+	require.Equal(t, 1, normalized.SpecificationVersion)
+	require.Equal(t, "runtime-text-model", normalized.Model)
+}
+
+func TestNormalizeVideoStudioSubmissionRejectsDisabledProfileInsteadOfRuntimeFallback(t *testing.T) {
+	db := newVideoSubmissionTestDB(t)
+	profile, _, _ := createVideoSubmissionFixture(t, db)
+	require.NoError(t, db.Model(&model.KKAIVideoModelProfile{}).
+		Where("id = ?", profile.ID).
+		Update("enabled", false).Error)
+
+	_, err := NormalizeVideoStudioSubmission(
+		context.Background(), db, videoSubmissionTestStore{}, 42,
+		VideoStudioSubmissionRequest{
+			TokenID: 1, Model: profile.Model, Mode: VideoModeTextToVideo, Prompt: "Must stay disabled",
+		},
+	)
+	require.ErrorIs(t, err, ErrVideoModelProfileNotFound)
+}
+
+func TestNormalizeVideoStudioSubmissionRuntimeI2VRequiresImage(t *testing.T) {
+	db := newVideoSubmissionTestDB(t)
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateReady, ObjectKey: "runtime-i2v.png", MIMEType: "image/png",
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	request := VideoStudioSubmissionRequest{
+		TokenID: 1, Model: "wan2.7-i2v", Mode: VideoModeImageToVideo, Prompt: "Animate the image",
+	}
+	_, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
+	require.ErrorIs(t, err, ErrInvalidVideoStudioSubmission)
+
+	request.ReferenceAssets = []VideoStudioReferenceAssetInput{{
+		AssetID: asset.ID, Role: model.VideoTaskAssetRoleReference,
+	}}
+	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
+	require.NoError(t, err)
+	require.Zero(t, normalized.ProfileID)
+	require.Equal(t, model.VideoTaskAssetRoleReference, normalized.ReferenceAssets[0].Role)
+}
+
+func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceRejectsImages(t *testing.T) {
+	db := newVideoSubmissionTestDB(t)
+	now := time.Now().Unix()
+	assets := []model.KKAIVideoAsset{
+		{OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, ObjectKey: "wrong.png", MIMEType: "image/png", CreatedAt: now, UpdatedAt: now},
+		{OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, ObjectKey: "reference.mp4", MIMEType: "video/mp4", CreatedAt: now, UpdatedAt: now},
+	}
+	for index := range assets {
+		require.NoError(t, db.Create(&assets[index]).Error)
+	}
+	request := VideoStudioSubmissionRequest{
+		TokenID: 1, Model: "sd_2.0_special_1080p_with_video_ref", Mode: VideoModeImageToVideo,
+		Prompt: "Continue the movement", ReferenceAssets: []VideoStudioReferenceAssetInput{{
+			AssetID: assets[0].ID, Role: model.VideoTaskAssetRoleReferenceVideo,
+		}},
+	}
+	_, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
+	require.ErrorIs(t, err, ErrInvalidVideoStudioSubmission)
+
+	request.ReferenceAssets[0].AssetID = assets[1].ID
+	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
+	require.NoError(t, err)
+	require.Zero(t, normalized.ProfileID)
+	require.Equal(t, model.VideoTaskAssetRoleReferenceVideo, normalized.ReferenceAssets[0].Role)
+	var payload map[string]any
+	require.NoError(t, common.Unmarshal(normalized.TaskPayload, &payload))
+	require.Equal(t, "https://assets.invalid/reference.mp4", payload["reference_video"])
+	require.NotContains(t, payload, "image")
+	require.NotContains(t, payload, "images")
+}
+
 func TestNormalizeVideoStudioSubmissionUsesPersistedSampleReferenceMapping(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	profile, sample, assets := createVideoSubmissionFixture(t, db)

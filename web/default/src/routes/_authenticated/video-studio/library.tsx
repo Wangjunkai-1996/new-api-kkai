@@ -17,9 +17,34 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { VideoLibraryPage } from '@/features/video-studio'
 
-export const Route = createFileRoute('/_authenticated/video-studio/library')({
-  component: VideoLibraryPage,
+const videoLibrarySearchSchema = z.object({
+  task: z
+    .string()
+    .trim()
+    .max(128)
+    .regex(/^task_[0-9A-Za-z_-]+$/)
+    .optional()
+    .catch(undefined),
 })
+
+export const Route = createFileRoute('/_authenticated/video-studio/library')({
+  validateSearch: videoLibrarySearchSchema,
+  component: VideoLibraryRoute,
+})
+
+function VideoLibraryRoute() {
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  return (
+    <VideoLibraryPage
+      targetTaskId={search.task}
+      onClearTarget={() => {
+        void navigate({ search: {}, replace: true })
+      }}
+    />
+  )
+}

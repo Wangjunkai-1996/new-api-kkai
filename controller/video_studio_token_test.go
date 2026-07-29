@@ -28,7 +28,7 @@ func setupVideoStudioTokenControllerTest(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:video-token-controller-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.KKAIVideoModelProfile{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.KKAIVideoModelProfile{}, &model.Ability{}))
 
 	previousDB := model.DB
 	previousRedisEnabled := common.RedisEnabled
@@ -56,6 +56,11 @@ func setupVideoStudioTokenControllerTest(t *testing.T) *gorm.DB {
 		Model: "video-model-a", DisplayName: "Video Model", Description: "test",
 		SpecificationVersion: 1, Specification: `{}`, DefaultParameters: `{}`, Enabled: true,
 		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}).Error)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: service.VideoStudioTokenGroup, Model: "video-model-a", ChannelId: 1,
+		Enabled: true, Priority: &priority,
 	}).Error)
 	return db
 }
