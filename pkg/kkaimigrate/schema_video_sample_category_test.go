@@ -2,10 +2,13 @@ package kkaimigrate
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/migrator"
 )
 
 func TestVideoSampleCategoryV6AddsNullableColumnForEveryDialect(t *testing.T) {
@@ -67,7 +70,9 @@ func TestApplyVideoSampleCategoryExpandRejectsIncompatibleExistingColumn(t *test
 		ddl  string
 	}{
 		{name: "wrong type", ddl: "ALTER TABLE kkai_video_samples ADD COLUMN category TEXT"},
-		{name: "not nullable", ddl: "ALTER TABLE kkai_video_samples ADD COLUMN category VARCHAR(32) NOT NULL DEFAULT ''"},
+		{name: "not nullable", ddl: "ALTER TABLE kkai_video_samples ADD COLUMN category VARCHAR(32) NOT NULL"},
+		{name: "has default", ddl: "ALTER TABLE kkai_video_samples ADD COLUMN category VARCHAR(32) DEFAULT 'other'"},
+		{name: "has null default", ddl: "ALTER TABLE kkai_video_samples ADD COLUMN category VARCHAR(32) DEFAULT NULL"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -85,6 +90,60 @@ func TestApplyVideoSampleCategoryExpandRejectsIncompatibleExistingColumn(t *test
 				"version = ?", VideoSampleCategorySchemaVersion,
 			).Count(&count).Error)
 			require.Zero(t, count)
+		})
+	}
+}
+
+func TestVideoSampleCategoryColumnShapeForServerDialects(t *testing.T) {
+	dialects := []struct {
+		name     string
+		typeName string
+	}{
+		{name: DialectMySQL, typeName: "varchar"},
+		{name: DialectPostgres, typeName: "character varying"},
+	}
+	tests := []struct {
+		name       string
+		typeName   string
+		length     int64
+		nullable   bool
+		defaultVal string
+		hasDefault bool
+		wantErr    bool
+	}{
+		{name: "valid", length: 32, nullable: true},
+		{name: "wrong type", typeName: "text", length: 32, nullable: true, wantErr: true},
+		{name: "not nullable", length: 32, nullable: false, wantErr: true},
+		{name: "has default", length: 32, nullable: true, defaultVal: "other", hasDefault: true, wantErr: true},
+		{name: "has null default", length: 32, nullable: true, defaultVal: "NULL", hasDefault: true, wantErr: true},
+	}
+	for _, dialect := range dialects {
+		t.Run(dialect.name, func(t *testing.T) {
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					typeName := test.typeName
+					if typeName == "" {
+						typeName = dialect.typeName
+					}
+					columnTypes := []gorm.ColumnType{migrator.ColumnType{
+						NameValue:         sql.NullString{String: "category", Valid: true},
+						DataTypeValue:     sql.NullString{String: typeName, Valid: true},
+						LengthValue:       sql.NullInt64{Int64: test.length, Valid: true},
+						NullableValue:     sql.NullBool{Bool: test.nullable, Valid: true},
+						DefaultValueValue: sql.NullString{String: test.defaultVal, Valid: test.hasDefault},
+					}}
+					err := validateVideoSampleCategoryColumnShape(columnTypes, dialect.name)
+					wantErr := test.wantErr
+					if dialect.name == DialectMySQL && test.name == "has null default" {
+						wantErr = false
+					}
+					if wantErr {
+						require.ErrorIs(t, err, ErrSchemaNotReady)
+						return
+					}
+					require.NoError(t, err)
+				})
+			}
 		})
 	}
 }

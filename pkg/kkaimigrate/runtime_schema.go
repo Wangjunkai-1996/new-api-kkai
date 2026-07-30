@@ -1,6 +1,7 @@
 package kkaimigrate
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -122,14 +123,15 @@ func validateVideoSampleCategoryColumn(db *gorm.DB, dialect string) error {
 	if err != nil {
 		return fmt.Errorf("inspect runtime table kkai_video_samples: %w", err)
 	}
-	return validateVideoSampleCategoryColumnShape(columnTypes)
+	return validateVideoSampleCategoryColumnShape(columnTypes, dialect)
 }
 
 func validateSQLiteVideoSampleCategoryColumn(db *gorm.DB) error {
 	var columns []struct {
-		Name    string `gorm:"column:name"`
-		Type    string `gorm:"column:type"`
-		NotNull int    `gorm:"column:notnull"`
+		Name         string         `gorm:"column:name"`
+		Type         string         `gorm:"column:type"`
+		NotNull      int            `gorm:"column:notnull"`
+		DefaultValue sql.NullString `gorm:"column:dflt_value"`
 	}
 	if err := db.Raw("PRAGMA table_info(kkai_video_samples)").Scan(&columns).Error; err != nil {
 		return fmt.Errorf("inspect SQLite kkai_video_samples.category: %w", err)
@@ -144,12 +146,15 @@ func validateSQLiteVideoSampleCategoryColumn(db *gorm.DB) error {
 		if column.NotNull != 0 {
 			return fmt.Errorf("%w: kkai_video_samples.category must be nullable", ErrSchemaNotReady)
 		}
+		if column.DefaultValue.Valid {
+			return fmt.Errorf("%w: kkai_video_samples.category must not have a default", ErrSchemaNotReady)
+		}
 		return nil
 	}
 	return fmt.Errorf("%w: missing runtime column kkai_video_samples.category", ErrSchemaNotReady)
 }
 
-func validateVideoSampleCategoryColumnShape(columnTypes []gorm.ColumnType) error {
+func validateVideoSampleCategoryColumnShape(columnTypes []gorm.ColumnType, dialect string) error {
 	var category gorm.ColumnType
 	for _, columnType := range columnTypes {
 		if columnType.Name() == "category" {
@@ -168,6 +173,13 @@ func validateVideoSampleCategoryColumnShape(columnTypes []gorm.ColumnType) error
 	nullable, hasNullable := category.Nullable()
 	if !hasNullable || !nullable {
 		return fmt.Errorf("%w: kkai_video_samples.category must be nullable", ErrSchemaNotReady)
+	}
+	if defaultValue, hasDefault := category.DefaultValue(); hasDefault {
+		// MySQL exposes an omitted default and DEFAULT NULL identically. The
+		// reviewed migration checksum provides the syntax-level guarantee there.
+		if dialect != DialectMySQL || !strings.EqualFold(strings.TrimSpace(defaultValue), "NULL") {
+			return fmt.Errorf("%w: kkai_video_samples.category must not have a default", ErrSchemaNotReady)
+		}
 	}
 	return nil
 }
