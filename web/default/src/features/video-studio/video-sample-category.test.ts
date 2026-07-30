@@ -9,7 +9,7 @@ const sampleFormInput = {
   title: 'Category sample',
   prompt: 'A catalog sample',
   mode: 'text_to_video',
-  parameters_json: '{}',
+  parameters: {},
   reference_asset_ids: [],
   video_asset_id: 2,
   category: 'people',

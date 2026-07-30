@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,10 +16,13 @@ import (
 )
 
 var (
-	ErrVideoModelProfileNotFound = errors.New("video model profile not found")
-	ErrVideoModelProfileInUse    = errors.New("video model profile is in use")
-	ErrVideoModelNeedsSample     = errors.New("an enabled video model needs at least one published sample")
-	videoModelNamePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
+	ErrVideoModelProfileNotFound       = errors.New("video model profile not found")
+	ErrVideoModelProfileInUse          = errors.New("video model profile is in use")
+	ErrVideoModelProfileDuplicate      = errors.New("video model profile already exists")
+	ErrVideoModelProfileModelImmutable = errors.New("video model profile model cannot be changed")
+	ErrVideoModelAbilityUnavailable    = errors.New("video model has no enabled Seedance ability")
+	ErrVideoModelNeedsSample           = errors.New("an enabled video model needs at least one published sample")
+	videoModelNamePattern              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
 )
 
 type VideoModelProfileInput struct {
@@ -72,6 +74,13 @@ func ListVideoModelProfiles(ctx context.Context, db *gorm.DB, includeDisabled bo
 	return views, nil
 }
 
+func ListVideoModelCandidates(ctx context.Context, db *gorm.DB) ([]string, error) {
+	if db == nil {
+		return nil, ErrVideoModelProfileNotFound
+	}
+	return enabledVideoStudioModelsForGroup(ctx, db, VideoStudioTokenGroup)
+}
+
 func ListEffectiveVideoModelProfiles(
 	ctx context.Context,
 	db *gorm.DB,
@@ -89,7 +98,7 @@ func ListEffectiveVideoModelProfiles(
 
 	var profiles []model.KKAIVideoModelProfile
 	if err := db.WithContext(ctx).
-		Where("model IN ?", models).
+		Where("model IN ? AND enabled = ?", models, true).
 		Find(&profiles).Error; err != nil {
 		return nil, fmt.Errorf("list effective video model profiles: %w", err)
 	}
@@ -100,18 +109,14 @@ func ListEffectiveVideoModelProfiles(
 	views := make([]VideoModelProfileView, 0, len(models))
 	for _, modelName := range models {
 		profile, exists := profilesByModel[modelName]
-		if exists {
-			if !profile.Enabled {
-				continue
-			}
-			view, err := videoModelProfileView(profile)
-			if err != nil {
-				return nil, err
-			}
-			views = append(views, view)
+		if !exists {
 			continue
 		}
-		views = append(views, runtimeVideoModelProfileView(modelName))
+		view, err := videoModelProfileView(profile)
+		if err != nil {
+			return nil, err
+		}
+		views = append(views, view)
 	}
 	sort.SliceStable(views, func(left, right int) bool {
 		if views[left].SortOrder != views[right].SortOrder {
@@ -165,69 +170,38 @@ func resolveVideoModelProfile(
 		return 0, 0, "", VideoModelSpec{}, nil, ErrVideoModelProfileNotFound
 	}
 	var profile model.KKAIVideoModelProfile
-	err := db.WithContext(ctx).Where("model = ?", modelName).First(&profile).Error
-	if err == nil {
-		if !profile.Enabled {
+	if err := db.WithContext(ctx).Where("model = ? AND enabled = ?", modelName, true).First(&profile).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return 0, 0, "", VideoModelSpec{}, nil, ErrVideoModelProfileNotFound
 		}
-		specification, defaults, err := decodeVideoModelProfile(profile)
-		if err != nil {
-			return 0, 0, "", VideoModelSpec{}, nil, err
-		}
-		return profile.ID, profile.SpecificationVersion, profile.Model, specification, defaults, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, 0, "", VideoModelSpec{}, nil, err
 	}
-	fallback := runtimeVideoModelProfileView(modelName)
-	return 0, fallback.SpecificationVersion, fallback.Model, fallback.Specification, fallback.DefaultParameters, nil
-}
-
-func runtimeVideoModelProfileView(modelName string) VideoModelProfileView {
-	specification := VideoModelSpec{
-		Version:    1,
-		Modes:      []string{VideoModeTextToVideo},
-		Parameters: []VideoParameterSpec{},
+	specification, defaults, err := decodeVideoModelProfile(profile)
+	if err != nil {
+		return 0, 0, "", VideoModelSpec{}, nil, err
 	}
-	lowerModel := strings.ToLower(modelName)
-	if strings.HasSuffix(lowerModel, "_with_video_ref") {
-		minimum, maximum, step := float64(4), float64(15), float64(1)
-		specification.Version = 2
-		specification.Modes = []string{VideoModeImageToVideo}
-		specification.Parameters = []VideoParameterSpec{{
-			Key: "duration", Label: "Duration", Control: VideoControlNumber, RequestKey: "seconds",
-			Required: true, Default: float64(5), Min: &minimum, Max: &maximum, Step: &step,
-		}}
-		specification.ReferenceInputs = []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
-		}}
-	} else if strings.Contains(lowerModel, "i2v") {
-		specification.Modes = []string{VideoModeImageToVideo}
-		specification.ReferenceInputs = []VideoReferenceInputSpec{{
-			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
-		}}
-	}
-	return VideoModelProfileView{
-		ID: runtimeVideoModelProfileID(modelName), Model: modelName, DisplayName: modelName,
-		ProviderLabel: VideoStudioTokenGroup, SpecificationVersion: specification.Version,
-		Specification: specification, DefaultParameters: map[string]any{}, Enabled: true,
-	}
-}
-
-func runtimeVideoModelProfileID(modelName string) int64 {
-	hash := fnv.New64a()
-	_, _ = hash.Write([]byte(modelName))
-	value := hash.Sum64() & ((1 << 53) - 1)
-	if value == 0 {
-		value = 1
-	}
-	return -int64(value)
+	return profile.ID, profile.SpecificationVersion, profile.Model, specification, defaults, nil
 }
 
 func CreateVideoModelProfile(ctx context.Context, db *gorm.DB, input VideoModelProfileInput) (*VideoModelProfileView, error) {
 	normalized, specificationJSON, defaultsJSON, err := normalizeVideoModelProfileInput(input)
 	if err != nil {
 		return nil, err
+	}
+	available, err := videoStudioModelHasEnabledAbility(ctx, db, VideoStudioTokenGroup, normalized.Model)
+	if err != nil {
+		return nil, err
+	}
+	if !available {
+		return nil, ErrVideoModelAbilityUnavailable
+	}
+	var duplicateCount int64
+	if err := db.WithContext(ctx).Model(&model.KKAIVideoModelProfile{}).
+		Where("model = ?", normalized.Model).Count(&duplicateCount).Error; err != nil {
+		return nil, err
+	}
+	if duplicateCount > 0 {
+		return nil, ErrVideoModelProfileDuplicate
 	}
 	if normalized.Enabled {
 		return nil, ErrVideoModelNeedsSample
@@ -240,6 +214,10 @@ func CreateVideoModelProfile(ctx context.Context, db *gorm.DB, input VideoModelP
 		SortOrder: normalized.SortOrder, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := db.WithContext(ctx).Create(&profile).Error; err != nil {
+		if countErr := db.WithContext(ctx).Model(&model.KKAIVideoModelProfile{}).
+			Where("model = ?", normalized.Model).Count(&duplicateCount).Error; countErr == nil && duplicateCount > 0 {
+			return nil, ErrVideoModelProfileDuplicate
+		}
 		return nil, fmt.Errorf("create video model profile: %w", err)
 	}
 	view, err := videoModelProfileView(profile)
@@ -258,6 +236,18 @@ func UpdateVideoModelProfile(ctx context.Context, db *gorm.DB, id int64, input V
 				return ErrVideoModelProfileNotFound
 			}
 			return err
+		}
+		if normalized.Model != updated.Model {
+			return ErrVideoModelProfileModelImmutable
+		}
+		if normalized.Enabled {
+			available, err := videoStudioModelHasEnabledAbility(ctx, tx, VideoStudioTokenGroup, normalized.Model)
+			if err != nil {
+				return err
+			}
+			if !available {
+				return ErrVideoModelAbilityUnavailable
+			}
 		}
 		if updated.Specification != specificationJSON && normalized.Specification.Version <= updated.SpecificationVersion {
 			return fmt.Errorf("%w: specification changes require a higher version", ErrInvalidVideoModelSpec)

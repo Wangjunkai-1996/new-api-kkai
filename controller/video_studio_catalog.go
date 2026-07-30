@@ -102,6 +102,15 @@ func AdminListVideoStudioModelProfiles(c *gin.Context) {
 	common.ApiSuccess(c, profiles)
 }
 
+func AdminListVideoStudioModelCandidates(c *gin.Context) {
+	candidates, err := service.ListVideoModelCandidates(c.Request.Context(), model.DB)
+	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
+	common.ApiSuccess(c, candidates)
+}
+
 func AdminGetVideoStudioModelProfile(c *gin.Context) {
 	id, err := videoStudioID(c)
 	if err != nil {

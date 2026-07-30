@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { LoaderCircle, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -44,73 +44,61 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 import {
+  useAdminVideoModelCandidates,
   useAdminVideoModels,
   useDeleteAdminVideoModel,
   useSaveAdminVideoModel,
 } from '../queries'
 import {
+  createVideoModelProfileFormValues,
+  filterVideoModelCandidates,
   parseVideoModelProfileForm,
   videoModelProfileFormSchema,
   type VideoModelProfileFormValues,
 } from '../schemas'
 import type { VideoModelProfile } from '../types'
 import { VideoAdminWorkspace } from './video-admin-workspace'
-
-const DEFAULT_SPEC = {
-  version: 1,
-  modes: ['text_to_video'],
-  parameters: [],
-  reference_inputs: [],
-}
-
-const emptyValues = (): VideoModelProfileFormValues => ({
-  model: '',
-  display_name: '',
-  description: '',
-  provider_label: '',
-  enabled: false,
-  sort_order: 0,
-  specification_json: JSON.stringify(DEFAULT_SPEC, null, 2),
-  default_parameters_json: '{}',
-})
-
-const modelValues = (
-  model: VideoModelProfile
-): VideoModelProfileFormValues => ({
-  model: model.model,
-  display_name: model.display_name,
-  description: model.description,
-  provider_label: model.provider_label,
-  enabled: model.enabled,
-  sort_order: model.sort_order,
-  specification_json: JSON.stringify(model.specification, null, 2),
-  default_parameters_json: JSON.stringify(model.default_parameters, null, 2),
-})
+import { VideoModelSpecEditor } from './video-model-spec-editor'
 
 export function VideoModelAdmin() {
   const { t } = useTranslation()
   const modelsQuery = useAdminVideoModels()
+  const candidatesQuery = useAdminVideoModelCandidates()
   const saveMutation = useSaveAdminVideoModel()
   const deleteMutation = useDeleteAdminVideoModel()
   const [selected, setSelected] = useState<VideoModelProfile | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const form = useForm<VideoModelProfileFormValues>({
     resolver: zodResolver(videoModelProfileFormSchema),
-    defaultValues: emptyValues(),
+    defaultValues: createVideoModelProfileFormValues(),
   })
+  const candidates = useMemo(
+    () =>
+      filterVideoModelCandidates(
+        candidatesQuery.data ?? [],
+        modelsQuery.data ?? []
+      ),
+    [candidatesQuery.data, modelsQuery.data]
+  )
 
   useEffect(() => {
-    form.reset(selected ? modelValues(selected) : emptyValues())
+    form.reset(createVideoModelProfileFormValues(selected ?? undefined))
   }, [form, selected])
+
+  const startCreate = () => {
+    setSelected(null)
+    form.reset(createVideoModelProfileFormValues())
+  }
 
   const submit = form.handleSubmit(async (values) => {
     try {
-      const parsed = parseVideoModelProfileForm(values)
+      const parsed = parseVideoModelProfileForm(values, selected ?? undefined)
       const saved = await saveMutation.mutateAsync({
         id: selected?.id,
         values: parsed,
@@ -151,7 +139,7 @@ export function VideoModelAdmin() {
         <Button
           size='icon-sm'
           variant='ghost'
-          onClick={() => setSelected(null)}
+          onClick={startCreate}
           aria-label={t('videoStudio.admin.addModel')}
         >
           <Plus aria-hidden='true' />
@@ -256,9 +244,47 @@ export function VideoModelAdmin() {
                 <FormItem>
                   <FormLabel>{t('videoStudio.admin.modelId')}</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    {selected ? (
+                      <Input {...field} readOnly />
+                    ) : (
+                      <NativeSelect
+                        className='w-full'
+                        value={field.value}
+                        disabled={candidatesQuery.isLoading}
+                        onChange={(event) => {
+                          const previousModel = field.value
+                          const candidate = event.target.value
+                          field.onChange(candidate)
+                          const displayName = form.getValues('display_name')
+                          if (!displayName || displayName === previousModel) {
+                            form.setValue('display_name', candidate, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            })
+                          }
+                        }}
+                      >
+                        <NativeSelectOption value=''>
+                          {candidatesQuery.isLoading
+                            ? t('videoStudio.admin.loadingModelCandidates')
+                            : t('videoStudio.admin.selectModelCandidate')}
+                        </NativeSelectOption>
+                        {candidates.map((candidate) => (
+                          <NativeSelectOption key={candidate} value={candidate}>
+                            {candidate}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    )}
                   </FormControl>
                   <FormMessage />
+                  {!selected &&
+                    !candidatesQuery.isLoading &&
+                    candidates.length === 0 && (
+                      <p className='text-muted-foreground text-xs'>
+                        {t('videoStudio.admin.noModelCandidates')}
+                      </p>
+                    )}
                 </FormItem>
               )}
             />
@@ -294,6 +320,21 @@ export function VideoModelAdmin() {
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name='specification_version'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('videoStudio.admin.specificationVersion')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input type='number' {...field} readOnly />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
           <FormField
             control={form.control}
@@ -308,41 +349,24 @@ export function VideoModelAdmin() {
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name='specification_json'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('videoStudio.admin.spec')}</FormLabel>
-                <FormControl>
-                  <Textarea {...field} className='min-h-52 font-mono text-xs' />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name='default_parameters_json'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('videoStudio.admin.defaults')}</FormLabel>
-                <FormControl>
-                  <Textarea {...field} className='min-h-28 font-mono text-xs' />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          <VideoModelSpecEditor />
           <FormField
             control={form.control}
             name='enabled'
             render={({ field }) => (
               <FormItem className='flex items-center justify-between gap-3 border-t pt-4'>
-                <FormLabel>{t('videoStudio.admin.enabled')}</FormLabel>
+                <div className='space-y-1'>
+                  <FormLabel>{t('videoStudio.admin.enabled')}</FormLabel>
+                  {!selected && (
+                    <p className='text-muted-foreground text-xs'>
+                      {t('videoStudio.admin.enableAfterCreate')}
+                    </p>
+                  )}
+                </div>
                 <FormControl>
                   <Switch
                     checked={field.value}
+                    disabled={!selected}
                     onCheckedChange={field.onChange}
                   />
                 </FormControl>

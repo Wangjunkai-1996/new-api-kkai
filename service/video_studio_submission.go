@@ -155,8 +155,9 @@ func NormalizeVideoStudioSubmission(
 		}
 		request.ReferenceAssets = sampleReferenceInputs(referenceSnapshots)
 	}
-	mergedParameters := make(map[string]any, len(defaults)+len(request.Parameters))
-	for key, value := range defaults {
+	modeDefaults := filterVideoParametersForMode(specification, request.Mode, defaults)
+	mergedParameters := make(map[string]any, len(modeDefaults)+len(request.Parameters))
+	for key, value := range modeDefaults {
 		mergedParameters[key] = value
 	}
 	for key, value := range request.Parameters {

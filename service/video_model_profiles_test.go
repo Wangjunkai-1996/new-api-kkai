@@ -14,31 +14,34 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestRuntimeVideoReferenceProfileDefinesSecondsContract(t *testing.T) {
-	profile := runtimeVideoModelProfileView("sd_2.0_special_1080p_with_video_ref")
+func TestListVideoModelCandidatesReturnsEnabledSeedanceAbilities(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	priority := int64(0)
+	abilities := []model.Ability{
+		{Group: VideoStudioTokenGroup, Model: "z-model", ChannelId: 1, Enabled: true, Priority: &priority},
+		{Group: VideoStudioTokenGroup, Model: "z-model", ChannelId: 2, Enabled: true, Priority: &priority},
+		{Group: VideoStudioTokenGroup, Model: "a-model", ChannelId: 3, Enabled: true, Priority: &priority},
+		{Group: VideoStudioTokenGroup, Model: "disabled-model", ChannelId: 4, Enabled: false, Priority: &priority},
+		{Group: "default", Model: "wrong-group-model", ChannelId: 5, Enabled: true, Priority: &priority},
+	}
+	for index := range abilities {
+		require.NoError(t, db.Create(&abilities[index]).Error)
+	}
+	require.NoError(t, db.Create(&model.KKAIVideoModelProfile{
+		Model: "z-model", DisplayName: "Already configured", SpecificationVersion: 1,
+		Specification:     `{"version":1,"modes":["text_to_video"],"parameters":[]}`,
+		DefaultParameters: `{}`, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}).Error)
 
-	require.Equal(t, 2, profile.SpecificationVersion)
-	require.Equal(t, 2, profile.Specification.Version)
-	require.Equal(t, []string{VideoModeImageToVideo}, profile.Specification.Modes)
-	require.Empty(t, profile.DefaultParameters)
-	require.Equal(t, []VideoReferenceInputSpec{{
-		Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
-	}}, profile.Specification.ReferenceInputs)
-	require.Len(t, profile.Specification.Parameters, 1)
-	duration := profile.Specification.Parameters[0]
-	require.Equal(t, "duration", duration.Key)
-	require.Equal(t, "seconds", duration.RequestKey)
-	require.Equal(t, VideoControlNumber, duration.Control)
-	require.True(t, duration.Required)
-	require.Equal(t, float64(5), duration.Default)
-	require.Equal(t, float64(4), *duration.Min)
-	require.Equal(t, float64(15), *duration.Max)
-	require.Equal(t, float64(1), *duration.Step)
-	require.NoError(t, ValidateVideoModelSpec(profile.Specification, profile.DefaultParameters))
+	candidates, err := ListVideoModelCandidates(context.Background(), db)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a-model", "z-model"}, candidates)
 
-	ordinary := runtimeVideoModelProfileView("wan2.7-i2v")
-	require.Equal(t, 1, ordinary.SpecificationVersion)
-	require.Empty(t, ordinary.Specification.Parameters)
+	emptyDB := newVideoModelProfileTestDB(t)
+	empty, err := ListVideoModelCandidates(context.Background(), emptyDB)
+	require.NoError(t, err)
+	require.NotNil(t, empty)
+	require.Empty(t, empty)
 }
 
 func TestResolveVideoModelProfilePrefersPersistedVideoReferenceProfile(t *testing.T) {
@@ -62,6 +65,73 @@ func TestResolveVideoModelProfilePrefersPersistedVideoReferenceProfile(t *testin
 	require.Equal(t, profile.Model, resolvedModel)
 	require.Equal(t, specification, resolvedSpec)
 	require.Empty(t, defaults)
+
+	require.NoError(t, db.Model(&profile).Update("enabled", false).Error)
+	_, _, _, _, _, err = resolveVideoModelProfile(context.Background(), db, profile.Model)
+	require.ErrorIs(t, err, ErrVideoModelProfileNotFound)
+	_, _, _, _, _, err = resolveVideoModelProfile(context.Background(), db, "missing-model")
+	require.ErrorIs(t, err, ErrVideoModelProfileNotFound)
+}
+
+func TestCreateVideoModelProfileRequiresAbilityAndMapsDuplicate(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	input := VideoModelProfileInput{
+		Model: "candidate-model", DisplayName: "Candidate", Specification: VideoModelSpec{
+			Version: 1, Modes: []string{VideoModeTextToVideo},
+		}, DefaultParameters: map[string]any{},
+	}
+
+	_, err := CreateVideoModelProfile(context.Background(), db, input)
+	require.ErrorIs(t, err, ErrVideoModelAbilityUnavailable)
+	priority := int64(0)
+	ability := model.Ability{
+		Group: VideoStudioTokenGroup, Model: input.Model, ChannelId: 1, Enabled: false, Priority: &priority,
+	}
+	require.NoError(t, db.Create(&ability).Error)
+	_, err = CreateVideoModelProfile(context.Background(), db, input)
+	require.ErrorIs(t, err, ErrVideoModelAbilityUnavailable)
+	require.NoError(t, db.Model(&ability).Update("enabled", true).Error)
+
+	created, err := CreateVideoModelProfile(context.Background(), db, input)
+	require.NoError(t, err)
+	require.Equal(t, input.Model, created.Model)
+	_, err = CreateVideoModelProfile(context.Background(), db, input)
+	require.ErrorIs(t, err, ErrVideoModelProfileDuplicate)
+}
+
+func TestUpdateVideoModelProfileKeepsModelImmutableAndAllowsDisableWithoutAbility(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	now := time.Now().Unix()
+	specification := VideoModelSpec{
+		Version: 1, Modes: []string{VideoModeTextToVideo}, Parameters: []VideoParameterSpec{},
+	}
+	specificationJSON, err := common.Marshal(specification)
+	require.NoError(t, err)
+	profile := model.KKAIVideoModelProfile{
+		Model: "configured-model", DisplayName: "Configured", SpecificationVersion: 1,
+		Specification:     string(specificationJSON),
+		DefaultParameters: `{}`, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&profile).Error)
+	base := VideoModelProfileInput{
+		Model: profile.Model, DisplayName: profile.DisplayName,
+		Specification:     specification,
+		DefaultParameters: map[string]any{},
+	}
+
+	mutated := base
+	mutated.Model = "other-model"
+	_, err = UpdateVideoModelProfile(context.Background(), db, profile.ID, mutated)
+	require.ErrorIs(t, err, ErrVideoModelProfileModelImmutable)
+
+	enabled := base
+	enabled.Enabled = true
+	_, err = UpdateVideoModelProfile(context.Background(), db, profile.ID, enabled)
+	require.ErrorIs(t, err, ErrVideoModelAbilityUnavailable)
+
+	disabled, err := UpdateVideoModelProfile(context.Background(), db, profile.ID, base)
+	require.NoError(t, err)
+	require.False(t, disabled.Enabled)
 }
 
 func TestUpdateVideoModelProfileProtectsPublishedSampleReferenceSchema(t *testing.T) {
@@ -185,7 +255,7 @@ func newVideoModelProfileTestDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:video-profile-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.KKAIVideoModelProfile{}, &model.KKAIVideoSample{}))
+	require.NoError(t, db.AutoMigrate(&model.KKAIVideoModelProfile{}, &model.KKAIVideoSample{}, &model.Ability{}))
 	return db
 }
 

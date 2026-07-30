@@ -27,9 +27,10 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 import type {
-  VideoComposerValues,
+  VideoGenerationMode,
   VideoModelProfile,
   VideoNumericParameter,
+  VideoParameters,
 } from '../types'
 import {
   decodeVideoParameterOptionValue,
@@ -40,9 +41,14 @@ type VideoParameterFieldsProps = {
   profile: VideoModelProfile
 }
 
+type VideoParameterFormValues = {
+  mode: VideoGenerationMode
+  parameters: VideoParameters
+}
+
 export function VideoParameterFields(props: VideoParameterFieldsProps) {
   const fieldIdPrefix = useId()
-  const form = useFormContext<VideoComposerValues>()
+  const form = useFormContext<VideoParameterFormValues>()
   const mode = useWatch({ control: form.control, name: 'mode' })
   const parameters = props.profile.specification.parameters.filter(
     (parameter) => !parameter.modes || parameter.modes.includes(mode)
@@ -167,9 +173,11 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                         max={numericParameter.max}
                         step={numericParameter.step}
                         value={numericValue}
-                        onChange={(event) =>
-                          field.onChange(event.target.valueAsNumber)
-                        }
+                        onChange={(event) => {
+                          if (event.target.value !== '') {
+                            field.onChange(event.target.valueAsNumber)
+                          }
+                        }}
                       />
                     </div>
                   </div>

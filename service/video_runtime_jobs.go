@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
@@ -11,6 +12,79 @@ import (
 )
 
 const videoStudioTempDirectoryEnvironment = "VIDEO_STUDIO_TEMP_DIR"
+
+type videoStudioWorkerJobs interface {
+	ExpireUploads(context.Context) error
+	CleanupReferences(context.Context) error
+	ProcessOutbox(context.Context) error
+}
+
+type videoStudioWorkerRuntime struct {
+	mu       sync.Mutex
+	workerID string
+	store    VideoAssetStore
+	worker   *VideoOutboxWorker
+}
+
+func (runtime *videoStudioWorkerRuntime) initialize(ctx context.Context) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.worker != nil && runtime.store != nil {
+		return nil
+	}
+	store, err := NewR2VideoAssetStoreFromEnvironment(ctx)
+	if err != nil {
+		return err
+	}
+	media, err := NewPinnedFFmpegVideoMediaProcessorFromEnvironment(ctx)
+	if err != nil {
+		return err
+	}
+	tempDir := strings.TrimSpace(os.Getenv(videoStudioTempDirectoryEnvironment))
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
+	worker, err := NewVideoOutboxWorker(
+		model.DB,
+		runtime.workerID,
+		store,
+		media,
+		NewHTTPVideoArchiveFetcher(tempDir),
+		tempDir,
+		defaultVideoOutboxConcurrency,
+	)
+	if err != nil {
+		return err
+	}
+	runtime.store = store
+	runtime.worker = worker
+	return nil
+}
+
+func (runtime *videoStudioWorkerRuntime) ExpireUploads(ctx context.Context) error {
+	if err := runtime.initialize(ctx); err != nil {
+		return err
+	}
+	_, err := ExpireVideoAssetUploads(ctx, model.DB, runtime.store, 100)
+	return err
+}
+
+func (runtime *videoStudioWorkerRuntime) CleanupReferences(ctx context.Context) error {
+	if err := runtime.initialize(ctx); err != nil {
+		return err
+	}
+	settings := video_studio_setting.Get()
+	cutoff := time.Now().Add(-time.Duration(settings.ReferenceOrphanHours) * time.Hour)
+	_, err := CleanupAbandonedVideoReferenceAssets(ctx, model.DB, cutoff, 100)
+	return err
+}
+
+func (runtime *videoStudioWorkerRuntime) ProcessOutbox(ctx context.Context) error {
+	if err := runtime.initialize(ctx); err != nil {
+		return err
+	}
+	return runtime.worker.ProcessOnce(ctx)
+}
 
 func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID string) error {
 	if registry == nil || !leaderLeaseNamePattern.MatchString(workerID) {
@@ -67,25 +141,12 @@ func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID
 			return err
 		}
 	}
-	if !settings.WorkerEnabled {
-		return nil
-	}
-	store, err := NewR2VideoAssetStoreFromEnvironment(context.Background())
-	if err != nil {
-		return err
-	}
-	media, err := NewPinnedFFmpegVideoMediaProcessorFromEnvironment(context.Background())
-	if err != nil {
-		return err
-	}
-	tempDir := strings.TrimSpace(os.Getenv(videoStudioTempDirectoryEnvironment))
-	if tempDir == "" {
-		tempDir = os.TempDir()
-	}
-	fetcher := NewHTTPVideoArchiveFetcher(tempDir)
-	worker, err := NewVideoOutboxWorker(model.DB, workerID, store, media, fetcher, tempDir, defaultVideoOutboxConcurrency)
-	if err != nil {
-		return err
+	return registerVideoStudioWorkerJobs(registry, &videoStudioWorkerRuntime{workerID: workerID})
+}
+
+func registerVideoStudioWorkerJobs(registry *BackgroundJobRegistry, runtime videoStudioWorkerJobs) error {
+	if registry == nil || runtime == nil {
+		return ErrInvalidBackgroundJob
 	}
 	if err := registry.Register(BackgroundJob{
 		Name: "video-studio-upload-expiry", Interval: time.Minute, RunOnStart: true,
@@ -94,8 +155,7 @@ func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID
 			if !video_studio_setting.Get().WorkerEnabled {
 				return nil
 			}
-			_, err := ExpireVideoAssetUploads(ctx, model.DB, store, 100)
-			return err
+			return runtime.ExpireUploads(ctx)
 		},
 	}); err != nil {
 		return err
@@ -104,13 +164,10 @@ func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		Name: "video-studio-reference-cleanup", Interval: time.Hour, RunOnStart: true,
 		WritesData: true, RequiresLeaderLease: true,
 		Run: func(ctx context.Context) error {
-			settings := video_studio_setting.Get()
-			if !settings.WorkerEnabled {
+			if !video_studio_setting.Get().WorkerEnabled {
 				return nil
 			}
-			cutoff := time.Now().Add(-time.Duration(settings.ReferenceOrphanHours) * time.Hour)
-			_, err := CleanupAbandonedVideoReferenceAssets(ctx, model.DB, cutoff, 100)
-			return err
+			return runtime.CleanupReferences(ctx)
 		},
 	}); err != nil {
 		return err
@@ -122,7 +179,7 @@ func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID
 			if !video_studio_setting.Get().WorkerEnabled {
 				return nil
 			}
-			return worker.ProcessOnce(ctx)
+			return runtime.ProcessOutbox(ctx)
 		},
 	})
 }

@@ -478,6 +478,52 @@ test('mode changes prune stale parameters and restore applicable defaults', () =
   )
 })
 
+test('required parameters without defaults receive explicit form values', () => {
+  const requiredProfile: VideoModelProfile = {
+    ...profile,
+    specification: {
+      ...profile.specification,
+      parameters: [
+        {
+          control: 'select',
+          key: 'quality',
+          label: 'Quality',
+          required: true,
+          options: [
+            { label: 'Standard', value: 'standard' },
+            { label: 'High', value: 'high' },
+          ],
+        },
+        {
+          control: 'number',
+          key: 'duration',
+          label: 'Duration',
+          required: true,
+          min: 1,
+          max: 15,
+          step: 1,
+        },
+        {
+          control: 'switch',
+          key: 'watermark',
+          label: 'Watermark',
+          required: true,
+        },
+      ],
+    },
+    default_parameters: {},
+  }
+
+  assert.deepEqual(
+    getVideoParametersForMode(requiredProfile, 'text_to_video'),
+    {
+      quality: 'standard',
+      duration: 1,
+      watermark: false,
+    }
+  )
+})
+
 test('polling is adaptive and stops for hidden or terminal work', () => {
   assert.equal(getVideoTaskPollInterval([generation()], 130, true), 3_000)
   assert.equal(getVideoTaskPollInterval([generation()], 170, true), 5_000)
@@ -488,7 +534,7 @@ test('polling is adaptive and stops for hidden or terminal work', () => {
   )
 })
 
-test('asset inspection polling slows after 30 seconds and stops after 60', () => {
+test('asset inspection polling slows down but continues while processing', () => {
   assert.equal(isVideoAssetInspectionPending(asset('uploaded')), true)
   assert.equal(isVideoAssetInspectionPending(asset('processing')), true)
   assert.equal(isVideoAssetInspectionPending(asset('ready')), false)
@@ -504,11 +550,15 @@ test('asset inspection polling slows after 30 seconds and stops after 60', () =>
   )
   assert.equal(
     getVideoAssetInspectionPollInterval(asset('processing'), 59_999),
-    1
+    5_000
   )
   assert.equal(
     getVideoAssetInspectionPollInterval(asset('processing'), 60_000),
-    false
+    10_000
+  )
+  assert.equal(
+    getVideoAssetInspectionPollInterval(asset('uploaded'), 10 * 60_000),
+    10_000
   )
   assert.equal(getVideoAssetInspectionPollInterval(asset('ready'), 1), false)
   assert.equal(

@@ -118,7 +118,8 @@ func ValidateVideoModelSpec(spec VideoModelSpec, defaults map[string]any) error 
 		}
 	}
 	for _, mode := range spec.Modes {
-		if _, err := ValidateVideoParameters(spec, mode, defaults, true); err != nil {
+		modeDefaults := filterVideoParametersForMode(spec, mode, defaults)
+		if _, err := ValidateVideoParameters(spec, mode, modeDefaults, true); err != nil {
 			return fmt.Errorf("%w: defaults for mode %s: %v", ErrInvalidVideoModelSpec, mode, err)
 		}
 	}

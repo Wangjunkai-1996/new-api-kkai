@@ -23,10 +23,12 @@ func TestGetStatusExposesVideoStudioUploadLimits(t *testing.T) {
 	var response struct {
 		Data struct {
 			VideoStudio struct {
-				UploadLimits video_studio_setting.UploadLimits `json:"upload_limits"`
+				ProcessingAvailable bool                              `json:"processing_available"`
+				UploadLimits        video_studio_setting.UploadLimits `json:"upload_limits"`
 			} `json:"video_studio"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, video_studio_setting.Get().WorkerEnabled, response.Data.VideoStudio.ProcessingAvailable)
 	require.Equal(t, video_studio_setting.Get().UploadLimits(), response.Data.VideoStudio.UploadLimits)
 }

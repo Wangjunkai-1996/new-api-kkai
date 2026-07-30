@@ -101,15 +101,16 @@ export const getVideoSample = async (
   return unwrapVideoStudioResponse<VideoSample>(response.data)
 }
 
-export const getVideoTokenCapability = async (): Promise<VideoTokenCapability> => {
-  const response = await api.get('/api/video-studio/token', {
-    disableDuplicate: true,
-    skipErrorHandler: true,
-  })
-  return videoTokenCapabilitySchema.parse(
-    unwrapVideoStudioResponse<unknown>(response.data)
-  )
-}
+export const getVideoTokenCapability =
+  async (): Promise<VideoTokenCapability> => {
+    const response = await api.get('/api/video-studio/token', {
+      disableDuplicate: true,
+      skipErrorHandler: true,
+    })
+    return videoTokenCapabilitySchema.parse(
+      unwrapVideoStudioResponse<unknown>(response.data)
+    )
+  }
 
 export const createVideoToken = async (): Promise<VideoTokenCreateResult> => {
   const response = await api.post(
@@ -286,6 +287,11 @@ export const getVideoAssetContentUrl = (
 export const getAdminVideoModels = async (): Promise<VideoModelProfile[]> => {
   const response = await api.get('/api/admin/video-studio/model-profiles')
   return unwrapVideoStudioResponse<VideoModelProfile[]>(response.data)
+}
+
+export const getAdminVideoModelCandidates = async (): Promise<string[]> => {
+  const response = await api.get('/api/admin/video-studio/model-candidates')
+  return unwrapVideoStudioResponse<string[]>(response.data)
 }
 
 export const createAdminVideoModel = async (

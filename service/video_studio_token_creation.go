@@ -174,15 +174,30 @@ func videoStudioTokenCreationState(
 }
 
 func enabledVideoStudioTokenModels(ctx context.Context, db *gorm.DB) ([]string, error) {
-	return enabledVideoStudioModelsForGroup(ctx, db, VideoStudioTokenGroup)
+	return enabledConfiguredVideoStudioModelsForGroup(ctx, db, VideoStudioTokenGroup)
 }
 
 func enabledVideoStudioModelsForGroup(ctx context.Context, db *gorm.DB, group string) ([]string, error) {
-	var models []string
+	models := []string{}
 	if err := db.WithContext(ctx).Model(&model.Ability{}).
 		Where(&model.Ability{Group: strings.TrimSpace(group), Enabled: true}).
 		Distinct("model").Pluck("model", &models).Error; err != nil {
 		return nil, fmt.Errorf("list enabled video studio models: %w", err)
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
+func enabledConfiguredVideoStudioModelsForGroup(ctx context.Context, db *gorm.DB, group string) ([]string, error) {
+	abilityModels, err := enabledVideoStudioModelsForGroup(ctx, db, group)
+	if err != nil || len(abilityModels) == 0 {
+		return abilityModels, err
+	}
+	var models []string
+	if err := db.WithContext(ctx).Model(&model.KKAIVideoModelProfile{}).
+		Where("enabled = ? AND model IN ?", true, abilityModels).
+		Distinct("model").Pluck("model", &models).Error; err != nil {
+		return nil, fmt.Errorf("list configured video studio models: %w", err)
 	}
 	sort.Strings(models)
 	return models, nil

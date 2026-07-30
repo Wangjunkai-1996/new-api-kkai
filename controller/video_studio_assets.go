@@ -27,6 +27,10 @@ func createVideoStudioUpload(c *gin.Context, isAdmin bool) {
 		respondVideoStudioError(c, service.ErrInvalidVideoAssetUpload)
 		return
 	}
+	if err := service.ValidateVideoAssetProcessingAvailable(); err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
 	store, err := videoStudioAssetStore(c)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -51,6 +55,10 @@ func AdminCompleteVideoStudioUpload(c *gin.Context) {
 func completeVideoStudioUpload(c *gin.Context, isAdmin bool) {
 	id, err := videoStudioID(c)
 	if err != nil {
+		respondVideoStudioError(c, err)
+		return
+	}
+	if err := service.ValidateVideoAssetProcessingAvailable(); err != nil {
 		respondVideoStudioError(c, err)
 		return
 	}

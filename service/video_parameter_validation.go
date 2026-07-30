@@ -99,6 +99,21 @@ func parameterAppliesToMode(parameter VideoParameterSpec, mode string) bool {
 	return len(parameter.Modes) == 0 || containsVideoMode(parameter.Modes, mode)
 }
 
+func filterVideoParametersForMode(spec VideoModelSpec, mode string, values map[string]any) map[string]any {
+	filtered := make(map[string]any, len(values))
+	definitions := make(map[string]VideoParameterSpec, len(spec.Parameters))
+	for _, parameter := range spec.Parameters {
+		definitions[parameter.Key] = parameter
+	}
+	for key, value := range values {
+		if parameter, ok := definitions[key]; ok && !parameterAppliesToMode(parameter, mode) {
+			continue
+		}
+		filtered[key] = value
+	}
+	return filtered
+}
+
 func containsVideoMode(modes []string, mode string) bool {
 	for _, candidate := range modes {
 		if candidate == mode {

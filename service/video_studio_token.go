@@ -362,6 +362,17 @@ func videoStudioModelAvailableForGroup(ctx context.Context, db *gorm.DB, group s
 	if modelName == "" {
 		return true, nil
 	}
+	models, err := enabledConfiguredVideoStudioModelsForGroup(ctx, db, group)
+	if err != nil {
+		return false, err
+	}
+	return containsVideoStudioModel(models, modelName), nil
+}
+
+func videoStudioModelHasEnabledAbility(ctx context.Context, db *gorm.DB, group string, modelName string) (bool, error) {
+	if db == nil || modelName == "" {
+		return false, nil
+	}
 	var count int64
 	err := db.WithContext(ctx).Model(&model.Ability{}).
 		Where(&model.Ability{Group: strings.TrimSpace(group), Model: modelName, Enabled: true}).
@@ -390,7 +401,7 @@ func effectiveVideoStudioModelsForTokenRecord(ctx context.Context, db *gorm.DB, 
 	if db == nil || token == nil {
 		return nil, ErrVideoStudioTokenInvalid
 	}
-	models, err := enabledVideoStudioModelsForGroup(ctx, db, token.Group)
+	models, err := enabledConfiguredVideoStudioModelsForGroup(ctx, db, token.Group)
 	if err != nil || !token.ModelLimitsEnabled {
 		return models, err
 	}

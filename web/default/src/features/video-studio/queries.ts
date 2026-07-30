@@ -39,6 +39,7 @@ import {
   deleteAdminVideoSample,
   deleteVideoGeneration,
   getAdminVideoModels,
+  getAdminVideoModelCandidates,
   getAdminVideoSamples,
   getVideoAsset,
   getVideoGeneration,
@@ -103,6 +104,8 @@ export const videoStudioQueryKeys = {
     ),
   adminModels: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'admin', 'models'),
+  adminModelCandidates: (userId: number) =>
+    privateUserQueryKey(userId, 'video-studio', 'admin', 'model-candidates'),
   adminSamples: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'admin', 'samples'),
 }
@@ -199,9 +202,8 @@ export const videoTokenCreateMutationFilters = (
   },
 })
 
-export const useIsCreatingVideoToken = (
-  userId: number
-): boolean => useIsMutating(videoTokenCreateMutationFilters(userId)) > 0
+export const useIsCreatingVideoToken = (userId: number): boolean =>
+  useIsMutating(videoTokenCreateMutationFilters(userId)) > 0
 
 export const canStartVideoTokenCreate = (
   queryClient: QueryClient,
@@ -373,6 +375,15 @@ export const useAdminVideoModels = () => {
   })
 }
 
+export const useAdminVideoModelCandidates = () => {
+  const userId = useVideoStudioUserId()
+  return useQuery({
+    queryKey: videoStudioQueryKeys.adminModelCandidates(userId),
+    queryFn: getAdminVideoModelCandidates,
+    enabled: userId > 0,
+  })
+}
+
 export const useAdminVideoSamples = () => {
   const userId = useVideoStudioUserId()
   return useInfiniteQuery({
@@ -394,6 +405,9 @@ export const useSaveAdminVideoModel = () => {
         ? updateAdminVideoModel(input.id, input.values)
         : createAdminVideoModel(input.values),
     onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: videoStudioQueryKeys.adminModelCandidates(userId),
+      })
       void queryClient.invalidateQueries({
         queryKey: videoStudioQueryKeys.adminModels(userId),
       })

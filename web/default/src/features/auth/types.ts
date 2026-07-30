@@ -92,6 +92,7 @@ export interface VideoStudioUploadLimits {
 }
 
 export interface VideoStudioStatus {
+  processing_available?: boolean
   upload_limits?: VideoStudioUploadLimits
 }
 

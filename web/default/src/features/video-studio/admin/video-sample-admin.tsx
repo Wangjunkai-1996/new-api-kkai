@@ -50,6 +50,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 import { VideoAssetUploader } from '../components/video-asset-uploader'
+import { VideoParameterFields } from '../components/video-parameter-fields'
 import {
   useAdminVideoModels,
   useAdminVideoSamples,
@@ -57,6 +58,8 @@ import {
   useSaveAdminVideoSample,
 } from '../queries'
 import {
+  buildVideoSampleProfileState,
+  createVideoSampleFormValues,
   parseVideoSampleForm,
   videoSampleFormSchema,
   type VideoSampleFormValues,
@@ -77,32 +80,6 @@ import {
 } from '../video-sample-categories'
 import { VideoAdminWorkspace } from './video-admin-workspace'
 
-const emptyValues = (): VideoSampleFormValues => ({
-  model_profile_id: 0,
-  title: '',
-  prompt: '',
-  mode: 'text_to_video',
-  parameters_json: '{}',
-  reference_asset_ids: [],
-  video_asset_id: 0,
-  category: 'other',
-  status: 'draft',
-  sort_order: 0,
-})
-
-const sampleValues = (sample: VideoSample): VideoSampleFormValues => ({
-  model_profile_id: sample.model_profile_id,
-  title: sample.title,
-  prompt: sample.prompt,
-  mode: sample.mode,
-  parameters_json: JSON.stringify(sample.parameters, null, 2),
-  reference_asset_ids: sample.reference_asset_ids,
-  video_asset_id: sample.video_asset_id,
-  category: sample.category,
-  status: sample.status,
-  sort_order: sample.sort_order,
-})
-
 export function VideoSampleAdmin() {
   const { t } = useTranslation()
   const modelsQuery = useAdminVideoModels()
@@ -115,7 +92,7 @@ export function VideoSampleAdmin() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const form = useForm<VideoSampleFormValues>({
     resolver: zodResolver(videoSampleFormSchema),
-    defaultValues: emptyValues(),
+    defaultValues: createVideoSampleFormValues(),
   })
   const samples = useMemo(
     () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
@@ -128,11 +105,11 @@ export function VideoSampleAdmin() {
   )
 
   useEffect(() => {
-    form.reset(selected ? sampleValues(selected) : emptyValues())
-    setVideoAssets(selected ? [getSampleVideoAsset(selected)] : [])
     const profile = modelsQuery.data?.find(
       (candidate) => candidate.id === selected?.model_profile_id
     )
+    form.reset(createVideoSampleFormValues(selected ?? undefined, profile))
+    setVideoAssets(selected ? [getSampleVideoAsset(selected)] : [])
     setReferenceAssets(
       selected ? getSampleReferenceAssets(selected, profile) : []
     )
@@ -153,7 +130,7 @@ export function VideoSampleAdmin() {
   }, [form, referenceAssets])
 
   const availableModes = useMemo<VideoGenerationMode[]>(
-    () => selectedProfile?.specification.modes ?? ['text_to_video'],
+    () => selectedProfile?.specification.modes ?? [],
     [selectedProfile?.specification.modes]
   )
   const referenceRoles = selectedProfile
@@ -177,15 +154,79 @@ export function VideoSampleAdmin() {
   useEffect(() => {
     if (!selectedProfile) return
     if (!selectedProfile.specification.modes.includes(selectedMode)) {
-      form.setValue(
-        'mode',
-        selectedProfile.specification.modes[0] ?? 'text_to_video',
-        { shouldValidate: true }
+      const normalized = buildVideoSampleProfileState(
+        selectedProfile,
+        undefined,
+        form.getValues('parameters')
       )
+      form.setValue('mode', normalized.mode, { shouldValidate: true })
+      form.setValue('parameters', normalized.parameters, {
+        shouldValidate: true,
+      })
+      form.setValue('reference_asset_ids', [], { shouldValidate: true })
+      setReferenceAssets([])
       return
     }
     setReferenceAssets((assets) => assets.slice(0, referenceLimit))
   }, [form, referenceLimit, selectedMode, selectedProfile])
+
+  const changeProfile = (profileId: number) => {
+    const profile = modelsQuery.data?.find(
+      (candidate) => candidate.id === profileId
+    )
+    if (!profile) {
+      form.setValue('model_profile_id', 0, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      form.setValue('mode', 'text_to_video', { shouldDirty: true })
+      form.setValue('parameters', {}, { shouldDirty: true })
+      form.setValue('reference_asset_ids', [], { shouldDirty: true })
+      setReferenceAssets([])
+      return
+    }
+
+    const next = buildVideoSampleProfileState(profile)
+    form.setValue('model_profile_id', next.model_profile_id, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    form.setValue('mode', next.mode, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    form.setValue('parameters', next.parameters, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    form.setValue('reference_asset_ids', [], {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    setReferenceAssets([])
+  }
+
+  const changeMode = (mode: VideoGenerationMode) => {
+    if (!selectedProfile) return
+    const next = buildVideoSampleProfileState(
+      selectedProfile,
+      mode,
+      form.getValues('parameters')
+    )
+    form.setValue('mode', next.mode, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    form.setValue('parameters', next.parameters, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    form.setValue('reference_asset_ids', [], {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+    setReferenceAssets([])
+  }
 
   const submit = form.handleSubmit(async (values) => {
     if (!selectedProfile) {
@@ -365,7 +406,7 @@ export function VideoSampleAdmin() {
                       className='w-full'
                       value={field.value}
                       onChange={(event) =>
-                        field.onChange(Number(event.target.value))
+                        changeProfile(Number(event.target.value))
                       }
                     >
                       <NativeSelectOption value={0}>
@@ -392,12 +433,16 @@ export function VideoSampleAdmin() {
                     <NativeSelect
                       className='w-full'
                       value={field.value}
+                      disabled={!selectedProfile}
                       onChange={(event) =>
-                        field.onChange(
-                          event.target.value as VideoGenerationMode
-                        )
+                        changeMode(event.target.value as VideoGenerationMode)
                       }
                     >
+                      {!selectedProfile && (
+                        <NativeSelectOption value='text_to_video'>
+                          {t('videoStudio.admin.selectModelFirst')}
+                        </NativeSelectOption>
+                      )}
                       {availableModes.map((mode) => (
                         <NativeSelectOption key={mode} value={mode}>
                           {t(VIDEO_MODE_LABEL_KEYS[mode])}
@@ -484,19 +529,14 @@ export function VideoSampleAdmin() {
               </FormItem>
             )}
           />
-          <FormField
-            control={form.control}
-            name='parameters_json'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('videoStudio.parameters')}</FormLabel>
-                <FormControl>
-                  <Textarea {...field} className='min-h-32 font-mono text-xs' />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {selectedProfile && (
+            <div className='space-y-3'>
+              <h4 className='text-sm font-medium'>
+                {t('videoStudio.parameters')}
+              </h4>
+              <VideoParameterFields profile={selectedProfile} />
+            </div>
+          )}
           <div className='space-y-2'>
             <span className='text-sm font-medium'>
               {t('videoStudio.admin.sampleVideo')}

@@ -152,17 +152,31 @@ func TestEnsureVideoStudioTokenIsIdempotentAndUsesEnabledModelWhitelist(t *testi
 
 func TestLegacyVideoStudioTokenLazilyFollowsNewGroupAbilities(t *testing.T) {
 	db := setupVideoStudioTokenTest(t)
+	legacy := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.Name = videoStudioTokenName
+		token.ModelLimits = "video-model-a,video-model-b"
+	})
+	status, err := GetVideoStudioTokenStatus(
+		context.Background(), db, 42, "video-model-a", "192.0.2.1",
+	)
+	require.NoError(t, err)
+	require.Equal(t, VideoStudioTokenStatusReady, status.Status)
+	require.NoError(t, db.First(&legacy, legacy.Id).Error)
+	require.False(t, legacy.ModelLimitsEnabled)
+	require.Empty(t, legacy.ModelLimits)
+
 	priority := int64(0)
 	require.NoError(t, db.Create(&model.Ability{
 		Group: VideoStudioTokenGroup, Model: "runtime-video-model", ChannelId: 99,
 		Enabled: true, Priority: &priority,
 	}).Error)
-	legacy := createVideoStudioTestToken(t, db, func(token *model.Token) {
-		token.Name = videoStudioTokenName
-		token.ModelLimits = "video-model-a,video-model-b"
-	})
+	require.NoError(t, db.Create(&model.KKAIVideoModelProfile{
+		Model: "runtime-video-model", DisplayName: "Runtime video model", SpecificationVersion: 1,
+		Specification:     `{"version":1,"modes":["text_to_video"],"parameters":[]}`,
+		DefaultParameters: `{}`, Enabled: true, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}).Error)
 
-	status, err := GetVideoStudioTokenStatus(
+	status, err = GetVideoStudioTokenStatus(
 		context.Background(), db, 42, "runtime-video-model", "192.0.2.1",
 	)
 	require.NoError(t, err)
@@ -170,10 +184,6 @@ func TestLegacyVideoStudioTokenLazilyFollowsNewGroupAbilities(t *testing.T) {
 	require.NotNil(t, status.Token)
 	require.Equal(t, legacy.Id, status.Token.ID)
 	require.ElementsMatch(t, []string{"runtime-video-model", "video-model-a", "video-model-b"}, status.EffectiveModels)
-
-	require.NoError(t, db.First(&legacy, legacy.Id).Error)
-	require.False(t, legacy.ModelLimitsEnabled)
-	require.Empty(t, legacy.ModelLimits)
 }
 
 func TestSameNamedRestrictedVideoTokenKeepsExplicitModelLimits(t *testing.T) {
@@ -388,6 +398,15 @@ func TestEffectiveVideoCatalogDynamicallyFollowsBoundUnlimitedTokenAbilities(t *
 	}).Error)
 	profiles, err = ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
 	require.NoError(t, err)
+	require.NotContains(t, videoProfileModels(profiles), runtimeModel)
+
+	require.NoError(t, db.Create(&model.KKAIVideoModelProfile{
+		Model: runtimeModel, DisplayName: "Runtime added", SpecificationVersion: 1,
+		Specification:     `{"version":1,"modes":["text_to_video"],"parameters":[]}`,
+		DefaultParameters: `{}`, Enabled: true, CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}).Error)
+	profiles, err = ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
+	require.NoError(t, err)
 	require.Contains(t, videoProfileModels(profiles), runtimeModel)
 
 	require.NoError(t, db.Model(&model.Ability{}).
@@ -404,43 +423,6 @@ func videoProfileModels(profiles []VideoModelProfileView) []string {
 		models = append(models, profile.Model)
 	}
 	return models
-}
-
-func TestEffectiveVideoCatalogIncludesAbilityWithoutProfile(t *testing.T) {
-	db := setupVideoStudioTokenTest(t)
-	priority := int64(0)
-	require.NoError(t, db.Create(&model.Ability{
-		Group: VideoStudioTokenGroup, Model: "runtime-text-model", ChannelId: 99,
-		Enabled: true, Priority: &priority,
-	}).Error)
-	token := createVideoStudioTestToken(t, db, func(token *model.Token) {
-		token.ModelLimitsEnabled = false
-		token.ModelLimits = ""
-	})
-
-	first, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
-	require.NoError(t, err)
-	second, err := ListEffectiveVideoModelProfiles(context.Background(), db, 42, token.Id, "192.0.2.1")
-	require.NoError(t, err)
-	require.Len(t, first, 3)
-
-	var runtimeFirst, runtimeSecond *VideoModelProfileView
-	for index := range first {
-		if first[index].Model == "runtime-text-model" {
-			runtimeFirst = &first[index]
-		}
-	}
-	for index := range second {
-		if second[index].Model == "runtime-text-model" {
-			runtimeSecond = &second[index]
-		}
-	}
-	require.NotNil(t, runtimeFirst)
-	require.NotNil(t, runtimeSecond)
-	require.Negative(t, runtimeFirst.ID)
-	require.NotZero(t, runtimeFirst.ID)
-	require.Equal(t, runtimeFirst.ID, runtimeSecond.ID)
-	require.Equal(t, []string{VideoModeTextToVideo}, runtimeFirst.Specification.Modes)
 }
 
 func TestEffectiveVideoCatalogExcludesAbilityWithDisabledProfile(t *testing.T) {

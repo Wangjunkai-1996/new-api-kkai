@@ -127,6 +127,9 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
   const uploadLimits =
     status?.video_studio?.upload_limits ??
     status?.data?.video_studio?.upload_limits
+  const processingAvailable =
+    status?.video_studio?.processing_available ??
+    status?.data?.video_studio?.processing_available
   const maxUploadBytes = getVideoUploadMaxBytes(
     props.purpose,
     Boolean(props.adminUpload),
@@ -205,8 +208,8 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
       queryFn: () => getVideoUpload(asset.id, props.adminUpload),
       enabled: userId > 0 && isVideoAssetInspectionPending(asset),
       retry: false,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       refetchInterval: (query: { state: { data?: VideoAsset } }) => {
         const currentAsset = query.state.data ?? asset
         const startedAt =
@@ -318,9 +321,16 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
     (file) => !file.error && !file.progress.uploadComplete
   )
   const hasFailedUploads = files.some((file) => Boolean(file.error))
-  const canAdd = props.assets.length + files.length < props.maxFiles
+  const canAdd =
+    processingAvailable !== false &&
+    props.assets.length + files.length < props.maxFiles
 
   const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (processingAvailable === false) {
+      event.target.value = ''
+      toast.error(t('videoStudio.processingUnavailable'))
+      return
+    }
     const remaining = Math.max(
       0,
       props.maxFiles - props.assets.length - files.length
@@ -619,6 +629,12 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
           </label>
         )}
       </div>
+
+      {processingAvailable === false && (
+        <p className='text-muted-foreground text-xs' role='status'>
+          {t('videoStudio.processingUnavailable')}
+        </p>
+      )}
 
       {Object.entries(assetDeleteErrors).map(([assetId, message]) => {
         const asset = inspectedAssets.find(

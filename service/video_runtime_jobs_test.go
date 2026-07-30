@@ -13,6 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type videoStudioWorkerJobsRecorder struct {
+	expireCalls  int
+	cleanupCalls int
+	outboxCalls  int
+}
+
+func (recorder *videoStudioWorkerJobsRecorder) ExpireUploads(context.Context) error {
+	recorder.expireCalls++
+	return nil
+}
+
+func (recorder *videoStudioWorkerJobsRecorder) CleanupReferences(context.Context) error {
+	recorder.cleanupCalls++
+	return nil
+}
+
+func (recorder *videoStudioWorkerJobsRecorder) ProcessOutbox(context.Context) error {
+	recorder.outboxCalls++
+	return nil
+}
+
 func TestVideoStudioRuntimeRegistersIdempotencyCleanupWhenAPIIsEnabled(t *testing.T) {
 	rawSetting := config.GlobalConfig.Get("video_studio")
 	original, err := config.ConfigToMap(rawSetting)
@@ -30,10 +51,67 @@ func TestVideoStudioRuntimeRegistersIdempotencyCleanupWhenAPIIsEnabled(t *testin
 	registry := NewBackgroundJobRegistry()
 	require.NoError(t, RegisterVideoStudioBackgroundJobs(registry, "test-worker"))
 	descriptors := registry.Descriptors()
-	require.Equal(t, []BackgroundJobDescriptor{{
-		Name: "video-studio-idempotency-cleanup", Interval: time.Hour, RunOnStart: true,
-		WritesData: true, RequiresLeaderLease: true,
-	}}, descriptors)
+	require.Equal(t, []BackgroundJobDescriptor{
+		{
+			Name: "video-studio-idempotency-cleanup", Interval: time.Hour, RunOnStart: true,
+			WritesData: true, RequiresLeaderLease: true,
+		},
+		{
+			Name: "video-studio-outbox", Interval: 2 * time.Second, RunOnStart: true,
+			WritesData: true, RequiresLeaderLease: true,
+		},
+		{
+			Name: "video-studio-reference-cleanup", Interval: time.Hour, RunOnStart: true,
+			WritesData: true, RequiresLeaderLease: true,
+		},
+		{
+			Name: "video-studio-upload-expiry", Interval: time.Minute, RunOnStart: true,
+			WritesData: true, RequiresLeaderLease: true,
+		},
+	}, descriptors)
+	require.NoError(t, registry.jobs["video-studio-outbox"].Run(context.Background()))
+}
+
+func TestVideoStudioWorkerJobsFollowRuntimeToggleWithoutReregistration(t *testing.T) {
+	rawSetting := config.GlobalConfig.Get("video_studio")
+	original, err := config.ConfigToMap(rawSetting)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, config.UpdateConfigFromMap(rawSetting, original))
+	})
+	require.NoError(t, config.UpdateConfigFromMap(rawSetting, map[string]string{
+		"worker_enabled": "false",
+	}))
+	require.ErrorIs(t, ValidateVideoAssetProcessingAvailable(), ErrVideoAssetProcessingUnavailable)
+
+	registry := NewBackgroundJobRegistry()
+	recorder := &videoStudioWorkerJobsRecorder{}
+	require.NoError(t, registerVideoStudioWorkerJobs(registry, recorder))
+	for _, name := range []string{
+		"video-studio-upload-expiry",
+		"video-studio-reference-cleanup",
+		"video-studio-outbox",
+	} {
+		require.NoError(t, registry.jobs[name].Run(context.Background()))
+	}
+	require.Zero(t, recorder.expireCalls)
+	require.Zero(t, recorder.cleanupCalls)
+	require.Zero(t, recorder.outboxCalls)
+
+	require.NoError(t, config.UpdateConfigFromMap(rawSetting, map[string]string{
+		"worker_enabled": "true",
+	}))
+	require.NoError(t, ValidateVideoAssetProcessingAvailable())
+	for _, name := range []string{
+		"video-studio-upload-expiry",
+		"video-studio-reference-cleanup",
+		"video-studio-outbox",
+	} {
+		require.NoError(t, registry.jobs[name].Run(context.Background()))
+	}
+	require.Equal(t, 1, recorder.expireCalls)
+	require.Equal(t, 1, recorder.cleanupCalls)
+	require.Equal(t, 1, recorder.outboxCalls)
 }
 
 func TestVideoStudioReconcileRuntimeJobRetainsCursorAcrossRuns(t *testing.T) {

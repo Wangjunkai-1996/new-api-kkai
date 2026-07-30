@@ -57,6 +57,27 @@ func newVideoSubmissionTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func createEnabledVideoSubmissionProfile(
+	t *testing.T,
+	db *gorm.DB,
+	modelName string,
+	specification VideoModelSpec,
+	defaults map[string]any,
+) model.KKAIVideoModelProfile {
+	t.Helper()
+	specificationJSON, err := common.Marshal(specification)
+	require.NoError(t, err)
+	defaultsJSON, err := common.Marshal(defaults)
+	require.NoError(t, err)
+	profile := model.KKAIVideoModelProfile{
+		Model: modelName, DisplayName: modelName, SpecificationVersion: specification.Version,
+		Specification: string(specificationJSON), DefaultParameters: string(defaultsJSON), Enabled: true,
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&profile).Error)
+	return profile
+}
+
 func createVideoSubmissionFixture(t *testing.T, db *gorm.DB) (model.KKAIVideoModelProfile, model.KKAIVideoSample, []model.KKAIVideoAsset) {
 	t.Helper()
 	specification := VideoModelSpec{
@@ -112,18 +133,15 @@ func TestNormalizeVideoStudioSubmissionDerivesModelFromSample(t *testing.T) {
 	require.Equal(t, sample.Mode, normalized.Mode)
 }
 
-func TestNormalizeVideoStudioSubmissionUsesRuntimeTextProfile(t *testing.T) {
+func TestNormalizeVideoStudioSubmissionRejectsMissingPersistedProfile(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
-	normalized, err := NormalizeVideoStudioSubmission(
+	_, err := NormalizeVideoStudioSubmission(
 		context.Background(), db, videoSubmissionTestStore{}, 42,
 		VideoStudioSubmissionRequest{
 			TokenID: 1, Model: "runtime-text-model", Mode: VideoModeTextToVideo, Prompt: "A calm orbit",
 		},
 	)
-	require.NoError(t, err)
-	require.Zero(t, normalized.ProfileID)
-	require.Equal(t, 1, normalized.SpecificationVersion)
-	require.Equal(t, "runtime-text-model", normalized.Model)
+	require.ErrorIs(t, err, ErrVideoModelProfileNotFound)
 }
 
 func TestNormalizeVideoStudioSubmissionRejectsDisabledProfileInsteadOfRuntimeFallback(t *testing.T) {
@@ -142,8 +160,13 @@ func TestNormalizeVideoStudioSubmissionRejectsDisabledProfileInsteadOfRuntimeFal
 	require.ErrorIs(t, err, ErrVideoModelProfileNotFound)
 }
 
-func TestNormalizeVideoStudioSubmissionRuntimeI2VRequiresImage(t *testing.T) {
+func TestNormalizeVideoStudioSubmissionPersistedI2VRequiresImage(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
+	profile := createEnabledVideoSubmissionProfile(t, db, "wan2.7-i2v", VideoModelSpec{
+		Version: 1, Modes: []string{VideoModeImageToVideo}, ReferenceInputs: []VideoReferenceInputSpec{{
+			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
+		}},
+	}, map[string]any{})
 	asset := model.KKAIVideoAsset{
 		OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
 		State: model.VideoAssetStateReady, ObjectKey: "runtime-i2v.png", MIMEType: "image/png",
@@ -161,12 +184,21 @@ func TestNormalizeVideoStudioSubmissionRuntimeI2VRequiresImage(t *testing.T) {
 	}}
 	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
 	require.NoError(t, err)
-	require.Zero(t, normalized.ProfileID)
+	require.Equal(t, profile.ID, normalized.ProfileID)
 	require.Equal(t, model.VideoTaskAssetRoleReference, normalized.ReferenceAssets[0].Role)
 }
 
-func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceUsesSecondsContract(t *testing.T) {
+func TestNormalizeVideoStudioSubmissionPersistedVideoReferenceUsesSecondsContract(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
+	minimum, maximum, step := float64(4), float64(15), float64(1)
+	profile := createEnabledVideoSubmissionProfile(t, db, "sd_2.0_special_1080p_with_video_ref", VideoModelSpec{
+		Version: 2, Modes: []string{VideoModeImageToVideo}, Parameters: []VideoParameterSpec{{
+			Key: "duration", Label: "Duration", Control: VideoControlNumber, RequestKey: "seconds",
+			Required: true, Default: float64(5), Min: &minimum, Max: &maximum, Step: &step,
+		}}, ReferenceInputs: []VideoReferenceInputSpec{{
+			Role: model.VideoTaskAssetRoleReferenceVideo, RequestKey: "reference_video", Required: true,
+		}},
+	}, map[string]any{})
 	now := time.Now().Unix()
 	assets := []model.KKAIVideoAsset{
 		{OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference, State: model.VideoAssetStateReady, ObjectKey: "wrong.png", MIMEType: "image/png", CreatedAt: now, UpdatedAt: now},
@@ -187,7 +219,7 @@ func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceUsesSecondsContract(
 	request.ReferenceAssets[0].AssetID = assets[1].ID
 	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, request)
 	require.NoError(t, err)
-	require.Zero(t, normalized.ProfileID)
+	require.Equal(t, profile.ID, normalized.ProfileID)
 	require.Equal(t, 2, normalized.SpecificationVersion)
 	require.Equal(t, map[string]any{"duration": float64(5)}, normalized.Parameters)
 	require.Equal(t, model.VideoTaskAssetRoleReferenceVideo, normalized.ReferenceAssets[0].Role)
@@ -247,6 +279,53 @@ func TestNormalizeVideoStudioSubmissionRuntimeVideoReferenceUsesSecondsContract(
 			require.ErrorIs(t, err, ErrInvalidVideoParameters)
 		})
 	}
+}
+
+func TestNormalizeVideoStudioSubmissionFiltersModeScopedProfileDefaults(t *testing.T) {
+	db := newVideoSubmissionTestDB(t)
+	durationMin, durationMax, durationStep := float64(4), float64(12), float64(1)
+	strengthMin, strengthMax, strengthStep := float64(0), float64(1), float64(0.1)
+	profile := createEnabledVideoSubmissionProfile(t, db, "multi-mode-model", VideoModelSpec{
+		Version: 1,
+		Modes:   []string{VideoModeTextToVideo, VideoModeImageToVideo},
+		Parameters: []VideoParameterSpec{
+			{Key: "duration", Label: "Duration", Control: VideoControlNumber, Min: &durationMin, Max: &durationMax, Step: &durationStep},
+			{Key: "strength", Label: "Strength", Control: VideoControlNumber, Modes: []string{VideoModeImageToVideo}, Min: &strengthMin, Max: &strengthMax, Step: &strengthStep},
+		},
+		ReferenceInputs: []VideoReferenceInputSpec{{
+			Role: model.VideoTaskAssetRoleReference, RequestKey: "image", Required: true,
+		}},
+	}, map[string]any{"duration": 6, "strength": 0.8})
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 42, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateReady, ObjectKey: "mode-default.png", MIMEType: "image/png",
+		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&asset).Error)
+
+	textRequest := VideoStudioSubmissionRequest{
+		TokenID: 1, Model: profile.Model, Mode: VideoModeTextToVideo, Prompt: "Text mode",
+	}
+	text, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, textRequest)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"duration": float64(6)}, text.Parameters)
+
+	imageRequest := VideoStudioSubmissionRequest{
+		TokenID: 1, Model: profile.Model, Mode: VideoModeImageToVideo, Prompt: "Image mode",
+		ReferenceAssets: []VideoStudioReferenceAssetInput{{AssetID: asset.ID, Role: model.VideoTaskAssetRoleReference}},
+	}
+	image, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, imageRequest)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"duration": float64(6), "strength": float64(0.8)}, image.Parameters)
+
+	textRequest.Parameters = map[string]any{"strength": 0.5}
+	_, err = NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, textRequest)
+	require.ErrorIs(t, err, ErrInvalidVideoParameters)
+
+	require.NoError(t, db.Model(&profile).Update("default_parameters", `{"unknown":true}`).Error)
+	textRequest.Parameters = nil
+	_, err = NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, textRequest)
+	require.ErrorIs(t, err, ErrInvalidVideoParameters)
 }
 
 func TestNormalizeVideoStudioSubmissionUsesPersistedSampleReferenceMapping(t *testing.T) {

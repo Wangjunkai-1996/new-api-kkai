@@ -255,3 +255,53 @@ func TestVideoSampleListRejectsCorruptStoredCategory(t *testing.T) {
 	_, err := ListVideoSamples(context.Background(), db, "", "", "", 24, false, nil)
 	require.ErrorIs(t, err, ErrVideoSampleDataCorrupt)
 }
+
+func TestVideoSampleCreateAndUpdateMergeModeScopedProfileDefaults(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	strengthMin, strengthMax, strengthStep := float64(0), float64(1), float64(0.1)
+	specification, err := common.Marshal(VideoModelSpec{
+		Version: 1,
+		Modes:   []string{VideoModeTextToVideo, VideoModeImageToVideo},
+		Parameters: []VideoParameterSpec{
+			{Key: "watermark", Label: "Watermark", Control: VideoControlSwitch, Default: false},
+			{Key: "strength", Label: "Strength", Control: VideoControlNumber, Modes: []string{VideoModeImageToVideo}, Min: &strengthMin, Max: &strengthMax, Step: &strengthStep},
+		},
+	})
+	require.NoError(t, err)
+	now := time.Now().Unix()
+	profile := model.KKAIVideoModelProfile{
+		Model: "sample-default-model", DisplayName: "Sample defaults", SpecificationVersion: 1,
+		Specification: string(specification), DefaultParameters: `{"watermark":true,"strength":0.8}`,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&profile).Error)
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeCatalog, Kind: model.VideoAssetKindSample,
+		State: model.VideoAssetStateReady, ObjectKey: "sample-default.mp4", MIMEType: "video/mp4",
+		Width: 1280, Height: 720, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	input := VideoSampleInput{
+		ModelProfileID: profile.ID, Title: "Defaults", Prompt: "prompt", Mode: VideoModeTextToVideo,
+		Parameters: map[string]any{}, ReferenceAssetIDs: []int64{}, VideoAssetID: asset.ID,
+		AspectRatio: 16.0 / 9.0, Status: model.VideoSampleStatusDraft,
+	}
+
+	created, err := CreateVideoSample(context.Background(), db, 7, input)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"watermark": true}, created.Parameters)
+	var persisted model.KKAIVideoSample
+	require.NoError(t, db.First(&persisted, created.ID).Error)
+	storedParameters := map[string]any{}
+	require.NoError(t, common.UnmarshalJsonStr(persisted.Parameters, &storedParameters))
+	require.Equal(t, map[string]any{"watermark": true}, storedParameters)
+
+	input.Parameters = map[string]any{"watermark": false}
+	updated, err := UpdateVideoSample(context.Background(), db, created.ID, 7, input)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"watermark": false}, updated.Parameters)
+	require.NoError(t, db.First(&persisted, created.ID).Error)
+	storedParameters = map[string]any{}
+	require.NoError(t, common.UnmarshalJsonStr(persisted.Parameters, &storedParameters))
+	require.Equal(t, map[string]any{"watermark": false}, storedParameters)
+}

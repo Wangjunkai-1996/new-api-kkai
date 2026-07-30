@@ -62,6 +62,9 @@ func videoStudioErrorStatus(err error) (int, string) {
 		errors.Is(err, service.ErrVideoAssetNotFound):
 		return http.StatusNotFound, "video_studio_resource_not_found"
 	case errors.Is(err, service.ErrVideoModelProfileInUse),
+		errors.Is(err, service.ErrVideoModelProfileDuplicate),
+		errors.Is(err, service.ErrVideoModelProfileModelImmutable),
+		errors.Is(err, service.ErrVideoModelAbilityUnavailable),
 		errors.Is(err, service.ErrVideoModelNeedsSample),
 		errors.Is(err, service.ErrVideoSampleNotPublishable),
 		errors.Is(err, service.ErrVideoGenerationDeleted),
@@ -76,6 +79,8 @@ func videoStudioErrorStatus(err error) (int, string) {
 		return http.StatusServiceUnavailable, "video_storage_unavailable"
 	case errors.Is(err, service.ErrVideoMultipartUnavailable):
 		return http.StatusServiceUnavailable, "video_storage_unavailable"
+	case errors.Is(err, service.ErrVideoAssetProcessingUnavailable):
+		return http.StatusServiceUnavailable, "video_asset_processing_unavailable"
 	case errors.Is(err, service.ErrVideoStudioTokenLimitReached):
 		return http.StatusConflict, "video_token_limit_reached"
 	case errors.Is(err, service.ErrVideoStudioTokenModelsUnavailable):

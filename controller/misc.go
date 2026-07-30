@@ -126,8 +126,9 @@ func GetStatus(c *gin.Context) {
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
 		"VideoStudioAccessMode":       videoStudioSetting.AccessMode,
 		"video_studio": gin.H{
-			"access_mode":   videoStudioSetting.AccessMode,
-			"upload_limits": videoStudioSetting.UploadLimits(),
+			"access_mode":          videoStudioSetting.AccessMode,
+			"processing_available": videoStudioSetting.WorkerEnabled,
+			"upload_limits":        videoStudioSetting.UploadLimits(),
 		},
 	}
 

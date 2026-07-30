@@ -19,14 +19,22 @@ import (
 )
 
 var (
-	ErrVideoAssetNotFound        = errors.New("video asset not found")
-	ErrVideoAssetAccessDenied    = errors.New("video asset access denied")
-	ErrInvalidVideoAssetUpload   = errors.New("invalid video asset upload")
-	ErrVideoAssetUploadExpired   = errors.New("video asset upload expired")
-	ErrVideoAssetUploadCompleted = errors.New("video asset upload is already complete")
-	ErrVideoMultipartUnavailable = errors.New("video multipart storage is unavailable")
-	videoAssetFilenamePattern    = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+	ErrVideoAssetNotFound              = errors.New("video asset not found")
+	ErrVideoAssetAccessDenied          = errors.New("video asset access denied")
+	ErrInvalidVideoAssetUpload         = errors.New("invalid video asset upload")
+	ErrVideoAssetUploadExpired         = errors.New("video asset upload expired")
+	ErrVideoAssetUploadCompleted       = errors.New("video asset upload is already complete")
+	ErrVideoMultipartUnavailable       = errors.New("video multipart storage is unavailable")
+	ErrVideoAssetProcessingUnavailable = errors.New("video asset processing is unavailable")
+	videoAssetFilenamePattern          = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 )
+
+func ValidateVideoAssetProcessingAvailable() error {
+	if !video_studio_setting.Get().WorkerEnabled {
+		return ErrVideoAssetProcessingUnavailable
+	}
+	return nil
+}
 
 const (
 	VideoUploadModeSingle    = model.VideoUploadModeSingle

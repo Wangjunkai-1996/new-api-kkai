@@ -330,11 +330,19 @@ func prepareVideoSampleInput(ctx context.Context, tx *gorm.DB, adminUserID int, 
 	if err := tx.WithContext(ctx).First(&profile, "id = ?", input.ModelProfileID).Error; err != nil {
 		return preparedVideoSampleInput{}, nil, ErrVideoModelProfileNotFound
 	}
-	specification, _, err := decodeVideoModelProfile(profile)
+	specification, defaults, err := decodeVideoModelProfile(profile)
 	if err != nil {
 		return preparedVideoSampleInput{}, nil, err
 	}
-	parameters, err := ValidateVideoParameters(specification, input.Mode, input.Parameters, true)
+	modeDefaults := filterVideoParametersForMode(specification, input.Mode, defaults)
+	mergedParameters := make(map[string]any, len(modeDefaults)+len(input.Parameters))
+	for key, value := range modeDefaults {
+		mergedParameters[key] = value
+	}
+	for key, value := range input.Parameters {
+		mergedParameters[key] = value
+	}
+	parameters, err := ValidateVideoParameters(specification, input.Mode, mergedParameters, true)
 	if err != nil {
 		return preparedVideoSampleInput{}, nil, err
 	}

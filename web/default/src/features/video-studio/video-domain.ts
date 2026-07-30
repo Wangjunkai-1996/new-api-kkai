@@ -132,6 +132,20 @@ export const videoParameterAcceptsValue = (
   return Math.abs(steps - Math.round(steps)) <= 1e-8
 }
 
+const requiredVideoParameterInitialValue = (
+  control: VideoParameterControl
+): VideoParameterValue | undefined => {
+  if (!control.required) return undefined
+  if (control.control === 'segmented' || control.control === 'select') {
+    return control.options[0]?.value
+  }
+  if (control.control === 'switch') return false
+  if (control.control === 'slider' || control.control === 'number') {
+    return control.min
+  }
+  return undefined
+}
+
 export const getVideoParametersForMode = (
   profile: VideoModelProfile,
   mode: VideoGenerationMode,
@@ -143,6 +157,13 @@ export const getVideoParametersForMode = (
     const value = current[control.key]
     if (value !== undefined && videoParameterAcceptsValue(control, value)) {
       parameters[control.key] = value
+      continue
+    }
+    if (parameters[control.key] === undefined) {
+      const initialValue = requiredVideoParameterInitialValue(control)
+      if (initialValue !== undefined) {
+        parameters[control.key] = initialValue
+      }
     }
   }
   return parameters
@@ -324,11 +345,10 @@ export const getVideoAssetInspectionPollInterval = (
   asset: VideoAsset,
   elapsedMs: number
 ): number | false => {
-  if (!isVideoAssetInspectionPending(asset) || elapsedMs >= 60_000) {
-    return false
-  }
-  const interval = elapsedMs < 30_000 ? 2_000 : 5_000
-  return Math.min(interval, 60_000 - Math.max(0, elapsedMs))
+  if (!isVideoAssetInspectionPending(asset)) return false
+  if (elapsedMs < 30_000) return 2_000
+  if (elapsedMs < 60_000) return 5_000
+  return 10_000
 }
 
 export const isVideoAssetInspectionTakingLong = (

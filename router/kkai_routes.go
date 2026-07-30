@@ -46,6 +46,7 @@ func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 	adminVideoStudio := apiRouter.Group("/admin/video-studio")
 	adminVideoStudio.Use(middleware.AdminAuth())
 	{
+		adminVideoStudio.GET("/model-candidates", controller.AdminListVideoStudioModelCandidates)
 		adminVideoStudio.GET("/model-profiles", controller.AdminListVideoStudioModelProfiles)
 		adminVideoStudio.GET("/model-profiles/:id", controller.AdminGetVideoStudioModelProfile)
 		adminVideoStudio.POST("/model-profiles", controller.AdminCreateVideoStudioModelProfile)
