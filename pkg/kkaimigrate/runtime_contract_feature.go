@@ -3,9 +3,9 @@
 package kkaimigrate
 
 const (
-	RuntimeMinVersion      int64 = VideoStudioSchemaVersion
-	RuntimeMaxVersion      int64 = VideoStudioSchemaVersion
-	MigrationTargetVersion int64 = VideoStudioSchemaVersion
+	RuntimeMinVersion      int64 = VideoSampleCategorySchemaVersion
+	RuntimeMaxVersion      int64 = VideoSampleCategorySchemaVersion
+	MigrationTargetVersion int64 = VideoSampleCategorySchemaVersion
 
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion

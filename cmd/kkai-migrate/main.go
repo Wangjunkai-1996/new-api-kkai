@@ -41,7 +41,7 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
-	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 4 or 5; omitted keeps the runtime target")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 4, 5, or 6; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
@@ -132,8 +132,10 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		return kkaimigrate.ApplyOutboxEventKeyCompatibility(ctx, db, options)
 	case kkaimigrate.VideoStudioSchemaVersion:
 		return kkaimigrate.ApplyVideoStudioExpand(ctx, db, options)
+	case kkaimigrate.VideoSampleCategorySchemaVersion:
+		return kkaimigrate.ApplyVideoSampleCategoryExpand(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 4 or 5", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 4, 5, or 6", targetVersion)
 	}
 }
 

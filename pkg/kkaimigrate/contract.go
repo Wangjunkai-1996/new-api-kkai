@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = 5
+	KnownCatalogVersion     int64 = 6
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"

@@ -142,6 +142,7 @@ test('sample reuse keeps profile defaults and overlays sample parameters', () =>
     poster_url: '/api/video-studio/assets/4/content?variant=poster',
     preview_url: '/api/video-studio/assets/4/content?variant=preview',
     aspect_ratio: 16 / 9,
+    category: 'nature',
     status: 'published',
     sort_order: 0,
     created_at: 100,

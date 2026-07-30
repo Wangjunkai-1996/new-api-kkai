@@ -48,6 +48,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	if currentVersion >= VideoStudioSchemaVersion {
 		requirements = append(requirements, videoStudioRuntimeSchemaRequirements...)
 	}
+	if currentVersion >= VideoSampleCategorySchemaVersion {
+		requirements = append(requirements, videoSampleCategoryRuntimeSchemaRequirements...)
+	}
 	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
@@ -67,6 +70,11 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		}
 		if requirement.Table == "kkai_outbox" && dialect == DialectPostgres {
 			if err := validatePostgresOutboxEventKey(db, columnTypes, currentVersion); err != nil {
+				return err
+			}
+		}
+		if requirement.Table == "kkai_video_samples" && len(requirement.Columns) == 1 && requirement.Columns[0] == "category" {
+			if err := validateVideoSampleCategoryColumn(db, dialect); err != nil {
 				return err
 			}
 		}
@@ -100,6 +108,68 @@ var videoStudioRuntimeSchemaRequirements = []runtimeSchemaRequirement{
 	{Table: "kkai_idempotency_keys", Columns: []string{
 		"id", "user_id", "operation", "key", "request_hash", "resource_type", "resource_id", "created_at", "expires_at",
 	}},
+}
+
+var videoSampleCategoryRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "kkai_video_samples", Columns: []string{"category"}},
+}
+
+func validateVideoSampleCategoryColumn(db *gorm.DB, dialect string) error {
+	if dialect == DialectSQLite {
+		return validateSQLiteVideoSampleCategoryColumn(db)
+	}
+	columnTypes, err := db.Migrator().ColumnTypes("kkai_video_samples")
+	if err != nil {
+		return fmt.Errorf("inspect runtime table kkai_video_samples: %w", err)
+	}
+	return validateVideoSampleCategoryColumnShape(columnTypes)
+}
+
+func validateSQLiteVideoSampleCategoryColumn(db *gorm.DB) error {
+	var columns []struct {
+		Name    string `gorm:"column:name"`
+		Type    string `gorm:"column:type"`
+		NotNull int    `gorm:"column:notnull"`
+	}
+	if err := db.Raw("PRAGMA table_info(kkai_video_samples)").Scan(&columns).Error; err != nil {
+		return fmt.Errorf("inspect SQLite kkai_video_samples.category: %w", err)
+	}
+	for _, column := range columns {
+		if column.Name != "category" {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(column.Type), "VARCHAR(32)") {
+			return fmt.Errorf("%w: kkai_video_samples.category must be VARCHAR(32)", ErrSchemaNotReady)
+		}
+		if column.NotNull != 0 {
+			return fmt.Errorf("%w: kkai_video_samples.category must be nullable", ErrSchemaNotReady)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: missing runtime column kkai_video_samples.category", ErrSchemaNotReady)
+}
+
+func validateVideoSampleCategoryColumnShape(columnTypes []gorm.ColumnType) error {
+	var category gorm.ColumnType
+	for _, columnType := range columnTypes {
+		if columnType.Name() == "category" {
+			category = columnType
+			break
+		}
+	}
+	if category == nil {
+		return fmt.Errorf("%w: missing runtime column kkai_video_samples.category", ErrSchemaNotReady)
+	}
+	typeName := strings.ToLower(strings.TrimSpace(category.DatabaseTypeName()))
+	length, hasLength := category.Length()
+	if (typeName != "varchar" && typeName != "character varying") || !hasLength || length != 32 {
+		return fmt.Errorf("%w: kkai_video_samples.category must be VARCHAR(32)", ErrSchemaNotReady)
+	}
+	nullable, hasNullable := category.Nullable()
+	if !hasNullable || !nullable {
+		return fmt.Errorf("%w: kkai_video_samples.category must be nullable", ErrSchemaNotReady)
+	}
+	return nil
 }
 
 func validatePostgresOutboxEventKey(db *gorm.DB, columnTypes []gorm.ColumnType, currentVersion int64) error {

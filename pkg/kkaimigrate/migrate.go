@@ -23,11 +23,12 @@ const (
 	CurrentVersion    int64 = MigrationTargetVersion
 	CompatibleVersion int64 = RuntimeMaxVersion // May exceed CurrentVersion in a rollback-compatible image.
 
-	RiskSchemaVersion           int64 = 1
-	LedgerSchemaVersion         int64 = 2
-	JobLeaseSchemaVersion       int64 = 3
-	OutboxEventKeySchemaVersion int64 = 4
-	VideoStudioSchemaVersion    int64 = 5
+	RiskSchemaVersion                int64 = 1
+	LedgerSchemaVersion              int64 = 2
+	JobLeaseSchemaVersion            int64 = 3
+	OutboxEventKeySchemaVersion      int64 = 4
+	VideoStudioSchemaVersion         int64 = 5
+	VideoSampleCategorySchemaVersion int64 = 6
 )
 
 var (
@@ -140,6 +141,21 @@ func ApplyVideoStudioExpand(ctx context.Context, db *gorm.DB, options Options) (
 		return nil, fmt.Errorf("KKAI maintenance target %d requires validated bridge schema %d: %w", VideoStudioSchemaVersion, OutboxEventKeySchemaVersion, err)
 	}
 	return applyThroughVersion(ctx, db, options, VideoStudioSchemaVersion, MaxCompatibleVersion)
+}
+
+// ApplyVideoSampleCategoryExpand adds the nullable v6 category column after
+// the complete v5 Video Studio schema has been validated.
+func ApplyVideoSampleCategoryExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, VideoStudioSchemaVersion, VideoStudioSchemaVersion, MaxCompatibleVersion); err != nil {
+		return nil, fmt.Errorf(
+			"KKAI maintenance target %d requires validated Video Studio schema %d: %w",
+			VideoSampleCategorySchemaVersion, VideoStudioSchemaVersion, err,
+		)
+	}
+	return applyThroughVersion(ctx, db, options, VideoSampleCategorySchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
@@ -299,7 +315,7 @@ func applyMigration(db *gorm.DB, dialect string, item migration, checksum string
 			}
 		}
 		return db.Transaction(func(tx *gorm.DB) error {
-			return importLegacyAndRecord(tx, item, checksum, started)
+			return importLegacyAndRecord(tx, dialect, item, checksum, started)
 		})
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
@@ -313,7 +329,7 @@ func applyMigration(db *gorm.DB, dialect string, item migration, checksum string
 				return err
 			}
 		}
-		return importLegacyAndRecord(tx, item, checksum, started)
+		return importLegacyAndRecord(tx, dialect, item, checksum, started)
 	})
 }
 
@@ -327,7 +343,31 @@ func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationS
 			return nil
 		}
 	}
+	if statement.Operation == migrationOperationAddNullableColumn {
+		table, column, err := migrationAddNullableColumnIdentifiers(dialect, statement.SQL)
+		if err != nil {
+			return err
+		}
+		if db.Migrator().HasColumn(table, column) {
+			return nil
+		}
+	}
 	return db.Exec(statement.SQL).Error
+}
+
+func migrationAddNullableColumnIdentifiers(dialect string, sql string) (string, string, error) {
+	tokens, err := expandSQLTokens(dialect, sql)
+	if err != nil {
+		return "", "", err
+	}
+	if err := validateAddNullableColumn(tokens); err != nil {
+		return "", "", err
+	}
+	columnIndex := 4
+	if tokens[columnIndex] == "COLUMN" {
+		columnIndex++
+	}
+	return migrationIdentifierValue(tokens[2]), migrationIdentifierValue(tokens[columnIndex]), nil
 }
 
 func migrationCreateIndexIdentifiers(dialect string, sql string) (string, string, error) {
@@ -365,7 +405,12 @@ func migrationIdentifierValue(token string) string {
 	return strings.ToLower(token)
 }
 
-func importLegacyAndRecord(tx *gorm.DB, item migration, checksum string, started time.Time) error {
+func importLegacyAndRecord(tx *gorm.DB, dialect string, item migration, checksum string, started time.Time) error {
+	if item.Version == VideoSampleCategorySchemaVersion {
+		if err := validateVideoSampleCategoryColumn(tx, dialect); err != nil {
+			return err
+		}
+	}
 	if item.ImportLegacy != nil {
 		if err := item.ImportLegacy(tx); err != nil {
 			return err

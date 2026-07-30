@@ -101,6 +101,7 @@ func createVideoSubmissionFixture(t *testing.T, db *gorm.DB) (model.KKAIVideoMod
 func TestNormalizeVideoStudioSubmissionDerivesModelFromSample(t *testing.T) {
 	db := newVideoSubmissionTestDB(t)
 	profile, sample, _ := createVideoSubmissionFixture(t, db)
+	require.NoError(t, db.Model(&sample).UpdateColumn("category", nil).Error)
 
 	normalized, err := NormalizeVideoStudioSubmission(context.Background(), db, videoSubmissionTestStore{}, 42, VideoStudioSubmissionRequest{
 		SampleID: &sample.ID,

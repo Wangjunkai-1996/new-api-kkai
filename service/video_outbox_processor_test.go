@@ -947,6 +947,7 @@ func TestVideoAssetPipelineSamplePrepareCreatesPreviewWithoutAnotherTopic(t *tes
 		AspectRatio: 1, Status: model.VideoSampleStatusDraft, CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, db.Create(&sample).Error)
+	require.NoError(t, db.Model(&sample).UpdateColumn("category", nil).Error)
 	payload, err := common.Marshal(VideoSamplePrepareEventPayload{SampleID: sample.ID})
 	require.NoError(t, err)
 

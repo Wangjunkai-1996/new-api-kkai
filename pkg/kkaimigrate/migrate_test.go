@@ -66,7 +66,9 @@ func TestApplyVideoStudioExpandCreatesV5Schema(t *testing.T) {
 	result, err := ApplyVideoStudioExpand(context.Background(), db, Options{})
 	require.NoError(t, err)
 	require.Len(t, result.Applied, int(VideoStudioSchemaVersion))
-	require.NoError(t, Check(context.Background(), db, VideoStudioSchemaVersion))
+	require.NoError(t, checkThroughVersion(
+		context.Background(), db, VideoStudioSchemaVersion, VideoStudioSchemaVersion, MaxCompatibleVersion,
+	))
 
 	for _, table := range []string{
 		"kkai_video_model_profiles",
@@ -118,7 +120,9 @@ func TestVideoStudioRuntimeSchemaRequiresMultipartAssetColumns(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, db.Exec("ALTER TABLE kkai_video_assets DROP COLUMN "+column).Error)
 
-			err = Check(context.Background(), db, VideoStudioSchemaVersion)
+			err = checkThroughVersion(
+				context.Background(), db, VideoStudioSchemaVersion, VideoStudioSchemaVersion, MaxCompatibleVersion,
+			)
 			require.ErrorIs(t, err, ErrSchemaNotReady)
 		})
 	}
@@ -136,7 +140,9 @@ func TestVideoStudioMaintenanceCanRunV4ThenV5(t *testing.T) {
 	result, err = ApplyVideoStudioExpand(context.Background(), db, Options{})
 	require.NoError(t, err)
 	require.Len(t, result.Applied, int(VideoStudioSchemaVersion))
-	require.NoError(t, Check(context.Background(), db, VideoStudioSchemaVersion))
+	require.NoError(t, checkThroughVersion(
+		context.Background(), db, VideoStudioSchemaVersion, VideoStudioSchemaVersion, MaxCompatibleVersion,
+	))
 }
 
 func TestApplyResumesFromValidAppliedPrefix(t *testing.T) {
@@ -353,6 +359,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  VideoStudioSchemaVersion,
 			Name:     "video_studio",
 			Checksum: "ca0fcda4889bcaa6d0d0dbf37fef1f61402bb3a04a89e14e86bf76cec32287d4",
+		},
+		{
+			Version:  VideoSampleCategorySchemaVersion,
+			Name:     "video_sample_category",
+			Checksum: "1345358ef3e7bfcab21fb54716f529befa61b393edc3e6478a03d29235787899",
 		},
 	}, Plan())
 }

@@ -13,13 +13,14 @@ tables.
 | 3 | `background_job_leases` | `kkai_job_leases` |
 | 4 | `outbox_event_key_mysql57_compat` | Cross-dialect bridge: normalize `kkai_outbox.event_key` to 191 characters |
 | 5 | `video_studio` | Six additive Video Studio tables |
+| 6 | `video_sample_category` | Nullable `kkai_video_samples.category` column |
 
 Version 4 is an explicit bridge on every supported dialect. MySQL 5.7 and
 PostgreSQL alter `kkai_outbox.event_key` to `VARCHAR(191)`; SQLite records the
 same immutable migration as a physical no-op. Keeping one v4 ledger prefix
 across SQLite, MySQL, and PostgreSQL makes the v5 rollout and rollback contract
 unambiguous. The explicit bridge build remains pinned to version 3 while
-accepting versions through 5. The default feature build requires version 5.
+accepting versions through 6. The default feature build requires version 6.
 Neither application profile changes the schema during startup.
 
 Version 5 is an additive expand migration. It creates exactly these tables and
@@ -31,6 +32,11 @@ does not modify or replace `tasks`:
 - `kkai_video_assets`
 - `kkai_video_task_assets`
 - `kkai_idempotency_keys`
+
+Version 6 is a separate additive expand migration. It adds only the nullable
+`category VARCHAR(32)` column to `kkai_video_samples`; it does not modify the
+v5 migration or its checksum. New samples store one fixed category. Historical
+`NULL` or empty values are interpreted as `other` by the application.
 
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
@@ -57,7 +63,7 @@ command never prints the DSN.
 ./kkai-migrate --dry-run
 ./kkai-migrate
 ./kkai-migrate --check
-./kkai-migrate --check --min-version 5
+./kkai-migrate --check --min-version 6
 ./kkai-migrate --observe --current --json --dsn-stdin
 ./kkai-migrate --describe-contract --dialect postgres --json
 ```
@@ -88,7 +94,7 @@ exist, dry-run still makes no database changes.
 ## Video Studio Bridge And Expand
 
 The bridge release contract is `runtime_min_version=3`,
-`runtime_max_version=5`, and `migration_target_version=3`. Verify it for the
+`runtime_max_version=6`, and `migration_target_version=3`. Verify it for the
 actual database dialect before rollout:
 
 ```bash
@@ -107,8 +113,8 @@ scripts/kkai/build-manual-release.sh --schema-contract bridge
 ```
 
 Ship the bridge through both the current and rollback slots before changing the
-database. Both slots must advertise `runtime_max_version=5`. The ordinary
-migration command without `--target` stops at v3; v4 and v5 are separate,
+database. Both slots must advertise `runtime_max_version=6`. The ordinary
+migration command without `--target` stops at v3; v4, v5, and v6 are separate,
 operator-invoked maintenance gates.
 
 Run v4 independently, using the same reviewed binary that produced the bridge
@@ -133,14 +139,25 @@ already exists, so the bridge observation cannot be skipped:
 ./kkai-migrate --observe --current --json --dsn-stdin
 ```
 
+After v5 is observed and validated, run the v6 category expand as a third
+independent gate. The migrator rejects `--target 6` until the complete v5
+prefix and physical Video Studio schema have passed validation:
+
+```bash
+./kkai-migrate --target 6 --dry-run --dsn-stdin
+./kkai-migrate --target 6 --dsn-stdin
+./kkai-migrate --check --min-version 6 --dsn-stdin
+./kkai-migrate --observe --current --json --dsn-stdin
+```
+
 On the bridge binary, the default `--check` validates v3. It does not prove
-that Video Studio v5 exists; use `--min-version 5` for that gate. `--observe`
+that the category schema exists; use `--min-version 6` for that gate. `--observe`
 additionally validates the physical tables and columns plus the immutable
-migration prefix. Keep the bridge binary for the explicit v4 and v5 operator
+migration prefix. Keep the bridge binary for the explicit v4, v5, and v6 operator
 gates; do not replace those gates with an unqualified feature-profile
 migration command.
 
-Only after both current and rollback slots are v5-compatible, v4 and v5 pass
+Only after both current and rollback slots are v6-compatible, v4, v5, and v6 pass
 `--check`/`--observe`, and the candidate has been validated may a feature
 release be built and staged:
 
@@ -148,12 +165,12 @@ release be built and staged:
 scripts/kkai/build-manual-release.sh --schema-contract feature
 ```
 
-The feature contract is `runtime_min_version=5`, `runtime_max_version=5`, and
-`migration_target_version=5`; its default `--check` therefore fails closed on
-pre-v5 databases. After v5, rollback is limited to a bridge image whose runtime
-range includes v5. There is no automatic down migration: never delete the v5
-ledger row, drop its tables, or rewrite its checksum to make an older image
-start.
+The feature contract is `runtime_min_version=6`, `runtime_max_version=6`, and
+`migration_target_version=6`; its default `--check` therefore fails closed on
+pre-v6 databases. After v6, rollback is limited to a bridge image whose runtime
+range includes v6. There is no automatic down migration: never delete the v5
+or v6 ledger rows, drop their objects, or rewrite their checksums to make an
+older image start.
 
 ## Legacy Import
 
@@ -170,7 +187,7 @@ separate post-stability operation and is not part of ordinary delivery.
 ## Operator Migration Rules
 
 Ordinary release automation does not run schema observation or migrations. It
-does not execute migration version 4 or 5.
+does not execute migration version 4, 5, or 6.
 
 If a future PostgreSQL migration is needed:
 

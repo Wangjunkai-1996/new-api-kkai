@@ -23,6 +23,16 @@ const (
 	VideoSampleStatusDraft     = "draft"
 	VideoSampleStatusPublished = "published"
 
+	VideoSampleCategoryPeople       = "people"
+	VideoSampleCategoryAnimals      = "animals"
+	VideoSampleCategoryNature       = "nature"
+	VideoSampleCategoryAnimation    = "animation"
+	VideoSampleCategoryProduct      = "product"
+	VideoSampleCategoryArchitecture = "architecture"
+	VideoSampleCategoryFood         = "food"
+	VideoSampleCategoryEffects      = "effects"
+	VideoSampleCategoryOther        = "other"
+
 	VideoTaskAssetRoleReference      = "reference"
 	VideoTaskAssetRoleReferenceVideo = "reference_video"
 	VideoTaskAssetRoleFirstFrame     = "first_frame"
@@ -60,6 +70,7 @@ type KKAIVideoSample struct {
 	ReferenceAssetIDs string  `json:"-" gorm:"type:text;not null"`
 	VideoAssetID      int64   `json:"video_asset_id" gorm:"not null;index"`
 	AspectRatio       float64 `json:"aspect_ratio" gorm:"not null"`
+	Category          string  `json:"category" gorm:"type:varchar(32)"`
 	Status            string  `json:"status" gorm:"type:varchar(16);not null;index"`
 	SortOrder         int     `json:"sort_order" gorm:"not null;default:0;index"`
 	CreatedAt         int64   `json:"created_at" gorm:"type:bigint;not null;index"`

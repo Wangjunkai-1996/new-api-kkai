@@ -42,6 +42,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { useVideoModels, useVideoSamples } from '../queries'
 import type { VideoSample } from '../types'
+import {
+  VIDEO_SAMPLE_CATEGORIES,
+  VIDEO_SAMPLE_CATEGORIES_ENABLED,
+  VIDEO_SAMPLE_CATEGORY_LABEL_KEYS,
+  type VideoSampleCategory,
+} from '../video-sample-categories'
 import { VideoSampleCard } from './video-sample-card'
 
 type VideoSampleGalleryProps = {
@@ -112,9 +118,13 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     VIDEO_SAMPLE_PREVIEW_INITIAL_STATE
   )
   const [modelFilter, setModelFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<
+    VideoSampleCategory | ''
+  >('')
   const modelsQuery = useVideoModels(props.tokenId)
   const samplesQuery = useVideoSamples(props.tokenId, {
     model: modelFilter || undefined,
+    category: categoryFilter || undefined,
   })
   const samples = useMemo(
     () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
@@ -165,7 +175,14 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
 
   useEffect(() => {
     virtualizer.measure()
-  }, [columnWidth, lanes, samples.length, virtualizer])
+  }, [
+    categoryFilter,
+    columnWidth,
+    lanes,
+    modelFilter,
+    samples.length,
+    virtualizer,
+  ])
 
   useEffect(() => {
     const lastItem = virtualItems.at(-1)
@@ -201,6 +218,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
           value={modelFilter}
           onChange={(event) => {
             dispatchPreview({ type: 'reset' })
+            scrollRef.current?.scrollTo({ top: 0 })
             setModelFilter(event.target.value)
           }}
           aria-label={t('videoStudio.filterModel')}
@@ -214,6 +232,27 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
             </NativeSelectOption>
           ))}
         </NativeSelect>
+        {VIDEO_SAMPLE_CATEGORIES_ENABLED && (
+          <NativeSelect
+            size='sm'
+            value={categoryFilter}
+            onChange={(event) => {
+              dispatchPreview({ type: 'reset' })
+              scrollRef.current?.scrollTo({ top: 0 })
+              setCategoryFilter(event.target.value as VideoSampleCategory | '')
+            }}
+            aria-label={t('videoStudio.filterCategory')}
+          >
+            <NativeSelectOption value=''>
+              {t('videoStudio.allCategories')}
+            </NativeSelectOption>
+            {VIDEO_SAMPLE_CATEGORIES.map((category) => (
+              <NativeSelectOption key={category} value={category}>
+                {t(VIDEO_SAMPLE_CATEGORY_LABEL_KEYS[category])}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        )}
       </div>
 
       <div

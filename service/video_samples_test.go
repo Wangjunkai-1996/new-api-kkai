@@ -9,7 +9,41 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func seedVideoSampleCategoryTestCatalog(t *testing.T) (*gorm.DB, []model.KKAIVideoModelProfile, model.KKAIVideoAsset) {
+	t.Helper()
+	db := newVideoPipelineTestDB(t)
+	now := time.Now().Unix()
+	specification, err := common.Marshal(VideoModelSpec{
+		Version: 1,
+		Modes:   []string{VideoModeTextToVideo},
+	})
+	require.NoError(t, err)
+	profiles := []model.KKAIVideoModelProfile{
+		{
+			Model: "category-model-a", DisplayName: "Category A", SpecificationVersion: 1,
+			Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
+			CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			Model: "category-model-b", DisplayName: "Category B", SpecificationVersion: 1,
+			Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
+			CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	for index := range profiles {
+		require.NoError(t, db.Create(&profiles[index]).Error)
+	}
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeCatalog, Kind: model.VideoAssetKindSample,
+		State: model.VideoAssetStateReady, ObjectKey: "category-sample.mp4", MIMEType: "video/mp4",
+		Width: 1280, Height: 720, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	return db, profiles, asset
+}
 
 func TestVideoSamplesRespectEffectiveModelFilter(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
@@ -70,7 +104,7 @@ func TestVideoSamplesRespectEffectiveModelFilter(t *testing.T) {
 		require.NoError(t, db.Create(&samples[index]).Error)
 	}
 
-	page, err := ListVideoSamples(context.Background(), db, "", "", 24, false, []string{"allowed-model"})
+	page, err := ListVideoSamples(context.Background(), db, "", "", "", 24, false, []string{"allowed-model"})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)
 	require.Equal(t, "allowed-model", page.Items[0].Model)
@@ -78,7 +112,146 @@ func TestVideoSamplesRespectEffectiveModelFilter(t *testing.T) {
 	_, err = GetVideoSample(context.Background(), db, samples[1].ID, false, []string{"allowed-model"})
 	require.ErrorIs(t, err, ErrVideoSampleNotFound)
 
-	empty, err := ListVideoSamples(context.Background(), db, "", "", 24, false, []string{})
+	empty, err := ListVideoSamples(context.Background(), db, "", "", "", 24, false, []string{})
 	require.NoError(t, err)
 	require.Empty(t, empty.Items)
+}
+
+func TestVideoSamplesCombineModelAndCategoryFilters(t *testing.T) {
+	if !videoSampleCategoryFeatureEnabled {
+		t.Skip("category filtering is enabled only in the v6 feature build")
+	}
+	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
+	now := time.Now().Unix()
+	samples := []model.KKAIVideoSample{
+		{
+			ModelProfileID: profiles[0].ID, Title: "A people", Prompt: "a people",
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryPeople,
+			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ModelProfileID: profiles[0].ID, Title: "A animals", Prompt: "a animals",
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryAnimals,
+			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ModelProfileID: profiles[1].ID, Title: "B people", Prompt: "b people",
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryPeople,
+			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	for index := range samples {
+		require.NoError(t, db.Create(&samples[index]).Error)
+	}
+
+	page, err := ListVideoSamples(
+		context.Background(), db, profiles[0].Model, model.VideoSampleCategoryPeople, "", 24, false,
+		[]string{profiles[0].Model, profiles[1].Model},
+	)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, "A people", page.Items[0].Title)
+	require.Equal(t, model.VideoSampleCategoryPeople, page.Items[0].Category)
+
+	empty, err := ListVideoSamples(
+		context.Background(), db, profiles[0].Model, model.VideoSampleCategoryEffects, "", 24, false, nil,
+	)
+	require.NoError(t, err)
+	require.Empty(t, empty.Items)
+}
+
+func TestVideoSampleOtherCategoryIncludesLegacyMissingValues(t *testing.T) {
+	if !videoSampleCategoryFeatureEnabled {
+		t.Skip("category projection is enabled only in the v6 feature build")
+	}
+	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
+	now := time.Now().Unix()
+	samples := []model.KKAIVideoSample{
+		{
+			ModelProfileID: profiles[0].ID, Title: "Explicit other", Prompt: "other",
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryOther,
+			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ModelProfileID: profiles[0].ID, Title: "Legacy empty", Prompt: "empty",
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			VideoAssetID: asset.ID, AspectRatio: 1, Category: "",
+			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ModelProfileID: profiles[0].ID, Title: "Legacy null", Prompt: "null",
+			Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+			VideoAssetID: asset.ID, AspectRatio: 1, Category: model.VideoSampleCategoryOther,
+			Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	for index := range samples {
+		require.NoError(t, db.Create(&samples[index]).Error)
+	}
+	require.NoError(t, db.Model(&samples[2]).UpdateColumn("category", nil).Error)
+
+	page, err := ListVideoSamples(
+		context.Background(), db, "", model.VideoSampleCategoryOther, "", 24, false, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 3)
+	for _, item := range page.Items {
+		require.Equal(t, model.VideoSampleCategoryOther, item.Category)
+	}
+}
+
+func TestVideoSampleCreateUpdateAndValidationPersistCategory(t *testing.T) {
+	if !videoSampleCategoryFeatureEnabled {
+		t.Skip("category persistence is enabled only in the v6 feature build")
+	}
+	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
+	input := VideoSampleInput{
+		ModelProfileID: profiles[0].ID, Title: "Category", Prompt: "prompt", Mode: VideoModeTextToVideo,
+		Parameters: map[string]any{}, ReferenceAssetIDs: []int64{}, VideoAssetID: asset.ID,
+		AspectRatio: 16.0 / 9.0, Status: model.VideoSampleStatusDraft,
+	}
+
+	created, err := CreateVideoSample(context.Background(), db, 7, input)
+	require.NoError(t, err)
+	require.Equal(t, model.VideoSampleCategoryOther, created.Category)
+	var persisted model.KKAIVideoSample
+	require.NoError(t, db.First(&persisted, created.ID).Error)
+	require.Equal(t, model.VideoSampleCategoryOther, persisted.Category)
+
+	require.NoError(t, db.Model(&persisted).UpdateColumn("category", nil).Error)
+	input.Category = model.VideoSampleCategoryArchitecture
+	updated, err := UpdateVideoSample(context.Background(), db, created.ID, 7, input)
+	require.NoError(t, err)
+	require.Equal(t, model.VideoSampleCategoryArchitecture, updated.Category)
+	require.NoError(t, db.First(&persisted, created.ID).Error)
+	require.Equal(t, model.VideoSampleCategoryArchitecture, persisted.Category)
+
+	input.Category = "not-a-category"
+	_, err = UpdateVideoSample(context.Background(), db, created.ID, 7, input)
+	require.ErrorIs(t, err, ErrInvalidVideoSample)
+
+	_, err = ListVideoSamples(context.Background(), db, "", "not-a-category", "", 24, false, nil)
+	require.ErrorIs(t, err, ErrInvalidVideoSample)
+}
+
+func TestVideoSampleListRejectsCorruptStoredCategory(t *testing.T) {
+	if !videoSampleCategoryFeatureEnabled {
+		t.Skip("stored category validation is enabled only in the v6 feature build")
+	}
+	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
+	now := time.Now().Unix()
+	sample := model.KKAIVideoSample{
+		ModelProfileID: profiles[0].ID, Title: "Corrupt", Prompt: "corrupt",
+		Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+		VideoAssetID: asset.ID, AspectRatio: 1, Category: "invalid",
+		Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&sample).Error)
+
+	_, err := ListVideoSamples(context.Background(), db, "", "", "", 24, false, nil)
+	require.ErrorIs(t, err, ErrVideoSampleDataCorrupt)
 }

@@ -24,10 +24,11 @@ RUN --mount=type=cache,id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sha
 FROM web-deps AS web-default
 
 ARG APP_VERSION
+ARG KKAI_SCHEMA_CONTRACT
 COPY web/default ./default
 RUN test -n "${APP_VERSION}" \
     && cd default \
-    && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
+    && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" VITE_KKAI_SCHEMA_CONTRACT="${KKAI_SCHEMA_CONTRACT}" bun run build
 
 FROM web-deps AS web-classic
 

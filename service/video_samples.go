@@ -19,6 +19,7 @@ import (
 var (
 	ErrVideoSampleNotFound       = errors.New("video sample not found")
 	ErrInvalidVideoSample        = errors.New("invalid video sample")
+	ErrVideoSampleDataCorrupt    = errors.New("video sample data is corrupt")
 	ErrVideoSampleNotPublishable = errors.New("video sample assets are not ready for publishing")
 )
 
@@ -31,6 +32,7 @@ type VideoSampleInput struct {
 	ReferenceAssetIDs []int64        `json:"reference_asset_ids"`
 	VideoAssetID      int64          `json:"video_asset_id"`
 	AspectRatio       float64        `json:"aspect_ratio"`
+	Category          string         `json:"category"`
 	Status            string         `json:"status"`
 	SortOrder         int            `json:"sort_order"`
 }
@@ -53,6 +55,7 @@ type VideoSampleView struct {
 	PosterURL            string                         `json:"poster_url"`
 	PreviewURL           string                         `json:"preview_url"`
 	AspectRatio          float64                        `json:"aspect_ratio"`
+	Category             string                         `json:"category"`
 	Status               string                         `json:"status"`
 	SortOrder            int                            `json:"sort_order"`
 	CreatedAt            int64                          `json:"created_at"`
@@ -69,10 +72,33 @@ type videoSampleCursor struct {
 	ID        int64 `json:"id"`
 }
 
+const videoSampleSelectColumnsBeforeCategory = `
+kkai_video_samples.id,
+kkai_video_samples.model_profile_id,
+kkai_video_samples.title,
+kkai_video_samples.prompt,
+kkai_video_samples.mode,
+kkai_video_samples.model_version,
+kkai_video_samples.parameters,
+kkai_video_samples.reference_asset_ids,
+kkai_video_samples.video_asset_id,
+kkai_video_samples.aspect_ratio,`
+
+const videoSampleSelectColumnsAfterCategory = `,
+kkai_video_samples.status,
+kkai_video_samples.sort_order,
+kkai_video_samples.created_at,
+kkai_video_samples.updated_at`
+
+func videoSampleSelectColumns() string {
+	return videoSampleSelectColumnsBeforeCategory + "\n" + videoSampleCategorySelectColumn + videoSampleSelectColumnsAfterCategory
+}
+
 func ListVideoSamples(
 	ctx context.Context,
 	db *gorm.DB,
 	modelName string,
+	category string,
 	cursor string,
 	limit int,
 	includeDrafts bool,
@@ -87,13 +113,18 @@ func ListVideoSamples(
 	if limit > 50 {
 		limit = 50
 	}
+	normalizedCategory, err := normalizeVideoSampleCategoryFilter(category)
+	if err != nil {
+		return VideoSamplePage{}, err
+	}
 	query := db.WithContext(ctx).Model(&model.KKAIVideoSample{}).
-		Joins("JOIN kkai_video_model_profiles ON kkai_video_model_profiles.id = kkai_video_samples.model_profile_id")
-	if includeDrafts {
-		query = query.Select("kkai_video_samples.*")
-	} else {
-		query = query.Select("kkai_video_samples.*").
-			Where("kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?", model.VideoSampleStatusPublished, true)
+		Joins("JOIN kkai_video_model_profiles ON kkai_video_model_profiles.id = kkai_video_samples.model_profile_id").
+		Select(videoSampleSelectColumns())
+	if !includeDrafts {
+		query = query.Where(
+			"kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?",
+			model.VideoSampleStatusPublished, true,
+		)
 	}
 	if allowedModels != nil {
 		if len(allowedModels) == 0 {
@@ -103,6 +134,10 @@ func ListVideoSamples(
 	}
 	if strings.TrimSpace(modelName) != "" {
 		query = query.Where("kkai_video_model_profiles.model = ?", strings.TrimSpace(modelName))
+	}
+	query, err = applyVideoSampleCategoryFilter(query, normalizedCategory)
+	if err != nil {
+		return VideoSamplePage{}, err
 	}
 	if cursor != "" {
 		position, err := decodeVideoSampleCursor(cursor)
@@ -143,7 +178,7 @@ func GetVideoSample(
 ) (*VideoSampleView, error) {
 	query := db.WithContext(ctx).Model(&model.KKAIVideoSample{}).
 		Joins("JOIN kkai_video_model_profiles ON kkai_video_model_profiles.id = kkai_video_samples.model_profile_id").
-		Select("kkai_video_samples.*").Where("kkai_video_samples.id = ?", id)
+		Select(videoSampleSelectColumns()).Where("kkai_video_samples.id = ?", id)
 	if !includeDrafts {
 		query = query.Where("kkai_video_samples.status = ? AND kkai_video_model_profiles.enabled = ?", model.VideoSampleStatusPublished, true)
 	}
@@ -179,10 +214,10 @@ func CreateVideoSample(ctx context.Context, db *gorm.DB, adminUserID int, input 
 			ModelProfileID: prepared.ModelProfileID, Title: prepared.Title, Prompt: prepared.Prompt,
 			Mode: prepared.Mode, ModelVersion: prepared.modelVersion, Parameters: prepared.parametersJSON,
 			ReferenceAssetIDs: prepared.referenceAssetIDsJSON, VideoAssetID: prepared.VideoAssetID,
-			AspectRatio: prepared.AspectRatio, Status: prepared.Status, SortOrder: prepared.SortOrder,
+			AspectRatio: prepared.AspectRatio, Category: prepared.Category, Status: prepared.Status, SortOrder: prepared.SortOrder,
 			CreatedAt: now, UpdatedAt: now,
 		}
-		if err := tx.Create(&created).Error; err != nil {
+		if err := createVideoSampleRecord(tx, &created); err != nil {
 			return err
 		}
 		assetIDs := append([]int64{prepared.VideoAssetID}, prepared.ReferenceAssetIDs...)
@@ -219,6 +254,7 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 			"reference_asset_ids": prepared.referenceAssetIDsJSON, "video_asset_id": prepared.VideoAssetID,
 			"aspect_ratio": prepared.AspectRatio, "status": prepared.Status, "sort_order": prepared.SortOrder, "updated_at": now,
 		}
+		addVideoSampleCategoryUpdate(updates, prepared.Category)
 		if err := tx.Model(&existing).Updates(updates).Error; err != nil {
 			return err
 		}
@@ -285,6 +321,11 @@ func prepareVideoSampleInput(ctx context.Context, tx *gorm.DB, adminUserID int, 
 	if input.Status != model.VideoSampleStatusDraft && input.Status != model.VideoSampleStatusPublished {
 		return preparedVideoSampleInput{}, nil, ErrInvalidVideoSample
 	}
+	category, err := normalizeVideoSampleCategory(input.Category)
+	if err != nil {
+		return preparedVideoSampleInput{}, nil, err
+	}
+	input.Category = category
 	var profile model.KKAIVideoModelProfile
 	if err := tx.WithContext(ctx).First(&profile, "id = ?", input.ModelProfileID).Error; err != nil {
 		return preparedVideoSampleInput{}, nil, ErrVideoModelProfileNotFound
@@ -421,6 +462,10 @@ func buildVideoSampleViews(ctx context.Context, db *gorm.DB, samples []model.KKA
 			return nil, fmt.Errorf("video sample %d references missing asset %d", sample.ID, sample.VideoAssetID)
 		}
 		assetView := videoAssetView(videoAsset)
+		category, err := videoSampleCategoryForView(sample.Category)
+		if err != nil {
+			return nil, fmt.Errorf("video sample %d has invalid category: %w", sample.ID, err)
+		}
 		views = append(views, VideoSampleView{
 			ID: sample.ID, ModelProfileID: sample.ModelProfileID, Model: profile.Model, ModelDisplayName: profile.DisplayName,
 			Title: sample.Title, Prompt: sample.Prompt, Mode: sample.Mode, ModelVersion: sample.ModelVersion,
@@ -428,7 +473,8 @@ func buildVideoSampleViews(ctx context.Context, db *gorm.DB, samples []model.KKA
 			ReferenceContentURLs: referenceURLs,
 			VideoAssetID:         sample.VideoAssetID, VideoURL: assetView.ContentURL,
 			PosterURL: assetView.PosterURL, PreviewURL: assetView.PreviewURL,
-			AspectRatio: sample.AspectRatio, Status: sample.Status, SortOrder: sample.SortOrder,
+			AspectRatio: sample.AspectRatio, Category: category,
+			Status: sample.Status, SortOrder: sample.SortOrder,
 			CreatedAt: sample.CreatedAt, UpdatedAt: sample.UpdatedAt,
 		})
 	}

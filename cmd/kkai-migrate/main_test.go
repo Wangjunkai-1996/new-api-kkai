@@ -24,7 +24,7 @@ func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 	require.NoError(t, kkaimigrate.CheckRequired(context.Background(), db))
 }
 
-func TestApplyMigrationTargetRunsV4ThenV5(t *testing.T) {
+func TestApplyMigrationTargetRunsV4ThenV5ThenV6(t *testing.T) {
 	dsn := fmt.Sprintf("file:kkai-cli-target-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := openDatabase(dsn)
 	require.NoError(t, err)
@@ -37,12 +37,15 @@ func TestApplyMigrationTargetRunsV4ThenV5(t *testing.T) {
 	result, err = applyMigrationTarget(context.Background(), db, 5, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.Len(t, result.Applied, 5)
-	require.NoError(t, kkaimigrate.Check(context.Background(), db, 5))
+	result, err = applyMigrationTarget(context.Background(), db, 6, kkaimigrate.Options{})
+	require.NoError(t, err)
+	require.Len(t, result.Applied, 6)
+	require.NoError(t, kkaimigrate.Check(context.Background(), db, 6))
 }
 
 func TestApplyMigrationTargetRejectsUnknownVersion(t *testing.T) {
-	_, err := applyMigrationTarget(context.Background(), nil, 6, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "expected 4 or 5")
+	_, err := applyMigrationTarget(context.Background(), nil, 7, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "expected 4, 5, or 6")
 }
 
 func TestDescribeContractJSONUsesImmutableExternalSchemaManagement(t *testing.T) {

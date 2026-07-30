@@ -28,6 +28,7 @@ import type {
   VideoTokenCreateResult,
 } from './types'
 import { videoParameterAcceptsValue } from './video-domain'
+import { VIDEO_SAMPLE_CATEGORIES } from './video-sample-categories'
 
 export const VIDEO_GENERATION_MODES = [
   'text_to_video',
@@ -177,6 +178,7 @@ export const videoSampleFormSchema = z.object({
     .number()
     .int()
     .positive('videoStudio.validation.sampleVideoRequired'),
+  category: z.enum(VIDEO_SAMPLE_CATEGORIES),
   status: z.enum(['draft', 'published']),
   sort_order: z.number().int(),
 })
@@ -219,6 +221,7 @@ export const parseVideoSampleForm = (
     reference_asset_ids: values.reference_asset_ids,
     video_asset_id: values.video_asset_id,
     aspect_ratio: 0,
+    category: values.category,
     status: values.status,
     sort_order: values.sort_order,
   }

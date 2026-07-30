@@ -164,6 +164,12 @@ func TestVideoStudioTokenErrorsHaveStableHTTPContract(t *testing.T) {
 	}
 }
 
+func TestVideoStudioCorruptSampleIsAnInternalError(t *testing.T) {
+	status, code := videoStudioErrorStatus(errors.Join(errors.New("wrapped"), service.ErrVideoSampleDataCorrupt))
+	assert.Equal(t, http.StatusInternalServerError, status)
+	assert.Equal(t, "video_studio_internal_error", code)
+}
+
 func TestVideoStudioTokenControllersIgnoreStaleSessionAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupVideoStudioTokenControllerTest(t)

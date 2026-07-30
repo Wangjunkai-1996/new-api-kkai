@@ -65,6 +65,8 @@ contains 'id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked' 
   fail "frontend dependency downloads do not use a persistent locked cache"
 contains 'FROM web-deps AS web-default' "${DOCKERFILE}" ||
   fail "default frontend does not reuse the shared dependency stage"
+contains 'VITE_KKAI_SCHEMA_CONTRACT="${KKAI_SCHEMA_CONTRACT}"' "${DOCKERFILE}" ||
+  fail "default frontend is not bound to the immutable schema contract"
 contains 'FROM web-deps AS web-classic' "${DOCKERFILE}" ||
   fail "classic frontend does not reuse the shared dependency stage"
 contains '--platform linux/amd64' "${BUILD_SCRIPT}" || fail "manual build is not pinned to AMD64"

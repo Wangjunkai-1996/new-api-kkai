@@ -46,7 +46,7 @@ func ListVideoStudioSamples(c *gin.Context) {
 		allowedModels = append(allowedModels, profile.Model)
 	}
 	page, err := service.ListVideoSamples(
-		c.Request.Context(), model.DB, c.Query("model"), c.Query("cursor"), limit, false, allowedModels,
+		c.Request.Context(), model.DB, c.Query("model"), c.Query("category"), c.Query("cursor"), limit, false, allowedModels,
 	)
 	if err != nil {
 		respondVideoStudioError(c, err)
@@ -164,7 +164,9 @@ func AdminDeleteVideoStudioModelProfile(c *gin.Context) {
 
 func AdminListVideoStudioSamples(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	page, err := service.ListVideoSamples(c.Request.Context(), model.DB, c.Query("model"), c.Query("cursor"), limit, true, nil)
+	page, err := service.ListVideoSamples(
+		c.Request.Context(), model.DB, c.Query("model"), c.Query("category"), c.Query("cursor"), limit, true, nil,
+	)
 	if err != nil {
 		respondVideoStudioError(c, err)
 		return

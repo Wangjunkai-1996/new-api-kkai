@@ -69,6 +69,12 @@ import {
   VIDEO_MODE_LABEL_KEYS,
   VIDEO_REFERENCE_ROLE_LABEL_KEYS,
 } from '../video-domain'
+import {
+  VIDEO_SAMPLE_CATEGORIES,
+  VIDEO_SAMPLE_CATEGORIES_ENABLED,
+  VIDEO_SAMPLE_CATEGORY_LABEL_KEYS,
+  type VideoSampleCategory,
+} from '../video-sample-categories'
 import { VideoAdminWorkspace } from './video-admin-workspace'
 
 const emptyValues = (): VideoSampleFormValues => ({
@@ -79,6 +85,7 @@ const emptyValues = (): VideoSampleFormValues => ({
   parameters_json: '{}',
   reference_asset_ids: [],
   video_asset_id: 0,
+  category: 'other',
   status: 'draft',
   sort_order: 0,
 })
@@ -91,6 +98,7 @@ const sampleValues = (sample: VideoSample): VideoSampleFormValues => ({
   parameters_json: JSON.stringify(sample.parameters, null, 2),
   reference_asset_ids: sample.reference_asset_ids,
   video_asset_id: sample.video_asset_id,
+  category: sample.category,
   status: sample.status,
   sort_order: sample.sort_order,
 })
@@ -414,6 +422,35 @@ export function VideoSampleAdmin() {
                 </FormItem>
               )}
             />
+            {VIDEO_SAMPLE_CATEGORIES_ENABLED && (
+              <FormField
+                control={form.control}
+                name='category'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('videoStudio.admin.category')}</FormLabel>
+                    <FormControl>
+                      <NativeSelect
+                        className='w-full'
+                        value={field.value}
+                        onChange={(event) =>
+                          field.onChange(
+                            event.target.value as VideoSampleCategory
+                          )
+                        }
+                      >
+                        {VIDEO_SAMPLE_CATEGORIES.map((category) => (
+                          <NativeSelectOption key={category} value={category}>
+                            {t(VIDEO_SAMPLE_CATEGORY_LABEL_KEYS[category])}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name='sort_order'

@@ -16,11 +16,11 @@ func TestContractForDialectUsesBridgeRuntime(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
 			require.EqualValues(t, 3, contract.RuntimeMinVersion)
-			require.EqualValues(t, 5, contract.RuntimeMaxVersion)
+			require.EqualValues(t, 6, contract.RuntimeMaxVersion)
 			require.EqualValues(t, 3, contract.MigrationTargetVersion)
 			require.Equal(t, MigrationKindNone, contract.MigrationKind)
-			require.Len(t, contract.CompatiblePrefixes, 3)
-			for _, version := range []string{"3", "4", "5"} {
+			require.Len(t, contract.CompatiblePrefixes, 4)
+			for _, version := range []string{"3", "4", "5", "6"} {
 				require.Regexp(t, `^sha256:[0-9a-f]{64}$`, contract.CompatiblePrefixes[version])
 			}
 			require.Equal(t, contract.CompatiblePrefixes["3"], contract.MigrationSetDigest)

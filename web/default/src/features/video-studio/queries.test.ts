@@ -191,6 +191,16 @@ describe('video studio private query ownership', () => {
       videoStudioQueryKeys.samples(11, 18, { model: 'model-a' })
     )
     assert.notDeepEqual(
+      videoStudioQueryKeys.samples(11, 17, {
+        model: 'model-a',
+        category: 'people',
+      }),
+      videoStudioQueryKeys.samples(11, 17, {
+        model: 'model-a',
+        category: 'animals',
+      })
+    )
+    assert.notDeepEqual(
       videoStudioQueryKeys.sample(11, 17, 9),
       videoStudioQueryKeys.sample(11, 18, 9)
     )

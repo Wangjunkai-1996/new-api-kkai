@@ -148,8 +148,9 @@ bun "$ROOT/scripts/kkai/compare-diagnostics.mjs" \
 echo "[9/9] Running test suite"
 if [[ $FULL -eq 1 ]]; then
   go test ./...
+  go test -tags kkai_bridge ./...
 else
-  echo "Quick mode: skipped 'go test ./...'; CI runs --full."
+  echo "Quick mode: skipped default and kkai_bridge Go test suites; CI runs --full."
 fi
 
 echo "KKAI fork quality gate passed against $KKAI_UPSTREAM_LABEL ($BASE)."

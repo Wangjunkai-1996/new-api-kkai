@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { VideoStudioUploadLimits } from '@/features/auth/types'
 
+import type { VideoSampleCategory } from './video-sample-categories'
+
 export type VideoGenerationMode =
   | 'text_to_video'
   | 'image_to_video'
@@ -150,6 +152,7 @@ export type VideoSample = {
   poster_url: string
   preview_url: string
   aspect_ratio: number
+  category: VideoSampleCategory
   status: VideoSampleStatus
   sort_order: number
   created_at: number
@@ -193,6 +196,7 @@ export type VideoSampleFilters = {
   cursor?: string
   limit?: number
   model?: string
+  category?: VideoSampleCategory
 }
 
 export type VideoGenerationFilters = {
@@ -340,6 +344,7 @@ export type VideoSampleInput = {
   reference_asset_ids: number[]
   video_asset_id: number
   aspect_ratio: number
+  category: VideoSampleCategory
   status: VideoSampleStatus
   sort_order: number
 }
