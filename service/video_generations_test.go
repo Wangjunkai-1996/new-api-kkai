@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/glebarez/sqlite"
@@ -147,32 +148,66 @@ func TestCreateVideoGenerationMarksTaskResultAsAssetHostedInTransaction(t *testi
 	require.True(t, reloaded.PrivateData.AssetHostedResult)
 }
 
-func TestGetVideoGenerationUsesPublicFailureReason(t *testing.T) {
-	db := newVideoGenerationTestDB(t)
-	now := time.Now().Unix()
-	tasks := []model.Task{
+func TestGetVideoGenerationUsesSafePublicFailureDetails(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerData string
+		wantCode     string
+	}{
 		{
-			TaskID: "hosted-url-failure", UserId: 7, Status: model.TaskStatusFailure,
-			FailReason: "provider error: HTTPS://provider.example/private.mp4", CreatedAt: now, UpdatedAt: now,
+			name:         "unknown provider failure",
+			providerData: `{"error":{"code":"provider_error","message":"copyright restrictions https://provider.example/private.mp4?token=secret"}}`,
 		},
 		{
-			TaskID: "hosted-message-failure", UserId: 7, Status: model.TaskStatusFailure,
-			FailReason: "provider rejected the request", CreatedAt: now, UpdatedAt: now,
+			name:         "copyright restriction",
+			providerData: `{"error":{"code":"video_generation_failed","message":"The output video may be related to copyright restrictions; OutputVideoSensitiveContentDetected.PolicyViolation; https://provider.example/private.mp4?token=secret"}}`,
+			wantCode:     videoGenerationFailureCodeCopyrightRestriction,
+		},
+		{
+			name:         "privacy restriction",
+			providerData: `{"error":{"code":"video_generation_failed","message":"InputImageSensitiveContentDetected.PrivacyInformation"}}`,
+			wantCode:     videoGenerationFailureCodePrivacyRestriction,
+		},
+		{
+			name:         "content policy restriction",
+			providerData: `{"error":{"code":"video_generation_failed","message":"OutputVideoSensitiveContentDetected.PolicyViolation"}}`,
+			wantCode:     videoGenerationFailureCodeContentPolicy,
+		},
+		{
+			name:         "unclassified generation failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"provider failed without a recognized marker"}}`,
+		},
+		{
+			name:         "non object provider data",
+			providerData: `[]`,
 		},
 	}
 
-	for index := range tasks {
-		require.NoError(t, db.Create(&tasks[index]).Error)
-		generation := model.KKAIVideoGeneration{
-			UserID: 7, TaskID: tasks[index].ID, ModelProfileID: 1, Model: "model", Mode: VideoModeTextToVideo,
-			Prompt: "prompt", Parameters: `{}`, CreatedAt: now, UpdatedAt: now,
-		}
-		require.NoError(t, db.Create(&generation).Error)
-		view, err := GetVideoGeneration(context.Background(), db, 7, generation.ID)
-		require.NoError(t, err)
-		require.Equal(t, model.AssetHostedTaskPublicFailureReason, view.FailureReason)
-		require.NotContains(t, view.FailureReason, "provider.example")
-		require.NotContains(t, view.FailureReason, "provider rejected")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := newVideoGenerationTestDB(t)
+			now := time.Now().Unix()
+			task := model.Task{
+				TaskID: "hosted-failure", UserId: 7, Status: model.TaskStatusFailure,
+				FailReason: "provider rejected the request", Data: []byte(test.providerData),
+				CreatedAt: now, UpdatedAt: now,
+			}
+			require.NoError(t, db.Create(&task).Error)
+			generation := model.KKAIVideoGeneration{
+				UserID: 7, TaskID: task.ID, ModelProfileID: 1, Model: "model", Mode: VideoModeTextToVideo,
+				Prompt: "prompt", Parameters: `{}`, CreatedAt: now, UpdatedAt: now,
+			}
+			require.NoError(t, db.Create(&generation).Error)
+
+			view, err := GetVideoGeneration(context.Background(), db, 7, generation.ID)
+			require.NoError(t, err)
+			require.Equal(t, model.AssetHostedTaskPublicFailureReason, view.FailureReason)
+			require.Equal(t, test.wantCode, view.FailureCode)
+			response, err := common.Marshal(view)
+			require.NoError(t, err)
+			require.NotContains(t, string(response), "provider.example")
+			require.NotContains(t, string(response), "secret")
+		})
 	}
 }
 

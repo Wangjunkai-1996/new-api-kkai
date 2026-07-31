@@ -37,6 +37,7 @@ import {
   getVideoQuoteRefreshDelay,
   getVideoReferenceRoles,
   getVideoAssetInspectionPollInterval,
+  getVideoGenerationFailureMessageKey,
   getVideoSubmissionRequestKey,
   getVideoSubmissionLock,
   getVideoParametersForMode,
@@ -122,6 +123,31 @@ const asset = (state: VideoAsset['state']): VideoAsset => ({
   codec: '',
   created_at: 100,
   updated_at: 100,
+})
+
+test('generation failures use safe reason codes with a generic fallback', () => {
+  assert.equal(
+    getVideoGenerationFailureMessageKey(
+      generation({
+        status: 'failed',
+        failure_code: 'copyright_restriction',
+      })
+    ),
+    'videoStudio.failure.copyrightRestriction'
+  )
+  assert.equal(
+    getVideoGenerationFailureMessageKey(generation({ status: 'failed' })),
+    'videoStudio.failure.generic'
+  )
+  assert.equal(
+    getVideoGenerationFailureMessageKey(
+      generation({
+        status: 'ready',
+        failure_code: 'content_policy_violation',
+      })
+    ),
+    undefined
+  )
 })
 
 test('sample reuse keeps profile defaults and overlays sample parameters', () => {

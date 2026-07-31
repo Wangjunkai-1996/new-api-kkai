@@ -41,6 +41,13 @@ before(async () => {
           Retry: 'Retry',
           'videoStudio.delete': 'Delete',
           'videoStudio.download': 'Download',
+          'videoStudio.failure.contentPolicy':
+            'The request was blocked by the content policy.',
+          'videoStudio.failure.copyrightRestriction':
+            'The generated video may involve copyrighted content.',
+          'videoStudio.failure.generic': 'Video generation failed.',
+          'videoStudio.failure.privacyRestriction':
+            'The content may include real-person or private information.',
           'videoStudio.play': 'Play',
           'videoStudio.status.archiving': 'Archiving',
           'videoStudio.status.failed': 'Failed',
@@ -117,5 +124,22 @@ describe('video generation card media lifecycle', () => {
 
     assert.doesNotMatch(html, /aria-label="Delete"/)
     assert.match(html, /aria-valuenow="30"/)
+  })
+
+  test('renders a safe actionable reason for known generation failures', () => {
+    const html = renderCard(
+      generation({
+        status: 'failed',
+        failure_code: 'copyright_restriction',
+        failure_reason: 'video generation failed',
+        video_url: undefined,
+        poster_url: undefined,
+        download_url: undefined,
+      }),
+      false
+    )
+
+    assert.match(html, /The generated video may involve copyrighted content\./)
+    assert.doesNotMatch(html, /video generation failed/)
   })
 })

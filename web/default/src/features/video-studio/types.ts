@@ -166,6 +166,11 @@ export type VideoGenerationStatus =
   | 'ready'
   | 'failed'
 
+export type VideoGenerationFailureCode =
+  | 'copyright_restriction'
+  | 'privacy_restriction'
+  | 'content_policy_violation'
+
 export type VideoGeneration = {
   id: number
   task_id: string
@@ -178,6 +183,7 @@ export type VideoGeneration = {
   status: VideoGenerationStatus
   progress: string
   failure_reason?: string
+  failure_code?: VideoGenerationFailureCode
   quota: number
   output_asset_id?: number
   video_url?: string

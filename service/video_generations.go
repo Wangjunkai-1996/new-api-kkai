@@ -32,6 +32,7 @@ type VideoGenerationView struct {
 	Status         string         `json:"status"`
 	Progress       string         `json:"progress"`
 	FailureReason  string         `json:"failure_reason,omitempty"`
+	FailureCode    string         `json:"failure_code,omitempty"`
 	Quota          int            `json:"quota"`
 	OutputAssetID  *int64         `json:"output_asset_id,omitempty"`
 	VideoURL       string         `json:"video_url,omitempty"`
@@ -286,7 +287,8 @@ func buildVideoGenerationViews(ctx context.Context, db *gorm.DB, generations []m
 			ID: generation.ID, TaskID: task.TaskID, ModelProfileID: generation.ModelProfileID,
 			SampleID: generation.SampleID, Model: generation.Model, Mode: generation.Mode,
 			Prompt: generation.Prompt, Parameters: parameters, Progress: task.Progress,
-			FailureReason: task.PublicFailReason(), Quota: task.Quota, CreatedAt: generation.CreatedAt, UpdatedAt: generation.UpdatedAt,
+			FailureReason: task.PublicFailReason(), FailureCode: videoGenerationFailureCode(task),
+			Quota: task.Quota, CreatedAt: generation.CreatedAt, UpdatedAt: generation.UpdatedAt,
 		}
 		assetID, hasOutput := outputByTask[generation.TaskID]
 		var output *model.KKAIVideoAsset
@@ -304,6 +306,41 @@ func buildVideoGenerationViews(ctx context.Context, db *gorm.DB, generations []m
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+const (
+	videoGenerationFailureCodeCopyrightRestriction = "copyright_restriction"
+	videoGenerationFailureCodePrivacyRestriction   = "privacy_restriction"
+	videoGenerationFailureCodeContentPolicy        = "content_policy_violation"
+)
+
+func videoGenerationFailureCode(task model.Task) string {
+	if task.Status != model.TaskStatusFailure || len(task.Data) == 0 {
+		return ""
+	}
+	var payload struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := common.Unmarshal(task.Data, &payload); err != nil || payload.Error == nil {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(payload.Error.Code), "video_generation_failed") {
+		return ""
+	}
+	diagnostic := strings.ToLower(payload.Error.Code + " " + payload.Error.Message)
+	switch {
+	case strings.Contains(diagnostic, "copyright restrictions"):
+		return videoGenerationFailureCodeCopyrightRestriction
+	case strings.Contains(diagnostic, "sensitivecontentdetected.privacyinformation"):
+		return videoGenerationFailureCodePrivacyRestriction
+	case strings.Contains(diagnostic, "sensitivecontentdetected.policyviolation"):
+		return videoGenerationFailureCodeContentPolicy
+	default:
+		return ""
+	}
 }
 
 func videoGenerationStatus(task model.Task, output *model.KKAIVideoAsset) string {

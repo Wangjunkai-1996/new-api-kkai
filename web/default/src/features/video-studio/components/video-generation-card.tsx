@@ -36,7 +36,10 @@ import { formatTimestampRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { VideoGeneration, VideoGenerationStatus } from '../types'
-import { getVideoProgress } from '../video-domain'
+import {
+  getVideoGenerationFailureMessageKey,
+  getVideoProgress,
+} from '../video-domain'
 
 const STATUS_VARIANTS: Record<VideoGenerationStatus, StatusVariant> = {
   queued: 'warning',
@@ -83,6 +86,9 @@ export function VideoGenerationCard(props: VideoGenerationCardProps) {
   const ready = status === 'ready' && props.generation.video_url
   const deletable = status === 'ready' || status === 'failed'
   const showPoster = Boolean(props.generation.poster_url) && !posterFailed
+  const failureMessageKey = getVideoGenerationFailureMessageKey(
+    props.generation
+  )
 
   useEffect(() => {
     setPosterFailed(false)
@@ -274,9 +280,9 @@ export function VideoGenerationCard(props: VideoGenerationCardProps) {
           />
         </div>
 
-        {props.generation.failure_reason && (
+        {failureMessageKey && (
           <p className='text-destructive line-clamp-2 text-xs' role='alert'>
-            {props.generation.failure_reason}
+            {t(failureMessageKey)}
           </p>
         )}
 

@@ -390,6 +390,22 @@ export const getVideoTaskPollInterval = (
   return nowSeconds - newestActiveCreation < 60 ? 3_000 : 5_000
 }
 
+export const getVideoGenerationFailureMessageKey = (
+  generation: Pick<VideoGeneration, 'failure_code' | 'status'>
+): string | undefined => {
+  if (generation.status !== 'failed') return undefined
+  switch (generation.failure_code) {
+    case 'copyright_restriction':
+      return 'videoStudio.failure.copyrightRestriction'
+    case 'privacy_restriction':
+      return 'videoStudio.failure.privacyRestriction'
+    case 'content_policy_violation':
+      return 'videoStudio.failure.contentPolicy'
+    default:
+      return 'videoStudio.failure.generic'
+  }
+}
+
 export const getVideoProgress = (generation: VideoGeneration): number => {
   const parsed = Number(generation.progress.replace('%', ''))
   return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0

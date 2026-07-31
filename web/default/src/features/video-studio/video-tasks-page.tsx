@@ -37,7 +37,10 @@ import { formatTimestampToDate } from '@/lib/format'
 import { VideoStudioNav } from './components/video-studio-nav'
 import { useVideoGenerations } from './queries'
 import type { VideoGenerationStatus } from './types'
-import { getVideoProgress } from './video-domain'
+import {
+  getVideoGenerationFailureMessageKey,
+  getVideoProgress,
+} from './video-domain'
 
 const STATUS_VARIANTS: Record<VideoGenerationStatus, StatusVariant> = {
   queued: 'warning',
@@ -159,6 +162,8 @@ export function VideoTasksPage() {
             {generations.map((generation) => {
               const status = generation.status
               const progress = getVideoProgress(generation)
+              const failureMessageKey =
+                getVideoGenerationFailureMessageKey(generation)
               return (
                 <article
                   key={generation.id}
@@ -214,9 +219,9 @@ export function VideoTasksPage() {
                         </span>
                       </div>
                     )}
-                    {generation.failure_reason && (
+                    {failureMessageKey && (
                       <p className='text-destructive line-clamp-1 text-xs'>
-                        {generation.failure_reason}
+                        {t(failureMessageKey)}
                       </p>
                     )}
                   </div>
