@@ -198,6 +198,7 @@ func TestFFmpegVideoMediaProcessorCreatesLowRatePreview(t *testing.T) {
 			require.Contains(t, joined, "-an")
 			require.Contains(t, joined, "-crf 32")
 			require.Contains(t, joined, "-t 4")
+			require.Contains(t, joined, "force_original_aspect_ratio=decrease:force_divisible_by=2")
 			return nil, os.WriteFile(args[len(args)-1], []byte("preview"), 0o600)
 		}),
 	}

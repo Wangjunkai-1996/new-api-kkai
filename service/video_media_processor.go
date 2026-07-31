@@ -174,7 +174,7 @@ func (processor *FFmpegVideoMediaProcessor) CreatePreview(ctx context.Context, i
 	arguments := []string{"-y", "-nostdin"}
 	arguments = append(arguments, videoMediaInputArguments(inputPath)...)
 	arguments = append(arguments, "-map", "0:v:0", "-t", "4", "-an", "-sn", "-dn", "-threads", "2",
-		"-vf", "scale=640:640:force_original_aspect_ratio=decrease",
+		"-vf", "scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2",
 		"-r", "12", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32",
 		"-movflags", "+faststart", "-pix_fmt", "yuv420p", "-fs", strconv.FormatInt(videoPreviewMaximumBytes+1, 10),
 		"-f", "mp4", outputPath)
