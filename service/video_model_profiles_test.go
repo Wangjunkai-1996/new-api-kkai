@@ -99,6 +99,40 @@ func TestCreateVideoModelProfileRequiresAbilityAndMapsDuplicate(t *testing.T) {
 	require.ErrorIs(t, err, ErrVideoModelProfileDuplicate)
 }
 
+func TestCreateVideoModelProfilePersistsRequiredParameterDefault(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	input := VideoModelProfileInput{
+		Model: "required-default-model", DisplayName: "Required default", Specification: VideoModelSpec{
+			Version: 1, Modes: []string{VideoModeTextToVideo}, Parameters: []VideoParameterSpec{
+				{
+					Key: "resolution", Label: "Resolution", Control: VideoControlSelect, Required: true,
+					Options: []VideoParameterOption{{Label: "720p", Value: "720p"}},
+				},
+			},
+		}, DefaultParameters: map[string]any{},
+	}
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: VideoStudioTokenGroup, Model: input.Model, ChannelId: 1, Enabled: true, Priority: &priority,
+	}).Error)
+
+	_, err := CreateVideoModelProfile(context.Background(), db, input)
+	require.ErrorIs(t, err, ErrInvalidVideoModelSpec)
+
+	input.DefaultParameters["resolution"] = "720p"
+	created, err := CreateVideoModelProfile(context.Background(), db, input)
+	require.NoError(t, err)
+	persisted, err := GetVideoModelProfileByID(context.Background(), db, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, input.Specification, persisted.Specification)
+	require.Equal(t, map[string]any{"resolution": "720p"}, persisted.DefaultParameters)
+	normalized, err := ValidateVideoParameters(
+		persisted.Specification, VideoModeTextToVideo, persisted.DefaultParameters, true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"resolution": "720p"}, normalized)
+}
+
 func TestUpdateVideoModelProfileKeepsModelImmutableAndAllowsDisableWithoutAbility(t *testing.T) {
 	db := newVideoModelProfileTestDB(t)
 	now := time.Now().Unix()

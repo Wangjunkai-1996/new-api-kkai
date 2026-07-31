@@ -21,12 +21,14 @@ import { describe, test } from 'node:test'
 
 import {
   buildVideoSampleProfileState,
+  createVideoModelParameterFormValues,
   createVideoModelProfileFormValues,
   createVideoSampleFormValues,
   filterVideoModelCandidates,
   parseVideoModelProfileForm,
   parseVideoSampleForm,
   pruneVideoModelParametersForModes,
+  videoModelProfileFormSchema,
   videoSampleFormSchema,
 } from './schemas'
 import type { VideoModelProfile, VideoSample } from './types'
@@ -194,6 +196,42 @@ describe('video model admin form', () => {
     values.enabled = true
 
     assert.equal(parseVideoModelProfileForm(values).enabled, false)
+  })
+
+  test('requires a usable default before submitting a required parameter', () => {
+    const values = createVideoModelProfileFormValues(
+      undefined,
+      'seedance-2.0-1080p'
+    )
+    const parameter = createVideoModelParameterFormValues(
+      values.modes,
+      'resolution',
+      'Resolution'
+    )
+    parameter.required = true
+    parameter.has_default = false
+    parameter.default_value = undefined
+    values.parameters = [parameter]
+
+    const invalid = videoModelProfileFormSchema.safeParse(values)
+    assert.equal(invalid.success, false)
+    if (invalid.success) {
+      assert.fail('required parameter without default passed')
+    }
+    assert.ok(
+      invalid.error.issues.some(
+        (issue) =>
+          issue.path.join('.') === 'parameters.0.has_default' &&
+          issue.message === 'videoStudio.validation.parameterDefaultRequired'
+      )
+    )
+
+    parameter.has_default = true
+    parameter.default_value = 'default'
+    const parsed = videoModelProfileFormSchema.parse(values)
+    const input = parseVideoModelProfileForm(parsed)
+    assert.equal(input.specification.parameters[0]?.required, true)
+    assert.deepEqual(input.default_parameters, { resolution: 'default' })
   })
 
   test('removing a mode deletes parameters that only belonged to that mode', () => {

@@ -233,6 +233,14 @@ const videoModelParameterFormSchema = z
         message: 'videoStudio.validation.parameterRangeInvalid',
       })
     }
+    if (parameter.required && !parameter.has_default) {
+      context.addIssue({
+        code: 'custom',
+        path: ['has_default'],
+        message: 'videoStudio.validation.parameterDefaultRequired',
+      })
+      return
+    }
     if (!parameter.has_default) return
     if (parameter.default_value === undefined) {
       context.addIssue({

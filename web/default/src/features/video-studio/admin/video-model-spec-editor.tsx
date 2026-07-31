@@ -446,7 +446,20 @@ function VideoModelParameterEditor(props: {
               <FormControl>
                 <Switch
                   checked={field.value}
-                  onCheckedChange={field.onChange}
+                  onCheckedChange={(checked) => {
+                    field.onChange(checked)
+                    if (!checked || !parameter || parameter.has_default) return
+                    form.setValue(
+                      `parameters.${props.index}.has_default`,
+                      true,
+                      { shouldDirty: true, shouldValidate: true }
+                    )
+                    form.setValue(
+                      `parameters.${props.index}.default_value`,
+                      defaultValueForParameter(parameter),
+                      { shouldDirty: true, shouldValidate: true }
+                    )
+                  }}
                 />
               </FormControl>
             </FormItem>
@@ -463,6 +476,7 @@ function VideoModelParameterEditor(props: {
               <FormControl>
                 <Switch
                   checked={field.value}
+                  disabled={parameter?.required}
                   onCheckedChange={(checked) => {
                     field.onChange(checked)
                     form.setValue(
