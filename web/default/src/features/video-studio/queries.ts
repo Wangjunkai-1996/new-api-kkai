@@ -473,6 +473,9 @@ export const useSaveAdminVideoSample = () => {
         queryKey: videoStudioQueryKeys.adminSamples(userId),
       })
       void queryClient.invalidateQueries({
+        queryKey: videoStudioQueryKeys.adminModels(userId),
+      })
+      void queryClient.invalidateQueries({
         queryKey: videoStudioQueryKeys.samplesAll(userId),
       })
     },
@@ -487,6 +490,9 @@ export const useDeleteAdminVideoSample = () => {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: videoStudioQueryKeys.adminSamples(userId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: videoStudioQueryKeys.adminModels(userId),
       })
       void queryClient.invalidateQueries({
         queryKey: videoStudioQueryKeys.samplesAll(userId),

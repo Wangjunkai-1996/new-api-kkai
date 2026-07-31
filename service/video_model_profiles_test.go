@@ -95,8 +95,43 @@ func TestCreateVideoModelProfileRequiresAbilityAndMapsDuplicate(t *testing.T) {
 	created, err := CreateVideoModelProfile(context.Background(), db, input)
 	require.NoError(t, err)
 	require.Equal(t, input.Model, created.Model)
+	require.NotNil(t, created.HasPublishedSample)
+	require.False(t, *created.HasPublishedSample)
 	_, err = CreateVideoModelProfile(context.Background(), db, input)
 	require.ErrorIs(t, err, ErrVideoModelProfileDuplicate)
+}
+
+func TestAdminVideoModelViewsReportPublishedSampleAvailability(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	now := time.Now().Unix()
+	specification := `{"version":1,"modes":["text_to_video"],"parameters":[]}`
+	profiles := []model.KKAIVideoModelProfile{
+		{Model: "draft-only-model", DisplayName: "Draft only", SpecificationVersion: 1, Specification: specification, DefaultParameters: `{}`, CreatedAt: now, UpdatedAt: now},
+		{Model: "published-model", DisplayName: "Published", SpecificationVersion: 1, Specification: specification, DefaultParameters: `{}`, CreatedAt: now, UpdatedAt: now},
+	}
+	for index := range profiles {
+		require.NoError(t, db.Create(&profiles[index]).Error)
+	}
+	samples := []model.KKAIVideoSample{
+		{ModelProfileID: profiles[0].ID, Title: "Draft", Prompt: "draft", Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, VideoAssetID: 1, AspectRatio: 1, Status: model.VideoSampleStatusDraft, CreatedAt: now, UpdatedAt: now},
+		{ModelProfileID: profiles[1].ID, Title: "Published", Prompt: "published", Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, VideoAssetID: 2, AspectRatio: 1, Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now},
+	}
+	for index := range samples {
+		require.NoError(t, db.Create(&samples[index]).Error)
+	}
+
+	views, err := ListVideoModelProfiles(context.Background(), db, true)
+	require.NoError(t, err)
+	require.Len(t, views, 2)
+	require.NotNil(t, views[0].HasPublishedSample)
+	require.False(t, *views[0].HasPublishedSample)
+	require.NotNil(t, views[1].HasPublishedSample)
+	require.True(t, *views[1].HasPublishedSample)
+
+	published, err := GetVideoModelProfileByID(context.Background(), db, profiles[1].ID)
+	require.NoError(t, err)
+	require.NotNil(t, published.HasPublishedSample)
+	require.True(t, *published.HasPublishedSample)
 }
 
 func TestCreateVideoModelProfilePersistsRequiredParameterDefault(t *testing.T) {

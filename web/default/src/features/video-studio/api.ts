@@ -305,7 +305,8 @@ export const createAdminVideoModel = async (
 ): Promise<VideoModelProfile> => {
   const response = await api.post(
     '/api/admin/video-studio/model-profiles',
-    input
+    input,
+    { skipErrorHandler: true }
   )
   return unwrapVideoStudioResponse<VideoModelProfile>(response.data)
 }
@@ -316,7 +317,8 @@ export const updateAdminVideoModel = async (
 ): Promise<VideoModelProfile> => {
   const response = await api.put(
     `/api/admin/video-studio/model-profiles/${id}`,
-    input
+    input,
+    { skipErrorHandler: true }
   )
   return unwrapVideoStudioResponse<VideoModelProfile>(response.data)
 }
@@ -345,7 +347,9 @@ export const getAdminVideoSample = async (id: number): Promise<VideoSample> => {
 export const createAdminVideoSample = async (
   input: VideoSampleInput
 ): Promise<VideoSample> => {
-  const response = await api.post('/api/admin/video-studio/samples', input)
+  const response = await api.post('/api/admin/video-studio/samples', input, {
+    skipErrorHandler: true,
+  })
   return unwrapVideoStudioResponse<VideoSample>(response.data)
 }
 
@@ -353,7 +357,13 @@ export const updateAdminVideoSample = async (
   id: number,
   input: VideoSampleInput
 ): Promise<VideoSample> => {
-  const response = await api.put(`/api/admin/video-studio/samples/${id}`, input)
+  const response = await api.put(
+    `/api/admin/video-studio/samples/${id}`,
+    input,
+    {
+      skipErrorHandler: true,
+    }
+  )
   return unwrapVideoStudioResponse<VideoSample>(response.data)
 }
 

@@ -157,6 +157,7 @@ func TestVideoStudioTokenErrorsHaveStableHTTPContract(t *testing.T) {
 		{service.ErrVideoStudioTokenLimitReached, http.StatusConflict, "video_token_limit_reached"},
 		{service.ErrVideoStudioTokenModelsUnavailable, http.StatusServiceUnavailable, "video_token_models_unavailable"},
 		{service.ErrVideoAssetProcessingUnavailable, http.StatusServiceUnavailable, "video_asset_processing_unavailable"},
+		{service.ErrVideoModelNeedsSample, http.StatusConflict, "video_model_needs_sample"},
 	}
 	for _, test := range tests {
 		status, code := videoStudioErrorStatus(errors.Join(errors.New("wrapped"), test.err))

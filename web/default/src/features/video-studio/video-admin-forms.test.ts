@@ -21,6 +21,7 @@ import { describe, test } from 'node:test'
 
 import {
   buildVideoSampleProfileState,
+  canToggleVideoModelEnabled,
   createVideoModelProfileFormValues,
   createVideoSampleFormValues,
   filterVideoModelCandidates,
@@ -457,6 +458,24 @@ describe('video model admin form', () => {
     values.enabled = true
 
     assert.equal(parseVideoModelProfileForm(values).enabled, false)
+  })
+
+  test('only enables the model switch after a sample is published', () => {
+    assert.equal(
+      canToggleVideoModelEnabled({
+        enabled: false,
+        has_published_sample: false,
+      }),
+      false
+    )
+    assert.equal(
+      canToggleVideoModelEnabled({
+        enabled: false,
+        has_published_sample: true,
+      }),
+      true
+    )
+    assert.equal(canToggleVideoModelEnabled({ enabled: true }), true)
   })
 })
 

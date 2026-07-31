@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { isAxiosError } from 'axios'
 import { LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -71,7 +72,12 @@ import {
   videoSampleFormSchema,
   type VideoSampleFormValues,
 } from '../schemas'
-import type { VideoAsset, VideoGenerationMode, VideoSample } from '../types'
+import type {
+  VideoAsset,
+  VideoGenerationMode,
+  VideoSample,
+  VideoStudioApiError,
+} from '../types'
 import {
   getSampleReferenceAssets,
   getSampleVideoAsset,
@@ -537,10 +543,14 @@ export function VideoSampleAdmin() {
       setSelected(saved)
       toast.success(t('videoStudio.admin.sampleSaved'))
     } catch (error) {
+      const responseError = isAxiosError<VideoStudioApiError>(error)
+        ? error.response?.data
+        : undefined
       const message =
-        error instanceof Error
+        responseError?.message ||
+        (error instanceof Error
           ? error.message
-          : t('videoStudio.admin.saveFailed')
+          : t('videoStudio.admin.saveFailed'))
       form.setError('root', { message })
     }
   })
@@ -682,6 +692,7 @@ export function VideoSampleAdmin() {
               {t('videoStudio.admin.sampleVideo')}
             </span>
             <VideoAssetUploader
+              key={`sample-video-${selected?.id ?? 'new'}`}
               assets={videoAssets}
               onAssetsChange={changeVideoAssets}
               purpose='sample'
@@ -864,7 +875,7 @@ export function VideoSampleAdmin() {
                 )}
               </span>
               <VideoAssetUploader
-                key={`${selectedProfileId}-${selectedMode}-${referenceLimit}-${usesVideoReference ? 'video' : 'image'}`}
+                key={`${selected?.id ?? 'new'}-${selectedProfileId}-${selectedMode}-${referenceLimit}-${usesVideoReference ? 'video' : 'image'}`}
                 assets={referenceAssets}
                 onAssetsChange={changeReferenceAssets}
                 purpose={usesVideoReference ? 'reference_video' : 'reference'}

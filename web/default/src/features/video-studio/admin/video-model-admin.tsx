@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { isAxiosError } from 'axios'
 import { LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -56,6 +57,7 @@ import {
   useSaveAdminVideoModel,
 } from '../queries'
 import {
+  canToggleVideoModelEnabled,
   createVideoModelProfileFormValues,
   filterVideoModelCandidates,
   getVideoModelCandidateLabel,
@@ -69,7 +71,7 @@ import {
   videoModelProfileFormSchema,
   type VideoModelProfileFormValues,
 } from '../schemas'
-import type { VideoModelProfile } from '../types'
+import type { VideoModelProfile, VideoStudioApiError } from '../types'
 import { VideoAdminWorkspace } from './video-admin-workspace'
 import { VideoModelSpecEditor } from './video-model-spec-editor'
 
@@ -105,6 +107,11 @@ export function VideoModelAdmin() {
   const candidateAvailable =
     candidateQueriesReady && candidates.includes(modelName)
   const canSave = selected ? Boolean(candidatePreset) : candidateAvailable
+  const selectedModelState = selected
+    ? (modelsQuery.data?.find((model) => model.id === selected.id) ?? selected)
+    : null
+  const hasPublishedSample = selectedModelState?.has_published_sample === true
+  const canToggleEnabled = canToggleVideoModelEnabled(selectedModelState)
 
   useEffect(() => {
     form.reset(createVideoModelProfileFormValues(selected ?? undefined))
@@ -136,6 +143,12 @@ export function VideoModelAdmin() {
     }
     try {
       const parsed = parseVideoModelProfileForm(values, selected ?? undefined)
+      if (parsed.enabled && !hasPublishedSample) {
+        form.setError('root', {
+          message: t('videoStudio.admin.enableRequiresPublishedSample'),
+        })
+        return
+      }
       const saved = await saveMutation.mutateAsync({
         id: selected?.id,
         values: parsed,
@@ -143,10 +156,16 @@ export function VideoModelAdmin() {
       setSelected(saved)
       toast.success(t('videoStudio.admin.modelSaved'))
     } catch (error) {
+      const responseError = isAxiosError<VideoStudioApiError>(error)
+        ? error.response?.data
+        : undefined
       const message =
-        error instanceof Error
-          ? error.message
-          : t('videoStudio.admin.saveFailed')
+        responseError?.code === 'video_model_needs_sample'
+          ? t('videoStudio.admin.enableRequiresPublishedSample')
+          : responseError?.message ||
+            (error instanceof Error
+              ? error.message
+              : t('videoStudio.admin.saveFailed'))
       form.setError('root', { message })
     }
   })
@@ -438,7 +457,7 @@ export function VideoModelAdmin() {
                 <FormControl>
                   <Switch
                     checked={field.value}
-                    disabled={!selected}
+                    disabled={!canToggleEnabled && !field.value}
                     onCheckedChange={field.onChange}
                   />
                 </FormControl>

@@ -45,6 +45,7 @@ type VideoModelProfileView struct {
 	SpecificationVersion int            `json:"specification_version"`
 	Specification        VideoModelSpec `json:"specification"`
 	DefaultParameters    map[string]any `json:"default_parameters"`
+	HasPublishedSample   *bool          `json:"has_published_sample,omitempty"`
 	Enabled              bool           `json:"enabled"`
 	SortOrder            int            `json:"sort_order"`
 	CreatedAt            int64          `json:"created_at"`
@@ -70,6 +71,9 @@ func ListVideoModelProfiles(ctx context.Context, db *gorm.DB, includeDisabled bo
 			return nil, err
 		}
 		views = append(views, view)
+	}
+	if err := hydrateVideoModelPublishedSampleState(ctx, db, views); err != nil {
+		return nil, err
 	}
 	return views, nil
 }
@@ -138,8 +142,7 @@ func GetVideoModelProfileByID(ctx context.Context, db *gorm.DB, id int64) (*Vide
 		}
 		return nil, fmt.Errorf("get video model profile: %w", err)
 	}
-	view, err := videoModelProfileView(profile)
-	return &view, err
+	return adminVideoModelProfileView(ctx, db, profile)
 }
 
 func GetEnabledVideoModelProfileByModel(ctx context.Context, db *gorm.DB, modelName string) (*model.KKAIVideoModelProfile, VideoModelSpec, map[string]any, error) {
@@ -220,8 +223,7 @@ func CreateVideoModelProfile(ctx context.Context, db *gorm.DB, input VideoModelP
 		}
 		return nil, fmt.Errorf("create video model profile: %w", err)
 	}
-	view, err := videoModelProfileView(profile)
-	return &view, err
+	return adminVideoModelProfileView(ctx, db, profile)
 }
 
 func UpdateVideoModelProfile(ctx context.Context, db *gorm.DB, id int64, input VideoModelProfileInput) (*VideoModelProfileView, error) {
@@ -284,8 +286,7 @@ func UpdateVideoModelProfile(ctx context.Context, db *gorm.DB, id int64, input V
 	if err != nil {
 		return nil, fmt.Errorf("update video model profile: %w", err)
 	}
-	view, err := videoModelProfileView(updated)
-	return &view, err
+	return adminVideoModelProfileView(ctx, db, updated)
 }
 
 func DeleteVideoModelProfile(ctx context.Context, db *gorm.DB, id int64) error {
@@ -353,6 +354,48 @@ func videoModelProfileView(profile model.KKAIVideoModelProfile) (VideoModelProfi
 		Specification: specification, DefaultParameters: defaults, Enabled: profile.Enabled,
 		SortOrder: profile.SortOrder, CreatedAt: profile.CreatedAt, UpdatedAt: profile.UpdatedAt,
 	}, nil
+}
+
+func adminVideoModelProfileView(ctx context.Context, db *gorm.DB, profile model.KKAIVideoModelProfile) (*VideoModelProfileView, error) {
+	view, err := videoModelProfileView(profile)
+	if err != nil {
+		return nil, err
+	}
+	views := []VideoModelProfileView{view}
+	if err := hydrateVideoModelPublishedSampleState(ctx, db, views); err != nil {
+		return nil, err
+	}
+	return &views[0], nil
+}
+
+func hydrateVideoModelPublishedSampleState(ctx context.Context, db *gorm.DB, views []VideoModelProfileView) error {
+	if len(views) == 0 {
+		return nil
+	}
+	profileIDs := make([]int64, 0, len(views))
+	for _, view := range views {
+		profileIDs = append(profileIDs, view.ID)
+	}
+	type publishedSampleCount struct {
+		ModelProfileID int64
+		Count          int64
+	}
+	var rows []publishedSampleCount
+	if err := db.WithContext(ctx).Model(&model.KKAIVideoSample{}).
+		Select("model_profile_id, COUNT(*) AS count").
+		Where("model_profile_id IN ? AND status = ?", profileIDs, model.VideoSampleStatusPublished).
+		Group("model_profile_id").Scan(&rows).Error; err != nil {
+		return fmt.Errorf("count published video samples: %w", err)
+	}
+	counts := make(map[int64]int64, len(rows))
+	for _, row := range rows {
+		counts[row.ModelProfileID] = row.Count
+	}
+	for index := range views {
+		hasPublishedSample := counts[views[index].ID] > 0
+		views[index].HasPublishedSample = &hasPublishedSample
+	}
+	return nil
 }
 
 func decodeVideoModelProfile(profile model.KKAIVideoModelProfile) (VideoModelSpec, map[string]any, error) {

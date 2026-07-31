@@ -95,6 +95,7 @@ export type VideoModelProfile = {
   specification_version: number
   specification: VideoModelSpec
   default_parameters: VideoParameters
+  has_published_sample?: boolean
   enabled: boolean
   sort_order: number
   created_at: number

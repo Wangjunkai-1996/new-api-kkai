@@ -61,11 +61,12 @@ func videoStudioErrorStatus(err error) (int, string) {
 		errors.Is(err, service.ErrVideoOutboxEventNotFound),
 		errors.Is(err, service.ErrVideoAssetNotFound):
 		return http.StatusNotFound, "video_studio_resource_not_found"
+	case errors.Is(err, service.ErrVideoModelNeedsSample):
+		return http.StatusConflict, "video_model_needs_sample"
 	case errors.Is(err, service.ErrVideoModelProfileInUse),
 		errors.Is(err, service.ErrVideoModelProfileDuplicate),
 		errors.Is(err, service.ErrVideoModelProfileModelImmutable),
 		errors.Is(err, service.ErrVideoModelAbilityUnavailable),
-		errors.Is(err, service.ErrVideoModelNeedsSample),
 		errors.Is(err, service.ErrVideoSampleNotPublishable),
 		errors.Is(err, service.ErrVideoGenerationDeleted),
 		errors.Is(err, service.ErrVideoAssetInUse),
