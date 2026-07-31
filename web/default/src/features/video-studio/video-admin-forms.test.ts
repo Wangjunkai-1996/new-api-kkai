@@ -26,6 +26,9 @@ import {
   filterVideoModelCandidates,
   getVideoModelCandidateLabel,
   getVideoModelPreset,
+  getVideoSampleAssetParameterOverrides,
+  getVideoSampleParametersForAsset,
+  getUnsupportedVideoSampleDuration,
   parseVideoModelProfileForm,
   parseVideoSampleForm,
   videoModelProfileFormSchema,
@@ -351,6 +354,58 @@ describe('video model admin form', () => {
     })
   })
 
+  test('enforces backend metadata limits for model profiles', () => {
+    const values = createVideoModelProfileFormValues(
+      undefined,
+      'sd_2.0_special_1080p'
+    )
+    const atMinimum = {
+      ...values,
+      display_name: 'n'.repeat(191),
+      description: 'd'.repeat(4000),
+      provider_label: 'p'.repeat(128),
+      sort_order: -100000,
+    }
+    assert.equal(videoModelProfileFormSchema.safeParse(atMinimum).success, true)
+    assert.equal(
+      videoModelProfileFormSchema.safeParse({
+        ...atMinimum,
+        sort_order: 100000,
+      }).success,
+      true
+    )
+
+    const invalidCases = [
+      ['display_name', 'n'.repeat(192), 'videoStudio.validation.nameTooLong'],
+      [
+        'description',
+        'd'.repeat(4001),
+        'videoStudio.validation.descriptionTooLong',
+      ],
+      [
+        'provider_label',
+        'p'.repeat(129),
+        'videoStudio.validation.providerTooLong',
+      ],
+      ['sort_order', -100001, 'videoStudio.validation.sortOutOfRange'],
+      ['sort_order', 100001, 'videoStudio.validation.sortOutOfRange'],
+    ] as const
+
+    for (const [field, value, message] of invalidCases) {
+      const parsed = videoModelProfileFormSchema.safeParse({
+        ...atMinimum,
+        [field]: value,
+      })
+      assert.equal(parsed.success, false)
+      if (parsed.success) assert.fail(`${field} passed validation`)
+      assert.ok(
+        parsed.error.issues.some(
+          (issue) => issue.path.join('.') === field && issue.message === message
+        )
+      )
+    }
+  })
+
   test('keeps an unchanged specification version and bumps a changed one', () => {
     const values = createVideoModelProfileFormValues(profile)
     const unchanged = parseVideoModelProfileForm(values, profile)
@@ -435,6 +490,83 @@ describe('video sample admin form', () => {
       parameters: { quality: 'high' },
       reference_asset_ids: [],
     })
+  })
+
+  test('derives fixed sample parameters from inspected video metadata', () => {
+    const preset = getVideoModelPreset('sd_2.0_special_1080p')
+    assert.ok(preset)
+    const presetProfile: VideoModelProfile = {
+      id: 99,
+      ...preset,
+      specification_version: 1,
+      default_parameters: preset.default_parameters,
+      created_at: 0,
+      updated_at: 0,
+    }
+
+    assert.deepEqual(
+      getVideoSampleAssetParameterOverrides(preset, {
+        duration_seconds: 8.4,
+        width: 1080,
+        height: 1920,
+      }),
+      { duration: 8, ratio: '9:16', generate_audio: true }
+    )
+    assert.deepEqual(
+      getVideoSampleAssetParameterOverrides(preset, {
+        duration_seconds: 20,
+        width: 1000,
+        height: 777,
+      }),
+      { ratio: 'adaptive', generate_audio: true }
+    )
+    assert.equal(
+      getUnsupportedVideoSampleDuration(preset, { duration_seconds: 20 }),
+      20
+    )
+    assert.equal(
+      getUnsupportedVideoSampleDuration(preset, { duration_seconds: 8.4 }),
+      undefined
+    )
+    assert.deepEqual(
+      getVideoSampleParametersForAsset(
+        presetProfile,
+        'text_to_video',
+        { duration_seconds: 12, width: 1920, height: 1080 },
+        { duration: 8, ratio: '9:16', generate_audio: false }
+      ),
+      { duration: 12, ratio: '16:9', generate_audio: true }
+    )
+  })
+
+  test('matches backend title and sort-order limits for samples', () => {
+    const values = {
+      ...createVideoSampleFormValues(undefined, profile),
+      prompt: 'sample prompt',
+      video_asset_id: 1,
+    }
+    assert.equal(
+      videoSampleFormSchema.safeParse({
+        ...values,
+        title: 't'.repeat(191),
+        sort_order: -100000,
+      }).success,
+      true
+    )
+    assert.equal(
+      videoSampleFormSchema.safeParse({
+        ...values,
+        title: 't'.repeat(192),
+      }).success,
+      false
+    )
+    assert.equal(
+      videoSampleFormSchema.safeParse({
+        ...values,
+        sort_order: 100001,
+      }).success,
+      false
+    )
   })
 
   test('accepts structured parameters and rejects the removed JSON-only field', () => {

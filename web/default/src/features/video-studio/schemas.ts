@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import type {
+  VideoAsset,
   VideoComposerValues,
   VideoGenerationMode,
   VideoModelProfile,
@@ -47,6 +48,34 @@ export const VIDEO_GENERATION_MODES = [
 ] as const
 
 export const VIDEO_PROMPT_MAX_LENGTH = 8_000
+export const VIDEO_MODEL_DISPLAY_NAME_MAX_LENGTH = 191
+export const VIDEO_MODEL_DESCRIPTION_MAX_LENGTH = 4_000
+export const VIDEO_MODEL_PROVIDER_LABEL_MAX_LENGTH = 128
+export const VIDEO_MODEL_SORT_ORDER_MIN = -100_000
+export const VIDEO_MODEL_SORT_ORDER_MAX = 100_000
+export const VIDEO_SAMPLE_TITLE_MAX_LENGTH = 191
+export const VIDEO_SAMPLE_SORT_ORDER_MIN = -100_000
+export const VIDEO_SAMPLE_SORT_ORDER_MAX = 100_000
+
+export const VIDEO_PARAMETER_LABEL_KEYS: Readonly<Record<string, string>> = {
+  duration: 'videoStudio.parameter.durationSeconds',
+  ratio: 'videoStudio.parameter.aspectRatio',
+  generate_audio: 'videoStudio.parameter.generateAudio',
+}
+
+export const VIDEO_PARAMETER_OPTION_LABEL_KEYS: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = {
+  ratio: {
+    '16:9': 'videoStudio.ratio.landscape16x9',
+    '9:16': 'videoStudio.ratio.portrait9x16',
+    '1:1': 'videoStudio.ratio.square1x1',
+    '4:3': 'videoStudio.ratio.landscape4x3',
+    '3:4': 'videoStudio.ratio.portrait3x4',
+    '21:9': 'videoStudio.ratio.ultrawide21x9',
+    adaptive: 'videoStudio.ratio.adaptive',
+  },
+}
 
 const VIDEO_MODEL_PRESET_DETAILS = {
   'sd_2.0_fast_special_720p': {
@@ -211,6 +240,112 @@ const getVideoModelPresetDefaults = (
       return value === undefined ? [] : [[parameter.key, value]]
     })
   )
+
+const parseVideoRatioOption = (
+  value: VideoParameterValue
+): number | undefined => {
+  if (typeof value !== 'string') return undefined
+  const match = /^(\d+):(\d+)$/.exec(value)
+  if (!match) return undefined
+  const width = Number(match[1])
+  const height = Number(match[2])
+  return width > 0 && height > 0 ? width / height : undefined
+}
+
+export const getVideoSampleAssetParameterOverrides = (
+  profile: Pick<VideoModelProfile, 'specification'>,
+  asset: Pick<VideoAsset, 'duration_seconds' | 'width' | 'height'>
+): VideoParameters => {
+  const overrides: VideoParameters = {}
+  const durationParameter = profile.specification.parameters.find(
+    (parameter) =>
+      parameter.key === 'duration' || parameter.request_key === 'seconds'
+  )
+  const duration = Math.round(asset.duration_seconds)
+  if (
+    durationParameter &&
+    duration > 0 &&
+    videoParameterAcceptsValue(durationParameter, duration)
+  ) {
+    overrides[durationParameter.key] = duration
+  }
+
+  const audioParameter = profile.specification.parameters.find(
+    (parameter) => parameter.key === 'generate_audio'
+  )
+  if (audioParameter && videoParameterAcceptsValue(audioParameter, true)) {
+    overrides[audioParameter.key] = true
+  }
+
+  const ratioParameter = profile.specification.parameters.find(
+    (parameter) => parameter.key === 'ratio'
+  )
+  if (
+    asset.width <= 0 ||
+    asset.height <= 0 ||
+    !ratioParameter ||
+    (ratioParameter.control !== 'segmented' &&
+      ratioParameter.control !== 'select')
+  ) {
+    return overrides
+  }
+
+  const assetRatio = asset.width / asset.height
+  const ratioOptions = ratioParameter.options.flatMap((option) => {
+    const ratio = parseVideoRatioOption(option.value)
+    return ratio === undefined ? [] : [{ option, ratio }]
+  })
+  const closest = ratioOptions.reduce<
+    | { option: (typeof ratioParameter.options)[number]; distance: number }
+    | undefined
+  >((best, candidate) => {
+    const distance = Math.abs(candidate.ratio - assetRatio) / assetRatio
+    return !best || distance < best.distance
+      ? { option: candidate.option, distance }
+      : best
+  }, undefined)
+  const selectedOption =
+    closest && closest.distance <= 0.03
+      ? closest.option
+      : ratioParameter.options.find((option) => option.value === 'adaptive')
+  if (
+    selectedOption &&
+    videoParameterAcceptsValue(ratioParameter, selectedOption.value)
+  ) {
+    overrides[ratioParameter.key] = selectedOption.value
+  }
+  return overrides
+}
+
+export const getUnsupportedVideoSampleDuration = (
+  profile: Pick<VideoModelProfile, 'specification'>,
+  asset: Pick<VideoAsset, 'duration_seconds'>
+): number | undefined => {
+  const durationParameter = profile.specification.parameters.find(
+    (parameter) =>
+      parameter.key === 'duration' || parameter.request_key === 'seconds'
+  )
+  const duration = Math.round(asset.duration_seconds)
+  if (
+    !durationParameter ||
+    asset.duration_seconds <= 0 ||
+    duration <= 0 ||
+    videoParameterAcceptsValue(durationParameter, duration)
+  ) {
+    return undefined
+  }
+  return asset.duration_seconds
+}
+
+export const getVideoSampleParametersForAsset = (
+  profile: VideoModelProfile,
+  mode: VideoGenerationMode,
+  asset: Pick<VideoAsset, 'duration_seconds' | 'width' | 'height'>,
+  currentParameters: VideoParameters = {}
+): VideoParameters => ({
+  ...getVideoParametersForMode(profile, mode, currentParameters),
+  ...getVideoSampleAssetParameterOverrides(profile, asset),
+})
 
 const videoTokenSummarySchema = z.object({
   id: z.number().int().positive(),
@@ -444,11 +579,33 @@ export const videoModelProfileFormSchema = z
     display_name: z
       .string()
       .trim()
-      .min(1, 'videoStudio.validation.nameRequired'),
-    description: z.string().trim().optional(),
-    provider_label: z.string().trim().optional(),
+      .min(1, 'videoStudio.validation.nameRequired')
+      .max(
+        VIDEO_MODEL_DISPLAY_NAME_MAX_LENGTH,
+        'videoStudio.validation.nameTooLong'
+      ),
+    description: z
+      .string()
+      .trim()
+      .max(
+        VIDEO_MODEL_DESCRIPTION_MAX_LENGTH,
+        'videoStudio.validation.descriptionTooLong'
+      )
+      .optional(),
+    provider_label: z
+      .string()
+      .trim()
+      .max(
+        VIDEO_MODEL_PROVIDER_LABEL_MAX_LENGTH,
+        'videoStudio.validation.providerTooLong'
+      )
+      .optional(),
     enabled: z.boolean(),
-    sort_order: z.number().int(),
+    sort_order: z
+      .number()
+      .int()
+      .min(VIDEO_MODEL_SORT_ORDER_MIN, 'videoStudio.validation.sortOutOfRange')
+      .max(VIDEO_MODEL_SORT_ORDER_MAX, 'videoStudio.validation.sortOutOfRange'),
     specification_version: z.number().int().positive(),
     modes: z
       .array(z.enum(VIDEO_GENERATION_MODES))
@@ -532,7 +689,14 @@ export const videoSampleFormSchema = z.object({
     .number()
     .int()
     .positive('videoStudio.validation.modelRequired'),
-  title: z.string().trim().min(1, 'videoStudio.validation.nameRequired'),
+  title: z
+    .string()
+    .trim()
+    .min(1, 'videoStudio.validation.nameRequired')
+    .max(
+      VIDEO_SAMPLE_TITLE_MAX_LENGTH,
+      'videoStudio.validation.sampleTitleTooLong'
+    ),
   prompt: z
     .string()
     .trim()
@@ -547,7 +711,11 @@ export const videoSampleFormSchema = z.object({
     .positive('videoStudio.validation.sampleVideoRequired'),
   category: z.enum(VIDEO_SAMPLE_CATEGORIES),
   status: z.enum(['draft', 'published']),
-  sort_order: z.number().int(),
+  sort_order: z
+    .number()
+    .int()
+    .min(VIDEO_SAMPLE_SORT_ORDER_MIN, 'videoStudio.validation.sortOutOfRange')
+    .max(VIDEO_SAMPLE_SORT_ORDER_MAX, 'videoStudio.validation.sortOutOfRange'),
 })
 
 export type VideoSampleFormValues = z.infer<typeof videoSampleFormSchema>

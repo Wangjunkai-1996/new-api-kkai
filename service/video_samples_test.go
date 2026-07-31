@@ -305,3 +305,86 @@ func TestVideoSampleCreateAndUpdateMergeModeScopedProfileDefaults(t *testing.T) 
 	require.NoError(t, common.UnmarshalJsonStr(persisted.Parameters, &storedParameters))
 	require.Equal(t, map[string]any{"watermark": false}, storedParameters)
 }
+
+func TestUpdateVideoSamplePreservesPublishedSampleForEnabledModel(t *testing.T) {
+	tests := []struct {
+		name          string
+		sourceEnabled bool
+		moveToTarget  bool
+		addRemaining  bool
+		wantErr       bool
+	}{
+		{name: "rejects demoting the last published sample", sourceEnabled: true, wantErr: true},
+		{name: "rejects moving the last published sample", sourceEnabled: true, moveToTarget: true, wantErr: true},
+		{name: "allows demotion when another published sample remains", sourceEnabled: true, addRemaining: true},
+		{name: "allows demoting the last sample of a disabled model"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := newVideoPipelineTestDB(t)
+			specification, err := common.Marshal(VideoModelSpec{
+				Version: 1,
+				Modes:   []string{VideoModeTextToVideo},
+			})
+			require.NoError(t, err)
+			now := time.Now().Unix()
+			profiles := []model.KKAIVideoModelProfile{
+				{
+					Model: "sample-source-model", DisplayName: "Sample source", SpecificationVersion: 1,
+					Specification: string(specification), DefaultParameters: `{}`, Enabled: tt.sourceEnabled,
+					CreatedAt: now, UpdatedAt: now,
+				},
+				{
+					Model: "sample-target-model", DisplayName: "Sample target", SpecificationVersion: 1,
+					Specification: string(specification), DefaultParameters: `{}`, Enabled: true,
+					CreatedAt: now, UpdatedAt: now,
+				},
+			}
+			for index := range profiles {
+				require.NoError(t, db.Create(&profiles[index]).Error)
+			}
+			asset := model.KKAIVideoAsset{
+				OwnerUserID: 7, Scope: model.VideoAssetScopeCatalog, Kind: model.VideoAssetKindSample,
+				State: model.VideoAssetStateReady, ObjectKey: "sample-update-invariant.mp4", MIMEType: "video/mp4",
+				PosterObjectKey: "sample-update-invariant.poster.jpg", PreviewObjectKey: "sample-update-invariant.preview.mp4",
+				Width: 1280, Height: 720, CreatedAt: now, UpdatedAt: now,
+			}
+			require.NoError(t, db.Create(&asset).Error)
+			sample := model.KKAIVideoSample{
+				ModelProfileID: profiles[0].ID, Title: "Published", Prompt: "prompt",
+				Mode: VideoModeTextToVideo, ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`,
+				VideoAssetID: asset.ID, AspectRatio: 16.0 / 9.0, Category: model.VideoSampleCategoryOther,
+				Status: model.VideoSampleStatusPublished, CreatedAt: now, UpdatedAt: now,
+			}
+			require.NoError(t, db.Create(&sample).Error)
+			if tt.addRemaining {
+				remaining := sample
+				remaining.ID = 0
+				remaining.Title = "Remaining"
+				require.NoError(t, db.Create(&remaining).Error)
+			}
+
+			targetProfileID := profiles[0].ID
+			status := model.VideoSampleStatusDraft
+			if tt.moveToTarget {
+				targetProfileID = profiles[1].ID
+				status = model.VideoSampleStatusPublished
+			}
+			_, err = UpdateVideoSample(context.Background(), db, sample.ID, 7, VideoSampleInput{
+				ModelProfileID: targetProfileID, Title: sample.Title, Prompt: sample.Prompt, Mode: sample.Mode,
+				Parameters: map[string]any{}, ReferenceAssetIDs: []int64{}, VideoAssetID: asset.ID,
+				AspectRatio: sample.AspectRatio, Category: sample.Category, Status: status,
+			})
+			if tt.wantErr {
+				require.ErrorIs(t, err, ErrVideoModelNeedsSample)
+				var persisted model.KKAIVideoSample
+				require.NoError(t, db.First(&persisted, sample.ID).Error)
+				require.Equal(t, profiles[0].ID, persisted.ModelProfileID)
+				require.Equal(t, model.VideoSampleStatusPublished, persisted.Status)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

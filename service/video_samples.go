@@ -247,6 +247,25 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 		if err != nil {
 			return err
 		}
+		removesPublishedSample := existing.Status == model.VideoSampleStatusPublished &&
+			(prepared.Status != model.VideoSampleStatusPublished || prepared.ModelProfileID != existing.ModelProfileID)
+		if removesPublishedSample {
+			var profile model.KKAIVideoModelProfile
+			if err := tx.First(&profile, "id = ?", existing.ModelProfileID).Error; err != nil {
+				return err
+			}
+			if profile.Enabled {
+				var remaining int64
+				if err := tx.Model(&model.KKAIVideoSample{}).Where(
+					"model_profile_id = ? AND status = ? AND id <> ?", existing.ModelProfileID, model.VideoSampleStatusPublished, id,
+				).Count(&remaining).Error; err != nil {
+					return err
+				}
+				if remaining == 0 {
+					return ErrVideoModelNeedsSample
+				}
+			}
+		}
 		now := time.Now().Unix()
 		updates := map[string]any{
 			"model_profile_id": prepared.ModelProfileID, "title": prepared.Title, "prompt": prepared.Prompt,

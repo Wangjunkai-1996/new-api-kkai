@@ -57,6 +57,7 @@ func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 		adminVideoStudio.POST("/samples", controller.AdminCreateVideoStudioSample)
 		adminVideoStudio.PUT("/samples/:id", controller.AdminUpdateVideoStudioSample)
 		adminVideoStudio.DELETE("/samples/:id", controller.AdminDeleteVideoStudioSample)
+		adminVideoStudio.GET("/assets/:id", controller.GetVideoStudioAsset)
 		adminVideoStudio.POST("/uploads", controller.AdminCreateVideoStudioUpload)
 		adminVideoStudio.GET("/uploads/:id", controller.AdminGetVideoStudioUpload)
 		adminVideoStudio.POST("/uploads/:id/parts/:part_number", controller.AdminSignVideoStudioUploadPart)

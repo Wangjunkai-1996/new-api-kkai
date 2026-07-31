@@ -32,6 +32,8 @@ import { Switch } from '@/components/ui/switch'
 
 import {
   getVideoModelPreset,
+  VIDEO_PARAMETER_LABEL_KEYS,
+  VIDEO_PARAMETER_OPTION_LABEL_KEYS,
   type VideoModelProfileFormValues,
 } from '../schemas'
 import {
@@ -41,12 +43,17 @@ import {
 } from '../video-domain'
 
 function VideoModelPresetParameterEditor(props: { index: number }) {
+  const { t } = useTranslation()
   const form = useFormContext<VideoModelProfileFormValues>()
   const parameter = useWatch({
     control: form.control,
     name: `parameters.${props.index}`,
   })
   if (!parameter) return null
+  const parameterLabelKey = VIDEO_PARAMETER_LABEL_KEYS[parameter.key]
+  const parameterLabel = parameterLabelKey
+    ? t(parameterLabelKey, { defaultValue: parameter.label })
+    : parameter.label
 
   return (
     <FormField
@@ -78,7 +85,16 @@ function VideoModelPresetParameterEditor(props: { index: number }) {
                   key={encodeVideoParameterOptionValue(option.value)}
                   value={encodeVideoParameterOptionValue(option.value)}
                 >
-                  {option.label || String(option.value)}
+                  {(() => {
+                    const fallback = option.label || String(option.value)
+                    const labelKey =
+                      VIDEO_PARAMETER_OPTION_LABEL_KEYS[parameter.key]?.[
+                        String(option.value)
+                      ]
+                    return labelKey
+                      ? t(labelKey, { defaultValue: fallback })
+                      : fallback
+                  })()}
                 </NativeSelectOption>
               ))}
             </NativeSelect>
@@ -111,7 +127,7 @@ function VideoModelPresetParameterEditor(props: { index: number }) {
 
         return (
           <FormItem className='grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,20rem)] sm:items-center'>
-            <FormLabel>{parameter.label}</FormLabel>
+            <FormLabel>{parameterLabel}</FormLabel>
             <div className='space-y-1.5'>
               <FormControl>{control}</FormControl>
               <FormMessage />

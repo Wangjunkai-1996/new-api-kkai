@@ -37,6 +37,14 @@ type completedArchiveSourceAdaptor struct {
 	body   string
 }
 
+type taskPollingResponseAdaptor struct {
+	taskPollingFetchAdaptor
+	statusCode int
+	body       string
+	result     *relaycommon.TaskInfo
+	parseCalls int
+}
+
 func (a *completedArchiveSourceAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
 	return a.result, nil
 }
@@ -50,6 +58,18 @@ func (a *completedArchiveSourceAdaptor) FetchTask(_ string, _ string, _ map[stri
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(bytes.NewBufferString(body)),
 	}, nil
+}
+
+func (a *taskPollingResponseAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: a.statusCode,
+		Body:       io.NopCloser(bytes.NewBufferString(a.body)),
+	}, nil
+}
+
+func (a *taskPollingResponseAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	a.parseCalls++
+	return a.result, nil
 }
 
 func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -289,6 +309,143 @@ func TestUpdateVideoSingleTaskPreservesManagedArchiveSourceWhenProviderOmitsURL(
 	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
 	assert.Equal(t, existingSource, persisted.PrivateData.ArchiveSource)
+}
+
+func TestUpdateVideoSingleTaskKeepsPollingStateOnHTTPError(t *testing.T) {
+	for _, statusCode := range []int{http.StatusBadGateway, http.StatusGatewayTimeout} {
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			truncate(t)
+
+			const channelID = 109
+			seedTaskPollingChannel(t, channelID, true)
+			task := seedPollingTask(t, channelID, fmt.Sprintf("task_public_http_%d", statusCode), fmt.Sprintf("upstream_http_%d", statusCode))
+			adaptor := &taskPollingResponseAdaptor{
+				statusCode: statusCode,
+				body:       `{"error":{"message":"upstream request failed","type":"upstream_error","code":"upstream_failure"}}`,
+				result:     &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "must not be parsed"},
+			}
+			var channel model.Channel
+			require.NoError(t, model.DB.First(&channel, channelID).Error)
+
+			err := updateVideoSingleTask(context.Background(), adaptor, &channel, task.GetUpstreamTaskID(), map[string]*model.Task{
+				task.GetUpstreamTaskID(): task,
+			})
+			require.ErrorContains(t, err, fmt.Sprintf("HTTP %d", statusCode))
+			assert.Zero(t, adaptor.parseCalls)
+
+			var persisted model.Task
+			require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+			assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), persisted.Status)
+			assert.Equal(t, "30%", persisted.Progress)
+			assert.Zero(t, persisted.FinishTime)
+			assert.Empty(t, persisted.FailReason)
+		})
+	}
+}
+
+func TestUpdateVideoSingleTaskHTTPErrorDoesNotRefund(t *testing.T) {
+	truncate(t)
+
+	const userID, tokenID, channelID = 112, 112, 112
+	const chargedQuota = 1_000
+	seedUser(t, userID, 9_000)
+	seedToken(t, tokenID, userID, "sk-transient-polling", 7_000)
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", tokenID).Update("used_quota", chargedQuota).Error)
+	seedTaskPollingChannel(t, channelID, true)
+
+	task := makeTask(userID, channelID, chargedQuota, tokenID, BillingSourceWallet, 0)
+	task.TaskID = "task_public_transient_billing"
+	task.Progress = "60%"
+	task.PrivateData.UpstreamTaskID = "upstream_transient_billing"
+	task.PrivateData.BillingState = model.TaskBillingStateAccepted
+	task.PrivateData.TokenQuota = chargedQuota
+	task.PrivateData.TokenBilling = true
+	task.PrivateData.BillingRevision = 1
+	require.NoError(t, model.DB.Create(task).Error)
+
+	adaptor := &taskPollingResponseAdaptor{
+		statusCode: http.StatusBadGateway,
+		body:       `{"error":{"message":"upstream request failed","type":"upstream_error","code":"upstream_failure"}}`,
+		result:     &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "must not be parsed"},
+	}
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&channel, channelID).Error)
+
+	require.Error(t, updateVideoSingleTask(context.Background(), adaptor, &channel, task.GetUpstreamTaskID(), map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	}))
+
+	var persisted model.Task
+	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), persisted.Status)
+	assert.Equal(t, "60%", persisted.Progress)
+	assert.Equal(t, chargedQuota, persisted.Quota)
+	assert.Equal(t, model.TaskBillingStateAccepted, persisted.PrivateData.BillingState)
+	assert.EqualValues(t, 9_000, getUserQuota(t, userID))
+	assert.Equal(t, 7_000, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, chargedQuota, getTokenUsedQuota(t, tokenID))
+}
+
+func TestUpdateVideoSingleTaskKeepsPollingStateOnEmptyStatus(t *testing.T) {
+	truncate(t)
+
+	const channelID = 110
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_empty_status", "upstream_empty_status")
+	adaptor := &taskPollingResponseAdaptor{
+		statusCode: http.StatusOK,
+		body:       `{"error":{"message":"temporary query error","type":"upstream_error","code":"upstream_failure"}}`,
+		result:     &relaycommon.TaskInfo{},
+	}
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&channel, channelID).Error)
+
+	err := updateVideoSingleTask(context.Background(), adaptor, &channel, task.GetUpstreamTaskID(), map[string]*model.Task{
+		task.GetUpstreamTaskID(): task,
+	})
+	require.ErrorContains(t, err, "empty status")
+	assert.Equal(t, 1, adaptor.parseCalls)
+
+	var persisted model.Task
+	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), persisted.Status)
+	assert.Equal(t, "30%", persisted.Progress)
+	assert.Zero(t, persisted.FinishTime)
+	assert.Empty(t, persisted.FailReason)
+}
+
+func TestUpdateVideoSingleTaskRecoversAfterTransientHTTPError(t *testing.T) {
+	truncate(t)
+
+	const channelID = 111
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_transient_recovery", "upstream_transient_recovery")
+	transientAdaptor := &taskPollingResponseAdaptor{
+		statusCode: http.StatusBadGateway,
+		body:       `{"error":{"message":"upstream request failed","type":"upstream_error","code":"upstream_failure"}}`,
+	}
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&channel, channelID).Error)
+	tasks := map[string]*model.Task{task.GetUpstreamTaskID(): task}
+
+	require.Error(t, updateVideoSingleTask(context.Background(), transientAdaptor, &channel, task.GetUpstreamTaskID(), tasks))
+
+	completedAdaptor := &completedArchiveSourceAdaptor{
+		result: &relaycommon.TaskInfo{
+			Status:   model.TaskStatusSuccess,
+			Progress: "100%",
+			Url:      "https://provider.example/completed.mp4",
+		},
+		body: `{"status":"completed"}`,
+	}
+	require.NoError(t, updateVideoSingleTask(context.Background(), completedAdaptor, &channel, task.GetUpstreamTaskID(), tasks))
+
+	var persisted model.Task
+	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
+	assert.Equal(t, "100%", persisted.Progress)
+	assert.Equal(t, "https://provider.example/completed.mp4", persisted.GetResultURL())
+	assert.Empty(t, persisted.FailReason)
 }
 
 func TestUpdateVideoSingleTaskManagedPollingLogsOnlyBoundedMetadata(t *testing.T) {

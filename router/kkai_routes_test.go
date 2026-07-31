@@ -55,4 +55,5 @@ func TestVideoStudioTokenRoutesAreRegistered(t *testing.T) {
 	require.True(t, methodsByPath["/api/video-studio/token"][http.MethodGet])
 	require.True(t, methodsByPath["/api/video-studio/token"][http.MethodPost])
 	require.True(t, methodsByPath["/api/admin/video-studio/model-candidates"][http.MethodGet])
+	require.True(t, methodsByPath["/api/admin/video-studio/assets/:id"][http.MethodGet])
 }

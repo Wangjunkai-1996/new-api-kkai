@@ -40,6 +40,7 @@ import {
   deleteVideoGeneration,
   getAdminVideoModels,
   getAdminVideoModelCandidates,
+  getAdminVideoSample,
   getAdminVideoSamples,
   getVideoAsset,
   getVideoGeneration,
@@ -108,6 +109,8 @@ export const videoStudioQueryKeys = {
     privateUserQueryKey(userId, 'video-studio', 'admin', 'model-candidates'),
   adminSamples: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'admin', 'samples'),
+  adminSample: (userId: number, id: number) =>
+    [...videoStudioQueryKeys.adminSamples(userId), id] as const,
 }
 
 export const videoStudioMutationKeys = {
@@ -340,6 +343,15 @@ export const useVideoGeneration = (id?: number) => {
   })
 }
 
+export const useAdminVideoAsset = (id?: number, enabled = true) => {
+  const userId = useVideoStudioUserId()
+  return useQuery({
+    queryKey: videoStudioQueryKeys.asset(userId, id ?? 0),
+    queryFn: () => getVideoAsset(id ?? 0, true),
+    enabled: userId > 0 && Boolean(id) && enabled,
+  })
+}
+
 export const useVideoReferenceAssetHydration = (assetIds: number[]) => {
   const userId = useVideoStudioUserId()
   return useQueries({
@@ -393,6 +405,20 @@ export const useAdminVideoSamples = () => {
       getAdminVideoSamples({ cursor: pageParam, limit: 50 }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
     enabled: userId > 0,
+  })
+}
+
+export const useAdminVideoSample = (id?: number, enabled = true) => {
+  const userId = useVideoStudioUserId()
+  return useQuery({
+    queryKey: videoStudioQueryKeys.adminSample(userId, id ?? 0),
+    queryFn: () => getAdminVideoSample(id ?? 0),
+    enabled: userId > 0 && Boolean(id) && enabled,
+    refetchInterval: (query) => {
+      const sample = query.state.data
+      if (query.state.error) return 2_000
+      return sample?.poster_url && sample.preview_url ? false : 2_000
+    },
   })
 }
 
@@ -461,6 +487,9 @@ export const useDeleteAdminVideoSample = () => {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: videoStudioQueryKeys.adminSamples(userId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: videoStudioQueryKeys.samplesAll(userId),
       })
     },
   })

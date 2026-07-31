@@ -262,8 +262,14 @@ export const getVideoUpload = async (
   return unwrapVideoStudioResponse<VideoAsset>(response.data)
 }
 
-export const getVideoAsset = async (id: number): Promise<VideoAsset> => {
-  const response = await api.get(`/api/video-studio/assets/${id}`, {
+export const getVideoAsset = async (
+  id: number,
+  admin = false
+): Promise<VideoAsset> => {
+  const path = admin
+    ? `/api/admin/video-studio/assets/${id}`
+    : `/api/video-studio/assets/${id}`
+  const response = await api.get(path, {
     disableDuplicate: true,
     skipErrorHandler: true,
   })
@@ -327,6 +333,13 @@ export const getAdminVideoSamples = async (
     disableDuplicate: true,
   })
   return unwrapVideoStudioResponse<CursorPage<VideoSample>>(response.data)
+}
+
+export const getAdminVideoSample = async (id: number): Promise<VideoSample> => {
+  const response = await api.get(`/api/admin/video-studio/samples/${id}`, {
+    disableDuplicate: true,
+  })
+  return unwrapVideoStudioResponse<VideoSample>(response.data)
 }
 
 export const createAdminVideoSample = async (

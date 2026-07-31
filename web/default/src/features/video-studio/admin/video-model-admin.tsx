@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { LoaderCircle, Plus, Trash2 } from 'lucide-react'
+import { LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -61,6 +61,11 @@ import {
   getVideoModelCandidateLabel,
   getVideoModelPreset,
   parseVideoModelProfileForm,
+  VIDEO_MODEL_DESCRIPTION_MAX_LENGTH,
+  VIDEO_MODEL_DISPLAY_NAME_MAX_LENGTH,
+  VIDEO_MODEL_PROVIDER_LABEL_MAX_LENGTH,
+  VIDEO_MODEL_SORT_ORDER_MAX,
+  VIDEO_MODEL_SORT_ORDER_MIN,
   videoModelProfileFormSchema,
   type VideoModelProfileFormValues,
 } from '../schemas'
@@ -80,19 +85,42 @@ export function VideoModelAdmin() {
     resolver: zodResolver(videoModelProfileFormSchema),
     defaultValues: createVideoModelProfileFormValues(),
   })
-  const candidatePreset = getVideoModelPreset(form.watch('model'))
+  const modelName = form.watch('model')
+  const candidatePreset = getVideoModelPreset(modelName)
+  const candidateQueriesReady =
+    modelsQuery.isSuccess && candidatesQuery.isSuccess
+  const candidateQueriesFailed = modelsQuery.isError || candidatesQuery.isError
+  const candidateQueriesLoading =
+    !candidateQueriesReady && !candidateQueriesFailed
   const candidates = useMemo(
     () =>
-      filterVideoModelCandidates(
-        candidatesQuery.data ?? [],
-        modelsQuery.data ?? []
-      ),
-    [candidatesQuery.data, modelsQuery.data]
+      candidateQueriesReady
+        ? filterVideoModelCandidates(
+            candidatesQuery.data ?? [],
+            modelsQuery.data ?? []
+          )
+        : [],
+    [candidateQueriesReady, candidatesQuery.data, modelsQuery.data]
   )
+  const candidateAvailable =
+    candidateQueriesReady && candidates.includes(modelName)
+  const canSave = selected ? Boolean(candidatePreset) : candidateAvailable
 
   useEffect(() => {
     form.reset(createVideoModelProfileFormValues(selected ?? undefined))
   }, [form, selected])
+
+  useEffect(() => {
+    if (
+      selected ||
+      !candidateQueriesReady ||
+      !modelName ||
+      candidates.includes(modelName)
+    ) {
+      return
+    }
+    form.reset(createVideoModelProfileFormValues())
+  }, [candidateQueriesReady, candidates, form, modelName, selected])
 
   const startCreate = () => {
     setSelected(null)
@@ -100,6 +128,12 @@ export function VideoModelAdmin() {
   }
 
   const submit = form.handleSubmit(async (values) => {
+    if (!selected && !candidateAvailable) {
+      form.setError('model', {
+        message: 'videoStudio.admin.modelPresetUnavailable',
+      })
+      return
+    }
     try {
       const parsed = parseVideoModelProfileForm(values, selected ?? undefined)
       const saved = await saveMutation.mutateAsync({
@@ -213,7 +247,7 @@ export function VideoModelAdmin() {
             <Button
               type='submit'
               size='sm'
-              disabled={saveMutation.isPending || !candidatePreset}
+              disabled={saveMutation.isPending || !canSave}
             >
               {saveMutation.isPending && (
                 <LoaderCircle
@@ -228,19 +262,6 @@ export function VideoModelAdmin() {
 
         <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-4'>
           <div className='grid gap-4 sm:grid-cols-2'>
-            <FormField
-              control={form.control}
-              name='display_name'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('videoStudio.admin.displayName')}</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <FormField
               control={form.control}
               name='model'
@@ -258,7 +279,7 @@ export function VideoModelAdmin() {
                       <NativeSelect
                         className='w-full'
                         value={field.value}
-                        disabled={candidatesQuery.isLoading}
+                        disabled={!candidateQueriesReady}
                         onChange={(event) => {
                           const candidate = event.target.value
                           form.reset(
@@ -270,7 +291,7 @@ export function VideoModelAdmin() {
                         }}
                       >
                         <NativeSelectOption value=''>
-                          {candidatesQuery.isLoading
+                          {candidateQueriesLoading
                             ? t('videoStudio.admin.loadingModelCandidates')
                             : t('videoStudio.admin.selectModelCandidate')}
                         </NativeSelectOption>
@@ -283,8 +304,39 @@ export function VideoModelAdmin() {
                     )}
                   </FormControl>
                   <FormMessage />
+                  {!selected && candidateQueriesFailed && (
+                    <div className='flex items-center justify-between gap-3'>
+                      <p className='text-destructive text-xs' role='alert'>
+                        {t('videoStudio.admin.modelCandidatesFailed')}
+                      </p>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        disabled={
+                          modelsQuery.isFetching || candidatesQuery.isFetching
+                        }
+                        onClick={() => {
+                          void Promise.all([
+                            modelsQuery.refetch(),
+                            candidatesQuery.refetch(),
+                          ])
+                        }}
+                      >
+                        <RefreshCw
+                          className={cn(
+                            (modelsQuery.isFetching ||
+                              candidatesQuery.isFetching) &&
+                              'animate-spin motion-reduce:animate-none'
+                          )}
+                          aria-hidden='true'
+                        />
+                        {t('videoStudio.retry')}
+                      </Button>
+                    </div>
+                  )}
                   {!selected &&
-                    !candidatesQuery.isLoading &&
+                    candidateQueriesReady &&
                     candidates.length === 0 && (
                       <p className='text-muted-foreground text-xs'>
                         {t('videoStudio.admin.noModelCandidates')}
@@ -295,12 +347,33 @@ export function VideoModelAdmin() {
             />
             <FormField
               control={form.control}
+              name='display_name'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('videoStudio.admin.displayName')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      disabled={!canSave}
+                      maxLength={VIDEO_MODEL_DISPLAY_NAME_MAX_LENGTH}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
               name='provider_label'
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t('videoStudio.admin.provider')}</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input
+                      {...field}
+                      disabled={!canSave}
+                      maxLength={VIDEO_MODEL_PROVIDER_LABEL_MAX_LENGTH}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -316,6 +389,9 @@ export function VideoModelAdmin() {
                     <Input
                       type='number'
                       {...field}
+                      disabled={!canSave}
+                      min={VIDEO_MODEL_SORT_ORDER_MIN}
+                      max={VIDEO_MODEL_SORT_ORDER_MAX}
                       onChange={(event) =>
                         field.onChange(event.target.valueAsNumber)
                       }
@@ -333,7 +409,11 @@ export function VideoModelAdmin() {
               <FormItem>
                 <FormLabel>{t('videoStudio.admin.description')}</FormLabel>
                 <FormControl>
-                  <Textarea {...field} />
+                  <Textarea
+                    {...field}
+                    disabled={!canSave}
+                    maxLength={VIDEO_MODEL_DESCRIPTION_MAX_LENGTH}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -347,11 +427,13 @@ export function VideoModelAdmin() {
               <FormItem className='flex items-center justify-between gap-3 border-t pt-4'>
                 <div className='space-y-1'>
                   <FormLabel>{t('videoStudio.admin.enabled')}</FormLabel>
-                  {!selected && (
-                    <p className='text-muted-foreground text-xs'>
-                      {t('videoStudio.admin.enableAfterCreate')}
-                    </p>
-                  )}
+                  <p className='text-muted-foreground text-xs'>
+                    {t(
+                      selected
+                        ? 'videoStudio.admin.enableRequiresPublishedSample'
+                        : 'videoStudio.admin.enableAfterCreate'
+                    )}
+                  </p>
                 </div>
                 <FormControl>
                   <Switch

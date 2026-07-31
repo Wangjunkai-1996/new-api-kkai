@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useId } from 'react'
 import { Controller, useFormContext, useWatch } from 'react-hook-form'
+import { useTranslation } from 'react-i18next'
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,6 +27,11 @@ import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
+import {
+  getVideoModelPreset,
+  VIDEO_PARAMETER_LABEL_KEYS,
+  VIDEO_PARAMETER_OPTION_LABEL_KEYS,
+} from '../schemas'
 import type {
   VideoGenerationMode,
   VideoModelProfile,
@@ -47,9 +53,11 @@ type VideoParameterFormValues = {
 }
 
 export function VideoParameterFields(props: VideoParameterFieldsProps) {
+  const { t } = useTranslation()
   const fieldIdPrefix = useId()
   const form = useFormContext<VideoParameterFormValues>()
   const mode = useWatch({ control: form.control, name: 'mode' })
+  const usesPresetLabels = Boolean(getVideoModelPreset(props.profile.model))
   const parameters = props.profile.specification.parameters.filter(
     (parameter) => !parameter.modes || parameter.modes.includes(mode)
   )
@@ -59,6 +67,22 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
       {parameters.map((parameter, index) => {
         const name = `parameters.${parameter.key}` as const
         const inputId = `${fieldIdPrefix}-video-parameter-${index}`
+        const parameterLabelKey = usesPresetLabels
+          ? VIDEO_PARAMETER_LABEL_KEYS[parameter.key]
+          : undefined
+        const parameterLabel = parameterLabelKey
+          ? t(parameterLabelKey, { defaultValue: parameter.label })
+          : parameter.label
+        const optionLabel = (
+          value: string | number | boolean,
+          label: string
+        ) => {
+          const fallback = label || String(value)
+          const labelKey = usesPresetLabels
+            ? VIDEO_PARAMETER_OPTION_LABEL_KEYS[parameter.key]?.[String(value)]
+            : undefined
+          return labelKey ? t(labelKey, { defaultValue: fallback }) : fallback
+        }
 
         return (
           <Controller
@@ -70,7 +94,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                 return (
                   <div className='flex items-start justify-between gap-3'>
                     <div className='min-w-0'>
-                      <Label htmlFor={inputId}>{parameter.label}</Label>
+                      <Label htmlFor={inputId}>{parameterLabel}</Label>
                     </div>
                     <Switch
                       id={inputId}
@@ -84,7 +108,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
               if (parameter.control === 'segmented') {
                 return (
                   <div className='space-y-2'>
-                    <Label id={`${inputId}-label`}>{parameter.label}</Label>
+                    <Label id={`${inputId}-label`}>{parameterLabel}</Label>
                     <ToggleGroup
                       aria-labelledby={`${inputId}-label`}
                       value={
@@ -113,7 +137,9 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                           value={encodeVideoParameterOptionValue(option.value)}
                           className='min-w-0 px-2'
                         >
-                          <span className='truncate'>{option.label}</span>
+                          <span className='truncate'>
+                            {optionLabel(option.value, option.label)}
+                          </span>
                         </ToggleGroupItem>
                       ))}
                     </ToggleGroup>
@@ -124,7 +150,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
               if (parameter.control === 'select') {
                 return (
                   <div className='space-y-2'>
-                    <Label htmlFor={inputId}>{parameter.label}</Label>
+                    <Label htmlFor={inputId}>{parameterLabel}</Label>
                     <NativeSelect
                       id={inputId}
                       className='w-full'
@@ -148,7 +174,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                           key={encodeVideoParameterOptionValue(option.value)}
                           value={encodeVideoParameterOptionValue(option.value)}
                         >
-                          {option.label}
+                          {optionLabel(option.value, option.label)}
                         </NativeSelectOption>
                       ))}
                     </NativeSelect>
@@ -164,7 +190,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
               if (parameter.control === 'number') {
                 return (
                   <div className='space-y-2'>
-                    <Label htmlFor={inputId}>{parameter.label}</Label>
+                    <Label htmlFor={inputId}>{parameterLabel}</Label>
                     <div className='flex items-center gap-2'>
                       <Input
                         id={inputId}
@@ -187,7 +213,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
               return (
                 <div className='space-y-2'>
                   <div className='flex items-center justify-between gap-2'>
-                    <Label htmlFor={inputId}>{parameter.label}</Label>
+                    <Label htmlFor={inputId}>{parameterLabel}</Label>
                     <span className='text-muted-foreground text-xs tabular-nums'>
                       {numericValue}
                     </span>
@@ -201,7 +227,7 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                     onValueChange={(value) =>
                       field.onChange(Array.isArray(value) ? value[0] : value)
                     }
-                    aria-label={parameter.label}
+                    aria-label={parameterLabel}
                   />
                 </div>
               )
