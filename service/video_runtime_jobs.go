@@ -91,37 +91,33 @@ func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		return ErrInvalidBackgroundJob
 	}
 	settings := video_studio_setting.Get()
-	if settings.ArchiveEnqueueEnabled {
-		reconciler := &videoTaskOutputReconciler{}
-		if err := registry.Register(BackgroundJob{
-			Name: "video-studio-reconcile", Interval: 5 * time.Second, RunOnStart: true,
-			WritesData: true, RequiresLeaderLease: true,
-			Run: func(ctx context.Context) error {
-				if !video_studio_setting.Get().ArchiveEnqueueEnabled {
-					return nil
-				}
-				_, err := reconciler.Reconcile(ctx, model.DB, 50)
-				return err
-			},
-		}); err != nil {
+	reconciler := &videoTaskOutputReconciler{}
+	if err := registry.Register(BackgroundJob{
+		Name: "video-studio-reconcile", Interval: 5 * time.Second, RunOnStart: true,
+		WritesData: true, RequiresLeaderLease: true,
+		Run: func(ctx context.Context) error {
+			if !video_studio_setting.Get().ArchiveEnqueueEnabled {
+				return nil
+			}
+			_, err := reconciler.Reconcile(ctx, model.DB, 50)
 			return err
-		}
+		},
+	}); err != nil {
+		return err
 	}
-	if settings.BackfillEnabled {
-		reconciler := &videoTaskOutputReconciler{}
-		if err := registry.Register(BackgroundJob{
-			Name: "video-studio-backfill", Interval: time.Minute, RunOnStart: true,
-			WritesData: true, RequiresLeaderLease: true,
-			Run: func(ctx context.Context) error {
-				if !video_studio_setting.Get().BackfillEnabled {
-					return nil
-				}
-				_, err := reconciler.Reconcile(ctx, model.DB, 500)
-				return err
-			},
-		}); err != nil {
+	backfillReconciler := &videoTaskOutputReconciler{}
+	if err := registry.Register(BackgroundJob{
+		Name: "video-studio-backfill", Interval: time.Minute, RunOnStart: true,
+		WritesData: true, RequiresLeaderLease: true,
+		Run: func(ctx context.Context) error {
+			if !video_studio_setting.Get().BackfillEnabled {
+				return nil
+			}
+			_, err := backfillReconciler.Reconcile(ctx, model.DB, 500)
 			return err
-		}
+		},
+	}); err != nil {
+		return err
 	}
 	if settings.AccessMode != video_studio_setting.AccessModeOff || settings.ArchiveEnqueueEnabled ||
 		settings.BackfillEnabled || settings.WorkerEnabled {
