@@ -21,13 +21,13 @@ import { describe, test } from 'node:test'
 
 import {
   buildVideoSampleProfileState,
-  createVideoModelParameterFormValues,
   createVideoModelProfileFormValues,
   createVideoSampleFormValues,
   filterVideoModelCandidates,
+  getVideoModelCandidateLabel,
+  getVideoModelPreset,
   parseVideoModelProfileForm,
   parseVideoSampleForm,
-  pruneVideoModelParametersForModes,
   videoModelProfileFormSchema,
   videoSampleFormSchema,
 } from './schemas'
@@ -131,18 +131,224 @@ const alternateProfile: VideoModelProfile = {
 
 describe('video model admin form', () => {
   test('offers every unique unconfigured model candidate', () => {
+    const configured = {
+      ...profile,
+      model: 'sd_2.0_special_720p',
+    }
     assert.deepEqual(
       filterVideoModelCandidates(
         [
-          'seedance-2.0-1080p',
-          profile.model,
-          'seedance-2.0-1080p',
-          'seedance-2.0-pro',
+          'sd_2.0_special_1080p',
+          configured.model,
+          'sd_2.0_special_1080p',
+          'sd_2.0_special_4k_with_video_ref',
+          'unsupported-video-model',
         ],
-        [profile]
+        [configured]
       ),
-      ['seedance-2.0-1080p', 'seedance-2.0-pro']
+      ['sd_2.0_special_1080p', 'sd_2.0_special_4k_with_video_ref']
     )
+  })
+
+  test('builds verified presets for every supported Seedance special model', () => {
+    const models = [
+      ['sd_2.0_fast_special_720p', '720p', false],
+      ['sd_2.0_special_720p', '720p', false],
+      ['sd_2.0_special_1080p', '1080p', false],
+      ['sd_2.0_special_2k', '2K', false],
+      ['sd_2.0_special_4k', '4K', false],
+      ['sd_2.0_fast_special_720p_with_video_ref', '720p', true],
+      ['sd_2.0_special_720p_with_video_ref', '720p', true],
+      ['sd_2.0_special_1080p_with_video_ref', '1080p', true],
+      ['sd_2.0_special_2k_with_video_ref', '2K', true],
+      ['sd_2.0_special_4k_with_video_ref', '4K', true],
+    ] as const
+
+    for (const [model, resolution, requiresVideoReference] of models) {
+      const preset = getVideoModelPreset(model)
+      assert.ok(preset)
+      assert.equal(preset.resolution, resolution)
+      assert.deepEqual(
+        preset.specification.modes,
+        requiresVideoReference
+          ? ['image_to_video']
+          : ['text_to_video', 'image_to_video']
+      )
+      assert.deepEqual(
+        preset.specification.parameters.map((parameter) => parameter.key),
+        ['duration', 'ratio', 'generate_audio']
+      )
+      assert.deepEqual(preset.default_parameters, {
+        duration: 5,
+        ratio: '16:9',
+        generate_audio: true,
+      })
+      assert.deepEqual(preset.specification.reference_inputs, [
+        {
+          role: requiresVideoReference ? 'reference_video' : 'reference',
+          request_key: requiresVideoReference
+            ? 'reference_video'
+            : 'reference_image',
+          required: true,
+        },
+      ])
+
+      const duration = preset.specification.parameters[0]
+      assert.equal(duration?.control, 'number')
+      if (duration?.control !== 'number') {
+        assert.fail('duration preset is not numeric')
+      }
+      assert.equal(duration.request_key, 'seconds')
+      assert.equal(duration.required, true)
+      assert.deepEqual([duration.min, duration.max, duration.step], [4, 15, 1])
+
+      const ratio = preset.specification.parameters[1]
+      assert.equal(ratio?.control, 'select')
+      if (ratio?.control !== 'select') {
+        assert.fail('ratio preset is not a choice')
+      }
+      assert.deepEqual(
+        ratio.options.map((option) => option.value),
+        ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', 'adaptive']
+      )
+
+      const values = videoModelProfileFormSchema.parse(
+        createVideoModelProfileFormValues(undefined, model)
+      )
+      const input = parseVideoModelProfileForm(values)
+      assert.deepEqual(input.specification.modes, preset.specification.modes)
+      assert.deepEqual(
+        input.specification.parameters.map((parameter) => ({
+          key: parameter.key,
+          request_key: parameter.request_key,
+          control: parameter.control,
+          required: parameter.required,
+        })),
+        preset.specification.parameters.map((parameter) => ({
+          key: parameter.key,
+          request_key: parameter.request_key,
+          control: parameter.control,
+          required: parameter.required,
+        }))
+      )
+      assert.deepEqual(
+        input.specification.reference_inputs,
+        preset.specification.reference_inputs
+      )
+      assert.deepEqual(input.default_parameters, preset.default_parameters)
+    }
+  })
+
+  test('keeps unknown candidates clean instead of inventing a protocol', () => {
+    const model = 'future-video-model_with_video_ref'
+    assert.equal(getVideoModelPreset(model), undefined)
+    assert.equal(getVideoModelCandidateLabel(model), model)
+
+    const values = createVideoModelProfileFormValues(undefined, model)
+    assert.deepEqual(values.parameters, [])
+    assert.deepEqual(values.modes, ['text_to_video'])
+    assert.equal(values.image_reference_request_key, 'reference_image')
+    assert.doesNotThrow(() =>
+      parseVideoModelProfileForm(videoModelProfileFormSchema.parse(values))
+    )
+  })
+
+  test('normalizes an existing supported model to the fixed preset', () => {
+    const existing: VideoModelProfile = {
+      ...profile,
+      id: 11,
+      model: 'sd_2.0_special_1080p',
+      display_name: 'Legacy 1080p',
+      specification_version: 3,
+      specification: {
+        version: 3,
+        modes: ['text_to_video'],
+        parameters: [
+          {
+            control: 'number',
+            key: 'duration',
+            label: 'Duration',
+            request_key: 'seconds',
+            default: 8,
+            min: 4,
+            max: 15,
+            step: 1,
+          },
+          {
+            control: 'select',
+            key: 'ratio',
+            label: 'Ratio',
+            default: '4:3',
+            options: [
+              { label: '4:3', value: '4:3' },
+              { label: '9:16', value: '9:16' },
+            ],
+          },
+          {
+            control: 'switch',
+            key: 'generate_audio',
+            label: 'Generate audio',
+            default: false,
+          },
+          {
+            control: 'select',
+            key: 'parameter_1',
+            label: '参数 1',
+            options: [{ label: 'Default', value: 'default' }],
+            default: 'default',
+          },
+        ],
+      },
+      default_parameters: {
+        ratio: '9:16',
+        obsolete: true,
+      },
+    }
+
+    const values = videoModelProfileFormSchema.parse(
+      createVideoModelProfileFormValues(existing)
+    )
+    assert.deepEqual(values.modes, ['text_to_video', 'image_to_video'])
+    assert.deepEqual(
+      values.parameters.map((parameter) => [
+        parameter.key,
+        parameter.default_value,
+      ]),
+      [
+        ['duration', 8],
+        ['ratio', '9:16'],
+        ['generate_audio', false],
+      ]
+    )
+
+    const invalidOverride = createVideoModelProfileFormValues({
+      ...existing,
+      default_parameters: {
+        ...existing.default_parameters,
+        duration: 99,
+      },
+    })
+    assert.equal(
+      invalidOverride.parameters.find(
+        (parameter) => parameter.key === 'duration'
+      )?.default_value,
+      5
+    )
+
+    const input = parseVideoModelProfileForm(values, existing)
+    assert.equal(input.specification.version, 4)
+    assert.deepEqual(input.specification.reference_inputs, [
+      {
+        role: 'reference',
+        request_key: 'reference_image',
+        required: true,
+      },
+    ])
+    assert.deepEqual(input.default_parameters, {
+      duration: 8,
+      ratio: '9:16',
+      generate_audio: false,
+    })
   })
 
   test('keeps an unchanged specification version and bumps a changed one', () => {
@@ -191,62 +397,11 @@ describe('video model admin form', () => {
   test('forces a newly created profile to remain disabled', () => {
     const values = createVideoModelProfileFormValues(
       undefined,
-      'seedance-2.0-1080p'
+      'sd_2.0_special_1080p'
     )
     values.enabled = true
 
     assert.equal(parseVideoModelProfileForm(values).enabled, false)
-  })
-
-  test('requires a usable default before submitting a required parameter', () => {
-    const values = createVideoModelProfileFormValues(
-      undefined,
-      'seedance-2.0-1080p'
-    )
-    const parameter = createVideoModelParameterFormValues(
-      values.modes,
-      'resolution',
-      'Resolution'
-    )
-    parameter.required = true
-    parameter.has_default = false
-    parameter.default_value = undefined
-    values.parameters = [parameter]
-
-    const invalid = videoModelProfileFormSchema.safeParse(values)
-    assert.equal(invalid.success, false)
-    if (invalid.success) {
-      assert.fail('required parameter without default passed')
-    }
-    assert.ok(
-      invalid.error.issues.some(
-        (issue) =>
-          issue.path.join('.') === 'parameters.0.has_default' &&
-          issue.message === 'videoStudio.validation.parameterDefaultRequired'
-      )
-    )
-
-    parameter.has_default = true
-    parameter.default_value = 'default'
-    const parsed = videoModelProfileFormSchema.parse(values)
-    const input = parseVideoModelProfileForm(parsed)
-    assert.equal(input.specification.parameters[0]?.required, true)
-    assert.deepEqual(input.default_parameters, { resolution: 'default' })
-  })
-
-  test('removing a mode deletes parameters that only belonged to that mode', () => {
-    const values = createVideoModelProfileFormValues(profile)
-    const parameters = pruneVideoModelParametersForModes(values.parameters, [
-      'image_to_video',
-    ])
-
-    assert.deepEqual(
-      parameters.map((parameter) => ({
-        key: parameter.key,
-        modes: parameter.modes,
-      })),
-      [{ key: 'resolution', modes: ['image_to_video'] }]
-    )
   })
 })
 

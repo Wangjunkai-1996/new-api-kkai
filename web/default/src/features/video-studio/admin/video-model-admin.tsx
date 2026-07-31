@@ -58,6 +58,8 @@ import {
 import {
   createVideoModelProfileFormValues,
   filterVideoModelCandidates,
+  getVideoModelCandidateLabel,
+  getVideoModelPreset,
   parseVideoModelProfileForm,
   videoModelProfileFormSchema,
   type VideoModelProfileFormValues,
@@ -78,6 +80,7 @@ export function VideoModelAdmin() {
     resolver: zodResolver(videoModelProfileFormSchema),
     defaultValues: createVideoModelProfileFormValues(),
   })
+  const candidatePreset = getVideoModelPreset(form.watch('model'))
   const candidates = useMemo(
     () =>
       filterVideoModelCandidates(
@@ -175,9 +178,6 @@ export function VideoModelAdmin() {
               <span className='block truncate text-sm font-medium'>
                 {model.display_name}
               </span>
-              <span className='text-muted-foreground block truncate text-xs'>
-                {model.model}
-              </span>
             </span>
           </button>
         ))}
@@ -210,7 +210,11 @@ export function VideoModelAdmin() {
                 <Trash2 aria-hidden='true' />
               </Button>
             )}
-            <Button type='submit' size='sm' disabled={saveMutation.isPending}>
+            <Button
+              type='submit'
+              size='sm'
+              disabled={saveMutation.isPending || !candidatePreset}
+            >
               {saveMutation.isPending && (
                 <LoaderCircle
                   className='animate-spin motion-reduce:animate-none'
@@ -242,26 +246,27 @@ export function VideoModelAdmin() {
               name='model'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('videoStudio.admin.modelId')}</FormLabel>
+                  <FormLabel>{t('videoStudio.admin.model')}</FormLabel>
                   <FormControl>
                     {selected ? (
-                      <Input {...field} readOnly />
+                      <Input
+                        {...field}
+                        value={getVideoModelCandidateLabel(field.value)}
+                        readOnly
+                      />
                     ) : (
                       <NativeSelect
                         className='w-full'
                         value={field.value}
                         disabled={candidatesQuery.isLoading}
                         onChange={(event) => {
-                          const previousModel = field.value
                           const candidate = event.target.value
-                          field.onChange(candidate)
-                          const displayName = form.getValues('display_name')
-                          if (!displayName || displayName === previousModel) {
-                            form.setValue('display_name', candidate, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            })
-                          }
+                          form.reset(
+                            createVideoModelProfileFormValues(
+                              undefined,
+                              candidate
+                            )
+                          )
                         }}
                       >
                         <NativeSelectOption value=''>
@@ -271,7 +276,7 @@ export function VideoModelAdmin() {
                         </NativeSelectOption>
                         {candidates.map((candidate) => (
                           <NativeSelectOption key={candidate} value={candidate}>
-                            {candidate}
+                            {getVideoModelCandidateLabel(candidate)}
                           </NativeSelectOption>
                         ))}
                       </NativeSelect>
@@ -315,21 +320,6 @@ export function VideoModelAdmin() {
                         field.onChange(event.target.valueAsNumber)
                       }
                     />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name='specification_version'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    {t('videoStudio.admin.specificationVersion')}
-                  </FormLabel>
-                  <FormControl>
-                    <Input type='number' {...field} readOnly />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

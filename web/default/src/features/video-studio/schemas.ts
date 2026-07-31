@@ -48,6 +48,170 @@ export const VIDEO_GENERATION_MODES = [
 
 export const VIDEO_PROMPT_MAX_LENGTH = 8_000
 
+const VIDEO_MODEL_PRESET_DETAILS = {
+  'sd_2.0_fast_special_720p': {
+    displayName: 'Seedance 2.0 Fast 720p',
+    description: '快速 720p 文生 / 图生视频',
+    resolution: '720p',
+    requiresVideoReference: false,
+  },
+  'sd_2.0_special_720p': {
+    displayName: 'Seedance 2.0 720p',
+    description: '720p 文生 / 图生视频',
+    resolution: '720p',
+    requiresVideoReference: false,
+  },
+  'sd_2.0_special_1080p': {
+    displayName: 'Seedance 2.0 1080p',
+    description: '1080p 文生 / 图生视频',
+    resolution: '1080p',
+    requiresVideoReference: false,
+  },
+  'sd_2.0_special_2k': {
+    displayName: 'Seedance 2.0 2K',
+    description: '2K 文生 / 图生视频',
+    resolution: '2K',
+    requiresVideoReference: false,
+  },
+  'sd_2.0_special_4k': {
+    displayName: 'Seedance 2.0 4K',
+    description: '4K 文生 / 图生视频',
+    resolution: '4K',
+    requiresVideoReference: false,
+  },
+  'sd_2.0_fast_special_720p_with_video_ref': {
+    displayName: 'Seedance 2.0 Fast 720p · 视频参考',
+    description: '快速 720p 视频参考生成',
+    resolution: '720p',
+    requiresVideoReference: true,
+  },
+  'sd_2.0_special_720p_with_video_ref': {
+    displayName: 'Seedance 2.0 720p · 视频参考',
+    description: '720p 视频参考生成',
+    resolution: '720p',
+    requiresVideoReference: true,
+  },
+  'sd_2.0_special_1080p_with_video_ref': {
+    displayName: 'Seedance 2.0 1080p · 视频参考',
+    description: '1080p 视频参考生成',
+    resolution: '1080p',
+    requiresVideoReference: true,
+  },
+  'sd_2.0_special_2k_with_video_ref': {
+    displayName: 'Seedance 2.0 2K · 视频参考',
+    description: '2K 视频参考生成',
+    resolution: '2K',
+    requiresVideoReference: true,
+  },
+  'sd_2.0_special_4k_with_video_ref': {
+    displayName: 'Seedance 2.0 4K · 视频参考',
+    description: '4K 视频参考生成',
+    resolution: '4K',
+    requiresVideoReference: true,
+  },
+} as const
+
+export type VideoModelPreset = VideoModelProfileInput & {
+  resolution: string
+}
+
+export const getVideoModelPreset = (
+  model: string
+): VideoModelPreset | undefined => {
+  const details =
+    VIDEO_MODEL_PRESET_DETAILS[model as keyof typeof VIDEO_MODEL_PRESET_DETAILS]
+  if (!details) return undefined
+
+  const modes: VideoGenerationMode[] = details.requiresVideoReference
+    ? ['image_to_video']
+    : ['text_to_video', 'image_to_video']
+  return {
+    model,
+    display_name: details.displayName,
+    description: details.description,
+    provider_label: 'Seedance Global',
+    enabled: false,
+    sort_order: 0,
+    resolution: details.resolution,
+    specification: {
+      version: 1,
+      modes,
+      parameters: [
+        {
+          key: 'duration',
+          label: '时长（秒）',
+          request_key: 'seconds',
+          control: 'number',
+          required: true,
+          min: 4,
+          max: 15,
+          step: 1,
+        },
+        {
+          key: 'ratio',
+          label: '画幅比例',
+          control: 'select',
+          required: true,
+          options: [
+            { label: '横屏 16:9', value: '16:9' },
+            { label: '竖屏 9:16', value: '9:16' },
+            { label: '方形 1:1', value: '1:1' },
+            { label: '横屏 4:3', value: '4:3' },
+            { label: '竖屏 3:4', value: '3:4' },
+            { label: '超宽屏 21:9', value: '21:9' },
+            { label: '自动', value: 'adaptive' },
+          ],
+        },
+        {
+          key: 'generate_audio',
+          label: '生成音频',
+          control: 'switch',
+          required: true,
+        },
+      ],
+      reference_inputs: details.requiresVideoReference
+        ? [
+            {
+              role: 'reference_video',
+              request_key: 'reference_video',
+              required: true,
+            },
+          ]
+        : [
+            {
+              role: 'reference',
+              request_key: 'reference_image',
+              required: true,
+            },
+          ],
+    },
+    default_parameters: {
+      duration: 5,
+      ratio: '16:9',
+      generate_audio: true,
+    },
+  }
+}
+
+export const getVideoModelCandidateLabel = (model: string): string =>
+  getVideoModelPreset(model)?.display_name ?? model
+
+const getVideoModelPresetDefaults = (
+  preset: VideoModelPreset,
+  configured: VideoParameters = {}
+): VideoParameters =>
+  Object.fromEntries(
+    preset.specification.parameters.flatMap((parameter) => {
+      const configuredValue = configured[parameter.key]
+      const value =
+        configuredValue !== undefined &&
+        videoParameterAcceptsValue(parameter, configuredValue)
+          ? configuredValue
+          : preset.default_parameters[parameter.key]
+      return value === undefined ? [] : [[parameter.key, value]]
+    })
+  )
+
 const videoTokenSummarySchema = z.object({
   id: z.number().int().positive(),
   name: z.string(),
@@ -444,86 +608,62 @@ const modelParameterFormValues = (
   }
 }
 
-export const createVideoModelParameterFormValues = (
-  modes: VideoGenerationMode[],
-  key = 'parameter',
-  label = 'Parameter'
-): VideoModelParameterFormValues => ({
-  key,
-  label,
-  request_key: '',
-  modes: [...modes],
-  modes_explicit: false,
-  control: 'select',
-  required: false,
-  has_default: true,
-  default_source: 'profile',
-  default_value: 'default',
-  preserved_inline_default: undefined,
-  options: [{ label: 'Default', value_type: 'string', value: 'default' }],
-  min: 0,
-  max: 10,
-  step: 1,
-})
-
-export const pruneVideoModelParametersForModes = (
-  parameters: VideoModelParameterFormValues[],
-  modes: VideoGenerationMode[]
-): VideoModelParameterFormValues[] =>
-  parameters.flatMap((parameter) => {
-    if (!parameter.modes_explicit) {
-      return [{ ...parameter, modes: [...modes] }]
-    }
-    const parameterModes = parameter.modes.filter((mode) =>
-      modes.includes(mode)
-    )
-    return parameterModes.length > 0
-      ? [{ ...parameter, modes: parameterModes }]
-      : []
-  })
-
 const referenceInput = (
-  profile: VideoModelProfile | undefined,
+  inputs: VideoReferenceInput[] | undefined,
   roles: VideoReferenceInput['role'][]
 ): VideoReferenceInput | undefined =>
-  profile?.specification.reference_inputs?.find((input) =>
-    roles.includes(input.role)
-  )
+  inputs?.find((input) => roles.includes(input.role))
 
 export const createVideoModelProfileFormValues = (
   profile?: VideoModelProfile,
   candidate = ''
 ): VideoModelProfileFormValues => {
-  const modes = profile?.specification.modes ?? ['text_to_video']
-  const imageReference = referenceInput(profile, [
+  const preset = getVideoModelPreset(profile?.model ?? candidate)
+  const specification = preset?.specification ?? profile?.specification
+  const configuredDefaults: VideoParameters = {}
+  if (preset && profile) {
+    for (const parameter of profile.specification.parameters) {
+      if (parameter.default !== undefined) {
+        configuredDefaults[parameter.key] = parameter.default
+      }
+    }
+    Object.assign(configuredDefaults, profile.default_parameters)
+  }
+  const defaults = preset
+    ? getVideoModelPresetDefaults(preset, configuredDefaults)
+    : (profile?.default_parameters ?? {})
+  const modes = specification?.modes ?? ['text_to_video']
+  const imageReference = referenceInput(specification?.reference_inputs, [
     'reference',
     'reference_video',
   ])
-  const firstFrame = referenceInput(profile, ['first_frame'])
-  const lastFrame = referenceInput(profile, ['last_frame'])
-  const modelName = profile?.model ?? candidate
+  const firstFrame = referenceInput(specification?.reference_inputs, [
+    'first_frame',
+  ])
+  const lastFrame = referenceInput(specification?.reference_inputs, [
+    'last_frame',
+  ])
+  const modelName = profile?.model ?? preset?.model ?? candidate
   return {
     model: modelName,
-    display_name: profile?.display_name ?? modelName,
-    description: profile?.description ?? '',
-    provider_label: profile?.provider_label ?? '',
+    display_name: profile?.display_name ?? preset?.display_name ?? modelName,
+    description: profile?.description ?? preset?.description ?? '',
+    provider_label: profile?.provider_label ?? preset?.provider_label ?? '',
     enabled: profile?.enabled ?? false,
-    sort_order: profile?.sort_order ?? 0,
-    specification_version: profile?.specification_version ?? 1,
+    sort_order: profile?.sort_order ?? preset?.sort_order ?? 0,
+    specification_version:
+      profile?.specification_version ?? preset?.specification.version ?? 1,
     modes: [...modes],
     parameters:
-      profile?.specification.parameters.map((parameter) =>
-        modelParameterFormValues(parameter, modes, profile.default_parameters)
+      specification?.parameters.map((parameter) =>
+        modelParameterFormValues(parameter, modes, defaults)
       ) ?? [],
     image_reference_role:
       imageReference?.role === 'reference_video'
         ? 'reference_video'
         : 'reference',
     image_reference_request_key:
-      imageReference?.request_key ??
-      (modelName.toLowerCase().endsWith('_with_video_ref')
-        ? 'reference_video'
-        : 'reference_image'),
+      imageReference?.request_key ?? 'reference_image',
     first_frame_request_key: firstFrame?.request_key ?? 'first_frame',
     last_frame_request_key: lastFrame?.request_key ?? 'last_frame',
   }
@@ -535,7 +675,11 @@ export const filterVideoModelCandidates = (
 ): string[] => {
   const configured = new Set(profiles.map((profile) => profile.model))
   return [...new Set(candidates)]
-    .filter((candidate) => !configured.has(candidate))
+    .filter(
+      (candidate) =>
+        getVideoModelPreset(candidate) !== undefined &&
+        !configured.has(candidate)
+    )
     .sort((left, right) => left.localeCompare(right))
 }
 
