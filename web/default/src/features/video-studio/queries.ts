@@ -40,7 +40,6 @@ import {
   deleteVideoGeneration,
   getAdminVideoModels,
   getAdminVideoModelCandidates,
-  getAdminVideoSample,
   getAdminVideoSamples,
   getVideoAsset,
   getVideoGeneration,
@@ -62,7 +61,10 @@ import type {
   VideoSampleInput,
   VideoTokenCreateResult,
 } from './types'
-import { getVideoTaskPollInterval } from './video-domain'
+import {
+  getVideoSamplePreparationPollInterval,
+  getVideoTaskPollInterval,
+} from './video-domain'
 import { shouldRetryVideoReferenceHydration } from './video-reference-hydration'
 
 export const videoStudioQueryKeys = {
@@ -349,6 +351,10 @@ export const useAdminVideoAsset = (id?: number, enabled = true) => {
     queryKey: videoStudioQueryKeys.asset(userId, id ?? 0),
     queryFn: () => getVideoAsset(id ?? 0, true),
     enabled: userId > 0 && Boolean(id) && enabled,
+    refetchInterval: (query) => {
+      const asset = query.state.data
+      return asset ? getVideoSamplePreparationPollInterval(asset) : false
+    },
   })
 }
 
@@ -405,20 +411,6 @@ export const useAdminVideoSamples = () => {
       getAdminVideoSamples({ cursor: pageParam, limit: 50 }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
     enabled: userId > 0,
-  })
-}
-
-export const useAdminVideoSample = (id?: number, enabled = true) => {
-  const userId = useVideoStudioUserId()
-  return useQuery({
-    queryKey: videoStudioQueryKeys.adminSample(userId, id ?? 0),
-    queryFn: () => getAdminVideoSample(id ?? 0),
-    enabled: userId > 0 && Boolean(id) && enabled,
-    refetchInterval: (query) => {
-      const sample = query.state.data
-      if (query.state.error) return 2_000
-      return sample?.poster_url && sample.preview_url ? false : 2_000
-    },
   })
 }
 

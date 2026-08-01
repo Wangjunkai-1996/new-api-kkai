@@ -494,6 +494,18 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
                 )}
               </div>
             )
+          } else if (
+            isVideo &&
+            props.purpose === 'sample' &&
+            asset.poster_url
+          ) {
+            mediaContent = (
+              <img
+                className='size-full object-cover'
+                src={asset.poster_url}
+                alt={asset.original_filename || props.label}
+              />
+            )
           } else if (isVideo) {
             mediaContent = (
               <video

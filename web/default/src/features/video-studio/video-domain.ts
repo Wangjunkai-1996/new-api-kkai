@@ -351,6 +351,22 @@ export const getVideoAssetInspectionPollInterval = (
   return 10_000
 }
 
+export const getVideoSamplePreparationPollInterval = (
+  asset: VideoAsset
+): number | false => {
+  if (
+    asset.kind !== 'sample' ||
+    asset.state === 'failed' ||
+    asset.state === 'deleting' ||
+    asset.state === 'deleted'
+  ) {
+    return false
+  }
+  return asset.state === 'ready' && asset.poster_url && asset.preview_url
+    ? false
+    : 2_000
+}
+
 export const isVideoAssetInspectionTakingLong = (
   asset: VideoAsset,
   elapsedMs: number

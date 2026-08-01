@@ -53,7 +53,6 @@ import { cn } from '@/lib/utils'
 import { VideoAssetUploader } from '../components/video-asset-uploader'
 import {
   useAdminVideoAsset,
-  useAdminVideoSample,
   useAdminVideoModels,
   useAdminVideoSamples,
   useDeleteAdminVideoSample,
@@ -129,22 +128,13 @@ export function VideoSampleAdmin() {
   )
   const sampleVideoAssetQuery = useAdminVideoAsset(
     selected?.video_asset_id,
-    Boolean(
-      selected &&
-      sampleVideoAsset?.id === selected.video_asset_id &&
-      !sampleVideoAssetHasMetadata
-    )
+    Boolean(selected && sampleVideoAsset?.id === selected.video_asset_id)
   )
   const waitingForPreparedSample = Boolean(
     selected &&
     sampleVideoAsset?.id === selected.video_asset_id &&
     (!sampleVideoAsset.poster_url || !sampleVideoAsset.preview_url)
   )
-  const sampleDetailQuery = useAdminVideoSample(
-    selected?.id ?? 0,
-    waitingForPreparedSample
-  )
-
   useEffect(() => {
     const sampleId = selected?.id ?? null
     const profile = modelsQuery.data?.find(
@@ -247,35 +237,6 @@ export function VideoSampleAdmin() {
       form.clearErrors('video_asset_id')
     }
   }, [form, unsupportedVideoDuration])
-
-  useEffect(() => {
-    const refreshed = sampleDetailQuery.data
-    if (!refreshed || refreshed.video_asset_id !== sampleVideoAsset?.id) return
-    setVideoAssets((assets) => {
-      let changed = false
-      const next = assets.map((asset) => {
-        if (asset.id !== refreshed.video_asset_id) return asset
-        const contentUrl = refreshed.video_url || asset.content_url
-        const posterUrl = refreshed.poster_url || asset.poster_url
-        const previewUrl = refreshed.preview_url || asset.preview_url
-        if (
-          contentUrl === asset.content_url &&
-          posterUrl === asset.poster_url &&
-          previewUrl === asset.preview_url
-        ) {
-          return asset
-        }
-        changed = true
-        return {
-          ...asset,
-          content_url: contentUrl,
-          poster_url: posterUrl,
-          preview_url: previewUrl,
-        }
-      })
-      return changed ? next : assets
-    })
-  }, [sampleDetailQuery.data, sampleVideoAsset?.id])
 
   useEffect(() => {
     if (!selectedProfile) return
@@ -699,6 +660,7 @@ export function VideoSampleAdmin() {
               maxFiles={1}
               accept={['video/mp4', 'video/webm', 'video/quicktime']}
               label={t('videoStudio.admin.uploadVideo')}
+              assetLabels={[t('videoStudio.admin.sampleVideo')]}
               compact
               adminUpload
             />

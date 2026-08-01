@@ -5429,7 +5429,7 @@
     "videoStudio.admin.removeParameter": "移除参数",
     "videoStudio.admin.requestKey": "服务商请求字段",
     "videoStudio.admin.sampleDeleted": "样品已删除",
-    "videoStudio.admin.preparingPreview": "正在生成封面和预览视频，处理完成后即可发布。",
+    "videoStudio.admin.preparingPreview": "样品封面和预览视频尚未全部就绪，处理完成后即可发布。",
     "videoStudio.admin.referenceImages": "参考图片",
     "videoStudio.admin.referenceVideo": "参考视频",
     "videoStudio.admin.sampleSaved": "样品已保存",

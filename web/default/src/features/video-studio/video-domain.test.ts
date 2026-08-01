@@ -37,6 +37,7 @@ import {
   getVideoQuoteRefreshDelay,
   getVideoReferenceRoles,
   getVideoAssetInspectionPollInterval,
+  getVideoSamplePreparationPollInterval,
   getVideoGenerationFailureMessageKey,
   getVideoSubmissionRequestKey,
   getVideoSubmissionLock,
@@ -592,6 +593,35 @@ test('asset inspection polling slows down but continues while processing', () =>
     true
   )
   assert.equal(isVideoAssetInspectionTakingLong(asset('ready'), 60_000), false)
+})
+
+test('sample preparation polling stops only after both derivatives or failure', () => {
+  const preparing = { ...asset('ready'), kind: 'sample' as const }
+  assert.equal(getVideoSamplePreparationPollInterval(asset('ready')), false)
+  assert.equal(getVideoSamplePreparationPollInterval(preparing), 2_000)
+  assert.equal(
+    getVideoSamplePreparationPollInterval({
+      ...preparing,
+      poster_url: '/poster.jpg',
+    }),
+    2_000
+  )
+  assert.equal(
+    getVideoSamplePreparationPollInterval({
+      ...preparing,
+      poster_url: '/poster.jpg',
+      preview_url: '/preview.mp4',
+    }),
+    false
+  )
+  assert.equal(
+    getVideoSamplePreparationPollInterval({
+      ...preparing,
+      state: 'failed',
+      failure_reason: 'preview generation failed',
+    }),
+    false
+  )
 })
 
 test('only ready assets may mount media content', () => {
