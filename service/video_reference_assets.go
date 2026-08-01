@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -40,14 +41,14 @@ func DeleteVideoReferenceAsset(ctx context.Context, db *gorm.DB, userID int, ass
 		if asset.State == model.VideoAssetStatePendingUpload {
 			return ErrVideoAssetUploadCompleted
 		}
-		inUse, err := videoReferenceAssetInUse(ctx, tx, asset.ID)
+		inUse, err := videoAssetInUse(ctx, tx, asset.ID)
 		if err != nil {
 			return err
 		}
 		if inUse {
 			return ErrVideoAssetInUse
 		}
-		return queueVideoReferenceAssetDeletion(ctx, tx, &asset)
+		return queueVideoAssetDeletion(ctx, tx, &asset)
 	})
 	if err != nil {
 		return nil, err
@@ -76,8 +77,8 @@ func CleanupAbandonedVideoReferenceAssets(ctx context.Context, db *gorm.DB, crea
 		}
 		var assets []model.KKAIVideoAsset
 		err := db.WithContext(ctx).
-			Where("id > ? AND scope = ? AND kind = ? AND deleted_at = 0 AND created_at <= ? AND state IN ?",
-				lastID, model.VideoAssetScopeUser, model.VideoAssetKindReference, createdBefore.Unix(),
+			Where("id > ? AND scope = ? AND kind IN ? AND deleted_at = 0 AND created_at <= ? AND state IN ?",
+				lastID, model.VideoAssetScopeUser, []string{model.VideoAssetKindReference, model.VideoAssetKindSample}, createdBefore.Unix(),
 				[]string{model.VideoAssetStateUploaded, model.VideoAssetStateProcessing, model.VideoAssetStateReady, model.VideoAssetStateFailed}).
 			Where(`NOT EXISTS (
 SELECT 1
@@ -103,19 +104,20 @@ WHERE active_reference.asset_id = kkai_video_assets.id
 				if err := lockVideoRowsForUpdate(tx).First(&current, "id = ?", assets[index].ID).Error; err != nil {
 					return err
 				}
-				if current.Scope != model.VideoAssetScopeUser || current.Kind != model.VideoAssetKindReference || current.DeletedAt != 0 ||
+				if current.Scope != model.VideoAssetScopeUser ||
+					(current.Kind != model.VideoAssetKindReference && current.Kind != model.VideoAssetKindSample) || current.DeletedAt != 0 ||
 					current.CreatedAt > createdBefore.Unix() || current.State == model.VideoAssetStatePendingUpload ||
 					current.State == model.VideoAssetStateDeleting || current.State == model.VideoAssetStateDeleted {
 					return nil
 				}
-				inUse, err := videoReferenceAssetInUse(ctx, tx, current.ID)
+				inUse, err := videoAssetInUse(ctx, tx, current.ID)
 				if err != nil {
 					return err
 				}
 				if inUse {
 					return nil
 				}
-				if err := queueVideoReferenceAssetDeletion(ctx, tx, &current); err != nil {
+				if err := queueVideoAssetDeletion(ctx, tx, &current); err != nil {
 					return err
 				}
 				assets[index] = current
@@ -136,7 +138,7 @@ WHERE active_reference.asset_id = kkai_video_assets.id
 	return cleaned, errors.Join(errorsByAsset...)
 }
 
-func queueVideoReferenceAssetDeletion(ctx context.Context, tx *gorm.DB, asset *model.KKAIVideoAsset) error {
+func queueVideoAssetDeletion(ctx context.Context, tx *gorm.DB, asset *model.KKAIVideoAsset) error {
 	if asset == nil || tx == nil {
 		return ErrVideoAssetNotFound
 	}
@@ -152,7 +154,7 @@ func queueVideoReferenceAssetDeletion(ctx context.Context, tx *gorm.DB, asset *m
 		return ErrVideoAssetInUse
 	}
 	if err := EnqueueVideoOutboxEvent(ctx, tx,
-		fmt.Sprintf("video:asset:%d:delete:v1", asset.ID), VideoOutboxTopicDelete,
+		fmt.Sprintf("video:asset:%d:delete:v2:%s", asset.ID, uuid.NewString()), VideoOutboxTopicDelete,
 		strconv.FormatInt(asset.ID, 10), VideoAssetEventPayload{AssetID: asset.ID},
 	); err != nil {
 		return err
@@ -160,37 +162,4 @@ func queueVideoReferenceAssetDeletion(ctx context.Context, tx *gorm.DB, asset *m
 	asset.State = model.VideoAssetStateDeleting
 	asset.UpdatedAt = now
 	return nil
-}
-
-func videoReferenceAssetInUse(ctx context.Context, db *gorm.DB, assetID int64) (bool, error) {
-	var taskReferences int64
-	if err := db.WithContext(ctx).Model(&model.KKAIVideoTaskAsset{}).
-		Joins("JOIN tasks AS video_reference_tasks ON video_reference_tasks.id = kkai_video_task_assets.task_id").
-		Where("kkai_video_task_assets.asset_id = ? AND kkai_video_task_assets.role IN ? AND video_reference_tasks.status NOT IN ?", assetID, []string{
-			model.VideoTaskAssetRoleReference, model.VideoTaskAssetRoleReferenceVideo,
-			model.VideoTaskAssetRoleFirstFrame, model.VideoTaskAssetRoleLastFrame,
-		}, []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure}).Count(&taskReferences).Error; err != nil {
-		return false, fmt.Errorf("audit video task references: %w", err)
-	}
-	if taskReferences > 0 {
-		return true, nil
-	}
-	needle := "%" + strconv.FormatInt(assetID, 10) + "%"
-	var samples []model.KKAIVideoSample
-	if err := db.WithContext(ctx).Where("status = ? AND reference_asset_ids LIKE ?", model.VideoSampleStatusPublished, needle).
-		Select("id, reference_asset_ids").Find(&samples).Error; err != nil {
-		return false, fmt.Errorf("audit video sample references: %w", err)
-	}
-	for _, sample := range samples {
-		referenceIDs, err := decodeVideoSampleReferenceAssetIDs(sample.ReferenceAssetIDs)
-		if err != nil {
-			return false, fmt.Errorf("decode video sample %d references: %w", sample.ID, err)
-		}
-		for _, referenceID := range referenceIDs {
-			if referenceID == assetID {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
 }

@@ -82,10 +82,21 @@ func CreateVideoGeneration(ctx context.Context, tx *gorm.DB, normalized *Normali
 	if err := tx.WithContext(ctx).Create(&generation).Error; err != nil {
 		return nil, fmt.Errorf("create video generation: %w", err)
 	}
+	referenceAssetIDs := make([]int64, 0, len(normalized.ReferenceAssets))
+	for _, reference := range normalized.ReferenceAssets {
+		referenceAssetIDs = append(referenceAssetIDs, reference.Asset.ID)
+	}
+	currentAssets, err := lockVideoAssetRowsForUpdate(ctx, tx, referenceAssetIDs)
+	if err != nil {
+		return nil, ErrInvalidVideoStudioSubmission
+	}
+	currentAssetsByID := make(map[int64]model.KKAIVideoAsset, len(currentAssets))
+	for _, asset := range currentAssets {
+		currentAssetsByID[asset.ID] = asset
+	}
 	for position, reference := range normalized.ReferenceAssets {
-		var current model.KKAIVideoAsset
-		if err := lockVideoRowsForUpdate(tx.WithContext(ctx)).Select("id, owner_user_id, scope, kind, state, deleted_at").
-			First(&current, "id = ?", reference.Asset.ID).Error; err != nil {
+		current, exists := currentAssetsByID[reference.Asset.ID]
+		if !exists {
 			return nil, ErrInvalidVideoStudioSubmission
 		}
 		if current.Kind != model.VideoAssetKindReference || current.State != model.VideoAssetStateReady || current.DeletedAt != 0 {

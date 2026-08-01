@@ -42,6 +42,27 @@ const ACTIVE_GENERATION_STATUSES = new Set([
   'archiving',
 ])
 
+export const shouldAutoLoadNextVideoSamplePage = ({
+  hasNextPage,
+  isFetchNextPageError,
+  isFetchingNextPage,
+  lanes,
+  lastVisibleIndex,
+  sampleCount,
+}: {
+  hasNextPage: boolean
+  isFetchNextPageError: boolean
+  isFetchingNextPage: boolean
+  lanes: number
+  lastVisibleIndex?: number
+  sampleCount: number
+}): boolean =>
+  lastVisibleIndex !== undefined &&
+  hasNextPage &&
+  !isFetchNextPageError &&
+  !isFetchingNextPage &&
+  lastVisibleIndex >= sampleCount - lanes * 2
+
 export const VIDEO_MODE_LABEL_KEYS: Record<VideoGenerationMode, string> = {
   text_to_video: 'videoStudio.mode.text',
   image_to_video: 'videoStudio.mode.image',

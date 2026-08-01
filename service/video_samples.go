@@ -205,7 +205,7 @@ func GetVideoSample(
 func CreateVideoSample(ctx context.Context, db *gorm.DB, adminUserID int, input VideoSampleInput) (*VideoSampleView, error) {
 	var created model.KKAIVideoSample
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		prepared, assets, err := prepareVideoSampleInput(ctx, tx, adminUserID, input)
+		prepared, _, err := prepareVideoSampleInput(ctx, tx, adminUserID, input, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -225,7 +225,6 @@ func CreateVideoSample(ctx context.Context, db *gorm.DB, adminUserID int, input 
 			Updates(map[string]any{"scope": model.VideoAssetScopeCatalog, "updated_at": now}).Error; err != nil {
 			return err
 		}
-		_ = assets
 		return enqueueVideoSamplePreparation(ctx, tx, created.ID)
 	})
 	if err != nil {
@@ -237,13 +236,19 @@ func CreateVideoSample(ctx context.Context, db *gorm.DB, adminUserID int, input 
 func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID int, input VideoSampleInput) (*VideoSampleView, error) {
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing model.KKAIVideoSample
-		if err := tx.First(&existing, "id = ?", id).Error; err != nil {
+		if err := lockVideoRowsForUpdate(tx.WithContext(ctx)).First(&existing, "id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrVideoSampleNotFound
 			}
 			return err
 		}
-		prepared, _, err := prepareVideoSampleInput(ctx, tx, adminUserID, input)
+		previousAssetIDs, err := videoSampleAssetIDs(existing)
+		if err != nil {
+			return err
+		}
+		prepared, _, err := prepareVideoSampleInput(
+			ctx, tx, adminUserID, input, previousAssetIDs, []int64{existing.ModelProfileID},
+		)
 		if err != nil {
 			return err
 		}
@@ -282,6 +287,9 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 			Updates(map[string]any{"scope": model.VideoAssetScopeCatalog, "updated_at": now}).Error; err != nil {
 			return err
 		}
+		if err := queueUnusedVideoCatalogAssetsForDeletion(ctx, tx, previousAssetIDs, assetIDs); err != nil {
+			return err
+		}
 		return enqueueVideoSamplePreparation(ctx, tx, id)
 	})
 	if err != nil {
@@ -293,17 +301,28 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 func DeleteVideoSample(ctx context.Context, db *gorm.DB, id int64) error {
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var sample model.KKAIVideoSample
-		if err := tx.First(&sample, "id = ?", id).Error; err != nil {
+		if err := lockVideoRowsForUpdate(tx.WithContext(ctx)).First(&sample, "id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrVideoSampleNotFound
 			}
 			return err
 		}
+		assetIDs, err := videoSampleAssetIDs(sample)
+		if err != nil {
+			return err
+		}
+		if _, err := lockVideoAssetRowsForUpdate(ctx, tx, assetIDs); err != nil {
+			return err
+		}
 		if sample.Status == model.VideoSampleStatusPublished {
-			var profile model.KKAIVideoModelProfile
-			if err := tx.First(&profile, "id = ?", sample.ModelProfileID).Error; err != nil {
+			profiles, err := lockVideoModelProfileRowsForUpdate(ctx, tx, []int64{sample.ModelProfileID})
+			if err != nil {
 				return err
 			}
+			if len(profiles) != 1 {
+				return ErrVideoModelProfileNotFound
+			}
+			profile := profiles[0]
 			if profile.Enabled {
 				var remaining int64
 				if err := tx.Model(&model.KKAIVideoSample{}).Where(
@@ -316,7 +335,10 @@ func DeleteVideoSample(ctx context.Context, db *gorm.DB, id int64) error {
 				}
 			}
 		}
-		return tx.Delete(&sample).Error
+		if err := tx.Delete(&sample).Error; err != nil {
+			return err
+		}
+		return queueUnusedVideoCatalogAssetsForDeletion(ctx, tx, assetIDs, nil)
 	})
 }
 
@@ -327,7 +349,14 @@ type preparedVideoSampleInput struct {
 	referenceAssetIDsJSON string
 }
 
-func prepareVideoSampleInput(ctx context.Context, tx *gorm.DB, adminUserID int, input VideoSampleInput) (preparedVideoSampleInput, []model.KKAIVideoAsset, error) {
+func prepareVideoSampleInput(
+	ctx context.Context,
+	tx *gorm.DB,
+	adminUserID int,
+	input VideoSampleInput,
+	additionalAssetIDs []int64,
+	additionalProfileIDs []int64,
+) (preparedVideoSampleInput, []model.KKAIVideoAsset, error) {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	if input.ModelProfileID <= 0 || input.Title == "" || len(input.Title) > 191 || input.Prompt == "" || len(input.Prompt) > 8000 ||
@@ -345,8 +374,45 @@ func prepareVideoSampleInput(ctx context.Context, tx *gorm.DB, adminUserID int, 
 		return preparedVideoSampleInput{}, nil, err
 	}
 	input.Category = category
-	var profile model.KKAIVideoModelProfile
-	if err := tx.WithContext(ctx).First(&profile, "id = ?", input.ModelProfileID).Error; err != nil {
+	assetIDs := append([]int64{input.VideoAssetID}, input.ReferenceAssetIDs...)
+	lockAssetIDs := append([]int64{}, assetIDs...)
+	lockAssetIDs = append(lockAssetIDs, additionalAssetIDs...)
+	assets, err := lockVideoAssetRowsForUpdate(ctx, tx, lockAssetIDs)
+	if err != nil {
+		return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
+	}
+	assetsByID := make(map[int64]model.KKAIVideoAsset, len(assets))
+	for _, asset := range assets {
+		assetsByID[asset.ID] = asset
+	}
+	seenInputAssetIDs := make(map[int64]struct{}, len(assetIDs))
+	for _, assetID := range assetIDs {
+		if _, duplicate := seenInputAssetIDs[assetID]; duplicate {
+			return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
+		}
+		seenInputAssetIDs[assetID] = struct{}{}
+		asset, exists := assetsByID[assetID]
+		if !exists || asset.DeletedAt != 0 ||
+			(asset.Scope != model.VideoAssetScopeCatalog && asset.OwnerUserID != adminUserID) {
+			return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
+		}
+	}
+	profileIDs := append([]int64{input.ModelProfileID}, additionalProfileIDs...)
+	profiles, err := lockVideoModelProfileRowsForUpdate(ctx, tx, profileIDs)
+	if err != nil {
+		return preparedVideoSampleInput{}, nil, err
+	}
+	profilesByID := make(map[int64]model.KKAIVideoModelProfile, len(profiles))
+	for _, profile := range profiles {
+		profilesByID[profile.ID] = profile
+	}
+	for _, profileID := range profileIDs {
+		if _, exists := profilesByID[profileID]; !exists {
+			return preparedVideoSampleInput{}, nil, ErrVideoModelProfileNotFound
+		}
+	}
+	profile, exists := profilesByID[input.ModelProfileID]
+	if !exists {
 		return preparedVideoSampleInput{}, nil, ErrVideoModelProfileNotFound
 	}
 	specification, defaults, err := decodeVideoModelProfile(profile)
@@ -368,18 +434,6 @@ func prepareVideoSampleInput(ctx context.Context, tx *gorm.DB, adminUserID int, 
 	expectedReferences := expectedVideoReferenceInputs(specification, input.Mode)
 	if len(input.ReferenceAssetIDs) != len(expectedReferences) {
 		return preparedVideoSampleInput{}, nil, ErrInvalidVideoSample
-	}
-	assetIDs := append([]int64{input.VideoAssetID}, input.ReferenceAssetIDs...)
-	var assets []model.KKAIVideoAsset
-	if err := tx.WithContext(ctx).Where("id IN ?", assetIDs).Find(&assets).Error; err != nil || len(assets) != len(assetIDs) {
-		return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
-	}
-	assetsByID := make(map[int64]model.KKAIVideoAsset, len(assets))
-	for _, asset := range assets {
-		if asset.DeletedAt != 0 || (asset.Scope != model.VideoAssetScopeCatalog && asset.OwnerUserID != adminUserID) {
-			return preparedVideoSampleInput{}, nil, ErrVideoSampleNotPublishable
-		}
-		assetsByID[asset.ID] = asset
 	}
 	videoAsset := assetsByID[input.VideoAssetID]
 	if videoAsset.State != model.VideoAssetStateReady || !strings.HasPrefix(videoAsset.MIMEType, "video/") {

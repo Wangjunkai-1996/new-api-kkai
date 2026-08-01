@@ -154,10 +154,12 @@ export const getVideoGenerations = async (
 }
 
 export const getVideoGeneration = async (
-  id: number
+  id: number,
+  options: { silent?: boolean } = {}
 ): Promise<VideoGeneration> => {
   const response = await api.get(`/api/video-studio/generations/${id}`, {
     disableDuplicate: true,
+    skipErrorHandler: options.silent,
   })
   return unwrapVideoStudioResponse<VideoGeneration>(response.data)
 }

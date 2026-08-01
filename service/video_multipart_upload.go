@@ -77,11 +77,6 @@ func SignVideoAssetUploadPart(
 	if err != nil {
 		return nil, err
 	}
-	if _, completed, recoverErr := recoverCompletedVideoAssetUpload(ctx, db, store, *asset); recoverErr != nil {
-		return nil, recoverErr
-	} else if completed {
-		return nil, ErrVideoAssetUploadCompleted
-	}
 	if err := requirePendingMultipartVideoUpload(ctx, db, store, asset); err != nil {
 		return nil, err
 	}

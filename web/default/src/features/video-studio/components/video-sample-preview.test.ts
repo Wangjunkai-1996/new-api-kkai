@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import { shouldAutoLoadNextVideoSamplePage } from '../video-domain'
 import {
   reduceVideoSamplePlayback,
   releaseVideoSamplePreview,
@@ -35,6 +36,41 @@ const playbackInitialState = {
   loading: false,
   error: false,
 }
+
+describe('video sample gallery pagination', () => {
+  const nearEndState = {
+    hasNextPage: true,
+    isFetchNextPageError: false,
+    isFetchingNextPage: false,
+    lanes: 3,
+    lastVisibleIndex: 18,
+    sampleCount: 24,
+  }
+
+  test('loads the next page when the viewport reaches the prefetch threshold', () => {
+    assert.equal(shouldAutoLoadNextVideoSamplePage(nearEndState), true)
+  })
+
+  test('stops automatic pagination after a next-page error', () => {
+    assert.equal(
+      shouldAutoLoadNextVideoSamplePage({
+        ...nearEndState,
+        isFetchNextPageError: true,
+      }),
+      false
+    )
+  })
+
+  test('does not start a duplicate request while the next page is loading', () => {
+    assert.equal(
+      shouldAutoLoadNextVideoSamplePage({
+        ...nearEndState,
+        isFetchingNextPage: true,
+      }),
+      false
+    )
+  })
+})
 
 describe('video sample preview registry', () => {
   test('warms immediately without starting playback and retains only two previews', () => {

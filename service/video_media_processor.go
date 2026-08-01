@@ -24,6 +24,30 @@ var (
 	ErrVideoMediaToolsNotConfigured = errors.New("video media tools are not pinned correctly")
 )
 
+type permanentVideoMediaError struct {
+	err error
+}
+
+func (err permanentVideoMediaError) Error() string {
+	return err.err.Error()
+}
+
+func (err permanentVideoMediaError) Unwrap() error {
+	return err.err
+}
+
+func markPermanentVideoMediaError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentVideoMediaError{err: err}
+}
+
+func isPermanentVideoMediaError(err error) bool {
+	var permanent permanentVideoMediaError
+	return errors.As(err, &permanent)
+}
+
 const (
 	videoFFmpegPathEnvironment          = "VIDEO_STUDIO_FFMPEG_PATH"
 	videoFFprobePathEnvironment         = "VIDEO_STUDIO_FFPROBE_PATH"
@@ -112,7 +136,7 @@ func (processor *FFmpegVideoMediaProcessor) Inspect(ctx context.Context, inputPa
 	arguments = append(arguments, videoMediaInputArguments(inputPath)...)
 	output, err := processor.runner.Run(commandContext, processor.ffprobePath, arguments...)
 	if err != nil {
-		return VideoMediaMetadata{}, fmt.Errorf("%w: ffprobe failed", ErrVideoMediaProcessingFailed)
+		return VideoMediaMetadata{}, videoMediaCommandError(commandContext, "ffprobe", err)
 	}
 	metadata, err := parseVideoProbeOutput(output)
 	if err != nil {
@@ -134,6 +158,7 @@ func (processor *FFmpegVideoMediaProcessor) CreatePoster(ctx context.Context, in
 		width   int
 		quality int
 	}{{width: 960, quality: 5}, {width: 720, quality: 7}, {width: 480, quality: 9}}
+	var lastCommandErr error
 	for _, attempt := range attempts {
 		_ = os.Remove(outputPath)
 		commandContext, cancel := context.WithTimeout(ctx, videoMediaTimeout(processor.posterTimeout, videoMediaPosterTimeout))
@@ -143,21 +168,41 @@ func (processor *FFmpegVideoMediaProcessor) CreatePoster(ctx context.Context, in
 			"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", attempt.width),
 			"-q:v", strconv.Itoa(attempt.quality), "-fs", strconv.FormatInt(maxBytes+1, 10), "-f", "image2", outputPath)
 		_, err := processor.runner.Run(commandContext, processor.ffmpegPath, arguments...)
+		commandErr := videoMediaCommandError(commandContext, "ffmpeg", err)
+		commandContextErr := commandContext.Err()
 		cancel()
 		if err != nil {
+			_ = os.Remove(outputPath)
+			if commandContextErr != nil {
+				return commandErr
+			}
+			lastCommandErr = commandErr
 			continue
 		}
 		info, err := os.Stat(outputPath)
-		if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxBytes {
+		if err != nil {
+			_ = os.Remove(outputPath)
+			return fmt.Errorf("inspect generated video poster: %w", err)
+		}
+		if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxBytes {
 			continue
 		}
 		metadata, err := processor.Inspect(ctx, outputPath)
-		if err == nil && metadata.MIMEType == "image/jpeg" && metadata.Width <= attempt.width {
+		if err != nil {
+			if errors.Is(err, ErrVideoMediaInvalid) || isPermanentVideoMediaError(err) {
+				continue
+			}
+			return err
+		}
+		if metadata.MIMEType == "image/jpeg" && metadata.Width <= attempt.width {
 			return nil
 		}
 	}
 	_ = os.Remove(outputPath)
-	return ErrVideoMediaProcessingFailed
+	if lastCommandErr != nil {
+		return lastCommandErr
+	}
+	return markPermanentVideoMediaError(fmt.Errorf("%w: generated poster violates media constraints", ErrVideoMediaProcessingFailed))
 }
 
 func (processor *FFmpegVideoMediaProcessor) CreatePreview(ctx context.Context, inputPath string, outputPath string) error {
@@ -181,20 +226,38 @@ func (processor *FFmpegVideoMediaProcessor) CreatePreview(ctx context.Context, i
 	_, err = processor.runner.Run(commandContext, processor.ffmpegPath, arguments...)
 	if err != nil {
 		_ = os.Remove(outputPath)
-		return ErrVideoMediaProcessingFailed
+		return videoMediaCommandError(commandContext, "ffmpeg", err)
 	}
 	info, err := os.Stat(outputPath)
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > videoPreviewMaximumBytes {
+	if err != nil {
 		_ = os.Remove(outputPath)
-		return ErrVideoMediaProcessingFailed
+		return fmt.Errorf("inspect generated video preview: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > videoPreviewMaximumBytes {
+		_ = os.Remove(outputPath)
+		return markPermanentVideoMediaError(fmt.Errorf("%w: generated preview violates size constraints", ErrVideoMediaProcessingFailed))
 	}
 	metadata, err := processor.Inspect(ctx, outputPath)
-	if err != nil || metadata.MIMEType != "video/mp4" || metadata.Codec != "h264" ||
+	if err != nil {
+		_ = os.Remove(outputPath)
+		return err
+	}
+	if metadata.MIMEType != "video/mp4" || metadata.Codec != "h264" ||
 		metadata.Width > 640 || metadata.Height > 640 || metadata.DurationSeconds > 4.25 {
 		_ = os.Remove(outputPath)
-		return ErrVideoMediaProcessingFailed
+		return markPermanentVideoMediaError(fmt.Errorf("%w: generated preview violates media constraints", ErrVideoMediaProcessingFailed))
 	}
 	return nil
+}
+
+func videoMediaCommandError(commandContext context.Context, tool string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if contextErr := commandContext.Err(); contextErr != nil {
+		return contextErr
+	}
+	return fmt.Errorf("%w: %s execution failed: %w", ErrVideoMediaProcessingFailed, tool, err)
 }
 
 type videoProbeOutput struct {

@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +35,63 @@ func (recorder *videoStudioWorkerJobsRecorder) CleanupReferences(context.Context
 func (recorder *videoStudioWorkerJobsRecorder) ProcessOutbox(context.Context) error {
 	recorder.outboxCalls++
 	return nil
+}
+
+func TestVideoStudioWorkerRuntimeAtomicallyRebuildsForRotatedStore(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+
+	toolPath := filepath.Join(t.TempDir(), "video-media-tool")
+	require.NoError(t, os.WriteFile(toolPath, []byte("#!/bin/sh\nprintf 'ffmpeg version runtime-test\\n'\n"), 0o700))
+	digest, err := fileSHA256(toolPath)
+	require.NoError(t, err)
+	t.Setenv(videoFFmpegPathEnvironment, toolPath)
+	t.Setenv(videoFFprobePathEnvironment, toolPath)
+	t.Setenv(videoMediaVersionEnvironment, "runtime-test")
+	t.Setenv(videoFFmpegDigestEnvironment, digest)
+	t.Setenv(videoFFprobeDigestEnvironment, digest)
+	t.Setenv(videoStudioTempDirectoryEnvironment, t.TempDir())
+
+	config := testVideoStudioR2Config("bucket-a")
+	now := time.Unix(100, 0)
+	var buildCalls int
+	provider := newVideoStudioR2StoreProvider(
+		func() (video_studio_setting.R2Config, error) { return config, nil },
+		func(context.Context, video_studio_setting.R2Config) (*S3VideoAssetStore, error) {
+			buildCalls++
+			return &S3VideoAssetStore{}, nil
+		},
+		func() time.Time { return now },
+		time.Minute,
+	)
+	previousProvider := videoStudioR2Stores
+	videoStudioR2Stores = provider
+	t.Cleanup(func() { videoStudioR2Stores = previousProvider })
+
+	runtime := &videoStudioWorkerRuntime{workerID: "runtime-rotation"}
+	require.NoError(t, runtime.initialize(context.Background()))
+	first := runtime.current.Load()
+	require.NotNil(t, first)
+	require.NotNil(t, first.store)
+	require.NotNil(t, first.worker)
+
+	config = testVideoStudioR2Config("bucket-b")
+	now = now.Add(time.Minute)
+	t.Setenv(videoFFmpegDigestEnvironment, strings.Repeat("0", 64))
+	require.ErrorIs(t, runtime.initialize(context.Background()), ErrVideoMediaToolsNotConfigured)
+	rotatedStore := provider.current.Load().store
+	require.NotSame(t, first.store, rotatedStore)
+	require.Same(t, first, runtime.current.Load())
+
+	t.Setenv(videoFFmpegDigestEnvironment, digest)
+	require.NoError(t, runtime.initialize(context.Background()))
+	second := runtime.current.Load()
+	require.NotSame(t, first, second)
+	require.Same(t, rotatedStore, second.store)
+	require.NotSame(t, first.worker, second.worker)
+	require.Equal(t, 2, buildCalls)
 }
 
 func TestVideoStudioRuntimeRegistersIdempotencyCleanupWhenAPIIsEnabled(t *testing.T) {

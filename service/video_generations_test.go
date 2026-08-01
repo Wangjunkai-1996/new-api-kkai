@@ -128,6 +128,42 @@ func TestCreateVideoGenerationRejectsDeletingReference(t *testing.T) {
 	require.False(t, reloadedTask.PrivateData.AssetHostedResult, "generation failure must roll back the task marker")
 }
 
+func TestCreateVideoGenerationAllowsSameAssetForFirstAndLastFrame(t *testing.T) {
+	db := newVideoGenerationTestDB(t)
+	now := time.Now().Unix()
+	task := model.Task{TaskID: "shared-first-last-frame", UserId: 7, Status: model.TaskStatusNotStart, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&task).Error)
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateReady, ObjectKey: "shared-frame.png", MIMEType: "image/png",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	normalized := &NormalizedVideoStudioSubmission{
+		UserID: 7, ProfileID: 1, SpecificationVersion: 1, Model: "model", Mode: VideoModeFirstLastFrame,
+		Prompt: "prompt", Parameters: map[string]any{},
+		ReferenceAssets: []NormalizedVideoReferenceAsset{
+			{Role: model.VideoTaskAssetRoleFirstFrame, Asset: asset},
+			{Role: model.VideoTaskAssetRoleLastFrame, Asset: asset},
+		},
+	}
+
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		_, err := CreateVideoGeneration(context.Background(), tx, normalized, task.ID)
+		return err
+	}))
+
+	var links []model.KKAIVideoTaskAsset
+	require.NoError(t, db.Where("task_id = ?", task.ID).Order("position ASC").Find(&links).Error)
+	require.Len(t, links, 2)
+	require.Equal(t, asset.ID, links[0].AssetID)
+	require.Equal(t, model.VideoTaskAssetRoleFirstFrame, links[0].Role)
+	require.Equal(t, 0, links[0].Position)
+	require.Equal(t, asset.ID, links[1].AssetID)
+	require.Equal(t, model.VideoTaskAssetRoleLastFrame, links[1].Role)
+	require.Equal(t, 1, links[1].Position)
+}
+
 func TestCreateVideoGenerationMarksTaskResultAsAssetHostedInTransaction(t *testing.T) {
 	db := newVideoGenerationTestDB(t)
 	now := time.Now().Unix()

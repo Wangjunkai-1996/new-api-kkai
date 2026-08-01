@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,8 +150,64 @@ func TestFFmpegVideoMediaProcessorCommandDeadlineStopsHungRunner(t *testing.T) {
 	}
 	started := time.Now()
 	_, err := processor.Inspect(context.Background(), input)
-	require.ErrorIs(t, err, ErrVideoMediaProcessingFailed)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.False(t, isPermanentVideoAssetError(err))
 	require.Less(t, time.Since(started), time.Second)
+}
+
+func TestFFmpegVideoMediaProcessorPreservesRetryableCommandFailures(t *testing.T) {
+	tempDir := t.TempDir()
+	input := filepath.Join(tempDir, "source.mp4")
+	require.NoError(t, os.WriteFile(input, []byte("source"), 0o600))
+	commandErr := errors.New("temporary process failure")
+	processor := &FFmpegVideoMediaProcessor{
+		ffmpegPath: "ffmpeg", ffprobePath: "ffprobe",
+		runner: videoMediaRunner(func(context.Context, string, ...string) ([]byte, error) {
+			return nil, commandErr
+		}),
+	}
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "inspect", run: func() error {
+			_, err := processor.Inspect(context.Background(), input)
+			return err
+		}},
+		{name: "poster", run: func() error {
+			return processor.CreatePoster(context.Background(), input, filepath.Join(tempDir, "poster.jpg"), videoPosterMaximumBytes)
+		}},
+		{name: "preview", run: func() error {
+			return processor.CreatePreview(context.Background(), input, filepath.Join(tempDir, "preview.mp4"))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.run()
+			require.ErrorIs(t, err, commandErr)
+			require.ErrorIs(t, err, ErrVideoMediaProcessingFailed)
+			require.False(t, isPermanentVideoAssetError(err))
+		})
+	}
+}
+
+func TestFFmpegVideoMediaProcessorMarksInvalidGeneratedPreviewPermanent(t *testing.T) {
+	tempDir := t.TempDir()
+	input := filepath.Join(tempDir, "source.mp4")
+	output := filepath.Join(tempDir, "preview.mp4")
+	require.NoError(t, os.WriteFile(input, []byte("source"), 0o600))
+	processor := &FFmpegVideoMediaProcessor{
+		ffmpegPath: "ffmpeg", ffprobePath: "ffprobe",
+		runner: videoMediaRunner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+			require.Equal(t, "ffmpeg", name)
+			return nil, os.WriteFile(args[len(args)-1], nil, 0o600)
+		}),
+	}
+
+	err := processor.CreatePreview(context.Background(), input, output)
+	require.ErrorIs(t, err, ErrVideoMediaProcessingFailed)
+	require.True(t, isPermanentVideoMediaError(err))
+	require.True(t, isPermanentVideoAssetError(err))
 }
 
 func TestFFmpegVideoMediaProcessorKeepsPosterWithinLimit(t *testing.T) {

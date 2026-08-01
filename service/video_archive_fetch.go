@@ -28,6 +28,30 @@ var (
 	ErrVideoTemporaryStorageUnavailable = errors.New("video temporary storage is unavailable")
 )
 
+type videoArchiveHTTPStatusError struct {
+	statusCode int
+}
+
+func (err *videoArchiveHTTPStatusError) Error() string {
+	return fmt.Sprintf("video archive source returned HTTP status %d", err.statusCode)
+}
+
+func (err *videoArchiveHTTPStatusError) Unwrap() error {
+	return ErrVideoArchiveResponseRejected
+}
+
+func (err *videoArchiveHTTPStatusError) retryable() bool {
+	if err == nil {
+		return false
+	}
+	switch err.statusCode {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
+		return true
+	default:
+		return err.statusCode >= http.StatusInternalServerError && err.statusCode <= 599
+	}
+}
+
 const videoTemporaryStorageReserveBytes uint64 = 64 << 20
 
 type VideoArchiveSourceFetcher interface {
@@ -134,7 +158,10 @@ func (fetcher *HTTPVideoArchiveFetcher) fetchURL(ctx context.Context, source vid
 	if err := fetcher.validateURL(ctx, parsed); err != nil {
 		configuredProviderContent = matchesConfiguredProviderContentURL(parsed, source.ProviderContentBaseURL)
 		if !configuredProviderContent || len(source.Headers) == 0 {
-			return nil, ErrVideoArchiveSourceRejected
+			if errors.Is(err, ErrVideoArchiveSourceRejected) {
+				return nil, ErrVideoArchiveSourceRejected
+			}
+			return nil, fmt.Errorf("validate video archive source: %w", err)
 		}
 	}
 	if configuredProviderContent && fetcher.providerClient == nil {
@@ -178,7 +205,7 @@ func (fetcher *HTTPVideoArchiveFetcher) fetchURL(ctx context.Context, source vid
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, ErrVideoArchiveResponseRejected
+		return nil, &videoArchiveHTTPStatusError{statusCode: response.StatusCode}
 	}
 	if response.ContentLength > maxBytes {
 		return nil, ErrVideoArchiveTooLarge
@@ -338,7 +365,7 @@ func (transport *videoArchivePinnedRoundTripper) RoundTrip(request *http.Request
 	}
 	addresses, err := resolveStrictVideoArchiveTarget(request.Context(), request.URL, transport.resolver)
 	if err != nil {
-		return nil, ErrVideoArchiveSourceRejected
+		return nil, err
 	}
 
 	originHost := request.URL.Host
@@ -496,8 +523,11 @@ func resolveStrictVideoArchiveTarget(ctx context.Context, parsed *url.URL, resol
 		return nil, ErrVideoArchiveSourceRejected
 	}
 	addresses, err := resolver.LookupIPAddr(ctx, parsed.Hostname())
-	if err != nil || len(addresses) == 0 {
-		return nil, ErrVideoArchiveSourceRejected
+	if err != nil {
+		return nil, fmt.Errorf("resolve video archive source: %w", err)
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("video archive source DNS resolution returned no addresses")
 	}
 	validated := make([]net.IP, 0, len(addresses))
 	for _, address := range addresses {

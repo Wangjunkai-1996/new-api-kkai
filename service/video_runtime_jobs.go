@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
@@ -22,19 +23,23 @@ type videoStudioWorkerJobs interface {
 type videoStudioWorkerRuntime struct {
 	mu       sync.Mutex
 	workerID string
-	store    VideoAssetStore
-	worker   *VideoOutboxWorker
+	current  atomic.Pointer[videoStudioWorkerRuntimeSnapshot]
+}
+
+type videoStudioWorkerRuntimeSnapshot struct {
+	store  *S3VideoAssetStore
+	worker *VideoOutboxWorker
 }
 
 func (runtime *videoStudioWorkerRuntime) initialize(ctx context.Context) error {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	if runtime.worker != nil && runtime.store != nil {
-		return nil
-	}
-	store, err := NewR2VideoAssetStoreFromEnvironment(ctx)
+	store, err := VideoStudioR2AssetStore(ctx)
 	if err != nil {
 		return err
+	}
+	if current := runtime.current.Load(); current != nil && current.store == store {
+		return nil
 	}
 	media, err := NewPinnedFFmpegVideoMediaProcessorFromEnvironment(ctx)
 	if err != nil {
@@ -56,8 +61,7 @@ func (runtime *videoStudioWorkerRuntime) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	runtime.store = store
-	runtime.worker = worker
+	runtime.current.Store(&videoStudioWorkerRuntimeSnapshot{store: store, worker: worker})
 	return nil
 }
 
@@ -65,7 +69,11 @@ func (runtime *videoStudioWorkerRuntime) ExpireUploads(ctx context.Context) erro
 	if err := runtime.initialize(ctx); err != nil {
 		return err
 	}
-	_, err := ExpireVideoAssetUploads(ctx, model.DB, runtime.store, 100)
+	current := runtime.current.Load()
+	if current == nil {
+		return ErrInvalidVideoOutboxEvent
+	}
+	_, err := ExpireVideoAssetUploads(ctx, model.DB, current.store, 100)
 	return err
 }
 
@@ -83,7 +91,11 @@ func (runtime *videoStudioWorkerRuntime) ProcessOutbox(ctx context.Context) erro
 	if err := runtime.initialize(ctx); err != nil {
 		return err
 	}
-	return runtime.worker.ProcessOnce(ctx)
+	current := runtime.current.Load()
+	if current == nil {
+		return ErrInvalidVideoOutboxEvent
+	}
+	return current.worker.ProcessOnce(ctx)
 }
 
 func RegisterVideoStudioBackgroundJobs(registry *BackgroundJobRegistry, workerID string) error {

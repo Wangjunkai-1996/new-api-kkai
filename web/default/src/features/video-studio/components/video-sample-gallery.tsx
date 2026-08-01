@@ -42,6 +42,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { useVideoModels, useVideoSamples } from '../queries'
 import type { VideoSample } from '../types'
+import { shouldAutoLoadNextVideoSamplePage } from '../video-domain'
 import {
   VIDEO_SAMPLE_CATEGORIES,
   VIDEO_SAMPLE_CATEGORIES_ENABLED,
@@ -126,6 +127,12 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     model: modelFilter || undefined,
     category: categoryFilter || undefined,
   })
+  const {
+    fetchNextPage,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+  } = samplesQuery
   const samples = useMemo(
     () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [samplesQuery.data]
@@ -187,16 +194,27 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   useEffect(() => {
     const lastItem = virtualItems.at(-1)
     if (
-      !lastItem ||
-      !samplesQuery.hasNextPage ||
-      samplesQuery.isFetchingNextPage
+      !shouldAutoLoadNextVideoSamplePage({
+        hasNextPage,
+        isFetchNextPageError,
+        isFetchingNextPage,
+        lanes,
+        lastVisibleIndex: lastItem?.index,
+        sampleCount: samples.length,
+      })
     ) {
       return
     }
-    if (lastItem.index >= samples.length - lanes * 2) {
-      void samplesQuery.fetchNextPage()
-    }
-  }, [lanes, samples.length, samplesQuery, virtualItems])
+    void fetchNextPage()
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+    lanes,
+    samples.length,
+    virtualItems,
+  ])
 
   const initialLoading = samplesQuery.isLoading && samples.length === 0
   const initialError = samplesQuery.isError && samples.length === 0
@@ -357,6 +375,27 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
             {t('videoStudio.loadingMore')}
           </div>
         )}
+
+        {samplesQuery.isFetchNextPageError &&
+          !samplesQuery.isFetchingNextPage &&
+          samples.length > 0 && (
+            <div
+              className='text-destructive flex items-center justify-center gap-3 py-4 text-xs'
+              role='alert'
+            >
+              <span>{t('videoStudio.refreshFailed')}</span>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                disabled={samplesQuery.isFetchingNextPage}
+                onClick={() => void samplesQuery.fetchNextPage()}
+              >
+                <RotateCw aria-hidden='true' />
+                {t('videoStudio.retry')}
+              </Button>
+            </div>
+          )}
       </div>
     </section>
   )

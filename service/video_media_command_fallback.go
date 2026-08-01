@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"time"
 )
@@ -15,7 +16,13 @@ func (execVideoMediaCommandRunner) Run(ctx context.Context, name string, args ..
 	command.Stdout = output
 	command.Stderr = output
 	err := command.Run()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return output.Bytes(), ctxErr
+	}
 	if output.overflow {
+		if err != nil {
+			return output.Bytes(), errors.Join(ErrVideoMediaProcessingFailed, err)
+		}
 		return output.Bytes(), ErrVideoMediaProcessingFailed
 	}
 	return output.Bytes(), err

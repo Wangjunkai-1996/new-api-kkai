@@ -25,6 +25,12 @@ func (transport videoArchiveRoundTripper) RoundTrip(request *http.Request) (*htt
 	return transport(request)
 }
 
+type videoArchiveResolverFunc func(context.Context, string) ([]net.IPAddr, error)
+
+func (resolver videoArchiveResolverFunc) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return resolver(ctx, host)
+}
+
 type contextBlockingVideoArchiveBody struct {
 	ctx context.Context
 }
@@ -220,6 +226,91 @@ func TestHTTPVideoArchiveFetcherEnforcesMIMEAndStreamLimit(t *testing.T) {
 			require.ErrorIs(t, err, test.wantErr)
 		})
 	}
+}
+
+func TestHTTPVideoArchiveFetcherClassifiesResponseStatuses(t *testing.T) {
+	tests := []struct {
+		statusCode int
+		retryable  bool
+	}{
+		{statusCode: http.StatusBadRequest},
+		{statusCode: http.StatusNotFound},
+		{statusCode: http.StatusRequestTimeout, retryable: true},
+		{statusCode: http.StatusConflict},
+		{statusCode: http.StatusTooEarly, retryable: true},
+		{statusCode: http.StatusTooManyRequests, retryable: true},
+		{statusCode: http.StatusInternalServerError, retryable: true},
+		{statusCode: http.StatusServiceUnavailable, retryable: true},
+	}
+	for _, test := range tests {
+		t.Run(http.StatusText(test.statusCode), func(t *testing.T) {
+			fetcher := &HTTPVideoArchiveFetcher{
+				client: &http.Client{Transport: videoArchiveRoundTripper(func(request *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: test.statusCode,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(strings.NewReader("status response")),
+						Request:    request,
+					}, nil
+				})},
+				tempDir:        t.TempDir(),
+				availableBytes: func(string) (uint64, error) { return 1 << 30, nil },
+				validateURL:    func(context.Context, *url.URL) error { return nil },
+			}
+
+			_, err := fetcher.Fetch(context.Background(), "https://media.example/video.mp4", 1024)
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrVideoArchiveResponseRejected)
+			var statusErr *videoArchiveHTTPStatusError
+			require.ErrorAs(t, err, &statusErr)
+			require.Equal(t, test.statusCode, statusErr.statusCode)
+			require.Equal(t, test.retryable, statusErr.retryable())
+			require.Equal(t, !test.retryable, isPermanentVideoAssetError(err))
+		})
+	}
+}
+
+func TestHTTPVideoArchiveFetcherKeepsDNSFailuresRetryable(t *testing.T) {
+	dnsErr := &net.DNSError{Err: "temporary resolver failure", Name: "media.example", IsTemporary: true}
+
+	t.Run("source validation", func(t *testing.T) {
+		var requests atomic.Int32
+		fetcher := &HTTPVideoArchiveFetcher{
+			client: &http.Client{Transport: videoArchiveRoundTripper(func(*http.Request) (*http.Response, error) {
+				requests.Add(1)
+				return nil, nil
+			})},
+			tempDir:        t.TempDir(),
+			availableBytes: func(string) (uint64, error) { return 1 << 30, nil },
+			validateURL:    func(context.Context, *url.URL) error { return dnsErr },
+		}
+
+		_, err := fetcher.Fetch(context.Background(), "https://media.example/video.mp4", 1024)
+		require.ErrorIs(t, err, dnsErr)
+		require.False(t, isPermanentVideoAssetError(err))
+		require.Zero(t, requests.Load())
+	})
+
+	t.Run("pinned target resolution", func(t *testing.T) {
+		fetcher := newVideoArchiveTestFetcher(t, "video/mp4", "unused")
+		fetcher.validateURL = func(context.Context, *url.URL) error { return nil }
+		fetcher.proxyResolver = videoArchiveResolverFunc(func(context.Context, string) ([]net.IPAddr, error) {
+			return nil, dnsErr
+		})
+		var dials atomic.Int32
+		fetcher.proxyDialContext = func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+			return nil, fmt.Errorf("unexpected dial")
+		}
+
+		_, err := fetcher.FetchTaskSource(context.Background(), videoArchiveTaskSource{
+			Source:  "https://media.example/video.mp4",
+			Headers: map[string]string{"Authorization": "Bearer secret"},
+		}, 1024)
+		require.ErrorIs(t, err, dnsErr)
+		require.False(t, isPermanentVideoAssetError(err))
+		require.Zero(t, dials.Load())
+	})
 }
 
 func TestHTTPVideoArchiveFetcherWritesBoundedTemporaryFile(t *testing.T) {

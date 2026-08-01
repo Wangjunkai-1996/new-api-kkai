@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Film, LoaderCircle, RotateCw } from 'lucide-react'
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge, type StatusVariant } from '@/components/status-badge'
@@ -61,10 +60,7 @@ const STATUS_LABELS: Record<VideoGenerationStatus, string> = {
 export function VideoTasksPage() {
   const { t } = useTranslation()
   const generationsQuery = useVideoGenerations({}, true)
-  const generations = useMemo(
-    () => generationsQuery.data?.pages.flatMap((page) => page.items) ?? [],
-    [generationsQuery.data]
-  )
+  const generations = generationsQuery.items
 
   return (
     <main
@@ -76,7 +72,7 @@ export function VideoTasksPage() {
           <Button
             size='icon-sm'
             variant='ghost'
-            onClick={() => generationsQuery.refetch()}
+            onClick={() => void generationsQuery.refresh()}
             aria-label={t('videoStudio.refresh')}
           >
             <RotateCw
@@ -116,7 +112,7 @@ export function VideoTasksPage() {
             <EmptyContent>
               <Button
                 variant='outline'
-                onClick={() => generationsQuery.refetch()}
+                onClick={() => void generationsQuery.refresh()}
               >
                 <RotateCw aria-hidden='true' />
                 {t('videoStudio.retry')}
@@ -150,7 +146,7 @@ export function VideoTasksPage() {
             <Button
               size='sm'
               variant='outline'
-              onClick={() => generationsQuery.refetch()}
+              onClick={() => void generationsQuery.refresh()}
             >
               {t('videoStudio.retry')}
             </Button>

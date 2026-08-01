@@ -25,6 +25,8 @@ type multipartVideoAssetStore struct {
 	parts             []VideoAssetUploadedPart
 	completeCalls     int
 	abortCalls        int
+	headCalls         int
+	presignCalls      int
 	presignedLength   int64
 	presignedExpiry   time.Duration
 	objectKey         string
@@ -48,6 +50,7 @@ func (store *multipartVideoAssetStore) CreateMultipartUpload(_ context.Context, 
 }
 
 func (store *multipartVideoAssetStore) PresignUploadPart(_ context.Context, _ string, _ string, _ int32, contentLength int64, expires time.Duration) (VideoAssetSignedRequest, error) {
+	store.presignCalls++
 	if store.presignErr != nil {
 		return VideoAssetSignedRequest{}, store.presignErr
 	}
@@ -57,6 +60,11 @@ func (store *multipartVideoAssetStore) PresignUploadPart(_ context.Context, _ st
 		URL: "https://signed.example/part", Method: "PUT", Headers: map[string]string{"Content-Length": fmt.Sprint(contentLength)},
 		ExpiresAt: time.Now().Add(expires).Unix(),
 	}, nil
+}
+
+func (store *multipartVideoAssetStore) Head(ctx context.Context, key string) (VideoAssetObjectMetadata, error) {
+	store.headCalls++
+	return store.memoryVideoAssetStore.Head(ctx, key)
 }
 
 func (store *multipartVideoAssetStore) ListUploadedParts(context.Context, string, string) ([]VideoAssetUploadedPart, error) {
@@ -188,6 +196,7 @@ func TestMultipartVideoUploadRecoversWithoutPersistedClientETags(t *testing.T) {
 			store.listErr = ErrVideoMultipartUploadNotFound
 
 			require.NoError(t, test.recover(context.Background(), db, store, upload.Asset.ID))
+			require.Equal(t, 1, store.headCalls)
 			var persisted model.KKAIVideoAsset
 			require.NoError(t, db.First(&persisted, upload.Asset.ID).Error)
 			require.Equal(t, model.VideoAssetStateUploaded, persisted.State)
@@ -282,6 +291,7 @@ func TestMultipartVideoUploadCleanupPreservesCompletedObject(t *testing.T) {
 			require.Contains(t, store.objects, store.objectKey)
 			require.Zero(t, store.deleteCount[store.objectKey])
 			require.Zero(t, store.abortCalls)
+			require.Equal(t, 1, store.headCalls)
 		})
 	}
 }
@@ -382,6 +392,23 @@ func TestMultipartVideoUploadPartSignatureUsesExpectedSizeAndShortExpiry(t *test
 	require.Positive(t, store.presignedExpiry)
 	require.LessOrEqual(t, store.presignedExpiry, videoMultipartPartSignatureTTL)
 	require.Greater(t, signed.ExpiresAt, time.Now().Unix())
+}
+
+func TestMultipartVideoUploadPartSigningDoesNotProbeCompletedObject(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	store := newMultipartVideoAssetStore()
+	upload, err := CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
+		Purpose: model.VideoAssetKindReference, Filename: "reference.png", MIMEType: "image/png",
+		SizeBytes: 2*videoMultipartPartSize + 1024, Multipart: true,
+	})
+	require.NoError(t, err)
+
+	for partNumber := int32(1); partNumber <= 3; partNumber++ {
+		_, err := SignVideoAssetUploadPart(context.Background(), db, store, 7, false, upload.Asset.ID, partNumber)
+		require.NoError(t, err)
+	}
+	require.Equal(t, 3, store.presignCalls)
+	require.Zero(t, store.headCalls)
 }
 
 func TestMultipartVideoUploadExpiresAndAborts(t *testing.T) {

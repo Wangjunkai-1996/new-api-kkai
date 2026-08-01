@@ -78,16 +78,12 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
   const scrolledTaskRef = useRef<string | null>(null)
   const generations = useMemo(() => {
     const seenTaskIds = new Set<string>()
-    return (
-      generationsQuery.data?.pages
-        .flatMap((page) => page.items)
-        .filter((generation) => {
-          if (seenTaskIds.has(generation.task_id)) return false
-          seenTaskIds.add(generation.task_id)
-          return true
-        }) ?? []
-    )
-  }, [generationsQuery.data])
+    return generationsQuery.items.filter((generation) => {
+      if (seenTaskIds.has(generation.task_id)) return false
+      seenTaskIds.add(generation.task_id)
+      return true
+    })
+  }, [generationsQuery.items])
   const targetGeneration = props.targetTaskId
     ? generations.find(
         (generation) => generation.task_id === props.targetTaskId
@@ -155,6 +151,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
     try {
       if (activePlayerId === deleteTarget.id) setActivePlayerId(null)
       await deleteMutation.mutateAsync(deleteTarget.id)
+      await generationsQuery.forgetObservedGeneration(deleteTarget.id)
       if (deleteTarget.task_id === props.targetTaskId) props.onClearTarget?.()
       toast.success(t('videoStudio.deleted'))
       setDeleteTarget(null)
@@ -167,7 +164,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
 
   const retryTargetDiscovery = () => {
     setTargetWaitAttempt((attempt) => attempt + 1)
-    void generationsQuery.refetch()
+    void generationsQuery.refresh()
   }
 
   return (
@@ -180,7 +177,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
           <Button
             size='icon-sm'
             variant='ghost'
-            onClick={() => generationsQuery.refetch()}
+            onClick={() => void generationsQuery.refresh()}
             aria-label={t('videoStudio.refresh')}
           >
             <RotateCw
@@ -216,7 +213,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
             <Button
               size='icon-sm'
               variant='ghost'
-              onClick={() => generationsQuery.refetch()}
+              onClick={() => void generationsQuery.refresh()}
               aria-label={t('videoStudio.refresh')}
             >
               <RotateCw aria-hidden='true' />
@@ -297,7 +294,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
             <EmptyContent>
               <Button
                 variant='outline'
-                onClick={() => generationsQuery.refetch()}
+                onClick={() => void generationsQuery.refresh()}
               >
                 <RotateCw aria-hidden='true' />
                 {t('videoStudio.retry')}
@@ -342,7 +339,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
             <Button
               size='sm'
               variant='outline'
-              onClick={() => generationsQuery.refetch()}
+              onClick={() => void generationsQuery.refresh()}
             >
               {t('videoStudio.retry')}
             </Button>

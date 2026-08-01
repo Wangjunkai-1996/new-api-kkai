@@ -97,7 +97,7 @@ func videoStudioAssetStore(c *gin.Context) (service.VideoAssetStore, error) {
 			return store, nil
 		}
 	}
-	return service.NewR2VideoAssetStoreFromEnvironment(c.Request.Context())
+	return service.VideoStudioR2AssetStore(c.Request.Context())
 }
 
 func videoStudioID(c *gin.Context) (int64, error) {

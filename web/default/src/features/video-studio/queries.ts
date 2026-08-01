@@ -17,8 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  type InfiniteData,
   type MutationFilters,
   type QueryClient,
+  type UseQueryResult,
   useInfiniteQuery,
   useIsMutating,
   useMutation,
@@ -26,6 +28,8 @@ import {
   useQueryClient,
   useQueries,
 } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { useAuthStore } from '@/stores/auth-store'
@@ -54,6 +58,8 @@ import {
 } from './api'
 import type {
   CreateVideoRequest,
+  CursorPage,
+  VideoGeneration,
   VideoGenerationFilters,
   VideoModelProfileInput,
   VideoQuoteRequest,
@@ -64,6 +70,7 @@ import type {
 import {
   getVideoSamplePreparationPollInterval,
   getVideoTaskPollInterval,
+  isVideoGenerationActive,
 } from './video-domain'
 import { shouldRetryVideoReferenceHydration } from './video-reference-hydration'
 
@@ -89,10 +96,22 @@ export const videoStudioQueryKeys = {
     privateUserQueryKey(userId, 'video-studio', 'token'),
   quote: (userId: number, request: VideoQuoteRequest) =>
     privateUserQueryKey(userId, 'video-studio', 'quote', request),
+  generationsAll: (userId: number) =>
+    privateUserQueryKey(userId, 'video-studio', 'generations'),
   generations: (
     userId: number,
     filters: Omit<VideoGenerationFilters, 'cursor'>
-  ) => privateUserQueryKey(userId, 'video-studio', 'generations', filters),
+  ) =>
+    [
+      ...videoStudioQueryKeys.generationsAll(userId),
+      'history',
+      filters,
+    ] as const,
+  generationHead: (
+    userId: number,
+    filters: Omit<VideoGenerationFilters, 'cursor'>
+  ) =>
+    [...videoStudioQueryKeys.generationsAll(userId), 'head', filters] as const,
   generation: (userId: number, id: number) =>
     privateUserQueryKey(userId, 'video-studio', 'generation', id),
   asset: (userId: number, id: number) =>
@@ -299,30 +318,337 @@ export const useCreateVideoGeneration = () => {
   })
 }
 
+export const mergeVideoGenerationItems = (
+  historyItems: VideoGeneration[],
+  headItems: VideoGeneration[],
+  detailItems: VideoGeneration[],
+  observedItems: VideoGeneration[] = [],
+  excludedIds?: ReadonlySet<number>
+): VideoGeneration[] => {
+  const mergedById = new Map(observedItems.map((item) => [item.id, item]))
+  for (const item of historyItems) {
+    mergedById.set(item.id, item)
+  }
+  for (const item of headItems) {
+    mergedById.set(item.id, item)
+  }
+  for (const item of detailItems) {
+    mergedById.set(item.id, item)
+  }
+  return [...mergedById.values()]
+    .filter((item) => !excludedIds?.has(item.id))
+    .sort((left, right) => right.id - left.id)
+}
+
+export type VideoGenerationObservation = {
+  item: VideoGeneration
+  terminalExpiresAt?: number
+}
+
+export type VideoGenerationDetailProbe =
+  | { kind: 'found'; item: VideoGeneration }
+  | { id: number; kind: 'not_found' }
+  | { id: number; kind: 'transient_error' }
+
+const VIDEO_GENERATION_PAGE_SIZE = 24
+const VIDEO_GENERATION_TERMINAL_GAP_TTL_MS = 2 * 60 * 1_000
+const VIDEO_GENERATION_TERMINAL_GAP_LIMIT = 48
+
+const hasFiniteVideoGenerationTerminalExpiry = (
+  observation: VideoGenerationObservation
+): observation is VideoGenerationObservation & { terminalExpiresAt: number } =>
+  typeof observation.terminalExpiresAt === 'number' &&
+  Number.isFinite(observation.terminalExpiresAt)
+
+export const reconcileVideoGenerationObservations = ({
+  detailProbes,
+  headItems,
+  historyItems,
+  nowMs,
+  previous,
+}: {
+  detailProbes: VideoGenerationDetailProbe[]
+  headItems: VideoGeneration[]
+  historyItems: VideoGeneration[]
+  nowMs: number
+  previous: VideoGenerationObservation[]
+}): VideoGenerationObservation[] => {
+  const observationsById = new Map<number, VideoGenerationObservation>()
+  for (const observation of previous) {
+    if (
+      hasFiniteVideoGenerationTerminalExpiry(observation) &&
+      observation.terminalExpiresAt <= nowMs
+    ) {
+      continue
+    }
+    observationsById.set(observation.item.id, observation)
+  }
+
+  const canonicalItemsById = new Map<number, VideoGeneration>()
+  for (const item of historyItems) canonicalItemsById.set(item.id, item)
+  for (const item of headItems) canonicalItemsById.set(item.id, item)
+  for (const item of canonicalItemsById.values()) {
+    if (!isVideoGenerationActive(item)) {
+      observationsById.delete(item.id)
+      continue
+    }
+    const current = observationsById.get(item.id)
+    if (current && !isVideoGenerationActive(current.item)) continue
+    if (current?.item === item) continue
+    observationsById.set(item.id, { item })
+  }
+
+  for (const [id, observation] of observationsById) {
+    if (isVideoGenerationActive(observation.item)) continue
+    const canonicalItem = canonicalItemsById.get(id)
+    if (canonicalItem && isVideoGenerationActive(canonicalItem)) {
+      if (hasFiniteVideoGenerationTerminalExpiry(observation)) {
+        observationsById.set(id, { item: observation.item })
+      }
+      continue
+    }
+    if (
+      !canonicalItem &&
+      !hasFiniteVideoGenerationTerminalExpiry(observation)
+    ) {
+      observationsById.set(id, {
+        item: observation.item,
+        terminalExpiresAt: nowMs + VIDEO_GENERATION_TERMINAL_GAP_TTL_MS,
+      })
+    }
+  }
+
+  for (const probe of detailProbes) {
+    if (probe.kind === 'transient_error') continue
+    if (probe.kind === 'not_found') {
+      observationsById.delete(probe.id)
+      continue
+    }
+    const item = probe.item
+    const canonicalItem = canonicalItemsById.get(item.id)
+    if (canonicalItem && !isVideoGenerationActive(canonicalItem)) {
+      observationsById.delete(item.id)
+      continue
+    }
+    const current = observationsById.get(item.id)
+    if (!current) continue
+    if (isVideoGenerationActive(item)) {
+      if (current.item !== item || current.terminalExpiresAt !== undefined) {
+        observationsById.set(item.id, { item })
+      }
+      continue
+    }
+    let terminalExpiresAt: number | undefined
+    if (!canonicalItem) {
+      terminalExpiresAt = hasFiniteVideoGenerationTerminalExpiry(current)
+        ? current.terminalExpiresAt
+        : nowMs + VIDEO_GENERATION_TERMINAL_GAP_TTL_MS
+    }
+    if (
+      current.item !== item ||
+      current.terminalExpiresAt !== terminalExpiresAt
+    ) {
+      observationsById.set(
+        item.id,
+        terminalExpiresAt === undefined ? { item } : { item, terminalExpiresAt }
+      )
+    }
+  }
+
+  const active: VideoGenerationObservation[] = []
+  const terminalOverrides: VideoGenerationObservation[] = []
+  const terminalGaps: Array<
+    VideoGenerationObservation & { terminalExpiresAt: number }
+  > = []
+  for (const observation of observationsById.values()) {
+    if (isVideoGenerationActive(observation.item)) {
+      active.push(observation)
+    } else if (hasFiniteVideoGenerationTerminalExpiry(observation)) {
+      if (observation.terminalExpiresAt > nowMs) terminalGaps.push(observation)
+    } else {
+      terminalOverrides.push(observation)
+    }
+  }
+  terminalGaps.sort((left, right) => {
+    const expiryOrder = right.terminalExpiresAt - left.terminalExpiresAt
+    return expiryOrder === 0 ? right.item.id - left.item.id : expiryOrder
+  })
+  const previousById = new Map(
+    previous.map((observation) => [observation.item.id, observation])
+  )
+  const next = [
+    ...active,
+    ...terminalOverrides,
+    ...terminalGaps.slice(0, VIDEO_GENERATION_TERMINAL_GAP_LIMIT),
+  ]
+    .sort((left, right) => right.item.id - left.item.id)
+    .map((observation) => {
+      const prior = previousById.get(observation.item.id)
+      return prior?.item === observation.item &&
+        prior.terminalExpiresAt === observation.terminalExpiresAt
+        ? prior
+        : observation
+    })
+
+  return next.length === previous.length &&
+    next.every((observation, index) => observation === previous[index])
+    ? previous
+    : next
+}
+
+export const forgetVideoGenerationObservation = (
+  observations: VideoGenerationObservation[],
+  generationId: number
+): VideoGenerationObservation[] => {
+  const index = observations.findIndex(
+    (observation) => observation.item.id === generationId
+  )
+  if (index < 0) return observations
+  return observations.filter(
+    (observation) => observation.item.id !== generationId
+  )
+}
+
+const removeVideoGenerationsFromPage = (
+  page: CursorPage<VideoGeneration>,
+  generationIds: ReadonlySet<number>
+): CursorPage<VideoGeneration> => {
+  const items = page.items.filter((item) => !generationIds.has(item.id))
+  return items.length === page.items.length ? page : { ...page, items }
+}
+
+export const pruneVideoGenerationQueryCaches = async (
+  queryClient: QueryClient,
+  userId: number,
+  filters: Omit<VideoGenerationFilters, 'cursor'>,
+  generationIds: ReadonlySet<number>
+): Promise<void> => {
+  if (generationIds.size === 0) return
+
+  const historyKey = videoStudioQueryKeys.generations(userId, filters)
+  const headKey = videoStudioQueryKeys.generationHead(userId, filters)
+  await Promise.all([
+    queryClient.cancelQueries({ exact: true, queryKey: historyKey }),
+    queryClient.cancelQueries({ exact: true, queryKey: headKey }),
+  ])
+
+  queryClient.setQueryData<
+    InfiniteData<CursorPage<VideoGeneration>, string | undefined>
+  >(historyKey, (current) => {
+    if (!current) return current
+    const pages = current.pages.map((page) =>
+      removeVideoGenerationsFromPage(page, generationIds)
+    )
+    return pages.every((page, index) => page === current.pages[index])
+      ? current
+      : { ...current, pages }
+  })
+  queryClient.setQueryData<CursorPage<VideoGeneration>>(headKey, (current) =>
+    current ? removeVideoGenerationsFromPage(current, generationIds) : current
+  )
+}
+
+const EMPTY_VIDEO_GENERATIONS: VideoGeneration[] = []
+const EMPTY_VIDEO_GENERATION_OBSERVATIONS: VideoGenerationObservation[] = []
+
+const isVideoGenerationTombstoneError = (error: unknown): boolean =>
+  isAxiosError(error) && [404, 410].includes(error.response?.status ?? 0)
+
 export const useVideoGenerations = (
   filters: Omit<VideoGenerationFilters, 'cursor'> = {},
   adaptivePolling = false,
   targetTaskId?: string
 ) => {
   const userId = useVideoStudioUserId()
-  return useInfiniteQuery({
-    queryKey: videoStudioQueryKeys.generations(userId, filters),
+  const queryClient = useQueryClient()
+  const filterLimit = filters.limit
+  const filterStatus = filters.status
+  const stableFilters = useMemo(() => {
+    const value: Omit<VideoGenerationFilters, 'cursor'> = {}
+    if (filterLimit !== undefined) value.limit = filterLimit
+    if (filterStatus !== undefined) value.status = filterStatus
+    return value
+  }, [filterLimit, filterStatus])
+  const observationScope = JSON.stringify(
+    videoStudioQueryKeys.generations(userId, stableFilters)
+  )
+  const observationScopeRef = useRef(observationScope)
+  observationScopeRef.current = observationScope
+  const historyQuery = useInfiniteQuery({
+    queryKey: videoStudioQueryKeys.generations(userId, stableFilters),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
-      getVideoGenerations({ ...filters, cursor: pageParam, limit: 24 }),
+      getVideoGenerations({
+        ...stableFilters,
+        cursor: pageParam,
+        limit: VIDEO_GENERATION_PAGE_SIZE,
+      }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
     enabled: userId > 0,
+    refetchOnWindowFocus: adaptivePolling || Boolean(targetTaskId),
+  })
+  const historyItems = useMemo(
+    () => historyQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [historyQuery.data]
+  )
+  const historyHeadItems =
+    historyQuery.data?.pages[0]?.items ?? EMPTY_VIDEO_GENERATIONS
+  const livePollingEnabled =
+    userId > 0 && adaptivePolling && historyQuery.data !== undefined
+  const [observationState, setObservationState] = useState<{
+    observations: VideoGenerationObservation[]
+    scope: string
+  }>({ observations: [], scope: observationScope })
+  const observations =
+    livePollingEnabled && observationState.scope === observationScope
+      ? observationState.observations
+      : EMPTY_VIDEO_GENERATION_OBSERVATIONS
+  const observationItems = useMemo(
+    () => observations.map((observation) => observation.item),
+    [observations]
+  )
+  const forgetObservedGeneration = useCallback(
+    async (generationId: number): Promise<void> => {
+      await pruneVideoGenerationQueryCaches(
+        queryClient,
+        userId,
+        stableFilters,
+        new Set([generationId])
+      )
+      if (observationScopeRef.current !== observationScope) return
+      setObservationState((current) => {
+        if (current.scope !== observationScope) return current
+        const observations = forgetVideoGenerationObservation(
+          current.observations,
+          generationId
+        )
+        return observations === current.observations
+          ? current
+          : { ...current, observations }
+      })
+    },
+    [observationScope, queryClient, stableFilters, userId]
+  )
+  const headQuery = useQuery({
+    queryKey: videoStudioQueryKeys.generationHead(userId, stableFilters),
+    queryFn: () =>
+      getVideoGenerations({
+        ...stableFilters,
+        limit: VIDEO_GENERATION_PAGE_SIZE,
+      }),
+    enabled: livePollingEnabled,
     refetchInterval: (query) => {
       if (!adaptivePolling) return false
-      const generations = query.state.data?.pages.flatMap((page) => page.items)
-      if (!generations) return false
+      const generations = query.state.data?.items ?? historyHeadItems
       const visible =
         typeof document === 'undefined' ||
         document.visibilityState === 'visible'
       if (!visible) return false
       if (
         targetTaskId &&
-        !generations.some((generation) => generation.task_id === targetTaskId)
+        ![...generations, ...historyItems, ...observationItems].some(
+          (generation) => generation.task_id === targetTaskId
+        )
       ) {
         return 3_000
       }
@@ -334,6 +660,189 @@ export const useVideoGenerations = (
     },
     refetchOnWindowFocus: adaptivePolling || Boolean(targetTaskId),
   })
+  const effectiveHeadItems = livePollingEnabled
+    ? (headQuery.data?.items ?? historyHeadItems)
+    : historyHeadItems
+  const detailTargets = useMemo(() => {
+    const headIds = new Set(effectiveHeadItems.map((item) => item.id))
+    return observations.filter(
+      (observation) =>
+        isVideoGenerationActive(observation.item) &&
+        !headIds.has(observation.item.id)
+    )
+  }, [effectiveHeadItems, observations])
+  const combineDetailQueries = useCallback(
+    (queries: UseQueryResult<VideoGeneration>[]) => ({
+      probes: queries.flatMap<VideoGenerationDetailProbe>((query, index) => {
+        const observation = detailTargets[index]
+        if (!observation) return []
+        if (query.isError) {
+          return [
+            isVideoGenerationTombstoneError(query.error)
+              ? { id: observation.item.id, kind: 'not_found' }
+              : { id: observation.item.id, kind: 'transient_error' },
+          ]
+        }
+        return query.data ? [{ item: query.data, kind: 'found' }] : []
+      }),
+      queries,
+    }),
+    [detailTargets]
+  )
+  const { probes: detailProbes, queries: detailQueries } = useQueries({
+    queries: detailTargets.map((observation) => ({
+      queryKey: videoStudioQueryKeys.generation(userId, observation.item.id),
+      queryFn: () => getVideoGeneration(observation.item.id, { silent: true }),
+      enabled: livePollingEnabled && isVideoGenerationActive(observation.item),
+      retry: (failureCount: number, error: unknown) =>
+        !isVideoGenerationTombstoneError(error) && failureCount < 3,
+      refetchInterval: (query: { state: { data?: VideoGeneration } }) => {
+        if (!isVideoGenerationActive(observation.item)) return false
+        const visible =
+          typeof document === 'undefined' ||
+          document.visibilityState === 'visible'
+        return getVideoTaskPollInterval(
+          [query.state.data ?? observation.item],
+          Math.floor(Date.now() / 1000),
+          visible
+        )
+      },
+      refetchOnWindowFocus:
+        adaptivePolling && isVideoGenerationActive(observation.item),
+    })),
+    combine: combineDetailQueries,
+  })
+  const tombstonedGenerationIds = useMemo(
+    () =>
+      new Set(
+        detailProbes.flatMap((probe) =>
+          probe.kind === 'not_found' ? [probe.id] : []
+        )
+      ),
+    [detailProbes]
+  )
+  const reconcileObservations = useCallback(
+    async (nowMs: number): Promise<void> => {
+      if (tombstonedGenerationIds.size > 0) {
+        await pruneVideoGenerationQueryCaches(
+          queryClient,
+          userId,
+          stableFilters,
+          tombstonedGenerationIds
+        )
+      }
+      if (observationScopeRef.current !== observationScope) return
+      setObservationState((current) => {
+        const previous =
+          current.scope === observationScope
+            ? current.observations
+            : EMPTY_VIDEO_GENERATION_OBSERVATIONS
+        const next = reconcileVideoGenerationObservations({
+          detailProbes,
+          headItems: effectiveHeadItems,
+          historyItems,
+          nowMs,
+          previous,
+        })
+        const unchanged =
+          current.scope === observationScope &&
+          next.length === current.observations.length &&
+          next.every(
+            (observation, index) => observation === current.observations[index]
+          )
+        return unchanged
+          ? current
+          : { observations: next, scope: observationScope }
+      })
+    },
+    [
+      detailProbes,
+      effectiveHeadItems,
+      historyItems,
+      observationScope,
+      queryClient,
+      stableFilters,
+      tombstonedGenerationIds,
+      userId,
+    ]
+  )
+  useEffect(() => {
+    if (!livePollingEnabled) return
+    void reconcileObservations(Date.now())
+  }, [livePollingEnabled, reconcileObservations])
+  const nextTerminalExpiresAt = useMemo(() => {
+    let next: number | undefined
+    for (const observation of observations) {
+      if (
+        hasFiniteVideoGenerationTerminalExpiry(observation) &&
+        (next === undefined || observation.terminalExpiresAt < next)
+      ) {
+        next = observation.terminalExpiresAt
+      }
+    }
+    return next
+  }, [observations])
+  useEffect(() => {
+    if (!livePollingEnabled || nextTerminalExpiresAt === undefined) return
+    const timeout = window.setTimeout(
+      () => void reconcileObservations(Date.now()),
+      Math.max(0, nextTerminalExpiresAt - Date.now()) + 1
+    )
+    return () => window.clearTimeout(timeout)
+  }, [livePollingEnabled, nextTerminalExpiresAt, reconcileObservations])
+  const detailItems = [
+    ...observations.flatMap((observation) =>
+      isVideoGenerationActive(observation.item) ? [] : [observation.item]
+    ),
+    ...detailProbes.flatMap((probe) =>
+      probe.kind === 'found' ? [probe.item] : []
+    ),
+  ]
+  const items = mergeVideoGenerationItems(
+    historyItems,
+    effectiveHeadItems,
+    detailItems,
+    observationItems,
+    tombstonedGenerationIds
+  )
+  const liveErrorQuery = detailQueries.find(
+    (query) => query.isError && !isVideoGenerationTombstoneError(query.error)
+  )
+  const refresh = async (): Promise<void> => {
+    const requests: Promise<unknown>[] = [historyQuery.refetch()]
+    if (livePollingEnabled) {
+      requests.push(headQuery.refetch())
+      requests.push(
+        ...detailQueries.flatMap((query, index) => {
+          const observation = detailTargets[index]
+          return observation && isVideoGenerationActive(observation.item)
+            ? [query.refetch()]
+            : []
+        })
+      )
+    }
+    await Promise.all(requests)
+  }
+
+  const liveQueryError = livePollingEnabled
+    ? (headQuery.error ?? liveErrorQuery?.error ?? null)
+    : null
+
+  return {
+    ...historyQuery,
+    forgetObservedGeneration,
+    items,
+    refresh,
+    error: historyQuery.error ?? liveQueryError,
+    isError:
+      historyQuery.isError ||
+      (livePollingEnabled && (headQuery.isError || Boolean(liveErrorQuery))),
+    isFetching:
+      historyQuery.isFetching ||
+      (livePollingEnabled &&
+        (headQuery.isFetching ||
+          detailQueries.some((query) => query.isFetching))),
+  }
 }
 
 export const useVideoGeneration = (id?: number) => {
@@ -378,7 +887,7 @@ export const useDeleteVideoGeneration = () => {
     mutationFn: deleteVideoGeneration,
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: [...videoStudioQueryKeys.privateAll(userId), 'generations'],
+        queryKey: videoStudioQueryKeys.generationsAll(userId),
       })
     },
   })

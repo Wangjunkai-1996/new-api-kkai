@@ -874,11 +874,12 @@ func TestVideoAssetPipelineDeleteIsIdempotent(t *testing.T) {
 	store := newMemoryVideoAssetStore()
 	store.objects["source.mp4"] = []byte("video")
 	store.objects["poster.jpg"] = []byte("poster")
+	store.objects["preview.mp4"] = []byte("preview")
 	pipeline, err := NewVideoAssetPipeline(db, store, staticVideoMediaProcessor{}, &staticVideoArchiveFetcher{}, t.TempDir())
 	require.NoError(t, err)
 	asset := model.KKAIVideoAsset{
 		OwnerUserID: 9, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindOutput,
-		State: model.VideoAssetStateDeleting, ObjectKey: "source.mp4", PosterObjectKey: "poster.jpg",
+		State: model.VideoAssetStateDeleting, ObjectKey: "source.mp4", PosterObjectKey: "poster.jpg", PreviewObjectKey: "preview.mp4",
 		MIMEType: "video/mp4", CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}
 	require.NoError(t, db.Create(&asset).Error)
@@ -893,6 +894,7 @@ func TestVideoAssetPipelineDeleteIsIdempotent(t *testing.T) {
 	require.Positive(t, asset.DeletedAt)
 	require.Equal(t, 1, store.deleteCount["source.mp4"])
 	require.Equal(t, 1, store.deleteCount["poster.jpg"])
+	require.Equal(t, 1, store.deleteCount["preview.mp4"])
 }
 
 func TestVideoAssetPipelineDeleteRechecksReferenceUseBeforeRemovingR2Object(t *testing.T) {
@@ -919,13 +921,59 @@ func TestVideoAssetPipelineDeleteRechecksReferenceUseBeforeRemovingR2Object(t *t
 	payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
 	require.NoError(t, err)
 
+	err = pipeline.HandleDelete(context.Background(), model.KKAIOutboxEvent{
+		Payload: string(payload), Topic: VideoOutboxTopicDelete,
+	})
+	var deferred deferredKKAIOutboxError
+	require.ErrorAs(t, err, &deferred)
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateDeleting, asset.State)
+	require.Equal(t, []byte("image"), store.objects[asset.ObjectKey])
+	require.Zero(t, store.deleteCount[asset.ObjectKey])
+
+	require.NoError(t, db.Model(&activeTask).Update("status", model.TaskStatusSuccess).Error)
 	require.NoError(t, pipeline.HandleDelete(context.Background(), model.KKAIOutboxEvent{
 		Payload: string(payload), Topic: VideoOutboxTopicDelete,
 	}))
 	require.NoError(t, db.First(&asset, asset.ID).Error)
-	require.Equal(t, model.VideoAssetStateReady, asset.State)
-	require.Equal(t, []byte("image"), store.objects[asset.ObjectKey])
-	require.Zero(t, store.deleteCount[asset.ObjectKey])
+	require.Equal(t, model.VideoAssetStateDeleted, asset.State)
+	require.NotContains(t, store.objects, asset.ObjectKey)
+}
+
+func TestVideoAssetPipelineDeleteDefersWhileCatalogSampleUsesAsset(t *testing.T) {
+	for _, status := range []string{model.VideoSampleStatusDraft, model.VideoSampleStatusPublished} {
+		t.Run(status, func(t *testing.T) {
+			db := newVideoPipelineTestDB(t)
+			store := newMemoryVideoAssetStore()
+			store.objects["catalog/in-use-sample.mp4"] = []byte("video")
+			pipeline, err := NewVideoAssetPipeline(db, store, staticVideoMediaProcessor{}, &staticVideoArchiveFetcher{}, t.TempDir())
+			require.NoError(t, err)
+			now := time.Now().Unix()
+			asset := model.KKAIVideoAsset{
+				OwnerUserID: 9, Scope: model.VideoAssetScopeCatalog, Kind: model.VideoAssetKindSample,
+				State: model.VideoAssetStateDeleting, ObjectKey: "catalog/in-use-sample.mp4", MIMEType: "video/mp4",
+				CreatedAt: now, UpdatedAt: now,
+			}
+			require.NoError(t, db.Create(&asset).Error)
+			require.NoError(t, db.Create(&model.KKAIVideoSample{
+				ModelProfileID: 1, Title: "In-use sample", Prompt: "prompt", Mode: VideoModeTextToVideo,
+				ModelVersion: 1, Parameters: `{}`, ReferenceAssetIDs: `[]`, VideoAssetID: asset.ID,
+				AspectRatio: 1, Status: status, CreatedAt: now, UpdatedAt: now,
+			}).Error)
+			payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
+			require.NoError(t, err)
+
+			err = pipeline.HandleDelete(context.Background(), model.KKAIOutboxEvent{
+				Payload: string(payload), Topic: VideoOutboxTopicDelete,
+			})
+			var deferred deferredKKAIOutboxError
+			require.ErrorAs(t, err, &deferred)
+			require.NoError(t, db.First(&asset, asset.ID).Error)
+			require.Equal(t, model.VideoAssetStateDeleting, asset.State)
+			require.Contains(t, store.objects, asset.ObjectKey)
+			require.Zero(t, store.deleteCount[asset.ObjectKey])
+		})
+	}
 }
 
 func TestVideoAssetPipelineSamplePrepareCreatesPreviewWithoutAnotherTopic(t *testing.T) {

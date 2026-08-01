@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +62,103 @@ func TestRefreshVideoArchiveSourceRejectsNilResponseOrBody(t *testing.T) {
 			require.ErrorIs(t, err, ErrVideoArchiveResponseRejected)
 		})
 	}
+}
+
+func TestRefreshVideoArchiveSourceClassifiesHTTPStatus(t *testing.T) {
+	tests := []struct {
+		statusCode int
+		retryable  bool
+	}{
+		{statusCode: http.StatusBadRequest},
+		{statusCode: http.StatusTooManyRequests, retryable: true},
+		{statusCode: http.StatusBadGateway, retryable: true},
+	}
+	for _, test := range tests {
+		t.Run(http.StatusText(test.statusCode), func(t *testing.T) {
+			previousFactory := GetTaskAdaptorFunc
+			GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor {
+				return &archiveSourceRefreshAdaptor{response: &http.Response{
+					StatusCode: test.statusCode,
+					Body:       io.NopCloser(strings.NewReader("status response")),
+				}}
+			}
+			t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+			pipeline := &VideoAssetPipeline{}
+			_, err := pipeline.refreshVideoArchiveSource(context.Background(), model.Task{
+				Platform: constant.TaskPlatform("gemini"),
+				PrivateData: model.TaskPrivateData{
+					UpstreamTaskID: "operations/private",
+				},
+			}, model.Channel{Type: constant.ChannelTypeGemini, Key: "private-key"})
+
+			var statusErr *videoArchiveHTTPStatusError
+			require.ErrorAs(t, err, &statusErr)
+			require.Equal(t, test.retryable, statusErr.retryable())
+			require.Equal(t, !test.retryable, isPermanentVideoAssetError(err))
+		})
+	}
+}
+
+func TestVideoAssetPipelineClassifiesProcessingErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		permanent bool
+	}{
+		{name: "HTTP 429 retries", err: &videoArchiveHTTPStatusError{statusCode: http.StatusTooManyRequests}},
+		{name: "HTTP 503 retries", err: &videoArchiveHTTPStatusError{statusCode: http.StatusServiceUnavailable}},
+		{name: "HTTP 404 fails", err: &videoArchiveHTTPStatusError{statusCode: http.StatusNotFound}, permanent: true},
+		{name: "unclassified media execution retries", err: ErrVideoMediaProcessingFailed},
+		{name: "invalid media fails", err: ErrVideoMediaInvalid, permanent: true},
+		{name: "invalid generated media fails", err: markPermanentVideoMediaError(ErrVideoMediaProcessingFailed), permanent: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := newVideoPipelineTestDB(t)
+			now := time.Now().Unix()
+			asset := model.KKAIVideoAsset{
+				OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindOutput,
+				State: model.VideoAssetStateProcessing, ObjectKey: "processing-error.mp4",
+				CreatedAt: now, UpdatedAt: now,
+			}
+			require.NoError(t, db.Create(&asset).Error)
+			pipeline := &VideoAssetPipeline{db: db, now: time.Now}
+
+			err := pipeline.assetProcessingError(context.Background(), asset.ID, test.err)
+			require.Equal(t, test.permanent, isPermanentVideoAssetError(test.err))
+			var permanent permanentKKAIOutboxError
+			require.Equal(t, test.permanent, errors.As(err, &permanent))
+
+			require.NoError(t, db.First(&asset, asset.ID).Error)
+			if test.permanent {
+				require.Equal(t, model.VideoAssetStateFailed, asset.State)
+			} else {
+				require.Equal(t, model.VideoAssetStateProcessing, asset.State)
+			}
+		})
+	}
+}
+
+func TestVideoAssetPipelineDefersParentCancellationWithoutFailingAsset(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	now := time.Now()
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindOutput,
+		State: model.VideoAssetStateProcessing, ObjectKey: "canceled-processing.mp4",
+		CreatedAt: now.Unix(), UpdatedAt: now.Unix(),
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	pipeline := &VideoAssetPipeline{db: db, now: func() time.Time { return now }}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := pipeline.assetProcessingError(ctx, asset.ID, context.Canceled)
+	var deferred deferredKKAIOutboxError
+	require.ErrorAs(t, err, &deferred)
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	require.Equal(t, model.VideoAssetStateProcessing, asset.State)
 }
 
 func TestResolveVideoArchiveSourceScopesGeminiAPIKeyToProviderOrigin(t *testing.T) {

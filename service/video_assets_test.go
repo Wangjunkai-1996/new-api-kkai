@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestCreateVideoAssetUploadRestrictsCatalogSamplesToAdministrators(t *testing.T) {
+func TestCreateVideoAssetUploadKeepsUnattachedAdminSamplesInUserScope(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
 	store := newMemoryVideoAssetStore()
 	request := VideoAssetUploadRequest{
@@ -23,7 +24,7 @@ func TestCreateVideoAssetUploadRestrictsCatalogSamplesToAdministrators(t *testin
 	require.ErrorIs(t, err, ErrInvalidVideoAssetUpload)
 	upload, err := CreateVideoAssetUpload(context.Background(), db, store, 7, true, request)
 	require.NoError(t, err)
-	require.Equal(t, model.VideoAssetScopeCatalog, upload.Asset.Scope)
+	require.Equal(t, model.VideoAssetScopeUser, upload.Asset.Scope)
 	require.Equal(t, model.VideoAssetKindSample, upload.Asset.Kind)
 	require.Equal(t, upload.UploadLimits.SampleMaxBytes, upload.MaxSizeBytes)
 	require.Equal(t, upload.UploadLimits.ArchiveMaxBytes, upload.MaxSizeBytes)
@@ -207,13 +208,44 @@ func TestDeleteVideoReferenceAssetAuditsTaskAndSampleReferences(t *testing.T) {
 	_, err = DeleteVideoReferenceAsset(context.Background(), db, 7, assets[2].ID)
 	require.NoError(t, err)
 	_, err = DeleteVideoReferenceAsset(context.Background(), db, 7, assets[3].ID)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrVideoAssetInUse)
 	_, err = DeleteVideoReferenceAsset(context.Background(), db, 7, assets[4].ID)
 	require.ErrorIs(t, err, ErrVideoAssetInUse)
 
 	var events int64
 	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", VideoOutboxTopicDelete).Count(&events).Error)
-	require.EqualValues(t, 3, events)
+	require.EqualValues(t, 2, events)
+}
+
+func TestDeleteVideoReferenceAssetQueuesNewEventAfterDeadDeleteAttempt(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	now := time.Now().Unix()
+	asset := model.KKAIVideoAsset{
+		OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindReference,
+		State: model.VideoAssetStateFailed, ObjectKey: "users/7/retry-delete.png", MIMEType: "image/png",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	payload, err := common.Marshal(VideoAssetEventPayload{AssetID: asset.ID})
+	require.NoError(t, err)
+	deadEvent := model.KKAIOutboxEvent{
+		EventKey: "video:asset:" + strconv.FormatInt(asset.ID, 10) + ":delete:v2", Topic: VideoOutboxTopicDelete,
+		AggregateID: strconv.FormatInt(asset.ID, 10), Payload: string(payload),
+		Status: model.KKAIOutboxStatusDead, AvailableAt: now, CreatedAt: now,
+	}
+	require.NoError(t, db.Create(&deadEvent).Error)
+
+	deleted, err := DeleteVideoReferenceAsset(context.Background(), db, 7, asset.ID)
+	require.NoError(t, err)
+	require.Equal(t, model.VideoAssetStateDeleting, deleted.State)
+
+	var events []model.KKAIOutboxEvent
+	require.NoError(t, db.Where("topic = ? AND aggregate_id = ?", VideoOutboxTopicDelete, strconv.FormatInt(asset.ID, 10)).
+		Order("id ASC").Find(&events).Error)
+	require.Len(t, events, 2)
+	require.Equal(t, model.KKAIOutboxStatusDead, events[0].Status)
+	require.Equal(t, model.KKAIOutboxStatusPending, events[1].Status)
+	require.NotEqual(t, events[0].EventKey, events[1].EventKey)
 }
 
 func TestDeleteVideoReferenceAssetRemovesMediaButKeepsTerminalGenerationAudit(t *testing.T) {
@@ -300,6 +332,37 @@ func TestCleanupAbandonedVideoReferenceAssetsSkipsRecentAndReferencedAssets(t *t
 		require.NoError(t, db.First(&assets[index], assets[index].ID).Error)
 		require.Equal(t, expected, assets[index].State)
 	}
+}
+
+func TestCleanupAbandonedVideoReferenceAssetsIncludesUnattachedSampleUploads(t *testing.T) {
+	db := newVideoPipelineTestDB(t)
+	now := time.Now()
+	assets := []model.KKAIVideoAsset{
+		{
+			OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindSample,
+			State: model.VideoAssetStateReady, ObjectKey: "users/7/unattached-sample.mp4", MIMEType: "video/mp4",
+			CreatedAt: now.Add(-48 * time.Hour).Unix(), UpdatedAt: now.Unix(),
+		},
+		{
+			OwnerUserID: 7, Scope: model.VideoAssetScopeUser, Kind: model.VideoAssetKindSample,
+			State: model.VideoAssetStateReady, ObjectKey: "users/7/recent-sample.mp4", MIMEType: "video/mp4",
+			CreatedAt: now.Add(-time.Hour).Unix(), UpdatedAt: now.Unix(),
+		},
+	}
+	for index := range assets {
+		require.NoError(t, db.Create(&assets[index]).Error)
+	}
+
+	cleaned, err := CleanupAbandonedVideoReferenceAssets(context.Background(), db, now.Add(-24*time.Hour), 100)
+	require.NoError(t, err)
+	require.Equal(t, 1, cleaned)
+	for index, expected := range []string{model.VideoAssetStateDeleting, model.VideoAssetStateReady} {
+		require.NoError(t, db.First(&assets[index], assets[index].ID).Error)
+		require.Equal(t, expected, assets[index].State)
+	}
+	var deleteEvents int64
+	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", VideoOutboxTopicDelete).Count(&deleteEvents).Error)
+	require.EqualValues(t, 1, deleteEvents)
 }
 
 func TestCleanupAbandonedVideoReferenceAssetsDoesNotStarveBehindUsedHeadRows(t *testing.T) {

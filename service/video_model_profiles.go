@@ -233,12 +233,14 @@ func UpdateVideoModelProfile(ctx context.Context, db *gorm.DB, id int64, input V
 	}
 	var updated model.KKAIVideoModelProfile
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.First(&updated, "id = ?", id).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrVideoModelProfileNotFound
-			}
+		profiles, err := lockVideoModelProfileRowsForUpdate(ctx, tx, []int64{id})
+		if err != nil {
 			return err
 		}
+		if len(profiles) != 1 {
+			return ErrVideoModelProfileNotFound
+		}
+		updated = profiles[0]
 		if normalized.Model != updated.Model {
 			return ErrVideoModelProfileModelImmutable
 		}

@@ -140,7 +140,7 @@ func (pipeline *VideoAssetPipeline) HandleArchive(ctx context.Context, event mod
 	}
 	archiveSource, err := pipeline.resolveVideoArchiveSource(ctx, *asset)
 	if err != nil {
-		return err
+		return pipeline.assetProcessingError(ctx, asset.ID, err)
 	}
 	archiveSourceSHA256 := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(archiveSource.fetch.Source))))
 	settings := video_studio_setting.Get()
@@ -197,7 +197,7 @@ func (pipeline *VideoAssetPipeline) HandleArchive(ctx context.Context, event mod
 	cancelPut()
 	closeErr := file.Close()
 	if putErr != nil {
-		return putErr
+		return pipeline.assetProcessingError(ctx, asset.ID, putErr)
 	}
 	if closeErr != nil {
 		return closeErr
@@ -381,7 +381,7 @@ func (pipeline *VideoAssetPipeline) refreshVideoArchiveSource(ctx context.Contex
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", ErrVideoArchiveResponseRejected
+		return "", &videoArchiveHTTPStatusError{statusCode: response.StatusCode}
 	}
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -512,9 +512,14 @@ func (pipeline *VideoAssetPipeline) HandlePoster(ctx context.Context, event mode
 		return err
 	}
 	info, err := posterFile.Stat()
-	if err != nil || info.Size() <= 0 || info.Size() > videoPosterMaximumBytes {
+	if err != nil {
 		_ = posterFile.Close()
-		return pipeline.assetProcessingError(ctx, asset.ID, ErrVideoMediaProcessingFailed)
+		return err
+	}
+	if info.Size() <= 0 || info.Size() > videoPosterMaximumBytes {
+		_ = posterFile.Close()
+		return pipeline.assetProcessingError(ctx, asset.ID,
+			markPermanentVideoMediaError(fmt.Errorf("%w: generated poster violates size constraints", ErrVideoMediaProcessingFailed)))
 	}
 	putErr := pipeline.store.Put(ctx, posterKey, "image/jpeg", posterFile, info.Size())
 	closeErr := posterFile.Close()
@@ -571,9 +576,14 @@ func (pipeline *VideoAssetPipeline) prepareSamplePreview(ctx context.Context, as
 		return err
 	}
 	info, err := previewFile.Stat()
-	if err != nil || info.Size() <= 0 || info.Size() > videoPreviewMaximumBytes {
+	if err != nil {
 		_ = previewFile.Close()
-		return pipeline.assetProcessingError(ctx, asset.ID, ErrVideoMediaProcessingFailed)
+		return err
+	}
+	if info.Size() <= 0 || info.Size() > videoPreviewMaximumBytes {
+		_ = previewFile.Close()
+		return pipeline.assetProcessingError(ctx, asset.ID,
+			markPermanentVideoMediaError(fmt.Errorf("%w: generated preview violates size constraints", ErrVideoMediaProcessingFailed)))
 	}
 	putErr := pipeline.store.Put(ctx, previewKey, "video/mp4", previewFile, info.Size())
 	closeErr := previewFile.Close()
@@ -607,16 +617,12 @@ func (pipeline *VideoAssetPipeline) HandleDelete(ctx context.Context, event mode
 	if asset.State != model.VideoAssetStateDeleting {
 		return nil
 	}
-	if asset.Kind == model.VideoAssetKindReference {
-		inUse, err := videoReferenceAssetInUse(ctx, pipeline.db, asset.ID)
-		if err != nil {
-			return err
-		}
-		if inUse {
-			return pipeline.db.WithContext(ctx).Model(&model.KKAIVideoAsset{}).
-				Where("id = ? AND state = ?", asset.ID, model.VideoAssetStateDeleting).
-				Updates(map[string]any{"state": model.VideoAssetStateReady, "updated_at": pipeline.now().Unix()}).Error
-		}
+	inUse, err := videoAssetInUse(ctx, pipeline.db, asset.ID)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return DeferKKAIOutboxUntil(pipeline.now().Add(30*time.Second), ErrVideoAssetInUse)
 	}
 	keys := make([]string, 0, 3)
 	for _, key := range []string{asset.ObjectKey, asset.PosterObjectKey, asset.PreviewObjectKey} {
@@ -747,6 +753,9 @@ func (pipeline *VideoAssetPipeline) markVideoAssetReady(ctx context.Context, ass
 }
 
 func (pipeline *VideoAssetPipeline) assetProcessingError(ctx context.Context, assetID int64, err error) error {
+	if contextErr := ctx.Err(); contextErr != nil && errors.Is(err, contextErr) {
+		return DeferKKAIOutboxUntil(pipeline.now(), err)
+	}
 	if !isPermanentVideoAssetError(err) {
 		return err
 	}
@@ -764,9 +773,13 @@ func (pipeline *VideoAssetPipeline) assetProcessingError(ctx context.Context, as
 }
 
 func isPermanentVideoAssetError(err error) bool {
+	var statusErr *videoArchiveHTTPStatusError
+	if errors.As(err, &statusErr) {
+		return !statusErr.retryable()
+	}
 	return errors.Is(err, ErrVideoArchiveSourceRejected) || errors.Is(err, ErrVideoArchiveResponseRejected) ||
 		errors.Is(err, ErrVideoArchiveMIMERejected) || errors.Is(err, ErrVideoArchiveTooLarge) ||
-		errors.Is(err, ErrVideoMediaInvalid) || errors.Is(err, ErrVideoMediaProcessingFailed)
+		errors.Is(err, ErrVideoMediaInvalid) || isPermanentVideoMediaError(err)
 }
 
 func videoAssetFailureReason(err error) string {

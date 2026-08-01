@@ -115,7 +115,6 @@ func CreateVideoAssetUpload(
 		if !isAdmin || !isSupportedVideoMIME(request.MIMEType) {
 			return nil, ErrInvalidVideoAssetUpload
 		}
-		scope = model.VideoAssetScopeCatalog
 		kind = model.VideoAssetKindSample
 		maxBytes = uploadLimits.SampleMaxBytes
 	default:
