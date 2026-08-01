@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { isAxiosError } from 'axios'
-import { LoaderCircle, Plus, Trash2 } from 'lucide-react'
+import { LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -106,6 +106,8 @@ export function VideoSampleAdmin() {
   const initializedSampleProfileIdRef = useRef(0)
   const analyzedAssetSignatureRef = useRef('')
   const titledAssetIdRef = useRef(0)
+  const preparingAssetIdRef = useRef(0)
+  const [preparationNow, setPreparationNow] = useState(() => Date.now())
   const form = useForm<VideoSampleFormValues>({
     resolver: zodResolver(videoSampleFormSchema),
     defaultValues: createVideoSampleFormValues(),
@@ -133,8 +135,22 @@ export function VideoSampleAdmin() {
   const waitingForPreparedSample = Boolean(
     selected &&
     sampleVideoAsset?.id === selected.video_asset_id &&
+    sampleVideoAsset.state !== 'failed' &&
+    sampleVideoAsset.state !== 'deleting' &&
+    sampleVideoAsset.state !== 'deleted' &&
     (!sampleVideoAsset.poster_url || !sampleVideoAsset.preview_url)
   )
+  useEffect(() => {
+    if (!waitingForPreparedSample) return
+    const updateNow = () => setPreparationNow(Date.now())
+    updateNow()
+    const timer = window.setInterval(updateNow, 1_000)
+    return () => window.clearInterval(timer)
+  }, [
+    sampleVideoAsset?.id,
+    sampleVideoAsset?.updated_at,
+    waitingForPreparedSample,
+  ])
   useEffect(() => {
     const sampleId = selected?.id ?? null
     const profile = modelsQuery.data?.find(
@@ -225,6 +241,30 @@ export function VideoSampleAdmin() {
   const samplePrepared = Boolean(
     sampleVideoAsset?.poster_url && sampleVideoAsset?.preview_url
   )
+  const preparationElapsedSeconds =
+    waitingForPreparedSample && sampleVideoAsset
+      ? Math.max(
+          0,
+          Math.floor(preparationNow / 1_000) - sampleVideoAsset.updated_at
+        )
+      : 0
+  const preparationTakingLong = preparationElapsedSeconds >= 60
+
+  useEffect(() => {
+    const assetId = sampleVideoAsset?.id ?? 0
+    if (waitingForPreparedSample) {
+      preparingAssetIdRef.current = assetId
+      return
+    }
+    if (
+      assetId > 0 &&
+      samplePrepared &&
+      preparingAssetIdRef.current === assetId
+    ) {
+      toast.success(t('videoStudio.admin.previewReady'))
+    }
+    preparingAssetIdRef.current = 0
+  }, [samplePrepared, sampleVideoAsset?.id, t, waitingForPreparedSample])
 
   useEffect(() => {
     const durationError = 'videoStudio.validation.sampleDurationUnsupported'
@@ -502,6 +542,22 @@ export function VideoSampleAdmin() {
       initializedSampleProfileIdRef.current = selectedProfile.id
       form.reset(createVideoSampleFormValues(saved, selectedProfile))
       setSelected(saved)
+      setVideoAssets((assets) => {
+        const current = assets[0]
+        if (assets.length !== 1 || current?.id !== saved.video_asset_id) {
+          return assets
+        }
+        return [
+          {
+            ...current,
+            scope: 'catalog',
+            content_url: saved.video_url || current.content_url,
+            poster_url: saved.poster_url || current.poster_url,
+            preview_url: saved.preview_url || current.preview_url,
+            updated_at: saved.updated_at,
+          },
+        ]
+      })
       toast.success(t('videoStudio.admin.sampleSaved'))
     } catch (error) {
       const responseError = isAxiosError<VideoStudioApiError>(error)
@@ -882,20 +938,64 @@ export function VideoSampleAdmin() {
             )}
           />
           {!assetsInspected &&
+            !sampleVideoAssetQuery.isError &&
             (videoAssets.length > 0 || referenceAssets.length > 0) && (
               <p className='text-muted-foreground text-xs' role='status'>
                 {t('videoStudio.admin.waitForAssets')}
               </p>
             )}
-          {assetsReady && !samplePrepared && (
-            <p className='text-muted-foreground text-xs' role='status'>
-              {t(
-                waitingForPreparedSample
-                  ? 'videoStudio.admin.preparingPreview'
-                  : 'videoStudio.admin.saveDraftForPreview'
-              )}
-            </p>
+          {sampleVideoAssetQuery.isError && (
+            <div
+              className='text-destructive flex items-center justify-between gap-2 text-xs'
+              role='alert'
+            >
+              <span>{t('videoStudio.refreshFailed')}</span>
+              <Button
+                type='button'
+                size='xs'
+                variant='outline'
+                onClick={() => void sampleVideoAssetQuery.refetch()}
+                disabled={sampleVideoAssetQuery.isFetching}
+              >
+                {sampleVideoAssetQuery.isFetching ? (
+                  <LoaderCircle
+                    className='animate-spin motion-reduce:animate-none'
+                    aria-hidden='true'
+                  />
+                ) : (
+                  <RefreshCw aria-hidden='true' />
+                )}
+                {t('videoStudio.recheck')}
+              </Button>
+            </div>
           )}
+          {assetsReady &&
+            !samplePrepared &&
+            (waitingForPreparedSample ? (
+              <div className='border-border bg-muted/30 flex items-start gap-2 rounded-md border px-3 py-2.5'>
+                <LoaderCircle
+                  className='text-muted-foreground mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none'
+                  aria-hidden='true'
+                />
+                <div className='min-w-0 space-y-0.5'>
+                  <p className='text-sm font-medium' role='status'>
+                    {t('videoStudio.admin.preparingPreview')}
+                  </p>
+                  <p className='text-muted-foreground text-xs tabular-nums'>
+                    {t(
+                      preparationTakingLong
+                        ? 'videoStudio.admin.preparingPreviewTakingLong'
+                        : 'videoStudio.admin.preparingPreviewElapsed',
+                      { seconds: preparationElapsedSeconds }
+                    )}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className='text-muted-foreground text-xs' role='status'>
+                {t('videoStudio.admin.saveDraftForPreview')}
+              </p>
+            ))}
           {form.formState.errors.root?.message && (
             <p className='text-destructive text-xs' role='alert'>
               {form.formState.errors.root.message}
