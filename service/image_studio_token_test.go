@@ -72,12 +72,13 @@ func seedImageStudioModel(t *testing.T, db *gorm.DB, modelName string, channelTy
 
 func TestEnabledImageStudioModelsFiltersNonImageEndpoints(t *testing.T) {
 	db := setupImageStudioTokenTest(t)
-	seedImageStudioModel(t, db, "gpt-image-1", constant.ChannelTypeOpenAI)
+	seedImageStudioModel(t, db, "gpt-image-2", constant.ChannelTypeOpenAI)
+	seedImageStudioModel(t, db, "gpt-image-2-1k", constant.ChannelTypeOpenAI)
 	seedImageStudioModel(t, db, "chat-only-model", constant.ChannelTypeOpenAI)
 
 	models, err := enabledConfiguredImageStudioModelsForGroup(context.Background(), db, ImageStudioTokenGroup)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"gpt-image-1"}, models)
+	assert.Equal(t, []string{"gpt-image-2"}, models)
 }
 
 func TestEnsureImageStudioTokenIsIdempotentAndManaged(t *testing.T) {

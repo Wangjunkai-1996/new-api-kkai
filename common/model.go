@@ -37,6 +37,9 @@ func IsOpenAIResponseOnlyModel(modelName string) bool {
 
 func IsImageGenerationModel(modelName string) bool {
 	modelName = strings.ToLower(modelName)
+	if modelName == "gpt-image-2" {
+		return true
+	}
 	for _, m := range ImageGenerationModels {
 		if strings.Contains(modelName, m) {
 			return true
