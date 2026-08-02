@@ -240,6 +240,28 @@ func TestFFmpegVideoMediaProcessorKeepsPosterWithinLimit(t *testing.T) {
 	require.LessOrEqual(t, info.Size(), int64(120*1024))
 }
 
+func TestFFmpegVideoMediaProcessorCreatesImageThumbnailWithoutSeekingPastStillFrame(t *testing.T) {
+	tempDir := t.TempDir()
+	input := filepath.Join(tempDir, "source.png")
+	output := filepath.Join(tempDir, "thumbnail.jpg")
+	require.NoError(t, os.WriteFile(input, []byte("source"), 0o600))
+	processor := &FFmpegVideoMediaProcessor{
+		ffmpegPath: "ffmpeg", ffprobePath: "ffprobe",
+		runner: videoMediaRunner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if name == "ffprobe" {
+				return []byte(`{"streams":[{"codec_type":"video","codec_name":"mjpeg","width":720,"height":720,"duration":"0.040000"}],"format":{"format_name":"image2","duration":"0.040000"}}`), nil
+			}
+			require.NotContains(t, args, "-ss")
+			return nil, os.WriteFile(args[len(args)-1], []byte("thumbnail"), 0o600)
+		}),
+	}
+
+	require.NoError(t, processor.CreateImageThumbnail(context.Background(), input, output, videoPosterMaximumBytes))
+	info, err := os.Stat(output)
+	require.NoError(t, err)
+	require.Positive(t, info.Size())
+}
+
 func TestFFmpegVideoMediaProcessorCreatesLowRatePreview(t *testing.T) {
 	tempDir := t.TempDir()
 	input := filepath.Join(tempDir, "source.mp4")

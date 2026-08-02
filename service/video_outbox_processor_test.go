@@ -198,6 +198,10 @@ func (staticVideoMediaProcessor) CreatePoster(_ context.Context, _ string, outpu
 	return os.WriteFile(output, []byte("poster"), 0o600)
 }
 
+func (staticVideoMediaProcessor) CreateImageThumbnail(_ context.Context, _ string, output string, _ int64) error {
+	return os.WriteFile(output, []byte("poster"), 0o600)
+}
+
 func (staticVideoMediaProcessor) CreatePreview(_ context.Context, _ string, output string) error {
 	return os.WriteFile(output, []byte("preview"), 0o600)
 }

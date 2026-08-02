@@ -146,6 +146,20 @@ func (processor *FFmpegVideoMediaProcessor) Inspect(ctx context.Context, inputPa
 }
 
 func (processor *FFmpegVideoMediaProcessor) CreatePoster(ctx context.Context, inputPath string, outputPath string, maxBytes int64) error {
+	return processor.createJPEGSnapshot(ctx, inputPath, outputPath, maxBytes, true)
+}
+
+func (processor *FFmpegVideoMediaProcessor) CreateImageThumbnail(ctx context.Context, inputPath string, outputPath string, maxBytes int64) error {
+	return processor.createJPEGSnapshot(ctx, inputPath, outputPath, maxBytes, false)
+}
+
+func (processor *FFmpegVideoMediaProcessor) createJPEGSnapshot(
+	ctx context.Context,
+	inputPath string,
+	outputPath string,
+	maxBytes int64,
+	seekVideo bool,
+) error {
 	if processor == nil || processor.runner == nil || processor.ffmpegPath == "" || processor.ffprobePath == "" ||
 		inputPath == "" || outputPath == "" || maxBytes <= 0 {
 		return ErrVideoMediaInvalid
@@ -162,7 +176,10 @@ func (processor *FFmpegVideoMediaProcessor) CreatePoster(ctx context.Context, in
 	for _, attempt := range attempts {
 		_ = os.Remove(outputPath)
 		commandContext, cancel := context.WithTimeout(ctx, videoMediaTimeout(processor.posterTimeout, videoMediaPosterTimeout))
-		arguments := []string{"-y", "-nostdin", "-ss", "0.1"}
+		arguments := []string{"-y", "-nostdin"}
+		if seekVideo {
+			arguments = append(arguments, "-ss", "0.1")
+		}
 		arguments = append(arguments, videoMediaInputArguments(inputPath)...)
 		arguments = append(arguments, "-map", "0:v:0", "-frames:v", "1", "-an", "-sn", "-dn", "-threads", "2",
 			"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", attempt.width),
@@ -182,7 +199,7 @@ func (processor *FFmpegVideoMediaProcessor) CreatePoster(ctx context.Context, in
 		info, err := os.Stat(outputPath)
 		if err != nil {
 			_ = os.Remove(outputPath)
-			return fmt.Errorf("inspect generated video poster: %w", err)
+			return fmt.Errorf("inspect generated JPEG snapshot: %w", err)
 		}
 		if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxBytes {
 			continue
@@ -202,7 +219,7 @@ func (processor *FFmpegVideoMediaProcessor) CreatePoster(ctx context.Context, in
 	if lastCommandErr != nil {
 		return lastCommandErr
 	}
-	return markPermanentVideoMediaError(fmt.Errorf("%w: generated poster violates media constraints", ErrVideoMediaProcessingFailed))
+	return markPermanentVideoMediaError(fmt.Errorf("%w: generated JPEG snapshot violates media constraints", ErrVideoMediaProcessingFailed))
 }
 
 func (processor *FFmpegVideoMediaProcessor) CreatePreview(ctx context.Context, inputPath string, outputPath string) error {

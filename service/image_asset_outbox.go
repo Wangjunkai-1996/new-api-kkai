@@ -25,17 +25,21 @@ type imageAssetDeletePayload struct {
 	ThumbnailObjectKey string `json:"thumbnail_object_key,omitempty"`
 }
 
+type imageThumbnailProcessor interface {
+	CreateImageThumbnail(context.Context, string, string, int64) error
+}
+
 type ImageAssetOutboxPipeline struct {
 	db      *gorm.DB
 	store   ImageAssetStore
-	media   VideoMediaProcessor
+	media   imageThumbnailProcessor
 	tempDir string
 }
 
 func NewImageAssetOutboxPipeline(
 	db *gorm.DB,
 	store ImageAssetStore,
-	media VideoMediaProcessor,
+	media imageThumbnailProcessor,
 	tempDir string,
 ) (*ImageAssetOutboxPipeline, error) {
 	tempDir = strings.TrimSpace(tempDir)
@@ -119,7 +123,7 @@ func (pipeline *ImageAssetOutboxPipeline) HandleThumbnail(ctx context.Context, e
 	outputPath := output.Name()
 	_ = output.Close()
 	defer os.Remove(outputPath)
-	if err := pipeline.media.CreatePoster(ctx, inputPath, outputPath, videoPosterMaximumBytes); err != nil {
+	if err := pipeline.media.CreateImageThumbnail(ctx, inputPath, outputPath, videoPosterMaximumBytes); err != nil {
 		return err
 	}
 	thumbnail, err := os.Open(outputPath)
