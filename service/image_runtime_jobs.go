@@ -31,10 +31,7 @@ func (runtime *imageStudioWorkerRuntime) initialize(ctx context.Context) error {
 	if current := runtime.current.Load(); current != nil && current.store == store {
 		return nil
 	}
-	media, err := NewPinnedFFmpegVideoMediaProcessorFromEnvironment(ctx)
-	if err != nil {
-		return err
-	}
+	media := rasterImageThumbnailProcessor{}
 	pipeline, err := NewImageAssetOutboxPipeline(model.DB, store, media, ImageStudioTempDirectory())
 	if err != nil {
 		return err

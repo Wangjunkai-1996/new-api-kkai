@@ -1,8 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"testing"
 	"time"
@@ -17,7 +22,11 @@ import (
 func TestImageAssetOutboxPipelineCreatesThumbnailAndMarksReady(t *testing.T) {
 	db := newImageLibraryTestDB(t)
 	store := newMemoryVideoAssetStore()
-	store.objects["image/original"] = []byte("original-image")
+	source := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	source.SetRGBA(5, 5, color.RGBA{R: 255, A: 255})
+	var original bytes.Buffer
+	require.NoError(t, png.Encode(&original, source))
+	store.objects["image/original"] = original.Bytes()
 	store.contentType["image/original"] = "image/png"
 	now := time.Now().Unix()
 	asset := model.KKAIImageAsset{
@@ -28,7 +37,7 @@ func TestImageAssetOutboxPipelineCreatesThumbnailAndMarksReady(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, db.Create(&asset).Error)
-	pipeline, err := NewImageAssetOutboxPipeline(db, store, staticVideoMediaProcessor{}, t.TempDir())
+	pipeline, err := NewImageAssetOutboxPipeline(db, store, rasterImageThumbnailProcessor{}, t.TempDir())
 	require.NoError(t, err)
 	payload, err := common.Marshal(imageThumbnailPayload{AssetID: asset.ID})
 	require.NoError(t, err)
@@ -39,7 +48,10 @@ func TestImageAssetOutboxPipelineCreatesThumbnailAndMarksReady(t *testing.T) {
 	require.NoError(t, db.First(&asset, asset.ID).Error)
 	assert.Equal(t, model.ImageThumbnailStateReady, asset.ThumbnailState)
 	assert.Equal(t, "image/original.thumbnail.jpg", asset.ThumbnailObjectKey)
-	assert.Equal(t, []byte("poster"), store.objects[asset.ThumbnailObjectKey])
+	thumbnail, err := jpeg.DecodeConfig(bytes.NewReader(store.objects[asset.ThumbnailObjectKey]))
+	require.NoError(t, err)
+	assert.Equal(t, 10, thumbnail.Width)
+	assert.Equal(t, 10, thumbnail.Height)
 }
 
 func TestImageAssetDeleteOutboxRemovesOriginalAndThumbnail(t *testing.T) {

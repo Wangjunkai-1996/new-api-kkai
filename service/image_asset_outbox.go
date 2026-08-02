@@ -123,7 +123,10 @@ func (pipeline *ImageAssetOutboxPipeline) HandleThumbnail(ctx context.Context, e
 	outputPath := output.Name()
 	_ = output.Close()
 	defer os.Remove(outputPath)
-	if err := pipeline.media.CreateImageThumbnail(ctx, inputPath, outputPath, videoPosterMaximumBytes); err != nil {
+	if err := pipeline.media.CreateImageThumbnail(ctx, inputPath, outputPath, imageThumbnailMaximumBytes); err != nil {
+		if errors.Is(err, errImageThumbnailRejected) {
+			return PermanentKKAIOutboxError(err)
+		}
 		return err
 	}
 	thumbnail, err := os.Open(outputPath)
@@ -135,7 +138,7 @@ func (pipeline *ImageAssetOutboxPipeline) HandleThumbnail(ctx context.Context, e
 		_ = thumbnail.Close()
 		return err
 	}
-	if thumbnailInfo.Size() <= 0 || thumbnailInfo.Size() > videoPosterMaximumBytes {
+	if thumbnailInfo.Size() <= 0 || thumbnailInfo.Size() > imageThumbnailMaximumBytes {
 		_ = thumbnail.Close()
 		return PermanentKKAIOutboxError(ErrInvalidImageAssetPipeline)
 	}
