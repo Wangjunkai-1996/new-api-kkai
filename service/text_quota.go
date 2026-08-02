@@ -371,6 +371,24 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
 		}
 	}
+	_, imageStudioBilling := imageStudioBillingGuardFromContext(ctx)
+	imageStudioQuoteExceeded := false
+	if finalQuota, capped := applyImageStudioFinalQuota(ctx, summary.Quota); capped {
+		logger.LogWarn(ctx, fmt.Sprintf(
+			"image studio final quota %d exceeded the confirmed maximum; billing was rejected at %d",
+			summary.Quota, finalQuota,
+		))
+		summary.Quota = finalQuota
+		imageStudioQuoteExceeded = true
+	}
+	if imageStudioBilling {
+		if imageStudioQuoteExceeded {
+			if relayInfo.Billing != nil {
+				relayInfo.Billing.Refund(ctx)
+			}
+			completeImageStudioBilling(ctx, nil)
+		}
+	}
 
 	if summary.WebSearchCallCount > 0 {
 		extraContent = append(extraContent, fmt.Sprintf("Web Search 调用 %d 次，调用花费 %s", summary.WebSearchCallCount, decimal.NewFromFloat(summary.WebSearchPrice).Mul(decimal.NewFromInt(int64(summary.WebSearchCallCount))).Div(decimal.NewFromInt(1000)).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
@@ -391,13 +409,15 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if summary.TotalTokens == 0 {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
+	} else if !imageStudioBilling {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(summary.Quota))
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+	if !imageStudioBilling {
+		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
+			logger.LogError(ctx, "error settling billing: "+err.Error())
+		}
 	}
 
 	logModel := summary.ModelName
@@ -488,7 +508,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
-	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
+	consumeLog := model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,
 		CompletionTokens: summary.CompletionTokens,
@@ -501,7 +521,17 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
-	})
+	}
+	if imageStudioBilling {
+		if !imageStudioQuoteExceeded {
+			if err := PrepareImageStudioBillingCommit(ctx, relayInfo, summary.TotalTokens, consumeLog); err != nil {
+				completeImageStudioBilling(ctx, err)
+				logger.LogError(ctx, "error preparing durable image billing: "+err.Error())
+			}
+		}
+	} else {
+		model.RecordConsumeLog(ctx, relayInfo.UserId, consumeLog)
+	}
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})

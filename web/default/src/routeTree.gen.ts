@@ -37,6 +37,7 @@ import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
+import { Route as AuthenticatedImageStudioRouteRouteImport } from './routes/_authenticated/image-studio/route'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as AuthenticatedVideoStudioIndexRouteImport } from './routes/_authenticated/video-studio/index'
@@ -51,6 +52,7 @@ import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_authenticated/invitations/index'
+import { Route as AuthenticatedImageStudioIndexRouteImport } from './routes/_authenticated/image-studio/index'
 import { Route as AuthenticatedGroupStatusIndexRouteImport } from './routes/_authenticated/group-status/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
@@ -59,8 +61,11 @@ import { Route as AuthenticatedVideoStudioLibraryRouteImport } from './routes/_a
 import { Route as AuthenticatedVideoStudioCreateRouteImport } from './routes/_authenticated/video-studio/create'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedSystemSettingsVideoStudioRouteImport } from './routes/_authenticated/system-settings/video-studio'
+import { Route as AuthenticatedSystemSettingsImageStudioRouteImport } from './routes/_authenticated/system-settings/image-studio'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
+import { Route as AuthenticatedImageStudioLibraryRouteImport } from './routes/_authenticated/image-studio/library'
+import { Route as AuthenticatedImageStudioCreateRouteImport } from './routes/_authenticated/image-studio/create'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -221,6 +226,12 @@ const AuthenticatedSystemSettingsRouteRoute =
     path: '/system-settings',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedImageStudioRouteRoute =
+  AuthenticatedImageStudioRouteRouteImport.update({
+    id: '/image-studio',
+    path: '/image-studio',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   id: '/pricing/$modelId/',
   path: '/pricing/$modelId/',
@@ -302,6 +313,12 @@ const AuthenticatedInvitationsIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedInvitationsRoute,
   } as any)
+const AuthenticatedImageStudioIndexRoute =
+  AuthenticatedImageStudioIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
+  } as any)
 const AuthenticatedGroupStatusIndexRoute =
   AuthenticatedGroupStatusIndexRouteImport.update({
     id: '/group-status/',
@@ -350,6 +367,12 @@ const AuthenticatedSystemSettingsVideoStudioRoute =
     path: '/video-studio',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedSystemSettingsImageStudioRoute =
+  AuthenticatedSystemSettingsImageStudioRouteImport.update({
+    id: '/image-studio',
+    path: '/image-studio',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
 const AuthenticatedModelsSectionRoute =
   AuthenticatedModelsSectionRouteImport.update({
     id: '/models/$section',
@@ -361,6 +384,18 @@ const AuthenticatedInvitationsAdminRoute =
     id: '/admin',
     path: '/admin',
     getParentRoute: () => AuthenticatedInvitationsRoute,
+  } as any)
+const AuthenticatedImageStudioLibraryRoute =
+  AuthenticatedImageStudioLibraryRouteImport.update({
+    id: '/library',
+    path: '/library',
+    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
+  } as any)
+const AuthenticatedImageStudioCreateRoute =
+  AuthenticatedImageStudioCreateRouteImport.update({
+    id: '/create',
+    path: '/create',
+    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
   } as any)
 const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
@@ -473,6 +508,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
+  '/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
@@ -500,8 +536,11 @@ export interface FileRoutesByFullPath {
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
+  '/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
@@ -510,6 +549,7 @@ export interface FileRoutesByFullPath {
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/group-status/': typeof AuthenticatedGroupStatusIndexRoute
+  '/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/invitations/': typeof AuthenticatedInvitationsIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
@@ -567,8 +607,11 @@ export interface FileRoutesByTo {
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
+  '/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
@@ -577,6 +620,7 @@ export interface FileRoutesByTo {
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/group-status': typeof AuthenticatedGroupStatusIndexRoute
+  '/image-studio': typeof AuthenticatedImageStudioIndexRoute
   '/invitations': typeof AuthenticatedInvitationsIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
@@ -613,6 +657,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
+  '/_authenticated/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/_authenticated/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
@@ -640,8 +685,11 @@ export interface FileRoutesById {
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
+  '/_authenticated/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
+  '/_authenticated/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/_authenticated/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/_authenticated/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
@@ -650,6 +698,7 @@ export interface FileRoutesById {
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/group-status/': typeof AuthenticatedGroupStatusIndexRoute
+  '/_authenticated/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/_authenticated/invitations/': typeof AuthenticatedInvitationsIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
@@ -685,6 +734,7 @@ export interface FileRouteTypes {
     | '/'
     | '/privacy-policy'
     | '/user-agreement'
+    | '/image-studio'
     | '/system-settings'
     | '/video-studio'
     | '/forgot-password'
@@ -712,8 +762,11 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
+    | '/image-studio/create'
+    | '/image-studio/library'
     | '/invitations/admin'
     | '/models/$section'
+    | '/system-settings/image-studio'
     | '/system-settings/video-studio'
     | '/usage-logs/$section'
     | '/video-studio/create'
@@ -722,6 +775,7 @@ export interface FileRouteTypes {
     | '/channels/'
     | '/dashboard/'
     | '/group-status/'
+    | '/image-studio/'
     | '/invitations/'
     | '/keys/'
     | '/models/'
@@ -779,8 +833,11 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
+    | '/image-studio/create'
+    | '/image-studio/library'
     | '/invitations/admin'
     | '/models/$section'
+    | '/system-settings/image-studio'
     | '/system-settings/video-studio'
     | '/usage-logs/$section'
     | '/video-studio/create'
@@ -789,6 +846,7 @@ export interface FileRouteTypes {
     | '/channels'
     | '/dashboard'
     | '/group-status'
+    | '/image-studio'
     | '/invitations'
     | '/keys'
     | '/models'
@@ -824,6 +882,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/privacy-policy'
     | '/user-agreement'
+    | '/_authenticated/image-studio'
     | '/_authenticated/system-settings'
     | '/_authenticated/video-studio'
     | '/(auth)/forgot-password'
@@ -851,8 +910,11 @@ export interface FileRouteTypes {
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
+    | '/_authenticated/image-studio/create'
+    | '/_authenticated/image-studio/library'
     | '/_authenticated/invitations/admin'
     | '/_authenticated/models/$section'
+    | '/_authenticated/system-settings/image-studio'
     | '/_authenticated/system-settings/video-studio'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/video-studio/create'
@@ -861,6 +923,7 @@ export interface FileRouteTypes {
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/group-status/'
+    | '/_authenticated/image-studio/'
     | '/_authenticated/invitations/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
@@ -1110,6 +1173,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/image-studio': {
+      id: '/_authenticated/image-studio'
+      path: '/image-studio'
+      fullPath: '/image-studio'
+      preLoaderRoute: typeof AuthenticatedImageStudioRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/pricing/$modelId/': {
       id: '/pricing/$modelId/'
       path: '/pricing/$modelId'
@@ -1208,6 +1278,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInvitationsIndexRouteImport
       parentRoute: typeof AuthenticatedInvitationsRoute
     }
+    '/_authenticated/image-studio/': {
+      id: '/_authenticated/image-studio/'
+      path: '/'
+      fullPath: '/image-studio/'
+      preLoaderRoute: typeof AuthenticatedImageStudioIndexRouteImport
+      parentRoute: typeof AuthenticatedImageStudioRouteRoute
+    }
     '/_authenticated/group-status/': {
       id: '/_authenticated/group-status/'
       path: '/group-status'
@@ -1264,6 +1341,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsVideoStudioRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/system-settings/image-studio': {
+      id: '/_authenticated/system-settings/image-studio'
+      path: '/image-studio'
+      fullPath: '/system-settings/image-studio'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsImageStudioRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
     '/_authenticated/models/$section': {
       id: '/_authenticated/models/$section'
       path: '/models/$section'
@@ -1277,6 +1361,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/invitations/admin'
       preLoaderRoute: typeof AuthenticatedInvitationsAdminRouteImport
       parentRoute: typeof AuthenticatedInvitationsRoute
+    }
+    '/_authenticated/image-studio/library': {
+      id: '/_authenticated/image-studio/library'
+      path: '/library'
+      fullPath: '/image-studio/library'
+      preLoaderRoute: typeof AuthenticatedImageStudioLibraryRouteImport
+      parentRoute: typeof AuthenticatedImageStudioRouteRoute
+    }
+    '/_authenticated/image-studio/create': {
+      id: '/_authenticated/image-studio/create'
+      path: '/create'
+      fullPath: '/image-studio/create'
+      preLoaderRoute: typeof AuthenticatedImageStudioCreateRouteImport
+      parentRoute: typeof AuthenticatedImageStudioRouteRoute
     }
     '/_authenticated/errors/$error': {
       id: '/_authenticated/errors/$error'
@@ -1433,7 +1531,26 @@ const authRouteRouteWithChildren = authRouteRoute._addFileChildren(
   authRouteRouteChildren,
 )
 
+interface AuthenticatedImageStudioRouteRouteChildren {
+  AuthenticatedImageStudioCreateRoute: typeof AuthenticatedImageStudioCreateRoute
+  AuthenticatedImageStudioLibraryRoute: typeof AuthenticatedImageStudioLibraryRoute
+  AuthenticatedImageStudioIndexRoute: typeof AuthenticatedImageStudioIndexRoute
+}
+
+const AuthenticatedImageStudioRouteRouteChildren: AuthenticatedImageStudioRouteRouteChildren =
+  {
+    AuthenticatedImageStudioCreateRoute: AuthenticatedImageStudioCreateRoute,
+    AuthenticatedImageStudioLibraryRoute: AuthenticatedImageStudioLibraryRoute,
+    AuthenticatedImageStudioIndexRoute: AuthenticatedImageStudioIndexRoute,
+  }
+
+const AuthenticatedImageStudioRouteRouteWithChildren =
+  AuthenticatedImageStudioRouteRoute._addFileChildren(
+    AuthenticatedImageStudioRouteRouteChildren,
+  )
+
 interface AuthenticatedSystemSettingsRouteRouteChildren {
+  AuthenticatedSystemSettingsImageStudioRoute: typeof AuthenticatedSystemSettingsImageStudioRoute
   AuthenticatedSystemSettingsVideoStudioRoute: typeof AuthenticatedSystemSettingsVideoStudioRoute
   AuthenticatedSystemSettingsIndexRoute: typeof AuthenticatedSystemSettingsIndexRoute
   AuthenticatedSystemSettingsAuthSectionRoute: typeof AuthenticatedSystemSettingsAuthSectionRoute
@@ -1454,6 +1571,8 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
 
 const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettingsRouteRouteChildren =
   {
+    AuthenticatedSystemSettingsImageStudioRoute:
+      AuthenticatedSystemSettingsImageStudioRoute,
     AuthenticatedSystemSettingsVideoStudioRoute:
       AuthenticatedSystemSettingsVideoStudioRoute,
     AuthenticatedSystemSettingsIndexRoute:
@@ -1530,6 +1649,7 @@ const AuthenticatedInvitationsRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedImageStudioRouteRoute: typeof AuthenticatedImageStudioRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedVideoStudioRouteRoute: typeof AuthenticatedVideoStudioRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
@@ -1555,6 +1675,8 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedImageStudioRouteRoute:
+    AuthenticatedImageStudioRouteRouteWithChildren,
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedVideoStudioRouteRoute:

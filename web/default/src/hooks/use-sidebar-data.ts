@@ -25,6 +25,7 @@ import {
   Film,
   FlaskConical,
   HandCoins,
+  Images,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -40,6 +41,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { useImageStudioAccess } from '@/features/image-studio/hooks/use-image-studio-access'
 import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
 import { useVideoStudioAccess } from '@/features/video-studio/hooks/use-video-studio-access'
 import { ROLE } from '@/lib/roles'
@@ -53,6 +55,7 @@ import { ROLE } from '@/lib/roles'
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const invitationFeature = useInvitationFeatureStatus()
+  const imageStudio = useImageStudioAccess()
   const videoStudio = useVideoStudioAccess()
 
   return {
@@ -73,6 +76,16 @@ export function useSidebarData(): SidebarData {
                   url: '/video-studio/create',
                   activeUrls: ['/video-studio'],
                   icon: Film,
+                },
+              ]
+            : []),
+          ...(imageStudio.available
+            ? [
+                {
+                  title: t('imageStudio.title'),
+                  url: '/image-studio/create',
+                  activeUrls: ['/image-studio'],
+                  icon: Images,
                 },
               ]
             : []),

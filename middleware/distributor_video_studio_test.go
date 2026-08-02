@@ -38,3 +38,21 @@ func TestGetModelRequestRecognizesVideoStudioPlaygroundRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestGetModelRequestRecognizesImageStudioPlaygroundRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, path := range []string{"/pg/images", "/pg/images/quote"} {
+		t.Run(path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"image-model","prompt":"test"}`))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+
+			request, shouldSelectChannel, err := getModelRequest(ctx)
+			require.NoError(t, err)
+			assert.True(t, shouldSelectChannel)
+			assert.Equal(t, "image-model", request.Model)
+			assert.Equal(t, relayconstant.RelayModeImagesGenerations, ctx.GetInt("relay_mode"))
+		})
+	}
+}

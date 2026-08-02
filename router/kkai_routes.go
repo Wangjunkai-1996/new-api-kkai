@@ -9,10 +9,51 @@ import (
 func registerKKAIRoutes(apiRouter *gin.RouterGroup, anonymousRequestBodyLimit gin.HandlerFunc) {
 	apiRouter.GET("/status/groups", middleware.UserAuth(), controller.GetKKAIGroupStatus)
 	registerVideoStudioAPIRoutes(apiRouter)
+	registerImageStudioAPIRoutes(apiRouter)
 
 	internalRoute := apiRouter.Group("/internal")
 	internalRoute.Use(middleware.KKAIBalanceAdjustmentAuth(), anonymousRequestBodyLimit)
 	internalRoute.POST("/balance-adjustments", controller.CreateKKAIBalanceAdjustment)
+}
+
+func registerImageStudioAPIRoutes(apiRouter *gin.RouterGroup) {
+	imageStudio := apiRouter.Group("/image-studio")
+	imageStudio.Use(middleware.UserAuth(), middleware.ImageStudioAccess())
+	{
+		imageStudio.GET("/models", controller.ListImageStudioModels)
+		imageStudio.GET("/token", controller.GetImageStudioTokenStatus)
+		imageStudio.POST("/token", controller.EnsureImageStudioToken)
+		imageStudio.GET("/samples", controller.ListImageStudioSamples)
+		imageStudio.GET("/samples/:id", controller.GetImageStudioSample)
+		imageStudio.GET("/generations", controller.ListImageStudioGenerations)
+		imageStudio.GET("/generations/:id", controller.GetImageStudioGeneration)
+		imageStudio.DELETE("/generations/:id", controller.DeleteImageStudioGeneration)
+		imageStudio.GET("/assets/:id", controller.GetImageStudioAsset)
+	}
+	imageStudioMedia := apiRouter.Group("/image-studio")
+	imageStudioMedia.Use(middleware.StudioMediaAuth(), middleware.ImageStudioAccess())
+	{
+		imageStudioMedia.GET("/assets/:id/content", controller.GetImageStudioAssetContent)
+		imageStudioMedia.GET("/assets/:id/download", controller.DownloadImageStudioAsset)
+	}
+
+	adminImageStudio := apiRouter.Group("/admin/image-studio")
+	adminImageStudio.Use(middleware.AdminAuth())
+	{
+		adminImageStudio.GET("/model-candidates", controller.AdminListImageStudioModelCandidates)
+		adminImageStudio.GET("/model-profiles", controller.AdminListImageStudioModelProfiles)
+		adminImageStudio.GET("/model-profiles/:id", controller.AdminGetImageStudioModelProfile)
+		adminImageStudio.POST("/model-profiles", controller.AdminCreateImageStudioModelProfile)
+		adminImageStudio.PUT("/model-profiles/:id", controller.AdminUpdateImageStudioModelProfile)
+		adminImageStudio.DELETE("/model-profiles/:id", controller.AdminDeleteImageStudioModelProfile)
+		adminImageStudio.GET("/samples", controller.AdminListImageStudioSamples)
+		adminImageStudio.GET("/samples/:id", controller.AdminGetImageStudioSample)
+		adminImageStudio.POST("/samples", controller.AdminCreateImageStudioSample)
+		adminImageStudio.PUT("/samples/:id", controller.AdminUpdateImageStudioSample)
+		adminImageStudio.DELETE("/samples/:id", controller.AdminDeleteImageStudioSample)
+		adminImageStudio.POST("/sample-assets", controller.AdminUploadImageStudioSampleAsset)
+		adminImageStudio.POST("/outbox/:id/redrive", middleware.CriticalRateLimit(), controller.AdminRedriveImageStudioOutboxEvent)
+	}
 }
 
 func registerVideoStudioAPIRoutes(apiRouter *gin.RouterGroup) {

@@ -52,6 +52,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	if currentVersion >= VideoSampleCategorySchemaVersion {
 		requirements = append(requirements, videoSampleCategoryRuntimeSchemaRequirements...)
 	}
+	if currentVersion >= ImageStudioSchemaVersion {
+		requirements = append(requirements, imageStudioRuntimeSchemaRequirements...)
+	}
 	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
@@ -113,6 +116,29 @@ var videoStudioRuntimeSchemaRequirements = []runtimeSchemaRequirement{
 
 var videoSampleCategoryRuntimeSchemaRequirements = []runtimeSchemaRequirement{
 	{Table: "kkai_video_samples", Columns: []string{"category"}},
+}
+
+var imageStudioRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "kkai_image_model_profiles", Columns: []string{
+		"id", "model", "display_name", "description", "provider_label", "specification_version",
+		"specification", "default_parameters", "enabled", "sort_order", "created_at", "updated_at",
+	}},
+	{Table: "kkai_image_samples", Columns: []string{
+		"id", "model_profile_id", "image_asset_id", "title", "prompt", "model_version",
+		"parameters", "category", "status", "sort_order", "created_at", "updated_at",
+	}},
+	{Table: "kkai_image_generations", Columns: []string{
+		"id", "user_id", "token_id", "model_profile_id", "sample_id", "specification_version",
+		"model", "prompt", "parameters", "request_hash", "request_id", "status", "requested_count",
+		"succeeded_count", "billing_source", "billing_state", "reserved_quota", "final_quota",
+		"subscription_id", "heartbeat_at", "failure_stage", "error_code", "error_message",
+		"started_at", "finished_at", "created_at", "updated_at", "deleted_at",
+	}},
+	{Table: "kkai_image_assets", Columns: []string{
+		"id", "generation_id", "owner_user_id", "scope", "kind", "state", "position", "object_key",
+		"thumbnail_object_key", "thumbnail_state", "original_filename", "mime_type", "size_bytes",
+		"width", "height", "sha256", "failure_reason", "created_at", "updated_at", "deleted_at",
+	}},
 }
 
 func validateVideoSampleCategoryColumn(db *gorm.DB, dialect string) error {

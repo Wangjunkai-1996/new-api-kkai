@@ -140,6 +140,7 @@ export interface SystemStatus {
     password_login_enabled?: boolean
     password_register_enabled?: boolean
     VideoStudioAccessMode?: 'off' | 'admin' | 'all'
+    ImageStudioAccessMode?: 'off' | 'admin' | 'all'
     video_studio?: VideoStudioStatus
     custom_oauth_providers?: CustomOAuthProviderInfo[]
     [key: string]: unknown
@@ -185,6 +186,7 @@ export interface SystemStatus {
   password_login_enabled?: boolean
   password_register_enabled?: boolean
   VideoStudioAccessMode?: 'off' | 'admin' | 'all'
+  ImageStudioAccessMode?: 'off' | 'admin' | 'all'
   video_studio?: VideoStudioStatus
   custom_oauth_providers?: CustomOAuthProviderInfo[]
   [key: string]: unknown

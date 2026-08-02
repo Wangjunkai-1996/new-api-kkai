@@ -75,6 +75,15 @@ func SetRelayRouter(router *gin.Engine) {
 		videoStudioPlaygroundRouter.POST("/videos/quote", controller.QuoteVideoStudioTask)
 		videoStudioPlaygroundRouter.POST("/videos", controller.SubmitVideoStudioTask)
 	}
+	imageStudioPlaygroundRouter := router.Group("/pg")
+	imageStudioPlaygroundRouter.Use(middleware.RouteTag("relay"))
+	imageStudioPlaygroundRouter.Use(middleware.SystemPerformanceCheck())
+	imageStudioPlaygroundRouter.Use(middleware.UserAuth(), middleware.ImageStudioAccess())
+	imageStudioPlaygroundRouter.Use(controller.PrepareImageStudioRequest, middleware.Distribute())
+	{
+		imageStudioPlaygroundRouter.POST("/images/quote", controller.QuoteImageStudioGeneration)
+		imageStudioPlaygroundRouter.POST("/images", controller.SubmitImageStudioGeneration)
+	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())

@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 )
 
@@ -16,6 +17,23 @@ func UnmarshalJsonStr(data string, v any) error {
 
 func DecodeJson(reader io.Reader, v any) error {
 	return json.NewDecoder(reader).Decode(v)
+}
+
+// DecodeJsonSingle decodes exactly one JSON value and rejects trailing values.
+// It keeps the decoder local so buffered bytes are not lost between reads.
+func DecodeJsonSingle(reader io.Reader, v any) error {
+	decoder := json.NewDecoder(reader)
+	if err := decoder.Decode(v); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
 }
 
 func Marshal(v any) ([]byte, error) {

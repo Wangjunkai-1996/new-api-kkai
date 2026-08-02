@@ -21,6 +21,7 @@ import {
   Box,
   CreditCard,
   Film,
+  Images,
   Layout,
   Settings,
   Shield,
@@ -75,6 +76,11 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           title: t('videoStudio.admin.title'),
           icon: Film,
           url: '/system-settings/video-studio',
+        },
+        {
+          title: t('imageStudio.admin.title'),
+          icon: Images,
+          url: '/system-settings/image-studio',
         },
         {
           title: t('Security & Limits'),

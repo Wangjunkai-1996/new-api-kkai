@@ -2,10 +2,18 @@ package common
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestDecodeJsonSingle(t *testing.T) {
+	var decoded map[string]int
+	require.NoError(t, DecodeJsonSingle(strings.NewReader(`{"value":1}  `), &decoded))
+	require.Equal(t, map[string]int{"value": 1}, decoded)
+	require.Error(t, DecodeJsonSingle(strings.NewReader(`{"value":1}{"value":2}`), &decoded))
+}
 
 func TestJsonRawMessageToString(t *testing.T) {
 	tests := []struct {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -14,28 +15,54 @@ import (
 )
 
 func VideoStudioAccess() gin.HandlerFunc {
+	return studioAccess(
+		func() bool { return video_studio_setting.Get().AccessMode != video_studio_setting.AccessModeOff },
+		video_studio_setting.CanAccess,
+		"video studio is not available for this account",
+		"video_studio_access_denied",
+		"video_studio_internal_error",
+	)
+}
+
+func ImageStudioAccess() gin.HandlerFunc {
+	return studioAccess(
+		func() bool { return image_studio_setting.Get().AccessMode != image_studio_setting.AccessModeOff },
+		image_studio_setting.CanAccess,
+		"image studio is not available for this account",
+		"image_studio_access_denied",
+		"image_studio_internal_error",
+	)
+}
+
+func studioAccess(
+	enabled func() bool,
+	canAccess func(int) bool,
+	deniedMessage string,
+	deniedCode string,
+	internalCode string,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if video_studio_setting.Get().AccessMode == video_studio_setting.AccessModeOff {
-			denyVideoStudioAccess(c)
+		if !enabled() {
+			denyStudioAccess(c, deniedMessage, deniedCode)
 			return
 		}
 		user, err := model.GetUserById(c.GetInt("id"), false)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				denyVideoStudioAccess(c)
+				denyStudioAccess(c, deniedMessage, deniedCode)
 				return
 			}
-			common.SysError(fmt.Sprintf("video studio access user lookup failed: %v", err))
+			common.SysError(fmt.Sprintf("studio access user lookup failed: %v", err))
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
-				"message": "video studio access check failed",
-				"code":    "video_studio_internal_error",
+				"message": "studio access check failed",
+				"code":    internalCode,
 			})
 			c.Abort()
 			return
 		}
-		if user.Status != common.UserStatusEnabled || !video_studio_setting.CanAccess(user.Role) {
-			denyVideoStudioAccess(c)
+		if user.Status != common.UserStatusEnabled || !canAccess(user.Role) {
+			denyStudioAccess(c, deniedMessage, deniedCode)
 			return
 		}
 
@@ -48,11 +75,11 @@ func VideoStudioAccess() gin.HandlerFunc {
 	}
 }
 
-func denyVideoStudioAccess(c *gin.Context) {
+func denyStudioAccess(c *gin.Context, message string, code string) {
 	c.JSON(http.StatusForbidden, gin.H{
 		"success": false,
-		"message": "video studio is not available for this account",
-		"code":    "video_studio_access_denied",
+		"message": message,
+		"code":    code,
 	})
 	c.Abort()
 }

@@ -51,12 +51,14 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		topUpCompleted = rebateHandler.Handle
 	}
 	outboxWorker, err := newKKAIOutboxRuntimeWorker(model.DB, workerID, kkaiOutboxRuntimeHandlers{
-		taskBillingAudit:          TaskBillingAuditHandler{}.Handle,
-		taskBillingCacheReconcile: TaskBillingCacheReconcileHandler{}.Handle,
-		taskBillingRecovery:       TaskBillingRecoveryHandler{}.Handle,
-		taskAccounting:            TaskAccountingHandler{}.Handle,
-		riskActionCommitted:       riskOutboxHandler.Handle,
-		topUpCompleted:            topUpCompleted,
+		taskBillingAudit:           TaskBillingAuditHandler{}.Handle,
+		taskBillingCacheReconcile:  TaskBillingCacheReconcileHandler{}.Handle,
+		imageBillingCacheReconcile: ImageBillingCacheReconcileHandler{}.Handle,
+		imageAccounting:            ImageGenerationAccountingHandler{}.Handle,
+		taskBillingRecovery:        TaskBillingRecoveryHandler{}.Handle,
+		taskAccounting:             TaskAccountingHandler{}.Handle,
+		riskActionCommitted:        riskOutboxHandler.Handle,
+		topUpCompleted:             topUpCompleted,
 	})
 	if err != nil {
 		return err
@@ -65,6 +67,9 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		return err
 	}
 	if err := RegisterVideoStudioBackgroundJobs(registry, workerID); err != nil {
+		return err
+	}
+	if err := RegisterImageStudioBackgroundJobs(registry, workerID); err != nil {
 		return err
 	}
 

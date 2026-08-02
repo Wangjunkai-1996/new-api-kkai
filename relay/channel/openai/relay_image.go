@@ -2,8 +2,8 @@ package openai
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,9 +34,9 @@ func updateOpenAIImageCount(info *relaycommon.RelayInfo, count int64) {
 func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadRelayResponseBody(c.Request.Context(), resp.Body)
 	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+		return nil, imageResponseReadError(err)
 	}
 
 	var usageResp dto.SimpleResponse
@@ -47,6 +47,9 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 
 	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+	if err := validateImageStudioOpenAIResponse(c, info, responseBody); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 
 	updateOpenAIImageCount(info, gjson.GetBytes(responseBody, "data.#").Int())
@@ -234,9 +237,9 @@ func extractOpenAIImageStreamErrorMessage(data []byte) string {
 func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadRelayResponseBody(c.Request.Context(), resp.Body)
 	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+		return nil, imageResponseReadError(err)
 	}
 
 	// Only decode usage/error. Do not Unmarshal data[] into dto.ImageResponse —
@@ -248,6 +251,9 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	}
 	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+	if err := validateImageStudioOpenAIResponse(c, info, responseBody); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
 	}
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
@@ -330,4 +336,51 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 
 func writeOpenaiImageStreamDone(c *gin.Context) error {
 	return helper.StringData(c, "[DONE]")
+}
+
+func imageResponseReadError(err error) *types.NewAPIError {
+	status := http.StatusInternalServerError
+	code := types.ErrorCodeReadResponseBodyFailed
+	if errors.Is(err, service.ErrImageStudioResponseTooLarge) {
+		status = http.StatusBadGateway
+		code = types.ErrorCodeBadResponseBody
+	}
+	return types.NewOpenAIError(err, code, status)
+}
+
+func validateImageStudioOpenAIResponse(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	responseBody []byte,
+) error {
+	if c == nil || c.Request == nil {
+		return service.ErrInvalidImageRelayResponse
+	}
+	if _, limited := service.ImageStudioResponseLimit(c.Request.Context()); !limited {
+		return nil
+	}
+	requestedCount := 1
+	if info != nil {
+		if request, ok := info.Request.(*dto.ImageRequest); ok && request.N != nil {
+			requestedCount = int(*request.N)
+		}
+	}
+	data := gjson.GetBytes(responseBody, "data")
+	if !data.Exists() || !data.IsArray() {
+		return service.ErrInvalidImageRelayResponse
+	}
+	items := data.Array()
+	if len(items) == 0 || requestedCount <= 0 || len(items) > requestedCount {
+		return service.ErrInvalidImageRelayResponse
+	}
+	for _, item := range items {
+		url := item.Get("url")
+		base64 := item.Get("b64_json")
+		hasURL := url.Type == gjson.String && strings.TrimSpace(url.String()) != ""
+		hasBase64 := base64.Type == gjson.String && strings.TrimSpace(base64.String()) != ""
+		if hasURL == hasBase64 {
+			return service.ErrInvalidImageRelayResponse
+		}
+	}
+	return nil
 }

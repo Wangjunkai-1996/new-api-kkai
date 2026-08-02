@@ -29,6 +29,7 @@ const (
 	OutboxEventKeySchemaVersion      int64 = 4
 	VideoStudioSchemaVersion         int64 = 5
 	VideoSampleCategorySchemaVersion int64 = 6
+	ImageStudioSchemaVersion         int64 = 7
 )
 
 var (
@@ -156,6 +157,21 @@ func ApplyVideoSampleCategoryExpand(ctx context.Context, db *gorm.DB, options Op
 		)
 	}
 	return applyThroughVersion(ctx, db, options, VideoSampleCategorySchemaVersion, MaxCompatibleVersion)
+}
+
+// ApplyImageStudioExpand creates only the additive Image Studio tables after
+// the complete v6 Video Studio schema has been validated.
+func ApplyImageStudioExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, VideoSampleCategorySchemaVersion, VideoSampleCategorySchemaVersion, MaxCompatibleVersion); err != nil {
+		return nil, fmt.Errorf(
+			"KKAI maintenance target %d requires validated Video Studio schema %d: %w",
+			ImageStudioSchemaVersion, VideoSampleCategorySchemaVersion, err,
+		)
+	}
+	return applyThroughVersion(ctx, db, options, ImageStudioSchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
@@ -348,11 +364,28 @@ func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationS
 		if err != nil {
 			return err
 		}
-		if db.Migrator().HasColumn(table, column) {
+		exists, err := migrationColumnExists(db, table, column)
+		if err != nil {
+			return err
+		}
+		if exists {
 			return nil
 		}
 	}
 	return db.Exec(statement.SQL).Error
+}
+
+func migrationColumnExists(db *gorm.DB, table string, column string) (bool, error) {
+	columnTypes, err := db.Migrator().ColumnTypes(table)
+	if err != nil {
+		return false, fmt.Errorf("inspect migration table %s: %w", table, err)
+	}
+	for _, columnType := range columnTypes {
+		if strings.EqualFold(columnType.Name(), column) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func migrationAddNullableColumnIdentifiers(dialect string, sql string) (string, string, error) {

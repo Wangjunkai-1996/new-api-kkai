@@ -42,7 +42,10 @@ func TestApplyVideoSampleCategoryExpandUpgradesV5AndIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Applied, int(VideoSampleCategorySchemaVersion))
 	require.True(t, db.Migrator().HasColumn("kkai_video_samples", "category"))
-	require.NoError(t, Check(context.Background(), db, VideoSampleCategorySchemaVersion))
+	require.NoError(t, checkThroughVersion(
+		context.Background(), db, VideoSampleCategorySchemaVersion,
+		VideoSampleCategorySchemaVersion, ImageStudioSchemaVersion,
+	))
 
 	result, err = ApplyVideoSampleCategoryExpand(context.Background(), db, Options{})
 	require.NoError(t, err)
@@ -61,7 +64,10 @@ func TestApplyVideoSampleCategoryExpandResumesAfterColumnWasAdded(t *testing.T) 
 
 	_, err = ApplyVideoSampleCategoryExpand(context.Background(), db, Options{})
 	require.NoError(t, err)
-	require.NoError(t, Check(context.Background(), db, VideoSampleCategorySchemaVersion))
+	require.NoError(t, checkThroughVersion(
+		context.Background(), db, VideoSampleCategorySchemaVersion,
+		VideoSampleCategorySchemaVersion, ImageStudioSchemaVersion,
+	))
 }
 
 func TestApplyVideoSampleCategoryExpandRejectsIncompatibleExistingColumn(t *testing.T) {
@@ -179,7 +185,10 @@ func TestVideoSampleCategoryRuntimeSchemaRequiresCategoryOnlyAtV6(t *testing.T) 
 	require.NoError(t, db.Create(&AppliedMigration{
 		Version: v6.Version, Name: v6.Name, Checksum: storedMigrationChecksum(v6),
 	}).Error)
-	err = Check(context.Background(), db, VideoSampleCategorySchemaVersion)
+	err = checkThroughVersion(
+		context.Background(), db, VideoSampleCategorySchemaVersion,
+		VideoSampleCategorySchemaVersion, ImageStudioSchemaVersion,
+	)
 	require.ErrorIs(t, err, ErrSchemaNotReady)
 	require.ErrorContains(t, err, "kkai_video_samples.category")
 }

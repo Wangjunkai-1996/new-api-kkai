@@ -512,6 +512,10 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		info.IsPlayground = true
 		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
 		info.RequestURLPath = "/v1" + info.RequestURLPath
+	} else if common.GetContextKeyBool(c, constant.ContextKeyIsPlayground) {
+		// Internal playground routes may canonicalize their path before relay so
+		// channel routing sees the upstream endpoint. Preserve billing semantics.
+		info.IsPlayground = true
 	}
 
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)

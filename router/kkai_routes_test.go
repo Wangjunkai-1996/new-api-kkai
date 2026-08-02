@@ -57,3 +57,59 @@ func TestVideoStudioTokenRoutesAreRegistered(t *testing.T) {
 	require.True(t, methodsByPath["/api/admin/video-studio/model-candidates"][http.MethodGet])
 	require.True(t, methodsByPath["/api/admin/video-studio/assets/:id"][http.MethodGet])
 }
+
+func TestImageStudioPhaseOneRoutesAreRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	registerImageStudioAPIRoutes(engine.Group("/api"))
+
+	methodsByPath := map[string]map[string]bool{}
+	for _, route := range engine.Routes() {
+		if methodsByPath[route.Path] == nil {
+			methodsByPath[route.Path] = map[string]bool{}
+		}
+		methodsByPath[route.Path][route.Method] = true
+	}
+	expected := map[string][]string{
+		"/api/image-studio/models":                   {http.MethodGet},
+		"/api/image-studio/token":                    {http.MethodGet, http.MethodPost},
+		"/api/image-studio/samples":                  {http.MethodGet},
+		"/api/image-studio/samples/:id":              {http.MethodGet},
+		"/api/image-studio/generations":              {http.MethodGet},
+		"/api/image-studio/generations/:id":          {http.MethodGet, http.MethodDelete},
+		"/api/image-studio/assets/:id":               {http.MethodGet},
+		"/api/image-studio/assets/:id/content":       {http.MethodGet},
+		"/api/image-studio/assets/:id/download":      {http.MethodGet},
+		"/api/admin/image-studio/model-candidates":   {http.MethodGet},
+		"/api/admin/image-studio/model-profiles":     {http.MethodGet, http.MethodPost},
+		"/api/admin/image-studio/model-profiles/:id": {http.MethodGet, http.MethodPut, http.MethodDelete},
+		"/api/admin/image-studio/samples":            {http.MethodGet, http.MethodPost},
+		"/api/admin/image-studio/samples/:id":        {http.MethodGet, http.MethodPut, http.MethodDelete},
+		"/api/admin/image-studio/sample-assets":      {http.MethodPost},
+		"/api/admin/image-studio/outbox/:id/redrive": {http.MethodPost},
+	}
+	for path, methods := range expected {
+		for _, method := range methods {
+			require.Truef(t, methodsByPath[path][method], "%s %s must be registered", method, path)
+		}
+	}
+	require.False(t, methodsByPath["/api/image-studio/tasks"][http.MethodGet])
+}
+
+func TestImageStudioPhaseOnePlaygroundRegistersTextToImageOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetRelayRouter(engine)
+
+	methodsByPath := map[string]map[string]bool{}
+	for _, route := range engine.Routes() {
+		if methodsByPath[route.Path] == nil {
+			methodsByPath[route.Path] = map[string]bool{}
+		}
+		methodsByPath[route.Path][route.Method] = true
+	}
+	require.True(t, methodsByPath["/pg/images/quote"][http.MethodPost])
+	require.True(t, methodsByPath["/pg/images"][http.MethodPost])
+	require.False(t, methodsByPath["/pg/images/edits"][http.MethodPost])
+	require.False(t, methodsByPath["/pg/images/tasks"][http.MethodGet])
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
@@ -51,6 +52,7 @@ func GetStatus(c *gin.Context) {
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
 	videoStudioSetting := video_studio_setting.Get()
+	imageStudioSetting := image_studio_setting.Get()
 
 	data := gin.H{
 		"version":                     common.Version,
@@ -125,6 +127,7 @@ func GetStatus(c *gin.Context) {
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
 		"VideoStudioAccessMode":       videoStudioSetting.AccessMode,
+		"ImageStudioAccessMode":       imageStudioSetting.AccessMode,
 		"video_studio": gin.H{
 			"access_mode":          videoStudioSetting.AccessMode,
 			"processing_available": videoStudioSetting.WorkerEnabled,

@@ -59,6 +59,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       videoSampleCategorySchemaStatements,
 		},
+		{
+			Version:          7,
+			Name:             "image_studio",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "image_studio_v1",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       imageStudioSchemaStatements,
+		},
 	}
 }
 

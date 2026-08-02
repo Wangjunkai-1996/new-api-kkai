@@ -95,6 +95,21 @@ func TestExecuteMigrationStatementSkipsExistingIndex(t *testing.T) {
 	require.True(t, db.Migrator().HasIndex("retryable_index", "ux_retryable_index_id"))
 }
 
+func TestExecuteMigrationStatementSkipsExistingColumn(t *testing.T) {
+	db := newMigrationTestDB(t)
+	require.NoError(t, db.Exec("CREATE TABLE retryable_column (id INTEGER NOT NULL)").Error)
+	statement := migrationStatement{
+		Operation: migrationOperationAddNullableColumn,
+		SQL:       "ALTER TABLE retryable_column ADD COLUMN category VARCHAR(32)",
+	}
+
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	exists, err := migrationColumnExists(db, "retryable_column", "category")
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
 func TestApplyVideoStudioExpandRequiresV4Bridge(t *testing.T) {
 	db := newMigrationTestDB(t)
 	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
@@ -364,6 +379,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  VideoSampleCategorySchemaVersion,
 			Name:     "video_sample_category",
 			Checksum: "1345358ef3e7bfcab21fb54716f529befa61b393edc3e6478a03d29235787899",
+		},
+		{
+			Version:  ImageStudioSchemaVersion,
+			Name:     "image_studio",
+			Checksum: "77c7cf3097c592a04f0e59ffab99ee48a74a733f2e697a4ee7265d1eff512048",
 		},
 	}, Plan())
 }

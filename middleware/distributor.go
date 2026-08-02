@@ -170,6 +170,9 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
 		return true
 	}
+	if strings.HasPrefix(requestPath, "/pg/images") {
+		requestPath = "/v1/images/generations"
+	}
 	config := channel.GetOtherSettings().AdvancedCustom
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
 }
@@ -399,6 +402,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		common.SetContextKey(c, constant.ContextKeyTokenGroup, modelRequest.Group)
 		if strings.HasPrefix(c.Request.URL.Path, "/pg/videos") {
 			c.Set("relay_mode", relayconstant.RelayModeVideoSubmit)
+		} else if strings.HasPrefix(c.Request.URL.Path, "/pg/images") {
+			c.Set("relay_mode", relayconstant.RelayModeImagesGenerations)
 		}
 	}
 
@@ -409,7 +414,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 }
 
 func isPlaygroundRelayPath(path string) bool {
-	return strings.HasPrefix(path, "/pg/chat/completions") || strings.HasPrefix(path, "/pg/videos")
+	return strings.HasPrefix(path, "/pg/chat/completions") || strings.HasPrefix(path, "/pg/videos") ||
+		strings.HasPrefix(path, "/pg/images")
 }
 
 // 修复 #4834: GET /v1/video/generations/:task_id && /v1/video/:task_id 此前不解析 model，

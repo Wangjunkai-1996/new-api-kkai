@@ -307,7 +307,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
+	err = DB.Where(&Token{Key: key}).First(&token).Error
 	return token, err
 }
 

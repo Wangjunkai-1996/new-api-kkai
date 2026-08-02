@@ -13,12 +13,12 @@ func TestContractForDialectUsesVideoStudioRuntime(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
-			require.EqualValues(t, 6, contract.RuntimeMinVersion)
-			require.EqualValues(t, 6, contract.RuntimeMaxVersion)
-			require.EqualValues(t, 6, contract.MigrationTargetVersion)
+			require.EqualValues(t, 7, contract.RuntimeMinVersion)
+			require.EqualValues(t, 7, contract.RuntimeMaxVersion)
+			require.EqualValues(t, 7, contract.MigrationTargetVersion)
 			require.Equal(t, MigrationKindNone, contract.MigrationKind)
 			require.Equal(t, map[string]string{
-				"6": contract.MigrationSetDigest,
+				"7": contract.MigrationSetDigest,
 			}, contract.CompatiblePrefixes)
 			require.Regexp(t, `^sha256:[0-9a-f]{64}$`, contract.MigrationSetDigest)
 		})

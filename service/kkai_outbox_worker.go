@@ -16,12 +16,14 @@ const (
 )
 
 type kkaiOutboxRuntimeHandlers struct {
-	taskBillingAudit          KKAIOutboxHandler
-	taskBillingCacheReconcile KKAIOutboxHandler
-	taskBillingRecovery       KKAIOutboxHandler
-	taskAccounting            KKAIOutboxHandler
-	riskActionCommitted       KKAIOutboxHandler
-	topUpCompleted            KKAIOutboxHandler
+	taskBillingAudit           KKAIOutboxHandler
+	taskBillingCacheReconcile  KKAIOutboxHandler
+	imageBillingCacheReconcile KKAIOutboxHandler
+	imageAccounting            KKAIOutboxHandler
+	taskBillingRecovery        KKAIOutboxHandler
+	taskAccounting             KKAIOutboxHandler
+	riskActionCommitted        KKAIOutboxHandler
+	topUpCompleted             KKAIOutboxHandler
 }
 
 type kkaiOutboxRuntimeWorker struct {
@@ -58,6 +60,8 @@ func newKKAIOutboxRuntimeWorker(
 			handlers: []topicHandler{
 				{topic: model.KKAIOutboxTopicTaskBillingAudit, handler: handlers.taskBillingAudit},
 				{topic: model.KKAIOutboxTopicTaskBillingCacheReconcile, handler: handlers.taskBillingCacheReconcile},
+				{topic: model.KKAIOutboxTopicImageBillingCacheReconcile, handler: handlers.imageBillingCacheReconcile},
+				{topic: model.KKAIOutboxTopicImageAccounting, handler: handlers.imageAccounting},
 				{topic: KKAIOutboxTopicTaskBillingRecovery, handler: handlers.taskBillingRecovery},
 				{topic: KKAIOutboxTopicTaskAccounting, handler: handlers.taskAccounting},
 			},

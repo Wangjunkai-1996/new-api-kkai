@@ -123,6 +123,16 @@ func ReleaseUnboundIdempotencyReservation(ctx context.Context, db *gorm.DB, rese
 }
 
 func CleanupExpiredIdempotencyKeys(ctx context.Context, db *gorm.DB, expiredBefore time.Time, limit int) (int, error) {
+	return cleanupExpiredIdempotencyKeysForOperation(ctx, db, "", expiredBefore, limit)
+}
+
+func cleanupExpiredIdempotencyKeysForOperation(
+	ctx context.Context,
+	db *gorm.DB,
+	operation string,
+	expiredBefore time.Time,
+	limit int,
+) (int, error) {
 	if db == nil || expiredBefore.IsZero() || limit <= 0 {
 		return 0, ErrInvalidIdempotencyRequest
 	}
@@ -131,17 +141,22 @@ func CleanupExpiredIdempotencyKeys(ctx context.Context, db *gorm.DB, expiredBefo
 	}
 	cutoff := expiredBefore.Unix()
 	ids := make([]int64, 0, limit)
-	if err := db.WithContext(ctx).Model(&model.KKAIIdempotencyKey{}).
-		Where("expires_at <= ?", cutoff).
-		Order("expires_at ASC").Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
+	query := db.WithContext(ctx).Model(&model.KKAIIdempotencyKey{}).Where("expires_at <= ?", cutoff)
+	operation = strings.TrimSpace(operation)
+	if operation != "" {
+		query = query.Where("operation = ?", operation)
+	}
+	if err := query.Order("expires_at ASC").Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
 		return 0, fmt.Errorf("list expired idempotency keys: %w", err)
 	}
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	result := db.WithContext(ctx).
-		Where("id IN ? AND expires_at <= ?", ids, cutoff).
-		Delete(&model.KKAIIdempotencyKey{})
+	deleteQuery := db.WithContext(ctx).Where("id IN ? AND expires_at <= ?", ids, cutoff)
+	if operation != "" {
+		deleteQuery = deleteQuery.Where("operation = ?", operation)
+	}
+	result := deleteQuery.Delete(&model.KKAIIdempotencyKey{})
 	if result.Error != nil {
 		return 0, fmt.Errorf("delete expired idempotency keys: %w", result.Error)
 	}

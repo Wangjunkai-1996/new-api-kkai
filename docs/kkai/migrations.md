@@ -14,13 +14,14 @@ tables.
 | 4 | `outbox_event_key_mysql57_compat` | Cross-dialect bridge: normalize `kkai_outbox.event_key` to 191 characters |
 | 5 | `video_studio` | Six additive Video Studio tables |
 | 6 | `video_sample_category` | Nullable `kkai_video_samples.category` column |
+| 7 | `image_studio` | Four additive Image Studio tables |
 
 Version 4 is an explicit bridge on every supported dialect. MySQL 5.7 and
 PostgreSQL alter `kkai_outbox.event_key` to `VARCHAR(191)`; SQLite records the
 same immutable migration as a physical no-op. Keeping one v4 ledger prefix
 across SQLite, MySQL, and PostgreSQL makes the v5 rollout and rollback contract
 unambiguous. The explicit bridge build remains pinned to version 3 while
-accepting versions through 6. The default feature build requires version 6.
+accepting versions through 7. The default feature build requires version 7.
 Neither application profile changes the schema during startup.
 
 Version 5 is an additive expand migration. It creates exactly these tables and
@@ -37,6 +38,18 @@ Version 6 is a separate additive expand migration. It adds only the nullable
 `category VARCHAR(32)` column to `kkai_video_samples`; it does not modify the
 v5 migration or its checksum. New samples store one fixed category. Historical
 `NULL` or empty values are interpreted as `other` by the application.
+
+Version 7 is a separate additive expand migration. It creates exactly these
+Image Studio-owned tables and does not modify Video Studio or upstream-owned
+tables:
+
+- `kkai_image_model_profiles`
+- `kkai_image_samples`
+- `kkai_image_generations`
+- `kkai_image_assets`
+
+Image Studio reuses the v1 outbox and the v5 idempotency table; it does not
+create parallel copies of either shared primitive.
 
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
@@ -63,7 +76,7 @@ command never prints the DSN.
 ./kkai-migrate --dry-run
 ./kkai-migrate
 ./kkai-migrate --check
-./kkai-migrate --check --min-version 6
+./kkai-migrate --check --min-version 7
 ./kkai-migrate --observe --current --json --dsn-stdin
 ./kkai-migrate --describe-contract --dialect postgres --json
 ```
@@ -91,10 +104,10 @@ runs GORM `AutoMigrate` or changes database state.
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.
 
-## Video Studio Bridge And Expand
+## Studio Bridge And Expands
 
 The bridge release contract is `runtime_min_version=3`,
-`runtime_max_version=6`, and `migration_target_version=3`. Verify it for the
+`runtime_max_version=7`, and `migration_target_version=3`. Verify it for the
 actual database dialect before rollout:
 
 ```bash
@@ -113,8 +126,8 @@ scripts/kkai/build-manual-release.sh --schema-contract bridge
 ```
 
 Ship the bridge through both the current and rollback slots before changing the
-database. Both slots must advertise `runtime_max_version=6`. The ordinary
-migration command without `--target` stops at v3; v4, v5, and v6 are separate,
+database. Both slots must advertise `runtime_max_version=7`. The ordinary
+migration command without `--target` stops at v3; v4, v5, v6, and v7 are separate,
 operator-invoked maintenance gates.
 
 Run v4 independently, using the same reviewed binary that produced the bridge
@@ -151,13 +164,27 @@ prefix and physical Video Studio schema have passed validation:
 ```
 
 On the bridge binary, the default `--check` validates v3. It does not prove
-that the category schema exists; use `--min-version 6` for that gate. `--observe`
-additionally validates the physical tables and columns plus the immutable
-migration prefix. Keep the bridge binary for the explicit v4, v5, and v6 operator
-gates; do not replace those gates with an unqualified feature-profile
-migration command.
+that the category schema exists; use `--min-version 6` for that gate.
 
-Only after both current and rollback slots are v6-compatible, v4, v5, and v6 pass
+After v6 is observed and validated, run the v7 Image Studio expand as a fourth
+independent gate. The migrator rejects `--target 7` until the complete v6
+prefix and physical Video Studio schema have passed validation:
+
+```bash
+./kkai-migrate --target 7 --dry-run --dsn-stdin
+./kkai-migrate --target 7 --dsn-stdin
+./kkai-migrate --check --min-version 7 --dsn-stdin
+./kkai-migrate --observe --current --json --dsn-stdin
+```
+
+Confirm that observation reports `current_version: 7` and the exact v7
+compatible-prefix digest from `--describe-contract`. `--observe` additionally
+validates all four physical Image Studio tables, their columns, and the
+immutable migration prefix. Keep the bridge binary for the explicit v4, v5,
+v6, and v7 operator gates; do not replace those gates with an unqualified
+feature-profile migration command.
+
+Only after both current and rollback slots are v7-compatible, v4 through v7 pass
 `--check`/`--observe`, and the candidate has been validated may a feature
 release be built and staged:
 
@@ -165,12 +192,12 @@ release be built and staged:
 scripts/kkai/build-manual-release.sh --schema-contract feature
 ```
 
-The feature contract is `runtime_min_version=6`, `runtime_max_version=6`, and
-`migration_target_version=6`; its default `--check` therefore fails closed on
-pre-v6 databases. After v6, rollback is limited to a bridge image whose runtime
-range includes v6. There is no automatic down migration: never delete the v5
-or v6 ledger rows, drop their objects, or rewrite their checksums to make an
-older image start.
+The feature contract is `runtime_min_version=7`, `runtime_max_version=7`, and
+`migration_target_version=7`; its default `--check` therefore fails closed on
+pre-v7 databases. After v7, rollback is limited to a bridge image whose runtime
+range includes v7. There is no automatic down migration: never delete the v5,
+v6, or v7 ledger rows, drop their objects, or rewrite their checksums to make
+an older image start.
 
 ## Legacy Import
 
@@ -187,7 +214,7 @@ separate post-stability operation and is not part of ordinary delivery.
 ## Operator Migration Rules
 
 Ordinary release automation does not run schema observation or migrations. It
-does not execute migration version 4, 5, or 6.
+does not execute migration version 4, 5, 6, or 7.
 
 If a future PostgreSQL migration is needed:
 

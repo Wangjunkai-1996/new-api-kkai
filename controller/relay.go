@@ -158,11 +158,38 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 		return
 	}
+	if err := service.ApplyImageStudioMaximumPreconsume(
+		c, relayInfo, &priceData, tokens, meta,
+	); err != nil {
+		newAPIError = types.NewError(
+			err, types.ErrorCodeModelPriceError,
+			types.ErrOptionWithStatusCode(http.StatusBadRequest),
+		)
+		return
+	}
+	if err := service.EnforceImageStudioPreconsumeLimit(c, priceData.QuotaToPreConsume); err != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			err, types.ErrorCodeQuoteStale, http.StatusConflict, types.ErrOptionWithSkipRetry(),
+		)
+		return
+	}
+	if err := runImageStudioPreRelayHook(c); err != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			err, types.ErrorCodeInvalidRequest, http.StatusInternalServerError, types.ErrOptionWithSkipRetry(),
+		)
+		return
+	}
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
+		if service.ImageStudioGenerationID(c) > 0 {
+			newAPIError = service.PreConsumeBilling(c, 0, relayInfo)
+			if newAPIError != nil {
+				return
+			}
+		}
 	} else {
 		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {

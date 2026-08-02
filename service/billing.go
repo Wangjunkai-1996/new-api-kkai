@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,11 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			types.ErrorCodeModelPriceError,
 			http.StatusBadRequest,
 			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	if generationID := ImageStudioGenerationID(c); generationID > 0 {
+		return PreConsumeImageGenerationBilling(
+			c, model.DB, generationID, preConsumedQuota, relayInfo,
 		)
 	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)

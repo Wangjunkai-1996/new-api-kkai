@@ -192,6 +192,10 @@ func UserAuth() func(c *gin.Context) {
 // VideoStudioMediaAuth allows browser media requests to authenticate with a
 // valid dashboard session when the browser cannot attach New-Api-User.
 func VideoStudioMediaAuth() func(c *gin.Context) {
+	return StudioMediaAuth()
+}
+
+func StudioMediaAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		authHelperWithOptions(c, common.RoleCommonUser, true)
 	}
