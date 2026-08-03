@@ -69,6 +69,62 @@ func TestDeleteImageGenerationSoftDeletesAndEnqueuesPhysicalDeletion(t *testing.
 	assert.Contains(t, event.Payload, "image/delete-original")
 }
 
+func TestDeleteImageGenerationRejectsActiveRecoveryStates(t *testing.T) {
+	db := newImageLibraryTestDB(t)
+	for _, status := range []string{
+		model.ImageGenerationStatusSubmitting,
+		model.ImageGenerationStatusRecovering,
+	} {
+		t.Run(status, func(t *testing.T) {
+			generation := createImageLibraryGeneration(t, db, 7, "active-"+status)
+			require.NoError(t, db.Model(&model.KKAIImageGeneration{}).
+				Where("id = ?", generation.ID).Update("status", status).Error)
+
+			err := DeleteImageGeneration(context.Background(), db, 7, generation.ID)
+			require.ErrorIs(t, err, ErrImageGenerationConflict)
+			require.NoError(t, db.First(&generation, generation.ID).Error)
+			assert.Zero(t, generation.DeletedAt)
+			assert.Equal(t, status, generation.Status)
+		})
+	}
+	var deletionEvents int64
+	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where(
+		"topic = ?", ImageAssetDeleteTopic,
+	).Count(&deletionEvents).Error)
+	assert.Zero(t, deletionEvents)
+}
+
+func TestDeleteImageGenerationCASRejectsConcurrentRecoveryClaim(t *testing.T) {
+	db := newImageLibraryTestDB(t)
+	generation := createImageLibraryGeneration(t, db, 7, "delete-recovery-race")
+	injected := false
+	callbackName := "test:image_generation_delete_recovery_race"
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		updates, ok := tx.Statement.Dest.(map[string]any)
+		if injected || !ok || tx.Statement.Table != (model.KKAIImageGeneration{}).TableName() {
+			return
+		}
+		if _, deleting := updates["deleted_at"]; !deleting {
+			return
+		}
+		injected = true
+		if err := tx.Exec(
+			"UPDATE kkai_image_generations SET status = ? WHERE id = ?",
+			model.ImageGenerationStatusRecovering, generation.ID,
+		).Error; err != nil {
+			tx.AddError(err)
+		}
+	}))
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callbackName) })
+
+	err := DeleteImageGeneration(context.Background(), db, 7, generation.ID)
+	require.ErrorIs(t, err, ErrImageGenerationConflict)
+	require.True(t, injected)
+	require.NoError(t, db.First(&generation, generation.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
+	assert.Zero(t, generation.DeletedAt)
+}
+
 func TestImageCatalogAssetRequiresPublishedEnabledSample(t *testing.T) {
 	db := newImageLibraryTestDB(t)
 	now := time.Now().Unix()

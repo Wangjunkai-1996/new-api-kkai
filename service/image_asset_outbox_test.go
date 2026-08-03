@@ -37,7 +37,9 @@ func TestImageAssetOutboxPipelineCreatesThumbnailAndMarksReady(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, db.Create(&asset).Error)
-	pipeline, err := NewImageAssetOutboxPipeline(db, store, rasterImageThumbnailProcessor{}, t.TempDir())
+	media, err := newRasterImageThumbnailProcessor(20_000_000)
+	require.NoError(t, err)
+	pipeline, err := NewImageAssetOutboxPipeline(db, store, media, t.TempDir())
 	require.NoError(t, err)
 	payload, err := common.Marshal(imageThumbnailPayload{AssetID: asset.ID})
 	require.NoError(t, err)
@@ -52,6 +54,52 @@ func TestImageAssetOutboxPipelineCreatesThumbnailAndMarksReady(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10, thumbnail.Width)
 	assert.Equal(t, 10, thumbnail.Height)
+}
+
+func TestImageThumbnailCASLoserPreservesConcurrentWinnerObject(t *testing.T) {
+	db := newImageLibraryTestDB(t)
+	memoryStore := newMemoryVideoAssetStore()
+	memoryStore.objects["image/racy-original"] = []byte("original-image")
+	memoryStore.contentType["image/racy-original"] = "image/png"
+	now := time.Now().Unix()
+	asset := model.KKAIImageAsset{
+		OwnerUserID: 7, Scope: model.ImageAssetScopeUser, Kind: model.ImageAssetKindOutput,
+		State: model.ImageAssetStateReady, ObjectKey: "image/racy-original",
+		ThumbnailState: model.ImageThumbnailStatePending, MIMEType: "image/png",
+		SizeBytes: int64(len(memoryStore.objects["image/racy-original"])), Width: 10, Height: 10,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	thumbnailKey := imageThumbnailObjectKey(asset.ObjectKey)
+	store := &racyImageThumbnailStore{memoryVideoAssetStore: memoryStore}
+	store.afterThumbnailPut = func() {
+		updated := db.Model(&model.KKAIImageAsset{}).
+			Where("id = ? AND thumbnail_state = ?", asset.ID, model.ImageThumbnailStatePending).
+			Updates(map[string]any{
+				"thumbnail_object_key": thumbnailKey,
+				"thumbnail_state":      model.ImageThumbnailStateReady,
+				"updated_at":           time.Now().Unix(),
+			})
+		require.NoError(t, updated.Error)
+		require.EqualValues(t, 1, updated.RowsAffected)
+	}
+	pipeline, err := NewImageAssetOutboxPipeline(db, store, staticVideoMediaProcessor{}, t.TempDir())
+	require.NoError(t, err)
+	payload, err := common.Marshal(imageThumbnailPayload{AssetID: asset.ID})
+	require.NoError(t, err)
+
+	require.NoError(t, pipeline.HandleThumbnail(context.Background(), model.KKAIOutboxEvent{
+		Topic: ImageAssetThumbnailTopic, AggregateID: "1", Payload: string(payload),
+	}))
+	require.NoError(t, db.First(&asset, asset.ID).Error)
+	assert.Equal(t, model.ImageThumbnailStateReady, asset.ThumbnailState)
+	assert.Equal(t, thumbnailKey, asset.ThumbnailObjectKey)
+	_, err = memoryStore.Head(context.Background(), thumbnailKey)
+	require.NoError(t, err)
+	memoryStore.mutex.Lock()
+	deleteCount := memoryStore.deleteCount[thumbnailKey]
+	memoryStore.mutex.Unlock()
+	assert.Zero(t, deleteCount)
 }
 
 func TestImageAssetDeleteOutboxRemovesOriginalAndThumbnail(t *testing.T) {

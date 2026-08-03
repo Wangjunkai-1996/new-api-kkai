@@ -130,6 +130,7 @@ export function ImageGenerationCard(props: {
         <Button
           size='icon-sm'
           variant='ghost'
+          disabled={props.generation.status === 'submitting'}
           onClick={() => props.onDelete(props.generation)}
           aria-label={t('Delete')}
         >

@@ -236,19 +236,28 @@ func DeleteImageGeneration(ctx context.Context, db *gorm.DB, userID int, generat
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var generation model.KKAIImageGeneration
-		if err := tx.First(&generation, "id = ? AND user_id = ? AND deleted_at = 0", generationID, userID).Error; err != nil {
+		if err := lockRowsForUpdate(tx).First(
+			&generation, "id = ? AND user_id = ? AND deleted_at = 0", generationID, userID,
+		).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrImageGenerationNotFound
 			}
 			return err
 		}
-		if generation.Status == model.ImageGenerationStatusSubmitting {
+		if generation.Status == model.ImageGenerationStatusSubmitting ||
+			generation.Status == model.ImageGenerationStatusRecovering {
 			return ErrImageGenerationConflict
 		}
 		now := time.Now()
-		if err := tx.Model(&model.KKAIImageGeneration{}).Where("id = ? AND deleted_at = 0", generation.ID).
-			Updates(map[string]any{"deleted_at": now.Unix(), "updated_at": now.Unix()}).Error; err != nil {
-			return err
+		deleted := tx.Model(&model.KKAIImageGeneration{}).Where(
+			"id = ? AND user_id = ? AND status = ? AND deleted_at = 0",
+			generation.ID, userID, generation.Status,
+		).Updates(map[string]any{"deleted_at": now.Unix(), "updated_at": now.Unix()})
+		if deleted.Error != nil {
+			return deleted.Error
+		}
+		if deleted.RowsAffected != 1 {
+			return ErrImageGenerationConflict
 		}
 		var assets []model.KKAIImageAsset
 		if err := tx.Where("generation_id = ? AND deleted_at = 0", generation.ID).Find(&assets).Error; err != nil {
@@ -310,7 +319,12 @@ func discardImageGenerationAssets(
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var generation model.KKAIImageGeneration
-		if err := lockRowsForUpdate(tx).First(&generation, "id = ?", generationID).Error; err != nil {
+		if err := lockRowsForUpdate(tx).First(
+			&generation, "id = ? AND deleted_at = 0", generationID,
+		).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrImageGenerationConflict
+			}
 			return err
 		}
 		if generation.Status != expectedStatus {
@@ -448,8 +462,11 @@ func finishImageGeneration(
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var generation model.KKAIImageGeneration
 		if err := lockRowsForUpdate(tx).First(
-			&generation, "id = ?", generationID,
+			&generation, "id = ? AND deleted_at = 0", generationID,
 		).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrImageGenerationConflict
+			}
 			return fmt.Errorf("finish image generation: %w", err)
 		}
 		if generation.Status != expectedStatus {
@@ -470,7 +487,10 @@ func finishImageGeneration(
 		}
 		now := time.Now().Unix()
 		updated := tx.Model(&model.KKAIImageGeneration{}).
-			Where("id = ? AND status = ? AND billing_state = ?", generationID, expectedStatus, generation.BillingState).
+			Where(
+				"id = ? AND status = ? AND billing_state = ? AND deleted_at = 0",
+				generationID, expectedStatus, generation.BillingState,
+			).
 			Updates(map[string]any{
 				"status": status, "succeeded_count": succeededCount, "final_quota": finalQuota,
 				"failure_stage": failureStage, "error_code": errorCode, "error_message": errorMessage,
@@ -493,7 +513,7 @@ func ReconcileStaleImageGenerations(ctx context.Context, db *gorm.DB, staleBefor
 	var ids []int64
 	if err := db.WithContext(ctx).Model(&model.KKAIImageGeneration{}).
 		Where(
-			"status IN ? AND heartbeat_at < ?",
+			"status IN ? AND heartbeat_at < ? AND deleted_at = 0",
 			[]string{model.ImageGenerationStatusSubmitting, model.ImageGenerationStatusRecovering},
 			staleBefore.Unix(),
 		).
@@ -521,7 +541,7 @@ func reconcileStaleImageGeneration(
 ) (bool, error) {
 	now := time.Now().Unix()
 	claimed := db.WithContext(ctx).Model(&model.KKAIImageGeneration{}).Where(
-		"id = ? AND status IN ? AND heartbeat_at < ?",
+		"id = ? AND status IN ? AND heartbeat_at < ? AND deleted_at = 0",
 		generationID,
 		[]string{model.ImageGenerationStatusSubmitting, model.ImageGenerationStatusRecovering},
 		staleBefore.Unix(),
@@ -535,7 +555,9 @@ func reconcileStaleImageGeneration(
 		return false, nil
 	}
 	var generation model.KKAIImageGeneration
-	if err := db.WithContext(ctx).First(&generation, "id = ?", generationID).Error; err != nil {
+	if err := db.WithContext(ctx).First(
+		&generation, "id = ? AND deleted_at = 0", generationID,
+	).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, nil
 		}

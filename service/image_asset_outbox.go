@@ -155,15 +155,28 @@ func (pipeline *ImageAssetOutboxPipeline) HandleThumbnail(ctx context.Context, e
 			"updated_at": time.Now().Unix(),
 		})
 	if updated.Error != nil {
-		deleteErr := pipeline.store.Delete(ctx, []string{thumbnailKey})
-		return errors.Join(updated.Error, deleteErr)
+		return updated.Error
 	}
-	if updated.RowsAffected != 1 {
-		if err := pipeline.store.Delete(ctx, []string{thumbnailKey}); err != nil {
-			return err
+	if updated.RowsAffected == 1 {
+		return nil
+	}
+
+	var current model.KKAIImageAsset
+	if err := pipeline.db.WithContext(ctx).First(&current, "id = ?", asset.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return pipeline.store.Delete(ctx, []string{thumbnailKey})
 		}
+		return err
 	}
-	return nil
+	if current.DeletedAt != 0 || current.State == model.ImageAssetStateDeleted {
+		return pipeline.store.Delete(ctx, []string{thumbnailKey})
+	}
+	if current.State == model.ImageAssetStateReady &&
+		current.ThumbnailState == model.ImageThumbnailStateReady &&
+		strings.TrimSpace(current.ThumbnailObjectKey) == thumbnailKey {
+		return nil
+	}
+	return fmt.Errorf("mark image thumbnail ready after concurrent state change: %w", ErrInvalidImageAssetPipeline)
 }
 
 func (pipeline *ImageAssetOutboxPipeline) HandleDelete(ctx context.Context, event model.KKAIOutboxEvent) error {

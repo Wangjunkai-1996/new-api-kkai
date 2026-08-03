@@ -21,6 +21,118 @@ import { create } from 'zustand'
 import { imageComposerSchema } from '@/features/image-studio/schemas'
 import type { ImageComposerValues } from '@/features/image-studio/types'
 
+type PendingImageStudioSubmission = {
+  idempotencyKey: string
+  expiresAt: number
+}
+
+const pendingSubmissionTTL = 24 * 60 * 60 * 1000
+const requestFingerprintPattern = /^[a-f0-9]{64}$/
+
+const pendingSubmissionPrefix = (userId: number): string =>
+  `image-studio-pending:user:${String(userId)}:request:`
+
+const pendingSubmissionStorageKey = (
+  userId: number,
+  requestFingerprint: string
+): string => `${pendingSubmissionPrefix(userId)}${requestFingerprint}`
+
+const readPendingSubmission = (
+  key: string,
+  now: number
+): PendingImageStudioSubmission | null => {
+  const raw = window.localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    const candidate = JSON.parse(raw) as unknown
+    if (!candidate || typeof candidate !== 'object') {
+      window.localStorage.removeItem(key)
+      return null
+    }
+    const record = candidate as Record<string, unknown>
+    if (
+      typeof record.idempotencyKey !== 'string' ||
+      record.idempotencyKey.length === 0 ||
+      record.idempotencyKey.length > 128 ||
+      typeof record.expiresAt !== 'number' ||
+      !Number.isSafeInteger(record.expiresAt) ||
+      record.expiresAt <= now
+    ) {
+      window.localStorage.removeItem(key)
+      return null
+    }
+    return {
+      idempotencyKey: record.idempotencyKey,
+      expiresAt: record.expiresAt,
+    }
+  } catch {
+    window.localStorage.removeItem(key)
+    return null
+  }
+}
+
+const prunePendingSubmissions = (userId: number, now: number): void => {
+  const prefix = pendingSubmissionPrefix(userId)
+  const keys: string[] = []
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index)
+    if (key?.startsWith(prefix)) keys.push(key)
+  }
+  for (const key of keys) readPendingSubmission(key, now)
+}
+
+export const getOrCreateImageStudioSubmissionKey = (
+  userId: number,
+  requestFingerprint: string
+): string | null => {
+  if (
+    userId <= 0 ||
+    !requestFingerprintPattern.test(requestFingerprint) ||
+    typeof window === 'undefined' ||
+    !globalThis.crypto?.randomUUID
+  ) {
+    return null
+  }
+  try {
+    const now = Date.now()
+    prunePendingSubmissions(userId, now)
+    const key = pendingSubmissionStorageKey(userId, requestFingerprint)
+    const existing = readPendingSubmission(key, now)
+    if (existing) return existing.idempotencyKey
+    const idempotencyKey = globalThis.crypto.randomUUID()
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        idempotencyKey,
+        expiresAt: now + pendingSubmissionTTL,
+      } satisfies PendingImageStudioSubmission)
+    )
+    return idempotencyKey
+  } catch {
+    return null
+  }
+}
+
+export const clearImageStudioSubmissionKey = (
+  userId: number,
+  requestFingerprint: string
+): void => {
+  if (
+    userId <= 0 ||
+    !requestFingerprintPattern.test(requestFingerprint) ||
+    typeof window === 'undefined'
+  ) {
+    return
+  }
+  try {
+    window.localStorage.removeItem(
+      pendingSubmissionStorageKey(userId, requestFingerprint)
+    )
+  } catch {
+    // A stale receipt is safer than losing recovery for an uncertain request.
+  }
+}
+
 type ImageStudioDraftState = {
   userId: number
   draft: ImageComposerValues | null

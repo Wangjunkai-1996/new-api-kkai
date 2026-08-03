@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"image"
 	"image/color"
@@ -28,7 +29,9 @@ func TestRasterImageThumbnailProcessorCreatesBoundedJPEGFromPNG(t *testing.T) {
 	require.NoError(t, png.Encode(input, source))
 	require.NoError(t, input.Close())
 
-	require.NoError(t, (rasterImageThumbnailProcessor{}).CreateImageThumbnail(
+	processor, err := newRasterImageThumbnailProcessor(20_000_000)
+	require.NoError(t, err)
+	require.NoError(t, processor.CreateImageThumbnail(
 		context.Background(), inputPath, outputPath, imageThumbnailMaximumBytes,
 	))
 	info, err := os.Stat(outputPath)
@@ -50,8 +53,31 @@ func TestRasterImageThumbnailProcessorRejectsInvalidImage(t *testing.T) {
 	outputPath := filepath.Join(tempDir, "thumbnail.jpg")
 	require.NoError(t, os.WriteFile(inputPath, []byte("not-an-image"), 0o600))
 
-	err := (rasterImageThumbnailProcessor{}).CreateImageThumbnail(
+	processor, err := newRasterImageThumbnailProcessor(20_000_000)
+	require.NoError(t, err)
+	err = processor.CreateImageThumbnail(
 		context.Background(), inputPath, outputPath, imageThumbnailMaximumBytes,
 	)
 	require.ErrorIs(t, err, errImageThumbnailRejected)
+}
+
+func TestRasterImageThumbnailProcessorRejectsPixelLimitBeforeFullDecode(t *testing.T) {
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "oversized-header.png")
+	outputPath := filepath.Join(tempDir, "thumbnail.jpg")
+	var encoded bytes.Buffer
+	require.NoError(t, png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 11, 10))))
+	require.GreaterOrEqual(t, encoded.Len(), 33)
+	// A non-paletted PNG's first 33 bytes are enough for DecodeConfig, but not
+	// for Decode. This proves the pixel boundary rejects before allocating and
+	// decoding the complete raster.
+	require.NoError(t, os.WriteFile(inputPath, encoded.Bytes()[:33], 0o600))
+	processor, err := newRasterImageThumbnailProcessor(100)
+	require.NoError(t, err)
+
+	err = processor.CreateImageThumbnail(
+		context.Background(), inputPath, outputPath, imageThumbnailMaximumBytes,
+	)
+	require.ErrorIs(t, err, errImageThumbnailPixelLimitExceeded)
+	require.NoFileExists(t, outputPath)
 }

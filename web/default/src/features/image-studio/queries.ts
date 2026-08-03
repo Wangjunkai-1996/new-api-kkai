@@ -45,6 +45,7 @@ import {
   saveAdminImageSample,
   uploadAdminImageSampleAsset,
 } from './api'
+import { getImageGenerationPollInterval } from './image-domain'
 import type {
   CreateImageRequest,
   ImageGenerationStatus,
@@ -167,6 +168,20 @@ export const useImageGenerations = (
       getImageGenerations({ ...filters, cursor: pageParam }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
     enabled: userId > 0,
+    refetchInterval: (query) => {
+      const generations =
+        query.state.data?.pages.flatMap((page) => page.items) ?? []
+      const visible =
+        typeof document === 'undefined' ||
+        document.visibilityState === 'visible'
+      return getImageGenerationPollInterval(
+        generations,
+        Math.floor(Date.now() / 1000),
+        visible
+      )
+    },
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   })
 }
 

@@ -12,18 +12,29 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/webp"
 )
 
-var errImageThumbnailRejected = errors.New("image thumbnail source is invalid")
+var (
+	errImageThumbnailRejected           = errors.New("image thumbnail source is invalid")
+	errImageThumbnailPixelLimitExceeded = fmt.Errorf("%w: source exceeds configured pixel limit", errImageThumbnailRejected)
+)
 
 const imageThumbnailMaximumBytes int64 = 120 * 1024
 
-type rasterImageThumbnailProcessor struct{}
+type rasterImageThumbnailProcessor struct {
+	maxPixels int64
+}
 
-func (rasterImageThumbnailProcessor) CreateImageThumbnail(
+func newRasterImageThumbnailProcessor(maxPixels int64) (*rasterImageThumbnailProcessor, error) {
+	if maxPixels <= 0 {
+		return nil, ErrInvalidImageAssetPipeline
+	}
+	return &rasterImageThumbnailProcessor{maxPixels: maxPixels}, nil
+}
+
+func (processor *rasterImageThumbnailProcessor) CreateImageThumbnail(
 	ctx context.Context,
 	inputPath string,
 	outputPath string,
@@ -31,7 +42,8 @@ func (rasterImageThumbnailProcessor) CreateImageThumbnail(
 ) error {
 	inputPath = filepath.Clean(strings.TrimSpace(inputPath))
 	outputPath = filepath.Clean(strings.TrimSpace(outputPath))
-	if ctx == nil || inputPath == "." || outputPath == "." || inputPath == outputPath || maxBytes <= 0 {
+	if processor == nil || processor.maxPixels <= 0 || ctx == nil || inputPath == "." || outputPath == "." ||
+		inputPath == outputPath || maxBytes <= 0 {
 		return errImageThumbnailRejected
 	}
 	input, err := os.Open(inputPath)
@@ -53,10 +65,14 @@ func (rasterImageThumbnailProcessor) CreateImageThumbnail(
 		return fmt.Errorf("rewind image thumbnail source: %w", err)
 	}
 	sourceWidth, sourceHeight, err := decodeImageDimensions(input, mimeType)
-	maxPixels := image_studio_setting.Get().MaxPixels
-	if err != nil || sourceWidth <= 0 || sourceHeight <= 0 || maxPixels <= 0 ||
-		int64(sourceWidth) > maxPixels/int64(sourceHeight) {
+	if err != nil || sourceWidth <= 0 || sourceHeight <= 0 {
 		return errImageThumbnailRejected
+	}
+	if int64(sourceWidth) > processor.maxPixels/int64(sourceHeight) {
+		return errImageThumbnailPixelLimitExceeded
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if _, err := input.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewind image thumbnail source: %w", err)

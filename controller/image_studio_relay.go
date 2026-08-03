@@ -165,11 +165,14 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		return
 	}
 	settings := image_studio_setting.Get()
-	if !acquireImageStudioSubmissionSlot(settings.MaxConcurrentSubmissions) {
+	userID := c.GetInt("id")
+	if !imageStudioCapacity.acquire(
+		userID, settings.MaxConcurrentSubmissions, settings.MaxConcurrentSubmissionsPerUser,
+	) {
 		respondImageStudioError(c, service.ErrImageStudioCapacityExceeded)
 		return
 	}
-	defer releaseImageStudioSubmissionSlot()
+	defer imageStudioCapacity.release(userID)
 	capture, err := newImageRelayCaptureWriter(c.Writer, service.ImageStudioTempDirectory(), settings.MaxResponseBytes)
 	if err != nil {
 		respondImageStudioError(c, err)
@@ -246,7 +249,7 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 			respondImageStudioError(c, err)
 			return
 		}
-		respondImageStudioCreatedGeneration(c, finalizeContext, generation.ID)
+		respondImageStudioGenerationFailure(c, finalizeContext, generation.ID)
 		return
 	}
 	if capture.Status() < http.StatusOK || capture.Status() >= http.StatusMultipleChoices {
@@ -499,7 +502,12 @@ func respondImageStudioIdempotentReplay(c *gin.Context, resourceID string) {
 		respondImageStudioError(c, err)
 		return
 	}
-	imageStudioSuccess(c, http.StatusOK, view)
+	status := http.StatusOK
+	if view.Status == model.ImageGenerationStatusSubmitting {
+		status = http.StatusAccepted
+		c.Header("Retry-After", "2")
+	}
+	imageStudioSuccess(c, status, view)
 }
 
 func finishImageStudioGenerationFailure(

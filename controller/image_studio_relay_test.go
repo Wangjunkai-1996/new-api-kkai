@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -126,18 +127,73 @@ func TestImageStudioErrorStatusPreservesClientAndConcurrencyFailures(t *testing.
 	}
 }
 
-func TestImageStudioSubmissionCapacityHasHardProcessBound(t *testing.T) {
-	imageStudioSubmissionsInFlight.Store(0)
-	t.Cleanup(func() { imageStudioSubmissionsInFlight.Store(0) })
-	require.True(t, acquireImageStudioSubmissionSlot(1))
-	require.False(t, acquireImageStudioSubmissionSlot(1))
-	releaseImageStudioSubmissionSlot()
-	require.True(t, acquireImageStudioSubmissionSlot(1))
-	releaseImageStudioSubmissionSlot()
+func TestImageStudioSubmissionCapacityEnforcesGlobalAndPerUserBounds(t *testing.T) {
+	resetImageStudioSubmissionCapacity(t)
+	require.True(t, imageStudioCapacity.acquire(7, 2, 1))
+	require.False(t, imageStudioCapacity.acquire(7, 2, 1))
+	require.True(t, imageStudioCapacity.acquire(8, 2, 1))
+	require.False(t, imageStudioCapacity.acquire(9, 2, 1))
+
+	imageStudioCapacity.release(7)
+	require.True(t, imageStudioCapacity.acquire(9, 2, 1))
+	imageStudioCapacity.release(8)
+	imageStudioCapacity.release(9)
+	imageStudioCapacity.mu.Lock()
+	require.Zero(t, imageStudioCapacity.total)
+	require.Empty(t, imageStudioCapacity.byUser)
+	imageStudioCapacity.mu.Unlock()
 
 	status, code := imageStudioErrorStatus(service.ErrImageStudioCapacityExceeded)
 	require.Equal(t, http.StatusTooManyRequests, status)
 	require.Equal(t, "image_studio_busy", code)
+}
+
+func TestImageStudioIdempotentReplayStatusContract(t *testing.T) {
+	db, token := newImageStudioRelayTestDB(t)
+	now := time.Now().Unix()
+	tests := []struct {
+		status       string
+		responseCode int
+		retryAfter   string
+		viewStatus   string
+	}{
+		{model.ImageGenerationStatusSubmitting, http.StatusAccepted, "2", model.ImageGenerationStatusSubmitting},
+		{model.ImageGenerationStatusRecovering, http.StatusAccepted, "2", model.ImageGenerationStatusSubmitting},
+		{model.ImageGenerationStatusSucceeded, http.StatusOK, "", model.ImageGenerationStatusSucceeded},
+	}
+	for index, test := range tests {
+		billingState := model.ImageGenerationBillingStatePending
+		if test.status == model.ImageGenerationStatusSucceeded {
+			billingState = model.ImageGenerationBillingStateSettled
+		}
+		generation := model.KKAIImageGeneration{
+			UserID: 7, TokenID: token.Id, ModelProfileID: 1, SpecificationVersion: 1,
+			Model: "gpt-image-1", Prompt: "idempotent replay", Parameters: `{}`,
+			RequestHash: fmt.Sprintf("%064d", index+1), RequestID: fmt.Sprintf("replay-%d", index),
+			Status: test.status, RequestedCount: 1, BillingState: billingState,
+			HeartbeatAt: now, StartedAt: now, CreatedAt: now, UpdatedAt: now,
+		}
+		require.NoError(t, db.Create(&generation).Error)
+		ctx, recorder := newImageStudioRelayContext(http.MethodPost, "/pg/images", nil)
+
+		respondImageStudioIdempotentReplay(ctx, strconv.FormatInt(generation.ID, 10))
+
+		require.Equal(t, test.responseCode, recorder.Code)
+		assert.Equal(t, test.retryAfter, recorder.Header().Get("Retry-After"))
+		assert.Contains(t, recorder.Body.String(), `"status":"`+test.viewStatus+`"`)
+	}
+}
+
+func resetImageStudioSubmissionCapacity(t *testing.T) {
+	t.Helper()
+	reset := func() {
+		imageStudioCapacity.mu.Lock()
+		imageStudioCapacity.total = 0
+		clear(imageStudioCapacity.byUser)
+		imageStudioCapacity.mu.Unlock()
+	}
+	reset()
+	t.Cleanup(reset)
 }
 
 func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {

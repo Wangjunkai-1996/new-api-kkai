@@ -100,6 +100,74 @@ func TestReconcileStaleImageGenerationsNeverRetriesSupplier(t *testing.T) {
 	assert.Equal(t, "submission_interrupted", generation.ErrorCode)
 }
 
+func TestReconcileStaleImageGenerationsIgnoresDeletedGeneration(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	old := time.Now().Add(-10 * time.Minute).Unix()
+	generation := model.KKAIImageGeneration{
+		UserID: 7, TokenID: 4, ModelProfileID: profile.ID, SpecificationVersion: 1,
+		Model: profile.Model, Prompt: "deleted prompt", Parameters: "{}",
+		RequestHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		RequestID:   "req-stale-deleted-image", Status: model.ImageGenerationStatusSubmitting,
+		RequestedCount: 1, HeartbeatAt: old, StartedAt: old, CreatedAt: old, UpdatedAt: old,
+		DeletedAt: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&generation).Error)
+
+	updated, err := ReconcileStaleImageGenerations(
+		context.Background(), db, time.Now().Add(-time.Minute), 10,
+	)
+	require.NoError(t, err)
+	assert.Zero(t, updated)
+	claimed, err := reconcileStaleImageGeneration(
+		context.Background(), db, generation.ID, time.Now().Add(-time.Minute),
+	)
+	require.NoError(t, err)
+	assert.False(t, claimed)
+	require.NoError(t, db.First(&generation, generation.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusSubmitting, generation.Status)
+	assert.NotZero(t, generation.DeletedAt)
+}
+
+func TestFinishRecoveringImageGenerationCASRejectsConcurrentDeletion(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	now := time.Now().Unix()
+	generation := model.KKAIImageGeneration{
+		UserID: 7, TokenID: 4, ModelProfileID: profile.ID, SpecificationVersion: 1,
+		Model: profile.Model, Prompt: "recovering delete race", Parameters: "{}",
+		RequestHash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		RequestID:   "req-recovering-delete-race", Status: model.ImageGenerationStatusRecovering,
+		RequestedCount: 1, BillingState: model.ImageGenerationBillingStateRefunded,
+		HeartbeatAt: now, StartedAt: now, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&generation).Error)
+	injected := false
+	callbackName := "test:image_generation_recovery_delete_race"
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if injected || tx.Statement.Table != (model.KKAIImageGeneration{}).TableName() {
+			return
+		}
+		injected = true
+		if err := tx.Exec(
+			"UPDATE kkai_image_generations SET deleted_at = ? WHERE id = ?",
+			time.Now().Unix(), generation.ID,
+		).Error; err != nil {
+			tx.AddError(err)
+		}
+	}))
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(callbackName) })
+
+	err := finishRecoveringImageGeneration(
+		context.Background(), db, generation.ID, model.ImageGenerationStatusUnknown,
+		0, 0, "reconcile", "submission_interrupted", "submission outcome is unknown",
+	)
+	require.ErrorIs(t, err, ErrImageGenerationConflict)
+	require.True(t, injected)
+	require.NoError(t, db.First(&generation, generation.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusRecovering, generation.Status)
+	assert.Zero(t, generation.FinishedAt)
+	assert.Zero(t, generation.DeletedAt)
+}
+
 func TestReconcileStaleImageGenerationSettlesPreparedQuotaExactlyOnce(t *testing.T) {
 	db := newImageAccountingRecoveryTestDB(t)
 	require.NoError(t, db.Create(&model.User{

@@ -20,7 +20,11 @@ import assert from 'node:assert/strict'
 import { after, beforeEach, describe, test } from 'node:test'
 
 import type { ImageComposerValues } from '@/features/image-studio/types'
-import { useImageStudioDraftStore } from '@/stores/image-studio-draft-store'
+import {
+  clearImageStudioSubmissionKey,
+  getOrCreateImageStudioSubmissionKey,
+  useImageStudioDraftStore,
+} from '@/stores/image-studio-draft-store'
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>()
@@ -109,5 +113,62 @@ describe('Image Studio draft user isolation', () => {
     useImageStudioDraftStore.getState().hydrate(33)
     assert.equal(useImageStudioDraftStore.getState().draft, null)
     assert.equal(storage.getItem('image-studio-draft:user:33'), null)
+  })
+
+  test('reuses an uncertain submission key across reloads and isolates requests', () => {
+    const firstFingerprint = 'a'.repeat(64)
+    const secondFingerprint = 'b'.repeat(64)
+    const firstKey = getOrCreateImageStudioSubmissionKey(11, firstFingerprint)
+    assert.ok(firstKey)
+
+    assert.equal(
+      getOrCreateImageStudioSubmissionKey(11, firstFingerprint),
+      firstKey
+    )
+    const secondKey = getOrCreateImageStudioSubmissionKey(11, secondFingerprint)
+    assert.ok(secondKey)
+    assert.notEqual(secondKey, firstKey)
+    assert.notEqual(
+      getOrCreateImageStudioSubmissionKey(22, firstFingerprint),
+      firstKey
+    )
+  })
+
+  test('clears only the acknowledged request key and replaces expired records', () => {
+    const acknowledgedFingerprint = 'c'.repeat(64)
+    const uncertainFingerprint = 'd'.repeat(64)
+    const acknowledgedKey = getOrCreateImageStudioSubmissionKey(
+      11,
+      acknowledgedFingerprint
+    )
+    const uncertainKey = getOrCreateImageStudioSubmissionKey(
+      11,
+      uncertainFingerprint
+    )
+    assert.ok(acknowledgedKey)
+    assert.ok(uncertainKey)
+
+    clearImageStudioSubmissionKey(11, acknowledgedFingerprint)
+    assert.notEqual(
+      getOrCreateImageStudioSubmissionKey(11, acknowledgedFingerprint),
+      acknowledgedKey
+    )
+    assert.equal(
+      getOrCreateImageStudioSubmissionKey(11, uncertainFingerprint),
+      uncertainKey
+    )
+
+    const expiredFingerprint = 'e'.repeat(64)
+    storage.setItem(
+      `image-studio-pending:user:11:request:${expiredFingerprint}`,
+      JSON.stringify({
+        idempotencyKey: 'expired-key',
+        expiresAt: Date.now() - 1,
+      })
+    )
+    assert.notEqual(
+      getOrCreateImageStudioSubmissionKey(11, expiredFingerprint),
+      'expired-key'
+    )
   })
 })

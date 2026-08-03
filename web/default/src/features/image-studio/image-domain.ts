@@ -18,9 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type {
   ImageComposerValues,
+  ImageGeneration,
+  ImageGenerationStatus,
   ImageModelProfile,
   ImageParameters,
   ImageParameterValue,
+  ImageQuoteRequest,
   ImageStudioAccessMode,
 } from './types'
 
@@ -37,6 +40,44 @@ export const canAccessImageStudio = (
   mode: ImageStudioAccessMode,
   isAdmin: boolean
 ): boolean => mode === 'all' || (mode === 'admin' && isAdmin)
+
+export type ImageGenerationOutcome = 'success' | 'pending' | 'failure'
+
+export const classifyImageGenerationStatus = (
+  status: ImageGenerationStatus
+): ImageGenerationOutcome => {
+  if (status === 'succeeded' || status === 'partial') return 'success'
+  if (status === 'submitting') return 'pending'
+  return 'failure'
+}
+
+export const isImageGenerationActive = (
+  status: ImageGenerationStatus
+): boolean => status === 'submitting'
+
+export const getImageGenerationPollInterval = (
+  generations: Array<
+    Pick<ImageGeneration, 'status' | 'started_at' | 'created_at'>
+  >,
+  nowSeconds: number,
+  pageVisible: boolean
+): number | false => {
+  if (!pageVisible) return false
+  const activeGenerations = generations.filter((generation) =>
+    isImageGenerationActive(generation.status)
+  )
+  if (activeGenerations.length === 0) return false
+  const activeStartedAt = activeGenerations.reduce(
+    (latest, generation) =>
+      Math.max(latest, generation.started_at || generation.created_at),
+    0
+  )
+  if (activeStartedAt === 0) return 3_000
+  const ageSeconds = Math.max(0, nowSeconds - activeStartedAt)
+  if (ageSeconds < 30) return 3_000
+  if (ageSeconds < 120) return 5_000
+  return 10_000
+}
 
 export const getImageProfileDefaults = (
   profile: ImageModelProfile
@@ -108,3 +149,40 @@ export const imageRequestFingerprint = (value: unknown): string =>
     value,
     (_key, candidate: ImageParameterValue | unknown) => candidate
   )
+
+const canonicalizeImageSubmissionValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeImageSubmissionValue)
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => {
+          if (left < right) return -1
+          if (left > right) return 1
+          return 0
+        })
+        .map(([key, candidate]) => [
+          key,
+          canonicalizeImageSubmissionValue(candidate),
+        ])
+    )
+  }
+  return value
+}
+
+export const imageSubmissionFingerprint = async (
+  request: ImageQuoteRequest
+): Promise<string> => {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Image submission fingerprint is unavailable')
+  }
+  const canonical = JSON.stringify(canonicalizeImageSubmissionValue(request))
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(canonical)
+  )
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+}

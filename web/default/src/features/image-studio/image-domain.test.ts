@@ -22,10 +22,13 @@ import { describe, test } from 'node:test'
 import {
   buildImageComposerValues,
   canAccessImageStudio,
+  classifyImageGenerationStatus,
+  getImageGenerationPollInterval,
+  imageSubmissionFingerprint,
   normalizeImageParameters,
   normalizeImageStudioAccessMode,
 } from './image-domain'
-import type { ImageModelProfile } from './types'
+import type { ImageModelProfile, ImageQuoteRequest } from './types'
 
 const profile: ImageModelProfile = {
   id: 7,
@@ -143,5 +146,55 @@ describe('image composer parameters', () => {
         sample_id: 9,
       }
     )
+  })
+})
+
+describe('image submission recovery', () => {
+  test('classifies every generation status into one explicit outcome', () => {
+    assert.equal(classifyImageGenerationStatus('succeeded'), 'success')
+    assert.equal(classifyImageGenerationStatus('partial'), 'success')
+    assert.equal(classifyImageGenerationStatus('submitting'), 'pending')
+    assert.equal(classifyImageGenerationStatus('failed'), 'failure')
+    assert.equal(classifyImageGenerationStatus('archive_failed'), 'failure')
+    assert.equal(classifyImageGenerationStatus('unknown'), 'failure')
+  })
+
+  test('polls only visible pages containing an active generation', () => {
+    const active = [
+      { status: 'submitting' as const, started_at: 90, created_at: 90 },
+    ]
+    assert.equal(getImageGenerationPollInterval(active, 100, true), 3_000)
+    assert.equal(getImageGenerationPollInterval(active, 150, true), 5_000)
+    assert.equal(getImageGenerationPollInterval(active, 300, true), 10_000)
+    assert.equal(getImageGenerationPollInterval(active, 100, false), false)
+    assert.equal(
+      getImageGenerationPollInterval(
+        [{ status: 'succeeded', started_at: 90, created_at: 90 }],
+        100,
+        true
+      ),
+      false
+    )
+  })
+
+  test('hashes a canonical request without persisting its raw prompt', async () => {
+    const first: ImageQuoteRequest = {
+      token_id: 3,
+      model: 'gpt-image-1',
+      prompt: 'private lighthouse prompt',
+      parameters: { size: '1024x1024', count: 2 },
+    }
+    const reordered: ImageQuoteRequest = {
+      prompt: first.prompt,
+      parameters: { count: 2, size: '1024x1024' },
+      model: first.model,
+      token_id: first.token_id,
+    }
+
+    const firstDigest = await imageSubmissionFingerprint(first)
+    const secondDigest = await imageSubmissionFingerprint(reordered)
+    assert.equal(firstDigest, secondDigest)
+    assert.match(firstDigest, /^[a-f0-9]{64}$/)
+    assert.equal(firstDigest.includes(first.prompt), false)
   })
 })

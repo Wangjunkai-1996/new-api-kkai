@@ -17,8 +17,9 @@ type imageStudioWorkerRuntime struct {
 }
 
 type imageStudioWorkerRuntimeSnapshot struct {
-	store     ImageAssetStore
-	processor *KKAIOutboxProcessor
+	store              ImageAssetStore
+	processor          *KKAIOutboxProcessor
+	thumbnailMaxPixels int64
 }
 
 func (runtime *imageStudioWorkerRuntime) initialize(ctx context.Context) error {
@@ -28,10 +29,15 @@ func (runtime *imageStudioWorkerRuntime) initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if current := runtime.current.Load(); current != nil && current.store == store {
+	settings := image_studio_setting.Get()
+	if current := runtime.current.Load(); current != nil && current.store == store &&
+		current.thumbnailMaxPixels == settings.ThumbnailMaxPixels {
 		return nil
 	}
-	media := rasterImageThumbnailProcessor{}
+	media, err := newRasterImageThumbnailProcessor(settings.ThumbnailMaxPixels)
+	if err != nil {
+		return err
+	}
 	pipeline, err := NewImageAssetOutboxPipeline(model.DB, store, media, ImageStudioTempDirectory())
 	if err != nil {
 		return err
@@ -40,7 +46,9 @@ func (runtime *imageStudioWorkerRuntime) initialize(ctx context.Context) error {
 	if err := pipeline.Register(processor); err != nil {
 		return err
 	}
-	runtime.current.Store(&imageStudioWorkerRuntimeSnapshot{store: store, processor: processor})
+	runtime.current.Store(&imageStudioWorkerRuntimeSnapshot{
+		store: store, processor: processor, thumbnailMaxPixels: settings.ThumbnailMaxPixels,
+	})
 	return nil
 }
 

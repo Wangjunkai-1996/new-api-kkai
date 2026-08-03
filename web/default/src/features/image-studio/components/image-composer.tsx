@@ -36,12 +36,18 @@ import {
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
-import { useImageStudioDraftStore } from '@/stores/image-studio-draft-store'
+import {
+  clearImageStudioSubmissionKey,
+  getOrCreateImageStudioSubmissionKey,
+  useImageStudioDraftStore,
+} from '@/stores/image-studio-draft-store'
 
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import {
   buildImageComposerValues,
+  classifyImageGenerationStatus,
   imageRequestFingerprint,
+  imageSubmissionFingerprint,
   normalizeImageParameters,
 } from '../image-domain'
 import {
@@ -104,10 +110,6 @@ export function ImageComposer(props: {
   const values = useWatch({ control: form.control })
   const initializedRef = useRef(false)
   const appliedSampleRef = useRef<number | undefined>(undefined)
-  const pendingSubmissionRef = useRef<{
-    fingerprint: string
-    key: string
-  } | null>(null)
 
   useEffect(() => {
     hydrateDraft(userId)
@@ -217,23 +219,32 @@ export function ImageComposer(props: {
       quote_hash: quote.request_hash,
       quote_expires_at: quote.expires_at,
     }
-    const fingerprint = imageRequestFingerprint(quoteRequest)
-    if (pendingSubmissionRef.current?.fingerprint !== fingerprint) {
-      pendingSubmissionRef.current = {
-        fingerprint,
-        key: crypto.randomUUID(),
-      }
+    let requestFingerprint: string
+    try {
+      requestFingerprint = await imageSubmissionFingerprint(quoteRequest)
+    } catch {
+      toast.error(t('imageStudio.submitFailed'))
+      return
+    }
+    const idempotencyKey = getOrCreateImageStudioSubmissionKey(
+      userId,
+      requestFingerprint
+    )
+    if (!idempotencyKey) {
+      toast.error(t('imageStudio.submitFailed'))
+      return
     }
     try {
       const generation = await submitMutation.mutateAsync({
         request,
-        idempotencyKey: pendingSubmissionRef.current.key,
+        idempotencyKey,
       })
-      pendingSubmissionRef.current = null
-      clearDraft(userId)
-      if (generation.status === 'failed') {
+      clearImageStudioSubmissionKey(userId, requestFingerprint)
+      const outcome = classifyImageGenerationStatus(generation.status)
+      if (outcome === 'failure') {
         toast.error(t('imageStudio.generationFailed'))
       } else {
+        clearDraft(userId)
         toast.success(t('imageStudio.submitted'))
       }
       props.onSubmitted(generation)
