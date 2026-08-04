@@ -3,9 +3,9 @@
 package kkaimigrate
 
 const (
-	RuntimeMinVersion      int64 = ImageStudioSchemaVersion
-	RuntimeMaxVersion      int64 = ImageStudioSchemaVersion
-	MigrationTargetVersion int64 = ImageStudioSchemaVersion
+	RuntimeMinVersion      int64 = AuthenticationSchemaVersion
+	RuntimeMaxVersion      int64 = AuthenticationSchemaVersion
+	MigrationTargetVersion int64 = AuthenticationSchemaVersion
 
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion

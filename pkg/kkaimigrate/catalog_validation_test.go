@@ -116,6 +116,50 @@ func TestMigrationCatalogAllowsMultipleAdditiveStatements(t *testing.T) {
 	require.NoError(t, validateMigrationCatalog(migrations))
 }
 
+func TestMigrationCatalogAllowsOnlyDialectSafeLiteralOneDefaults(t *testing.T) {
+	allowed := migration{
+		Version: 1, Name: "constant_default", Kind: MigrationKindExpand,
+		ImplementationID: "constant_default_v1", ChecksumVersion: migrationChecksumSchemaCurrent,
+		Statements: map[string][]migrationStatement{
+			DialectSQLite: {{
+				Operation: migrationOperationAddColumnDefault,
+				SQL:       "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1",
+			}},
+			DialectMySQL: {
+				{Operation: migrationOperationAddNullableColumn, SQL: "ALTER TABLE users ADD COLUMN auth_version BIGINT"},
+				{Operation: migrationOperationSetColumnDefault, SQL: "ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 1"},
+			},
+			DialectPostgres: {
+				{Operation: migrationOperationAddNullableColumn, SQL: "ALTER TABLE users ADD COLUMN auth_version BIGINT"},
+				{Operation: migrationOperationSetColumnDefault, SQL: "ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 1"},
+			},
+		},
+	}
+	require.NoError(t, validateMigrationCatalog([]migration{allowed}))
+
+	for _, test := range []struct {
+		dialect   string
+		statement migrationStatement
+	}{
+		{DialectSQLite, migrationStatement{Operation: migrationOperationAddColumnDefault, SQL: "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 0"}},
+		{DialectSQLite, migrationStatement{Operation: migrationOperationSetColumnDefault, SQL: "ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 1"}},
+		{DialectMySQL, migrationStatement{Operation: migrationOperationAddColumnDefault, SQL: "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1"}},
+		{DialectPostgres, migrationStatement{Operation: migrationOperationAddColumnDefault, SQL: "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1"}},
+		{DialectPostgres, migrationStatement{Operation: migrationOperationSetColumnDefault, SQL: "ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 0"}},
+		{DialectPostgres, migrationStatement{Operation: migrationOperationSetColumnDefault, SQL: "ALTER TABLE users ALTER auth_version SET DEFAULT 1"}},
+		{DialectPostgres, migrationStatement{Operation: migrationOperationSetColumnDefault, SQL: "ALTER TABLE users ALTER COLUMN auth_version DROP DEFAULT"}},
+		{DialectPostgres, migrationStatement{Operation: migrationOperationAddNullableColumn, SQL: "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1"}},
+	} {
+		candidate := allowed
+		candidate.Statements = make(map[string][]migrationStatement, len(allowed.Statements))
+		for dialect, statements := range allowed.Statements {
+			candidate.Statements[dialect] = append([]migrationStatement(nil), statements...)
+		}
+		candidate.Statements[test.dialect] = []migrationStatement{test.statement}
+		require.ErrorIs(t, validateMigrationCatalog([]migration{candidate}), ErrUnsafeMigration)
+	}
+}
+
 func TestMigrationCatalogAllowsExplicitIndexOnlyOnTableCreatedBySameExpand(t *testing.T) {
 	statements := completeDialectOperations(
 		migrationStatement{Operation: migrationOperationCreateTable, SQL: "CREATE TABLE safe_table (id BIGINT)"},

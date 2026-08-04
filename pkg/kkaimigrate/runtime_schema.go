@@ -3,6 +3,7 @@ package kkaimigrate
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 
 	"gorm.io/gorm"
@@ -10,6 +11,12 @@ import (
 
 type runtimeSchemaRequirement struct {
 	Table   string
+	Columns []string
+}
+
+type runtimeIndexRequirement struct {
+	Table   string
+	Name    string
 	Columns []string
 }
 
@@ -55,6 +62,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	if currentVersion >= ImageStudioSchemaVersion {
 		requirements = append(requirements, imageStudioRuntimeSchemaRequirements...)
 	}
+	if currentVersion >= AuthenticationSchemaVersion {
+		requirements = append(requirements, authenticationRuntimeSchemaRequirements...)
+	}
 	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
@@ -82,6 +92,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 				return err
 			}
 		}
+	}
+	if currentVersion >= AuthenticationSchemaVersion {
+		return validateAuthenticationRuntimeSchema(db, dialect)
 	}
 	return nil
 }
@@ -139,6 +152,128 @@ var imageStudioRuntimeSchemaRequirements = []runtimeSchemaRequirement{
 		"thumbnail_object_key", "thumbnail_state", "original_filename", "mime_type", "size_bytes",
 		"width", "height", "sha256", "failure_reason", "created_at", "updated_at", "deleted_at",
 	}},
+}
+
+var authenticationRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "users", Columns: []string{"auth_version"}},
+	{Table: "tokens", Columns: []string{"auto_groups"}},
+	{Table: "user_sessions", Columns: []string{
+		"sid", "user_id", "version", "user_auth_version", "status", "refresh_hash",
+		"previous_refresh_hash", "previous_valid_until", "login_method", "ip", "user_agent",
+		"created_at", "last_active_at", "expires_at", "revoked_at", "revoked_reason",
+	}},
+	{Table: "auth_flows", Columns: []string{
+		"id", "token_hash", "purpose", "provider", "intent", "user_id", "session_id",
+		"payload", "created_at", "expires_at", "consumed_at",
+	}},
+	{Table: "external_identity_claims", Columns: []string{
+		"id", "provider", "subject", "user_id", "created_at",
+	}},
+}
+
+var authenticationRuntimeUniqueIndexes = []runtimeIndexRequirement{
+	{Table: "auth_flows", Name: "idx_auth_flows_token_hash", Columns: []string{"token_hash"}},
+	{Table: "external_identity_claims", Name: "idx_external_identity_subject", Columns: []string{"provider", "subject"}},
+	{Table: "external_identity_claims", Name: "idx_external_identity_user", Columns: []string{"provider", "user_id"}},
+}
+
+func validateAuthenticationRuntimeSchema(db *gorm.DB, dialect string) error {
+	for _, requirement := range authenticationRuntimeUniqueIndexes {
+		if err := validateRuntimeUniqueIndex(db, dialect, requirement); err != nil {
+			return err
+		}
+	}
+
+	var invalidAuthVersions int64
+	if err := db.Table("users").
+		Where("auth_version IS NULL OR auth_version < ?", 1).
+		Count(&invalidAuthVersions).Error; err != nil {
+		return fmt.Errorf("validate users.auth_version backfill: %w", err)
+	}
+	if invalidAuthVersions != 0 {
+		return fmt.Errorf("%w: users.auth_version backfill is incomplete", ErrSchemaNotReady)
+	}
+
+	unmapped, err := countUnmappedLegacyTelegramIdentities(db)
+	if err != nil {
+		return err
+	}
+	if unmapped != 0 {
+		return fmt.Errorf("%w: unmapped_legacy_telegram_identity_count=%d", ErrSchemaNotReady, unmapped)
+	}
+	return nil
+}
+
+func validateRuntimeUniqueIndex(db *gorm.DB, dialect string, requirement runtimeIndexRequirement) error {
+	if dialect == DialectSQLite {
+		return validateSQLiteRuntimeUniqueIndex(db, requirement)
+	}
+	indexes, err := db.Migrator().GetIndexes(requirement.Table)
+	if err != nil {
+		return fmt.Errorf("inspect runtime indexes on %s: %w", requirement.Table, err)
+	}
+	for _, index := range indexes {
+		if !strings.EqualFold(index.Name(), requirement.Name) {
+			continue
+		}
+		unique, known := index.Unique()
+		if !known || !unique || !equalRuntimeIndexColumns(index.Columns(), requirement.Columns) {
+			return fmt.Errorf("%w: runtime index %s has an invalid unique shape", ErrSchemaNotReady, requirement.Name)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: missing runtime unique index %s", ErrSchemaNotReady, requirement.Name)
+}
+
+func validateSQLiteRuntimeUniqueIndex(db *gorm.DB, requirement runtimeIndexRequirement) error {
+	if !isCanonicalSQLIdentifier(strings.ToUpper(requirement.Table)) ||
+		!isCanonicalSQLIdentifier(strings.ToUpper(requirement.Name)) {
+		return fmt.Errorf("%w: invalid runtime index requirement", ErrSchemaNotReady)
+	}
+	var indexes []struct {
+		Name   string `gorm:"column:name"`
+		Unique int    `gorm:"column:unique"`
+	}
+	if err := db.Raw("PRAGMA index_list('" + requirement.Table + "')").Scan(&indexes).Error; err != nil {
+		return fmt.Errorf("inspect SQLite runtime indexes on %s: %w", requirement.Table, err)
+	}
+	for _, index := range indexes {
+		if !strings.EqualFold(index.Name, requirement.Name) {
+			continue
+		}
+		if index.Unique != 1 {
+			return fmt.Errorf("%w: runtime index %s must be unique", ErrSchemaNotReady, requirement.Name)
+		}
+		var columns []struct {
+			Sequence int    `gorm:"column:seqno"`
+			Name     string `gorm:"column:name"`
+		}
+		if err := db.Raw("PRAGMA index_info('" + requirement.Name + "')").Scan(&columns).Error; err != nil {
+			return fmt.Errorf("inspect SQLite runtime index %s: %w", requirement.Name, err)
+		}
+		sort.Slice(columns, func(i, j int) bool { return columns[i].Sequence < columns[j].Sequence })
+		actual := make([]string, 0, len(columns))
+		for _, column := range columns {
+			actual = append(actual, column.Name)
+		}
+		if !equalRuntimeIndexColumns(actual, requirement.Columns) {
+			return fmt.Errorf("%w: runtime index %s has invalid columns", ErrSchemaNotReady, requirement.Name)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: missing runtime unique index %s", ErrSchemaNotReady, requirement.Name)
+}
+
+func equalRuntimeIndexColumns(actual []string, expected []string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for index := range actual {
+		if !strings.EqualFold(actual[index], expected[index]) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateVideoSampleCategoryColumn(db *gorm.DB, dialect string) error {

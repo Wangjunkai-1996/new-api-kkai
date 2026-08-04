@@ -19,6 +19,13 @@ func newMigrationTestDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:kkai-migrate-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
+	require.NoError(t, db.Exec(`CREATE TABLE users (
+id INTEGER PRIMARY KEY,
+telegram_id TEXT
+)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE tokens (
+id INTEGER PRIMARY KEY
+)`).Error)
 	return db
 }
 
@@ -108,6 +115,55 @@ func TestExecuteMigrationStatementSkipsExistingColumn(t *testing.T) {
 	exists, err := migrationColumnExists(db, "retryable_column", "category")
 	require.NoError(t, err)
 	require.True(t, exists)
+}
+
+func TestExecuteMigrationStatementSkipsExistingSQLiteConstantDefaultColumn(t *testing.T) {
+	db := newMigrationTestDB(t)
+	statement := migrationStatement{
+		Operation: migrationOperationAddColumnDefault,
+		SQL:       "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1",
+	}
+
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	exists, err := migrationColumnExists(db, "users", "auth_version")
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
+func TestPostgresBackfillStartsAfterDDLTransactionCommits(t *testing.T) {
+	dsn := fmt.Sprintf("file:postgres-ddl-commit-%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	observer, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, ensureMigrationTable(db, DialectSQLite))
+
+	ddlVisibleDuringBackfill := false
+	item := migration{
+		Version: 1,
+		Name:    "postgres_transaction_boundary",
+		Statements: map[string][]migrationStatement{
+			DialectPostgres: {{
+				Operation: migrationOperationCreateTable,
+				SQL:       "CREATE TABLE postgres_transaction_boundary (id BIGINT)",
+			}},
+		},
+		Backfill: func(_ *gorm.DB) error {
+			var count int64
+			if err := observer.Raw(
+				"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+				"postgres_transaction_boundary",
+			).Scan(&count).Error; err != nil {
+				return err
+			}
+			ddlVisibleDuringBackfill = count == 1
+			return nil
+		},
+	}
+
+	require.NoError(t, applyMigration(db, DialectPostgres, item, "test-checksum", time.Now()))
+	require.True(t, ddlVisibleDuringBackfill, "PostgreSQL DDL must commit before the backfill transaction starts")
 }
 
 func TestApplyVideoStudioExpandRequiresV4Bridge(t *testing.T) {
@@ -384,6 +440,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  ImageStudioSchemaVersion,
 			Name:     "image_studio",
 			Checksum: "77c7cf3097c592a04f0e59ffab99ee48a74a733f2e697a4ee7265d1eff512048",
+		},
+		{
+			Version:  AuthenticationSchemaVersion,
+			Name:     "stateless_authentication",
+			Checksum: "4e96401b2e276968fca0f83e68b79eee7a862d2a7fadec2c13c99e9fd349e07d",
 		},
 	}, Plan())
 }

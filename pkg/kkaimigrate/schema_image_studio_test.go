@@ -54,7 +54,10 @@ func TestApplyImageStudioExpandUpgradesV6AndIsIdempotent(t *testing.T) {
 	} {
 		require.True(t, db.Migrator().HasTable(table), table)
 	}
-	require.NoError(t, Check(context.Background(), db, ImageStudioSchemaVersion))
+	require.NoError(t, checkThroughVersion(
+		context.Background(), db, ImageStudioSchemaVersion,
+		ImageStudioSchemaVersion, AuthenticationSchemaVersion,
+	))
 
 	result, err = ApplyImageStudioExpand(context.Background(), db, Options{})
 	require.NoError(t, err)
@@ -81,7 +84,10 @@ func TestImageStudioRuntimeSchemaRejectsMissingTable(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Migrator().DropTable("kkai_image_assets"))
 
-	err = Check(context.Background(), db, ImageStudioSchemaVersion)
+	err = checkThroughVersion(
+		context.Background(), db, ImageStudioSchemaVersion,
+		ImageStudioSchemaVersion, AuthenticationSchemaVersion,
+	)
 	require.ErrorIs(t, err, ErrSchemaNotReady)
 	require.ErrorContains(t, err, "kkai_image_assets")
 }

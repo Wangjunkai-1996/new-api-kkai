@@ -30,6 +30,7 @@ const (
 	VideoStudioSchemaVersion         int64 = 5
 	VideoSampleCategorySchemaVersion int64 = 6
 	ImageStudioSchemaVersion         int64 = 7
+	AuthenticationSchemaVersion      int64 = 8
 )
 
 var (
@@ -79,6 +80,9 @@ type migration struct {
 	LegacyImportSpec string
 	LegacyImportID   string
 	ImportLegacy     func(*gorm.DB) error
+	BackfillSpec     string
+	BackfillID       string
+	Backfill         func(*gorm.DB) error
 	ApplyDialects    []string
 	LegacyDialects   []string
 }
@@ -172,6 +176,21 @@ func ApplyImageStudioExpand(ctx context.Context, db *gorm.DB, options Options) (
 		)
 	}
 	return applyThroughVersion(ctx, db, options, ImageStudioSchemaVersion, MaxCompatibleVersion)
+}
+
+// ApplyAuthenticationExpand adds the stateless dashboard authentication
+// control plane after the complete v7 Image Studio schema has been validated.
+func ApplyAuthenticationExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, ImageStudioSchemaVersion, ImageStudioSchemaVersion, MaxCompatibleVersion); err != nil {
+		return nil, fmt.Errorf(
+			"KKAI maintenance target %d requires validated Image Studio schema %d: %w",
+			AuthenticationSchemaVersion, ImageStudioSchemaVersion, err,
+		)
+	}
+	return applyThroughVersion(ctx, db, options, AuthenticationSchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
@@ -320,33 +339,43 @@ func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion i
 
 func applyMigration(db *gorm.DB, dialect string, item migration, checksum string, started time.Time) error {
 	if dialect == DialectMySQL {
-		for _, statement := range item.Statements[dialect] {
-			if err := executeMigrationStatement(db, dialect, statement); err != nil {
-				return err
-			}
+		if err := executeMigrationSchema(db, dialect, item); err != nil {
+			return err
 		}
-		for _, index := range item.Indexes {
-			if err := ensureIndex(db, index); err != nil {
-				return err
-			}
+		return db.Transaction(func(tx *gorm.DB) error {
+			return importLegacyAndRecord(tx, dialect, item, checksum, started)
+		})
+	}
+	if dialect == DialectPostgres && item.Backfill != nil {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			return executeMigrationSchema(tx, dialect, item)
+		}); err != nil {
+			return err
 		}
 		return db.Transaction(func(tx *gorm.DB) error {
 			return importLegacyAndRecord(tx, dialect, item, checksum, started)
 		})
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
-		for _, statement := range item.Statements[dialect] {
-			if err := executeMigrationStatement(tx, dialect, statement); err != nil {
-				return err
-			}
-		}
-		for _, index := range item.Indexes {
-			if err := ensureIndex(tx, index); err != nil {
-				return err
-			}
+		if err := executeMigrationSchema(tx, dialect, item); err != nil {
+			return err
 		}
 		return importLegacyAndRecord(tx, dialect, item, checksum, started)
 	})
+}
+
+func executeMigrationSchema(db *gorm.DB, dialect string, item migration) error {
+	for _, statement := range item.Statements[dialect] {
+		if err := executeMigrationStatement(db, dialect, statement); err != nil {
+			return err
+		}
+	}
+	for _, index := range item.Indexes {
+		if err := ensureIndex(db, index); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationStatement) error {
@@ -359,8 +388,9 @@ func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationS
 			return nil
 		}
 	}
-	if statement.Operation == migrationOperationAddNullableColumn {
-		table, column, err := migrationAddNullableColumnIdentifiers(dialect, statement.SQL)
+	if statement.Operation == migrationOperationAddNullableColumn ||
+		statement.Operation == migrationOperationAddColumnDefault {
+		table, column, err := migrationAddColumnIdentifiers(dialect, statement)
 		if err != nil {
 			return err
 		}
@@ -388,12 +418,24 @@ func migrationColumnExists(db *gorm.DB, table string, column string) (bool, erro
 	return false, nil
 }
 
-func migrationAddNullableColumnIdentifiers(dialect string, sql string) (string, string, error) {
-	tokens, err := expandSQLTokens(dialect, sql)
+func migrationAddColumnIdentifiers(dialect string, statement migrationStatement) (string, string, error) {
+	tokens, err := expandSQLTokens(dialect, statement.SQL)
 	if err != nil {
 		return "", "", err
 	}
-	if err := validateAddNullableColumn(tokens); err != nil {
+	switch statement.Operation {
+	case migrationOperationAddNullableColumn:
+		err = validateAddNullableColumn(tokens)
+	case migrationOperationAddColumnDefault:
+		if dialect != DialectSQLite {
+			err = fmt.Errorf("add-column constant default is unsupported for %s", dialect)
+		} else {
+			err = validateAddColumnConstantDefault(tokens)
+		}
+	default:
+		err = fmt.Errorf("migration add-column statement has unsupported operation %q", statement.Operation)
+	}
+	if err != nil {
 		return "", "", err
 	}
 	columnIndex := 4
@@ -446,6 +488,11 @@ func importLegacyAndRecord(tx *gorm.DB, dialect string, item migration, checksum
 	}
 	if item.ImportLegacy != nil {
 		if err := item.ImportLegacy(tx); err != nil {
+			return err
+		}
+	}
+	if item.Backfill != nil {
+		if err := item.Backfill(tx); err != nil {
 			return err
 		}
 	}
@@ -581,7 +628,7 @@ func legacyMigrationChecksum(item migration) string {
 
 func migrationContractChecksum(item migration) string {
 	hash := sha256.New()
-	fmt.Fprintf(hash, "checksum_schema=%d\n", migrationChecksumSchemaCurrent)
+	fmt.Fprintf(hash, "checksum_schema=%d\n", item.ChecksumVersion)
 	fmt.Fprintf(hash, "version=%d\nname=%s\nkind=%s\n", item.Version, item.Name, item.Kind)
 	fmt.Fprintf(hash, "implementation_id=%s\nstored_checksum_schema=%d\n", item.ImplementationID, item.ChecksumVersion)
 	dialects := make([]string, 0, len(item.Statements))
@@ -599,6 +646,9 @@ func migrationContractChecksum(item migration) string {
 		fmt.Fprintf(hash, "index=%s:%s:%s\n", index.Name, index.Table, strings.Join(index.Columns, ","))
 	}
 	fmt.Fprintf(hash, "legacy_import_id=%s\nlegacy=%s\n", item.LegacyImportID, item.LegacyImportSpec)
+	if item.ChecksumVersion >= migrationChecksumSchemaBackfill {
+		fmt.Fprintf(hash, "backfill_id=%s\nbackfill=%s\n", item.BackfillID, item.BackfillSpec)
+	}
 	applyDialects := append([]string(nil), item.ApplyDialects...)
 	legacyDialects := append([]string(nil), item.LegacyDialects...)
 	sort.Strings(applyDialects)

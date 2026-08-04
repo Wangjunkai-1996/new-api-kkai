@@ -11,12 +11,15 @@ const quotedSQLIdentifierTokenPrefix = "QUOTED_IDENTIFIER:"
 const migrationCatalogBaselineVersion int64 = RiskSchemaVersion
 
 const (
-	migrationChecksumSchemaLegacy  = 1
-	migrationChecksumSchemaCurrent = 2
+	migrationChecksumSchemaLegacy   = 1
+	migrationChecksumSchemaCurrent  = 2
+	migrationChecksumSchemaBackfill = 3
 
 	migrationOperationCreateTable       = "create_table"
 	migrationOperationCreateIndex       = "create_index_on_new_table"
 	migrationOperationAddNullableColumn = "add_nullable_column"
+	migrationOperationAddColumnDefault  = "add_column_constant_default"
+	migrationOperationSetColumnDefault  = "set_column_constant_default"
 	migrationOperationContract          = "contract"
 )
 
@@ -60,7 +63,7 @@ func validateMigrationCatalog(migrations []migration) error {
 			if item.Version > OutboxEventKeySchemaVersion {
 				return unsafeMigrationCatalog("migration %d cannot use the legacy checksum schema", item.Version)
 			}
-		case migrationChecksumSchemaCurrent:
+		case migrationChecksumSchemaCurrent, migrationChecksumSchemaBackfill:
 		default:
 			return unsafeMigrationCatalog("migration %d has invalid checksum schema", item.Version)
 		}
@@ -71,11 +74,24 @@ func validateMigrationCatalog(migrations []migration) error {
 		if item.LegacyImportID != strings.TrimSpace(item.LegacyImportID) {
 			return unsafeMigrationCatalog("migration %d has no canonical legacy import ID", item.Version)
 		}
-		if item.ChecksumVersion == migrationChecksumSchemaCurrent &&
+		if (item.Backfill == nil) != (item.BackfillID == "") ||
+			(item.Backfill == nil) != (item.BackfillSpec == "") {
+			return unsafeMigrationCatalog("migration %d has incomplete backfill identity", item.Version)
+		}
+		if item.BackfillID != strings.TrimSpace(item.BackfillID) || item.BackfillSpec != strings.TrimSpace(item.BackfillSpec) {
+			return unsafeMigrationCatalog("migration %d has no canonical backfill identity", item.Version)
+		}
+		if item.ChecksumVersion < migrationChecksumSchemaBackfill && item.Backfill != nil {
+			return unsafeMigrationCatalog("migration %d uses a backfill with an older checksum schema", item.Version)
+		}
+		if item.ChecksumVersion >= migrationChecksumSchemaCurrent &&
 			(len(item.Indexes) != 0 || item.ImportLegacy != nil) {
 			return unsafeMigrationCatalog(
 				"migration %d uses an out-of-band index or legacy callback", item.Version,
 			)
+		}
+		if item.Backfill != nil && item.Kind != MigrationKindExpand {
+			return unsafeMigrationCatalog("migration %d uses a backfill outside an expand migration", item.Version)
 		}
 
 		switch item.Kind {
@@ -202,6 +218,16 @@ func validateExpandSQL(
 		return validateCreateIndexOnNewTable(tokens, createdTables)
 	case migrationOperationAddNullableColumn:
 		return validateAddNullableColumn(tokens)
+	case migrationOperationAddColumnDefault:
+		if dialect != DialectSQLite {
+			return fmt.Errorf("add_column_constant_default is allowed only for SQLite")
+		}
+		return validateAddColumnConstantDefault(tokens)
+	case migrationOperationSetColumnDefault:
+		if dialect == DialectSQLite {
+			return fmt.Errorf("set_column_constant_default is unsupported on SQLite")
+		}
+		return validateSetColumnConstantDefault(tokens)
 	default:
 		return fmt.Errorf("expand SQL has unsupported operation %q", statement.Operation)
 	}
@@ -304,6 +330,24 @@ func validateAddNullableColumn(tokens []string) error {
 		case "ALTER", "RENAME", "SET", "TYPE":
 			return fmt.Errorf("add_nullable_column operation contains incompatible token %s", token)
 		}
+	}
+	return nil
+}
+
+func validateAddColumnConstantDefault(tokens []string) error {
+	if len(tokens) < 8 || tokens[len(tokens)-2] != "DEFAULT" || tokens[len(tokens)-1] != "1" {
+		return fmt.Errorf("add_column_constant_default requires the literal DEFAULT 1")
+	}
+	return validateAddNullableColumn(tokens[:len(tokens)-2])
+}
+
+func validateSetColumnConstantDefault(tokens []string) error {
+	if len(tokens) != 9 || !hasTokenPrefix(tokens, "ALTER", "TABLE") ||
+		!isCanonicalSQLIdentifier(tokens[2]) ||
+		!hasTokenPrefix(tokens[3:], "ALTER", "COLUMN") ||
+		!isCanonicalSQLIdentifier(tokens[5]) ||
+		!hasTokenPrefix(tokens[6:], "SET", "DEFAULT", "1") {
+		return fmt.Errorf("set_column_constant_default requires ALTER TABLE <table> ALTER COLUMN <column> SET DEFAULT 1")
 	}
 	return nil
 }
