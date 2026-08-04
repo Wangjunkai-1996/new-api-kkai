@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -42,18 +45,106 @@ func TestImageStudioQuoteBindsNormalizedCreativeRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	now := time.Unix(1_800_000_000, 0)
-	quote := newImageStudioQuoteAt(normalized, 123, map[string]float64{"n": 1}, now)
+	snapshot := imageStudioQuoteTestSnapshot(normalized)
+	snapshot.UnitPrice = 0.67
+	snapshot.QuotaPerUnit = 500000
+	snapshot.GroupRatio = 1.000002
+	quote, err := newImageStudioQuoteAt(normalized, 335001, map[string]float64{"n": 1}, snapshot, now)
+	require.NoError(t, err)
 
-	normalized.MaxQuota = common.GetPointer(quote.Quota)
-	normalized.QuoteHash = quote.RequestHash
-	normalized.QuoteExpiresAt = quote.ExpiresAt
-	require.NoError(t, ValidateImageStudioQuote(normalized, now.Add(time.Minute)))
+	normalized.QuoteToken = quote.QuoteToken
+	claims, err := ValidateImageStudioQuote(normalized, now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, 335001, claims.Quota)
+	assert.Equal(t, map[string]float64{"n": 1}, claims.OtherRatios)
+	assert.Equal(t, snapshot, claims.ImagePricingSnapshot)
 
 	normalized.Prompt = "different"
 	changed, err := imageStudioRequestHash(normalized, imageSubmissionSpec())
 	require.NoError(t, err)
 	normalized.RequestHash = changed
-	require.ErrorIs(t, ValidateImageStudioQuote(normalized, now.Add(time.Minute)), ErrImageStudioQuoteMismatch)
+	_, err = ValidateImageStudioQuote(normalized, now.Add(time.Minute))
+	require.ErrorIs(t, err, ErrImageStudioQuoteMismatch)
+}
+
+func TestImageStudioQuoteRejectsTamperedSignedClaims(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "a lighthouse",
+	})
+	require.NoError(t, err)
+	now := time.Unix(1_800_000_000, 0)
+	quote, err := newImageStudioQuoteAt(
+		normalized, 300, map[string]float64{"n": 1}, imageStudioQuoteTestSnapshot(normalized), now,
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		mutate func(*ImageStudioQuoteClaims)
+	}{
+		{name: "quota", mutate: func(claims *ImageStudioQuoteClaims) { claims.Quota++ }},
+		{name: "unit price", mutate: func(claims *ImageStudioQuoteClaims) { claims.ImagePricingSnapshot.UnitPrice++ }},
+		{name: "size", mutate: func(claims *ImageStudioQuoteClaims) { claims.ImagePricingSnapshot.Size = "2048x2048" }},
+		{name: "user", mutate: func(claims *ImageStudioQuoteClaims) { claims.UserID++ }},
+		{name: "request hash", mutate: func(claims *ImageStudioQuoteClaims) { claims.RequestHash = strings.Repeat("b", 64) }},
+		{name: "expiry", mutate: func(claims *ImageStudioQuoteClaims) { claims.ExpiresAt++ }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			normalized.QuoteToken = tamperImageStudioQuoteToken(t, quote.QuoteToken, test.mutate)
+			_, validateErr := ValidateImageStudioQuote(normalized, now.Add(time.Minute))
+			assert.ErrorIs(t, validateErr, ErrImageStudioQuoteMismatch)
+		})
+	}
+}
+
+func TestImageStudioQuoteRejectsExpiredAndOversizedTokens(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "a lighthouse",
+	})
+	require.NoError(t, err)
+	now := time.Unix(1_800_000_000, 0)
+	quote, err := newImageStudioQuoteAt(
+		normalized, 300, map[string]float64{"n": 1}, imageStudioQuoteTestSnapshot(normalized), now,
+	)
+	require.NoError(t, err)
+
+	normalized.QuoteToken = quote.QuoteToken
+	_, err = ValidateImageStudioQuote(normalized, now.Add(imageStudioQuoteTTL))
+	assert.ErrorIs(t, err, ErrImageStudioQuoteExpired)
+
+	normalized.QuoteToken = strings.Repeat("a", imageStudioQuoteTokenMaxLength+1)
+	_, err = ValidateImageStudioQuote(normalized, now)
+	assert.ErrorIs(t, err, ErrImageStudioQuoteMismatch)
+}
+
+func imageStudioQuoteTestSnapshot(normalized *NormalizedImageStudioSubmission) *imagepricing.Snapshot {
+	return &imagepricing.Snapshot{
+		PolicyVersion: "test-v1", PolicyHash: strings.Repeat("a", 64),
+		Model: normalized.Model, Size: normalized.RelayRequest.Size, Tier: "1k",
+		UnitPrice: 1.5, QuotaPerUnit: 100, GroupRatio: 2,
+		RequestedCount: normalized.RequestedCount,
+	}
+}
+
+func tamperImageStudioQuoteToken(
+	t *testing.T,
+	token string,
+	mutate func(*ImageStudioQuoteClaims),
+) string {
+	t.Helper()
+	encodedPayload, signature, found := strings.Cut(token, ".")
+	require.True(t, found)
+	payload, err := base64.RawURLEncoding.DecodeString(encodedPayload)
+	require.NoError(t, err)
+	var claims ImageStudioQuoteClaims
+	require.NoError(t, common.Unmarshal(payload, &claims))
+	mutate(&claims)
+	payload, err = common.Marshal(claims)
+	require.NoError(t, err)
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + signature
 }
 
 func TestCreateImageGenerationAtomicallyBindsIdempotencyReservation(t *testing.T) {

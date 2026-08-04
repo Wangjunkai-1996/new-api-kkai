@@ -171,15 +171,13 @@ export type ImageQuoteRequest = {
 export type ImageQuote = {
   quota: number
   display_amount: string
-  request_hash: string
+  quote_token: string
   expires_at: number
   other_ratios?: Record<string, number>
 }
 
 export type CreateImageRequest = ImageQuoteRequest & {
-  max_quota: number
-  quote_hash: string
-  quote_expires_at: number
+  quote_token: string
 }
 
 export type ImageComposerValues = {

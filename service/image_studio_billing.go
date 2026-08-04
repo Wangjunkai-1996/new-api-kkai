@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
@@ -76,10 +78,16 @@ func PrepareImageStudioBillingCommit(
 	if userSetting, err := model.GetUserSetting(relayInfo.UserId, false); err == nil && userSetting.RecordIpLog {
 		clientIP = c.ClientIP()
 	}
+	pricingActualCount, err := imagePricingActualCount(relayInfo)
+	if err != nil {
+		return err
+	}
 	accounting := model.ImageGenerationAccountingPayload{
 		GenerationID: generationID, TargetQuota: params.Quota, CountStatistics: totalTokens > 0,
 		Username: c.GetString("username"), UpstreamRequestID: c.GetString(common.UpstreamRequestIdKey),
 		ClientIP: clientIP, NodeName: common.NodeName, LogParams: params,
+		PricingSnapshot:    cloneImagePricingSnapshot(relayInfo.ImagePricingSnapshot),
+		PricingActualCount: pricingActualCount,
 	}
 	prepareContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
 	defer cancel()
@@ -89,6 +97,20 @@ func PrepareImageStudioBillingCommit(
 	guard.relayInfo = relayInfo
 	guard.billingPrepared = true
 	return nil
+}
+
+func imagePricingActualCount(relayInfo *relaycommon.RelayInfo) (int, error) {
+	if relayInfo == nil || relayInfo.ImagePricingSnapshot == nil {
+		return 0, nil
+	}
+	count := relayInfo.ImagePricingSnapshot.RequestedCount
+	if actual, ok := relayInfo.PriceData.OtherRatios()["n"]; ok {
+		if actual < 1 || actual > dto.MaxImageN || actual != math.Trunc(actual) {
+			return 0, ErrImageStudioQuoteStale
+		}
+		count = int(actual)
+	}
+	return count, nil
 }
 
 func CommitImageStudioBilling(c *gin.Context) error {

@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -63,11 +63,9 @@ func TestPrepareImageStudioRequestRewritesOnlyValidatedRelayFields(t *testing.T)
 
 func TestPrepareImageStudioSubmitRequiresIdempotencyBeforeRelay(t *testing.T) {
 	_, token := newImageStudioRelayTestDB(t)
-	quoteHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	maxQuota := 1
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: "gpt-image-1", Prompt: "draw a lighthouse",
-		MaxQuota: &maxQuota, QuoteHash: quoteHash, QuoteExpiresAt: time.Now().Add(time.Minute).Unix(),
+		QuoteToken: "quote-token",
 	})
 	require.NoError(t, err)
 	ctx, recorder := newImageStudioRelayContext(http.MethodPost, "/pg/images", body)
@@ -81,11 +79,9 @@ func TestPrepareImageStudioSubmitRequiresIdempotencyBeforeRelay(t *testing.T) {
 
 func TestPrepareImageStudioRequestReleasesUnboundReservationAfterClientCancellation(t *testing.T) {
 	db, token := newImageStudioRelayTestDB(t)
-	maxQuota := 1
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: "gpt-image-1", Prompt: "draw a lighthouse",
-		MaxQuota:  &maxQuota,
-		QuoteHash: strings.Repeat("a", 64), QuoteExpiresAt: time.Now().Add(time.Minute).Unix(),
+		QuoteToken: "quote-token",
 	})
 	require.NoError(t, err)
 	requestContext, cancel := context.WithCancel(context.Background())
@@ -116,6 +112,7 @@ func TestImageStudioErrorStatusPreservesClientAndConcurrencyFailures(t *testing.
 		code   string
 	}{
 		{service.ErrImageModelProfileConflict, http.StatusConflict, "image_studio_conflict"},
+		{imagepricing.ErrUnsupportedSize, http.StatusBadRequest, "invalid_image_size"},
 		{service.ErrImageArchiveTooLarge, http.StatusRequestEntityTooLarge, "image_asset_too_large"},
 		{service.ErrImageArchiveMIMERejected, http.StatusBadRequest, "invalid_image_asset"},
 		{service.ErrImageTemporaryStorageUnavailable, http.StatusServiceUnavailable, "image_temporary_storage_unavailable"},

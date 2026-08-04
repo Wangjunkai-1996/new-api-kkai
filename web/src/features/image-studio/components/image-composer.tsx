@@ -44,6 +44,7 @@ import {
 
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import {
+  buildCreateImageRequest,
   buildImageComposerValues,
   classifyImageGenerationStatus,
   imageRequestFingerprint,
@@ -193,6 +194,12 @@ export function ImageComposer(props: {
     imageRequestFingerprint(debouncedRequest) ===
       imageRequestFingerprint(quoteRequest)
   const currentQuote = quoteMatchesRequest ? quoteQuery.data : undefined
+  let quoteDisplay = currentQuote?.display_amount || '—'
+  if (quoteMatchesRequest && quoteQuery.isFetching) {
+    quoteDisplay = t('imageStudio.pricing')
+  } else if (quoteMatchesRequest && quoteQuery.isError) {
+    quoteDisplay = t('imageStudio.quoteFailed')
+  }
 
   const changeModel = (profileId: number): void => {
     const profile = modelsQuery.data?.find(
@@ -213,12 +220,7 @@ export function ImageComposer(props: {
       if (!refreshed.data) return
       quote = refreshed.data
     }
-    const request = {
-      ...quoteRequest,
-      max_quota: quote.quota,
-      quote_hash: quote.request_hash,
-      quote_expires_at: quote.expires_at,
-    }
+    const request = buildCreateImageRequest(quoteRequest, quote)
     let requestFingerprint: string
     try {
       requestFingerprint = await imageSubmissionFingerprint(quoteRequest)
@@ -341,10 +343,8 @@ export function ImageComposer(props: {
             <span className='text-muted-foreground'>
               {t('imageStudio.estimatedPrice')}
             </span>
-            <span className='font-medium'>
-              {quoteQuery.isFetching
-                ? t('imageStudio.pricing')
-                : currentQuote?.display_amount || '—'}
+            <span className='font-medium' aria-live='polite'>
+              {quoteDisplay}
             </span>
           </div>
           <Button

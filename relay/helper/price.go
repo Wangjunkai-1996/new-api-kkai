@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -74,9 +75,31 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
+	imagePricingSnapshot := info.ImagePricingSnapshot
+	if imagePricingSnapshot != nil {
+		frozen := *imagePricingSnapshot
+		if frozen.QuotaPerUnit == 0 {
+			frozen.QuotaPerUnit = common.QuotaPerUnit
+			frozen.GroupRatio = groupRatioInfo.GroupRatio
+			frozen.GroupSpecialRatio = groupRatioInfo.GroupSpecialRatio
+			frozen.HasSpecialRatio = groupRatioInfo.HasSpecialRatio
+		} else {
+			groupRatioInfo = hosttypes.GroupRatioInfo{
+				GroupRatio: frozen.GroupRatio, GroupSpecialRatio: frozen.GroupSpecialRatio,
+				HasSpecialRatio: frozen.HasSpecialRatio,
+			}
+		}
+		if err := imagepricing.ValidateSnapshot(&frozen); err != nil {
+			return hosttypes.PriceData{}, err
+		}
+		info.ImagePricingSnapshot = &frozen
+		imagePricingSnapshot = &frozen
+		modelPrice = frozen.UnitPrice
+		usePrice = true
+	}
 
 	// Check if this model uses tiered_expr billing
-	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
+	if imagePricingSnapshot == nil && billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
 		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo)
 	}
 
@@ -123,7 +146,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			return hosttypes.PriceData{}, err
 		}
 		preConsumedQuota = quota
-	} else {
+	} else if imagePricingSnapshot == nil {
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
@@ -165,15 +188,24 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		QuotaToPreConsume:    preConsumedQuota,
 	}
 	if usePrice {
-		for name, ratio := range meta.BillingRatios {
-			priceData.AddOtherRatio(name, ratio)
+		if imagePricingSnapshot != nil {
+			priceData.AddOtherRatio("n", float64(imagePricingSnapshot.RequestedCount))
+			quota, err := imagepricing.CalculateQuotaStrict(imagePricingSnapshot, imagePricingSnapshot.RequestedCount)
+			if err != nil {
+				return hosttypes.PriceData{}, err
+			}
+			priceData.QuotaToPreConsume = quota
+		} else {
+			for name, ratio := range meta.BillingRatios {
+				priceData.AddOtherRatio(name, ratio)
+			}
+			quotaToPreConsume := priceData.ApplyOtherRatiosToFloat(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+			quota, err := common.QuotaFromFloatStrict(quotaToPreConsume)
+			if err != nil {
+				return hosttypes.PriceData{}, err
+			}
+			priceData.QuotaToPreConsume = quota
 		}
-		quotaToPreConsume := priceData.ApplyOtherRatiosToFloat(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
-		quota, err := common.QuotaFromFloatStrict(quotaToPreConsume)
-		if err != nil {
-			return hosttypes.PriceData{}, err
-		}
-		priceData.QuotaToPreConsume = quota
 	}
 
 	if common.DebugEnabled {

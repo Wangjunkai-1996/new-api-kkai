@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  buildCreateImageRequest,
   buildImageComposerValues,
   canAccessImageStudio,
   classifyImageGenerationStatus,
@@ -28,7 +29,7 @@ import {
   normalizeImageParameters,
   normalizeImageStudioAccessMode,
 } from './image-domain'
-import type { ImageModelProfile, ImageQuoteRequest } from './types'
+import type { ImageModelProfile, ImageQuote, ImageQuoteRequest } from './types'
 
 const profile: ImageModelProfile = {
   id: 7,
@@ -114,6 +115,7 @@ describe('image composer parameters', () => {
         watermark: true,
       }
     )
+    assert.deepEqual(normalizeImageParameters(profile, { size: 'auto' }), {})
   })
 
   test('enforces the first-phase four-image limit independently of admin range', () => {
@@ -150,6 +152,30 @@ describe('image composer parameters', () => {
 })
 
 describe('image submission recovery', () => {
+  test('submits only the opaque quote token with the quoted request', () => {
+    const quoteRequest: ImageQuoteRequest = {
+      token_id: 3,
+      model: 'gpt-image-1',
+      prompt: 'private lighthouse prompt',
+      parameters: { size: '1024x1536', count: 2 },
+    }
+    const quote: ImageQuote = {
+      quota: 750_000,
+      display_amount: '$1.50',
+      quote_token: 'opaque.signed.quote',
+      expires_at: 1_800_000_000,
+    }
+
+    const request = buildCreateImageRequest(quoteRequest, quote)
+    assert.deepEqual(request, {
+      ...quoteRequest,
+      quote_token: quote.quote_token,
+    })
+    assert.equal('max_quota' in request, false)
+    assert.equal('quote_hash' in request, false)
+    assert.equal('quote_expires_at' in request, false)
+  })
+
   test('classifies every generation status into one explicit outcome', () => {
     assert.equal(classifyImageGenerationStatus('succeeded'), 'success')
     assert.equal(classifyImageGenerationStatus('partial'), 'success')
@@ -196,5 +222,23 @@ describe('image submission recovery', () => {
     assert.equal(firstDigest, secondDigest)
     assert.match(firstDigest, /^[a-f0-9]{64}$/)
     assert.equal(firstDigest.includes(first.prompt), false)
+  })
+
+  test('uses the selected size in the submission fingerprint', async () => {
+    const request: ImageQuoteRequest = {
+      token_id: 3,
+      model: 'gpt-image-1',
+      prompt: 'same prompt',
+      parameters: { size: '1024x1024', count: 1 },
+    }
+    const largerRequest: ImageQuoteRequest = {
+      ...request,
+      parameters: { ...request.parameters, size: '1024x1536' },
+    }
+
+    assert.notEqual(
+      await imageSubmissionFingerprint(request),
+      await imageSubmissionFingerprint(largerRequest)
+    )
   })
 })

@@ -191,7 +191,7 @@ export const imageTokenCreateResultSchema = z
 export const imageQuoteSchema = z.object({
   quota: z.number().int().nonnegative(),
   display_amount: z.string(),
-  request_hash: z.string().length(64),
+  quote_token: z.string().min(1).max(8192),
   expires_at: z.number().int().positive(),
   other_ratios: z.record(z.string(), z.number()).optional(),
 })

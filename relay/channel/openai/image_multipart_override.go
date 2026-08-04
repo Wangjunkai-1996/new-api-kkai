@@ -33,6 +33,9 @@ func writeOpenAIImageMultipartFields(writer *multipart.Writer, info *relaycommon
 	if err != nil {
 		return fmt.Errorf("apply image edit form parameter override failed: %w", err)
 	}
+	if err := relaycommon.ValidateOutboundImagePricingJSON(info, jsonData); err != nil {
+		return err
+	}
 	info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
 
 	var overridden map[string]json.RawMessage

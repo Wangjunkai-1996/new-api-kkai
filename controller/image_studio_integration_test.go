@@ -17,10 +17,13 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -327,6 +330,50 @@ func TestImageStudioPartialArchiveIsDiscardedAndFullyRefunded(t *testing.T) {
 	require.Zero(t, consumeLogs)
 }
 
+func TestGetChannelRefreshesAutoGroupWithoutMutatingFrozenImagePricing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setupImageStudioIntegrationState(t)
+	model.InitChannelCache()
+
+	originalMaxTokenAutoGroups := setting.GetMaxTokenAutoGroups()
+	require.NoError(t, setting.UpdateMaxTokenAutoGroups("1"))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprintf("%d", originalMaxTokenAutoGroups)))
+	})
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{service.ImageStudioTokenGroup})
+	frozenGroupRatio := hosttypes.GroupRatioInfo{
+		GroupRatio:        3,
+		GroupSpecialRatio: 2,
+		HasSpecialRatio:   true,
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:          &relaycommon.ChannelMeta{},
+		TokenGroup:           "auto",
+		OriginModelName:      "gpt-image-1",
+		UserGroup:            "default",
+		UsingGroup:           "stale-group",
+		ImagePricingSnapshot: &imagepricing.Snapshot{},
+		PriceData:            hosttypes.PriceData{GroupRatioInfo: frozenGroupRatio},
+	}
+	retry := 0
+
+	channel, channelErr := getChannel(ctx, info, &service.RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  info.TokenGroup,
+		ModelName:   info.OriginModelName,
+		RequestPath: "/v1/images/generations",
+		Retry:       &retry,
+	})
+
+	require.Nil(t, channelErr)
+	require.NotNil(t, channel)
+	assert.Equal(t, service.ImageStudioTokenGroup, info.UsingGroup)
+	assert.Equal(t, frozenGroupRatio, info.PriceData.GroupRatioInfo)
+}
+
 func imageStudioIntegrationRequestBody(t *testing.T, db *gorm.DB, prompt string) []byte {
 	return imageStudioIntegrationRequestBodyWithCount(t, db, prompt, 1)
 }
@@ -342,11 +389,11 @@ func imageStudioIntegrationRequestBodyWithCount(
 		Parameters: map[string]any{"count": count},
 	})
 	require.NoError(t, err)
-	quote := service.NewImageStudioQuote(normalized, 100_000, nil)
+	quote, err := service.NewImageStudioQuote(normalized, 100_000, nil, nil)
+	require.NoError(t, err)
 	requestBody, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: normalized.Model, Prompt: normalized.Prompt,
-		Parameters: normalized.Parameters, MaxQuota: &quote.Quota,
-		QuoteHash: quote.RequestHash, QuoteExpiresAt: quote.ExpiresAt,
+		Parameters: normalized.Parameters, QuoteToken: quote.QuoteToken,
 	})
 	require.NoError(t, err)
 	return requestBody

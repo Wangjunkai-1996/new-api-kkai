@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
@@ -57,4 +58,28 @@ func TestImageStudioMaximumPreconsumeRejectsUnboundedTieredExpression(t *testing
 	require.ErrorIs(t, ApplyImageStudioMaximumPreconsume(
 		c, relayInfo, &price, 100, &types.TokenCountMeta{MaxTokens: 1_000},
 	), ErrImageModelBillingUnsupported)
+}
+
+func TestImagePricingActualCountKeepsSnapshotImmutable(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ImagePricingSnapshot: &imagepricing.Snapshot{RequestedCount: 2},
+	}
+	info.PriceData.AddOtherRatio("n", 1)
+
+	actual, err := imagePricingActualCount(info)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, actual)
+	require.Equal(t, 2, info.ImagePricingSnapshot.RequestedCount)
+}
+
+func TestImagePricingActualCountRejectsFractionalValues(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ImagePricingSnapshot: &imagepricing.Snapshot{RequestedCount: 2},
+	}
+	info.PriceData.AddOtherRatio("n", 1.5)
+
+	_, err := imagePricingActualCount(info)
+
+	require.ErrorIs(t, err, ErrImageStudioQuoteStale)
 }

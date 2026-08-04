@@ -21,15 +21,28 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ImageModelAdmin } from './admin/image-model-admin'
+import { ImagePricingAdmin } from './admin/image-pricing-admin'
 import { ImageSampleAdmin } from './admin/image-sample-admin'
 
-type ImageAdminSection = 'models' | 'samples'
+type ImageAdminSection = 'models' | 'samples' | 'pricing'
 
 export function ImageAdminPage() {
   const { t } = useTranslation()
   const [section, setSection] = useState<ImageAdminSection>('models')
+  const isSuperAdmin = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
+
+  let content = <ImageModelAdmin />
+  if (section === 'samples') {
+    content = <ImageSampleAdmin />
+  } else if (section === 'pricing' && isSuperAdmin) {
+    content = <ImagePricingAdmin />
+  }
 
   return (
     <SectionPageLayout>
@@ -42,16 +55,23 @@ export function ImageAdminPage() {
             value={section}
             onValueChange={(value) => setSection(value as ImageAdminSection)}
           >
-            <TabsList>
-              <TabsTrigger value='models'>
-                {t('imageStudio.admin.models')}
-              </TabsTrigger>
-              <TabsTrigger value='samples'>
-                {t('imageStudio.admin.samples')}
-              </TabsTrigger>
-            </TabsList>
+            <div className='max-w-full overflow-x-auto'>
+              <TabsList>
+                <TabsTrigger value='models'>
+                  {t('imageStudio.admin.models')}
+                </TabsTrigger>
+                <TabsTrigger value='samples'>
+                  {t('imageStudio.admin.samples')}
+                </TabsTrigger>
+                {isSuperAdmin && (
+                  <TabsTrigger value='pricing'>
+                    {t('imageStudio.admin.pricing')}
+                  </TabsTrigger>
+                )}
+              </TabsList>
+            </div>
           </Tabs>
-          {section === 'models' ? <ImageModelAdmin /> : <ImageSampleAdmin />}
+          {content}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

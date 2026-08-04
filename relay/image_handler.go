@@ -23,6 +23,9 @@ import (
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
+	info.ImagePricingOutboundValidated = false
+	info.UpstreamRequestBodySize = 0
+	info.UpstreamIsStream = false
 
 	imageReq, ok := info.Request.(*dto.ImageRequest)
 	if !ok {
@@ -47,13 +50,26 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	adaptor.Init(info)
 
 	var requestBody io.Reader
+	var requestBodyCloser io.Closer
+	defer func() {
+		if requestBodyCloser != nil {
+			_ = requestBodyCloser.Close()
+		}
+	}()
 
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
-		requestBody = common.ReaderOnly(storage)
+		if info.ImagePricingSnapshot == nil {
+			requestBody = common.ReaderOnly(storage)
+		} else {
+			requestBody, info.UpstreamRequestBodySize, requestBodyCloser, err = buildPricedImagePassthroughBody(c, info, storage)
+			if err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
@@ -77,6 +93,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 					return newAPIErrorFromParamOverride(err)
 				}
 			}
+			if err := relaycommon.ValidateOutboundImagePricingJSON(info, jsonData); err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
 			info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
 
 			logger.LogDebug(c, "image request body: %s", jsonData)
@@ -84,11 +103,17 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			if err != nil {
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
-			defer closer.Close()
+			requestBodyCloser = closer
 			jsonData = nil
 			info.UpstreamRequestBodySize = size
 			requestBody = body
 		}
+	}
+	if info.ImagePricingSnapshot != nil && !info.ImagePricingOutboundValidated {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("image pricing outbound request was not validated"),
+			types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry(),
+		)
 	}
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")

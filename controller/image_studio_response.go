@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
@@ -42,6 +43,8 @@ func imageStudioErrorStatus(err error) (int, string) {
 		errors.Is(err, service.ErrInvalidIdempotencyRequest),
 		errors.Is(err, service.ErrInvalidImageGenerationFilter):
 		return http.StatusBadRequest, "invalid_image_studio_request"
+	case errors.Is(err, imagepricing.ErrUnsupportedSize):
+		return http.StatusBadRequest, "invalid_image_size"
 	case errors.Is(err, service.ErrImageStudioTokenRequired):
 		return http.StatusBadRequest, "image_token_required"
 	case errors.Is(err, service.ErrImageStudioTokenInvalid):

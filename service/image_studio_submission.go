@@ -23,14 +23,12 @@ var (
 )
 
 type ImageStudioSubmissionRequest struct {
-	TokenID        int            `json:"token_id"`
-	Model          string         `json:"model"`
-	Prompt         string         `json:"prompt"`
-	Parameters     map[string]any `json:"parameters"`
-	SampleID       *int64         `json:"sample_id,omitempty"`
-	MaxQuota       *int           `json:"max_quota,omitempty"`
-	QuoteHash      string         `json:"quote_hash,omitempty"`
-	QuoteExpiresAt int64          `json:"quote_expires_at,omitempty"`
+	TokenID    int            `json:"token_id"`
+	Model      string         `json:"model"`
+	Prompt     string         `json:"prompt"`
+	Parameters map[string]any `json:"parameters"`
+	SampleID   *int64         `json:"sample_id,omitempty"`
+	QuoteToken string         `json:"quote_token,omitempty"`
 }
 
 type NormalizedImageStudioSubmission struct {
@@ -43,17 +41,15 @@ type NormalizedImageStudioSubmission struct {
 	Parameters           map[string]any
 	SampleID             *int64
 	RequestedCount       int
-	MaxQuota             *int
-	QuoteHash            string
-	QuoteExpiresAt       int64
+	QuoteToken           string
 	RequestHash          string
 	RelayRequest         *dto.ImageRequest
 }
 
 func ValidateImageStudioSubmitRequest(request ImageStudioSubmissionRequest) error {
-	request.QuoteHash = strings.ToLower(strings.TrimSpace(request.QuoteHash))
-	if request.TokenID <= 0 || request.MaxQuota == nil || *request.MaxQuota < 0 || request.QuoteExpiresAt <= 0 ||
-		!validImageStudioHash(request.QuoteHash) {
+	token := strings.TrimSpace(request.QuoteToken)
+	if request.TokenID <= 0 || token == "" || len(request.QuoteToken) > imageStudioQuoteTokenMaxLength ||
+		len(token) > imageStudioQuoteTokenMaxLength {
 		return ErrInvalidImageStudioSubmission
 	}
 	return nil
@@ -70,10 +66,7 @@ func NormalizeImageStudioSubmission(
 	}
 	request.Model = strings.TrimSpace(request.Model)
 	request.Prompt = strings.TrimSpace(request.Prompt)
-	request.QuoteHash = strings.ToLower(strings.TrimSpace(request.QuoteHash))
-	if request.MaxQuota != nil && *request.MaxQuota < 0 {
-		return nil, ErrInvalidImageStudioSubmission
-	}
+	request.QuoteToken = strings.TrimSpace(request.QuoteToken)
 
 	var sample *model.KKAIImageSample
 	if request.SampleID != nil {
@@ -134,8 +127,7 @@ func NormalizeImageStudioSubmission(
 		UserID: userID, TokenID: request.TokenID, ProfileID: profile.ID,
 		SpecificationVersion: profile.SpecificationVersion, Model: profile.Model,
 		Prompt: request.Prompt, Parameters: parameters, SampleID: request.SampleID,
-		RequestedCount: int(*relayRequest.N), MaxQuota: request.MaxQuota,
-		QuoteHash: request.QuoteHash, QuoteExpiresAt: request.QuoteExpiresAt,
+		RequestedCount: int(*relayRequest.N), QuoteToken: request.QuoteToken,
 		RelayRequest: relayRequest,
 	}
 	requestHash, err := imageStudioRequestHash(normalized, specification)

@@ -118,4 +118,59 @@ describe('image model admin form', () => {
       profile.specification_version + 1
     )
   })
+
+  test('round-trips added size options as a versioned profile change', () => {
+    const sizeProfile: ImageModelProfile = {
+      ...profile,
+      specification: {
+        ...profile.specification,
+        parameters: [
+          profile.specification.parameters[0],
+          {
+            key: 'size',
+            label: 'Size',
+            request_key: 'size',
+            required: true,
+            control: 'select',
+            options: [{ label: 'Default', value: '1024x1024' }],
+          },
+        ],
+      },
+      default_parameters: { count: 1, size: '1024x1024' },
+    }
+    const values = createImageModelFormValues(sizeProfile)
+    values.parameters[1].options_text = [
+      '1K | 1:1=1024x1024',
+      '2K | 3:2 landscape=1536x1024',
+      '2K | 2:3 portrait=1024x1536',
+      '2K | 1:1=2048x2048',
+      '2K | 16:9 landscape=2048x1152',
+      '2K | 9:16 portrait=1152x2048',
+      '4K | 16:9 landscape=3840x2160',
+      '4K | 9:16 portrait=2160x3840',
+    ].join('\n')
+
+    const parsed = parseImageModelForm(values, sizeProfile)
+    assert.equal(
+      parsed.specification.version,
+      profile.specification_version + 1
+    )
+    assert.deepEqual(parsed.specification.parameters[1], {
+      key: 'size',
+      label: 'Size',
+      request_key: 'size',
+      required: true,
+      control: 'select',
+      options: [
+        { label: '1K | 1:1', value: '1024x1024' },
+        { label: '2K | 3:2 landscape', value: '1536x1024' },
+        { label: '2K | 2:3 portrait', value: '1024x1536' },
+        { label: '2K | 1:1', value: '2048x2048' },
+        { label: '2K | 16:9 landscape', value: '2048x1152' },
+        { label: '2K | 9:16 portrait', value: '1152x2048' },
+        { label: '4K | 16:9 landscape', value: '3840x2160' },
+        { label: '4K | 9:16 portrait', value: '2160x3840' },
+      ],
+    })
+  })
 })

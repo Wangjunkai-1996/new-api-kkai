@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -22,14 +24,16 @@ const (
 var ErrImageAccountingNotReady = errors.New("image accounting is not ready")
 
 type ImageGenerationAccountingPayload struct {
-	GenerationID      int64                  `json:"generation_id"`
-	TargetQuota       int                    `json:"target_quota"`
-	CountStatistics   bool                   `json:"count_statistics"`
-	Username          string                 `json:"username"`
-	UpstreamRequestID string                 `json:"upstream_request_id,omitempty"`
-	ClientIP          string                 `json:"client_ip,omitempty"`
-	NodeName          string                 `json:"node_name,omitempty"`
-	LogParams         RecordConsumeLogParams `json:"log_params"`
+	GenerationID       int64                  `json:"generation_id"`
+	TargetQuota        int                    `json:"target_quota"`
+	CountStatistics    bool                   `json:"count_statistics"`
+	Username           string                 `json:"username"`
+	UpstreamRequestID  string                 `json:"upstream_request_id,omitempty"`
+	ClientIP           string                 `json:"client_ip,omitempty"`
+	NodeName           string                 `json:"node_name,omitempty"`
+	LogParams          RecordConsumeLogParams `json:"log_params"`
+	PricingSnapshot    *imagepricing.Snapshot `json:"pricing_snapshot,omitempty"`
+	PricingActualCount int                    `json:"pricing_actual_count,omitempty"`
 }
 
 func PrepareImageGenerationAccounting(
@@ -41,6 +45,9 @@ func PrepareImageGenerationAccounting(
 	if db == nil || generationID <= 0 || payload.TargetQuota < 0 ||
 		payload.LogParams.Quota != payload.TargetQuota || payload.LogParams.ChannelId <= 0 {
 		return ErrImageBillingInvalidRequest
+	}
+	if err := validateImageGenerationAccountingSnapshot(payload); err != nil {
+		return err
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -113,6 +120,9 @@ func RecordImageGenerationAccountingLog(
 	if db == nil || payload.GenerationID <= 0 || payload.TargetQuota < 0 ||
 		payload.LogParams.Quota != payload.TargetQuota {
 		return false, ErrImageBillingInvalidRequest
+	}
+	if err := validateImageGenerationAccountingSnapshot(payload); err != nil {
+		return false, err
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -198,7 +208,29 @@ func decodeImageGenerationAccounting(event KKAIOutboxEvent) (ImageGenerationAcco
 		event.AggregateID != strconv.FormatInt(payload.GenerationID, 10) {
 		return ImageGenerationAccountingPayload{}, fmt.Errorf("%w: invalid image accounting payload", ErrImageBillingInvalidRequest)
 	}
+	if err := validateImageGenerationAccountingSnapshot(payload); err != nil {
+		return ImageGenerationAccountingPayload{}, err
+	}
 	return payload, nil
+}
+
+func validateImageGenerationAccountingSnapshot(payload ImageGenerationAccountingPayload) error {
+	if payload.PricingSnapshot == nil {
+		if payload.PricingActualCount != 0 {
+			return fmt.Errorf("%w: image pricing count without snapshot", ErrImageBillingInvalidRequest)
+		}
+		return nil
+	}
+	if imagepricing.ValidateSnapshot(payload.PricingSnapshot) != nil ||
+		payload.PricingSnapshot.Model != payload.LogParams.ModelName ||
+		payload.PricingActualCount < 1 || payload.PricingActualCount > dto.MaxImageN {
+		return fmt.Errorf("%w: invalid image accounting pricing snapshot", ErrImageBillingInvalidRequest)
+	}
+	expectedQuota, err := imagepricing.CalculateQuotaStrict(payload.PricingSnapshot, payload.PricingActualCount)
+	if err != nil || expectedQuota != payload.TargetQuota {
+		return fmt.Errorf("%w: image accounting quota does not match pricing snapshot", ErrImageBillingInvalidRequest)
+	}
+	return nil
 }
 
 func applyImageGenerationAccountingStatistics(

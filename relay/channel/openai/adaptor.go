@@ -468,6 +468,13 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 				return nil, err
 			}
 		} else if mf != nil {
+			count := 1
+			if request.N != nil {
+				count = int(*request.N)
+			}
+			if err := relaycommon.ValidateOutboundImagePricingValues(info, request.Size, count); err != nil {
+				return nil, err
+			}
 			if err := writer.WriteField("model", request.Model); err != nil {
 				return nil, fmt.Errorf("write model form field failed: %w", err)
 			}
