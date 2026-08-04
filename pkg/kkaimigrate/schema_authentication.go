@@ -1,14 +1,12 @@
 package kkaimigrate
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const authenticationIdentityProviderTelegram = "telegram"
@@ -18,18 +16,29 @@ var errAuthenticationIdentityOwnership = errors.New("authentication identity own
 var authenticationSchemaStatements = map[string][]migrationStatement{
 	DialectSQLite: authenticationStatements(
 		"INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER", "DATETIME", "",
+		migrationStatement{Operation: migrationOperationAddColumnDefault, SQL: `ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1`},
 	),
 	DialectMySQL: authenticationStatements(
 		"BIGINT AUTO_INCREMENT PRIMARY KEY", "INT", "DATETIME(3)", " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+		migrationStatement{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN auth_version BIGINT`},
+		migrationStatement{Operation: migrationOperationSetColumnDefault, SQL: `ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 1`},
 	),
 	DialectPostgres: authenticationStatements(
 		"BIGSERIAL PRIMARY KEY", "INTEGER", "TIMESTAMPTZ", "",
+		migrationStatement{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN auth_version BIGINT`},
+		migrationStatement{Operation: migrationOperationSetColumnDefault, SQL: `ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 1`},
 	),
 }
 
-func authenticationStatements(idType string, integerType string, timeType string, tableSuffix string) []migrationStatement {
-	return []migrationStatement{
-		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN auth_version BIGINT`},
+func authenticationStatements(
+	idType string,
+	integerType string,
+	timeType string,
+	tableSuffix string,
+	authVersionStatements ...migrationStatement,
+) []migrationStatement {
+	statements := append([]migrationStatement(nil), authVersionStatements...)
+	return append(statements, []migrationStatement{
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE tokens ADD COLUMN auto_groups TEXT`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS user_sessions (
 sid VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -81,12 +90,16 @@ created_at ` + timeType + ` NOT NULL
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE UNIQUE INDEX idx_external_identity_subject ON external_identity_claims (provider, subject)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE UNIQUE INDEX idx_external_identity_user ON external_identity_claims (provider, user_id)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_external_identity_claims_user_id ON external_identity_claims (user_id)`},
-	}
+	}...)
 }
 
-type authenticationLegacyUser struct {
-	ID         int64          `gorm:"column:id"`
-	TelegramID sql.NullString `gorm:"column:telegram_id"`
+type AuthenticationExpandPrecheck struct {
+	Schema                        string `json:"schema"`
+	TargetVersion                 int64  `json:"target_version"`
+	UserCount                     int64  `json:"user_count"`
+	LegacyTelegramIdentityCount   int64  `json:"legacy_telegram_identity_count"`
+	AmbiguousTelegramSubjectCount int64  `json:"ambiguous_telegram_subject_count"`
+	Safe                          bool   `json:"safe"`
 }
 
 type authenticationIdentityClaim struct {
@@ -97,87 +110,107 @@ type authenticationIdentityClaim struct {
 	CreatedAt time.Time `gorm:"column:created_at"`
 }
 
+func PrecheckAuthenticationExpand(ctx context.Context, db *gorm.DB) (*AuthenticationExpandPrecheck, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	query := db.WithContext(ctx)
+	result := &AuthenticationExpandPrecheck{
+		Schema:        "kkai_authentication_expand_precheck_v1",
+		TargetVersion: AuthenticationSchemaVersion,
+	}
+	if err := query.Table("users").Count(&result.UserCount).Error; err != nil {
+		return nil, fmt.Errorf("count users for authentication expand: %w", err)
+	}
+	if err := query.Table("users").
+		Where("telegram_id IS NOT NULL AND TRIM(telegram_id) <> ''").
+		Count(&result.LegacyTelegramIdentityCount).Error; err != nil {
+		return nil, fmt.Errorf("count legacy Telegram identities: %w", err)
+	}
+	if err := query.Raw(`SELECT COUNT(*) FROM (
+SELECT TRIM(telegram_id) AS subject
+FROM users
+WHERE telegram_id IS NOT NULL AND TRIM(telegram_id) <> ''
+GROUP BY TRIM(telegram_id)
+HAVING COUNT(*) > 1
+) AS ambiguous_telegram_subjects`).Scan(&result.AmbiguousTelegramSubjectCount).Error; err != nil {
+		return nil, fmt.Errorf("count ambiguous legacy Telegram subjects: %w", err)
+	}
+	result.Safe = result.AmbiguousTelegramSubjectCount == 0
+	return result, nil
+}
+
 func backfillAuthenticationSchema(tx *gorm.DB) error {
 	if tx == nil {
 		return ErrSchemaNotReady
 	}
+	precheck, err := PrecheckAuthenticationExpand(tx.Statement.Context, tx)
+	if err != nil {
+		return err
+	}
+	if precheck.AmbiguousTelegramSubjectCount != 0 {
+		return fmt.Errorf(
+			"%w: ambiguous_telegram_subject_count=%d",
+			errAuthenticationIdentityOwnership,
+			precheck.AmbiguousTelegramSubjectCount,
+		)
+	}
+
+	dialect, err := dialectName(tx)
+	if err != nil {
+		return err
+	}
 	if err := tx.Exec(`UPDATE users
 SET auth_version = 1
 WHERE auth_version IS NULL OR auth_version < 1`).Error; err != nil {
-		return fmt.Errorf("backfill users.auth_version: %w", err)
+		return fmt.Errorf("initialize users.auth_version: %w", err)
 	}
 
-	var users []authenticationLegacyUser
-	if err := tx.Table("users").
-		Select("id", "telegram_id").
-		Order("id ASC").
-		Find(&users).Error; err != nil {
-		return fmt.Errorf("load legacy Telegram identities: %w", err)
+	insertStatements := map[string]string{
+		DialectSQLite: `INSERT OR IGNORE INTO external_identity_claims
+(provider, subject, user_id, created_at)
+SELECT ?, TRIM(telegram_id), id, ? FROM users
+WHERE telegram_id IS NOT NULL AND TRIM(telegram_id) <> ''`,
+		DialectMySQL: `INSERT IGNORE INTO external_identity_claims
+(provider, subject, user_id, created_at)
+SELECT ?, TRIM(telegram_id), id, ? FROM users
+WHERE telegram_id IS NOT NULL AND TRIM(telegram_id) <> ''`,
+		DialectPostgres: `INSERT INTO external_identity_claims
+(provider, subject, user_id, created_at)
+SELECT ?, TRIM(telegram_id), id, ? FROM users
+WHERE telegram_id IS NOT NULL AND TRIM(telegram_id) <> ''
+ON CONFLICT DO NOTHING`,
+	}
+	if err := tx.Exec(
+		insertStatements[dialect],
+		authenticationIdentityProviderTelegram,
+		time.Now().UTC(),
+	).Error; err != nil {
+		return fmt.Errorf("backfill legacy Telegram identities: %w", err)
 	}
 
-	createdAt := time.Now().UTC()
-	for _, user := range users {
-		subject := strings.TrimSpace(user.TelegramID.String)
-		if !user.TelegramID.Valid || subject == "" {
-			continue
-		}
-		if user.ID <= 0 {
-			return fmt.Errorf("backfill Telegram identity for user %d: invalid user ID", user.ID)
-		}
-		if err := claimAuthenticationIdentity(tx, user.ID, subject, createdAt); err != nil {
-			return err
-		}
+	unmapped, err := countUnmappedLegacyTelegramIdentities(tx)
+	if err != nil {
+		return err
+	}
+	if unmapped != 0 {
+		return fmt.Errorf("%w: unmapped_legacy_telegram_identity_count=%d", errAuthenticationIdentityOwnership, unmapped)
 	}
 	return nil
 }
 
-func claimAuthenticationIdentity(tx *gorm.DB, userID int64, subject string, createdAt time.Time) error {
-	claim := authenticationIdentityClaim{
-		Provider:  authenticationIdentityProviderTelegram,
-		Subject:   subject,
-		UserID:    userID,
-		CreatedAt: createdAt,
+func countUnmappedLegacyTelegramIdentities(db *gorm.DB) (int64, error) {
+	var count int64
+	err := db.Raw(`SELECT COUNT(*) FROM users AS u
+LEFT JOIN external_identity_claims AS c
+  ON c.provider = ?
+ AND c.subject = TRIM(u.telegram_id)
+ AND c.user_id = u.id
+WHERE u.telegram_id IS NOT NULL
+  AND TRIM(u.telegram_id) <> ''
+  AND c.id IS NULL`, authenticationIdentityProviderTelegram).Scan(&count).Error
+	if err != nil {
+		return 0, fmt.Errorf("verify legacy Telegram identity backfill: %w", err)
 	}
-	if err := tx.Table("external_identity_claims").
-		Clauses(clause.OnConflict{DoNothing: true}).
-		Create(&claim).Error; err != nil {
-		return fmt.Errorf("backfill Telegram identity for user %d: create claim: %w", userID, err)
-	}
-
-	// A no-op insert can be either the exact mapping or a conflict on either
-	// unique key, so confirm both ownership directions before accepting it.
-	var subjectOwner struct {
-		UserID int64 `gorm:"column:user_id"`
-	}
-	result := tx.Table("external_identity_claims").
-		Select("user_id").
-		Where("provider = ? AND subject = ?", authenticationIdentityProviderTelegram, subject).
-		Limit(1).
-		Scan(&subjectOwner)
-	if result.Error != nil {
-		return fmt.Errorf("backfill Telegram identity for user %d: verify subject owner: %w", userID, result.Error)
-	}
-	if result.RowsAffected != 1 || subjectOwner.UserID != userID {
-		return authenticationIdentityConflict(userID)
-	}
-
-	var userClaim struct {
-		Subject string `gorm:"column:subject"`
-	}
-	result = tx.Table("external_identity_claims").
-		Select("subject").
-		Where("provider = ? AND user_id = ?", authenticationIdentityProviderTelegram, userID).
-		Limit(1).
-		Scan(&userClaim)
-	if result.Error != nil {
-		return fmt.Errorf("backfill Telegram identity for user %d: verify user owner: %w", userID, result.Error)
-	}
-	if result.RowsAffected != 1 || userClaim.Subject != subject {
-		return authenticationIdentityConflict(userID)
-	}
-	return nil
-}
-
-func authenticationIdentityConflict(userID int64) error {
-	return fmt.Errorf("backfill Telegram identity for user %d: %w", userID, errAuthenticationIdentityOwnership)
+	return count, nil
 }

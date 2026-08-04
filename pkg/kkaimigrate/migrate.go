@@ -339,33 +339,43 @@ func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion i
 
 func applyMigration(db *gorm.DB, dialect string, item migration, checksum string, started time.Time) error {
 	if dialect == DialectMySQL {
-		for _, statement := range item.Statements[dialect] {
-			if err := executeMigrationStatement(db, dialect, statement); err != nil {
-				return err
-			}
+		if err := executeMigrationSchema(db, dialect, item); err != nil {
+			return err
 		}
-		for _, index := range item.Indexes {
-			if err := ensureIndex(db, index); err != nil {
-				return err
-			}
+		return db.Transaction(func(tx *gorm.DB) error {
+			return importLegacyAndRecord(tx, dialect, item, checksum, started)
+		})
+	}
+	if dialect == DialectPostgres && item.Backfill != nil {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			return executeMigrationSchema(tx, dialect, item)
+		}); err != nil {
+			return err
 		}
 		return db.Transaction(func(tx *gorm.DB) error {
 			return importLegacyAndRecord(tx, dialect, item, checksum, started)
 		})
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
-		for _, statement := range item.Statements[dialect] {
-			if err := executeMigrationStatement(tx, dialect, statement); err != nil {
-				return err
-			}
-		}
-		for _, index := range item.Indexes {
-			if err := ensureIndex(tx, index); err != nil {
-				return err
-			}
+		if err := executeMigrationSchema(tx, dialect, item); err != nil {
+			return err
 		}
 		return importLegacyAndRecord(tx, dialect, item, checksum, started)
 	})
+}
+
+func executeMigrationSchema(db *gorm.DB, dialect string, item migration) error {
+	for _, statement := range item.Statements[dialect] {
+		if err := executeMigrationStatement(db, dialect, statement); err != nil {
+			return err
+		}
+	}
+	for _, index := range item.Indexes {
+		if err := ensureIndex(db, index); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationStatement) error {
@@ -378,8 +388,9 @@ func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationS
 			return nil
 		}
 	}
-	if statement.Operation == migrationOperationAddNullableColumn {
-		table, column, err := migrationAddNullableColumnIdentifiers(dialect, statement.SQL)
+	if statement.Operation == migrationOperationAddNullableColumn ||
+		statement.Operation == migrationOperationAddColumnDefault {
+		table, column, err := migrationAddColumnIdentifiers(dialect, statement)
 		if err != nil {
 			return err
 		}
@@ -407,12 +418,24 @@ func migrationColumnExists(db *gorm.DB, table string, column string) (bool, erro
 	return false, nil
 }
 
-func migrationAddNullableColumnIdentifiers(dialect string, sql string) (string, string, error) {
-	tokens, err := expandSQLTokens(dialect, sql)
+func migrationAddColumnIdentifiers(dialect string, statement migrationStatement) (string, string, error) {
+	tokens, err := expandSQLTokens(dialect, statement.SQL)
 	if err != nil {
 		return "", "", err
 	}
-	if err := validateAddNullableColumn(tokens); err != nil {
+	switch statement.Operation {
+	case migrationOperationAddNullableColumn:
+		err = validateAddNullableColumn(tokens)
+	case migrationOperationAddColumnDefault:
+		if dialect != DialectSQLite {
+			err = fmt.Errorf("add-column constant default is unsupported for %s", dialect)
+		} else {
+			err = validateAddColumnConstantDefault(tokens)
+		}
+	default:
+		err = fmt.Errorf("migration add-column statement has unsupported operation %q", statement.Operation)
+	}
+	if err != nil {
 		return "", "", err
 	}
 	columnIndex := 4

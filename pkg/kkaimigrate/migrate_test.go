@@ -117,6 +117,55 @@ func TestExecuteMigrationStatementSkipsExistingColumn(t *testing.T) {
 	require.True(t, exists)
 }
 
+func TestExecuteMigrationStatementSkipsExistingSQLiteConstantDefaultColumn(t *testing.T) {
+	db := newMigrationTestDB(t)
+	statement := migrationStatement{
+		Operation: migrationOperationAddColumnDefault,
+		SQL:       "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1",
+	}
+
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement))
+	exists, err := migrationColumnExists(db, "users", "auth_version")
+	require.NoError(t, err)
+	require.True(t, exists)
+}
+
+func TestPostgresBackfillStartsAfterDDLTransactionCommits(t *testing.T) {
+	dsn := fmt.Sprintf("file:postgres-ddl-commit-%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	observer, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, ensureMigrationTable(db, DialectSQLite))
+
+	ddlVisibleDuringBackfill := false
+	item := migration{
+		Version: 1,
+		Name:    "postgres_transaction_boundary",
+		Statements: map[string][]migrationStatement{
+			DialectPostgres: {{
+				Operation: migrationOperationCreateTable,
+				SQL:       "CREATE TABLE postgres_transaction_boundary (id BIGINT)",
+			}},
+		},
+		Backfill: func(_ *gorm.DB) error {
+			var count int64
+			if err := observer.Raw(
+				"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+				"postgres_transaction_boundary",
+			).Scan(&count).Error; err != nil {
+				return err
+			}
+			ddlVisibleDuringBackfill = count == 1
+			return nil
+		},
+	}
+
+	require.NoError(t, applyMigration(db, DialectPostgres, item, "test-checksum", time.Now()))
+	require.True(t, ddlVisibleDuringBackfill, "PostgreSQL DDL must commit before the backfill transaction starts")
+}
+
 func TestApplyVideoStudioExpandRequiresV4Bridge(t *testing.T) {
 	db := newMigrationTestDB(t)
 	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
@@ -395,7 +444,7 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 		{
 			Version:  AuthenticationSchemaVersion,
 			Name:     "stateless_authentication",
-			Checksum: "2be62592240db795d4bd302b117df66a0c9dc03b346a5a7be6d51fc86f324230",
+			Checksum: "4e96401b2e276968fca0f83e68b79eee7a862d2a7fadec2c13c99e9fd349e07d",
 		},
 	}, Plan())
 }

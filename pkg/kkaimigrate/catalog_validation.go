@@ -18,6 +18,8 @@ const (
 	migrationOperationCreateTable       = "create_table"
 	migrationOperationCreateIndex       = "create_index_on_new_table"
 	migrationOperationAddNullableColumn = "add_nullable_column"
+	migrationOperationAddColumnDefault  = "add_column_constant_default"
+	migrationOperationSetColumnDefault  = "set_column_constant_default"
 	migrationOperationContract          = "contract"
 )
 
@@ -216,6 +218,16 @@ func validateExpandSQL(
 		return validateCreateIndexOnNewTable(tokens, createdTables)
 	case migrationOperationAddNullableColumn:
 		return validateAddNullableColumn(tokens)
+	case migrationOperationAddColumnDefault:
+		if dialect != DialectSQLite {
+			return fmt.Errorf("add_column_constant_default is allowed only for SQLite")
+		}
+		return validateAddColumnConstantDefault(tokens)
+	case migrationOperationSetColumnDefault:
+		if dialect == DialectSQLite {
+			return fmt.Errorf("set_column_constant_default is unsupported on SQLite")
+		}
+		return validateSetColumnConstantDefault(tokens)
 	default:
 		return fmt.Errorf("expand SQL has unsupported operation %q", statement.Operation)
 	}
@@ -318,6 +330,24 @@ func validateAddNullableColumn(tokens []string) error {
 		case "ALTER", "RENAME", "SET", "TYPE":
 			return fmt.Errorf("add_nullable_column operation contains incompatible token %s", token)
 		}
+	}
+	return nil
+}
+
+func validateAddColumnConstantDefault(tokens []string) error {
+	if len(tokens) < 8 || tokens[len(tokens)-2] != "DEFAULT" || tokens[len(tokens)-1] != "1" {
+		return fmt.Errorf("add_column_constant_default requires the literal DEFAULT 1")
+	}
+	return validateAddNullableColumn(tokens[:len(tokens)-2])
+}
+
+func validateSetColumnConstantDefault(tokens []string) error {
+	if len(tokens) != 9 || !hasTokenPrefix(tokens, "ALTER", "TABLE") ||
+		!isCanonicalSQLIdentifier(tokens[2]) ||
+		!hasTokenPrefix(tokens[3:], "ALTER", "COLUMN") ||
+		!isCanonicalSQLIdentifier(tokens[5]) ||
+		!hasTokenPrefix(tokens[6:], "SET", "DEFAULT", "1") {
+		return fmt.Errorf("set_column_constant_default requires ALTER TABLE <table> ALTER COLUMN <column> SET DEFAULT 1")
 	}
 	return nil
 }

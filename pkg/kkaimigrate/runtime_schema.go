@@ -194,49 +194,12 @@ func validateAuthenticationRuntimeSchema(db *gorm.DB, dialect string) error {
 		return fmt.Errorf("%w: users.auth_version backfill is incomplete", ErrSchemaNotReady)
 	}
 
-	var users []authenticationLegacyUser
-	if err := db.Table("users").
-		Select("id", "telegram_id").
-		Where("telegram_id IS NOT NULL").
-		Order("id ASC").
-		Find(&users).Error; err != nil {
-		return fmt.Errorf("validate legacy Telegram identity backfill: %w", err)
+	unmapped, err := countUnmappedLegacyTelegramIdentities(db)
+	if err != nil {
+		return err
 	}
-	for _, user := range users {
-		subject := strings.TrimSpace(user.TelegramID.String)
-		if !user.TelegramID.Valid || subject == "" {
-			continue
-		}
-
-		var subjectOwner struct {
-			UserID int64 `gorm:"column:user_id"`
-		}
-		result := db.Table("external_identity_claims").
-			Select("user_id").
-			Where("provider = ? AND subject = ?", authenticationIdentityProviderTelegram, subject).
-			Limit(1).
-			Scan(&subjectOwner)
-		if result.Error != nil {
-			return fmt.Errorf("validate Telegram identity for user %d: %w", user.ID, result.Error)
-		}
-		if result.RowsAffected != 1 || subjectOwner.UserID != user.ID {
-			return fmt.Errorf("%w: Telegram identity backfill is inconsistent for user %d", ErrSchemaNotReady, user.ID)
-		}
-
-		var userClaim struct {
-			Subject string `gorm:"column:subject"`
-		}
-		result = db.Table("external_identity_claims").
-			Select("subject").
-			Where("provider = ? AND user_id = ?", authenticationIdentityProviderTelegram, user.ID).
-			Limit(1).
-			Scan(&userClaim)
-		if result.Error != nil {
-			return fmt.Errorf("validate Telegram identity for user %d: %w", user.ID, result.Error)
-		}
-		if result.RowsAffected != 1 || userClaim.Subject != subject {
-			return fmt.Errorf("%w: Telegram identity backfill is inconsistent for user %d", ErrSchemaNotReady, user.ID)
-		}
+	if unmapped != 0 {
+		return fmt.Errorf("%w: unmapped_legacy_telegram_identity_count=%d", ErrSchemaNotReady, unmapped)
 	}
 	return nil
 }

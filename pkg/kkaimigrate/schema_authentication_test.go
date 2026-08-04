@@ -2,7 +2,6 @@ package kkaimigrate
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -40,20 +39,44 @@ func TestAuthenticationV8DefinesOnlyAdditiveSchemaForEveryDialect(t *testing.T) 
 	for _, dialect := range dialects {
 		t.Run(dialect.name, func(t *testing.T) {
 			statements := authenticationSchemaStatements[dialect.name]
-			require.Len(t, statements, 17)
-			require.Equal(t, migrationStatement{
+			expectedStatementCount := 17
+			autoGroupsIndex := 1
+			if dialect.name != DialectSQLite {
+				expectedStatementCount++
+				autoGroupsIndex++
+			}
+			require.Len(t, statements, expectedStatementCount)
+			expectedAuthVersion := migrationStatement{
 				Operation: migrationOperationAddNullableColumn,
 				SQL:       "ALTER TABLE users ADD COLUMN auth_version BIGINT",
-			}, statements[0])
+			}
+			if dialect.name == DialectSQLite {
+				expectedAuthVersion = migrationStatement{
+					Operation: migrationOperationAddColumnDefault,
+					SQL:       "ALTER TABLE users ADD COLUMN auth_version BIGINT DEFAULT 1",
+				}
+			}
+			require.Equal(t, expectedAuthVersion, statements[0])
+			if dialect.name != DialectSQLite {
+				require.Equal(t, migrationStatement{
+					Operation: migrationOperationSetColumnDefault,
+					SQL:       "ALTER TABLE users ALTER COLUMN auth_version SET DEFAULT 1",
+				}, statements[1])
+			}
 			require.Equal(t, migrationStatement{
 				Operation: migrationOperationAddNullableColumn,
 				SQL:       "ALTER TABLE tokens ADD COLUMN auto_groups TEXT",
-			}, statements[1])
-			for _, statement := range statements[:2] {
+			}, statements[autoGroupsIndex])
+			for _, statement := range statements[:autoGroupsIndex+1] {
 				upper := strings.ToUpper(statement.SQL)
 				require.NotContains(t, upper, "NOT NULL")
-				require.NotContains(t, upper, "DEFAULT")
 			}
+			if dialect.name == DialectSQLite {
+				require.Contains(t, statements[0].SQL, "DEFAULT 1")
+			} else {
+				require.NotContains(t, statements[0].SQL, "DEFAULT")
+			}
+			require.NotContains(t, statements[autoGroupsIndex].SQL, "DEFAULT")
 
 			allSQL := make([]string, 0, len(statements))
 			for _, statement := range statements {
@@ -63,6 +86,9 @@ func TestAuthenticationV8DefinesOnlyAdditiveSchemaForEveryDialect(t *testing.T) 
 				allSQL = append(allSQL, statement.SQL)
 			}
 			joined := strings.Join(allSQL, "\n")
+			if dialect.name != DialectSQLite {
+				require.NotContains(t, joined, "ADD COLUMN auth_version BIGINT DEFAULT")
+			}
 			for _, table := range []string{"user_sessions", "auth_flows", "external_identity_claims"} {
 				require.Contains(t, joined, "CREATE TABLE IF NOT EXISTS "+table)
 			}
@@ -91,6 +117,7 @@ func TestAuthenticationV8SQLiteDDLAndBackfillAreIdempotent(t *testing.T) {
 (3, '   ', 7),
 (4, NULL, -2),
 (5, 'telegram-five', 9)`).Error)
+	require.NoError(t, db.Exec("INSERT INTO users (id, telegram_id) VALUES (?, NULL)", 6).Error)
 	require.NoError(t, db.Exec(`INSERT INTO external_identity_claims
 (provider, subject, user_id, created_at) VALUES (?, ?, ?, ?)`,
 		authenticationIdentityProviderTelegram, "telegram-five", 5, time.Now().UTC()).Error)
@@ -111,6 +138,7 @@ func TestAuthenticationV8SQLiteDDLAndBackfillAreIdempotent(t *testing.T) {
 		{ID: 3, AuthVersion: 7},
 		{ID: 4, AuthVersion: 1},
 		{ID: 5, AuthVersion: 9},
+		{ID: 6, AuthVersion: 1},
 	}, versions)
 
 	var claims []authenticationIdentityClaim
@@ -187,7 +215,7 @@ func TestAuthenticationBackfillRejectsBothOwnershipDirectionsWithoutSubjectLeak(
 
 			err := db.Transaction(backfillAuthenticationSchema)
 			require.ErrorIs(t, err, errAuthenticationIdentityOwnership)
-			require.ErrorContains(t, err, fmt.Sprintf("user %d", test.legacyUserID))
+			require.ErrorContains(t, err, "unmapped_legacy_telegram_identity_count=1")
 			require.NotContains(t, err.Error(), legacySubject)
 			require.NotContains(t, err.Error(), existingSubject)
 
@@ -211,7 +239,7 @@ func TestAuthenticationBackfillRejectsAmbiguousLegacySubjectsAtomically(t *testi
 
 	err := db.Transaction(backfillAuthenticationSchema)
 	require.ErrorIs(t, err, errAuthenticationIdentityOwnership)
-	require.ErrorContains(t, err, "user 42")
+	require.ErrorContains(t, err, "ambiguous_telegram_subject_count=1")
 	require.NotContains(t, err.Error(), subject)
 
 	var count int64
@@ -219,6 +247,24 @@ func TestAuthenticationBackfillRejectsAmbiguousLegacySubjectsAtomically(t *testi
 	require.Zero(t, count)
 	require.NoError(t, db.Table("users").Where("auth_version IS NOT NULL").Count(&count).Error)
 	require.Zero(t, count)
+}
+
+func TestAuthenticationPrecheckReturnsOnlySanitizedAggregates(t *testing.T) {
+	db := newAuthenticationSchemaTestDB(t)
+	const sensitiveSubject = "sensitive-duplicate-subject"
+	require.NoError(t, db.Exec(`INSERT INTO users (id, telegram_id) VALUES
+(51, ?),
+(52, ?),
+(53, NULL)`, sensitiveSubject, " "+sensitiveSubject+" ").Error)
+
+	result, err := PrecheckAuthenticationExpand(context.Background(), db)
+	require.NoError(t, err)
+	require.Equal(t, "kkai_authentication_expand_precheck_v1", result.Schema)
+	require.EqualValues(t, AuthenticationSchemaVersion, result.TargetVersion)
+	require.EqualValues(t, 3, result.UserCount)
+	require.EqualValues(t, 2, result.LegacyTelegramIdentityCount)
+	require.EqualValues(t, 1, result.AmbiguousTelegramSubjectCount)
+	require.False(t, result.Safe)
 }
 
 func TestAuthenticationV8AppliesAfterV7OnSQLite(t *testing.T) {

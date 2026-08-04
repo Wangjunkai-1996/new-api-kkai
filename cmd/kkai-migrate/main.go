@@ -25,6 +25,7 @@ func main() {
 		dryRun         bool
 		checkOnly      bool
 		currentOnly    bool
+		precheck       bool
 		describe       bool
 		dialect        string
 		minimumVersion int64
@@ -38,6 +39,7 @@ func main() {
 	flag.BoolVar(&dryRun, "dry-run", false, "show pending migrations without applying them")
 	flag.BoolVar(&checkOnly, "check", false, "verify the minimum schema version and exit")
 	flag.BoolVar(&currentOnly, "current", false, "observe the current database migration prefix")
+	flag.BoolVar(&precheck, "precheck", false, "run the read-only precheck for an explicit maintenance target")
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
@@ -47,7 +49,7 @@ func main() {
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
 	flag.Parse()
 	if describe {
-		if strings.TrimSpace(dialect) == "" || !jsonOutput || observe || checkOnly || dryRun || currentOnly || minimumVersion != 0 || targetVersion != 0 || dsnFromStdin {
+		if strings.TrimSpace(dialect) == "" || !jsonOutput || observe || checkOnly || dryRun || currentOnly || precheck || minimumVersion != 0 || targetVersion != 0 || dsnFromStdin {
 			log.Fatal("--describe-contract requires --dialect and --json and cannot be combined with database operations")
 		}
 		output, err := describeContractJSON(dialect)
@@ -57,7 +59,11 @@ func main() {
 		fmt.Println(output)
 		return
 	}
-	if observe {
+	if precheck {
+		if !jsonOutput || targetVersion != kkaimigrate.AuthenticationSchemaVersion || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8 and --json and cannot be combined with other operations")
+		}
+	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
@@ -81,6 +87,18 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if precheck {
+		result, err := kkaimigrate.PrecheckAuthenticationExpand(ctx, db)
+		if err != nil {
+			log.Fatalf("KKAI authentication precheck failed: %v", err)
+		}
+		encoded, err := common.Marshal(result)
+		if err != nil {
+			log.Fatal("failed to encode KKAI authentication precheck")
+		}
+		fmt.Println(string(encoded))
+		return
+	}
 	if observe {
 		observation, err := observeCurrentSchema(ctx, db)
 		if err != nil {
