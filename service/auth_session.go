@@ -399,7 +399,8 @@ func authSessionErrorCode(err error) (int, string) {
 		return http.StatusUnauthorized, "AUTH_TOKEN_EXPIRED"
 	case errors.Is(err, ErrLoginSessionRevoked):
 		return http.StatusUnauthorized, "AUTH_SESSION_REVOKED"
-	case errors.Is(err, ErrRefreshTokenInvalid), errors.Is(err, ErrAuthTokenInvalid):
+	case errors.Is(err, ErrRefreshTokenInvalid), errors.Is(err, ErrAuthTokenInvalid),
+		errors.Is(err, ErrLegacySessionMissing), errors.Is(err, ErrLegacySessionInvalid):
 		return http.StatusUnauthorized, "AUTH_UNAUTHORIZED"
 	default:
 		return http.StatusInternalServerError, "AUTH_INTERNAL_ERROR"

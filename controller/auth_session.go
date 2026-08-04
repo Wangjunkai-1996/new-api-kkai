@@ -18,8 +18,21 @@ func RefreshAuth(c *gin.Context) {
 	setAuthNoStore(c)
 	rawRefreshToken, err := c.Cookie(service.RefreshCookieName)
 	if err != nil || rawRefreshToken == "" {
-		service.ClearRefreshCookie(c)
-		writeAuthSessionError(c, service.ErrRefreshTokenInvalid)
+		bundle, user, legacyErr := service.UpgradeLegacyLoginSession(c.Request, c.ClientIP(), c.Request.UserAgent())
+		if legacyErr != nil {
+			service.ClearRefreshCookie(c)
+			if !errors.Is(legacyErr, service.ErrLegacySessionMissing) {
+				service.ClearLegacySessionCookie(c)
+			}
+			writeAuthSessionError(c, legacyErr)
+			return
+		}
+		if expectedSID := strings.TrimSpace(c.GetHeader("X-Auth-Session")); expectedSID != "" && expectedSID != bundle.Session.SID {
+			writeAuthSessionError(c, service.ErrLoginSessionMismatch)
+			return
+		}
+		service.WriteRefreshCookie(c, bundle.RefreshToken)
+		writeAuthRefreshSuccess(c, bundle, user)
 		return
 	}
 	bundle, user, err := service.RefreshLoginSession(rawRefreshToken, c.GetHeader("X-Auth-Session"), c.ClientIP(), c.Request.UserAgent())
@@ -31,6 +44,10 @@ func RefreshAuth(c *gin.Context) {
 		return
 	}
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
+	writeAuthRefreshSuccess(c, bundle, user)
+}
+
+func writeAuthRefreshSuccess(c *gin.Context, bundle *service.AuthBundle, user *model.User) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -73,6 +90,10 @@ func AuthLogout(c *gin.Context) {
 				service.ClearRefreshCookie(c)
 				cookieCleared = true
 			}
+			if err := revokeLegacySessionForLogout(c); err != nil {
+				writeAuthSessionError(c, err)
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,
 				"message": "",
@@ -83,6 +104,10 @@ func AuthLogout(c *gin.Context) {
 	}
 	if cookieErr != nil || rawRefreshToken == "" {
 		service.ClearRefreshCookie(c)
+		if err := revokeLegacySessionForLogout(c); err != nil {
+			writeAuthSessionError(c, err)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 		return
 	}
@@ -91,7 +116,23 @@ func AuthLogout(c *gin.Context) {
 		return
 	}
 	service.ClearRefreshCookie(c)
+	if err := revokeLegacySessionForLogout(c); err != nil {
+		writeAuthSessionError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+}
+
+func revokeLegacySessionForLogout(c *gin.Context) error {
+	err := service.RevokeLegacyLoginSession(c.Request, c.ClientIP(), c.Request.UserAgent())
+	service.ClearLegacySessionCookie(c)
+	if err == nil ||
+		errors.Is(err, service.ErrLegacySessionMissing) ||
+		errors.Is(err, service.ErrLegacySessionInvalid) ||
+		errors.Is(err, service.ErrLoginSessionRevoked) {
+		return nil
+	}
+	return err
 }
 
 func GetLoginSessions(c *gin.Context) {

@@ -53,6 +53,32 @@ func TestAuthFlowIsBoundAndConsumedOnce(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAuthFlowConsumed)
 }
 
+func TestLegacySessionAssertionIsRetainedUntilItsCookieWindowExpires(t *testing.T) {
+	truncateTables(t)
+	now := time.Now()
+	consumedAt := now.Add(-2 * AuthFlowDefaultCleanupRetention)
+	flows := []AuthFlow{
+		{
+			TokenHash: "legacy-retained", Purpose: AuthFlowPurposeLegacySession,
+			ExpiresAt: now.Add(time.Hour), ConsumedAt: &consumedAt,
+		},
+		{
+			TokenHash: "legacy-expired", Purpose: AuthFlowPurposeLegacySession,
+			ExpiresAt: now.Add(-time.Second), ConsumedAt: &consumedAt,
+		},
+		{
+			TokenHash: "ordinary-consumed", Purpose: AuthFlowPurposeOAuth,
+			ExpiresAt: now.Add(time.Hour), ConsumedAt: &consumedAt,
+		},
+	}
+	require.NoError(t, DB.Create(&flows).Error)
+
+	require.NoError(t, DeleteExpiredAuthFlows(now))
+	var remaining []string
+	require.NoError(t, DB.Model(&AuthFlow{}).Order("token_hash").Pluck("token_hash", &remaining).Error)
+	assert.Equal(t, []string{"legacy-retained"}, remaining)
+}
+
 func TestAuthFlowExpiryIsEnforced(t *testing.T) {
 	truncateTables(t)
 

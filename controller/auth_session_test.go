@@ -11,32 +11,81 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	gsessions "github.com/gorilla/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-func TestAuthLogoutRejectsRefreshCookieSessionMismatch(t *testing.T) {
+func setupAuthSessionControllerTest(t *testing.T, username string) (*gorm.DB, *model.User) {
+	t.Helper()
 	previousDB := model.DB
+	previousType := common.MainDatabaseType()
 	previousRedis := common.RedisEnabled
 	previousSecret := common.SessionSecret
+	previousActiveLimit := common.UserSessionActiveLimit
+	previousIssuanceLimit := common.UserSessionIssuanceLimit
+	previousIssuanceWindow := common.UserSessionIssuanceWindowSeconds
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuthFlow{}))
 	model.DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
-	common.SessionSecret = "auth-logout-mismatch-test-secret"
+	common.SessionSecret = "auth-session-controller-test-secret"
+	common.UserSessionActiveLimit = common.DefaultUserSessionActiveLimit
+	common.UserSessionIssuanceLimit = common.DefaultUserSessionIssuanceLimit
+	common.UserSessionIssuanceWindowSeconds = int64(common.DefaultUserSessionIssuanceWindowSeconds)
 	t.Cleanup(func() {
 		model.DB = previousDB
+		common.SetMainDatabaseType(previousType)
 		common.RedisEnabled = previousRedis
 		common.SessionSecret = previousSecret
+		common.UserSessionActiveLimit = previousActiveLimit
+		common.UserSessionIssuanceLimit = previousIssuanceLimit
+		common.UserSessionIssuanceWindowSeconds = previousIssuanceWindow
+		_ = sqlDB.Close()
 	})
 
 	user := &model.User{
-		Username: "logout-mismatch-user", Password: "unused", Role: common.RoleCommonUser,
+		Username: username, Password: "unused", Role: common.RoleCommonUser,
 		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
 	}
 	require.NoError(t, db.Create(user).Error)
+	return db, user
+}
+
+func controllerLegacySessionCookie(t *testing.T, userID int) *http.Cookie {
+	t.Helper()
+	store := gsessions.NewCookieStore([]byte(common.SessionSecret))
+	store.MaxAge(30 * 24 * 60 * 60)
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+	session, err := store.New(request, service.LegacySessionCookieName)
+	require.NoError(t, err)
+	session.Values["id"] = userID
+	require.NoError(t, store.Save(request, recorder, session))
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	return cookies[0]
+}
+
+func requireResponseCookie(t *testing.T, recorder *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	require.FailNow(t, "response cookie not found", name)
+	return nil
+}
+
+func TestAuthLogoutRejectsRefreshCookieSessionMismatch(t *testing.T) {
+	_, user := setupAuthSessionControllerTest(t, "logout-mismatch-user")
 	sessionA, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "agent-a")
 	require.NoError(t, err)
 	sessionB, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "agent-b")
@@ -65,6 +114,114 @@ func TestAuthLogoutRejectsRefreshCookieSessionMismatch(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, model.UserSessionStatusActive, stored.Status)
 	}
+}
+
+func TestRefreshAuthUpgradesLegacyCookie(t *testing.T) {
+	_, user := setupAuthSessionControllerTest(t, "legacy-refresh-user")
+	legacyCookie := controllerLegacySessionCookie(t, user.Id)
+	gim := gin.New()
+	gim.POST("/api/user/auth/refresh", RefreshAuth)
+	request := httptest.NewRequest(http.MethodPost, "/api/user/auth/refresh", nil)
+	request.AddCookie(legacyCookie)
+	response := httptest.NewRecorder()
+
+	gim.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	refreshCookie := requireResponseCookie(t, response, service.RefreshCookieName)
+	assert.NotEmpty(t, refreshCookie.Value)
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			AccessToken string                   `json:"access_token"`
+			Session     service.LoginSessionView `json:"session"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+	assert.True(t, body.Success)
+	assert.NotEmpty(t, body.Data.AccessToken)
+	assert.NotEmpty(t, body.Data.Session.SID)
+	stored, err := model.GetUserSessionBySID(body.Data.Session.SID)
+	require.NoError(t, err)
+	assert.Equal(t, model.UserSessionStatusActive, stored.Status)
+}
+
+func TestLegacyGetLogoutPreventsCookieReplay(t *testing.T) {
+	_, user := setupAuthSessionControllerTest(t, "legacy-get-logout-user")
+	legacyCookie := controllerLegacySessionCookie(t, user.Id)
+	gim := gin.New()
+	gim.GET("/api/user/logout", AuthLogout)
+	gim.POST("/api/user/auth/refresh", RefreshAuth)
+
+	logoutRequest := httptest.NewRequest(http.MethodGet, "/api/user/logout", nil)
+	logoutRequest.AddCookie(legacyCookie)
+	logoutResponse := httptest.NewRecorder()
+	gim.ServeHTTP(logoutResponse, logoutRequest)
+
+	assert.Equal(t, http.StatusOK, logoutResponse.Code)
+	assert.Less(t, requireResponseCookie(t, logoutResponse, service.LegacySessionCookieName).MaxAge, 0)
+	var session model.UserSession
+	require.NoError(t, model.DB.Take(&session).Error)
+	assert.Equal(t, model.UserSessionStatusRevoked, session.Status)
+
+	replayRequest := httptest.NewRequest(http.MethodPost, "/api/user/auth/refresh", nil)
+	replayRequest.AddCookie(legacyCookie)
+	replayResponse := httptest.NewRecorder()
+	gim.ServeHTTP(replayResponse, replayRequest)
+
+	assert.Equal(t, http.StatusUnauthorized, replayResponse.Code)
+	var replayBody struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(replayResponse.Body.Bytes(), &replayBody))
+	assert.False(t, replayBody.Success)
+	assert.Equal(t, "AUTH_SESSION_REVOKED", replayBody.Code)
+	var sessionCount int64
+	require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&sessionCount).Error)
+	assert.EqualValues(t, 1, sessionCount)
+}
+
+func TestAccessTokenLogoutAlsoRevokesLegacyCookieSession(t *testing.T) {
+	_, user := setupAuthSessionControllerTest(t, "access-plus-legacy-logout-user")
+	accessSession, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "current-browser")
+	require.NoError(t, err)
+	legacyCookie := controllerLegacySessionCookie(t, user.Id)
+	legacyBundle, _, err := service.UpgradeLegacyLoginSession(
+		requestWithCookie(http.MethodPost, "/api/user/auth/refresh", legacyCookie),
+		"127.0.0.1",
+		"legacy-browser",
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, accessSession.Session.SID, legacyBundle.Session.SID)
+
+	request := requestWithCookie(http.MethodPost, "/api/user/auth/logout", legacyCookie)
+	request.Header.Set("Authorization", "Bearer "+accessSession.AccessToken)
+	request.Header.Set("X-Auth-Session", accessSession.Session.SID)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = request
+
+	AuthLogout(c)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	for _, sid := range []string{accessSession.Session.SID, legacyBundle.Session.SID} {
+		stored, err := model.GetUserSessionBySID(sid)
+		require.NoError(t, err)
+		assert.Equal(t, model.UserSessionStatusRevoked, stored.Status)
+	}
+	_, _, err = service.UpgradeLegacyLoginSession(
+		requestWithCookie(http.MethodPost, "/api/user/auth/refresh", legacyCookie),
+		"127.0.0.1",
+		"legacy-browser",
+	)
+	assert.ErrorIs(t, err, service.ErrLoginSessionRevoked)
+}
+
+func requestWithCookie(method, target string, cookie *http.Cookie) *http.Request {
+	request := httptest.NewRequest(method, target, nil)
+	request.AddCookie(cookie)
+	return request
 }
 
 func TestWriteAuthSessionErrorMapsSessionGrowthLimits(t *testing.T) {

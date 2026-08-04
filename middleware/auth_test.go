@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
+	gsessions "github.com/gorilla/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -29,7 +30,7 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 	previousSecret := common.SessionSecret
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuthFlow{}))
 	model.DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
@@ -40,6 +41,90 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 		common.RedisEnabled = previousRedis
 		common.SessionSecret = previousSecret
 	})
+}
+
+func middlewareLegacyCookie(t *testing.T, userID int, role int) *http.Cookie {
+	t.Helper()
+	store := gsessions.NewCookieStore([]byte(common.SessionSecret))
+	store.MaxAge(30 * 24 * 60 * 60)
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+	session, err := store.New(request, service.LegacySessionCookieName)
+	require.NoError(t, err)
+	session.Values["id"] = userID
+	session.Values["role"] = role
+	require.NoError(t, store.Save(request, recorder, session))
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	return cookies[0]
+}
+
+func TestUserAuthUpgradesLegacyCookieWithoutTrustingCookieRole(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	user := createMiddlewarePATUser(t, "legacy-cookie-user", "legacy-cookie-user-pat")
+	cookie := middlewareLegacyCookie(t, user.Id, common.RoleRootUser)
+
+	router := gin.New()
+	router.GET("/protected", UserAuth(), func(c *gin.Context) {
+		identity, ok := GetSessionAuthIdentity(c)
+		c.JSON(http.StatusOK, gin.H{
+			"id":          c.GetInt("id"),
+			"role":        c.GetInt("role"),
+			"session_id":  identity.SessionID,
+			"has_session": ok,
+		})
+	})
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	request.Header.Set("New-Api-User", fmt.Sprintf("%d", user.Id))
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var body struct {
+		ID         int    `json:"id"`
+		Role       int    `json:"role"`
+		SessionID  string `json:"session_id"`
+		HasSession bool   `json:"has_session"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+	assert.Equal(t, user.Id, body.ID)
+	assert.Equal(t, common.RoleCommonUser, body.Role)
+	assert.True(t, body.HasSession)
+	assert.NotEmpty(t, body.SessionID)
+	assert.Contains(t, response.Header().Values("Set-Cookie")[0], service.RefreshCookieName+"=")
+}
+
+func TestLegacyCookieRequiresMatchingUserHeaderExceptForMedia(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	user := createMiddlewarePATUser(t, "legacy-header-user", "legacy-header-user-pat")
+	cookie := middlewareLegacyCookie(t, user.Id, common.RoleCommonUser)
+	router := gin.New()
+	router.GET("/protected", UserAuth(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/media", StudioMediaAuth(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	for _, test := range []struct {
+		name   string
+		path   string
+		header string
+		status int
+	}{
+		{name: "missing header", path: "/protected", status: http.StatusUnauthorized},
+		{name: "wrong header", path: "/protected", header: fmt.Sprintf("%d", user.Id+1), status: http.StatusUnauthorized},
+		{name: "media without header", path: "/media", status: http.StatusNoContent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.AddCookie(cookie)
+			if test.header != "" {
+				request.Header.Set("New-Api-User", test.header)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			assert.Equal(t, test.status, response.Code)
+		})
+	}
 }
 
 func issueExpiredDashboardAccessToken(t *testing.T, identity service.AuthIdentity) string {

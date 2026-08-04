@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -28,6 +29,7 @@ const (
 	dashboardCredentialUnmatched dashboardCredentialKind = iota
 	dashboardCredentialInternal
 	dashboardCredentialPAT
+	dashboardCredentialLegacy
 )
 
 func validUserInfo(username string, role int) bool {
@@ -42,7 +44,11 @@ func validUserInfo(username string, role int) bool {
 }
 
 func authHelper(c *gin.Context, minRole int) {
-	user, identity, useAccessToken, err := authenticateDashboardRequest(c)
+	authHelperWithOptions(c, minRole, false)
+}
+
+func authHelperWithOptions(c *gin.Context, minRole int, allowLegacyWithoutUserHeader bool) {
+	user, identity, useAccessToken, err := authenticateDashboardRequest(c, allowLegacyWithoutUserHeader)
 	if err != nil {
 		writeDashboardAuthError(c, err)
 		return
@@ -76,8 +82,12 @@ func authHelper(c *gin.Context, minRole int) {
 
 func TryUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		user, identity, credentialKind, err := classifyDashboardCredential(c)
+		user, identity, credentialKind, err := classifyDashboardCredential(c, true)
 		if err != nil {
+			if credentialKind == dashboardCredentialLegacy {
+				c.Next()
+				return
+			}
 			writeDashboardAuthError(c, err)
 			return
 		}
@@ -102,7 +112,7 @@ func VideoStudioMediaAuth() func(c *gin.Context) {
 
 func StudioMediaAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		authHelper(c, common.RoleCommonUser)
+		authHelperWithOptions(c, common.RoleCommonUser, true)
 	}
 }
 
@@ -147,8 +157,8 @@ func GetSessionAuthIdentity(c *gin.Context) (service.AuthIdentity, bool) {
 	return identity, true
 }
 
-func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, service.AuthIdentity, bool, error) {
-	user, identity, credentialKind, err := classifyDashboardCredential(c)
+func authenticateDashboardRequest(c *gin.Context, allowLegacyWithoutUserHeader bool) (*model.UserBase, service.AuthIdentity, bool, error) {
+	user, identity, credentialKind, err := classifyDashboardCredential(c, allowLegacyWithoutUserHeader)
 	if err != nil {
 		return nil, service.AuthIdentity{}, credentialKind == dashboardCredentialPAT, err
 	}
@@ -158,10 +168,32 @@ func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, service.Auth
 	return user, identity, credentialKind == dashboardCredentialPAT, nil
 }
 
-func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
+func classifyDashboardCredential(c *gin.Context, allowLegacyWithoutUserHeader bool) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
 	raw, ok := authorizationToken(c.GetHeader("Authorization"))
 	if !ok {
-		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
+		user, identity, rawRefreshToken, err := service.AuthenticateLegacyDashboardRequest(
+			c.Request,
+			c.ClientIP(),
+			c.Request.UserAgent(),
+		)
+		if errors.Is(err, service.ErrLegacySessionMissing) {
+			return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
+		}
+		if err != nil {
+			return nil, service.AuthIdentity{}, dashboardCredentialLegacy, err
+		}
+		if !allowLegacyWithoutUserHeader {
+			headerUserID, err := strconv.Atoi(strings.TrimSpace(c.GetHeader("New-Api-User")))
+			if err != nil || headerUserID != user.Id {
+				return nil, service.AuthIdentity{}, dashboardCredentialLegacy, service.ErrAuthTokenInvalid
+			}
+		}
+		if rawRefreshToken != "" {
+			if _, err := c.Cookie(service.RefreshCookieName); err != nil {
+				service.WriteRefreshCookie(c, rawRefreshToken)
+			}
+		}
+		return user, identity, dashboardCredentialLegacy, nil
 	}
 	identity, internal, err := service.ParseDashboardAccessToken(raw)
 	if internal {

@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	UserSessionStatusActive   = "active"
-	UserSessionStatusRevoking = "revoking"
-	UserSessionStatusRevoked  = "revoked"
+	UserSessionStatusActive            = "active"
+	UserSessionStatusRevoking          = "revoking"
+	UserSessionStatusRevoked           = "revoked"
+	LegacyUserSessionAuthVersion int64 = 1
 
 	userSessionCacheSchema      = 1
 	userSessionListLimit        = 100
@@ -164,6 +165,126 @@ func CreateUserSession(session *UserSession) error {
 		common.SysLog("failed to populate newly created user session cache: " + err.Error())
 	}
 	return nil
+}
+
+// CreateOrGetLegacyUserSession atomically binds one signed legacy dashboard
+// cookie to one server-side session. Only the HMAC assertion digest is stored.
+func CreateOrGetLegacyUserSession(session *UserSession, assertion string) (*UserSession, error) {
+	now := time.Now()
+	if session == nil || strings.TrimSpace(assertion) == "" || session.SID == "" ||
+		session.UserID <= 0 || session.UserAuthVersion != LegacyUserSessionAuthVersion || session.RefreshHash == "" ||
+		session.ExpiresAt <= now.Unix() {
+		return nil, ErrUserSessionInvalid
+	}
+	if session.Version <= 0 {
+		session.Version = 1
+	}
+	if session.Status == "" {
+		session.Status = UserSessionStatusActive
+	}
+	if session.Status != UserSessionStatusActive || session.RevokedAt != 0 {
+		return nil, ErrUserSessionInvalid
+	}
+	if session.CreatedAt == 0 {
+		session.CreatedAt = now.Unix()
+	}
+	if session.LastActiveAt == 0 {
+		session.LastActiveAt = now.Unix()
+	}
+
+	flowHash := authFlowTokenHash("external:" + AuthFlowPurposeLegacySession + ":" + assertion)
+	resolved := *session
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).
+			Select("id", "status", "auth_version").
+			Where("id = ?", session.UserID).
+			First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserSessionInactive
+			}
+			return err
+		}
+		if user.Status != common.UserStatusEnabled || user.AuthVersion != session.UserAuthVersion {
+			return ErrUserSessionInactive
+		}
+
+		var existingFlow AuthFlow
+		flowLookup := tx.Where("token_hash = ?", flowHash).Limit(1).Find(&existingFlow)
+		if flowLookup.Error != nil {
+			return flowLookup.Error
+		}
+		if flowLookup.RowsAffected == 1 {
+			if existingFlow.Purpose != AuthFlowPurposeLegacySession ||
+				existingFlow.UserId != session.UserID || existingFlow.SessionId != session.SID ||
+				!existingFlow.ExpiresAt.After(now) {
+				return ErrUserSessionInvalid
+			}
+			if err := tx.Where("sid = ?", session.SID).First(&resolved).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrUserSessionInactive
+				}
+				return err
+			}
+			if resolved.UserID != session.UserID || resolved.UserAuthVersion != session.UserAuthVersion {
+				return ErrUserSessionInvalid
+			}
+			return nil
+		}
+		var activeCount int64
+		if err := tx.Model(&UserSession{}).
+			Where("user_id = ? AND status = ? AND expires_at > ?", session.UserID, UserSessionStatusActive, now.Unix()).
+			Count(&activeCount).Error; err != nil {
+			return err
+		}
+		if activeCount >= int64(common.UserSessionActiveLimit) {
+			return ErrUserSessionLimit
+		}
+		var issuanceCount int64
+		if err := tx.Model(&UserSession{}).
+			Where("user_id = ? AND created_at > ?", session.UserID, now.Unix()-common.UserSessionIssuanceWindowSeconds).
+			Count(&issuanceCount).Error; err != nil {
+			return err
+		}
+		if issuanceCount >= int64(common.UserSessionIssuanceLimit) {
+			return ErrUserSessionIssuanceLimit
+		}
+
+		consumedAt := now
+		flow := AuthFlow{
+			TokenHash:  flowHash,
+			Purpose:    AuthFlowPurposeLegacySession,
+			UserId:     session.UserID,
+			SessionId:  session.SID,
+			CreatedAt:  now,
+			ExpiresAt:  time.Unix(session.ExpiresAt, 0),
+			ConsumedAt: &consumedAt,
+		}
+		if err := tx.Create(&flow).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(session).Error; err != nil {
+			return err
+		}
+		resolved = *session
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resolved.Status != UserSessionStatusActive || resolved.RevokedAt != 0 || resolved.ExpiresAt <= now.Unix() {
+		return nil, ErrUserSessionInactive
+	}
+	cacheDeadline := userSessionCacheDeadline()
+	if err := writeUserSessionCache(resolved.cacheEntry(), cacheDeadline); err != nil {
+		if errors.Is(err, ErrUserSessionInactive) {
+			return nil, err
+		}
+		if !errors.Is(err, errUserSessionCacheObservationStale) {
+			common.SysLog("failed to populate legacy-upgraded user session cache: " + err.Error())
+		}
+	}
+	return &resolved, nil
 }
 
 func CountActiveUserSessions(userID int, now int64) (int64, error) {

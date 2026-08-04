@@ -241,6 +241,27 @@ func TestUserSessionCreateListAndRevokeOne(t *testing.T) {
 	assert.Equal(t, second.SID, active.SID)
 }
 
+func TestLegacySessionCreationRechecksUserAuthVersionInsideTransaction(t *testing.T) {
+	setupUserSessionTest(t)
+	require.NoError(t, DB.AutoMigrate(&AuthFlow{}))
+	require.NoError(t, DB.Exec("DELETE FROM auth_flows").Error)
+	const userID = 1301
+	createUserSessionTestUser(t, userID, 2)
+	now := time.Now().Unix()
+	candidate := newTestUserSession("legacy-auth-version-recheck", userID, now)
+	candidate.LoginMethod = "legacy_cookie_upgrade"
+
+	_, err := CreateOrGetLegacyUserSession(candidate, "signed-legacy-cookie")
+	assert.ErrorIs(t, err, ErrUserSessionInactive)
+
+	var sessionCount int64
+	require.NoError(t, DB.Model(&UserSession{}).Where("user_id = ?", userID).Count(&sessionCount).Error)
+	assert.Zero(t, sessionCount)
+	var flowCount int64
+	require.NoError(t, DB.Model(&AuthFlow{}).Where("user_id = ?", userID).Count(&flowCount).Error)
+	assert.Zero(t, flowCount)
+}
+
 func TestRotateUserSessionRefreshRaceAndReuse(t *testing.T) {
 	setupUserSessionTest(t)
 	now := time.Now().Unix()

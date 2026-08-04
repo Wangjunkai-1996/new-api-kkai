@@ -22,6 +22,7 @@ const (
 	AuthFlowPurposePasskeyStepUp     = "passkey_step_up"
 	AuthFlowPurposeTelegramBind      = "telegram_bind"
 	AuthFlowPurposeTelegramAssertion = "telegram_assertion"
+	AuthFlowPurposeLegacySession     = "legacy_session_upgrade"
 	AuthFlowIntentLogin              = "login"
 	AuthFlowIntentBind               = "bind"
 	AuthFlowTokenBytes               = 32
@@ -231,6 +232,13 @@ func ConsumeAuthFlowWithAction(token string, match AuthFlowMatch, action func(tx
 
 func DeleteExpiredAuthFlows(now time.Time) error {
 	cutoff := now.Add(-AuthFlowDefaultCleanupRetention)
-	return DB.Where("expires_at < ? OR (consumed_at IS NOT NULL AND consumed_at < ?)", cutoff, cutoff).
+	return DB.Where(
+		"(purpose = ? AND expires_at < ?) OR (purpose <> ? AND (expires_at < ? OR (consumed_at IS NOT NULL AND consumed_at < ?)))",
+		AuthFlowPurposeLegacySession,
+		now,
+		AuthFlowPurposeLegacySession,
+		cutoff,
+		cutoff,
+	).
 		Delete(&AuthFlow{}).Error
 }
