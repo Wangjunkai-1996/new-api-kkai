@@ -130,6 +130,13 @@ func (processor *FFmpegVideoMediaProcessor) Inspect(ctx context.Context, inputPa
 	if err != nil {
 		return VideoMediaMetadata{}, err
 	}
+	metadata, isRasterImage, err := inspectRasterVideoMedia(inputPath)
+	if err != nil {
+		return VideoMediaMetadata{}, err
+	}
+	if isRasterImage {
+		return metadata, nil
+	}
 	commandContext, cancel := context.WithTimeout(ctx, videoMediaTimeout(processor.inspectTimeout, videoMediaInspectTimeout))
 	defer cancel()
 	arguments := []string{"-v", "error", "-show_streams", "-show_format", "-of", "json"}
@@ -138,7 +145,7 @@ func (processor *FFmpegVideoMediaProcessor) Inspect(ctx context.Context, inputPa
 	if err != nil {
 		return VideoMediaMetadata{}, videoMediaCommandError(commandContext, "ffprobe", err)
 	}
-	metadata, err := parseVideoProbeOutput(output)
+	metadata, err = parseVideoProbeOutput(output)
 	if err != nil {
 		return VideoMediaMetadata{}, err
 	}
@@ -307,8 +314,7 @@ func parseVideoProbeOutput(output []byte) (VideoMediaMetadata, error) {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
 	stream := *selected
-	if stream.Width <= 0 || stream.Height <= 0 || stream.Width > videoMediaMaximumDimension || stream.Height > videoMediaMaximumDimension ||
-		int64(stream.Width)*int64(stream.Height) > videoMediaMaximumPixels {
+	if !validVideoMediaDimensions(stream.Width, stream.Height) {
 		return VideoMediaMetadata{}, ErrVideoMediaInvalid
 	}
 	duration := parseVideoMediaDuration(stream.Duration)
@@ -329,6 +335,13 @@ func parseVideoProbeOutput(output []byte) (VideoMediaMetadata, error) {
 		MIMEType: mimeType, Width: stream.Width, Height: stream.Height,
 		DurationSeconds: duration, Codec: stream.CodecName,
 	}, nil
+}
+
+func validVideoMediaDimensions(width int, height int) bool {
+	if width <= 0 || height <= 0 || width > videoMediaMaximumDimension || height > videoMediaMaximumDimension {
+		return false
+	}
+	return int64(width) <= videoMediaMaximumPixels/int64(height)
 }
 
 func parseVideoMediaDuration(value string) float64 {

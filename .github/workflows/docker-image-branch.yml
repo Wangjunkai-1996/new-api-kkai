@@ -20,11 +20,43 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Refuse the KKAI production branch
+        if: >-
+          ${{
+            inputs.branch == 'production/kkrich' ||
+            inputs.branch == 'refs/heads/production/kkrich' ||
+            inputs.branch == 'origin/production/kkrich' ||
+            inputs.branch == 'refs/remotes/origin/production/kkrich'
+          }}
+        run: |
+          echo "::error::KKAI production images must be built locally on the operator Mac"
+          exit 1
+
       - name: Check out branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 1
           ref: ${{ inputs.branch }}
+
+      - name: Require an exact remote branch name
+        env:
+          BRANCH_NAME: ${{ inputs.branch }}
+        run: |
+          if ! git ls-remote --exit-code --heads origin "refs/heads/${BRANCH_NAME}" >/dev/null; then
+            echo "::error::The workflow input must be an exact remote branch name"
+            exit 1
+          fi
+
+      - name: Refuse aliases of the KKAI production branch HEAD
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/production/kkrich:refs/remotes/origin/production/kkrich
+          REQUESTED_SHA=$(git rev-parse HEAD)
+          PRODUCTION_SHA=$(git rev-parse refs/remotes/origin/production/kkrich)
+          if [ "${REQUESTED_SHA}" = "${PRODUCTION_SHA}" ]; then
+            echo "::error::KKAI production images must be built locally on the operator Mac"
+            exit 1
+          fi
 
       - name: Resolve Docker tags
         id: version

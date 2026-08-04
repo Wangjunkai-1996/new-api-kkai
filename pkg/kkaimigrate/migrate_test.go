@@ -19,6 +19,13 @@ func newMigrationTestDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:kkai-migrate-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
+	require.NoError(t, db.Exec(`CREATE TABLE users (
+id INTEGER PRIMARY KEY,
+telegram_id TEXT
+)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE tokens (
+id INTEGER PRIMARY KEY
+)`).Error)
 	return db
 }
 
@@ -384,6 +391,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  ImageStudioSchemaVersion,
 			Name:     "image_studio",
 			Checksum: "77c7cf3097c592a04f0e59ffab99ee48a74a733f2e697a4ee7265d1eff512048",
+		},
+		{
+			Version:  AuthenticationSchemaVersion,
+			Name:     "stateless_authentication",
+			Checksum: "2be62592240db795d4bd302b117df66a0c9dc03b346a5a7be6d51fc86f324230",
 		},
 	}, Plan())
 }

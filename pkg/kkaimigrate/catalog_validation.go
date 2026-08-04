@@ -11,8 +11,9 @@ const quotedSQLIdentifierTokenPrefix = "QUOTED_IDENTIFIER:"
 const migrationCatalogBaselineVersion int64 = RiskSchemaVersion
 
 const (
-	migrationChecksumSchemaLegacy  = 1
-	migrationChecksumSchemaCurrent = 2
+	migrationChecksumSchemaLegacy   = 1
+	migrationChecksumSchemaCurrent  = 2
+	migrationChecksumSchemaBackfill = 3
 
 	migrationOperationCreateTable       = "create_table"
 	migrationOperationCreateIndex       = "create_index_on_new_table"
@@ -60,7 +61,7 @@ func validateMigrationCatalog(migrations []migration) error {
 			if item.Version > OutboxEventKeySchemaVersion {
 				return unsafeMigrationCatalog("migration %d cannot use the legacy checksum schema", item.Version)
 			}
-		case migrationChecksumSchemaCurrent:
+		case migrationChecksumSchemaCurrent, migrationChecksumSchemaBackfill:
 		default:
 			return unsafeMigrationCatalog("migration %d has invalid checksum schema", item.Version)
 		}
@@ -71,11 +72,24 @@ func validateMigrationCatalog(migrations []migration) error {
 		if item.LegacyImportID != strings.TrimSpace(item.LegacyImportID) {
 			return unsafeMigrationCatalog("migration %d has no canonical legacy import ID", item.Version)
 		}
-		if item.ChecksumVersion == migrationChecksumSchemaCurrent &&
+		if (item.Backfill == nil) != (item.BackfillID == "") ||
+			(item.Backfill == nil) != (item.BackfillSpec == "") {
+			return unsafeMigrationCatalog("migration %d has incomplete backfill identity", item.Version)
+		}
+		if item.BackfillID != strings.TrimSpace(item.BackfillID) || item.BackfillSpec != strings.TrimSpace(item.BackfillSpec) {
+			return unsafeMigrationCatalog("migration %d has no canonical backfill identity", item.Version)
+		}
+		if item.ChecksumVersion < migrationChecksumSchemaBackfill && item.Backfill != nil {
+			return unsafeMigrationCatalog("migration %d uses a backfill with an older checksum schema", item.Version)
+		}
+		if item.ChecksumVersion >= migrationChecksumSchemaCurrent &&
 			(len(item.Indexes) != 0 || item.ImportLegacy != nil) {
 			return unsafeMigrationCatalog(
 				"migration %d uses an out-of-band index or legacy callback", item.Version,
 			)
+		}
+		if item.Backfill != nil && item.Kind != MigrationKindExpand {
+			return unsafeMigrationCatalog("migration %d uses a backfill outside an expand migration", item.Version)
 		}
 
 		switch item.Kind {

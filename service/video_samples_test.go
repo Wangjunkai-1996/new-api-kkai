@@ -119,7 +119,7 @@ func TestVideoSamplesRespectEffectiveModelFilter(t *testing.T) {
 
 func TestVideoSamplesCombineModelAndCategoryFilters(t *testing.T) {
 	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("category filtering is enabled only in the v6 feature build")
+		t.Skip("category filtering is enabled only in the schema feature build")
 	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	now := time.Now().Unix()
@@ -165,7 +165,7 @@ func TestVideoSamplesCombineModelAndCategoryFilters(t *testing.T) {
 
 func TestVideoSampleOtherCategoryIncludesLegacyMissingValues(t *testing.T) {
 	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("category projection is enabled only in the v6 feature build")
+		t.Skip("category projection is enabled only in the schema feature build")
 	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	now := time.Now().Unix()
@@ -206,7 +206,7 @@ func TestVideoSampleOtherCategoryIncludesLegacyMissingValues(t *testing.T) {
 
 func TestVideoSampleCreateUpdateAndValidationPersistCategory(t *testing.T) {
 	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("category persistence is enabled only in the v6 feature build")
+		t.Skip("category persistence is enabled only in the schema feature build")
 	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	input := VideoSampleInput{
@@ -240,7 +240,7 @@ func TestVideoSampleCreateUpdateAndValidationPersistCategory(t *testing.T) {
 
 func TestVideoSampleListRejectsCorruptStoredCategory(t *testing.T) {
 	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("stored category validation is enabled only in the v6 feature build")
+		t.Skip("stored category validation is enabled only in the schema feature build")
 	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	now := time.Now().Unix()

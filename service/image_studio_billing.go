@@ -9,7 +9,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -132,7 +133,7 @@ func completeImageStudioBilling(c *gin.Context, settlementErr error) bool {
 func ApplyImageStudioMaximumPreconsume(
 	c *gin.Context,
 	relayInfo *relaycommon.RelayInfo,
-	priceData *types.PriceData,
+	priceData *hosttypes.PriceData,
 	promptTokens int,
 	meta *types.TokenCountMeta,
 ) error {

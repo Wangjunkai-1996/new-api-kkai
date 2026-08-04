@@ -7,7 +7,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -18,9 +19,9 @@ func TestImageStudioMaximumPreconsumeIncludesCompletionAndAllRatios(t *testing.T
 	c, _ := gin.CreateTestContext(nil)
 	common.SetContextKey(c, constant.ContextKeyIsImageStudio, true)
 	relayInfo := &relaycommon.RelayInfo{}
-	price := types.PriceData{
+	price := hosttypes.PriceData{
 		ModelRatio: 3, CompletionRatio: 2,
-		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.5},
+		GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 0.5},
 	}
 	price.AddOtherRatio("n", 2)
 
@@ -37,7 +38,7 @@ func TestImageStudioMaximumPreconsumePreservesCompletePriceQuotes(t *testing.T) 
 	common.SetContextKey(c, constant.ContextKeyIsImageStudio, true)
 
 	relayInfo := &relaycommon.RelayInfo{}
-	price := types.PriceData{UsePrice: true, QuotaToPreConsume: 321}
+	price := hosttypes.PriceData{UsePrice: true, QuotaToPreConsume: 321}
 	require.NoError(t, ApplyImageStudioMaximumPreconsume(
 		c, relayInfo, &price, 100, &types.TokenCountMeta{MaxTokens: 1_000},
 	))
@@ -52,7 +53,7 @@ func TestImageStudioMaximumPreconsumeRejectsUnboundedTieredExpression(t *testing
 	relayInfo := &relaycommon.RelayInfo{
 		TieredBillingSnapshot: &billingexpr.BillingSnapshot{BillingMode: "tiered_expr"},
 	}
-	price := types.PriceData{QuotaToPreConsume: 654}
+	price := hosttypes.PriceData{QuotaToPreConsume: 654}
 	require.ErrorIs(t, ApplyImageStudioMaximumPreconsume(
 		c, relayInfo, &price, 100, &types.TokenCountMeta{MaxTokens: 1_000},
 	), ErrImageModelBillingUnsupported)

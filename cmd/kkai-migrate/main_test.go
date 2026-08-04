@@ -12,22 +12,25 @@ import (
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 	dsn := fmt.Sprintf("file:kkai-cli-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := openDatabase(dsn)
 	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
 	result, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.Empty(t, result.Pending)
 	require.NoError(t, kkaimigrate.CheckRequired(context.Background(), db))
 }
 
-func TestApplyMigrationTargetRunsThroughV7(t *testing.T) {
+func TestApplyMigrationTargetRunsThroughV8(t *testing.T) {
 	dsn := fmt.Sprintf("file:kkai-cli-target-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := openDatabase(dsn)
 	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
 	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 
@@ -43,12 +46,15 @@ func TestApplyMigrationTargetRunsThroughV7(t *testing.T) {
 	result, err = applyMigrationTarget(context.Background(), db, 7, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.Len(t, result.Applied, 7)
-	require.NoError(t, kkaimigrate.Check(context.Background(), db, 7))
+	result, err = applyMigrationTarget(context.Background(), db, 8, kkaimigrate.Options{})
+	require.NoError(t, err)
+	require.Len(t, result.Applied, 8)
+	require.NoError(t, kkaimigrate.Check(context.Background(), db, 8))
 }
 
 func TestApplyMigrationTargetRejectsUnknownVersion(t *testing.T) {
-	_, err := applyMigrationTarget(context.Background(), nil, 8, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "expected 4, 5, 6, or 7")
+	_, err := applyMigrationTarget(context.Background(), nil, 9, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "expected 4, 5, 6, 7, or 8")
 }
 
 func TestDescribeContractJSONUsesImmutableExternalSchemaManagement(t *testing.T) {
@@ -65,11 +71,23 @@ func TestObserveCurrentSchemaRejectsMissingApplicationPrerequisite(t *testing.T)
 	dsn := fmt.Sprintf("file:kkai-observe-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := openDatabase(dsn)
 	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
 	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 
 	_, err = observeCurrentSchema(context.Background(), db)
 	require.ErrorIs(t, err, model.ErrMainSchemaNotReady)
+}
+
+func prepareLegacyAuthenticationTables(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Exec(`CREATE TABLE users (
+id INTEGER PRIMARY KEY,
+telegram_id TEXT
+)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE tokens (
+id INTEGER PRIMARY KEY
+)`).Error)
 }
 
 func TestFirstNonEmptyIgnoresWhitespace(t *testing.T) {

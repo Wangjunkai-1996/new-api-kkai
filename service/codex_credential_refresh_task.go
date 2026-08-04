@@ -114,7 +114,6 @@ func RunCodexCredentialAutoRefresh(ctx context.Context) error {
 			}()
 			model.InitChannelCache()
 		}()
-		ResetProxyClientCache()
 	}
 
 	if common.DebugEnabled {

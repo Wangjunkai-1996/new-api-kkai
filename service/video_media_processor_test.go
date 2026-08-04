@@ -1,8 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +24,7 @@ func (runner videoMediaRunner) Run(ctx context.Context, name string, args ...str
 }
 
 func TestFFmpegVideoMediaProcessorInspectsVideoMetadata(t *testing.T) {
-	input := filepath.Join(t.TempDir(), "source.mp4")
+	input := filepath.Join(t.TempDir(), "source")
 	require.NoError(t, os.WriteFile(input, []byte("not-a-real-video"), 0o600))
 	processor := &FFmpegVideoMediaProcessor{
 		ffprobePath: "ffprobe",
@@ -39,6 +44,83 @@ func TestFFmpegVideoMediaProcessorInspectsVideoMetadata(t *testing.T) {
 	require.Equal(t, 1080, metadata.Height)
 	require.Equal(t, "h264", metadata.Codec)
 	require.Equal(t, 5.25, metadata.DurationSeconds)
+}
+
+func TestFFmpegVideoMediaProcessorInspectsExtensionlessRasterImagesWithoutFFprobe(t *testing.T) {
+	canvas := image.NewRGBA(image.Rect(0, 0, 3, 2))
+	var jpegPayload bytes.Buffer
+	require.NoError(t, jpeg.Encode(&jpegPayload, canvas, nil))
+	var pngPayload bytes.Buffer
+	require.NoError(t, png.Encode(&pngPayload, canvas))
+	webpPayload, err := base64.StdEncoding.DecodeString("UklGRnAAAABXRUJQVlA4WAoAAAAQAAAAAgAAAQAAQUxQSAcAAAAAKTcoKDcpAFZQOCBCAAAAEAIAnQEqAwACAAIANCWoAnS6AAMaGs9NAAD+yFXGKCRWm/YgwgSv4Sv3f/Jt6DH3/+Tf/0mzwLxwPv/8m/5xgAAA")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		payload  []byte
+		mimeType string
+		codec    string
+	}{
+		{name: "jpeg", payload: jpegPayload.Bytes(), mimeType: "image/jpeg", codec: "mjpeg"},
+		{name: "png", payload: pngPayload.Bytes(), mimeType: "image/png", codec: "png"},
+		{name: "webp", payload: webpPayload, mimeType: "image/webp", codec: "webp"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := filepath.Join(t.TempDir(), "upload")
+			require.NoError(t, os.WriteFile(input, test.payload, 0o600))
+			ffprobeCalls := 0
+			processor := &FFmpegVideoMediaProcessor{
+				ffprobePath: "ffprobe",
+				runner: videoMediaRunner(func(context.Context, string, ...string) ([]byte, error) {
+					ffprobeCalls++
+					return nil, errors.New("ffprobe must not inspect raster images")
+				}),
+			}
+
+			metadata, err := processor.Inspect(context.Background(), input)
+			require.NoError(t, err)
+			require.Zero(t, ffprobeCalls)
+			require.Equal(t, test.mimeType, metadata.MIMEType)
+			require.Equal(t, test.codec, metadata.Codec)
+			require.Equal(t, 3, metadata.Width)
+			require.Equal(t, 2, metadata.Height)
+			require.Zero(t, metadata.DurationSeconds)
+		})
+	}
+}
+
+func TestFFmpegVideoMediaProcessorRejectsInvalidRasterImagesWithoutFFprobe(t *testing.T) {
+	var oversizedPNG bytes.Buffer
+	require.NoError(t, png.Encode(&oversizedPNG, image.NewGray(image.Rect(0, 0, videoMediaMaximumDimension+1, 1))))
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "corrupt jpeg", payload: []byte{0xff, 0xd8, 0xff, 0xdb}},
+		{name: "corrupt png", payload: []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}},
+		{name: "corrupt webp", payload: []byte("RIFF\x04\x00\x00\x00WEBP")},
+		{name: "oversized png", payload: oversizedPNG.Bytes()},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := filepath.Join(t.TempDir(), "upload")
+			require.NoError(t, os.WriteFile(input, test.payload, 0o600))
+			ffprobeCalls := 0
+			processor := &FFmpegVideoMediaProcessor{
+				ffprobePath: "ffprobe",
+				runner: videoMediaRunner(func(context.Context, string, ...string) ([]byte, error) {
+					ffprobeCalls++
+					return nil, errors.New("ffprobe must not inspect recognized images")
+				}),
+			}
+
+			_, err := processor.Inspect(context.Background(), input)
+			require.ErrorIs(t, err, ErrVideoMediaInvalid)
+			require.True(t, isPermanentVideoAssetError(err))
+			require.Zero(t, ffprobeCalls)
+		})
+	}
 }
 
 func TestFFmpegVideoMediaProcessorRestrictsProbeInputAndSetsDeadline(t *testing.T) {
@@ -120,6 +202,29 @@ func TestParseVideoProbeOutputRejectsResourceAndFormatAbuse(t *testing.T) {
 	for _, output := range tests {
 		_, err := parseVideoProbeOutput([]byte(output))
 		require.ErrorIs(t, err, ErrVideoMediaInvalid)
+	}
+}
+
+func TestValidVideoMediaDimensions(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+		valid  bool
+	}{
+		{name: "maximum width", width: 8192, height: 1, valid: true},
+		{name: "maximum height", width: 1, height: 8192, valid: true},
+		{name: "width too large", width: 8193, height: 1},
+		{name: "height too large", width: 1, height: 8193},
+		{name: "exact pixel limit", width: 8000, height: 5000, valid: true},
+		{name: "pixel limit exceeded", width: 8001, height: 5000},
+		{name: "zero width", width: 0, height: 1},
+		{name: "negative height", width: 1, height: -1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.valid, validVideoMediaDimensions(test.width, test.height))
+		})
 	}
 }
 

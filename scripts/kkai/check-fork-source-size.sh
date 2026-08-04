@@ -39,7 +39,7 @@ while IFS= read -r path; do
 
   if ! git -C "$ROOT" cat-file -e "$BASE:$path" 2>/dev/null; then
     limit=$SOURCE_LIMIT
-    if [[ $path == web/default/src/features/* ]]; then
+    if [[ $path == web/src/features/* ]]; then
       limit=$FEATURE_LIMIT
     fi
 
@@ -52,7 +52,7 @@ while IFS= read -r path; do
 
   baseline_lines=$(( $(git -C "$ROOT" show "$BASE:$path" | wc -l) ))
   addition_limit=$MODIFIED_SOURCE_ADDITION_LIMIT
-  if [[ $path == web/default/src/features/* ]]; then
+  if [[ $path == web/src/features/* ]]; then
     addition_limit=$MODIFIED_FEATURE_ADDITION_LIMIT
   fi
   if ((baseline_lines >= GIANT_SOURCE_LINES && addition_limit > GIANT_ADDITION_LIMIT)); then

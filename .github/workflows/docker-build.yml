@@ -35,6 +35,17 @@ jobs:
       id-token: write
 
     steps:
+      - name: Refuse KKAI production tags
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          case "${REQUESTED_TAG}" in
+            kkai-prod-*)
+              echo "::error::KKAI production images must be built locally on the operator Mac"
+              exit 1
+              ;;
+          esac
+
       - name: Check out
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

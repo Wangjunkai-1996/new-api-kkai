@@ -81,7 +81,7 @@ git -C "$REPO" config user.email 'quality-test@invalid.example'
 write_lines "$REPO/legacy.ts" 20
 write_lines "$REPO/overgrown.ts" 801
 write_lines "$REPO/giant.ts" 1201
-write_lines "$REPO/web/default/src/features/existing/index.ts" 100
+write_lines "$REPO/web/src/features/existing/index.ts" 100
 git -C "$REPO" add .
 git -C "$REPO" commit --quiet -m baseline
 BASE=$(git -C "$REPO" rev-parse HEAD)
@@ -98,7 +98,7 @@ write_lines "$REPO/untracked-too-large.ts" 501
 expect_untracked_fail 'oversized untracked source' 'untracked-too-large.ts: 501 lines (limit 500)'
 reset_candidate
 
-write_lines "$REPO/web/default/src/features/new-feature/index.ts" 251
+write_lines "$REPO/web/src/features/new-feature/index.ts" 251
 expect_fail 'oversized added frontend feature' 'index.ts: 251 lines (limit 250)'
 reset_candidate
 
@@ -118,7 +118,7 @@ append_lines "$REPO/giant.ts" 11
 expect_fail 'growth in giant upstream source' 'giant.ts: 11 added lines (limit 10)'
 reset_candidate
 
-write_lines "$REPO/web/default/src/routeTree.gen.ts" 2000
+write_lines "$REPO/web/src/routeTree.gen.ts" 2000
 expect_pass 'generated source exemption'
 
 echo 'Fork source size gate tests passed.'

@@ -67,6 +67,17 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       imageStudioSchemaStatements,
 		},
+		{
+			Version:          8,
+			Name:             "stateless_authentication",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "stateless_authentication_v1",
+			ChecksumVersion:  migrationChecksumSchemaBackfill,
+			Statements:       authenticationSchemaStatements,
+			BackfillSpec:     "set every users.auth_version below 1 to 1; claim each non-empty legacy Telegram subject for its existing user; reject ambiguous ownership",
+			BackfillID:       "backfill_stateless_authentication_v1",
+			Backfill:         backfillAuthenticationSchema,
+		},
 	}
 }
 

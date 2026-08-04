@@ -30,6 +30,7 @@ const (
 	VideoStudioSchemaVersion         int64 = 5
 	VideoSampleCategorySchemaVersion int64 = 6
 	ImageStudioSchemaVersion         int64 = 7
+	AuthenticationSchemaVersion      int64 = 8
 )
 
 var (
@@ -79,6 +80,9 @@ type migration struct {
 	LegacyImportSpec string
 	LegacyImportID   string
 	ImportLegacy     func(*gorm.DB) error
+	BackfillSpec     string
+	BackfillID       string
+	Backfill         func(*gorm.DB) error
 	ApplyDialects    []string
 	LegacyDialects   []string
 }
@@ -172,6 +176,21 @@ func ApplyImageStudioExpand(ctx context.Context, db *gorm.DB, options Options) (
 		)
 	}
 	return applyThroughVersion(ctx, db, options, ImageStudioSchemaVersion, MaxCompatibleVersion)
+}
+
+// ApplyAuthenticationExpand adds the stateless dashboard authentication
+// control plane after the complete v7 Image Studio schema has been validated.
+func ApplyAuthenticationExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, ImageStudioSchemaVersion, ImageStudioSchemaVersion, MaxCompatibleVersion); err != nil {
+		return nil, fmt.Errorf(
+			"KKAI maintenance target %d requires validated Image Studio schema %d: %w",
+			AuthenticationSchemaVersion, ImageStudioSchemaVersion, err,
+		)
+	}
+	return applyThroughVersion(ctx, db, options, AuthenticationSchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {
@@ -449,6 +468,11 @@ func importLegacyAndRecord(tx *gorm.DB, dialect string, item migration, checksum
 			return err
 		}
 	}
+	if item.Backfill != nil {
+		if err := item.Backfill(tx); err != nil {
+			return err
+		}
+	}
 	record := AppliedMigration{
 		Version:     item.Version,
 		Name:        item.Name,
@@ -581,7 +605,7 @@ func legacyMigrationChecksum(item migration) string {
 
 func migrationContractChecksum(item migration) string {
 	hash := sha256.New()
-	fmt.Fprintf(hash, "checksum_schema=%d\n", migrationChecksumSchemaCurrent)
+	fmt.Fprintf(hash, "checksum_schema=%d\n", item.ChecksumVersion)
 	fmt.Fprintf(hash, "version=%d\nname=%s\nkind=%s\n", item.Version, item.Name, item.Kind)
 	fmt.Fprintf(hash, "implementation_id=%s\nstored_checksum_schema=%d\n", item.ImplementationID, item.ChecksumVersion)
 	dialects := make([]string, 0, len(item.Statements))
@@ -599,6 +623,9 @@ func migrationContractChecksum(item migration) string {
 		fmt.Fprintf(hash, "index=%s:%s:%s\n", index.Name, index.Table, strings.Join(index.Columns, ","))
 	}
 	fmt.Fprintf(hash, "legacy_import_id=%s\nlegacy=%s\n", item.LegacyImportID, item.LegacyImportSpec)
+	if item.ChecksumVersion >= migrationChecksumSchemaBackfill {
+		fmt.Fprintf(hash, "backfill_id=%s\nbackfill=%s\n", item.BackfillID, item.BackfillSpec)
+	}
 	applyDialects := append([]string(nil), item.ApplyDialects...)
 	legacyDialects := append([]string(nil), item.LegacyDialects...)
 	sort.Strings(applyDialects)

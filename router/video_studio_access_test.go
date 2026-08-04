@@ -12,11 +12,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -24,10 +23,10 @@ import (
 )
 
 type videoStudioAccessFixture struct {
-	engine  *gin.Engine
-	db      *gorm.DB
-	cookies []*http.Cookie
-	userID  int
+	engine      *gin.Engine
+	db          *gorm.DB
+	accessToken string
+	userID      int
 }
 
 func newVideoStudioAccessFixture(t *testing.T, accessMode string) videoStudioAccessFixture {
@@ -37,10 +36,21 @@ func newVideoStudioAccessFixture(t *testing.T, accessMode string) videoStudioAcc
 	dsn := fmt.Sprintf("file:video-access-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
 	previousDB := model.DB
+	previousDatabaseType := common.MainDatabaseType()
+	previousRedisEnabled := common.RedisEnabled
+	previousSessionSecret := common.SessionSecret
 	model.DB = db
-	t.Cleanup(func() { model.DB = previousDB })
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	common.RedisEnabled = false
+	common.SessionSecret = "video-access-test-secret"
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousDatabaseType)
+		common.RedisEnabled = previousRedisEnabled
+		common.SessionSecret = previousSessionSecret
+	})
 
 	rawSetting := config.GlobalConfig.Get("video_studio")
 	originalSetting, err := config.ConfigToMap(rawSetting)
@@ -52,41 +62,35 @@ func newVideoStudioAccessFixture(t *testing.T, accessMode string) videoStudioAcc
 
 	user := model.User{
 		Id: 77, Username: "stale-video-admin", Password: "test-password", DisplayName: "Video Admin",
-		Role: common.RoleAdminUser, Status: common.UserStatusEnabled, Group: "default",
+		Role: common.RoleAdminUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
 	}
 	require.NoError(t, db.Create(&user).Error)
+	now := time.Now().Unix()
+	session := model.UserSession{
+		SID: "video-access-session", UserID: user.Id, Version: 1, UserAuthVersion: user.AuthVersion,
+		Status: model.UserSessionStatusActive, RefreshHash: "video-access-refresh-hash", LoginMethod: "password",
+		LastActiveAt: now, ExpiresAt: now + 3600,
+	}
+	require.NoError(t, model.CreateUserSession(&session))
+	accessToken, _, err := service.IssueAccessToken(service.AuthIdentity{
+		UserID: user.Id, SessionID: session.SID, UserAuthVersion: session.UserAuthVersion, SessionVersion: session.Version,
+	})
+	require.NoError(t, err)
 
 	engine := gin.New()
-	engine.Use(sessions.Sessions("session", cookie.NewStore([]byte("video-access-test"))))
-	engine.GET("/login", func(c *gin.Context) {
-		session := sessions.Default(c)
-		session.Set("username", user.Username)
-		session.Set("role", common.RoleAdminUser)
-		session.Set("id", user.Id)
-		session.Set("status", common.UserStatusEnabled)
-		session.Set("group", user.Group)
-		require.NoError(t, session.Save())
-		c.Status(http.StatusNoContent)
-	})
 	engine.GET("/video-access-probe", middleware.UserAuth(), middleware.VideoStudioAccess(), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"role": c.GetInt("role"), "status": c.GetInt("status")})
 	})
 	registerVideoStudioAPIRoutes(engine.Group("/api"))
 	SetRelayRouter(engine)
 
-	loginRecorder := httptest.NewRecorder()
-	engine.ServeHTTP(loginRecorder, httptest.NewRequest(http.MethodGet, "/login", nil))
-	require.Equal(t, http.StatusNoContent, loginRecorder.Code)
-	return videoStudioAccessFixture{engine: engine, db: db, cookies: loginRecorder.Result().Cookies(), userID: user.Id}
+	return videoStudioAccessFixture{engine: engine, db: db, accessToken: accessToken, userID: user.Id}
 }
 
 func (fixture videoStudioAccessFixture) request(method string, path string, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
-	request.Header.Set("New-Api-User", fmt.Sprintf("%d", fixture.userID))
+	request.Header.Set("Authorization", "Bearer "+fixture.accessToken)
 	request.Header.Set("Content-Type", "application/json")
-	for _, sessionCookie := range fixture.cookies {
-		request.AddCookie(sessionCookie)
-	}
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 	return recorder
@@ -133,7 +137,7 @@ func TestVideoStudioAccessRejectsStaleEnabledSessionAfterUserDisabled(t *testing
 		Update("status", common.UserStatusDisabled).Error)
 
 	recorder := fixture.request(http.MethodGet, "/video-access-probe", "")
-	require.Equal(t, http.StatusForbidden, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "video_studio_access_denied")
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "AUTH_SESSION_REVOKED")
 	require.NotContains(t, strings.ToLower(recorder.Body.String()), "database")
 }

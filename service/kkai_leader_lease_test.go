@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 
 	"github.com/glebarez/sqlite"
@@ -18,6 +19,7 @@ func newLeaderLeaseTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:kkai-leader-lease-"+time.Now().Format("150405.000000000")+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
 	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()

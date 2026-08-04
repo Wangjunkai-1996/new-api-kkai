@@ -7,8 +7,8 @@ upstream.
 ## Immutable Baseline
 
 - Upstream repository: `github.com/QuantumNous/new-api`
-- Upstream commit: `7c28993f6bd9e92616f3f578212577f8b7c40b45`
-- Upstream label: `v1.0.0-rc.21` plus the pricing-page fix in `7c28993f`
+- Upstream commit: `0ab02020603d22e5613bc4cf46bfab06f8567769`
+- Upstream label: `v1.0.0-rc.23`
 - Rebuild branch: `rebuild/kkai-fork-v2-20260714`
 - Production branch: `production/kkrich`
 - Archived production head: `archive/production-kkrich-537501c5`
@@ -32,10 +32,10 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Complete; upstream implementation retained with fork acceptance tests |
 | Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Complete; PostgreSQL dual-process verification included |
 | Group status monitoring | Read API, aggregation, default frontend | `6f931ccf` through `c6ce2a85` | Complete |
-| CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Approved exclusion: CC Switch `c8b0d60c` rejects remote `configUrl` exchange; unsafe URI credentials are forbidden |
+| CC Switch import | One-time ticket flow and frontend UI | `c63c41df` through `574ef743` | Approved exclusion: CC Switch `c8b0d60c` rejects remote `configUrl` exchange; unsafe URI credentials are forbidden |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Complete; upstream Waffo retained and fork UI restored |
-| Classic frontend customization | KKAI-compatible classic build and UI, excluding CC Switch | production fork | Complete; build compatibility and recharge-pricing default restored |
-| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` | Simple read-only idle-slot deployment |
+| Unified frontend customization | KKAI-compatible web UI, excluding CC Switch | production fork | Complete; rc.23 single-frontend migration retained the recharge-pricing default |
+| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` | `router-v3-staged` candidate acceptance and explicit promotion |
 | Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Implementation complete; edge activation remains separate from application delivery |
 | Signed internal attribution | Exact origin allowlist, HMAC, timestamp, nonce contract | legacy private-IP headers | Complete |
 
@@ -45,7 +45,12 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 - Broad cleanup or reformatting of upstream files.
 - Translation completeness work for this remediation.
 - Floating upgrades beyond the pinned upstream commit.
-- Direct edits to `production/kkrich` outside the normal reviewed merge flow.
+- Unreviewed or unverified changes to `production/kkrich`. When the user asks
+  to commit or push, run the required local checks, then commit and push verified
+  changes directly to that branch. Create a branch, worktree, or pull request
+  only when the user explicitly requests one. If repository rules reject the
+  direct push, report the exact blocker and stop instead of automatically
+  switching to a pull request.
 - Builds on the production server.
 
 An upstream defect may only be changed when it blocks a documented KKAI
@@ -71,12 +76,15 @@ compatibility behavior rather than presented as general upstream cleanup.
    replacement is independent from active-slot switching.
 8. CC Switch URLs carry a short-lived one-time ticket, never a reusable API
    key.
-9. The new idle-slot instance always uses read-only database credentials and runs
-   no background writers while its health and version are checked.
-10. Release-link changes and systemd restarts are an infrastructure-owned
-    transaction. Application delivery never stops a slot or changes traffic;
-    after the switch, only the selected release may own the stable alias and
-    writer role, while the previous release remains available for rollback.
+9. A `router-v3-staged` candidate runs in `serving` mode with background tasks
+   disabled and the production writer database identity. Its candidate proxy is
+   traffic-isolated, but candidate test requests can still change production
+   business data while health, version, and feature behavior are checked.
+10. Only the infrastructure-owned manual controller may change release links,
+    router traffic, or slot lifecycle. `stage` does not switch traffic;
+    `promote` switches the existing router, drains the previous active slot,
+    updates the standby and writer, and preserves the previous release for
+    rollback. Neither operation reloads `kkai-newapi.service`.
 
 ## Migration Rules
 
@@ -101,9 +109,9 @@ compatibility behavior rather than presented as general upstream cleanup.
 - the source-size gate runs its own regression suite so additions, modifications,
   oversized upstream files, and generated-file exemptions cannot silently drift;
 - changed Go files are formatted and changed shell scripts parse;
-- default typecheck and both frontend builds succeed;
+- frontend tests, i18n checks, typecheck, and production build succeed;
 - changed frontend files are formatted;
-- default frontend lint diagnostics do not increase over upstream by
+- frontend lint diagnostics do not increase over upstream by
   file/rule/severity;
 - Go vet diagnostics do not increase over upstream by file/message;
 - full mode runs the Go test suite.
@@ -111,17 +119,21 @@ compatibility behavior rather than presented as general upstream cleanup.
 The baseline is computed from a temporary detached worktree at the pinned
 commit. Existing upstream warnings remain visible but are not attributed to
 KKAI. Any additional warning or error introduced by the fork fails the gate.
-These checks run during review and development workflows; they do not run beside
-or block the production image workflow.
+These checks run during review and development workflows; they do not run as
+part of or block the manual production image build.
 
 ## Commit and Release Policy
 
 - Keep commits separated by concern: baseline/tooling, backend capability,
   risk pipeline, standby/infra, frontend, and verification documentation.
-- The production workflow builds one Linux AMD64 image from each runtime push
-  to `production/kkrich` and publishes version and source-SHA tags for the same
-  digest.
-- The workflow signs the digest and dispatches only its source SHA, version, and
-  digest to `kkai-infra`.
-- Infrastructure verifies and deploys that exact digest through the read-only
-  idle-slot path. Database maintenance is not part of application delivery.
+- When the user asks to commit or push, run the required local checks, then
+  commit and push verified application changes directly to `production/kkrich`.
+  Create a branch, worktree, or pull request only when the user explicitly
+  requests one. If repository rules reject the direct push, report the exact
+  blocker and stop instead of changing workflows automatically.
+- GitHub Actions must not build or deploy KKAI production images. An operator
+  builds one Linux AMD64 image from a clean local `production/kkrich` checkout
+  and stages its checksummed archive through the documented
+  `router-v3-staged` manual controller. Promotion remains a separate explicit
+  operator action after candidate acceptance.
+- Database maintenance is not part of application delivery.

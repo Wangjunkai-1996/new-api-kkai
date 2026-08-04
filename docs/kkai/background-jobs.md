@@ -47,12 +47,16 @@ from database time, not container clocks. Business jobs must honor context
 cancellation; the fence is not a substitute for cancellation inside a
 long-running external request or database transaction.
 
-During an ordinary blue/green release, the new idle-slot instance starts as
-`standby-readonly` for health and version checks. The restricted infrastructure
-deployer owns the release-link switch and systemd restart, then verifies that
-the selected release is the sole stable-alias owner and writer. The application
-workflow never stops or restarts production slots, and the previous release
-remains the rollback target.
+During a `router-v3-staged` release, the public active slot and the dedicated
+`newapi-writer` remain unchanged while the candidate starts in the idle
+application slot as `serving`, with global background tasks disabled. It uses
+the production writer database identity, so candidate acceptance requests can
+write production business data even though the private candidate proxy is
+traffic-isolated. Promotion is a separate controller action: it switches the
+stable router, updates the dedicated writer to the promoted release, and
+demotes the previous application slot to `standby-readonly`. Only
+`newapi-writer` may run as `leader`; the previous release remains the symmetric
+rollback target.
 
 ## Standby Safety
 
