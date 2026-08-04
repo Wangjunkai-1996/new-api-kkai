@@ -117,9 +117,17 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
+	appendImagePricingInfo(relayInfo, adminInfo)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+func appendImagePricingInfo(relayInfo *relaycommon.RelayInfo, adminInfo map[string]interface{}) {
+	if relayInfo == nil || relayInfo.ImagePricingSnapshot == nil || adminInfo == nil {
+		return
+	}
+	adminInfo["image_pricing"] = relayInfo.ImagePricingSnapshot
 }
 
 func firstResponseDisplayMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {

@@ -19,7 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { imageAssetSchema, imageTokenCapabilitySchema } from './schemas'
+import {
+  imageAssetSchema,
+  imageQuoteSchema,
+  imageTokenCapabilitySchema,
+} from './schemas'
 
 describe('image API response schemas', () => {
   test('accepts only local or HTTP media URLs', () => {
@@ -83,6 +87,31 @@ describe('image API response schemas', () => {
         ...capability,
         token: undefined,
       }).success,
+      false
+    )
+  })
+
+  test('requires a bounded opaque quote token', () => {
+    const quote = {
+      quota: 500_000,
+      display_amount: '$1.00',
+      quote_token: 'opaque.signed.quote',
+      expires_at: 1_800_000_000,
+    }
+
+    assert.equal(imageQuoteSchema.parse(quote).quote_token, quote.quote_token)
+    assert.equal(
+      imageQuoteSchema.safeParse({ ...quote, quote_token: '' }).success,
+      false
+    )
+    assert.equal(
+      imageQuoteSchema.safeParse({ ...quote, quote_token: 'x'.repeat(8192) })
+        .success,
+      true
+    )
+    assert.equal(
+      imageQuoteSchema.safeParse({ ...quote, quote_token: 'x'.repeat(8193) })
+        .success,
       false
     )
   })

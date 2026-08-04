@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -36,8 +37,9 @@ type imageStudioPreRelayHook struct {
 }
 
 type imageStudioQuotePrice struct {
-	Quota       int
-	OtherRatios map[string]float64
+	Quota                int
+	OtherRatios          map[string]float64
+	ImagePricingSnapshot *imagepricing.Snapshot
 }
 
 func PrepareImageStudioRequest(c *gin.Context) {
@@ -128,29 +130,34 @@ func QuoteImageStudioGeneration(c *gin.Context) {
 		respondImageStudioError(c, err)
 		return
 	}
-	common.ApiSuccess(c, service.NewImageStudioQuote(normalized, price.Quota, price.OtherRatios))
-}
-
-func SubmitImageStudioGeneration(c *gin.Context) {
-	normalized, ok := imageStudioNormalizedSubmission(c)
-	if !ok || normalized.MaxQuota == nil {
-		respondImageStudioSubmitGuardError(c, service.ErrInvalidImageStudioSubmission)
-		return
-	}
-	if err := service.ValidateImageStudioQuote(normalized, time.Now()); err != nil {
-		respondImageStudioError(c, err)
-		return
-	}
-	price, err := calculateImageStudioQuote(c)
+	quote, err := service.NewImageStudioQuote(
+		normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot,
+	)
 	if err != nil {
 		respondImageStudioError(c, err)
 		return
 	}
-	if price.Quota > *normalized.MaxQuota {
-		respondImageStudioQuoteStale(c, price.Quota)
+	common.ApiSuccess(c, quote)
+}
+
+func SubmitImageStudioGeneration(c *gin.Context) {
+	normalized, ok := imageStudioNormalizedSubmission(c)
+	if !ok {
+		respondImageStudioSubmitGuardError(c, service.ErrInvalidImageStudioSubmission)
 		return
 	}
-	if err := service.SetImageStudioBillingGuard(c, *normalized.MaxQuota); err != nil {
+	quote, err := service.ValidateImageStudioQuote(normalized, time.Now())
+	if err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
+	if quote.ImagePricingSnapshot != nil {
+		if err := service.SetTrustedImagePricingSnapshot(c, *quote.ImagePricingSnapshot); err != nil {
+			respondImageStudioError(c, err)
+			return
+		}
+	}
+	if err := service.SetImageStudioBillingGuard(c, quote.Quota); err != nil {
 		respondImageStudioError(c, err)
 		return
 	}
@@ -377,6 +384,9 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := service.PrepareImagePricing(c, relayInfo); err != nil {
+		return nil, err
+	}
 	meta := request.GetTokenCountMeta()
 	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
 	if err != nil {
@@ -392,7 +402,15 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	); err != nil {
 		return nil, err
 	}
-	return &imageStudioQuotePrice{Quota: priceData.QuotaToPreConsume, OtherRatios: priceData.OtherRatios()}, nil
+	var pricingSnapshot *imagepricing.Snapshot
+	if relayInfo.ImagePricingSnapshot != nil {
+		cloned := *relayInfo.ImagePricingSnapshot
+		pricingSnapshot = &cloned
+	}
+	return &imageStudioQuotePrice{
+		Quota: priceData.QuotaToPreConsume, OtherRatios: priceData.OtherRatios(),
+		ImagePricingSnapshot: pricingSnapshot,
+	}, nil
 }
 
 func reserveImageStudioIdempotency(
@@ -477,18 +495,11 @@ func respondImageStudioSubmitGuardError(c *gin.Context, err error) {
 	}
 	if errors.Is(err, service.ErrInvalidImageStudioSubmission) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false, "message": "max_quota and quote_hash are required", "code": "image_quote_required",
+			"success": false, "message": "quote_token is required", "code": "image_quote_required",
 		})
 		return
 	}
 	respondImageStudioError(c, err)
-}
-
-func respondImageStudioQuoteStale(c *gin.Context, currentQuota int) {
-	c.JSON(http.StatusConflict, gin.H{
-		"success": false, "code": "quote_stale", "message": service.ErrImageStudioQuoteStale.Error(),
-		"data": gin.H{"current_quota": currentQuota},
-	})
 }
 
 func respondImageStudioIdempotentReplay(c *gin.Context, resourceID string) {

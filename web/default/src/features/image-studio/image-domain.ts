@@ -17,12 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type {
+  CreateImageRequest,
   ImageComposerValues,
   ImageGeneration,
   ImageGenerationStatus,
   ImageModelProfile,
   ImageParameters,
   ImageParameterValue,
+  ImageQuote,
   ImageQuoteRequest,
   ImageStudioAccessMode,
 } from './types'
@@ -143,6 +145,14 @@ export const buildImageComposerValues = (
     sample_id: input?.sample_id,
   }
 }
+
+export const buildCreateImageRequest = (
+  quoteRequest: ImageQuoteRequest,
+  quote: ImageQuote
+): CreateImageRequest => ({
+  ...quoteRequest,
+  quote_token: quote.quote_token,
+})
 
 export const imageRequestFingerprint = (value: unknown): string =>
   JSON.stringify(

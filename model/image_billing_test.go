@@ -3,8 +3,13 @@ package model
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -159,7 +164,12 @@ func TestImageGenerationSettlementPersistsStatisticsAndIdempotentConsumeLog(t *t
 	)
 	require.NoError(t, err)
 	payload := ImageGenerationAccountingPayload{
-		TargetQuota: 200, CountStatistics: true, Username: "image-accounting",
+		TargetQuota: 200, CountStatistics: true, Username: "image-accounting", PricingActualCount: 2,
+		PricingSnapshot: &imagepricing.Snapshot{
+			PolicyVersion: "test-v1", PolicyHash: strings.Repeat("a", 64),
+			Model: generation.Model, Size: "1024x1024", Tier: "1k",
+			UnitPrice: 1, QuotaPerUnit: 100, GroupRatio: 1, RequestedCount: 1,
+		},
 		LogParams: RecordConsumeLogParams{
 			ChannelId: 9, PromptTokens: 10, CompletionTokens: 20,
 			ModelName: generation.Model, TokenName: "image-token", TokenId: generation.TokenID,
@@ -169,6 +179,8 @@ func TestImageGenerationSettlementPersistsStatisticsAndIdempotentConsumeLog(t *t
 	require.NoError(t, PrepareImageGenerationAccounting(context.Background(), db, generation.ID, payload))
 	stored, err := GetImageGenerationAccounting(context.Background(), db, generation.ID)
 	require.NoError(t, err)
+	require.Equal(t, payload.PricingSnapshot, stored.PricingSnapshot)
+	require.Equal(t, payload.PricingActualCount, stored.PricingActualCount)
 
 	_, err = SettleImageGenerationBilling(context.Background(), db, generation.ID, 200)
 	require.NoError(t, err)
@@ -198,6 +210,42 @@ func TestImageGenerationSettlementPersistsStatisticsAndIdempotentConsumeLog(t *t
 		"request_id = ? AND type = ?", generation.RequestID, LogTypeConsume,
 	).Count(&logs).Error)
 	require.EqualValues(t, 1, logs)
+}
+
+func TestDecodeImageGenerationAccountingAcceptsLegacyPayloadWithoutPricingSnapshot(t *testing.T) {
+	payload := ImageGenerationAccountingPayload{
+		GenerationID: 17, TargetQuota: 200,
+		LogParams: RecordConsumeLogParams{
+			ChannelId: 9, ModelName: "gpt-image-1", TokenId: 4, Quota: 200,
+		},
+	}
+	encoded, err := common.Marshal(payload)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "pricing_snapshot")
+
+	decoded, err := decodeImageGenerationAccounting(KKAIOutboxEvent{
+		Topic: KKAIOutboxTopicImageAccounting, AggregateID: strconv.FormatInt(payload.GenerationID, 10),
+		Payload: string(encoded),
+	})
+	require.NoError(t, err)
+	require.Nil(t, decoded.PricingSnapshot)
+	require.Equal(t, payload.TargetQuota, decoded.TargetQuota)
+}
+
+func TestImageGenerationAccountingRejectsQuotaOutsidePricingSnapshot(t *testing.T) {
+	payload := ImageGenerationAccountingPayload{
+		TargetQuota: 200, PricingActualCount: 1,
+		PricingSnapshot: &imagepricing.Snapshot{
+			PolicyVersion: "test-v1", PolicyHash: strings.Repeat("a", 64),
+			Model: "gpt-image-2", Size: "1024x1024", Tier: "1k",
+			UnitPrice: 1, QuotaPerUnit: 100, GroupRatio: 1, RequestedCount: 2,
+		},
+		LogParams: RecordConsumeLogParams{ModelName: "gpt-image-2", Quota: 200},
+	}
+
+	err := validateImageGenerationAccountingSnapshot(payload)
+
+	require.ErrorIs(t, err, ErrImageBillingInvalidRequest)
 }
 
 func prepareImageBillingAccounting(

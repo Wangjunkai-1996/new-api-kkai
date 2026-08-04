@@ -342,11 +342,11 @@ func imageStudioIntegrationRequestBodyWithCount(
 		Parameters: map[string]any{"count": count},
 	})
 	require.NoError(t, err)
-	quote := service.NewImageStudioQuote(normalized, 100_000, nil)
+	quote, err := service.NewImageStudioQuote(normalized, 100_000, nil, nil)
+	require.NoError(t, err)
 	requestBody, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: normalized.Model, Prompt: normalized.Prompt,
-		Parameters: normalized.Parameters, MaxQuota: &quote.Quota,
-		QuoteHash: quote.RequestHash, QuoteExpiresAt: quote.ExpiresAt,
+		Parameters: normalized.Parameters, QuoteToken: quote.QuoteToken,
 	})
 	require.NoError(t, err)
 	return requestBody
