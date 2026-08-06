@@ -10,14 +10,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	taskdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -255,7 +254,7 @@ func respondVideoStudioSubmitGuardError(c *gin.Context, err error) {
 	respondVideoStudioError(c, err)
 }
 
-func calculateVideoStudioQuote(c *gin.Context) (*relay.TaskQuoteResult, *taskdto.TaskError) {
+func calculateVideoStudioQuote(c *gin.Context) (*relay.TaskQuoteResult, *dto.TaskError) {
 	if taskErr := PreparePlaygroundTaskContext(c); taskErr != nil {
 		return nil, taskErr
 	}
@@ -294,7 +293,7 @@ func videoStudioNormalizedSubmission(c *gin.Context) (*service.NormalizedVideoSt
 	return normalized, ok && normalized != nil
 }
 
-func respondVideoStudioTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
+func respondVideoStudioTaskError(c *gin.Context, taskErr *dto.TaskError) {
 	if taskErr == nil {
 		return
 	}

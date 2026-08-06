@@ -38,7 +38,8 @@ const diff = run('git', [
   '-z',
   baseline,
   '--',
-  'web',
+  'web/default',
+  'web/classic',
 ])
 
 if (diff.status !== 0) {
@@ -47,6 +48,20 @@ if (diff.status !== 0) {
 }
 
 const changedFiles = diff.stdout.split('\0').filter(Boolean)
+const classicFiles = changedFiles
+  .filter((path) => path.startsWith('web/classic/') && existsSync(join(root, path)))
+  .map((path) => path.slice('web/classic/'.length))
+
+if (classicFiles.length > 0) {
+  const prettier = join(root, 'web/node_modules/.bin/prettier')
+  const result = run(prettier, ['--check', ...classicFiles], {
+    cwd: join(root, 'web/classic'),
+  })
+  process.stdout.write(result.stdout)
+  process.stderr.write(result.stderr)
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
+
 const supportedExtensions = new Set([
   '.cjs',
   '.css',
@@ -65,19 +80,19 @@ const supportedExtensions = new Set([
 ])
 const headerPattern =
   /^\/\*\nCopyright \(C\)[\s\S]*?QuantumNous[\s\S]*?\*\/\n+/
-const frontendFiles = changedFiles.filter((path) => {
-  if (!path.startsWith('web/')) return false
+const defaultFiles = changedFiles.filter((path) => {
+  if (!path.startsWith('web/default/')) return false
   if (!existsSync(join(root, path))) return false
   const dot = path.lastIndexOf('.')
   return dot !== -1 && supportedExtensions.has(path.slice(dot))
 })
 
-if (frontendFiles.length > 0) {
+if (defaultFiles.length > 0) {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'kkai-oxfmt-'))
   try {
     const expected = new Map()
-    for (const path of frontendFiles) {
-      const relativePath = path.slice('web/'.length)
+    for (const path of defaultFiles) {
+      const relativePath = path.slice('web/default/'.length)
       const sourcePath = join(root, path)
       const targetPath = join(temporaryRoot, relativePath)
       mkdirSync(dirname(targetPath), { recursive: true })
@@ -88,7 +103,7 @@ if (frontendFiles.length > 0) {
       writeFileSync(targetPath, stripped)
     }
 
-    const configPath = join(root, 'web/.oxfmtrc.json')
+    const configPath = join(root, 'web/default/.oxfmtrc.json')
     copyFileSync(configPath, join(temporaryRoot, '.oxfmtrc.json'))
     const oxfmt = join(root, 'web/node_modules/.bin/oxfmt')
     const result = run(oxfmt, ['-c', '.oxfmtrc.json', '--write', '.'], {
@@ -105,8 +120,8 @@ if (frontendFiles.length > 0) {
     }
 
     if (issues.length > 0) {
-      console.error('Frontend format issues in fork-owned changes:')
-      for (const path of issues) console.error(`  web/${path}`)
+      console.error('Default frontend format issues in fork-owned changes:')
+      for (const path of issues) console.error(`  web/default/${path}`)
       process.exit(1)
     }
   } finally {
@@ -114,4 +129,6 @@ if (frontendFiles.length > 0) {
   }
 }
 
-console.log(`format: checked ${frontendFiles.length} frontend changed files`)
+console.log(
+  `format: checked ${defaultFiles.length} default and ${classicFiles.length} classic changed files`
+)

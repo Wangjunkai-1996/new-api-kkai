@@ -16,16 +16,27 @@ ARG FFPROBE_BINARY_SHA256=4df45ffe1eb3ebed143136499616e894a06e6c0d3ccb3abf8e72f8
 FROM ${BUN_IMAGE} AS web-deps
 WORKDIR /build/web
 COPY web/package.json web/bun.lock ./
+COPY web/default/package.json ./default/package.json
+COPY web/classic/package.json ./classic/package.json
 RUN --mount=type=cache,id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked \
     bun install --frozen-lockfile --network-concurrency=1
 
-FROM web-deps AS web-build
+FROM web-deps AS web-default
 
 ARG APP_VERSION
 ARG KKAI_SCHEMA_CONTRACT
-COPY web .
+COPY web/default ./default
 RUN test -n "${APP_VERSION}" \
+    && cd default \
     && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" VITE_KKAI_SCHEMA_CONTRACT="${KKAI_SCHEMA_CONTRACT}" bun run build
+
+FROM web-deps AS web-classic
+
+ARG APP_VERSION
+COPY web/classic ./classic
+RUN test -n "${APP_VERSION}" \
+    && cd classic \
+    && VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
 
 FROM ${GO_IMAGE} AS backend
 
@@ -42,11 +53,11 @@ ENV CGO_ENABLED=0 \
 
 WORKDIR /build
 COPY go.mod go.sum ./
-COPY relaykit/go.mod ./relaykit/go.mod
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     go mod download && go mod verify
 COPY . .
-COPY --from=web-build /build/web/dist ./web/dist
+COPY --from=web-default /build/web/default/dist ./web/default/dist
+COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     test -n "${APP_VERSION}" \
     && test -n "${SOURCE_REVISION}" \

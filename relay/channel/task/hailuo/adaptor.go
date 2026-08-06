@@ -15,11 +15,10 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/QuantumNous/new-api/constant"
-	taskdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -37,7 +36,7 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.apiKey = info.ApiKey
 }
 
-func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *taskdto.TaskError) {
+func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
 }
 
@@ -96,13 +95,6 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 			fmt.Errorf("hailuo api error: %s", hResp.BaseResp.StatusMsg),
 			strconv.Itoa(hResp.BaseResp.StatusCode),
 			http.StatusBadRequest,
-		))
-	}
-	if strings.TrimSpace(hResp.TaskID) == "" {
-		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(
-			fmt.Errorf("task_id is empty"),
-			"invalid_response",
-			http.StatusBadGateway,
 		))
 	}
 

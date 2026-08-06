@@ -81,7 +81,7 @@ func setupKKAIBalanceAdjustmentTest(t *testing.T) (*gorm.DB, http.Handler) {
 	sqlDB.SetMaxOpenConns(1)
 	model.DB = db
 	model.LOG_DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}))
 	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 

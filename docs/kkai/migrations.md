@@ -15,14 +15,13 @@ tables.
 | 5 | `video_studio` | Six additive Video Studio tables |
 | 6 | `video_sample_category` | Nullable `kkai_video_samples.category` column |
 | 7 | `image_studio` | Four additive Image Studio tables |
-| 8 | `stateless_authentication` | Authentication columns, session/flow/identity tables, and legacy identity backfill |
 
 Version 4 is an explicit bridge on every supported dialect. MySQL 5.7 and
 PostgreSQL alter `kkai_outbox.event_key` to `VARCHAR(191)`; SQLite records the
 same immutable migration as a physical no-op. Keeping one v4 ledger prefix
 across SQLite, MySQL, and PostgreSQL makes the v5 rollout and rollback contract
-unambiguous. The current `kkai_bridge` profile is the v7-to-v8 transition
-contract `(7,8,7)`; the untagged feature profile remains exact v8 `(8,8,8)`.
+unambiguous. The explicit bridge build remains pinned to version 3 while
+accepting versions through 7. The default feature build requires version 7.
 Neither application profile changes the schema during startup.
 
 Version 5 is an additive expand migration. It creates exactly these tables and
@@ -52,14 +51,6 @@ tables:
 Image Studio reuses the v1 outbox and the v5 idempotency table; it does not
 create parallel copies of either shared primitive.
 
-Version 8 is a separate additive expand migration. It adds nullable
-`users.auth_version` and `tokens.auto_groups` columns, creates
-`user_sessions`, `auth_flows`, and `external_identity_claims`, initializes
-every user authentication version to at least 1, and imports non-empty legacy
-Telegram bindings into the single-owner identity table. Ambiguous subject or
-user ownership aborts the migration instead of preserving an unsafe login
-mapping.
-
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
 migrator and application startup.
@@ -73,9 +64,9 @@ go build -trimpath -o kkai-migrate ./cmd/kkai-migrate
 go build -trimpath -tags kkai_bridge -o kkai-migrate-bridge ./cmd/kkai-migrate
 ```
 
-The untagged binary is the final v8 feature profile. The `kkai_bridge` tag
-builds the reviewed v7-to-v8 transition profile with runtime range v7 through
-v8 and migration target v7.
+The untagged binary is the final feature profile. The `kkai_bridge` tag is a
+compile-time-only bridge profile; there is no runtime environment switch that
+can weaken an already-built feature image.
 
 Use `KKAI_MIGRATION_DSN`, `SQL_DSN`, or `--dsn-stdin`. Prefer stdin for an
 operator-run migration so the DSN does not appear in a process argument. The
@@ -85,7 +76,7 @@ command never prints the DSN.
 ./kkai-migrate --dry-run
 ./kkai-migrate
 ./kkai-migrate --check
-./kkai-migrate --check --min-version 8
+./kkai-migrate --check --min-version 7
 ./kkai-migrate --observe --current --json --dsn-stdin
 ./kkai-migrate --describe-contract --dialect postgres --json
 ```
@@ -113,13 +104,7 @@ runs GORM `AutoMigrate` or changes database state.
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.
 
-## Historical Studio Bridge And Expands
-
-The procedure below documents the completed v3-to-v7 rollout and applies only
-to an audited pre-rc23 v7-compatible bridge binary. The current bridge profile
-is only for the exact v7-to-v8 transition and reports
-`runtime_min_version=7`, `runtime_max_version=8`, and
-`migration_target_version=7`.
+## Studio Bridge And Expands
 
 The bridge release contract is `runtime_min_version=3`,
 `runtime_max_version=7`, and `migration_target_version=3`. Verify it for the
@@ -207,30 +192,12 @@ release be built and staged:
 scripts/kkai/build-manual-release.sh --schema-contract feature
 ```
 
-That pre-rc23 feature contract was `runtime_min_version=7`,
-`runtime_max_version=7`, and `migration_target_version=7`. There is no
-automatic down migration: never delete the v5, v6, or v7 ledger rows, drop
-their objects, or rewrite their checksums to make an older image start.
-
-## Authentication V8 Gate
-
-Do not apply v8 until both production slots and the rollback image have been
-replaced with two unique builds of the reviewed `kkai_bridge` v7-to-v8
-transition profile. After the transition slots are verified, run v8 as its own
-operator gate:
-
-```bash
-./kkai-migrate --target 8 --dry-run --dsn-stdin
-./kkai-migrate --target 8 --dsn-stdin
-./kkai-migrate --check --min-version 8 --dsn-stdin
-./kkai-migrate --observe --current --json --dsn-stdin
-```
-
-Confirm `current_version: 8`, the reviewed v8 prefix digest, the three new
-authentication tables and their unique indexes, `users.auth_version >= 1`, and
-the legacy Telegram ownership backfill. Only then may this rc.23 feature image
-be staged. Until that gate passes, deploy this source only with the bridge
-profile.
+The feature contract is `runtime_min_version=7`, `runtime_max_version=7`, and
+`migration_target_version=7`; its default `--check` therefore fails closed on
+pre-v7 databases. After v7, rollback is limited to a bridge image whose runtime
+range includes v7. There is no automatic down migration: never delete the v5,
+v6, or v7 ledger rows, drop their objects, or rewrite their checksums to make
+an older image start.
 
 ## Legacy Import
 
@@ -247,7 +214,7 @@ separate post-stability operation and is not part of ordinary delivery.
 ## Operator Migration Rules
 
 Ordinary release automation does not run schema observation or migrations. It
-does not execute migration version 4, 5, 6, 7, or 8.
+does not execute migration version 4, 5, 6, or 7.
 
 If a future PostgreSQL migration is needed:
 

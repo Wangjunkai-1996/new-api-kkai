@@ -232,20 +232,16 @@ func TestDecodeImageGenerationAccountingAcceptsLegacyPayloadWithoutPricingSnapsh
 	require.Equal(t, payload.TargetQuota, decoded.TargetQuota)
 }
 
-func TestImageGenerationAccountingUsesRoundedPricingSnapshotQuota(t *testing.T) {
+func TestImageGenerationAccountingRejectsQuotaOutsidePricingSnapshot(t *testing.T) {
 	payload := ImageGenerationAccountingPayload{
-		TargetQuota: 335001, PricingActualCount: 1,
+		TargetQuota: 200, PricingActualCount: 1,
 		PricingSnapshot: &imagepricing.Snapshot{
 			PolicyVersion: "test-v1", PolicyHash: strings.Repeat("a", 64),
 			Model: "gpt-image-2", Size: "1024x1024", Tier: "1k",
-			UnitPrice: 0.67, QuotaPerUnit: 500000, GroupRatio: 1.000002, RequestedCount: 2,
+			UnitPrice: 1, QuotaPerUnit: 100, GroupRatio: 1, RequestedCount: 2,
 		},
-		LogParams: RecordConsumeLogParams{ModelName: "gpt-image-2", Quota: 335001},
+		LogParams: RecordConsumeLogParams{ModelName: "gpt-image-2", Quota: 200},
 	}
-	require.NoError(t, validateImageGenerationAccountingSnapshot(payload))
-
-	payload.TargetQuota = 335000
-	payload.LogParams.Quota = 335000
 
 	err := validateImageGenerationAccountingSnapshot(payload)
 

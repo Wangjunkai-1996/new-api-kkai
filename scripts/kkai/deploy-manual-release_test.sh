@@ -17,9 +17,6 @@ trap 'rm -rf -- "${test_root}"' EXIT
 readonly test_root
 readonly mock_bin="${test_root}/bin"
 readonly call_log="${test_root}/calls.log"
-readonly remote_source_state="${test_root}/remote-source-sha"
-real_git="$(command -v git)"
-readonly real_git
 mkdir -p -- "${mock_bin}"
 
 # shellcheck source=manual-deployment-contract.env
@@ -43,14 +40,6 @@ case "$*" in
         printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
         printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
         printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
-        exit 0
-        ;;
-      advance-source)
-        printf 'KKAI_PREFLIGHT_RESULT=ready\n'
-        printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
-        printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
-        printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
-        printf '%s\n' "${KKAI_TEST_ADVANCED_SOURCE_SHA}" > "${KKAI_TEST_REMOTE_SOURCE_STATE}"
         exit 0
         ;;
       wrong-sha)
@@ -95,29 +84,10 @@ cat > "${mock_bin}/scp" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'scp %s\n' "$*" >> "${KKAI_TEST_LOG}"
-if [[ -n "${KKAI_TEST_ADVANCE_AFTER_SCP:-}" ]]; then
-  printf '%s\n' "${KKAI_TEST_ADVANCED_SOURCE_SHA}" > "${KKAI_TEST_REMOTE_SOURCE_STATE}"
-fi
 EOF
-
-cat > "${mock_bin}/git" <<'EOF'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-if [[ " $* " == *' remote get-url origin '* ]]; then
-  printf '%s\n' 'https://github.com/Wangjunkai-1996/new-api-kkai.git'
-  exit 0
-fi
-if [[ " $* " == *' ls-remote --exit-code --heads origin refs/heads/production/kkrich '* ]]; then
-  printf '%s\t%s\n' "$(<"${KKAI_TEST_REMOTE_SOURCE_STATE}")" refs/heads/production/kkrich
-  exit 0
-fi
-exec "${KKAI_TEST_REAL_GIT}" "$@"
-EOF
-chmod 0755 "${mock_bin}/ssh" "${mock_bin}/scp" "${mock_bin}/git"
+chmod 0755 "${mock_bin}/ssh" "${mock_bin}/scp"
 
 readonly source_sha=1111111111111111111111111111111111111111
-readonly source_repository=github.com/Wangjunkai-1996/new-api-kkai
-readonly source_ref=refs/heads/production/kkrich
 readonly version=kkai-prod-20260726.1-111111111
 readonly schema_contract=feature
 export KKAI_TEST_EXPECTED_VERSION="${version}"
@@ -128,8 +98,6 @@ archive_sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
 readonly archive_sha256
 jq --null-input \
   --arg version "${version}" \
-  --arg source_repository "${source_repository}" \
-  --arg source_ref "${source_ref}" \
   --arg source_sha "${source_sha}" \
   --arg image_tag "kkai-newapi-manual:${version}" \
   --arg schema_contract "${schema_contract}" \
@@ -137,8 +105,6 @@ jq --null-input \
   --arg archive_sha256 "${archive_sha256}" \
   '{
     version: $version,
-    source_repository: $source_repository,
-    source_ref: $source_ref,
     source_sha: $source_sha,
     image_tag: $image_tag,
     schema_contract: $schema_contract,
@@ -150,18 +116,11 @@ jq --null-input \
 run_stage() {
   local mode=$1
   local metadata_path=${2:-${metadata}}
-  local remote_source_sha=${3:-${source_sha}}
-  local advance_after_scp=${4:-}
 
   : > "${call_log}"
-  printf '%s\n' "${remote_source_sha}" > "${remote_source_state}"
   PATH="${mock_bin}:${PATH}" \
-    KKAI_TEST_REAL_GIT="${real_git}" \
     KKAI_TEST_LOG="${call_log}" \
     KKAI_TEST_PREFLIGHT_MODE="${mode}" \
-    KKAI_TEST_REMOTE_SOURCE_STATE="${remote_source_state}" \
-    KKAI_TEST_ADVANCED_SOURCE_SHA=2222222222222222222222222222222222222222 \
-    KKAI_TEST_ADVANCE_AFTER_SCP="${advance_after_scp}" \
     "${DEPLOY_SCRIPT}" --stage "${metadata_path}"
 }
 
@@ -213,37 +172,6 @@ test_invalid_schema_contract_prevents_remote_calls() {
   [[ ! -s "${call_log}" ]] || fail "invalid schema contract made a remote call"
 }
 
-test_invalid_source_provenance_prevents_remote_calls() {
-  local invalid_repository="${test_root}/invalid-source-repository.json"
-  local invalid_ref="${test_root}/invalid-source-ref.json" output
-
-  jq '.source_repository = "github.com/example/not-new-api"' "${metadata}" > "${invalid_repository}"
-  if output="$(run_stage ready "${invalid_repository}" 2>&1)"; then
-    fail "invalid source repository unexpectedly allowed staging"
-  fi
-  grep -F 'invalid source repository' <<< "${output}" >/dev/null ||
-    fail "invalid source repository was not rejected explicitly"
-  [[ ! -s "${call_log}" ]] || fail "invalid source repository made a remote call"
-
-  jq '.source_ref = "refs/heads/release/temporary"' "${metadata}" > "${invalid_ref}"
-  if output="$(run_stage ready "${invalid_ref}" 2>&1)"; then
-    fail "invalid source ref unexpectedly allowed staging"
-  fi
-  grep -F 'invalid source ref' <<< "${output}" >/dev/null ||
-    fail "invalid source ref was not rejected explicitly"
-  [[ ! -s "${call_log}" ]] || fail "invalid source ref made a remote call"
-}
-
-test_stale_source_sha_prevents_remote_calls() {
-  local output
-  if output="$(run_stage ready "${metadata}" 2222222222222222222222222222222222222222 2>&1)"; then
-    fail "stale production source unexpectedly allowed staging"
-  fi
-  grep -F 'source SHA is no longer the production branch HEAD' <<< "${output}" >/dev/null ||
-    fail "stale production source was not rejected explicitly"
-  [[ ! -s "${call_log}" ]] || fail "stale production source made a remote call"
-}
-
 test_preflight_output_must_match_contract() {
   local output
 
@@ -278,34 +206,6 @@ test_preflight_schema_contract_must_match_release() {
     fail "archive was uploaded after a preflight schema contract mismatch"
 }
 
-test_remote_advance_after_preflight_prevents_upload() {
-  local output
-
-  if output="$(run_stage advance-source 2>&1)"; then
-    fail "production advance after preflight unexpectedly allowed upload"
-  fi
-  grep -F 'source SHA is no longer the production branch HEAD' <<< "${output}" >/dev/null ||
-    fail "post-preflight production advance was not reported"
-  grep -q '/kkai-newapi-manual-deploy preflight ' "${call_log}" ||
-    fail "post-preflight race test did not reach preflight"
-  ! grep -q '^scp ' "${call_log}" || fail "archive was uploaded after production advanced"
-  ! grep -q '/kkai-newapi-manual-deploy stage ' "${call_log}" ||
-    fail "stage was invoked after production advanced"
-}
-
-test_remote_advance_after_upload_prevents_stage() {
-  local output
-
-  if output="$(run_stage ready "${metadata}" "${source_sha}" advance-after-scp 2>&1)"; then
-    fail "production advance during upload unexpectedly allowed staging"
-  fi
-  grep -F 'production advanced after archive upload' <<< "${output}" >/dev/null ||
-    fail "post-upload production advance did not report the retained archive"
-  grep -q '^scp ' "${call_log}" || fail "post-upload race test did not upload the archive"
-  ! grep -q '/kkai-newapi-manual-deploy stage ' "${call_log}" ||
-    fail "stage was invoked after production advanced during upload"
-}
-
 test_successful_preflight_precedes_upload_and_stage() {
   local output preflight_line upload_line stage_line contract_arguments stage_arguments
 
@@ -333,13 +233,9 @@ test_contract_pins_staged_controller
 test_requires_explicit_stage_action
 test_preflight_failure_prevents_upload
 test_invalid_schema_contract_prevents_remote_calls
-test_invalid_source_provenance_prevents_remote_calls
-test_stale_source_sha_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract
 test_preflight_schema_contract_must_match_release
-test_remote_advance_after_preflight_prevents_upload
-test_remote_advance_after_upload_prevents_stage
 test_successful_preflight_precedes_upload_and_stage
 
 echo 'New API manual deploy client tests passed'

@@ -11,9 +11,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -452,32 +452,26 @@ func BatchInsertChannels(channels []Channel) error {
 	return tx.Commit().Error
 }
 
-func BatchDeleteChannels(ids []int) (int64, error) {
+func BatchDeleteChannels(ids []int) error {
 	if len(ids) == 0 {
-		return 0, nil
+		return nil
 	}
 	// 使用事务 分批删除channel表和abilities表
 	tx := DB.Begin()
 	if tx.Error != nil {
-		return 0, tx.Error
+		return tx.Error
 	}
-	var deletedCount int64
 	for _, chunk := range lo.Chunk(ids, 200) {
-		result := tx.Where("id in (?)", chunk).Delete(&Channel{})
-		if result.Error != nil {
+		if err := tx.Where("id in (?)", chunk).Delete(&Channel{}).Error; err != nil {
 			tx.Rollback()
-			return 0, result.Error
+			return err
 		}
-		deletedCount += result.RowsAffected
 		if err := tx.Where("channel_id in (?)", chunk).Delete(&Ability{}).Error; err != nil {
 			tx.Rollback()
-			return 0, err
+			return err
 		}
 	}
-	if err := tx.Commit().Error; err != nil {
-		return 0, err
-	}
-	return deletedCount, nil
+	return tx.Commit().Error
 }
 
 func (channel *Channel) GetPriority() int64 {
@@ -951,12 +945,6 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
-	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
-		return fmt.Errorf("invalid channel proxy: %w", err)
-	}
-	if err := channelParams.ValidateHTTPTransport(); err != nil {
-		return err
-	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)
@@ -972,11 +960,6 @@ func (channel *Channel) ValidateSettings() error {
 	if channelOtherSettings.AdvancedCustom != nil {
 		if err := channelOtherSettings.AdvancedCustom.Validate(); err != nil {
 			return err
-		}
-	}
-	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
-		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
-			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
 		}
 	}
 	return nil

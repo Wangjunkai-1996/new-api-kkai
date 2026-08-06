@@ -20,11 +20,10 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/QuantumNous/new-api/constant"
-	taskdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -128,7 +127,7 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
-func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *taskdto.TaskError) {
+func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	// Use the standard validation method for TaskSubmitReq
 	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
 }
@@ -203,13 +202,6 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 	if kResp.Code != 0 {
 		return nil, channel.NewRejectedTaskResponseError(service.TaskErrorWrapperLocal(fmt.Errorf("%s", kResp.Message), "task_failed", http.StatusBadRequest))
-	}
-	if strings.TrimSpace(kResp.Data.TaskId) == "" {
-		return nil, channel.NewUncertainTaskResponseError(service.TaskErrorWrapper(
-			fmt.Errorf("task_id is empty"),
-			"invalid_response",
-			http.StatusBadGateway,
-		))
 	}
 	ov := dto.NewOpenAIVideo()
 	ov.ID = info.PublicTaskID

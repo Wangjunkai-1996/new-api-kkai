@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -13,6 +15,7 @@ import (
 func TestVideoStudioOutboxRedriveRouteIsReachableOnlyThroughAdminAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
+	engine.Use(sessions.Sessions("session", cookie.NewStore([]byte("video-outbox-redrive-test"))))
 	apiRouter := engine.Group("/api")
 	registerKKAIRoutes(apiRouter, func(c *gin.Context) { c.Next() })
 

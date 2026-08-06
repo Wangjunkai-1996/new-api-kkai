@@ -6,7 +6,7 @@ import (
 	channelconstant "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/types"
 )
 
 func GetRequestURL(info *relaycommon.RelayInfo) (string, error) {

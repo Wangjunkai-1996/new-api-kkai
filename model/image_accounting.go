@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
