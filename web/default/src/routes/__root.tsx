@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type QueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import {
   createRootRouteWithContext,
@@ -100,7 +100,9 @@ export const Route = createRootRouteWithContext<{
   beforeLoad: async ({ location }) => {
     const pathname = location?.pathname || ''
     const needsSetupCheck =
-      !setupStatusChecked && !pathname.startsWith('/setup')
+      !setupStatusChecked &&
+      !pathname.startsWith('/setup') &&
+      pathname !== '/cn-restricted'
 
     // 用户信息已通过 auth-store 从 localStorage 恢复
     // 如果 auth.user 存在，说明用户已登录（有缓存的用户数据）

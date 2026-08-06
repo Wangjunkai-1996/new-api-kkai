@@ -9,85 +9,99 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as UserAgreementRouteImport } from './routes/user-agreement'
-import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
-import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SetupIndexRouteImport } from './routes/setup/index'
-import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
-import { Route as PricingIndexRouteImport } from './routes/pricing/index'
-import { Route as AboutIndexRouteImport } from './routes/about/index'
-import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
-import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
-import { Route as ConsoleLogRouteImport } from './routes/console/log'
-import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
-import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
-import { Route as errors503RouteImport } from './routes/(errors)/503'
-import { Route as errors500RouteImport } from './routes/(errors)/500'
-import { Route as errors404RouteImport } from './routes/(errors)/404'
-import { Route as errors403RouteImport } from './routes/(errors)/403'
-import { Route as errors401RouteImport } from './routes/(errors)/401'
-import { Route as authSignUpRouteImport } from './routes/(auth)/sign-up'
-import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
-import { Route as authResetRouteImport } from './routes/(auth)/reset'
-import { Route as authRegisterRouteImport } from './routes/(auth)/register'
-import { Route as authOtpRouteImport } from './routes/(auth)/otp'
-import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
+import { Route as authRouteRouteImport } from './routes/(auth)/route'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as CnRestrictedRouteImport } from './routes/cn-restricted'
+import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
-import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
-import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
+import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
+import { Route as authOtpRouteImport } from './routes/(auth)/otp'
+import { Route as authRegisterRouteImport } from './routes/(auth)/register'
+import { Route as authResetRouteImport } from './routes/(auth)/reset'
+import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
+import { Route as authSignUpRouteImport } from './routes/(auth)/sign-up'
+import { Route as errors401RouteImport } from './routes/(errors)/401'
+import { Route as errors403RouteImport } from './routes/(errors)/403'
+import { Route as errors404RouteImport } from './routes/(errors)/404'
+import { Route as errors500RouteImport } from './routes/(errors)/500'
+import { Route as errors503RouteImport } from './routes/(errors)/503'
+import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedImageStudioRouteRouteImport } from './routes/_authenticated/image-studio/route'
-import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
-import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
-import { Route as AuthenticatedVideoStudioIndexRouteImport } from './routes/_authenticated/video-studio/index'
-import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
-import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
-import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
-import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
-import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
-import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
-import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
-import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
-import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
-import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
-import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_authenticated/invitations/index'
-import { Route as AuthenticatedImageStudioIndexRouteImport } from './routes/_authenticated/image-studio/index'
-import { Route as AuthenticatedGroupStatusIndexRouteImport } from './routes/_authenticated/group-status/index'
-import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
-import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
-import { Route as AuthenticatedVideoStudioTasksRouteImport } from './routes/_authenticated/video-studio/tasks'
-import { Route as AuthenticatedVideoStudioLibraryRouteImport } from './routes/_authenticated/video-studio/library'
-import { Route as AuthenticatedVideoStudioCreateRouteImport } from './routes/_authenticated/video-studio/create'
-import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
-import { Route as AuthenticatedSystemSettingsVideoStudioRouteImport } from './routes/_authenticated/system-settings/video-studio'
-import { Route as AuthenticatedSystemSettingsImageStudioRouteImport } from './routes/_authenticated/system-settings/image-studio'
-import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
-import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
-import { Route as AuthenticatedImageStudioLibraryRouteImport } from './routes/_authenticated/image-studio/library'
-import { Route as AuthenticatedImageStudioCreateRouteImport } from './routes/_authenticated/image-studio/create'
-import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
-import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
-import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
+import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
+import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
+import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
+import { Route as AboutIndexRouteImport } from './routes/about/index'
+import { Route as ConsoleLogRouteImport } from './routes/console/log'
+import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
+import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
+import { Route as PricingIndexRouteImport } from './routes/pricing/index'
+import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
+import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
-import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
-import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './routes/_authenticated/system-settings/security/index'
-import { Route as AuthenticatedSystemSettingsOperationsIndexRouteImport } from './routes/_authenticated/system-settings/operations/index'
-import { Route as AuthenticatedSystemSettingsModelsIndexRouteImport } from './routes/_authenticated/system-settings/models/index'
-import { Route as AuthenticatedSystemSettingsContentIndexRouteImport } from './routes/_authenticated/system-settings/content/index'
-import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
+import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
+import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
+import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
+import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
+import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedGroupStatusIndexRouteImport } from './routes/_authenticated/group-status/index'
+import { Route as AuthenticatedImageStudioIndexRouteImport } from './routes/_authenticated/image-studio/index'
+import { Route as AuthenticatedImageStudioCreateRouteImport } from './routes/_authenticated/image-studio/create'
+import { Route as AuthenticatedImageStudioLibraryRouteImport } from './routes/_authenticated/image-studio/library'
+import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_authenticated/invitations/index'
+import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
+import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
+import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
+import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
+import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
+import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
+import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
+import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
+import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
+import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
+import { Route as AuthenticatedSystemSettingsImageStudioRouteImport } from './routes/_authenticated/system-settings/image-studio'
+import { Route as AuthenticatedSystemSettingsVideoStudioRouteImport } from './routes/_authenticated/system-settings/video-studio'
+import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
+import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
+import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
+import { Route as AuthenticatedVideoStudioIndexRouteImport } from './routes/_authenticated/video-studio/index'
+import { Route as AuthenticatedVideoStudioCreateRouteImport } from './routes/_authenticated/video-studio/create'
+import { Route as AuthenticatedVideoStudioLibraryRouteImport } from './routes/_authenticated/video-studio/library'
+import { Route as AuthenticatedVideoStudioTasksRouteImport } from './routes/_authenticated/video-studio/tasks'
+import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
+import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
-import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
-import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
-import { Route as AuthenticatedSystemSettingsOperationsSectionRouteImport } from './routes/_authenticated/system-settings/operations/$section'
-import { Route as AuthenticatedSystemSettingsModelsSectionRouteImport } from './routes/_authenticated/system-settings/models/$section'
-import { Route as AuthenticatedSystemSettingsContentSectionRouteImport } from './routes/_authenticated/system-settings/content/$section'
-import { Route as AuthenticatedSystemSettingsBillingSectionRouteImport } from './routes/_authenticated/system-settings/billing/$section'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
+import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
+import { Route as AuthenticatedSystemSettingsBillingSectionRouteImport } from './routes/_authenticated/system-settings/billing/$section'
+import { Route as AuthenticatedSystemSettingsContentIndexRouteImport } from './routes/_authenticated/system-settings/content/index'
+import { Route as AuthenticatedSystemSettingsContentSectionRouteImport } from './routes/_authenticated/system-settings/content/$section'
+import { Route as AuthenticatedSystemSettingsModelsIndexRouteImport } from './routes/_authenticated/system-settings/models/index'
+import { Route as AuthenticatedSystemSettingsModelsSectionRouteImport } from './routes/_authenticated/system-settings/models/$section'
+import { Route as AuthenticatedSystemSettingsOperationsIndexRouteImport } from './routes/_authenticated/system-settings/operations/index'
+import { Route as AuthenticatedSystemSettingsOperationsSectionRouteImport } from './routes/_authenticated/system-settings/operations/$section'
+import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './routes/_authenticated/system-settings/security/index'
+import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
+import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
+import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
 
-const UserAgreementRoute = UserAgreementRouteImport.update({
-  id: '/user-agreement',
-  path: '/user-agreement',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authRouteRoute = authRouteRouteImport.update({
+  id: '/(auth)',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CnRestrictedRoute = CnRestrictedRouteImport.update({
+  id: '/cn-restricted',
+  path: '/cn-restricted',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
@@ -95,113 +109,14 @@ const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   path: '/privacy-policy',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
+const UserAgreementRoute = UserAgreementRouteImport.update({
+  id: '/user-agreement',
+  path: '/user-agreement',
   getParentRoute: () => rootRouteImport,
 } as any)
-const authRouteRoute = authRouteRouteImport.update({
-  id: '/(auth)',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SetupIndexRoute = SetupIndexRouteImport.update({
-  id: '/setup/',
-  path: '/setup/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RankingsIndexRoute = RankingsIndexRouteImport.update({
-  id: '/rankings/',
-  path: '/rankings/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PricingIndexRoute = PricingIndexRouteImport.update({
-  id: '/pricing/',
-  path: '/pricing/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AboutIndexRoute = AboutIndexRouteImport.update({
-  id: '/about/',
-  path: '/about/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OauthProviderRoute = OauthProviderRouteImport.update({
-  id: '/oauth/$provider',
-  path: '/oauth/$provider',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConsoleTopupRoute = ConsoleTopupRouteImport.update({
-  id: '/console/topup',
-  path: '/console/topup',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConsoleLogRoute = ConsoleLogRouteImport.update({
-  id: '/console/log',
-  path: '/console/log',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedInvitationsRoute =
-  AuthenticatedInvitationsRouteImport.update({
-    id: '/invitations',
-    path: '/invitations',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
-  id: '/chat2link',
-  path: '/chat2link',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const errors503Route = errors503RouteImport.update({
-  id: '/(errors)/503',
-  path: '/503',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors500Route = errors500RouteImport.update({
-  id: '/(errors)/500',
-  path: '/500',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors404Route = errors404RouteImport.update({
-  id: '/(errors)/404',
-  path: '/404',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors403Route = errors403RouteImport.update({
-  id: '/(errors)/403',
-  path: '/403',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const errors401Route = errors401RouteImport.update({
-  id: '/(errors)/401',
-  path: '/401',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const authSignUpRoute = authSignUpRouteImport.update({
-  id: '/sign-up',
-  path: '/sign-up',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authSignInRoute = authSignInRouteImport.update({
-  id: '/sign-in',
-  path: '/sign-in',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authResetRoute = authResetRouteImport.update({
-  id: '/reset',
-  path: '/reset',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authRegisterRoute = authRegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const authOtpRoute = authOtpRouteImport.update({
-  id: '/otp',
-  path: '/otp',
+const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => authRouteRoute,
 } as any)
 const authOauthRoute = authOauthRouteImport.update({
@@ -209,15 +124,71 @@ const authOauthRoute = authOauthRouteImport.update({
   path: '/oauth',
   getParentRoute: () => authRouteRoute,
 } as any)
-const authForgotPasswordRoute = authForgotPasswordRouteImport.update({
-  id: '/forgot-password',
-  path: '/forgot-password',
+const authOtpRoute = authOtpRouteImport.update({
+  id: '/otp',
+  path: '/otp',
   getParentRoute: () => authRouteRoute,
 } as any)
-const AuthenticatedVideoStudioRouteRoute =
-  AuthenticatedVideoStudioRouteRouteImport.update({
-    id: '/video-studio',
-    path: '/video-studio',
+const authRegisterRoute = authRegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => authRouteRoute,
+} as any)
+const authResetRoute = authResetRouteImport.update({
+  id: '/reset',
+  path: '/reset',
+  getParentRoute: () => authRouteRoute,
+} as any)
+const authSignInRoute = authSignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => authRouteRoute,
+} as any)
+const authSignUpRoute = authSignUpRouteImport.update({
+  id: '/sign-up',
+  path: '/sign-up',
+  getParentRoute: () => authRouteRoute,
+} as any)
+const errors401Route = errors401RouteImport.update({
+  id: '/(errors)/401',
+  path: '/401',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const errors403Route = errors403RouteImport.update({
+  id: '/(errors)/403',
+  path: '/403',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const errors404Route = errors404RouteImport.update({
+  id: '/(errors)/404',
+  path: '/404',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const errors500Route = errors500RouteImport.update({
+  id: '/(errors)/500',
+  path: '/500',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const errors503Route = errors503RouteImport.update({
+  id: '/(errors)/503',
+  path: '/503',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
+  id: '/chat2link',
+  path: '/chat2link',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedImageStudioRouteRoute =
+  AuthenticatedImageStudioRouteRouteImport.update({
+    id: '/image-studio',
+    path: '/image-studio',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedInvitationsRoute =
+  AuthenticatedInvitationsRouteImport.update({
+    id: '/invitations',
+    path: '/invitations',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedSystemSettingsRouteRoute =
@@ -226,181 +197,67 @@ const AuthenticatedSystemSettingsRouteRoute =
     path: '/system-settings',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedImageStudioRouteRoute =
-  AuthenticatedImageStudioRouteRouteImport.update({
-    id: '/image-studio',
-    path: '/image-studio',
+const AuthenticatedVideoStudioRouteRoute =
+  AuthenticatedVideoStudioRouteRouteImport.update({
+    id: '/video-studio',
+    path: '/video-studio',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
-  id: '/pricing/$modelId/',
-  path: '/pricing/$modelId/',
+const AboutIndexRoute = AboutIndexRouteImport.update({
+  id: '/about/',
+  path: '/about/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedWalletIndexRoute =
-  AuthenticatedWalletIndexRouteImport.update({
-    id: '/wallet/',
-    path: '/wallet/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedVideoStudioIndexRoute =
-  AuthenticatedVideoStudioIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
-  } as any)
-const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
-  id: '/users/',
-  path: '/users/',
-  getParentRoute: () => AuthenticatedRouteRoute,
+const ConsoleLogRoute = ConsoleLogRouteImport.update({
+  id: '/console/log',
+  path: '/console/log',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedUsageLogsIndexRoute =
-  AuthenticatedUsageLogsIndexRouteImport.update({
-    id: '/usage-logs/',
-    path: '/usage-logs/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsIndexRoute =
-  AuthenticatedSystemSettingsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemInfoIndexRoute =
-  AuthenticatedSystemInfoIndexRouteImport.update({
-    id: '/system-info/',
-    path: '/system-info/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSubscriptionsIndexRoute =
-  AuthenticatedSubscriptionsIndexRouteImport.update({
-    id: '/subscriptions/',
-    path: '/subscriptions/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedRedemptionCodesIndexRoute =
-  AuthenticatedRedemptionCodesIndexRouteImport.update({
-    id: '/redemption-codes/',
-    path: '/redemption-codes/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedProfileIndexRoute =
-  AuthenticatedProfileIndexRouteImport.update({
-    id: '/profile/',
-    path: '/profile/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedPlaygroundIndexRoute =
-  AuthenticatedPlaygroundIndexRouteImport.update({
-    id: '/playground/',
-    path: '/playground/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedModelsIndexRoute =
-  AuthenticatedModelsIndexRouteImport.update({
-    id: '/models/',
-    path: '/models/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
-  id: '/keys/',
-  path: '/keys/',
-  getParentRoute: () => AuthenticatedRouteRoute,
+const ConsoleTopupRoute = ConsoleTopupRouteImport.update({
+  id: '/console/topup',
+  path: '/console/topup',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedInvitationsIndexRoute =
-  AuthenticatedInvitationsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedInvitationsRoute,
-  } as any)
-const AuthenticatedImageStudioIndexRoute =
-  AuthenticatedImageStudioIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
-  } as any)
-const AuthenticatedGroupStatusIndexRoute =
-  AuthenticatedGroupStatusIndexRouteImport.update({
-    id: '/group-status/',
-    path: '/group-status/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedDashboardIndexRoute =
-  AuthenticatedDashboardIndexRouteImport.update({
-    id: '/dashboard/',
-    path: '/dashboard/',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
+const OauthProviderRoute = OauthProviderRouteImport.update({
+  id: '/oauth/$provider',
+  path: '/oauth/$provider',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PricingIndexRoute = PricingIndexRouteImport.update({
+  id: '/pricing/',
+  path: '/pricing/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RankingsIndexRoute = RankingsIndexRouteImport.update({
+  id: '/rankings/',
+  path: '/rankings/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupIndexRoute = SetupIndexRouteImport.update({
+  id: '/setup/',
+  path: '/setup/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authUserResetRoute = authUserResetRouteImport.update({
+  id: '/user/reset',
+  path: '/user/reset',
+  getParentRoute: () => authRouteRoute,
+} as any)
 const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
     path: '/channels/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedVideoStudioTasksRoute =
-  AuthenticatedVideoStudioTasksRouteImport.update({
-    id: '/tasks',
-    path: '/tasks',
-    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
-  } as any)
-const AuthenticatedVideoStudioLibraryRoute =
-  AuthenticatedVideoStudioLibraryRouteImport.update({
-    id: '/library',
-    path: '/library',
-    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
-  } as any)
-const AuthenticatedVideoStudioCreateRoute =
-  AuthenticatedVideoStudioCreateRouteImport.update({
-    id: '/create',
-    path: '/create',
-    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
-  } as any)
-const AuthenticatedUsageLogsSectionRoute =
-  AuthenticatedUsageLogsSectionRouteImport.update({
-    id: '/usage-logs/$section',
-    path: '/usage-logs/$section',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsVideoStudioRoute =
-  AuthenticatedSystemSettingsVideoStudioRouteImport.update({
-    id: '/video-studio',
-    path: '/video-studio',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsImageStudioRoute =
-  AuthenticatedSystemSettingsImageStudioRouteImport.update({
-    id: '/image-studio',
-    path: '/image-studio',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedModelsSectionRoute =
-  AuthenticatedModelsSectionRouteImport.update({
-    id: '/models/$section',
-    path: '/models/$section',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedInvitationsAdminRoute =
-  AuthenticatedInvitationsAdminRouteImport.update({
-    id: '/admin',
-    path: '/admin',
-    getParentRoute: () => AuthenticatedInvitationsRoute,
-  } as any)
-const AuthenticatedImageStudioLibraryRoute =
-  AuthenticatedImageStudioLibraryRouteImport.update({
-    id: '/library',
-    path: '/library',
-    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
-  } as any)
-const AuthenticatedImageStudioCreateRoute =
-  AuthenticatedImageStudioCreateRouteImport.update({
-    id: '/create',
-    path: '/create',
-    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
-  } as any)
-const AuthenticatedErrorsErrorRoute =
-  AuthenticatedErrorsErrorRouteImport.update({
-    id: '/errors/$error',
-    path: '/errors/$error',
+const AuthenticatedChatChatIdRoute = AuthenticatedChatChatIdRouteImport.update({
+  id: '/chat/$chatId',
+  path: '/chat/$chatId',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedDashboardIndexRoute =
+  AuthenticatedDashboardIndexRouteImport.update({
+    id: '/dashboard/',
+    path: '/dashboard/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedDashboardSectionRoute =
@@ -409,92 +266,169 @@ const AuthenticatedDashboardSectionRoute =
     path: '/dashboard/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedChatChatIdRoute = AuthenticatedChatChatIdRouteImport.update({
-  id: '/chat/$chatId',
-  path: '/chat/$chatId',
+const AuthenticatedErrorsErrorRoute =
+  AuthenticatedErrorsErrorRouteImport.update({
+    id: '/errors/$error',
+    path: '/errors/$error',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedGroupStatusIndexRoute =
+  AuthenticatedGroupStatusIndexRouteImport.update({
+    id: '/group-status/',
+    path: '/group-status/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedImageStudioIndexRoute =
+  AuthenticatedImageStudioIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
+  } as any)
+const AuthenticatedImageStudioCreateRoute =
+  AuthenticatedImageStudioCreateRouteImport.update({
+    id: '/create',
+    path: '/create',
+    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
+  } as any)
+const AuthenticatedImageStudioLibraryRoute =
+  AuthenticatedImageStudioLibraryRouteImport.update({
+    id: '/library',
+    path: '/library',
+    getParentRoute: () => AuthenticatedImageStudioRouteRoute,
+  } as any)
+const AuthenticatedInvitationsIndexRoute =
+  AuthenticatedInvitationsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedInvitationsRoute,
+  } as any)
+const AuthenticatedInvitationsAdminRoute =
+  AuthenticatedInvitationsAdminRouteImport.update({
+    id: '/admin',
+    path: '/admin',
+    getParentRoute: () => AuthenticatedInvitationsRoute,
+  } as any)
+const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
+  id: '/keys/',
+  path: '/keys/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const authUserResetRoute = authUserResetRouteImport.update({
-  id: '/user/reset',
-  path: '/user/reset',
-  getParentRoute: () => authRouteRoute,
-} as any)
-const AuthenticatedSystemSettingsSiteIndexRoute =
-  AuthenticatedSystemSettingsSiteIndexRouteImport.update({
-    id: '/site/',
-    path: '/site/',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsSecurityIndexRoute =
-  AuthenticatedSystemSettingsSecurityIndexRouteImport.update({
-    id: '/security/',
-    path: '/security/',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsOperationsIndexRoute =
-  AuthenticatedSystemSettingsOperationsIndexRouteImport.update({
-    id: '/operations/',
-    path: '/operations/',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsModelsIndexRoute =
-  AuthenticatedSystemSettingsModelsIndexRouteImport.update({
+const AuthenticatedModelsIndexRoute =
+  AuthenticatedModelsIndexRouteImport.update({
     id: '/models/',
     path: '/models/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedModelsSectionRoute =
+  AuthenticatedModelsSectionRouteImport.update({
+    id: '/models/$section',
+    path: '/models/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPlaygroundIndexRoute =
+  AuthenticatedPlaygroundIndexRouteImport.update({
+    id: '/playground/',
+    path: '/playground/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProfileIndexRoute =
+  AuthenticatedProfileIndexRouteImport.update({
+    id: '/profile/',
+    path: '/profile/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRedemptionCodesIndexRoute =
+  AuthenticatedRedemptionCodesIndexRouteImport.update({
+    id: '/redemption-codes/',
+    path: '/redemption-codes/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedSubscriptionsIndexRoute =
+  AuthenticatedSubscriptionsIndexRouteImport.update({
+    id: '/subscriptions/',
+    path: '/subscriptions/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedSystemInfoIndexRoute =
+  AuthenticatedSystemInfoIndexRouteImport.update({
+    id: '/system-info/',
+    path: '/system-info/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsIndexRoute =
+  AuthenticatedSystemSettingsIndexRouteImport.update({
+    id: '/',
+    path: '/',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
-const AuthenticatedSystemSettingsContentIndexRoute =
-  AuthenticatedSystemSettingsContentIndexRouteImport.update({
-    id: '/content/',
-    path: '/content/',
+const AuthenticatedSystemSettingsImageStudioRoute =
+  AuthenticatedSystemSettingsImageStudioRouteImport.update({
+    id: '/image-studio',
+    path: '/image-studio',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
-const AuthenticatedSystemSettingsBillingIndexRoute =
-  AuthenticatedSystemSettingsBillingIndexRouteImport.update({
-    id: '/billing/',
-    path: '/billing/',
+const AuthenticatedSystemSettingsVideoStudioRoute =
+  AuthenticatedSystemSettingsVideoStudioRouteImport.update({
+    id: '/video-studio',
+    path: '/video-studio',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedUsageLogsIndexRoute =
+  AuthenticatedUsageLogsIndexRouteImport.update({
+    id: '/usage-logs/',
+    path: '/usage-logs/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedUsageLogsSectionRoute =
+  AuthenticatedUsageLogsSectionRouteImport.update({
+    id: '/usage-logs/$section',
+    path: '/usage-logs/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedVideoStudioIndexRoute =
+  AuthenticatedVideoStudioIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
+const AuthenticatedVideoStudioCreateRoute =
+  AuthenticatedVideoStudioCreateRouteImport.update({
+    id: '/create',
+    path: '/create',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
+const AuthenticatedVideoStudioLibraryRoute =
+  AuthenticatedVideoStudioLibraryRouteImport.update({
+    id: '/library',
+    path: '/library',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
+const AuthenticatedVideoStudioTasksRoute =
+  AuthenticatedVideoStudioTasksRouteImport.update({
+    id: '/tasks',
+    path: '/tasks',
+    getParentRoute: () => AuthenticatedVideoStudioRouteRoute,
+  } as any)
+const AuthenticatedWalletIndexRoute =
+  AuthenticatedWalletIndexRouteImport.update({
+    id: '/wallet/',
+    path: '/wallet/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
+  id: '/pricing/$modelId/',
+  path: '/pricing/$modelId/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSystemSettingsAuthIndexRoute =
   AuthenticatedSystemSettingsAuthIndexRouteImport.update({
     id: '/auth/',
     path: '/auth/',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsSiteSectionRoute =
-  AuthenticatedSystemSettingsSiteSectionRouteImport.update({
-    id: '/site/$section',
-    path: '/site/$section',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsSecuritySectionRoute =
-  AuthenticatedSystemSettingsSecuritySectionRouteImport.update({
-    id: '/security/$section',
-    path: '/security/$section',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsOperationsSectionRoute =
-  AuthenticatedSystemSettingsOperationsSectionRouteImport.update({
-    id: '/operations/$section',
-    path: '/operations/$section',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsModelsSectionRoute =
-  AuthenticatedSystemSettingsModelsSectionRouteImport.update({
-    id: '/models/$section',
-    path: '/models/$section',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsContentSectionRoute =
-  AuthenticatedSystemSettingsContentSectionRouteImport.update({
-    id: '/content/$section',
-    path: '/content/$section',
-    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
-  } as any)
-const AuthenticatedSystemSettingsBillingSectionRoute =
-  AuthenticatedSystemSettingsBillingSectionRouteImport.update({
-    id: '/billing/$section',
-    path: '/billing/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
 const AuthenticatedSystemSettingsAuthSectionRoute =
@@ -503,9 +437,82 @@ const AuthenticatedSystemSettingsAuthSectionRoute =
     path: '/auth/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedSystemSettingsBillingIndexRoute =
+  AuthenticatedSystemSettingsBillingIndexRouteImport.update({
+    id: '/billing/',
+    path: '/billing/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsBillingSectionRoute =
+  AuthenticatedSystemSettingsBillingSectionRouteImport.update({
+    id: '/billing/$section',
+    path: '/billing/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsContentIndexRoute =
+  AuthenticatedSystemSettingsContentIndexRouteImport.update({
+    id: '/content/',
+    path: '/content/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsContentSectionRoute =
+  AuthenticatedSystemSettingsContentSectionRouteImport.update({
+    id: '/content/$section',
+    path: '/content/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsModelsIndexRoute =
+  AuthenticatedSystemSettingsModelsIndexRouteImport.update({
+    id: '/models/',
+    path: '/models/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsModelsSectionRoute =
+  AuthenticatedSystemSettingsModelsSectionRouteImport.update({
+    id: '/models/$section',
+    path: '/models/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsOperationsIndexRoute =
+  AuthenticatedSystemSettingsOperationsIndexRouteImport.update({
+    id: '/operations/',
+    path: '/operations/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsOperationsSectionRoute =
+  AuthenticatedSystemSettingsOperationsSectionRouteImport.update({
+    id: '/operations/$section',
+    path: '/operations/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsSecurityIndexRoute =
+  AuthenticatedSystemSettingsSecurityIndexRouteImport.update({
+    id: '/security/',
+    path: '/security/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsSecuritySectionRoute =
+  AuthenticatedSystemSettingsSecuritySectionRouteImport.update({
+    id: '/security/$section',
+    path: '/security/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsSiteIndexRoute =
+  AuthenticatedSystemSettingsSiteIndexRouteImport.update({
+    id: '/site/',
+    path: '/site/',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
+const AuthenticatedSystemSettingsSiteSectionRoute =
+  AuthenticatedSystemSettingsSiteSectionRouteImport.update({
+    id: '/site/$section',
+    path: '/site/$section',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
   '/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
@@ -581,6 +588,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
   '/forgot-password': typeof authForgotPasswordRoute
@@ -655,6 +663,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
@@ -732,6 +741,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/cn-restricted'
     | '/privacy-policy'
     | '/user-agreement'
     | '/image-studio'
@@ -807,6 +817,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/cn-restricted'
     | '/privacy-policy'
     | '/user-agreement'
     | '/forgot-password'
@@ -880,6 +891,7 @@ export interface FileRouteTypes {
     | '/'
     | '/(auth)'
     | '/_authenticated'
+    | '/cn-restricted'
     | '/privacy-policy'
     | '/user-agreement'
     | '/_authenticated/image-studio'
@@ -958,6 +970,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  CnRestrictedRoute: typeof CnRestrictedRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
@@ -977,25 +990,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/user-agreement': {
-      id: '/user-agreement'
-      path: '/user-agreement'
-      fullPath: '/user-agreement'
-      preLoaderRoute: typeof UserAgreementRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy-policy': {
-      id: '/privacy-policy'
-      path: '/privacy-policy'
-      fullPath: '/privacy-policy'
-      preLoaderRoute: typeof PrivacyPolicyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
+    '/': {
+      id: '/'
+      path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(auth)': {
@@ -1005,144 +1004,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/setup/': {
-      id: '/setup/'
-      path: '/setup'
-      fullPath: '/setup/'
-      preLoaderRoute: typeof SetupIndexRouteImport
+    '/cn-restricted': {
+      id: '/cn-restricted'
+      path: '/cn-restricted'
+      fullPath: '/cn-restricted'
+      preLoaderRoute: typeof CnRestrictedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/rankings/': {
-      id: '/rankings/'
-      path: '/rankings'
-      fullPath: '/rankings/'
-      preLoaderRoute: typeof RankingsIndexRouteImport
+    '/privacy-policy': {
+      id: '/privacy-policy'
+      path: '/privacy-policy'
+      fullPath: '/privacy-policy'
+      preLoaderRoute: typeof PrivacyPolicyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/pricing/': {
-      id: '/pricing/'
-      path: '/pricing'
-      fullPath: '/pricing/'
-      preLoaderRoute: typeof PricingIndexRouteImport
+    '/user-agreement': {
+      id: '/user-agreement'
+      path: '/user-agreement'
+      fullPath: '/user-agreement'
+      preLoaderRoute: typeof UserAgreementRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/about/': {
-      id: '/about/'
-      path: '/about'
-      fullPath: '/about/'
-      preLoaderRoute: typeof AboutIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/oauth/$provider': {
-      id: '/oauth/$provider'
-      path: '/oauth/$provider'
-      fullPath: '/oauth/$provider'
-      preLoaderRoute: typeof OauthProviderRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/console/topup': {
-      id: '/console/topup'
-      path: '/console/topup'
-      fullPath: '/console/topup'
-      preLoaderRoute: typeof ConsoleTopupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/console/log': {
-      id: '/console/log'
-      path: '/console/log'
-      fullPath: '/console/log'
-      preLoaderRoute: typeof ConsoleLogRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/invitations': {
-      id: '/_authenticated/invitations'
-      path: '/invitations'
-      fullPath: '/invitations'
-      preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/chat2link': {
-      id: '/_authenticated/chat2link'
-      path: '/chat2link'
-      fullPath: '/chat2link'
-      preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/(errors)/503': {
-      id: '/(errors)/503'
-      path: '/503'
-      fullPath: '/503'
-      preLoaderRoute: typeof errors503RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/500': {
-      id: '/(errors)/500'
-      path: '/500'
-      fullPath: '/500'
-      preLoaderRoute: typeof errors500RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/404': {
-      id: '/(errors)/404'
-      path: '/404'
-      fullPath: '/404'
-      preLoaderRoute: typeof errors404RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/403': {
-      id: '/(errors)/403'
-      path: '/403'
-      fullPath: '/403'
-      preLoaderRoute: typeof errors403RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(errors)/401': {
-      id: '/(errors)/401'
-      path: '/401'
-      fullPath: '/401'
-      preLoaderRoute: typeof errors401RouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(auth)/sign-up': {
-      id: '/(auth)/sign-up'
-      path: '/sign-up'
-      fullPath: '/sign-up'
-      preLoaderRoute: typeof authSignUpRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/sign-in': {
-      id: '/(auth)/sign-in'
-      path: '/sign-in'
-      fullPath: '/sign-in'
-      preLoaderRoute: typeof authSignInRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/reset': {
-      id: '/(auth)/reset'
-      path: '/reset'
-      fullPath: '/reset'
-      preLoaderRoute: typeof authResetRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/register': {
-      id: '/(auth)/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof authRegisterRouteImport
-      parentRoute: typeof authRouteRoute
-    }
-    '/(auth)/otp': {
-      id: '/(auth)/otp'
-      path: '/otp'
-      fullPath: '/otp'
-      preLoaderRoute: typeof authOtpRouteImport
+    '/(auth)/forgot-password': {
+      id: '/(auth)/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof authForgotPasswordRouteImport
       parentRoute: typeof authRouteRoute
     }
     '/(auth)/oauth': {
@@ -1152,25 +1046,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authOauthRouteImport
       parentRoute: typeof authRouteRoute
     }
-    '/(auth)/forgot-password': {
-      id: '/(auth)/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof authForgotPasswordRouteImport
+    '/(auth)/otp': {
+      id: '/(auth)/otp'
+      path: '/otp'
+      fullPath: '/otp'
+      preLoaderRoute: typeof authOtpRouteImport
       parentRoute: typeof authRouteRoute
     }
-    '/_authenticated/video-studio': {
-      id: '/_authenticated/video-studio'
-      path: '/video-studio'
-      fullPath: '/video-studio'
-      preLoaderRoute: typeof AuthenticatedVideoStudioRouteRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/(auth)/register': {
+      id: '/(auth)/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof authRegisterRouteImport
+      parentRoute: typeof authRouteRoute
     }
-    '/_authenticated/system-settings': {
-      id: '/_authenticated/system-settings'
-      path: '/system-settings'
-      fullPath: '/system-settings'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsRouteRouteImport
+    '/(auth)/reset': {
+      id: '/(auth)/reset'
+      path: '/reset'
+      fullPath: '/reset'
+      preLoaderRoute: typeof authResetRouteImport
+      parentRoute: typeof authRouteRoute
+    }
+    '/(auth)/sign-in': {
+      id: '/(auth)/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof authSignInRouteImport
+      parentRoute: typeof authRouteRoute
+    }
+    '/(auth)/sign-up': {
+      id: '/(auth)/sign-up'
+      path: '/sign-up'
+      fullPath: '/sign-up'
+      preLoaderRoute: typeof authSignUpRouteImport
+      parentRoute: typeof authRouteRoute
+    }
+    '/(errors)/401': {
+      id: '/(errors)/401'
+      path: '/401'
+      fullPath: '/401'
+      preLoaderRoute: typeof errors401RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(errors)/403': {
+      id: '/(errors)/403'
+      path: '/403'
+      fullPath: '/403'
+      preLoaderRoute: typeof errors403RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(errors)/404': {
+      id: '/(errors)/404'
+      path: '/404'
+      fullPath: '/404'
+      preLoaderRoute: typeof errors404RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(errors)/500': {
+      id: '/(errors)/500'
+      path: '/500'
+      fullPath: '/500'
+      preLoaderRoute: typeof errors500RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(errors)/503': {
+      id: '/(errors)/503'
+      path: '/503'
+      fullPath: '/503'
+      preLoaderRoute: typeof errors503RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/chat2link': {
+      id: '/_authenticated/chat2link'
+      path: '/chat2link'
+      fullPath: '/chat2link'
+      preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/image-studio': {
@@ -1180,214 +1130,88 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedImageStudioRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/pricing/$modelId/': {
-      id: '/pricing/$modelId/'
-      path: '/pricing/$modelId'
-      fullPath: '/pricing/$modelId/'
-      preLoaderRoute: typeof PricingModelIdIndexRouteImport
+    '/_authenticated/invitations': {
+      id: '/_authenticated/invitations'
+      path: '/invitations'
+      fullPath: '/invitations'
+      preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/system-settings': {
+      id: '/_authenticated/system-settings'
+      path: '/system-settings'
+      fullPath: '/system-settings'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/video-studio': {
+      id: '/_authenticated/video-studio'
+      path: '/video-studio'
+      fullPath: '/video-studio'
+      preLoaderRoute: typeof AuthenticatedVideoStudioRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/about/': {
+      id: '/about/'
+      path: '/about'
+      fullPath: '/about/'
+      preLoaderRoute: typeof AboutIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/wallet/': {
-      id: '/_authenticated/wallet/'
-      path: '/wallet'
-      fullPath: '/wallet/'
-      preLoaderRoute: typeof AuthenticatedWalletIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/console/log': {
+      id: '/console/log'
+      path: '/console/log'
+      fullPath: '/console/log'
+      preLoaderRoute: typeof ConsoleLogRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/video-studio/': {
-      id: '/_authenticated/video-studio/'
-      path: '/'
-      fullPath: '/video-studio/'
-      preLoaderRoute: typeof AuthenticatedVideoStudioIndexRouteImport
-      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    '/console/topup': {
+      id: '/console/topup'
+      path: '/console/topup'
+      fullPath: '/console/topup'
+      preLoaderRoute: typeof ConsoleTopupRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/users/': {
-      id: '/_authenticated/users/'
-      path: '/users'
-      fullPath: '/users/'
-      preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/oauth/$provider': {
+      id: '/oauth/$provider'
+      path: '/oauth/$provider'
+      fullPath: '/oauth/$provider'
+      preLoaderRoute: typeof OauthProviderRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/usage-logs/': {
-      id: '/_authenticated/usage-logs/'
-      path: '/usage-logs'
-      fullPath: '/usage-logs/'
-      preLoaderRoute: typeof AuthenticatedUsageLogsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/pricing/': {
+      id: '/pricing/'
+      path: '/pricing'
+      fullPath: '/pricing/'
+      preLoaderRoute: typeof PricingIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/system-settings/': {
-      id: '/_authenticated/system-settings/'
-      path: '/'
-      fullPath: '/system-settings/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsIndexRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    '/rankings/': {
+      id: '/rankings/'
+      path: '/rankings'
+      fullPath: '/rankings/'
+      preLoaderRoute: typeof RankingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/system-info/': {
-      id: '/_authenticated/system-info/'
-      path: '/system-info'
-      fullPath: '/system-info/'
-      preLoaderRoute: typeof AuthenticatedSystemInfoIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/setup/': {
+      id: '/setup/'
+      path: '/setup'
+      fullPath: '/setup/'
+      preLoaderRoute: typeof SetupIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/subscriptions/': {
-      id: '/_authenticated/subscriptions/'
-      path: '/subscriptions'
-      fullPath: '/subscriptions/'
-      preLoaderRoute: typeof AuthenticatedSubscriptionsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/redemption-codes/': {
-      id: '/_authenticated/redemption-codes/'
-      path: '/redemption-codes'
-      fullPath: '/redemption-codes/'
-      preLoaderRoute: typeof AuthenticatedRedemptionCodesIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/profile/': {
-      id: '/_authenticated/profile/'
-      path: '/profile'
-      fullPath: '/profile/'
-      preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/playground/': {
-      id: '/_authenticated/playground/'
-      path: '/playground'
-      fullPath: '/playground/'
-      preLoaderRoute: typeof AuthenticatedPlaygroundIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/models/': {
-      id: '/_authenticated/models/'
-      path: '/models'
-      fullPath: '/models/'
-      preLoaderRoute: typeof AuthenticatedModelsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/keys/': {
-      id: '/_authenticated/keys/'
-      path: '/keys'
-      fullPath: '/keys/'
-      preLoaderRoute: typeof AuthenticatedKeysIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/invitations/': {
-      id: '/_authenticated/invitations/'
-      path: '/'
-      fullPath: '/invitations/'
-      preLoaderRoute: typeof AuthenticatedInvitationsIndexRouteImport
-      parentRoute: typeof AuthenticatedInvitationsRoute
-    }
-    '/_authenticated/image-studio/': {
-      id: '/_authenticated/image-studio/'
-      path: '/'
-      fullPath: '/image-studio/'
-      preLoaderRoute: typeof AuthenticatedImageStudioIndexRouteImport
-      parentRoute: typeof AuthenticatedImageStudioRouteRoute
-    }
-    '/_authenticated/group-status/': {
-      id: '/_authenticated/group-status/'
-      path: '/group-status'
-      fullPath: '/group-status/'
-      preLoaderRoute: typeof AuthenticatedGroupStatusIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/dashboard/': {
-      id: '/_authenticated/dashboard/'
-      path: '/dashboard'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof AuthenticatedDashboardIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/(auth)/user/reset': {
+      id: '/(auth)/user/reset'
+      path: '/user/reset'
+      fullPath: '/user/reset'
+      preLoaderRoute: typeof authUserResetRouteImport
+      parentRoute: typeof authRouteRoute
     }
     '/_authenticated/channels/': {
       id: '/_authenticated/channels/'
       path: '/channels'
       fullPath: '/channels/'
       preLoaderRoute: typeof AuthenticatedChannelsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/video-studio/tasks': {
-      id: '/_authenticated/video-studio/tasks'
-      path: '/tasks'
-      fullPath: '/video-studio/tasks'
-      preLoaderRoute: typeof AuthenticatedVideoStudioTasksRouteImport
-      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
-    }
-    '/_authenticated/video-studio/library': {
-      id: '/_authenticated/video-studio/library'
-      path: '/library'
-      fullPath: '/video-studio/library'
-      preLoaderRoute: typeof AuthenticatedVideoStudioLibraryRouteImport
-      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
-    }
-    '/_authenticated/video-studio/create': {
-      id: '/_authenticated/video-studio/create'
-      path: '/create'
-      fullPath: '/video-studio/create'
-      preLoaderRoute: typeof AuthenticatedVideoStudioCreateRouteImport
-      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
-    }
-    '/_authenticated/usage-logs/$section': {
-      id: '/_authenticated/usage-logs/$section'
-      path: '/usage-logs/$section'
-      fullPath: '/usage-logs/$section'
-      preLoaderRoute: typeof AuthenticatedUsageLogsSectionRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/system-settings/video-studio': {
-      id: '/_authenticated/system-settings/video-studio'
-      path: '/video-studio'
-      fullPath: '/system-settings/video-studio'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsVideoStudioRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
-    }
-    '/_authenticated/system-settings/image-studio': {
-      id: '/_authenticated/system-settings/image-studio'
-      path: '/image-studio'
-      fullPath: '/system-settings/image-studio'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsImageStudioRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
-    }
-    '/_authenticated/models/$section': {
-      id: '/_authenticated/models/$section'
-      path: '/models/$section'
-      fullPath: '/models/$section'
-      preLoaderRoute: typeof AuthenticatedModelsSectionRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/invitations/admin': {
-      id: '/_authenticated/invitations/admin'
-      path: '/admin'
-      fullPath: '/invitations/admin'
-      preLoaderRoute: typeof AuthenticatedInvitationsAdminRouteImport
-      parentRoute: typeof AuthenticatedInvitationsRoute
-    }
-    '/_authenticated/image-studio/library': {
-      id: '/_authenticated/image-studio/library'
-      path: '/library'
-      fullPath: '/image-studio/library'
-      preLoaderRoute: typeof AuthenticatedImageStudioLibraryRouteImport
-      parentRoute: typeof AuthenticatedImageStudioRouteRoute
-    }
-    '/_authenticated/image-studio/create': {
-      id: '/_authenticated/image-studio/create'
-      path: '/create'
-      fullPath: '/image-studio/create'
-      preLoaderRoute: typeof AuthenticatedImageStudioCreateRouteImport
-      parentRoute: typeof AuthenticatedImageStudioRouteRoute
-    }
-    '/_authenticated/errors/$error': {
-      id: '/_authenticated/errors/$error'
-      path: '/errors/$error'
-      fullPath: '/errors/$error'
-      preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/dashboard/$section': {
-      id: '/_authenticated/dashboard/$section'
-      path: '/dashboard/$section'
-      fullPath: '/dashboard/$section'
-      preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/chat/$chatId': {
@@ -1397,46 +1221,221 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChatChatIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/(auth)/user/reset': {
-      id: '/(auth)/user/reset'
-      path: '/user/reset'
-      fullPath: '/user/reset'
-      preLoaderRoute: typeof authUserResetRouteImport
-      parentRoute: typeof authRouteRoute
+    '/_authenticated/dashboard/': {
+      id: '/_authenticated/dashboard/'
+      path: '/dashboard'
+      fullPath: '/dashboard/'
+      preLoaderRoute: typeof AuthenticatedDashboardIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/system-settings/site/': {
-      id: '/_authenticated/system-settings/site/'
-      path: '/site'
-      fullPath: '/system-settings/site/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsSiteIndexRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    '/_authenticated/dashboard/$section': {
+      id: '/_authenticated/dashboard/$section'
+      path: '/dashboard/$section'
+      fullPath: '/dashboard/$section'
+      preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/system-settings/security/': {
-      id: '/_authenticated/system-settings/security/'
-      path: '/security'
-      fullPath: '/system-settings/security/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsSecurityIndexRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    '/_authenticated/errors/$error': {
+      id: '/_authenticated/errors/$error'
+      path: '/errors/$error'
+      fullPath: '/errors/$error'
+      preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/system-settings/operations/': {
-      id: '/_authenticated/system-settings/operations/'
-      path: '/operations'
-      fullPath: '/system-settings/operations/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsOperationsIndexRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    '/_authenticated/group-status/': {
+      id: '/_authenticated/group-status/'
+      path: '/group-status'
+      fullPath: '/group-status/'
+      preLoaderRoute: typeof AuthenticatedGroupStatusIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/system-settings/models/': {
-      id: '/_authenticated/system-settings/models/'
+    '/_authenticated/image-studio/': {
+      id: '/_authenticated/image-studio/'
+      path: '/'
+      fullPath: '/image-studio/'
+      preLoaderRoute: typeof AuthenticatedImageStudioIndexRouteImport
+      parentRoute: typeof AuthenticatedImageStudioRouteRoute
+    }
+    '/_authenticated/image-studio/create': {
+      id: '/_authenticated/image-studio/create'
+      path: '/create'
+      fullPath: '/image-studio/create'
+      preLoaderRoute: typeof AuthenticatedImageStudioCreateRouteImport
+      parentRoute: typeof AuthenticatedImageStudioRouteRoute
+    }
+    '/_authenticated/image-studio/library': {
+      id: '/_authenticated/image-studio/library'
+      path: '/library'
+      fullPath: '/image-studio/library'
+      preLoaderRoute: typeof AuthenticatedImageStudioLibraryRouteImport
+      parentRoute: typeof AuthenticatedImageStudioRouteRoute
+    }
+    '/_authenticated/invitations/': {
+      id: '/_authenticated/invitations/'
+      path: '/'
+      fullPath: '/invitations/'
+      preLoaderRoute: typeof AuthenticatedInvitationsIndexRouteImport
+      parentRoute: typeof AuthenticatedInvitationsRoute
+    }
+    '/_authenticated/invitations/admin': {
+      id: '/_authenticated/invitations/admin'
+      path: '/admin'
+      fullPath: '/invitations/admin'
+      preLoaderRoute: typeof AuthenticatedInvitationsAdminRouteImport
+      parentRoute: typeof AuthenticatedInvitationsRoute
+    }
+    '/_authenticated/keys/': {
+      id: '/_authenticated/keys/'
+      path: '/keys'
+      fullPath: '/keys/'
+      preLoaderRoute: typeof AuthenticatedKeysIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/models/': {
+      id: '/_authenticated/models/'
       path: '/models'
-      fullPath: '/system-settings/models/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsModelsIndexRouteImport
+      fullPath: '/models/'
+      preLoaderRoute: typeof AuthenticatedModelsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/models/$section': {
+      id: '/_authenticated/models/$section'
+      path: '/models/$section'
+      fullPath: '/models/$section'
+      preLoaderRoute: typeof AuthenticatedModelsSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/playground/': {
+      id: '/_authenticated/playground/'
+      path: '/playground'
+      fullPath: '/playground/'
+      preLoaderRoute: typeof AuthenticatedPlaygroundIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profile/': {
+      id: '/_authenticated/profile/'
+      path: '/profile'
+      fullPath: '/profile/'
+      preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/redemption-codes/': {
+      id: '/_authenticated/redemption-codes/'
+      path: '/redemption-codes'
+      fullPath: '/redemption-codes/'
+      preLoaderRoute: typeof AuthenticatedRedemptionCodesIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/subscriptions/': {
+      id: '/_authenticated/subscriptions/'
+      path: '/subscriptions'
+      fullPath: '/subscriptions/'
+      preLoaderRoute: typeof AuthenticatedSubscriptionsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/system-info/': {
+      id: '/_authenticated/system-info/'
+      path: '/system-info'
+      fullPath: '/system-info/'
+      preLoaderRoute: typeof AuthenticatedSystemInfoIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/system-settings/': {
+      id: '/_authenticated/system-settings/'
+      path: '/'
+      fullPath: '/system-settings/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsIndexRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
-    '/_authenticated/system-settings/content/': {
-      id: '/_authenticated/system-settings/content/'
-      path: '/content'
-      fullPath: '/system-settings/content/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsContentIndexRouteImport
+    '/_authenticated/system-settings/image-studio': {
+      id: '/_authenticated/system-settings/image-studio'
+      path: '/image-studio'
+      fullPath: '/system-settings/image-studio'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsImageStudioRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/video-studio': {
+      id: '/_authenticated/system-settings/video-studio'
+      path: '/video-studio'
+      fullPath: '/system-settings/video-studio'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsVideoStudioRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/usage-logs/': {
+      id: '/_authenticated/usage-logs/'
+      path: '/usage-logs'
+      fullPath: '/usage-logs/'
+      preLoaderRoute: typeof AuthenticatedUsageLogsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/usage-logs/$section': {
+      id: '/_authenticated/usage-logs/$section'
+      path: '/usage-logs/$section'
+      fullPath: '/usage-logs/$section'
+      preLoaderRoute: typeof AuthenticatedUsageLogsSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/users/': {
+      id: '/_authenticated/users/'
+      path: '/users'
+      fullPath: '/users/'
+      preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/video-studio/': {
+      id: '/_authenticated/video-studio/'
+      path: '/'
+      fullPath: '/video-studio/'
+      preLoaderRoute: typeof AuthenticatedVideoStudioIndexRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
+    '/_authenticated/video-studio/create': {
+      id: '/_authenticated/video-studio/create'
+      path: '/create'
+      fullPath: '/video-studio/create'
+      preLoaderRoute: typeof AuthenticatedVideoStudioCreateRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
+    '/_authenticated/video-studio/library': {
+      id: '/_authenticated/video-studio/library'
+      path: '/library'
+      fullPath: '/video-studio/library'
+      preLoaderRoute: typeof AuthenticatedVideoStudioLibraryRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
+    '/_authenticated/video-studio/tasks': {
+      id: '/_authenticated/video-studio/tasks'
+      path: '/tasks'
+      fullPath: '/video-studio/tasks'
+      preLoaderRoute: typeof AuthenticatedVideoStudioTasksRouteImport
+      parentRoute: typeof AuthenticatedVideoStudioRouteRoute
+    }
+    '/_authenticated/wallet/': {
+      id: '/_authenticated/wallet/'
+      path: '/wallet'
+      fullPath: '/wallet/'
+      preLoaderRoute: typeof AuthenticatedWalletIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/pricing/$modelId/': {
+      id: '/pricing/$modelId/'
+      path: '/pricing/$modelId'
+      fullPath: '/pricing/$modelId/'
+      preLoaderRoute: typeof PricingModelIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/system-settings/auth/': {
+      id: '/_authenticated/system-settings/auth/'
+      path: '/auth'
+      fullPath: '/system-settings/auth/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsAuthIndexRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/auth/$section': {
+      id: '/_authenticated/system-settings/auth/$section'
+      path: '/auth/$section'
+      fullPath: '/system-settings/auth/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsAuthSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
     '/_authenticated/system-settings/billing/': {
@@ -1446,39 +1445,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsBillingIndexRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
-    '/_authenticated/system-settings/auth/': {
-      id: '/_authenticated/system-settings/auth/'
-      path: '/auth'
-      fullPath: '/system-settings/auth/'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsAuthIndexRouteImport
+    '/_authenticated/system-settings/billing/$section': {
+      id: '/_authenticated/system-settings/billing/$section'
+      path: '/billing/$section'
+      fullPath: '/system-settings/billing/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsBillingSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
-    '/_authenticated/system-settings/site/$section': {
-      id: '/_authenticated/system-settings/site/$section'
-      path: '/site/$section'
-      fullPath: '/system-settings/site/$section'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
-    }
-    '/_authenticated/system-settings/security/$section': {
-      id: '/_authenticated/system-settings/security/$section'
-      path: '/security/$section'
-      fullPath: '/system-settings/security/$section'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsSecuritySectionRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
-    }
-    '/_authenticated/system-settings/operations/$section': {
-      id: '/_authenticated/system-settings/operations/$section'
-      path: '/operations/$section'
-      fullPath: '/system-settings/operations/$section'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsOperationsSectionRouteImport
-      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
-    }
-    '/_authenticated/system-settings/models/$section': {
-      id: '/_authenticated/system-settings/models/$section'
-      path: '/models/$section'
-      fullPath: '/system-settings/models/$section'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsModelsSectionRouteImport
+    '/_authenticated/system-settings/content/': {
+      id: '/_authenticated/system-settings/content/'
+      path: '/content'
+      fullPath: '/system-settings/content/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsContentIndexRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
     '/_authenticated/system-settings/content/$section': {
@@ -1488,18 +1466,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsContentSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
-    '/_authenticated/system-settings/billing/$section': {
-      id: '/_authenticated/system-settings/billing/$section'
-      path: '/billing/$section'
-      fullPath: '/system-settings/billing/$section'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsBillingSectionRouteImport
+    '/_authenticated/system-settings/models/': {
+      id: '/_authenticated/system-settings/models/'
+      path: '/models'
+      fullPath: '/system-settings/models/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsModelsIndexRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
-    '/_authenticated/system-settings/auth/$section': {
-      id: '/_authenticated/system-settings/auth/$section'
-      path: '/auth/$section'
-      fullPath: '/system-settings/auth/$section'
-      preLoaderRoute: typeof AuthenticatedSystemSettingsAuthSectionRouteImport
+    '/_authenticated/system-settings/models/$section': {
+      id: '/_authenticated/system-settings/models/$section'
+      path: '/models/$section'
+      fullPath: '/system-settings/models/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsModelsSectionRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/operations/': {
+      id: '/_authenticated/system-settings/operations/'
+      path: '/operations'
+      fullPath: '/system-settings/operations/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsOperationsIndexRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/operations/$section': {
+      id: '/_authenticated/system-settings/operations/$section'
+      path: '/operations/$section'
+      fullPath: '/system-settings/operations/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsOperationsSectionRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/security/': {
+      id: '/_authenticated/system-settings/security/'
+      path: '/security'
+      fullPath: '/system-settings/security/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsSecurityIndexRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/security/$section': {
+      id: '/_authenticated/system-settings/security/$section'
+      path: '/security/$section'
+      fullPath: '/system-settings/security/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsSecuritySectionRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/site/': {
+      id: '/_authenticated/system-settings/site/'
+      path: '/site'
+      fullPath: '/system-settings/site/'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsSiteIndexRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
+    '/_authenticated/system-settings/site/$section': {
+      id: '/_authenticated/system-settings/site/$section'
+      path: '/site/$section'
+      fullPath: '/system-settings/site/$section'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
   }
@@ -1711,6 +1731,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  CnRestrictedRoute: CnRestrictedRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,

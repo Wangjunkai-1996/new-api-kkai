@@ -5743,6 +5743,17 @@
     "videoStudio.videoKey.ready": "Video key is ready",
     "videoStudio.videoKey.requiredBeforePricing": "Create a key in the \"{{group}}\" group before pricing this video.",
     "videoStudio.videoKey.retryCheck": "Retry key check",
-    "videoStudio.videoKey.videoGroup": "video group"
+    "videoStudio.videoKey.videoGroup": "video group",
+    "Access Notice - KKAI": "Access Notice - KKAI",
+    "Web Console Unavailable": "Web Console Unavailable",
+    "The KKAI web console is currently unavailable from mainland China IP addresses. If you recently changed networks or enabled a proxy, this page will recheck your access automatically.": "The KKAI web console is currently unavailable from mainland China IP addresses. If you recently changed networks or enabled a proxy, this page will recheck your access automatically.",
+    "API traffic is not affected.": "API traffic is not affected.",
+    "OpenAI-compatible requests under /v1 can continue to use your existing base URL and keys.": "OpenAI-compatible requests under /v1 can continue to use your existing base URL and keys.",
+    "If access is still restricted after switching networks, please contact support and include your current public IP location.": "If access is still restricted after switching networks, please contact support and include your current public IP location.",
+    "Recheck Access": "Recheck Access",
+    "Open API Docs": "Open API Docs",
+    "Checking access...": "Checking access...",
+    "Access is still restricted from this IP.": "Access is still restricted from this IP.",
+    "Unable to recheck right now.": "Unable to recheck right now."
   }
 }
