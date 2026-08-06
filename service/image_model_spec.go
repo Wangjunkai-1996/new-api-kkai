@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 )
 
@@ -98,6 +99,28 @@ func ValidateImageModelSpec(spec ImageModelSpec, defaults map[string]any) error 
 	}
 	if _, err := ValidateImageParameters(spec, defaults, true); err != nil {
 		return fmt.Errorf("%w: defaults: %v", ErrInvalidImageModelSpec, err)
+	}
+	return nil
+}
+
+func validateImageModelPricingCoverage(modelName string, spec ImageModelSpec) error {
+	for _, parameter := range spec.Parameters {
+		if parameter.RequestKey != "size" {
+			continue
+		}
+		for _, option := range parameter.Options {
+			size, ok := option.Value.(string)
+			if !ok {
+				return fmt.Errorf("%w: size option must be a string", ErrInvalidImageModelSpec)
+			}
+			_, configured, err := image_pricing_setting.Resolve(modelName, size)
+			if !configured {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("%w: size option %q is not covered by image pricing", ErrInvalidImageModelSpec, size)
+			}
+		}
 	}
 	return nil
 }

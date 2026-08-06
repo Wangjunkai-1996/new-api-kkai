@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { LoaderCircle, Sparkles } from 'lucide-react'
+import { Images, LoaderCircle, Pencil, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/form'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   clearImageStudioSubmissionKey,
@@ -42,6 +43,7 @@ import {
   useImageStudioDraftStore,
 } from '@/stores/image-studio-draft-store'
 
+import { useImageReference } from '../hooks/use-image-reference'
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import {
   buildCreateImageRequest,
@@ -51,19 +53,30 @@ import {
   imageSubmissionFingerprint,
   normalizeImageParameters,
 } from '../image-domain'
+import { resolveImageStudioDraftPersistence } from '../image-draft-persistence'
 import {
+  buildCreateImageEditRequest,
+  findImageEditProfile,
+  IMAGE_STUDIO_EDIT_MODEL,
+} from '../image-edit-domain'
+import {
+  useCreateImageEdit,
   useCreateImageGeneration,
+  useImageEditQuote,
   useImageModels,
   useImageQuote,
 } from '../queries'
 import { imageComposerSchema } from '../schemas'
 import type {
   ImageComposerValues,
+  ImageEditQuoteRequest,
   ImageGeneration,
   ImageQuoteRequest,
   ImageSample,
+  ImageStudioComposerMode,
 } from '../types'
 import { ImageParameterFields } from './image-parameter-fields'
+import { ImageReferencePicker } from './image-reference-picker'
 import { ImageTokenSetupDialog } from './image-token-setup-dialog'
 
 const EMPTY_VALUES: ImageComposerValues = {
@@ -72,10 +85,7 @@ const EMPTY_VALUES: ImageComposerValues = {
   parameters: {},
 }
 
-function useDebouncedRequest(
-  request: ImageQuoteRequest | null,
-  delay: number
-): ImageQuoteRequest | null {
+function useDebouncedRequest<T>(request: T | null, delay: number): T | null {
   const [debounced, setDebounced] = useState(request)
   const latestRequestRef = useRef(request)
   latestRequestRef.current = request
@@ -103,14 +113,21 @@ export function ImageComposer(props: {
   const saveDraft = useImageStudioDraftStore((state) => state.save)
   const clearDraft = useImageStudioDraftStore((state) => state.clear)
   const modelsQuery = useImageModels(props.tokenGate.tokenId)
-  const submitMutation = useCreateImageGeneration()
+  const generationMutation = useCreateImageGeneration()
+  const editMutation = useCreateImageEdit()
   const form = useForm<ImageComposerValues>({
     resolver: zodResolver(imageComposerSchema),
     defaultValues: EMPTY_VALUES,
   })
   const values = useWatch({ control: form.control })
+  const [mode, setMode] = useState<ImageStudioComposerMode>('generation')
+  const reference = useImageReference()
   const initializedRef = useRef(false)
   const appliedSampleRef = useRef<number | undefined>(undefined)
+  const editProfile = findImageEditProfile(modelsQuery.data)
+  const selectedProfile = modelsQuery.data?.find(
+    (profile) => profile.id === values.model_profile_id
+  )
 
   useEffect(() => {
     hydrateDraft(userId)
@@ -139,9 +156,12 @@ export function ImageComposer(props: {
   useEffect(() => {
     if (!props.sample || !modelsQuery.data) return
     if (appliedSampleRef.current === props.sample.id) return
-    const profile = modelsQuery.data.find(
-      (candidate) => candidate.id === props.sample?.model_profile_id
-    )
+    const profile =
+      mode === 'edit'
+        ? editProfile
+        : modelsQuery.data.find(
+            (candidate) => candidate.id === props.sample?.model_profile_id
+          )
     if (!profile) return
     form.reset(
       buildImageComposerValues(profile, {
@@ -152,20 +172,30 @@ export function ImageComposer(props: {
     )
     appliedSampleRef.current = props.sample.id
     initializedRef.current = true
-  }, [form, modelsQuery.data, props.sample])
+  }, [editProfile, form, mode, modelsQuery.data, props.sample])
 
   useEffect(() => {
-    if (!initializedRef.current || userId <= 0) return
-    const parsed = imageComposerSchema.safeParse(values)
-    if (!parsed.success) return
-    const timer = window.setTimeout(() => saveDraft(userId, parsed.data), 300)
+    const persistence = resolveImageStudioDraftPersistence(
+      mode,
+      initializedRef.current,
+      userId,
+      values
+    )
+    if (persistence.action === 'clear') {
+      clearDraft(userId)
+      return
+    }
+    if (persistence.action !== 'save') return
+    const timer = window.setTimeout(
+      () => saveDraft(userId, persistence.draft),
+      300
+    )
     return () => window.clearTimeout(timer)
-  }, [saveDraft, userId, values])
+  }, [clearDraft, mode, saveDraft, userId, values])
 
-  const selectedProfile = modelsQuery.data?.find(
-    (profile) => profile.id === values.model_profile_id
-  )
-  const quoteRequest = useMemo<ImageQuoteRequest | null>(() => {
+  const quoteRequest = useMemo<
+    ImageQuoteRequest | ImageEditQuoteRequest | null
+  >(() => {
     if (!props.tokenGate.tokenId || !selectedProfile) return null
     const parsed = imageComposerSchema.safeParse(values)
     if (!parsed.success) return null
@@ -178,54 +208,110 @@ export function ImageComposer(props: {
         parameter.required && parameters[parameter.key] === undefined
     )
     if (missingRequired) return null
-    return {
+    const request: ImageQuoteRequest = {
       token_id: props.tokenGate.tokenId,
       model: selectedProfile.model,
       prompt: parsed.data.prompt.trim(),
       parameters,
       sample_id: parsed.data.sample_id,
     }
-  }, [props.tokenGate.tokenId, selectedProfile, values])
+    if (mode === 'generation') return request
+    if (
+      selectedProfile.model !== IMAGE_STUDIO_EDIT_MODEL ||
+      !reference.metadata
+    ) {
+      return null
+    }
+    return { ...request, reference: reference.metadata }
+  }, [
+    mode,
+    props.tokenGate.tokenId,
+    reference.metadata,
+    selectedProfile,
+    values,
+  ])
   const debouncedRequest = useDebouncedRequest(quoteRequest, 400)
-  const quoteQuery = useImageQuote(debouncedRequest)
+  const debouncedIsEdit =
+    debouncedRequest !== null && 'reference' in debouncedRequest
+  const generationQuoteQuery = useImageQuote(
+    mode === 'generation' && !debouncedIsEdit ? debouncedRequest : null
+  )
+  const editQuoteQuery = useImageEditQuote(
+    mode === 'edit' && debouncedIsEdit
+      ? (debouncedRequest as ImageEditQuoteRequest)
+      : null
+  )
+  const quoteQuery = mode === 'edit' ? editQuoteQuery : generationQuoteQuery
   const quoteMatchesRequest =
     debouncedRequest !== null &&
     quoteRequest !== null &&
     imageRequestFingerprint(debouncedRequest) ===
       imageRequestFingerprint(quoteRequest)
   const currentQuote = quoteMatchesRequest ? quoteQuery.data : undefined
-  let quoteDisplay = currentQuote?.display_amount || '—'
-  if (quoteMatchesRequest && quoteQuery.isFetching) {
+  const submitPending = editMutation.isPending || generationMutation.isPending
+  let quoteDisplay = '—'
+  let quoteBusy = false
+  if (quoteRequest && (!quoteMatchesRequest || quoteQuery.isFetching)) {
     quoteDisplay = t('imageStudio.pricing')
+    quoteBusy = true
   } else if (quoteMatchesRequest && quoteQuery.isError) {
     quoteDisplay = t('imageStudio.quoteFailed')
+  } else if (currentQuote) {
+    quoteDisplay = currentQuote.display_amount
   }
 
   const changeModel = (profileId: number): void => {
     const profile = modelsQuery.data?.find(
       (candidate) => candidate.id === profileId
     )
-    if (!profile) return
+    if (
+      !profile ||
+      (mode === 'edit' && profile.model !== IMAGE_STUDIO_EDIT_MODEL)
+    ) {
+      return
+    }
     form.reset(
       buildImageComposerValues(profile, { prompt: form.getValues('prompt') })
     )
     appliedSampleRef.current = undefined
   }
 
+  const changeMode = (nextMode: ImageStudioComposerMode): void => {
+    if (nextMode === mode || submitPending) return
+    setMode(nextMode)
+    reference.clear()
+    if (nextMode === 'edit' && editProfile) {
+      form.reset(
+        buildImageComposerValues(editProfile, {
+          prompt: form.getValues('prompt'),
+        })
+      )
+    }
+  }
+
   const submit = form.handleSubmit(async () => {
     if (!quoteRequest || !currentQuote) return
+    if (
+      mode === 'edit' &&
+      (!reference.file || !('reference' in quoteRequest))
+    ) {
+      return
+    }
     let quote = currentQuote
     if (quote.expires_at <= Math.floor(Date.now() / 1000) + 5) {
       const refreshed = await quoteQuery.refetch()
       if (!refreshed.data) return
       quote = refreshed.data
     }
-    const request = buildCreateImageRequest(quoteRequest, quote)
     let requestFingerprint: string
     try {
       requestFingerprint = await imageSubmissionFingerprint(quoteRequest)
     } catch {
-      toast.error(t('imageStudio.submitFailed'))
+      toast.error(
+        mode === 'edit'
+          ? t('imageStudio.editSubmitFailed')
+          : t('imageStudio.submitFailed')
+      )
       return
     }
     const idempotencyKey = getOrCreateImageStudioSubmissionKey(
@@ -233,27 +319,49 @@ export function ImageComposer(props: {
       requestFingerprint
     )
     if (!idempotencyKey) {
-      toast.error(t('imageStudio.submitFailed'))
+      toast.error(
+        mode === 'edit'
+          ? t('imageStudio.editSubmitFailed')
+          : t('imageStudio.submitFailed')
+      )
       return
     }
     try {
-      const generation = await submitMutation.mutateAsync({
-        request,
-        idempotencyKey,
-      })
+      let generation: ImageGeneration
+      if (mode === 'edit' && reference.file && 'reference' in quoteRequest) {
+        generation = await editMutation.mutateAsync({
+          request: buildCreateImageEditRequest(quoteRequest, quote),
+          image: reference.file,
+          idempotencyKey,
+        })
+      } else {
+        generation = await generationMutation.mutateAsync({
+          request: buildCreateImageRequest(quoteRequest, quote),
+          idempotencyKey,
+        })
+      }
       clearImageStudioSubmissionKey(userId, requestFingerprint)
       const outcome = classifyImageGenerationStatus(generation.status)
       if (outcome === 'failure') {
-        toast.error(t('imageStudio.generationFailed'))
+        toast.error(
+          mode === 'edit'
+            ? t('imageStudio.editFailed')
+            : t('imageStudio.generationFailed')
+        )
       } else {
-        clearDraft(userId)
-        toast.success(t('imageStudio.submitted'))
+        if (mode === 'generation') clearDraft(userId)
+        toast.success(
+          mode === 'edit'
+            ? t('imageStudio.editSubmitted')
+            : t('imageStudio.submitted')
+        )
       }
       props.onSubmitted(generation)
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('imageStudio.submitFailed')
-      )
+      let message = t('imageStudio.submitFailed')
+      if (mode === 'edit') message = t('imageStudio.editSubmitFailed')
+      if (error instanceof Error) message = error.message
+      toast.error(message)
     }
   })
 
@@ -266,6 +374,26 @@ export function ImageComposer(props: {
     gateMessage = t('imageStudio.token.limitReached')
   } else if (props.tokenGate.capability?.status === 'models_unavailable') {
     gateMessage = t('imageStudio.token.modelsUnavailable')
+  }
+
+  let selectableProfiles = modelsQuery.data
+  if (mode === 'edit') selectableProfiles = editProfile ? [editProfile] : []
+
+  let submitLabel = t('imageStudio.generate')
+  let submitIcon = <Sparkles aria-hidden='true' />
+  if (mode === 'edit') {
+    submitLabel = t('imageStudio.edit')
+    submitIcon = <Pencil aria-hidden='true' />
+  }
+  if (submitPending) {
+    submitLabel =
+      mode === 'edit' ? t('imageStudio.editing') : t('imageStudio.generating')
+    submitIcon = (
+      <LoaderCircle
+        className='animate-spin motion-reduce:animate-none'
+        aria-hidden='true'
+      />
+    )
   }
 
   return (
@@ -282,6 +410,48 @@ export function ImageComposer(props: {
               <AlertDescription>{gateMessage}</AlertDescription>
             </Alert>
           )}
+          <div className='space-y-2'>
+            <span className='text-sm font-medium'>{t('imageStudio.mode')}</span>
+            <ToggleGroup
+              value={[mode]}
+              onValueChange={(next) => {
+                const nextMode = next.at(0) as
+                  | ImageStudioComposerMode
+                  | undefined
+                if (nextMode) changeMode(nextMode)
+              }}
+              variant='outline'
+              className='grid w-full grid-cols-2'
+              aria-label={t('imageStudio.mode')}
+            >
+              <ToggleGroupItem
+                value='generation'
+                disabled={submitPending}
+                className='min-w-0 px-2'
+              >
+                <Sparkles aria-hidden='true' />
+                <span className='truncate'>
+                  {t('imageStudio.mode.generation')}
+                </span>
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value='edit'
+                disabled={submitPending || modelsQuery.isLoading}
+                className='min-w-0 px-2'
+              >
+                <Images aria-hidden='true' />
+                <span className='truncate'>{t('imageStudio.mode.edit')}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          {mode === 'edit' && !modelsQuery.isLoading && !editProfile && (
+            <Alert variant='destructive'>
+              <AlertTitle>{t('imageStudio.editUnavailable')}</AlertTitle>
+              <AlertDescription>
+                {t('imageStudio.editModelUnavailable')}
+              </AlertDescription>
+            </Alert>
+          )}
           <FormField
             control={form.control}
             name='model_profile_id'
@@ -290,8 +460,13 @@ export function ImageComposer(props: {
                 <FormLabel>{t('imageStudio.model')}</FormLabel>
                 <FormControl>
                   <NativeSelect
+                    className='w-full'
                     value={field.value > 0 ? String(field.value) : ''}
-                    disabled={!props.tokenGate.tokenId || modelsQuery.isLoading}
+                    disabled={
+                      !props.tokenGate.tokenId ||
+                      modelsQuery.isLoading ||
+                      mode === 'edit'
+                    }
                     onChange={(event) =>
                       changeModel(Number(event.target.value))
                     }
@@ -299,7 +474,7 @@ export function ImageComposer(props: {
                     <NativeSelectOption value=''>
                       {t('imageStudio.selectModel')}
                     </NativeSelectOption>
-                    {modelsQuery.data?.map((profile) => (
+                    {selectableProfiles?.map((profile) => (
                       <NativeSelectOption
                         key={profile.id}
                         value={String(profile.id)}
@@ -313,6 +488,16 @@ export function ImageComposer(props: {
               </FormItem>
             )}
           />
+          {mode === 'edit' && editProfile && (
+            <ImageReferencePicker
+              file={reference.file}
+              processing={reference.processing}
+              disabled={submitPending}
+              error={reference.error}
+              onSelect={(file) => void reference.select(file)}
+              onClear={reference.clear}
+            />
+          )}
           <FormField
             control={form.control}
             name='prompt'
@@ -343,7 +528,11 @@ export function ImageComposer(props: {
             <span className='text-muted-foreground'>
               {t('imageStudio.estimatedPrice')}
             </span>
-            <span className='font-medium' aria-live='polite'>
+            <span
+              className='font-medium'
+              aria-busy={quoteBusy}
+              aria-live='polite'
+            >
               {quoteDisplay}
             </span>
           </div>
@@ -355,20 +544,12 @@ export function ImageComposer(props: {
               !quoteRequest ||
               !currentQuote ||
               quoteQuery.isFetching ||
-              submitMutation.isPending
+              reference.processing ||
+              submitPending
             }
           >
-            {submitMutation.isPending ? (
-              <LoaderCircle
-                className='animate-spin motion-reduce:animate-none'
-                aria-hidden='true'
-              />
-            ) : (
-              <Sparkles aria-hidden='true' />
-            )}
-            {submitMutation.isPending
-              ? t('imageStudio.generating')
-              : t('imageStudio.generate')}
+            {submitIcon}
+            {submitLabel}
           </Button>
           {!props.tokenGate.tokenId &&
             props.tokenGate.capability?.status === 'missing' && (

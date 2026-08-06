@@ -127,7 +127,7 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
               </Button>
             </div>
           </div>
-          <div className='grid divide-y border-y sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4'>
+          <div className='grid divide-y border-y sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-5'>
             <SummaryValue
               label={t('Invited Users')}
               value={String(stats.invitedCount)}
@@ -136,16 +136,20 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
             {props.showRebates && (
               <>
                 <SummaryValue
-                  label={t('Total Rebate')}
-                  value={formatRebateAmount(stats.totalRebate)}
+                  label={t('Confirming Rebate')}
+                  value={formatRebateAmount(stats.confirmingRebate)}
+                />
+                <SummaryValue
+                  label={t('Pending Rebate')}
+                  value={formatRebateAmount(stats.pendingRebate)}
                 />
                 <SummaryValue
                   label={t('Completed Rebate')}
                   value={formatRebateAmount(stats.completedRebate)}
                 />
                 <SummaryValue
-                  label={t('Pending Rebate')}
-                  value={formatRebateAmount(stats.pendingRebate)}
+                  label={t('Total Rebate')}
+                  value={formatRebateAmount(stats.totalRebate)}
                 />
               </>
             )}

@@ -31,8 +31,10 @@ import {
   imageTokenCreateResultSchema,
 } from './schemas'
 import type {
+  CreateImageEditRequest,
   CreateImageRequest,
   CursorPage,
+  ImageEditQuoteRequest,
   ImageAsset,
   ImageGeneration,
   ImageGenerationStatus,
@@ -147,12 +149,24 @@ export const quoteImageGeneration = async (
   )
 }
 
-export const createImageGeneration = async (
-  request: CreateImageRequest,
+export const quoteImageEdit = async (
+  request: ImageEditQuoteRequest
+): Promise<ImageQuote> => {
+  const response = await api.post('/pg/images/edits/quote', request, {
+    skipErrorHandler: true,
+  })
+  return imageQuoteSchema.parse(
+    unwrapImageStudioResponse<unknown>(response.data)
+  )
+}
+
+const submitImageStudioRequest = async (
+  path: string,
+  body: CreateImageRequest | FormData,
   idempotencyKey: string
 ): Promise<ImageGeneration> => {
   try {
-    const response = await api.post('/pg/images', request, {
+    const response = await api.post(path, body, {
       headers: { 'Idempotency-Key': idempotencyKey },
       skipErrorHandler: true,
     })
@@ -168,6 +182,33 @@ export const createImageGeneration = async (
     throw error
   }
 }
+
+export const createImageGeneration = async (
+  request: CreateImageRequest,
+  idempotencyKey: string
+): Promise<ImageGeneration> =>
+  submitImageStudioRequest('/pg/images', request, idempotencyKey)
+
+export const buildImageEditFormData = (
+  request: CreateImageEditRequest,
+  image: File
+): FormData => {
+  const body = new FormData()
+  body.append('request', JSON.stringify(request))
+  body.append('image', image)
+  return body
+}
+
+export const createImageEdit = async (
+  request: CreateImageEditRequest,
+  image: File,
+  idempotencyKey: string
+): Promise<ImageGeneration> =>
+  submitImageStudioRequest(
+    '/pg/images/edits',
+    buildImageEditFormData(request, image),
+    idempotencyKey
+  )
 
 export const getImageGenerations = async (input: {
   cursor?: string

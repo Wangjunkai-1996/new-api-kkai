@@ -3,9 +3,15 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,13 +53,36 @@ func PrepareImageStudioRequest(c *gin.Context) {
 	c.Request = c.Request.WithContext(service.WithImageStudioResponseLimit(
 		c.Request.Context(), settings.MaxResponseBytes,
 	))
-	var request service.ImageStudioSubmissionRequest
-	if err := common.UnmarshalBodyReusable(c, &request); err != nil {
-		respondImageStudioError(c, service.ErrInvalidImageStudioSubmission)
+	mode, err := imageStudioModeForRoute(c)
+	if err != nil {
+		respondImageStudioError(c, err)
 		c.Abort()
 		return
 	}
-	_, err := applyImageStudioTokenContext(c, request.TokenID, request.Model)
+	var request service.ImageStudioSubmissionRequest
+	var referenceArchive *service.FetchedImageArchive
+	if mode == service.ImageStudioModeEdit && isImageStudioSubmitRequest(c) {
+		request, referenceArchive, err = parseImageStudioEditSubmission(c, settings.MaxOutputBytes, settings.MaxPixels)
+		if referenceArchive != nil {
+			defer referenceArchive.Remove()
+		}
+	} else {
+		if mode == service.ImageStudioModeEdit && !strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/json") {
+			err = service.ErrInvalidImageStudioSubmission
+		} else {
+			err = common.UnmarshalBodyReusable(c, &request)
+			if err != nil {
+				err = service.ErrInvalidImageStudioSubmission
+			}
+		}
+	}
+	if err != nil {
+		respondImageStudioError(c, err)
+		c.Abort()
+		return
+	}
+	request.Mode = mode
+	_, err = applyImageStudioTokenContext(c, request.TokenID, request.Model)
 	if err != nil {
 		respondImageStudioError(c, err)
 		c.Abort()
@@ -72,7 +101,12 @@ func PrepareImageStudioRequest(c *gin.Context) {
 		c.Abort()
 		return
 	}
-	if err := replaceImageStudioRelayBody(c, normalized.RelayRequest); err != nil {
+	if mode == service.ImageStudioModeEdit && isImageStudioSubmitRequest(c) {
+		err = replaceImageStudioEditRelayBody(c, normalized.RelayRequest, referenceArchive)
+	} else {
+		err = replaceImageStudioRelayBody(c, normalized.RelayRequest)
+	}
+	if err != nil {
 		respondImageStudioError(c, err)
 		c.Abort()
 		return
@@ -114,7 +148,11 @@ func PrepareImageStudioRequest(c *gin.Context) {
 	// selection and Advanced Custom route matching use the real upstream contract.
 	common.SetContextKey(c, constant.ContextKeyIsPlayground, true)
 	common.SetContextKey(c, constant.ContextKeyIsImageStudio, true)
-	c.Request.URL.Path = "/v1/images/generations"
+	if mode == service.ImageStudioModeEdit {
+		c.Request.URL.Path = "/v1/images/edits"
+	} else {
+		c.Request.URL.Path = "/v1/images/generations"
+	}
 	c.Request.URL.RawPath = ""
 	c.Next()
 }
@@ -432,6 +470,99 @@ func replaceImageStudioRelayBody(c *gin.Context, request any) error {
 	if err != nil || len(body) == 0 {
 		return service.ErrInvalidImageStudioSubmission
 	}
+	return installImageStudioRelayBody(c, body, "application/json")
+}
+
+func replaceImageStudioEditRelayBody(
+	c *gin.Context,
+	request any,
+	archive *service.FetchedImageArchive,
+) error {
+	if archive == nil || archive.Path == "" || archive.MIMEType == "" || archive.SizeBytes <= 0 {
+		return service.ErrInvalidImageStudioSubmission
+	}
+	encoded, err := common.Marshal(request)
+	if err != nil || len(encoded) == 0 {
+		return service.ErrInvalidImageStudioSubmission
+	}
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(encoded, &fields); err != nil || len(fields) == 0 {
+		return service.ErrInvalidImageStudioSubmission
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	keys := make([]string, 0, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value, present, err := imageStudioMultipartFieldValue(fields[key])
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		if err := writer.WriteField(key, value); err != nil {
+			return fmt.Errorf("write image edit field %q: %w", key, err)
+		}
+	}
+
+	file, err := os.Open(archive.Path)
+	if err != nil {
+		return fmt.Errorf("open image edit reference: %w", err)
+	}
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(
+		`form-data; name="image"; filename="reference%s"`, imageStudioReferenceExtension(archive.MIMEType),
+	))
+	header.Set("Content-Type", archive.MIMEType)
+	part, partErr := writer.CreatePart(header)
+	if partErr == nil {
+		_, partErr = io.Copy(part, file)
+	}
+	closeErr := file.Close()
+	if partErr != nil || closeErr != nil {
+		return fmt.Errorf("write image edit reference: %w", errors.Join(partErr, closeErr))
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close image edit multipart body: %w", err)
+	}
+	return installImageStudioRelayBody(c, body.Bytes(), writer.FormDataContentType())
+}
+
+func imageStudioMultipartFieldValue(raw json.RawMessage) (string, bool, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", false, nil
+	}
+	if trimmed[0] == '"' {
+		var value string
+		if err := common.Unmarshal(trimmed, &value); err != nil {
+			return "", false, service.ErrInvalidImageStudioSubmission
+		}
+		return value, true, nil
+	}
+	return string(trimmed), true, nil
+}
+
+func imageStudioReferenceExtension(mimeType string) string {
+	switch mimeType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
+func installImageStudioRelayBody(c *gin.Context, body []byte, contentType string) error {
+	if c == nil || c.Request == nil || len(body) == 0 || strings.TrimSpace(contentType) == "" {
+		return service.ErrInvalidImageStudioSubmission
+	}
 	common.CleanupBodyStorage(c)
 	storage, err := common.CreateBodyStorage(body)
 	if err != nil {
@@ -440,8 +571,76 @@ func replaceImageStudioRelayBody(c *gin.Context, request any) error {
 	c.Set(common.KeyBodyStorage, storage)
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	c.Request.ContentLength = int64(len(body))
-	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("Content-Type", contentType)
+	c.Request.MultipartForm = nil
+	c.Request.PostForm = nil
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		c.Set("_original_multipart_ct", contentType)
+	}
 	return nil
+}
+
+func parseImageStudioEditSubmission(
+	c *gin.Context,
+	maxBytes int64,
+	maxPixels int64,
+) (service.ImageStudioSubmissionRequest, *service.FetchedImageArchive, error) {
+	var request service.ImageStudioSubmissionRequest
+	if c == nil || c.Request == nil || c.ContentType() != gin.MIMEMultipartPOSTForm {
+		return request, nil, service.ErrInvalidImageStudioSubmission
+	}
+	form, err := common.ParseMultipartFormReusable(c)
+	if err != nil {
+		if common.IsRequestBodyTooLargeError(err) {
+			return request, nil, service.ErrImageArchiveTooLarge
+		}
+		return request, nil, service.ErrInvalidImageStudioSubmission
+	}
+	defer form.RemoveAll()
+	requestValues, exists := form.Value["request"]
+	if !exists || len(requestValues) != 1 || len(form.Value) != 1 {
+		return request, nil, service.ErrInvalidImageStudioSubmission
+	}
+	imageFiles, exists := form.File["image"]
+	if !exists || len(imageFiles) != 1 || len(form.File) != 1 {
+		return request, nil, service.ErrInvalidImageStudioSubmission
+	}
+	if err := common.UnmarshalJsonStr(requestValues[0], &request); err != nil {
+		return request, nil, service.ErrInvalidImageStudioSubmission
+	}
+	file, err := imageFiles[0].Open()
+	if err != nil {
+		return request, nil, service.ErrInvalidImageStudioSubmission
+	}
+	validator := service.NewHTTPImageArchiveFetcher(service.ImageStudioTempDirectory())
+	archive, ingestErr := validator.Ingest(
+		file, imageFiles[0].Header.Get("Content-Type"), maxBytes, maxPixels,
+	)
+	closeErr := file.Close()
+	if ingestErr != nil || closeErr != nil {
+		if archive != nil {
+			archive.Remove()
+		}
+		return request, nil, errors.Join(ingestErr, closeErr)
+	}
+	request.Reference = &service.ImageStudioReferenceMetadata{
+		SHA256: archive.SHA256, SizeBytes: archive.SizeBytes,
+	}
+	return request, archive, nil
+}
+
+func imageStudioModeForRoute(c *gin.Context) (string, error) {
+	if c == nil || c.Request == nil || c.Request.Method != http.MethodPost {
+		return "", service.ErrInvalidImageStudioSubmission
+	}
+	switch strings.TrimRight(c.Request.URL.Path, "/") {
+	case "/pg/images", "/pg/images/quote":
+		return service.ImageStudioModeGeneration, nil
+	case "/pg/images/edits", "/pg/images/edits/quote":
+		return service.ImageStudioModeEdit, nil
+	default:
+		return "", service.ErrInvalidImageStudioSubmission
+	}
 }
 
 func imageStudioNormalizedSubmission(c *gin.Context) (*service.NormalizedImageStudioSubmission, bool) {
@@ -483,7 +682,15 @@ func runImageStudioPreRelayHook(c *gin.Context) error {
 }
 
 func isImageStudioSubmitRequest(c *gin.Context) bool {
-	return c.Request.Method == http.MethodPost && strings.TrimRight(c.Request.URL.Path, "/") == "/pg/images"
+	if c == nil || c.Request == nil || c.Request.Method != http.MethodPost {
+		return false
+	}
+	switch strings.TrimRight(c.Request.URL.Path, "/") {
+	case "/pg/images", "/pg/images/edits":
+		return true
+	default:
+		return false
+	}
 }
 
 func respondImageStudioSubmitGuardError(c *gin.Context, err error) {

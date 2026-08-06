@@ -220,6 +220,10 @@ describe('image submission recovery', () => {
     const firstDigest = await imageSubmissionFingerprint(first)
     const secondDigest = await imageSubmissionFingerprint(reordered)
     assert.equal(firstDigest, secondDigest)
+    assert.equal(
+      firstDigest,
+      'a0bd239c23e605d792cf92be10c54f4163ff67cd0dbe161a0d96786f26f96e1a'
+    )
     assert.match(firstDigest, /^[a-f0-9]{64}$/)
     assert.equal(firstDigest.includes(first.prompt), false)
   })

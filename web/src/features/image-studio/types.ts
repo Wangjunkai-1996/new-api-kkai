@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 export type ImageStudioAccessMode = 'off' | 'admin' | 'all'
+export type ImageStudioComposerMode = 'generation' | 'edit'
 export type ImageParameterValue = string | number | boolean
 export type ImageParameters = Record<string, ImageParameterValue>
 
@@ -168,6 +169,15 @@ export type ImageQuoteRequest = {
   sample_id?: number
 }
 
+export type ImageReferenceMetadata = {
+  sha256: string
+  size_bytes: number
+}
+
+export type ImageEditQuoteRequest = ImageQuoteRequest & {
+  reference: ImageReferenceMetadata
+}
+
 export type ImageQuote = {
   quota: number
   display_amount: string
@@ -177,6 +187,10 @@ export type ImageQuote = {
 }
 
 export type CreateImageRequest = ImageQuoteRequest & {
+  quote_token: string
+}
+
+export type CreateImageEditRequest = ImageEditQuoteRequest & {
   quote_token: string
 }
 

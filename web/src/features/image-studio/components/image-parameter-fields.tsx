@@ -38,7 +38,7 @@ export function ImageParameterFields(props: {
   const { t } = useTranslation()
   if (props.profile.specification.parameters.length === 0) return null
   return (
-    <div className='grid gap-4 sm:grid-cols-2'>
+    <div className='grid gap-4'>
       {props.profile.specification.parameters.map((parameter) => (
         <Controller
           key={parameter.key}
@@ -64,6 +64,7 @@ export function ImageParameterFields(props: {
                 {parameter.control === 'select' ? (
                   <NativeSelect
                     id={id}
+                    className='w-full'
                     value={typeof field.value === 'string' ? field.value : ''}
                     onChange={(event) => field.onChange(event.target.value)}
                   >

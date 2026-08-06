@@ -26,6 +26,7 @@ import type {
   ImageParameterValue,
   ImageQuote,
   ImageQuoteRequest,
+  ImageReferenceMetadata,
   ImageStudioAccessMode,
 } from './types'
 
@@ -181,6 +182,23 @@ const canonicalizeImageSubmissionValue = (value: unknown): unknown => {
   return value
 }
 
+const sha256Hex = async (value: BufferSource): Promise<string> => {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('SHA-256 is unavailable')
+  }
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', value)
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+}
+
+export const getImageReferenceMetadata = async (
+  image: Blob
+): Promise<ImageReferenceMetadata> => ({
+  sha256: await sha256Hex(await image.arrayBuffer()),
+  size_bytes: image.size,
+})
+
 export const imageSubmissionFingerprint = async (
   request: ImageQuoteRequest
 ): Promise<string> => {
@@ -188,11 +206,5 @@ export const imageSubmissionFingerprint = async (
     throw new Error('Image submission fingerprint is unavailable')
   }
   const canonical = JSON.stringify(canonicalizeImageSubmissionValue(request))
-  const digest = await globalThis.crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(canonical)
-  )
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0')
-  ).join('')
+  return sha256Hex(new TextEncoder().encode(canonical))
 }

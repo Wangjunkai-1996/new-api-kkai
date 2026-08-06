@@ -6,12 +6,13 @@ readonly ROOT
 readonly DOCKERFILE="${ROOT}/build/kkai-image/Dockerfile"
 readonly ENTRYPOINT_SOURCE="${ROOT}/build/kkai-image/cmd/entrypoint/main.go"
 readonly BUILD_SCRIPT="${ROOT}/scripts/kkai/build-manual-release.sh"
+readonly BUILD_TEST="${ROOT}/scripts/kkai/build-manual-release_test.sh"
 readonly DEPLOY_SCRIPT="${ROOT}/scripts/kkai/deploy-manual-release.sh"
 readonly DEPLOY_CONTRACT="${ROOT}/scripts/kkai/manual-deployment-contract.env"
 readonly DEPLOY_TEST="${ROOT}/scripts/kkai/deploy-manual-release_test.sh"
+readonly PRODUCTION_HEAD_CHECK="${ROOT}/scripts/kkai/require-production-head.sh"
 readonly FFMPEG_POLICY_TEST="${ROOT}/build/kkai-image/test-ffmpeg-policy.sh"
 readonly RETIRED_WORKFLOW="${ROOT}/.github/workflows/kkai-production-image.yml"
-readonly RETIRED_HEAD_CHECK="${ROOT}/scripts/kkai/require-production-head.sh"
 readonly QUALITY_WORKFLOW="${ROOT}/.github/workflows/kkai-fork-quality.yml"
 readonly IMAGE_README="${ROOT}/build/kkai-image/README.md"
 readonly BACKGROUND_JOBS_DOC="${ROOT}/docs/kkai/background-jobs.md"
@@ -31,11 +32,12 @@ contains() {
 }
 
 [[ ! -e "${RETIRED_WORKFLOW}" ]] || fail "automatic production workflow still exists"
-[[ ! -e "${RETIRED_HEAD_CHECK}" ]] || fail "automatic production head check still exists"
 [[ -x "${BUILD_SCRIPT}" ]] || fail "manual build script is missing or not executable"
+[[ -x "${BUILD_TEST}" ]] || fail "manual build client tests are missing or not executable"
 [[ -x "${DEPLOY_SCRIPT}" ]] || fail "manual deploy script is missing or not executable"
 [[ -f "${DEPLOY_CONTRACT}" ]] || fail "manual deployment contract is missing"
 [[ -x "${DEPLOY_TEST}" ]] || fail "manual deploy client tests are missing or not executable"
+[[ -x "${PRODUCTION_HEAD_CHECK}" ]] || fail "manual production HEAD verifier is missing or not executable"
 [[ -x "${FFMPEG_POLICY_TEST}" ]] || fail "FFmpeg source-build policy test is missing or not executable"
 contains 'requires the complete KKAI schema v8' "${IMAGE_README}" || fail "image README has stale schema guidance"
 contains 'Production publishes no candidate host port' "${IMAGE_README}" ||
@@ -135,6 +137,12 @@ contains '--build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}"' "${BUILD_SCRIPT
   fail "manual builds do not bind the selected schema contract into the image"
 contains 'schema_contract: $schema_contract' "${BUILD_SCRIPT}" ||
   fail "release metadata does not identify the schema contract"
+contains 'source_repository: $source_repository' "${BUILD_SCRIPT}" ||
+  fail "release metadata does not identify the canonical source repository"
+contains 'source_ref: $source_ref' "${BUILD_SCRIPT}" ||
+  fail "release metadata does not identify the production source ref"
+[[ "$(grep -Fc '"${REQUIRE_PRODUCTION_HEAD}" "${source_sha}"' "${BUILD_SCRIPT}")" -eq 3 ]] ||
+  fail "manual build must verify the live production HEAD before, after, and before publishing metadata"
 contains 'BUILD_HTTP_PROXY' "${BUILD_SCRIPT}" || fail "manual build cannot accept an HTTP proxy"
 contains '--build-arg "HTTP_PROXY=${build_http_proxy}"' "${BUILD_SCRIPT}" ||
   fail "manual build does not forward the HTTP proxy into build stages"
@@ -162,6 +170,8 @@ contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
 contains '--deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not pin the deployment protocol"
 contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
+contains '"${REQUIRE_PRODUCTION_HEAD}" "${source_sha}"' "${DEPLOY_SCRIPT}" ||
+  fail "manual deploy does not revalidate the live production HEAD before upload"
 [[ "$(grep -Ec '^KKAI_INFRA_SHA=[0-9a-f]{40}$' "${DEPLOY_CONTRACT}")" -eq 1 ]] ||
   fail "manual deployment contract does not pin the approved infrastructure commit"
 contains 'KKAI_DEPLOYMENT_PROTOCOL=router-v3-staged' "${DEPLOY_CONTRACT}" ||

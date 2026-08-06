@@ -301,6 +301,9 @@ func normalizeImageModelProfileInput(input ImageModelProfileInput) (ImageModelPr
 	if err := ValidateImageModelSpec(input.Specification, input.DefaultParameters); err != nil {
 		return ImageModelProfileInput{}, "", "", err
 	}
+	if err := validateImageModelPricingCoverage(input.Model, input.Specification); err != nil {
+		return ImageModelProfileInput{}, "", "", err
+	}
 	specification, err := common.Marshal(input.Specification)
 	if err != nil {
 		return ImageModelProfileInput{}, "", "", err

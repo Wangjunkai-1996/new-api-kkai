@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,35 @@ func imageModelProfileInput(version int) ImageModelProfileInput {
 		ProviderLabel: "OpenAI", Specification: specification,
 		DefaultParameters: map[string]any{"size": "1024x1024", "count": 1}, Enabled: true,
 	}
+}
+
+func TestImageModelProfileRejectsUnpricedSizeOptions(t *testing.T) {
+	originalPolicy := image_pricing_setting.JSON()
+	t.Cleanup(func() {
+		require.NoError(t, image_pricing_setting.UpdateByJSONString(originalPolicy))
+	})
+	policy := image_pricing_setting.DefaultConfig()
+	policy.Enabled = true
+	encoded, err := common.Marshal(policy)
+	require.NoError(t, err)
+	require.NoError(t, image_pricing_setting.UpdateByJSONString(string(encoded)))
+
+	input := imageModelProfileInput(1)
+	input.Model = "gpt-image-2"
+	input.Specification.Parameters[0].Options = append(
+		input.Specification.Parameters[0].Options,
+		ImageParameterOption{Label: "4K landscape", Value: "3840x2160"},
+	)
+	_, _, _, err = normalizeImageModelProfileInput(input)
+	require.NoError(t, err)
+
+	input.Specification.Parameters[0].Options = append(
+		input.Specification.Parameters[0].Options,
+		ImageParameterOption{Label: "Automatic", Value: "auto"},
+	)
+
+	_, _, _, err = normalizeImageModelProfileInput(input)
+	assert.ErrorIs(t, err, ErrInvalidImageModelSpec)
 }
 
 func TestCreateAndUpdateImageModelProfileRequireVersionedSpecification(t *testing.T) {

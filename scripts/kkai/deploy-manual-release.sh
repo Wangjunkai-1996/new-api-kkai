@@ -5,6 +5,9 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly ROOT
 readonly CONTRACT="${ROOT}/scripts/kkai/manual-deployment-contract.env"
+readonly SOURCE_REPOSITORY=github.com/Wangjunkai-1996/new-api-kkai
+readonly SOURCE_REF=refs/heads/production/kkrich
+readonly REQUIRE_PRODUCTION_HEAD="${ROOT}/scripts/kkai/require-production-head.sh"
 
 die() {
   echo "deploy-manual-release: $*" >&2
@@ -25,9 +28,10 @@ METADATA="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
 readonly METADATA
 [[ -f "${METADATA}" ]] || die "metadata file is missing"
 [[ -f "${CONTRACT}" && ! -L "${CONTRACT}" ]] || die "deployment contract is missing or unsafe"
-for command_name in jq scp ssh; do
+for command_name in git jq scp ssh; do
   command -v "${command_name}" >/dev/null 2>&1 || die "missing ${command_name}"
 done
+[[ -x "${REQUIRE_PRODUCTION_HEAD}" ]] || die "production HEAD verifier is missing"
 
 KKAI_INFRA_SHA=''
 KKAI_DEPLOYMENT_PROTOCOL=''
@@ -39,6 +43,8 @@ readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
   die "invalid deployment protocol in deployment contract"
 
 version="$(jq --exit-status --raw-output '.version' "${METADATA}")"
+source_repository="$(jq --exit-status --raw-output '.source_repository' "${METADATA}")"
+source_ref="$(jq --exit-status --raw-output '.source_ref' "${METADATA}")"
 source_sha="$(jq --exit-status --raw-output '.source_sha' "${METADATA}")"
 image_tag="$(jq --exit-status --raw-output '.image_tag' "${METADATA}")"
 schema_contract="$(jq --exit-status --raw-output '.schema_contract' "${METADATA}")"
@@ -46,6 +52,8 @@ archive_name="$(jq --exit-status --raw-output '.archive' "${METADATA}")"
 archive_sha256="$(jq --exit-status --raw-output '.archive_sha256' "${METADATA}")"
 platform="$(jq --exit-status --raw-output '.platform' "${METADATA}")"
 
+[[ "${source_repository}" == "${SOURCE_REPOSITORY}" ]] || die "invalid source repository"
+[[ "${source_ref}" == "${SOURCE_REF}" ]] || die "invalid source ref"
 [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || die "invalid source SHA"
 [[ "${version}" =~ ^kkai-prod-[0-9]{8}\.[1-9][0-9]*-${source_sha:0:9}$ ]] ||
   die "invalid release version"
@@ -61,6 +69,7 @@ esac
 archive="$(dirname -- "${METADATA}")/${archive_name}"
 [[ -f "${archive}" ]] || die "release archive is missing"
 [[ "$(sha256_file "${archive}")" == "${archive_sha256}" ]] || die "archive checksum mismatch"
+"${REQUIRE_PRODUCTION_HEAD}" "${source_sha}"
 
 readonly HOST=tokk@10.203.0.1
 readonly KEY="${HOME}/.ssh/ovh_sys1"
@@ -92,9 +101,13 @@ grep -Fx "KKAI_DEPLOYMENT_PROTOCOL=${KKAI_DEPLOYMENT_PROTOCOL}" <<< "${preflight
   die "production preflight protocol mismatch"
 grep -Fx "KKAI_SCHEMA_CONTRACT=${schema_contract}" <<< "${preflight_output}" >/dev/null ||
   die "production preflight schema contract mismatch"
+"${REQUIRE_PRODUCTION_HEAD}" "${source_sha}"
 printf '%s\n' "${preflight_output}"
 
 scp "${SSH_OPTIONS[@]}" -- "${archive}" "${HOST}:${REMOTE_ARCHIVE}"
+if ! "${REQUIRE_PRODUCTION_HEAD}" "${source_sha}"; then
+  die "production advanced after archive upload; ${REMOTE_ARCHIVE} remains on sys1 and was not staged"
+fi
 ssh "${SSH_OPTIONS[@]}" "${HOST}" \
   sudo -n /usr/local/sbin/kkai-newapi-manual-deploy stage \
     --archive "${REMOTE_ARCHIVE}" \

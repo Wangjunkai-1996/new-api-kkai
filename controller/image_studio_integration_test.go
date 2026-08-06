@@ -401,17 +401,14 @@ func imageStudioIntegrationRequestBodyWithCount(
 
 func imageStudioIntegrationEngine(pipeline *service.ImageAssetPipeline) *gin.Engine {
 	engine := gin.New()
-	engine.POST(
-		"/pg/images",
-		func(c *gin.Context) {
-			c.Set("id", 407)
-			c.Set("user_group", "default")
-			c.Set(imageStudioAssetPipelineContextKey, pipeline)
-		},
-		PrepareImageStudioRequest,
-		middleware.Distribute(),
-		SubmitImageStudioGeneration,
-	)
+	setup := func(c *gin.Context) {
+		c.Set("id", 407)
+		c.Set("user_group", "default")
+		c.Set(imageStudioAssetPipelineContextKey, pipeline)
+	}
+	engine.POST("/pg/images", setup, PrepareImageStudioRequest, middleware.Distribute(), SubmitImageStudioGeneration)
+	engine.POST("/pg/images/edits/quote", setup, PrepareImageStudioRequest, middleware.Distribute(), QuoteImageStudioGeneration)
+	engine.POST("/pg/images/edits", setup, PrepareImageStudioRequest, middleware.Distribute(), SubmitImageStudioGeneration)
 	return engine
 }
 

@@ -27,6 +27,7 @@ import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  createImageEdit,
   createImageGeneration,
   createImageToken,
   deleteAdminImageModel,
@@ -41,13 +42,16 @@ import {
   getImageSamples,
   getImageTokenCapability,
   quoteImageGeneration,
+  quoteImageEdit,
   saveAdminImageModel,
   saveAdminImageSample,
   uploadAdminImageSampleAsset,
 } from './api'
 import { getImageGenerationPollInterval } from './image-domain'
 import type {
+  CreateImageEditRequest,
   CreateImageRequest,
+  ImageEditQuoteRequest,
   ImageGenerationStatus,
   ImageQuoteRequest,
 } from './types'
@@ -64,6 +68,8 @@ export const imageStudioQueryKeys = {
     privateUserQueryKey(userId, 'image-studio', 'sample', tokenId, id),
   quote: (userId: number, request: ImageQuoteRequest | null) =>
     privateUserQueryKey(userId, 'image-studio', 'quote', request),
+  editQuote: (userId: number, request: ImageEditQuoteRequest | null) =>
+    privateUserQueryKey(userId, 'image-studio', 'edit-quote', request),
   generations: (
     userId: number,
     filters: { model?: string; status?: ImageGenerationStatus }
@@ -141,6 +147,16 @@ export const useImageQuote = (request: ImageQuoteRequest | null) => {
   })
 }
 
+export const useImageEditQuote = (request: ImageEditQuoteRequest | null) => {
+  const userId = useImageStudioUserId()
+  return useQuery({
+    queryKey: imageStudioQueryKeys.editQuote(userId, request),
+    queryFn: () => quoteImageEdit(request as ImageEditQuoteRequest),
+    enabled: userId > 0 && request !== null,
+    retry: false,
+  })
+}
+
 export const useCreateImageGeneration = () => {
   const queryClient = useQueryClient()
   const userId = useImageStudioUserId()
@@ -149,6 +165,23 @@ export const useCreateImageGeneration = () => {
       request: CreateImageRequest
       idempotencyKey: string
     }) => createImageGeneration(input.request, input.idempotencyKey),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: privateUserQueryKey(userId, 'image-studio', 'generations'),
+      })
+    },
+  })
+}
+
+export const useCreateImageEdit = () => {
+  const queryClient = useQueryClient()
+  const userId = useImageStudioUserId()
+  return useMutation({
+    mutationFn: (input: {
+      request: CreateImageEditRequest
+      image: File
+      idempotencyKey: string
+    }) => createImageEdit(input.request, input.image, input.idempotencyKey),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: privateUserQueryKey(userId, 'image-studio', 'generations'),

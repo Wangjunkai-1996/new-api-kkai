@@ -84,6 +84,7 @@ export const RebateRecords = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='all'>{t('All Status')}</SelectItem>
+            <SelectItem value='initializing'>{t('Confirming')}</SelectItem>
             <SelectItem value='pending'>{t('Pending')}</SelectItem>
             <SelectItem value='requested'>{t('Requested')}</SelectItem>
             <SelectItem value='approved'>{t('Approved')}</SelectItem>
@@ -139,6 +140,7 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
               <TableHead>{t('Order Amount')}</TableHead>
               <TableHead>{t('Rebate Amount')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('Effective At')}</TableHead>
               <TableHead>{t('Created At')}</TableHead>
             </TableRow>
           </TableHeader>
@@ -150,6 +152,9 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
                 <TableCell>{formatRebateAmount(record.rebateAmount)}</TableCell>
                 <TableCell>
                   <RecordStatus record={record} />
+                </TableCell>
+                <TableCell>
+                  {formatInvitationDate(record.effectiveAt)}
                 </TableCell>
                 <TableCell>{formatInvitationDate(record.createdAt)}</TableCell>
               </TableRow>
@@ -172,6 +177,10 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
               <dt className='text-muted-foreground'>{t('Rebate Amount')}</dt>
               <dd className='text-right tabular-nums'>
                 {formatRebateAmount(record.rebateAmount)}
+              </dd>
+              <dt className='text-muted-foreground'>{t('Effective At')}</dt>
+              <dd className='text-right'>
+                {formatInvitationDate(record.effectiveAt)}
               </dd>
               <dt className='text-muted-foreground'>{t('Created At')}</dt>
               <dd className='text-right'>

@@ -93,7 +93,7 @@ func TestImageStudioPhaseOneRoutesAreRegistered(t *testing.T) {
 	require.False(t, methodsByPath["/api/image-studio/tasks"][http.MethodGet])
 }
 
-func TestImageStudioPhaseOnePlaygroundRegistersTextToImageOnly(t *testing.T) {
+func TestImageStudioPlaygroundRegistersGenerationAndEditRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	SetRelayRouter(engine)
@@ -107,6 +107,7 @@ func TestImageStudioPhaseOnePlaygroundRegistersTextToImageOnly(t *testing.T) {
 	}
 	require.True(t, methodsByPath["/pg/images/quote"][http.MethodPost])
 	require.True(t, methodsByPath["/pg/images"][http.MethodPost])
-	require.False(t, methodsByPath["/pg/images/edits"][http.MethodPost])
+	require.True(t, methodsByPath["/pg/images/edits/quote"][http.MethodPost])
+	require.True(t, methodsByPath["/pg/images/edits"][http.MethodPost])
 	require.False(t, methodsByPath["/pg/images/tasks"][http.MethodGet])
 }

@@ -30,9 +30,11 @@ export type InvitationStats = {
   totalRebate: number
   completedRebate: number
   pendingRebate: number
+  confirmingRebate: number
 }
 
 export type RebateStatus =
+  | 'initializing'
   | 'pending'
   | 'requested'
   | 'approved'

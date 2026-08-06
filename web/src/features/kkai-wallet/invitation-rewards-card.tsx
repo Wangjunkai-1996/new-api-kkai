@@ -68,8 +68,8 @@ export const KkaiWalletRewardsCard = (props: WalletRewardsProps) => {
 
   const invitationLink = generateAffiliateLink(stats.invitationCode)
   const statItems = [
+    [t('Confirming Rebate'), formatRebateAmount(stats.confirmingRebate)],
     [t('Pending Rebate'), formatRebateAmount(stats.pendingRebate)],
-    [t('Total Rebate'), formatRebateAmount(stats.totalRebate)],
     [t('Invites'), String(stats.invitedCount)],
   ]
 
@@ -93,7 +93,7 @@ export const KkaiWalletRewardsCard = (props: WalletRewardsProps) => {
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {statItems.map(([label, value]) => (
             <div key={label}>
-              <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
+              <div className='text-muted-foreground flex min-h-6 items-center justify-center text-[10px] leading-3 font-medium tracking-wider uppercase'>
                 {label}
               </div>
               <div className='mt-0.5 truncate text-sm font-semibold tabular-nums'>

@@ -20,6 +20,7 @@ import type { RebateRequestStatus, RebateStatus } from './types'
 
 export const rebateStatusLabel = (status: RebateStatus): string => {
   const labels: Record<RebateStatus, string> = {
+    initializing: 'Confirming',
     pending: 'Pending',
     requested: 'Requested',
     approved: 'Approved',
@@ -37,6 +38,12 @@ export const rebateStatusVariant = (
 ): 'default' | 'secondary' | 'destructive' | 'outline' => {
   if (status === 'completed') return 'default'
   if (status === 'rejected') return 'destructive'
-  if (status === 'pending' || status === 'requested') return 'secondary'
+  if (
+    status === 'initializing' ||
+    status === 'pending' ||
+    status === 'requested'
+  ) {
+    return 'secondary'
+  }
   return 'outline'
 }
