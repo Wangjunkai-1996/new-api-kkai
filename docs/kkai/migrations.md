@@ -21,10 +21,9 @@ Version 4 is an explicit bridge on every supported dialect. MySQL 5.7 and
 PostgreSQL alter `kkai_outbox.event_key` to `VARCHAR(191)`; SQLite records the
 same immutable migration as a physical no-op. Keeping one v4 ledger prefix
 across SQLite, MySQL, and PostgreSQL makes the v5 rollout and rollback contract
-unambiguous. Those v3-to-v7 bridge contracts belong to the previously deployed
-v7-compatible source. This source revision requires version 8 in both the
-feature and legacy `kkai_bridge` builds so it cannot accidentally start against
-a v7 database. Neither application profile changes the schema during startup.
+unambiguous. The current `kkai_bridge` profile is the v7-to-v8 transition
+contract `(7,8,7)`; the untagged feature profile remains exact v8 `(8,8,8)`.
+Neither application profile changes the schema during startup.
 
 Version 5 is an additive expand migration. It creates exactly these tables and
 does not modify or replace `tasks`:
@@ -74,10 +73,9 @@ go build -trimpath -o kkai-migrate ./cmd/kkai-migrate
 go build -trimpath -tags kkai_bridge -o kkai-migrate-bridge ./cmd/kkai-migrate
 ```
 
-The untagged binary is the final feature profile. In this source revision the
-`kkai_bridge` tag intentionally has the same v8-only contract; it is retained
-only for build compatibility and is not a rollout bridge. A real v7-to-v8
-bridge must be produced from the audited v7-compatible source.
+The untagged binary is the final v8 feature profile. The `kkai_bridge` tag
+builds the reviewed v7-to-v8 transition profile with runtime range v7 through
+v8 and migration target v7.
 
 Use `KKAI_MIGRATION_DSN`, `SQL_DSN`, or `--dsn-stdin`. Prefer stdin for an
 operator-run migration so the DSN does not appear in a process argument. The
@@ -118,10 +116,10 @@ exist, dry-run still makes no database changes.
 ## Historical Studio Bridge And Expands
 
 The procedure below documents the completed v3-to-v7 rollout and applies only
-to an audited pre-rc23 v7-compatible bridge binary. Do not run it with binaries
-built from this checkout: both current build profiles report
-`runtime_min_version=8`, `runtime_max_version=8`, and
-`migration_target_version=8`.
+to an audited pre-rc23 v7-compatible bridge binary. The current bridge profile
+is only for the exact v7-to-v8 transition and reports
+`runtime_min_version=7`, `runtime_max_version=8`, and
+`migration_target_version=7`.
 
 The bridge release contract is `runtime_min_version=3`,
 `runtime_max_version=7`, and `migration_target_version=3`. Verify it for the
@@ -217,9 +215,9 @@ their objects, or rewrite their checksums to make an older image start.
 ## Authentication V8 Gate
 
 Do not apply v8 until both production slots and the rollback image have been
-replaced with a separately audited v7-to-v8 transition build. The rc.23 source
-in this repository is v8-only and cannot serve as that bridge. After the
-transition slots are verified, run v8 as its own operator gate:
+replaced with two unique builds of the reviewed `kkai_bridge` v7-to-v8
+transition profile. After the transition slots are verified, run v8 as its own
+operator gate:
 
 ```bash
 ./kkai-migrate --target 8 --dry-run --dsn-stdin
@@ -231,8 +229,8 @@ transition slots are verified, run v8 as its own operator gate:
 Confirm `current_version: 8`, the reviewed v8 prefix digest, the three new
 authentication tables and their unique indexes, `users.auth_version >= 1`, and
 the legacy Telegram ownership backfill. Only then may this rc.23 feature image
-be staged. The current production infrastructure supports only v7, so this
-repository upgrade alone is not deployable.
+be staged. Until that gate passes, deploy this source only with the bridge
+profile.
 
 ## Legacy Import
 

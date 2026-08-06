@@ -12,17 +12,17 @@ at `web/dist`. The backend dependency stage also includes the local
 `relaykit/go.mod` manifest before downloading modules so Docker cache misses do
 not break the local module replacement.
 
-The default image requires the complete KKAI schema v8. The legacy `bridge`
-selector remains available so existing build automation fails closed, but this
-source revision compiles both profiles with the same v8-only runtime contract:
+The default image requires the complete KKAI schema v8. The explicit `bridge`
+profile is the reviewed v7-to-v8 transition contract: it can run against exact
+v7 or v8, keeps v7 as its migration target, and never changes the schema during
+application startup:
 
 ```bash
 scripts/kkai/build-manual-release.sh --schema-contract bridge
 ```
 
-It is not a v7-to-v8 transition image. Such a bridge must be built separately
-from the previously deployed v7-compatible source. Use `--schema-contract
-feature` only after the v8 schema gate passes. The profile is recorded in
+Use `--schema-contract feature` only after the v8 schema gate passes. The
+profile is recorded in
 release metadata and in the image's
 `io.kkrich.schema-contract` label. The staging client validates the metadata
 value and forwards it to the production controller, which must match it against
