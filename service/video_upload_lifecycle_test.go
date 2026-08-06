@@ -228,7 +228,7 @@ func TestMultipartVideoUploadAbortCleansObjectCompletedAfterAbort(t *testing.T) 
 		releaseComplete:          make(chan struct{}),
 	}
 	upload, err := CreateVideoAssetUpload(context.Background(), db, store, 7, false, VideoAssetUploadRequest{
-		Purpose: model.VideoAssetKindReference, Filename: "reference.png", MIMEType: "image/png",
+		Purpose: model.VideoUploadPurposeReferenceVideo, Filename: "reference.mp4", MIMEType: "video/mp4",
 		SizeBytes: videoMultipartPartSize, Multipart: true,
 	})
 	require.NoError(t, err)

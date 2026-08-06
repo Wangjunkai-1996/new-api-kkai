@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
 	"gorm.io/gorm"
 )
@@ -61,7 +63,7 @@ func completeVideoAssetUpload(
 	if err != nil {
 		return nil, err
 	}
-	return finalizeVideoAssetUpload(ctx, db, *asset, metadata)
+	return finalizeVideoAssetUpload(ctx, db, store, *asset, metadata)
 }
 
 func completeMultipartVideoAssetUpload(
@@ -114,22 +116,53 @@ func completeMultipartVideoAssetUpload(
 func finalizeVideoAssetUpload(
 	ctx context.Context,
 	db *gorm.DB,
+	store VideoAssetStore,
 	asset model.KKAIVideoAsset,
 	metadata VideoAssetObjectMetadata,
 ) (*VideoAssetView, error) {
+	var imageMetadata *VideoMediaMetadata
+	var imageInspectionErr error
+	if isVideoReferenceImage(asset) {
+		inspected, err := inspectUploadedVideoReferenceImage(ctx, store, asset, metadata)
+		if err != nil {
+			if !errors.Is(err, ErrVideoMediaInvalid) {
+				return nil, err
+			}
+			imageInspectionErr = err
+		} else {
+			imageMetadata = &inspected
+		}
+	}
 	now := time.Now().Unix()
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"state": model.VideoAssetStateUploaded, "size_bytes": metadata.ContentLength,
+			"sha256":              strings.ToLower(strings.TrimSpace(metadata.SHA256)),
+			"multipart_upload_id": "", "upload_part_size": 0, "upload_expires_at": 0, "updated_at": now,
+		}
+		if imageMetadata != nil {
+			updates["state"] = model.VideoAssetStateReady
+			updates["mime_type"] = imageMetadata.MIMEType
+			updates["width"] = imageMetadata.Width
+			updates["height"] = imageMetadata.Height
+			updates["duration_seconds"] = imageMetadata.DurationSeconds
+			updates["codec"] = imageMetadata.Codec
+			updates["failure_reason"] = ""
+		} else if imageInspectionErr != nil {
+			updates["state"] = model.VideoAssetStateFailed
+			updates["failure_reason"] = videoAssetFailureReason(imageInspectionErr)
+			updates["archive_source_url"] = ""
+		}
 		update := tx.Model(&model.KKAIVideoAsset{}).
 			Where("id = ? AND state = ?", asset.ID, model.VideoAssetStatePendingUpload).
-			Updates(map[string]any{
-				"state": model.VideoAssetStateUploaded, "size_bytes": metadata.ContentLength,
-				"sha256":              strings.ToLower(strings.TrimSpace(metadata.SHA256)),
-				"multipart_upload_id": "", "upload_part_size": 0, "upload_expires_at": 0, "updated_at": now,
-			})
+			Updates(updates)
 		if update.Error != nil {
 			return update.Error
 		}
 		if update.RowsAffected == 0 {
+			return nil
+		}
+		if isVideoReferenceImage(asset) {
 			return nil
 		}
 		return EnqueueVideoOutboxEvent(ctx, tx,
@@ -150,6 +183,58 @@ func finalizeVideoAssetUpload(
 	return &view, nil
 }
 
+func isVideoReferenceImage(asset model.KKAIVideoAsset) bool {
+	return asset.Kind == model.VideoAssetKindReference &&
+		isSupportedReferenceMIME(normalizedVideoObjectContentType(asset.MIMEType))
+}
+
+func inspectUploadedVideoReferenceImage(
+	ctx context.Context,
+	store VideoAssetStore,
+	asset model.KKAIVideoAsset,
+	expected VideoAssetObjectMetadata,
+) (VideoMediaMetadata, error) {
+	if store == nil || !isVideoReferenceImage(asset) {
+		return VideoMediaMetadata{}, ErrVideoMediaInvalid
+	}
+
+	object, err := store.Get(ctx, asset.ObjectKey)
+	if err != nil {
+		return VideoMediaMetadata{}, fmt.Errorf("read uploaded video reference image: %w", err)
+	}
+	if object.Body == nil {
+		return VideoMediaMetadata{}, fmt.Errorf("read uploaded video reference image: %w", ErrVideoMediaProcessingFailed)
+	}
+	defer object.Body.Close()
+
+	maxBytes := video_studio_setting.Get().MaxReferenceBytes
+	contentType := normalizedVideoObjectContentType(object.ContentType)
+	expectedContentType := normalizedVideoObjectContentType(expected.ContentType)
+	actualETag := strings.Trim(strings.TrimSpace(object.ETag), `"`)
+	expectedETag := strings.Trim(strings.TrimSpace(expected.ETag), `"`)
+	if object.ContentLength != asset.SizeBytes || object.ContentLength != expected.ContentLength ||
+		object.ContentLength <= 0 || object.ContentLength > maxBytes ||
+		contentType != normalizedVideoObjectContentType(asset.MIMEType) || contentType != expectedContentType ||
+		(actualETag != "" && expectedETag != "" && actualETag != expectedETag) {
+		return VideoMediaMetadata{}, ErrInvalidVideoAssetUpload
+	}
+
+	reader := &io.LimitedReader{R: object.Body, N: maxBytes + 1}
+	mediaMetadata, detected, inspectionErr := inspectRasterVideoMediaReader(reader)
+	_, drainErr := io.Copy(io.Discard, reader)
+	readBytes := maxBytes + 1 - reader.N
+	if drainErr != nil || readBytes != object.ContentLength {
+		return VideoMediaMetadata{}, fmt.Errorf("read uploaded video reference image: %w", ErrVideoMediaProcessingFailed)
+	}
+	if inspectionErr == nil && (!detected || !videoReferenceMediaCategoryMatches(asset.MIMEType, mediaMetadata.MIMEType)) {
+		inspectionErr = ErrVideoMediaInvalid
+	}
+	if inspectionErr != nil {
+		return VideoMediaMetadata{}, fmt.Errorf("inspect uploaded video reference image: %w", inspectionErr)
+	}
+	return mediaMetadata, nil
+}
+
 func recoverCompletedVideoAssetUpload(
 	ctx context.Context,
 	db *gorm.DB,
@@ -166,7 +251,7 @@ func recoverCompletedVideoAssetUpload(
 	if err != nil {
 		return nil, false, err
 	}
-	view, err := finalizeVideoAssetUpload(ctx, db, asset, metadata)
+	view, err := finalizeVideoAssetUpload(ctx, db, store, asset, metadata)
 	if err != nil {
 		return nil, false, err
 	}
