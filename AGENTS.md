@@ -11,27 +11,41 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 For every task involving KKAI production builds, releases, deployment status,
 GitHub Actions, GHCR, blue-green slots, rollback, or `api.kkrich.ltd`:
 
-1. Read `../kkai-infra/AGENTS.md` and
-   `../kkai-infra/docs/runbooks/15-newapi-manual-deployment.md` completely.
-2. Run `make -C ../kkai-infra newapi-status` before treating the production
-   version, active slot, or basic health as current. Never reuse mutable
-   production state from an old chat.
-3. Build with `scripts/kkai/build-manual-release.sh`, then stage the generated
-   metadata file with `scripts/kkai/deploy-manual-release.sh --stage METADATA.json`.
+1. Read `/Users/tokk/Documents/Codex/runbooks/newapi-upgrade-and-deployment.md`.
+   It defines the normal fast path and when exceptional runbooks are required.
+2. Locate the infrastructure checkout by its
+   `github.com/Wangjunkai-1996/kkai-infra` remote. Never assume it is a sibling
+   directory and never select a checkout from its directory name alone.
+3. From that confirmed checkout, run `make newapi-status` once before treating
+   the production version, active slot, or basic health as current. Never reuse
+   mutable production state from an old chat.
+4. Build with `scripts/kkai/build-manual-release.sh`, then stage the exact
+   generated metadata file with
+   `scripts/kkai/deploy-manual-release.sh --stage METADATA.json`.
 
 The deploy script must use `scripts/kkai/manual-deployment-contract.env` and
 complete the controller's read-only preflight before uploading an image. Update
 that contract only together with installation of the exact pinned infra commit;
 never bypass its SHA or protocol checks.
 
-The only production application branch is `production/kkrich`. GitHub Actions
-must not build or deploy KKAI production images. An operator builds one Linux
-AMD64 image from a clean local checkout, transfers its archive over the private
-SSH path, and explicitly invokes the manual production deployer. Staging loads
-and verifies the image, replaces only the idle slot, and exposes it through a
-loopback-only candidate proxy. It does not switch the public router, stable
-alias, writer, Redis, release pointers, or rollback pointers. Promotion is a
-separate explicit operator action after acceptance.
+The only production application branch is `production/kkrich`. Before a build,
+the worktree must be clean, the exact production ref must fetch successfully,
+the current tree objects must be readable, and local `HEAD` must equal the
+fetched `origin/production/kkrich`. A remote, fetch, or Git object error makes
+that checkout ineligible; do not use an old clone or a temporary branch as a
+substitute.
+
+GitHub Actions must not build or deploy KKAI production images. An operator
+builds one Linux AMD64 image from the confirmed checkout, transfers its archive
+over the private SSH path, and explicitly invokes the manual production
+deployer. Staging loads and verifies the image, replaces only the idle slot, and
+exposes it through a private candidate proxy. It does not switch the public
+router, stable alias, writer, Redis, release pointers, or rollback pointers.
+Promotion is a separate explicit operator action after exact-version acceptance.
+
+For an application-only release, follow only the normal-release portion of the
+global entry and infrastructure runbook. Read slot, schema, or recovery sections
+only when the task actually changes or invokes those mechanisms.
 
 - Never build a production image on the production host.
 - Never use `latest`, reuse a release version, or deploy a dirty worktree.
