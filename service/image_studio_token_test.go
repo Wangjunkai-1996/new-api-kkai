@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/glebarez/sqlite"
@@ -81,6 +82,17 @@ func TestEnabledImageStudioModelsFiltersNonImageEndpoints(t *testing.T) {
 	assert.Equal(t, []string{"gpt-image-2"}, models)
 }
 
+func TestGetImageStudioTokenStatusReturnsReferenceLimits(t *testing.T) {
+	db := setupImageStudioTokenTest(t)
+	seedImageStudioModel(t, db, "gpt-image-1", constant.ChannelTypeOpenAI)
+
+	status, err := GetImageStudioTokenStatus(context.Background(), db, 42, "gpt-image-1", "192.0.2.1")
+	require.NoError(t, err)
+	settings := image_studio_setting.Get()
+	assert.Equal(t, settings.MaxReferenceBytes, status.MaxReferenceBytes)
+	assert.Equal(t, settings.MaxReferenceTotalBytes, status.MaxReferenceTotalBytes)
+}
+
 func TestEnsureImageStudioTokenIsIdempotentAndManaged(t *testing.T) {
 	db := setupImageStudioTokenTest(t)
 	seedImageStudioModel(t, db, "gpt-image-1", constant.ChannelTypeOpenAI)
@@ -89,6 +101,9 @@ func TestEnsureImageStudioTokenIsIdempotentAndManaged(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, first.Created)
 	require.NotNil(t, first.Token)
+	settings := image_studio_setting.Get()
+	assert.Equal(t, settings.MaxReferenceBytes, first.MaxReferenceBytes)
+	assert.Equal(t, settings.MaxReferenceTotalBytes, first.MaxReferenceTotalBytes)
 	second, err := EnsureImageStudioToken(context.Background(), db, 42, "gpt-image-1", "192.0.2.1")
 	require.NoError(t, err)
 	require.NotNil(t, second.Token)

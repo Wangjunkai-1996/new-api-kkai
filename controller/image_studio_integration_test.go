@@ -3,11 +3,10 @@ package controller
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -140,31 +139,37 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	imageBytes, err := base64.StdEncoding.DecodeString(providerBase64)
 	require.NoError(t, err)
 	type providerRequest struct {
-		Path        string
-		Model       string
-		Prompt      string
-		Size        string
-		N           string
-		Stream      string
-		Image       []byte
-		ContentType string
+		Path         string
+		Model        string
+		Prompt       string
+		Size         string
+		N            string
+		Stream       string
+		Images       [][]byte
+		ContentTypes []string
 	}
 	observed := make(chan providerRequest, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		defer request.Body.Close()
 		require.NoError(t, request.ParseMultipartForm(1<<20))
-		require.Len(t, request.MultipartForm.File["image"], 1)
-		fileHeader := request.MultipartForm.File["image"][0]
-		file, err := fileHeader.Open()
-		require.NoError(t, err)
-		body, err := io.ReadAll(file)
-		require.NoError(t, file.Close())
-		require.NoError(t, err)
+		fileHeaders := request.MultipartForm.File["image[]"]
+		require.Len(t, fileHeaders, 2)
+		images := make([][]byte, 0, len(fileHeaders))
+		contentTypes := make([]string, 0, len(fileHeaders))
+		for _, fileHeader := range fileHeaders {
+			file, err := fileHeader.Open()
+			require.NoError(t, err)
+			body, readErr := io.ReadAll(file)
+			closeErr := file.Close()
+			require.NoError(t, errors.Join(readErr, closeErr))
+			images = append(images, body)
+			contentTypes = append(contentTypes, fileHeader.Header.Get("Content-Type"))
+		}
 		observed <- providerRequest{
 			Path: request.URL.Path, Model: request.PostForm.Get("model"),
 			Prompt: request.PostForm.Get("prompt"), Size: request.PostForm.Get("size"),
-			N: request.PostForm.Get("n"), Stream: request.PostForm.Get("stream"), Image: body,
-			ContentType: fileHeader.Header.Get("Content-Type"),
+			N: request.PostForm.Get("n"), Stream: request.PostForm.Get("stream"),
+			Images: images, ContentTypes: contentTypes,
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(fmt.Sprintf(
@@ -187,13 +192,15 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	engine := imageStudioIntegrationEngine(pipeline)
 	var token model.Token
 	require.NoError(t, db.First(&token).Error)
-	digest := sha256.Sum256(imageBytes)
-	reference := &service.ImageStudioReferenceMetadata{
-		SHA256: hex.EncodeToString(digest[:]), SizeBytes: int64(len(imageBytes)),
+	referenceImages := [][]byte{
+		imageBytes,
+		imageStudioEditTestPNG(t, color.RGBA{R: 0x20, G: 0x70, B: 0xd0, A: 0xff}),
 	}
+	references := imageStudioEditTestReferences(referenceImages)
 	quoteRequest, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "Use this reference",
-		Parameters: map[string]any{"count": 2, "size": "1024x1024"}, Reference: reference,
+		Parameters: map[string]any{"count": 2, "size": "1024x1024"},
+		References: references,
 	})
 	require.NoError(t, err)
 	quoteResponse := httptest.NewRecorder()
@@ -214,10 +221,10 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	submitJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "Use this reference",
 		Parameters: map[string]any{"count": 2, "size": "1024x1024"},
-		QuoteToken: quoteEnvelope.Data.QuoteToken,
+		QuoteToken: quoteEnvelope.Data.QuoteToken, References: references,
 	})
 	require.NoError(t, err)
-	submitBody, submitContentType := imageStudioEditMultipartBody(t, submitJSON, imageBytes, false)
+	submitBody, submitContentType := imageStudioEditMultipartBody(t, submitJSON, referenceImages, false)
 	submitResponse := httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodPost, "/pg/images/edits", bytes.NewReader(submitBody))
 	request.Header.Set("Content-Type", submitContentType)
@@ -232,8 +239,8 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	assert.Equal(t, "1024x1024", providerCall.Size)
 	assert.Equal(t, "2", providerCall.N)
 	assert.Equal(t, "false", providerCall.Stream)
-	assert.Equal(t, "image/png", providerCall.ContentType)
-	assert.Equal(t, imageBytes, providerCall.Image)
+	assert.Equal(t, []string{"image/png", "image/png"}, providerCall.ContentTypes)
+	assert.Equal(t, referenceImages, providerCall.Images)
 
 	var generation model.KKAIImageGeneration
 	require.NoError(t, db.First(&generation).Error)
@@ -516,7 +523,7 @@ func enableImageStudioEditIntegrationModel(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	minimum := 1
 	maximum := 4
-	specification, err := common.Marshal(service.ImageModelSpec{Version: 1, Parameters: []service.ImageParameterSpec{
+	specification, err := common.Marshal(service.ImageModelSpec{Version: 1, MaxReferenceImages: 2, Parameters: []service.ImageParameterSpec{
 		{Key: "count", Label: "Count", Control: service.ImageControlInteger, RequestKey: "n", Min: &minimum, Max: &maximum},
 		{Key: "size", Label: "Size", Control: service.ImageControlSelect, RequestKey: "size", Options: []service.ImageParameterOption{
 			{Label: "Square", Value: "1024x1024"},

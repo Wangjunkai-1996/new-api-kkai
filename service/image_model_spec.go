@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	ImageControlSelect  = "select"
-	ImageControlInteger = "integer"
-	ImageControlBoolean = "boolean"
+	ImageControlSelect            = "select"
+	ImageControlInteger           = "integer"
+	ImageControlBoolean           = "boolean"
+	MaxImageStudioReferenceImages = 4
+	MaxImageStudioOutputs         = image_studio_setting.MaxImagesPerGenerationLimit
 )
 
 var (
@@ -38,8 +40,9 @@ var (
 )
 
 type ImageModelSpec struct {
-	Version    int                  `json:"version"`
-	Parameters []ImageParameterSpec `json:"parameters"`
+	Version            int                  `json:"version"`
+	MaxReferenceImages int                  `json:"max_reference_images,omitempty"`
+	Parameters         []ImageParameterSpec `json:"parameters"`
 }
 
 type ImageParameterSpec struct {
@@ -67,6 +70,9 @@ type imageRequestFieldRule struct {
 func ValidateImageModelSpec(spec ImageModelSpec, defaults map[string]any) error {
 	if spec.Version <= 0 {
 		return fmt.Errorf("%w: version must be positive", ErrInvalidImageModelSpec)
+	}
+	if spec.MaxReferenceImages < 0 || spec.MaxReferenceImages > MaxImageStudioReferenceImages {
+		return fmt.Errorf("%w: max_reference_images must be omitted or between 1 and %d", ErrInvalidImageModelSpec, MaxImageStudioReferenceImages)
 	}
 	if len(spec.Parameters) > len(imageRequestFieldRules) {
 		return fmt.Errorf("%w: too many parameters", ErrInvalidImageModelSpec)
@@ -158,6 +164,9 @@ func validateImageParameterSpec(parameter ImageParameterSpec) error {
 			*parameter.Min < rule.minimum || *parameter.Max > rule.maximum || *parameter.Min > *parameter.Max {
 			return fmt.Errorf("%w: parameter %q has invalid integer bounds", ErrInvalidImageModelSpec, parameter.Key)
 		}
+		if parameter.RequestKey == "n" && *parameter.Min > MaxImageStudioOutputs {
+			return fmt.Errorf("%w: parameter %q minimum exceeds the image studio output limit", ErrInvalidImageModelSpec, parameter.Key)
+		}
 	case ImageControlBoolean:
 		if len(parameter.Options) != 0 || parameter.Min != nil || parameter.Max != nil {
 			return fmt.Errorf("%w: boolean parameter %q cannot define options or bounds", ErrInvalidImageModelSpec, parameter.Key)
@@ -212,7 +221,8 @@ func normalizeImageParameterValue(parameter ImageParameterSpec, value any) (any,
 	case ImageControlInteger:
 		number, ok := imageInteger(value)
 		if ok && parameter.Min != nil && parameter.Max != nil && number >= *parameter.Min && number <= *parameter.Max {
-			if parameter.RequestKey == "n" && number > image_studio_setting.Get().MaxImagesPerGeneration {
+			if parameter.RequestKey == "n" && (number > MaxImageStudioOutputs ||
+				number > image_studio_setting.Get().MaxImagesPerGeneration) {
 				break
 			}
 			return number, nil
@@ -303,7 +313,7 @@ func BuildImageRelayRequest(modelName string, prompt string, spec ImageModelSpec
 		count := uint(1)
 		request.N = &count
 	}
-	if request.Model == "" || request.Prompt == "" || *request.N == 0 || *request.N > dto.MaxImageN {
+	if request.Model == "" || request.Prompt == "" || *request.N == 0 || *request.N > MaxImageStudioOutputs {
 		return nil, ErrInvalidImageParameters
 	}
 	return request, nil

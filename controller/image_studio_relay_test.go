@@ -7,11 +7,15 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -67,14 +71,15 @@ func TestPrepareImageStudioRequestRewritesOnlyValidatedRelayFields(t *testing.T)
 	assert.Zero(t, reservations)
 }
 
-func TestPrepareImageStudioEditQuoteBindsRouteModeAndReference(t *testing.T) {
+func TestPrepareImageStudioEditQuoteBindsRouteModeAndReferences(t *testing.T) {
 	_, token := newImageStudioRelayTestDB(t)
-	reference := &service.ImageStudioReferenceMetadata{
-		SHA256: strings.Repeat("a", 64), SizeBytes: 1234,
+	references := []service.ImageStudioReferenceMetadata{
+		{SHA256: strings.Repeat("a", 64), SizeBytes: 1234},
+		{SHA256: strings.Repeat("b", 64), SizeBytes: 5678},
 	}
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit a lighthouse",
-		Reference: reference,
+		References: references,
 	})
 	require.NoError(t, err)
 	ctx, recorder := newImageStudioRelayContext(http.MethodPost, "/pg/images/edits/quote", body)
@@ -86,25 +91,28 @@ func TestPrepareImageStudioEditQuoteBindsRouteModeAndReference(t *testing.T) {
 	normalized, ok := imageStudioNormalizedSubmission(ctx)
 	require.True(t, ok)
 	assert.Equal(t, service.ImageStudioModeEdit, normalized.Mode)
-	assert.Equal(t, reference, normalized.Reference)
+	assert.Equal(t, references, normalized.References)
 	rewritten, err := io.ReadAll(ctx.Request.Body)
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, common.Unmarshal(rewritten, &payload))
 	assert.Equal(t, service.ImageStudioEditModel, payload["model"])
-	assert.NotContains(t, payload, "reference")
+	assert.NotContains(t, payload, "references")
 }
 
-func TestPrepareImageStudioEditSubmitValidatesAndRebuildsMultipart(t *testing.T) {
+func TestPrepareImageStudioEditSubmitValidatesAndRebuildsOrderedMultipart(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("VIDEO_STUDIO_TEMP_DIR", tempDir)
 	_, token := newImageStudioRelayTestDB(t)
-	imageBytes, err := base64.StdEncoding.DecodeString(
-		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-	)
-	require.NoError(t, err)
+	imageBytes := [][]byte{
+		imageStudioEditTestPNG(t, color.RGBA{R: 255, A: 255}),
+		imageStudioEditTestPNG(t, color.RGBA{B: 255, A: 255}),
+	}
+	references := imageStudioEditTestReferences(imageBytes)
 	requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit a lighthouse",
 		QuoteToken: "quote-token",
-		Reference:  &service.ImageStudioReferenceMetadata{SHA256: strings.Repeat("f", 64), SizeBytes: 1},
+		References: references,
 	})
 	require.NoError(t, err)
 	body, contentType := imageStudioEditMultipartBody(t, requestJSON, imageBytes, false)
@@ -118,9 +126,7 @@ func TestPrepareImageStudioEditSubmitValidatesAndRebuildsMultipart(t *testing.T)
 	assert.Equal(t, "/v1/images/edits", ctx.Request.URL.Path)
 	normalized, ok := imageStudioNormalizedSubmission(ctx)
 	require.True(t, ok)
-	digest := sha256.Sum256(imageBytes)
-	assert.Equal(t, hex.EncodeToString(digest[:]), normalized.Reference.SHA256)
-	assert.Equal(t, int64(len(imageBytes)), normalized.Reference.SizeBytes)
+	assert.Equal(t, references, normalized.References)
 
 	rewritten, err := io.ReadAll(ctx.Request.Body)
 	require.NoError(t, err)
@@ -131,13 +137,18 @@ func TestPrepareImageStudioEditSubmitValidatesAndRebuildsMultipart(t *testing.T)
 	assert.Equal(t, "edit a lighthouse", replayed.PostForm.Get("prompt"))
 	assert.Equal(t, "1", replayed.PostForm.Get("n"))
 	assert.Equal(t, "false", replayed.PostForm.Get("stream"))
-	require.Len(t, replayed.MultipartForm.File["image"], 1)
-	file, err := replayed.MultipartForm.File["image"][0].Open()
+	require.Len(t, replayed.MultipartForm.File["image"], len(imageBytes))
+	for index, fileHeader := range replayed.MultipartForm.File["image"] {
+		file, err := fileHeader.Open()
+		require.NoError(t, err)
+		gotImage, err := io.ReadAll(file)
+		require.NoError(t, file.Close())
+		require.NoError(t, err)
+		assert.Equal(t, imageBytes[index], gotImage)
+	}
+	entries, err := os.ReadDir(tempDir)
 	require.NoError(t, err)
-	gotImage, err := io.ReadAll(file)
-	require.NoError(t, file.Close())
-	require.NoError(t, err)
-	assert.Equal(t, imageBytes, gotImage)
+	assert.Empty(t, entries)
 }
 
 func TestPrepareImageStudioEditSubmitRejectsExtraMultipartFields(t *testing.T) {
@@ -149,9 +160,10 @@ func TestPrepareImageStudioEditSubmitRejectsExtraMultipartFields(t *testing.T) {
 	requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit",
 		QuoteToken: "quote-token",
+		References: imageStudioEditTestReferences([][]byte{imageBytes}),
 	})
 	require.NoError(t, err)
-	body, contentType := imageStudioEditMultipartBody(t, requestJSON, imageBytes, true)
+	body, contentType := imageStudioEditMultipartBody(t, requestJSON, [][]byte{imageBytes}, true)
 	ctx, recorder := newImageStudioRelayContext(http.MethodPost, "/pg/images/edits", body)
 	ctx.Request.Header.Set("Content-Type", contentType)
 	ctx.Request.Header.Set("Idempotency-Key", "edit-submit-extra-field")
@@ -163,7 +175,7 @@ func TestPrepareImageStudioEditSubmitRejectsExtraMultipartFields(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "invalid_image_studio_request")
 }
 
-func TestPrepareImageStudioEditSubmitRequiresExactlyOneRequestAndImage(t *testing.T) {
+func TestPrepareImageStudioEditSubmitRejectsInvalidMultipartCardinalityAndAliases(t *testing.T) {
 	_, token := newImageStudioRelayTestDB(t)
 	imageBytes, err := base64.StdEncoding.DecodeString(
 		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -172,6 +184,7 @@ func TestPrepareImageStudioEditSubmitRequiresExactlyOneRequestAndImage(t *testin
 	requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit",
 		QuoteToken: "quote-token",
+		References: imageStudioEditTestReferences([][]byte{imageBytes}),
 	})
 	require.NoError(t, err)
 
@@ -188,7 +201,7 @@ func TestPrepareImageStudioEditSubmitRequiresExactlyOneRequestAndImage(t *testin
 			},
 		},
 		{
-			name: "duplicate image",
+			name: "metadata and file count differ",
 			write: func(writer *multipart.Writer) {
 				require.NoError(t, writer.WriteField("request", string(requestJSON)))
 				writeImageStudioEditTestImage(t, writer, "image", imageBytes)
@@ -421,7 +434,7 @@ func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 	}
 	minimum := 1
 	maximum := 4
-	specification, err := common.Marshal(service.ImageModelSpec{Version: 1, Parameters: []service.ImageParameterSpec{
+	specification, err := common.Marshal(service.ImageModelSpec{Version: 1, MaxReferenceImages: 2, Parameters: []service.ImageParameterSpec{
 		{Key: "count", Label: "Count", Control: service.ImageControlInteger, RequestKey: "n", Min: &minimum, Max: &maximum},
 	}})
 	require.NoError(t, err)
@@ -438,26 +451,81 @@ func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 func imageStudioEditMultipartBody(
 	t *testing.T,
 	requestJSON []byte,
-	imageBytes []byte,
+	images [][]byte,
 	withExtraField bool,
 ) ([]byte, string) {
+	mimeTypes := make([]string, len(images))
+	for index := range mimeTypes {
+		mimeTypes[index] = "image/png"
+	}
+	return imageStudioEditMultipartBodyWithMIMEs(t, requestJSON, images, mimeTypes, withExtraField)
+}
+
+func imageStudioEditMultipartBodyWithMIMEs(
+	t *testing.T,
+	requestJSON []byte,
+	images [][]byte,
+	mimeTypes []string,
+	withExtraField ...bool,
+) ([]byte, string) {
 	t.Helper()
+	require.Len(t, mimeTypes, len(images))
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	require.NoError(t, writer.WriteField("request", string(requestJSON)))
-	if withExtraField {
+	if len(withExtraField) > 0 && withExtraField[0] {
 		require.NoError(t, writer.WriteField("unexpected", "rejected"))
 	}
-	writeImageStudioEditTestImage(t, writer, "image", imageBytes)
+	for index, imageBytes := range images {
+		writeImageStudioEditTestImageWithMIME(t, writer, "image", imageBytes, mimeTypes[index])
+	}
 	require.NoError(t, writer.Close())
 	return body.Bytes(), writer.FormDataContentType()
 }
 
+func imageStudioEditTestReferences(images [][]byte) []service.ImageStudioReferenceMetadata {
+	references := make([]service.ImageStudioReferenceMetadata, len(images))
+	for index, imageBytes := range images {
+		digest := sha256.Sum256(imageBytes)
+		references[index] = service.ImageStudioReferenceMetadata{
+			SHA256: hex.EncodeToString(digest[:]), SizeBytes: int64(len(imageBytes)),
+		}
+	}
+	return references
+}
+
+func imageStudioEditTestPNG(t *testing.T, fill color.Color) []byte {
+	return imageStudioEditTestPNGSize(t, 1, 1, fill)
+}
+
+func imageStudioEditTestPNGSize(t *testing.T, width int, height int, fill color.Color) []byte {
+	t.Helper()
+	imageValue := image.NewRGBA(image.Rect(0, 0, width, height))
+	for x := 0; x < width; x++ {
+		for y := 0; y < height; y++ {
+			imageValue.Set(x, y, fill)
+		}
+	}
+	var encoded bytes.Buffer
+	require.NoError(t, png.Encode(&encoded, imageValue))
+	return encoded.Bytes()
+}
+
 func writeImageStudioEditTestImage(t *testing.T, writer *multipart.Writer, fieldName string, imageBytes []byte) {
+	writeImageStudioEditTestImageWithMIME(t, writer, fieldName, imageBytes, "image/png")
+}
+
+func writeImageStudioEditTestImageWithMIME(
+	t *testing.T,
+	writer *multipart.Writer,
+	fieldName string,
+	imageBytes []byte,
+	mimeType string,
+) {
 	t.Helper()
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename="reference.png"`, fieldName))
-	header.Set("Content-Type", "image/png")
+	header.Set("Content-Type", mimeType)
 	part, err := writer.CreatePart(header)
 	require.NoError(t, err)
 	_, err = part.Write(imageBytes)

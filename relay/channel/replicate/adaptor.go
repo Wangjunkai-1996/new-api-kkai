@@ -417,24 +417,22 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 		fieldCandidates = []string{"image", "image[]", "image_prompt"}
 	}
 
-	var fileHeader *multipart.FileHeader
+	var fileHeaders []*multipart.FileHeader
 	for _, key := range fieldCandidates {
-		if files := mf.File[key]; len(files) > 0 {
-			fileHeader = files[0]
-			break
-		}
+		fileHeaders = append(fileHeaders, mf.File[key]...)
 	}
-	if fileHeader == nil {
+	if len(fileHeaders) == 0 {
 		for _, files := range mf.File {
-			if len(files) > 0 {
-				fileHeader = files[0]
-				break
-			}
+			fileHeaders = append(fileHeaders, files...)
 		}
 	}
-	if fileHeader == nil {
+	if len(fileHeaders) > 1 {
+		return "", errors.New("replicate adaptor: multiple reference images are not supported")
+	}
+	if len(fileHeaders) == 0 {
 		return "", nil
 	}
+	fileHeader := fileHeaders[0]
 
 	file, err := fileHeader.Open()
 	if err != nil {

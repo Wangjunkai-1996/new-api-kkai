@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -59,25 +60,35 @@ func TestImageStudioGenerationRequestHashRemainsBackwardCompatible(t *testing.T)
 	assert.Equal(t, hex.EncodeToString(digest[:]), requestHash)
 }
 
-func TestNormalizeImageStudioEditRequiresExactModelAndBindsReference(t *testing.T) {
+func TestNormalizeImageStudioEditBindsOrderedReferencesAndModelLimit(t *testing.T) {
 	db, profile := newImageSubmissionTestDB(t)
 	require.NoError(t, db.Model(&profile).Update("model", ImageStudioEditModel).Error)
 	profile.Model = ImageStudioEditModel
-	reference := &ImageStudioReferenceMetadata{
-		SHA256: strings.Repeat("A", 64), SizeBytes: 1234,
+	specification := imageSubmissionSpec()
+	specification.MaxReferenceImages = 2
+	encodedSpecification, err := common.Marshal(specification)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&profile).Updates(map[string]any{
+		"specification": string(encodedSpecification), "specification_version": specification.Version,
+	}).Error)
+	references := []ImageStudioReferenceMetadata{
+		{SHA256: strings.Repeat("A", 64), SizeBytes: 1234},
+		{SHA256: strings.Repeat("B", 64), SizeBytes: 5678},
 	}
 	request := ImageStudioSubmissionRequest{
 		TokenID: 4, Model: profile.Model, Prompt: "edit the lighthouse",
-		Mode: ImageStudioModeEdit, Reference: reference,
+		Mode: ImageStudioModeEdit, References: references,
 	}
 
 	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, request)
 	require.NoError(t, err)
 	assert.Equal(t, ImageStudioModeEdit, normalized.Mode)
-	require.NotNil(t, normalized.Reference)
-	assert.Equal(t, strings.Repeat("a", 64), normalized.Reference.SHA256)
-	assert.EqualValues(t, 1234, normalized.Reference.SizeBytes)
-	assert.NotSame(t, reference, normalized.Reference)
+	require.Len(t, normalized.References, 2)
+	assert.Equal(t, strings.Repeat("a", 64), normalized.References[0].SHA256)
+	assert.Equal(t, strings.Repeat("b", 64), normalized.References[1].SHA256)
+	assert.EqualValues(t, 1234, normalized.References[0].SizeBytes)
+	assert.EqualValues(t, 5678, normalized.References[1].SizeBytes)
+	assert.NotSame(t, &references[0], &normalized.References[0])
 
 	generation, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
 		TokenID: 4, Model: profile.Model, Prompt: "edit the lighthouse",
@@ -86,19 +97,35 @@ func TestNormalizeImageStudioEditRequiresExactModelAndBindsReference(t *testing.
 	assert.NotEqual(t, generation.RequestHash, normalized.RequestHash)
 
 	changed := request
-	changed.Reference = &ImageStudioReferenceMetadata{
-		SHA256: strings.Repeat("b", 64), SizeBytes: 1234,
-	}
+	changed.References = append([]ImageStudioReferenceMetadata(nil), references...)
+	changed.References[1].SHA256 = strings.Repeat("c", 64)
 	changedNormalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, changed)
 	require.NoError(t, err)
 	assert.NotEqual(t, normalized.RequestHash, changedNormalized.RequestHash)
 
+	reordered := request
+	reordered.References = []ImageStudioReferenceMetadata{references[1], references[0]}
+	reorderedNormalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, reordered)
+	require.NoError(t, err)
+	assert.NotEqual(t, normalized.RequestHash, reorderedNormalized.RequestHash)
+	_, err = ReserveIdempotencyKey(context.Background(), db, IdempotencyReservationRequest{
+		UserID: 7, Operation: model.ImageIdempotencyOperationSubmit,
+		Key: "ordered-reference-submit", RequestHash: normalized.RequestHash,
+	})
+	require.NoError(t, err)
+	_, err = ReserveIdempotencyKey(context.Background(), db, IdempotencyReservationRequest{
+		UserID: 7, Operation: model.ImageIdempotencyOperationSubmit,
+		Key: "ordered-reference-submit", RequestHash: reorderedNormalized.RequestHash,
+	})
+	assert.ErrorIs(t, err, ErrIdempotencyConflict)
+
 	invalid := []ImageStudioSubmissionRequest{
-		{TokenID: 4, Model: "gpt-image-2k", Prompt: "edit", Mode: ImageStudioModeEdit, Reference: reference},
+		{TokenID: 4, Model: "gpt-image-2k", Prompt: "edit", Mode: ImageStudioModeEdit, References: references},
 		{TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit},
-		{TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit, Reference: &ImageStudioReferenceMetadata{SHA256: "invalid", SizeBytes: 1}},
-		{TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit, Reference: &ImageStudioReferenceMetadata{SHA256: strings.Repeat("a", 64)}},
-		{TokenID: 4, Model: profile.Model, Prompt: "generate", Reference: reference},
+		{TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit, References: []ImageStudioReferenceMetadata{{SHA256: "invalid", SizeBytes: 1}}},
+		{TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit, References: []ImageStudioReferenceMetadata{{SHA256: strings.Repeat("a", 64)}}},
+		{TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit, References: append(references, references[0])},
+		{TokenID: 4, Model: profile.Model, Prompt: "generate", References: references},
 	}
 	for _, candidate := range invalid {
 		_, err := NormalizeImageStudioSubmission(context.Background(), db, 7, candidate)
@@ -106,14 +133,50 @@ func TestNormalizeImageStudioEditRequiresExactModelAndBindsReference(t *testing.
 	}
 }
 
-func TestImageStudioEditQuoteRejectsDifferentUploadedReference(t *testing.T) {
+func TestNormalizeImageStudioEditDefaultsToOneReferenceAndEnforcesByteLimits(t *testing.T) {
 	db, profile := newImageSubmissionTestDB(t)
 	require.NoError(t, db.Model(&profile).Update("model", ImageStudioEditModel).Error)
 	profile.Model = ImageStudioEditModel
+	settings := image_studio_setting.Get()
+	reference := ImageStudioReferenceMetadata{SHA256: strings.Repeat("a", 64), SizeBytes: settings.MaxReferenceBytes}
+
+	_, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit,
+		References: []ImageStudioReferenceMetadata{reference},
+	})
+	require.NoError(t, err)
+
+	_, err = NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit,
+		References: []ImageStudioReferenceMetadata{reference, reference},
+	})
+	assert.ErrorIs(t, err, ErrInvalidImageStudioSubmission)
+
+	tooLarge := reference
+	tooLarge.SizeBytes++
+	_, err = NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "edit", Mode: ImageStudioModeEdit,
+		References: []ImageStudioReferenceMetadata{tooLarge},
+	})
+	assert.ErrorIs(t, err, ErrInvalidImageStudioSubmission)
+}
+
+func TestImageStudioEditQuoteRejectsReorderedUploadedReferences(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	require.NoError(t, db.Model(&profile).Update("model", ImageStudioEditModel).Error)
+	profile.Model = ImageStudioEditModel
+	specification := imageSubmissionSpec()
+	specification.MaxReferenceImages = 2
+	encodedSpecification, err := common.Marshal(specification)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&profile).Update("specification", string(encodedSpecification)).Error)
+	references := []ImageStudioReferenceMetadata{
+		{SHA256: strings.Repeat("a", 64), SizeBytes: 100},
+		{SHA256: strings.Repeat("b", 64), SizeBytes: 200},
+	}
 	quoted, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
 		TokenID: 4, Model: profile.Model, Prompt: "edit",
-		Mode:      ImageStudioModeEdit,
-		Reference: &ImageStudioReferenceMetadata{SHA256: strings.Repeat("a", 64), SizeBytes: 100},
+		Mode: ImageStudioModeEdit, References: references,
 	})
 	require.NoError(t, err)
 	now := time.Unix(1_800_000_000, 0)
@@ -124,8 +187,8 @@ func TestImageStudioEditQuoteRejectsDifferentUploadedReference(t *testing.T) {
 
 	uploaded, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
 		TokenID: 4, Model: profile.Model, Prompt: "edit", QuoteToken: quote.QuoteToken,
-		Mode:      ImageStudioModeEdit,
-		Reference: &ImageStudioReferenceMetadata{SHA256: strings.Repeat("b", 64), SizeBytes: 100},
+		Mode:       ImageStudioModeEdit,
+		References: []ImageStudioReferenceMetadata{references[1], references[0]},
 	})
 	require.NoError(t, err)
 	_, err = ValidateImageStudioQuote(uploaded, now.Add(time.Minute))

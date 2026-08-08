@@ -12,6 +12,8 @@ func TestGetNormalizesUnsafeImageStudioLimits(t *testing.T) {
 	t.Cleanup(func() { imageStudioSetting = previous })
 	imageStudioSetting = Setting{
 		AccessMode:                      "unexpected",
+		MaxReferenceBytes:               -1,
+		MaxReferenceTotalBytes:          129 << 20,
 		MaxOutputBytes:                  -1,
 		MaxResponseBytes:                1,
 		MaxPixels:                       0,
@@ -25,6 +27,8 @@ func TestGetNormalizesUnsafeImageStudioLimits(t *testing.T) {
 
 	setting := Get()
 	assert.Equal(t, AccessModeOff, setting.AccessMode)
+	assert.EqualValues(t, 32<<20, setting.MaxReferenceBytes)
+	assert.EqualValues(t, 64<<20, setting.MaxReferenceTotalBytes)
 	assert.EqualValues(t, 32<<20, setting.MaxOutputBytes)
 	assert.EqualValues(t, 128<<20, setting.MaxResponseBytes)
 	assert.EqualValues(t, 64_000_000, setting.MaxPixels)
@@ -35,6 +39,25 @@ func TestGetNormalizesUnsafeImageStudioLimits(t *testing.T) {
 	assert.Equal(t, 2, setting.MaxConcurrentSubmissions)
 	assert.Equal(t, 1, setting.MaxConcurrentSubmissionsPerUser)
 	assert.False(t, CanAccess(common.RoleRootUser))
+}
+
+func TestGetKeepsReferenceTotalLimitAtLeastPerFileLimit(t *testing.T) {
+	previous := imageStudioSetting
+	t.Cleanup(func() { imageStudioSetting = previous })
+	imageStudioSetting.MaxReferenceBytes = 96 << 20
+	imageStudioSetting.MaxReferenceTotalBytes = 32 << 20
+
+	setting := Get()
+	assert.EqualValues(t, 96<<20, setting.MaxReferenceBytes)
+	assert.EqualValues(t, 96<<20, setting.MaxReferenceTotalBytes)
+}
+
+func TestGetClampsConfiguredImageOutputLimit(t *testing.T) {
+	previous := imageStudioSetting
+	t.Cleanup(func() { imageStudioSetting = previous })
+	imageStudioSetting.MaxImagesPerGeneration = MaxImagesPerGenerationLimit + 1
+
+	assert.Equal(t, MaxImagesPerGenerationLimit, Get().MaxImagesPerGeneration)
 }
 
 func TestGetCapsPerUserImageStudioCapacityAtGlobalLimit(t *testing.T) {

@@ -60,11 +60,17 @@ func PrepareImageStudioRequest(c *gin.Context) {
 		return
 	}
 	var request service.ImageStudioSubmissionRequest
-	var referenceArchive *service.FetchedImageArchive
+	var referenceArchives []*service.FetchedImageArchive
 	if mode == service.ImageStudioModeEdit && isImageStudioSubmitRequest(c) {
-		request, referenceArchive, err = parseImageStudioEditSubmission(c, settings.MaxOutputBytes, settings.MaxPixels)
-		if referenceArchive != nil {
-			defer referenceArchive.Remove()
+		request, referenceArchives, err = parseImageStudioEditSubmission(
+			c, settings.MaxReferenceBytes, settings.MaxReferenceTotalBytes, settings.MaxPixels,
+		)
+		if len(referenceArchives) > 0 {
+			defer func() {
+				for _, archive := range referenceArchives {
+					archive.Remove()
+				}
+			}()
 		}
 	} else {
 		if mode == service.ImageStudioModeEdit && !strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/json") {
@@ -102,7 +108,7 @@ func PrepareImageStudioRequest(c *gin.Context) {
 		return
 	}
 	if mode == service.ImageStudioModeEdit && isImageStudioSubmitRequest(c) {
-		err = replaceImageStudioEditRelayBody(c, normalized.RelayRequest, referenceArchive)
+		err = replaceImageStudioEditRelayBody(c, normalized.RelayRequest, referenceArchives)
 	} else {
 		err = replaceImageStudioRelayBody(c, normalized.RelayRequest)
 	}
@@ -112,6 +118,7 @@ func PrepareImageStudioRequest(c *gin.Context) {
 		return
 	}
 	c.Set(imageStudioNormalizedSubmissionContextKey, normalized)
+	service.SetImageStudioReferenceCount(c, len(normalized.References))
 
 	if isImageStudioSubmitRequest(c) {
 		if err := service.ValidateImageStudioSubmitRequest(request); err != nil {
@@ -476,10 +483,15 @@ func replaceImageStudioRelayBody(c *gin.Context, request any) error {
 func replaceImageStudioEditRelayBody(
 	c *gin.Context,
 	request any,
-	archive *service.FetchedImageArchive,
+	archives []*service.FetchedImageArchive,
 ) error {
-	if archive == nil || archive.Path == "" || archive.MIMEType == "" || archive.SizeBytes <= 0 {
+	if len(archives) == 0 || len(archives) > service.MaxImageStudioReferenceImages {
 		return service.ErrInvalidImageStudioSubmission
+	}
+	for _, archive := range archives {
+		if archive == nil || archive.Path == "" || archive.MIMEType == "" || archive.SizeBytes <= 0 {
+			return service.ErrInvalidImageStudioSubmission
+		}
 	}
 	encoded, err := common.Marshal(request)
 	if err != nil || len(encoded) == 0 {
@@ -510,22 +522,25 @@ func replaceImageStudioEditRelayBody(
 		}
 	}
 
-	file, err := os.Open(archive.Path)
-	if err != nil {
-		return fmt.Errorf("open image edit reference: %w", err)
-	}
-	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", fmt.Sprintf(
-		`form-data; name="image"; filename="reference%s"`, imageStudioReferenceExtension(archive.MIMEType),
-	))
-	header.Set("Content-Type", archive.MIMEType)
-	part, partErr := writer.CreatePart(header)
-	if partErr == nil {
-		_, partErr = io.Copy(part, file)
-	}
-	closeErr := file.Close()
-	if partErr != nil || closeErr != nil {
-		return fmt.Errorf("write image edit reference: %w", errors.Join(partErr, closeErr))
+	for index, archive := range archives {
+		file, err := os.Open(archive.Path)
+		if err != nil {
+			return fmt.Errorf("open image edit reference %d: %w", index, err)
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(
+			`form-data; name="image"; filename="reference-%d%s"`,
+			index+1, imageStudioReferenceExtension(archive.MIMEType),
+		))
+		header.Set("Content-Type", archive.MIMEType)
+		part, partErr := writer.CreatePart(header)
+		if partErr == nil {
+			_, partErr = io.Copy(part, file)
+		}
+		closeErr := file.Close()
+		if partErr != nil || closeErr != nil {
+			return fmt.Errorf("write image edit reference %d: %w", index, errors.Join(partErr, closeErr))
+		}
 	}
 	if err := writer.Close(); err != nil {
 		return fmt.Errorf("close image edit multipart body: %w", err)
@@ -582,11 +597,13 @@ func installImageStudioRelayBody(c *gin.Context, body []byte, contentType string
 
 func parseImageStudioEditSubmission(
 	c *gin.Context,
-	maxBytes int64,
+	maxReferenceBytes int64,
+	maxReferenceTotalBytes int64,
 	maxPixels int64,
-) (service.ImageStudioSubmissionRequest, *service.FetchedImageArchive, error) {
+) (service.ImageStudioSubmissionRequest, []*service.FetchedImageArchive, error) {
 	var request service.ImageStudioSubmissionRequest
-	if c == nil || c.Request == nil || c.ContentType() != gin.MIMEMultipartPOSTForm {
+	if c == nil || c.Request == nil || c.ContentType() != gin.MIMEMultipartPOSTForm ||
+		maxReferenceBytes <= 0 || maxReferenceTotalBytes < maxReferenceBytes || maxPixels <= 0 {
 		return request, nil, service.ErrInvalidImageStudioSubmission
 	}
 	form, err := common.ParseMultipartFormReusable(c)
@@ -602,31 +619,65 @@ func parseImageStudioEditSubmission(
 		return request, nil, service.ErrInvalidImageStudioSubmission
 	}
 	imageFiles, exists := form.File["image"]
-	if !exists || len(imageFiles) != 1 || len(form.File) != 1 {
+	if !exists || len(imageFiles) == 0 || len(imageFiles) > service.MaxImageStudioReferenceImages || len(form.File) != 1 {
 		return request, nil, service.ErrInvalidImageStudioSubmission
 	}
 	if err := common.UnmarshalJsonStr(requestValues[0], &request); err != nil {
 		return request, nil, service.ErrInvalidImageStudioSubmission
 	}
-	file, err := imageFiles[0].Open()
-	if err != nil {
+	if err := service.NormalizeImageStudioReferenceFields(&request); err != nil {
+		return request, nil, err
+	}
+	if len(request.References) != len(imageFiles) {
 		return request, nil, service.ErrInvalidImageStudioSubmission
 	}
 	validator := service.NewHTTPImageArchiveFetcher(service.ImageStudioTempDirectory())
-	archive, ingestErr := validator.Ingest(
-		file, imageFiles[0].Header.Get("Content-Type"), maxBytes, maxPixels,
-	)
-	closeErr := file.Close()
-	if ingestErr != nil || closeErr != nil {
-		if archive != nil {
+	archives := make([]*service.FetchedImageArchive, 0, len(imageFiles))
+	removeArchives := true
+	defer func() {
+		if !removeArchives {
+			return
+		}
+		for _, archive := range archives {
 			archive.Remove()
 		}
-		return request, nil, errors.Join(ingestErr, closeErr)
+	}()
+	var totalBytes int64
+	for index, imageFile := range imageFiles {
+		if imageFile.Size <= 0 || imageFile.Size > maxReferenceBytes ||
+			imageFile.Size > maxReferenceTotalBytes-totalBytes {
+			return request, nil, service.ErrImageArchiveTooLarge
+		}
+		file, err := imageFile.Open()
+		if err != nil {
+			return request, nil, service.ErrInvalidImageStudioSubmission
+		}
+		archive, ingestErr := validator.Ingest(
+			file, imageFile.Header.Get("Content-Type"), maxReferenceBytes, maxPixels,
+		)
+		closeErr := file.Close()
+		if ingestErr != nil || closeErr != nil {
+			if archive != nil {
+				archive.Remove()
+			}
+			return request, nil, errors.Join(ingestErr, closeErr)
+		}
+		archives = append(archives, archive)
+		if archive.SizeBytes > maxReferenceTotalBytes-totalBytes {
+			return request, nil, service.ErrImageArchiveTooLarge
+		}
+		totalBytes += archive.SizeBytes
+		reference := request.References[index]
+		if strings.ToLower(strings.TrimSpace(reference.SHA256)) != archive.SHA256 ||
+			reference.SizeBytes != archive.SizeBytes {
+			return request, nil, service.ErrInvalidImageStudioSubmission
+		}
+		request.References[index] = service.ImageStudioReferenceMetadata{
+			SHA256: archive.SHA256, SizeBytes: archive.SizeBytes,
+		}
 	}
-	request.Reference = &service.ImageStudioReferenceMetadata{
-		SHA256: archive.SHA256, SizeBytes: archive.SizeBytes,
-	}
-	return request, archive, nil
+	removeArchives = false
+	return request, archives, nil
 }
 
 func imageStudioModeForRoute(c *gin.Context) (string, error) {

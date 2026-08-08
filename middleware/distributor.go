@@ -53,6 +53,15 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
+			if !service.ChannelMeetsRequestCapabilities(c, channel) {
+				message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{
+					"Group": common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
+					"Model": modelRequest.Model,
+					"Error": service.ErrNoChannelSupportsImageReferences.Error(),
+				})
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
+				return
+			}
 		} else {
 			// Select a channel for the user
 			// check token model mapping
@@ -95,7 +104,10 @@ func Distribute() func(c *gin.Context) {
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
+					capabilityMismatch := err == nil && preferred != nil &&
+						!service.ChannelMeetsRequestCapabilities(c, preferred)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
+						!capabilityMismatch &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
@@ -117,7 +129,7 @@ func Distribute() func(c *gin.Context) {
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
 						}
 					}
-					if !affinityUsable && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
+					if !affinityUsable && !capabilityMismatch && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
 						service.ClearCurrentChannelAffinityCache(c)
 					}
 				}

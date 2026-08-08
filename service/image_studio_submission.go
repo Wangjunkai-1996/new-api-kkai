@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,14 +36,34 @@ type ImageStudioReferenceMetadata struct {
 }
 
 type ImageStudioSubmissionRequest struct {
-	TokenID    int                           `json:"token_id"`
-	Model      string                        `json:"model"`
-	Prompt     string                        `json:"prompt"`
-	Parameters map[string]any                `json:"parameters"`
-	SampleID   *int64                        `json:"sample_id,omitempty"`
-	QuoteToken string                        `json:"quote_token,omitempty"`
-	Mode       string                        `json:"-"`
-	Reference  *ImageStudioReferenceMetadata `json:"reference,omitempty"`
+	TokenID    int                            `json:"token_id"`
+	Model      string                         `json:"model"`
+	Prompt     string                         `json:"prompt"`
+	Parameters map[string]any                 `json:"parameters"`
+	SampleID   *int64                         `json:"sample_id,omitempty"`
+	QuoteToken string                         `json:"quote_token,omitempty"`
+	Mode       string                         `json:"-"`
+	Reference  *ImageStudioReferenceMetadata  `json:"reference,omitempty"`
+	References []ImageStudioReferenceMetadata `json:"references,omitempty"`
+}
+
+func (request *ImageStudioSubmissionRequest) UnmarshalJSON(data []byte) error {
+	type requestAlias ImageStudioSubmissionRequest
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, hasReference := fields["reference"]
+	_, hasReferences := fields["references"]
+	if hasReference && hasReferences {
+		return ErrInvalidImageStudioSubmission
+	}
+	var decoded requestAlias
+	if err := common.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*request = ImageStudioSubmissionRequest(decoded)
+	return nil
 }
 
 type NormalizedImageStudioSubmission struct {
@@ -59,7 +80,7 @@ type NormalizedImageStudioSubmission struct {
 	RequestHash          string
 	RelayRequest         *dto.ImageRequest
 	Mode                 string
-	Reference            *ImageStudioReferenceMetadata
+	References           []ImageStudioReferenceMetadata
 }
 
 func ValidateImageStudioSubmitRequest(request ImageStudioSubmissionRequest) error {
@@ -87,10 +108,9 @@ func NormalizeImageStudioSubmission(
 	if request.Mode == "" {
 		request.Mode = ImageStudioModeGeneration
 	}
-	if err := normalizeImageStudioReference(&request); err != nil {
+	if err := NormalizeImageStudioReferenceFields(&request); err != nil {
 		return nil, err
 	}
-
 	var sample *model.KKAIImageSample
 	if request.SampleID != nil {
 		if *request.SampleID <= 0 {
@@ -130,6 +150,13 @@ func NormalizeImageStudioSubmission(
 	if err != nil {
 		return nil, err
 	}
+	maxReferences := specification.MaxReferenceImages
+	if maxReferences == 0 {
+		maxReferences = 1
+	}
+	if err := normalizeImageStudioReferences(&request, maxReferences); err != nil {
+		return nil, err
+	}
 	if sample != nil && (sample.ModelProfileID != profile.ID || sample.ModelVersion != profile.SpecificationVersion) {
 		return nil, ErrInvalidImageStudioSubmission
 	}
@@ -155,7 +182,7 @@ func NormalizeImageStudioSubmission(
 		Prompt: request.Prompt, Parameters: parameters, SampleID: request.SampleID,
 		RequestedCount: int(*relayRequest.N), QuoteToken: request.QuoteToken,
 		RelayRequest: relayRequest, Mode: request.Mode,
-		Reference: cloneImageStudioReference(request.Reference),
+		References: cloneImageStudioReferences(request.References),
 	}
 	requestHash, err := imageStudioRequestHash(normalized, specification)
 	if err != nil {
@@ -186,7 +213,8 @@ func imageStudioRequestHash(normalized *NormalizedImageStudioSubmission, specifi
 	}
 	var encoded []byte
 	var err error
-	if normalized.Mode == ImageStudioModeEdit {
+	// Preserve single-reference quote and idempotency hashes across rolling deployments.
+	if normalized.Mode == ImageStudioModeEdit && len(normalized.References) == 1 {
 		canonical := struct {
 			TokenID              int                           `json:"token_id"`
 			ProfileID            int64                         `json:"profile_id"`
@@ -201,7 +229,25 @@ func imageStudioRequestHash(normalized *NormalizedImageStudioSubmission, specifi
 			TokenID: normalized.TokenID, ProfileID: normalized.ProfileID,
 			SpecificationVersion: normalized.SpecificationVersion, Model: normalized.Model,
 			Prompt: normalized.Prompt, Parameters: parameters, SampleID: normalized.SampleID,
-			Mode: normalized.Mode, Reference: normalized.Reference,
+			Mode: normalized.Mode, Reference: &normalized.References[0],
+		}
+		encoded, err = common.Marshal(canonical)
+	} else if normalized.Mode == ImageStudioModeEdit {
+		canonical := struct {
+			TokenID              int                            `json:"token_id"`
+			ProfileID            int64                          `json:"profile_id"`
+			SpecificationVersion int                            `json:"specification_version"`
+			Model                string                         `json:"model"`
+			Prompt               string                         `json:"prompt"`
+			Parameters           []canonicalParameter           `json:"parameters"`
+			SampleID             *int64                         `json:"sample_id,omitempty"`
+			Mode                 string                         `json:"mode"`
+			References           []ImageStudioReferenceMetadata `json:"references"`
+		}{
+			TokenID: normalized.TokenID, ProfileID: normalized.ProfileID,
+			SpecificationVersion: normalized.SpecificationVersion, Model: normalized.Model,
+			Prompt: normalized.Prompt, Parameters: parameters, SampleID: normalized.SampleID,
+			Mode: normalized.Mode, References: normalized.References,
 		}
 		encoded, err = common.Marshal(canonical)
 	} else {
@@ -229,24 +275,47 @@ func imageStudioRequestHash(normalized *NormalizedImageStudioSubmission, specifi
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func normalizeImageStudioReference(request *ImageStudioSubmissionRequest) error {
+func NormalizeImageStudioReferenceFields(request *ImageStudioSubmissionRequest) error {
+	if request == nil {
+		return ErrInvalidImageStudioSubmission
+	}
+	if request.Reference == nil {
+		return nil
+	}
+	if request.References != nil {
+		return ErrInvalidImageStudioSubmission
+	}
+	reference := *request.Reference
+	request.Reference = nil
+	request.References = []ImageStudioReferenceMetadata{reference}
+	return nil
+}
+
+func normalizeImageStudioReferences(request *ImageStudioSubmissionRequest, maxReferences int) error {
 	if request == nil {
 		return ErrInvalidImageStudioSubmission
 	}
 	switch request.Mode {
 	case ImageStudioModeGeneration:
-		if request.Reference != nil {
+		if len(request.References) != 0 {
 			return ErrInvalidImageStudioSubmission
 		}
 	case ImageStudioModeEdit:
-		if request.Reference == nil {
+		if maxReferences <= 0 || maxReferences > MaxImageStudioReferenceImages ||
+			len(request.References) == 0 || len(request.References) > maxReferences {
 			return ErrInvalidImageStudioSubmission
 		}
-		request.Reference.SHA256 = strings.ToLower(strings.TrimSpace(request.Reference.SHA256))
 		settings := image_studio_setting.Get()
-		if !validImageStudioHash(request.Reference.SHA256) || request.Reference.SizeBytes <= 0 ||
-			request.Reference.SizeBytes > settings.MaxOutputBytes {
-			return ErrInvalidImageStudioSubmission
+		var totalBytes int64
+		for index := range request.References {
+			reference := &request.References[index]
+			reference.SHA256 = strings.ToLower(strings.TrimSpace(reference.SHA256))
+			if !validImageStudioHash(reference.SHA256) || reference.SizeBytes <= 0 ||
+				reference.SizeBytes > settings.MaxReferenceBytes ||
+				reference.SizeBytes > settings.MaxReferenceTotalBytes-totalBytes {
+				return ErrInvalidImageStudioSubmission
+			}
+			totalBytes += reference.SizeBytes
 		}
 	default:
 		return ErrInvalidImageStudioSubmission
@@ -254,12 +323,11 @@ func normalizeImageStudioReference(request *ImageStudioSubmissionRequest) error 
 	return nil
 }
 
-func cloneImageStudioReference(reference *ImageStudioReferenceMetadata) *ImageStudioReferenceMetadata {
-	if reference == nil {
+func cloneImageStudioReferences(references []ImageStudioReferenceMetadata) []ImageStudioReferenceMetadata {
+	if len(references) == 0 {
 		return nil
 	}
-	cloned := *reference
-	return &cloned
+	return append([]ImageStudioReferenceMetadata(nil), references...)
 }
 
 func validImageStudioHash(value string) bool {

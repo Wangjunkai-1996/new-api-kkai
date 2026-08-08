@@ -6,14 +6,17 @@ import (
 )
 
 const (
-	AccessModeOff   = "off"
-	AccessModeAdmin = "admin"
-	AccessModeAll   = "all"
+	AccessModeOff               = "off"
+	AccessModeAdmin             = "admin"
+	AccessModeAll               = "all"
+	MaxImagesPerGenerationLimit = 4
 )
 
 type Setting struct {
 	AccessMode                      string `json:"access_mode"`
 	WorkerEnabled                   bool   `json:"worker_enabled"`
+	MaxReferenceBytes               int64  `json:"max_reference_bytes"`
+	MaxReferenceTotalBytes          int64  `json:"max_reference_total_bytes"`
 	MaxOutputBytes                  int64  `json:"max_output_bytes"`
 	MaxResponseBytes                int64  `json:"max_response_bytes"`
 	MaxPixels                       int64  `json:"max_pixels"`
@@ -28,11 +31,13 @@ type Setting struct {
 var imageStudioSetting = Setting{
 	AccessMode:                      AccessModeOff,
 	WorkerEnabled:                   false,
+	MaxReferenceBytes:               32 << 20,
+	MaxReferenceTotalBytes:          64 << 20,
 	MaxOutputBytes:                  32 << 20,
 	MaxResponseBytes:                128 << 20,
 	MaxPixels:                       64_000_000,
 	ThumbnailMaxPixels:              20_000_000,
-	MaxImagesPerGeneration:          4,
+	MaxImagesPerGeneration:          MaxImagesPerGenerationLimit,
 	SignedURLSeconds:                600,
 	SubmissionTimeoutSecs:           300,
 	MaxConcurrentSubmissions:        2,
@@ -50,6 +55,15 @@ func Get() Setting {
 	default:
 		setting.AccessMode = AccessModeOff
 	}
+	if setting.MaxReferenceBytes <= 0 || setting.MaxReferenceBytes > 128<<20 {
+		setting.MaxReferenceBytes = 32 << 20
+	}
+	if setting.MaxReferenceTotalBytes < setting.MaxReferenceBytes || setting.MaxReferenceTotalBytes > 128<<20 {
+		setting.MaxReferenceTotalBytes = 64 << 20
+		if setting.MaxReferenceTotalBytes < setting.MaxReferenceBytes {
+			setting.MaxReferenceTotalBytes = setting.MaxReferenceBytes
+		}
+	}
 	if setting.MaxOutputBytes <= 0 || setting.MaxOutputBytes > 128<<20 {
 		setting.MaxOutputBytes = 32 << 20
 	}
@@ -62,8 +76,8 @@ func Get() Setting {
 	if setting.ThumbnailMaxPixels <= 0 || setting.ThumbnailMaxPixels > 32_000_000 {
 		setting.ThumbnailMaxPixels = 20_000_000
 	}
-	if setting.MaxImagesPerGeneration < 1 || setting.MaxImagesPerGeneration > 16 {
-		setting.MaxImagesPerGeneration = 4
+	if setting.MaxImagesPerGeneration < 1 || setting.MaxImagesPerGeneration > MaxImagesPerGenerationLimit {
+		setting.MaxImagesPerGeneration = MaxImagesPerGenerationLimit
 	}
 	if setting.SignedURLSeconds < 60 || setting.SignedURLSeconds > 3600 {
 		setting.SignedURLSeconds = 600

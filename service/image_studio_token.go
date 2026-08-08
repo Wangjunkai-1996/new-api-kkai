@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -47,12 +48,14 @@ type ImageStudioTokenView struct {
 }
 
 type ImageStudioTokenCapability struct {
-	RequiredGroup   string                 `json:"required_group"`
-	HasUsableToken  bool                   `json:"has_usable_token"`
-	CanCreate       bool                   `json:"can_create"`
-	EffectiveModels []string               `json:"effective_models"`
-	Status          ImageStudioTokenStatus `json:"status"`
-	Token           *ImageStudioTokenView  `json:"token,omitempty"`
+	RequiredGroup          string                 `json:"required_group"`
+	HasUsableToken         bool                   `json:"has_usable_token"`
+	CanCreate              bool                   `json:"can_create"`
+	EffectiveModels        []string               `json:"effective_models"`
+	MaxReferenceBytes      int64                  `json:"max_reference_bytes"`
+	MaxReferenceTotalBytes int64                  `json:"max_reference_total_bytes"`
+	Status                 ImageStudioTokenStatus `json:"status"`
+	Token                  *ImageStudioTokenView  `json:"token,omitempty"`
 }
 
 type ImageStudioTokenEnsureResult struct {
@@ -67,8 +70,13 @@ func GetImageStudioTokenStatus(
 	modelName string,
 	clientIP string,
 ) (ImageStudioTokenCapability, error) {
+	settings := image_studio_setting.Get()
 	capability := ImageStudioTokenCapability{
-		RequiredGroup: ImageStudioTokenGroup, EffectiveModels: []string{}, Status: ImageStudioTokenStatusMissing,
+		RequiredGroup:          ImageStudioTokenGroup,
+		EffectiveModels:        []string{},
+		MaxReferenceBytes:      settings.MaxReferenceBytes,
+		MaxReferenceTotalBytes: settings.MaxReferenceTotalBytes,
+		Status:                 ImageStudioTokenStatusMissing,
 	}
 	user, err := getImageStudioUser(ctx, db, userID)
 	if err != nil {
@@ -116,8 +124,13 @@ func EnsureImageStudioToken(
 	modelName string,
 	clientIP string,
 ) (ImageStudioTokenEnsureResult, error) {
+	settings := image_studio_setting.Get()
 	result := ImageStudioTokenEnsureResult{ImageStudioTokenCapability: ImageStudioTokenCapability{
-		RequiredGroup: ImageStudioTokenGroup, EffectiveModels: []string{}, Status: ImageStudioTokenStatusMissing,
+		RequiredGroup:          ImageStudioTokenGroup,
+		EffectiveModels:        []string{},
+		MaxReferenceBytes:      settings.MaxReferenceBytes,
+		MaxReferenceTotalBytes: settings.MaxReferenceTotalBytes,
+		Status:                 ImageStudioTokenStatusMissing,
 	}}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {

@@ -43,6 +43,47 @@ func TestValidateImageModelSpecRejectsUnsafeOrUnknownFields(t *testing.T) {
 	oversizedOption := validImageModelSpec()
 	oversizedOption.Parameters[0].Options[0].Label = string(make([]byte, 129))
 	assert.ErrorIs(t, ValidateImageModelSpec(oversizedOption, nil), ErrInvalidImageModelSpec)
+
+	tooManyReferences := validImageModelSpec()
+	tooManyReferences.MaxReferenceImages = MaxImageStudioReferenceImages + 1
+	assert.ErrorIs(t, ValidateImageModelSpec(tooManyReferences, nil), ErrInvalidImageModelSpec)
+}
+
+func TestValidateImageModelSpecAllowsDefaultAndBoundedReferenceCounts(t *testing.T) {
+	defaults := map[string]any{"size": "1024x1024"}
+	defaultSingle := validImageModelSpec()
+	require.NoError(t, ValidateImageModelSpec(defaultSingle, defaults))
+
+	multiple := validImageModelSpec()
+	multiple.MaxReferenceImages = MaxImageStudioReferenceImages
+	require.NoError(t, ValidateImageModelSpec(multiple, defaults))
+}
+
+func TestImageStudioOutputLimitAcceptsLegacyBoundsButRejectsUnsafeMinimumDefaultsAndValues(t *testing.T) {
+	legacyWide := validImageModelSpec()
+	*legacyWide.Parameters[1].Max = dto.MaxImageN
+	require.NoError(t, ValidateImageModelSpec(legacyWide, map[string]any{
+		"size": "1024x1024", "count": MaxImageStudioOutputs,
+	}))
+	assert.ErrorIs(t, ValidateImageModelSpec(legacyWide, map[string]any{
+		"size": "1024x1024", "count": MaxImageStudioOutputs + 1,
+	}), ErrInvalidImageModelSpec)
+
+	unsafeMinimum := validImageModelSpec()
+	*unsafeMinimum.Parameters[1].Min = MaxImageStudioOutputs + 1
+	*unsafeMinimum.Parameters[1].Max = dto.MaxImageN
+	assert.ErrorIs(t, ValidateImageModelSpec(unsafeMinimum, map[string]any{
+		"size": "1024x1024",
+	}), ErrInvalidImageModelSpec)
+
+	_, err := ValidateImageParameters(legacyWide, map[string]any{
+		"size": "1024x1024", "count": MaxImageStudioOutputs + 1,
+	}, true)
+	assert.ErrorIs(t, err, ErrInvalidImageParameters)
+	_, err = BuildImageRelayRequest("image-model", "draw a cat", legacyWide, map[string]any{
+		"size": "1024x1024", "count": MaxImageStudioOutputs + 1,
+	})
+	assert.ErrorIs(t, err, ErrInvalidImageParameters)
 }
 
 func TestValidateImageParametersRejectsUnknownFractionalAndProductOverflow(t *testing.T) {

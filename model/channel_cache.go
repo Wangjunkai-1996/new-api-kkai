@@ -113,22 +113,32 @@ func SyncChannelCacheOnce() error {
 	return nil
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(
+	group string,
+	model string,
+	retry int,
+	requestPath string,
+	allowedChannelTypes []int,
+) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath)
+		return GetChannel(group, model, retry, requestPath, allowedChannelTypes)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels := filterChannelsByRequestPathAndModel(group2model2channels[group][model], requestPath, model)
+	channels := filterChannelsByRequestPathAndModel(
+		group2model2channels[group][model], requestPath, model, allowedChannelTypes,
+	)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		channels = filterChannelsByRequestPathAndModel(group2model2channels[group][normalizedModel], requestPath, model)
+		channels = filterChannelsByRequestPathAndModel(
+			group2model2channels[group][normalizedModel], requestPath, model, allowedChannelTypes,
+		)
 	}
 
 	if len(channels) == 0 {
@@ -215,8 +225,13 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 // only when one of their configured routes matches requestPath and model. All
 // other channel types always pass. When requestPath is empty, filtering is skipped.
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.
-func filterChannelsByRequestPathAndModel(channels []int, requestPath string, model string) []int {
-	if requestPath == "" || len(channels) == 0 {
+func filterChannelsByRequestPathAndModel(
+	channels []int,
+	requestPath string,
+	model string,
+	allowedChannelTypes []int,
+) []int {
+	if len(channels) == 0 || (requestPath == "" && len(allowedChannelTypes) == 0) {
 		return channels
 	}
 	filtered := make([]int, 0, len(channels))
@@ -227,7 +242,10 @@ func filterChannelsByRequestPathAndModel(channels []int, requestPath string, mod
 			filtered = append(filtered, channelId)
 			continue
 		}
-		if channel.Type != constant.ChannelTypeAdvancedCustom {
+		if !channelTypeAllowed(channel.Type, allowedChannelTypes) {
+			continue
+		}
+		if requestPath == "" || channel.Type != constant.ChannelTypeAdvancedCustom {
 			filtered = append(filtered, channelId)
 			continue
 		}
@@ -236,6 +254,18 @@ func filterChannelsByRequestPathAndModel(channels []int, requestPath string, mod
 		}
 	}
 	return filtered
+}
+
+func channelTypeAllowed(channelType int, allowedChannelTypes []int) bool {
+	if len(allowedChannelTypes) == 0 {
+		return true
+	}
+	for _, allowedType := range allowedChannelTypes {
+		if channelType == allowedType {
+			return true
+		}
+	}
+	return false
 }
 
 func CacheGetChannel(id int) (*Channel, error) {
