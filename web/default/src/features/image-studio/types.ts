@@ -55,6 +55,7 @@ export type ImageParameterControl =
 
 export type ImageModelSpec = {
   version: number
+  max_reference_images?: number
   parameters: ImageParameterControl[]
 }
 
@@ -153,6 +154,8 @@ export type ImageTokenCapability = {
   has_usable_token: boolean
   can_create: boolean
   effective_models: string[]
+  max_reference_bytes: number
+  max_reference_total_bytes: number
   status: ImageTokenStatus
   token?: { id: number; name: string; group: string }
 }
@@ -174,9 +177,17 @@ export type ImageReferenceMetadata = {
   size_bytes: number
 }
 
-export type ImageEditQuoteRequest = ImageQuoteRequest & {
+export type ImageSingleEditQuoteRequest = ImageQuoteRequest & {
   reference: ImageReferenceMetadata
 }
+
+export type ImageMultiEditQuoteRequest = ImageQuoteRequest & {
+  references: ImageReferenceMetadata[]
+}
+
+export type ImageEditQuoteRequest =
+  | ImageSingleEditQuoteRequest
+  | ImageMultiEditQuoteRequest
 
 export type ImageQuote = {
   quota: number

@@ -43,19 +43,24 @@ import {
   useImageStudioDraftStore,
 } from '@/stores/image-studio-draft-store'
 
-import { useImageReference } from '../hooks/use-image-reference'
+import { useImageComposerSchema } from '../hooks/use-image-composer-schema'
+import { useImageEditReferences } from '../hooks/use-image-edit-references'
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import {
   buildCreateImageEditRequest,
   buildCreateImageRequest,
   buildImageComposerValues,
-  classifyImageGenerationStatus,
-  findImageEditProfile,
-  IMAGE_STUDIO_EDIT_MODEL,
   imageRequestFingerprint,
   imageSubmissionFingerprint,
-  normalizeImageParameters,
+  resolveImageGenerationStatus,
 } from '../image-domain'
+import {
+  buildImageEditQuoteRequest,
+  IMAGE_STUDIO_EDIT_MODEL,
+  isImageEditQuoteRequest,
+  isImageQuoteStaleResponse,
+} from '../image-edit-domain'
+import { parseImageParameters } from '../image-parameters'
 import {
   useCreateImageEdit,
   useCreateImageGeneration,
@@ -73,7 +78,7 @@ import type {
   ImageStudioComposerMode,
 } from '../types'
 import { ImageParameterFields } from './image-parameter-fields'
-import { ImageReferencePicker } from './image-reference-picker'
+import { ImageReferenceField } from './image-reference-field'
 import { ImageTokenSetupDialog } from './image-token-setup-dialog'
 
 const EMPTY_VALUES: ImageComposerValues = {
@@ -112,16 +117,22 @@ export function ImageComposer(props: {
   const modelsQuery = useImageModels(props.tokenGate.tokenId)
   const generationMutation = useCreateImageGeneration()
   const editMutation = useCreateImageEdit()
+  const composerSchema = useImageComposerSchema(modelsQuery.data)
   const form = useForm<ImageComposerValues>({
-    resolver: zodResolver(imageComposerSchema),
+    resolver: zodResolver(composerSchema),
     defaultValues: EMPTY_VALUES,
+    mode: 'onChange',
   })
   const values = useWatch({ control: form.control })
   const [mode, setMode] = useState<ImageStudioComposerMode>('generation')
-  const reference = useImageReference()
+  const [staleQuoteToken, setStaleQuoteToken] = useState<string | null>(null)
+  const {
+    profile: editProfile,
+    maxImages: maxReferenceImages,
+    references: reference,
+  } = useImageEditReferences(modelsQuery.data, props.tokenGate.capability)
   const initializedRef = useRef(false)
   const appliedSampleRef = useRef<number | undefined>(undefined)
-  const editProfile = findImageEditProfile(modelsQuery.data)
   const selectedProfile = modelsQuery.data?.find(
     (profile) => profile.id === values.model_profile_id
   )
@@ -177,11 +188,11 @@ export function ImageComposer(props: {
       clearDraft(userId)
       return
     }
-    const parsed = imageComposerSchema.safeParse(values)
+    const parsed = composerSchema.safeParse(values)
     if (!parsed.success) return
     const timer = window.setTimeout(() => saveDraft(userId, parsed.data), 300)
     return () => window.clearTimeout(timer)
-  }, [clearDraft, form, mode, saveDraft, userId, values])
+  }, [clearDraft, composerSchema, form, mode, saveDraft, userId, values])
 
   const quoteRequest = useMemo<
     ImageQuoteRequest | ImageEditQuoteRequest | null
@@ -189,30 +200,26 @@ export function ImageComposer(props: {
     if (!props.tokenGate.tokenId || !selectedProfile) return null
     const parsed = imageComposerSchema.safeParse(values)
     if (!parsed.success) return null
-    const parameters = normalizeImageParameters(
+    const parsedParameters = parseImageParameters(
       selectedProfile,
       parsed.data.parameters
     )
-    const missingRequired = selectedProfile.specification.parameters.some(
-      (parameter) =>
-        parameter.required && parameters[parameter.key] === undefined
-    )
-    if (missingRequired) return null
+    if (!parsedParameters.success) return null
     const request: ImageQuoteRequest = {
       token_id: props.tokenGate.tokenId,
       model: selectedProfile.model,
       prompt: parsed.data.prompt.trim(),
-      parameters,
+      parameters: parsedParameters.parameters,
       sample_id: parsed.data.sample_id,
     }
     if (mode === 'generation') return request
     if (
       selectedProfile.model !== IMAGE_STUDIO_EDIT_MODEL ||
-      !reference.metadata
+      reference.metadata.length === 0
     ) {
       return null
     }
-    return { ...request, reference: reference.metadata }
+    return buildImageEditQuoteRequest(request, reference.metadata)
   }, [
     mode,
     props.tokenGate.tokenId,
@@ -222,7 +229,7 @@ export function ImageComposer(props: {
   ])
   const debouncedRequest = useDebouncedRequest(quoteRequest, 400)
   const debouncedIsEdit =
-    debouncedRequest !== null && 'reference' in debouncedRequest
+    debouncedRequest !== null && isImageEditQuoteRequest(debouncedRequest)
   const generationQuoteQuery = useImageQuote(
     mode === 'generation' && !debouncedIsEdit ? debouncedRequest : null
   )
@@ -237,7 +244,10 @@ export function ImageComposer(props: {
     quoteRequest !== null &&
     imageRequestFingerprint(debouncedRequest) ===
       imageRequestFingerprint(quoteRequest)
-  const currentQuote = quoteMatchesRequest ? quoteQuery.data : undefined
+  const currentQuote =
+    quoteMatchesRequest && quoteQuery.data?.quote_token !== staleQuoteToken
+      ? quoteQuery.data
+      : undefined
   const submitPending = editMutation.isPending || generationMutation.isPending
   let quoteDisplay = '—'
   let quoteBusy = false
@@ -283,7 +293,7 @@ export function ImageComposer(props: {
     if (!quoteRequest || !currentQuote) return
     if (
       mode === 'edit' &&
-      (!reference.file || !('reference' in quoteRequest))
+      (reference.files.length === 0 || !isImageEditQuoteRequest(quoteRequest))
     ) {
       return
     }
@@ -318,10 +328,10 @@ export function ImageComposer(props: {
     }
     try {
       let generation: ImageGeneration
-      if (mode === 'edit' && reference.file && 'reference' in quoteRequest) {
+      if (isImageEditQuoteRequest(quoteRequest)) {
         generation = await editMutation.mutateAsync({
           request: buildCreateImageEditRequest(quoteRequest, quote),
-          image: reference.file,
+          images: reference.files,
           idempotencyKey,
         })
       } else {
@@ -331,15 +341,17 @@ export function ImageComposer(props: {
         })
       }
       clearImageStudioSubmissionKey(userId, requestFingerprint)
-      const outcome = classifyImageGenerationStatus(generation.status)
-      if (outcome === 'failure') {
+      const resolution = resolveImageGenerationStatus(generation.status)
+      if (resolution.outcome === 'failure') {
         toast.error(
           mode === 'edit'
             ? t('imageStudio.editFailed')
             : t('imageStudio.generationFailed')
         )
+      } else if (resolution.outcome === 'pending') {
+        toast.info(t('imageStudio.submissionProcessing'))
       } else {
-        if (mode === 'generation') clearDraft(userId)
+        if (mode === 'generation' && resolution.clearDraft) clearDraft(userId)
         toast.success(
           mode === 'edit'
             ? t('imageStudio.editSubmitted')
@@ -348,6 +360,12 @@ export function ImageComposer(props: {
       }
       props.onSubmitted(generation)
     } catch (error) {
+      if (isImageQuoteStaleResponse(error)) {
+        setStaleQuoteToken(quote.quote_token)
+        toast.error(t('imageStudio.quoteChanged'))
+        await quoteQuery.refetch()
+        return
+      }
       let message = t('imageStudio.submitFailed')
       if (mode === 'edit') message = t('imageStudio.editSubmitFailed')
       if (error instanceof Error) message = error.message
@@ -479,13 +497,10 @@ export function ImageComposer(props: {
             )}
           />
           {mode === 'edit' && editProfile && (
-            <ImageReferencePicker
-              file={reference.file}
-              processing={reference.processing}
-              disabled={submitPending}
-              error={reference.error}
-              onSelect={(file) => void reference.select(file)}
-              onClear={reference.clear}
+            <ImageReferenceField
+              controller={reference}
+              maxReferenceImages={maxReferenceImages}
+              disabled={submitPending || reference.processing}
             />
           )}
           <FormField

@@ -179,9 +179,9 @@ export const useCreateImageEdit = () => {
   return useMutation({
     mutationFn: (input: {
       request: CreateImageEditRequest
-      image: File
+      images: readonly File[]
       idempotencyKey: string
-    }) => createImageEdit(input.request, input.image, input.idempotencyKey),
+    }) => createImageEdit(input.request, input.images, input.idempotencyKey),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: privateUserQueryKey(userId, 'image-studio', 'generations'),

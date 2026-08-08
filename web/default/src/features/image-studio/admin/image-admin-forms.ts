@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import { IMAGE_STUDIO_MAX_OUTPUTS } from '../image-parameters'
 import type {
   ImageModelProfile,
   ImageModelProfileInput,
@@ -92,6 +93,11 @@ export const imageModelFormSchema = z
       .int()
       .min(-100000, 'imageStudio.validation.sortOutOfRange')
       .max(100000, 'imageStudio.validation.sortOutOfRange'),
+    max_reference_images: z
+      .number()
+      .int()
+      .min(1, 'imageStudio.validation.referenceCountRange')
+      .max(4, 'imageStudio.validation.referenceCountRange'),
     parameters: z
       .array(imageParameterFormSchema)
       .max(9, 'imageStudio.validation.parametersTooMany'),
@@ -185,10 +191,16 @@ const validateParameterDetails = (
   if (control === 'integer') {
     const allowedMin = parameter.request_key === 'n' ? 1 : 0
     const allowedMax = parameter.request_key === 'n' ? 128 : 100
+    const defaultMax =
+      parameter.request_key === 'n'
+        ? Math.min(parameter.max, IMAGE_STUDIO_MAX_OUTPUTS)
+        : parameter.max
     if (
       parameter.min < allowedMin ||
       parameter.max > allowedMax ||
-      parameter.min > parameter.max
+      parameter.min > parameter.max ||
+      (parameter.request_key === 'n' &&
+        parameter.min > IMAGE_STUDIO_MAX_OUTPUTS)
     ) {
       context.addIssue({
         code: 'custom',
@@ -200,7 +212,7 @@ const validateParameterDetails = (
       parameter.has_default &&
       (typeof parameter.default_value !== 'number' ||
         parameter.default_value < parameter.min ||
-        parameter.default_value > parameter.max)
+        parameter.default_value > defaultMax)
     ) {
       context.addIssue({
         code: 'custom',
@@ -253,6 +265,11 @@ export const createImageModelFormValues = (
   provider_label: profile?.provider_label ?? '',
   enabled: profile?.enabled ?? false,
   sort_order: profile?.sort_order ?? 0,
+  max_reference_images:
+    profile?.specification.max_reference_images &&
+    profile.specification.max_reference_images > 0
+      ? profile.specification.max_reference_images
+      : 1,
   parameters:
     profile?.specification.parameters.map((parameter) =>
       parameterFormValues(parameter, profile.default_parameters[parameter.key])
@@ -279,10 +296,12 @@ const parameterFromForm = (
 }
 
 const parameterSpecificationFingerprint = (
-  parameters: ImageParameterControl[]
+  parameters: ImageParameterControl[],
+  maxReferenceImages: number | undefined
 ): string =>
-  JSON.stringify(
-    parameters.map((parameter) => {
+  JSON.stringify({
+    max_reference_images: maxReferenceImages,
+    parameters: parameters.map((parameter) => {
       const common = {
         key: parameter.key,
         label: parameter.label,
@@ -303,8 +322,8 @@ const parameterSpecificationFingerprint = (
         return { ...common, min: parameter.min, max: parameter.max }
       }
       return common
-    })
-  )
+    }),
+  })
 
 export const parseImageModelForm = (
   values: ImageModelFormValues,
@@ -315,9 +334,13 @@ export const parseImageModelForm = (
   values.parameters.forEach((parameter) => {
     if (parameter.has_default) defaults[parameter.key] = parameter.default_value
   })
-  const snapshot = parameterSpecificationFingerprint(parameters)
+  const snapshot = parameterSpecificationFingerprint(
+    parameters,
+    values.max_reference_images
+  )
   const currentSnapshot = parameterSpecificationFingerprint(
-    current?.specification.parameters ?? []
+    current?.specification.parameters ?? [],
+    current?.specification.max_reference_images
   )
   const version = current
     ? current.specification_version + (snapshot === currentSnapshot ? 0 : 1)
@@ -329,7 +352,11 @@ export const parseImageModelForm = (
     provider_label: values.provider_label.trim(),
     enabled: values.enabled,
     sort_order: values.sort_order,
-    specification: { version, parameters },
+    specification: {
+      version,
+      max_reference_images: values.max_reference_images,
+      parameters,
+    },
     default_parameters: defaults,
   }
 }

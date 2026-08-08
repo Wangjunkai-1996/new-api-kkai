@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import { IMAGE_REFERENCE_DEFAULT_MAX_BYTES } from './image-reference-metadata'
+
 const imageMediaUrlSchema = z.string().refine((value) => {
   if (value.startsWith('/') && !value.startsWith('//')) return true
   try {
@@ -70,6 +72,7 @@ export const imageModelProfileSchema = z.object({
   specification_version: z.number().int().positive(),
   specification: z.object({
     version: z.number().int().positive(),
+    max_reference_images: z.number().int().min(0).max(4).optional(),
     parameters: z.array(imageParameterSchema),
   }),
   default_parameters: imageParametersSchema,
@@ -146,6 +149,16 @@ const imageTokenCapabilityFields = {
   has_usable_token: z.boolean(),
   can_create: z.boolean(),
   effective_models: z.array(z.string()),
+  max_reference_bytes: z
+    .number()
+    .int()
+    .positive()
+    .default(IMAGE_REFERENCE_DEFAULT_MAX_BYTES),
+  max_reference_total_bytes: z
+    .number()
+    .int()
+    .positive()
+    .default(IMAGE_REFERENCE_DEFAULT_MAX_BYTES),
   status: z.enum([
     'ready',
     'missing',

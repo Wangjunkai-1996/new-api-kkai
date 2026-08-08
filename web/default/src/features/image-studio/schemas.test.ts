@@ -62,6 +62,8 @@ describe('image API response schemas', () => {
       has_usable_token: true,
       can_create: true,
       effective_models: ['gpt-image-1'],
+      max_reference_bytes: 32 << 20,
+      max_reference_total_bytes: 64 << 20,
       status: 'ready',
       token: {
         id: 8,

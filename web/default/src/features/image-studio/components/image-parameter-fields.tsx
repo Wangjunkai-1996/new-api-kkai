@@ -24,7 +24,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 
-import { IMAGE_STUDIO_MAX_OUTPUTS } from '../image-domain'
+import { IMAGE_STUDIO_MAX_OUTPUTS } from '../image-parameters'
 import type {
   ImageComposerValues,
   ImageModelProfile,
@@ -44,17 +44,34 @@ export function ImageParameterFields(props: {
           key={parameter.key}
           control={props.control}
           name={`parameters.${parameter.key}`}
-          render={({ field }) => {
+          render={({ field, fieldState }) => {
             const id = `image-parameter-${parameter.key}`
+            const errorId = `${id}-error`
+            const errorMessage = fieldState.error?.message
+              ? t(String(fieldState.error.message))
+              : null
+            const error = errorMessage ? (
+              <p id={errorId} className='text-destructive text-sm' role='alert'>
+                {errorMessage}
+              </p>
+            ) : null
             if (parameter.control === 'boolean') {
               return (
-                <div className='flex min-h-10 items-center justify-between gap-3 rounded-md border px-3'>
-                  <Label htmlFor={id}>{parameter.label}</Label>
-                  <Switch
-                    id={id}
-                    checked={field.value === true}
-                    onCheckedChange={field.onChange}
-                  />
+                <div className='space-y-1.5'>
+                  <div className='flex min-h-10 items-center justify-between gap-3 rounded-md border px-3'>
+                    <Label htmlFor={id}>{parameter.label}</Label>
+                    <Switch
+                      id={id}
+                      checked={field.value === true}
+                      onCheckedChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                      aria-invalid={Boolean(errorMessage)}
+                      aria-describedby={errorMessage ? errorId : undefined}
+                    />
+                  </div>
+                  {error}
                 </div>
               )
             }
@@ -67,6 +84,11 @@ export function ImageParameterFields(props: {
                     className='w-full'
                     value={typeof field.value === 'string' ? field.value : ''}
                     onChange={(event) => field.onChange(event.target.value)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-invalid={Boolean(errorMessage)}
+                    aria-describedby={errorMessage ? errorId : undefined}
                   >
                     <NativeSelectOption value=''>
                       {t('imageStudio.parameter.select')}
@@ -84,6 +106,7 @@ export function ImageParameterFields(props: {
                   <Input
                     id={id}
                     type='number'
+                    step={1}
                     min={parameter.min}
                     max={
                       parameter.request_key === 'n'
@@ -91,6 +114,11 @@ export function ImageParameterFields(props: {
                         : parameter.max
                     }
                     value={typeof field.value === 'number' ? field.value : ''}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-invalid={Boolean(errorMessage)}
+                    aria-describedby={errorMessage ? errorId : undefined}
                     onChange={(event) => {
                       const value: ImageParameterValue | undefined =
                         event.target.value === ''
@@ -100,6 +128,7 @@ export function ImageParameterFields(props: {
                     }}
                   />
                 )}
+                {error}
               </div>
             )
           }}

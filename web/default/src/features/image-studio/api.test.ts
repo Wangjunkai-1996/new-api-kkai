@@ -23,7 +23,7 @@ import { buildImageEditFormData } from './api'
 import type { CreateImageEditRequest } from './types'
 
 describe('image edit transport', () => {
-  test('sends exactly one request field and one reference image file', async () => {
+  test('sends the legacy reference field for one image', () => {
     const request: CreateImageEditRequest = {
       token_id: 3,
       model: 'gpt-image-2',
@@ -36,21 +36,46 @@ describe('image edit transport', () => {
       type: 'image/png',
     })
 
-    const body = buildImageEditFormData(request, image)
+    const body = buildImageEditFormData(request, [image])
 
-    assert.deepEqual([...body.keys()], ['request', 'image'])
-    assert.equal(body.getAll('request').length, 1)
+    assert.deepEqual(JSON.parse(body.get('request') as string), request)
     assert.equal(body.getAll('image').length, 1)
+  })
+
+  test('sends one request field and ordered repeated image fields', async () => {
+    const request: CreateImageEditRequest = {
+      token_id: 3,
+      model: 'gpt-image-2',
+      prompt: 'change the lighting',
+      parameters: { size: '1024x1024', count: 1 },
+      references: [
+        { sha256: 'a'.repeat(64), size_bytes: 9 },
+        { sha256: 'b'.repeat(64), size_bytes: 10 },
+      ],
+      quote_token: 'opaque.edit.quote',
+    }
+    const images = [
+      new File(['reference-1'], 'reference-1.png', { type: 'image/png' }),
+      new File(['reference-2'], 'reference-2.webp', { type: 'image/webp' }),
+    ]
+
+    const body = buildImageEditFormData(request, images)
+
+    assert.deepEqual([...body.keys()], ['request', 'image', 'image'])
+    assert.equal(body.getAll('request').length, 1)
+    assert.equal(body.getAll('image').length, 2)
     const encodedRequest = body.get('request')
     assert.equal(typeof encodedRequest, 'string')
     assert.deepEqual(JSON.parse(encodedRequest as string), request)
-    const encodedImage = body.get('image')
-    assert.ok(encodedImage instanceof File)
-    assert.equal(encodedImage.name, image.name)
-    assert.equal(encodedImage.type, image.type)
-    assert.deepEqual(
-      new Uint8Array(await encodedImage.arrayBuffer()),
-      new Uint8Array(await image.arrayBuffer())
-    )
+    const encodedImages = body.getAll('image')
+    for (const [index, encodedImage] of encodedImages.entries()) {
+      assert.ok(encodedImage instanceof File)
+      assert.equal(encodedImage.name, images[index].name)
+      assert.equal(encodedImage.type, images[index].type)
+      assert.deepEqual(
+        new Uint8Array(await encodedImage.arrayBuffer()),
+        new Uint8Array(await images[index].arrayBuffer())
+      )
+    }
   })
 })

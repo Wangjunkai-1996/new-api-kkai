@@ -191,22 +191,22 @@ export const createImageGeneration = async (
 
 export const buildImageEditFormData = (
   request: CreateImageEditRequest,
-  image: File
+  images: readonly File[]
 ): FormData => {
   const body = new FormData()
   body.append('request', JSON.stringify(request))
-  body.append('image', image)
+  for (const image of images) body.append('image', image)
   return body
 }
 
 export const createImageEdit = async (
   request: CreateImageEditRequest,
-  image: File,
+  images: readonly File[],
   idempotencyKey: string
 ): Promise<ImageGeneration> =>
   submitImageStudioRequest(
     '/pg/images/edits',
-    buildImageEditFormData(request, image),
+    buildImageEditFormData(request, images),
     idempotencyKey
   )
 

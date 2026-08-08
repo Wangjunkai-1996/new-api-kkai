@@ -271,6 +271,11 @@ export function ImageModelAdmin() {
                 name='sort_order'
                 label={t('imageStudio.admin.sortOrder')}
               />
+              <NumberField
+                form={form}
+                name='max_reference_images'
+                label={t('imageStudio.admin.maxReferenceImages')}
+              />
             </div>
             <FormField
               control={form.control}
@@ -365,7 +370,7 @@ function TextField(props: {
 
 function NumberField(props: {
   form: UseFormReturn<ImageModelFormValues>
-  name: 'sort_order'
+  name: 'sort_order' | 'max_reference_images'
   label: string
 }) {
   return (

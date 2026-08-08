@@ -20,24 +20,15 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
-  buildCreateImageEditRequest,
   buildCreateImageRequest,
   buildImageComposerValues,
   canAccessImageStudio,
-  classifyImageGenerationStatus,
-  findImageEditProfile,
-  getImageReferenceMetadata,
   getImageGenerationPollInterval,
   imageSubmissionFingerprint,
-  normalizeImageParameters,
   normalizeImageStudioAccessMode,
+  resolveImageGenerationStatus,
 } from './image-domain'
-import type {
-  ImageEditQuoteRequest,
-  ImageModelProfile,
-  ImageQuote,
-  ImageQuoteRequest,
-} from './types'
+import type { ImageModelProfile, ImageQuote, ImageQuoteRequest } from './types'
 
 const profile: ImageModelProfile = {
   id: 7,
@@ -108,46 +99,6 @@ describe('image studio access', () => {
 })
 
 describe('image composer parameters', () => {
-  test('enables editing only for the exact gpt-image-2 profile', () => {
-    const editProfile = { ...profile, id: 8, model: 'gpt-image-2' }
-    const suffixProfile = { ...profile, id: 9, model: 'gpt-image-2-2k' }
-
-    assert.equal(
-      findImageEditProfile([suffixProfile, editProfile]),
-      editProfile
-    )
-    assert.equal(findImageEditProfile([suffixProfile]), undefined)
-    assert.equal(
-      findImageEditProfile([{ ...profile, model: 'gpt-image-2k' }]),
-      undefined
-    )
-  })
-
-  test('keeps only values allowed by the active model specification', () => {
-    assert.deepEqual(
-      normalizeImageParameters(profile, {
-        size: '1024x1536',
-        count: 4,
-        compression: 101,
-        watermark: true,
-        unknown: 'must-not-pass',
-      }),
-      {
-        size: '1024x1536',
-        count: 4,
-        watermark: true,
-      }
-    )
-    assert.deepEqual(normalizeImageParameters(profile, { size: 'auto' }), {})
-  })
-
-  test('enforces the first-phase four-image limit independently of admin range', () => {
-    assert.deepEqual(normalizeImageParameters(profile, { count: 5 }), {})
-    assert.deepEqual(normalizeImageParameters(profile, { count: 4 }), {
-      count: 4,
-    })
-  })
-
   test('sanitizes profile defaults and stale drafts when building the form', () => {
     assert.deepEqual(
       buildImageComposerValues(profile, {
@@ -199,43 +150,25 @@ describe('image submission recovery', () => {
     assert.equal('quote_expires_at' in request, false)
   })
 
-  test('classifies every generation status into one explicit outcome', () => {
-    assert.equal(classifyImageGenerationStatus('succeeded'), 'success')
-    assert.equal(classifyImageGenerationStatus('partial'), 'success')
-    assert.equal(classifyImageGenerationStatus('submitting'), 'pending')
-    assert.equal(classifyImageGenerationStatus('failed'), 'failure')
-    assert.equal(classifyImageGenerationStatus('archive_failed'), 'failure')
-    assert.equal(classifyImageGenerationStatus('unknown'), 'failure')
-  })
-
-  test('binds an edit quote and submission to the reference digest', async () => {
-    const reference = await getImageReferenceMetadata(
-      new Blob(['reference-image'], { type: 'image/png' })
-    )
-    assert.deepEqual(reference, {
-      sha256:
-        '4110dd12af975f556bdac0299d0bfa04d42fa22d94f56b8550f1762e48fff7fb',
-      size_bytes: 15,
+  test('clears drafts only after a completed generation', () => {
+    assert.deepEqual(resolveImageGenerationStatus('succeeded'), {
+      outcome: 'success',
+      clearDraft: true,
     })
-
-    const quoteRequest: ImageEditQuoteRequest = {
-      token_id: 3,
-      model: 'gpt-image-2',
-      prompt: 'preserve the subject and change the lighting',
-      parameters: { size: '1024x1536', count: 2 },
-      reference,
-    }
-    const quote: ImageQuote = {
-      quota: 1_500_000,
-      display_amount: '$3.00',
-      quote_token: 'opaque.edit.quote',
-      expires_at: 1_800_000_000,
-    }
-
-    assert.deepEqual(buildCreateImageEditRequest(quoteRequest, quote), {
-      ...quoteRequest,
-      quote_token: quote.quote_token,
+    assert.deepEqual(resolveImageGenerationStatus('partial'), {
+      outcome: 'success',
+      clearDraft: true,
     })
+    assert.deepEqual(resolveImageGenerationStatus('submitting'), {
+      outcome: 'pending',
+      clearDraft: false,
+    })
+    for (const status of ['failed', 'archive_failed', 'unknown'] as const) {
+      assert.deepEqual(resolveImageGenerationStatus(status), {
+        outcome: 'failure',
+        clearDraft: false,
+      })
+    }
   })
 
   test('polls only visible pages containing an active generation', () => {

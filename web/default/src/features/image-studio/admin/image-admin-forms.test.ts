@@ -36,6 +36,7 @@ const profile: ImageModelProfile = {
   specification_version: 3,
   specification: {
     version: 3,
+    max_reference_images: 4,
     parameters: [
       {
         key: 'count',
@@ -79,6 +80,34 @@ describe('image model admin form', () => {
     assert.ok(
       issueMessages(values).includes('imageStudio.validation.rangeInvalid')
     )
+
+    values.max_reference_images = 5
+    assert.ok(
+      issueMessages(values).includes(
+        'imageStudio.validation.referenceCountRange'
+      )
+    )
+  })
+
+  test('rejects a default count above the image studio output limit', () => {
+    const values = createImageModelFormValues(profile)
+    values.parameters[0].default_value = 5
+
+    assert.ok(
+      issueMessages(values).includes('imageStudio.validation.defaultInvalid')
+    )
+  })
+
+  test('rejects a count range whose minimum exceeds the output limit', () => {
+    const values = createImageModelFormValues(profile)
+    values.parameters[0].required = false
+    values.parameters[0].has_default = false
+    values.parameters[0].min = 5
+    values.parameters[0].max = 128
+
+    assert.ok(
+      issueMessages(values).includes('imageStudio.validation.rangeInvalid')
+    )
   })
 
   test('rejects duplicate fields and required parameters without defaults', () => {
@@ -115,6 +144,30 @@ describe('image model admin form', () => {
     changed.parameters[0].max = 4
     assert.equal(
       parseImageModelForm(changed, profile).specification.version,
+      profile.specification_version + 1
+    )
+
+    const referenceLimitChanged = createImageModelFormValues(profile)
+    referenceLimitChanged.max_reference_images = 3
+    assert.equal(
+      parseImageModelForm(referenceLimitChanged, profile).specification.version,
+      profile.specification_version + 1
+    )
+  })
+
+  test('versions the explicit reference limit added to a legacy profile', () => {
+    const legacyProfile: ImageModelProfile = {
+      ...profile,
+      specification: {
+        version: profile.specification.version,
+        parameters: profile.specification.parameters,
+      },
+    }
+    const values = createImageModelFormValues(legacyProfile)
+
+    assert.equal(values.max_reference_images, 1)
+    assert.equal(
+      parseImageModelForm(values, legacyProfile).specification.version,
       profile.specification_version + 1
     )
   })

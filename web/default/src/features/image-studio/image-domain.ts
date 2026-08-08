@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { sha256Hex } from './image-hash'
+import { normalizeImageParameters } from './image-parameters'
 import type {
   CreateImageEditRequest,
   CreateImageRequest,
@@ -28,12 +30,8 @@ import type {
   ImageParameterValue,
   ImageQuote,
   ImageQuoteRequest,
-  ImageReferenceMetadata,
   ImageStudioAccessMode,
 } from './types'
-
-export const IMAGE_STUDIO_MAX_OUTPUTS = 4
-export const IMAGE_STUDIO_EDIT_MODEL = 'gpt-image-2'
 
 export const normalizeImageStudioAccessMode = (
   value: unknown
@@ -49,12 +47,18 @@ export const canAccessImageStudio = (
 
 export type ImageGenerationOutcome = 'success' | 'pending' | 'failure'
 
-export const classifyImageGenerationStatus = (
+export type ImageGenerationResolution = {
+  outcome: ImageGenerationOutcome
+  clearDraft: boolean
+}
+
+export const resolveImageGenerationStatus = (
   status: ImageGenerationStatus
-): ImageGenerationOutcome => {
-  if (status === 'succeeded' || status === 'partial') return 'success'
-  if (status === 'submitting') return 'pending'
-  return 'failure'
+): ImageGenerationResolution => {
+  let outcome: ImageGenerationOutcome = 'failure'
+  if (status === 'succeeded' || status === 'partial') outcome = 'success'
+  else if (status === 'submitting') outcome = 'pending'
+  return { outcome, clearDraft: outcome === 'success' }
 }
 
 export const isImageGenerationActive = (
@@ -96,43 +100,6 @@ export const getImageProfileDefaults = (
   return defaults
 }
 
-export const normalizeImageParameters = (
-  profile: ImageModelProfile,
-  values: ImageParameters
-): ImageParameters => {
-  const result: ImageParameters = {}
-  for (const parameter of profile.specification.parameters) {
-    const value = values[parameter.key]
-    if (value === undefined) continue
-    if (parameter.control === 'select') {
-      if (
-        typeof value === 'string' &&
-        parameter.options.some((option) => option.value === value)
-      ) {
-        result[parameter.key] = value
-      }
-      continue
-    }
-    if (parameter.control === 'integer') {
-      const effectiveMax =
-        parameter.request_key === 'n'
-          ? Math.min(parameter.max, IMAGE_STUDIO_MAX_OUTPUTS)
-          : parameter.max
-      if (
-        typeof value === 'number' &&
-        Number.isInteger(value) &&
-        value >= parameter.min &&
-        value <= effectiveMax
-      ) {
-        result[parameter.key] = value
-      }
-      continue
-    }
-    if (typeof value === 'boolean') result[parameter.key] = value
-  }
-  return result
-}
-
 export const buildImageComposerValues = (
   profile: ImageModelProfile,
   input?: Partial<ImageComposerValues>
@@ -166,11 +133,6 @@ export const buildCreateImageEditRequest = (
   quote_token: quote.quote_token,
 })
 
-export const findImageEditProfile = (
-  profiles: ImageModelProfile[] | undefined
-): ImageModelProfile | undefined =>
-  profiles?.find((profile) => profile.model === IMAGE_STUDIO_EDIT_MODEL)
-
 export const imageRequestFingerprint = (value: unknown): string =>
   JSON.stringify(
     value,
@@ -197,23 +159,6 @@ const canonicalizeImageSubmissionValue = (value: unknown): unknown => {
   }
   return value
 }
-
-const sha256Hex = async (value: BufferSource): Promise<string> => {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error('SHA-256 is unavailable')
-  }
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', value)
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0')
-  ).join('')
-}
-
-export const getImageReferenceMetadata = async (
-  image: Blob
-): Promise<ImageReferenceMetadata> => ({
-  sha256: await sha256Hex(await image.arrayBuffer()),
-  size_bytes: image.size,
-})
 
 export const imageSubmissionFingerprint = async (
   request: ImageQuoteRequest
