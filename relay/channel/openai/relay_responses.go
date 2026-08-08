@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,6 +80,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var streamErr *types.NewAPIError
+	sawSuccessfulTerminal := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -91,7 +94,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
-		case "response.completed":
+		case "response.completed", "response.done":
+			sawSuccessfulTerminal = true
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
 					if streamResponse.Response.Usage.InputTokens != 0 {
@@ -114,6 +118,32 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
 				}
 			}
+			sr.Done()
+		case "response.failed", "response.incomplete", "response.error", "response.cancelled", "response.canceled", "error":
+			if streamResponse.Response != nil {
+				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && strings.TrimSpace(oaiError.Message) != "" {
+					streamErr = types.WithOpenAIError(
+						*oaiError,
+						http.StatusBadGateway,
+						types.ErrOptionWithSkipRetry(),
+					)
+				}
+			}
+			if streamErr == nil {
+				message := fmt.Sprintf("responses stream ended with %s", streamResponse.Type)
+				if streamResponse.Response != nil && streamResponse.Response.IncompleteDetails != nil {
+					if reason := strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reason); reason != "" {
+						message += fmt.Sprintf(" (reason=%s)", reason)
+					}
+				}
+				streamErr = types.NewOpenAIError(
+					errors.New(message),
+					types.ErrorCodeBadResponse,
+					http.StatusBadGateway,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+			sr.Stop(streamErr)
 		case "response.output_text.delta":
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
@@ -131,6 +161,35 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
+	if !sawSuccessfulTerminal {
+		endReason := relaycommon.StreamEndReasonNone
+		var endErr error
+		if info.StreamStatus != nil {
+			endReason = info.StreamStatus.EndReason
+			endErr = info.StreamStatus.EndError
+		}
+		message := fmt.Sprintf(
+			"responses stream ended without a successful terminal event (reason=%s, received=%d)",
+			endReason,
+			info.ReceivedResponseCount,
+		)
+		if endErr != nil {
+			message += fmt.Sprintf(": %v", endErr)
+		}
+		streamErr = types.NewOpenAIError(
+			errors.New(message),
+			types.ErrorCodeBadResponse,
+			http.StatusBadGateway,
+			types.ErrOptionWithSkipRetry(),
+		)
+		if info.StreamStatus != nil {
+			info.StreamStatus.RecordError(streamErr.Error())
+		}
+		return nil, streamErr
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
