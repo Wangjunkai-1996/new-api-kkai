@@ -210,6 +210,9 @@ func updateTask(ctx context.Context, info *relaycommon.RelayInfo, taskID string)
 		common.SysLog("updateTask client.Do err: " + err.Error())
 		return &aliResponse, err, nil
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return &aliResponse, service.RelayErrorHandler(ctx, resp, false), nil
+	}
 	defer resp.Body.Close()
 
 	responseBody, err := service.ReadRelayResponseBody(ctx, resp.Body)
@@ -245,6 +248,10 @@ func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (
 		rsp, err, body := updateTask(c.Request.Context(), info, taskID)
 		responseBody = body
 		if err != nil {
+			var apiErr *types.NewAPIError
+			if errors.As(err, &apiErr) && service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected {
+				return nil, nil, apiErr
+			}
 			logger.LogWarn(c, "asyncTaskWait UpdateTask err: "+err.Error())
 			if waitErr := waitForAliImagePoll(c.Request.Context(), time.Duration(waitSeconds)*time.Second); waitErr != nil {
 				return nil, nil, waitErr

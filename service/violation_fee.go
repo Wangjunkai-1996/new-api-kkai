@@ -51,6 +51,7 @@ func WrapAsViolationFeeGrokCSAM(err *types.NewAPIError) *types.NewAPIError {
 		types.ErrOptionWithSkipRetry(),
 		types.ErrOptionWithOriginalStatusCode(err.GetOriginalStatusCode()),
 		types.ErrOptionWithOriginalErrorCode(err.GetOriginalErrorCode()),
+		types.ErrOptionWithPolicyEvidence(err.GetPolicyEvidence()),
 	)
 }
 
@@ -76,6 +77,7 @@ func NormalizeViolationFeeError(err *types.NewAPIError) *types.NewAPIError {
 			types.ErrOptionWithSkipRetry(),
 			types.ErrOptionWithOriginalStatusCode(err.GetOriginalStatusCode()),
 			types.ErrOptionWithOriginalErrorCode(err.GetOriginalErrorCode()),
+			types.ErrOptionWithPolicyEvidence(err.GetPolicyEvidence()),
 		)
 	}
 

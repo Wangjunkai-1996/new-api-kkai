@@ -407,7 +407,13 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 }
 
 func processChannelErrorAfterKKAIPolicy(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, policyDetected bool) {
-	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
+	channelLogMessage := common.LocalLogPreview(err.Error())
+	errorLogMessage := err.MaskSensitiveErrorWithStatusCode()
+	if policyDetected {
+		channelLogMessage = "policy event detected"
+		errorLogMessage = fmt.Sprintf("status_code=%d, policy event detected", err.StatusCode)
+	}
+	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, channelLogMessage))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if !policyDetected && service.ShouldDisableChannel(err) && channelError.AutoBan {
@@ -448,7 +454,7 @@ func processChannelErrorAfterKKAIPolicy(c *gin.Context, channelError types.Chann
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, errorLogMessage, tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 
 }

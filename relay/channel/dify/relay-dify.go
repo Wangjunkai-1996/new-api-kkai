@@ -23,7 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, media dto.MediaContent) *DifyFile {
+func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, media dto.MediaContent) (*DifyFile, error) {
 	uploadUrl := fmt.Sprintf("%s/v1/files/upload", info.ChannelBaseUrl)
 	switch media.Type {
 	case dto.ContentTypeImageURL:
@@ -39,14 +39,14 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		decodedData, err := base64.StdEncoding.DecodeString(base64Data)
 		if err != nil {
 			common.SysLog("failed to decode base64: " + err.Error())
-			return nil
+			return nil, nil
 		}
 
 		// Create temporary file
 		tempFile, err := os.CreateTemp("", "dify-upload-*")
 		if err != nil {
 			common.SysLog("failed to create temp file: " + err.Error())
-			return nil
+			return nil, nil
 		}
 		defer tempFile.Close()
 		defer os.Remove(tempFile.Name())
@@ -54,7 +54,7 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		// Write decoded data to temp file
 		if _, err := tempFile.Write(decodedData); err != nil {
 			common.SysLog("failed to write to temp file: " + err.Error())
-			return nil
+			return nil, nil
 		}
 
 		// Create multipart form
@@ -64,7 +64,7 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		// Add user field
 		if err := writer.WriteField("user", user); err != nil {
 			common.SysLog("failed to add user field: " + err.Error())
-			return nil
+			return nil, nil
 		}
 
 		// Create form file with proper mime type
@@ -77,21 +77,21 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		part, err := writer.CreateFormFile("file", fmt.Sprintf("image.%s", strings.TrimPrefix(mimeType, "image/")))
 		if err != nil {
 			common.SysLog("failed to create form file: " + err.Error())
-			return nil
+			return nil, nil
 		}
 
 		// Copy file content to form
 		if _, err = io.Copy(part, bytes.NewReader(decodedData)); err != nil {
 			common.SysLog("failed to copy file content: " + err.Error())
-			return nil
+			return nil, nil
 		}
 		writer.Close()
 
 		// Create HTTP request
-		req, err := http.NewRequest("POST", uploadUrl, body)
+		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, uploadUrl, body)
 		if err != nil {
 			common.SysLog("failed to create request: " + err.Error())
-			return nil
+			return nil, nil
 		}
 
 		req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -102,7 +102,10 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		resp, err := client.Do(req)
 		if err != nil {
 			common.SysLog("failed to send request: " + err.Error())
-			return nil
+			return nil, nil
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, service.RelayErrorHandler(c.Request.Context(), resp, false)
 		}
 		defer resp.Body.Close()
 
@@ -112,19 +115,19 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			common.SysLog("failed to decode response: " + err.Error())
-			return nil
+			return nil, nil
 		}
 
 		return &DifyFile{
 			UploadFileId: result.Id,
 			Type:         "image",
 			TransferMode: "local_file",
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
-func requestOpenAI2Dify(c *gin.Context, info *relaycommon.RelayInfo, request dto.GeneralOpenAIRequest) *DifyChatRequest {
+func requestOpenAI2Dify(c *gin.Context, info *relaycommon.RelayInfo, request dto.GeneralOpenAIRequest) (*DifyChatRequest, error) {
 	difyReq := DifyChatRequest{
 		Inputs:           make(map[string]interface{}),
 		AutoGenerateName: false,
@@ -168,7 +171,10 @@ func requestOpenAI2Dify(c *gin.Context, info *relaycommon.RelayInfo, request dto
 							URL:          media.Url,
 						}
 					} else {
-						file = uploadDifyFile(c, info, difyReq.User, mediaContent)
+						file, err = uploadDifyFile(c, info, difyReq.User, mediaContent)
+						if err != nil {
+							return nil, err
+						}
 					}
 					if file != nil {
 						files = append(files, *file)
@@ -184,7 +190,7 @@ func requestOpenAI2Dify(c *gin.Context, info *relaycommon.RelayInfo, request dto
 		mode = "streaming"
 	}
 	difyReq.ResponseMode = mode
-	return &difyReq
+	return &difyReq, nil
 }
 
 func streamResponseDify2OpenAI(difyResponse DifyChunkChatCompletionResponse) *dto.ChatCompletionsStreamResponse {

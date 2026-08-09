@@ -28,7 +28,12 @@ func kkaiTaskAPIError(taskErr *dto.TaskError) *types.NewAPIError {
 	if err == nil {
 		err = errors.New(taskErr.Message)
 	}
-	return types.NewOpenAIError(err, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)
+	return types.NewOpenAIError(
+		err,
+		types.ErrorCodeBadResponseStatusCode,
+		taskErr.StatusCode,
+		types.ErrOptionWithOriginalStatusCode(taskErr.UpstreamStatusCode),
+	)
 }
 
 func processKKAIPolicyTaskError(c *gin.Context, channel types.ChannelError, taskErr *dto.TaskError) bool {

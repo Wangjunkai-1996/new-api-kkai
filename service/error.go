@@ -83,13 +83,14 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 }
 
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
-	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	upstreamStatusOption := types.ErrOptionWithOriginalStatusCode(resp.StatusCode)
+	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode, upstreamStatusOption)
 
 	responseBody, err := ReadRelayResponseBody(ctx, resp.Body)
 	if err != nil {
 		CloseResponseBodyGracefully(resp)
 		if errors.Is(err, ErrImageStudioResponseTooLarge) {
-			newApiErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+			newApiErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway, upstreamStatusOption)
 		}
 		return
 	}
@@ -97,6 +98,8 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	var errResponse dto.GeneralErrorResponse
 	responseBodyText := string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)
+	policyEvidence := kkaiPolicyMarkerEvidence(responseBodyText)
+	newApiErr.SetPolicyEvidence(policyEvidence)
 	buildErrWithBody := func(message string) error {
 		if message == "" {
 			return fmt.Errorf("bad response status code %d, body: %s", resp.StatusCode, responseBodyText)
@@ -106,6 +109,10 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 
 	err = common.Unmarshal(responseBody, &errResponse)
 	if err != nil {
+		if policyEvidence != "" {
+			newApiErr.SetMessage(fmt.Sprintf("bad response status code %d", resp.StatusCode))
+			return
+		}
 		if showBodyWhenFail {
 			newApiErr.Err = buildErrWithBody("")
 		} else {
@@ -119,15 +126,30 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		// General format error (OpenAI, Anthropic, Gemini, etc.)
 		oaiError := errResponse.TryToOpenAIError()
 		if oaiError != nil {
-			newApiErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
-			if showBodyWhenFail {
+			newApiErr = types.WithOpenAIError(
+				*oaiError,
+				resp.StatusCode,
+				upstreamStatusOption,
+				types.ErrOptionWithPolicyEvidence(policyEvidence),
+			)
+			if policyEvidence != "" {
+				newApiErr.SetMessage(fmt.Sprintf("bad response status code %d", resp.StatusCode))
+			} else if showBodyWhenFail {
 				newApiErr.Err = buildErrWithBody(newApiErr.Error())
 			}
 			return
 		}
 	}
-	newApiErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
-	if showBodyWhenFail {
+	newApiErr = types.NewOpenAIError(
+		errors.New(errResponse.ToMessage()),
+		types.ErrorCodeBadResponseStatusCode,
+		resp.StatusCode,
+		upstreamStatusOption,
+		types.ErrOptionWithPolicyEvidence(policyEvidence),
+	)
+	if policyEvidence != "" {
+		newApiErr.SetMessage(fmt.Sprintf("bad response status code %d", resp.StatusCode))
+	} else if showBodyWhenFail {
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}
 	return
@@ -154,7 +176,6 @@ func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) 
 		if !ok {
 			return
 		}
-		newApiErr.RememberOriginalStatusCode()
 		newApiErr.StatusCode = intCode
 	}
 }
@@ -213,6 +234,12 @@ func TaskErrorWrapper(err error, code string, statusCode int) *dto.TaskError {
 	return taskError
 }
 
+func TaskErrorWrapperUpstream(err error, code string, statusCode int) *dto.TaskError {
+	taskErr := TaskErrorWrapper(err, code, statusCode)
+	taskErr.UpstreamStatusCode = statusCode
+	return taskErr
+}
+
 // TaskErrorFromAPIError 将 PreConsumeBilling 返回的 NewAPIError 转换为 TaskError。
 func TaskErrorFromAPIError(apiErr *types.NewAPIError) *dto.TaskError {
 	if apiErr == nil {
@@ -222,6 +249,7 @@ func TaskErrorFromAPIError(apiErr *types.NewAPIError) *dto.TaskError {
 		Code:       string(apiErr.GetErrorCode()),
 		Message:    apiErr.Err.Error(),
 		StatusCode: apiErr.StatusCode,
+		LocalError: true,
 		Error:      apiErr.Err,
 	}
 }

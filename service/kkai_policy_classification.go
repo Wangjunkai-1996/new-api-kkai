@@ -53,7 +53,8 @@ func ClassifyKKAIUpstreamPolicyError(apiErr *types.NewAPIError) KKAIPolicyClassi
 	if apiErr == nil {
 		return KKAIPolicyClassification{}
 	}
-	return classifyKKAIPolicyText(apiErr.GetOriginalStatusCode(), string(apiErr.GetOriginalErrorCode()), apiErr.Error())
+	evidence := strings.TrimSpace(apiErr.Error() + " " + apiErr.GetPolicyEvidence())
+	return classifyKKAIPolicyText(apiErr.GetOriginalStatusCode(), string(apiErr.GetOriginalErrorCode()), evidence)
 }
 
 func ClassifyKKAITaskPolicyError(taskErr *dto.TaskError) KKAIPolicyClassification {
@@ -64,7 +65,7 @@ func ClassifyKKAITaskPolicyError(taskErr *dto.TaskError) KKAIPolicyClassificatio
 	if taskErr.Error != nil {
 		evidence += " " + taskErr.Error.Error()
 	}
-	return classifyKKAIPolicyText(taskErr.StatusCode, taskErr.Code, evidence)
+	return classifyKKAIPolicyText(taskErr.UpstreamStatusCode, taskErr.Code, evidence)
 }
 
 func classifyKKAIPolicyText(statusCode int, errorCode string, evidence string) KKAIPolicyClassification {
@@ -101,4 +102,17 @@ func containsKKAIPolicyMarker(text string, markers []string) bool {
 		}
 	}
 	return false
+}
+
+func kkaiPolicyMarkerEvidence(text string) string {
+	searchText := strings.ToLower(text)
+	matches := make([]string, 0, len(kkaiClientPolicyMarkers)+len(kkaiUpstreamKeyPolicyMarkers))
+	for _, markers := range [][]string{kkaiClientPolicyMarkers, kkaiUpstreamKeyPolicyMarkers} {
+		for _, marker := range markers {
+			if strings.Contains(searchText, marker) {
+				matches = append(matches, marker)
+			}
+		}
+	}
+	return strings.Join(matches, " ")
 }

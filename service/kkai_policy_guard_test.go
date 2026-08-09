@@ -49,6 +49,15 @@ func newKKAIPolicyGuardTestContext(t *testing.T) *gin.Context {
 	return ctx
 }
 
+func newUpstreamPolicyTestError(message string, code types.ErrorCode, statusCode int) *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New(message),
+		code,
+		statusCode,
+		types.ErrOptionWithOriginalStatusCode(statusCode),
+	)
+}
+
 func TestClassifyKKAIUpstreamPolicyErrorSeparatesCausality(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -67,7 +76,7 @@ func TestClassifyKKAIUpstreamPolicyErrorSeparatesCausality(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			apiErr := types.NewErrorWithStatusCode(errors.New(test.message), types.ErrorCodeBadResponseStatusCode, test.status)
+			apiErr := newUpstreamPolicyTestError(test.message, types.ErrorCodeBadResponseStatusCode, test.status)
 			classification := ClassifyKKAIUpstreamPolicyError(apiErr)
 			assert.Equal(t, test.detected, classification.Detected)
 			assert.Equal(t, test.causality, classification.Causality)
@@ -76,7 +85,7 @@ func TestClassifyKKAIUpstreamPolicyErrorSeparatesCausality(t *testing.T) {
 }
 
 func TestClassifyKKAIUpstreamPolicyErrorUsesErrorCodeMarker(t *testing.T) {
-	apiErr := types.NewErrorWithStatusCode(errors.New("request rejected"), types.ErrorCode("cyber_policy"), http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("request rejected", types.ErrorCode("cyber_policy"), http.StatusForbidden)
 
 	classification := ClassifyKKAIUpstreamPolicyError(apiErr)
 
@@ -86,21 +95,69 @@ func TestClassifyKKAIUpstreamPolicyErrorUsesErrorCodeMarker(t *testing.T) {
 
 func TestClassifyKKAITaskPolicyErrorRejectsLocalErrors(t *testing.T) {
 	classification := ClassifyKKAITaskPolicyError(&dto.TaskError{
-		Code:       "cyber_policy",
-		Message:    "cyber_policy",
-		StatusCode: http.StatusForbidden,
-		LocalError: true,
+		Code:               "cyber_policy",
+		Message:            "cyber_policy",
+		StatusCode:         http.StatusForbidden,
+		UpstreamStatusCode: http.StatusForbidden,
+		LocalError:         true,
 	})
 
 	assert.False(t, classification.Detected)
 }
 
-func TestClassifyKKAIUpstreamPolicyErrorUsesOriginalStatusBeforeMapping(t *testing.T) {
+func TestClassifyKKAIUpstreamPolicyErrorRequiresExplicitUpstreamStatus(t *testing.T) {
 	apiErr := types.NewErrorWithStatusCode(
 		errors.New("cyber_policy"),
-		types.ErrorCodeBadResponseStatusCode,
+		types.ErrorCode("cyber_policy"),
 		http.StatusForbidden,
 	)
+
+	assert.False(t, ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+	ResetStatusCode(apiErr, `{"403":401}`)
+	assert.False(t, ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+}
+
+func TestClassifyKKAIUpstreamPolicyErrorRejectsLocalStatusMappedToForbidden(t *testing.T) {
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New("cyber_policy"),
+		types.ErrorCode("cyber_policy"),
+		http.StatusBadRequest,
+	)
+
+	ResetStatusCode(apiErr, `{"400":403}`)
+
+	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	assert.False(t, ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+}
+
+func TestNormalizeViolationFeeErrorDoesNotCreateUpstreamProvenance(t *testing.T) {
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New(CSAMViolationMarker),
+		types.ErrorCode("cyber_policy"),
+		http.StatusForbidden,
+	)
+
+	normalized := NormalizeViolationFeeError(apiErr)
+
+	require.Equal(t, types.ErrorCodeViolationFeeGrokCSAM, normalized.GetErrorCode())
+	require.Zero(t, normalized.GetOriginalStatusCode())
+	assert.False(t, ClassifyKKAIUpstreamPolicyError(normalized).Detected)
+}
+
+func TestClassifyKKAITaskPolicyErrorRequiresExplicitUpstreamStatus(t *testing.T) {
+	taskErr := &dto.TaskError{
+		Code:       "cyber_policy",
+		Message:    "cyber_policy",
+		StatusCode: http.StatusForbidden,
+	}
+
+	assert.False(t, ClassifyKKAITaskPolicyError(taskErr).Detected)
+	taskErr.UpstreamStatusCode = http.StatusForbidden
+	assert.True(t, ClassifyKKAITaskPolicyError(taskErr).Detected)
+}
+
+func TestClassifyKKAIUpstreamPolicyErrorUsesOriginalStatusBeforeMapping(t *testing.T) {
+	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 	ResetStatusCode(apiErr, `{"403":401}`)
 
 	classification := ClassifyKKAIUpstreamPolicyError(apiErr)
@@ -110,11 +167,7 @@ func TestClassifyKKAIUpstreamPolicyErrorUsesOriginalStatusBeforeMapping(t *testi
 }
 
 func TestNormalizeViolationFeeErrorPreservesMappedCyberStatus(t *testing.T) {
-	apiErr := types.NewErrorWithStatusCode(
-		errors.New("cyber_policy; "+CSAMViolationMarker),
-		types.ErrorCodeBadResponseStatusCode,
-		http.StatusForbidden,
-	)
+	apiErr := newUpstreamPolicyTestError("cyber_policy; "+CSAMViolationMarker, types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 	ResetStatusCode(apiErr, `{"403":401}`)
 
 	normalized := NormalizeViolationFeeError(apiErr)
@@ -127,11 +180,7 @@ func TestNormalizeViolationFeeErrorPreservesMappedCyberStatus(t *testing.T) {
 }
 
 func TestNormalizeViolationFeeErrorPreservesCyberErrorCodeMarker(t *testing.T) {
-	apiErr := types.NewErrorWithStatusCode(
-		errors.New(CSAMViolationMarker),
-		types.ErrorCode("cyber_policy"),
-		http.StatusForbidden,
-	)
+	apiErr := newUpstreamPolicyTestError(CSAMViolationMarker, types.ErrorCode("cyber_policy"), http.StatusForbidden)
 	ResetStatusCode(apiErr, `{"403":401}`)
 
 	normalized := NormalizeViolationFeeError(apiErr)
@@ -164,7 +213,7 @@ func TestKKAIPolicyGuardRecordsKeyCooldownOnlyForNewClientIncident(t *testing.T)
 	applier := &kkaiPolicyGuardTestApplier{}
 	guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(applier, cooldown)
 	guard.now = func() time.Time { return time.Unix(1_720_000_000, 0) }
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, types.ChannelError{ChannelId: 12}, apiErr)
 	require.NoError(t, err)
@@ -208,7 +257,7 @@ func TestKKAIPolicyGuardDoesNotRecordCooldownForOtherAttributionOrMissingToken(t
 			}
 			cooldown := &fakeKKAIPolicyKeyCooldownStore{}
 			guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(&kkaiPolicyGuardTestApplier{}, cooldown)
-			apiErr := types.NewErrorWithStatusCode(errors.New(test.message), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+			apiErr := newUpstreamPolicyTestError(test.message, types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 			detected, err := guard.HandleAPIError(ctx, types.ChannelError{ChannelId: 12}, apiErr)
 			require.NoError(t, err)
@@ -224,7 +273,7 @@ func TestKKAIPolicyGuardRecordsClientAttributionWithoutDurableAction(t *testing.
 	guard := NewKKAIPolicyIncidentGuard(applier)
 	guard.now = func() time.Time { return time.Unix(1_720_000_000, 0) }
 	channel := *types.NewChannelError(12, 1, "policy-channel", false, "upstream-secret", true)
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, channel, apiErr)
 	require.NoError(t, err)
@@ -248,7 +297,7 @@ func TestKKAIPolicyGuardRecordsAmbiguousAttributionWithoutDisabling(t *testing.T
 	applier := &kkaiPolicyGuardTestApplier{}
 	guard := NewKKAIPolicyIncidentGuard(applier)
 	channel := *types.NewChannelError(12, 1, "policy-channel", false, "upstream-secret", true)
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy; API key is disabled"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("cyber_policy; API key is disabled", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, channel, apiErr)
 	require.NoError(t, err)
@@ -262,7 +311,7 @@ func TestKKAIPolicyGuardKeepsRetryBlockedWhenAuditWriteFails(t *testing.T) {
 	ctx := newKKAIPolicyGuardTestContext(t)
 	expected := errors.New("database unavailable")
 	guard := NewKKAIPolicyIncidentGuard(&kkaiPolicyGuardTestApplier{err: expected})
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, types.ChannelError{}, apiErr)
 	require.True(t, detected)
@@ -278,7 +327,7 @@ func TestKKAIPolicyGuardPersistsClientIncidentWithoutDisablingTargets(t *testing
 	ctx.Set("token_id", token.Id)
 	ctx.Set("token_key", token.Key)
 	guard := NewKKAIPolicyIncidentGuard(NewRiskActionService(db))
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, *types.NewChannelError(channel.Id, 1, channel.Name, false, channel.Key, true), apiErr)
 	require.NoError(t, err)
@@ -306,7 +355,7 @@ func TestKKAIPolicyGuardRecordsUpstreamKeyWithoutDisablingTargets(t *testing.T) 
 	ctx.Set("id", user.Id)
 	ctx.Set("token_id", token.Id)
 	guard := NewKKAIPolicyIncidentGuard(NewRiskActionService(db))
-	apiErr := types.NewErrorWithStatusCode(errors.New("API key has been disabled"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newUpstreamPolicyTestError("API key has been disabled", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, *types.NewChannelError(channel.Id, 1, channel.Name, false, channel.Key, true), apiErr)
 	require.NoError(t, err)

@@ -21,4 +21,5 @@ func TestRelayErrorHandlerLimitsImageStudioErrorBody(t *testing.T) {
 	require.NotNil(t, apiErr)
 	require.Equal(t, ErrImageStudioResponseTooLarge.Error(), apiErr.Error())
 	require.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+	require.Equal(t, http.StatusBadRequest, apiErr.GetOriginalStatusCode())
 }
