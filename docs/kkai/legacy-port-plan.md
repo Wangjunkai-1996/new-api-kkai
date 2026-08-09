@@ -40,7 +40,7 @@ none of them may be cherry-picked as an implementation shortcut.
 | ROUTES | `web/default/src/routeTree.gen.ts` | Regenerate | Router generator produces a clean tree |
 | I18N | all legacy locale JSON changes | Drop legacy translation churn; add only keys required by rebuilt UI | Default build; translation completeness is outside this remediation |
 | DOCS | `README.md`, `AGENTS.md`, legacy `docs/ops/**` | Drop or rewrite from final architecture | Final runbooks match tested commands and immutable artifacts |
-| LEGACY-CI | `.github/workflows/codex-build-ghcr-amd64.yml` | Drop | Signed digest delivery through the production workflow |
+| LEGACY-CI | `.github/workflows/codex-build-ghcr-amd64.yml` | Drop | Replaced by local manual image build and the blue-green controller |
 
 ## Known Legacy Implementations That Must Not Return
 
