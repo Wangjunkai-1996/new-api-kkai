@@ -92,6 +92,7 @@ func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegist
 		{
 			Name:                "performance-metric-flush",
 			Interval:            positiveMinutes(perf_metrics_setting.GetFlushIntervalMinutes()),
+			RunOnStart:          true,
 			RunOnShutdown:       true,
 			WritesData:          true,
 			RequiresLeaderLease: true,

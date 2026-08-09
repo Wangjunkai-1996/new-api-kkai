@@ -84,7 +84,7 @@ func applyKKAIAutoGroupMetrics(metrics map[string]kkaiGroupMetrics, usableGroups
 	metrics["auto"] = auto
 }
 
-func kkaiGroupRecentEventsByGroup(events []perfmetrics.KKAIGroupSignalEvent) map[string][]KKAIGroupRecentEvent {
+func kkaiGroupRecentEventsByGroup(events []perfmetrics.KKAIGroupSignalEvent, limit int) map[string][]KKAIGroupRecentEvent {
 	result := make(map[string][]KKAIGroupRecentEvent)
 	for _, event := range events {
 		status := "failure"
@@ -93,12 +93,20 @@ func kkaiGroupRecentEventsByGroup(events []perfmetrics.KKAIGroupSignalEvent) map
 		}
 		result[event.Group] = append(result[event.Group], KKAIGroupRecentEvent{
 			Ts: event.Ts, Status: status, TtftMs: event.TtftMs, LatencyMs: event.LatencyMs,
+			eventID: event.EventID, observedAtNs: event.ObservedAtNs,
 		})
+	}
+	for group, groupEvents := range result {
+		sort.SliceStable(groupEvents, func(i, j int) bool { return kkaiGroupRecentEventLess(groupEvents[i], groupEvents[j]) })
+		if len(groupEvents) > limit {
+			groupEvents = groupEvents[len(groupEvents)-limit:]
+		}
+		result[group] = groupEvents
 	}
 	return result
 }
 
-func applyKKAIAutoGroupEvents(events map[string][]KKAIGroupRecentEvent, usableGroups map[string]string, autoGroups []string) {
+func applyKKAIAutoGroupEvents(events map[string][]KKAIGroupRecentEvent, usableGroups map[string]string, autoGroups []string, limit int) {
 	if _, ok := usableGroups["auto"]; !ok {
 		return
 	}
@@ -111,11 +119,26 @@ func applyKKAIAutoGroupEvents(events map[string][]KKAIGroupRecentEvent, usableGr
 			auto = append(auto, events[group]...)
 		}
 	}
-	sort.Slice(auto, func(i, j int) bool { return auto[i].Ts < auto[j].Ts })
-	if len(auto) > 60 {
-		auto = auto[len(auto)-60:]
+	sort.SliceStable(auto, func(i, j int) bool { return kkaiGroupRecentEventLess(auto[i], auto[j]) })
+	if len(auto) > limit {
+		auto = auto[len(auto)-limit:]
 	}
 	events["auto"] = auto
+}
+
+func kkaiGroupRecentEventLess(left KKAIGroupRecentEvent, right KKAIGroupRecentEvent) bool {
+	leftOrder := left.observedAtNs
+	if leftOrder <= 0 {
+		leftOrder = left.Ts * 1_000_000_000
+	}
+	rightOrder := right.observedAtNs
+	if rightOrder <= 0 {
+		rightOrder = right.Ts * 1_000_000_000
+	}
+	if leftOrder != rightOrder {
+		return leftOrder < rightOrder
+	}
+	return left.eventID < right.eventID
 }
 
 func (metrics kkaiGroupMetrics) successRate() float64 {

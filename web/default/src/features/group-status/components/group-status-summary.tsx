@@ -17,17 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  CircleHelp,
-  type LucideIcon,
-} from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CircleHelp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
-import { formatNumber, formatTimestampRelative } from '@/lib/format'
+import { formatTimestampRelative } from '@/lib/format'
 
 import type { GroupStatusEntry, GroupStatusResult } from '../types'
 
@@ -36,101 +30,68 @@ export function GroupStatusSummary(props: {
   result: GroupStatusResult
 }) {
   const { t } = useTranslation()
-  const stats = summarizeGroups(props.groups)
+  const overall = overallStatus(props.groups)
   const source = sourceStatus(props.result)
 
   return (
-    <section className='bg-muted/15 border-y' aria-label={t('Status summary')}>
-      <dl className='grid grid-cols-2 divide-x divide-y sm:grid-cols-4 sm:divide-y-0'>
-        <SummaryMetric
-          icon={CheckCircle2}
-          label={t('Healthy')}
-          value={stats.healthy}
-          toneClass='text-success'
+    <section
+      className='bg-card/60 flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2'
+      aria-label={t('Status summary')}
+    >
+      <div className='flex min-w-0 flex-wrap items-center gap-2'>
+        <StatusBadge
+          copyable={false}
+          icon={overall.icon}
+          label={t(overall.labelKey)}
+          variant={overall.variant}
+          className={overall.className}
         />
-        <SummaryMetric
-          icon={AlertTriangle}
-          label={t('Attention')}
-          value={stats.attention}
-          toneClass='text-warning'
-        />
-        <SummaryMetric
-          icon={CircleHelp}
-          label={t('Unknown')}
-          value={stats.unknown}
-          toneClass='text-muted-foreground'
-        />
-        <SummaryMetric
-          icon={Activity}
-          label={t('Requests')}
-          value={stats.requests}
-          toneClass='text-foreground'
-        />
-      </dl>
-      <div className='flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2 text-xs'>
         <StatusBadge
           copyable={false}
           label={t(source.labelKey)}
           variant={source.variant}
           title={props.result.data_source}
         />
-        <span className='text-muted-foreground tabular-nums'>
-          {t('Updated {{time}}', {
-            time: formatTimestampRelative(props.result.generated_at),
-          })}
-        </span>
       </div>
+      <span className='text-muted-foreground shrink-0 text-xs tabular-nums'>
+        {t('Updated {{time}}', {
+          time: formatTimestampRelative(props.result.generated_at),
+        })}
+      </span>
     </section>
   )
 }
 
-function SummaryMetric(props: {
-  icon: LucideIcon
-  label: string
-  value: number
-  toneClass: string
-}) {
-  const Icon = props.icon
-  return (
-    <div className='flex min-h-20 items-center gap-3 px-3 py-3'>
-      <Icon
-        className={`size-4 shrink-0 ${props.toneClass}`}
-        aria-hidden='true'
-      />
-      <div className='min-w-0'>
-        <dt className='text-muted-foreground truncate text-xs'>
-          {props.label}
-        </dt>
-        <dd className='mt-0.5 text-lg font-semibold tabular-nums'>
-          {formatNumber(props.value)}
-        </dd>
-      </div>
-    </div>
-  )
-}
-
-function summarizeGroups(groups: GroupStatusEntry[]) {
-  return groups.reduce(
-    (stats, group) => {
-      if (
-        group.confidence_status === 'excellent' ||
-        group.confidence_status === 'smooth' ||
-        group.confidence_status === 'stable'
-      ) {
-        stats.healthy += 1
-      } else if (
+function overallStatus(groups: GroupStatusEntry[]) {
+  if (
+    groups.some(
+      (group) =>
+        group.stale ||
         group.confidence_status === 'unstable' ||
         group.confidence_status === 'unavailable'
-      ) {
-        stats.attention += 1
-      } else {
-        stats.unknown += 1
-      }
-      stats.requests += group.request_count
-      return stats
-    },
-    { healthy: 0, attention: 0, unknown: 0, requests: 0 }
-  )
+    )
+  ) {
+    return {
+      labelKey: 'Attention',
+      icon: AlertTriangle,
+      variant: 'warning' as const,
+      className: 'bg-warning/10 ring-1 ring-inset ring-warning/20',
+    }
+  }
+  if (groups.some((group) => group.confidence_status !== 'unknown')) {
+    return {
+      labelKey: 'Healthy',
+      icon: CheckCircle2,
+      variant: 'success' as const,
+      className: 'bg-success/10 ring-1 ring-inset ring-success/20',
+    }
+  }
+  return {
+    labelKey: 'Unknown',
+    icon: CircleHelp,
+    variant: 'neutral' as const,
+    className: 'bg-muted/70 ring-1 ring-inset ring-border',
+  }
 }
 
 function sourceStatus(result: GroupStatusResult) {

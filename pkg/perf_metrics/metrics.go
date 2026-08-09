@@ -25,14 +25,19 @@ func RunMaintenance(ctx context.Context) error {
 		return err
 	}
 	setting := perf_metrics_setting.GetSetting()
-	if !setting.Enabled {
-		return nil
+	if setting.Enabled {
+		flushCompletedBuckets()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		cleanupExpiredMetrics(setting.RetentionDays)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
-	flushCompletedBuckets()
-	if err := ctx.Err(); err != nil {
-		return err
+	if err := maintainKKAIGroupSignalStreams(ctx); err != nil {
+		return fmt.Errorf("maintain KKAI group signal streams: %w", err)
 	}
-	cleanupExpiredMetrics(setting.RetentionDays)
 	return nil
 }
 
@@ -84,10 +89,10 @@ func Record(sample Sample) {
 		group:    sample.Group,
 		bucketTs: bucketStart(observedAt.Unix()),
 	}
-	recordKKAILocalGroupSignal(sample, observedAt)
+	groupSignal := recordKKAILocalGroupSignal(sample, observedAt)
 	actual, _ := hotBuckets.LoadOrStore(key, &atomicBucket{})
 	actual.(*atomicBucket).add(sample)
-	recordRedis(key, sample, observedAt)
+	recordRedis(key, sample, observedAt, groupSignal)
 }
 
 func Query(params QueryParams) (QueryResult, error) {
@@ -391,7 +396,7 @@ func avgTps(value counters) float64 {
 	return float64(value.outputTokens) / (float64(value.generationMs) / 1000)
 }
 
-func recordRedis(key bucketKey, sample Sample, observedAt time.Time) {
+func recordRedis(key bucketKey, sample Sample, observedAt time.Time, groupSignal KKAIGroupSignalEvent) {
 	if !common.RedisEnabled || common.RDB == nil {
 		return
 	}
@@ -415,7 +420,7 @@ func recordRedis(key bucketKey, sample Sample, observedAt time.Time) {
 		pipe.HIncrBy(ctx, redisKey, "out", sample.OutputTokens)
 		pipe.HIncrBy(ctx, redisKey, "gen_ms", sample.GenerationMs)
 	}
-	appendKKAIRedisGroupSignal(pipe, sample, observedAt)
+	appendKKAIRedisGroupSignal(pipe, sample, observedAt, groupSignal)
 	pipe.Expire(ctx, redisKey, time.Hour)
 	_, _ = pipe.Exec(ctx)
 }

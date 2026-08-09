@@ -17,15 +17,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import type { GroupStatusEntry } from '../types'
-import { GroupStatusCard } from './group-status-card'
+import type { GroupRecentEvent, GroupStatusEntry } from './types'
 
-export function GroupStatusList(props: { groups: GroupStatusEntry[] }) {
-  return (
-    <div className='grid grid-cols-[repeat(auto-fill,minmax(min(100%,24rem),1fr))] gap-3'>
-      {props.groups.map((group) => (
-        <GroupStatusCard key={group.group} group={group} />
-      ))}
-    </div>
-  )
+export const GROUP_SIGNAL_COUNT = 60
+
+export function getGroupSignalEvents(
+  events: GroupRecentEvent[] | null
+): GroupRecentEvent[] {
+  return [...(events ?? [])]
+    .filter((event) => event.status === 'success' || event.status === 'failure')
+    .sort((left, right) => left.ts - right.ts)
+    .slice(-GROUP_SIGNAL_COUNT)
+}
+
+export function getGroupLastSignalAt(
+  group: Pick<GroupStatusEntry, 'recent_events' | 'sampled_at'>
+): number {
+  const lastEventAt = (group.recent_events ?? []).reduce((latest, event) => {
+    if (!Number.isFinite(event.ts) || event.ts <= 0) return latest
+    return Math.max(latest, event.ts)
+  }, 0)
+
+  return lastEventAt || group.sampled_at
 }

@@ -30,6 +30,7 @@ import {
 
 import type { StatusVariant } from '@/components/status-badge'
 
+import { getGroupLastSignalAt } from './signal'
 import type {
   GroupConfidenceStatus,
   GroupExperienceLabel,
@@ -123,8 +124,9 @@ export function sortGroupStatuses(
     const staleDiff = Number(right.stale) - Number(left.stale)
     if (staleDiff !== 0) return staleDiff
 
-    const requestDiff = right.request_count - left.request_count
-    if (requestDiff !== 0) return requestDiff
+    const lastSignalDiff =
+      getGroupLastSignalAt(right) - getGroupLastSignalAt(left)
+    if (lastSignalDiff !== 0) return lastSignalDiff
 
     return left.group.localeCompare(right.group)
   })

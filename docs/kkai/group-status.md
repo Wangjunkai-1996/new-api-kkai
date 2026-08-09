@@ -10,6 +10,17 @@ same sample is kept in a bounded local fallback. Redis queries are authoritative
 when available. If Redis is disabled or unavailable, the endpoint continues
 with local signals and persisted `perf_metrics` rows instead of failing.
 
+The selected window controls health, success rate, latency, TTFT, and staleness.
+It does not filter `recent_events`: every visible group returns its latest 60
+requests, ordered oldest to newest, even when those requests predate the selected
+window. Recent-event streams and local fallbacks are retained by bounded count
+rather than by age. Redis and local events share stable IDs, so a Redis recovery
+can merge locally buffered outage events without duplicating successful writes.
+Background maintenance removes legacy TTLs and keeps streams at the same
+60-event bound, including after rollback traffic from an older release;
+steady-state status reads remain read-only. A group that has never received a
+request returns an empty `recent_events` array.
+
 Long windows de-duplicate database and Redis aggregates per group and hour.
 When both sources cover the same hour, the larger aggregate is retained and
 the latest live sample timestamp is preserved. This avoids double-counting and

@@ -2,9 +2,12 @@ package perfmetrics
 
 import (
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -12,12 +15,12 @@ const (
 	KKAIGroupDataSourceLocal      = "local"
 	KKAIGroupDataSourceRedisLocal = "redis+local"
 	KKAIGroupDataSourceNone       = "none"
+	KKAIGroupRecentSignalLimit    = 60
 
 	kkaiGroupMinuteSeconds = int64(60)
 	kkaiGroupHourSeconds   = int64(3600)
-	kkaiGroupStreamMaxLen  = int64(5000)
-	kkaiGroupLocalEventMax = 5000
-	kkaiGroupSignalMaxAge  = 30 * time.Minute
+	kkaiGroupStreamMaxLen  = int64(KKAIGroupRecentSignalLimit)
+	kkaiGroupLocalEventMax = KKAIGroupRecentSignalLimit
 	kkaiGroupMinuteTTL     = 30 * time.Minute
 	kkaiGroupHourTTL       = 26 * time.Hour
 )
@@ -40,11 +43,13 @@ type KKAIGroupBucketResult struct {
 }
 
 type KKAIGroupSignalEvent struct {
-	Group     string `json:"group"`
-	Ts        int64  `json:"ts"`
-	Success   bool   `json:"success"`
-	LatencyMs int64  `json:"latency_ms"`
-	TtftMs    int64  `json:"ttft_ms"`
+	Group        string `json:"group"`
+	Ts           int64  `json:"ts"`
+	Success      bool   `json:"success"`
+	LatencyMs    int64  `json:"latency_ms"`
+	TtftMs       int64  `json:"ttft_ms"`
+	EventID      string `json:"-"`
+	ObservedAtNs int64  `json:"-"`
 }
 
 type KKAIGroupSignalResult struct {
@@ -77,9 +82,11 @@ var (
 	kkaiGroupBuckets       sync.Map
 	kkaiGroupSignals       sync.Map
 	kkaiGroupLastCleanupAt atomic.Int64
+	kkaiGroupSignalSeq     atomic.Uint64
+	kkaiGroupSignalNodeID  = uuid.NewString()
 )
 
-func recordKKAILocalGroupSignal(sample Sample, observedAt time.Time) {
+func recordKKAILocalGroupSignal(sample Sample, observedAt time.Time) KKAIGroupSignalEvent {
 	for _, resolution := range []int64{kkaiGroupMinuteSeconds, kkaiGroupHourSeconds} {
 		bucketTs := observedAt.Unix() - observedAt.Unix()%resolution
 		key := kkaiGroupBucketKey{group: sample.Group, bucketTs: bucketTs, resolution: resolution}
@@ -90,15 +97,15 @@ func recordKKAILocalGroupSignal(sample Sample, observedAt time.Time) {
 	actual, _ := kkaiGroupSignals.LoadOrStore(sample.Group, &kkaiGroupSignalBuffer{})
 	buffer := actual.(*kkaiGroupSignalBuffer)
 	buffer.mu.Lock()
-	event := KKAIGroupSignalEvent{Group: sample.Group, Ts: observedAt.Unix(), Success: sample.Success, LatencyMs: sample.LatencyMs, TtftMs: sample.TtftMs}
-	buffer.events = append(buffer.events, event)
-	if len(buffer.events) > 1 && buffer.events[len(buffer.events)-2].Ts > event.Ts {
-		sort.Slice(buffer.events, func(i, j int) bool { return buffer.events[i].Ts < buffer.events[j].Ts })
+	event := KKAIGroupSignalEvent{
+		Group: sample.Group, Ts: observedAt.Unix(), Success: sample.Success,
+		LatencyMs: sample.LatencyMs, TtftMs: sample.TtftMs,
+		EventID:      kkaiGroupSignalNodeID + "-" + strconv.FormatUint(kkaiGroupSignalSeq.Add(1), 36),
+		ObservedAtNs: observedAt.UnixNano(),
 	}
-	cutoff := observedAt.Add(-kkaiGroupSignalMaxAge).Unix()
-	first := sort.Search(len(buffer.events), func(index int) bool { return buffer.events[index].Ts >= cutoff })
-	if first > 0 {
-		buffer.events = append([]KKAIGroupSignalEvent(nil), buffer.events[first:]...)
+	buffer.events = append(buffer.events, event)
+	if len(buffer.events) > 1 && kkaiGroupSignalLess(event, buffer.events[len(buffer.events)-2]) {
+		sort.SliceStable(buffer.events, func(i, j int) bool { return kkaiGroupSignalLess(buffer.events[i], buffer.events[j]) })
 	}
 	if len(buffer.events) > kkaiGroupLocalEventMax {
 		buffer.events = append([]KKAIGroupSignalEvent(nil), buffer.events[len(buffer.events)-kkaiGroupLocalEventMax:]...)
@@ -109,4 +116,15 @@ func recordKKAILocalGroupSignal(sample Sample, observedAt time.Time) {
 	if observedAt.Unix()-lastCleanup >= 600 && kkaiGroupLastCleanupAt.CompareAndSwap(lastCleanup, observedAt.Unix()) {
 		cleanupKKAILocalGroupBuckets(observedAt)
 	}
+	return event
+}
+
+func kkaiGroupSignalLess(left KKAIGroupSignalEvent, right KKAIGroupSignalEvent) bool {
+	if left.ObservedAtNs != right.ObservedAtNs {
+		return left.ObservedAtNs < right.ObservedAtNs
+	}
+	if left.Ts != right.Ts {
+		return left.Ts < right.Ts
+	}
+	return left.EventID < right.EventID
 }
