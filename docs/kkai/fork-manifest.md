@@ -14,9 +14,9 @@ upstream.
 - Archived production head: `archive/production-kkrich-537501c5`
 
 The rebuild branch must remain a descendant of the pinned upstream commit.
-Quality checks compare the working tree with that commit. They do not require
-the current commit to equal `origin/production/kkrich`, and they never use SSH,
-VPN, proxy, or production-server state.
+Quality checks compare the working tree with that commit using only local Git
+objects. They never require a network code-hosting service, SSH, VPN, proxy, or
+production-server state.
 
 The immutable 206-path legacy snapshot is in `legacy-fork-files.txt`; its
 port/rewrite/drop decisions are in `legacy-port-plan.md`.
