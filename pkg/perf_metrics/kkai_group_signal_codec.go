@@ -21,7 +21,25 @@ func kkaiGroupSignalFromRedis(group string, values map[string]interface{}) (KKAI
 	success, _ := redisValueInt64(values["success"])
 	latency, _ := redisValueInt64(values["latency"])
 	ttft, _ := redisValueInt64(values["ttft"])
-	return KKAIGroupSignalEvent{Group: group, Ts: ts, Success: success == 1, LatencyMs: latency, TtftMs: ttft}, true
+	observedAtNs, _ := redisValueInt64(values["observed_at_ns"])
+	if observedAtNs <= 0 {
+		observedAtNs = ts * 1_000_000_000
+	}
+	return KKAIGroupSignalEvent{
+		Group: group, Ts: ts, Success: success == 1, LatencyMs: latency, TtftMs: ttft,
+		EventID: redisValueString(values["event_id"]), ObservedAtNs: observedAtNs,
+	}, true
+}
+
+func redisValueString(value interface{}) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		return ""
+	}
 }
 
 func redisValueInt64(value interface{}) (int64, bool) {

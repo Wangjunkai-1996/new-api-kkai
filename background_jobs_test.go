@@ -31,7 +31,12 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 	require.NoError(t, err)
 	descriptors := registry.Descriptors()
 	require.NotEmpty(t, descriptors)
+	foundPerformanceMetricFlush := false
 	for _, descriptor := range descriptors {
+		if descriptor.Name == "performance-metric-flush" {
+			foundPerformanceMetricFlush = true
+			require.True(t, descriptor.RunOnStart)
+		}
 		if descriptor.Name == "runtime-cache-sync" {
 			require.False(t, descriptor.WritesData)
 			require.False(t, descriptor.RequiresLeaderLease)
@@ -48,6 +53,7 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 		require.True(t, descriptor.RequiresLeaderLease, descriptor.Name)
 		require.False(t, descriptor.FlushesProcessLocalState, descriptor.Name)
 	}
+	require.True(t, foundPerformanceMetricFlush)
 }
 
 func TestServingBackgroundRuntimeOwnsProcessLocalFlushes(t *testing.T) {

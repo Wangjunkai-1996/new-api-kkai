@@ -51,6 +51,7 @@ const (
 	kkaiGroupConfidenceExcellentRate = 99.9
 	kkaiGroupExperienceLightningMs   = int64(2000)
 	kkaiGroupExperienceSmoothMs      = int64(5000)
+	kkaiGroupRecentEventLimit        = perfmetrics.KKAIGroupRecentSignalLimit
 )
 
 var (
@@ -58,7 +59,7 @@ var (
 	loadKKAIPerfMetricBuckets   = model.GetKKAIPerfMetricBuckets
 	queryKKAIGroupMinuteBuckets = perfmetrics.QueryKKAIGroupMinuteBuckets
 	queryKKAIGroupHourBuckets   = perfmetrics.QueryKKAIGroupHourBuckets
-	queryKKAIGroupSignals       = perfmetrics.QueryKKAIGroupSignals
+	queryKKAIGroupRecentSignals = perfmetrics.QueryKKAIGroupRecentSignals
 )
 
 type KKAIGroupStatusRequest struct {
@@ -99,10 +100,12 @@ type KKAIGroupStatusEntry struct {
 }
 
 type KKAIGroupRecentEvent struct {
-	Ts        int64  `json:"ts"`
-	Status    string `json:"status"`
-	TtftMs    int64  `json:"ttft_ms,omitempty"`
-	LatencyMs int64  `json:"latency_ms,omitempty"`
+	Ts           int64  `json:"ts"`
+	Status       string `json:"status"`
+	TtftMs       int64  `json:"ttft_ms,omitempty"`
+	LatencyMs    int64  `json:"latency_ms,omitempty"`
+	eventID      string
+	observedAtNs int64
 }
 
 type kkaiGroupStatusWindow struct {

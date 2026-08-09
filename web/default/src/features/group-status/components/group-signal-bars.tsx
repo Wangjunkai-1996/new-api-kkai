@@ -19,22 +19,34 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useTranslation } from 'react-i18next'
 
+import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { formatGroupDuration } from '../format'
+import { getGroupSignalEvents, GROUP_SIGNAL_COUNT } from '../signal'
 import type { GroupRecentEvent } from '../types'
 
-const SIGNAL_COUNT = 24
 const SIGNAL_PLACEHOLDER_KEYS = Array.from(
-  { length: SIGNAL_COUNT },
+  { length: GROUP_SIGNAL_COUNT },
   (_, index) => `signal-placeholder-${index}`
 )
 
 export function GroupSignalBars(props: { events: GroupRecentEvent[] | null }) {
   const { t } = useTranslation()
-  const events = [...(props.events || [])]
-    .filter((event) => event.status === 'success' || event.status === 'failure')
-    .sort((left, right) => left.ts - right.ts)
-    .slice(-SIGNAL_COUNT)
+  const events = getGroupSignalEvents(props.events)
+
+  if (events.length === 0) {
+    return (
+      <div
+        className='bg-muted/10 text-muted-foreground flex h-10 items-center justify-center rounded-md border border-dashed px-2 text-xs'
+        role='img'
+        aria-label={t('No history data available')}
+      >
+        {t('No history data available')}
+      </div>
+    )
+  }
+
   const successful = events.filter((event) => event.status === 'success').length
   const occurrences = new Map<string, number>()
   const keyedEvents = events.map((event) => {
@@ -46,7 +58,7 @@ export function GroupSignalBars(props: { events: GroupRecentEvent[] | null }) {
 
   return (
     <div
-      className='bg-muted/30 grid h-7 grid-cols-[repeat(24,minmax(0,1fr))] items-end gap-0.5 rounded-md p-1'
+      className='grid h-10 grid-cols-[repeat(60,minmax(0,1fr))] items-end gap-[2px]'
       role='img'
       aria-label={t(
         '{{successful}} successful and {{failed}} failed requests',
@@ -56,11 +68,11 @@ export function GroupSignalBars(props: { events: GroupRecentEvent[] | null }) {
         }
       )}
     >
-      {SIGNAL_PLACEHOLDER_KEYS.slice(0, SIGNAL_COUNT - events.length).map(
+      {SIGNAL_PLACEHOLDER_KEYS.slice(0, GROUP_SIGNAL_COUNT - events.length).map(
         (key) => (
           <span
             key={key}
-            className='bg-muted-foreground/15 h-1 rounded-sm'
+            className='bg-muted-foreground/15 h-1.5 rounded-[2px]'
             aria-hidden='true'
           />
         )
@@ -69,12 +81,17 @@ export function GroupSignalBars(props: { events: GroupRecentEvent[] | null }) {
         <span
           key={item.key}
           className={cn(
-            'rounded-sm',
+            'rounded-[2px]',
             item.event.status === 'success'
-              ? 'h-5 bg-success/75'
-              : 'h-3 bg-destructive/80'
+              ? 'h-8 bg-success/80'
+              : 'h-5 bg-destructive'
           )}
-          title={t(item.event.status === 'success' ? 'Success' : 'Failure')}
+          title={[
+            formatTimestampToDate(item.event.ts),
+            t(item.event.status === 'success' ? 'Success' : 'Failure'),
+            `${t('TTFT')}: ${formatGroupDuration(item.event.ttft_ms ?? 0)}`,
+            `${t('Latency')}: ${formatGroupDuration(item.event.latency_ms ?? 0)}`,
+          ].join(' · ')}
           aria-hidden='true'
         />
       ))}

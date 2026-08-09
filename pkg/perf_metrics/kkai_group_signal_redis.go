@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt time.Time) {
+func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt time.Time, event KKAIGroupSignalEvent) {
 	if pipe == nil {
 		return
 	}
@@ -41,10 +41,38 @@ func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt 
 		pipe.Expire(ctx, key, bucket.ttl)
 	}
 	streamKey := kkaiGroupRedisStreamKey(sample.Group)
-	pipe.XAdd(ctx, &redis.XAddArgs{Stream: streamKey, MaxLen: kkaiGroupStreamMaxLen, Approx: true, Values: map[string]any{
+	pipe.XAdd(ctx, &redis.XAddArgs{Stream: streamKey, MaxLen: kkaiGroupStreamMaxLen, Values: map[string]any{
 		"ts": observedAt.Unix(), "success": boolRedisValue(sample.Success), "latency": sample.LatencyMs, "ttft": sample.TtftMs,
+		"event_id": event.EventID, "observed_at_ns": event.ObservedAtNs,
 	}})
-	pipe.Expire(ctx, streamKey, kkaiGroupMinuteTTL)
+	pipe.Persist(ctx, streamKey)
+}
+
+func maintainKKAIGroupSignalStreams(ctx context.Context) error {
+	if !common.RedisEnabled || common.RDB == nil {
+		return nil
+	}
+	var cursor uint64
+	for {
+		keys, nextCursor, err := common.RDB.Scan(ctx, cursor, "kkai:group-status:*:signals", 100).Result()
+		if err != nil {
+			return fmt.Errorf("scan streams: %w", err)
+		}
+		if len(keys) > 0 {
+			pipe := common.RDB.Pipeline()
+			for _, key := range keys {
+				pipe.XTrimMaxLen(ctx, key, kkaiGroupStreamMaxLen)
+				pipe.Persist(ctx, key)
+			}
+			if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+				return fmt.Errorf("normalize streams: %w", err)
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			return nil
+		}
+	}
 }
 
 func QueryKKAIGroupMinuteBuckets(startTs int64, endTs int64, groups []string) KKAIGroupBucketResult {
@@ -109,12 +137,13 @@ func queryKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 	return KKAIGroupBucketResult{Source: kkaiGroupSource(redisPresent, localPresent), RedisAvailable: true, Buckets: buckets}
 }
 
-func QueryKKAIGroupSignals(minutes int, groups []string) KKAIGroupSignalResult {
-	if minutes <= 0 || minutes > 30 {
-		minutes = 15
+func QueryKKAIGroupRecentSignals(groups []string, limit int) KKAIGroupSignalResult {
+	if limit <= 0 {
+		limit = KKAIGroupRecentSignalLimit
+	} else if limit > kkaiGroupLocalEventMax {
+		limit = kkaiGroupLocalEventMax
 	}
-	startTs := time.Now().Add(-time.Duration(minutes) * time.Minute).Unix()
-	local := localKKAIGroupSignals(startTs, groups)
+	local := localKKAIGroupRecentSignals(groups, limit)
 	if !common.RedisEnabled || common.RDB == nil {
 		return KKAIGroupSignalResult{Source: kkaiGroupSource(false, len(local) > 0), RedisAvailable: false, Events: local}
 	}
@@ -126,37 +155,88 @@ func QueryKKAIGroupSignals(minutes int, groups []string) KKAIGroupSignalResult {
 		cmd   *redis.XMessageSliceCmd
 	}
 	commands := make([]command, 0, len(groups))
-	minID := fmt.Sprintf("%d-0", startTs*1000)
 	for _, group := range groups {
-		commands = append(commands, command{group, pipe.XRevRangeN(ctx, kkaiGroupRedisStreamKey(group), "+", minID, 60)})
+		streamKey := kkaiGroupRedisStreamKey(group)
+		commands = append(commands, command{group, pipe.XRevRangeN(ctx, streamKey, "+", "-", int64(limit))})
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return KKAIGroupSignalResult{Source: kkaiGroupSource(false, len(local) > 0), RedisAvailable: false, Events: local}
 	}
-	events := make([]KKAIGroupSignalEvent, 0)
-	groupsWithRedis := make(map[string]struct{})
+	redisEvents := make([]KKAIGroupSignalEvent, 0)
 	for _, item := range commands {
 		messages, err := item.cmd.Result()
 		if err != nil && !errors.Is(err, redis.Nil) {
 			continue
 		}
-		if len(messages) > 0 {
-			groupsWithRedis[item.group] = struct{}{}
-		}
-		for _, message := range messages {
+		for index := len(messages) - 1; index >= 0; index-- {
+			message := messages[index]
 			event, ok := kkaiGroupSignalFromRedis(item.group, message.Values)
-			if ok && event.Ts >= startTs {
-				events = append(events, event)
+			if ok {
+				redisEvents = append(redisEvents, event)
 			}
 		}
 	}
+	events, redisPresent, localPresent := mergeKKAIGroupRecentSignals(groups, redisEvents, local, limit)
+	return KKAIGroupSignalResult{Source: kkaiGroupSource(redisPresent, localPresent), RedisAvailable: true, Events: events}
+}
+
+type kkaiGroupSignalCandidate struct {
+	event     KKAIGroupSignalEvent
+	fromRedis bool
+}
+
+func mergeKKAIGroupRecentSignals(
+	groups []string,
+	redisEvents []KKAIGroupSignalEvent,
+	localEvents []KKAIGroupSignalEvent,
+	limit int,
+) ([]KKAIGroupSignalEvent, bool, bool) {
+	byGroup := make(map[string][]kkaiGroupSignalCandidate, len(groups))
+	seenEventIDs := make(map[string]struct{}, len(redisEvents)+len(localEvents))
+	for _, event := range redisEvents {
+		if event.EventID != "" {
+			if _, exists := seenEventIDs[event.EventID]; exists {
+				continue
+			}
+			seenEventIDs[event.EventID] = struct{}{}
+		}
+		byGroup[event.Group] = append(byGroup[event.Group], kkaiGroupSignalCandidate{event: event, fromRedis: true})
+	}
+	for _, event := range localEvents {
+		if event.EventID != "" {
+			if _, exists := seenEventIDs[event.EventID]; exists {
+				continue
+			}
+			seenEventIDs[event.EventID] = struct{}{}
+		}
+		byGroup[event.Group] = append(byGroup[event.Group], kkaiGroupSignalCandidate{event: event})
+	}
+
+	events := make([]KKAIGroupSignalEvent, 0, limit*len(groups))
+	redisPresent := false
 	localPresent := false
-	for _, event := range local {
-		if _, exists := groupsWithRedis[event.Group]; !exists {
-			localPresent = true
-			events = append(events, event)
+	emittedGroups := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		if _, emitted := emittedGroups[group]; emitted {
+			continue
+		}
+		emittedGroups[group] = struct{}{}
+		candidates := byGroup[group]
+		sort.SliceStable(candidates, func(i, j int) bool {
+			return kkaiGroupSignalLess(candidates[i].event, candidates[j].event)
+		})
+		if len(candidates) > limit {
+			candidates = candidates[len(candidates)-limit:]
+		}
+		for _, candidate := range candidates {
+			events = append(events, candidate.event)
+			if candidate.fromRedis {
+				redisPresent = true
+			} else {
+				localPresent = true
+			}
 		}
 	}
-	sort.Slice(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
-	return KKAIGroupSignalResult{Source: kkaiGroupSource(len(groupsWithRedis) > 0, localPresent), RedisAvailable: true, Events: events}
+	sort.SliceStable(events, func(i, j int) bool { return kkaiGroupSignalLess(events[i], events[j]) })
+	return events, redisPresent, localPresent
 }

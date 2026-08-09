@@ -28,8 +28,8 @@ func localKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 	return buckets
 }
 
-func localKKAIGroupSignals(startTs int64, groups []string) []KKAIGroupSignalEvent {
-	events := make([]KKAIGroupSignalEvent, 0)
+func localKKAIGroupRecentSignals(groups []string, limit int) []KKAIGroupSignalEvent {
+	events := make([]KKAIGroupSignalEvent, 0, limit*len(groups))
 	for _, group := range groups {
 		raw, ok := kkaiGroupSignals.Load(group)
 		if !ok {
@@ -37,14 +37,11 @@ func localKKAIGroupSignals(startTs int64, groups []string) []KKAIGroupSignalEven
 		}
 		buffer := raw.(*kkaiGroupSignalBuffer)
 		buffer.mu.Lock()
-		first := sort.Search(len(buffer.events), func(index int) bool { return buffer.events[index].Ts >= startTs })
+		first := max(0, len(buffer.events)-limit)
 		events = append(events, buffer.events[first:]...)
 		buffer.mu.Unlock()
 	}
-	sort.Slice(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
-	if len(events) > 60*len(groups) {
-		events = events[len(events)-60*len(groups):]
-	}
+	sort.SliceStable(events, func(i, j int) bool { return kkaiGroupSignalLess(events[i], events[j]) })
 	return events
 }
 
@@ -57,22 +54,6 @@ func cleanupKKAILocalGroupBuckets(now time.Time) {
 			(key.resolution == kkaiGroupHourSeconds && key.bucketTs < hourCutoff) {
 			kkaiGroupBuckets.Delete(rawKey)
 		}
-		return true
-	})
-
-	signalCutoff := now.Add(-kkaiGroupSignalMaxAge).Unix()
-	kkaiGroupSignals.Range(func(_, rawValue any) bool {
-		buffer := rawValue.(*kkaiGroupSignalBuffer)
-		buffer.mu.Lock()
-		first := sort.Search(len(buffer.events), func(index int) bool {
-			return buffer.events[index].Ts >= signalCutoff
-		})
-		if first == len(buffer.events) {
-			buffer.events = nil
-		} else if first > 0 {
-			buffer.events = append([]KKAIGroupSignalEvent(nil), buffer.events[first:]...)
-		}
-		buffer.mu.Unlock()
 		return true
 	})
 }

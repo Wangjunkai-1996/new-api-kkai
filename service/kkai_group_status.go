@@ -24,7 +24,7 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 
 	startTs := now.Add(-time.Duration(window.minutes) * time.Minute).Unix()
 	endTs := now.Unix()
-	signals := queryKKAIGroupSignals(min(window.minutes, 15), groups)
+	signals := queryKKAIGroupRecentSignals(groups, kkaiGroupRecentEventLimit)
 	metrics := make(map[string]kkaiGroupMetrics, len(groups))
 	dataSource := perfmetrics.KKAIGroupDataSourceNone
 	redisAvailable := signals.RedisAvailable
@@ -45,10 +45,14 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 	}
 
 	applyKKAIAutoGroupMetrics(metrics, request.UsableGroups, request.AutoGroups)
-	eventsByGroup := kkaiGroupRecentEventsByGroup(signals.Events)
-	applyKKAIAutoGroupEvents(eventsByGroup, request.UsableGroups, request.AutoGroups)
+	eventsByGroup := kkaiGroupRecentEventsByGroup(signals.Events, kkaiGroupRecentEventLimit)
+	applyKKAIAutoGroupEvents(eventsByGroup, request.UsableGroups, request.AutoGroups, kkaiGroupRecentEventLimit)
 	entries := make([]KKAIGroupStatusEntry, 0, len(groups))
 	for _, group := range groups {
+		recentEvents := eventsByGroup[group]
+		if recentEvents == nil {
+			recentEvents = []KKAIGroupRecentEvent{}
+		}
 		entries = append(entries, buildKKAIGroupStatusEntry(
 			group,
 			request.UsableGroups[group],
@@ -56,7 +60,7 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 			now,
 			window,
 			dataSource,
-			eventsByGroup[group],
+			recentEvents,
 		))
 	}
 	return KKAIGroupStatusResult{

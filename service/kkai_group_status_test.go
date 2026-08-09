@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -23,13 +24,13 @@ func withKKAIGroupStatusSources(
 	originalLoad := loadKKAIPerfMetricBuckets
 	originalQueryMinute := queryKKAIGroupMinuteBuckets
 	originalQueryHour := queryKKAIGroupHourBuckets
-	originalQuerySignals := queryKKAIGroupSignals
+	originalQuerySignals := queryKKAIGroupRecentSignals
 	t.Cleanup(func() {
 		kkaiGroupStatusNow = originalNow
 		loadKKAIPerfMetricBuckets = originalLoad
 		queryKKAIGroupMinuteBuckets = originalQueryMinute
 		queryKKAIGroupHourBuckets = originalQueryHour
-		queryKKAIGroupSignals = originalQuerySignals
+		queryKKAIGroupRecentSignals = originalQuerySignals
 	})
 
 	kkaiGroupStatusNow = func() time.Time { return now }
@@ -42,7 +43,8 @@ func withKKAIGroupStatusSources(
 	queryKKAIGroupHourBuckets = func(int64, int64, []string) perfmetrics.KKAIGroupBucketResult {
 		return hourly
 	}
-	queryKKAIGroupSignals = func(int, []string) perfmetrics.KKAIGroupSignalResult {
+	queryKKAIGroupRecentSignals = func(_ []string, limit int) perfmetrics.KKAIGroupSignalResult {
+		require.Equal(t, kkaiGroupRecentEventLimit, limit)
 		return signals
 	}
 }
@@ -99,7 +101,13 @@ func TestKKAIGroupStatusMarksOldSuccessfulDataStale(t *testing.T) {
 		},
 		perfmetrics.KKAIGroupBucketResult{},
 		perfmetrics.KKAIGroupBucketResult{Source: perfmetrics.KKAIGroupDataSourceNone, RedisAvailable: true},
-		perfmetrics.KKAIGroupSignalResult{Source: perfmetrics.KKAIGroupDataSourceNone, RedisAvailable: true},
+		perfmetrics.KKAIGroupSignalResult{
+			Source:         perfmetrics.KKAIGroupDataSourceRedis,
+			RedisAvailable: true,
+			Events: []perfmetrics.KKAIGroupSignalEvent{
+				{Group: "default", Ts: now.Add(-2 * time.Hour).Unix(), Success: true},
+			},
+		},
 	)
 
 	result, err := GetKKAIGroupStatuses(KKAIGroupStatusRequest{
@@ -113,6 +121,60 @@ func TestKKAIGroupStatusMarksOldSuccessfulDataStale(t *testing.T) {
 	assert.Equal(t, KKAIGroupHealthUnknown, entry.Status)
 	assert.Equal(t, KKAIGroupConfidenceUnknown, entry.ConfidenceStatus)
 	assert.Equal(t, kkaiGroupStatusMessageStale, entry.DisplayMessage)
+	require.Len(t, entry.RecentEvents, 1)
+	assert.Equal(t, now.Add(-2*time.Hour).Unix(), entry.RecentEvents[0].Ts)
+}
+
+func TestKKAIGroupStatusHistoricalSignalsDoNotCreateCurrentHealth(t *testing.T) {
+	now := time.Unix(1_784_020_200, 0)
+	withKKAIGroupStatusSources(
+		t,
+		now,
+		nil,
+		perfmetrics.KKAIGroupBucketResult{Source: perfmetrics.KKAIGroupDataSourceNone, RedisAvailable: true},
+		perfmetrics.KKAIGroupBucketResult{},
+		perfmetrics.KKAIGroupSignalResult{
+			Source:         perfmetrics.KKAIGroupDataSourceRedis,
+			RedisAvailable: true,
+			Events: []perfmetrics.KKAIGroupSignalEvent{
+				{Group: "default", Ts: now.Add(-2 * time.Hour).Unix(), Success: true},
+			},
+		},
+	)
+
+	result, err := GetKKAIGroupStatuses(KKAIGroupStatusRequest{
+		UsableGroups: map[string]string{"default": "Default"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Groups, 1)
+	entry := result.Groups[0]
+	assert.Equal(t, KKAIGroupHealthUnknown, entry.Status)
+	assert.Equal(t, KKAIGroupConfidenceUnknown, entry.ConfidenceStatus)
+	assert.Equal(t, int64(0), entry.SampledAt)
+	require.Len(t, entry.RecentEvents, 1)
+	assert.Equal(t, now.Add(-2*time.Hour).Unix(), entry.RecentEvents[0].Ts)
+}
+
+func TestKKAIGroupStatusUnusedGroupReturnsEmptyRecentEvents(t *testing.T) {
+	now := time.Unix(1_784_020_200, 0)
+	withKKAIGroupStatusSources(
+		t,
+		now,
+		nil,
+		perfmetrics.KKAIGroupBucketResult{Source: perfmetrics.KKAIGroupDataSourceNone, RedisAvailable: true},
+		perfmetrics.KKAIGroupBucketResult{},
+		perfmetrics.KKAIGroupSignalResult{Source: perfmetrics.KKAIGroupDataSourceNone, RedisAvailable: true},
+	)
+
+	result, err := GetKKAIGroupStatuses(KKAIGroupStatusRequest{
+		UsableGroups: map[string]string{"unused": "Unused"},
+		Window:       "now",
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Groups, 1)
+	assert.NotNil(t, result.Groups[0].RecentEvents)
+	assert.Empty(t, result.Groups[0].RecentEvents)
 }
 
 func TestKKAIGroupStatusFallsBackToLocalSignalsWhenRedisFails(t *testing.T) {
@@ -146,6 +208,20 @@ func TestKKAIGroupStatusFallsBackToLocalSignalsWhenRedisFails(t *testing.T) {
 
 func TestKKAIGroupStatusAggregatesConfiguredAutoGroups(t *testing.T) {
 	now := time.Unix(1_784_020_200, 0)
+	base := now.Add(-80 * time.Second)
+	signalEvents := make([]perfmetrics.KKAIGroupSignalEvent, 0, 80)
+	for index := 39; index >= 0; index-- {
+		signalEvents = append(signalEvents,
+			perfmetrics.KKAIGroupSignalEvent{
+				Group: "default", Ts: base.Unix(), Success: true, LatencyMs: int64(index * 2),
+				EventID: "default-" + strconv.Itoa(index), ObservedAtNs: base.Add(time.Duration(index*2) * time.Nanosecond).UnixNano(),
+			},
+			perfmetrics.KKAIGroupSignalEvent{
+				Group: "vip", Ts: base.Unix(), Success: true, LatencyMs: int64(index*2 + 1),
+				EventID: "vip-" + strconv.Itoa(index), ObservedAtNs: base.Add(time.Duration(index*2+1) * time.Nanosecond).UnixNano(),
+			},
+		)
+	}
 	withKKAIGroupStatusSources(
 		t,
 		now,
@@ -159,7 +235,7 @@ func TestKKAIGroupStatusAggregatesConfiguredAutoGroups(t *testing.T) {
 			},
 		},
 		perfmetrics.KKAIGroupBucketResult{},
-		perfmetrics.KKAIGroupSignalResult{},
+		perfmetrics.KKAIGroupSignalResult{Events: signalEvents},
 	)
 
 	result, err := GetKKAIGroupStatuses(KKAIGroupStatusRequest{
@@ -177,6 +253,11 @@ func TestKKAIGroupStatusAggregatesConfiguredAutoGroups(t *testing.T) {
 	assert.Equal(t, int64(16), entries["auto"].RequestCount)
 	assert.Equal(t, 93.75, entries["auto"].SuccessRate)
 	assert.Equal(t, now.Add(-3*time.Second).Unix(), entries["auto"].SampledAt)
+	require.Len(t, entries["default"].RecentEvents, 40)
+	require.Len(t, entries["vip"].RecentEvents, 40)
+	require.Len(t, entries["auto"].RecentEvents, kkaiGroupRecentEventLimit)
+	assert.Equal(t, int64(20), entries["auto"].RecentEvents[0].LatencyMs)
+	assert.Equal(t, int64(79), entries["auto"].RecentEvents[kkaiGroupRecentEventLimit-1].LatencyMs)
 }
 
 func TestMergeKKAIDatabaseAndLiveBucketsKeepsMostCompleteHourlyAggregate(t *testing.T) {

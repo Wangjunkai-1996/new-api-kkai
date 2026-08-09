@@ -17,15 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import type { LucideIcon } from 'lucide-react'
+import { Layers3, Timer, type LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { formatNumber, formatTimestampRelative } from '@/lib/format'
+import { formatTimestampRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { formatGroupDuration, formatGroupSuccessRate } from '../format'
+import { getGroupLastSignalAt } from '../signal'
 import {
   GROUP_EXPERIENCE_META,
   getGroupStatusLabel,
@@ -35,84 +36,158 @@ import {
 import type { GroupStatusEntry } from '../types'
 import { GroupSignalBars } from './group-signal-bars'
 
+const CARD_TONES: Record<
+  GroupStatusEntry['confidence_status'],
+  { card: string; icon: string; badge: string }
+> = {
+  unavailable: {
+    card: 'border-destructive/25 hover:border-destructive/40',
+    icon: 'bg-destructive/10 text-destructive ring-destructive/20',
+    badge: 'bg-destructive/10 ring-destructive/20',
+  },
+  unstable: {
+    card: 'border-warning/25 hover:border-warning/40',
+    icon: 'bg-warning/10 text-warning ring-warning/20',
+    badge: 'bg-warning/10 ring-warning/20',
+  },
+  unknown: {
+    card: 'border-border/80 hover:border-foreground/20',
+    icon: 'bg-muted/70 text-muted-foreground ring-border',
+    badge: 'bg-muted/70 ring-border',
+  },
+  stable: {
+    card: 'border-success/20 hover:border-success/35',
+    icon: 'bg-success/10 text-success ring-success/20',
+    badge: 'bg-success/10 ring-success/20',
+  },
+  smooth: {
+    card: 'border-chart-2/20 hover:border-chart-2/35',
+    icon: 'bg-chart-2/10 text-chart-2 ring-chart-2/20',
+    badge: 'bg-chart-2/10 ring-chart-2/20',
+  },
+  excellent: {
+    card: 'border-emerald-500/20 hover:border-emerald-500/35',
+    icon: 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-300',
+    badge: 'bg-emerald-500/10 ring-emerald-500/20',
+  },
+}
+
 export function GroupStatusCard(props: { group: GroupStatusEntry }) {
   const { t } = useTranslation()
   const meta = getGroupStatusMeta(props.group)
-  const StatusIcon = meta.icon
+  const tone = CARD_TONES[props.group.confidence_status]
   const ExperienceIcon =
     GROUP_EXPERIENCE_META[props.group.experience_label].icon
+  const lastSignalAt = getGroupLastSignalAt(props.group)
+  const statusMessage = t(getGroupStatusMessage(props.group))
 
   return (
-    <Card size='sm' className='rounded-lg'>
-      <CardContent className='space-y-3'>
-        <div className='flex min-w-0 items-start justify-between gap-3'>
-          <div className='min-w-0'>
-            <div className='truncate font-semibold'>{props.group.group}</div>
-            <div className='text-muted-foreground truncate text-xs'>
+    <Card
+      size='sm'
+      className={cn(
+        'h-full min-h-[22rem] gap-0 rounded-lg border bg-card/80 py-0 shadow-sm transition-[background-color,border-color] hover:bg-card',
+        tone.card
+      )}
+    >
+      <CardContent className='flex h-full flex-col gap-4 p-4'>
+        <div className='flex min-w-0 items-start gap-3'>
+          <div
+            className={cn(
+              'grid size-11 shrink-0 place-items-center rounded-lg ring-1 ring-inset',
+              tone.icon
+            )}
+          >
+            <Layers3 className='size-5' aria-hidden='true' />
+          </div>
+          <div className='min-w-0 flex-1 pt-0.5'>
+            <div className='truncate text-base font-semibold'>
+              {props.group.group}
+            </div>
+            <div
+              className='text-muted-foreground truncate text-xs'
+              title={props.group.desc || t('User group')}
+            >
               {props.group.desc || t('User group')}
             </div>
           </div>
           <StatusBadge
             copyable={false}
-            icon={StatusIcon}
             label={t(getGroupStatusLabel(props.group))}
             variant={props.group.stale ? 'warning' : meta.variant}
-            title={t(getGroupStatusMessage(props.group))}
+            title={statusMessage}
+            className={cn(
+              'shrink-0 ring-1 ring-inset',
+              props.group.stale ? 'bg-warning/10 ring-warning/20' : tone.badge
+            )}
           />
         </div>
-        <dl className='grid grid-cols-2 gap-x-4 gap-y-2 border-y py-3 text-sm'>
-          <CompactMetric
-            label={t('Success')}
-            value={formatGroupSuccessRate(props.group)}
-            valueClassName={meta.toneClass}
-          />
-          <CompactMetric
-            label={t('Requests')}
-            value={formatNumber(props.group.request_count)}
-          />
-          <CompactMetric
+
+        <dl className='grid grid-cols-2 gap-2.5'>
+          <MetricPanel
             label={t('TTFT')}
             value={formatGroupDuration(props.group.avg_ttft_ms)}
             icon={ExperienceIcon}
           />
-          <CompactMetric
+          <MetricPanel
             label={t('Latency')}
             value={formatGroupDuration(props.group.avg_latency_ms)}
+            icon={Timer}
           />
         </dl>
-        <GroupSignalBars events={props.group.recent_events} />
-        <div className='flex items-start justify-between gap-3 text-xs'>
-          <p className='text-muted-foreground line-clamp-2 min-w-0'>
-            {t(getGroupStatusMessage(props.group))}
-          </p>
-          <span className='text-muted-foreground shrink-0 tabular-nums'>
-            {formatTimestampRelative(props.group.sampled_at)}
-          </span>
+
+        <div className='flex min-w-0 items-end justify-between gap-4 border-y py-3.5'>
+          <div className='min-w-0 pb-0.5'>
+            <p className='text-muted-foreground text-xs'>{t('Success rate')}</p>
+            <p
+              className='text-muted-foreground mt-1 truncate text-xs'
+              title={statusMessage}
+            >
+              {statusMessage}
+            </p>
+          </div>
+          <div
+            className={cn(
+              'shrink-0 text-3xl leading-none font-semibold tabular-nums',
+              meta.toneClass
+            )}
+          >
+            {formatGroupSuccessRate(props.group)}
+          </div>
+        </div>
+
+        <div className='mt-auto space-y-2'>
+          <div className='flex items-center justify-between gap-3 text-xs'>
+            <span className='text-muted-foreground font-medium'>
+              {t('Last 60 requests')}
+            </span>
+            <span className='text-muted-foreground shrink-0 tabular-nums'>
+              {formatTimestampRelative(lastSignalAt)}
+            </span>
+          </div>
+          <GroupSignalBars events={props.group.recent_events} />
+          <div className='text-muted-foreground/70 flex items-center justify-between text-[10px] font-medium uppercase'>
+            <span>{t('Past')}</span>
+            <span>{t('Now')}</span>
+          </div>
         </div>
       </CardContent>
     </Card>
   )
 }
 
-function CompactMetric(props: {
+function MetricPanel(props: {
   label: string
   value: string
-  valueClassName?: string
   icon?: LucideIcon
 }) {
   const Icon = props.icon
   return (
-    <div className='min-w-0'>
+    <div className='bg-muted/10 min-w-0 rounded-lg border px-3 py-3'>
       <dt className='text-muted-foreground flex items-center gap-1 text-xs'>
         {Icon && <Icon className='size-3' aria-hidden='true' />}
         {props.label}
       </dt>
-      <dd
-        className={cn(
-          'truncate font-medium tabular-nums',
-          props.valueClassName
-        )}
-      >
+      <dd className='mt-2 truncate text-lg font-semibold tabular-nums'>
         {props.value}
       </dd>
     </div>
