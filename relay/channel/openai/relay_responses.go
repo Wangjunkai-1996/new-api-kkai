@@ -171,24 +171,29 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			endReason = info.StreamStatus.EndReason
 			endErr = info.StreamStatus.EndError
 		}
-		message := fmt.Sprintf(
-			"responses stream ended without a successful terminal event (reason=%s, received=%d)",
-			endReason,
-			info.ReceivedResponseCount,
-		)
-		if endErr != nil {
-			message += fmt.Sprintf(": %v", endErr)
+		if endReason == relaycommon.StreamEndReasonClientGone {
+			// A client disconnect is not an upstream response failure. Keep the
+			// usage collected so far and let the normal billing path settle it.
+		} else {
+			message := fmt.Sprintf(
+				"responses stream ended without a successful terminal event (reason=%s, received=%d)",
+				endReason,
+				info.ReceivedResponseCount,
+			)
+			if endErr != nil {
+				message += fmt.Sprintf(": %v", endErr)
+			}
+			streamErr = types.NewOpenAIError(
+				errors.New(message),
+				types.ErrorCodeBadResponse,
+				http.StatusBadGateway,
+				types.ErrOptionWithSkipRetry(),
+			)
+			if info.StreamStatus != nil {
+				info.StreamStatus.RecordError(streamErr.Error())
+			}
+			return nil, streamErr
 		}
-		streamErr = types.NewOpenAIError(
-			errors.New(message),
-			types.ErrorCodeBadResponse,
-			http.StatusBadGateway,
-			types.ErrOptionWithSkipRetry(),
-		)
-		if info.StreamStatus != nil {
-			info.StreamStatus.RecordError(streamErr.Error())
-		}
-		return nil, streamErr
 	}
 
 	if usage.CompletionTokens == 0 {

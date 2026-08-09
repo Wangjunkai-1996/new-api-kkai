@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -107,4 +108,45 @@ func TestOaiResponsesStreamHandlerRejectsFailedOrUnterminatedStreams(t *testing.
 			require.True(t, info.StreamStatus.HasErrors())
 		})
 	}
+}
+
+func TestOaiResponsesStreamHandlerIgnoresClientDisconnectWithoutTerminalEvent(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+	c.Set(common.RequestIdKey, "responses-client-disconnect-test")
+	c.Writer = &cancelAfterWriter{
+		ResponseWriter: c.Writer,
+		needle:         "response.created",
+		cancel:         cancel,
+	}
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: &blockingBody{
+			chunk:  []byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"),
+			closed: make(chan struct{}),
+		},
+		Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-test"},
+		IsStream:    true,
+		DisablePing: true,
+	}
+
+	usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	require.Zero(t, usage.TotalTokens)
+	require.NotNil(t, info.StreamStatus)
+	require.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+	require.False(t, info.StreamStatus.HasErrors())
 }
