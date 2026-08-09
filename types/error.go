@@ -101,6 +101,7 @@ type NewAPIError struct {
 	Metadata           json.RawMessage
 	originalStatusCode int
 	originalErrorCode  ErrorCode
+	policyEvidence     string
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.
@@ -137,23 +138,26 @@ func (e *NewAPIError) GetErrorType() ErrorType {
 	return e.errorType
 }
 
-// RememberOriginalStatusCode preserves the upstream status before a channel
-// response mapping changes the public status returned to the client.
-func (e *NewAPIError) RememberOriginalStatusCode() {
-	if e != nil && e.originalStatusCode == 0 {
-		e.originalStatusCode = e.StatusCode
-	}
-}
-
-// GetOriginalStatusCode returns the upstream status before any public mapping.
+// GetOriginalStatusCode returns an explicitly recorded upstream HTTP status.
+// A zero value means the error was not proven to originate from an HTTP response.
 func (e *NewAPIError) GetOriginalStatusCode() int {
 	if e == nil {
 		return 0
 	}
-	if e.originalStatusCode != 0 {
-		return e.originalStatusCode
+	return e.originalStatusCode
+}
+
+func (e *NewAPIError) GetPolicyEvidence() string {
+	if e == nil {
+		return ""
 	}
-	return e.StatusCode
+	return e.policyEvidence
+}
+
+func (e *NewAPIError) SetPolicyEvidence(evidence string) {
+	if e != nil {
+		e.policyEvidence = evidence
+	}
 }
 
 func (e *NewAPIError) Error() string {
@@ -434,7 +438,7 @@ func ErrOptionWithStatusCode(statusCode int) NewAPIErrorOptions {
 
 func ErrOptionWithOriginalStatusCode(statusCode int) NewAPIErrorOptions {
 	return func(e *NewAPIError) {
-		if statusCode > 0 {
+		if statusCode >= 100 && statusCode <= 599 {
 			e.originalStatusCode = statusCode
 		}
 	}
@@ -444,6 +448,14 @@ func ErrOptionWithOriginalErrorCode(errorCode ErrorCode) NewAPIErrorOptions {
 	return func(e *NewAPIError) {
 		if errorCode != "" {
 			e.originalErrorCode = errorCode
+		}
+	}
+}
+
+func ErrOptionWithPolicyEvidence(evidence string) NewAPIErrorOptions {
+	return func(e *NewAPIError) {
+		if evidence != "" {
+			e.policyEvidence = evidence
 		}
 	}
 }

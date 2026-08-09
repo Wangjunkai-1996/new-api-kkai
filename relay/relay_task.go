@@ -380,7 +380,7 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 			task.PrivateData.TargetQuota = quotaPointer(result.Quota)
 			return result, markTaskSubmissionUnknown(task, fmt.Errorf("reset submission claim after upstream rejection: %w", resetErr))
 		}
-		return result, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
+		return result, service.TaskErrorWrapperUpstream(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
 
 	response, responseErr := adaptor.DoResponse(c, resp, info)

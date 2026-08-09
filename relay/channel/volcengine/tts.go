@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -212,11 +213,12 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	conn, resp, dialErr := websocket.DefaultDialer.DialContext(context.Background(), requestURL, header)
 	if dialErr != nil {
 		if resp != nil {
-			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("failed to connect to websocket: %w, status: %d", dialErr, resp.StatusCode),
-				types.ErrorCodeBadResponseStatusCode,
-				http.StatusBadGateway,
-			)
+			if resp.Body == nil {
+				resp.Body = http.NoBody
+			}
+			apiErr := service.RelayErrorHandler(c.Request.Context(), resp, false)
+			apiErr.StatusCode = http.StatusBadGateway
+			return nil, apiErr
 		}
 		return nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("failed to connect to websocket: %w", dialErr),

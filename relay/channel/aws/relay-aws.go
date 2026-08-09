@@ -29,15 +29,26 @@ import (
 	"github.com/aws/smithy-go/auth/bearer"
 )
 
-// getAwsErrorStatusCode extracts HTTP status code from AWS SDK error
-func getAwsErrorStatusCode(err error) int {
-	// Check for HTTP response error which contains status code
+// getAwsErrorStatusCode extracts a proven HTTP status from an AWS SDK error.
+func getAwsErrorStatusCode(err error) (int, bool) {
 	var httpErr interface{ HTTPStatusCode() int }
 	if errors.As(err, &httpErr) {
-		return httpErr.HTTPStatusCode()
+		statusCode := httpErr.HTTPStatusCode()
+		if statusCode >= 100 && statusCode <= 599 {
+			return statusCode, true
+		}
 	}
-	// Default to 500 if we can't determine the status code
-	return http.StatusInternalServerError
+	return 0, false
+}
+
+func newAwsInvokeError(err error, operation string) *types.NewAPIError {
+	statusCode := http.StatusInternalServerError
+	options := make([]types.NewAPIErrorOptions, 0, 1)
+	if upstreamStatusCode, ok := getAwsErrorStatusCode(err); ok {
+		statusCode = upstreamStatusCode
+		options = append(options, types.ErrOptionWithOriginalStatusCode(upstreamStatusCode))
+	}
+	return types.NewOpenAIError(errors.Wrap(err, operation), types.ErrorCodeAwsInvokeError, statusCode, options...)
 }
 
 func newAwsInvokeContext() (context.Context, context.CancelFunc) {
@@ -228,8 +239,7 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 
 	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))
 	if err != nil {
-		statusCode := getAwsErrorStatusCode(err)
-		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
+		return newAwsInvokeError(err, "InvokeModel"), nil
 	}
 
 	claudeInfo := &claude.ClaudeResponseInfo{
@@ -258,8 +268,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 
 	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))
 	if err != nil {
-		statusCode := getAwsErrorStatusCode(err)
-		return types.NewOpenAIError(errors.Wrap(err, "InvokeModelWithResponseStream"), types.ErrorCodeAwsInvokeError, statusCode), nil
+		return newAwsInvokeError(err, "InvokeModelWithResponseStream"), nil
 	}
 	stream := awsResp.GetStream()
 	defer stream.Close()
@@ -301,8 +310,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 
 	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))
 	if err != nil {
-		statusCode := getAwsErrorStatusCode(err)
-		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
+		return newAwsInvokeError(err, "InvokeModel"), nil
 	}
 
 	// 解析Nova响应

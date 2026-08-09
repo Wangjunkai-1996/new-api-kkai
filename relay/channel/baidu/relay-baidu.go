@@ -227,6 +227,9 @@ func getBaiduAccessTokenHelper(apiKey string) (*BaiduAccessToken, error) {
 	if err != nil {
 		return nil, err
 	}
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		return nil, service.RelayErrorHandler(req.Context(), res, false)
+	}
 	defer res.Body.Close()
 
 	var accessToken BaiduAccessToken

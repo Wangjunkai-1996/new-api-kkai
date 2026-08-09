@@ -122,6 +122,7 @@ func TestAutomaticChannelTestCyberNeverBecomesTimeoutBan(t *testing.T) {
 		errors.New("cyber_policy"),
 		types.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
+		types.ErrOptionWithOriginalStatusCode(http.StatusForbidden),
 	)
 	policyDetected := service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected
 	require.True(t, policyDetected)
@@ -163,6 +164,7 @@ func TestProcessChannelTestPolicyErrorRecordsAuditOnlyIncident(t *testing.T) {
 		errors.New("cyber_policy"),
 		types.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
+		types.ErrOptionWithOriginalStatusCode(http.StatusForbidden),
 	)
 
 	detected := processChannelTestPolicyError(channel, testResult{context: ctx, newAPIError: apiErr})

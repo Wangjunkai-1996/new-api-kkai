@@ -2,6 +2,7 @@ package aws
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,32 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type awsHTTPStatusTestError struct {
+	statusCode int
+}
+
+func (e awsHTTPStatusTestError) Error() string {
+	return "aws request failed"
+}
+
+func (e awsHTTPStatusTestError) HTTPStatusCode() int {
+	return e.statusCode
+}
+
+func TestNewAwsInvokeErrorRecordsOnlyProvenHTTPStatus(t *testing.T) {
+	upstreamErr := newAwsInvokeError(awsHTTPStatusTestError{statusCode: http.StatusForbidden}, "InvokeModel")
+	require.Equal(t, http.StatusForbidden, upstreamErr.StatusCode)
+	require.Equal(t, http.StatusForbidden, upstreamErr.GetOriginalStatusCode())
+
+	localErr := newAwsInvokeError(errors.New("local failure"), "InvokeModel")
+	require.Equal(t, http.StatusInternalServerError, localErr.StatusCode)
+	require.Zero(t, localErr.GetOriginalStatusCode())
+
+	invalidStatusErr := newAwsInvokeError(awsHTTPStatusTestError{statusCode: 700}, "InvokeModel")
+	require.Equal(t, http.StatusInternalServerError, invalidStatusErr.StatusCode)
+	require.Zero(t, invalidStatusErr.GetOriginalStatusCode())
+}
 
 func TestDoAwsClientRequest_AppliesRuntimeHeaderOverrideToAnthropicBeta(t *testing.T) {
 	t.Parallel()

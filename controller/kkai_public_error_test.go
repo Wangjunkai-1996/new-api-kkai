@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
@@ -33,10 +35,19 @@ func newKKAIPublicErrorTestContext(t *testing.T) *gin.Context {
 	return ctx
 }
 
+func newControllerUpstreamPolicyError(message string, code types.ErrorCode, statusCode int) *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New(message),
+		code,
+		statusCode,
+		types.ErrOptionWithOriginalStatusCode(statusCode),
+	)
+}
+
 func TestKKAIPublicOpenAIErrorRedactsClientPolicyIncident(t *testing.T) {
 	ctx := newKKAIPublicErrorTestContext(t)
-	apiErr := types.NewErrorWithStatusCode(
-		errors.New("cyber_policy visit https://ads.example with Bearer sk-client-secret"),
+	apiErr := newControllerUpstreamPolicyError(
+		"cyber_policy visit https://ads.example with Bearer sk-client-secret",
 		types.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
 	)
@@ -53,8 +64,8 @@ func TestKKAIPublicOpenAIErrorRedactsClientPolicyIncident(t *testing.T) {
 
 func TestKKAIPublicOpenAIErrorTreatsUpstreamKeyAsUnavailable(t *testing.T) {
 	ctx := newKKAIPublicErrorTestContext(t)
-	apiErr := types.NewErrorWithStatusCode(
-		errors.New("provider API key has been disabled"),
+	apiErr := newControllerUpstreamPolicyError(
+		"provider API key has been disabled",
 		types.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
 	)
@@ -84,8 +95,8 @@ func TestKKAIPublicOpenAIErrorUsesKeywordWarning(t *testing.T) {
 
 func TestKKAIPublicOpenAIErrorPrioritizesCyberOverKeywordCode(t *testing.T) {
 	ctx := newKKAIPublicErrorTestContext(t)
-	apiErr := types.NewErrorWithStatusCode(
-		errors.New("cyber_policy"),
+	apiErr := newControllerUpstreamPolicyError(
+		"cyber_policy",
 		types.ErrorCodeSensitiveWordsDetected,
 		http.StatusForbidden,
 	)
@@ -114,7 +125,7 @@ func TestKKAIPublicOpenAIErrorPreservesUpstreamPromptBlocked(t *testing.T) {
 
 func TestKKAIPublicClaudeErrorKeepsPolicyCode(t *testing.T) {
 	ctx := newKKAIPublicErrorTestContext(t)
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newControllerUpstreamPolicyError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 
 	status, publicErr := kkaiPublicClaudeError(ctx, apiErr)
 	require.Equal(t, http.StatusForbidden, status)
@@ -126,10 +137,11 @@ func TestKKAIPublicClaudeErrorKeepsPolicyCode(t *testing.T) {
 func TestKKAIPublicTaskErrorDoesNotMutateOrLeakOriginal(t *testing.T) {
 	ctx := newKKAIPublicErrorTestContext(t)
 	original := &dto.TaskError{
-		Code:       "bad_response_status_code",
-		Message:    "cyber_policy Bearer sk-client-secret",
-		StatusCode: http.StatusForbidden,
-		Error:      errors.New("cyber_policy Bearer sk-client-secret"),
+		Code:               "bad_response_status_code",
+		Message:            "cyber_policy Bearer sk-client-secret",
+		StatusCode:         http.StatusForbidden,
+		UpstreamStatusCode: http.StatusForbidden,
+		Error:              errors.New("cyber_policy Bearer sk-client-secret"),
 	}
 
 	publicErr := kkaiPublicTaskError(ctx, original)
@@ -144,9 +156,10 @@ func TestKKAIPublicTaskErrorDoesNotMutateOrLeakOriginal(t *testing.T) {
 func TestKKAIPublicTaskErrorPrioritizesCyberOverKeywordCode(t *testing.T) {
 	ctx := newKKAIPublicErrorTestContext(t)
 	publicErr := kkaiPublicTaskError(ctx, &dto.TaskError{
-		Code:       string(types.ErrorCodeSensitiveWordsDetected),
-		Message:    "cyber_policy",
-		StatusCode: http.StatusForbidden,
+		Code:               string(types.ErrorCodeSensitiveWordsDetected),
+		Message:            "cyber_policy",
+		StatusCode:         http.StatusForbidden,
+		UpstreamStatusCode: http.StatusForbidden,
 	})
 
 	require.NotNil(t, publicErr)
@@ -166,9 +179,10 @@ func TestRespondTaskErrorPreservesPolicyWarnings(t *testing.T) {
 		{
 			name: "cyber warning",
 			taskErr: &dto.TaskError{
-				Code:       "bad_response_status_code",
-				Message:    "cyber_policy",
-				StatusCode: http.StatusForbidden,
+				Code:               "bad_response_status_code",
+				Message:            "cyber_policy",
+				StatusCode:         http.StatusForbidden,
+				UpstreamStatusCode: http.StatusForbidden,
 			},
 			expectedStatus:  http.StatusForbidden,
 			expectedMessage: service.KKAIPolicyMessageForCyber(),
@@ -225,7 +239,7 @@ func TestKKAIPolicyContextStopsNormalAndTaskRetries(t *testing.T) {
 	ctx.Set(common.RequestIdKey, "req-policy-retry")
 	ctx.Set("id", 10)
 	ctx.Set("token_id", 11)
-	apiErr := types.NewErrorWithStatusCode(errors.New("cyber_policy"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
+	apiErr := newControllerUpstreamPolicyError("cyber_policy", types.ErrorCodeBadResponseStatusCode, http.StatusForbidden)
 	guard := service.NewKKAIPolicyIncidentGuard(kkaiControllerPolicyTestApplier{})
 	detected, err := guard.HandleAPIError(ctx, types.ChannelError{}, apiErr)
 	require.NoError(t, err)
@@ -233,4 +247,47 @@ func TestKKAIPolicyContextStopsNormalAndTaskRetries(t *testing.T) {
 
 	assert.False(t, shouldRetry(ctx, apiErr, 3))
 	assert.False(t, shouldRetryTaskRelay(ctx, 1, &dto.TaskError{StatusCode: http.StatusInternalServerError}, 3))
+}
+
+func TestProcessChannelErrorAfterPolicyDoesNotLogCredentials(t *testing.T) {
+	ctx := newKKAIPublicErrorTestContext(t)
+	apiErr := newControllerUpstreamPolicyError(
+		"cyber_policy Bearer sk-client-secret",
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+
+	oldErrorLogEnabled := constant.ErrorLogEnabled
+	constant.ErrorLogEnabled = false
+	t.Cleanup(func() { constant.ErrorLogEnabled = oldErrorLogEnabled })
+
+	var logBuffer bytes.Buffer
+	common.LogWriterMu.Lock()
+	oldWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &logBuffer
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = oldWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	processChannelErrorAfterKKAIPolicy(ctx, types.ChannelError{ChannelId: 12}, apiErr, true)
+
+	require.Contains(t, logBuffer.String(), "policy event detected")
+	require.NotContains(t, logBuffer.String(), "sk-client-secret")
+	require.NotContains(t, logBuffer.String(), "Bearer")
+}
+
+func TestKKAITaskAPIErrorPreservesUpstreamStatus(t *testing.T) {
+	apiErr := kkaiTaskAPIError(&dto.TaskError{
+		Code:               "cyber_policy",
+		Message:            "cyber_policy",
+		StatusCode:         http.StatusUnauthorized,
+		UpstreamStatusCode: http.StatusForbidden,
+	})
+
+	require.NotNil(t, apiErr)
+	require.Equal(t, http.StatusUnauthorized, apiErr.StatusCode)
+	require.Equal(t, http.StatusForbidden, apiErr.GetOriginalStatusCode())
 }

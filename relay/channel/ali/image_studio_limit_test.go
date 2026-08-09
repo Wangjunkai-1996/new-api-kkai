@@ -11,6 +11,7 @@ import (
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -31,6 +32,28 @@ func TestAliImagePollWaitStopsOnCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	require.ErrorIs(t, waitForAliImagePoll(ctx, time.Hour), context.Canceled)
+}
+
+func TestAliImagePollPreservesCyberHTTPStatus(t *testing.T) {
+	service.InitHttpClient()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("cyber_policy"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	_, err, _ := updateTask(context.Background(), &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl: upstream.URL,
+			ApiKey:         "upstream-key",
+		},
+	}, "task-id")
+
+	require.Error(t, err)
+	var apiErr *types.NewAPIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusForbidden, apiErr.GetOriginalStatusCode())
+	require.True(t, service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
 }
 
 func limitedAliImageContext(maximum int64) *gin.Context {

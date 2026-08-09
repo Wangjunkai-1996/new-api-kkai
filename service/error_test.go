@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ func TestResetStatusCode(t *testing.T) {
 		statusCode       int
 		statusCodeConfig string
 		expectedCode     int
+		expectedOriginal int
 	}{
 		{
 			name:             "map string value",
@@ -48,6 +50,13 @@ func TestResetStatusCode(t *testing.T) {
 			statusCodeConfig: `{"200":503}`,
 			expectedCode:     200,
 		},
+		{
+			name:             "preserve explicit upstream status",
+			statusCode:       http.StatusForbidden,
+			statusCodeConfig: `{"403":401}`,
+			expectedCode:     http.StatusUnauthorized,
+			expectedOriginal: http.StatusForbidden,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -55,12 +64,14 @@ func TestResetStatusCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			newAPIError := &types.NewAPIError{
-				StatusCode: tc.statusCode,
+			options := make([]types.NewAPIErrorOptions, 0, 1)
+			if tc.expectedOriginal != 0 {
+				options = append(options, types.ErrOptionWithOriginalStatusCode(tc.expectedOriginal))
 			}
+			newAPIError := types.NewErrorWithStatusCode(errors.New("test error"), types.ErrorCodeBadResponseStatusCode, tc.statusCode, options...)
 			ResetStatusCode(newAPIError, tc.statusCodeConfig)
 			require.Equal(t, tc.expectedCode, newAPIError.StatusCode)
-			require.Equal(t, tc.statusCode, newAPIError.GetOriginalStatusCode())
+			require.Equal(t, tc.expectedOriginal, newAPIError.GetOriginalStatusCode())
 		})
 	}
 }

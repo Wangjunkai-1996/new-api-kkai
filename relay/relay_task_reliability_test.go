@@ -784,9 +784,34 @@ func TestSubmitPreparedTaskKeepsExplicitHTTPRejectionRetryable(t *testing.T) {
 	require.NotNil(t, taskErr)
 	require.NotNil(t, result)
 	assert.Equal(t, "fail_to_fetch_task", taskErr.Code)
+	assert.Equal(t, http.StatusTooManyRequests, taskErr.UpstreamStatusCode)
 	assert.Equal(t, TaskSubmitRejected, result.Outcome)
 	assert.True(t, result.CanRefund())
 	assert.True(t, result.CanRetry())
+}
+
+func TestSubmitPreparedTaskMarksCyberHTTPRejectionAsUpstream(t *testing.T) {
+	setupTaskReliabilityDB(t)
+	_, ctx, info := newTaskReliabilityContext(t)
+	adaptor := &reliabilityTaskAdaptor{
+		doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body:       io.NopCloser(strings.NewReader("cyber_policy")),
+			}, nil
+		},
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+			t.Fatal("explicit HTTP rejection must not reach the adaptor parser")
+			return nil, nil
+		},
+	}
+
+	result, taskErr := submitPreparedTask(ctx, info, adaptor, constant.TaskPlatform("reliability"), nil)
+
+	require.NotNil(t, result)
+	require.NotNil(t, taskErr)
+	require.Equal(t, http.StatusForbidden, taskErr.UpstreamStatusCode)
+	require.True(t, service.ClassifyKKAITaskPolicyError(taskErr).Detected)
 }
 
 func TestSubmitPreparedTaskDoesNotOverwriteDispatchingStateFromStaleReplay(t *testing.T) {

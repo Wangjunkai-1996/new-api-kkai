@@ -234,6 +234,9 @@ func checkIfChatComplete(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo
 	if resp == nil { // 确保在 doRequest 失败时 resp 不为 nil 导致 panic
 		return fmt.Errorf("resp is nil"), false
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return service.RelayErrorHandler(c.Request.Context(), resp, false), false
+	}
 	defer resp.Body.Close() // 确保响应体被关闭
 
 	// 解析 resp 到 CozeChatResponse
@@ -274,6 +277,9 @@ func getChatDetail(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (*ht
 	resp, err := doRequest(req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, service.RelayErrorHandler(c.Request.Context(), resp, false)
 	}
 	return resp, nil
 }
