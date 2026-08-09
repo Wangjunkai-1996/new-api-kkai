@@ -23,7 +23,12 @@ download_source() {
   expected_sha256=$3
   (
     unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
-    wget -O "${destination}" "${url}"
+    if command -v curl >/dev/null 2>&1; then
+      curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
+        --connect-timeout 20 --max-time 300 --output "${destination}" "${url}"
+    else
+      wget -O "${destination}" "${url}"
+    fi
   )
   printf '%s  %s\n' "${expected_sha256}" "${destination}" | sha256sum -c -
 }

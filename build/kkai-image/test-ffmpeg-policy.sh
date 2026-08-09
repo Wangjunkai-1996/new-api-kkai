@@ -105,6 +105,10 @@ contains "https://ffmpeg.org/releases/ffmpeg-\${FFMPEG_VERSION}.tar.bz2" "${MEDI
   fail "FFmpeg source URL is not the fixed official release archive"
 contains "https://code.videolan.org/videolan/x264/-/archive/\${X264_REVISION}/x264-\${X264_REVISION}.tar.bz2" "${MEDIA_BUILD_SCRIPT}" ||
   fail "x264 source URL is not bound to the pinned official revision"
+contains 'curl --fail --location --retry' "${MEDIA_BUILD_SCRIPT}" ||
+  fail "source downloads do not use the fail-closed curl transport when available"
+contains 'curl=8.21.0-r0' "${MEDIA_PACKAGE_LOCK}" ||
+  fail "the locked media build toolchain does not include curl"
 contains 'sha256sum -c' "${MEDIA_BUILD_SCRIPT}" || fail "source archives are not checksum-verified"
 contains '--disable-network' "${MEDIA_BUILD_SCRIPT}" || fail "FFmpeg network support is not disabled"
 contains '--disable-autodetect' "${MEDIA_BUILD_SCRIPT}" || fail "FFmpeg dependency autodetection is not disabled"
