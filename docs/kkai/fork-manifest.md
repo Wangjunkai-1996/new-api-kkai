@@ -118,10 +118,12 @@ or block the production image workflow.
 
 - Keep commits separated by concern: baseline/tooling, backend capability,
   risk pipeline, standby/infra, frontend, and verification documentation.
-- The production workflow builds one Linux AMD64 image from each runtime push
-  to `production/kkrich` and publishes version and source-SHA tags for the same
-  digest.
-- The workflow signs the digest and dispatches only its source SHA, version, and
-  digest to `kkai-infra`.
-- Infrastructure verifies and deploys that exact digest through the read-only
-  idle-slot path. Database maintenance is not part of application delivery.
+- A production release uses the exact commit on the local
+  `production/kkrich` branch. `scripts/kkai/build-manual-release.sh` builds one
+  Linux AMD64 image and binds its immutable archive and metadata to that source
+  revision.
+- The operator transfers that exact local archive over the private SSH path and
+  uses the manual infrastructure controller to stage, verify, and promote it.
+  No registry publication, signing service, repository dispatch, or network
+  code-hosting operation is required.
+- Database maintenance is not part of application delivery.
