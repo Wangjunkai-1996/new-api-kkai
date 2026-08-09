@@ -145,8 +145,26 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if needSensitiveCheck && meta != nil {
 		contains, words := service.CheckSensitiveText(meta.CombineText)
 		if contains {
-			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
-			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %d match(es)", len(words)))
+			cooldownState, cooldownErr := service.RecordKKAIPolicyKeyword(c, service.KKAIPolicyDefaultCooldownStore())
+			if cooldownErr != nil {
+				logger.LogWarn(c, "conversation keyword cooldown unavailable: "+cooldownErr.Error())
+			}
+			if cooldownState.Blocked {
+				newAPIError = types.NewErrorWithStatusCode(
+					errors.New("conversation policy violation"),
+					types.ErrorCodeConversationPolicyViolation,
+					http.StatusForbidden,
+					types.ErrOptionWithSkipRetry(),
+				)
+			} else {
+				newAPIError = types.NewErrorWithStatusCode(
+					errors.New("prompt blocked"),
+					types.ErrorCodeSensitiveWordsDetected,
+					http.StatusBadRequest,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
 			return
 		}
 	}

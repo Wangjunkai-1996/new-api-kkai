@@ -1,6 +1,7 @@
 package service
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -67,6 +68,9 @@ func ClassifyKKAITaskPolicyError(taskErr *dto.TaskError) KKAIPolicyClassificatio
 }
 
 func classifyKKAIPolicyText(statusCode int, errorCode string, evidence string) KKAIPolicyClassification {
+	if statusCode != http.StatusForbidden {
+		return KKAIPolicyClassification{}
+	}
 	maskedEvidence := common.MaskSensitiveInfo(strings.TrimSpace(evidence))
 	searchText := strings.ToLower(strings.TrimSpace(errorCode + " " + maskedEvidence))
 	clientPolicy := containsKKAIPolicyMarker(searchText, kkaiClientPolicyMarkers)

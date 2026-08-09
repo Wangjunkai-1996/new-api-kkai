@@ -41,6 +41,8 @@ const (
 	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
 	ErrorCodeQuoteStale             ErrorCode = "quote_stale"
 	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
+	ErrorCodeConversationPolicyViolation ErrorCode = "conversation_policy_violation"
+	ErrorCodeConversationCooldown        ErrorCode = "conversation_cooldown"
 	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
 
 	// new api error

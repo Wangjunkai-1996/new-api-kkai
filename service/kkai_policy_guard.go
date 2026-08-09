@@ -23,12 +23,17 @@ const (
 )
 
 type KKAIPolicyIncidentGuard struct {
-	applier RiskActionApplier
-	now     func() time.Time
+	applier  RiskActionApplier
+	cooldown KKAIPolicyCooldownStore
+	now      func() time.Time
 }
 
 func NewKKAIPolicyIncidentGuard(applier RiskActionApplier) *KKAIPolicyIncidentGuard {
-	return &KKAIPolicyIncidentGuard{applier: applier, now: time.Now}
+	return NewKKAIPolicyIncidentGuardWithCooldown(applier, KKAIPolicyDefaultCooldownStore())
+	}
+
+func NewKKAIPolicyIncidentGuardWithCooldown(applier RiskActionApplier, cooldown KKAIPolicyCooldownStore) *KKAIPolicyIncidentGuard {
+	return &KKAIPolicyIncidentGuard{applier: applier, cooldown: cooldown, now: time.Now}
 }
 
 func (g *KKAIPolicyIncidentGuard) HandleAPIError(c *gin.Context, channel types.ChannelError, apiErr *types.NewAPIError) (bool, error) {
@@ -59,9 +64,14 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	metadata := map[string]any{
 		"case_id":                     eventID,
 		"causality":                   classification.Causality,
-		"client_token_action_allowed": classification.Causality == KKAIPolicyCausalityClientToken,
+		"client_token_action_allowed": false,
 		"evidence_level":              "confirmed",
 		"rule_id":                     kkaiPolicyRuleVersion,
+	}
+	if scope, ok, scopeErr := EnsureKKAIPolicyConversationScope(c); scopeErr == nil && ok {
+		metadata["conversation_scope"] = scope.PublicScope()
+		metadata["conversation_scope_source"] = scope.Source
+		metadata["conversation_scope_fingerprint"] = scope.Fingerprint
 	}
 	if body, ok := kkaiPolicyRequestBody(c); ok {
 		digest := sha256.Sum256(body)
@@ -69,9 +79,10 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		metadata["request_body_sha256"] = hex.EncodeToString(digest[:])
 	}
 
-	recommendation := RiskDecisionReject
-	if classification.Causality == KKAIPolicyCausalityClientToken && c != nil && c.GetInt("id") > 0 && c.GetInt("token_id") > 0 {
-		recommendation = RiskDecisionDisable
+	if classification.Causality == KKAIPolicyCausalityClientToken && g.cooldown != nil {
+		if _, err := RecordKKAIPolicyCyber(c, g.cooldown, eventID); err != nil {
+			common.SysLog("KKAI conversation cooldown write failed: " + err.Error())
+		}
 	}
 	event := RiskStreamEvent{
 		EventID:                eventID,
@@ -86,7 +97,7 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		EvidenceSHA256:         RiskFingerprint(fmt.Sprintf("%d\n%s\n%s", classification.StatusCode, classification.ErrorCode, classification.Evidence)),
 		TokenFingerprint:       RiskFingerprint(kkaiPolicyContextString(c, "token_key")),
 		UpstreamKeyFingerprint: RiskFingerprint(channel.UsingKey),
-		Recommendation:         recommendation,
+		Recommendation:         RiskDecisionReject,
 		Metadata:               metadata,
 	}
 	decision, actions, err := DecideKKAIRiskStreamEvent(event)
