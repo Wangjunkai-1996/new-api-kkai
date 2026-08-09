@@ -146,11 +146,16 @@ describe('video model admin form', () => {
           configured.model,
           'sd_2.0_special_1080p',
           'sd_2.0_special_4k_with_video_ref',
+          'seedance-2.5',
           'unsupported-video-model',
         ],
         [configured]
       ),
-      ['sd_2.0_special_1080p', 'sd_2.0_special_4k_with_video_ref']
+      [
+        'sd_2.0_special_1080p',
+        'sd_2.0_special_4k_with_video_ref',
+        'seedance-2.5',
+      ]
     )
   })
 
@@ -238,6 +243,79 @@ describe('video model admin form', () => {
       assert.deepEqual(
         input.specification.reference_inputs,
         preset.specification.reference_inputs
+      )
+      assert.deepEqual(input.default_parameters, preset.default_parameters)
+    }
+  })
+
+  test('builds the Seedance 2.5 contract and future resolution aliases', () => {
+    const models = [
+      ['seedance-2.5', '720p', '720p'],
+      ['seedance-2.5-1080p', '1080p', '1080p'],
+      ['seedance-2.5-2k', '2k', '2K'],
+    ] as const
+
+    for (const [model, resolution, resolutionLabel] of models) {
+      const preset = getVideoModelPreset(model)
+      assert.ok(preset)
+      assert.equal(preset.resolution, resolution)
+      assert.match(preset.display_name, new RegExp(`${resolutionLabel}$`))
+      assert.deepEqual(preset.specification.modes, [
+        'text_to_video',
+        'image_to_video',
+      ])
+      assert.deepEqual(
+        preset.specification.parameters.map((parameter) => parameter.key),
+        ['duration', 'ratio', 'resolution']
+      )
+      assert.deepEqual(preset.default_parameters, {
+        duration: 5,
+        ratio: '16:9',
+        resolution,
+      })
+      assert.deepEqual(preset.specification.reference_inputs, [
+        {
+          role: 'reference',
+          request_key: 'reference_image',
+          required: true,
+        },
+      ])
+
+      const duration = preset.specification.parameters[0]
+      assert.equal(duration?.control, 'number')
+      if (duration?.control !== 'number') {
+        assert.fail('duration preset is not numeric')
+      }
+      assert.equal(duration.request_key, 'duration')
+      assert.deepEqual([duration.min, duration.max, duration.step], [4, 30, 1])
+
+      const ratio = preset.specification.parameters[1]
+      assert.equal(ratio?.control, 'select')
+      if (ratio?.control !== 'select') {
+        assert.fail('ratio preset is not a choice')
+      }
+      assert.deepEqual(
+        ratio.options.map((option) => option.value),
+        ['16:9', '9:16', '1:1']
+      )
+
+      const resolutionParameter = preset.specification.parameters[2]
+      assert.equal(resolutionParameter?.control, 'select')
+      if (resolutionParameter?.control !== 'select') {
+        assert.fail('resolution preset is not a choice')
+      }
+      assert.deepEqual(
+        resolutionParameter.options.map((option) => option.value),
+        [resolution]
+      )
+
+      const values = videoModelProfileFormSchema.parse(
+        createVideoModelProfileFormValues(undefined, model)
+      )
+      const input = parseVideoModelProfileForm(values)
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(input.specification)),
+        JSON.parse(JSON.stringify(preset.specification))
       )
       assert.deepEqual(input.default_parameters, preset.default_parameters)
     }

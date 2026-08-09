@@ -44,7 +44,7 @@ func newSoraRelayInfo(upstreamModel string) *relaycommon.RelayInfo {
 	}
 }
 
-func TestBuildRequestBodyProjectsVideoStudioSpecialRequest(t *testing.T) {
+func TestBuildRequestBodyProjectsVideoStudioRequest(t *testing.T) {
 	ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos/", `{
 		"model":"video-studio-model",
 		"prompt":"top-level prompt",
@@ -109,18 +109,11 @@ func TestVideoStudioReferenceSecondsDriveBillingAndProjection(t *testing.T) {
 	}, readSoraRequestBody(t, body))
 }
 
-func TestBuildRequestBodyProjectsEverySpecialVideoModel(t *testing.T) {
+func TestBuildRequestBodyProjectsEveryVideoStudioModel(t *testing.T) {
 	models := []string{
-		"sd_2.0_fast_special_720p",
-		"sd_2.0_special_720p",
 		"sd_2.0_special_1080p",
-		"sd_2.0_special_2k",
-		"sd_2.0_special_4k",
-		"sd_2.0_fast_special_720p_with_video_ref",
-		"sd_2.0_special_720p_with_video_ref",
-		"sd_2.0_special_1080p_with_video_ref",
-		"sd_2.0_special_2k_with_video_ref",
-		"sd_2.0_special_4k_with_video_ref",
+		"seedance-2.5",
+		"future-video-model",
 	}
 	for _, modelName := range models {
 		t.Run(modelName, func(t *testing.T) {
@@ -141,45 +134,60 @@ func TestBuildRequestBodyProjectsEverySpecialVideoModel(t *testing.T) {
 	}
 }
 
-func TestBuildRequestBodyRejectsUnknownVideoStudioSpecialField(t *testing.T) {
+func TestBuildRequestBodyPreservesConfiguredVideoStudioFields(t *testing.T) {
 	ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", `{
 		"model":"video-studio-model",
 		"prompt":"test prompt",
-		"future_option":"must not be silently discarded"
+		"content":[{"type":"text","text":"configured input"}],
+		"size":"1920x1080",
+		"future_option":"preserved"
 	}`)
 
-	body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo(specialVideoModel))
+	body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo("seedance-2.5"))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"model":  "seedance-2.5",
+		"prompt": "test prompt",
+		"content": []any{map[string]any{
+			"type": "text",
+			"text": "configured input",
+		}},
+		"size":          "1920x1080",
+		"future_option": "preserved",
+	}, readSoraRequestBody(t, body))
+}
+
+func TestBuildRequestBodyRejectsNullVideoStudioRequest(t *testing.T) {
+	ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", `null`)
+
+	body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo("seedance-2.5"))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "future_option")
+	assert.Contains(t, err.Error(), "request body must be an object")
 	assert.Nil(t, body)
 }
 
-func TestBuildRequestBodyRejectsUnsupportedVideoStudioSpecialFields(t *testing.T) {
+func TestBuildRequestBodyPreservesReferenceFieldsWithoutProjectionMetadata(t *testing.T) {
 	tests := []struct {
-		name  string
-		field string
-		body  string
+		name     string
+		body     string
+		expected map[string]any
 	}{
 		{
-			name:  "content",
-			field: "content",
-			body:  `{"model":"video-studio-model","prompt":"test prompt","content":"real input"}`,
+			name: "image",
+			body: `{"model":"video-studio-model","prompt":"test prompt","image":"https://assets.example/input.jpg"}`,
+			expected: map[string]any{
+				"model": "seedance-2.5", "prompt": "test prompt",
+				"image": "https://assets.example/input.jpg",
+			},
 		},
 		{
-			name:  "size",
-			field: "size",
-			body:  `{"model":"video-studio-model","prompt":"test prompt","size":"1920x1080"}`,
-		},
-		{
-			name:  "image without canonical reference",
-			field: "image",
-			body:  `{"model":"video-studio-model","prompt":"test prompt","image":"https://assets.example/input.jpg"}`,
-		},
-		{
-			name:  "images without canonical reference",
-			field: "images",
-			body:  `{"model":"video-studio-model","prompt":"test prompt","images":["https://assets.example/input.jpg"]}`,
+			name: "images",
+			body: `{"model":"video-studio-model","prompt":"test prompt","images":["https://assets.example/input.jpg"]}`,
+			expected: map[string]any{
+				"model": "seedance-2.5", "prompt": "test prompt",
+				"images": []any{"https://assets.example/input.jpg"},
+			},
 		},
 	}
 
@@ -187,11 +195,10 @@ func TestBuildRequestBodyRejectsUnsupportedVideoStudioSpecialFields(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", test.body)
 
-			body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo(specialVideoModel))
+			body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo("seedance-2.5"))
 
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), test.field)
-			assert.Nil(t, body)
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, readSoraRequestBody(t, body))
 		})
 	}
 }
@@ -202,7 +209,8 @@ func TestBuildRequestBodyDropsReferenceAliasesWithCanonicalReference(t *testing.
 		"prompt":"test prompt",
 		"reference_image":"https://assets.example/canonical.jpg",
 		"image":"https://assets.example/alias.jpg",
-		"images":["https://assets.example/alias-list.jpg"]
+		"images":["https://assets.example/alias-list.jpg"],
+		"metadata":{"reference_image":"https://assets.example/canonical.jpg"}
 	}`)
 
 	body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo(specialVideoModel))
@@ -215,14 +223,66 @@ func TestBuildRequestBodyDropsReferenceAliasesWithCanonicalReference(t *testing.
 	}, readSoraRequestBody(t, body))
 }
 
-func TestBuildRequestBodyLeavesNonSpecialRequestsUnchanged(t *testing.T) {
+func TestBuildRequestBodyPreservesConfiguredCustomReferenceKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected map[string]any
+	}{
+		{
+			name: "image request key",
+			body: `{
+				"model":"video-studio-model",
+				"prompt":"test prompt",
+				"image":"https://assets.example/reference.jpg",
+				"images":["https://assets.example/reference.jpg"],
+				"metadata":{"image":"https://assets.example/reference.jpg"}
+			}`,
+			expected: map[string]any{
+				"model": "future-video-model", "prompt": "test prompt",
+				"image": "https://assets.example/reference.jpg",
+			},
+		},
+		{
+			name: "first and last frame request keys",
+			body: `{
+				"model":"video-studio-model",
+				"prompt":"test prompt",
+				"first_frame":"https://assets.example/first.jpg",
+				"last_frame":"https://assets.example/last.jpg",
+				"images":["https://assets.example/first.jpg","https://assets.example/last.jpg"],
+				"metadata":{
+					"first_frame":"https://assets.example/first.jpg",
+					"last_frame":"https://assets.example/last.jpg"
+				}
+			}`,
+			expected: map[string]any{
+				"model": "future-video-model", "prompt": "test prompt",
+				"first_frame": "https://assets.example/first.jpg",
+				"last_frame":  "https://assets.example/last.jpg",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", test.body)
+
+			body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo("future-video-model"))
+
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, readSoraRequestBody(t, body))
+		})
+	}
+}
+
+func TestBuildRequestBodyLeavesNonVideoStudioRequestsUnchanged(t *testing.T) {
 	tests := []struct {
 		name          string
 		method        string
 		path          string
 		upstreamModel string
 	}{
-		{name: "ordinary Sora model", method: http.MethodPost, path: "/pg/videos", upstreamModel: "sora-2"},
 		{name: "direct special request", method: http.MethodPost, path: "/v1/videos", upstreamModel: specialVideoModel},
 		{name: "non-submit playground method", method: http.MethodGet, path: "/pg/videos", upstreamModel: specialVideoModel},
 	}
@@ -248,7 +308,7 @@ func TestBuildRequestBodyLeavesNonSpecialRequestsUnchanged(t *testing.T) {
 	}
 }
 
-func TestVideoStudioSpecialRequestPassesStrictMockAdapter(t *testing.T) {
+func TestSeedance25VideoStudioRequestPassesStrictMockAdapter(t *testing.T) {
 	service.InitHttpClient()
 
 	type observedRequest struct {
@@ -274,7 +334,7 @@ func TestVideoStudioSpecialRequestPassesStrictMockAdapter(t *testing.T) {
 			result.invalidField = "json"
 		} else {
 			allowed := map[string]bool{
-				"model": true, "prompt": true, "duration": true, "ratio": true, "generate_audio": true,
+				"model": true, "prompt": true, "duration": true, "ratio": true, "resolution": true, "reference_image": true,
 			}
 			for field := range result.payload {
 				if !allowed[field] {
@@ -296,19 +356,25 @@ func TestVideoStudioSpecialRequestPassesStrictMockAdapter(t *testing.T) {
 	ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", `{
 		"model":"video-studio-model",
 		"prompt":"strict adapter request",
-		"duration":5,
+		"duration":30,
 		"ratio":"16:9",
-		"generate_audio":false,
+		"resolution":"720p",
+		"reference_image":"https://assets.example/reference.jpg",
 		"group":"Seedance video",
-		"mode":"text_to_video",
-		"metadata":{"duration":5,"ratio":"16:9","generate_audio":false}
+		"mode":"image_to_video",
+		"metadata":{"duration":30,"ratio":"16:9","resolution":"720p"}
 	}`)
-	info := newSoraRelayInfo(specialVideoModel)
+	info := newSoraRelayInfo("seedance-2.5")
 	info.ChannelBaseUrl = server.URL
 	info.ApiKey = "strict-adapter-key"
 	adaptor := &TaskAdaptor{}
 	adaptor.Init(info)
 
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+	assert.Equal(t, map[string]float64{
+		"seconds": 30,
+		"size":    1,
+	}, adaptor.EstimateBilling(ctx, info))
 	body, err := adaptor.BuildRequestBody(ctx, info)
 	require.NoError(t, err)
 	response, err := adaptor.DoRequest(ctx, info, body)
@@ -324,10 +390,11 @@ func TestVideoStudioSpecialRequestPassesStrictMockAdapter(t *testing.T) {
 	assert.Equal(t, "application/json", request.contentType)
 	assert.Equal(t, "Bearer strict-adapter-key", request.authorization)
 	assert.Equal(t, map[string]any{
-		"model":          specialVideoModel,
-		"prompt":         "strict adapter request",
-		"duration":       float64(5),
-		"ratio":          "16:9",
-		"generate_audio": false,
+		"model":           "seedance-2.5",
+		"prompt":          "strict adapter request",
+		"duration":        float64(30),
+		"ratio":           "16:9",
+		"resolution":      "720p",
+		"reference_image": "https://assets.example/reference.jpg",
 	}, request.payload)
 }

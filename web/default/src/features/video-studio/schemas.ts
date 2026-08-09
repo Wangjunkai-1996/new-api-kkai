@@ -60,6 +60,7 @@ export const VIDEO_SAMPLE_SORT_ORDER_MAX = 100_000
 export const VIDEO_PARAMETER_LABEL_KEYS: Readonly<Record<string, string>> = {
   duration: 'videoStudio.parameter.durationSeconds',
   ratio: 'videoStudio.parameter.aspectRatio',
+  resolution: 'videoStudio.admin.outputResolution',
   generate_audio: 'videoStudio.parameter.generateAudio',
 }
 
@@ -75,6 +76,40 @@ export const VIDEO_PARAMETER_OPTION_LABEL_KEYS: Readonly<
     '21:9': 'videoStudio.ratio.ultrawide21x9',
     adaptive: 'videoStudio.ratio.adaptive',
   },
+}
+
+const SEEDANCE_SPECIAL_RATIOS = [
+  '16:9',
+  '9:16',
+  '1:1',
+  '4:3',
+  '3:4',
+  '21:9',
+  'adaptive',
+] as const
+
+const SEEDANCE_25_RATIOS = ['16:9', '9:16', '1:1'] as const
+
+const VIDEO_RATIO_LABELS: Readonly<Record<string, string>> = {
+  '16:9': '横屏 16:9',
+  '9:16': '竖屏 9:16',
+  '1:1': '方形 1:1',
+  '4:3': '横屏 4:3',
+  '3:4': '竖屏 3:4',
+  '21:9': '超宽屏 21:9',
+  adaptive: '自动',
+}
+
+type VideoModelPresetDetails = {
+  displayName: string
+  description: string
+  resolution: string
+  requiresVideoReference: boolean
+  durationRequestKey?: 'duration' | 'seconds'
+  maxDuration?: number
+  ratios?: readonly string[]
+  resolutions?: readonly string[]
+  supportsGenerateAudio?: boolean
 }
 
 const VIDEO_MODEL_PRESET_DETAILS = {
@@ -138,7 +173,39 @@ const VIDEO_MODEL_PRESET_DETAILS = {
     resolution: '4K',
     requiresVideoReference: true,
   },
-} as const
+} as const satisfies Record<string, VideoModelPresetDetails>
+
+const displayResolution = (resolution: string): string =>
+  resolution === '2k' || resolution === '4k'
+    ? resolution.toUpperCase()
+    : resolution
+
+const getSeedance25PresetDetails = (
+  model: string
+): VideoModelPresetDetails | undefined => {
+  const match = /^seedance-2\.5(?:-(480p|720p|1080p|2k|4k))?$/.exec(model)
+  if (!match) return undefined
+  const resolution = match[1] ?? '720p'
+  const resolutionLabel = displayResolution(resolution)
+  return {
+    displayName: `Seedance 2.5 ${resolutionLabel}`,
+    description: `${resolutionLabel} 文生 / 图生视频`,
+    resolution,
+    requiresVideoReference: false,
+    durationRequestKey: 'duration',
+    maxDuration: 30,
+    ratios: SEEDANCE_25_RATIOS,
+    resolutions: [resolution],
+    supportsGenerateAudio: false,
+  }
+}
+
+const getVideoModelPresetDetails = (
+  model: string
+): VideoModelPresetDetails | undefined =>
+  VIDEO_MODEL_PRESET_DETAILS[
+    model as keyof typeof VIDEO_MODEL_PRESET_DETAILS
+  ] ?? getSeedance25PresetDetails(model)
 
 export type VideoModelPreset = VideoModelProfileInput & {
   resolution: string
@@ -147,13 +214,60 @@ export type VideoModelPreset = VideoModelProfileInput & {
 export const getVideoModelPreset = (
   model: string
 ): VideoModelPreset | undefined => {
-  const details =
-    VIDEO_MODEL_PRESET_DETAILS[model as keyof typeof VIDEO_MODEL_PRESET_DETAILS]
+  const details = getVideoModelPresetDetails(model)
   if (!details) return undefined
 
   const modes: VideoGenerationMode[] = details.requiresVideoReference
     ? ['image_to_video']
     : ['text_to_video', 'image_to_video']
+  const parameters: VideoParameterControl[] = [
+    {
+      key: 'duration',
+      label: '时长（秒）',
+      request_key: details.durationRequestKey ?? 'seconds',
+      control: 'number',
+      required: true,
+      min: 4,
+      max: details.maxDuration ?? 15,
+      step: 1,
+    },
+    {
+      key: 'ratio',
+      label: '画幅比例',
+      control: 'select',
+      required: true,
+      options: (details.ratios ?? SEEDANCE_SPECIAL_RATIOS).map((ratio) => ({
+        label: VIDEO_RATIO_LABELS[ratio] ?? ratio,
+        value: ratio,
+      })),
+    },
+  ]
+  const defaultParameters: VideoParameters = {
+    duration: 5,
+    ratio: '16:9',
+  }
+  if (details.resolutions) {
+    parameters.push({
+      key: 'resolution',
+      label: '输出分辨率',
+      control: 'select',
+      required: true,
+      options: details.resolutions.map((resolution) => ({
+        label: displayResolution(resolution),
+        value: resolution,
+      })),
+    })
+    defaultParameters.resolution = details.resolution
+  }
+  if (details.supportsGenerateAudio !== false) {
+    parameters.push({
+      key: 'generate_audio',
+      label: '生成音频',
+      control: 'switch',
+      required: true,
+    })
+    defaultParameters.generate_audio = true
+  }
   return {
     model,
     display_name: details.displayName,
@@ -165,39 +279,7 @@ export const getVideoModelPreset = (
     specification: {
       version: 1,
       modes,
-      parameters: [
-        {
-          key: 'duration',
-          label: '时长（秒）',
-          request_key: 'seconds',
-          control: 'number',
-          required: true,
-          min: 4,
-          max: 15,
-          step: 1,
-        },
-        {
-          key: 'ratio',
-          label: '画幅比例',
-          control: 'select',
-          required: true,
-          options: [
-            { label: '横屏 16:9', value: '16:9' },
-            { label: '竖屏 9:16', value: '9:16' },
-            { label: '方形 1:1', value: '1:1' },
-            { label: '横屏 4:3', value: '4:3' },
-            { label: '竖屏 3:4', value: '3:4' },
-            { label: '超宽屏 21:9', value: '21:9' },
-            { label: '自动', value: 'adaptive' },
-          ],
-        },
-        {
-          key: 'generate_audio',
-          label: '生成音频',
-          control: 'switch',
-          required: true,
-        },
-      ],
+      parameters,
       reference_inputs: details.requiresVideoReference
         ? [
             {
@@ -214,11 +296,7 @@ export const getVideoModelPreset = (
             },
           ],
     },
-    default_parameters: {
-      duration: 5,
-      ratio: '16:9',
-      generate_audio: true,
-    },
+    default_parameters: defaultParameters,
   }
 }
 
