@@ -59,7 +59,7 @@ func riskActionInput(user model.User, token model.Token, channel model.Channel) 
 	evidence := RiskFingerprint("sanitized evidence")
 	return RiskActionInput{
 		EventID:                "risk-event-0001",
-		Source:                 RiskSourceUpstreamPolicy,
+		Source:                 RiskSourceManualReview,
 		OccurredAt:             1_720_000_000,
 		RequestID:              "request-0001",
 		UserID:                 user.Id,
@@ -117,6 +117,48 @@ func TestRiskActionServiceAppliesAllDurableChangesAtomically(t *testing.T) {
 	require.Equal(t, model.KKAIOutboxStatusPending, outbox[0].Status)
 	require.NotContains(t, outbox[0].Payload, token.Key)
 	require.NotContains(t, outbox[0].Payload, channel.Key)
+}
+
+func TestRiskActionServiceRejectsUpstreamPolicyDurableActions(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	service := NewRiskActionService(db)
+	input := riskActionInput(user, token, channel)
+	input.Source = RiskSourceUpstreamPolicy
+
+	_, err := service.Apply(context.Background(), input)
+	require.ErrorIs(t, err, ErrRiskActionInvalidInput)
+
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.Equal(t, common.TokenStatusEnabled, token.Status)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	require.Equal(t, common.UserStatusEnabled, user.Status)
+	require.NoError(t, db.First(&channel, channel.Id).Error)
+	require.Equal(t, common.ChannelStatusEnabled, channel.Status)
+
+	var incidentCount int64
+	require.NoError(t, db.Model(&model.KKAIPolicyIncident{}).Count(&incidentCount).Error)
+	require.Zero(t, incidentCount)
+	var outboxCount int64
+	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Count(&outboxCount).Error)
+	require.Zero(t, outboxCount)
+}
+
+func TestRiskActionServiceRejectsUpstreamPolicyDisableDecisionWithoutActions(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	riskService := NewRiskActionService(db)
+	input := riskActionInput(user, token, channel)
+	input.Source = RiskSourceUpstreamPolicy
+	input.Decision = RiskDecisionDisable
+	input.Actions = RiskDurableActions{}
+
+	_, err := riskService.Apply(context.Background(), input)
+	require.ErrorIs(t, err, ErrRiskActionInvalidInput)
+
+	var incidentCount int64
+	require.NoError(t, db.Model(&model.KKAIPolicyIncident{}).Count(&incidentCount).Error)
+	require.Zero(t, incidentCount)
 }
 
 func TestRiskActionServiceReplaysSameEventWithoutRepeatingEffects(t *testing.T) {

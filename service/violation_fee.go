@@ -45,7 +45,13 @@ func WrapAsViolationFeeGrokCSAM(err *types.NewAPIError) *types.NewAPIError {
 	oai := err.ToOpenAIError()
 	oai.Type = string(types.ErrorCodeViolationFeeGrokCSAM)
 	oai.Code = string(types.ErrorCodeViolationFeeGrokCSAM)
-	return types.WithOpenAIError(oai, err.StatusCode, types.ErrOptionWithSkipRetry())
+	return types.WithOpenAIError(
+		oai,
+		err.StatusCode,
+		types.ErrOptionWithSkipRetry(),
+		types.ErrOptionWithOriginalStatusCode(err.GetOriginalStatusCode()),
+		types.ErrOptionWithOriginalErrorCode(err.GetOriginalErrorCode()),
+	)
 }
 
 // NormalizeViolationFeeError ensures:
@@ -64,14 +70,23 @@ func NormalizeViolationFeeError(err *types.NewAPIError) *types.NewAPIError {
 
 	if IsViolationFeeCode(err.GetErrorCode()) {
 		oai := err.ToOpenAIError()
-		return types.WithOpenAIError(oai, err.StatusCode, types.ErrOptionWithSkipRetry())
+		return types.WithOpenAIError(
+			oai,
+			err.StatusCode,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithOriginalStatusCode(err.GetOriginalStatusCode()),
+			types.ErrOptionWithOriginalErrorCode(err.GetOriginalErrorCode()),
+		)
 	}
 
 	return err
 }
 
-func shouldChargeViolationFee(err *types.NewAPIError) bool {
+func shouldChargeViolationFee(ctx *gin.Context, err *types.NewAPIError) bool {
 	if err == nil {
+		return false
+	}
+	if ShouldSkipRetryAfterKKAIPolicy(ctx) {
 		return false
 	}
 	if err.GetErrorCode() == types.ErrorCodeViolationFeeGrokCSAM {
@@ -108,7 +123,7 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 	//if relayInfo.IsPlayground {
 	//	return false
 	//}
-	if !shouldChargeViolationFee(apiErr) {
+	if !shouldChargeViolationFee(ctx, apiErr) {
 		return false
 	}
 

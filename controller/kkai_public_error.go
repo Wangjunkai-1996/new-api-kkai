@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	kkaiPublicUpstreamUnavailable = "upstream unavailable"
+	kkaiPublicUpstreamUnavailable = "服务暂时不可用，请稍后重试。"
 	kkaiPublicUpstreamError       = "upstream error"
 	kkaiUpstreamUnavailableCode   = "upstream_unavailable"
 )
@@ -20,13 +20,6 @@ func kkaiPublicOpenAIError(c *gin.Context, apiErr *types.NewAPIError) (int, type
 	if apiErr == nil {
 		return http.StatusInternalServerError, kkaiGenericUpstreamError()
 	}
-	if apiErr.GetErrorCode() == types.ErrorCodeSensitiveWordsDetected || apiErr.GetErrorCode() == types.ErrorCodePromptBlocked {
-		return http.StatusBadRequest, types.OpenAIError{
-			Message: service.KKAIPolicyMessageForKeyword(),
-			Type:    string(types.ErrorTypeNewAPIError),
-			Code:    types.ErrorCodePromptBlocked,
-		}
-	}
 	classification := service.ClassifyKKAIUpstreamPolicyError(apiErr)
 	causality := classification.Causality
 	if causality == "" && c != nil {
@@ -34,6 +27,13 @@ func kkaiPublicOpenAIError(c *gin.Context, apiErr *types.NewAPIError) (int, type
 	}
 	if classification.Detected || service.ShouldSkipRetryAfterKKAIPolicy(c) {
 		return kkaiPublicPolicyOpenAIError(c, causality)
+	}
+	if apiErr.GetErrorCode() == types.ErrorCodeSensitiveWordsDetected {
+		return http.StatusBadRequest, types.OpenAIError{
+			Message: service.KKAIPolicyMessageForKeyword(),
+			Type:    string(types.ErrorTypeNewAPIError),
+			Code:    types.ErrorCodePromptBlocked,
+		}
 	}
 
 	status := apiErr.StatusCode
@@ -65,14 +65,6 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 		return nil
 	}
 	publicErr := *taskErr
-	if taskErr.Code == string(types.ErrorCodeSensitiveWordsDetected) || taskErr.Code == string(types.ErrorCodePromptBlocked) {
-		publicErr.StatusCode = http.StatusBadRequest
-		publicErr.Code = string(types.ErrorCodePromptBlocked)
-		publicErr.Message = service.KKAIPolicyMessageForKeyword()
-		publicErr.Data = nil
-		publicErr.Error = nil
-		return &publicErr
-	}
 	classification := service.ClassifyKKAITaskPolicyError(taskErr)
 	causality := classification.Causality
 	if causality == "" && c != nil {
@@ -83,14 +75,21 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 		publicErr.Error = nil
 		if causality == service.KKAIPolicyCausalityClientToken {
 			publicErr.StatusCode = http.StatusForbidden
-			publicErr.Code = string(types.ErrorCodeConversationPolicyViolation)
-			publicErr.Message = kkaiPolicyMessage(c)
-			setKKAIPolicyRetryAfter(c)
+			publicErr.Code = string(types.ErrorCodeRequestPolicyWarning)
+			publicErr.Message = service.KKAIPolicyMessageForCyber()
 			return &publicErr
 		}
 		publicErr.StatusCode = http.StatusServiceUnavailable
 		publicErr.Code = kkaiUpstreamUnavailableCode
 		publicErr.Message = kkaiPublicUpstreamUnavailable
+		return &publicErr
+	}
+	if taskErr.Code == string(types.ErrorCodeSensitiveWordsDetected) {
+		publicErr.StatusCode = http.StatusBadRequest
+		publicErr.Code = string(types.ErrorCodePromptBlocked)
+		publicErr.Message = service.KKAIPolicyMessageForKeyword()
+		publicErr.Data = nil
+		publicErr.Error = nil
 		return &publicErr
 	}
 
@@ -110,30 +109,11 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 }
 
 func kkaiPublicPolicyOpenAIError(c *gin.Context, causality string) (int, types.OpenAIError) {
-	if state, ok := service.KKAIPolicyCooldownStateFromContext(c); ok && state.Blocked {
-		setKKAIPolicyRetryAfter(c)
-		if state.Reason == service.KKAIPolicyCooldownReasonWords {
-			scope, _ := service.KKAIPolicyConversationScopeFromContext(c)
-			return http.StatusForbidden, types.OpenAIError{
-				Message:  service.KKAIPolicyMessageForKeywordCooldown(state.RetryAfter, scope.Stable),
-				Type:     string(types.ErrorTypeNewAPIError),
-				Code:     types.ErrorCodeConversationPolicyViolation,
-				Metadata: kkaiPolicyCaseMetadata(c),
-			}
-		}
-		scope, _ := service.KKAIPolicyConversationScopeFromContext(c)
-		return http.StatusForbidden, types.OpenAIError{
-			Message:  service.KKAIPolicyMessageForCyber(state.RetryAfter, scope.Stable),
-			Type:     string(types.ErrorTypeNewAPIError),
-			Code:     types.ErrorCodeConversationPolicyViolation,
-			Metadata: kkaiPolicyCaseMetadata(c),
-		}
-	}
 	if causality == service.KKAIPolicyCausalityClientToken {
 		return http.StatusForbidden, types.OpenAIError{
-			Message:  service.KKAIPolicyMessageForCyber(0, true),
+			Message:  service.KKAIPolicyMessageForCyber(),
 			Type:     string(types.ErrorTypeNewAPIError),
-			Code:     types.ErrorCodeConversationPolicyViolation,
+			Code:     types.ErrorCodeRequestPolicyWarning,
 			Metadata: kkaiPolicyCaseMetadata(c),
 		}
 	}
@@ -162,54 +142,23 @@ func kkaiPolicyCaseMetadata(c *gin.Context) []byte {
 	return data
 }
 
-func kkaiPolicyCaseData(c *gin.Context) map[string]any {
-	if c == nil {
+func kkaiPolicyCaseData(c *gin.Context) map[string]string {
+	if c == nil || c.GetString(service.KKAIPolicyCaseContextKey) == "" {
 		return nil
 	}
-	data := make(map[string]any)
-	if caseID := c.GetString(service.KKAIPolicyCaseContextKey); caseID != "" {
-		data["case_id"] = caseID
-	}
-	if scope, ok := service.KKAIPolicyConversationScopeFromContext(c); ok {
-		data["scope"] = scope.PublicScope()
-	}
-	if state, ok := service.KKAIPolicyCooldownStateFromContext(c); ok {
-		if state.RetryAfter > 0 {
-			data["retry_after_seconds"] = state.RetryAfter
-		}
-		if state.Strike > 0 {
-			data["cooldown_level"] = state.Strike
-		}
-	}
-	if len(data) == 0 {
-		return nil
-	}
-	return data
-}
-
-func kkaiPolicyMessage(c *gin.Context) string {
-	state, hasState := service.KKAIPolicyCooldownStateFromContext(c)
-	scope, _ := service.KKAIPolicyConversationScopeFromContext(c)
-	if hasState && state.Reason == service.KKAIPolicyCooldownReasonWords {
-		return service.KKAIPolicyMessageForKeywordCooldown(state.RetryAfter, scope.Stable)
-	}
-	if hasState {
-		return service.KKAIPolicyMessageForCyber(state.RetryAfter, scope.Stable)
-	}
-	return service.KKAIPolicyMessageForCyber(0, scope.Stable)
-}
-
-func setKKAIPolicyRetryAfter(c *gin.Context) {
-	state, ok := service.KKAIPolicyCooldownStateFromContext(c)
-	if !ok || state.RetryAfter <= 0 || c == nil {
-		return
-	}
-	c.Header("Retry-After", fmt.Sprintf("%d", state.RetryAfter))
+	return map[string]string{"case_id": c.GetString(service.KKAIPolicyCaseContextKey)}
 }
 
 func publicErrorCode(openAIError types.OpenAIError) string {
-	if code, ok := openAIError.Code.(string); ok && code != "" {
-		return code
+	switch code := openAIError.Code.(type) {
+	case string:
+		if code != "" {
+			return code
+		}
+	case types.ErrorCode:
+		if code != "" {
+			return string(code)
+		}
 	}
 	return openAIError.Type
 }

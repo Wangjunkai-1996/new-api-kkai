@@ -858,6 +858,7 @@ func TestChannel(c *gin.Context) {
 		requestCtx = c.Request.Context()
 	}
 	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
+	processChannelTestPolicyError(channel, result)
 	if result.localErr != nil {
 		resp := gin.H{
 			"success": false,
@@ -900,6 +901,36 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
+func processChannelTestPolicyError(channel *model.Channel, result testResult) bool {
+	if channel == nil || result.context == nil || result.newAPIError == nil {
+		return false
+	}
+	return processKKAIPolicyAPIError(
+		result.context,
+		*types.NewChannelError(
+			channel.Id,
+			channel.Type,
+			channel.Name,
+			channel.ChannelInfo.IsMultiKey,
+			common.GetContextKeyString(result.context, constant.ContextKeyChannelKey),
+			channel.GetAutoBan(),
+		),
+		result.newAPIError,
+	)
+}
+
+func automaticChannelTestDisableDecision(newAPIError *types.NewAPIError, policyDetected bool, milliseconds int64, disableThreshold int64) (*types.NewAPIError, bool) {
+	if policyDetected {
+		return newAPIError, false
+	}
+	shouldBanChannel := newAPIError != nil && service.ShouldDisableChannel(newAPIError)
+	if common.AutomaticDisableChannelEnabled && !shouldBanChannel && milliseconds > disableThreshold {
+		err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
+		return types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout), true
+	}
+	return newAPIError, shouldBanChannel
+}
+
 // performChannelTests runs the channel test loop synchronously, honoring ctx
 // cancellation so a system-task runner that loses its lease stops promptly. When
 // report is non-nil it is called after each channel with (processed, total) so
@@ -933,21 +964,11 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		summary.Tested++
 
-		shouldBanChannel := false
 		newAPIError := result.newAPIError
-		// request error disables the channel
-		if newAPIError != nil {
-			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
-		}
-
-		// 当错误检查通过，才检查响应时间
-		if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
-			if milliseconds > disableThreshold {
-				err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
-				newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
-				shouldBanChannel = true
-			}
-		}
+		policyDetected := processChannelTestPolicyError(channel, result)
+		newAPIError, shouldBanChannel := automaticChannelTestDisableDecision(
+			newAPIError, policyDetected, milliseconds, disableThreshold,
+		)
 
 		if newAPIError == nil {
 			summary.Succeeded++
@@ -957,7 +978,12 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		// disable channel
 		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			processChannelErrorAfterKKAIPolicy(
+				result.context,
+				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()),
+				newAPIError,
+				policyDetected,
+			)
 			summary.Disabled++
 		}
 

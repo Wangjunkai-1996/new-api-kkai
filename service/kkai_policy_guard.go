@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -24,15 +25,15 @@ const (
 
 type KKAIPolicyIncidentGuard struct {
 	applier  RiskActionApplier
-	cooldown KKAIPolicyCooldownStore
+	cooldown KKAIPolicyKeyCooldownStore
 	now      func() time.Time
 }
 
 func NewKKAIPolicyIncidentGuard(applier RiskActionApplier) *KKAIPolicyIncidentGuard {
-	return NewKKAIPolicyIncidentGuardWithCooldown(applier, KKAIPolicyDefaultCooldownStore())
-	}
+	return NewKKAIPolicyIncidentGuardWithKeyCooldown(applier, KKAIPolicyDefaultKeyCooldownStore())
+}
 
-func NewKKAIPolicyIncidentGuardWithCooldown(applier RiskActionApplier, cooldown KKAIPolicyCooldownStore) *KKAIPolicyIncidentGuard {
+func NewKKAIPolicyIncidentGuardWithKeyCooldown(applier RiskActionApplier, cooldown KKAIPolicyKeyCooldownStore) *KKAIPolicyIncidentGuard {
 	return &KKAIPolicyIncidentGuard{applier: applier, cooldown: cooldown, now: time.Now}
 }
 
@@ -52,7 +53,7 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	if c != nil && c.GetBool(kkaiPolicyHandledContextKey) {
 		return true, nil
 	}
-	if g == nil || g.applier == nil || g.now == nil {
+	if g == nil || g.now == nil {
 		return true, ErrRiskActionInvalidInput
 	}
 
@@ -68,22 +69,12 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		"evidence_level":              "confirmed",
 		"rule_id":                     kkaiPolicyRuleVersion,
 	}
-	if scope, ok, scopeErr := EnsureKKAIPolicyConversationScope(c); scopeErr == nil && ok {
-		metadata["conversation_scope"] = scope.PublicScope()
-		metadata["conversation_scope_source"] = scope.Source
-		metadata["conversation_scope_fingerprint"] = scope.Fingerprint
-	}
 	if body, ok := kkaiPolicyRequestBody(c); ok {
 		digest := sha256.Sum256(body)
 		metadata["request_body_bytes"] = int64(len(body))
 		metadata["request_body_sha256"] = hex.EncodeToString(digest[:])
 	}
 
-	if classification.Causality == KKAIPolicyCausalityClientToken && g.cooldown != nil {
-		if _, err := RecordKKAIPolicyCyber(c, g.cooldown, eventID); err != nil {
-			common.SysLog("KKAI conversation cooldown write failed: " + err.Error())
-		}
-	}
 	event := RiskStreamEvent{
 		EventID:                eventID,
 		Source:                 RiskSourceUpstreamPolicy,
@@ -104,6 +95,9 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	if err != nil {
 		return true, err
 	}
+	if g.applier == nil {
+		return true, ErrRiskActionInvalidInput
+	}
 	result, err := g.applier.Apply(kkaiPolicyContext(c), RiskActionInput{
 		EventID:                event.EventID,
 		Source:                 event.Source,
@@ -121,13 +115,21 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Metadata:               event.Metadata,
 		Actions:                actions,
 	})
-	if err == nil && result == nil {
+	if err != nil {
+		return true, err
+	}
+	if result == nil {
 		return true, ErrRiskStreamInvalidResult
 	}
-	if err == nil && c != nil {
+	if classification.Causality == KKAIPolicyCausalityClientToken && !result.Replayed {
+		if _, cooldownErr := RecordKKAIPolicyKeyCooldown(c, g.cooldown, eventID); cooldownErr != nil {
+			logger.LogWarn(kkaiPolicyContext(c), "KKAI key cooldown record failed: "+cooldownErr.Error())
+		}
+	}
+	if c != nil {
 		c.Set(kkaiPolicyHandledContextKey, true)
 	}
-	return true, err
+	return true, nil
 }
 
 func markKKAIPolicyContext(c *gin.Context, causality string) {

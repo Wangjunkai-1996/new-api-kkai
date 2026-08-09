@@ -146,25 +146,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		contains, words := service.CheckSensitiveText(meta.CombineText)
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %d match(es)", len(words)))
-			cooldownState, cooldownErr := service.RecordKKAIPolicyKeyword(c, service.KKAIPolicyDefaultCooldownStore())
-			if cooldownErr != nil {
-				logger.LogWarn(c, "conversation keyword cooldown unavailable: "+cooldownErr.Error())
-			}
-			if cooldownState.Blocked {
-				newAPIError = types.NewErrorWithStatusCode(
-					errors.New("conversation policy violation"),
-					types.ErrorCodeConversationPolicyViolation,
-					http.StatusForbidden,
-					types.ErrOptionWithSkipRetry(),
-				)
-			} else {
-				newAPIError = types.NewErrorWithStatusCode(
-					errors.New("prompt blocked"),
-					types.ErrorCodeSensitiveWordsDetected,
-					http.StatusBadRequest,
-					types.ErrOptionWithSkipRetry(),
-				)
-			}
+			newAPIError = types.NewErrorWithStatusCode(
+				errors.New("prompt blocked"),
+				types.ErrorCodeSensitiveWordsDetected,
+				http.StatusBadRequest,
+				types.ErrOptionWithSkipRetry(),
+			)
 			return
 		}
 	}
@@ -727,7 +714,8 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 	if taskErr == nil {
 		return
 	}
-	if taskErr.StatusCode == http.StatusTooManyRequests {
+	if taskErr.StatusCode == http.StatusTooManyRequests &&
+		taskErr.Code != string(types.ErrorCodeRequestPolicyWarning) {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}
 	c.JSON(taskErr.StatusCode, taskErr)

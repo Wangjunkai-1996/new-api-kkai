@@ -33,27 +33,51 @@ upstream baseline.
 
 | Causality | Default decision | Durable action |
 | --- | --- | --- |
-| `client_token` | `disable` | Disable the matching current-fingerprint token and non-privileged user in the incident transaction |
+| `client_token` | `reject` | Record the incident only; never disable the token, user, or channel |
 | `upstream_key` | `reject` | Record only; shared channel remains enabled |
 | `ambiguous` | `reject` | Record only; token, user, and channel remain enabled |
 
-An upstream channel may be disabled only when a signed event explicitly sets
-`upstream_action_allowed=true`. Confirmed evidence alone is insufficient.
-Official generic channel auto-ban is skipped for classified policy incidents so
-it cannot bypass this rule.
+Every `upstream_policy` event is audit-only. Durable disable flags are rejected
+at both the decision and transaction-input boundaries. Official generic channel
+auto-ban is skipped for classified policy incidents so it cannot bypass this rule.
 
 ## Public Contract
 
-- Client-attributed policy errors return HTTP 403 with
-  `request blocked by policy` and code `policy_blocked`.
-- Upstream-key and ambiguous incidents return HTTP 503 with
-  `upstream unavailable` and code `upstream_unavailable`.
+- A client-attributed Cyber warning is recognized only when the original provider
+  response is HTTP 403 and the existing Cyber marker matches. Status-code mapping
+  does not change this classification. The triggering request returns HTTP 403
+  with code `request_policy_warning` and is not retried.
+- `upstream_key` and `ambiguous` incidents return HTTP 503 with code
+  `upstream_unavailable` and a generic service-unavailable message.
+- Local sensitive-word matches return HTTP 400 with code `prompt_blocked`; only
+  the current request is stopped and no cumulative cooldown is recorded.
+- Existing ordinary rate-limit and cooldown behavior is unchanged.
 - OpenAI, Claude, realtime, and task response paths share the same
   classification and redaction behavior.
 - Policy text, credentials, provider links, advertisements, sensitive params,
   metadata, and unsafe task data are not returned to clients.
 - OpenAI-compatible responses include the incident case ID in safe metadata;
   all protocols retain the normal request ID correlation in server logs.
+
+## API Key Cooldown
+
+- Cooldown scope is derived only from the authenticated positive `token_id`.
+  Redis keys use a versioned, domain-separated HMAC. User ID, channel identity,
+  IP address, request content, message history, and custom conversation headers
+  are never part of the scope.
+- A newly persisted `client_token` Cyber incident records a 60-second cooldown.
+  Later confirmed incidents advance through 120, 240, 480, 960, 1920, and 3600
+  seconds. Requests made while blocked do not create incidents or advance strikes.
+- The same incident event is idempotent. After 24 hours without a new violation,
+  the next confirmed violation starts again at 60 seconds.
+- Cooldown checks run after token authentication and before request rate limiting
+  or channel distribution. A blocked request returns HTTP 429, code
+  `key_cooldown`, and an integer `Retry-After` containing the actual remaining
+  seconds. It does not select a channel, reach a provider, or pre-consume quota.
+- Redis Lua performs check and record transitions atomically using Redis time so
+  all instances observe one state. Redis unavailability is logged and fails open.
+  No cooldown state is written to business database tables, and Redis stores no
+  raw token, provider key, request body, credential, or raw event ID.
 
 ## Structure
 

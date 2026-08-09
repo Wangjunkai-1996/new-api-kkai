@@ -75,6 +75,10 @@ func validRiskDecision(decision string) bool {
 }
 
 func validRiskActions(input RiskActionInput) bool {
+	if input.Source == RiskSourceUpstreamPolicy &&
+		(input.Decision == RiskDecisionDisable || input.Actions.DisableToken || input.Actions.DisableUser || input.Actions.DisableChannel) {
+		return false
+	}
 	if input.Actions.DisableToken && (input.TokenID <= 0 || input.UserID <= 0 || input.TokenFingerprint == "") {
 		return false
 	}
@@ -125,8 +129,7 @@ func normalizeRiskMetadata(metadata map[string]any) (string, error) {
 	allowed := map[string]struct{}{
 		"case_id": {}, "causality": {}, "client_token_action_allowed": {},
 		"evidence_level": {}, "request_body_bytes": {}, "request_body_sha256": {},
-		"rule_id": {}, "upstream_action_allowed": {}, "conversation_scope": {},
-		"conversation_scope_source": {}, "conversation_scope_fingerprint": {},
+		"rule_id": {}, "upstream_action_allowed": {},
 	}
 	normalized := make(map[string]any, len(metadata))
 	for key, value := range metadata {
@@ -151,7 +154,7 @@ func normalizeRiskMetadata(metadata map[string]any) (string, error) {
 
 func normalizeRiskMetadataValue(normalized map[string]any, key string, value any) error {
 	switch key {
-	case "case_id", "causality", "evidence_level", "rule_id", "conversation_scope", "conversation_scope_source":
+	case "case_id", "causality", "evidence_level", "rule_id":
 		text, ok := value.(string)
 		text = strings.TrimSpace(text)
 		if !ok || !riskEventIDPattern.MatchString(text) || riskSecretPattern.MatchString(text) {
@@ -171,16 +174,6 @@ func normalizeRiskMetadataValue(normalized map[string]any, key string, value any
 		}
 		normalized[key] = count
 	case "request_body_sha256":
-		text, ok := value.(string)
-		if !ok {
-			return ErrRiskActionInvalidInput
-		}
-		digest, err := normalizeRiskDigest(text, true)
-		if err != nil {
-			return err
-		}
-		normalized[key] = digest
-	case "conversation_scope_fingerprint":
 		text, ok := value.(string)
 		if !ok {
 			return ErrRiskActionInvalidInput

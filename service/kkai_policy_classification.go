@@ -53,7 +53,7 @@ func ClassifyKKAIUpstreamPolicyError(apiErr *types.NewAPIError) KKAIPolicyClassi
 	if apiErr == nil {
 		return KKAIPolicyClassification{}
 	}
-	return classifyKKAIPolicyText(apiErr.StatusCode, string(apiErr.GetErrorCode()), apiErr.Error())
+	return classifyKKAIPolicyText(apiErr.GetOriginalStatusCode(), string(apiErr.GetOriginalErrorCode()), apiErr.Error())
 }
 
 func ClassifyKKAITaskPolicyError(taskErr *dto.TaskError) KKAIPolicyClassification {

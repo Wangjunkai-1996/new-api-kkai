@@ -1,15 +1,18 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -109,6 +112,70 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 	require.Len(t, selected, 2)
 	require.Equal(t, 1, selected[0].Id)
 	require.Equal(t, 2, selected[1].Id)
+}
+
+func TestAutomaticChannelTestCyberNeverBecomesTimeoutBan(t *testing.T) {
+	previousAutomaticDisable := common.AutomaticDisableChannelEnabled
+	common.AutomaticDisableChannelEnabled = true
+	t.Cleanup(func() { common.AutomaticDisableChannelEnabled = previousAutomaticDisable })
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New("cyber_policy"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+	policyDetected := service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected
+	require.True(t, policyDetected)
+
+	effectiveErr, shouldBan := automaticChannelTestDisableDecision(apiErr, policyDetected, 10_000, 1)
+
+	require.Same(t, apiErr, effectiveErr)
+	require.False(t, shouldBan)
+	require.Equal(t, http.StatusForbidden, effectiveErr.StatusCode)
+}
+
+func TestAutomaticChannelTestStillBansOrdinarySlowResponse(t *testing.T) {
+	previousAutomaticDisable := common.AutomaticDisableChannelEnabled
+	common.AutomaticDisableChannelEnabled = true
+	t.Cleanup(func() { common.AutomaticDisableChannelEnabled = previousAutomaticDisable })
+
+	effectiveErr, shouldBan := automaticChannelTestDisableDecision(nil, false, 10_000, 1)
+
+	require.True(t, shouldBan)
+	require.NotNil(t, effectiveErr)
+	require.Equal(t, types.ErrorCodeChannelResponseTimeExceeded, effectiveErr.GetErrorCode())
+}
+
+func TestProcessChannelTestPolicyErrorRecordsAuditOnlyIncident(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.KKAIPolicyIncident{}, &model.KKAIOutboxEvent{}))
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set(common.RequestIdKey, "channel-test-cyber")
+	ctx.Set("id", 1)
+	common.SetContextKey(ctx, constant.ContextKeyChannelKey, "upstream-secret")
+	channel := &model.Channel{
+		Id: 77, Type: 1, Name: "multi-key-channel", Key: "upstream-secret",
+		Status:      common.ChannelStatusEnabled,
+		ChannelInfo: model.ChannelInfo{IsMultiKey: true},
+	}
+	apiErr := types.NewErrorWithStatusCode(
+		errors.New("cyber_policy"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+
+	detected := processChannelTestPolicyError(channel, testResult{context: ctx, newAPIError: apiErr})
+
+	require.True(t, detected)
+	var incident model.KKAIPolicyIncident
+	require.NoError(t, db.Where("request_id = ?", "channel-test-cyber").First(&incident).Error)
+	require.Equal(t, service.RiskDecisionReject, incident.Decision)
+	require.False(t, incident.TokenDisabled)
+	require.False(t, incident.UserDisabled)
+	require.False(t, incident.ChannelDisabled)
+	require.Equal(t, "record_incident", incident.ActionTaken)
+	require.NotContains(t, incident.Metadata, "upstream-secret")
 }
 
 func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
