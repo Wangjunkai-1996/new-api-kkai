@@ -107,6 +107,8 @@ contains "https://code.videolan.org/videolan/x264/-/archive/\${X264_REVISION}/x2
   fail "x264 source URL is not bound to the pinned official revision"
 contains 'curl --fail --location --retry' "${MEDIA_BUILD_SCRIPT}" ||
   fail "source downloads do not use the fail-closed curl transport when available"
+contains '--tls-max 1.2' "${MEDIA_BUILD_SCRIPT}" ||
+  fail "source downloads do not pin the compatible TLS maximum"
 contains 'curl=8.21.0-r0' "${MEDIA_PACKAGE_LOCK}" ||
   fail "the locked media build toolchain does not include curl"
 contains 'sha256sum -c' "${MEDIA_BUILD_SCRIPT}" || fail "source archives are not checksum-verified"

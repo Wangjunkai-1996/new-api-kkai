@@ -25,7 +25,8 @@ download_source() {
     unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
     if command -v curl >/dev/null 2>&1; then
       curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
-        --connect-timeout 20 --max-time 300 --output "${destination}" "${url}"
+        --connect-timeout 20 --max-time 300 --tls-max 1.2 \
+        --output "${destination}" "${url}"
     else
       wget -O "${destination}" "${url}"
     fi
