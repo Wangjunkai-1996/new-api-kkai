@@ -42,6 +42,17 @@ deployer. Staging loads and verifies the image, replaces only the idle slot, and
 exposes it through a private candidate proxy. It does not switch the public
 router, stable alias, writer, Redis, release pointers, or rollback pointers.
 Promotion is a separate explicit operator action after exact-version acceptance.
+An instruction to build and blue-green deploy to production is standing
+operator authorization for both stage and promotion once the exact candidate
+version and the smallest affected workflow pass. Do not pause for duplicate
+approval at that point. A build-only or stage-only request does not authorize
+promotion, and any version mismatch, candidate failure, newly discovered risk,
+or scope change requires stopping before promotion.
+
+Build one immutable release per exact source commit. If a failed build reveals
+a required source, lockfile, or build-dependency change, validate, commit, and
+push that new production commit before building its new immutable release. That
+is a new release attempt, not permission to keep rebuilding an unchanged tree.
 
 For an application-only release, follow only the normal-release portion of the
 global entry and infrastructure runbook. Read slot, schema, or recovery sections
