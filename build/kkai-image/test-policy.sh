@@ -76,8 +76,10 @@ contains 'status --porcelain=v1 --untracked-files=all' "${BUILD_SCRIPT}" ||
 contains '--output "type=docker,dest=${archive}"' "${BUILD_SCRIPT}" ||
   fail "manual build does not export a Docker archive"
 contains 'archive_sha256' "${BUILD_SCRIPT}" || fail "manual build omits archive integrity metadata"
-contains 'schema_contract=feature' "${BUILD_SCRIPT}" ||
-  fail "manual builds do not default to the feature schema contract"
+contains "schema_contract=''" "${BUILD_SCRIPT}" ||
+  fail "manual builds retain an implicit schema contract"
+contains 'schema contract must be selected explicitly with --schema-contract bridge|feature' "${BUILD_SCRIPT}" ||
+  fail "manual builds do not require explicit schema contract selection"
 contains '--schema-contract) schema_contract=$2' "${BUILD_SCRIPT}" ||
   fail "manual builds cannot explicitly select the bridge schema contract"
 contains '--build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}"' "${BUILD_SCRIPT}" ||

@@ -15,13 +15,15 @@ tables.
 | 5 | `video_studio` | Six additive Video Studio tables |
 | 6 | `video_sample_category` | Nullable `kkai_video_samples.category` column |
 | 7 | `image_studio` | Four additive Image Studio tables |
+| 8 | `stateless_authentication` | Session, one-time auth flow, external identity, user auth version, and token auto-group schema |
 
 Version 4 is an explicit bridge on every supported dialect. MySQL 5.7 and
 PostgreSQL alter `kkai_outbox.event_key` to `VARCHAR(191)`; SQLite records the
 same immutable migration as a physical no-op. Keeping one v4 ledger prefix
 across SQLite, MySQL, and PostgreSQL makes the v5 rollout and rollback contract
-unambiguous. The explicit bridge build remains pinned to version 3 while
-accepting versions through 7. The default feature build requires version 7.
+unambiguous. That historical bridge was pinned to version 3 while accepting
+versions through 7. The current bridge accepts versions 7 through 8 and keeps
+its migration target at 7; the current feature build requires version 8.
 Neither application profile changes the schema during startup.
 
 Version 5 is an additive expand migration. It creates exactly these tables and
@@ -50,6 +52,18 @@ tables:
 
 Image Studio reuses the v1 outbox and the v5 idempotency table; it does not
 create parallel copies of either shared primitive.
+
+Version 8 is a separate additive authentication expand. It adds
+`users.auth_version`, `tokens.auto_groups`, and these tables:
+
+- `user_sessions` for refresh rotation, expiry, and revocation state;
+- `auth_flows` for short-lived one-time authentication operations;
+- `external_identity_claims` for unique provider-subject ownership.
+
+The v8 backfill initializes invalid or missing user auth versions and migrates
+unambiguous legacy Telegram identities into the ownership table. It rejects an
+ambiguous subject without printing that subject and does not drop or rewrite
+existing authentication columns.
 
 Applied versions are recorded in `kkai_schema_migrations` with an immutable
 SHA-256 checksum. A checksum mismatch or unknown future version stops both the
@@ -104,9 +118,9 @@ runs GORM `AutoMigrate` or changes database state.
 `--dry-run` is schema-read-only. If the migration metadata table does not
 exist, dry-run still makes no database changes.
 
-## Studio Bridge And Expands
+## Historical Studio Bridge And Expands
 
-The bridge release contract is `runtime_min_version=3`,
+The historical v4-through-v7 bridge release contract is `runtime_min_version=3`,
 `runtime_max_version=7`, and `migration_target_version=3`. Verify it for the
 actual database dialect before rollout:
 
@@ -192,12 +206,33 @@ release be built and staged:
 scripts/kkai/build-manual-release.sh --schema-contract feature
 ```
 
-The feature contract is `runtime_min_version=7`, `runtime_max_version=7`, and
-`migration_target_version=7`; its default `--check` therefore fails closed on
-pre-v7 databases. After v7, rollback is limited to a bridge image whose runtime
-range includes v7. There is no automatic down migration: never delete the v5,
-v6, or v7 ledger rows, drop their objects, or rewrite their checksums to make
-an older image start.
+That historical feature contract was `(7,7,7)` and failed closed on pre-v7
+databases. It is not the current untagged feature profile.
+
+## Current V8 Authentication Expand
+
+The current bridge contract is `(7,8,7)` with only the canonical v7 and v8
+prefixes. For an ordinary application release on live schema v7, build this
+profile and leave the database unchanged:
+
+```bash
+scripts/kkai/build-manual-release.sh --schema-contract bridge
+```
+
+The current feature contract is `(8,8,8)` with only the canonical v8 prefix.
+It cannot start on v7. Use it only after the separately authorized v8 procedure
+has completed and `current_version: 8` has been independently observed:
+
+```bash
+scripts/kkai/build-manual-release.sh --schema-contract feature
+```
+
+The v8 migration requires the reviewed bridge in both effective slots, a safe
+authentication precheck, a verified snapshot, explicit apply confirmation,
+and post-apply check/observe. Ordinary application delivery and generic deploy
+preflight do not run or prove any of those gates. There is no automatic down
+migration; retain the reviewed bridge and rollback evidence under the
+infrastructure runbook's retention rules.
 
 ## Legacy Import
 
@@ -214,7 +249,7 @@ separate post-stability operation and is not part of ordinary delivery.
 ## Operator Migration Rules
 
 Ordinary release automation does not run schema observation or migrations. It
-does not execute migration version 4, 5, 6, or 7.
+does not execute migration version 4, 5, 6, 7, or 8.
 
 If a future PostgreSQL migration is needed:
 
