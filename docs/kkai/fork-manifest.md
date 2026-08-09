@@ -122,6 +122,10 @@ or block the production image workflow.
   `production/kkrich` branch. `scripts/kkai/build-manual-release.sh` builds one
   Linux AMD64 image and binds its immutable archive and metadata to that source
   revision.
+- The build profile must match the live schema: use the `(7,8,7)` bridge while
+  an application-only release keeps schema v7, and use the `(8,8,8)` feature
+  only after v8 is independently observed. Generic deployment preflight is not
+  schema-compatibility evidence; without exact v8 evidence, use the bridge.
 - The operator transfers that exact local archive over the private SSH path and
   uses the manual infrastructure controller to stage, verify, and promote it.
   No registry publication, signing service, repository dispatch, or network

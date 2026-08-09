@@ -19,7 +19,7 @@ sha256_file() {
 
 output_dir="${ROOT}/.local-releases"
 version=''
-schema_contract=feature
+schema_contract=''
 build_http_proxy="${BUILD_HTTP_PROXY:-${HTTP_PROXY:-}}"
 build_https_proxy="${BUILD_HTTPS_PROXY:-${HTTPS_PROXY:-}}"
 build_no_proxy="${BUILD_NO_PROXY:-${NO_PROXY:-}}"
@@ -33,6 +33,8 @@ while (( $# > 0 )); do
   esac
   shift 2
 done
+[[ -n "${schema_contract}" ]] ||
+  die "schema contract must be selected explicitly with --schema-contract bridge|feature"
 case "${schema_contract}" in
   feature | bridge) ;;
   *) die "schema contract must be feature or bridge" ;;

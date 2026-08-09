@@ -23,6 +23,13 @@ blue-green slots, rollback, or `api.kkrich.ltd`:
    generated metadata file with
    `scripts/kkai/deploy-manual-release.sh --stage METADATA.json`.
 
+Select `--schema-contract` explicitly from current live-schema evidence before
+building. `make newapi-status` and the deployer's generic preflight do not prove
+database compatibility. An application-only release on schema v7 uses the
+`(7,8,7)` `bridge` profile. Without exact v8 evidence, use `bridge`; use the
+`(8,8,8)` `feature` profile only after v8 has been independently observed.
+Schema migration is a separate authorized operation.
+
 The deploy script must use `scripts/kkai/manual-deployment-contract.env` and
 complete the controller's read-only preflight before uploading an image. Update
 that contract only together with installation of the exact pinned infra commit;
