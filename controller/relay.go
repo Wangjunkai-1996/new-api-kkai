@@ -145,8 +145,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if needSensitiveCheck && meta != nil {
 		contains, words := service.CheckSensitiveText(meta.CombineText)
 		if contains {
-			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
-			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %d match(es)", len(words)))
+			newAPIError = types.NewErrorWithStatusCode(
+				errors.New("prompt blocked"),
+				types.ErrorCodeSensitiveWordsDetected,
+				http.StatusBadRequest,
+				types.ErrOptionWithSkipRetry(),
+			)
 			return
 		}
 	}
@@ -709,7 +714,8 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 	if taskErr == nil {
 		return
 	}
-	if taskErr.StatusCode == http.StatusTooManyRequests {
+	if taskErr.StatusCode == http.StatusTooManyRequests &&
+		taskErr.Code != string(types.ErrorCodeRequestPolicyWarning) {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}
 	c.JSON(taskErr.StatusCode, taskErr)

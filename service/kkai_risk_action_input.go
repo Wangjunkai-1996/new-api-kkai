@@ -75,6 +75,10 @@ func validRiskDecision(decision string) bool {
 }
 
 func validRiskActions(input RiskActionInput) bool {
+	if input.Source == RiskSourceUpstreamPolicy &&
+		(input.Decision == RiskDecisionDisable || input.Actions.DisableToken || input.Actions.DisableUser || input.Actions.DisableChannel) {
+		return false
+	}
 	if input.Actions.DisableToken && (input.TokenID <= 0 || input.UserID <= 0 || input.TokenFingerprint == "") {
 		return false
 	}

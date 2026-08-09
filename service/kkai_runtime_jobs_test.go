@@ -334,6 +334,13 @@ func TestRiskActionOutboxHandlerDeliversCacheInvalidationAndNotification(t *test
 			return nil
 		},
 		RefreshChannels: func() { refreshedChannels++ },
+		LookupIncident: func(_ context.Context, incidentID int64, eventID string) (model.KKAIPolicyIncident, error) {
+			return model.KKAIPolicyIncident{
+				ID: incidentID, EventID: eventID, Source: RiskSourceManualReview,
+				UserID:        10,
+				TokenDisabled: true, UserDisabled: true, ChannelDisabled: true,
+			}, nil
+		},
 		Notify: func(riskActionOutboxPayload) error {
 			notified++
 			return nil
@@ -357,17 +364,151 @@ func TestRiskActionOutboxHandlerDeliversCacheInvalidationAndNotification(t *test
 	require.Equal(t, 1, notified)
 }
 
+func TestRiskActionOutboxHandlerAuditOnlyDoesNotInvalidateAnything(t *testing.T) {
+	invalidatedUser := 0
+	invalidatedTokens := 0
+	refreshedChannels := 0
+	notified := 0
+	handler := RiskActionOutboxHandler{
+		InvalidateUser: func(userID int) error {
+			invalidatedUser = userID
+			return nil
+		},
+		InvalidateUserTokens: func(userID int) error {
+			invalidatedTokens = userID
+			return nil
+		},
+		RefreshChannels: func() { refreshedChannels++ },
+		Notify: func(riskActionOutboxPayload) error {
+			notified++
+			return nil
+		},
+	}
+	payload, err := common.Marshal(riskActionOutboxPayload{
+		IncidentID: 1,
+		EventID:    "event-audit-only",
+		UserID:     10,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, handler.Handle(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)}))
+	require.Equal(t, 0, invalidatedUser)
+	require.Equal(t, 0, invalidatedTokens)
+	require.Equal(t, 0, refreshedChannels)
+	require.Equal(t, 1, notified)
+}
+
 func TestRiskActionOutboxHandlerRetriesFailedDelivery(t *testing.T) {
 	expected := errors.New("redis unavailable")
 	handler := RiskActionOutboxHandler{
 		InvalidateUser:       func(int) error { return expected },
 		InvalidateUserTokens: func(int) error { return nil },
 		RefreshChannels:      func() {},
-		Notify:               func(riskActionOutboxPayload) error { return nil },
+		LookupIncident: func(_ context.Context, incidentID int64, eventID string) (model.KKAIPolicyIncident, error) {
+			return model.KKAIPolicyIncident{ID: incidentID, EventID: eventID, Source: RiskSourceManualReview, UserID: 10, UserDisabled: true}, nil
+		},
+		Notify: func(riskActionOutboxPayload) error { return nil },
 	}
 	payload, err := common.Marshal(riskActionOutboxPayload{EventID: "event-1", UserID: 10, UserDisabled: true})
 	require.NoError(t, err)
 
 	err = handler.Handle(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)})
 	require.ErrorIs(t, err, expected)
+}
+
+func TestRiskActionOutboxHandlerSuppressesUpstreamPolicyMutations(t *testing.T) {
+	invalidatedUser := 0
+	invalidatedTokens := 0
+	refreshedChannels := 0
+	var notified riskActionOutboxPayload
+	handler := RiskActionOutboxHandler{
+		InvalidateUser:       func(userID int) error { invalidatedUser = userID; return nil },
+		InvalidateUserTokens: func(userID int) error { invalidatedTokens = userID; return nil },
+		RefreshChannels:      func() { refreshedChannels++ },
+		LookupIncident: func(_ context.Context, incidentID int64, eventID string) (model.KKAIPolicyIncident, error) {
+			return model.KKAIPolicyIncident{
+				ID: incidentID, EventID: eventID, Source: RiskSourceUpstreamPolicy,
+				UserID:        10,
+				TokenDisabled: true, UserDisabled: true, UserDisableSkipped: true, ChannelDisabled: true,
+			}, nil
+		},
+		Notify: func(payload riskActionOutboxPayload) error { notified = payload; return nil },
+	}
+	payload, err := common.Marshal(riskActionOutboxPayload{
+		IncidentID:         2,
+		EventID:            "upstream-event-1",
+		UserID:             10,
+		TokenDisabled:      true,
+		UserDisabled:       true,
+		UserDisableSkipped: true,
+		ChannelDisabled:    true,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, handler.Handle(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)}))
+	require.Zero(t, invalidatedUser)
+	require.Zero(t, invalidatedTokens)
+	require.Zero(t, refreshedChannels)
+	require.Equal(t, int64(2), notified.IncidentID)
+	require.Equal(t, "upstream-event-1", notified.EventID)
+	require.False(t, notified.TokenDisabled)
+	require.False(t, notified.UserDisabled)
+	require.False(t, notified.UserDisableSkipped)
+	require.False(t, notified.ChannelDisabled)
+}
+
+func TestRiskActionOutboxHandlerFailsClosedWhenIncidentLookupFails(t *testing.T) {
+	expected := errors.New("incident store unavailable")
+	invalidated := false
+	notified := false
+	handler := RiskActionOutboxHandler{
+		InvalidateUser:       func(int) error { invalidated = true; return nil },
+		InvalidateUserTokens: func(int) error { invalidated = true; return nil },
+		RefreshChannels:      func() { invalidated = true },
+		LookupIncident: func(context.Context, int64, string) (model.KKAIPolicyIncident, error) {
+			return model.KKAIPolicyIncident{}, expected
+		},
+		Notify: func(riskActionOutboxPayload) error { notified = true; return nil },
+	}
+	payload, err := common.Marshal(riskActionOutboxPayload{
+		IncidentID:      3,
+		EventID:         "upstream-event-2",
+		UserID:          10,
+		TokenDisabled:   true,
+		UserDisabled:    true,
+		ChannelDisabled: true,
+	})
+	require.NoError(t, err)
+
+	err = handler.Handle(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)})
+	require.ErrorIs(t, err, expected)
+	require.False(t, invalidated)
+	require.False(t, notified)
+}
+
+func TestRiskActionOutboxHandlerRejectsPayloadActionMismatch(t *testing.T) {
+	invalidated := false
+	notified := false
+	handler := RiskActionOutboxHandler{
+		InvalidateUser:       func(int) error { invalidated = true; return nil },
+		InvalidateUserTokens: func(int) error { invalidated = true; return nil },
+		RefreshChannels:      func() { invalidated = true },
+		LookupIncident: func(_ context.Context, incidentID int64, eventID string) (model.KKAIPolicyIncident, error) {
+			return model.KKAIPolicyIncident{ID: incidentID, EventID: eventID, Source: RiskSourceManualReview}, nil
+		},
+		Notify: func(riskActionOutboxPayload) error { notified = true; return nil },
+	}
+	payload, err := common.Marshal(riskActionOutboxPayload{
+		IncidentID:    4,
+		EventID:       "manual-event-1",
+		UserID:        10,
+		UserDisabled:  true,
+		TokenDisabled: true,
+	})
+	require.NoError(t, err)
+
+	err = handler.Handle(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)})
+	require.ErrorIs(t, err, ErrRiskActionInvalidInput)
+	require.False(t, invalidated)
+	require.False(t, notified)
 }

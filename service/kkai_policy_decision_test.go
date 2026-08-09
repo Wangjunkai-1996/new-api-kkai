@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestKKAIRiskDecisionRequiresExplicitUpstreamActionPermission(t *testing.T) {
+func TestKKAIRiskDecisionNeverMutatesForUpstreamPolicy(t *testing.T) {
 	event := RiskStreamEvent{
 		Source:         RiskSourceUpstreamPolicy,
 		Recommendation: RiskDecisionDisable,
@@ -26,8 +26,8 @@ func TestKKAIRiskDecisionRequiresExplicitUpstreamActionPermission(t *testing.T) 
 	event.Metadata["upstream_action_allowed"] = true
 	decision, actions, err = DecideKKAIRiskStreamEvent(event)
 	require.NoError(t, err)
-	assert.Equal(t, RiskDecisionDisable, decision)
-	assert.Equal(t, RiskDurableActions{DisableChannel: true}, actions)
+	assert.Equal(t, RiskDecisionReject, decision)
+	assert.Equal(t, RiskDurableActions{}, actions)
 }
 
 func TestKKAIRiskDecisionRecordsAmbiguousAttributionWithoutAction(t *testing.T) {

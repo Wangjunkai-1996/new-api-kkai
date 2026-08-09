@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -23,12 +24,17 @@ const (
 )
 
 type KKAIPolicyIncidentGuard struct {
-	applier RiskActionApplier
-	now     func() time.Time
+	applier  RiskActionApplier
+	cooldown KKAIPolicyKeyCooldownStore
+	now      func() time.Time
 }
 
 func NewKKAIPolicyIncidentGuard(applier RiskActionApplier) *KKAIPolicyIncidentGuard {
-	return &KKAIPolicyIncidentGuard{applier: applier, now: time.Now}
+	return NewKKAIPolicyIncidentGuardWithKeyCooldown(applier, KKAIPolicyDefaultKeyCooldownStore())
+}
+
+func NewKKAIPolicyIncidentGuardWithKeyCooldown(applier RiskActionApplier, cooldown KKAIPolicyKeyCooldownStore) *KKAIPolicyIncidentGuard {
+	return &KKAIPolicyIncidentGuard{applier: applier, cooldown: cooldown, now: time.Now}
 }
 
 func (g *KKAIPolicyIncidentGuard) HandleAPIError(c *gin.Context, channel types.ChannelError, apiErr *types.NewAPIError) (bool, error) {
@@ -47,7 +53,7 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	if c != nil && c.GetBool(kkaiPolicyHandledContextKey) {
 		return true, nil
 	}
-	if g == nil || g.applier == nil || g.now == nil {
+	if g == nil || g.now == nil {
 		return true, ErrRiskActionInvalidInput
 	}
 
@@ -59,7 +65,7 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	metadata := map[string]any{
 		"case_id":                     eventID,
 		"causality":                   classification.Causality,
-		"client_token_action_allowed": classification.Causality == KKAIPolicyCausalityClientToken,
+		"client_token_action_allowed": false,
 		"evidence_level":              "confirmed",
 		"rule_id":                     kkaiPolicyRuleVersion,
 	}
@@ -69,10 +75,6 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		metadata["request_body_sha256"] = hex.EncodeToString(digest[:])
 	}
 
-	recommendation := RiskDecisionReject
-	if classification.Causality == KKAIPolicyCausalityClientToken && c != nil && c.GetInt("id") > 0 && c.GetInt("token_id") > 0 {
-		recommendation = RiskDecisionDisable
-	}
 	event := RiskStreamEvent{
 		EventID:                eventID,
 		Source:                 RiskSourceUpstreamPolicy,
@@ -86,12 +88,15 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		EvidenceSHA256:         RiskFingerprint(fmt.Sprintf("%d\n%s\n%s", classification.StatusCode, classification.ErrorCode, classification.Evidence)),
 		TokenFingerprint:       RiskFingerprint(kkaiPolicyContextString(c, "token_key")),
 		UpstreamKeyFingerprint: RiskFingerprint(channel.UsingKey),
-		Recommendation:         recommendation,
+		Recommendation:         RiskDecisionReject,
 		Metadata:               metadata,
 	}
 	decision, actions, err := DecideKKAIRiskStreamEvent(event)
 	if err != nil {
 		return true, err
+	}
+	if g.applier == nil {
+		return true, ErrRiskActionInvalidInput
 	}
 	result, err := g.applier.Apply(kkaiPolicyContext(c), RiskActionInput{
 		EventID:                event.EventID,
@@ -110,13 +115,21 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Metadata:               event.Metadata,
 		Actions:                actions,
 	})
-	if err == nil && result == nil {
+	if err != nil {
+		return true, err
+	}
+	if result == nil {
 		return true, ErrRiskStreamInvalidResult
 	}
-	if err == nil && c != nil {
+	if classification.Causality == KKAIPolicyCausalityClientToken && !result.Replayed {
+		if _, cooldownErr := RecordKKAIPolicyKeyCooldown(c, g.cooldown, eventID); cooldownErr != nil {
+			logger.LogWarn(kkaiPolicyContext(c), "KKAI key cooldown record failed: "+cooldownErr.Error())
+		}
+	}
+	if c != nil {
 		c.Set(kkaiPolicyHandledContextKey, true)
 	}
-	return true, err
+	return true, nil
 }
 
 func markKKAIPolicyContext(c *gin.Context, causality string) {

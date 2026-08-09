@@ -9,6 +9,11 @@ func DecideKKAIRiskStreamEvent(event RiskStreamEvent) (string, RiskDurableAction
 	if event.Recommendation != RiskDecisionDisable {
 		return "", RiskDurableActions{}, fmt.Errorf("%w: unsupported recommendation", ErrRiskStreamDecisionRejected)
 	}
+	// Upstream policy signals are request-scoped audit events. They must never
+	// mutate a downstream token, user account, or provider channel.
+	if event.Source == RiskSourceUpstreamPolicy {
+		return RiskDecisionReject, RiskDurableActions{}, nil
+	}
 	evidenceLevel, _ := event.Metadata["evidence_level"].(string)
 	causality, _ := event.Metadata["causality"].(string)
 	if evidenceLevel != "confirmed" {

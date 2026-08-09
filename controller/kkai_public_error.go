@@ -11,10 +11,8 @@ import (
 )
 
 const (
-	kkaiPublicPolicyBlocked       = "request blocked by policy"
-	kkaiPublicUpstreamUnavailable = "upstream unavailable"
+	kkaiPublicUpstreamUnavailable = "服务暂时不可用，请稍后重试。"
 	kkaiPublicUpstreamError       = "upstream error"
-	kkaiPolicyBlockedCode         = "policy_blocked"
 	kkaiUpstreamUnavailableCode   = "upstream_unavailable"
 )
 
@@ -29,6 +27,13 @@ func kkaiPublicOpenAIError(c *gin.Context, apiErr *types.NewAPIError) (int, type
 	}
 	if classification.Detected || service.ShouldSkipRetryAfterKKAIPolicy(c) {
 		return kkaiPublicPolicyOpenAIError(c, causality)
+	}
+	if apiErr.GetErrorCode() == types.ErrorCodeSensitiveWordsDetected {
+		return http.StatusBadRequest, types.OpenAIError{
+			Message: service.KKAIPolicyMessageForKeyword(),
+			Type:    string(types.ErrorTypeNewAPIError),
+			Code:    types.ErrorCodePromptBlocked,
+		}
 	}
 
 	status := apiErr.StatusCode
@@ -70,13 +75,21 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 		publicErr.Error = nil
 		if causality == service.KKAIPolicyCausalityClientToken {
 			publicErr.StatusCode = http.StatusForbidden
-			publicErr.Code = kkaiPolicyBlockedCode
-			publicErr.Message = kkaiPublicPolicyBlocked
+			publicErr.Code = string(types.ErrorCodeRequestPolicyWarning)
+			publicErr.Message = service.KKAIPolicyMessageForCyber()
 			return &publicErr
 		}
 		publicErr.StatusCode = http.StatusServiceUnavailable
 		publicErr.Code = kkaiUpstreamUnavailableCode
 		publicErr.Message = kkaiPublicUpstreamUnavailable
+		return &publicErr
+	}
+	if taskErr.Code == string(types.ErrorCodeSensitiveWordsDetected) {
+		publicErr.StatusCode = http.StatusBadRequest
+		publicErr.Code = string(types.ErrorCodePromptBlocked)
+		publicErr.Message = service.KKAIPolicyMessageForKeyword()
+		publicErr.Data = nil
+		publicErr.Error = nil
 		return &publicErr
 	}
 
@@ -98,9 +111,9 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 func kkaiPublicPolicyOpenAIError(c *gin.Context, causality string) (int, types.OpenAIError) {
 	if causality == service.KKAIPolicyCausalityClientToken {
 		return http.StatusForbidden, types.OpenAIError{
-			Message:  kkaiPublicPolicyBlocked,
+			Message:  service.KKAIPolicyMessageForCyber(),
 			Type:     string(types.ErrorTypeNewAPIError),
-			Code:     kkaiPolicyBlockedCode,
+			Code:     types.ErrorCodeRequestPolicyWarning,
 			Metadata: kkaiPolicyCaseMetadata(c),
 		}
 	}
@@ -137,8 +150,15 @@ func kkaiPolicyCaseData(c *gin.Context) map[string]string {
 }
 
 func publicErrorCode(openAIError types.OpenAIError) string {
-	if code, ok := openAIError.Code.(string); ok && code != "" {
-		return code
+	switch code := openAIError.Code.(type) {
+	case string:
+		if code != "" {
+			return code
+		}
+	case types.ErrorCode:
+		if code != "" {
+			return string(code)
+		}
 	}
 	return openAIError.Type
 }
