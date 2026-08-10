@@ -416,47 +416,6 @@ func TestRiskActionOutboxHandlerRetriesFailedDelivery(t *testing.T) {
 	require.ErrorIs(t, err, expected)
 }
 
-func TestRiskActionOutboxHandlerSuppressesUpstreamPolicyMutations(t *testing.T) {
-	invalidatedUser := 0
-	invalidatedTokens := 0
-	refreshedChannels := 0
-	var notified riskActionOutboxPayload
-	handler := RiskActionOutboxHandler{
-		InvalidateUser:       func(userID int) error { invalidatedUser = userID; return nil },
-		InvalidateUserTokens: func(userID int) error { invalidatedTokens = userID; return nil },
-		RefreshChannels:      func() { refreshedChannels++ },
-		LookupIncident: func(_ context.Context, incidentID int64, eventID string) (model.KKAIPolicyIncident, error) {
-			return model.KKAIPolicyIncident{
-				ID: incidentID, EventID: eventID, Source: RiskSourceUpstreamPolicy,
-				UserID:        10,
-				TokenDisabled: true, UserDisabled: true, UserDisableSkipped: true, ChannelDisabled: true,
-			}, nil
-		},
-		Notify: func(payload riskActionOutboxPayload) error { notified = payload; return nil },
-	}
-	payload, err := common.Marshal(riskActionOutboxPayload{
-		IncidentID:         2,
-		EventID:            "upstream-event-1",
-		UserID:             10,
-		TokenDisabled:      true,
-		UserDisabled:       true,
-		UserDisableSkipped: true,
-		ChannelDisabled:    true,
-	})
-	require.NoError(t, err)
-
-	require.NoError(t, handler.Handle(context.Background(), model.KKAIOutboxEvent{Payload: string(payload)}))
-	require.Zero(t, invalidatedUser)
-	require.Zero(t, invalidatedTokens)
-	require.Zero(t, refreshedChannels)
-	require.Equal(t, int64(2), notified.IncidentID)
-	require.Equal(t, "upstream-event-1", notified.EventID)
-	require.False(t, notified.TokenDisabled)
-	require.False(t, notified.UserDisabled)
-	require.False(t, notified.UserDisableSkipped)
-	require.False(t, notified.ChannelDisabled)
-}
-
 func TestRiskActionOutboxHandlerFailsClosedWhenIncidentLookupFails(t *testing.T) {
 	expected := errors.New("incident store unavailable")
 	invalidated := false

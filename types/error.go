@@ -38,12 +38,16 @@ const (
 type ErrorCode string
 
 const (
-	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
-	ErrorCodeQuoteStale             ErrorCode = "quote_stale"
-	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
-	ErrorCodeRequestPolicyWarning   ErrorCode = "request_policy_warning"
-	ErrorCodeKeyCooldown            ErrorCode = "key_cooldown"
-	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
+	ErrorCodeInvalidRequest              ErrorCode = "invalid_request"
+	ErrorCodeQuoteStale                  ErrorCode = "quote_stale"
+	ErrorCodeSensitiveWordsDetected      ErrorCode = "sensitive_words_detected"
+	ErrorCodeRequestPolicyWarning        ErrorCode = "request_policy_warning"
+	ErrorCodeRequestPolicyBlocked        ErrorCode = "request_policy_blocked"
+	ErrorCodePolicyContextIncomplete     ErrorCode = "policy_context_incomplete"
+	ErrorCodePolicyAuditUnavailable      ErrorCode = "policy_audit_unavailable"
+	ErrorCodeSessionBlockedByCyberPolicy ErrorCode = "session_blocked_by_cyber_policy"
+	ErrorCodeKeyCooldown                 ErrorCode = "key_cooldown"
+	ErrorCodeViolationFeeGrokCSAM        ErrorCode = "violation_fee.grok.csam"
 
 	// new api error
 	ErrorCodeCountTokenFailed   ErrorCode = "count_token_failed"

@@ -8,6 +8,11 @@ import (
 )
 
 func applyKKAIRiskMutations(tx *gorm.DB, input *normalizedRiskAction, result *RiskActionResult) ([]string, []string, error) {
+	if input.Source == RiskSourceUpstreamPolicy && input.Decision == RiskDecisionDisable {
+		if err := validateRiskChannelIdentity(tx, input.ChannelID, input.UpstreamKeyFingerprint); err != nil {
+			return nil, nil, err
+		}
+	}
 	actions := make([]string, 0, 3)
 	results := make([]string, 0, 3)
 	if input.Actions.DisableToken {
@@ -46,6 +51,17 @@ func applyKKAIRiskMutations(tx *gorm.DB, input *normalizedRiskAction, result *Ri
 		return []string{"record_incident"}, []string{"recorded"}, nil
 	}
 	return actions, results, nil
+}
+
+func validateRiskChannelIdentity(tx *gorm.DB, channelID int, fingerprint string) error {
+	err := model.ValidateKKAIRiskChannel(tx, channelID, fingerprint)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrRiskActionChannelNotFound
+	}
+	if errors.Is(err, model.ErrKKAIRiskFingerprintMismatch) {
+		return ErrRiskActionIdentityMismatch
+	}
+	return err
 }
 
 func disableRiskToken(tx *gorm.DB, tokenID int, userID int, fingerprint string) (bool, error) {

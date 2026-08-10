@@ -52,6 +52,19 @@ func DisableKKAIRiskUser(tx *gorm.DB, userID int) (bool, bool, error) {
 	return true, false, nil
 }
 
+func ValidateKKAIRiskChannel(tx *gorm.DB, channelID int, fingerprint string) error {
+	var channel Channel
+	if err := lockForUpdate(tx).Where("id = ?", channelID).First(&channel).Error; err != nil {
+		return err
+	}
+	for _, key := range channel.GetKeys() {
+		if matchesKKAIRiskFingerprint(key, fingerprint) {
+			return nil
+		}
+	}
+	return ErrKKAIRiskFingerprintMismatch
+}
+
 func DisableKKAIRiskChannel(tx *gorm.DB, channelID int, fingerprint string) (bool, error) {
 	var channel Channel
 	if err := lockForUpdate(tx).Where("id = ?", channelID).First(&channel).Error; err != nil {

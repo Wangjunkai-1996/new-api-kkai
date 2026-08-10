@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -86,6 +86,23 @@ func TestKKAIPolicyKeyCooldownBlocksBeforeDownstreamWork(t *testing.T) {
 	assert.Contains(t, response.Error.Message, "req-key-cooldown")
 }
 
+func TestKKAIPolicyKeyCooldownHonorsEmergencyBlockBeforeRedis(t *testing.T) {
+	const tokenID = 887712
+	gin.SetMode(gin.TestMode)
+	seed, _ := gin.CreateTestContext(httptest.NewRecorder())
+	seed.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	common.SetContextKey(seed, constant.ContextKeyTokenId, tokenID)
+	service.RecordKKAIPolicyEmergencyKeyCooldown(seed, time.Now())
+	store := &fakeMiddlewareKeyCooldownStore{}
+
+	recorder, reached := runKeyCooldownMiddleware(t, tokenID, store)
+
+	assert.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	assert.False(t, reached)
+	assert.Empty(t, store.checkKeys)
+	assert.NotEmpty(t, recorder.Header().Get("Retry-After"))
+}
+
 func TestKKAIPolicyKeyCooldownWithoutTokenFailsOpen(t *testing.T) {
 	store := &fakeMiddlewareKeyCooldownStore{state: service.KKAIPolicyKeyCooldownState{Blocked: true, RetryAfter: 60}}
 
@@ -96,7 +113,7 @@ func TestKKAIPolicyKeyCooldownWithoutTokenFailsOpen(t *testing.T) {
 	assert.Empty(t, store.checkKeys)
 }
 
-func TestKKAIPolicyKeyCooldownRedisFailureFailsOpenAndWarns(t *testing.T) {
+func TestKKAIPolicyKeyCooldownRedisFailureFailsClosedAndWarns(t *testing.T) {
 	store := &fakeMiddlewareKeyCooldownStore{err: errors.New("redis unavailable")}
 	var logBuffer bytes.Buffer
 	common.LogWriterMu.Lock()
@@ -111,14 +128,32 @@ func TestKKAIPolicyKeyCooldownRedisFailureFailsOpenAndWarns(t *testing.T) {
 
 	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
 
-	assert.Equal(t, http.StatusNoContent, recorder.Code)
-	assert.True(t, reached)
-	assert.Contains(t, logBuffer.String(), "failing open")
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.False(t, reached)
+	assert.Contains(t, logBuffer.String(), "failing closed")
 	assert.Contains(t, logBuffer.String(), "redis unavailable")
+	var response struct {
+		Error types.OpenAIError `json:"error"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, string(types.ErrorCodePolicyAuditUnavailable), response.Error.Code)
+	assert.Contains(t, response.Error.Message, "req-key-cooldown")
 }
 
-func TestKKAIPolicyKeyCooldownUnavailableStoreFailsOpen(t *testing.T) {
-	kkaiPolicyKeyCooldownUnavailableWarning = sync.Once{}
+func TestKKAIPolicyKeyCooldownUnavailableStoreFailsClosedWhenRedisEnabled(t *testing.T) {
+	previousRedisEnabled := common.RedisEnabled
+	common.RedisEnabled = true
+	t.Cleanup(func() { common.RedisEnabled = previousRedisEnabled })
+	recorder, reached := runKeyCooldownMiddleware(t, 42, nil)
+
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.False(t, reached)
+}
+
+func TestKKAIPolicyKeyCooldownUnavailableStoreSkipsWhenRedisExplicitlyDisabled(t *testing.T) {
+	previousRedisEnabled := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previousRedisEnabled })
 	recorder, reached := runKeyCooldownMiddleware(t, 42, nil)
 
 	assert.Equal(t, http.StatusNoContent, recorder.Code)

@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -106,6 +107,48 @@ func TestOaiResponsesStreamHandlerRejectsFailedOrUnterminatedStreams(t *testing.
 			require.True(t, types.IsSkipRetryError(apiErr))
 			require.NotNil(t, info.StreamStatus)
 			require.True(t, info.StreamStatus.HasErrors())
+		})
+	}
+}
+
+func TestOaiResponsesStreamHandlerClassifiesTopLevelPolicyErrorsBeforeForwarding(t *testing.T) {
+	tests := []struct {
+		name          string
+		body          string
+		wantCode      types.ErrorCode
+		wantStatus    int
+		wantCausality string
+	}{
+		{
+			name:          "confirmed cyber",
+			body:          "data: {\"type\":\"error\",\"error\":{\"message\":\"request rejected\",\"type\":\"policy_error\",\"code\":\"cyber_policy\"}}\n\n",
+			wantCode:      types.ErrorCode("cyber_policy"),
+			wantStatus:    http.StatusForbidden,
+			wantCausality: service.KKAIPolicyCausalityClientToken,
+		},
+		{
+			name:       "local audit unavailable",
+			body:       "data: {\"type\":\"error\",\"error\":{\"message\":\"audit unavailable\",\"type\":\"new_api_error\",\"code\":\"policy_audit_unavailable\"}}\n\n",
+			wantCode:   types.ErrorCodePolicyAuditUnavailable,
+			wantStatus: http.StatusServiceUnavailable,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, resp, info := newResponsesStreamHandlerTest(t, test.body)
+
+			usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+
+			require.Nil(t, usage)
+			require.NotNil(t, apiErr)
+			require.Equal(t, test.wantCode, apiErr.GetErrorCode())
+			require.Equal(t, test.wantStatus, apiErr.StatusCode)
+			require.True(t, types.IsSkipRetryError(apiErr))
+			classification := service.ClassifyKKAIUpstreamPolicyError(apiErr)
+			require.Equal(t, test.wantCausality != "", classification.Detected)
+			require.Equal(t, test.wantCausality, classification.Causality)
+			require.False(t, c.Writer.Written())
 		})
 	}
 }

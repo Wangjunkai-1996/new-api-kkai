@@ -10,6 +10,8 @@ type TaskError struct {
 	Data               any    `json:"data"`
 	StatusCode         int    `json:"-"`
 	UpstreamStatusCode int    `json:"-"`
+	UpstreamErrorCode  string `json:"-"`
+	PolicyEvidence     string `json:"-"`
 	LocalError         bool   `json:"-"`
 	Error              error  `json:"-"`
 }

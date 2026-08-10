@@ -58,6 +58,21 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 }
 
+func ClearEventStreamHeaders(c *gin.Context) {
+	if c == nil || c.Writer == nil || c.Writer.Written() {
+		return
+	}
+	for _, name := range []string{
+		"Content-Type",
+		"Cache-Control",
+		"Connection",
+		"Transfer-Encoding",
+		"X-Accel-Buffering",
+	} {
+		c.Writer.Header().Del(name)
+	}
+}
+
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	if requestContextDone(c) {
 		return nil

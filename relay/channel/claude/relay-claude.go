@@ -90,6 +90,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		common.SysLog("error unmarshalling stream response: " + err.Error())
 		return types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
+	if policyErr := structuredClaudePolicyError(claudeResponse.Error); policyErr != nil {
+		return policyErr
+	}
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
@@ -200,6 +203,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
+	if policyErr := structuredClaudePolicyError(claudeResponse.Error); policyErr != nil {
+		return policyErr
+	}
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
@@ -236,6 +242,18 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)
+	return nil
+}
+
+func structuredClaudePolicyError(errorField any) *types.NewAPIError {
+	apiErr := service.NewKKAIStructuredRelayError(dto.GetOpenAIError(errorField))
+	if apiErr == nil {
+		return nil
+	}
+	if service.IsKKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())) ||
+		apiErr.GetPolicyEvidence() != "" {
+		return apiErr
+	}
 	return nil
 }
 

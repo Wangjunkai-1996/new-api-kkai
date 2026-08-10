@@ -31,8 +31,8 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
-	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil {
+		return nil, service.NewKKAIStructuredRelayError(oaiError)
 	}
 
 	if responsesResponse.HasImageGenerationCall() {
@@ -92,7 +92,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
+		if upstreamErr := responsesStreamError(&streamResponse); upstreamErr != nil {
+			streamErr = upstreamErr
+			sr.Stop(upstreamErr)
+			return
+		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			sawSuccessfulTerminal = true
@@ -120,29 +124,18 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 			sr.Done()
 		case "response.failed", "response.incomplete", "response.error", "response.cancelled", "response.canceled", "error":
-			if streamResponse.Response != nil {
-				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && strings.TrimSpace(oaiError.Message) != "" {
-					streamErr = types.WithOpenAIError(
-						*oaiError,
-						http.StatusBadGateway,
-						types.ErrOptionWithSkipRetry(),
-					)
+			message := fmt.Sprintf("responses stream ended with %s", streamResponse.Type)
+			if streamResponse.Response != nil && streamResponse.Response.IncompleteDetails != nil {
+				if reason := strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reason); reason != "" {
+					message += fmt.Sprintf(" (reason=%s)", reason)
 				}
 			}
-			if streamErr == nil {
-				message := fmt.Sprintf("responses stream ended with %s", streamResponse.Type)
-				if streamResponse.Response != nil && streamResponse.Response.IncompleteDetails != nil {
-					if reason := strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reason); reason != "" {
-						message += fmt.Sprintf(" (reason=%s)", reason)
-					}
-				}
-				streamErr = types.NewOpenAIError(
-					errors.New(message),
-					types.ErrorCodeBadResponse,
-					http.StatusBadGateway,
-					types.ErrOptionWithSkipRetry(),
-				)
-			}
+			streamErr = types.NewOpenAIError(
+				errors.New(message),
+				types.ErrorCodeBadResponse,
+				http.StatusBadGateway,
+				types.ErrOptionWithSkipRetry(),
+			)
 			sr.Stop(streamErr)
 		case "response.output_text.delta":
 			// 处理输出文本
@@ -159,6 +152,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					}
 				}
 			}
+		}
+		if streamErr == nil {
+			sendResponsesStreamData(c, streamResponse, data)
 		}
 	})
 	if streamErr != nil {

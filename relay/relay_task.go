@@ -369,33 +369,25 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 		if readErr != nil {
 			responseBody = []byte(readErr.Error())
 		}
-		if taskHTTPStatusIsAmbiguous(resp.StatusCode) {
-			result.Outcome = TaskSubmitUnknown
-			task.PrivateData.TargetQuota = quotaPointer(result.Quota)
-			return result, markTaskSubmissionUnknown(task, fmt.Errorf("upstream returned ambiguous status %d: %s", resp.StatusCode, responseBody))
-		}
-		result.Outcome = TaskSubmitRejected
-		if resetErr := resetTaskSubmissionClaim(task); resetErr != nil {
-			result.Outcome = TaskSubmitUnknown
-			task.PrivateData.TargetQuota = quotaPointer(result.Quota)
-			return result, markTaskSubmissionUnknown(task, fmt.Errorf("reset submission claim after upstream rejection: %w", resetErr))
-		}
-		return result, service.TaskErrorWrapperUpstream(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
+		return result, rejectTaskHTTPResponse(task, result, resp.StatusCode, responseBody)
+	}
+
+	responseBody, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		result.Outcome = TaskSubmitUnknown
+		task.PrivateData.TargetQuota = quotaPointer(result.Quota)
+		return result, markTaskSubmissionUnknown(task, fmt.Errorf("read successful upstream response: %w", readErr))
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(responseBody))
+	if policyErr := embeddedTaskPolicyError(resp.StatusCode, responseBody); policyErr != nil {
+		return result, rejectParsedTaskResponse(task, result, channel.NewRejectedTaskResponseError(policyErr))
 	}
 
 	response, responseErr := adaptor.DoResponse(c, resp, info)
 	if responseErr != nil {
 		if !responseErr.SubmissionPossible() {
-			result.Outcome = TaskSubmitRejected
-			if resetErr := resetTaskSubmissionClaim(task); resetErr != nil {
-				result.Outcome = TaskSubmitUnknown
-				task.PrivateData.TargetQuota = quotaPointer(result.Quota)
-				return result, markTaskSubmissionUnknown(task, fmt.Errorf("reset submission claim after adaptor rejection: %w", resetErr))
-			}
-			if responseErr.TaskError != nil {
-				return result, responseErr.TaskError
-			}
-			return result, service.TaskErrorWrapperLocal(errors.New("upstream rejected task submission"), "task_rejected", http.StatusBadRequest)
+			return result, rejectParsedTaskResponse(task, result, responseErr)
 		}
 		result.Outcome = TaskSubmitUnknown
 		var cause error

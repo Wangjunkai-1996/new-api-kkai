@@ -96,13 +96,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				helper.WssError(c, ws, publicError)
 			case types.RelayFormatClaude:
 				status, publicError := kkaiPublicClaudeError(c, newAPIError)
-				c.JSON(status, gin.H{
+				_ = writeRelayHTTPError(c, relayFormat, status, gin.H{
 					"type":  "error",
 					"error": publicError,
 				})
 			default:
 				status, publicError := kkaiPublicOpenAIError(c, newAPIError)
-				c.JSON(status, gin.H{
+				_ = writeRelayHTTPError(c, relayFormat, status, gin.H{
 					"error": publicError,
 				})
 			}

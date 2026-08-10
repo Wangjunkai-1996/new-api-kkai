@@ -1,15 +1,20 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func withHeaderNavModules(t *testing.T, raw string) {
@@ -34,8 +39,27 @@ func withHeaderNavModules(t *testing.T, raw string) {
 	})
 }
 
-func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticated bool) *httptest.ResponseRecorder {
+func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticated bool, liveStatus ...int) *httptest.ResponseRecorder {
 	t.Helper()
+	status := common.UserStatusEnabled
+	if len(liveStatus) > 0 {
+		status = liveStatus[0]
+	}
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:header-nav-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.Create(&model.User{
+		Id: 1, Username: "tester", Password: "unused", Role: common.RoleCommonUser,
+		Status: status, Group: "live-group",
+	}).Error)
+	return performHeaderNavRequestWithDB(t, handler, authenticated, db)
+}
+
+func performHeaderNavRequestWithDB(t *testing.T, handler gin.HandlerFunc, authenticated bool, db *gorm.DB) *httptest.ResponseRecorder {
+	t.Helper()
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -46,7 +70,7 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 		session.Set("role", common.RoleCommonUser)
 		session.Set("id", 1)
 		session.Set("status", common.UserStatusEnabled)
-		session.Set("group", "default")
+		session.Set("group", "stale-group")
 		if err := session.Save(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false})
 			return
@@ -54,7 +78,7 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 		c.Status(http.StatusNoContent)
 	})
 	router.GET("/api/test", handler, func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"success": true})
+		c.JSON(http.StatusOK, gin.H{"success": true, "group": c.GetString("group")})
 	})
 
 	var cookies []*http.Cookie
@@ -146,6 +170,7 @@ func TestHeaderNavModulePublicOrUserAuthAllowsLoggedInWhenDisabled(t *testing.T)
 	recorder := performHeaderNavRequest(t, HeaderNavModulePublicOrUserAuth("pricing"), true)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "live-group")
 }
 
 func TestHeaderNavModulePublicOrUserAuthRequiresLoginWhenRequireAuth(t *testing.T) {

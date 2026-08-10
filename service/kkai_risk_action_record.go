@@ -59,18 +59,21 @@ func persistKKAIRiskActionResult(
 		}).Error
 }
 
-func enqueueKKAIRiskActionOutbox(tx *gorm.DB, incident *model.KKAIPolicyIncident, now int64) error {
+func enqueueKKAIRiskActionOutbox(tx *gorm.DB, incident *model.KKAIPolicyIncident, actions RiskDurableActions, now int64) error {
+	invalidateUser, invalidateTokens := riskActionCacheInvalidationTargets(actions, incident.UserDisableSkipped)
 	payload, err := common.Marshal(riskActionOutboxPayload{
-		IncidentID:         incident.ID,
-		EventID:            incident.EventID,
-		RequestID:          incident.RequestID,
-		UserID:             incident.UserID,
-		TokenID:            incident.TokenID,
-		ChannelID:          incident.ChannelID,
-		TokenDisabled:      incident.TokenDisabled,
-		UserDisabled:       incident.UserDisabled,
-		UserDisableSkipped: incident.UserDisableSkipped,
-		ChannelDisabled:    incident.ChannelDisabled,
+		IncidentID:                     incident.ID,
+		EventID:                        incident.EventID,
+		RequestID:                      incident.RequestID,
+		UserID:                         incident.UserID,
+		TokenID:                        incident.TokenID,
+		ChannelID:                      incident.ChannelID,
+		TokenDisabled:                  incident.TokenDisabled,
+		UserDisabled:                   incident.UserDisabled,
+		UserDisableSkipped:             incident.UserDisableSkipped,
+		ChannelDisabled:                incident.ChannelDisabled,
+		UserCacheInvalidationRequired:  invalidateUser,
+		TokenCacheInvalidationRequired: invalidateTokens,
 	})
 	if err != nil {
 		return err

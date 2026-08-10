@@ -63,14 +63,16 @@ type normalizedRiskAction struct {
 }
 
 type riskActionOutboxPayload struct {
-	IncidentID         int64  `json:"incident_id"`
-	EventID            string `json:"event_id"`
-	RequestID          string `json:"request_id"`
-	UserID             int    `json:"user_id"`
-	TokenID            int    `json:"token_id"`
-	ChannelID          int    `json:"channel_id"`
-	TokenDisabled      bool   `json:"token_disabled"`
-	UserDisabled       bool   `json:"user_disabled"`
-	UserDisableSkipped bool   `json:"user_disable_skipped"`
-	ChannelDisabled    bool   `json:"channel_disabled"`
+	IncidentID                     int64  `json:"incident_id"`
+	EventID                        string `json:"event_id"`
+	RequestID                      string `json:"request_id"`
+	UserID                         int    `json:"user_id"`
+	TokenID                        int    `json:"token_id"`
+	ChannelID                      int    `json:"channel_id"`
+	TokenDisabled                  bool   `json:"token_disabled"`
+	UserDisabled                   bool   `json:"user_disabled"`
+	UserDisableSkipped             bool   `json:"user_disable_skipped"`
+	ChannelDisabled                bool   `json:"channel_disabled"`
+	UserCacheInvalidationRequired  bool   `json:"user_cache_invalidation_required,omitempty"`
+	TokenCacheInvalidationRequired bool   `json:"token_cache_invalidation_required,omitempty"`
 }

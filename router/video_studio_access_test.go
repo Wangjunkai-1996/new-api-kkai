@@ -134,6 +134,6 @@ func TestVideoStudioAccessRejectsStaleEnabledSessionAfterUserDisabled(t *testing
 
 	recorder := fixture.request(http.MethodGet, "/video-access-probe", "")
 	require.Equal(t, http.StatusForbidden, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "video_studio_access_denied")
+	require.Contains(t, recorder.Body.String(), `"success":false`)
 	require.NotContains(t, strings.ToLower(recorder.Body.String()), "database")
 }

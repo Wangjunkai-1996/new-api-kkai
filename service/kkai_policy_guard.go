@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
@@ -16,11 +18,13 @@ import (
 )
 
 const (
-	KKAIPolicyCaseContextKey      = "kkai_policy_case_id"
-	KKAIPolicyCausalityContextKey = "kkai_policy_causality"
-	kkaiPolicyNoRetryContextKey   = "kkai_policy_no_retry"
-	kkaiPolicyHandledContextKey   = "kkai_policy_handled"
-	kkaiPolicyRuleVersion         = "kkai-upstream-policy-v1"
+	KKAIPolicyCaseContextKey       = "kkai_policy_case_id"
+	KKAIPolicyCausalityContextKey  = "kkai_policy_causality"
+	kkaiPolicyNoRetryContextKey    = "kkai_policy_no_retry"
+	kkaiPolicyHandledContextKey    = "kkai_policy_handled"
+	kkaiPolicyRuleVersion          = "kkai-upstream-policy-v2"
+	kkaiPolicyClientAuthBearer     = "bearer_token"
+	kkaiPolicyClientAuthPlayground = "playground_session"
 )
 
 type KKAIPolicyIncidentGuard struct {
@@ -62,12 +66,36 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	if c != nil {
 		c.Set(KKAIPolicyCaseContextKey, eventID)
 	}
+	userID := kkaiPolicyContextInt(c, "id")
+	tokenID := kkaiPolicyContextInt(c, "token_id")
+	tokenFingerprint := RiskFingerprint(kkaiPolicyContextString(c, "token_key"))
+	upstreamKeyFingerprint := RiskFingerprint(channel.UsingKey)
+	clientAuthMode := ""
+	if tokenID > 0 && tokenFingerprint != "" {
+		clientAuthMode = kkaiPolicyClientAuthBearer
+	} else if tokenID == 0 && userID > 0 && c != nil {
+		requestPath := ""
+		if c.Request != nil && c.Request.URL != nil {
+			requestPath = c.Request.URL.Path
+		}
+		if common.GetContextKeyBool(c, constant.ContextKeyIsPlayground) ||
+			requestPath == "/pg" || strings.HasPrefix(requestPath, "/pg/") {
+			clientAuthMode = kkaiPolicyClientAuthPlayground
+		}
+	}
+	clientActionAllowed := classification.Causality == KKAIPolicyCausalityClientToken &&
+		clientAuthMode != "" && channel.ChannelId > 0 && upstreamKeyFingerprint != ""
 	metadata := map[string]any{
-		"case_id":                     eventID,
-		"causality":                   classification.Causality,
-		"client_token_action_allowed": false,
-		"evidence_level":              "confirmed",
-		"rule_id":                     kkaiPolicyRuleVersion,
+		"case_id":                        eventID,
+		"causality":                      classification.Causality,
+		"client_token_action_allowed":    clientActionAllowed,
+		"client_policy_marker_confirmed": classification.Causality == KKAIPolicyCausalityClientToken,
+		"evidence_level":                 "confirmed",
+		"original_status_code":           classification.StatusCode,
+		"rule_id":                        kkaiPolicyRuleVersion,
+	}
+	if clientAuthMode != "" {
+		metadata["client_auth_mode"] = clientAuthMode
 	}
 	if body, ok := kkaiPolicyRequestBody(c); ok {
 		digest := sha256.Sum256(body)
@@ -80,16 +108,25 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Source:                 RiskSourceUpstreamPolicy,
 		OccurredAt:             now.Unix(),
 		RequestID:              kkaiPolicyContextString(c, common.RequestIdKey),
-		UserID:                 kkaiPolicyContextInt(c, "id"),
-		TokenID:                kkaiPolicyContextInt(c, "token_id"),
+		UserID:                 userID,
+		TokenID:                tokenID,
 		ChannelID:              channel.ChannelId,
 		ModelName:              kkaiPolicyContextString(c, "original_model"),
 		RuleVersion:            kkaiPolicyRuleVersion,
 		EvidenceSHA256:         RiskFingerprint(fmt.Sprintf("%d\n%s\n%s", classification.StatusCode, classification.ErrorCode, classification.Evidence)),
-		TokenFingerprint:       RiskFingerprint(kkaiPolicyContextString(c, "token_key")),
-		UpstreamKeyFingerprint: RiskFingerprint(channel.UsingKey),
+		TokenFingerprint:       tokenFingerprint,
+		UpstreamKeyFingerprint: upstreamKeyFingerprint,
 		Recommendation:         RiskDecisionReject,
 		Metadata:               metadata,
+	}
+	if classification.Causality == KKAIPolicyCausalityClientToken && clientAuthMode == kkaiPolicyClientAuthBearer {
+		if _, cooldownErr := RecordKKAIPolicyKeyCooldown(c, g.cooldown, eventID); cooldownErr != nil {
+			RecordKKAIPolicyEmergencyKeyCooldown(c, now)
+			logger.LogWarn(kkaiPolicyContext(c), "KKAI key cooldown record failed: "+cooldownErr.Error())
+		}
+	}
+	if clientActionAllowed {
+		event.Recommendation = RiskDecisionDisable
 	}
 	decision, actions, err := DecideKKAIRiskStreamEvent(event)
 	if err != nil {
@@ -121,11 +158,6 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	if result == nil {
 		return true, ErrRiskStreamInvalidResult
 	}
-	if classification.Causality == KKAIPolicyCausalityClientToken && !result.Replayed {
-		if _, cooldownErr := RecordKKAIPolicyKeyCooldown(c, g.cooldown, eventID); cooldownErr != nil {
-			logger.LogWarn(kkaiPolicyContext(c), "KKAI key cooldown record failed: "+cooldownErr.Error())
-		}
-	}
 	if c != nil {
 		c.Set(kkaiPolicyHandledContextKey, true)
 	}
@@ -146,11 +178,20 @@ func ShouldSkipRetryAfterKKAIPolicy(c *gin.Context) bool {
 
 func kkaiPolicyEventID(c *gin.Context, channelID int, now time.Time) string {
 	requestID := kkaiPolicyContextString(c, common.RequestIdKey)
-	candidate := fmt.Sprintf("upstream:%s:%d", requestID, channelID)
-	if riskEventIDPattern.MatchString(candidate) {
-		return candidate
+	if requestID != "" {
+		candidate := fmt.Sprintf("upstream:%s:%d", requestID, channelID)
+		if riskEventIDPattern.MatchString(candidate) {
+			return candidate
+		}
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%d", requestID, channelID, now.UnixNano())))
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"%s:%d:%d:%d:%d",
+		requestID,
+		kkaiPolicyContextInt(c, "id"),
+		kkaiPolicyContextInt(c, "token_id"),
+		channelID,
+		now.UnixNano(),
+	)))
 	return "upstream:" + hex.EncodeToString(sum[:16])
 }
 

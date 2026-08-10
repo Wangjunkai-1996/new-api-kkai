@@ -31,8 +31,8 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	if err := common.Unmarshal(body, &chatResp); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
-	if oaiError := chatResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	if oaiError := chatResp.GetOpenAIError(); oaiError != nil {
+		return nil, service.NewKKAIStructuredRelayError(oaiError)
 	}
 
 	if responseID := helper.GetResponseID(c); responseID != "" {
@@ -94,13 +94,10 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 
-		var errorResp dto.OpenAITextResponse
-		if err := common.UnmarshalJsonStr(data, &errorResp); err == nil {
-			if oaiError := errorResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-				streamErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
-				sr.Stop(streamErr)
-				return
-			}
+		if upstreamErr := structuredStreamError(data); upstreamErr != nil {
+			streamErr = upstreamErr
+			sr.Stop(upstreamErr)
+			return
 		}
 
 		var chunk dto.ChatCompletionsStreamResponse

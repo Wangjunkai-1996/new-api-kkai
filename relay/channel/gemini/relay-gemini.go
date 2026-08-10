@@ -137,8 +137,14 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var imageCount int
 	var hasBillableUsageMetadata bool
 	responseText := strings.Builder{}
+	var streamErr *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if policyErr := structuredGeminiPolicyError([]byte(data)); policyErr != nil {
+			streamErr = policyErr
+			sr.Stop(policyErr)
+			return
+		}
 		var geminiResponse dto.GeminiChatResponse
 		if err := common.UnmarshalJsonStr(data, &geminiResponse); err != nil {
 			sr.Stop(fmt.Errorf("unmarshal: %w", err))
@@ -172,6 +178,9 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			sr.Stop(fmt.Errorf("gemini callback stopped"))
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
 
 	if !hasBillableUsageMetadata {
 		if info.ReceivedResponseCount > 0 {
@@ -303,6 +312,9 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	service.CloseResponseBodyGracefully(resp)
 	logger.LogDebug(c, "Gemini response body: %s", responseBody)
+	if policyErr := structuredGeminiPolicyError(responseBody); policyErr != nil {
+		return nil, policyErr
+	}
 	var geminiResponse dto.GeminiChatResponse
 	err = common.Unmarshal(responseBody, &geminiResponse)
 	if err != nil {
@@ -372,6 +384,24 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &usage, nil
+}
+
+func structuredGeminiPolicyError(data []byte) *types.NewAPIError {
+	var envelope struct {
+		Error any `json:"error"`
+	}
+	if err := common.Unmarshal(data, &envelope); err != nil {
+		return nil
+	}
+	apiErr := service.NewKKAIStructuredRelayError(dto.GetOpenAIError(envelope.Error))
+	if apiErr == nil {
+		return nil
+	}
+	if service.IsKKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())) ||
+		apiErr.GetPolicyEvidence() != "" {
+		return apiErr
+	}
+	return nil
 }
 
 func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {

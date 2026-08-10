@@ -24,6 +24,13 @@ func notifyRootUser(t string, subject string, content string) error {
 	return NotifyUser(user.Id, user.Email, user.GetSetting(), dto.NewNotify(t, subject, content, nil))
 }
 
+func notifyRootUserHighPriority(t string, subject string, content string) error {
+	user := model.GetRootUser().ToBaseUser()
+	setting := user.GetSetting()
+	setting.GotifyPriority = 10
+	return notifyUser(user.Id, user.Email, setting, dto.NewNotify(t, "[HIGH PRIORITY] "+subject, content, nil), false)
+}
+
 func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
 	var users []model.User
 	if err := model.DB.
@@ -51,19 +58,24 @@ func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
 }
 
 func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data dto.Notify) error {
+	return notifyUser(userId, userEmail, userSetting, data, true)
+}
+
+func notifyUser(userId int, userEmail string, userSetting dto.UserSetting, data dto.Notify, enforceLimit bool) error {
 	notifyType := userSetting.NotifyType
 	if notifyType == "" {
 		notifyType = dto.NotifyTypeEmail
 	}
 
-	// Check notification limit
-	canSend, err := CheckNotificationLimit(userId, data.Type)
-	if err != nil {
-		common.SysLog(fmt.Sprintf("failed to check notification limit: %s", err.Error()))
-		return err
-	}
-	if !canSend {
-		return fmt.Errorf("notification limit exceeded for user %d with type %s", userId, notifyType)
+	if enforceLimit {
+		canSend, err := CheckNotificationLimit(userId, data.Type)
+		if err != nil {
+			common.SysLog(fmt.Sprintf("failed to check notification limit: %s", err.Error()))
+			return err
+		}
+		if !canSend {
+			return fmt.Errorf("notification limit exceeded for user %d with type %s", userId, notifyType)
+		}
 	}
 
 	switch notifyType {

@@ -20,6 +20,9 @@ func kkaiPublicOpenAIError(c *gin.Context, apiErr *types.NewAPIError) (int, type
 	if apiErr == nil {
 		return http.StatusInternalServerError, kkaiGenericUpstreamError()
 	}
+	if localCode := service.KKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())); localCode != "" {
+		return kkaiPublicLocalPolicyOpenAIError(localCode)
+	}
 	classification := service.ClassifyKKAIUpstreamPolicyError(apiErr)
 	causality := classification.Causality
 	if causality == "" && c != nil {
@@ -65,6 +68,15 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 		return nil
 	}
 	publicErr := *taskErr
+	if localCode := service.KKAILocalPolicyCode(taskErr.Code); localCode != "" {
+		status, openAIError := kkaiPublicLocalPolicyOpenAIError(localCode)
+		publicErr.StatusCode = status
+		publicErr.Code = string(localCode)
+		publicErr.Message = openAIError.Message
+		publicErr.Data = nil
+		publicErr.Error = nil
+		return &publicErr
+	}
 	classification := service.ClassifyKKAITaskPolicyError(taskErr)
 	causality := classification.Causality
 	if causality == "" && c != nil {
@@ -106,6 +118,15 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 	publicErr.Message = kkaiScrubPublicText(c, publicErr.Message)
 	publicErr.Error = nil
 	return &publicErr
+}
+
+func kkaiPublicLocalPolicyOpenAIError(code types.ErrorCode) (int, types.OpenAIError) {
+	status := service.KKAILocalPolicyStatus(code)
+	return status, types.OpenAIError{
+		Message: service.KKAIPolicyMessageForLocalCode(code),
+		Type:    string(types.ErrorTypeNewAPIError),
+		Code:    code,
+	}
 }
 
 func kkaiPublicPolicyOpenAIError(c *gin.Context, causality string) (int, types.OpenAIError) {

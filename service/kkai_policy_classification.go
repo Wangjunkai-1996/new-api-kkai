@@ -53,7 +53,10 @@ func ClassifyKKAIUpstreamPolicyError(apiErr *types.NewAPIError) KKAIPolicyClassi
 	if apiErr == nil {
 		return KKAIPolicyClassification{}
 	}
-	evidence := strings.TrimSpace(apiErr.Error() + " " + apiErr.GetPolicyEvidence())
+	if IsKKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())) {
+		return KKAIPolicyClassification{}
+	}
+	evidence := strings.TrimSpace(apiErr.GetPolicyEvidence())
 	return classifyKKAIPolicyText(apiErr.GetOriginalStatusCode(), string(apiErr.GetOriginalErrorCode()), evidence)
 }
 
@@ -61,30 +64,40 @@ func ClassifyKKAITaskPolicyError(taskErr *dto.TaskError) KKAIPolicyClassificatio
 	if taskErr == nil || taskErr.LocalError {
 		return KKAIPolicyClassification{}
 	}
-	evidence := taskErr.Message
-	if taskErr.Error != nil {
-		evidence += " " + taskErr.Error.Error()
+	if IsKKAILocalPolicyCode(taskErr.Code, taskErr.UpstreamErrorCode) {
+		return KKAIPolicyClassification{}
 	}
-	return classifyKKAIPolicyText(taskErr.UpstreamStatusCode, taskErr.Code, evidence)
+	return classifyKKAIPolicyText(taskErr.UpstreamStatusCode, taskErr.UpstreamErrorCode, taskErr.PolicyEvidence)
 }
 
 func classifyKKAIPolicyText(statusCode int, errorCode string, evidence string) KKAIPolicyClassification {
-	if statusCode != http.StatusForbidden {
+	if IsKKAILocalPolicyCode(errorCode) {
+		return KKAIPolicyClassification{}
+	}
+	// Any marker with a concrete upstream status suppresses failover and is
+	// recorded. Sub2 can return a confirmed cyber_policy with HTTP 400, so the
+	// exact structured code, rather than one particular status, establishes
+	// client causality. Plain-text markers remain ambiguous.
+	if statusCode < 100 || statusCode > 599 {
 		return KKAIPolicyClassification{}
 	}
 	maskedEvidence := common.MaskSensitiveInfo(strings.TrimSpace(evidence))
-	searchText := strings.ToLower(strings.TrimSpace(errorCode + " " + maskedEvidence))
-	clientPolicy := containsKKAIPolicyMarker(searchText, kkaiClientPolicyMarkers)
+	normalizedCode := strings.ToLower(strings.TrimSpace(errorCode))
+	searchText := strings.ToLower(strings.TrimSpace(normalizedCode + " " + maskedEvidence))
+	clientPolicyConfirmed := normalizedCode == "cyber_policy"
+	clientPolicyMarker := containsKKAIPolicyMarker(searchText, kkaiClientPolicyMarkers)
 	upstreamKeyPolicy := containsKKAIPolicyMarker(searchText, kkaiUpstreamKeyPolicyMarkers)
-	if !clientPolicy && !upstreamKeyPolicy {
+	if !clientPolicyMarker && !upstreamKeyPolicy {
 		return KKAIPolicyClassification{}
 	}
 
-	causality := KKAIPolicyCausalityUpstreamKey
-	if clientPolicy && upstreamKeyPolicy {
-		causality = KKAIPolicyCausalityAmbiguous
-	} else if clientPolicy {
+	causality := KKAIPolicyCausalityAmbiguous
+	if clientPolicyConfirmed && !upstreamKeyPolicy {
 		causality = KKAIPolicyCausalityClientToken
+	} else if upstreamKeyPolicy && !clientPolicyMarker {
+		causality = KKAIPolicyCausalityUpstreamKey
+	} else if clientPolicyMarker && upstreamKeyPolicy {
+		causality = KKAIPolicyCausalityAmbiguous
 	}
 	return KKAIPolicyClassification{
 		Detected:   true,
@@ -92,6 +105,38 @@ func classifyKKAIPolicyText(statusCode int, errorCode string, evidence string) K
 		StatusCode: statusCode,
 		ErrorCode:  errorCode,
 		Evidence:   maskedEvidence,
+	}
+}
+
+func IsKKAILocalPolicyCode(values ...string) bool {
+	return KKAILocalPolicyCode(values...) != ""
+}
+
+func KKAILocalPolicyCode(values ...string) types.ErrorCode {
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		for _, code := range []types.ErrorCode{
+			types.ErrorCodeRequestPolicyBlocked,
+			types.ErrorCodePolicyContextIncomplete,
+			types.ErrorCodePolicyAuditUnavailable,
+			types.ErrorCodeSessionBlockedByCyberPolicy,
+		} {
+			if value == string(code) {
+				return code
+			}
+		}
+	}
+	return ""
+}
+
+func KKAILocalPolicyStatus(code types.ErrorCode) int {
+	switch code {
+	case types.ErrorCodePolicyContextIncomplete:
+		return http.StatusUnprocessableEntity
+	case types.ErrorCodePolicyAuditUnavailable:
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusForbidden
 	}
 }
 
@@ -115,4 +160,8 @@ func kkaiPolicyMarkerEvidence(text string) string {
 		}
 	}
 	return strings.Join(matches, " ")
+}
+
+func KKAIPolicyMarkerEvidence(text string) string {
+	return kkaiPolicyMarkerEvidence(text)
 }

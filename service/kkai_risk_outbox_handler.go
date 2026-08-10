@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -35,7 +36,11 @@ func NewRiskActionOutboxHandler() RiskActionOutboxHandler {
 			return incident, err
 		},
 		Notify: func(payload riskActionOutboxPayload) error {
-			return notifyRootUser(
+			notify := notifyRootUser
+			if payload.UserDisableSkipped {
+				notify = notifyRootUserHighPriority
+			}
+			return notify(
 				"policy_incident",
 				"Policy incident action committed",
 				fmt.Sprintf(
@@ -88,18 +93,44 @@ func (h RiskActionOutboxHandler) Handle(ctx context.Context, event model.KKAIOut
 			payload.ChannelDisabled != incident.ChannelDisabled {
 			return ErrRiskActionInvalidInput
 		}
+		if payload.UserCacheInvalidationRequired || payload.TokenCacheInvalidationRequired {
+			invalidateUser, invalidateTokens := riskActionCacheInvalidationTargets(
+				riskActionsFromIncident(incident.ActionTaken),
+				incident.UserDisableSkipped,
+			)
+			if payload.UserCacheInvalidationRequired != invalidateUser ||
+				payload.TokenCacheInvalidationRequired != invalidateTokens {
+				return ErrRiskActionInvalidInput
+			}
+		}
 		switch incident.Source {
 		case RiskSourceUpstreamPolicy:
-			payload.TokenDisabled = false
-			payload.UserDisabled = false
-			payload.UserDisableSkipped = false
-			payload.ChannelDisabled = false
+			var metadata map[string]any
+			if err := common.UnmarshalJsonStr(incident.Metadata, &metadata); err != nil ||
+				payload.ChannelDisabled ||
+				!validUpstreamClientPolicyAuthorization(
+					incident.Source,
+					incident.Decision,
+					incident.UserID,
+					incident.TokenID,
+					incident.ChannelID,
+					incident.RuleVersion,
+					incident.TokenFingerprint,
+					incident.UpstreamKeyFingerprint,
+					metadata,
+				) ||
+				(incident.TokenID == 0 && payload.TokenDisabled) {
+				return ErrRiskActionInvalidInput
+			}
 		case RiskSourceEdgeGuard, RiskSourceManualReview:
 		default:
 			return ErrRiskActionInvalidInput
 		}
 	}
-	if payload.UserDisabled {
+	if payload.UserCacheInvalidationRequired && payload.UserDisableSkipped {
+		return ErrRiskActionInvalidInput
+	}
+	if payload.UserCacheInvalidationRequired || payload.UserDisabled {
 		if payload.UserID <= 0 {
 			return ErrRiskActionInvalidInput
 		}
@@ -107,7 +138,7 @@ func (h RiskActionOutboxHandler) Handle(ctx context.Context, event model.KKAIOut
 			return err
 		}
 	}
-	if payload.TokenDisabled || payload.UserDisabled {
+	if payload.TokenCacheInvalidationRequired || payload.TokenDisabled || payload.UserDisabled {
 		if payload.UserID <= 0 {
 			return ErrRiskActionInvalidInput
 		}
@@ -122,5 +153,21 @@ func (h RiskActionOutboxHandler) Handle(ctx context.Context, event model.KKAIOut
 }
 
 func riskActionOutboxHasDurableFlags(payload riskActionOutboxPayload) bool {
-	return payload.TokenDisabled || payload.UserDisabled || payload.UserDisableSkipped || payload.ChannelDisabled
+	return payload.TokenDisabled || payload.UserDisabled || payload.UserDisableSkipped || payload.ChannelDisabled ||
+		payload.UserCacheInvalidationRequired || payload.TokenCacheInvalidationRequired
+}
+
+func riskActionsFromIncident(actionTaken string) RiskDurableActions {
+	var actions RiskDurableActions
+	for _, action := range strings.Split(actionTaken, ",") {
+		switch strings.TrimSpace(action) {
+		case "disable_token":
+			actions.DisableToken = true
+		case "disable_user":
+			actions.DisableUser = true
+		case "disable_channel":
+			actions.DisableChannel = true
+		}
+	}
+	return actions
 }

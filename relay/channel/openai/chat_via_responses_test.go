@@ -9,7 +9,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -166,6 +168,63 @@ func TestOaiChatToResponsesStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 		`event: response.function_call_arguments.done`,
 		`event: response.completed`,
 	)
+}
+
+func TestOpenAIStreamHandlersInterceptPolicyErrorsBeforeForwarding(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	type handler func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
+	handlers := []struct {
+		name          string
+		responseEvent bool
+		isStream      bool
+		handler       handler
+	}{
+		{name: "chat", handler: OaiStreamHandler, isStream: true},
+		{name: "responses_to_chat", handler: OaiResponsesToChatStreamHandler, responseEvent: true, isStream: true},
+		{name: "responses_to_chat_buffered", handler: OaiResponsesToChatBufferedStreamHandler, responseEvent: true},
+		{name: "chat_to_responses", handler: OaiChatToResponsesStreamHandler, isStream: true},
+	}
+	errors := []struct {
+		name       string
+		code       types.ErrorCode
+		wantStatus int
+		causality  string
+	}{
+		{name: "confirmed_cyber", code: "cyber_policy", wantStatus: http.StatusForbidden, causality: service.KKAIPolicyCausalityClientToken},
+		{name: "local_audit_unavailable", code: types.ErrorCodePolicyAuditUnavailable, wantStatus: http.StatusServiceUnavailable},
+	}
+
+	for _, handlerCase := range handlers {
+		for _, errorCase := range errors {
+			t.Run(handlerCase.name+"/"+errorCase.name, func(t *testing.T) {
+				payload := `{"error":{"message":"request rejected","type":"policy_error","code":"` + string(errorCase.code) + `"}}`
+				if handlerCase.responseEvent {
+					payload = `{"type":"error","error":{"message":"request rejected","type":"policy_error","code":"` + string(errorCase.code) + `"}}`
+				}
+				body := "data: " + payload + "\n\ndata: [DONE]\n\n"
+				c, recorder, resp, info := newResponsesChatTestContext(t, body, handlerCase.isStream)
+
+				usage, apiErr := handlerCase.handler(c, info, resp)
+
+				require.Nil(t, usage)
+				require.NotNil(t, apiErr)
+				require.Equal(t, errorCase.code, apiErr.GetErrorCode())
+				require.Equal(t, errorCase.wantStatus, apiErr.StatusCode)
+				require.True(t, types.IsSkipRetryError(apiErr))
+				classification := service.ClassifyKKAIUpstreamPolicyError(apiErr)
+				require.Equal(t, errorCase.causality != "", classification.Detected)
+				require.Equal(t, errorCase.causality, classification.Causality)
+				require.Empty(t, recorder.Body.String())
+			})
+		}
+	}
 }
 
 func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {

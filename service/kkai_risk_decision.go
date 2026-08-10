@@ -1,6 +1,8 @@
 package service
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func DecideKKAIRiskStreamEvent(event RiskStreamEvent) (string, RiskDurableActions, error) {
 	if event.Recommendation == RiskDecisionObserve || event.Recommendation == RiskDecisionReject {
@@ -8,11 +10,6 @@ func DecideKKAIRiskStreamEvent(event RiskStreamEvent) (string, RiskDurableAction
 	}
 	if event.Recommendation != RiskDecisionDisable {
 		return "", RiskDurableActions{}, fmt.Errorf("%w: unsupported recommendation", ErrRiskStreamDecisionRejected)
-	}
-	// Upstream policy signals are request-scoped audit events. They must never
-	// mutate a downstream token, user account, or provider channel.
-	if event.Source == RiskSourceUpstreamPolicy {
-		return RiskDecisionReject, RiskDurableActions{}, nil
 	}
 	evidenceLevel, _ := event.Metadata["evidence_level"].(string)
 	causality, _ := event.Metadata["causality"].(string)
@@ -23,22 +20,68 @@ func DecideKKAIRiskStreamEvent(event RiskStreamEvent) (string, RiskDurableAction
 	switch causality {
 	case KKAIPolicyCausalityClientToken:
 		allowed, _ := event.Metadata["client_token_action_allowed"].(bool)
-		if !allowed || event.UserID <= 0 || event.TokenID <= 0 {
+		if !allowed || event.UserID <= 0 || event.TokenID < 0 {
 			return "", RiskDurableActions{}, fmt.Errorf("%w: client token action is not authorized", ErrRiskStreamDecisionRejected)
 		}
-		return event.Recommendation, RiskDurableActions{DisableToken: true, DisableUser: true}, nil
+		if event.Source == RiskSourceUpstreamPolicy && !validUpstreamClientPolicyAuthorization(
+			event.Source,
+			event.Recommendation,
+			event.UserID,
+			event.TokenID,
+			event.ChannelID,
+			event.RuleVersion,
+			event.TokenFingerprint,
+			event.UpstreamKeyFingerprint,
+			event.Metadata,
+		) {
+			return "", RiskDurableActions{}, fmt.Errorf("%w: upstream client policy action is not authorized", ErrRiskStreamDecisionRejected)
+		}
+		actions := RiskDurableActions{DisableUser: true}
+		if event.TokenID > 0 {
+			actions.DisableToken = true
+		}
+		return event.Recommendation, actions, nil
 	case KKAIPolicyCausalityUpstreamKey:
-		allowed, _ := event.Metadata["upstream_action_allowed"].(bool)
-		if !allowed {
-			return RiskDecisionReject, RiskDurableActions{}, nil
-		}
-		if event.Source != RiskSourceUpstreamPolicy || event.ChannelID <= 0 {
-			return "", RiskDurableActions{}, fmt.Errorf("%w: upstream channel action is not authorized", ErrRiskStreamDecisionRejected)
-		}
-		return event.Recommendation, RiskDurableActions{DisableChannel: true}, nil
+		return RiskDecisionReject, RiskDurableActions{}, nil
 	case KKAIPolicyCausalityAmbiguous:
 		return RiskDecisionReject, RiskDurableActions{}, nil
 	default:
 		return "", RiskDurableActions{}, fmt.Errorf("%w: unsupported causality", ErrRiskStreamDecisionRejected)
 	}
+}
+
+func validUpstreamClientPolicyAuthorization(
+	source string,
+	decision string,
+	userID int,
+	tokenID int,
+	channelID int,
+	ruleVersion string,
+	tokenFingerprint string,
+	upstreamKeyFingerprint string,
+	metadata map[string]any,
+) bool {
+	if source != RiskSourceUpstreamPolicy || decision != RiskDecisionDisable || userID <= 0 || tokenID < 0 || channelID <= 0 {
+		return false
+	}
+	if ruleVersion == "" || upstreamKeyFingerprint == "" {
+		return false
+	}
+	if (tokenID > 0) != (tokenFingerprint != "") {
+		return false
+	}
+	evidenceLevel, _ := metadata["evidence_level"].(string)
+	causality, _ := metadata["causality"].(string)
+	actionAllowed, _ := metadata["client_token_action_allowed"].(bool)
+	markerConfirmed, _ := metadata["client_policy_marker_confirmed"].(bool)
+	clientAuthMode, _ := metadata["client_auth_mode"].(string)
+	ruleID, _ := metadata["rule_id"].(string)
+	originalStatus, ok := riskMetadataInteger(metadata["original_status_code"])
+	validOriginalStatus := ok && originalStatus >= 100 && originalStatus <= 599
+	validClientIdentity := clientAuthMode == kkaiPolicyClientAuthBearer && tokenID > 0 && tokenFingerprint != "" ||
+		clientAuthMode == kkaiPolicyClientAuthPlayground && tokenID == 0 && tokenFingerprint == ""
+	return evidenceLevel == "confirmed" &&
+		causality == KKAIPolicyCausalityClientToken &&
+		actionAllowed && markerConfirmed && validOriginalStatus &&
+		validClientIdentity && ruleID == ruleVersion
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -15,8 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
-
-var kkaiPolicyKeyCooldownUnavailableWarning sync.Once
 
 func KKAIPolicyKeyCooldown() gin.HandlerFunc {
 	return kkaiPolicyKeyCooldown(service.KKAIPolicyDefaultKeyCooldownStore())
@@ -30,11 +27,17 @@ func kkaiPolicyKeyCooldown(store service.KKAIPolicyKeyCooldownStore) gin.Handler
 			c.Next()
 			return
 		}
+		if state := service.CheckKKAIPolicyEmergencyKeyCooldown(key, time.Now()); state.Blocked {
+			abortKKAIPolicyKeyCooldown(c, state)
+			return
+		}
 		if store == nil {
-			kkaiPolicyKeyCooldownUnavailableWarning.Do(func() {
-				logger.LogWarn(c.Request.Context(), "KKAI key cooldown Redis store unavailable; failing open")
-			})
-			c.Next()
+			if !common.RedisEnabled {
+				c.Next()
+				return
+			}
+			logger.LogWarn(c.Request.Context(), "KKAI key cooldown Redis store unavailable; failing closed")
+			abortKKAIPolicyKeyCooldownUnavailable(c)
 			return
 		}
 
@@ -42,30 +45,47 @@ func kkaiPolicyKeyCooldown(store service.KKAIPolicyKeyCooldownStore) gin.Handler
 		state, err := store.Check(ctx, key)
 		cancel()
 		if err != nil {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("KKAI key cooldown check failed; failing open: %v", err))
-			c.Next()
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("KKAI key cooldown check failed; failing closed: %v", err))
+			abortKKAIPolicyKeyCooldownUnavailable(c)
 			return
 		}
 		if !state.Blocked {
 			c.Next()
 			return
 		}
-
-		retryAfter := state.RetryAfter
-		if retryAfter < 1 {
-			retryAfter = 1
-		}
-		c.Header("Retry-After", strconv.Itoa(retryAfter))
-		c.JSON(http.StatusTooManyRequests, gin.H{
-			"error": gin.H{
-				"message": common.MessageWithRequestId(
-					service.KKAIPolicyMessageForKeyCooldown(retryAfter),
-					c.GetString(common.RequestIdKey),
-				),
-				"type": string(types.ErrorTypeNewAPIError),
-				"code": types.ErrorCodeKeyCooldown,
-			},
-		})
-		c.Abort()
+		abortKKAIPolicyKeyCooldown(c, state)
 	}
+}
+
+func abortKKAIPolicyKeyCooldown(c *gin.Context, state service.KKAIPolicyKeyCooldownState) {
+	retryAfter := state.RetryAfter
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	c.Header("Retry-After", strconv.Itoa(retryAfter))
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"error": gin.H{
+			"message": common.MessageWithRequestId(
+				service.KKAIPolicyMessageForKeyCooldown(retryAfter),
+				c.GetString(common.RequestIdKey),
+			),
+			"type": string(types.ErrorTypeNewAPIError),
+			"code": types.ErrorCodeKeyCooldown,
+		},
+	})
+	c.Abort()
+}
+
+func abortKKAIPolicyKeyCooldownUnavailable(c *gin.Context) {
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"error": gin.H{
+			"message": common.MessageWithRequestId(
+				service.KKAIPolicyMessageForKeyCooldownUnavailable(),
+				c.GetString(common.RequestIdKey),
+			),
+			"type": string(types.ErrorTypeNewAPIError),
+			"code": types.ErrorCodePolicyAuditUnavailable,
+		},
+	})
+	c.Abort()
 }

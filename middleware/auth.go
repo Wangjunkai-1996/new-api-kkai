@@ -43,7 +43,20 @@ func authHelperWithOptions(c *gin.Context, minRole int, allowSessionWithoutUserH
 	role := session.Get("role")
 	id := session.Get("id")
 	status := session.Get("status")
+	group := session.Get("group")
 	useAccessToken := false
+	if username != nil {
+		user, err := loadLiveSessionUser(session)
+		if err != nil {
+			abortLiveSessionValidation(c, err)
+			return
+		}
+		username = user.Username
+		role = user.Role
+		id = user.Id
+		status = user.Status
+		group = user.Group
+	}
 	if username == nil {
 		// Check access token
 		accessToken := c.Request.Header.Get("Authorization")
@@ -86,6 +99,7 @@ func authHelperWithOptions(c *gin.Context, minRole int, allowSessionWithoutUserH
 			role = user.Role
 			id = user.Id
 			status = user.Status
+			group = user.Group
 			useAccessToken = true
 		} else {
 			c.JSON(http.StatusOK, gin.H{
@@ -126,8 +140,8 @@ func authHelperWithOptions(c *gin.Context, minRole int, allowSessionWithoutUserH
 			return
 		}
 	}
-	if status.(int) == common.UserStatusDisabled {
-		c.JSON(http.StatusOK, gin.H{
+	if status.(int) != common.UserStatusEnabled {
+		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
 			"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
 		})
@@ -155,8 +169,8 @@ func authHelperWithOptions(c *gin.Context, minRole int, allowSessionWithoutUserH
 	c.Set("username", username)
 	c.Set("role", role)
 	c.Set("id", id)
-	c.Set("group", session.Get("group"))
-	c.Set("user_group", session.Get("group"))
+	c.Set("group", group)
+	c.Set("user_group", group)
 	c.Set("use_access_token", useAccessToken)
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
@@ -175,10 +189,24 @@ func authHelperWithOptions(c *gin.Context, minRole int, allowSessionWithoutUserH
 func TryUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
-		id := session.Get("id")
-		if id != nil {
-			c.Set("id", id)
+		if session.Get("id") == nil {
+			c.Next()
+			return
 		}
+		user, err := loadLiveSessionUser(session)
+		if err != nil {
+			abortLiveSessionValidation(c, err)
+			return
+		}
+		if user.Status != common.UserStatusEnabled {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
+			c.Abort()
+			return
+		}
+		c.Set("id", user.Id)
+		c.Set("role", user.Role)
+		c.Set("group", user.Group)
+		c.Set("user_group", user.Group)
 		c.Next()
 	}
 }
@@ -239,12 +267,23 @@ func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// Try session auth first (dashboard users)
 		session := sessions.Default(c)
-		if id := session.Get("id"); id != nil {
-			if status, ok := session.Get("status").(int); ok && status == common.UserStatusEnabled {
-				c.Set("id", id)
-				c.Next()
+		if session.Get("id") != nil {
+			user, err := loadLiveSessionUser(session)
+			if err != nil {
+				abortLiveSessionValidation(c, err)
 				return
 			}
+			if user.Status != common.UserStatusEnabled {
+				c.JSON(http.StatusForbidden, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
+				c.Abort()
+				return
+			}
+			c.Set("id", user.Id)
+			c.Set("role", user.Role)
+			c.Set("group", user.Group)
+			c.Set("user_group", user.Group)
+			c.Next()
+			return
 		}
 		// Fall back to token auth (API clients)
 		TokenAuth()(c)

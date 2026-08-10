@@ -12,6 +12,10 @@ import (
 )
 
 func processKKAIPolicyAPIError(c *gin.Context, channel types.ChannelError, apiErr *types.NewAPIError) bool {
+	if apiErr != nil && service.IsKKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())) {
+		service.MarkKKAIPolicyNoRetry(c)
+		return true
+	}
 	guard := service.NewKKAIPolicyIncidentGuard(service.NewRiskActionService(model.DB))
 	detected, err := guard.HandleAPIError(c, channel, apiErr)
 	if err != nil {
@@ -33,10 +37,16 @@ func kkaiTaskAPIError(taskErr *dto.TaskError) *types.NewAPIError {
 		types.ErrorCodeBadResponseStatusCode,
 		taskErr.StatusCode,
 		types.ErrOptionWithOriginalStatusCode(taskErr.UpstreamStatusCode),
+		types.ErrOptionWithOriginalErrorCode(types.ErrorCode(taskErr.UpstreamErrorCode)),
+		types.ErrOptionWithPolicyEvidence(taskErr.PolicyEvidence),
 	)
 }
 
 func processKKAIPolicyTaskError(c *gin.Context, channel types.ChannelError, taskErr *dto.TaskError) bool {
+	if taskErr != nil && service.IsKKAILocalPolicyCode(taskErr.Code) {
+		service.MarkKKAIPolicyNoRetry(c)
+		return true
+	}
 	guard := service.NewKKAIPolicyIncidentGuard(service.NewRiskActionService(model.DB))
 	detected, err := guard.HandleTaskError(c, channel, taskErr)
 	if err != nil {

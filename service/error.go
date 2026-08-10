@@ -98,7 +98,24 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	var errResponse dto.GeneralErrorResponse
 	responseBodyText := string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)
-	policyEvidence := kkaiPolicyMarkerEvidence(responseBodyText)
+	err = common.Unmarshal(responseBody, &errResponse)
+	structuredError := kkaiOpenAIErrorFromGeneralError(errResponse)
+	policyEvidence := kkaiStructuredPolicyEvidence(structuredError)
+	if policyEvidence == "" {
+		// Unstructured markers still suppress retries and raw-body exposure, but
+		// remain ambiguous because they cannot authorize a user/token penalty.
+		policyEvidence = kkaiPolicyMarkerEvidence(responseBodyText)
+	}
+	if localPolicyCode := KKAILocalPolicyCode(kkaiStructuredErrorCode(structuredError)); err == nil && localPolicyCode != "" {
+		return types.NewOpenAIError(
+			errors.New(string(localPolicyCode)),
+			localPolicyCode,
+			KKAILocalPolicyStatus(localPolicyCode),
+			upstreamStatusOption,
+			types.ErrOptionWithPolicyEvidence(string(localPolicyCode)),
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
 	newApiErr.SetPolicyEvidence(policyEvidence)
 	buildErrWithBody := func(message string) error {
 		if message == "" {
@@ -107,7 +124,6 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		return fmt.Errorf("bad response status code %d, message: %s, body: %s", resp.StatusCode, message, responseBodyText)
 	}
 
-	err = common.Unmarshal(responseBody, &errResponse)
 	if err != nil {
 		if policyEvidence != "" {
 			newApiErr.SetMessage(fmt.Sprintf("bad response status code %d", resp.StatusCode))
@@ -237,6 +253,25 @@ func TaskErrorWrapper(err error, code string, statusCode int) *dto.TaskError {
 func TaskErrorWrapperUpstream(err error, code string, statusCode int) *dto.TaskError {
 	taskErr := TaskErrorWrapper(err, code, statusCode)
 	taskErr.UpstreamStatusCode = statusCode
+	localPolicyCode := KKAILocalPolicyCode(code)
+	var errResponse dto.GeneralErrorResponse
+	if common.Unmarshal([]byte(err.Error()), &errResponse) == nil {
+		structuredError := kkaiOpenAIErrorFromGeneralError(errResponse)
+		upstreamCode := types.ErrorCode(kkaiStructuredErrorCode(structuredError))
+		taskErr.UpstreamErrorCode = string(upstreamCode)
+		taskErr.PolicyEvidence = kkaiStructuredPolicyEvidence(structuredError)
+		if localPolicyCode == "" {
+			localPolicyCode = KKAILocalPolicyCode(string(upstreamCode))
+		}
+	}
+	if taskErr.PolicyEvidence == "" {
+		taskErr.PolicyEvidence = kkaiPolicyMarkerEvidence(err.Error())
+	}
+	if localPolicyCode != "" {
+		taskErr.Code = string(localPolicyCode)
+		taskErr.UpstreamErrorCode = string(localPolicyCode)
+		taskErr.PolicyEvidence = string(localPolicyCode)
+	}
 	return taskErr
 }
 

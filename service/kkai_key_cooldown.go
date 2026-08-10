@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,7 +19,13 @@ const (
 	kkaiPolicyKeyCooldownTimeout     = 150 * time.Millisecond
 	kkaiPolicyKeyCooldownMaxStrike   = 7
 	kkaiPolicyKeyCooldownMaxSeconds  = 3600
+	kkaiPolicyEmergencyCooldown      = 24 * time.Hour
 )
+
+var kkaiPolicyEmergencyCooldowns = struct {
+	sync.Mutex
+	blockedUntil map[string]time.Time
+}{blockedUntil: make(map[string]time.Time)}
 
 type KKAIPolicyKeyCooldownState struct {
 	Blocked      bool
@@ -67,6 +74,65 @@ func RecordKKAIPolicyKeyCooldown(c *gin.Context, store KKAIPolicyKeyCooldownStor
 	ctx, cancel := kkaiPolicyKeyCooldownContext(c, true)
 	defer cancel()
 	return store.Record(ctx, key, eventDigest)
+}
+
+// RecordKKAIPolicyEmergencyKeyCooldown covers a failed Redis write until the
+// durable token mutation succeeds or the incident can be persisted later.
+func RecordKKAIPolicyEmergencyKeyCooldown(c *gin.Context, now time.Time) KKAIPolicyKeyCooldownState {
+	if c == nil {
+		return KKAIPolicyKeyCooldownState{}
+	}
+	tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+	key, ok := KKAIPolicyKeyCooldownRedisKey(tokenID)
+	if !ok {
+		return KKAIPolicyKeyCooldownState{}
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	blockedUntil := now.Add(kkaiPolicyEmergencyCooldown)
+
+	kkaiPolicyEmergencyCooldowns.Lock()
+	if existing := kkaiPolicyEmergencyCooldowns.blockedUntil[key]; existing.After(blockedUntil) {
+		blockedUntil = existing
+	} else {
+		kkaiPolicyEmergencyCooldowns.blockedUntil[key] = blockedUntil
+	}
+	kkaiPolicyEmergencyCooldowns.Unlock()
+
+	return kkaiPolicyEmergencyCooldownState(blockedUntil, now)
+}
+
+func CheckKKAIPolicyEmergencyKeyCooldown(key string, now time.Time) KKAIPolicyKeyCooldownState {
+	if key == "" {
+		return KKAIPolicyKeyCooldownState{}
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	kkaiPolicyEmergencyCooldowns.Lock()
+	blockedUntil, ok := kkaiPolicyEmergencyCooldowns.blockedUntil[key]
+	if ok && !blockedUntil.After(now) {
+		delete(kkaiPolicyEmergencyCooldowns.blockedUntil, key)
+		ok = false
+	}
+	kkaiPolicyEmergencyCooldowns.Unlock()
+	if !ok {
+		return KKAIPolicyKeyCooldownState{}
+	}
+	return kkaiPolicyEmergencyCooldownState(blockedUntil, now)
+}
+
+func kkaiPolicyEmergencyCooldownState(blockedUntil time.Time, now time.Time) KKAIPolicyKeyCooldownState {
+	retryAfter := int((blockedUntil.Sub(now) + time.Second - 1) / time.Second)
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	return KKAIPolicyKeyCooldownState{
+		Blocked:      true,
+		RetryAfter:   retryAfter,
+		BlockedUntil: blockedUntil.UnixMilli(),
+	}
 }
 
 func KKAIPolicyDefaultKeyCooldownStore() KKAIPolicyKeyCooldownStore {

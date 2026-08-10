@@ -83,6 +83,24 @@ func riskActionInput(user model.User, token model.Token, channel model.Channel) 
 	}
 }
 
+func upstreamClientPolicyActionInput(user model.User, token model.Token, channel model.Channel) RiskActionInput {
+	input := riskActionInput(user, token, channel)
+	input.Source = RiskSourceUpstreamPolicy
+	input.RuleVersion = kkaiPolicyRuleVersion
+	input.Metadata = map[string]any{
+		"case_id":                        "policy-case-0001",
+		"causality":                      KKAIPolicyCausalityClientToken,
+		"client_auth_mode":               kkaiPolicyClientAuthBearer,
+		"client_policy_marker_confirmed": true,
+		"client_token_action_allowed":    true,
+		"evidence_level":                 "confirmed",
+		"original_status_code":           403,
+		"rule_id":                        kkaiPolicyRuleVersion,
+	}
+	input.Actions = RiskDurableActions{DisableToken: true, DisableUser: true}
+	return input
+}
+
 func TestRiskActionServiceAppliesAllDurableChangesAtomically(t *testing.T) {
 	db := newRiskActionTestDB(t)
 	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
@@ -119,12 +137,12 @@ func TestRiskActionServiceAppliesAllDurableChangesAtomically(t *testing.T) {
 	require.NotContains(t, outbox[0].Payload, channel.Key)
 }
 
-func TestRiskActionServiceRejectsUpstreamPolicyDurableActions(t *testing.T) {
+func TestRiskActionServiceRejectsUpstreamPolicyChannelDisable(t *testing.T) {
 	db := newRiskActionTestDB(t)
 	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
 	service := NewRiskActionService(db)
-	input := riskActionInput(user, token, channel)
-	input.Source = RiskSourceUpstreamPolicy
+	input := upstreamClientPolicyActionInput(user, token, channel)
+	input.Actions.DisableChannel = true
 
 	_, err := service.Apply(context.Background(), input)
 	require.ErrorIs(t, err, ErrRiskActionInvalidInput)
@@ -144,13 +162,91 @@ func TestRiskActionServiceRejectsUpstreamPolicyDurableActions(t *testing.T) {
 	require.Zero(t, outboxCount)
 }
 
+func TestRiskActionServiceAppliesAuthorizedUpstreamClientPolicyOnlyToTokenAndUser(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	riskService := NewRiskActionService(db)
+
+	result, err := riskService.Apply(context.Background(), upstreamClientPolicyActionInput(user, token, channel))
+	require.NoError(t, err)
+	require.True(t, result.TokenDisabled)
+	require.True(t, result.UserDisabled)
+	require.False(t, result.ChannelDisabled)
+
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.Equal(t, common.TokenStatusDisabled, token.Status)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	require.Equal(t, common.UserStatusDisabled, user.Status)
+	require.NoError(t, db.First(&channel, channel.Id).Error)
+	require.Equal(t, common.ChannelStatusEnabled, channel.Status)
+}
+
+func TestRiskActionServiceRejectsAuthorizedUpstreamPolicyWhenChannelIdentityChanged(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	riskService := NewRiskActionService(db)
+	input := upstreamClientPolicyActionInput(user, token, channel)
+	input.UpstreamKeyFingerprint = RiskFingerprint("rotated-or-wrong-key")
+
+	_, err := riskService.Apply(context.Background(), input)
+	require.ErrorIs(t, err, ErrRiskActionIdentityMismatch)
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.Equal(t, common.TokenStatusEnabled, token.Status)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	require.Equal(t, common.UserStatusEnabled, user.Status)
+	require.NoError(t, db.First(&channel, channel.Id).Error)
+	require.Equal(t, common.ChannelStatusEnabled, channel.Status)
+
+	var incidentCount int64
+	require.NoError(t, db.Model(&model.KKAIPolicyIncident{}).Count(&incidentCount).Error)
+	require.Zero(t, incidentCount)
+}
+
+func TestRiskActionServiceValidatesSelectedKeyWithinMultiKeyChannel(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	selectedChannel := channel
+	channel.Key = "other-upstream-key\n" + selectedChannel.Key
+	channel.ChannelInfo.IsMultiKey = true
+	require.NoError(t, db.Save(&channel).Error)
+	riskService := NewRiskActionService(db)
+
+	result, err := riskService.Apply(context.Background(), upstreamClientPolicyActionInput(user, token, selectedChannel))
+	require.NoError(t, err)
+	require.True(t, result.TokenDisabled)
+	require.True(t, result.UserDisabled)
+	require.False(t, result.ChannelDisabled)
+}
+
+func TestRiskActionServiceAppliesAuthorizedPlaygroundPolicyOnlyToUser(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	riskService := NewRiskActionService(db)
+	input := upstreamClientPolicyActionInput(user, token, channel)
+	input.TokenID = 0
+	input.TokenFingerprint = ""
+	input.Metadata["client_auth_mode"] = kkaiPolicyClientAuthPlayground
+	input.Actions = RiskDurableActions{DisableUser: true}
+
+	result, err := riskService.Apply(context.Background(), input)
+	require.NoError(t, err)
+	require.False(t, result.TokenDisabled)
+	require.True(t, result.UserDisabled)
+	require.False(t, result.ChannelDisabled)
+
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.Equal(t, common.TokenStatusEnabled, token.Status)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	require.Equal(t, common.UserStatusDisabled, user.Status)
+	require.NoError(t, db.First(&channel, channel.Id).Error)
+	require.Equal(t, common.ChannelStatusEnabled, channel.Status)
+}
+
 func TestRiskActionServiceRejectsUpstreamPolicyDisableDecisionWithoutActions(t *testing.T) {
 	db := newRiskActionTestDB(t)
 	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
 	riskService := NewRiskActionService(db)
-	input := riskActionInput(user, token, channel)
-	input.Source = RiskSourceUpstreamPolicy
-	input.Decision = RiskDecisionDisable
+	input := upstreamClientPolicyActionInput(user, token, channel)
 	input.Actions = RiskDurableActions{}
 
 	_, err := riskService.Apply(context.Background(), input)
@@ -227,6 +323,111 @@ func TestRiskActionServiceNeverDisablesPrivilegedUser(t *testing.T) {
 
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.Equal(t, common.UserStatusEnabled, user.Status)
+}
+
+func TestRiskActionServiceAuthorizedUpstreamPolicyStillDisablesPrivilegedBearerToken(t *testing.T) {
+	tests := []struct {
+		name string
+		role int
+	}{
+		{name: "admin", role: common.RoleAdminUser},
+		{name: "root", role: common.RoleRootUser},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := newRiskActionTestDB(t)
+			user, token, channel := seedRiskActionTargets(t, db, test.role)
+			riskService := NewRiskActionService(db)
+
+			result, err := riskService.Apply(context.Background(), upstreamClientPolicyActionInput(user, token, channel))
+			require.NoError(t, err)
+			require.True(t, result.TokenDisabled)
+			require.False(t, result.UserDisabled)
+			require.True(t, result.UserDisableSkipped)
+			require.False(t, result.ChannelDisabled)
+
+			require.NoError(t, db.First(&token, token.Id).Error)
+			require.Equal(t, common.TokenStatusDisabled, token.Status)
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.Equal(t, common.UserStatusEnabled, user.Status)
+			require.NoError(t, db.First(&channel, channel.Id).Error)
+			require.Equal(t, common.ChannelStatusEnabled, channel.Status)
+
+			var outbox model.KKAIOutboxEvent
+			require.NoError(t, db.Where("topic = ?", KKAIOutboxTopicRiskActionCommitted).First(&outbox).Error)
+			require.Equal(t, model.KKAIOutboxStatusPending, outbox.Status)
+			require.Equal(t, outbox.CreatedAt, outbox.AvailableAt)
+			var payload riskActionOutboxPayload
+			require.NoError(t, common.UnmarshalJsonStr(outbox.Payload, &payload))
+			require.Equal(t, user.Id, payload.UserID)
+			require.Equal(t, token.Id, payload.TokenID)
+			require.True(t, payload.TokenDisabled)
+			require.False(t, payload.UserDisabled)
+			require.True(t, payload.UserDisableSkipped)
+			require.False(t, payload.ChannelDisabled)
+		})
+	}
+}
+
+func TestRiskActionServiceInvalidatesCommittedUserAndTokenCaches(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	riskService := NewRiskActionService(db)
+	invalidatedUser := 0
+	invalidatedTokens := 0
+	riskService.invalidateUser = func(userID int) error { invalidatedUser = userID; return nil }
+	riskService.invalidateUserTokens = func(userID int) error { invalidatedTokens = userID; return nil }
+
+	_, err := riskService.Apply(context.Background(), upstreamClientPolicyActionInput(user, token, channel))
+	require.NoError(t, err)
+	require.Equal(t, user.Id, invalidatedUser)
+	require.Equal(t, user.Id, invalidatedTokens)
+}
+
+func TestRiskActionServiceInvalidatesCachesWhenTargetsAreAlreadyDisabled(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("status", common.UserStatusDisabled).Error)
+	require.NoError(t, db.Model(&model.Token{}).Where("id = ?", token.Id).Update("status", common.TokenStatusDisabled).Error)
+
+	riskService := NewRiskActionService(db)
+	invalidatedUser := 0
+	invalidatedTokens := 0
+	riskService.invalidateUser = func(userID int) error { invalidatedUser = userID; return nil }
+	riskService.invalidateUserTokens = func(userID int) error { invalidatedTokens = userID; return nil }
+
+	result, err := riskService.Apply(context.Background(), upstreamClientPolicyActionInput(user, token, channel))
+	require.NoError(t, err)
+	require.False(t, result.TokenDisabled, "result keeps the database changed semantic")
+	require.False(t, result.UserDisabled, "result keeps the database changed semantic")
+	require.Equal(t, user.Id, invalidatedUser)
+	require.Equal(t, user.Id, invalidatedTokens)
+
+	var outbox model.KKAIOutboxEvent
+	require.NoError(t, db.Where("topic = ?", KKAIOutboxTopicRiskActionCommitted).First(&outbox).Error)
+	var payload riskActionOutboxPayload
+	require.NoError(t, common.UnmarshalJsonStr(outbox.Payload, &payload))
+	require.False(t, payload.TokenDisabled)
+	require.False(t, payload.UserDisabled)
+	require.True(t, payload.UserCacheInvalidationRequired)
+	require.True(t, payload.TokenCacheInvalidationRequired)
+}
+
+func TestRiskActionServiceCacheInvalidationFailureDoesNotRollBackCommittedActions(t *testing.T) {
+	db := newRiskActionTestDB(t)
+	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+	riskService := NewRiskActionService(db)
+	riskService.invalidateUser = func(int) error { return errors.New("redis unavailable") }
+	riskService.invalidateUserTokens = func(int) error { return errors.New("redis unavailable") }
+
+	result, err := riskService.Apply(context.Background(), upstreamClientPolicyActionInput(user, token, channel))
+	require.NoError(t, err)
+	require.True(t, result.TokenDisabled)
+	require.True(t, result.UserDisabled)
+	require.NoError(t, db.First(&token, token.Id).Error)
+	require.Equal(t, common.TokenStatusDisabled, token.Status)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	require.Equal(t, common.UserStatusDisabled, user.Status)
 }
 
 func TestRiskActionServiceRejectsSensitiveOrMalformedMetadata(t *testing.T) {

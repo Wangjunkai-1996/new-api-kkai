@@ -77,7 +77,26 @@ func validRiskDecision(decision string) bool {
 func validRiskActions(input RiskActionInput) bool {
 	if input.Source == RiskSourceUpstreamPolicy &&
 		(input.Decision == RiskDecisionDisable || input.Actions.DisableToken || input.Actions.DisableUser || input.Actions.DisableChannel) {
-		return false
+		if input.Actions.DisableChannel || !validUpstreamClientPolicyAuthorization(
+			input.Source,
+			input.Decision,
+			input.UserID,
+			input.TokenID,
+			input.ChannelID,
+			input.RuleVersion,
+			input.TokenFingerprint,
+			input.UpstreamKeyFingerprint,
+			input.Metadata,
+		) {
+			return false
+		}
+		expected := RiskDurableActions{DisableUser: true}
+		if input.TokenID > 0 {
+			expected.DisableToken = true
+		}
+		if input.Actions != expected {
+			return false
+		}
 	}
 	if input.Actions.DisableToken && (input.TokenID <= 0 || input.UserID <= 0 || input.TokenFingerprint == "") {
 		return false
@@ -129,7 +148,8 @@ func normalizeRiskMetadata(metadata map[string]any) (string, error) {
 	allowed := map[string]struct{}{
 		"case_id": {}, "causality": {}, "client_token_action_allowed": {},
 		"evidence_level": {}, "request_body_bytes": {}, "request_body_sha256": {},
-		"rule_id": {}, "upstream_action_allowed": {},
+		"rule_id": {}, "upstream_action_allowed": {}, "client_policy_marker_confirmed": {},
+		"original_status_code": {}, "client_auth_mode": {},
 	}
 	normalized := make(map[string]any, len(metadata))
 	for key, value := range metadata {
@@ -154,20 +174,20 @@ func normalizeRiskMetadata(metadata map[string]any) (string, error) {
 
 func normalizeRiskMetadataValue(normalized map[string]any, key string, value any) error {
 	switch key {
-	case "case_id", "causality", "evidence_level", "rule_id":
+	case "case_id", "causality", "evidence_level", "rule_id", "client_auth_mode":
 		text, ok := value.(string)
 		text = strings.TrimSpace(text)
 		if !ok || !riskEventIDPattern.MatchString(text) || riskSecretPattern.MatchString(text) {
 			return ErrRiskActionInvalidInput
 		}
 		normalized[key] = text
-	case "client_token_action_allowed", "upstream_action_allowed":
+	case "client_token_action_allowed", "upstream_action_allowed", "client_policy_marker_confirmed":
 		flag, ok := value.(bool)
 		if !ok {
 			return ErrRiskActionInvalidInput
 		}
 		normalized[key] = flag
-	case "request_body_bytes":
+	case "request_body_bytes", "original_status_code":
 		count, ok := riskMetadataInteger(value)
 		if !ok || count < 0 {
 			return ErrRiskActionInvalidInput

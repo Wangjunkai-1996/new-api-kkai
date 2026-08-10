@@ -25,7 +25,7 @@ func TestRelayErrorHandlerClassifiesPlainTextCyberWithoutExposingBody(t *testing
 	classification := ClassifyKKAIUpstreamPolicyError(newAPIError)
 
 	require.True(t, classification.Detected)
-	require.Equal(t, KKAIPolicyCausalityClientToken, classification.Causality)
+	require.Equal(t, KKAIPolicyCausalityAmbiguous, classification.Causality)
 	require.Equal(t, http.StatusForbidden, newAPIError.GetOriginalStatusCode())
 	require.Equal(t, "bad response status code 403", newAPIError.Error())
 	require.Equal(t, "cyber_policy", newAPIError.GetPolicyEvidence())
@@ -51,6 +51,48 @@ func TestRelayErrorHandlerPreservesCodeOnlyCyberAcrossMappingAndNormalization(t 
 	require.Equal(t, types.ErrorCode("cyber_policy"), normalized.GetOriginalErrorCode())
 }
 
+func TestRelayAndTaskErrorHandlersConfirmStructuredCyberOnBadRequest(t *testing.T) {
+	body := `{"error":{"message":"request rejected","type":"policy_error","code":"cyber_policy"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	apiErr := RelayErrorHandler(context.Background(), resp, false)
+	classification := ClassifyKKAIUpstreamPolicyError(apiErr)
+	require.True(t, classification.Detected)
+	require.Equal(t, KKAIPolicyCausalityClientToken, classification.Causality)
+	require.Equal(t, http.StatusBadRequest, classification.StatusCode)
+	require.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetOriginalErrorCode())
+
+	taskErr := TaskErrorWrapperUpstream(errors.New(body), "fail_to_fetch_task", http.StatusBadRequest)
+	taskClassification := ClassifyKKAITaskPolicyError(taskErr)
+	require.True(t, taskClassification.Detected)
+	require.Equal(t, KKAIPolicyCausalityClientToken, taskClassification.Causality)
+	require.Equal(t, http.StatusBadRequest, taskClassification.StatusCode)
+	require.Equal(t, "cyber_policy", taskErr.UpstreamErrorCode)
+}
+
+func TestRelayAndTaskErrorHandlersDetectUnauthorizedUpstreamKeyWithoutClientPenalty(t *testing.T) {
+	body := `{"error":{"message":"provider API key has been permanently disabled","type":"authentication_error","code":"invalid_api_key"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusUnauthorized,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	apiErr := RelayErrorHandler(context.Background(), resp, false)
+	classification := ClassifyKKAIUpstreamPolicyError(apiErr)
+	require.True(t, classification.Detected)
+	require.Equal(t, KKAIPolicyCausalityUpstreamKey, classification.Causality)
+	require.Equal(t, http.StatusUnauthorized, classification.StatusCode)
+
+	taskErr := TaskErrorWrapperUpstream(errors.New(body), "fail_to_fetch_task", http.StatusUnauthorized)
+	taskClassification := ClassifyKKAITaskPolicyError(taskErr)
+	require.True(t, taskClassification.Detected)
+	require.Equal(t, KKAIPolicyCausalityUpstreamKey, taskClassification.Causality)
+	require.Equal(t, http.StatusUnauthorized, taskClassification.StatusCode)
+}
+
 func TestRelayErrorHandlerClassifiesCyberMarkerInUnsupportedJSON(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusForbidden,
@@ -61,7 +103,7 @@ func TestRelayErrorHandlerClassifiesCyberMarkerInUnsupportedJSON(t *testing.T) {
 	classification := ClassifyKKAIUpstreamPolicyError(newAPIError)
 
 	require.True(t, classification.Detected)
-	require.Equal(t, KKAIPolicyCausalityClientToken, classification.Causality)
+	require.Equal(t, KKAIPolicyCausalityAmbiguous, classification.Causality)
 	require.Equal(t, http.StatusForbidden, newAPIError.GetOriginalStatusCode())
 	require.Equal(t, "cyber_policy", newAPIError.GetPolicyEvidence())
 	require.NotContains(t, newAPIError.Error(), "sk-client-secret")
@@ -118,4 +160,123 @@ func TestTaskErrorFromAPIErrorMarksLocalBillingFailures(t *testing.T) {
 	require.True(t, taskErr.LocalError)
 	require.Zero(t, taskErr.UpstreamStatusCode)
 	require.False(t, ClassifyKKAITaskPolicyError(taskErr).Detected)
+}
+
+func TestRelayAndTaskErrorHandlersPreserveLocalPolicyCodesWithoutCyberClassification(t *testing.T) {
+	for _, code := range []types.ErrorCode{
+		types.ErrorCodeRequestPolicyBlocked,
+		types.ErrorCodePolicyContextIncomplete,
+		types.ErrorCodePolicyAuditUnavailable,
+		types.ErrorCodeSessionBlockedByCyberPolicy,
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Body: io.NopCloser(strings.NewReader(
+					`{"error":{"code":"` + string(code) + `","message":"cyber_policy"}}`,
+				)),
+			}
+
+			apiErr := RelayErrorHandler(context.Background(), resp, false)
+			require.Equal(t, code, apiErr.GetErrorCode())
+			require.Equal(t, http.StatusServiceUnavailable, apiErr.GetOriginalStatusCode())
+			require.True(t, types.IsSkipRetryError(apiErr))
+			require.False(t, ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+
+			taskErr := TaskErrorWrapperUpstream(
+				errors.New(`{"error":{"code":"`+string(code)+`","message":"cyber_policy"}}`),
+				"fail_to_fetch_task",
+				http.StatusServiceUnavailable,
+			)
+			require.Equal(t, KKAILocalPolicyStatus(code), apiErr.StatusCode)
+			require.Equal(t, string(code), taskErr.Code)
+			require.Equal(t, http.StatusServiceUnavailable, taskErr.UpstreamStatusCode)
+			require.False(t, ClassifyKKAITaskPolicyError(taskErr).Detected)
+		})
+	}
+}
+
+func TestRelayErrorHandlerDoesNotTrustLocalPolicyCodeMentionedInUpstreamMessage(t *testing.T) {
+	for _, message := range []string{
+		"request_policy_blocked",
+		"session_blocked_by_cyber_policy",
+	} {
+		t.Run(message, func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body: io.NopCloser(strings.NewReader(
+					`{"error":{"code":"cyber_policy","message":"` + message + `"}}`,
+				)),
+			}
+
+			apiErr := RelayErrorHandler(context.Background(), resp, false)
+			classification := ClassifyKKAIUpstreamPolicyError(apiErr)
+
+			require.NotEqual(t, types.ErrorCode(message), apiErr.GetErrorCode())
+			require.True(t, classification.Detected)
+			require.Equal(t, KKAIPolicyCausalityClientToken, classification.Causality)
+		})
+	}
+}
+
+func TestTaskErrorWrapperDoesNotTrustLocalPolicyCodeMentionedInUpstreamMessage(t *testing.T) {
+	for _, message := range []string{
+		"request_policy_blocked",
+		"session_blocked_by_cyber_policy",
+	} {
+		t.Run(message, func(t *testing.T) {
+			taskErr := TaskErrorWrapperUpstream(
+				errors.New(`{"error":{"code":"cyber_policy","message":"`+message+`"}}`),
+				"fail_to_fetch_task",
+				http.StatusForbidden,
+			)
+
+			require.Equal(t, "fail_to_fetch_task", taskErr.Code)
+			classification := ClassifyKKAITaskPolicyError(taskErr)
+			require.True(t, classification.Detected)
+			require.Equal(t, KKAIPolicyCausalityClientToken, classification.Causality)
+		})
+	}
+}
+
+func TestTaskErrorWrapperKeepsPlainTextCyberAmbiguous(t *testing.T) {
+	taskErr := TaskErrorWrapperUpstream(
+		errors.New("cyber_policy"),
+		"fail_to_fetch_task",
+		http.StatusForbidden,
+	)
+
+	classification := ClassifyKKAITaskPolicyError(taskErr)
+	require.True(t, classification.Detected)
+	require.Equal(t, KKAIPolicyCausalityAmbiguous, classification.Causality)
+}
+
+func TestNewKKAIStructuredRelayErrorRequiresPolicyEvidenceForNoRetry(t *testing.T) {
+	ordinary := NewKKAIStructuredRelayError(&types.OpenAIError{
+		Code:    "invalid_request",
+		Message: "ordinary validation error",
+	})
+	require.NotNil(t, ordinary)
+	require.False(t, types.IsSkipRetryError(ordinary))
+	require.False(t, ClassifyKKAIUpstreamPolicyError(ordinary).Detected)
+
+	ambiguous := NewKKAIStructuredRelayError(&types.OpenAIError{
+		Code:    "invalid_request",
+		Message: "cyber_policy appeared in an untrusted message",
+	})
+	require.NotNil(t, ambiguous)
+	require.True(t, types.IsSkipRetryError(ambiguous))
+	classification := ClassifyKKAIUpstreamPolicyError(ambiguous)
+	require.True(t, classification.Detected)
+	require.Equal(t, KKAIPolicyCausalityAmbiguous, classification.Causality)
+
+	confirmed := NewKKAIStructuredRelayError(&types.OpenAIError{
+		Code:    "cyber_policy",
+		Message: "request rejected",
+	})
+	require.NotNil(t, confirmed)
+	require.True(t, types.IsSkipRetryError(confirmed))
+	classification = ClassifyKKAIUpstreamPolicyError(confirmed)
+	require.True(t, classification.Detected)
+	require.Equal(t, KKAIPolicyCausalityClientToken, classification.Causality)
 }
