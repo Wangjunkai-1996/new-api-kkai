@@ -366,19 +366,28 @@ func TestKKAIPolicyGuardKeepsEmergencyCooldownWhenRedisAndApplyFail(t *testing.T
 	CheckKKAIPolicyEmergencyKeyCooldown(key, now.Add(25*time.Hour))
 }
 
-func TestKKAIPolicyGuardPersistsClientIncidentAndDisablesExactTargets(t *testing.T) {
+func TestKKAIPolicyGuardEnforcesConfirmedBearerAfterRequestCancellation(t *testing.T) {
 	db := newRiskActionTestDB(t)
 	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
 	ctx := newKKAIPolicyGuardTestContext(t)
 	ctx.Set("id", user.Id)
 	ctx.Set("token_id", token.Id)
 	ctx.Set("token_key", token.Key)
-	guard := NewKKAIPolicyIncidentGuard(NewRiskActionService(db))
+	requestCtx, cancelRequest := context.WithCancel(ctx.Request.Context())
+	ctx.Request = ctx.Request.WithContext(requestCtx)
+	cancelRequest()
+	require.ErrorIs(t, ctx.Request.Context().Err(), context.Canceled)
+
+	cooldown := &fakeKKAIPolicyKeyCooldownStore{}
+	guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(NewRiskActionService(db), cooldown)
 	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCode("cyber_policy"), http.StatusForbidden)
 
 	detected, err := guard.HandleAPIError(ctx, *types.NewChannelError(channel.Id, 1, channel.Name, false, channel.Key, true), apiErr)
 	require.NoError(t, err)
 	require.True(t, detected)
+	require.Len(t, cooldown.recordCtxErr, 1)
+	assert.NoError(t, cooldown.recordCtxErr[0])
+	assert.True(t, cooldown.recordCtxHasDeadline[0])
 
 	require.NoError(t, db.First(&token, token.Id).Error)
 	assert.Equal(t, common.TokenStatusDisabled, token.Status)

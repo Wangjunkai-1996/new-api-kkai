@@ -25,6 +25,7 @@ const (
 	kkaiPolicyRuleVersion          = "kkai-upstream-policy-v2"
 	kkaiPolicyClientAuthBearer     = "bearer_token"
 	kkaiPolicyClientAuthPlayground = "playground_session"
+	kkaiPolicyEnforcementTimeout   = 5 * time.Second
 )
 
 type KKAIPolicyIncidentGuard struct {
@@ -85,6 +86,15 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	}
 	clientActionAllowed := classification.Causality == KKAIPolicyCausalityClientToken &&
 		clientAuthMode != "" && channel.ChannelId > 0 && upstreamKeyFingerprint != ""
+	policyActionCtx := kkaiPolicyContext(c)
+	if clientActionAllowed {
+		var cancel context.CancelFunc
+		policyActionCtx, cancel = context.WithTimeout(
+			context.WithoutCancel(policyActionCtx),
+			kkaiPolicyEnforcementTimeout,
+		)
+		defer cancel()
+	}
 	metadata := map[string]any{
 		"case_id":                        eventID,
 		"causality":                      classification.Causality,
@@ -120,9 +130,9 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Metadata:               metadata,
 	}
 	if classification.Causality == KKAIPolicyCausalityClientToken && clientAuthMode == kkaiPolicyClientAuthBearer {
-		if _, cooldownErr := RecordKKAIPolicyKeyCooldown(c, g.cooldown, eventID); cooldownErr != nil {
+		if _, cooldownErr := recordKKAIPolicyKeyCooldown(policyActionCtx, c, g.cooldown, eventID); cooldownErr != nil {
 			RecordKKAIPolicyEmergencyKeyCooldown(c, now)
-			logger.LogWarn(kkaiPolicyContext(c), "KKAI key cooldown record failed: "+cooldownErr.Error())
+			logger.LogWarn(policyActionCtx, "KKAI key cooldown record failed: "+cooldownErr.Error())
 		}
 	}
 	if clientActionAllowed {
@@ -135,7 +145,7 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	if g.applier == nil {
 		return true, ErrRiskActionInvalidInput
 	}
-	result, err := g.applier.Apply(kkaiPolicyContext(c), RiskActionInput{
+	result, err := g.applier.Apply(policyActionCtx, RiskActionInput{
 		EventID:                event.EventID,
 		Source:                 event.Source,
 		OccurredAt:             event.OccurredAt,

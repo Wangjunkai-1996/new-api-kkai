@@ -16,13 +16,15 @@ import (
 )
 
 type fakeKKAIPolicyKeyCooldownStore struct {
-	checkState   KKAIPolicyKeyCooldownState
-	checkErr     error
-	recordState  KKAIPolicyKeyCooldownState
-	recordErr    error
-	checkKeys    []string
-	recordKeys   []string
-	eventDigests []string
+	checkState           KKAIPolicyKeyCooldownState
+	checkErr             error
+	recordState          KKAIPolicyKeyCooldownState
+	recordErr            error
+	checkKeys            []string
+	recordKeys           []string
+	eventDigests         []string
+	recordCtxErr         []error
+	recordCtxHasDeadline []bool
 }
 
 func (s *fakeKKAIPolicyKeyCooldownStore) Check(_ context.Context, key string) (KKAIPolicyKeyCooldownState, error) {
@@ -30,9 +32,12 @@ func (s *fakeKKAIPolicyKeyCooldownStore) Check(_ context.Context, key string) (K
 	return s.checkState, s.checkErr
 }
 
-func (s *fakeKKAIPolicyKeyCooldownStore) Record(_ context.Context, key string, eventDigest string) (KKAIPolicyKeyCooldownState, error) {
+func (s *fakeKKAIPolicyKeyCooldownStore) Record(ctx context.Context, key string, eventDigest string) (KKAIPolicyKeyCooldownState, error) {
 	s.recordKeys = append(s.recordKeys, key)
 	s.eventDigests = append(s.eventDigests, eventDigest)
+	s.recordCtxErr = append(s.recordCtxErr, ctx.Err())
+	_, hasDeadline := ctx.Deadline()
+	s.recordCtxHasDeadline = append(s.recordCtxHasDeadline, hasDeadline)
 	return s.recordState, s.recordErr
 }
 

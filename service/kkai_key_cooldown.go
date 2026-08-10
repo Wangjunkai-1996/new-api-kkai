@@ -56,6 +56,14 @@ func KKAIPolicyKeyCooldownEventDigest(eventID string) (string, bool) {
 }
 
 func RecordKKAIPolicyKeyCooldown(c *gin.Context, store KKAIPolicyKeyCooldownStore, eventID string) (KKAIPolicyKeyCooldownState, error) {
+	parent := context.Background()
+	if c != nil && c.Request != nil {
+		parent = context.WithoutCancel(c.Request.Context())
+	}
+	return recordKKAIPolicyKeyCooldown(parent, c, store, eventID)
+}
+
+func recordKKAIPolicyKeyCooldown(parent context.Context, c *gin.Context, store KKAIPolicyKeyCooldownStore, eventID string) (KKAIPolicyKeyCooldownState, error) {
 	if c == nil {
 		return KKAIPolicyKeyCooldownState{}, nil
 	}
@@ -71,7 +79,10 @@ func RecordKKAIPolicyKeyCooldown(c *gin.Context, store KKAIPolicyKeyCooldownStor
 	if !ok {
 		return KKAIPolicyKeyCooldownState{}, ErrKKAIPolicyKeyCooldownInvalidEvent
 	}
-	ctx, cancel := kkaiPolicyKeyCooldownContext(c, true)
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, kkaiPolicyKeyCooldownTimeout)
 	defer cancel()
 	return store.Record(ctx, key, eventDigest)
 }
@@ -140,15 +151,4 @@ func KKAIPolicyDefaultKeyCooldownStore() KKAIPolicyKeyCooldownStore {
 		return nil
 	}
 	return NewRedisKKAIPolicyKeyCooldownStore(common.RDB)
-}
-
-func kkaiPolicyKeyCooldownContext(c *gin.Context, detached bool) (context.Context, context.CancelFunc) {
-	parent := context.Background()
-	if c != nil && c.Request != nil {
-		parent = c.Request.Context()
-		if detached {
-			parent = context.WithoutCancel(parent)
-		}
-	}
-	return context.WithTimeout(parent, kkaiPolicyKeyCooldownTimeout)
 }
