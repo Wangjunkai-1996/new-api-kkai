@@ -259,6 +259,7 @@ func TestOpenaiRealtimeHandlerSerializesConcurrentLocalUsage(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		ClientWs: downstreamServer,
 		TargetWs: upstreamServer,
+		UsePrice: true,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			UpstreamModelName: "gpt-4o-realtime-preview",
 		},
@@ -270,24 +271,57 @@ func TestOpenaiRealtimeHandlerSerializesConcurrentLocalUsage(t *testing.T) {
 		result <- apiErr
 	}()
 
+	var peerReaders sync.WaitGroup
+	peerReaders.Add(2)
+	go func() {
+		defer peerReaders.Done()
+		for {
+			if _, _, err := downstreamPeer.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		defer peerReaders.Done()
+		for {
+			if _, _, err := upstreamPeer.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	clientMessages := [][]byte{
+		[]byte(`{"type":"session.update","session":{"tools":[{"type":"function","name":"lookup","description":"lookup","parameters":{"type":"object"}}]}}`),
+		[]byte(`{"type":"input_audio_buffer.append","audio":"AAAA"}`),
+		[]byte(`{"type":"response.done"}`),
+	}
+	targetMessages := [][]byte{
+		[]byte(`{"type":"session.updated","session":{"input_audio_format":"pcm16","output_audio_format":"g711_ulaw"}}`),
+		[]byte(`{"type":"response.audio.delta","delta":"AAAA"}`),
+		[]byte(`{"type":"response.done","response":{}}`),
+	}
+	start := make(chan struct{})
 	var writers sync.WaitGroup
 	writers.Add(2)
 	go func() {
 		defer writers.Done()
-		for i := 0; i < 200; i++ {
-			if err := downstreamPeer.WriteMessage(websocket.TextMessage, []byte(`{"type":"noop"}`)); err != nil {
+		<-start
+		for i := 0; i < 75; i++ {
+			if err := downstreamPeer.WriteMessage(websocket.TextMessage, clientMessages[i%len(clientMessages)]); err != nil {
 				return
 			}
 		}
 	}()
 	go func() {
 		defer writers.Done()
-		for i := 0; i < 200; i++ {
-			if err := upstreamPeer.WriteMessage(websocket.TextMessage, []byte(`{"type":"noop"}`)); err != nil {
+		<-start
+		for i := 0; i < 75; i++ {
+			if err := upstreamPeer.WriteMessage(websocket.TextMessage, targetMessages[i%len(targetMessages)]); err != nil {
 				return
 			}
 		}
 	}()
+	close(start)
 	writers.Wait()
 	require.NoError(t, upstreamPeer.WriteMessage(websocket.TextMessage, []byte(
 		`{"type":"error","error":{"code":"cyber_policy","message":"request rejected"}}`,
@@ -298,5 +332,16 @@ func TestOpenaiRealtimeHandlerSerializesConcurrentLocalUsage(t *testing.T) {
 		require.NotNil(t, apiErr)
 	case <-time.After(3 * time.Second):
 		t.Fatal("realtime handler did not finish after the terminal policy frame")
+	}
+
+	peerReadersDone := make(chan struct{})
+	go func() {
+		peerReaders.Wait()
+		close(peerReadersDone)
+	}()
+	select {
+	case <-peerReadersDone:
+	case <-time.After(time.Second):
+		t.Fatal("realtime peer readers did not stop after handler cleanup")
 	}
 }

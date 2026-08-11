@@ -48,6 +48,16 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 	localUsage := &dto.RealtimeUsage{}
 	sumUsage := &dto.RealtimeUsage{}
 	var localUsageMu sync.Mutex
+	var realtimeStateMu sync.Mutex
+	countRealtimeTokens := func(event dto.RealtimeEvent, finishFirstRequest bool) (int, int, error) {
+		realtimeStateMu.Lock()
+		defer realtimeStateMu.Unlock()
+		textToken, audioToken, err := service.CountTokenRealtime(info, event, info.UpstreamModelName)
+		if err == nil && finishFirstRequest {
+			info.IsFirstRequest = false
+		}
+		return textToken, audioToken, err
+	}
 
 	gopool.Go(func() {
 		defer close(clientReaderDone)
@@ -79,12 +89,14 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 				if realtimeEvent.Type == dto.RealtimeEventTypeSessionUpdate {
 					if realtimeEvent.Session != nil {
 						if realtimeEvent.Session.Tools != nil {
+							realtimeStateMu.Lock()
 							info.RealtimeTools = realtimeEvent.Session.Tools
+							realtimeStateMu.Unlock()
 						}
 					}
 				}
 
-				textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+				textToken, audioToken, err := countRealtimeTokens(*realtimeEvent, false)
 				if err != nil {
 					sendRealtimeRelayError(clientErrChan, fmt.Errorf("error counting text token: %v", err))
 					return
@@ -172,7 +184,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						localUsage = &dto.RealtimeUsage{}
 						localUsageMu.Unlock()
 					} else {
-						textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+						textToken, audioToken, err := countRealtimeTokens(*realtimeEvent, true)
 						if err != nil {
 							sendRealtimeRelayError(targetErrChan, fmt.Errorf("error counting text token: %v", err))
 							return
@@ -180,7 +192,6 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
 						localUsageMu.Lock()
 						localUsage.TotalTokens += textToken + audioToken
-						info.IsFirstRequest = false
 						localUsage.InputTokens += textToken + audioToken
 						localUsage.InputTokenDetails.TextTokens += textToken
 						localUsage.InputTokenDetails.AudioTokens += audioToken
@@ -202,11 +213,13 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					realtimeSession := realtimeEvent.Session
 					if realtimeSession != nil {
 						// update audio format
+						realtimeStateMu.Lock()
 						info.InputAudioFormat = common.GetStringIfEmpty(realtimeSession.InputAudioFormat, info.InputAudioFormat)
 						info.OutputAudioFormat = common.GetStringIfEmpty(realtimeSession.OutputAudioFormat, info.OutputAudioFormat)
+						realtimeStateMu.Unlock()
 					}
 				} else {
-					textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+					textToken, audioToken, err := countRealtimeTokens(*realtimeEvent, false)
 					if err != nil {
 						sendRealtimeRelayError(targetErrChan, fmt.Errorf("error counting text token: %v", err))
 						return
@@ -274,6 +287,12 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 		}
 	}
 	stopRealtimeReaders(clientConn, targetConn, clientReaderDone, targetReaderDone)
+	if policyErr == nil {
+		select {
+		case policyErr = <-policyErrChan:
+		default:
+		}
+	}
 
 	if usage.TotalTokens != 0 {
 		_ = preConsumeUsage(c, info, usage, sumUsage)
