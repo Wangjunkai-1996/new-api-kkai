@@ -14,6 +14,7 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	systemconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -42,6 +43,101 @@ func applyUpstreamContentLength(req *http.Request, info *common.RelayInfo) {
 	if info.UpstreamRequestBodySize > 0 && req.ContentLength <= 0 {
 		req.ContentLength = info.UpstreamRequestBodySize
 	}
+}
+
+const defaultUpstreamPolicyDrainTimeout = 5 * time.Minute
+
+type upstreamPolicyResponseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+type upstreamPolicyRequestLifecycle struct {
+	mu              sync.Mutex
+	responseStarted bool
+	cancel          context.CancelFunc
+	stopParent      func() bool
+}
+
+func (l *upstreamPolicyRequestLifecycle) markResponseStarted() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	if l.responseStarted {
+		l.mu.Unlock()
+		return
+	}
+	l.responseStarted = true
+	stopParent := l.stopParent
+	l.mu.Unlock()
+	if stopParent != nil {
+		stopParent()
+	}
+}
+
+func (b *upstreamPolicyResponseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.once.Do(b.cancel)
+	return err
+}
+
+func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		ctx, cancel := context.WithCancel(parent)
+		cancel()
+		return ctx, cancel
+	}
+	drainTimeout := defaultUpstreamPolicyDrainTimeout
+	if info != nil && info.IsStream && systemconstant.StreamingTimeout > 0 {
+		drainTimeout = time.Duration(systemconstant.StreamingTimeout) * time.Second
+	} else if common2.RelayTimeout > 0 {
+		drainTimeout = time.Duration(common2.RelayTimeout) * time.Second
+	}
+
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	lifecycle := &upstreamPolicyRequestLifecycle{cancel: cancel}
+	lifecycle.stopParent = context.AfterFunc(parent, func() {
+		lifecycle.mu.Lock()
+		defer lifecycle.mu.Unlock()
+		if !lifecycle.responseStarted {
+			lifecycle.cancel()
+		}
+	})
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotFirstResponseByte: lifecycle.markResponseStarted,
+	})
+	gopool.Go(func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-parent.Done():
+		}
+		timer := time.NewTimer(drainTimeout)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+		case <-timer.C:
+			cancel()
+		}
+	})
+	return ctx, cancel
+}
+
+func bindUpstreamPolicyResponseBody(resp *http.Response, cancel context.CancelFunc) *http.Response {
+	if resp == nil {
+		cancel()
+		return nil
+	}
+	if resp.Body == nil {
+		resp.Body = http.NoBody
+	}
+	resp.Body = &upstreamPolicyResponseBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp
 }
 
 func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Header) {
@@ -312,33 +408,39 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
+	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
 	req, err := http.NewRequestWithContext(
-		c.Request.Context(), c.Request.Method, fullRequestURL, requestBody,
+		requestCtx, c.Request.Method, fullRequestURL, requestBody,
 	)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	applyUpstreamContentLength(req, info)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
 	if err != nil {
+		cancelRequest()
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
-	return resp, nil
+	return bindUpstreamPolicyResponseBody(resp, cancelRequest), nil
 }
 
 func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -347,8 +449,10 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
+	req, err := http.NewRequestWithContext(requestCtx, c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	applyUpstreamContentLength(req, info)
@@ -357,23 +461,27 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
 	if err != nil {
+		cancelRequest()
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
-	return resp, nil
+	return bindUpstreamPolicyResponseBody(resp, cancelRequest), nil
 }
 
 func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*websocket.Conn, error) {
@@ -525,6 +633,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if c != nil && c.Request != nil {
+		if err := c.Request.Context().Err(); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request canceled before dispatch"))
+		}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
@@ -549,8 +662,10 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, NewTaskRequestError(err, false)
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
+	req, err := http.NewRequestWithContext(requestCtx, c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
+		cancelRequest()
 		return nil, NewTaskRequestError(fmt.Errorf("new request failed: %w", err), false)
 	}
 	applyUpstreamContentLength(req, info)
@@ -560,14 +675,21 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 
 	err = a.BuildRequestHeader(c, req, info)
 	if err != nil {
+		cancelRequest()
 		return nil, NewTaskRequestError(fmt.Errorf("setup request header failed: %w", err), false)
 	}
 	if err := applyInternalAttributionHeaders(req, c, info); err != nil {
+		cancelRequest()
 		return nil, NewTaskRequestError(fmt.Errorf("apply internal attribution headers failed: %w", err), false)
 	}
-	return executeTaskRequest(req, func(tracedRequest *http.Request) (*http.Response, error) {
+	resp, err := executeTaskRequest(req, func(tracedRequest *http.Request) (*http.Response, error) {
 		return doRequest(c, tracedRequest, info)
 	})
+	if err != nil {
+		cancelRequest()
+		return nil, err
+	}
+	return bindUpstreamPolicyResponseBody(resp, cancelRequest), nil
 }
 
 func executeTaskRequest(req *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {

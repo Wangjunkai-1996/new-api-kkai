@@ -81,23 +81,35 @@ func TestSubmitPreparedTaskPreservesUnauthorizedUpstreamKeyPolicy(t *testing.T) 
 func TestSubmitPreparedTaskRejectsEmbedded2xxPolicyErrorsBeforeAdaptor(t *testing.T) {
 	tests := []struct {
 		name          string
-		code          string
+		payload       string
 		wantCode      string
 		wantStatus    int
 		wantCausality string
 	}{
 		{
-			name:       "local audit unavailable",
-			code:       string(types.ErrorCodePolicyAuditUnavailable),
+			name:       "local audit unavailable in detail reason",
+			payload:    `{"error":{"code":503,"message":"audit unavailable","details":[{"reason":"policy_audit_unavailable"}]}}`,
 			wantCode:   string(types.ErrorCodePolicyAuditUnavailable),
 			wantStatus: http.StatusServiceUnavailable,
 		},
 		{
-			name:          "confirmed cyber",
-			code:          "cyber_policy",
+			name:          "confirmed cyber in detail reason",
+			payload:       `{"error":{"code":403,"message":"request rejected","details":[{"reason":"cyber_policy"}]}}`,
 			wantCode:      "fail_to_fetch_task",
 			wantStatus:    http.StatusForbidden,
 			wantCausality: service.KKAIPolicyCausalityClientToken,
+		},
+		{
+			name:       "context incomplete in detail reason",
+			payload:    `{"error":{"code":422,"message":"context incomplete","details":[{"reason":"policy_context_incomplete"}]}}`,
+			wantCode:   string(types.ErrorCodePolicyContextIncomplete),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "request blocked in detail reason",
+			payload:    `{"error":{"code":403,"message":"request blocked","details":[{"reason":"request_policy_blocked"}]}}`,
+			wantCode:   string(types.ErrorCodeRequestPolicyBlocked),
+			wantStatus: http.StatusForbidden,
 		},
 	}
 
@@ -109,9 +121,7 @@ func TestSubmitPreparedTaskRejectsEmbedded2xxPolicyErrorsBeforeAdaptor(t *testin
 				doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
 					return &http.Response{
 						StatusCode: http.StatusOK,
-						Body: io.NopCloser(strings.NewReader(
-							`{"error":{"code":"` + test.code + `","message":"request rejected"}}`,
-						)),
+						Body:       io.NopCloser(strings.NewReader(test.payload)),
 					}, nil
 				},
 				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {

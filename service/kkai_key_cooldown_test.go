@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -144,9 +145,43 @@ func TestRedisKKAIPolicyKeyCooldownStoreUsesAtomicScriptWithoutRawEvent(t *testi
 	assert.Equal(t, 1, state.Strike)
 	assert.Contains(t, client.script, `redis.call("TIME")`)
 	assert.Contains(t, client.script, "HEXISTS")
+	assert.Contains(t, client.script, "proposed_blocked_until")
+	assert.Contains(t, client.script, "if proposed_blocked_until > blocked_until then")
 	assert.Equal(t, []string{"kkai:policy:key-cooldown:v1:digest"}, client.keys)
 	assert.Equal(t, []interface{}{"record", eventDigest}, client.args)
 	assert.NotContains(t, client.args, "event-digest")
+}
+
+func TestEmergencyKeyCooldownSweepsExpiredOtherTokens(t *testing.T) {
+	now := time.Unix(1_720_000_000, 0)
+	expiredKey, ok := KKAIPolicyKeyCooldownRedisKey(900001)
+	require.True(t, ok)
+	activeKey, ok := KKAIPolicyKeyCooldownRedisKey(900002)
+	require.True(t, ok)
+
+	kkaiPolicyEmergencyCooldowns.Lock()
+	kkaiPolicyEmergencyCooldowns.blockedUntil = map[string]time.Time{
+		expiredKey: now.Add(-time.Second),
+		activeKey:  now.Add(time.Hour),
+	}
+	kkaiPolicyEmergencyCooldowns.lastSweep = time.Time{}
+	kkaiPolicyEmergencyCooldowns.Unlock()
+	t.Cleanup(func() {
+		kkaiPolicyEmergencyCooldowns.Lock()
+		delete(kkaiPolicyEmergencyCooldowns.blockedUntil, expiredKey)
+		delete(kkaiPolicyEmergencyCooldowns.blockedUntil, activeKey)
+		kkaiPolicyEmergencyCooldowns.lastSweep = time.Time{}
+		kkaiPolicyEmergencyCooldowns.Unlock()
+	})
+
+	state := CheckKKAIPolicyEmergencyKeyCooldown(activeKey, now)
+	require.True(t, state.Blocked)
+	kkaiPolicyEmergencyCooldowns.Lock()
+	_, expiredStillPresent := kkaiPolicyEmergencyCooldowns.blockedUntil[expiredKey]
+	_, activeStillPresent := kkaiPolicyEmergencyCooldowns.blockedUntil[activeKey]
+	kkaiPolicyEmergencyCooldowns.Unlock()
+	assert.False(t, expiredStillPresent)
+	assert.True(t, activeStillPresent)
 }
 
 func TestRedisKKAIPolicyKeyCooldownStorePropagatesFailure(t *testing.T) {

@@ -165,12 +165,6 @@ if redis.call("HEXISTS", key, event_field) == 1 then
 end
 redis.call("HSET", key, event_field, 1)
 
-if blocked_until > now then
-    redis.call("HSET", key, "last_violation", now)
-    redis.call("EXPIRE", key, 86400)
-    return current_state()
-end
-
 if last_violation == 0 or now - last_violation >= 86400000 then
     strikes = 0
 end
@@ -178,12 +172,18 @@ end
 strikes = math.min(strikes + 1, 7)
 local durations = {60, 120, 240, 480, 960, 1920, 3600}
 local duration = durations[strikes]
-blocked_until = now + duration * 1000
+local proposed_blocked_until = now + duration * 1000
+if proposed_blocked_until > blocked_until then
+    blocked_until = proposed_blocked_until
+end
 
 redis.call("HSET", key,
     "strikes", strikes,
     "blocked_until", blocked_until,
-    "last_violation", now)
-redis.call("EXPIRE", key, 86400)
-return {1, duration, strikes, blocked_until}
+	"last_violation", now)
+local ttl = redis.call("TTL", key)
+if ttl < 86400 then
+    redis.call("EXPIRE", key, 86400)
+end
+return current_state()
 `

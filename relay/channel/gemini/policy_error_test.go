@@ -36,18 +36,32 @@ func TestGeminiHandlersInterceptStructuredPolicyErrors(t *testing.T) {
 	}
 	tests := []struct {
 		name          string
-		code          string
+		payload       string
 		wantStatus    int
 		wantCausality string
 	}{
-		{name: "local audit unavailable", code: string(types.ErrorCodePolicyAuditUnavailable), wantStatus: http.StatusServiceUnavailable},
-		{name: "confirmed cyber", code: "cyber_policy", wantStatus: http.StatusForbidden, wantCausality: service.KKAIPolicyCausalityClientToken},
+		{
+			name:       "local audit unavailable in Gemini detail reason",
+			payload:    `{"error":{"code":503,"message":"audit unavailable","status":"UNAVAILABLE","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"policy_audit_unavailable","domain":"sub2api"}]}}`,
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name:          "confirmed cyber in Gemini detail reason",
+			payload:       `{"error":{"code":403,"message":"request rejected","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"cyber_policy","domain":"sub2api"}]}}`,
+			wantStatus:    http.StatusForbidden,
+			wantCausality: service.KKAIPolicyCausalityClientToken,
+		},
+		{
+			name:       "context incomplete in Gemini detail reason",
+			payload:    `{"error":{"code":422,"message":"context incomplete","status":"FAILED_PRECONDITION","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"policy_context_incomplete","domain":"sub2api"}]}}`,
+			wantStatus: http.StatusUnprocessableEntity,
+		},
 	}
 
 	for _, handler := range handlers {
 		for _, test := range tests {
 			t.Run(handler.name+"/"+test.name, func(t *testing.T) {
-				payload := `{"error":{"type":"policy_error","code":"` + test.code + `","message":"request rejected"}}`
+				payload := test.payload
 				if handler.stream {
 					payload = "data: " + payload + "\n\n"
 				}

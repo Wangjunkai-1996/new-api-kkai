@@ -393,7 +393,7 @@ func structuredGeminiPolicyError(data []byte) *types.NewAPIError {
 	if err := common.Unmarshal(data, &envelope); err != nil {
 		return nil
 	}
-	apiErr := service.NewKKAIStructuredRelayError(dto.GetOpenAIError(envelope.Error))
+	apiErr := service.NewKKAIStructuredRelayErrorFromField(envelope.Error)
 	if apiErr == nil {
 		return nil
 	}

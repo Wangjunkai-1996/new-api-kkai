@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 )
 
 func embeddedTaskPolicyError(statusCode int, responseBody []byte) *dto.TaskError {
@@ -19,11 +18,7 @@ func embeddedTaskPolicyError(statusCode int, responseBody []byte) *dto.TaskError
 		return nil
 	}
 
-	var structuredError types.OpenAIError
-	if err := common.Unmarshal(envelope.Error, &structuredError); err != nil {
-		return nil
-	}
-	apiErr := service.NewKKAIStructuredRelayError(&structuredError)
+	apiErr := service.NewKKAIStructuredRelayErrorFromField(envelope.Error)
 	if apiErr == nil {
 		return nil
 	}
@@ -34,6 +29,11 @@ func embeddedTaskPolicyError(statusCode int, responseBody []byte) *dto.TaskError
 
 	taskErr := service.TaskErrorWrapperUpstream(errors.New(string(responseBody)), "fail_to_fetch_task", statusCode)
 	taskErr.StatusCode = apiErr.StatusCode
+	taskErr.UpstreamErrorCode = string(apiErr.GetOriginalErrorCode())
+	taskErr.PolicyEvidence = apiErr.GetPolicyEvidence()
+	if localCode != "" {
+		taskErr.Code = string(localCode)
+	}
 	return taskErr
 }
 

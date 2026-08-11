@@ -246,7 +246,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 }
 
 func structuredClaudePolicyError(errorField any) *types.NewAPIError {
-	apiErr := service.NewKKAIStructuredRelayError(dto.GetOpenAIError(errorField))
+	apiErr := service.NewKKAIStructuredRelayErrorFromField(errorField)
 	if apiErr == nil {
 		return nil
 	}

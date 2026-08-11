@@ -25,6 +25,7 @@ const (
 var kkaiPolicyEmergencyCooldowns = struct {
 	sync.Mutex
 	blockedUntil map[string]time.Time
+	lastSweep    time.Time
 }{blockedUntil: make(map[string]time.Time)}
 
 type KKAIPolicyKeyCooldownState struct {
@@ -104,6 +105,7 @@ func RecordKKAIPolicyEmergencyKeyCooldown(c *gin.Context, now time.Time) KKAIPol
 	blockedUntil := now.Add(kkaiPolicyEmergencyCooldown)
 
 	kkaiPolicyEmergencyCooldowns.Lock()
+	sweepExpiredKKAIPolicyEmergencyCooldowns(now)
 	if existing := kkaiPolicyEmergencyCooldowns.blockedUntil[key]; existing.After(blockedUntil) {
 		blockedUntil = existing
 	} else {
@@ -122,6 +124,7 @@ func CheckKKAIPolicyEmergencyKeyCooldown(key string, now time.Time) KKAIPolicyKe
 		now = time.Now()
 	}
 	kkaiPolicyEmergencyCooldowns.Lock()
+	sweepExpiredKKAIPolicyEmergencyCooldowns(now)
 	blockedUntil, ok := kkaiPolicyEmergencyCooldowns.blockedUntil[key]
 	if ok && !blockedUntil.After(now) {
 		delete(kkaiPolicyEmergencyCooldowns.blockedUntil, key)
@@ -132,6 +135,19 @@ func CheckKKAIPolicyEmergencyKeyCooldown(key string, now time.Time) KKAIPolicyKe
 		return KKAIPolicyKeyCooldownState{}
 	}
 	return kkaiPolicyEmergencyCooldownState(blockedUntil, now)
+}
+
+func sweepExpiredKKAIPolicyEmergencyCooldowns(now time.Time) {
+	if !kkaiPolicyEmergencyCooldowns.lastSweep.IsZero() &&
+		now.Sub(kkaiPolicyEmergencyCooldowns.lastSweep) < time.Minute {
+		return
+	}
+	for key, blockedUntil := range kkaiPolicyEmergencyCooldowns.blockedUntil {
+		if !blockedUntil.After(now) {
+			delete(kkaiPolicyEmergencyCooldowns.blockedUntil, key)
+		}
+	}
+	kkaiPolicyEmergencyCooldowns.lastSweep = now
 }
 
 func kkaiPolicyEmergencyCooldownState(blockedUntil time.Time, now time.Time) KKAIPolicyKeyCooldownState {

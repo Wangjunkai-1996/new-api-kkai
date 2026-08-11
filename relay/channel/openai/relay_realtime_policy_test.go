@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
@@ -71,20 +72,31 @@ func TestRealtimePolicyErrorDoesNotConfirmMessageEcho(t *testing.T) {
 	require.Equal(t, service.KKAIPolicyCausalityAmbiguous, classification.Causality)
 }
 
-func TestRealtimePolicyErrorPreservesLocalFailClosedCode(t *testing.T) {
-	apiErr := realtimePolicyError(&dto.RealtimeEvent{
-		Type: dto.RealtimeEventTypeError,
-		Error: &types.OpenAIError{
-			Code:    string(types.ErrorCodePolicyAuditUnavailable),
-			Message: "audit unavailable",
-		},
-	})
+func TestRealtimePolicyErrorPreservesLocalFailClosedCodes(t *testing.T) {
+	for _, test := range []struct {
+		code   types.ErrorCode
+		status int
+	}{
+		{code: types.ErrorCodeRequestPolicyBlocked, status: http.StatusForbidden},
+		{code: types.ErrorCodePolicyContextIncomplete, status: http.StatusUnprocessableEntity},
+		{code: types.ErrorCodePolicyAuditUnavailable, status: http.StatusServiceUnavailable},
+	} {
+		t.Run(string(test.code), func(t *testing.T) {
+			apiErr := realtimePolicyError(&dto.RealtimeEvent{
+				Type: dto.RealtimeEventTypeError,
+				Error: &types.OpenAIError{
+					Code:    string(test.code),
+					Message: "policy rejected",
+				},
+			})
 
-	require.NotNil(t, apiErr)
-	require.Equal(t, http.StatusServiceUnavailable, apiErr.StatusCode)
-	require.Equal(t, types.ErrorCodePolicyAuditUnavailable, apiErr.GetErrorCode())
-	require.True(t, types.IsSkipRetryError(apiErr))
-	require.False(t, service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+			require.NotNil(t, apiErr)
+			require.Equal(t, test.status, apiErr.StatusCode)
+			require.Equal(t, test.code, apiErr.GetErrorCode())
+			require.True(t, types.IsSkipRetryError(apiErr))
+			require.False(t, service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+		})
+	}
 }
 
 func TestRealtimePolicyErrorIgnoresOrdinaryErrors(t *testing.T) {
@@ -175,6 +187,14 @@ func TestOpenaiRealtimeHandlerDrainsUpstreamPolicyAfterRequestContextCancellatio
 	case <-time.After(2 * time.Second):
 		t.Fatal("realtime handler stopped reading before the upstream policy frame arrived")
 	}
+}
+
+func TestRealtimePolicyDrainUsesConfiguredStreamingBound(t *testing.T) {
+	previous := constant.StreamingTimeout
+	constant.StreamingTimeout = 17
+	t.Cleanup(func() { constant.StreamingTimeout = previous })
+
+	require.Equal(t, 17*time.Second, realtimePolicyDrainDuration())
 }
 
 func TestOpenaiRealtimeHandlerSerializesConcurrentLocalUsage(t *testing.T) {

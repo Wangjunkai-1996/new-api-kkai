@@ -53,7 +53,9 @@ func TestRedis86KKAIPolicyKeyCooldownStateMachine(t *testing.T) {
 
 	duringCooldown, err := store.Record(ctx, key, digest("event-b"))
 	require.NoError(t, err)
-	assert.Equal(t, 1, duringCooldown.Strike)
+	assert.Equal(t, 2, duringCooldown.Strike)
+	assert.GreaterOrEqual(t, duringCooldown.RetryAfter, 119)
+	assert.LessOrEqual(t, duringCooldown.RetryAfter, 120)
 	lastViolationAfterConcurrentEvent, err := client.HGet(ctx, key, "last_violation").Int64()
 	require.NoError(t, err)
 	assert.Greater(t, lastViolationAfterConcurrentEvent, int64(0))
@@ -64,15 +66,15 @@ func TestRedis86KKAIPolicyKeyCooldownStateMachine(t *testing.T) {
 	ignoredReplay, err := store.Record(ctx, key, digest("event-b"))
 	require.NoError(t, err)
 	assert.False(t, ignoredReplay.Blocked)
-	assert.Equal(t, 1, ignoredReplay.Strike)
+	assert.Equal(t, 2, ignoredReplay.Strike)
 
-	expectedDurations := []int{120, 240, 480, 960, 1920, 3600, 3600}
+	expectedDurations := []int{240, 480, 960, 1920, 3600, 3600, 3600}
 	for index, duration := range expectedDurations {
 		require.NoError(t, client.HSet(ctx, key, "blocked_until", 0).Err())
 		state, err = store.Record(ctx, key, digest(fmt.Sprintf("event-level-%d", index)))
 		require.NoError(t, err)
 		assert.Equal(t, duration, state.RetryAfter)
-		assert.Equal(t, min(index+2, 7), state.Strike)
+		assert.Equal(t, min(index+3, 7), state.Strike)
 	}
 
 	redisNow, err := client.Time(ctx).Result()

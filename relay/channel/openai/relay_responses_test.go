@@ -153,7 +153,7 @@ func TestOaiResponsesStreamHandlerClassifiesTopLevelPolicyErrorsBeforeForwarding
 	}
 }
 
-func TestOaiResponsesStreamHandlerIgnoresClientDisconnectWithoutTerminalEvent(t *testing.T) {
+func TestOaiResponsesStreamHandlerDetectsTerminalPolicyAfterClientDisconnect(t *testing.T) {
 	oldTimeout := constant.StreamingTimeout
 	constant.StreamingTimeout = 30
 	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
@@ -172,10 +172,10 @@ func TestOaiResponsesStreamHandlerIgnoresClientDisconnectWithoutTerminalEvent(t 
 
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
-		Body: &blockingBody{
-			chunk:  []byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"),
-			closed: make(chan struct{}),
-		},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n" +
+				"data: {\"type\":\"error\",\"error\":{\"message\":\"request rejected\",\"type\":\"policy_error\",\"code\":\"cyber_policy\"}}\n\n",
+		)),
 		Header: http.Header{"Content-Type": []string{"text/event-stream"}},
 	}
 	info := &relaycommon.RelayInfo{
@@ -186,10 +186,12 @@ func TestOaiResponsesStreamHandlerIgnoresClientDisconnectWithoutTerminalEvent(t 
 
 	usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
 
-	require.Nil(t, apiErr)
-	require.NotNil(t, usage)
-	require.Zero(t, usage.TotalTokens)
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
+	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	require.True(t, types.IsSkipRetryError(apiErr))
+	require.Equal(t, service.KKAIPolicyCausalityClientToken, service.ClassifyKKAIUpstreamPolicyError(apiErr).Causality)
 	require.NotNil(t, info.StreamStatus)
-	require.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
-	require.False(t, info.StreamStatus.HasErrors())
+	require.True(t, info.StreamStatus.HasErrors())
 }

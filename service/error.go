@@ -100,7 +100,29 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)
 	err = common.Unmarshal(responseBody, &errResponse)
 	structuredError := kkaiOpenAIErrorFromGeneralError(errResponse)
-	policyEvidence := kkaiStructuredPolicyEvidence(structuredError)
+	structuredAPIError := NewKKAIStructuredRelayErrorFromField(errResponse.Error)
+	policyEvidence := ""
+	if structuredAPIError != nil {
+		policyEvidence = structuredAPIError.GetPolicyEvidence()
+		localPolicyCode := KKAILocalPolicyCode(
+			string(structuredAPIError.GetErrorCode()),
+			string(structuredAPIError.GetOriginalErrorCode()),
+		)
+		if err == nil && (localPolicyCode != "" || policyEvidence != "") {
+			return types.NewOpenAIError(
+				structuredAPIError,
+				structuredAPIError.GetErrorCode(),
+				structuredAPIError.StatusCode,
+				upstreamStatusOption,
+				types.ErrOptionWithOriginalErrorCode(structuredAPIError.GetOriginalErrorCode()),
+				types.ErrOptionWithPolicyEvidence(policyEvidence),
+				types.ErrOptionWithSkipRetry(),
+			)
+		}
+	}
+	if policyEvidence == "" {
+		policyEvidence = kkaiStructuredPolicyEvidence(structuredError)
+	}
 	if policyEvidence == "" {
 		// Unstructured markers still suppress retries and raw-body exposure, but
 		// remain ambiguous because they cannot authorize a user/token penalty.
@@ -256,10 +278,13 @@ func TaskErrorWrapperUpstream(err error, code string, statusCode int) *dto.TaskE
 	localPolicyCode := KKAILocalPolicyCode(code)
 	var errResponse dto.GeneralErrorResponse
 	if common.Unmarshal([]byte(err.Error()), &errResponse) == nil {
-		structuredError := kkaiOpenAIErrorFromGeneralError(errResponse)
-		upstreamCode := types.ErrorCode(kkaiStructuredErrorCode(structuredError))
+		structuredAPIError := NewKKAIStructuredRelayErrorFromField(errResponse.Error)
+		upstreamCode := types.ErrorCode("")
+		if structuredAPIError != nil {
+			upstreamCode = structuredAPIError.GetOriginalErrorCode()
+			taskErr.PolicyEvidence = structuredAPIError.GetPolicyEvidence()
+		}
 		taskErr.UpstreamErrorCode = string(upstreamCode)
-		taskErr.PolicyEvidence = kkaiStructuredPolicyEvidence(structuredError)
 		if localPolicyCode == "" {
 			localPolicyCode = KKAILocalPolicyCode(string(upstreamCode))
 		}

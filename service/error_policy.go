@@ -70,3 +70,42 @@ func NewKKAIStructuredRelayError(openAIError *types.OpenAIError) *types.NewAPIEr
 	}
 	return types.WithOpenAIError(*openAIError, statusCode, options...)
 }
+
+// NewKKAIStructuredRelayErrorFromField preserves provider-specific structured
+// policy codes such as google.rpc.ErrorInfo.details[].reason before converting
+// the envelope to the common OpenAI error shape.
+func NewKKAIStructuredRelayErrorFromField(errorField any) *types.NewAPIError {
+	encoded, err := common.Marshal(errorField)
+	if err != nil {
+		return NewKKAIStructuredRelayError(dto.GetOpenAIError(errorField))
+	}
+	var normalized any
+	if err := common.Unmarshal(encoded, &normalized); err != nil {
+		return NewKKAIStructuredRelayError(dto.GetOpenAIError(errorField))
+	}
+	openAIError := dto.GetOpenAIError(normalized)
+	var structured struct {
+		Details []struct {
+			Reason string `json:"reason"`
+		} `json:"details"`
+	}
+	if err := common.Unmarshal(encoded, &structured); err == nil {
+		for _, detail := range structured.Details {
+			reason := strings.TrimSpace(detail.Reason)
+			if reason == "" {
+				continue
+			}
+			candidate := types.OpenAIError{Code: reason}
+			if openAIError != nil {
+				candidate = *openAIError
+				candidate.Code = reason
+			}
+			apiErr := NewKKAIStructuredRelayError(&candidate)
+			if apiErr != nil && (IsKKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())) ||
+				apiErr.GetPolicyEvidence() != "") {
+				return apiErr
+			}
+		}
+	}
+	return NewKKAIStructuredRelayError(openAIError)
+}

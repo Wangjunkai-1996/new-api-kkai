@@ -17,16 +17,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type kkaiPolicyGuardTestApplier struct {
-	inputs []RiskActionInput
-	err    error
-	result *RiskActionResult
+	inputs  []RiskActionInput
+	err     error
+	result  *RiskActionResult
+	onApply func()
 }
 
 func (a *kkaiPolicyGuardTestApplier) Apply(_ context.Context, input RiskActionInput) (*RiskActionResult, error) {
 	a.inputs = append(a.inputs, input)
+	if a.onApply != nil {
+		a.onApply()
+	}
 	if a.err != nil {
 		return nil, a.err
 	}
@@ -218,10 +223,12 @@ func TestCyberPolicyContextSuppressesViolationFee(t *testing.T) {
 	assert.False(t, shouldChargeViolationFee(ctx, apiErr))
 }
 
-func TestKKAIPolicyGuardRecordsKeyCooldownBeforeEveryBearerApply(t *testing.T) {
+func TestKKAIPolicyGuardRecordsKeyCooldownAfterSuccessfulBearerApply(t *testing.T) {
 	ctx := newKKAIPolicyGuardTestContext(t)
 	cooldown := &fakeKKAIPolicyKeyCooldownStore{}
-	applier := &kkaiPolicyGuardTestApplier{}
+	applier := &kkaiPolicyGuardTestApplier{onApply: func() {
+		require.Empty(t, cooldown.recordKeys)
+	}}
 	guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(applier, cooldown)
 	guard.now = func() time.Time { return time.Unix(1_720_000_000, 0) }
 	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCode("cyber_policy"), http.StatusForbidden)
@@ -251,6 +258,62 @@ func TestKKAIPolicyGuardRecordsKeyCooldownBeforeEveryBearerApply(t *testing.T) {
 	assert.Equal(t, cooldown.eventDigests, replayCooldown.eventDigests)
 }
 
+func TestKKAIPolicyGuardDoesNotCooldownIdentityMismatchOrRolledBackAction(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*gin.Context, *gorm.DB)
+	}{
+		{
+			name: "token identity mismatch",
+			mutate: func(c *gin.Context, _ *gorm.DB) {
+				c.Set("token_key", "rotated-or-unrelated-token")
+			},
+		},
+		{
+			name: "transaction rollback",
+			mutate: func(_ *gin.Context, db *gorm.DB) {
+				const callbackName = "kkai:test:fail-policy-outbox"
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+					if tx.Statement.Schema != nil && tx.Statement.Schema.Name == "KKAIOutboxEvent" {
+						tx.AddError(errors.New("injected outbox failure"))
+					}
+				}))
+				t.Cleanup(func() { _ = db.Callback().Create().Remove(callbackName) })
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := newRiskActionTestDB(t)
+			user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
+			ctx := newKKAIPolicyGuardTestContext(t)
+			ctx.Set("id", user.Id)
+			ctx.Set("token_id", token.Id)
+			ctx.Set("token_key", token.Key)
+			cooldown := &fakeKKAIPolicyKeyCooldownStore{}
+			test.mutate(ctx, db)
+			guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(NewRiskActionService(db), cooldown)
+			apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCode("cyber_policy"), http.StatusForbidden)
+
+			detected, err := guard.HandleAPIError(
+				ctx,
+				*types.NewChannelError(channel.Id, 1, channel.Name, false, channel.Key, true),
+				apiErr,
+			)
+
+			require.True(t, detected)
+			require.Error(t, err)
+			assert.Empty(t, cooldown.recordKeys)
+			require.NoError(t, db.First(&token, token.Id).Error)
+			assert.Equal(t, common.TokenStatusEnabled, token.Status)
+			var incidents int64
+			require.NoError(t, db.Model(&model.KKAIPolicyIncident{}).Count(&incidents).Error)
+			assert.Zero(t, incidents)
+		})
+	}
+}
+
 func TestKKAIPolicyGuardDoesNotRecordCooldownForOtherAttributionOrMissingToken(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -260,6 +323,7 @@ func TestKKAIPolicyGuardDoesNotRecordCooldownForOtherAttributionOrMissingToken(t
 		{name: "upstream key", message: "API key has been disabled"},
 		{name: "ambiguous", message: "cyber_policy; API key has been disabled"},
 		{name: "missing token", message: "cyber_policy", mutate: func(c *gin.Context) { c.Set("token_id", 0) }},
+		{name: "missing upstream identity", message: "cyber_policy", mutate: func(c *gin.Context) { c.Set("token_id", 11) }},
 	}
 
 	for _, test := range tests {
@@ -335,15 +399,14 @@ func TestKKAIPolicyGuardKeepsRetryBlockedWhenAuditWriteFails(t *testing.T) {
 	require.True(t, ShouldSkipRetryAfterKKAIPolicy(ctx))
 }
 
-func TestKKAIPolicyGuardKeepsEmergencyCooldownWhenRedisAndApplyFail(t *testing.T) {
+func TestKKAIPolicyGuardKeepsEmergencyCooldownWhenRedisFailsAfterApply(t *testing.T) {
 	ctx := newKKAIPolicyGuardTestContext(t)
 	ctx.Set("token_id", 887711)
 	common.SetContextKey(ctx, constant.ContextKeyTokenId, 887711)
 	now := time.Now().Truncate(time.Second)
 	redisErr := errors.New("redis unavailable")
-	applyErr := errors.New("database unavailable")
 	guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(
-		&kkaiPolicyGuardTestApplier{err: applyErr},
+		&kkaiPolicyGuardTestApplier{},
 		&fakeKKAIPolicyKeyCooldownStore{recordErr: redisErr},
 	)
 	guard.now = func() time.Time { return now }
@@ -355,7 +418,7 @@ func TestKKAIPolicyGuardKeepsEmergencyCooldownWhenRedisAndApplyFail(t *testing.T
 		apiErr,
 	)
 	require.True(t, detected)
-	require.ErrorIs(t, err, applyErr)
+	require.NoError(t, err)
 
 	key, ok := KKAIPolicyKeyCooldownRedisKey(887711)
 	require.True(t, ok)

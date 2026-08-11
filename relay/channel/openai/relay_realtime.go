@@ -252,7 +252,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 		clientEnded = true
 	}
 	if clientEnded && policyErr == nil {
-		timer := time.NewTimer(realtimePolicyDrainTimeout)
+		timer := time.NewTimer(realtimePolicyDrainDuration())
 		select {
 		case policyErr = <-policyErrChan:
 		case <-targetClosed:

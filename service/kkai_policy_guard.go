@@ -129,12 +129,6 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Recommendation:         RiskDecisionReject,
 		Metadata:               metadata,
 	}
-	if classification.Causality == KKAIPolicyCausalityClientToken && clientAuthMode == kkaiPolicyClientAuthBearer {
-		if _, cooldownErr := recordKKAIPolicyKeyCooldown(policyActionCtx, c, g.cooldown, eventID); cooldownErr != nil {
-			RecordKKAIPolicyEmergencyKeyCooldown(c, now)
-			logger.LogWarn(policyActionCtx, "KKAI key cooldown record failed: "+cooldownErr.Error())
-		}
-	}
 	if clientActionAllowed {
 		event.Recommendation = RiskDecisionDisable
 	}
@@ -167,6 +161,15 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	}
 	if result == nil {
 		return true, ErrRiskStreamInvalidResult
+	}
+	// Apply performs the authoritative token/channel identity checks and commits
+	// the incident transaction. A failed or rolled-back action must never leave a
+	// Redis or emergency cooldown behind for an unrelated token identity.
+	if clientActionAllowed && clientAuthMode == kkaiPolicyClientAuthBearer {
+		if _, cooldownErr := recordKKAIPolicyKeyCooldown(policyActionCtx, c, g.cooldown, eventID); cooldownErr != nil {
+			RecordKKAIPolicyEmergencyKeyCooldown(c, now)
+			logger.LogWarn(policyActionCtx, "KKAI key cooldown record failed: "+cooldownErr.Error())
+		}
 	}
 	if c != nil {
 		c.Set(kkaiPolicyHandledContextKey, true)

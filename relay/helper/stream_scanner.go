@@ -289,16 +289,24 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
 	})
 
-	// 主循环等待完成或超时
-	select {
-	case <-ticker.C:
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
-	case <-stopChan:
-		// EndReason already set by the goroutine that triggered stopChan
-	case <-c.Request.Context().Done():
-		// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
-		// 避免为已放弃的请求继续消费上游 token。
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+	// A disconnected client must not be able to hide a terminal upstream policy
+	// frame. Stop writing through the normal helpers, but keep the bounded
+	// upstream response drain alive until a terminal frame, EOF, or timeout.
+	clientDone := c.Request.Context().Done()
+	for {
+		select {
+		case <-ticker.C:
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
+			clientDone = nil
+		case <-stopChan:
+			// EndReason already set by the goroutine that triggered stopChan.
+			clientDone = nil
+		case <-clientDone:
+			logger.LogDebug(c, "downstream disconnected; draining upstream stream for terminal policy state")
+			clientDone = nil
+			continue
+		}
+		break
 	}
 
 	cleanup()

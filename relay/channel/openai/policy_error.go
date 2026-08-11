@@ -14,7 +14,7 @@ func structuredStreamError(data string) *types.NewAPIError {
 	if err := common.UnmarshalJsonStr(data, &envelope); err != nil {
 		return nil
 	}
-	return service.NewKKAIStructuredRelayError(dto.GetOpenAIError(envelope.Error))
+	return service.NewKKAIStructuredRelayErrorFromField(envelope.Error)
 }
 
 func structuredPolicyStreamError(data string) *types.NewAPIError {
@@ -24,7 +24,15 @@ func structuredPolicyStreamError(data string) *types.NewAPIError {
 	if err := common.UnmarshalJsonStr(data, &envelope); err != nil {
 		return nil
 	}
-	return structuredPolicyError(dto.GetOpenAIError(envelope.Error))
+	apiErr := service.NewKKAIStructuredRelayErrorFromField(envelope.Error)
+	if apiErr == nil {
+		return nil
+	}
+	if service.IsKKAILocalPolicyCode(string(apiErr.GetErrorCode()), string(apiErr.GetOriginalErrorCode())) ||
+		apiErr.GetPolicyEvidence() != "" {
+		return apiErr
+	}
+	return nil
 }
 
 func structuredPolicyError(openAIError *types.OpenAIError) *types.NewAPIError {

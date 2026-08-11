@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -191,6 +192,40 @@ func TestRelayAndTaskErrorHandlersPreserveLocalPolicyCodesWithoutCyberClassifica
 			require.Equal(t, KKAILocalPolicyStatus(code), apiErr.StatusCode)
 			require.Equal(t, string(code), taskErr.Code)
 			require.Equal(t, http.StatusServiceUnavailable, taskErr.UpstreamStatusCode)
+			require.False(t, ClassifyKKAITaskPolicyError(taskErr).Detected)
+		})
+	}
+}
+
+func TestRelayAndTaskErrorHandlersUseStructuredDetailReason(t *testing.T) {
+	tests := []struct {
+		code   types.ErrorCode
+		status int
+	}{
+		{code: types.ErrorCodeRequestPolicyBlocked, status: http.StatusForbidden},
+		{code: types.ErrorCodePolicyContextIncomplete, status: http.StatusUnprocessableEntity},
+		{code: types.ErrorCodePolicyAuditUnavailable, status: http.StatusServiceUnavailable},
+	}
+
+	for _, test := range tests {
+		t.Run(string(test.code), func(t *testing.T) {
+			body := `{"error":{"code":` + fmt.Sprint(test.status) + `,"message":"policy rejected","status":"FAILED_PRECONDITION","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"` + string(test.code) + `","domain":"sub2api"}]}}`
+			resp := &http.Response{
+				StatusCode: test.status,
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}
+
+			apiErr := RelayErrorHandler(context.Background(), resp, false)
+			require.Equal(t, test.code, apiErr.GetErrorCode())
+			require.Equal(t, test.status, apiErr.StatusCode)
+			require.Equal(t, test.status, apiErr.GetOriginalStatusCode())
+			require.True(t, types.IsSkipRetryError(apiErr))
+			require.False(t, ClassifyKKAIUpstreamPolicyError(apiErr).Detected)
+
+			taskErr := TaskErrorWrapperUpstream(errors.New(body), "fail_to_fetch_task", test.status)
+			require.Equal(t, string(test.code), taskErr.Code)
+			require.Equal(t, string(test.code), taskErr.UpstreamErrorCode)
+			require.Equal(t, string(test.code), taskErr.PolicyEvidence)
 			require.False(t, ClassifyKKAITaskPolicyError(taskErr).Detected)
 		})
 	}

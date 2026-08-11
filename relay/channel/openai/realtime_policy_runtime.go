@@ -4,13 +4,21 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gorilla/websocket"
 )
 
-const realtimePolicyDrainTimeout = 5 * time.Second
+const defaultRealtimePolicyDrainTimeout = 5 * time.Minute
+
+func realtimePolicyDrainDuration() time.Duration {
+	if constant.StreamingTimeout > 0 {
+		return time.Duration(constant.StreamingTimeout) * time.Second
+	}
+	return defaultRealtimePolicyDrainTimeout
+}
 
 func sendRealtimeRelayError(ch chan<- error, err error) {
 	if err == nil {
@@ -30,13 +38,9 @@ func stopRealtimeReader(conn *websocket.Conn, done <-chan struct{}) {
 	}
 	if conn != nil {
 		_ = conn.SetReadDeadline(time.Now())
+		_ = conn.Close()
 	}
-	timer := time.NewTimer(500 * time.Millisecond)
-	defer timer.Stop()
-	select {
-	case <-done:
-	case <-timer.C:
-	}
+	<-done
 }
 
 func realtimePolicyError(event *dto.RealtimeEvent) *types.NewAPIError {
