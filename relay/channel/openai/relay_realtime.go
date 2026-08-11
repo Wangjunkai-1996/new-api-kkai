@@ -273,8 +273,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 		default:
 		}
 	}
-	stopRealtimeReader(clientConn, clientReaderDone)
-	stopRealtimeReader(targetConn, targetReaderDone)
+	stopRealtimeReaders(clientConn, targetConn, clientReaderDone, targetReaderDone)
 
 	if usage.TotalTokens != 0 {
 		_ = preConsumeUsage(c, info, usage, sumUsage)

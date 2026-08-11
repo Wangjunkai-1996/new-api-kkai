@@ -19,6 +19,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type realtimePolicyCloseProbe struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newRealtimePolicyCloseProbe() *realtimePolicyCloseProbe {
+	return &realtimePolicyCloseProbe{closed: make(chan struct{})}
+}
+
+func (p *realtimePolicyCloseProbe) Close() error {
+	p.once.Do(func() { close(p.closed) })
+	return nil
+}
+
 func newRealtimeWebSocketPair(t *testing.T) (*websocket.Conn, *websocket.Conn) {
 	t.Helper()
 	serverConn := make(chan *websocket.Conn, 1)
@@ -195,6 +209,45 @@ func TestRealtimePolicyDrainUsesConfiguredStreamingBound(t *testing.T) {
 	t.Cleanup(func() { constant.StreamingTimeout = previous })
 
 	require.Equal(t, 17*time.Second, realtimePolicyDrainDuration())
+}
+
+func TestStopRealtimeReadersReleasesOppositeBlockedWriter(t *testing.T) {
+	clientConn := newRealtimePolicyCloseProbe()
+	targetConn := newRealtimePolicyCloseProbe()
+	clientReaderDone := make(chan struct{})
+	targetReaderDone := make(chan struct{})
+	writerReleased := make(chan struct{})
+	cleanupReturned := make(chan struct{})
+
+	// The target reader has already delivered the policy error. The client reader
+	// represents a goroutine blocked writing to targetConn and can finish only
+	// after that opposite connection is closed.
+	close(targetReaderDone)
+	go func() {
+		<-targetConn.closed
+		close(writerReleased)
+		close(clientReaderDone)
+	}()
+	go func() {
+		stopRealtimeReaders(clientConn, targetConn, clientReaderDone, targetReaderDone)
+		close(cleanupReturned)
+	}()
+
+	select {
+	case <-clientConn.closed:
+	case <-time.After(time.Second):
+		require.FailNow(t, "client connection was not closed")
+	}
+	select {
+	case <-writerReleased:
+	case <-time.After(time.Second):
+		require.FailNow(t, "target connection was not closed before waiting for the client reader")
+	}
+	select {
+	case <-cleanupReturned:
+	case <-time.After(time.Second):
+		require.FailNow(t, "realtime cleanup did not return after releasing the blocked writer")
+	}
 }
 
 func TestOpenaiRealtimeHandlerSerializesConcurrentLocalUsage(t *testing.T) {

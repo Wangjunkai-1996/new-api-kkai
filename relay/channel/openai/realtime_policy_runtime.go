@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
-	"github.com/gorilla/websocket"
 )
 
 const defaultRealtimePolicyDrainTimeout = 5 * time.Minute
@@ -30,17 +29,25 @@ func sendRealtimeRelayError(ch chan<- error, err error) {
 	}
 }
 
-func stopRealtimeReader(conn *websocket.Conn, done <-chan struct{}) {
-	select {
-	case <-done:
-		return
-	default:
+type realtimePolicyConnectionCloser interface {
+	Close() error
+}
+
+func stopRealtimeReaders(clientConn, targetConn realtimePolicyConnectionCloser, clientDone, targetDone <-chan struct{}) {
+	// A reader may be blocked writing to the opposite connection. Closing both
+	// transports first releases either direction before waiting for termination.
+	if clientConn != nil {
+		_ = clientConn.Close()
 	}
-	if conn != nil {
-		_ = conn.SetReadDeadline(time.Now())
-		_ = conn.Close()
+	if targetConn != nil {
+		_ = targetConn.Close()
 	}
-	<-done
+	if clientDone != nil {
+		<-clientDone
+	}
+	if targetDone != nil {
+		<-targetDone
+	}
 }
 
 func realtimePolicyError(event *dto.RealtimeEvent) *types.NewAPIError {

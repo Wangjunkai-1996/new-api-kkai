@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -225,6 +226,38 @@ func TestOpenAIStreamHandlersInterceptPolicyErrorsBeforeForwarding(t *testing.T)
 			})
 		}
 	}
+}
+
+func TestOaiStreamHandlerDetectsPolicyAfterClientDisconnectAndOrdinaryChunk(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-test","choices":[{"index":0,"delta":{"content":"first"}}]}`,
+		`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-test","choices":[{"index":0,"delta":{"content":"second"}}]}`,
+		`data: {"error":{"message":"request rejected","type":"policy_error","code":"cyber_policy"}}`,
+		``,
+	}, "\n\n")
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+	requestContext, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c.Request = c.Request.WithContext(requestContext)
+	c.Writer = &cancelAfterWriter{
+		ResponseWriter: c.Writer,
+		needle:         "first",
+		cancel:         cancel,
+	}
+
+	usage, apiErr := OaiStreamHandler(c, info, resp)
+
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
+	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	require.True(t, types.IsSkipRetryError(apiErr))
+	require.Equal(t, service.KKAIPolicyCausalityClientToken, service.ClassifyKKAIUpstreamPolicyError(apiErr).Causality)
+	require.Contains(t, recorder.Body.String(), "first")
 }
 
 func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {
