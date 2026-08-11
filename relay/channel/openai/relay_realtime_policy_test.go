@@ -334,6 +334,8 @@ func TestOpenaiRealtimeHandlerSerializesConcurrentLocalUsage(t *testing.T) {
 		t.Fatal("realtime handler did not finish after the terminal policy frame")
 	}
 
+	_ = downstreamPeer.Close()
+	_ = upstreamPeer.Close()
 	peerReadersDone := make(chan struct{})
 	go func() {
 		peerReaders.Wait()
