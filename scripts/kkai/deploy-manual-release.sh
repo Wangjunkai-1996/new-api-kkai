@@ -62,7 +62,7 @@ archive="$(dirname -- "${METADATA}")/${archive_name}"
 [[ -f "${archive}" ]] || die "release archive is missing"
 [[ "$(sha256_file "${archive}")" == "${archive_sha256}" ]] || die "archive checksum mismatch"
 
-readonly HOST=tokk@10.203.0.1
+readonly HOST=sys1
 readonly KEY="${HOME}/.ssh/ovh_sys1"
 readonly REMOTE_ARCHIVE="/tmp/newapi-manual-${version}.tar"
 readonly -a SSH_OPTIONS=(

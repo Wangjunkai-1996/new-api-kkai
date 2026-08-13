@@ -96,7 +96,7 @@ contains '--build-arg "http_proxy=${build_http_proxy}"' "${BUILD_SCRIPT}" ||
 contains '--build-arg "https_proxy=${build_https_proxy}"' "${BUILD_SCRIPT}" ||
   fail "manual build does not forward the lowercase HTTPS proxy into build stages"
 
-contains 'tokk@10.203.0.1' "${DEPLOY_SCRIPT}" || fail "manual deploy does not use the private host"
+contains 'readonly HOST=sys1' "${DEPLOY_SCRIPT}" || fail "manual deploy does not use the primary sys1 route"
 contains 'ProxyCommand=none' "${DEPLOY_SCRIPT}" || fail "manual deploy may use an SSH proxy"
 contains 'usage: deploy-manual-release.sh --stage METADATA.json' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not require an explicit stage action"

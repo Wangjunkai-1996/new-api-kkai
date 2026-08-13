@@ -24,6 +24,7 @@ source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
 readonly EXPECTED_INFRA_SHA=2b4d149f4b8b778d6a3f2c997fd021b45484dad4
 readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
+readonly EXPECTED_HOST=sys1
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
 export KKAI_TEST_EXPECTED_PROTOCOL="${KKAI_DEPLOYMENT_PROTOCOL}"
 export KKAI_TEST_EXPECTED_SCHEMA_CONTRACT=feature
@@ -222,6 +223,12 @@ test_successful_preflight_precedes_upload_and_stage() {
   contract_arguments="--expected-infra-sha ${KKAI_INFRA_SHA} --deployment-protocol ${KKAI_DEPLOYMENT_PROTOCOL} --schema-contract ${schema_contract}"
   [[ "$(grep -Fc -- "${contract_arguments}" "${call_log}")" -eq 2 ]] ||
     fail "preflight and stage did not share the pinned contract"
+  [[ "$(grep -Ec -- "^ssh .* ${EXPECTED_HOST} sudo " "${call_log}")" -eq 2 ]] ||
+    fail "preflight and stage did not use the primary sys1 route"
+  grep -E -- "^scp .* ${EXPECTED_HOST}:/tmp/newapi-manual-${version}\\.tar$" "${call_log}" >/dev/null ||
+    fail "archive upload did not use the primary sys1 route"
+  ! grep -F '10.203.0.1' "${call_log}" >/dev/null ||
+    fail "manual deploy used the retired WireGuard address"
   stage_arguments="--archive /tmp/newapi-manual-${version}.tar --archive-sha256 ${archive_sha256} --source-sha ${source_sha} --version ${version} --image-tag kkai-newapi-manual:${version} ${contract_arguments}"
   grep -F -- "${stage_arguments}" "${call_log}" >/dev/null ||
     fail "stage did not receive the verified release metadata"
