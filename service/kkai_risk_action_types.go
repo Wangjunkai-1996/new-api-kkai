@@ -48,12 +48,13 @@ type RiskActionInput struct {
 }
 
 type RiskActionResult struct {
-	IncidentID         int64
-	Replayed           bool
-	TokenDisabled      bool
-	UserDisabled       bool
-	UserDisableSkipped bool
-	ChannelDisabled    bool
+	IncidentID                int64
+	Replayed                  bool
+	CooldownIdentityValidated bool
+	TokenDisabled             bool
+	UserDisabled              bool
+	UserDisableSkipped        bool
+	ChannelDisabled           bool
 }
 
 type normalizedRiskAction struct {

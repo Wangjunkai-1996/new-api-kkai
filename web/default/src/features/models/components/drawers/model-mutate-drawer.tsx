@@ -206,6 +206,7 @@ export function ModelMutateDrawer({
       ChannelDisableThreshold: '',
       AutomaticDisableChannelEnabled: false,
       AutomaticEnableChannelEnabled: false,
+      CyberPolicyKeyCooldownEnabled: true,
       AutomaticDisableKeywords: '',
       AutomaticDisableStatusCodes: '401',
       AutomaticRetryStatusCodes:

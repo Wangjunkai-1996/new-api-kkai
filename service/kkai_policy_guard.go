@@ -22,7 +22,8 @@ const (
 	KKAIPolicyCausalityContextKey  = "kkai_policy_causality"
 	kkaiPolicyNoRetryContextKey    = "kkai_policy_no_retry"
 	kkaiPolicyHandledContextKey    = "kkai_policy_handled"
-	kkaiPolicyRuleVersion          = "kkai-upstream-policy-v2"
+	kkaiPolicyCooldownContextKey   = "kkai_policy_key_cooldown_applied"
+	kkaiPolicyRuleVersion          = "kkai-upstream-policy-v3"
 	kkaiPolicyClientAuthBearer     = "bearer_token"
 	kkaiPolicyClientAuthPlayground = "playground_session"
 	kkaiPolicyEnforcementTimeout   = 5 * time.Second
@@ -84,10 +85,12 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 			clientAuthMode = kkaiPolicyClientAuthPlayground
 		}
 	}
-	clientActionAllowed := classification.Causality == KKAIPolicyCausalityClientToken &&
-		clientAuthMode != "" && channel.ChannelId > 0 && upstreamKeyFingerprint != ""
+	clientCooldownAllowed := common.CyberPolicyKeyCooldownEnabled &&
+		classification.Causality == KKAIPolicyCausalityClientToken &&
+		clientAuthMode == kkaiPolicyClientAuthBearer && channel.ChannelId > 0 &&
+		tokenID > 0 && tokenFingerprint != "" && upstreamKeyFingerprint != ""
 	policyActionCtx := kkaiPolicyContext(c)
-	if clientActionAllowed {
+	if clientCooldownAllowed {
 		var cancel context.CancelFunc
 		policyActionCtx, cancel = context.WithTimeout(
 			context.WithoutCancel(policyActionCtx),
@@ -98,7 +101,7 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	metadata := map[string]any{
 		"case_id":                        eventID,
 		"causality":                      classification.Causality,
-		"client_token_action_allowed":    clientActionAllowed,
+		"client_token_cooldown_allowed":  clientCooldownAllowed,
 		"client_policy_marker_confirmed": classification.Causality == KKAIPolicyCausalityClientToken,
 		"evidence_level":                 "confirmed",
 		"original_status_code":           classification.StatusCode,
@@ -129,9 +132,6 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Recommendation:         RiskDecisionReject,
 		Metadata:               metadata,
 	}
-	if clientActionAllowed {
-		event.Recommendation = RiskDecisionDisable
-	}
 	decision, actions, err := DecideKKAIRiskStreamEvent(event)
 	if err != nil {
 		return true, err
@@ -156,20 +156,21 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		Metadata:               event.Metadata,
 		Actions:                actions,
 	})
+	if clientCooldownAllowed && result != nil && result.CooldownIdentityValidated {
+		cooldownState, cooldownErr := recordKKAIPolicyKeyCooldown(policyActionCtx, c, g.cooldown, eventID)
+		if cooldownErr != nil {
+			cooldownState = RecordKKAIPolicyEmergencyKeyCooldown(c, now)
+			logger.LogWarn(policyActionCtx, "KKAI key cooldown record failed: "+cooldownErr.Error())
+		}
+		if c != nil && cooldownState.Blocked {
+			c.Set(kkaiPolicyCooldownContextKey, true)
+		}
+	}
 	if err != nil {
 		return true, err
 	}
 	if result == nil {
 		return true, ErrRiskStreamInvalidResult
-	}
-	// Apply performs the authoritative token/channel identity checks and commits
-	// the incident transaction. A failed or rolled-back action must never leave a
-	// Redis or emergency cooldown behind for an unrelated token identity.
-	if clientActionAllowed && clientAuthMode == kkaiPolicyClientAuthBearer {
-		if _, cooldownErr := recordKKAIPolicyKeyCooldown(policyActionCtx, c, g.cooldown, eventID); cooldownErr != nil {
-			RecordKKAIPolicyEmergencyKeyCooldown(c, now)
-			logger.LogWarn(policyActionCtx, "KKAI key cooldown record failed: "+cooldownErr.Error())
-		}
 	}
 	if c != nil {
 		c.Set(kkaiPolicyHandledContextKey, true)
@@ -187,6 +188,10 @@ func markKKAIPolicyContext(c *gin.Context, causality string) {
 
 func ShouldSkipRetryAfterKKAIPolicy(c *gin.Context) bool {
 	return c != nil && c.GetBool(kkaiPolicyNoRetryContextKey)
+}
+
+func KKAIPolicyKeyCooldownApplied(c *gin.Context) bool {
+	return c != nil && c.GetBool(kkaiPolicyCooldownContextKey)
 }
 
 func kkaiPolicyEventID(c *gin.Context, channelID int, now time.Time) string {

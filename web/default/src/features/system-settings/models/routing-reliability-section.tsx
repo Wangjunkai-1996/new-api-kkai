@@ -72,6 +72,7 @@ const routingReliabilitySchema = z
     ChannelDisableThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
     AutomaticEnableChannelEnabled: z.boolean(),
+    CyberPolicyKeyCooldownEnabled: z.boolean(),
     AutomaticDisableKeywords: z.string(),
     AutomaticDisableStatusCodes: z.string(),
     AutomaticRetryStatusCodes: z.string(),
@@ -121,6 +122,7 @@ type RoutingReliabilitySectionProps = {
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
+    CyberPolicyKeyCooldownEnabled: boolean
     AutomaticDisableKeywords: string
     AutomaticDisableStatusCodes: string
     AutomaticRetryStatusCodes: string
@@ -139,6 +141,7 @@ type NormalizedRoutingReliabilityValues = {
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
+  CyberPolicyKeyCooldownEnabled: boolean
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string
   AutomaticRetryStatusCodes: string
@@ -158,6 +161,7 @@ const buildFormDefaults = (
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
+  CyberPolicyKeyCooldownEnabled: defaults.CyberPolicyKeyCooldownEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
   ),
@@ -181,6 +185,7 @@ const normalizeDefaults = (
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
+  CyberPolicyKeyCooldownEnabled: defaults.CyberPolicyKeyCooldownEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
   ),
@@ -206,6 +211,7 @@ const normalizeFormValues = (
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
+  CyberPolicyKeyCooldownEnabled: values.CyberPolicyKeyCooldownEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     values.AutomaticDisableKeywords
   ),
@@ -344,6 +350,38 @@ export function RoutingReliabilitySection({
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className='flex min-w-0 flex-col gap-4'>
+            <div className='flex flex-col gap-1'>
+              <h4 className='text-sm font-medium'>{t('Cyber policy')}</h4>
+            </div>
+            <div className='grid min-w-0 gap-6 lg:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='CyberPolicyKeyCooldownEnabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('API key cooldown')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Apply a 60-second API key cooldown after a Cyber policy rejection'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
                 )}
               />
             </div>

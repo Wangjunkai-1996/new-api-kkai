@@ -20,7 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestProcessKKAIPolicyAPIErrorCommitsConfirmedActionAfterClientDisconnect(t *testing.T) {
+func TestProcessKKAIPolicyAPIErrorAuditsWithoutDisablingAfterClientDisconnect(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:controller-policy-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
@@ -71,13 +71,23 @@ func TestProcessKKAIPolicyAPIErrorCommitsConfirmedActionAfterClientDisconnect(t 
 
 	require.True(t, detected)
 	assert.True(t, service.ShouldSkipRetryAfterKKAIPolicy(c))
+	assert.True(t, service.KKAIPolicyKeyCooldownApplied(c))
+	status, publicErr := kkaiPublicOpenAIError(c, apiErr)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
 	require.NoError(t, db.First(&token, token.Id).Error)
-	assert.Equal(t, common.TokenStatusDisabled, token.Status)
+	assert.Equal(t, common.TokenStatusEnabled, token.Status)
 	require.NoError(t, db.First(&user, user.Id).Error)
-	assert.Equal(t, common.UserStatusDisabled, user.Status)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
 	require.NoError(t, db.First(&channel, channel.Id).Error)
 	assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
 	var incidents int64
 	require.NoError(t, db.Model(&model.KKAIPolicyIncident{}).Count(&incidents).Error)
 	assert.EqualValues(t, 1, incidents)
+	var incident model.KKAIPolicyIncident
+	require.NoError(t, db.First(&incident).Error)
+	assert.Equal(t, service.RiskDecisionReject, incident.Decision)
+	assert.Equal(t, "record_incident", incident.ActionTaken)
+	assert.False(t, incident.TokenDisabled)
+	assert.False(t, incident.UserDisabled)
 }

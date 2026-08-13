@@ -33,20 +33,25 @@ upstream baseline.
 
 | Causality | Default decision | Durable action |
 | --- | --- | --- |
-| `client_token` | `reject` | Record the incident only; never disable the token, user, or channel |
+| `client_token` | `reject` | Record the incident and apply a 60-second key cooldown; never disable the token, user, or channel |
 | `upstream_key` | `reject` | Record only; shared channel remains enabled |
 | `ambiguous` | `reject` | Record only; token, user, and channel remain enabled |
 
-Every `upstream_policy` event is audit-only. Durable disable flags are rejected
-at both the decision and transaction-input boundaries. Official generic channel
-auto-ban is skipped for classified policy incidents so it cannot bypass this rule.
+Every `upstream_policy` event is non-disabling. Durable disable flags are rejected
+at both the decision and transaction-input boundaries. Confirmed bearer-token Cyber
+incidents receive only a fixed 60-second cooldown after token and channel identity
+validation. Official generic channel auto-ban is skipped for classified policy
+incidents so it cannot bypass this rule.
 
 ## Public Contract
 
-- A client-attributed Cyber warning is recognized only when the original provider
-  response is HTTP 403 and the existing Cyber marker matches. Status-code mapping
-  does not change this classification. The triggering request returns HTTP 403
-  with code `request_policy_warning` and is not retried.
+- A client-attributed Cyber warning is recognized when a concrete upstream HTTP
+  status accompanies the exact structured `cyber_policy` code. Before response
+  headers are committed, the triggering request returns HTTP 403 with code
+  `request_policy_warning`, warns against jailbreak/abuse, and is not retried.
+  If an SSE response or WebSocket upgrade has already started, HTTP status is
+  immutable; the relay terminates the active stream with the equivalent
+  `request_policy_warning` error frame instead.
 - `upstream_key` and `ambiguous` incidents return HTTP 503 with code
   `upstream_unavailable` and a generic service-unavailable message.
 - Local sensitive-word matches return HTTP 400 with code `prompt_blocked`; only
@@ -65,19 +70,27 @@ auto-ban is skipped for classified policy incidents so it cannot bypass this rul
   Redis keys use a versioned, domain-separated HMAC. User ID, channel identity,
   IP address, request content, message history, and custom conversation headers
   are never part of the scope.
-- A newly persisted `client_token` Cyber incident records a 60-second cooldown.
-  Later confirmed incidents advance through 120, 240, 480, 960, 1920, and 3600
-  seconds. Requests made while blocked do not create incidents or advance strikes.
-- The same incident event is idempotent. After 24 hours without a new violation,
-  the next confirmed violation starts again at 60 seconds.
+- An identity-validated `client_token` Cyber incident records a fixed 60-second
+  cooldown, even if a later audit/outbox write fails. Every later confirmed
+  incident resets the cooldown to 60 seconds; it never escalates automatically
+  and never disables the user or key.
+- `CyberPolicyKeyCooldownEnabled` controls only the 60-second cooldown and is
+  enabled by default. Disabling it immediately bypasses cooldown reads and writes;
+  Cyber requests are still rejected with HTTP 403 and incidents are still audited.
+- The same incident event is idempotent. Requests made while blocked do not create
+  incidents or extend the cooldown.
 - Cooldown checks run after token authentication and before request rate limiting
   or channel distribution. A blocked request returns HTTP 429, code
   `key_cooldown`, and an integer `Retry-After` containing the actual remaining
   seconds. It does not select a channel, reach a provider, or pre-consume quota.
 - Redis Lua performs check and record transitions atomically using Redis time so
-  all instances observe one state. Redis unavailability is logged and fails open.
+  all instances observe one state. Redis unavailability is logged and fails closed
+  with a local one-minute emergency cooldown.
   No cooldown state is written to business database tables, and Redis stores no
   raw token, provider key, request body, credential, or raw event ID.
+- Signed asynchronous Risk Stream events are audit inputs and do not establish
+  request-local cooldown state. The synchronous relay guard owns Cyber cooldowns
+  after validating the authenticated bearer token and selected upstream key.
 
 ## Structure
 

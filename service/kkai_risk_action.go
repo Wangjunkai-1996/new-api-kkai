@@ -61,7 +61,7 @@ func (s *RiskActionService) Apply(ctx context.Context, input RiskActionInput) (*
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return &RiskActionResult{CooldownIdentityValidated: result.CooldownIdentityValidated}, err
 	}
 	s.invalidateCommittedRiskCaches(ctx, normalized.UserID, normalized.Actions, result)
 	return result, nil

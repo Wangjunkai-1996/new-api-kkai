@@ -8,10 +8,15 @@ import (
 )
 
 func applyKKAIRiskMutations(tx *gorm.DB, input *normalizedRiskAction, result *RiskActionResult) ([]string, []string, error) {
-	if input.Source == RiskSourceUpstreamPolicy && input.Decision == RiskDecisionDisable {
+	cooldownAllowed, _ := input.Metadata["client_token_cooldown_allowed"].(bool)
+	if input.Source == RiskSourceUpstreamPolicy && cooldownAllowed {
 		if err := validateRiskChannelIdentity(tx, input.ChannelID, input.UpstreamKeyFingerprint); err != nil {
 			return nil, nil, err
 		}
+		if err := validateRiskTokenIdentity(tx, input.TokenID, input.UserID, input.TokenFingerprint); err != nil {
+			return nil, nil, err
+		}
+		result.CooldownIdentityValidated = true
 	}
 	actions := make([]string, 0, 3)
 	results := make([]string, 0, 3)
@@ -51,6 +56,17 @@ func applyKKAIRiskMutations(tx *gorm.DB, input *normalizedRiskAction, result *Ri
 		return []string{"record_incident"}, []string{"recorded"}, nil
 	}
 	return actions, results, nil
+}
+
+func validateRiskTokenIdentity(tx *gorm.DB, tokenID int, userID int, fingerprint string) error {
+	err := model.ValidateKKAIRiskToken(tx, tokenID, userID, fingerprint)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrRiskActionTokenNotFound
+	}
+	if errors.Is(err, model.ErrKKAIRiskFingerprintMismatch) {
+		return ErrRiskActionIdentityMismatch
+	}
+	return err
 }
 
 func validateRiskChannelIdentity(tx *gorm.DB, channelID int, fingerprint string) error {

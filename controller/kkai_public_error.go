@@ -88,7 +88,7 @@ func kkaiPublicTaskError(c *gin.Context, taskErr *dto.TaskError) *dto.TaskError 
 		if causality == service.KKAIPolicyCausalityClientToken {
 			publicErr.StatusCode = http.StatusForbidden
 			publicErr.Code = string(types.ErrorCodeRequestPolicyWarning)
-			publicErr.Message = service.KKAIPolicyMessageForCyber()
+			publicErr.Message = kkaiPublicCyberMessage(c)
 			return &publicErr
 		}
 		publicErr.StatusCode = http.StatusServiceUnavailable
@@ -132,7 +132,7 @@ func kkaiPublicLocalPolicyOpenAIError(code types.ErrorCode) (int, types.OpenAIEr
 func kkaiPublicPolicyOpenAIError(c *gin.Context, causality string) (int, types.OpenAIError) {
 	if causality == service.KKAIPolicyCausalityClientToken {
 		return http.StatusForbidden, types.OpenAIError{
-			Message:  service.KKAIPolicyMessageForCyber(),
+			Message:  kkaiPublicCyberMessage(c),
 			Type:     string(types.ErrorTypeNewAPIError),
 			Code:     types.ErrorCodeRequestPolicyWarning,
 			Metadata: kkaiPolicyCaseMetadata(c),
@@ -144,6 +144,13 @@ func kkaiPublicPolicyOpenAIError(c *gin.Context, causality string) (int, types.O
 		Code:     kkaiUpstreamUnavailableCode,
 		Metadata: kkaiPolicyCaseMetadata(c),
 	}
+}
+
+func kkaiPublicCyberMessage(c *gin.Context) string {
+	if service.KKAIPolicyKeyCooldownApplied(c) {
+		return service.KKAIPolicyMessageForCyber()
+	}
+	return service.KKAIPolicyMessageForCyberWithoutKey()
 }
 
 func kkaiGenericUpstreamError() types.OpenAIError {

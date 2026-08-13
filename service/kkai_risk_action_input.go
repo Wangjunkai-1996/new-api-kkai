@@ -75,9 +75,13 @@ func validRiskDecision(decision string) bool {
 }
 
 func validRiskActions(input RiskActionInput) bool {
-	if input.Source == RiskSourceUpstreamPolicy &&
-		(input.Decision == RiskDecisionDisable || input.Actions.DisableToken || input.Actions.DisableUser || input.Actions.DisableChannel) {
-		if input.Actions.DisableChannel || !validUpstreamClientPolicyAuthorization(
+	if input.Source == RiskSourceUpstreamPolicy {
+		if input.Decision == RiskDecisionDisable || input.Actions.DisableToken ||
+			input.Actions.DisableUser || input.Actions.DisableChannel {
+			return false
+		}
+		cooldownAllowed, _ := input.Metadata["client_token_cooldown_allowed"].(bool)
+		if cooldownAllowed && !validUpstreamClientCooldownAuthorization(
 			input.Source,
 			input.Decision,
 			input.UserID,
@@ -88,13 +92,6 @@ func validRiskActions(input RiskActionInput) bool {
 			input.UpstreamKeyFingerprint,
 			input.Metadata,
 		) {
-			return false
-		}
-		expected := RiskDurableActions{DisableUser: true}
-		if input.TokenID > 0 {
-			expected.DisableToken = true
-		}
-		if input.Actions != expected {
 			return false
 		}
 	}
@@ -147,7 +144,8 @@ func normalizeRiskMetadata(metadata map[string]any) (string, error) {
 	}
 	allowed := map[string]struct{}{
 		"case_id": {}, "causality": {}, "client_token_action_allowed": {},
-		"evidence_level": {}, "request_body_bytes": {}, "request_body_sha256": {},
+		"client_token_cooldown_allowed": {},
+		"evidence_level":                {}, "request_body_bytes": {}, "request_body_sha256": {},
 		"rule_id": {}, "upstream_action_allowed": {}, "client_policy_marker_confirmed": {},
 		"original_status_code": {}, "client_auth_mode": {},
 	}
@@ -181,7 +179,7 @@ func normalizeRiskMetadataValue(normalized map[string]any, key string, value any
 			return ErrRiskActionInvalidInput
 		}
 		normalized[key] = text
-	case "client_token_action_allowed", "upstream_action_allowed", "client_policy_marker_confirmed":
+	case "client_token_action_allowed", "client_token_cooldown_allowed", "upstream_action_allowed", "client_policy_marker_confirmed":
 		flag, ok := value.(bool)
 		if !ok {
 			return ErrRiskActionInvalidInput

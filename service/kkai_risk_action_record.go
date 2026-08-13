@@ -22,6 +22,16 @@ func loadKKAIRiskActionReplay(tx *gorm.DB, input *normalizedRiskAction, result *
 	if stored.InputSHA256 != input.InputSHA256 {
 		return ErrRiskActionIdempotencyConflict
 	}
+	cooldownAllowed, _ := input.Metadata["client_token_cooldown_allowed"].(bool)
+	if input.Source == RiskSourceUpstreamPolicy && cooldownAllowed {
+		if err := validateRiskChannelIdentity(tx, input.ChannelID, input.UpstreamKeyFingerprint); err != nil {
+			return err
+		}
+		if err := validateRiskTokenIdentity(tx, input.TokenID, input.UserID, input.TokenFingerprint); err != nil {
+			return err
+		}
+		result.CooldownIdentityValidated = true
+	}
 	result.IncidentID = stored.ID
 	result.Replayed = true
 	result.TokenDisabled = stored.TokenDisabled

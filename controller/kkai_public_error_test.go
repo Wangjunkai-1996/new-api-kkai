@@ -31,8 +31,22 @@ func newKKAIPublicErrorTestContext(t *testing.T) *gin.Context {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Request.Header.Set("Authorization", "Bearer sk-client-secret")
 	ctx.Set("token_key", "client-secret")
+	ctx.Set("token_id", 42)
 	ctx.Set(service.KKAIPolicyCaseContextKey, "policy-case-1")
 	return ctx
+}
+
+func TestKKAIPublicOpenAIErrorDoesNotClaimKeyCooldownWithoutKey(t *testing.T) {
+	ctx := newKKAIPublicErrorTestContext(t)
+	ctx.Set("token_id", 0)
+	apiErr := newControllerUpstreamPolicyError("cyber_policy", types.ErrorCode("cyber_policy"), http.StatusForbidden)
+
+	status, publicErr := kkaiPublicOpenAIError(ctx, apiErr)
+
+	require.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
+	assert.NotContains(t, publicErr.Message, "API Key")
+	assert.Contains(t, publicErr.Message, "请勿破甲或滥用，否则将封禁账号")
 }
 
 func newControllerUpstreamPolicyError(message string, code types.ErrorCode, statusCode int) *types.NewAPIError {
@@ -55,8 +69,8 @@ func TestKKAIPublicOpenAIErrorRedactsClientPolicyIncident(t *testing.T) {
 
 	status, publicErr := kkaiPublicOpenAIError(ctx, apiErr)
 	require.Equal(t, http.StatusForbidden, status)
-	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
-	assert.Contains(t, publicErr.Message, "Token/账号已停用，等待人工复核")
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
+	assert.Contains(t, publicErr.Message, "请勿破甲或滥用，否则将封禁账号")
 	assert.Equal(t, types.ErrorCodeRequestPolicyWarning, publicErr.Code)
 	assert.Empty(t, ctx.Writer.Header().Get("Retry-After"))
 	assert.NotContains(t, publicErr.Message, "cyber_policy")
@@ -124,7 +138,7 @@ func TestKKAIPublicOpenAIErrorPrioritizesCyberOverKeywordCode(t *testing.T) {
 
 	status, publicErr := kkaiPublicOpenAIError(ctx, apiErr)
 	require.Equal(t, http.StatusForbidden, status)
-	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
 	assert.Equal(t, types.ErrorCodeRequestPolicyWarning, publicErr.Code)
 	assert.Empty(t, ctx.Writer.Header().Get("Retry-After"))
 }
@@ -151,7 +165,7 @@ func TestKKAIPublicClaudeErrorKeepsPolicyCode(t *testing.T) {
 	status, publicErr := kkaiPublicClaudeError(ctx, apiErr)
 	require.Equal(t, http.StatusForbidden, status)
 	assert.Equal(t, string(types.ErrorCodeRequestPolicyWarning), publicErr.Type)
-	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
 	assert.Empty(t, ctx.Writer.Header().Get("Retry-After"))
 }
 
@@ -170,7 +184,7 @@ func TestKKAIPublicTaskErrorDoesNotMutateOrLeakOriginal(t *testing.T) {
 	publicErr := kkaiPublicTaskError(ctx, original)
 	require.NotSame(t, original, publicErr)
 	assert.Equal(t, http.StatusForbidden, publicErr.StatusCode)
-	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
 	assert.Equal(t, string(types.ErrorCodeRequestPolicyWarning), publicErr.Code)
 	assert.Empty(t, ctx.Writer.Header().Get("Retry-After"))
 	assert.Equal(t, "cyber_policy Bearer sk-client-secret", original.Message)
@@ -190,7 +204,7 @@ func TestKKAIPublicTaskErrorPrioritizesCyberOverKeywordCode(t *testing.T) {
 	require.NotNil(t, publicErr)
 	assert.Equal(t, http.StatusForbidden, publicErr.StatusCode)
 	assert.Equal(t, string(types.ErrorCodeRequestPolicyWarning), publicErr.Code)
-	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
 	assert.Empty(t, ctx.Writer.Header().Get("Retry-After"))
 }
 
@@ -240,7 +254,7 @@ func TestRespondTaskErrorPreservesPolicyWarnings(t *testing.T) {
 				PolicyEvidence:     "cyber_policy",
 			},
 			expectedStatus:  http.StatusForbidden,
-			expectedMessage: service.KKAIPolicyMessageForCyber(),
+			expectedMessage: service.KKAIPolicyMessageForCyberWithoutKey(),
 		},
 		{
 			name: "upstream capacity",

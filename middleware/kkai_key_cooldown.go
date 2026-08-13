@@ -21,6 +21,10 @@ func KKAIPolicyKeyCooldown() gin.HandlerFunc {
 
 func kkaiPolicyKeyCooldown(store service.KKAIPolicyKeyCooldownStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !common.CyberPolicyKeyCooldownEnabled {
+			c.Next()
+			return
+		}
 		tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
 		key, ok := service.KKAIPolicyKeyCooldownRedisKey(tokenID)
 		if !ok {

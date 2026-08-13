@@ -39,6 +39,9 @@ func (s *fakeKKAIPolicyKeyCooldownStore) Record(ctx context.Context, key string,
 	s.recordCtxErr = append(s.recordCtxErr, ctx.Err())
 	_, hasDeadline := ctx.Deadline()
 	s.recordCtxHasDeadline = append(s.recordCtxHasDeadline, hasDeadline)
+	if s.recordErr == nil && s.recordState == (KKAIPolicyKeyCooldownState{}) {
+		return KKAIPolicyKeyCooldownState{Blocked: true, RetryAfter: 60, Strike: 1}, nil
+	}
 	return s.recordState, s.recordErr
 }
 
@@ -138,7 +141,7 @@ func TestRedisKKAIPolicyKeyCooldownStoreUsesAtomicScriptWithoutRawEvent(t *testi
 	store := newRedisKKAIPolicyKeyCooldownStore(client)
 	eventDigest := common.GenerateHMAC("event-digest")
 
-	state, err := store.Record(context.Background(), "kkai:policy:key-cooldown:v1:digest", eventDigest)
+	state, err := store.Record(context.Background(), "kkai:policy:key-cooldown:v2:digest", eventDigest)
 	require.NoError(t, err)
 	assert.True(t, state.Blocked)
 	assert.Equal(t, 60, state.RetryAfter)
@@ -147,7 +150,7 @@ func TestRedisKKAIPolicyKeyCooldownStoreUsesAtomicScriptWithoutRawEvent(t *testi
 	assert.Contains(t, client.script, "HEXISTS")
 	assert.Contains(t, client.script, "proposed_blocked_until")
 	assert.Contains(t, client.script, "if proposed_blocked_until > blocked_until then")
-	assert.Equal(t, []string{"kkai:policy:key-cooldown:v1:digest"}, client.keys)
+	assert.Equal(t, []string{"kkai:policy:key-cooldown:v2:digest"}, client.keys)
 	assert.Equal(t, []interface{}{"record", eventDigest}, client.args)
 	assert.NotContains(t, client.args, "event-digest")
 }
@@ -188,7 +191,7 @@ func TestRedisKKAIPolicyKeyCooldownStorePropagatesFailure(t *testing.T) {
 	expected := errors.New("redis unavailable")
 	store := newRedisKKAIPolicyKeyCooldownStore(&fakeKKAIPolicyKeyCooldownRedisClient{err: expected})
 
-	_, err := store.Check(context.Background(), "kkai:policy:key-cooldown:v1:digest")
+	_, err := store.Check(context.Background(), "kkai:policy:key-cooldown:v2:digest")
 	require.ErrorIs(t, err, expected)
 }
 
@@ -202,9 +205,9 @@ func TestParseKKAIPolicyKeyCooldownResultRejectsInvalidData(t *testing.T) {
 		[]interface{}{int64(2), int64(60), int64(1), int64(1)},
 		[]interface{}{int64(1), int64(0), int64(1), int64(1)},
 		[]interface{}{int64(1), int64(60), int64(0), int64(1)},
-		[]interface{}{int64(1), int64(3601), int64(1), int64(1)},
+		[]interface{}{int64(1), int64(61), int64(1), int64(1)},
 		[]interface{}{int64(0), int64(1), int64(1), int64(1)},
-		[]interface{}{int64(0), int64(0), int64(8), int64(1)},
+		[]interface{}{int64(0), int64(0), int64(2), int64(1)},
 		[]interface{}{int64(0), int64(0), int64(1), int64(-1)},
 	}
 	for _, value := range invalidStates {

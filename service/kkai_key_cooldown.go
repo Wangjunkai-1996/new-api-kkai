@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	kkaiPolicyKeyCooldownKeyPrefix   = "kkai:policy:key-cooldown:v1:"
-	kkaiPolicyKeyCooldownScopeDomain = "kkai-key-cooldown-scope-v1"
+	kkaiPolicyKeyCooldownKeyPrefix   = "kkai:policy:key-cooldown:v2:"
+	kkaiPolicyKeyCooldownScopeDomain = "kkai-key-cooldown-scope-v2"
 	kkaiPolicyKeyCooldownEventDomain = "kkai-key-cooldown-event-v1"
 	kkaiPolicyKeyCooldownTimeout     = 150 * time.Millisecond
-	kkaiPolicyKeyCooldownMaxStrike   = 7
-	kkaiPolicyKeyCooldownMaxSeconds  = 3600
-	kkaiPolicyEmergencyCooldown      = 24 * time.Hour
+	kkaiPolicyKeyCooldownMaxStrike   = 1
+	kkaiPolicyKeyCooldownMaxSeconds  = 60
+	kkaiPolicyEmergencyCooldown      = time.Minute
 )
 
 var kkaiPolicyEmergencyCooldowns = struct {
@@ -88,8 +88,8 @@ func recordKKAIPolicyKeyCooldown(parent context.Context, c *gin.Context, store K
 	return store.Record(ctx, key, eventDigest)
 }
 
-// RecordKKAIPolicyEmergencyKeyCooldown covers a failed Redis write until the
-// durable token mutation succeeds or the incident can be persisted later.
+// RecordKKAIPolicyEmergencyKeyCooldown applies a one-minute process-local
+// fallback when Redis cannot record the cooldown.
 func RecordKKAIPolicyEmergencyKeyCooldown(c *gin.Context, now time.Time) KKAIPolicyKeyCooldownState {
 	if c == nil {
 		return KKAIPolicyKeyCooldownState{}

@@ -11,14 +11,18 @@ func KKAIPolicyMessageForKeyword() string {
 }
 
 func KKAIPolicyMessageForCyber() string {
-	return "安全警告：本次请求触发了上游安全策略，已停止处理。Token/账号已停用，等待人工复核。"
+	return "安全警告：本次请求触发了上游安全策略，已停止处理。当前 API Key 将冷却 60 秒。请勿破甲或滥用，否则将封禁账号。"
+}
+
+func KKAIPolicyMessageForCyberWithoutKey() string {
+	return "安全警告：本次请求触发了上游安全策略，已停止处理。请勿破甲或滥用，否则将封禁账号。"
 }
 
 func KKAIPolicyMessageForKeyCooldown(retryAfter int) string {
 	if retryAfter < 1 {
 		retryAfter = 1
 	}
-	return fmt.Sprintf("安全提示：当前 API Key 已被临时隔离，还需等待 %d 秒。请停止相关请求并联系管理员复核。", retryAfter)
+	return fmt.Sprintf("安全警告：当前 API Key 正在冷却，还需等待 %d 秒。请勿破甲或滥用，否则将封禁账号。", retryAfter)
 }
 
 func KKAIPolicyMessageForKeyCooldownUnavailable() string {

@@ -38,6 +38,7 @@ export default function SettingsMonitoring(props) {
     QuotaRemindThreshold: '',
     AutomaticDisableChannelEnabled: false,
     AutomaticEnableChannelEnabled: false,
+    CyberPolicyKeyCooldownEnabled: true,
     AutomaticDisableKeywords: '',
     AutomaticDisableStatusCodes: '401',
     AutomaticRetryStatusCodes:
@@ -130,6 +131,26 @@ export default function SettingsMonitoring(props) {
           style={{ marginBottom: 15 }}
         >
           <Form.Section text={t('监控设置')}>
+            <Row gutter={16}>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'CyberPolicyKeyCooldownEnabled'}
+                  label={t('Cyber 策略 API Key 冷却')}
+                  extraText={t(
+                    '触发 Cyber 策略后，将当前 API Key 冷却 60 秒；关闭后仍返回 403 警告并保留审计',
+                  )}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      CyberPolicyKeyCooldownEnabled: value,
+                    })
+                  }
+                />
+              </Col>
+            </Row>
             <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Switch

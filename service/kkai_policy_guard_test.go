@@ -38,7 +38,8 @@ func (a *kkaiPolicyGuardTestApplier) Apply(_ context.Context, input RiskActionIn
 	if a.result != nil {
 		return a.result, nil
 	}
-	return &RiskActionResult{IncidentID: 42}, nil
+	cooldownAllowed, _ := input.Metadata["client_token_cooldown_allowed"].(bool)
+	return &RiskActionResult{IncidentID: 42, CooldownIdentityValidated: cooldownAllowed}, nil
 }
 
 func newKKAIPolicyGuardTestContext(t *testing.T) *gin.Context {
@@ -238,6 +239,7 @@ func TestKKAIPolicyGuardRecordsKeyCooldownAfterSuccessfulBearerApply(t *testing.
 	require.NoError(t, err)
 	require.True(t, detected)
 	require.Len(t, cooldown.recordKeys, 1)
+	assert.True(t, KKAIPolicyKeyCooldownApplied(ctx))
 	require.Len(t, cooldown.eventDigests, 1)
 	expectedKey, ok := KKAIPolicyKeyCooldownRedisKey(11)
 	require.True(t, ok)
@@ -247,7 +249,7 @@ func TestKKAIPolicyGuardRecordsKeyCooldownAfterSuccessfulBearerApply(t *testing.
 	replayContext := newKKAIPolicyGuardTestContext(t)
 	replayCooldown := &fakeKKAIPolicyKeyCooldownStore{}
 	replayGuard := NewKKAIPolicyIncidentGuardWithKeyCooldown(
-		&kkaiPolicyGuardTestApplier{result: &RiskActionResult{IncidentID: 42, Replayed: true}},
+		&kkaiPolicyGuardTestApplier{result: &RiskActionResult{IncidentID: 42, Replayed: true, CooldownIdentityValidated: true}},
 		replayCooldown,
 	)
 	replayGuard.now = guard.now
@@ -255,13 +257,41 @@ func TestKKAIPolicyGuardRecordsKeyCooldownAfterSuccessfulBearerApply(t *testing.
 	require.NoError(t, err)
 	require.True(t, detected)
 	require.Len(t, replayCooldown.recordKeys, 1)
+	assert.True(t, KKAIPolicyKeyCooldownApplied(replayContext))
 	assert.Equal(t, cooldown.eventDigests, replayCooldown.eventDigests)
 }
 
-func TestKKAIPolicyGuardDoesNotCooldownIdentityMismatchOrRolledBackAction(t *testing.T) {
+func TestKKAIPolicyGuardCooldownSwitchDisablesOnlyCooldown(t *testing.T) {
+	previous := common.CyberPolicyKeyCooldownEnabled
+	common.CyberPolicyKeyCooldownEnabled = false
+	t.Cleanup(func() { common.CyberPolicyKeyCooldownEnabled = previous })
+
+	ctx := newKKAIPolicyGuardTestContext(t)
+	cooldown := &fakeKKAIPolicyKeyCooldownStore{}
+	applier := &kkaiPolicyGuardTestApplier{}
+	guard := NewKKAIPolicyIncidentGuardWithKeyCooldown(applier, cooldown)
+	apiErr := newUpstreamPolicyTestError("cyber_policy", types.ErrorCode("cyber_policy"), http.StatusForbidden)
+
+	detected, err := guard.HandleAPIError(
+		ctx,
+		*types.NewChannelError(12, 1, "policy-channel", false, "upstream-secret", true),
+		apiErr,
+	)
+
+	require.NoError(t, err)
+	require.True(t, detected)
+	require.True(t, ShouldSkipRetryAfterKKAIPolicy(ctx))
+	require.Len(t, applier.inputs, 1)
+	assert.Equal(t, false, applier.inputs[0].Metadata["client_token_cooldown_allowed"])
+	assert.Empty(t, cooldown.recordKeys)
+	assert.False(t, KKAIPolicyKeyCooldownApplied(ctx))
+}
+
+func TestKKAIPolicyGuardCooldownRequiresValidatedIdentity(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*gin.Context, *gorm.DB)
+		name         string
+		mutate       func(*gin.Context, *gorm.DB)
+		wantCooldown bool
 	}{
 		{
 			name: "token identity mismatch",
@@ -270,7 +300,8 @@ func TestKKAIPolicyGuardDoesNotCooldownIdentityMismatchOrRolledBackAction(t *tes
 			},
 		},
 		{
-			name: "transaction rollback",
+			name:         "transaction rollback",
+			wantCooldown: true,
 			mutate: func(_ *gin.Context, db *gorm.DB) {
 				const callbackName = "kkai:test:fail-policy-outbox"
 				require.NoError(t, db.Callback().Create().Before("gorm:create").Register(callbackName, func(tx *gorm.DB) {
@@ -304,7 +335,13 @@ func TestKKAIPolicyGuardDoesNotCooldownIdentityMismatchOrRolledBackAction(t *tes
 
 			require.True(t, detected)
 			require.Error(t, err)
-			assert.Empty(t, cooldown.recordKeys)
+			if test.wantCooldown {
+				assert.Len(t, cooldown.recordKeys, 1)
+				assert.True(t, KKAIPolicyKeyCooldownApplied(ctx))
+			} else {
+				assert.Empty(t, cooldown.recordKeys)
+				assert.False(t, KKAIPolicyKeyCooldownApplied(ctx))
+			}
 			require.NoError(t, db.First(&token, token.Id).Error)
 			assert.Equal(t, common.TokenStatusEnabled, token.Status)
 			var incidents int64
@@ -344,7 +381,7 @@ func TestKKAIPolicyGuardDoesNotRecordCooldownForOtherAttributionOrMissingToken(t
 	}
 }
 
-func TestKKAIPolicyGuardAuthorizesConfirmedBearerActions(t *testing.T) {
+func TestKKAIPolicyGuardRecordsConfirmedBearerWithoutDisabling(t *testing.T) {
 	ctx := newKKAIPolicyGuardTestContext(t)
 	applier := &kkaiPolicyGuardTestApplier{}
 	guard := NewKKAIPolicyIncidentGuard(applier)
@@ -359,15 +396,15 @@ func TestKKAIPolicyGuardAuthorizesConfirmedBearerActions(t *testing.T) {
 	require.Len(t, applier.inputs, 1)
 
 	input := applier.inputs[0]
-	assert.Equal(t, RiskDecisionDisable, input.Decision)
-	assert.Equal(t, RiskDurableActions{DisableToken: true, DisableUser: true}, input.Actions)
+	assert.Equal(t, RiskDecisionReject, input.Decision)
+	assert.Equal(t, RiskDurableActions{}, input.Actions)
 	assert.Equal(t, "sha256:"+strings.TrimPrefix(RiskFingerprint("client-secret"), "sha256:"), input.TokenFingerprint)
 	assert.Equal(t, RiskFingerprint("upstream-secret"), input.UpstreamKeyFingerprint)
 	assert.NotContains(t, input.EventID, "secret")
 	assert.NotContains(t, input.Metadata, "secret")
 	assert.NotEmpty(t, input.Metadata["request_body_sha256"])
 	assert.Equal(t, kkaiPolicyClientAuthBearer, input.Metadata["client_auth_mode"])
-	assert.Equal(t, true, input.Metadata["client_token_action_allowed"])
+	assert.Equal(t, true, input.Metadata["client_token_cooldown_allowed"])
 	assert.Equal(t, http.StatusForbidden, input.Metadata["original_status_code"])
 	assert.NotEmpty(t, ctx.GetString(KKAIPolicyCaseContextKey))
 }
@@ -424,12 +461,12 @@ func TestKKAIPolicyGuardKeepsEmergencyCooldownWhenRedisFailsAfterApply(t *testin
 	require.True(t, ok)
 	state := CheckKKAIPolicyEmergencyKeyCooldown(key, now)
 	require.True(t, state.Blocked)
-	assert.Equal(t, int((24*time.Hour)/time.Second), state.RetryAfter)
-	assert.Equal(t, now.Add(24*time.Hour).UnixMilli(), state.BlockedUntil)
-	CheckKKAIPolicyEmergencyKeyCooldown(key, now.Add(25*time.Hour))
+	assert.Equal(t, int(time.Minute/time.Second), state.RetryAfter)
+	assert.Equal(t, now.Add(time.Minute).UnixMilli(), state.BlockedUntil)
+	CheckKKAIPolicyEmergencyKeyCooldown(key, now.Add(2*time.Minute))
 }
 
-func TestKKAIPolicyGuardEnforcesConfirmedBearerAfterRequestCancellation(t *testing.T) {
+func TestKKAIPolicyGuardAuditsConfirmedBearerAfterRequestCancellation(t *testing.T) {
 	db := newRiskActionTestDB(t)
 	user, token, channel := seedRiskActionTargets(t, db, common.RoleCommonUser)
 	ctx := newKKAIPolicyGuardTestContext(t)
@@ -453,18 +490,18 @@ func TestKKAIPolicyGuardEnforcesConfirmedBearerAfterRequestCancellation(t *testi
 	assert.True(t, cooldown.recordCtxHasDeadline[0])
 
 	require.NoError(t, db.First(&token, token.Id).Error)
-	assert.Equal(t, common.TokenStatusDisabled, token.Status)
+	assert.Equal(t, common.TokenStatusEnabled, token.Status)
 	require.NoError(t, db.First(&user, user.Id).Error)
-	assert.Equal(t, common.UserStatusDisabled, user.Status)
+	assert.Equal(t, common.UserStatusEnabled, user.Status)
 	require.NoError(t, db.First(&channel, channel.Id).Error)
 	assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
 
 	var incident model.KKAIPolicyIncident
 	require.NoError(t, db.Where("request_id = ?", "req-policy-1").First(&incident).Error)
-	assert.Equal(t, RiskDecisionDisable, incident.Decision)
-	assert.Equal(t, "disable_token,disable_user", incident.ActionTaken)
-	assert.True(t, incident.TokenDisabled)
-	assert.True(t, incident.UserDisabled)
+	assert.Equal(t, RiskDecisionReject, incident.Decision)
+	assert.Equal(t, "record_incident", incident.ActionTaken)
+	assert.False(t, incident.TokenDisabled)
+	assert.False(t, incident.UserDisabled)
 	assert.False(t, incident.ChannelDisabled)
 	assert.NotContains(t, incident.Metadata, token.Key)
 	assert.NotContains(t, incident.Metadata, channel.Key)

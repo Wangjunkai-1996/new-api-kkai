@@ -12,6 +12,21 @@ import (
 
 var ErrKKAIRiskFingerprintMismatch = errors.New("KKAI risk fingerprint mismatch")
 
+func ValidateKKAIRiskToken(tx *gorm.DB, tokenID int, userID int, fingerprint string) error {
+	var token Token
+	query := lockForUpdate(tx).Where("id = ?", tokenID)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	if err := query.First(&token).Error; err != nil {
+		return err
+	}
+	if !matchesKKAIRiskFingerprint(token.Key, fingerprint) {
+		return ErrKKAIRiskFingerprintMismatch
+	}
+	return nil
+}
+
 func DisableKKAIRiskToken(tx *gorm.DB, tokenID int, userID int, fingerprint string) (bool, error) {
 	var token Token
 	query := lockForUpdate(tx).Where("id = ?", tokenID)

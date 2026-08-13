@@ -61,7 +61,7 @@ func runKeyCooldownMiddleware(t *testing.T, tokenID int, store service.KKAIPolic
 
 func TestKKAIPolicyKeyCooldownBlocksBeforeDownstreamWork(t *testing.T) {
 	store := &fakeMiddlewareKeyCooldownStore{state: service.KKAIPolicyKeyCooldownState{
-		Blocked: true, RetryAfter: 37, Strike: 3,
+		Blocked: true, RetryAfter: 37, Strike: 1,
 	}}
 
 	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
@@ -84,6 +84,21 @@ func TestKKAIPolicyKeyCooldownBlocksBeforeDownstreamWork(t *testing.T) {
 	assert.NotContains(t, response.Error.Message, "上游")
 	assert.NotContains(t, response.Error.Message, "渠道 Key")
 	assert.Contains(t, response.Error.Message, "req-key-cooldown")
+}
+
+func TestKKAIPolicyKeyCooldownSwitchBypassesExistingCooldown(t *testing.T) {
+	previous := common.CyberPolicyKeyCooldownEnabled
+	common.CyberPolicyKeyCooldownEnabled = false
+	t.Cleanup(func() { common.CyberPolicyKeyCooldownEnabled = previous })
+	store := &fakeMiddlewareKeyCooldownStore{state: service.KKAIPolicyKeyCooldownState{
+		Blocked: true, RetryAfter: 60, Strike: 1,
+	}}
+
+	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
+	assert.True(t, reached)
+	assert.Empty(t, store.checkKeys)
 }
 
 func TestKKAIPolicyKeyCooldownHonorsEmergencyBlockBeforeRedis(t *testing.T) {

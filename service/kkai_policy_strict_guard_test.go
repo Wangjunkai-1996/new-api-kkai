@@ -68,8 +68,8 @@ func TestKKAIPolicyGuardAuthorizesStructuredCyberOnBadRequest(t *testing.T) {
 	require.Len(t, applier.inputs, 1)
 	assert.Equal(t, KKAIPolicyCausalityClientToken, applier.inputs[0].Metadata["causality"])
 	assert.Equal(t, http.StatusBadRequest, applier.inputs[0].Metadata["original_status_code"])
-	assert.Equal(t, RiskDecisionDisable, applier.inputs[0].Decision)
-	assert.Equal(t, RiskDurableActions{DisableToken: true, DisableUser: true}, applier.inputs[0].Actions)
+	assert.Equal(t, RiskDecisionReject, applier.inputs[0].Decision)
+	assert.Equal(t, RiskDurableActions{}, applier.inputs[0].Actions)
 	require.Len(t, cooldown.recordKeys, 1)
 }
 
@@ -140,7 +140,7 @@ func TestKKAIPolicyGuardTreatsOnlyExplicitPlaygroundAsUserOnly(t *testing.T) {
 		wantActions  RiskDurableActions
 	}{
 		{name: "ordinary internal request", path: "/v1/chat/completions", wantDecision: RiskDecisionReject},
-		{name: "playground request", path: "/pg/chat/completions", wantDecision: RiskDecisionDisable, wantActions: RiskDurableActions{DisableUser: true}},
+		{name: "playground request", path: "/pg/chat/completions", wantDecision: RiskDecisionReject},
 	}
 
 	for _, test := range tests {
