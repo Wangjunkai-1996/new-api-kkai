@@ -16,11 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Gift, ExternalLink, Loader2, Receipt, WalletCards } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Gift,
+  ExternalLink,
+  Loader2,
+  Receipt,
+  WalletCards,
+} from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
@@ -37,6 +44,7 @@ import {
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import { resolveTopupLink } from '../constants'
 import {
   formatCurrency,
   getDiscountLabel,
@@ -139,6 +147,7 @@ export function RechargeFormCard({
     Array.isArray(waffoPayMethods) && waffoPayMethods.length > 0
   const minTopup = getMinTopupAmount(topupInfo)
   const redemptionEnabled = topupInfo?.enable_redemption !== false
+  const resolvedTopupLink = resolveTopupLink(topupLink)
 
   if (loading) {
     return (
@@ -213,6 +222,46 @@ export function RechargeFormCard({
       }
       contentClassName='space-y-4 sm:space-y-6'
     >
+      {redemptionEnabled && (
+        <div className='animate-in fade-in-0 slide-in-from-bottom-2 duration-500 motion-reduce:animate-none'>
+          <Alert
+            role='note'
+            className='border-primary/25 bg-primary/[0.04] p-3 sm:p-4'
+          >
+            <WalletCards className='text-primary' aria-hidden='true' />
+            <div className='flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+              <div className='min-w-0'>
+                <AlertTitle className='text-primary'>
+                  {t('Recharge Center')}
+                </AlertTitle>
+                <AlertDescription className='mt-1'>
+                  {t(
+                    'Use the recharge center to purchase a redemption code and add funds to your wallet.'
+                  )}
+                </AlertDescription>
+              </div>
+              <Button
+                size='lg'
+                className='group w-full shrink-0 sm:w-auto'
+                render={
+                  <a
+                    href={resolvedTopupLink}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                  />
+                }
+              >
+                {t('Open Recharge Center')}
+                <ArrowUpRight
+                  className='transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none'
+                  data-icon='inline-end'
+                />
+              </Button>
+            </div>
+          </Alert>
+        </div>
+      )}
+
       {/* Online Topup Section */}
       {hasAnyTopup ? (
         <div className='space-y-4 sm:space-y-6'>
@@ -471,15 +520,7 @@ export function RechargeFormCard({
             </>
           )}
         </div>
-      ) : (
-        <Alert>
-          <AlertDescription>
-            {t(
-              'Online topup is not enabled. Please use redemption code or contact administrator.'
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+      ) : null}
 
       {/* Creem Products Section */}
       {enableCreemTopup &&
@@ -529,14 +570,14 @@ export function RechargeFormCard({
               {t('Redeem')}
             </Button>
           </div>
-          {topupLink && (
+          {resolvedTopupLink && (
             <p className='text-muted-foreground text-xs'>
               {t('Need a redemption code?')}{' '}
               <a
-                href={topupLink}
+                href={resolvedTopupLink}
                 target='_blank'
                 rel='noopener noreferrer'
-                className='inline-flex items-center gap-1 underline-offset-4 hover:underline'
+                className='text-primary inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline'
               >
                 {t('Get one here')}
                 <ExternalLink className='h-3 w-3' />

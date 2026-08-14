@@ -64,3 +64,28 @@ export const DEFAULT_DISCOUNT_RATE = 1.0
  * Default minimum topup amount
  */
 export const DEFAULT_MIN_TOPUP = 1
+
+/**
+ * Fallback checkout page used when the administrator has not configured a
+ * redemption-code purchase URL yet.
+ */
+export const DEFAULT_TOPUP_LINK = 'https://catfk.com/shop/R8OHTQ73'
+
+/**
+ * Resolve an administrator-provided checkout URL without allowing script or
+ * relative URLs to reach an external-link target.
+ */
+export function resolveTopupLink(value?: string): string {
+  const candidate = value?.trim() ?? ''
+
+  try {
+    const url = new URL(candidate)
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return url.toString()
+    }
+  } catch {
+    // Fall back to the known checkout page below.
+  }
+
+  return DEFAULT_TOPUP_LINK
+}

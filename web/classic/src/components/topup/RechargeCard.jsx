@@ -37,19 +37,23 @@ import {
 } from '@douyinfe/semi-ui';
 import { SiAlipay, SiWechat, SiStripe } from 'react-icons/si';
 import {
+  ArrowUpRight,
   CreditCard,
   Coins,
+  ExternalLink,
   Wallet,
   BarChart2,
   TrendingUp,
   Receipt,
   Sparkles,
+  WalletCards,
 } from 'lucide-react';
 import { IconGift } from '@douyinfe/semi-icons';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
 import { useActualTheme } from '../../context/Theme';
 import { getCurrencyConfig } from '../../helpers/render';
 import SubscriptionPlansCard from './SubscriptionPlansCard';
+import { resolveTopUpLink } from './topup-link';
 
 const { Text } = Typography;
 
@@ -82,6 +86,7 @@ const RechargeCard = ({
   topUp,
   isSubmitting,
   topUpLink,
+  topUpLinkReady = false,
   openTopUpLink,
   userState,
   renderQuota,
@@ -123,6 +128,34 @@ const RechargeCard = ({
   }, [shouldShowSubscription, activeTab]);
   const topupContent = (
     <Space vertical style={{ width: '100%' }}>
+      {enableRedemption && topUpLinkReady && (
+        <div className='classic-topup-cta w-full' role='note'>
+          <span className='classic-topup-cta-icon' aria-hidden='true'>
+            <WalletCards size={20} />
+          </span>
+          <div className='classic-topup-cta-main'>
+            <div className='classic-topup-cta-title'>{t('充值中心')}</div>
+            <div className='classic-topup-cta-content'>
+              <span className='classic-topup-cta-copy'>
+                {t('使用充值中心购买兑换码，为钱包添加余额。')}
+              </span>
+              <Button
+                type='primary'
+                theme='solid'
+                iconPosition='right'
+                icon={
+                  <ArrowUpRight size={16} className='classic-topup-cta-arrow' />
+                }
+                onClick={openTopUpLink}
+                className='classic-topup-cta-button w-full sm:w-auto'
+              >
+                {t('购买兑换码')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 统计数据 */}
       <Card
         className='!rounded-xl w-full'
@@ -565,16 +598,7 @@ const RechargeCard = ({
               )}
             </div>
           </Form>
-        ) : (
-          <Banner
-            type='info'
-            description={t(
-              '管理员未开启在线充值功能，请联系管理员开启或使用兑换码充值。',
-            )}
-            className='!rounded-xl'
-            closeIcon={null}
-          />
-        )}
+        ) : null}
       </Card>
 
       {/* 兑换码充值 */}
@@ -613,19 +637,22 @@ const RechargeCard = ({
               showClear
               style={{ width: '100%' }}
               extraText={
-                topUpLink && (
+                topUpLinkReady ? (
                   <Text type='tertiary'>
-                    {t('在找兑换码？')}
-                    <Text
-                      type='secondary'
-                      underline
-                      className='cursor-pointer'
-                      onClick={openTopUpLink}
+                    <a
+                      href={resolveTopUpLink(topUpLink)}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='inline-flex items-center gap-1'
                     >
-                      {t('购买兑换码')}
-                    </Text>
+                      {t('在找兑换码？')}
+                      <span className='underline underline-offset-2'>
+                        {t('购买兑换码')}
+                      </span>
+                      <ExternalLink size={12} aria-hidden='true' />
+                    </a>
                   </Text>
-                )
+                ) : null
               }
             />
           </Form>

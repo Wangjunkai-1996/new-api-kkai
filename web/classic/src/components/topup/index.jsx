@@ -39,23 +39,11 @@ import InvitationCard from './InvitationCard';
 import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
-
-// Reject non-navigable schemes (e.g. javascript:, data:) and relative URLs.
-// Only http / https are allowed for backend-provided redirect targets.
-// Mirrors isSafeHttpCheckoutUrl in the default frontend's
-// features/wallet/hooks/use-waffo-pancake-payment.ts.
-function isSafeHttpCheckoutUrl(value) {
-  const trimmed = (value || '').trim();
-  if (!trimmed) {
-    return false;
-  }
-  try {
-    const u = new URL(trimmed);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
+import {
+  DEFAULT_TOP_UP_LINK,
+  isSafeHttpCheckoutUrl,
+  resolveTopUpLink,
+} from './topup-link';
 
 const TopUp = () => {
   const { t } = useTranslation();
@@ -70,6 +58,7 @@ const TopUp = () => {
     statusState?.status?.min_topup || 1,
   );
   const [topUpLink, setTopUpLink] = useState('');
+  const [topUpLinkReady, setTopUpLinkReady] = useState(false);
   const [enableOnlineTopUp, setEnableOnlineTopUp] = useState(
     statusState?.status?.enable_online_topup || false,
   );
@@ -201,11 +190,8 @@ const TopUp = () => {
   };
 
   const openTopUpLink = () => {
-    if (!topUpLink) {
-      showError(t('超级管理员未设置充值链接！'));
-      return;
-    }
-    window.open(topUpLink, '_blank');
+    if (!topUpLinkReady) return;
+    window.open(resolveTopUpLink(topUpLink), '_blank', 'noopener,noreferrer');
   };
 
   const preTopUp = async (payment) => {
@@ -594,10 +580,13 @@ const TopUp = () => {
 
   // 获取充值配置信息
   const getTopupInfo = async () => {
+    let resolvedTopUpLink = DEFAULT_TOP_UP_LINK;
+
     try {
       const res = await API.get('/api/user/topup/info');
       const { message, data, success } = res.data;
       if (success) {
+        resolvedTopUpLink = resolveTopUpLink(data?.topup_link);
         setTopupInfo({
           amount_options: data.amount_options || [],
           discount: data.discount || {},
@@ -679,7 +668,6 @@ const TopUp = () => {
           setWaffoPancakeMinTopUp(data.waffo_pancake_min_topup || 1);
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
-          setTopUpLink(data.topup_link || '');
           setTopupInfo((prev) => ({
             ...prev,
             enable_redemption: data.enable_redemption !== false,
@@ -721,6 +709,9 @@ const TopUp = () => {
       }
     } catch (error) {
       showError(t('获取充值配置异常'));
+    } finally {
+      setTopUpLink(resolvedTopUpLink);
+      setTopUpLinkReady(true);
     }
   };
 
@@ -1002,6 +993,7 @@ const TopUp = () => {
           topUp={topUp}
           isSubmitting={isSubmitting}
           topUpLink={topUpLink}
+          topUpLinkReady={topUpLinkReady}
           openTopUpLink={openTopUpLink}
           userState={userState}
           renderQuota={renderQuota}

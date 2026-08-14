@@ -78,6 +78,95 @@ body {
   right: 8px;
 }
 
+.classic-topup-cta {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--semi-color-primary-light-hover);
+  border-radius: 12px;
+  background: var(--semi-color-primary-light-default);
+  animation: classic-topup-cta-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.classic-topup-cta-icon {
+  display: inline-flex;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: var(--semi-color-primary);
+  background: var(--semi-color-bg-0);
+}
+
+.classic-topup-cta-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.classic-topup-cta-title {
+  margin-bottom: 4px;
+  color: var(--semi-color-text-0);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.classic-topup-cta-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.classic-topup-cta-copy {
+  min-width: 0;
+  color: var(--semi-color-text-2);
+  line-height: 20px;
+}
+
+.classic-topup-cta-button {
+  flex-shrink: 0;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.classic-topup-cta-button:hover {
+  transform: translateY(-1px);
+}
+
+.classic-topup-cta-arrow {
+  transition: transform 180ms ease;
+}
+
+.classic-topup-cta-button:hover .classic-topup-cta-arrow {
+  transform: translateX(2px);
+}
+
+@keyframes classic-topup-cta-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .classic-topup-cta,
+  .classic-topup-cta-button,
+  .classic-topup-cta-arrow {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 @media (max-width: 767px) {
   .classic-frontend-deprecation-banner {
     padding: 8px 8px 0;
@@ -87,6 +176,15 @@ body {
     align-items: flex-start;
     flex-direction: column;
     padding-right: 24px;
+  }
+
+  .classic-topup-cta-content {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .classic-topup-cta {
+    padding: 14px;
   }
 }
 
