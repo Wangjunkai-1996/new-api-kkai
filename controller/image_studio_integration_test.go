@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -118,6 +119,110 @@ func TestImageStudioSubmissionArchivesResultWithoutExposingProviderPayload(t *te
 	var consumeLogs int64
 	require.NoError(t, db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeLogs).Error)
 	assert.EqualValues(t, 1, consumeLogs)
+}
+
+func TestImageStudioSubmissionArchivesCompletedSSEAfterClientCancellation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	db := setupImageStudioIntegrationState(t)
+
+	const providerBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	imageBody, err := base64.StdEncoding.DecodeString(providerBase64)
+	require.NoError(t, err)
+	partialSent := make(chan struct{})
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		body, readErr := io.ReadAll(request.Body)
+		if readErr != nil {
+			t.Errorf("read image request: %v", readErr)
+			return
+		}
+		var providerRequest struct {
+			Stream bool `json:"stream"`
+		}
+		if decodeErr := common.Unmarshal(body, &providerRequest); decodeErr != nil {
+			t.Errorf("decode image request: %v", decodeErr)
+			return
+		}
+		if !providerRequest.Stream {
+			t.Error("image request did not enable upstream streaming")
+			return
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		if _, writeErr := writer.Write([]byte("data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"partial\"}\n\n")); writeErr != nil {
+			t.Errorf("write partial image event: %v", writeErr)
+			return
+		}
+		writer.(http.Flusher).Flush()
+		close(partialSent)
+		<-releaseUpstream
+		if _, writeErr := writer.Write([]byte(fmt.Sprintf(
+			"data: {\"type\":\"image_generation.completed\",\"created_at\":1,\"b64_json\":%q,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n",
+			providerBase64,
+		))); writeErr != nil {
+			t.Errorf("write completed image event: %v", writeErr)
+		}
+		writer.(http.Flusher).Flush()
+	}))
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(releaseUpstream) })
+		upstream.Close()
+	})
+
+	var channel model.Channel
+	require.NoError(t, db.First(&channel).Error)
+	paramOverride := `{"operations":[{"path":"stream","mode":"set","value":true}]}`
+	channel.BaseURL = &upstream.URL
+	channel.ParamOverride = &paramOverride
+	require.NoError(t, db.Save(&channel).Error)
+	model.InitChannelCache()
+
+	store := &imageIntegrationAssetStore{objects: map[string][]byte{}}
+	pipeline, err := service.NewImageAssetPipeline(
+		db, store, service.NewHTTPImageArchiveFetcher(t.TempDir()), 1<<20, 100,
+	)
+	require.NoError(t, err)
+	engine := imageStudioIntegrationEngine(pipeline)
+	requestContext, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	request := httptest.NewRequest(
+		http.MethodPost, "/pg/images",
+		bytes.NewReader(imageStudioIntegrationRequestBody(t, db, "A completed image after disconnect")),
+	).WithContext(requestContext)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "image-integration-canceled-sse")
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		engine.ServeHTTP(response, request)
+		close(done)
+	}()
+
+	select {
+	case <-partialSent:
+	case <-time.After(time.Second):
+		t.Fatal("upstream did not send the partial image event")
+	}
+	cancel()
+	releaseOnce.Do(func() { close(releaseUpstream) })
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("image studio did not finish after the completed upstream event")
+	}
+
+	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
+	var generation model.KKAIImageGeneration
+	require.NoError(t, db.First(&generation).Error)
+	assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
+	assert.Equal(t, model.ImageGenerationBillingStateSettled, generation.BillingState)
+	assert.Positive(t, generation.FinalQuota)
+	var asset model.KKAIImageAsset
+	require.NoError(t, db.First(&asset).Error)
+	assert.Equal(t, model.ImageAssetStateReady, asset.State)
+	assert.Equal(t, imageBody, store.objects[asset.ObjectKey])
 }
 
 func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(t *testing.T) {

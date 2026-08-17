@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -20,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,9 +68,9 @@ func TestDoApiRequestCancelsUpstreamBeforeResponseStarts(t *testing.T) {
 	requestContext, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil).WithContext(requestContext)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(requestContext)
 	info := &relaycommon.RelayInfo{
-		RequestURLPath: "/v1/images/generations", RelayMode: relayconstant.RelayModeImagesGenerations,
+		RequestURLPath: "/v1/chat/completions", RelayMode: relayconstant.RelayModeChatCompletions,
 		StartTime: time.Now(), ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelBaseUrl: upstream.URL, ChannelType: constant.ChannelTypeOpenAI,
 		},
@@ -76,7 +78,7 @@ func TestDoApiRequestCancelsUpstreamBeforeResponseStarts(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		resp, err := channel.DoApiRequest(&openai.Adaptor{}, c, info, strings.NewReader(`{"model":"gpt-image-1"}`))
+		resp, err := channel.DoApiRequest(&openai.Adaptor{}, c, info, strings.NewReader(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`))
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
@@ -89,6 +91,74 @@ func TestDoApiRequestCancelsUpstreamBeforeResponseStarts(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("request continued waiting for an upstream response after client cancellation")
 	}
+}
+
+func TestDoApiRequestKeepsImageUpstreamAfterDispatchBeforeResponse(t *testing.T) {
+	requestReceived := make(chan struct{})
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		close(requestReceived)
+		<-releaseUpstream
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, err := writer.Write([]byte("data: {\"type\":\"image_generation.completed\",\"b64_json\":\"final\",\"usage\":{\"total_tokens\":9}}\n\ndata: [DONE]\n\n"))
+		if err != nil {
+			t.Errorf("write completed image event: %v", err)
+		}
+	}))
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(releaseUpstream) })
+		upstream.Close()
+	})
+	service.InitHttpClient()
+
+	requestContext, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil).WithContext(requestContext)
+	c.Request.Header.Set("Content-Type", "application/json")
+	info := &relaycommon.RelayInfo{
+		UpstreamIsStream: true,
+		RelayMode:        relayconstant.RelayModeImagesGenerations,
+		StartTime:        time.Now(),
+		Request:          &dto.ImageRequest{},
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl: upstream.URL,
+			ChannelType:    constant.ChannelTypeOpenAI,
+		},
+	}
+
+	type requestResult struct {
+		resp *http.Response
+		err  error
+	}
+	result := make(chan requestResult, 1)
+	go func() {
+		resp, err := channel.DoApiRequest(&openai.Adaptor{}, c, info, strings.NewReader(`{"model":"gpt-image-1","stream":true}`))
+		result <- requestResult{resp: resp, err: err}
+	}()
+
+	select {
+	case <-requestReceived:
+	case <-time.After(time.Second):
+		t.Fatal("image request was not dispatched")
+	}
+	cancel()
+	releaseOnce.Do(func() { close(releaseUpstream) })
+	var requestOutcome requestResult
+	select {
+	case requestOutcome = <-result:
+	case <-time.After(time.Second):
+		t.Fatal("image upstream was canceled before returning its response")
+	}
+	require.NoError(t, requestOutcome.err)
+	require.NotNil(t, requestOutcome.resp)
+
+	usage, bridgeErr := openai.OpenaiImageJSONBridgeHandler(c, info, requestOutcome.resp)
+	require.Nil(t, bridgeErr)
+	require.NotNil(t, usage)
+	assert.Equal(t, 9, usage.TotalTokens)
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
 }
 
 func TestDoApiRequestDoesNotDispatchWhenCallerAlreadyCanceled(t *testing.T) {
@@ -147,6 +217,59 @@ func TestDoApiRequestDoesNotDispatchWhenCallerCancelsDuringRequestSetup(t *testi
 	require.Nil(t, resp)
 	require.Error(t, err)
 	require.Zero(t, requestCount.Load())
+}
+
+func TestOpenAIImageJSONBridgeDrainsCompletedUpstreamAfterClientDisconnect(t *testing.T) {
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, err := writer.Write([]byte("data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"partial\"}\n\n"))
+		if err != nil {
+			t.Errorf("write partial image event: %v", err)
+			return
+		}
+		writer.(http.Flusher).Flush()
+		<-releaseUpstream
+		_, err = writer.Write([]byte("data: {\"type\":\"image_generation.completed\",\"b64_json\":\"final\",\"usage\":{\"total_tokens\":9}}\n\ndata: [DONE]\n\n"))
+		if err != nil {
+			t.Errorf("write completed image event: %v", err)
+			return
+		}
+		writer.(http.Flusher).Flush()
+	}))
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(releaseUpstream) })
+		upstream.Close()
+	})
+	service.InitHttpClient()
+
+	requestContext, cancel := context.WithCancel(context.Background())
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil).WithContext(requestContext)
+	c.Request.Header.Set("Content-Type", "application/json")
+	info := &relaycommon.RelayInfo{
+		UpstreamIsStream: true,
+		RelayMode:        relayconstant.RelayModeImagesGenerations,
+		StartTime:        time.Now(),
+		Request:          &dto.ImageRequest{},
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl: upstream.URL,
+			ChannelType:    constant.ChannelTypeOpenAI,
+		},
+	}
+
+	resp, err := channel.DoApiRequest(&openai.Adaptor{}, c, info, strings.NewReader(`{"model":"gpt-image-1","stream":true}`))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	cancel()
+	releaseOnce.Do(func() { close(releaseUpstream) })
+	usage, bridgeErr := openai.OpenaiImageJSONBridgeHandler(c, info, resp)
+
+	require.NotNil(t, usage)
+	require.Nil(t, bridgeErr)
+	assert.Equal(t, 9, usage.TotalTokens)
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
 }
 
 func TestDoApiRequestGeminiStreamDetectsPolicyAfterClientCancellation(t *testing.T) {

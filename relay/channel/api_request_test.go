@@ -1,7 +1,9 @@
 package channel
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
@@ -9,10 +11,58 @@ import (
 	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type cancellationObservingResponseBody struct {
+	ctx                 context.Context
+	canceledBeforeClose bool
+}
+
+func (b *cancellationObservingResponseBody) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (b *cancellationObservingResponseBody) Close() error {
+	select {
+	case <-b.ctx.Done():
+		b.canceledBeforeClose = true
+	default:
+	}
+	return nil
+}
+
+func TestUpstreamPolicyResponseBodyCancelsBeforeClosingTransport(t *testing.T) {
+	requestContext, cancel := context.WithCancel(context.Background())
+	innerBody := &cancellationObservingResponseBody{ctx: requestContext}
+	body := &upstreamPolicyResponseBody{ReadCloser: innerBody, cancel: cancel}
+
+	require.NoError(t, body.Close())
+
+	assert.True(t, innerBody.canceledBeforeClose, "a blocking transport close must not delay upstream cancellation")
+	assert.ErrorIs(t, requestContext.Err(), context.Canceled)
+}
+
+func TestUpstreamPolicyHTTPClientExtendsImageTimeout(t *testing.T) {
+	baseClient := &http.Client{Timeout: time.Minute}
+	imageInfo := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeImagesGenerations}
+
+	imageClient := upstreamPolicyHTTPClient(baseClient, imageInfo)
+
+	require.NotSame(t, baseClient, imageClient)
+	assert.Equal(t, time.Minute, baseClient.Timeout)
+	assert.Equal(t, imageUpstreamRequestTimeout, imageClient.Timeout)
+
+	chatClient := upstreamPolicyHTTPClient(baseClient, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions})
+	assert.Same(t, baseClient, chatClient)
+
+	unlimitedClient := &http.Client{}
+	assert.Same(t, unlimitedClient, upstreamPolicyHTTPClient(unlimitedClient, imageInfo))
+}
 
 func TestExecuteTaskRequestClassifiesRequestWritePhase(t *testing.T) {
 	tests := []struct {

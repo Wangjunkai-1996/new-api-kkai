@@ -45,7 +45,14 @@ func applyUpstreamContentLength(req *http.Request, info *common.RelayInfo) {
 	}
 }
 
-const defaultUpstreamPolicyDrainTimeout = 5 * time.Minute
+// Image providers may keep generating and billing after the downstream client
+// is gone. Keep the upstream alive past the public proxy window so a terminal
+// result can still drive local settlement.
+const (
+	defaultUpstreamPolicyDrainTimeout = 5 * time.Minute
+	imageUpstreamPolicyDrainTimeout   = 20 * time.Minute
+	imageUpstreamRequestTimeout       = 40 * time.Minute
+)
 
 type upstreamPolicyResponseBody struct {
 	io.ReadCloser
@@ -54,22 +61,22 @@ type upstreamPolicyResponseBody struct {
 }
 
 type upstreamPolicyRequestLifecycle struct {
-	mu              sync.Mutex
-	responseStarted bool
-	cancel          context.CancelFunc
-	stopParent      func() bool
+	mu                sync.Mutex
+	upstreamCommitted bool
+	cancel            context.CancelFunc
+	stopParent        func() bool
 }
 
-func (l *upstreamPolicyRequestLifecycle) markResponseStarted() {
+func (l *upstreamPolicyRequestLifecycle) markUpstreamCommitted() {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
-	if l.responseStarted {
+	if l.upstreamCommitted {
 		l.mu.Unlock()
 		return
 	}
-	l.responseStarted = true
+	l.upstreamCommitted = true
 	stopParent := l.stopParent
 	l.mu.Unlock()
 	if stopParent != nil {
@@ -78,9 +85,8 @@ func (l *upstreamPolicyRequestLifecycle) markResponseStarted() {
 }
 
 func (b *upstreamPolicyResponseBody) Close() error {
-	err := b.ReadCloser.Close()
 	b.once.Do(b.cancel)
-	return err
+	return b.ReadCloser.Close()
 }
 
 func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo) (context.Context, context.CancelFunc) {
@@ -93,7 +99,9 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 		return ctx, cancel
 	}
 	drainTimeout := defaultUpstreamPolicyDrainTimeout
-	if info != nil && info.IsStream && systemconstant.StreamingTimeout > 0 {
+	if isImageRelay(info) {
+		drainTimeout = imageUpstreamPolicyDrainTimeout
+	} else if info != nil && info.IsStream && systemconstant.StreamingTimeout > 0 {
 		drainTimeout = time.Duration(systemconstant.StreamingTimeout) * time.Second
 	} else if common2.RelayTimeout > 0 {
 		drainTimeout = time.Duration(common2.RelayTimeout) * time.Second
@@ -101,16 +109,16 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	lifecycle := &upstreamPolicyRequestLifecycle{cancel: cancel}
-	lifecycle.stopParent = context.AfterFunc(parent, func() {
-		lifecycle.mu.Lock()
-		defer lifecycle.mu.Unlock()
-		if !lifecycle.responseStarted {
-			lifecycle.cancel()
-		}
-	})
-	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		GotFirstResponseByte: lifecycle.markResponseStarted,
-	})
+	if !isImageRelay(info) {
+		lifecycle.stopParent = context.AfterFunc(parent, func() {
+			lifecycle.mu.Lock()
+			defer lifecycle.mu.Unlock()
+			if !lifecycle.upstreamCommitted {
+				lifecycle.cancel()
+			}
+		})
+	}
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotFirstResponseByte: lifecycle.markUpstreamCommitted})
 	gopool.Go(func() {
 		select {
 		case <-ctx.Done():
@@ -126,6 +134,22 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 		}
 	})
 	return ctx, cancel
+}
+
+func isImageRelay(info *common.RelayInfo) bool {
+	if info == nil {
+		return false
+	}
+	return info.RelayMode == constant.RelayModeImagesGenerations || info.RelayMode == constant.RelayModeImagesEdits
+}
+
+func upstreamPolicyHTTPClient(client *http.Client, info *common.RelayInfo) *http.Client {
+	if client == nil || !isImageRelay(info) || client.Timeout == 0 || client.Timeout >= imageUpstreamRequestTimeout {
+		return client
+	}
+	imageClient := *client
+	imageClient.Timeout = imageUpstreamRequestTimeout
+	return &imageClient
 }
 
 func bindUpstreamPolicyResponseBody(resp *http.Response, cancel context.CancelFunc) *http.Response {
@@ -612,6 +636,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	} else {
 		client = service.GetHttpClient()
 	}
+	client = upstreamPolicyHTTPClient(client, info)
 
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
