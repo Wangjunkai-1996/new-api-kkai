@@ -61,9 +61,18 @@ func (state *openAIImageJSONBridgeState) consume(info *relaycommon.RelayInfo, da
 	}
 	if eventCreated := gjson.GetBytes(data, "created_at").Int(); eventCreated > 0 {
 		state.createdAt = eventCreated
+	} else if eventCreated := gjson.GetBytes(data, "created").Int(); eventCreated > 0 {
+		// Legacy image-edit envelopes use `created` instead of `created_at`.
+		state.createdAt = eventCreated
 	}
-	eventType := gjson.GetBytes(data, "type").String()
-	if eventType != "image_generation.completed" && eventType != "image_edit.completed" {
+	typeValue := gjson.GetBytes(data, "type")
+	eventType := ""
+	if typeValue.Type == gjson.String {
+		eventType = strings.TrimSpace(typeValue.String())
+	}
+	typedCompletion := eventType == "image_generation.completed" || eventType == "image_edit.completed"
+	legacyCompletion := isOpenAIImageJSONLegacyCompletion(data, typeValue)
+	if !typedCompletion && !legacyCompletion {
 		return nil
 	}
 	state.completedEventCount++
@@ -77,6 +86,12 @@ func (state *openAIImageJSONBridgeState) consume(info *relaycommon.RelayInfo, da
 				}
 			}
 		}
+	} else if imageData := gjson.GetBytes(data, "data"); imageData.IsObject() {
+		if openAIImageJSONDataExists([]byte(imageData.Raw)) {
+			if bridgeErr := state.addCompletedImage(info, []byte(imageData.Raw)); bridgeErr != nil {
+				return bridgeErr
+			}
+		}
 	} else if openAIImageJSONDataExists(data) {
 		if bridgeErr := state.addCompletedImage(info, data); bridgeErr != nil {
 			return bridgeErr
@@ -86,6 +101,37 @@ func (state *openAIImageJSONBridgeState) consume(info *relaycommon.RelayInfo, da
 		state.responseMeta = data
 	}
 	return nil
+}
+
+// isOpenAIImageJSONLegacyCompletion recognizes the old image-edit envelope
+// emitted by some upstreams. Those events omit the top-level type and place
+// the final image in data, while progress events carry progress metadata.
+// Keep this fallback narrow so previews and progress frames never become
+// billable completions.
+func isOpenAIImageJSONLegacyCompletion(data []byte, typeValue gjson.Result) bool {
+	if typeValue.Exists() {
+		if typeValue.Type != gjson.String || strings.TrimSpace(typeValue.String()) != "" {
+			return false
+		}
+	}
+	if gjson.GetBytes(data, "progress_text").Exists() {
+		return false
+	}
+	if gjson.GetBytes(data, "upstream_event_type").Exists() {
+		return false
+	}
+	imageData := gjson.GetBytes(data, "data")
+	if imageData.IsObject() {
+		return openAIImageJSONDataExists([]byte(imageData.Raw))
+	}
+	if imageData.IsArray() {
+		for _, item := range imageData.Array() {
+			if openAIImageJSONDataExists([]byte(item.Raw)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (state *openAIImageJSONBridgeState) recordDiagnostics(data []byte) {

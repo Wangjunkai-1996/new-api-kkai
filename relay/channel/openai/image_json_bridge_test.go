@@ -137,6 +137,61 @@ func TestOpenaiImageJSONBridgeProducesStandardResponse(t *testing.T) {
 	}
 }
 
+func TestOpenaiImageJSONBridgeAcceptsLegacyEditCompletion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	frames := make([]string, 0, 25)
+	for index := 0; index < 11; index++ {
+		frames = append(frames,
+			fmt.Sprintf(`data: {"created":%d,"data":null,"progress_text":"processing","upstream_event_type":"progress"}`, index+1),
+			"",
+		)
+	}
+	frames = append(frames,
+		`data: {"created":2,"data":{"b64_json":"final","url":"https://img.example/final.png","revised_prompt":"done"},"index":0,"model":"gpt-image-2","object":"image","total":1}`,
+		"",
+		`data: [DONE]`,
+		"",
+	)
+
+	c, recorder, resp, info := newImageTestContext(t, strings.Join(frames, "\n"), "text/event-stream", false)
+	c.Request.URL.Path = "/v1/images/edits"
+	info.UpstreamIsStream = true
+	info.Request = &dto.ImageRequest{ResponseFormat: "url"}
+	info.PriceData.UsePrice = true
+	info.PriceData.AddOtherRatio("n", 1)
+
+	usage, bridgeErr := openaiImageJSONBridge(c, info, resp, nil)
+
+	require.Nil(t, bridgeErr)
+	require.NotNil(t, usage)
+	assert.JSONEq(t, `{"created":2,"data":[{"url":"https://img.example/final.png","revised_prompt":"done"}],"model":"gpt-image-2"}`, recorder.Body.String())
+	assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"])
+	assert.True(t, recorder.Flushed)
+}
+
+func TestOpenaiImageJSONBridgeDoesNotBillLegacyProgressPreview(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := strings.Join([]string{
+		`data: {"created":1,"data":{"b64_json":"preview"},"progress_text":"preview","upstream_event_type":"partial"}`,
+		"",
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	c, recorder, resp, info := newImageTestContext(t, body, "text/event-stream", false)
+	info.UpstreamIsStream = true
+	info.Request = &dto.ImageRequest{}
+	info.PriceData.UsePrice = true
+	info.PriceData.AddOtherRatio("n", 3)
+
+	usage, bridgeErr := openaiImageJSONBridge(c, info, resp, nil)
+
+	require.Nil(t, usage)
+	require.NotNil(t, bridgeErr)
+	assert.Equal(t, types.ErrorCodeEmptyResponse, bridgeErr.GetErrorCode())
+	assert.Equal(t, 3.0, info.PriceData.OtherRatios()["n"])
+	assert.Empty(t, recorder.Body.String())
+}
+
 type imageBridgeSignalWriter struct {
 	gin.ResponseWriter
 	writes    chan string
