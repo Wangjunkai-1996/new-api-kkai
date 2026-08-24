@@ -16,7 +16,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const ImageStudioTokenGroup = "图片工作室"
+const (
+	ImageGenerationTokenGroup = "image"
+	ImageStudioTokenGroup     = "图片工作室"
+)
 
 const imageStudioTokenName = "图片工作室"
 

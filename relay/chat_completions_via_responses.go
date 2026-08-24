@@ -127,6 +127,12 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
+	if responsesImageGenerationPolicyApplies(info) {
+		jsonData, _, err = enforceResponsesImageGenerationGroupPolicy(jsonData, info.UsingGroup)
+		if err != nil {
+			return nil, newResponsesImageGenerationPolicyError(err)
+		}
+	}
 
 	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 	if err != nil {

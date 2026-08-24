@@ -81,19 +81,34 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 	adaptor.Init(info)
 	var requestBody io.Reader
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	passThroughBody := model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled
+	var jsonData []byte
+	rewriteRequestBody := false
+	if passThroughBody {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
 		requestBody = common.ReaderOnly(storage)
+		// Pass-through sends the original Responses body. Do not rely on the
+		// conversion chain here because it may describe a previous retry attempt.
+		if !responsesImageGenerationAllowedGroup(info.UsingGroup) {
+			jsonData, err = storage.Bytes()
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+			}
+			jsonData, rewriteRequestBody, err = enforceResponsesImageGenerationGroupPolicy(jsonData, info.UsingGroup)
+			if err != nil {
+				return newResponsesImageGenerationPolicyError(err)
+			}
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
-		jsonData, err := common.Marshal(convertedRequest)
+		jsonData, err = common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
@@ -112,6 +127,16 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			}
 		}
 
+		if responsesImageGenerationPolicyApplies(info) {
+			jsonData, _, err = enforceResponsesImageGenerationGroupPolicy(jsonData, info.UsingGroup)
+			if err != nil {
+				return newResponsesImageGenerationPolicyError(err)
+			}
+		}
+		rewriteRequestBody = true
+	}
+
+	if rewriteRequestBody {
 		logger.LogDebug(c, "requestBody: %s", jsonData)
 		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 		if err != nil {
@@ -121,6 +146,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		jsonData = nil
 		info.UpstreamRequestBodySize = size
 		requestBody = body
+	} else {
+		jsonData = nil
 	}
 
 	var httpResp *http.Response

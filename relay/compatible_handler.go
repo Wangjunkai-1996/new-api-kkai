@@ -173,6 +173,13 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			}
 		}
 
+		if responsesImageGenerationPolicyApplies(info) {
+			jsonData, _, err = enforceResponsesImageGenerationGroupPolicy(jsonData, info.UsingGroup)
+			if err != nil {
+				return newResponsesImageGenerationPolicyError(err)
+			}
+		}
+
 		logger.LogDebug(c, "text request body: %s", jsonData)
 
 		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
