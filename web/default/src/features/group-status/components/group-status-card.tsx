@@ -25,11 +25,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { formatTimestampRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import {
-  formatGroupCacheHitRate,
-  formatGroupDuration,
-  formatGroupSuccessRate,
-} from '../format'
+import { formatGroupDuration, formatGroupSuccessRate } from '../format'
 import { getGroupLastSignalAt } from '../signal'
 import {
   GROUP_EXPERIENCE_META,
@@ -84,17 +80,6 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
     GROUP_EXPERIENCE_META[props.group.experience_label].icon
   const lastSignalAt = getGroupLastSignalAt(props.group)
   const statusMessage = t(getGroupStatusMessage(props.group))
-  const cacheStats = props.group.cache_stats
-  let cacheStatsDescription = ''
-  if (cacheStats?.status === 'ok') {
-    cacheStatsDescription = t('Samples: {{count}}', {
-      count: cacheStats.sample_count,
-    })
-  } else if (cacheStats?.status === 'empty') {
-    cacheStatsDescription = t('No cache samples in this window')
-  } else if (cacheStats?.status === 'unavailable') {
-    cacheStatsDescription = t('Cache data unavailable')
-  }
 
   return (
     <Card
@@ -137,12 +122,7 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
           />
         </div>
 
-        <dl
-          className={cn(
-            'grid grid-cols-2 gap-2.5',
-            cacheStats && 'sm:grid-cols-3'
-          )}
-        >
+        <dl className='grid grid-cols-2 gap-2.5'>
           <MetricPanel
             label={t('TTFT')}
             value={formatGroupDuration(props.group.avg_ttft_ms)}
@@ -153,14 +133,6 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
             value={formatGroupDuration(props.group.avg_latency_ms)}
             icon={Timer}
           />
-          {cacheStats && (
-            <MetricPanel
-              label={t('Cache hit rate')}
-              value={formatGroupCacheHitRate(cacheStats)}
-              description={cacheStatsDescription}
-              className='col-span-2 sm:col-span-1'
-            />
-          )}
         </dl>
 
         <div className='flex min-w-0 items-end justify-between gap-4 border-y py-3.5'>
@@ -206,18 +178,11 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
 function MetricPanel(props: {
   label: string
   value: string
-  description?: string
   icon?: LucideIcon
-  className?: string
 }) {
   const Icon = props.icon
   return (
-    <div
-      className={cn(
-        'bg-muted/10 min-w-0 rounded-lg border px-3 py-3',
-        props.className
-      )}
-    >
+    <div className='bg-muted/10 min-w-0 rounded-lg border px-3 py-3'>
       <dt className='text-muted-foreground flex items-center gap-1 text-xs'>
         {Icon && <Icon className='size-3' aria-hidden='true' />}
         {props.label}
@@ -225,11 +190,6 @@ function MetricPanel(props: {
       <dd className='mt-2 truncate text-lg font-semibold tabular-nums'>
         {props.value}
       </dd>
-      {props.description && (
-        <dd className='text-muted-foreground mt-1 text-xs leading-snug'>
-          {props.description}
-        </dd>
-      )}
     </div>
   )
 }

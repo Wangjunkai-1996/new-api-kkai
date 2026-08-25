@@ -17,11 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { render, screen, within } from '@testing-library/react'
-import i18next from 'i18next'
-import { beforeAll, describe, expect, test } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { describe, expect, test } from 'vitest'
 
-import type { GroupCacheStats, GroupStatusEntry } from '../types'
+import type { GroupStatusEntry } from '../types'
 import { GroupStatusCard } from './group-status-card'
 
 const BASE_GROUP: GroupStatusEntry = {
@@ -44,65 +43,23 @@ const BASE_GROUP: GroupStatusEntry = {
   recent_events: [],
 }
 
-beforeAll(() => {
-  i18next.addResourceBundle(
-    'en',
-    'translation',
-    {
-      'Cache data unavailable': 'Cache data unavailable',
-      'Cache hit rate': 'Cache hit rate',
-      'No cache samples in this window': 'No cache samples in this window',
-      'Samples: {{count}}': 'Samples: {{count}}',
-    },
-    true,
-    true
-  )
-})
-
-function renderCard(cacheStats?: GroupCacheStats): void {
-  render(<GroupStatusCard group={{ ...BASE_GROUP, cache_stats: cacheStats }} />)
-}
-
-function cacheMetric(): HTMLElement {
-  const label = screen.getByText('Cache hit rate')
-  const metric = label.closest('div')
-  expect(metric).not.toBeNull()
-  return metric as HTMLElement
-}
-
-describe('group cache hit rate metric', () => {
-  test('does not render for groups without cache statistics', () => {
-    renderCard()
+describe('group status card', () => {
+  test('does not render cache hit rate data', () => {
+    render(
+      <GroupStatusCard
+        group={{
+          ...BASE_GROUP,
+          cache_stats: {
+            status: 'ok',
+            sample_count: 128,
+            request_hit_rate: 92.84,
+          },
+        }}
+      />
+    )
 
     expect(screen.queryByText('Cache hit rate')).not.toBeInTheDocument()
-  })
-
-  test('renders the rate and sample count for available statistics', () => {
-    renderCard({ status: 'ok', sample_count: 128, request_hit_rate: 92.84 })
-
-    expect(within(cacheMetric()).getByText('92.8%')).toBeInTheDocument()
-    expect(within(cacheMetric()).getByText('Samples: 128')).toBeInTheDocument()
-  })
-
-  test.each([
-    {
-      status: 'empty' as const,
-      description: 'No cache samples in this window',
-    },
-    {
-      status: 'unavailable' as const,
-      description: 'Cache data unavailable',
-    },
-  ])('renders a placeholder for $status statistics', (testCase) => {
-    renderCard({
-      status: testCase.status,
-      sample_count: 0,
-      request_hit_rate: null,
-    })
-
-    expect(within(cacheMetric()).getByText('-')).toBeInTheDocument()
-    expect(
-      within(cacheMetric()).getByText(testCase.description)
-    ).toBeInTheDocument()
+    expect(screen.queryByText('92.8%')).not.toBeInTheDocument()
+    expect(screen.queryByText('Samples: 128')).not.toBeInTheDocument()
   })
 })
