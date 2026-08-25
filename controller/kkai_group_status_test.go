@@ -40,6 +40,8 @@ func TestKKAIGroupStatusControllerReturnsOnlyVisibleGroups(t *testing.T) {
 	require.True(t, response.Success)
 	require.Len(t, response.Data.Groups, 1)
 	assert.Equal(t, "default", response.Data.Groups[0].Group)
+	assert.Contains(t, recorder.Body.String(), `"request_hit_rate":null`)
+	assert.NotContains(t, recorder.Body.String(), `"hit_rate"`)
 	assert.NotContains(t, recorder.Body.String(), `"group":"vip"`)
 	assert.NotContains(t, recorder.Body.String(), "channel_id")
 	assert.NotContains(t, recorder.Body.String(), "base_url")

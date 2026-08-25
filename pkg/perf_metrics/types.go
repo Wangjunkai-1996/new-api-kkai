@@ -23,6 +23,7 @@ type Sample struct {
 	GenerationMs      int64
 	CacheTrackedCount int64
 	CacheSampleCount  int64
+	CacheHitCount     int64
 	CachePromptTokens int64
 	CacheReadTokens   int64
 }

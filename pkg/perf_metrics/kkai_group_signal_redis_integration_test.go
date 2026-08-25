@@ -94,7 +94,8 @@ func TestRedis86KKAIGroupRecentSignalLifecycle(t *testing.T) {
 	pipe := client.Pipeline()
 	appendKKAIRedisGroupSignal(pipe, Sample{
 		Group: group, Success: true, LatencyMs: newEvent.LatencyMs, TtftMs: newEvent.TtftMs,
-		CacheTrackedCount: 1, CacheSampleCount: 1, CachePromptTokens: 1000, CacheReadTokens: 900,
+		CacheTrackedCount: 1, CacheSampleCount: 1, CacheHitCount: 1,
+		CachePromptTokens: 1000, CacheReadTokens: 900,
 	}, time.Unix(0, newEvent.ObservedAtNs), newEvent)
 	_, err = pipe.Exec(ctx)
 	require.NoError(t, err)
@@ -108,10 +109,13 @@ func TestRedis86KKAIGroupRecentSignalLifecycle(t *testing.T) {
 		bucketTs := newEvent.Ts - newEvent.Ts%bucket.resolution
 		values, getErr := client.HGetAll(ctx, kkaiGroupRedisBucketKey(group, bucket.prefix, bucketTs)).Result()
 		require.NoError(t, getErr)
-		assert.Equal(t, "1", values["cache_tracked"])
-		assert.Equal(t, "1", values["cache_n"])
-		assert.Equal(t, "1000", values["cache_prompt"])
-		assert.Equal(t, "900", values["cache_read"])
+		assert.Equal(t, "1", values[kkaiGroupCacheTrackedField])
+		assert.Equal(t, "1", values[kkaiGroupCacheSampleField])
+		assert.Equal(t, "1", values[kkaiGroupCacheHitField])
+		assert.Equal(t, "1000", values[kkaiGroupCachePromptField])
+		assert.Equal(t, "900", values[kkaiGroupCacheReadField])
+		assert.Empty(t, values["cache_tracked"])
+		assert.Empty(t, values["cache_n"])
 	}
 	marker, markerErr := client.Get(ctx, kkaiGroupCacheTrackingMarkerKey).Int64()
 	require.NoError(t, markerErr)

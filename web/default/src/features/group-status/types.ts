@@ -48,7 +48,7 @@ export type GroupRecentEvent = {
 export type GroupCacheStats = {
   status: 'ok' | 'empty' | 'unavailable'
   sample_count: number
-  hit_rate: number | null
+  request_hit_rate: number | null
 }
 
 export type GroupStatusEntry = {

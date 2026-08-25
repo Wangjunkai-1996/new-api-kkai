@@ -17,6 +17,7 @@ func mergeKKAIPerfBuckets(metrics map[string]kkaiGroupMetrics, buckets []perfmet
 		current.ttftCount += bucket.TtftCount
 		current.cacheSampleCount += bucket.CacheSampleCount
 		current.cacheTrackedCount += bucket.CacheTrackedCount
+		current.cacheHitCount += bucket.CacheHitCount
 		current.cachePromptTokens += bucket.CachePromptTokens
 		current.cacheReadTokens += bucket.CacheReadTokens
 		current.sampledAt = max(current.sampledAt, bucket.LastSampleAt)
@@ -48,6 +49,7 @@ func mergeKKAIDatabaseAndLiveBuckets(databaseBuckets []model.KKAIPerfMetricBucke
 			ttftCount:         bucket.TtftCount,
 			cacheSampleCount:  bucket.CacheSampleCount,
 			cacheTrackedCount: bucket.CacheTrackedCount,
+			cacheHitCount:     bucket.CacheHitCount,
 			cachePromptTokens: bucket.CachePromptTokens,
 			cacheReadTokens:   bucket.CacheReadTokens,
 			sampledAt:         bucket.LastSampleAt,
@@ -61,6 +63,7 @@ func mergeKKAIDatabaseAndLiveBuckets(databaseBuckets []model.KKAIPerfMetricBucke
 		}
 		persisted.cacheSampleCount = live.cacheSampleCount
 		persisted.cacheTrackedCount = live.cacheTrackedCount
+		persisted.cacheHitCount = live.cacheHitCount
 		persisted.cachePromptTokens = live.cachePromptTokens
 		persisted.cacheReadTokens = live.cacheReadTokens
 		persisted.sampledAt = max(persisted.sampledAt, live.sampledAt)
@@ -171,6 +174,7 @@ func (metrics kkaiGroupMetrics) add(other kkaiGroupMetrics) kkaiGroupMetrics {
 	metrics.ttftCount += other.ttftCount
 	metrics.cacheSampleCount += other.cacheSampleCount
 	metrics.cacheTrackedCount += other.cacheTrackedCount
+	metrics.cacheHitCount += other.cacheHitCount
 	metrics.cachePromptTokens += other.cachePromptTokens
 	metrics.cacheReadTokens += other.cacheReadTokens
 	metrics.sampledAt = max(metrics.sampledAt, other.sampledAt)

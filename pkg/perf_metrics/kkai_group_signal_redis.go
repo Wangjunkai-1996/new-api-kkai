@@ -39,12 +39,13 @@ func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt 
 			pipe.HIncrBy(ctx, key, "ttft_n", 1)
 		}
 		if sample.CacheTrackedCount > 0 {
-			pipe.HIncrBy(ctx, key, "cache_tracked", sample.CacheTrackedCount)
+			pipe.HIncrBy(ctx, key, kkaiGroupCacheTrackedField, sample.CacheTrackedCount)
 		}
 		if sample.CacheSampleCount > 0 {
-			pipe.HIncrBy(ctx, key, "cache_n", sample.CacheSampleCount)
-			pipe.HIncrBy(ctx, key, "cache_prompt", sample.CachePromptTokens)
-			pipe.HIncrBy(ctx, key, "cache_read", sample.CacheReadTokens)
+			pipe.HIncrBy(ctx, key, kkaiGroupCacheSampleField, sample.CacheSampleCount)
+			pipe.HIncrBy(ctx, key, kkaiGroupCacheHitField, sample.CacheHitCount)
+			pipe.HIncrBy(ctx, key, kkaiGroupCachePromptField, sample.CachePromptTokens)
+			pipe.HIncrBy(ctx, key, kkaiGroupCacheReadField, sample.CacheReadTokens)
 		}
 		pipe.HSet(ctx, key, "last_ts", observedAt.Unix())
 		pipe.Expire(ctx, key, bucket.ttl)

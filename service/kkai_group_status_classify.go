@@ -47,12 +47,9 @@ func buildKKAIGroupCacheStats(metrics kkaiGroupMetrics, redisAvailable bool, win
 		stats.Status = KKAIGroupCacheStatusEmpty
 		return stats
 	}
-	if metrics.cachePromptTokens > 0 {
-		hitRate := roundKKAIPercent(float64(metrics.cacheReadTokens) / float64(metrics.cachePromptTokens) * 100)
-		stats.Status = KKAIGroupCacheStatusOK
-		stats.HitRate = &hitRate
-		return stats
-	}
+	hitRate := roundKKAIPercent(float64(metrics.cacheHitCount) / float64(metrics.cacheSampleCount) * 100)
+	stats.Status = KKAIGroupCacheStatusOK
+	stats.RequestHitRate = &hitRate
 	return stats
 }
 

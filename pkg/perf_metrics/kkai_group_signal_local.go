@@ -82,6 +82,7 @@ func (bucket *kkaiAtomicGroupBucket) add(sample Sample, sampledAt int64) {
 	}
 	if sample.CacheSampleCount > 0 {
 		bucket.cacheSampleCount.Add(sample.CacheSampleCount)
+		bucket.cacheHitCount.Add(sample.CacheHitCount)
 		bucket.cachePromptTokens.Add(sample.CachePromptTokens)
 		bucket.cacheReadTokens.Add(sample.CacheReadTokens)
 	}
@@ -100,6 +101,7 @@ func (bucket *kkaiAtomicGroupBucket) snapshot(group string, bucketTs int64) KKAI
 		TotalLatencyMs: bucket.totalLatencyMs.Load(), TtftSumMs: bucket.ttftSumMs.Load(),
 		TtftCount: bucket.ttftCount.Load(), CacheTrackedCount: bucket.cacheTrackedCount.Load(),
 		CacheSampleCount:  bucket.cacheSampleCount.Load(),
+		CacheHitCount:     bucket.cacheHitCount.Load(),
 		CachePromptTokens: bucket.cachePromptTokens.Load(), CacheReadTokens: bucket.cacheReadTokens.Load(),
 		LastSampleAt: bucket.lastSampleAt.Load(),
 	}

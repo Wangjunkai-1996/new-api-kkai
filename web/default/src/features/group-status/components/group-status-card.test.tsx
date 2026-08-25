@@ -50,7 +50,7 @@ beforeAll(() => {
     'translation',
     {
       'Cache data unavailable': 'Cache data unavailable',
-      'Cache token hit rate': 'Cache token hit rate',
+      'Cache hit rate': 'Cache hit rate',
       'No cache samples in this window': 'No cache samples in this window',
       'Samples: {{count}}': 'Samples: {{count}}',
     },
@@ -64,7 +64,7 @@ function renderCard(cacheStats?: GroupCacheStats): void {
 }
 
 function cacheMetric(): HTMLElement {
-  const label = screen.getByText('Cache token hit rate')
+  const label = screen.getByText('Cache hit rate')
   const metric = label.closest('div')
   expect(metric).not.toBeNull()
   return metric as HTMLElement
@@ -74,11 +74,11 @@ describe('group cache hit rate metric', () => {
   test('does not render for groups without cache statistics', () => {
     renderCard()
 
-    expect(screen.queryByText('Cache token hit rate')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cache hit rate')).not.toBeInTheDocument()
   })
 
   test('renders the rate and sample count for available statistics', () => {
-    renderCard({ status: 'ok', sample_count: 128, hit_rate: 92.84 })
+    renderCard({ status: 'ok', sample_count: 128, request_hit_rate: 92.84 })
 
     expect(within(cacheMetric()).getByText('92.8%')).toBeInTheDocument()
     expect(within(cacheMetric()).getByText('Samples: 128')).toBeInTheDocument()
@@ -94,7 +94,11 @@ describe('group cache hit rate metric', () => {
       description: 'Cache data unavailable',
     },
   ])('renders a placeholder for $status statistics', (testCase) => {
-    renderCard({ status: testCase.status, sample_count: 0, hit_rate: null })
+    renderCard({
+      status: testCase.status,
+      sample_count: 0,
+      request_hit_rate: null,
+    })
 
     expect(within(cacheMetric()).getByText('-')).toBeInTheDocument()
     expect(

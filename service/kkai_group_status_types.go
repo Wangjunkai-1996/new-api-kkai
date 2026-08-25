@@ -105,9 +105,9 @@ type KKAIGroupStatusEntry struct {
 }
 
 type KKAIGroupCacheStats struct {
-	Status      string   `json:"status"`
-	SampleCount int64    `json:"sample_count"`
-	HitRate     *float64 `json:"hit_rate"`
+	Status         string   `json:"status"`
+	SampleCount    int64    `json:"sample_count"`
+	RequestHitRate *float64 `json:"request_hit_rate"`
 }
 
 type KKAIGroupRecentEvent struct {
@@ -135,6 +135,7 @@ type kkaiGroupMetrics struct {
 	ttftCount         int64
 	cacheSampleCount  int64
 	cacheTrackedCount int64
+	cacheHitCount     int64
 	cachePromptTokens int64
 	cacheReadTokens   int64
 	sampledAt         int64

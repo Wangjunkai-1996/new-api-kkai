@@ -32,18 +32,18 @@ describe('group cache hit rate formatting', () => {
       formatGroupCacheHitRate({
         status: 'ok',
         sample_count: 20,
-        hit_rate: testCase.hitRate,
+        request_hit_rate: testCase.hitRate,
       })
     ).toBe(testCase.expected)
   })
 
   test.each([
-    { status: 'empty', hit_rate: null },
-    { status: 'unavailable', hit_rate: null },
-    { status: 'ok', hit_rate: null },
-    { status: 'ok', hit_rate: Number.NaN },
-  ] satisfies Array<Pick<GroupCacheStats, 'status' | 'hit_rate'>>)(
-    'returns a placeholder for $status with rate $hit_rate',
+    { status: 'empty', request_hit_rate: null },
+    { status: 'unavailable', request_hit_rate: null },
+    { status: 'ok', request_hit_rate: null },
+    { status: 'ok', request_hit_rate: Number.NaN },
+  ] satisfies Array<Pick<GroupCacheStats, 'status' | 'request_hit_rate'>>)(
+    'returns a placeholder for $status with rate $request_hit_rate',
     (testCase) => {
       expect(
         formatGroupCacheHitRate({

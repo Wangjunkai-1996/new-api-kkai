@@ -24,7 +24,12 @@ const (
 	kkaiGroupMinuteTTL         = 70 * time.Minute
 	kkaiGroupHistoricalTTL     = 26 * time.Hour
 
-	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v1:started_at"
+	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v2:started_at"
+	kkaiGroupCacheTrackedField      = "cache_v2_tracked"
+	kkaiGroupCacheSampleField       = "cache_v2_n"
+	kkaiGroupCacheHitField          = "cache_v2_hit"
+	kkaiGroupCachePromptField       = "cache_v2_prompt"
+	kkaiGroupCacheReadField         = "cache_v2_read"
 )
 
 type KKAIGroupBucket struct {
@@ -37,6 +42,7 @@ type KKAIGroupBucket struct {
 	TtftCount         int64  `json:"ttft_count"`
 	CacheTrackedCount int64  `json:"cache_tracked_count"`
 	CacheSampleCount  int64  `json:"cache_sample_count"`
+	CacheHitCount     int64  `json:"cache_hit_count"`
 	CachePromptTokens int64  `json:"cache_prompt_tokens"`
 	CacheReadTokens   int64  `json:"cache_read_tokens"`
 	LastSampleAt      int64  `json:"last_sample_at"`
@@ -79,6 +85,7 @@ type kkaiAtomicGroupBucket struct {
 	ttftCount         atomic.Int64
 	cacheTrackedCount atomic.Int64
 	cacheSampleCount  atomic.Int64
+	cacheHitCount     atomic.Int64
 	cachePromptTokens atomic.Int64
 	cacheReadTokens   atomic.Int64
 	lastSampleAt      atomic.Int64

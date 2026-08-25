@@ -64,6 +64,26 @@ func TestKKAIGroupCacheTrackingOldRecoveryCannotClearNewGap(t *testing.T) {
 	assert.Equal(t, newGap, kkaiGroupCacheGapEpoch.Load())
 }
 
+func TestKKAIGroupCacheTrackingIgnoresV1Marker(t *testing.T) {
+	resetKKAIGroupSignalState(t)
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	common.RedisEnabled = true
+	common.RDB = client
+
+	require.NoError(t, client.Set(
+		context.Background(), "kkai:group-status:cache-v1:started_at", time.Now().Add(-time.Hour).Unix(), 0,
+	).Err())
+
+	result := QueryKKAIGroupMinuteBuckets(
+		time.Now().Add(-time.Minute).Unix(), time.Now().Unix(), []string{"default"},
+	)
+
+	assert.True(t, result.RedisAvailable)
+	assert.Zero(t, result.CacheTrackingStartedAt)
+}
+
 func TestKKAIGroupCacheTrackingResetsAfterCollectionIsReenabled(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	server := miniredis.RunT(t)
@@ -166,7 +186,7 @@ func TestKKAIGroupLocalSignalsAggregateAndKeepActualTimestamp(t *testing.T) {
 	assert.Equal(t, later.Unix(), signals.Events[1].Ts)
 }
 
-func TestKKAIGroupLocalCacheUsageUsesTokenWeightedTotals(t *testing.T) {
+func TestKKAIGroupLocalCacheUsageCountsRequestHits(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-weighted-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	info := &relaycommon.RelayInfo{
@@ -179,18 +199,20 @@ func TestKKAIGroupLocalCacheUsageUsesTokenWeightedTotals(t *testing.T) {
 	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 900, CachedTokens: 0})
 
 	buckets := QueryKKAIGroupMinuteBuckets(time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group})
-	var tracked, samples, promptTokens, cachedTokens int64
+	var tracked, samples, hits, promptTokens, cachedTokens int64
 	for _, bucket := range buckets.Buckets {
 		tracked += bucket.CacheTrackedCount
 		samples += bucket.CacheSampleCount
+		hits += bucket.CacheHitCount
 		promptTokens += bucket.CachePromptTokens
 		cachedTokens += bucket.CacheReadTokens
 	}
 	assert.Equal(t, int64(2), tracked)
 	assert.Equal(t, int64(2), samples)
+	assert.Equal(t, int64(1), hits)
 	assert.Equal(t, int64(1000), promptTokens)
 	assert.Equal(t, int64(100), cachedTokens)
-	assert.InDelta(t, 10.0, float64(cachedTokens)/float64(promptTokens)*100, 0.001)
+	assert.InDelta(t, 50.0, float64(hits)/float64(samples)*100, 0.001)
 }
 
 func TestKKAIGroupLocalCacheUsageDistinguishesZeroHitFromIneligibleSamples(t *testing.T) {
@@ -210,12 +232,13 @@ func TestKKAIGroupLocalCacheUsageDistinguishesZeroHitFromIneligibleSamples(t *te
 	RecordRelaySample(info, false, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 80})
 
 	buckets := QueryKKAIGroupMinuteBuckets(time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group})
-	var requests, successes, tracked, samples, promptTokens, cachedTokens int64
+	var requests, successes, tracked, samples, hits, promptTokens, cachedTokens int64
 	for _, bucket := range buckets.Buckets {
 		requests += bucket.RequestCount
 		successes += bucket.SuccessCount
 		tracked += bucket.CacheTrackedCount
 		samples += bucket.CacheSampleCount
+		hits += bucket.CacheHitCount
 		promptTokens += bucket.CachePromptTokens
 		cachedTokens += bucket.CacheReadTokens
 	}
@@ -223,6 +246,7 @@ func TestKKAIGroupLocalCacheUsageDistinguishesZeroHitFromIneligibleSamples(t *te
 	assert.Equal(t, int64(5), successes)
 	assert.Equal(t, int64(6), tracked)
 	assert.Equal(t, int64(1), samples)
+	assert.Zero(t, hits)
 	assert.Equal(t, int64(100), promptTokens)
 	assert.Zero(t, cachedTokens)
 }
@@ -380,16 +404,17 @@ func TestQueryKKAIGroupRecentSignalsReturnsEmptyForUnusedGroup(t *testing.T) {
 
 func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 	bucket := kkaiGroupBucketFromRedis("vip", 123, map[string]string{
-		"req":           "8",
-		"ok":            "7",
-		"lat":           "4000",
-		"ttft":          "1200",
-		"ttft_n":        "6",
-		"cache_tracked": "8",
-		"cache_n":       "5",
-		"cache_prompt":  "1000",
-		"cache_read":    "900",
-		"last_ts":       "456",
+		"req":                      "8",
+		"ok":                       "7",
+		"lat":                      "4000",
+		"ttft":                     "1200",
+		"ttft_n":                   "6",
+		kkaiGroupCacheTrackedField: "8",
+		kkaiGroupCacheSampleField:  "5",
+		kkaiGroupCacheHitField:     "4",
+		kkaiGroupCachePromptField:  "1000",
+		kkaiGroupCacheReadField:    "900",
+		"last_ts":                  "456",
 	})
 	assert.Equal(t, KKAIGroupBucket{
 		Group:             "vip",
@@ -401,6 +426,7 @@ func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 		TtftCount:         6,
 		CacheTrackedCount: 8,
 		CacheSampleCount:  5,
+		CacheHitCount:     4,
 		CachePromptTokens: 1000,
 		CacheReadTokens:   900,
 		LastSampleAt:      456,
@@ -411,8 +437,20 @@ func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 	assert.Equal(t, int64(3), legacyBucket.RequestCount)
 	assert.Zero(t, legacyBucket.CacheTrackedCount)
 	assert.Zero(t, legacyBucket.CacheSampleCount)
+	assert.Zero(t, legacyBucket.CacheHitCount)
 	assert.Zero(t, legacyBucket.CachePromptTokens)
 	assert.Zero(t, legacyBucket.CacheReadTokens)
+
+	wrongVersionBucket := kkaiGroupBucketFromRedis("wrong-version", 120, map[string]string{
+		"req": "2", "ok": "2", "cache_tracked": "2", "cache_n": "2",
+		"cache_prompt": "200", "cache_read": "200", "last_ts": "450",
+	})
+	assert.Equal(t, int64(2), wrongVersionBucket.RequestCount)
+	assert.Zero(t, wrongVersionBucket.CacheTrackedCount)
+	assert.Zero(t, wrongVersionBucket.CacheSampleCount)
+	assert.Zero(t, wrongVersionBucket.CacheHitCount)
+	assert.Zero(t, wrongVersionBucket.CachePromptTokens)
+	assert.Zero(t, wrongVersionBucket.CacheReadTokens)
 
 	event, ok := kkaiGroupSignalFromRedis("vip", map[string]interface{}{
 		"ts":             "789",

@@ -92,7 +92,7 @@ func TestKKAIGroupStatusUsesMergedRealtimeBucketsAndActualSampleTime(t *testing.
 	require.Len(t, entry.RecentEvents, 1)
 }
 
-func TestKKAIGroupStatusCacheStatsAreTokenWeightedAndLimitedToCacheGroups(t *testing.T) {
+func TestKKAIGroupStatusCacheStatsAreRequestWeightedAndLimitedToCacheGroups(t *testing.T) {
 	now := time.Unix(1_784_020_200, 0)
 	withKKAIGroupStatusSources(
 		t,
@@ -103,11 +103,11 @@ func TestKKAIGroupStatusCacheStatsAreTokenWeightedAndLimitedToCacheGroups(t *tes
 			RedisAvailable:         true,
 			CacheTrackingStartedAt: now.Add(-10 * time.Minute).Unix(),
 			Buckets: []perfmetrics.KKAIGroupBucket{
-				{Group: "default", BucketTs: now.Add(-2 * time.Minute).Unix(), RequestCount: 1, SuccessCount: 1, CacheTrackedCount: 1, CacheSampleCount: 1, CachePromptTokens: 100, CacheReadTokens: 100, LastSampleAt: now.Add(-90 * time.Second).Unix()},
-				{Group: "default", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 9, SuccessCount: 9, CacheTrackedCount: 9, CacheSampleCount: 9, CachePromptTokens: 900, CacheReadTokens: 0, LastSampleAt: now.Add(-30 * time.Second).Unix()},
-				{Group: "codex-plus", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 2, SuccessCount: 2, CacheTrackedCount: 2, CacheSampleCount: 2, CachePromptTokens: 200, CacheReadTokens: 186, LastSampleAt: now.Add(-20 * time.Second).Unix()},
-				{Group: "plus", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 2, SuccessCount: 2, CacheTrackedCount: 2, CacheSampleCount: 2, CachePromptTokens: 200, CacheReadTokens: 100, LastSampleAt: now.Add(-20 * time.Second).Unix()},
-				{Group: "vip", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 2, SuccessCount: 2, CacheTrackedCount: 2, CacheSampleCount: 2, CachePromptTokens: 200, CacheReadTokens: 200, LastSampleAt: now.Add(-20 * time.Second).Unix()},
+				{Group: "default", BucketTs: now.Add(-2 * time.Minute).Unix(), RequestCount: 1, SuccessCount: 1, CacheTrackedCount: 1, CacheSampleCount: 1, CacheHitCount: 1, CachePromptTokens: 100, CacheReadTokens: 1, LastSampleAt: now.Add(-90 * time.Second).Unix()},
+				{Group: "default", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 9, SuccessCount: 9, CacheTrackedCount: 9, CacheSampleCount: 9, CacheHitCount: 8, CachePromptTokens: 900, CacheReadTokens: 899, LastSampleAt: now.Add(-30 * time.Second).Unix()},
+				{Group: "codex-plus", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 2, SuccessCount: 2, CacheTrackedCount: 2, CacheSampleCount: 2, CacheHitCount: 2, CachePromptTokens: 200, CacheReadTokens: 186, LastSampleAt: now.Add(-20 * time.Second).Unix()},
+				{Group: "plus", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 2, SuccessCount: 2, CacheTrackedCount: 2, CacheSampleCount: 2, CacheHitCount: 1, CachePromptTokens: 200, CacheReadTokens: 100, LastSampleAt: now.Add(-20 * time.Second).Unix()},
+				{Group: "vip", BucketTs: now.Add(-time.Minute).Unix(), RequestCount: 2, SuccessCount: 2, CacheTrackedCount: 2, CacheSampleCount: 2, CacheHitCount: 2, CachePromptTokens: 200, CacheReadTokens: 200, LastSampleAt: now.Add(-20 * time.Second).Unix()},
 			},
 		},
 		perfmetrics.KKAIGroupBucketResult{},
@@ -130,14 +130,14 @@ func TestKKAIGroupStatusCacheStatsAreTokenWeightedAndLimitedToCacheGroups(t *tes
 	require.NotNil(t, entries["default"].CacheStats)
 	assert.Equal(t, KKAIGroupCacheStatusOK, entries["default"].CacheStats.Status)
 	assert.Equal(t, int64(10), entries["default"].CacheStats.SampleCount)
-	require.NotNil(t, entries["default"].CacheStats.HitRate)
-	assert.Equal(t, 10.0, *entries["default"].CacheStats.HitRate)
+	require.NotNil(t, entries["default"].CacheStats.RequestHitRate)
+	assert.Equal(t, 90.0, *entries["default"].CacheStats.RequestHitRate)
 
-	for group, expectedRate := range map[string]float64{"codex-plus": 93, "plus": 50} {
+	for group, expectedRate := range map[string]float64{"codex-plus": 100, "plus": 50} {
 		require.NotNil(t, entries[group].CacheStats)
 		assert.Equal(t, KKAIGroupCacheStatusOK, entries[group].CacheStats.Status)
-		require.NotNil(t, entries[group].CacheStats.HitRate)
-		assert.Equal(t, expectedRate, *entries[group].CacheStats.HitRate)
+		require.NotNil(t, entries[group].CacheStats.RequestHitRate)
+		assert.Equal(t, expectedRate, *entries[group].CacheStats.RequestHitRate)
 	}
 	assert.Nil(t, entries["vip"].CacheStats)
 }
@@ -152,14 +152,14 @@ func TestBuildKKAIGroupCacheStatsDistinguishesZeroHitEmptyAndUnavailable(t *test
 		wantRate       float64
 		hasRate        bool
 	}{
-		{name: "zero hit is valid", metrics: kkaiGroupMetrics{requestCount: 3, cacheTrackedCount: 3, cacheSampleCount: 3, cachePromptTokens: 300}, redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusOK, hasRate: true},
+		{name: "zero hit is valid", metrics: kkaiGroupMetrics{requestCount: 3, cacheTrackedCount: 3, cacheSampleCount: 3}, redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusOK, hasRate: true},
 		{name: "no samples with redis", redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusEmpty},
 		{name: "no samples without redis", windowCovered: true, wantStatus: KKAIGroupCacheStatusUnavailable},
-		{name: "window is not fully covered", metrics: kkaiGroupMetrics{requestCount: 2, cacheTrackedCount: 2, cacheSampleCount: 2, cachePromptTokens: 200, cacheReadTokens: 100}, redisAvailable: true, wantStatus: KKAIGroupCacheStatusUnavailable},
+		{name: "window is not fully covered", metrics: kkaiGroupMetrics{requestCount: 2, cacheTrackedCount: 2, cacheSampleCount: 2, cacheHitCount: 1}, redisAvailable: true, wantStatus: KKAIGroupCacheStatusUnavailable},
 		{name: "fully tracked requests without eligible usage are empty", metrics: kkaiGroupMetrics{requestCount: 2, cacheTrackedCount: 2}, redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusEmpty},
 		{name: "old bucket without tracking is unavailable", metrics: kkaiGroupMetrics{requestCount: 10}, redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusUnavailable},
-		{name: "partial tracking is unavailable", metrics: kkaiGroupMetrics{requestCount: 10, cacheTrackedCount: 8, cacheSampleCount: 8, cachePromptTokens: 800, cacheReadTokens: 400}, redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusUnavailable},
-		{name: "redis outage overrides local samples", metrics: kkaiGroupMetrics{requestCount: 2, cacheTrackedCount: 2, cacheSampleCount: 2, cachePromptTokens: 200, cacheReadTokens: 100}, windowCovered: true, wantStatus: KKAIGroupCacheStatusUnavailable},
+		{name: "partial tracking is unavailable", metrics: kkaiGroupMetrics{requestCount: 10, cacheTrackedCount: 8, cacheSampleCount: 8, cacheHitCount: 4}, redisAvailable: true, windowCovered: true, wantStatus: KKAIGroupCacheStatusUnavailable},
+		{name: "redis outage overrides local samples", metrics: kkaiGroupMetrics{requestCount: 2, cacheTrackedCount: 2, cacheSampleCount: 2, cacheHitCount: 1}, windowCovered: true, wantStatus: KKAIGroupCacheStatusUnavailable},
 	}
 
 	for _, test := range tests {
@@ -168,11 +168,11 @@ func TestBuildKKAIGroupCacheStatsDistinguishesZeroHitEmptyAndUnavailable(t *test
 			assert.Equal(t, test.wantStatus, stats.Status)
 			assert.Equal(t, test.metrics.cacheSampleCount, stats.SampleCount)
 			if !test.hasRate {
-				assert.Nil(t, stats.HitRate)
+				assert.Nil(t, stats.RequestHitRate)
 				return
 			}
-			require.NotNil(t, stats.HitRate)
-			assert.Equal(t, test.wantRate, *stats.HitRate)
+			require.NotNil(t, stats.RequestHitRate)
+			assert.Equal(t, test.wantRate, *stats.RequestHitRate)
 		})
 	}
 }
@@ -460,8 +460,8 @@ func TestMergeKKAIDatabaseAndLiveBucketsKeepsMostCompleteHourlyAggregate(t *test
 		{Group: "vip", BucketTs: hour.Unix(), RequestCount: 20, SuccessCount: 18, TotalLatencyMs: 30_000},
 	}
 	liveBuckets := []perfmetrics.KKAIGroupBucket{
-		{Group: "default", BucketTs: hour.Add(5 * time.Minute).Unix(), RequestCount: 15, SuccessCount: 15, TotalLatencyMs: 7_500, CacheTrackedCount: 15, CacheSampleCount: 15, CachePromptTokens: 1_500, CacheReadTokens: 1_350, LastSampleAt: hour.Add(9 * time.Minute).Unix()},
-		{Group: "default", BucketTs: hour.Add(35 * time.Minute).Unix(), RequestCount: 25, SuccessCount: 25, TotalLatencyMs: 12_500, CacheTrackedCount: 25, CacheSampleCount: 25, CachePromptTokens: 2_500, CacheReadTokens: 2_250, LastSampleAt: hour.Add(45 * time.Minute).Unix()},
+		{Group: "default", BucketTs: hour.Add(5 * time.Minute).Unix(), RequestCount: 15, SuccessCount: 15, TotalLatencyMs: 7_500, CacheTrackedCount: 15, CacheSampleCount: 15, CacheHitCount: 14, CachePromptTokens: 1_500, CacheReadTokens: 1_350, LastSampleAt: hour.Add(9 * time.Minute).Unix()},
+		{Group: "default", BucketTs: hour.Add(35 * time.Minute).Unix(), RequestCount: 25, SuccessCount: 25, TotalLatencyMs: 12_500, CacheTrackedCount: 25, CacheSampleCount: 25, CacheHitCount: 23, CachePromptTokens: 2_500, CacheReadTokens: 2_250, LastSampleAt: hour.Add(45 * time.Minute).Unix()},
 		{Group: "vip", BucketTs: hour.Unix(), RequestCount: 30, SuccessCount: 30, TotalLatencyMs: 15_000, LastSampleAt: hour.Add(50 * time.Minute).Unix()},
 	}
 
@@ -472,6 +472,7 @@ func TestMergeKKAIDatabaseAndLiveBucketsKeepsMostCompleteHourlyAggregate(t *test
 	assert.Equal(t, hour.Add(45*time.Minute).Unix(), metrics["default"].sampledAt)
 	assert.Equal(t, int64(40), metrics["default"].cacheTrackedCount)
 	assert.Equal(t, int64(40), metrics["default"].cacheSampleCount)
+	assert.Equal(t, int64(37), metrics["default"].cacheHitCount)
 	assert.Equal(t, int64(4_000), metrics["default"].cachePromptTokens)
 	assert.Equal(t, int64(3_600), metrics["default"].cacheReadTokens)
 	assert.Equal(t, int64(30), metrics["vip"].requestCount)

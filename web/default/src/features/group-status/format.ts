@@ -29,8 +29,8 @@ export function formatGroupSuccessRate(group: GroupStatusEntry): string {
 export function formatGroupCacheHitRate(stats: GroupCacheStats): string {
   if (
     stats.status !== 'ok' ||
-    stats.hit_rate == null ||
-    !Number.isFinite(stats.hit_rate)
+    stats.request_hit_rate == null ||
+    !Number.isFinite(stats.request_hit_rate)
   ) {
     return '-'
   }
@@ -38,7 +38,7 @@ export function formatGroupCacheHitRate(stats: GroupCacheStats): string {
     style: 'percent',
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
-  }).format(stats.hit_rate / 100)
+  }).format(stats.request_hit_rate / 100)
 }
 
 export function formatGroupDuration(value: number): string {

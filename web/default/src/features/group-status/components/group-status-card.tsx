@@ -155,7 +155,7 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
           />
           {cacheStats && (
             <MetricPanel
-              label={t('Cache token hit rate')}
+              label={t('Cache hit rate')}
               value={formatGroupCacheHitRate(cacheStats)}
               description={cacheStatsDescription}
               className='col-span-2 sm:col-span-1'

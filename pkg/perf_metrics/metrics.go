@@ -73,6 +73,9 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	if success && cacheUsage != nil && cacheUsage.PromptTokens > 0 &&
 		cacheUsage.CachedTokens >= 0 && cacheUsage.CachedTokens <= cacheUsage.PromptTokens {
 		sample.CacheSampleCount = 1
+		if cacheUsage.CachedTokens > 0 {
+			sample.CacheHitCount = 1
+		}
 		sample.CachePromptTokens = cacheUsage.PromptTokens
 		sample.CacheReadTokens = cacheUsage.CachedTokens
 	}
@@ -99,9 +102,11 @@ func Record(sample Sample) {
 	if sample.CacheTrackedCount < 0 {
 		sample.CacheTrackedCount = 0
 	}
-	if !sample.Success || sample.CacheSampleCount <= 0 || sample.CachePromptTokens <= 0 ||
+	if !sample.Success || sample.CacheSampleCount <= 0 || sample.CacheHitCount < 0 ||
+		sample.CacheHitCount > sample.CacheSampleCount || sample.CachePromptTokens <= 0 ||
 		sample.CacheReadTokens < 0 || sample.CacheReadTokens > sample.CachePromptTokens {
 		sample.CacheSampleCount = 0
+		sample.CacheHitCount = 0
 		sample.CachePromptTokens = 0
 		sample.CacheReadTokens = 0
 	}
