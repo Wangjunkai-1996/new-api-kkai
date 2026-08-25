@@ -380,5 +380,16 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	if data, err = sjson.SetBytes(data, "id", task.TaskID); err != nil {
 		return nil, errors.Wrap(err, "set id failed")
 	}
+	if data, err = sjson.SetBytes(data, "task_id", task.TaskID); err != nil {
+		return nil, errors.Wrap(err, "set task_id failed")
+	}
+	if data, err = sjson.DeleteBytes(data, "video_url"); err != nil {
+		return nil, errors.Wrap(err, "delete video_url failed")
+	}
+	if task.PublicResultURL() != "" {
+		if data, err = sjson.SetBytes(data, "video_url", taskcommon.BuildProxyURL(task.TaskID)); err != nil {
+			return nil, errors.Wrap(err, "set video_url failed")
+		}
+	}
 	return data, nil
 }

@@ -1,0 +1,9 @@
+---
+title: "帮助支持"
+description: "KKRICH API 常见问题、排查路径和支持入口。"
+outline: [2, 3]
+---
+<!-- Recovered from the public production rendering on 2026-08-25. -->
+<div class="kkr-recovered-page" v-pre>
+<div><h1 id="帮助支持" tabindex="-1">帮助支持 <a class="header-anchor" href="#帮助支持" aria-label="Permalink to &quot;帮助支持&quot;">​</a></h1><p>遇到接入问题时，建议先用最小请求定位问题范围，再进入对应页面排查。</p><h2 id="快速排查" tabindex="-1">快速排查 <a class="header-anchor" href="#快速排查" aria-label="Permalink to &quot;快速排查&quot;">​</a></h2><ol><li>确认 Base URL 是 <code>https://api.kkrich.ltd/v1</code>。</li><li>确认请求头包含 <code>Authorization: Bearer &lt;API Key&gt;</code>。</li><li>确认 <code>model</code> 使用控制面板中显示的可用模型名称。</li><li>确认控制面板余额、额度、频率限制和模型状态正常。</li><li>查看控制面板用量记录，判断请求是否到达 KKRICH。</li></ol><h2 id="常见问题入口" tabindex="-1">常见问题入口 <a class="header-anchor" href="#常见问题入口" aria-label="Permalink to &quot;常见问题入口&quot;">​</a></h2><ul><li><a href="./seedance-video">Seedance 视频错误排查</a>：分组、时长、参考视频、任务状态和内容审核。</li></ul><table tabindex="0"><thead><tr><th>问题</th><th>页面</th></tr></thead><tbody><tr><td>不知道从哪里开始</td><td><a href="./faq">常见问题</a></td></tr><tr><td>需要系统排查</td><td><a href="./troubleshooting">故障排查</a></td></tr><tr><td>认证失败</td><td><a href="./401">401</a>、<a href="./invalid-api-key">无效 API Key</a></td></tr><tr><td>权限或状态限制</td><td><a href="./403">403</a></td></tr><tr><td>模型不可用</td><td><a href="./model-not-found">模型不存在或不可用</a></td></tr><tr><td>余额不足</td><td><a href="./insufficient-balance">余额不足</a></td></tr><tr><td>请求没进账单</td><td><a href="./no-usage-log">没有用量记录</a></td></tr><tr><td>Base URL 配置错误</td><td><a href="./base-url-error">Base URL 错误</a></td></tr></tbody></table><h2 id="实时信息" tabindex="-1">实时信息 <a class="header-anchor" href="#实时信息" aria-label="Permalink to &quot;实时信息&quot;">​</a></h2><p>价格、模型、额度、余额和频率限制以控制面板实时显示为准。文档提供排查方向，不替代控制面板中的实时状态。</p></div>
+</div>

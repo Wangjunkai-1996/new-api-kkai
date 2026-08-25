@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://api.kkrich.ltd/docs/sitemap.xml

@@ -1,0 +1,10 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#F7FAF8"/>
+  <rect x="96" y="86" width="1008" height="458" rx="8" fill="white" stroke="#DCE5E1"/>
+  <rect x="144" y="134" width="80" height="80" rx="18" fill="#0F766E"/>
+  <path d="M163 154H175V178L197 154H215L189 182L218 214H199L175 188V214H163V154Z" fill="white"/>
+  <path d="M201 154H217V170H201V154Z" fill="#F6C453"/>
+  <text x="144" y="296" fill="#14201D" font-family="Arial, sans-serif" font-size="72" font-weight="700">KKRICH 文档</text>
+  <text x="144" y="366" fill="#596662" font-family="Arial, sans-serif" font-size="34">控制台、AI 应用与 API 接入指南</text>
+  <text x="144" y="454" fill="#0F766E" font-family="Arial, sans-serif" font-size="28">https://api.kkrich.ltd/docs</text>
+</svg>

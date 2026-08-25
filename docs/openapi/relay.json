@@ -545,9 +545,9 @@
     },
     "/v1/videos": {
       "post": {
-        "summary": "创建视频 ",
+        "summary": "创建视频",
         "deprecated": false,
-        "description": "OpenAI 兼容的视频生成接口。\n\n参考文档: https://platform.openai.com/docs/api-reference/videos/create\n",
+        "description": "OpenAI 兼容的视频生成接口。Seedance 2.0/2.5 特价版必须使用 JSON，并遵守本站模型、字段和参考素材约束。实际模型以本站 `/v1/models` 为准。\n\n完整文档：https://api.kkrich.ltd/docs/api/video-generation\n",
         "operationId": "createVideo",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -555,36 +555,46 @@
         "parameters": [],
         "requestBody": {
           "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeedanceVideoRequest"
+              },
+              "example": {
+                "model": "seedance-2.5",
+                "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕",
+                "duration": 5,
+                "ratio": "16:9",
+                "resolution": "720p",
+                "generate_audio": true
+              }
+            },
             "multipart/form-data": {
               "schema": {
                 "type": "object",
+                "description": "Seedance 特价版不接受 multipart/form-data；此分支仅为其他视频适配器保留。",
                 "properties": {
                   "model": {
-                    "description": "模型名称",
-                    "example": "sora-2",
-                    "type": "string"
+                    "type": "string",
+                    "description": "其他视频适配器的模型名称"
                   },
                   "prompt": {
-                    "description": "提示词",
-                    "example": "cute cat dance",
-                    "type": "string"
+                    "type": "string",
+                    "description": "提示词"
                   },
                   "seconds": {
-                    "description": "生成秒数",
-                    "example": "8",
-                    "type": "string"
+                    "type": "string",
+                    "description": "视频秒数"
                   },
                   "input_reference": {
-                    "format": "binary",
                     "type": "string",
-                    "description": "参考图片文件",
-                    "example": ""
+                    "format": "binary",
+                    "description": "其他视频适配器的参考图片文件"
                   }
                 }
-              },
-              "examples": {}
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -592,83 +602,109 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "description": "视频 ID"
-                    },
-                    "object": {
-                      "type": "string",
-                      "description": "对象类型"
-                    },
-                    "model": {
-                      "type": "string",
-                      "description": "使用的模型"
-                    },
-                    "status": {
-                      "type": "string",
-                      "description": "任务状态"
-                    },
-                    "progress": {
-                      "type": "integer",
-                      "description": "进度百分比"
-                    },
-                    "created_at": {
-                      "type": "integer",
-                      "description": "创建时间戳"
-                    },
-                    "seconds": {
-                      "type": "string",
-                      "description": "视频时长"
-                    },
-                    "completed_at": {
-                      "type": "integer",
-                      "description": "完成时间戳"
-                    },
-                    "expires_at": {
-                      "type": "integer",
-                      "description": "过期时间戳"
-                    },
-                    "size": {
-                      "type": "string",
-                      "description": "视频尺寸"
-                    },
-                    "error": {
-                      "$ref": "#/components/schemas/OpenAIVideoError"
-                    },
-                    "metadata": {
-                      "type": "object",
-                      "description": "额外元数据",
-                      "additionalProperties": true,
-                      "properties": {}
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "object",
-                    "model",
-                    "status",
-                    "progress",
-                    "created_at",
-                    "seconds"
-                  ]
+                  "$ref": "#/components/schemas/OpenAIVideo"
                 },
                 "example": {
-                  "id": "sora-2-123456",
+                  "id": "task_01JVIDEOEXAMPLE",
+                  "task_id": "task_01JVIDEOEXAMPLE",
                   "object": "video",
-                  "model": "sora-2",
+                  "model": "seedance-2.5",
                   "status": "queued",
                   "progress": 0,
-                  "created_at": 1764347090922,
-                  "seconds": "8"
+                  "created_at": 1787587200,
+                  "seconds": "5"
                 }
               }
             },
             "headers": {}
           },
           "400": {
-            "description": "请求参数错误",
+            "description": "请求字段或模型参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "Bearer Token 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "403": {
+            "description": "Token 分组、模型权限或内容策略限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "429": {
+            "description": "请求频率或当前分组负载限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "500": {
+            "description": "本站任务创建、计费或渠道处理异常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "502": {
+            "description": "任务提交结果不确定，禁止自动重发 POST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                },
+                "example": {
+                  "code": "task_submission_unknown",
+                  "message": "task submission outcome is unknown",
+                  "data": "task_01JVIDEOEXAMPLE"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "503": {
+            "description": "本站策略审计或任务接入暂时不可用",
             "content": {
               "application/json": {
                 "schema": {
@@ -688,9 +724,9 @@
     },
     "/v1/videos/{task_id}": {
       "get": {
-        "summary": "获取视频任务状态 ",
+        "summary": "获取视频任务状态",
         "deprecated": false,
-        "description": "OpenAI 兼容的视频任务状态查询接口。\n\n返回视频任务的详细状态信息。\n",
+        "description": "OpenAI 兼容的视频任务查询。路径参数使用创建响应中的本站公开 `id`；不要依赖查询响应中的旧 `task_id`。完成后使用固定的本站 `/v1/videos/{task_id}/content` 下载。\n",
         "operationId": "getVideo",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -699,9 +735,9 @@
           {
             "name": "task_id",
             "in": "path",
-            "description": "视频任务 ID",
+            "description": "创建响应中的本站公开任务 ID",
             "required": true,
-            "example": "sora-2-123456",
+            "example": "task_01JVIDEOEXAMPLE",
             "schema": {
               "type": "string"
             }
@@ -713,55 +749,93 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "object": {
-                      "type": "string"
-                    },
-                    "model": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "progress": {
-                      "type": "integer"
-                    },
-                    "created_at": {
-                      "type": "integer"
-                    },
-                    "seconds": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "object",
-                    "model",
-                    "status",
-                    "progress",
-                    "created_at",
-                    "seconds"
-                  ]
+                  "$ref": "#/components/schemas/OpenAIVideo"
                 },
                 "example": {
-                  "id": "sora-2-123456",
+                  "id": "task_01JVIDEOEXAMPLE",
                   "object": "video",
-                  "model": "sora-2",
-                  "status": "queued",
-                  "progress": 0,
-                  "created_at": 1764347090922,
-                  "seconds": "8"
+                  "model": "seedance-2.5",
+                  "status": "completed",
+                  "progress": 100,
+                  "created_at": 1787587200,
+                  "seconds": "5",
+                  "video_url": "https://api.kkrich.ltd/v1/videos/task_01JVIDEOEXAMPLE/content"
                 }
               }
             },
             "headers": {}
           },
-          "404": {
-            "description": "任务不存在",
+          "400": {
+            "description": "任务不存在或查询参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "Bearer Token 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "403": {
+            "description": "Token 分组或任务访问权限限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "429": {
+            "description": "请求频率或当前分组负载限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "500": {
+            "description": "本站任务查询或响应转换异常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "503": {
+            "description": "本站策略审计暂时不可用",
             "content": {
               "application/json": {
                 "schema": {
@@ -781,9 +855,9 @@
     },
     "/v1/videos/{task_id}/content": {
       "get": {
-        "summary": "获取视频内容",
+        "summary": "下载视频内容",
         "deprecated": false,
-        "description": "获取已完成视频任务的视频文件内容。\n\n此接口会代理返回视频文件流。\n",
+        "description": "从本站代理下载已完成的视频。请求必须携带任务所属用户的有效 Bearer Token；支持标准单段 Range 请求。\n",
         "operationId": "getVideoContent",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -792,17 +866,27 @@
           {
             "name": "task_id",
             "in": "path",
-            "description": "视频任务 ID",
+            "description": "创建响应中的本站公开任务 ID",
             "required": true,
-            "example": "video-abc123",
+            "example": "task_01JVIDEOEXAMPLE",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "description": "可选的单段字节范围，例如 bytes=0-1048575",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "成功获取视频内容",
+            "description": "完整视频内容",
             "content": {
               "video/mp4": {
                 "schema": {
@@ -813,8 +897,75 @@
             },
             "headers": {}
           },
+          "206": {
+            "description": "Range 请求的部分视频内容",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "400": {
+            "description": "任务未完成、任务 ID 缺失或 Range 无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "Bearer Token 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "403": {
+            "description": "视频来源被本站安全策略阻止",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
           "404": {
-            "description": "视频不存在或未完成",
+            "description": "任务不存在、用户不匹配或内容不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "500": {
+            "description": "本站查询任务或构建下载请求失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "502": {
+            "description": "本站无法获取或代理视频内容",
             "content": {
               "application/json": {
                 "schema": {
@@ -1167,7 +1318,7 @@
       "post": {
         "summary": "创建视频生成任务",
         "deprecated": false,
-        "description": "提交视频生成任务，支持文生视频和图生视频。\n\n返回任务 ID，可通过 GET 接口查询任务状态。\n",
+        "description": "使用通用任务路径创建 Seedance 视频。成功响应仍是视频对象；保存其中的本站公开 `id`，并配套使用通用查询路径。\n\n完整文档：https://api.kkrich.ltd/docs/api/video-generation\n",
         "operationId": "createVideoGeneration",
         "tags": [
           "视频生成"
@@ -1177,14 +1328,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/VideoRequest"
+                "$ref": "#/components/schemas/SeedanceVideoRequest"
               },
               "example": {
-                "model": "kling-v1",
-                "prompt": "宇航员在月球上漫步",
+                "model": "seedance-2.5",
+                "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕",
                 "duration": 5,
-                "width": 1280,
-                "height": 720
+                "ratio": "16:9",
+                "resolution": "720p",
+                "generate_audio": true
               }
             }
           },
@@ -1192,18 +1344,113 @@
         },
         "responses": {
           "200": {
-            "description": "成功创建视频生成任务",
+            "description": "成功创建视频任务",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VideoResponse"
+                  "$ref": "#/components/schemas/OpenAIVideo"
+                },
+                "example": {
+                  "id": "task_01JVIDEOEXAMPLE",
+                  "task_id": "task_01JVIDEOEXAMPLE",
+                  "object": "video",
+                  "model": "seedance-2.5",
+                  "status": "queued",
+                  "progress": 0,
+                  "created_at": 1787587200,
+                  "seconds": "5"
                 }
               }
             },
             "headers": {}
           },
           "400": {
-            "description": "请求参数错误",
+            "description": "请求字段或模型参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "Bearer Token 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "403": {
+            "description": "Token 分组、模型权限或内容策略限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "429": {
+            "description": "请求频率或当前分组负载限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "500": {
+            "description": "本站任务创建、计费或渠道处理异常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "502": {
+            "description": "任务提交结果不确定，禁止自动重发 POST",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                },
+                "example": {
+                  "code": "task_submission_unknown",
+                  "message": "task submission outcome is unknown",
+                  "data": "task_01JVIDEOEXAMPLE"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "503": {
+            "description": "本站策略审计或任务接入暂时不可用",
             "content": {
               "application/json": {
                 "schema": {
@@ -1225,7 +1472,7 @@
       "get": {
         "summary": "获取视频生成任务状态",
         "deprecated": false,
-        "description": "查询视频生成任务的状态和结果。\n\n任务状态：\n- `queued`: 排队中\n- `in_progress`: 生成中\n- `completed`: 已完成\n- `failed`: 失败\n",
+        "description": "查询通用视频任务 envelope。状态使用 `NOT_START`、`SUBMITTED`、`QUEUED`、`IN_PROGRESS`、`SUCCESS`、`FAILURE` 或 `UNKNOWN`。只有 `SUCCESS` 可以下载。\n",
         "operationId": "getVideoGeneration",
         "tags": [
           "视频生成"
@@ -1234,9 +1481,9 @@
           {
             "name": "task_id",
             "in": "path",
-            "description": "任务 ID",
+            "description": "创建响应中的本站公开任务 ID",
             "required": true,
-            "example": "abcd1234efgh",
+            "example": "task_01JVIDEOEXAMPLE",
             "schema": {
               "type": "string"
             }
@@ -1244,18 +1491,98 @@
         ],
         "responses": {
           "200": {
-            "description": "成功获取任务状态",
+            "description": "成功获取视频任务状态",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VideoTaskResponse"
+                  "$ref": "#/components/schemas/VideoGenerationFetchResponse"
+                },
+                "example": {
+                  "code": "success",
+                  "message": "",
+                  "data": {
+                    "task_id": "task_01JVIDEOEXAMPLE",
+                    "status": "SUCCESS",
+                    "progress": "100%",
+                    "result_url": "https://api.kkrich.ltd/v1/videos/task_01JVIDEOEXAMPLE/content",
+                    "fail_reason": ""
+                  }
                 }
               }
             },
             "headers": {}
           },
-          "404": {
-            "description": "任务不存在",
+          "400": {
+            "description": "任务不存在或查询参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "Bearer Token 缺失或无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "403": {
+            "description": "Token 分组或任务访问权限限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "429": {
+            "description": "请求频率或当前分组负载限制",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VideoGenerationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {}
+          },
+          "500": {
+            "description": "本站任务查询或响应转换异常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoGenerationError"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "503": {
+            "description": "本站策略审计暂时不可用",
             "content": {
               "application/json": {
                 "schema": {
@@ -4331,18 +4658,255 @@
           }
         }
       },
+      "SeedanceVideoRequest": {
+        "type": "object",
+        "description": "Seedance 2.0/2.5 特价版客户请求。duration 或 seconds 至少提供一个；2.0 为 4-15 秒，2.5 为 4-30 秒。模型可见性以本站 /v1/models 为准。",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "prompt"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "duration"
+            ]
+          },
+          {
+            "required": [
+              "seconds"
+            ]
+          }
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "大小写敏感的本站客户模型名，以当前 Token 调用 /v1/models 的结果为准",
+            "example": "seedance-2.5"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "去除首尾空白后不能为空；最多 8192 字节且不能包含 NUL 字符",
+            "example": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕"
+          },
+          "duration": {
+            "description": "整数秒。2.0 允许 4-15，2.5 允许 4-30；与 seconds 同传时必须相等",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 30
+              },
+              {
+                "type": "string",
+                "pattern": "^(?:[4-9]|[12][0-9]|30)$"
+              }
+            ],
+            "example": 5
+          },
+          "seconds": {
+            "description": "duration 的兼容字段；接受整数或规范整数字符串",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 30
+              },
+              {
+                "type": "string",
+                "pattern": "^(?:[4-9]|[12][0-9]|30)$"
+              }
+            ],
+            "example": "5"
+          },
+          "ratio": {
+            "type": "string",
+            "description": "2.0 和 2.5 都支持以下 7 种画幅",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9",
+              "adaptive"
+            ],
+            "default": "16:9",
+            "example": "16:9"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "2.0 必须匹配模型名；当前 seedance-2.5 只接受 720p",
+            "enum": [
+              "720p",
+              "1080p",
+              "2k",
+              "4k"
+            ],
+            "example": "720p"
+          },
+          "reference_image": {
+            "type": "string",
+            "description": "单个图片参考；公开 HTTPS URL 或有效 assetId:// 引用。与 input_reference 二选一",
+            "example": "https://media.your-domain.example/reference.jpg"
+          },
+          "input_reference": {
+            "type": "string",
+            "description": "reference_image 的兼容别名，与 reference_image 二选一",
+            "example": "https://media.your-domain.example/reference.jpg"
+          },
+          "reference_video": {
+            "type": "string",
+            "description": "仅 2.0 *_with_video_ref 模型允许且必填；其他 2.0 模型和 2.5 禁止",
+            "example": "https://media.your-domain.example/reference.mp4"
+          },
+          "generate_audio": {
+            "type": "boolean",
+            "description": "2.0 和 2.5 都接受 true 或 false；建议显式传值",
+            "example": true
+          }
+        }
+      },
+      "VideoGenerationTaskData": {
+        "type": "object",
+        "description": "通用视频查询返回的任务数据",
+        "additionalProperties": true,
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "本站公开任务 ID",
+            "example": "task_01JVIDEOEXAMPLE"
+          },
+          "status": {
+            "type": "string",
+            "description": "通用任务状态",
+            "enum": [
+              "NOT_START",
+              "SUBMITTED",
+              "QUEUED",
+              "IN_PROGRESS",
+              "SUCCESS",
+              "FAILURE",
+              "UNKNOWN"
+            ],
+            "example": "SUCCESS"
+          },
+          "result_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "成功时的本站结果地址",
+            "example": "https://api.kkrich.ltd/v1/videos/task_01JVIDEOEXAMPLE/content"
+          },
+          "fail_reason": {
+            "type": "string",
+            "description": "失败原因",
+            "example": ""
+          },
+          "progress": {
+            "type": "string",
+            "description": "任务进度",
+            "example": "100%"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务记录创建时间戳"
+          },
+          "finish_time": {
+            "type": "integer",
+            "format": "int64",
+            "description": "任务完成时间戳"
+          }
+        }
+      },
+      "VideoGenerationFetchResponse": {
+        "type": "object",
+        "description": "通用视频任务查询 envelope",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "success"
+          },
+          "message": {
+            "type": "string",
+            "example": ""
+          },
+          "data": {
+            "$ref": "#/components/schemas/VideoGenerationTaskData"
+          }
+        }
+      },
+      "VideoGenerationError": {
+        "type": "object",
+        "description": "视频任务提交或查询错误；渠道内部错误码不是稳定客户契约",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "invalid_request"
+          },
+          "message": {
+            "type": "string",
+            "example": "request validation failed"
+          },
+          "data": {
+            "description": "错误附加数据；task_submission_unknown 时可能是本站任务 ID",
+            "nullable": true,
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "array",
+                "items": {}
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        }
+      },
       "OpenAIVideo": {
         "type": "object",
-        "description": "OpenAI 兼容的视频对象",
+        "description": "OpenAI 兼容的视频对象。客户端必须保存 id，并容忍未来新增字段。",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "status"
+        ],
         "properties": {
           "id": {
             "type": "string",
-            "description": "视频 ID",
-            "example": "video-abc123"
+            "description": "本站公开任务 ID，供后续查询和下载使用",
+            "example": "task_01JVIDEOEXAMPLE"
           },
           "task_id": {
             "type": "string",
-            "description": "任务 ID (兼容旧接口)",
+            "description": "旧兼容字段，可能缺失；客户端不得用它覆盖创建响应中的 id",
             "deprecated": true
           },
           "object": {
@@ -4352,18 +4916,12 @@
           },
           "model": {
             "type": "string",
-            "description": "使用的模型",
-            "example": "sora"
+            "description": "本站客户模型名",
+            "example": "seedance-2.5"
           },
           "status": {
             "type": "string",
-            "description": "任务状态",
-            "enum": [
-              "queued",
-              "in_progress",
-              "completed",
-              "failed"
-            ],
+            "description": "Seedance 重点处理 queued、processing、completed、failed；共享接口可能返回其他值，客户端应容忍未知状态。",
             "example": "completed"
           },
           "progress": {
@@ -4373,14 +4931,17 @@
           },
           "created_at": {
             "type": "integer",
+            "format": "int64",
             "description": "创建时间戳"
           },
           "completed_at": {
             "type": "integer",
+            "format": "int64",
             "description": "完成时间戳"
           },
           "expires_at": {
             "type": "integer",
+            "format": "int64",
             "description": "过期时间戳"
           },
           "seconds": {
@@ -4391,9 +4952,15 @@
             "type": "string",
             "description": "视频尺寸"
           },
+          "video_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "可选的本站内容代理地址；客户端应固定使用 /v1/videos/{task_id}/content 下载",
+            "example": "https://api.kkrich.ltd/v1/videos/task_01JVIDEOEXAMPLE/content"
+          },
           "remixed_from_video_id": {
             "type": "string",
-            "description": "源视频 ID（如果是基于其他视频生成）"
+            "description": "源视频 ID（如果适用）"
           },
           "error": {
             "$ref": "#/components/schemas/OpenAIVideoError"
@@ -7285,7 +7852,12 @@
       }
     }
   },
-  "servers": [],
+  "servers": [
+    {
+      "url": "https://api.kkrich.ltd",
+      "description": "KKRICH 公共 API"
+    }
+  ],
   "security": [
     {
       "BearerAuth": []
