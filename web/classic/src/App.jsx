@@ -190,6 +190,16 @@ function App() {
           }
         />
         <Route
+          path='/sign-up'
+          element={
+            <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+              <AuthRedirect>
+                <RegisterForm />
+              </AuthRedirect>
+            </Suspense>
+          }
+        />
+        <Route
           path='/register'
           element={
             <Suspense fallback={<Loading></Loading>} key={location.pathname}>

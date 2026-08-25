@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { generateAffiliateLink } from '@/features/wallet/lib/affiliate'
 
 import { getMyInvitationCode } from '../../api'
 import { requireInvitationData } from '../../api/result'
@@ -52,7 +53,7 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
   })
   const invitationLink = useMemo(() => {
     if (!query.data?.invitationCode) return ''
-    return `${window.location.origin}/?aff=${query.data.invitationCode}`
+    return generateAffiliateLink(query.data.invitationCode)
   }, [query.data?.invitationCode])
 
   const copy = async (value: string, message: string) => {

@@ -16,14 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-// ============================================================================
-// Affiliate Functions
-// ============================================================================
+import { describe, expect, test } from 'vitest'
 
-/**
- * Generate affiliate registration link
- */
-export function generateAffiliateLink(affCode: string): string {
-  if (typeof window === 'undefined') return ''
-  return `${window.location.origin}/sign-up?aff=${encodeURIComponent(affCode)}`
-}
+import { generateAffiliateLink } from './affiliate'
+
+describe('affiliate links', () => {
+  test('uses the sign-up route', () => {
+    const link = new URL(generateAffiliateLink('gd5c'))
+
+    expect(link.pathname).toBe('/sign-up')
+    expect(link.searchParams.get('aff')).toBe('gd5c')
+  })
+
+  test('encodes affiliate codes for use in a query string', () => {
+    const link = generateAffiliateLink('a+b/c')
+
+    expect(link).toContain('/sign-up?aff=a%2Bb%2Fc')
+  })
+})

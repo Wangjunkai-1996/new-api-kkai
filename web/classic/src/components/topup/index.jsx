@@ -720,7 +720,7 @@ const TopUp = () => {
     const res = await API.get('/api/user/aff');
     const { success, message, data } = res.data;
     if (success) {
-      let link = `${window.location.origin}/register?aff=${data}`;
+      const link = `${window.location.origin}/sign-up?aff=${encodeURIComponent(data)}`;
       setAffLink(link);
     } else {
       showError(message);
