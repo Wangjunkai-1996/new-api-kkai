@@ -17,13 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, describe, test } from 'node:test'
 
 import {
   MutationObserver,
   QueryClient,
   QueryObserver,
 } from '@tanstack/react-query'
+import { afterEach, beforeEach, describe, test } from 'vitest'
 
 import { installAuthQueryCacheBoundary } from '@/lib/auth-query-cache'
 import { useAuthStore, type AuthUser } from '@/stores/auth-store'

@@ -17,7 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, beforeEach, describe, test } from 'node:test'
+
+import { afterAll, beforeEach, describe, test } from 'vitest'
 
 import type { VideoComposerValues } from '@/features/video-studio/types'
 import type { VideoUploadResumeRecord } from '@/features/video-studio/video-upload-resume'
@@ -103,7 +104,7 @@ describe('Video Studio draft user isolation', () => {
     useAuthStore.getState().auth.reset()
   })
 
-  after(() => {
+  afterAll(() => {
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       value: originalWindow,

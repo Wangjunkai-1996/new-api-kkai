@@ -1,0 +1,13 @@
+{
+  "Access is still restricted from this IP.": "Access is still restricted from this IP.",
+  "Access Notice - KKAI": "Access Notice - KKAI",
+  "API traffic is not affected.": "API traffic is not affected.",
+  "Checking access...": "Checking access...",
+  "If access is still restricted after switching networks, please contact support and include your current public IP location.": "If access is still restricted after switching networks, please contact support and include your current public IP location.",
+  "Open API Docs": "Open API Docs",
+  "OpenAI-compatible requests under /v1 can continue to use your existing base URL and keys.": "OpenAI-compatible requests under /v1 can continue to use your existing base URL and keys.",
+  "Recheck Access": "Recheck Access",
+  "The KKAI web console is currently unavailable from mainland China IP addresses. If you recently changed networks or enabled a proxy, this page will recheck your access automatically.": "The KKAI web console is currently unavailable from mainland China IP addresses. If you recently changed networks or enabled a proxy, this page will recheck your access automatically.",
+  "Unable to recheck right now.": "Unable to recheck right now.",
+  "Web Console Unavailable": "Web Console Unavailable"
+}

@@ -224,7 +224,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return &buf, nil
 	}
 
-	return common.ReaderOnly(storage), nil
+	return common.NewReplayableBodyReader(storage), nil
 }
 
 func shouldProjectVideoStudioRequest(c *gin.Context, info *relaycommon.RelayInfo) bool {

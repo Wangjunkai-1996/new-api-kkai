@@ -1,6 +1,7 @@
 package sora
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -397,4 +398,30 @@ func TestSeedance25VideoStudioRequestPassesStrictMockAdapter(t *testing.T) {
 		"resolution":      "720p",
 		"reference_image": "https://assets.example/reference.jpg",
 	}, request.payload)
+}
+
+func TestSoraBuildRequestBodyReturnsReplayablePassThroughBody(t *testing.T) {
+	payload := []byte("opaque-sora-request-body")
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(payload))
+	c.Request.Header.Set("Content-Type", "application/octet-stream")
+	defer common.CleanupBodyStorage(c)
+
+	info := &relaycommon.RelayInfo{}
+	body, err := (&TaskAdaptor{}).BuildRequestBody(c, info)
+	require.NoError(t, err)
+	replayable, ok := body.(common.ReplayableBody)
+	require.True(t, ok)
+
+	sent, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Equal(t, payload, sent)
+	assert.EqualValues(t, len(payload), replayable.Size())
+
+	replayBody, err := replayable.NewReader()
+	require.NoError(t, err)
+	replay, err := io.ReadAll(replayBody)
+	require.NoError(t, err)
+	require.NoError(t, replayBody.Close())
+	assert.Equal(t, payload, replay)
 }

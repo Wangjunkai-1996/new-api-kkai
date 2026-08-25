@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import type { CustomOAuthBinding } from '@/lib/oauth'
 
 import type {
   ApiResponse,
@@ -125,19 +126,17 @@ export async function bindEmail(
  * Bind WeChat account
  */
 export async function bindWeChat(code: string): Promise<ApiResponse> {
-  const res = await api.get(`/api/oauth/wechat/bind?code=${code}`)
+  const res = await api.post(
+    '/api/oauth/wechat/bind',
+    { code },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
   return res.data
 }
 
 // ============================================================================
 // Custom OAuth Binding APIs
 // ============================================================================
-
-export interface CustomOAuthBinding {
-  provider_id: string
-  provider_name: string
-  external_id?: string
-}
 
 /**
  * Get current user's custom OAuth bindings
@@ -153,7 +152,7 @@ export async function getSelfOAuthBindings(): Promise<
  * Unbind a custom OAuth provider for current user
  */
 export async function unbindCustomOAuth(
-  providerId: string
+  providerId: number
 ): Promise<ApiResponse> {
   const res = await api.delete(`/api/user/oauth/bindings/${providerId}`)
   return res.data

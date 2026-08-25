@@ -17,7 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { after, beforeEach, describe, test } from 'node:test'
+
+import { afterAll, beforeEach, describe, test } from 'vitest'
 
 import type { ImageComposerValues } from '@/features/image-studio/types'
 import {
@@ -74,7 +75,7 @@ describe('Image Studio draft user isolation', () => {
     useImageStudioDraftStore.setState({ userId: 0, draft: null })
   })
 
-  after(() => {
+  afterAll(() => {
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       value: originalWindow,

@@ -22,20 +22,32 @@ import {
   ArrowRight,
   ArrowUp,
   Check,
+  ChevronDown,
+  ChevronRight,
+  CircleDollarSign,
+  Code2,
   Info,
+  ListTree,
   Plus,
   Shuffle,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import { type ReactNode, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Dialog } from '@/components/dialog'
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import {
   Popover,
@@ -54,7 +66,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Tooltip,
   TooltipContent,
@@ -64,29 +76,38 @@ import {
 import { cn } from '@/lib/utils'
 
 import {
+  ADVANCED_CUSTOM_BALANCE_LABEL,
+  ADVANCED_CUSTOM_BALANCE_PATH,
   ADVANCED_CUSTOM_AUTH_MODE_OPTIONS,
   ADVANCED_CUSTOM_CONVERTER_OPTIONS,
   ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS,
+  ADVANCED_CUSTOM_MODEL_LIST_LABEL,
+  ADVANCED_CUSTOM_MODEL_LIST_PATH,
   ADVANCED_CUSTOM_TEMPLATE_OPTIONS,
   type AdvancedCustomAuthMode,
   buildAdvancedCustomAuth,
   createAdvancedCustomConfig,
+  createAdvancedCustomManagementRoute,
   createAdvancedCustomRoute,
   getAdvancedCustomAuthMode,
   getAdvancedCustomConverterDefaults,
   getAdvancedCustomConverterOptions,
   getAdvancedCustomIncomingPathLabel,
   getAdvancedCustomModelRuleKind,
+  getAdvancedCustomManagementRoute,
   getAdvancedCustomRegexModelPattern,
   getAdvancedCustomTemplateConfig,
   getAdvancedCustomUpstreamPathPlaceholder,
   getDefaultAdvancedCustomIncomingPath,
   isAdvancedCustomIncomingPathAllowed,
+  isAdvancedCustomManagementPath,
   normalizeAdvancedCustomConfig,
   parseAdvancedCustomRouteModels,
   parseAdvancedCustomConfig,
   stringifyAdvancedCustomConfig,
   validateAdvancedCustomConfig,
+  replaceAdvancedCustomForwardingRoutes,
+  replaceAdvancedCustomManagementRoute,
 } from '../../lib/advanced-custom'
 import type {
   AdvancedCustomAuthType,
@@ -102,18 +123,24 @@ type AdvancedCustomEditorDialogProps = {
   onSave: (value: string) => void
 }
 
-type AdvancedCustomEditMode = 'visual' | 'json'
+type AdvancedCustomEditorTab = 'forwarding' | 'models' | 'balance' | 'json'
 
 const longSelectContentClass = 'w-[360px] max-w-[calc(100vw-2rem)]'
 const longSelectItemClass =
   'items-start py-2 [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:shrink [&_[data-slot=select-item-text]]:whitespace-normal'
 const routeEditorGridClassName =
-  'lg:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,0.85fr)_7rem]'
+  'lg:grid-cols-[minmax(9rem,0.9fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_7rem]'
 const upstreamPathDescriptionKey =
   'Use a path to append it to the channel Base URL, or enter a full URL to override the Base URL for this route.'
 const catchAllOrderErrorMessage =
   'Catch-all route must be last for the same incoming path'
 const emptyAdvancedRoutes: AdvancedCustomRoute[] = []
+const advancedCustomTabs = new Set<AdvancedCustomEditorTab>([
+  'forwarding',
+  'models',
+  'balance',
+  'json',
+])
 
 type AdvancedCustomRouteRow = {
   route: AdvancedCustomRoute
@@ -139,6 +166,52 @@ function getRouteIncomingPath(route: AdvancedCustomRoute): string {
 
 function isCatchAllRoute(route: AdvancedCustomRoute): boolean {
   return !route.models || route.models.length === 0
+}
+
+function getRouteConverterLabel(route: AdvancedCustomRoute): string {
+  const converter = route.converter || 'none'
+  return (
+    ADVANCED_CUSTOM_CONVERTER_OPTIONS.find(
+      (option) => option.value === converter
+    )?.triggerLabel || converter
+  )
+}
+
+function getRouteConverters(
+  routes: AdvancedCustomRoute[]
+): Array<{ converter: AdvancedCustomConverter; label: string }> {
+  const converters = new Map<
+    AdvancedCustomConverter,
+    { converter: AdvancedCustomConverter; label: string }
+  >()
+  for (const route of routes) {
+    const converter = route.converter || 'none'
+    if (!converters.has(converter)) {
+      converters.set(converter, {
+        converter,
+        label: getRouteConverterLabel(route),
+      })
+    }
+  }
+  return [...converters.values()]
+}
+
+export function RouteModeBadges(props: { routes: AdvancedCustomRoute[] }) {
+  const { t } = useTranslation()
+  return getRouteConverters(props.routes).map((item) => (
+    <Badge
+      key={item.converter}
+      variant={item.converter === 'none' ? 'secondary' : 'outline'}
+      className='max-w-full'
+    >
+      {item.converter === 'none' ? (
+        <ArrowRight aria-hidden='true' />
+      ) : (
+        <Shuffle aria-hidden='true' />
+      )}
+      <span className='truncate'>{t(item.label)}</span>
+    </Badge>
+  ))
 }
 
 function buildRouteGroups(
@@ -180,7 +253,8 @@ export function AdvancedCustomEditorDialog({
       (_, routeIndex) => `advanced-custom-route-initial-${routeIndex}`
     )
   })
-  const [editMode, setEditMode] = useState<AdvancedCustomEditMode>('visual')
+  const [activeTab, setActiveTab] =
+    useState<AdvancedCustomEditorTab>('forwarding')
   const [jsonText, setJsonText] = useState(() =>
     stringifyAdvancedCustomConfig(
       parseAdvancedCustomConfig(value) || createAdvancedCustomConfig()
@@ -190,9 +264,9 @@ export function AdvancedCustomEditorDialog({
   const [templateKey, setTemplateKey] = useState(
     ADVANCED_CUSTOM_TEMPLATE_OPTIONS[0]?.value || ''
   )
-  const templateLabel = useMemo(
-    () => getOptionLabel(ADVANCED_CUSTOM_TEMPLATE_OPTIONS, templateKey),
-    [templateKey]
+  const [templateConfirmOpen, setTemplateConfirmOpen] = useState(false)
+  const [expandedRouteGroups, setExpandedRouteGroups] = useState<Set<string>>(
+    () => new Set()
   )
 
   const normalizedConfig = useMemo(
@@ -200,7 +274,7 @@ export function AdvancedCustomEditorDialog({
     [config]
   )
   const routes = normalizedConfig.advanced_routes || emptyAdvancedRoutes
-  const routeRows = useMemo(
+  const allRouteRows = useMemo(
     () =>
       routes.map((route, index) => ({
         route,
@@ -214,13 +288,71 @@ export function AdvancedCustomEditorDialog({
       })),
     [routeKeys, routes]
   )
+  const routeRows = useMemo(
+    () =>
+      allRouteRows.filter(
+        (routeRow) =>
+          !isAdvancedCustomManagementPath(getRouteIncomingPath(routeRow.route))
+      ),
+    [allRouteRows]
+  )
   const routeGroups = useMemo(() => buildRouteGroups(routeRows), [routeRows])
+  const usedIncomingPaths = useMemo(
+    () => new Set(routeGroups.map((routeGroup) => routeGroup.incomingPath)),
+    [routeGroups]
+  )
+  const availableIncomingPathOptions = useMemo(
+    () =>
+      ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS.filter(
+        (option) =>
+          !isAdvancedCustomManagementPath(option.value) &&
+          !usedIncomingPaths.has(option.value)
+      ),
+    [usedIncomingPaths]
+  )
   const validationError = useMemo(
     () => validateAdvancedCustomConfig(normalizedConfig),
     [normalizedConfig]
   )
   const canFixCatchAllOrder =
     validationError?.message === catchAllOrderErrorMessage
+  const modelListRoute = getAdvancedCustomManagementRoute(
+    normalizedConfig,
+    ADVANCED_CUSTOM_MODEL_LIST_PATH
+  )
+  const balanceRoute = getAdvancedCustomManagementRoute(
+    normalizedConfig,
+    ADVANCED_CUSTOM_BALANCE_PATH
+  )
+  const selectedTemplate = useMemo(
+    () =>
+      ADVANCED_CUSTOM_TEMPLATE_OPTIONS.find(
+        (template) => template.value === templateKey
+      ) || ADVANCED_CUSTOM_TEMPLATE_OPTIONS[0],
+    [templateKey]
+  )
+
+  // Synchronize the draft only when the dialog opens or the source value changes.
+  // Route keys are disposable UI identity and do not belong in the saved config.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open) return
+    const parsed =
+      parseAdvancedCustomConfig(value) || createAdvancedCustomConfig()
+    const normalized = normalizeAdvancedCustomConfig(parsed)
+    setConfig(normalized)
+    setRouteKeys(createRouteKeys(normalized.advanced_routes?.length || 0))
+    setJsonText(stringifyAdvancedCustomConfig(normalized))
+    setJsonError('')
+    setActiveTab('forwarding')
+    setTemplateConfirmOpen(false)
+    const firstForwardingPath = (normalized.advanced_routes || [])
+      .map((route) => getRouteIncomingPath(route))
+      .find((path) => !isAdvancedCustomManagementPath(path))
+    setExpandedRouteGroups(
+      firstForwardingPath ? new Set([firstForwardingPath]) : new Set()
+    )
+  }, [open, value])
 
   const createRouteKey = () => {
     routeKeyCounterRef.current += 1
@@ -241,7 +373,7 @@ export function AdvancedCustomEditorDialog({
 
   const replaceRoutes = (
     nextRoutes: AdvancedCustomRoute[],
-    nextRouteKeys = routeRows.map((routeRow) => routeRow.routeKey)
+    nextRouteKeys = allRouteRows.map((routeRow) => routeRow.routeKey)
   ) => {
     setConfig((current) => {
       const next = normalizeAdvancedCustomConfig(current)
@@ -250,18 +382,24 @@ export function AdvancedCustomEditorDialog({
     setRouteKeys(nextRouteKeys)
   }
 
-  const addRoute = () => {
+  const addRoute = (incomingPath: string | null) => {
+    if (!incomingPath || usedIncomingPaths.has(incomingPath)) return
     setConfig((current) => {
       const next = normalizeAdvancedCustomConfig(current)
       return {
         ...next,
         advanced_routes: [
           ...(next.advanced_routes || []),
-          createAdvancedCustomRoute(),
+          {
+            ...createAdvancedCustomRoute(),
+            incoming_path: incomingPath,
+            upstream_path: incomingPath,
+          },
         ],
       }
     })
     setRouteKeys((current) => [...current, createRouteKey()])
+    setExpandedRouteGroups((current) => new Set(current).add(incomingPath))
   }
 
   const addRouteForIncomingPath = (incomingPath: string) => {
@@ -281,6 +419,9 @@ export function AdvancedCustomEditorDialog({
       }
     })
     setRouteKeys((current) => [...current, createRouteKey()])
+    setExpandedRouteGroups((current) =>
+      new Set(current).add(resolvedIncomingPath)
+    )
   }
 
   const removeRoute = (index: number) => {
@@ -308,6 +449,15 @@ export function AdvancedCustomEditorDialog({
     )
     const nextRoutes = routes.map((route, routeIndex) => {
       if (!groupRouteIndexes.has(routeIndex)) return route
+      if (resolvedIncomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH) {
+        return {
+          ...route,
+          incoming_path: resolvedIncomingPath,
+          upstream_path: ADVANCED_CUSTOM_MODEL_LIST_PATH,
+          converter: 'none' as const,
+          models: [],
+        }
+      }
       const converter = route.converter || 'none'
       return {
         ...route,
@@ -321,12 +471,18 @@ export function AdvancedCustomEditorDialog({
       }
     })
     replaceRoutes(nextRoutes)
+    setExpandedRouteGroups((current) => {
+      const next = new Set(current)
+      next.delete(group.incomingPath)
+      next.add(resolvedIncomingPath)
+      return next
+    })
   }
 
   const swapRoutes = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return
     const nextRoutes = [...routes]
-    const nextRouteKeys = routeRows.map((routeRow) => routeRow.routeKey)
+    const nextRouteKeys = allRouteRows.map((routeRow) => routeRow.routeKey)
     const fromRoute = nextRoutes[fromIndex]
     nextRoutes[fromIndex] = nextRoutes[toIndex]
     nextRoutes[toIndex] = fromRoute
@@ -360,7 +516,7 @@ export function AdvancedCustomEditorDialog({
     if (lastSamePathIndex < 0 || index === lastSamePathIndex) return
 
     const nextRoutes = [...routes]
-    const nextRouteKeys = routeRows.map((routeRow) => routeRow.routeKey)
+    const nextRouteKeys = allRouteRows.map((routeRow) => routeRow.routeKey)
     const [route] = nextRoutes.splice(index, 1)
     const [routeKey] = nextRouteKeys.splice(index, 1)
     nextRoutes.splice(lastSamePathIndex, 0, route)
@@ -391,9 +547,19 @@ export function AdvancedCustomEditorDialog({
       const orderedRows = orderedRowsByPath.get(incomingPath)
       return orderedRows?.shift() || routeRow
     })
+    const orderedRoutes = [...nextRows]
+    const orderedRouteKeys = [...nextRows]
     replaceRoutes(
-      nextRows.map((routeRow) => routeRow.route),
-      nextRows.map((routeRow) => routeRow.routeKey)
+      routes.map((route) =>
+        isAdvancedCustomManagementPath(getRouteIncomingPath(route))
+          ? route
+          : orderedRoutes.shift()?.route || route
+      ),
+      allRouteRows.map((routeRow) =>
+        isAdvancedCustomManagementPath(getRouteIncomingPath(routeRow.route))
+          ? routeRow.routeKey
+          : orderedRouteKeys.shift()?.routeKey || routeRow.routeKey
+      )
     )
   }
 
@@ -414,19 +580,23 @@ export function AdvancedCustomEditorDialog({
     return parsed
   }
 
-  const switchToVisualMode = () => {
+  const switchTab = (nextTab: AdvancedCustomEditorTab) => {
+    if (!advancedCustomTabs.has(nextTab)) return
+    if (activeTab !== 'json') {
+      if (nextTab === 'json') {
+        setJsonText(stringifyAdvancedCustomConfig(normalizedConfig))
+        setJsonError('')
+      }
+      setActiveTab(nextTab)
+      return
+    }
+
     const parsed = parseJsonEditorConfig()
     if (!parsed) return
     const normalized = normalizeAdvancedCustomConfig(parsed)
     setConfig(normalized)
     setRouteKeys(createRouteKeys(normalized.advanced_routes?.length || 0))
-    setEditMode('visual')
-  }
-
-  const switchToJsonMode = () => {
-    setJsonText(stringifyAdvancedCustomConfig(normalizedConfig))
-    setJsonError('')
-    setEditMode('json')
+    setActiveTab(nextTab)
   }
 
   const handleJsonChange = (nextValue: string) => {
@@ -434,39 +604,39 @@ export function AdvancedCustomEditorDialog({
     if (jsonError) setJsonError('')
   }
 
-  const formatJson = () => {
-    const parsed = parseJsonEditorConfig()
-    if (!parsed) return
-    setJsonText(stringifyAdvancedCustomConfig(parsed))
+  const selectTemplate = (nextTemplateKey: string) => {
+    const template =
+      ADVANCED_CUSTOM_TEMPLATE_OPTIONS.find(
+        (option) => option.value === nextTemplateKey
+      ) || ADVANCED_CUSTOM_TEMPLATE_OPTIONS[0]
+    setTemplateKey(template.value)
+    setTemplateConfirmOpen(true)
   }
 
-  const applyTemplate = (mode: 'fill' | 'append') => {
-    const templateConfig = getAdvancedCustomTemplateConfig(templateKey)
-    let nextConfig = templateConfig
-
-    if (mode === 'append') {
-      const baseConfig =
-        editMode === 'json' ? parseJsonEditorConfig() : normalizedConfig
-      if (!baseConfig) return
-      const base = normalizeAdvancedCustomConfig(baseConfig)
-      const template = normalizeAdvancedCustomConfig(templateConfig)
-      nextConfig = {
-        advanced_routes: [
-          ...(base.advanced_routes || []),
-          ...(template.advanced_routes || []),
-        ],
-      }
-    }
-
-    const normalized = normalizeAdvancedCustomConfig(nextConfig)
+  const applySelectedTemplate = () => {
+    if (!selectedTemplate) return
+    const templateRoutes = (selectedTemplate.config.advanced_routes || []).map(
+      (route) => ({
+        ...route,
+        models: [],
+      })
+    )
+    const normalized = replaceAdvancedCustomForwardingRoutes(
+      normalizedConfig,
+      templateRoutes
+    )
     setConfig(normalized)
     setRouteKeys(createRouteKeys(normalized.advanced_routes?.length || 0))
     setJsonText(stringifyAdvancedCustomConfig(normalized))
     setJsonError('')
+    setExpandedRouteGroups(
+      new Set(templateRoutes.map((route) => getRouteIncomingPath(route)))
+    )
+    setTemplateConfirmOpen(false)
   }
 
   const saveConfig = () => {
-    if (editMode === 'json') {
+    if (activeTab === 'json') {
       const parsed = parseJsonEditorConfig()
       if (!parsed) {
         toast.error(t('Please fix JSON errors before saving'))
@@ -511,96 +681,125 @@ export function AdvancedCustomEditorDialog({
         </>
       }
     >
-      <div className='bg-muted/30 border-b px-4 py-3'>
-        <div className='flex flex-wrap items-center gap-2'>
-          <span className='text-muted-foreground text-xs font-medium'>
-            {t('Mode')}
-          </span>
-          <Button
-            type='button'
-            variant={editMode === 'visual' ? 'default' : 'outline'}
-            size='sm'
-            onClick={switchToVisualMode}
-          >
-            {t('Visual')}
-          </Button>
-          <Button
-            type='button'
-            variant={editMode === 'json' ? 'default' : 'outline'}
-            size='sm'
-            onClick={switchToJsonMode}
-          >
-            {t('JSON Text')}
-          </Button>
-
-          <div className='bg-border mx-1 h-5 w-px' />
-
-          <span className='text-muted-foreground text-xs font-medium'>
-            {t('Template')}
-          </span>
-          <Select
-            value={templateKey}
-            onValueChange={(nextValue) =>
-              setTemplateKey(
-                nextValue || ADVANCED_CUSTOM_TEMPLATE_OPTIONS[0]?.value || ''
-              )
-            }
-          >
-            <SelectTrigger className='h-8 max-w-full min-w-[260px] flex-1 sm:w-[320px]'>
-              <SelectValue className='min-w-0 truncate'>
-                {t(templateLabel)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent
-              alignItemWithTrigger={false}
-              className={longSelectContentClass}
-            >
-              <SelectGroup>
-                {ADVANCED_CUSTOM_TEMPLATE_OPTIONS.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    value={option.value}
-                    className={longSelectItemClass}
-                  >
-                    <span className='min-w-0 leading-snug break-words whitespace-normal'>
-                      {t(option.label)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            onClick={() => applyTemplate('fill')}
-          >
-            {t('Fill Template')}
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            onClick={() => applyTemplate('append')}
-          >
-            {t('Append Template')}
-          </Button>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => switchTab(value as AdvancedCustomEditorTab)}
+        className='min-w-0 gap-0'
+      >
+        <div className='border-b px-4 py-3'>
+          <TabsList className='grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4'>
+            <TabsTrigger value='forwarding'>
+              <ListTree className='size-4' aria-hidden='true' />
+              {t('Forwarding Routes')}
+              <Badge variant='outline'>{routeRows.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value='models'>
+              <ListTree className='size-4' aria-hidden='true' />
+              {t('Model List')}
+              <Badge variant='outline'>
+                {modelListRoute ? t('Configured') : t('Not configured')}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value='balance'>
+              <CircleDollarSign className='size-4' aria-hidden='true' />
+              {t('Balance Query')}
+              <Badge variant='outline'>
+                {balanceRoute ? t('Configured') : t('Not configured')}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value='json'>
+              <Code2 className='size-4' aria-hidden='true' />
+              {t('Full JSON')}
+            </TabsTrigger>
+          </TabsList>
         </div>
-      </div>
 
-      {editMode === 'visual' ? (
-        <div className='flex flex-col gap-4 p-4 lg:gap-3'>
-          <div className='flex justify-end border-y py-4 lg:py-2'>
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              onClick={addRoute}
-            >
-              <Plus data-icon='inline-start' />
-              {t('Add route')}
-            </Button>
+        <TabsContent value='forwarding' className='flex flex-col gap-4 p-4'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div>
+              <p className='font-medium'>{t('Forwarding Routes')}</p>
+              <p className='text-muted-foreground text-xs'>
+                {t('Add routes individually or replace them from a template.')}
+              </p>
+            </div>
+            <div className='flex flex-wrap gap-2'>
+              <Select
+                items={availableIncomingPathOptions}
+                value={null}
+                onValueChange={(incomingPath) => {
+                  if (typeof incomingPath === 'string') addRoute(incomingPath)
+                }}
+              >
+                <SelectTrigger
+                  size='sm'
+                  disabled={availableIncomingPathOptions.length === 0}
+                >
+                  <Plus data-icon='inline-start' />
+                  <SelectValue placeholder={t('Add route')} />
+                </SelectTrigger>
+                <SelectContent
+                  align='end'
+                  alignItemWithTrigger={false}
+                  className={longSelectContentClass}
+                >
+                  <SelectGroup>
+                    {availableIncomingPathOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className={longSelectItemClass}
+                      >
+                        <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
+                          <span>{option.label}</span>
+                          <span className='text-muted-foreground font-mono text-xs break-all'>
+                            {option.value}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Select
+                value={null}
+                onValueChange={(value) => {
+                  if (typeof value === 'string') selectTemplate(value)
+                }}
+              >
+                <SelectTrigger size='sm'>
+                  <SelectValue placeholder={t('Add template')} />
+                </SelectTrigger>
+                <SelectContent align='end' alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    {ADVANCED_CUSTOM_TEMPLATE_OPTIONS.map((template) => (
+                      <SelectItem key={template.value} value={template.value}>
+                        {t(template.label)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                onClick={() => setExpandedRouteGroups(new Set())}
+              >
+                {t('Collapse all')}
+              </Button>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                onClick={() =>
+                  setExpandedRouteGroups(
+                    new Set(routeGroups.map((group) => group.incomingPath))
+                  )
+                }
+              >
+                {t('Expand all')}
+              </Button>
+            </div>
           </div>
 
           {validationError ? (
@@ -626,55 +825,136 @@ export function AdvancedCustomEditorDialog({
             </Alert>
           ) : null}
 
-          <p className='text-muted-foreground bg-muted/30 hidden rounded-md border px-3 py-2 text-xs leading-relaxed lg:block'>
-            {t(upstreamPathDescriptionKey)}
-          </p>
-
-          <div className='flex flex-col gap-4'>
+          <div className='flex flex-col gap-3'>
             {routeGroups.map((routeGroup) => (
-              <RouteGroupEditor
+              <Collapsible
                 key={routeGroup.incomingPath || 'advanced-custom-empty-path'}
-                group={routeGroup}
-                validationError={validationError}
-                onAddRoute={() =>
-                  addRouteForIncomingPath(routeGroup.incomingPath)
+                open={expandedRouteGroups.has(routeGroup.incomingPath)}
+                onOpenChange={(expanded) =>
+                  setExpandedRouteGroups((current) => {
+                    const next = new Set(current)
+                    if (expanded) next.add(routeGroup.incomingPath)
+                    else next.delete(routeGroup.incomingPath)
+                    return next
+                  })
                 }
-                onIncomingPathChange={(nextIncomingPath) =>
-                  updateGroupIncomingPath(routeGroup, nextIncomingPath)
-                }
-                onMoveRoute={(index, direction) =>
-                  moveRouteWithinGroup(index, direction)
-                }
-                onMoveRouteToEnd={moveRouteToGroupEnd}
-                onRemoveRoute={removeRoute}
-                onRouteChange={updateRoute}
-              />
+                className='rounded-md border'
+              >
+                <CollapsibleTrigger
+                  render={
+                    <button
+                      type='button'
+                      className='hover:bg-muted/50 focus-visible:ring-ring/50 flex min-h-11 w-full items-center gap-3 rounded-md px-3 py-2 text-left outline-none focus-visible:ring-3'
+                    />
+                  }
+                >
+                  {expandedRouteGroups.has(routeGroup.incomingPath) ? (
+                    <ChevronDown
+                      className='size-4 shrink-0'
+                      aria-hidden='true'
+                    />
+                  ) : (
+                    <ChevronRight
+                      className='size-4 shrink-0'
+                      aria-hidden='true'
+                    />
+                  )}
+                  <span className='min-w-0 flex-1'>
+                    <span className='flex min-w-0 flex-wrap items-center gap-2'>
+                      <span className='truncate font-medium'>
+                        {getAdvancedCustomIncomingPathLabel(
+                          routeGroup.incomingPath
+                        )}
+                      </span>
+                      <RouteModeBadges
+                        routes={routeGroup.routeRows.map(
+                          (routeRow) => routeRow.route
+                        )}
+                      />
+                    </span>
+                    <span className='text-muted-foreground block truncate font-mono text-xs'>
+                      {routeGroup.incomingPath}
+                    </span>
+                  </span>
+                  <Badge variant='outline'>
+                    {routeGroup.routeRows.length} {t('Routes')}
+                  </Badge>
+                </CollapsibleTrigger>
+                <CollapsibleContent className='border-t'>
+                  <RouteGroupEditor
+                    group={routeGroup}
+                    usedIncomingPaths={usedIncomingPaths}
+                    validationError={validationError}
+                    hideHeader
+                    onAddRoute={() =>
+                      addRouteForIncomingPath(routeGroup.incomingPath)
+                    }
+                    onIncomingPathChange={(nextIncomingPath) =>
+                      updateGroupIncomingPath(routeGroup, nextIncomingPath)
+                    }
+                    onMoveRoute={(index, direction) =>
+                      moveRouteWithinGroup(index, direction)
+                    }
+                    onMoveRouteToEnd={moveRouteToGroupEnd}
+                    onRemoveRoute={removeRoute}
+                    onRouteChange={updateRoute}
+                  />
+                </CollapsibleContent>
+              </Collapsible>
             ))}
           </div>
-        </div>
-      ) : (
-        <div className='p-4'>
-          <div className='mb-2 flex items-center gap-2'>
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              onClick={formatJson}
-            >
-              {t('Format')}
-            </Button>
-            <span className='text-muted-foreground text-xs'>
-              {t('Advanced text editing')}
-            </span>
-          </div>
-          <Textarea
+        </TabsContent>
+
+        <TabsContent value='models' className='p-4'>
+          <ManagementRouteEditor
+            route={modelListRoute}
+            path={ADVANCED_CUSTOM_MODEL_LIST_PATH}
+            title={ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+            description={t(
+              'This route is used only by channel management to discover upstream models.'
+            )}
+            onChange={(route) =>
+              setConfig((current) =>
+                replaceAdvancedCustomManagementRoute(
+                  current,
+                  ADVANCED_CUSTOM_MODEL_LIST_PATH,
+                  route
+                )
+              )
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value='balance' className='p-4'>
+          <ManagementRouteEditor
+            route={balanceRoute}
+            path={ADVANCED_CUSTOM_BALANCE_PATH}
+            title={ADVANCED_CUSTOM_BALANCE_LABEL}
+            description={t(
+              'This route is used only by channel management to query the upstream balance.'
+            )}
+            onChange={(route) =>
+              setConfig((current) =>
+                replaceAdvancedCustomManagementRoute(
+                  current,
+                  ADVANCED_CUSTOM_BALANCE_PATH,
+                  route
+                )
+              )
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value='json' className='p-4'>
+          <JsonCodeEditor
             value={jsonText}
-            onChange={(event) => handleJsonChange(event.target.value)}
+            onChange={handleJsonChange}
             placeholder={stringifyAdvancedCustomConfig(
               getAdvancedCustomTemplateConfig(templateKey)
             )}
-            rows={22}
-            className='min-h-[420px] font-mono text-xs'
+            heightClassName='h-[420px] min-h-[420px] max-h-[420px]'
+            aria-invalid={Boolean(jsonError)}
+            ariaLabel={t('Advanced text editing')}
           />
           <p className='text-muted-foreground mt-2 text-xs'>
             {t('Edit JSON text directly. Format will be validated on save.')}
@@ -682,15 +962,177 @@ export function AdvancedCustomEditorDialog({
           {jsonError ? (
             <p className='text-destructive mt-1 text-xs'>{jsonError}</p>
           ) : null}
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
+
+      <ConfirmDialog
+        open={templateConfirmOpen}
+        onOpenChange={setTemplateConfirmOpen}
+        title={t('Replace forwarding routes?')}
+        desc={t(
+          'This will remove {{removed}} forwarding routes and replace them with the {{template}} template ({{created}} routes). Model list and balance routes will be preserved.',
+          {
+            removed: routeRows.length,
+            created: selectedTemplate?.config.advanced_routes?.length || 0,
+            template: selectedTemplate?.label || '',
+          }
+        )}
+        confirmText={t('Replace')}
+        handleConfirm={applySelectedTemplate}
+      />
     </Dialog>
+  )
+}
+
+function ManagementRouteEditor({
+  route,
+  path,
+  title,
+  description,
+  onChange,
+}: {
+  route: AdvancedCustomRoute | undefined
+  path: string
+  title: string
+  description: string
+  onChange: (route: AdvancedCustomRoute | null) => void
+}) {
+  const { t } = useTranslation()
+  const authMode = route ? getAdvancedCustomAuthMode(route) : 'default'
+
+  if (!route) {
+    return (
+      <div className='flex min-h-52 flex-col items-center justify-center gap-4 rounded-lg border border-dashed p-6 text-center'>
+        <div>
+          <p className='font-medium'>{title}</p>
+          <p className='text-muted-foreground mt-1 max-w-lg text-sm'>
+            {description}
+          </p>
+          <p className='text-muted-foreground mt-2 font-mono text-xs'>{path}</p>
+        </div>
+        <Button
+          type='button'
+          onClick={() => onChange(createAdvancedCustomManagementRoute(path))}
+        >
+          <Plus data-icon='inline-start' />
+          {t('Add management route')}
+        </Button>
+      </div>
+    )
+  }
+
+  const updateAuth = (
+    field: Exclude<keyof NonNullable<AdvancedCustomRoute['auth']>, 'type'>,
+    value: string
+  ) => {
+    if (!route.auth || route.auth.type === 'none') return
+    onChange({
+      ...route,
+      auth: {
+        type: route.auth.type,
+        name: route.auth.name || '',
+        value: route.auth.value || '',
+        [field]: value,
+      },
+    })
+  }
+
+  return (
+    <div className='flex flex-col gap-4 rounded-lg border p-4'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+        <div>
+          <p className='font-medium'>{title}</p>
+          <p className='text-muted-foreground mt-1 text-sm'>{description}</p>
+          <p className='text-muted-foreground mt-1 font-mono text-xs'>{path}</p>
+        </div>
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          onClick={() => onChange(null)}
+        >
+          <Trash2 data-icon='inline-start' />
+          {t('Delete')}
+        </Button>
+      </div>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <FieldBlock label={t('Upstream path')}>
+          <Input
+            value={route.upstream_path || ''}
+            onChange={(event) =>
+              onChange({ ...route, upstream_path: event.target.value })
+            }
+            placeholder={
+              path === ADVANCED_CUSTOM_MODEL_LIST_PATH
+                ? '/v1/models'
+                : '/dashboard/billing/credit_grants'
+            }
+          />
+        </FieldBlock>
+        <FieldBlock label={t('Auth')}>
+          <Select
+            value={authMode}
+            onValueChange={(value) =>
+              onChange({
+                ...route,
+                auth: buildAdvancedCustomAuth(
+                  value as AdvancedCustomAuthMode,
+                  route.auth
+                ),
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue className='min-w-0 truncate'>
+                {t(getOptionLabel(ADVANCED_CUSTOM_AUTH_MODE_OPTIONS, authMode))}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {ADVANCED_CUSTOM_AUTH_MODE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </FieldBlock>
+        {authMode === 'header' || authMode === 'query' ? (
+          <>
+            <FieldBlock label={t('Auth name')}>
+              <Input
+                value={route.auth?.name || ''}
+                onChange={(event) => updateAuth('name', event.target.value)}
+                placeholder={
+                  authMode === 'header' ? 'Authorization' : 'api_key'
+                }
+              />
+            </FieldBlock>
+            <FieldBlock label={t('Auth value')}>
+              <Input
+                value={route.auth?.value || ''}
+                onChange={(event) => updateAuth('value', event.target.value)}
+                placeholder={
+                  authMode === 'header' ? 'Bearer {api_key}' : '{api_key}'
+                }
+              />
+            </FieldBlock>
+          </>
+        ) : null}
+      </div>
+      <p className='text-muted-foreground text-xs'>
+        {t(upstreamPathDescriptionKey)}
+      </p>
+    </div>
   )
 }
 
 function RouteGroupEditor({
   group,
+  usedIncomingPaths,
   validationError,
+  hideHeader = false,
   onAddRoute,
   onIncomingPathChange,
   onMoveRoute,
@@ -699,7 +1141,9 @@ function RouteGroupEditor({
   onRouteChange,
 }: {
   group: AdvancedCustomRouteGroup
+  usedIncomingPaths: ReadonlySet<string>
   validationError: ReturnType<typeof validateAdvancedCustomConfig>
+  hideHeader?: boolean
   onAddRoute: () => void
   onIncomingPathChange: (incomingPath: string | null) => void
   onMoveRoute: (index: number, direction: -1 | 1) => void
@@ -709,6 +1153,7 @@ function RouteGroupEditor({
 }) {
   const { t } = useTranslation()
   const incomingPath = group.incomingPath || '/v1/chat/completions'
+  const isModelListGroup = incomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH
   const incomingPathLabel = getAdvancedCustomIncomingPathLabel(incomingPath)
   const catchAllRoute = group.routeRows.find((routeRow) =>
     isCatchAllRoute(routeRow.route)
@@ -734,61 +1179,92 @@ function RouteGroupEditor({
         groupHasError && 'border-destructive/60'
       )}
     >
-      <div className='bg-muted/20 flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex min-w-0 flex-1 flex-col gap-2'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <span className='text-sm font-medium'>{t('Route group')}</span>
-            <Badge variant='secondary'>
-              {group.routeRows.length} {t('Routes')}
-            </Badge>
-            <Badge variant={hasCatchAll ? 'outline' : 'secondary'}>
-              {hasCatchAll ? t('Fallback route') : t('Model-scoped only')}
-            </Badge>
-            {!catchAllIsLast ? (
-              <Badge variant='destructive'>{t('Fallback must be last')}</Badge>
-            ) : null}
-          </div>
-          <Select value={incomingPath} onValueChange={onIncomingPathChange}>
-            <SelectTrigger className='h-9 max-w-full lg:max-w-[420px]'>
-              <SelectValue className='min-w-0 truncate'>
-                {incomingPathLabel}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent
-              alignItemWithTrigger={false}
-              className={longSelectContentClass}
+      {!hideHeader ? (
+        <div className='bg-muted/20 flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between'>
+          <div className='flex min-w-0 flex-1 flex-col gap-2'>
+            <div className='flex flex-wrap items-center gap-2'>
+              <span className='text-sm font-medium'>{t('Route group')}</span>
+              <Badge variant='secondary'>
+                {group.routeRows.length} {t('Routes')}
+              </Badge>
+              {isModelListGroup ? (
+                <Badge variant='outline'>
+                  {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+                </Badge>
+              ) : (
+                <Badge variant={hasCatchAll ? 'outline' : 'secondary'}>
+                  {hasCatchAll ? t('Fallback route') : t('Model-scoped only')}
+                </Badge>
+              )}
+              {!isModelListGroup && !catchAllIsLast ? (
+                <Badge variant='destructive'>
+                  {t('Fallback must be last')}
+                </Badge>
+              ) : null}
+            </div>
+            <Select
+              items={ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS}
+              value={incomingPath}
+              onValueChange={onIncomingPathChange}
             >
-              <SelectGroup>
-                {ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    value={option.value}
-                    className={longSelectItemClass}
-                  >
-                    <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
-                      <span>{option.label}</span>
-                      <span className='text-muted-foreground font-mono text-xs break-all'>
-                        {option.value}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+              <SelectTrigger className='h-9 max-w-full lg:max-w-[420px]'>
+                <SelectValue className='min-w-0 truncate'>
+                  {incomingPathLabel}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                alignItemWithTrigger={false}
+                className={longSelectContentClass}
+              >
+                <SelectGroup>
+                  {ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      disabled={
+                        (option.value !== incomingPath &&
+                          usedIncomingPaths.has(option.value)) ||
+                        (option.value === ADVANCED_CUSTOM_MODEL_LIST_PATH &&
+                          group.routeRows.length > 1)
+                      }
+                      className={longSelectItemClass}
+                    >
+                      <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
+                        <span>{option.label}</span>
+                        <span className='text-muted-foreground font-mono text-xs break-all'>
+                          {option.value}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {!isModelListGroup ? (
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={onAddRoute}
+            >
+              <Plus data-icon='inline-start' />
+              {t('Add split')}
+            </Button>
+          ) : null}
         </div>
+      ) : null}
 
-        <Button type='button' variant='outline' size='sm' onClick={onAddRoute}>
-          <Plus data-icon='inline-start' />
-          {t('Add split')}
-        </Button>
-      </div>
-
-      <div className='border-t px-3 py-2'>
+      <div className={cn('px-3 py-2', !hideHeader && 'border-t')}>
         <p className='text-muted-foreground text-xs leading-relaxed'>
-          {t(
-            'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.'
-          )}
+          {isModelListGroup
+            ? t(
+                'This route discovers upstream OpenAI models and cannot be split or matched by client model rules.'
+              )
+            : t(
+                'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.'
+              )}
         </p>
         {groupHasError && validationError ? (
           <p className='text-destructive mt-1 text-xs'>
@@ -880,24 +1356,19 @@ function RouteEditor({
   const authMode = getAdvancedCustomAuthMode(route)
   const incomingPath =
     route.incoming_path || getDefaultAdvancedCustomIncomingPath(converter)
+  const isModelListRoute = incomingPath === ADVANCED_CUSTOM_MODEL_LIST_PATH
   const converterOptions = useMemo(
     () => getAdvancedCustomConverterOptions(incomingPath),
     [incomingPath]
   )
-  const converterLabel = getOptionLabel(
-    ADVANCED_CUSTOM_CONVERTER_OPTIONS,
-    converter
-  )
   const converterTriggerLabel =
     ADVANCED_CUSTOM_CONVERTER_OPTIONS.find(
       (option) => option.value === converter
-    )?.triggerLabel || converterLabel
+    )?.triggerLabel || converter
   const authLabel = getOptionLabel(ADVANCED_CUSTOM_AUTH_MODE_OPTIONS, authMode)
-  const isNativeConverter = converter === 'none'
-  const ConverterVisualIcon = isNativeConverter ? ArrowRight : Shuffle
   const modelsInputValue = route.models?.join(', ') || ''
   const parsedRouteModels = parseAdvancedCustomRouteModels(modelsInputValue)
-  const isFallback = parsedRouteModels.length === 0
+  const isFallback = !isModelListRoute && parsedRouteModels.length === 0
 
   const setConverter = (nextConverter: AdvancedCustomConverter) => {
     let nextIncomingPath = incomingPath
@@ -960,39 +1431,20 @@ function RouteEditor({
         )}
       >
         <div className='flex min-w-0 items-start justify-between gap-3 md:col-span-2 lg:col-span-1'>
-          <div className='min-w-0 space-y-2 lg:space-y-1'>
-            <div className='flex flex-wrap items-center gap-2'>
+          <div className='min-w-0 space-y-2'>
+            <div className='flex min-w-0 flex-wrap items-center gap-2'>
               <div className='text-sm font-medium'>
                 {t('Route')} {index + 1}
               </div>
-              {isFallback ? (
+              {isModelListRoute ? (
+                <Badge variant='outline'>
+                  {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+                </Badge>
+              ) : null}
+              {!isModelListRoute && isFallback ? (
                 <Badge variant='outline'>{t('Fallback')}</Badge>
               ) : null}
-              <TooltipProvider delay={100}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span
-                        className={cn(
-                          'border-border inline-flex size-7 shrink-0 items-center justify-center rounded-md border',
-                          isNativeConverter
-                            ? 'bg-secondary text-secondary-foreground'
-                            : 'bg-muted text-foreground'
-                        )}
-                      />
-                    }
-                  >
-                    <ConverterVisualIcon
-                      className='size-3.5'
-                      aria-hidden='true'
-                    />
-                    <span className='sr-only'>{t(converterLabel)}</span>
-                  </TooltipTrigger>
-                  <TooltipContent side='top'>
-                    {t(converterLabel)}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <RouteModeBadges routes={[route]} />
             </div>
           </div>
           <div className='flex shrink-0 items-center gap-1 lg:hidden'>
@@ -1033,42 +1485,52 @@ function RouteEditor({
           className='lg:gap-1'
           labelClassName='lg:sr-only'
         >
-          <Input
-            value={modelsInputValue}
-            onChange={(event) => setModelsInput(event.target.value)}
-            onBlur={(event) => normalizeModelsInput(event.target.value)}
-            placeholder={
-              isFallback
-                ? t('Leave empty for fallback')
-                : t('e.g. gpt-4o, gemini-2.5-flash')
-            }
-            aria-invalid={Boolean(errorMessage)}
-          />
-          <div className='flex flex-wrap gap-1'>
-            {isFallback ? (
-              <Badge variant='outline'>{t('Fallback')}</Badge>
-            ) : (
-              parsedRouteModels.map((model) => {
-                const ruleKind = getAdvancedCustomModelRuleKind(model)
-                const displayModel =
-                  ruleKind === 'regex'
-                    ? getAdvancedCustomRegexModelPattern(model) || model
-                    : model
-                return (
-                  <Badge
-                    key={model}
-                    variant={ruleKind === 'regex' ? 'outline' : 'secondary'}
-                    className='max-w-full gap-1.5 font-mono'
-                  >
-                    <span className='font-sans text-[10px] font-semibold tracking-normal uppercase'>
-                      {t(ruleKind === 'regex' ? 'Regex' : 'Exact')}
-                    </span>
-                    <span className='truncate'>{displayModel}</span>
-                  </Badge>
-                )
-              })
-            )}
-          </div>
+          {isModelListRoute && parsedRouteModels.length === 0 ? (
+            <div className='flex h-9 items-center'>
+              <Badge variant='outline'>
+                {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+              </Badge>
+            </div>
+          ) : (
+            <>
+              <Input
+                value={modelsInputValue}
+                onChange={(event) => setModelsInput(event.target.value)}
+                onBlur={(event) => normalizeModelsInput(event.target.value)}
+                placeholder={
+                  isFallback
+                    ? t('Leave empty for fallback')
+                    : t('e.g. gpt-4o, gemini-2.5-flash')
+                }
+                aria-invalid={Boolean(errorMessage)}
+              />
+              <div className='flex flex-wrap gap-1'>
+                {isFallback ? (
+                  <Badge variant='outline'>{t('Fallback')}</Badge>
+                ) : (
+                  parsedRouteModels.map((model) => {
+                    const ruleKind = getAdvancedCustomModelRuleKind(model)
+                    const displayModel =
+                      ruleKind === 'regex'
+                        ? getAdvancedCustomRegexModelPattern(model) || model
+                        : model
+                    return (
+                      <Badge
+                        key={model}
+                        variant={ruleKind === 'regex' ? 'outline' : 'secondary'}
+                        className='max-w-full gap-1.5 font-mono'
+                      >
+                        <span className='font-sans text-[10px] font-semibold tracking-normal uppercase'>
+                          {t(ruleKind === 'regex' ? 'Regex' : 'Exact')}
+                        </span>
+                        <span className='truncate'>{displayModel}</span>
+                      </Badge>
+                    )
+                  })
+                )}
+              </div>
+            </>
+          )}
         </FieldBlock>
 
         <FieldBlock
@@ -1100,6 +1562,7 @@ function RouteEditor({
         >
           <Select
             value={converter}
+            disabled={isModelListRoute && converter === 'none'}
             onValueChange={(value) =>
               setConverter(value as AdvancedCustomConverter)
             }

@@ -19,14 +19,18 @@ For commercial licensing, please contact support@quantumnous.com
 import { z } from 'zod'
 
 import {
+  CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_STATUS,
   ERROR_MESSAGES,
+  FIELD_PASSTHROUGH_TYPES,
   MODEL_FETCHABLE_TYPES,
+  OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
 import type { Channel } from '../types'
 import {
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   advancedCustomConfigUsesRelativeUpstreamPath,
+  hasValidAdvancedCustomModelListRoute,
   parseAdvancedCustomConfig,
   stringifyAdvancedCustomConfig,
   validateAdvancedCustomConfig,
@@ -35,6 +39,38 @@ import {
 // ============================================================================
 // Form Validation Schema
 // ============================================================================
+
+const SUPPORTED_PROXY_PROTOCOLS = new Set([
+  'http:',
+  'https:',
+  'socks5:',
+  'socks5h:',
+])
+
+function isOptionalProxyURL(value: string | undefined): boolean {
+  const trimmedValue = value?.trim() || ''
+  if (!trimmedValue) return true
+
+  const schemeSeparatorIndex = trimmedValue.indexOf('://')
+  if (schemeSeparatorIndex <= 0) return false
+
+  const authorityAndSuffix = trimmedValue.slice(schemeSeparatorIndex + 3)
+  const suffixIndex = authorityAndSuffix.search(/[/?#]/)
+  if (suffixIndex >= 0 && authorityAndSuffix.slice(suffixIndex) !== '/') {
+    return false
+  }
+
+  try {
+    const parsedURL = new URL(trimmedValue)
+    return (
+      SUPPORTED_PROXY_PROTOCOLS.has(parsedURL.protocol) &&
+      Boolean(parsedURL.hostname) &&
+      parsedURL.port !== '0'
+    )
+  } catch {
+    return false
+  }
+}
 
 function parseOptionalJson(value: string | undefined): unknown {
   if (!value?.trim()) return undefined
@@ -187,7 +223,10 @@ export const channelFormSchema = z
     // Channel extra settings (stored in setting JSON, not sent directly)
     force_format: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
-    proxy: z.string().optional(),
+    proxy: z
+      .string()
+      .optional()
+      .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -236,6 +275,16 @@ export const channelFormSchema = z
           ctx,
           'base_url',
           'Base URL is required when an advanced route uses an upstream path'
+        )
+      }
+      if (
+        data.upstream_model_update_check_enabled === true &&
+        !hasValidAdvancedCustomModelListRoute(advancedCustomConfig)
+      ) {
+        addRequiredIssue(
+          ctx,
+          'upstream_model_update_check_enabled',
+          'OpenAI Models route is required to enable upstream model checks'
         )
       }
     }
@@ -490,15 +539,16 @@ export function transformChannelToFormDefaults(
 /**
  * Build the setting JSON string from form extra settings
  */
-function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj = {
+export function buildSettingJSON(formData: ChannelFormValues): string {
+  const settingObj: Record<string, unknown> = {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
-    proxy: formData.proxy || '',
+    proxy: formData.proxy?.trim() || '',
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
   }
+
   return JSON.stringify(settingObj)
 }
 
@@ -547,39 +597,51 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   // Field passthrough controls:
-  // - OpenAI (type 1) and Anthropic (type 14): allow_service_tier
-  // - OpenAI only: disable_store, allow_safety_identifier
-  if (formData.type === 1 || formData.type === 14 || formData.type === 57) {
+  // - OpenAI, Anthropic, Codex, and Advanced Custom: allow_service_tier
+  // - OpenAI request fields: OpenAI, Codex, and Advanced Custom
+  // - Claude request fields: Anthropic and Advanced Custom
+  if (FIELD_PASSTHROUGH_TYPES.has(formData.type)) {
     settingsObj.allow_service_tier = formData.allow_service_tier === true
   } else if ('allow_service_tier' in settingsObj) {
     delete settingsObj.allow_service_tier
   }
 
-  if (formData.type === 1 || formData.type === 57) {
+  if (OPENAI_FIELD_PASSTHROUGH_TYPES.has(formData.type)) {
     settingsObj.disable_store = formData.disable_store === true
     settingsObj.allow_safety_identifier =
       formData.allow_safety_identifier === true
     settingsObj.allow_include_obfuscation =
       formData.allow_include_obfuscation === true
-    settingsObj.allow_inference_geo = formData.allow_inference_geo === true
   } else {
     if ('disable_store' in settingsObj) delete settingsObj.disable_store
-    if ('allow_safety_identifier' in settingsObj)
+    if ('allow_safety_identifier' in settingsObj) {
       delete settingsObj.allow_safety_identifier
-    if ('allow_include_obfuscation' in settingsObj)
+    }
+    if ('allow_include_obfuscation' in settingsObj) {
       delete settingsObj.allow_include_obfuscation
-    if (formData.type !== 14 && 'allow_inference_geo' in settingsObj)
-      delete settingsObj.allow_inference_geo
+    }
   }
 
-  // Anthropic (type 14): claude_beta_query, allow_inference_geo, allow_speed
-  if (formData.type === 14) {
+  if (
+    OPENAI_FIELD_PASSTHROUGH_TYPES.has(formData.type) ||
+    CLAUDE_FIELD_PASSTHROUGH_TYPES.has(formData.type)
+  ) {
     settingsObj.allow_inference_geo = formData.allow_inference_geo === true
+  } else if ('allow_inference_geo' in settingsObj) {
+    delete settingsObj.allow_inference_geo
+  }
+
+  if (CLAUDE_FIELD_PASSTHROUGH_TYPES.has(formData.type)) {
     settingsObj.allow_speed = formData.allow_speed === true
+  } else if ('allow_speed' in settingsObj) {
+    delete settingsObj.allow_speed
+  }
+
+  // Only the Anthropic adaptor supports forcing the Claude beta query.
+  if (formData.type === 14) {
     settingsObj.claude_beta_query = formData.claude_beta_query === true
-  } else {
-    if ('allow_speed' in settingsObj) delete settingsObj.allow_speed
-    if ('claude_beta_query' in settingsObj) delete settingsObj.claude_beta_query
+  } else if ('claude_beta_query' in settingsObj) {
+    delete settingsObj.claude_beta_query
   }
 
   settingsObj.disable_task_polling_sleep =
@@ -592,14 +654,14 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.upstream_model_update_auto_sync_enabled =
       settingsObj.upstream_model_update_check_enabled === true &&
       formData.upstream_model_update_auto_sync_enabled === true
-    settingsObj.upstream_model_update_ignored_models = Array.from(
-      new Set(
+    settingsObj.upstream_model_update_ignored_models = [
+      ...new Set(
         String(formData.upstream_model_update_ignored_models || '')
           .split(',')
           .map((model) => model.trim())
           .filter(Boolean)
-      )
-    )
+      ),
+    ]
     if (
       !Array.isArray(settingsObj.upstream_model_update_last_detected_models) ||
       settingsObj.upstream_model_update_check_enabled !== true

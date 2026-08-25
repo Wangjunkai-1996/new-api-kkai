@@ -239,6 +239,8 @@ export const ERROR_MESSAGES = {
   REQUIRED_GROUP: 'Group is required',
   INVALID_JSON: 'Invalid JSON format',
   INVALID_MODEL_MAPPING: 'Invalid model mapping format',
+  INVALID_PROXY:
+    'Proxy address must use HTTP, HTTPS, SOCKS5, or SOCKS5H and include a valid host',
   CREATE_FAILED: 'Failed to create channel',
   UPDATE_FAILED: 'Failed to update channel',
   DELETE_FAILED: 'Failed to delete channel',
@@ -379,6 +381,12 @@ export const FIELD_DESCRIPTIONS = {
 export const MODEL_FETCHABLE_TYPES = new Set([
   1, 4, 14, 17, 20, 23, 24, 25, 26, 27, 31, 34, 35, 40, 42, 43, 47, 48,
 ])
+
+export const FIELD_PASSTHROUGH_TYPES = new Set([1, 14, 57, 58])
+
+export const OPENAI_FIELD_PASSTHROUGH_TYPES = new Set([1, 57, 58])
+
+export const CLAUDE_FIELD_PASSTHROUGH_TYPES = new Set([14, 58])
 
 export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   15: 'Format: APIKey|SecretKey',

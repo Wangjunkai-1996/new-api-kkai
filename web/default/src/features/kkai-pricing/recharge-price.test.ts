@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, test } from 'vitest'
 
 import {
   resolveRechargePriceDisplay,
@@ -26,12 +25,12 @@ import {
 
 describe('KKAI recharge price default', () => {
   test('defaults to recharge pricing while preserving an explicit opt-out', () => {
-    assert.equal(resolveRechargePriceDisplay(), true)
-    assert.equal(resolveRechargePriceDisplay(false), false)
+    expect(resolveRechargePriceDisplay()).toBe(true)
+    expect(resolveRechargePriceDisplay(false)).toBe(false)
   })
 
   test('only omits the configured default from route state', () => {
-    assert.equal(serializeRechargePriceDisplay(true), undefined)
-    assert.equal(serializeRechargePriceDisplay(false), false)
+    expect(serializeRechargePriceDisplay(true)).toBeUndefined()
+    expect(serializeRechargePriceDisplay(false)).toBe(false)
   })
 })

@@ -19,13 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { test } from 'node:test'
+import { resolve } from 'node:path'
+
+import { test } from 'vitest'
 
 import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh.json'
 
 const backendSource = readFileSync(
-  new URL('../../../../../service/kkai_group_status_types.go', import.meta.url),
+  resolve(process.cwd(), '../../service/kkai_group_status_types.go'),
   'utf8'
 )
 

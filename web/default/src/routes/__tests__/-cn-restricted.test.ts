@@ -17,14 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+
+import { describe, test } from 'vitest'
 
 import { isAccessProbeAllowed } from '../cn-restricted'
 
 describe('mainland restricted page access probe', () => {
   test('allows returning to the console when the root document is reachable', () => {
     assert.equal(isAccessProbeAllowed(new Response('', { status: 200 })), true)
-    assert.equal(isAccessProbeAllowed(new Response('', { status: 204 })), true)
+    assert.equal(
+      isAccessProbeAllowed(new Response(null, { status: 204 })),
+      true
+    )
   })
 
   test('stays on the notice page when the probe is redirected or fails', () => {

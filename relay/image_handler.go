@@ -24,7 +24,6 @@ import (
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
 	info.ImagePricingOutboundValidated = false
-	info.UpstreamRequestBodySize = 0
 	info.UpstreamIsStream = false
 
 	imageReq, ok := info.Request.(*dto.ImageRequest)
@@ -63,9 +62,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		if info.ImagePricingSnapshot == nil {
-			requestBody = common.ReaderOnly(storage)
+			requestBody = common.NewReplayableBodyReader(storage)
 		} else {
-			requestBody, info.UpstreamRequestBodySize, requestBodyCloser, err = buildPricedImagePassthroughBody(c, info, storage)
+			requestBody, _, requestBodyCloser, err = buildPricedImagePassthroughBody(c, info, storage)
 			if err != nil {
 				return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
@@ -99,13 +98,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			info.UpstreamIsStream = gjson.GetBytes(jsonData, "stream").Bool()
 
 			logger.LogDebug(c, "image request body: %s", jsonData)
-			body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+			body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 			if err != nil {
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
 			requestBodyCloser = closer
 			jsonData = nil
-			info.UpstreamRequestBodySize = size
 			requestBody = body
 		}
 	}

@@ -55,8 +55,11 @@ func buildPricedImagePassthroughBody(
 			return nil, 0, nil, err
 		}
 		info.UpstreamIsStream = gjson.GetBytes(body, "stream").Bool()
-		reader, sizeBytes, closer, err := relaycommon.NewOutboundJSONBody(body)
-		return reader, sizeBytes, closer, err
+		reader, closer, err := relaycommon.NewOutboundJSONBody(body)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		return reader, reader.Size(), closer, nil
 	}
 	if !strings.Contains(contentType, "multipart/form-data") || c.Request.MultipartForm == nil {
 		return nil, 0, nil, fmt.Errorf("priced image passthrough requires JSON or parsed multipart data")

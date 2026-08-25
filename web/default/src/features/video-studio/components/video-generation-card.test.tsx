@@ -17,18 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { before, describe, test } from 'node:test'
 
 import i18next, { type i18n } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
+import { beforeAll, describe, test } from 'vitest'
 
 import type { VideoGeneration } from '../types'
 import { VideoGenerationCard } from './video-generation-card'
 
 let translations: i18n
 
-before(async () => {
+beforeAll(async () => {
   translations = i18next.createInstance()
   await translations.init({
     lng: 'en',

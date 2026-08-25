@@ -33,15 +33,25 @@ import { cn } from '@/lib/utils'
 export type JsonCodeEditorProps = Omit<ComponentProps<'div'>, 'onChange'> & {
   value: string
   onChange: (value: string) => void
+  name?: string
+  onBlur?: () => void
+  textareaRef?: (element: HTMLTextAreaElement | null) => void
   disabled?: boolean
   heightClassName?: string
+  placeholder?: string
+  ariaLabel?: string
 }
 
 export function JsonCodeEditor({
   value,
   onChange,
+  name,
+  onBlur,
+  textareaRef: forwardedTextareaRef,
   disabled,
   heightClassName = 'h-56 min-h-56 max-h-56',
+  placeholder,
+  ariaLabel,
   className,
   id,
   'aria-describedby': ariaDescribedBy,
@@ -50,6 +60,10 @@ export function JsonCodeEditor({
 }: JsonCodeEditorProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const setTextareaRef = (element: HTMLTextAreaElement | null) => {
+    textareaRef.current = element
+    forwardedTextareaRef?.(element)
+  }
   const [scrollTop, setScrollTop] = useState(0)
   const lineNumbers = useMemo(() => {
     const count = Math.max(1, value.split('\n').length)
@@ -264,13 +278,17 @@ export function JsonCodeEditor({
           </div>
         </div>
         <Textarea
-          ref={textareaRef}
+          ref={setTextareaRef}
           id={id}
+          name={name}
+          aria-label={ariaLabel}
           aria-describedby={ariaDescribedBy}
           aria-invalid={ariaInvalid}
           value={value}
           disabled={disabled}
+          placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}
+          onBlur={onBlur}
           onKeyDown={handleEditorKeyDown}
           onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
           className={cn(

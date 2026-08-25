@@ -606,6 +606,9 @@ func validateOptionValue(key, value string) error {
 	if key == image_pricing_setting.OptionKey {
 		return image_pricing_setting.ValidateJSON(value)
 	}
+	if key == operation_setting.ChannelTestConcurrencyOptionKey {
+		return operation_setting.ValidateChannelTestConcurrency(value)
+	}
 	return nil
 }
 

@@ -17,7 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import test from 'node:test'
+
+import { test } from 'vitest'
 
 import { videoTokenCapabilitySchema } from './schemas'
 import {
@@ -271,10 +272,10 @@ test('keeps a token request blocker over stale ready data until a check succeeds
     access: blockedAccess,
   }
 
-  assert.deepEqual(
-    getVideoTokenScopeAccess(readyAccess, blocker, 11),
-    { kind: 'invalid', requiredGroup }
-  )
+  assert.deepEqual(getVideoTokenScopeAccess(readyAccess, blocker, 11), {
+    kind: 'invalid',
+    requiredGroup,
+  })
   const afterFailedCheck = releaseVideoTokenScopeBlocker(blocker, 11, false)
   assert.equal(afterFailedCheck, blocker)
   assert.deepEqual(
@@ -288,10 +289,7 @@ test('keeps a token request blocker over stale ready data until a check succeeds
     getVideoTokenScopeAccess(readyAccess, afterSuccessfulCheck, 11),
     readyAccess
   )
-  assert.equal(
-    getVideoTokenScopeAccess(readyAccess, blocker, 22),
-    readyAccess
-  )
+  assert.equal(getVideoTokenScopeAccess(readyAccess, blocker, 22), readyAccess)
 })
 
 test('maps quote and submission token failures to scope blockers', () => {

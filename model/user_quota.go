@@ -44,15 +44,6 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 
 // GetUserQuota gets quota from Redis first, falls back to DB if needed.
 func GetUserQuota(id int, fromDB bool) (quota int64, err error) {
-	defer func() {
-		if shouldUpdateRedis(fromDB, err) {
-			gopool.Go(func() {
-				if err := updateUserQuotaCache(id, quota); err != nil {
-					common.SysLog("failed to update user quota cache: " + err.Error())
-				}
-			})
-		}
-	}()
 	if !fromDB && common.RedisEnabled {
 		quota, err = getUserQuotaCache(id)
 		if err == nil {

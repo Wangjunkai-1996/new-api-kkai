@@ -63,6 +63,7 @@ import {
   sideDrawerSectionClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import { JsonEditor } from '@/components/json-editor'
 import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -137,13 +138,16 @@ import {
 } from '../../api'
 import {
   ADD_MODE_OPTIONS,
+  CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_STATUS_LABELS,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
   ERROR_MESSAGES,
+  FIELD_PASSTHROUGH_TYPES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
   MODEL_FETCHABLE_TYPES,
+  OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
@@ -759,6 +763,9 @@ export function ChannelMutateDrawer({
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
   )
+  const shouldPreviewUnsavedModels =
+    !isEditing ||
+    (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -1013,7 +1020,7 @@ export function ChannelMutateDrawer({
     currentSystemPromptOverride
   )
   let fieldPassthroughConfigured = false
-  if (currentType === 1 || currentType === 57) {
+  if (OPENAI_FIELD_PASSTHROUGH_TYPES.has(currentType)) {
     fieldPassthroughConfigured = Boolean(
       currentAllowServiceTier ||
       currentDisableStore ||
@@ -1021,13 +1028,16 @@ export function ChannelMutateDrawer({
       currentAllowIncludeObfuscation ||
       currentAllowInferenceGeo
     )
-  } else if (currentType === 14) {
-    fieldPassthroughConfigured = Boolean(
-      currentAllowServiceTier ||
-      currentAllowInferenceGeo ||
-      currentAllowSpeed ||
-      currentClaudeBetaQuery
-    )
+  }
+  if (CLAUDE_FIELD_PASSTHROUGH_TYPES.has(currentType)) {
+    fieldPassthroughConfigured =
+      fieldPassthroughConfigured ||
+      Boolean(
+        currentAllowServiceTier ||
+        currentAllowInferenceGeo ||
+        currentAllowSpeed ||
+        (currentType === 14 && currentClaudeBetaQuery)
+      )
   }
   const upstreamModelDetectionConfigured = Boolean(
     upstreamModelUpdateCheckEnabled ||
@@ -1064,7 +1074,7 @@ export function ChannelMutateDrawer({
       configured: extraSettingsConfigured,
     },
   ]
-  if (currentType === 1 || currentType === 14 || currentType === 57) {
+  if (FIELD_PASSTHROUGH_TYPES.has(currentType)) {
     advancedNavChildren.push({
       id: ADVANCED_SETTINGS_SECTION_IDS.fieldPassthrough,
       title: t('Field passthrough controls'),
@@ -1365,16 +1375,17 @@ export function ChannelMutateDrawer({
     try {
       await withVerification(fetchChannelKey, {
         preferredMethod: 'passkey',
-        title: 'Verify to view channel key',
-        description:
-          'Use Passkey or 2FA to confirm your identity before revealing this channel key.',
+        title: t('Verify to view channel key'),
+        description: t(
+          'Use Passkey or 2FA to confirm your identity before revealing this channel key.'
+        ),
       })
     } catch (error) {
       if (error instanceof Error) {
         toast.error(error.message)
       }
     }
-  }, [channelId, withVerification, fetchChannelKey])
+  }, [channelId, withVerification, fetchChannelKey, t])
 
   const handleRefreshCodexCredential = useCallback(async () => {
     if (!channelId) return
@@ -1421,8 +1432,8 @@ export function ChannelMutateDrawer({
       return
     }
 
-    // For creation mode, validate key before opening dialog
-    if (!isEditing) {
+    // Advanced Custom may use a model discovery route with no authentication.
+    if (!isEditing && type !== CHANNEL_TYPE_ADVANCED_CUSTOM) {
       const key = form.getValues('key')
       if (!key?.trim()) {
         toast.error(t('Please enter API key first'))
@@ -1433,20 +1444,30 @@ export function ChannelMutateDrawer({
     setFetchModelsDialogOpen(true)
   }, [isEditing, canEditSensitive, form, t])
 
-  const createModeFetcher = useCallback(async (): Promise<string[]> => {
+  const formPreviewFetcher = useCallback(async (): Promise<string[]> => {
     if (!canEditSensitive) {
       throw new Error(t("You don't have necessary permission"))
     }
+    const type = form.getValues('type')
+    const editingAdvancedCustom =
+      isEditing && type === CHANNEL_TYPE_ADVANCED_CUSTOM
+    if (editingAdvancedCustom && channelId === null) {
+      throw new Error(t('No channel selected'))
+    }
     const response = await fetchModels({
-      type: form.getValues('type'),
-      key: form.getValues('key'),
+      type,
+      key: isEditing ? undefined : form.getValues('key'),
+      channel_id: editingAdvancedCustom ? channelId || undefined : undefined,
       base_url: form.getValues('base_url') || '',
+      advanced_custom: form.getValues('advanced_custom'),
+      header_override: form.getValues('header_override'),
+      proxy: form.getValues('proxy'),
     })
     if (response.success && response.data) {
       return response.data
     }
-    throw new Error(response.message || 'No models fetched from upstream')
-  }, [canEditSensitive, form, t])
+    throw new Error(response.message || t('No models fetched from upstream'))
+  }, [canEditSensitive, channelId, form, isEditing, t])
 
   // Handle model operations
   const handleFillRelatedModels = useCallback(() => {
@@ -3894,17 +3915,18 @@ export function ChannelMutateDrawer({
                                       </div>
                                     </div>
                                     <FormControl>
-                                      <Textarea
+                                      <JsonCodeEditor
                                         value={field.value || ''}
                                         onChange={field.onChange}
+                                        name={field.name}
+                                        onBlur={field.onBlur}
+                                        textareaRef={field.ref}
                                         disabled={
                                           sensitiveLocked || isSubmitting
                                         }
-                                        rows={8}
                                         placeholder={t(
                                           'Override request parameters. Cannot override stream parameter.'
                                         )}
-                                        className='max-h-72 min-h-40 resize-y overflow-auto font-mono text-xs'
                                       />
                                     </FormControl>
                                     <FormMessage />
@@ -3968,25 +3990,6 @@ export function ChannelMutateDrawer({
                                         </Button>
                                         <Button
                                           type='button'
-                                          variant='outline'
-                                          size='sm'
-                                          onClick={() => {
-                                            try {
-                                              const parsed = JSON.parse(
-                                                field.value || '{}'
-                                              )
-                                              field.onChange(
-                                                JSON.stringify(parsed, null, 2)
-                                              )
-                                            } catch {
-                                              /* ignore invalid JSON */
-                                            }
-                                          }}
-                                        >
-                                          {t('Format')}
-                                        </Button>
-                                        <Button
-                                          type='button'
                                           variant='ghost'
                                           size='sm'
                                           onClick={() => field.onChange('')}
@@ -3996,17 +3999,19 @@ export function ChannelMutateDrawer({
                                       </div>
                                     </div>
                                     <FormControl>
-                                      <Textarea
-                                        className='font-mono text-sm'
-                                        rows={6}
+                                      <JsonCodeEditor
                                         value={field.value || ''}
                                         onChange={field.onChange}
+                                        name={field.name}
+                                        onBlur={field.onBlur}
+                                        textareaRef={field.ref}
                                         disabled={
                                           sensitiveLocked || isSubmitting
                                         }
                                         placeholder={t(
                                           'Enter JSON to override request headers'
                                         )}
+                                        heightClassName='h-40 min-h-40 max-h-40'
                                       />
                                     </FormControl>
                                     <FormDescription className='text-xs'>
@@ -4174,7 +4179,7 @@ export function ChannelMutateDrawer({
                                   </FormControl>
                                   <FormDescription>
                                     {t(
-                                      'Network proxy for this channel (supports socks5 protocol)'
+                                      'Network proxy for this channel (supports HTTP, HTTPS, SOCKS5, and SOCKS5H)'
                                     )}
                                   </FormDescription>
                                   <FormMessage />
@@ -4234,9 +4239,7 @@ export function ChannelMutateDrawer({
                           </fieldset>
                         </div>
 
-                        {(currentType === 1 ||
-                          currentType === 14 ||
-                          currentType === 57) && (
+                        {FIELD_PASSTHROUGH_TYPES.has(currentType) && (
                           <div
                             id={ADVANCED_SETTINGS_SECTION_IDS.fieldPassthrough}
                             className={sideDrawerSectionClassName(
@@ -4281,7 +4284,9 @@ export function ChannelMutateDrawer({
                                   )}
                                 />
 
-                                {(currentType === 1 || currentType === 57) && (
+                                {OPENAI_FIELD_PASSTHROUGH_TYPES.has(
+                                  currentType
+                                ) && (
                                   <>
                                     <FormField
                                       control={form.control}
@@ -4391,34 +4396,38 @@ export function ChannelMutateDrawer({
                                   </>
                                 )}
 
-                                {currentType === 14 && (
+                                {CLAUDE_FIELD_PASSTHROUGH_TYPES.has(
+                                  currentType
+                                ) && (
                                   <>
-                                    <FormField
-                                      control={form.control}
-                                      name='allow_inference_geo'
-                                      render={({ field }) => (
-                                        <FormItem className='flex items-center justify-between gap-3 px-4 py-3'>
-                                          <div className='space-y-0.5'>
-                                            <FormLabel className='text-sm'>
-                                              {t(
-                                                'Allow inference_geo passthrough'
-                                              )}
-                                            </FormLabel>
-                                            <FormDescription>
-                                              {t(
-                                                'Pass through the inference_geo field for Claude data residency region control'
-                                              )}
-                                            </FormDescription>
-                                          </div>
-                                          <FormControl>
-                                            <Switch
-                                              checked={field.value}
-                                              onCheckedChange={field.onChange}
-                                            />
-                                          </FormControl>
-                                        </FormItem>
-                                      )}
-                                    />
+                                    {currentType === 14 && (
+                                      <FormField
+                                        control={form.control}
+                                        name='allow_inference_geo'
+                                        render={({ field }) => (
+                                          <FormItem className='flex items-center justify-between gap-3 px-4 py-3'>
+                                            <div className='space-y-0.5'>
+                                              <FormLabel className='text-sm'>
+                                                {t(
+                                                  'Allow inference_geo passthrough'
+                                                )}
+                                              </FormLabel>
+                                              <FormDescription>
+                                                {t(
+                                                  'Pass through the inference_geo field for Claude data residency region control'
+                                                )}
+                                              </FormDescription>
+                                            </div>
+                                            <FormControl>
+                                              <Switch
+                                                checked={field.value}
+                                                onCheckedChange={field.onChange}
+                                              />
+                                            </FormControl>
+                                          </FormItem>
+                                        )}
+                                      />
+                                    )}
 
                                     <FormField
                                       control={form.control}
@@ -4445,32 +4454,34 @@ export function ChannelMutateDrawer({
                                       )}
                                     />
 
-                                    <FormField
-                                      control={form.control}
-                                      name='claude_beta_query'
-                                      render={({ field }) => (
-                                        <FormItem className='flex items-center justify-between gap-3 px-4 py-3'>
-                                          <div className='space-y-0.5'>
-                                            <FormLabel className='text-sm'>
-                                              {t(
-                                                'Allow Claude beta query passthrough'
-                                              )}
-                                            </FormLabel>
-                                            <FormDescription>
-                                              {t(
-                                                'Pass through the anthropic-beta header for beta features'
-                                              )}
-                                            </FormDescription>
-                                          </div>
-                                          <FormControl>
-                                            <Switch
-                                              checked={field.value}
-                                              onCheckedChange={field.onChange}
-                                            />
-                                          </FormControl>
-                                        </FormItem>
-                                      )}
-                                    />
+                                    {currentType === 14 && (
+                                      <FormField
+                                        control={form.control}
+                                        name='claude_beta_query'
+                                        render={({ field }) => (
+                                          <FormItem className='flex items-center justify-between gap-3 px-4 py-3'>
+                                            <div className='space-y-0.5'>
+                                              <FormLabel className='text-sm'>
+                                                {t(
+                                                  'Allow Claude beta query passthrough'
+                                                )}
+                                              </FormLabel>
+                                              <FormDescription>
+                                                {t(
+                                                  'Pass through the anthropic-beta header for beta features'
+                                                )}
+                                              </FormDescription>
+                                            </div>
+                                            <FormControl>
+                                              <Switch
+                                                checked={field.value}
+                                                onCheckedChange={field.onChange}
+                                              />
+                                            </FormControl>
+                                          </FormItem>
+                                        )}
+                                      />
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -4514,6 +4525,7 @@ export function ChannelMutateDrawer({
                                             'Periodically check for upstream model changes'
                                           )}
                                         </FormDescription>
+                                        <FormMessage />
                                       </div>
                                       <FormControl>
                                         <Switch
@@ -4682,13 +4694,13 @@ export function ChannelMutateDrawer({
         }}
         redirectModels={redirectModelList}
         redirectSourceModels={redirectModelKeyList}
-        customFetcher={!isEditing ? createModeFetcher : undefined}
-        channelName={!isEditing ? currentName?.trim() : undefined}
-        existingModelsOverride={
-          !isEditing
-            ? parseModelsString(form.getValues('models') || '')
-            : undefined
+        customFetcher={
+          shouldPreviewUnsavedModels ? formPreviewFetcher : undefined
         }
+        channelName={
+          shouldPreviewUnsavedModels ? currentName?.trim() : undefined
+        }
+        existingModelsOverride={currentModelsArray}
       />
 
       <SecureVerificationDialog
