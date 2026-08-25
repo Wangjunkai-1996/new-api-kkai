@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -107,7 +108,11 @@ func TestImageAssetPipelinePersistsReadyAssetAndThumbnailEvent(t *testing.T) {
 	assert.Equal(t, 0, result.Failed)
 	require.Len(t, result.Assets, 1)
 	assert.Equal(t, model.ImageAssetStateReady, result.Assets[0].State)
+	assert.Equal(t, "image-"+strconv.FormatInt(result.Assets[0].ID, 10)+".png", result.Assets[0].OriginalFilename)
 	assert.Equal(t, payload, store.objects[result.Assets[0].ObjectKey])
+	var persistedAsset model.KKAIImageAsset
+	require.NoError(t, db.First(&persistedAsset, result.Assets[0].ID).Error)
+	assert.Equal(t, result.Assets[0].OriginalFilename, persistedAsset.OriginalFilename)
 
 	var event model.KKAIOutboxEvent
 	require.NoError(t, db.Where("topic = ?", ImageAssetThumbnailTopic).First(&event).Error)

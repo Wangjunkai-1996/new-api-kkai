@@ -170,6 +170,7 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 		asset.FailureReason = "object_store_write_failed"
 		return asset, nil
 	}
+	filename := generatedImageAssetFilename(asset.ID, archive.MIMEType)
 
 	err = pipeline.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := requireSubmittingImageGeneration(tx, generation.ID); err != nil {
@@ -179,7 +180,8 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 			Where("id = ? AND state = ?", asset.ID, model.ImageAssetStateStaging).
 			Updates(map[string]any{
 				"state": model.ImageAssetStateReady, "mime_type": archive.MIMEType,
-				"size_bytes": archive.SizeBytes, "width": archive.Width, "height": archive.Height,
+				"original_filename": filename,
+				"size_bytes":        archive.SizeBytes, "width": archive.Width, "height": archive.Height,
 				"sha256": archive.SHA256, "failure_reason": "", "updated_at": time.Now().Unix(),
 			})
 		if updated.Error != nil {
@@ -216,6 +218,7 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 		return model.KKAIImageAsset{}, fmt.Errorf("finalize image asset: %w", err)
 	}
 	asset.State = model.ImageAssetStateReady
+	asset.OriginalFilename = filename
 	asset.MIMEType = archive.MIMEType
 	asset.SizeBytes = archive.SizeBytes
 	asset.Width = archive.Width

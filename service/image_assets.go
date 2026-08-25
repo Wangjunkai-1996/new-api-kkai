@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
@@ -101,7 +102,7 @@ func SignAuthorizedImageAsset(
 	key := asset.ObjectKey
 	filename := asset.OriginalFilename
 	if filename == "" {
-		filename = "image"
+		filename = generatedImageAssetFilename(asset.ID, asset.MIMEType)
 	}
 	if thumbnail {
 		if asset.ThumbnailState != model.ImageThumbnailStateReady || asset.ThumbnailObjectKey == "" {
@@ -114,6 +115,20 @@ func SignAuthorizedImageAsset(
 	return store.PresignDownload(
 		ctx, key, filename, attachment, time.Duration(settings.SignedURLSeconds)*time.Second,
 	)
+}
+
+func generatedImageAssetFilename(assetID int64, mimeType string) string {
+	filename := "image-" + strconv.FormatInt(assetID, 10)
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "image/jpeg":
+		return filename + ".jpg"
+	case "image/png":
+		return filename + ".png"
+	case "image/webp":
+		return filename + ".webp"
+	default:
+		return filename
+	}
 }
 
 func imageAssetContentPath(assetID int64, thumbnail bool) string {
