@@ -70,16 +70,26 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 		GenerationMs:      generationMs,
 		CacheTrackedCount: 1,
 	}
-	if success && cacheUsage != nil && cacheUsage.PromptTokens > 0 &&
+	if info.IsClientStream() && success && cacheUsage != nil && cacheUsage.PromptTokens > 0 &&
 		cacheUsage.CachedTokens >= 0 && cacheUsage.CachedTokens <= cacheUsage.PromptTokens {
 		sample.CacheSampleCount = 1
-		if cacheUsage.CachedTokens > 0 {
+		if cacheUsageCountsAsHit(cacheUsage) {
 			sample.CacheHitCount = 1
 		}
 		sample.CachePromptTokens = cacheUsage.PromptTokens
 		sample.CacheReadTokens = cacheUsage.CachedTokens
 	}
 	Record(sample)
+}
+
+// cacheUsageCountsAsHit requires at least half of the normalized input to be
+// served from cache. Compare without multiplying to avoid integer overflow.
+func cacheUsageCountsAsHit(cacheUsage *CacheUsage) bool {
+	if cacheUsage == nil || cacheUsage.PromptTokens <= 0 || cacheUsage.CachedTokens <= 0 ||
+		cacheUsage.CachedTokens > cacheUsage.PromptTokens {
+		return false
+	}
+	return cacheUsage.CachedTokens >= cacheUsage.PromptTokens-cacheUsage.CachedTokens
 }
 
 func Record(sample Sample) {
@@ -109,6 +119,11 @@ func Record(sample Sample) {
 		sample.CacheHitCount = 0
 		sample.CachePromptTokens = 0
 		sample.CacheReadTokens = 0
+	} else if sample.CacheHitCount > 0 &&
+		sample.CacheReadTokens < sample.CachePromptTokens-sample.CacheReadTokens {
+		// Keep the threshold invariant even for callers that construct Sample
+		// directly instead of going through RecordRelaySample.
+		sample.CacheHitCount = 0
 	}
 
 	observedAt := time.Now()

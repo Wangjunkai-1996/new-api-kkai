@@ -23,6 +23,8 @@ type Sample struct {
 	GenerationMs      int64
 	CacheTrackedCount int64
 	CacheSampleCount  int64
+	// CacheHitCount counts stream samples with at least half of the normalized
+	// input tokens served from cache.
 	CacheHitCount     int64
 	CachePromptTokens int64
 	CacheReadTokens   int64

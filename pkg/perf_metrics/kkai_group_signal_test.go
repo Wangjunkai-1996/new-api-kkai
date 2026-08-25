@@ -64,7 +64,7 @@ func TestKKAIGroupCacheTrackingOldRecoveryCannotClearNewGap(t *testing.T) {
 	assert.Equal(t, newGap, kkaiGroupCacheGapEpoch.Load())
 }
 
-func TestKKAIGroupCacheTrackingIgnoresV1Marker(t *testing.T) {
+func TestKKAIGroupCacheTrackingIgnoresPreviousGenerationMarkers(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
@@ -72,9 +72,14 @@ func TestKKAIGroupCacheTrackingIgnoresV1Marker(t *testing.T) {
 	common.RedisEnabled = true
 	common.RDB = client
 
-	require.NoError(t, client.Set(
-		context.Background(), "kkai:group-status:cache-v1:started_at", time.Now().Add(-time.Hour).Unix(), 0,
-	).Err())
+	for _, key := range []string{
+		"kkai:group-status:cache-v1:started_at",
+		"kkai:group-status:cache-v2:started_at",
+	} {
+		require.NoError(t, client.Set(
+			context.Background(), key, time.Now().Add(-time.Hour).Unix(), 0,
+		).Err())
+	}
 
 	result := QueryKKAIGroupMinuteBuckets(
 		time.Now().Add(-time.Minute).Unix(), time.Now().Unix(), []string{"default"},
@@ -96,6 +101,7 @@ func TestKKAIGroupCacheTrackingResetsAfterCollectionIsReenabled(t *testing.T) {
 		OriginModelName: "cache-test-model",
 		UsingGroup:      "collection-transition",
 		StartTime:       time.Now().Add(-time.Second),
+		IsStream:        true,
 	}
 
 	initialMarker := time.Now().Add(-time.Hour).Unix()
@@ -127,6 +133,7 @@ func TestKKAIGroupCacheTrackingResetsAfterRedisIsReenabled(t *testing.T) {
 		OriginModelName: "cache-test-model",
 		UsingGroup:      "redis-transition",
 		StartTime:       time.Now().Add(-time.Second),
+		IsStream:        true,
 	}
 
 	initialMarker := time.Now().Add(-time.Hour).Unix()
@@ -193,6 +200,7 @@ func TestKKAIGroupLocalCacheUsageCountsRequestHits(t *testing.T) {
 		OriginModelName: "cache-test-model",
 		UsingGroup:      group,
 		StartTime:       time.Now().Add(-time.Second),
+		IsStream:        true,
 	}
 
 	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 100})
@@ -222,6 +230,7 @@ func TestKKAIGroupLocalCacheUsageDistinguishesZeroHitFromIneligibleSamples(t *te
 		OriginModelName: "cache-test-model",
 		UsingGroup:      group,
 		StartTime:       time.Now().Add(-time.Second),
+		IsStream:        true,
 	}
 
 	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 0})

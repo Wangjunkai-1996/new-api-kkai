@@ -59,6 +59,24 @@ func TestRelayInfoPreservesInt64UserQuotaFromContext(t *testing.T) {
 	require.Equal(t, expected, info.UserQuota)
 }
 
+func TestGenRelayInfoPreservesClientStreamFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	stream := true
+
+	info := genBaseRelayInfo(context, &dto.GeneralOpenAIRequest{Stream: &stream})
+
+	require.NotNil(t, info.ClientIsStream)
+	assert.True(t, *info.ClientIsStream)
+	assert.True(t, info.IsClientStream())
+
+	// Handlers may change IsStream after inspecting the upstream response;
+	// cache eligibility remains tied to the original client request.
+	info.IsStream = false
+	assert.True(t, info.IsClientStream())
+}
+
 func TestGenRelayInfoCapturesRequestReasoningEffort(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {

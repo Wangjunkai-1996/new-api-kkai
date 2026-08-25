@@ -290,32 +290,33 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 	}{
 		{
 			name:      "chat completions",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI},
 			want:      true,
 		},
 		{
 			name:      "legacy completions",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeCompletions, RelayFormat: types.RelayFormatOpenAI},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeCompletions, RelayFormat: types.RelayFormatOpenAI},
 			want:      true,
 		},
 		{
 			name:      "responses",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses, RelayFormat: types.RelayFormatOpenAIResponses},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeResponses, RelayFormat: types.RelayFormatOpenAIResponses},
 			want:      true,
 		},
 		{
 			name:      "responses compaction",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponsesCompact, RelayFormat: types.RelayFormatOpenAIResponsesCompaction},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeResponsesCompact, RelayFormat: types.RelayFormatOpenAIResponsesCompaction},
 			want:      true,
 		},
 		{
 			name:      "native Claude messages",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeUnknown, RelayFormat: types.RelayFormatClaude},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeUnknown, RelayFormat: types.RelayFormatClaude},
 			want:      true,
 		},
 		{
 			name: "native Gemini generate content",
 			relayInfo: &relaycommon.RelayInfo{
+				IsStream:       true,
 				RelayMode:      relayconstant.RelayModeGemini,
 				RelayFormat:    types.RelayFormatGemini,
 				RequestURLPath: "/v1beta/models/gemini-2.5-pro:generateContent",
@@ -325,6 +326,7 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 		{
 			name: "native Gemini stream generate content with query",
 			relayInfo: &relaycommon.RelayInfo{
+				IsStream:       true,
 				RelayMode:      relayconstant.RelayModeGemini,
 				RelayFormat:    types.RelayFormatGemini,
 				RequestURLPath: "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
@@ -388,6 +390,7 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 
 func TestGroupStatusCacheUsageMatchesIncidentLogSemantics(t *testing.T) {
 	allowedRelay := &relaycommon.RelayInfo{
+		IsStream:    true,
 		RelayMode:   relayconstant.RelayModeChatCompletions,
 		RelayFormat: types.RelayFormatOpenAI,
 	}

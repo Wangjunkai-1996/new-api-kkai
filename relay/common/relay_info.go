@@ -99,7 +99,11 @@ type RelayInfo struct {
 	FirstResponseTime  time.Time
 	isFirstResponse    bool
 	//SendLastReasoningResponse bool
-	IsStream               bool
+	IsStream bool
+	// ClientIsStream preserves the stream flag from the client request. Some
+	// handlers may update IsStream after seeing an upstream SSE response, but
+	// cache eligibility must follow the client's requested response mode.
+	ClientIsStream         *bool
 	UpstreamIsStream       bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
@@ -326,6 +330,19 @@ func (info *RelayInfo) ToString() string {
 	return b.String()
 }
 
+// IsClientStream reports whether the client requested a streamed response.
+// Synthetic RelayInfo values created outside the request path do not have the
+// preserved marker, so they fall back to the mutable IsStream field.
+func (info *RelayInfo) IsClientStream() bool {
+	if info == nil {
+		return false
+	}
+	if info.ClientIsStream != nil {
+		return *info.ClientIsStream
+	}
+	return info.IsStream
+}
+
 // 定义支持流式选项的通道类型
 var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeOpenAI:         true,
@@ -525,6 +542,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		RequestURLPath:  c.Request.URL.String(),
 		RequestHeaders:  cloneRequestHeaders(c),
 		IsStream:        isStream,
+		ClientIsStream:  &isStream,
 
 		StartTime:         startTime,
 		FirstResponseTime: startTime.Add(-time.Second),

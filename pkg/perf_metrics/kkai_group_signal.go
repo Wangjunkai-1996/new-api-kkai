@@ -24,12 +24,12 @@ const (
 	kkaiGroupMinuteTTL         = 70 * time.Minute
 	kkaiGroupHistoricalTTL     = 26 * time.Hour
 
-	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v2:started_at"
-	kkaiGroupCacheTrackedField      = "cache_v2_tracked"
-	kkaiGroupCacheSampleField       = "cache_v2_n"
-	kkaiGroupCacheHitField          = "cache_v2_hit"
-	kkaiGroupCachePromptField       = "cache_v2_prompt"
-	kkaiGroupCacheReadField         = "cache_v2_read"
+	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v3:started_at"
+	kkaiGroupCacheTrackedField      = "cache_v3_tracked"
+	kkaiGroupCacheSampleField       = "cache_v3_n"
+	kkaiGroupCacheHitField          = "cache_v3_hit"
+	kkaiGroupCachePromptField       = "cache_v3_prompt"
+	kkaiGroupCacheReadField         = "cache_v3_read"
 )
 
 type KKAIGroupBucket struct {
