@@ -52,44 +52,157 @@ function createGroup(
 }
 
 describe('group status sorting', () => {
-  test('uses the latest signal instead of request count within a status', () => {
-    const olderBusyGroup = createGroup('older-busy', {
-      request_count: 10_000,
-      recent_events: [{ ts: 100, status: 'success' }],
-    })
-    const newerQuietGroup = createGroup('newer-quiet', {
-      request_count: 1,
-      recent_events: [{ ts: 200, status: 'success' }],
-    })
+  test('orders current statuses from best to worst', () => {
+    const groups = [
+      createGroup('unavailable', {
+        confidence_status: 'unavailable',
+        request_count: 10,
+        success_rate: 70,
+      }),
+      createGroup('stable', {
+        confidence_status: 'stable',
+        request_count: 10,
+        success_rate: 97,
+      }),
+      createGroup('excellent', {
+        confidence_status: 'excellent',
+        request_count: 10,
+        success_rate: 100,
+      }),
+      createGroup('unstable', {
+        confidence_status: 'unstable',
+        request_count: 10,
+        success_rate: 90,
+      }),
+      createGroup('smooth', {
+        confidence_status: 'smooth',
+        request_count: 10,
+        success_rate: 99.5,
+      }),
+    ]
 
-    const result = sortGroupStatuses([olderBusyGroup, newerQuietGroup])
+    const result = sortGroupStatuses(groups)
 
     assert.deepEqual(
       result.map((group) => group.group),
-      ['newer-quiet', 'older-busy']
+      ['excellent', 'smooth', 'stable', 'unstable', 'unavailable']
     )
   })
 
-  test('keeps status priority ahead of recency and falls back to sampled_at', () => {
-    const unavailable = createGroup('unavailable', {
-      confidence_status: 'unavailable',
-      status: 'outage',
-      recent_events: [{ ts: 100, status: 'failure' }],
+  test('uses success rate and then group name within the same status', () => {
+    const lowerRate = createGroup('zeta', {
+      confidence_status: 'stable',
+      request_count: 10,
+      success_rate: 96,
     })
-    const sampled = createGroup('sampled', {
-      sampled_at: 300,
-      recent_events: null,
+    const sameRateLaterName = createGroup('zeta-later', {
+      confidence_status: 'stable',
+      request_count: 1,
+      success_rate: 98,
     })
-    const historical = createGroup('historical', {
-      sampled_at: 999,
-      recent_events: [{ ts: 200, status: 'success' }],
+    const sameRateEarlierName = createGroup('alpha', {
+      confidence_status: 'stable',
+      request_count: 100,
+      success_rate: 98,
     })
 
-    const result = sortGroupStatuses([historical, sampled, unavailable])
+    const result = sortGroupStatuses([
+      lowerRate,
+      sameRateLaterName,
+      sameRateEarlierName,
+    ])
 
     assert.deepEqual(
       result.map((group) => group.group),
-      ['unavailable', 'sampled', 'historical']
+      ['alpha', 'zeta-later', 'zeta']
+    )
+  })
+
+  test('uses the latest signal before the group name when rates tie', () => {
+    const older = createGroup('older', {
+      confidence_status: 'stable',
+      request_count: 10,
+      success_rate: 98,
+      recent_events: [{ ts: 100, status: 'success' }],
+    })
+    const newer = createGroup('newer', {
+      confidence_status: 'stable',
+      request_count: 1,
+      success_rate: 98,
+      recent_events: [{ ts: 200, status: 'success' }],
+    })
+
+    const result = sortGroupStatuses([older, newer])
+
+    assert.deepEqual(
+      result.map((group) => group.group),
+      ['newer', 'older']
+    )
+  })
+
+  test('puts unknown, stale, and no-data groups at the bottom', () => {
+    const healthy = createGroup('healthy', {
+      confidence_status: 'stable',
+      request_count: 10,
+      success_rate: 97,
+    })
+    const unavailable = createGroup('unavailable', {
+      confidence_status: 'unavailable',
+      request_count: 10,
+      success_rate: 70,
+    })
+    const unknown = createGroup('unknown', {
+      confidence_status: 'unknown',
+      request_count: 10,
+      success_rate: 100,
+    })
+    const stale = createGroup('stale', {
+      confidence_status: 'stable',
+      request_count: 10,
+      success_rate: 100,
+      stale: true,
+    })
+    const noData = createGroup('no-data', {
+      confidence_status: 'stable',
+      request_count: 0,
+      success_rate: 100,
+    })
+
+    const result = sortGroupStatuses([
+      noData,
+      unknown,
+      unavailable,
+      stale,
+      healthy,
+    ])
+
+    assert.deepEqual(
+      result.map((group) => group.group),
+      ['healthy', 'unavailable', 'no-data', 'stale', 'unknown']
+    )
+  })
+
+  test('does not mutate the input array', () => {
+    const groups = [
+      createGroup('stable', {
+        confidence_status: 'stable',
+        request_count: 10,
+        success_rate: 97,
+      }),
+      createGroup('excellent', {
+        confidence_status: 'excellent',
+        request_count: 10,
+        success_rate: 100,
+      }),
+    ]
+    const originalOrder = groups.map((group) => group.group)
+
+    const result = sortGroupStatuses(groups)
+
+    assert.notStrictEqual(result, groups)
+    assert.deepEqual(
+      groups.map((group) => group.group),
+      originalOrder
     )
   })
 })

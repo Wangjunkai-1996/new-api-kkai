@@ -117,17 +117,34 @@ export function sortGroupStatuses(
   groups: GroupStatusEntry[]
 ): GroupStatusEntry[] {
   return [...groups].sort((left, right) => {
-    const rankDiff =
-      getGroupStatusMeta(left).rank - getGroupStatusMeta(right).rank
-    if (rankDiff !== 0) return rankDiff
+    const leftHasCurrentData = hasCurrentGroupStatus(left)
+    const rightHasCurrentData = hasCurrentGroupStatus(right)
+    if (leftHasCurrentData !== rightHasCurrentData) {
+      return leftHasCurrentData ? -1 : 1
+    }
 
-    const staleDiff = Number(right.stale) - Number(left.stale)
-    if (staleDiff !== 0) return staleDiff
+    if (leftHasCurrentData) {
+      const rankDiff =
+        getGroupStatusMeta(right).rank - getGroupStatusMeta(left).rank
+      if (rankDiff !== 0) return rankDiff
 
-    const lastSignalDiff =
-      getGroupLastSignalAt(right) - getGroupLastSignalAt(left)
-    if (lastSignalDiff !== 0) return lastSignalDiff
+      const successRateDiff = right.success_rate - left.success_rate
+      if (successRateDiff !== 0) return successRateDiff
+
+      const lastSignalDiff =
+        getGroupLastSignalAt(right) - getGroupLastSignalAt(left)
+      if (lastSignalDiff !== 0) return lastSignalDiff
+    }
 
     return left.group.localeCompare(right.group)
   })
+}
+
+function hasCurrentGroupStatus(group: GroupStatusEntry): boolean {
+  return (
+    !group.stale &&
+    group.confidence_status !== 'unknown' &&
+    group.request_count > 0 &&
+    Number.isFinite(group.success_rate)
+  )
 }
