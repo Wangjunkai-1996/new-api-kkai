@@ -19,11 +19,26 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { formatNumber, formatPercent } from '@/lib/format'
 
-import type { GroupStatusEntry } from './types'
+import type { GroupCacheStats, GroupStatusEntry } from './types'
 
 export function formatGroupSuccessRate(group: GroupStatusEntry): string {
   if (group.request_count <= 0) return '-'
   return formatPercent(group.success_rate)
+}
+
+export function formatGroupCacheHitRate(stats: GroupCacheStats): string {
+  if (
+    stats.status !== 'ok' ||
+    stats.hit_rate == null ||
+    !Number.isFinite(stats.hit_rate)
+  ) {
+    return '-'
+  }
+  return Intl.NumberFormat(undefined, {
+    style: 'percent',
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(stats.hit_rate / 100)
 }
 
 export function formatGroupDuration(value: number): string {

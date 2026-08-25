@@ -39,7 +39,7 @@ func newResponsesStreamHandlerTest(t *testing.T, body string) (*gin.Context, *ht
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 	}
 	info := &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-test"},
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-4o"},
 		IsStream:    true,
 		DisablePing: true,
 	}
@@ -62,6 +62,83 @@ func TestOaiResponsesStreamHandlerAcceptsSuccessfulTerminalEvents(t *testing.T) 
 			require.NotNil(t, info.StreamStatus)
 			require.True(t, info.StreamStatus.IsNormalEnd())
 			require.False(t, info.StreamStatus.HasErrors())
+		})
+	}
+}
+
+func TestOaiResponsesHandlerMarksOnlyContentFilteredIncompleteResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name       string
+		body       string
+		wantReason string
+	}{
+		{
+			name:       "content filter",
+			body:       `{"id":"resp_1","status":"incomplete","incomplete_details":{"reason":"content_filter"},"usage":{"input_tokens":100,"output_tokens":0,"total_tokens":100}}`,
+			wantReason: "openai_responses_incomplete_reason=content_filter",
+		},
+		{
+			name: "token limit",
+			body: `{"id":"resp_2","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":100,"output_tokens":0,"total_tokens":100}}`,
+		},
+		{
+			name: "completed response ignores stale details",
+			body: `{"id":"resp_3","status":"completed","incomplete_details":{"reason":"content_filter"},"usage":{"input_tokens":100,"output_tokens":0,"total_tokens":100}}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			usage, apiErr := OaiResponsesHandler(c, &relaycommon.RelayInfo{}, &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(test.body)),
+			})
+
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			require.Equal(t, 100, usage.PromptTokens)
+			require.Equal(t, test.wantReason, common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason))
+		})
+	}
+}
+
+func TestOaiResponsesStreamHandlerMarksLocallyEstimatedUsage(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		wantCompletion int
+	}{
+		{
+			name:           "missing prompt usage",
+			body:           "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"output_tokens\":3,\"total_tokens\":3}}}\n\n",
+			wantCompletion: 3,
+		},
+		{
+			name: "missing all usage",
+			body: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"locally counted output\"}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, resp, info := newResponsesStreamHandlerTest(t, test.body)
+			info.SetEstimatePromptTokens(17)
+
+			usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			require.Equal(t, 17, usage.PromptTokens)
+			if test.wantCompletion > 0 {
+				require.Equal(t, test.wantCompletion, usage.CompletionTokens)
+			} else {
+				require.Positive(t, usage.CompletionTokens)
+			}
+			require.True(t, common.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
 		})
 	}
 }

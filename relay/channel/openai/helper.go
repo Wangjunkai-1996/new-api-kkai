@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -107,18 +108,30 @@ func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, res
 	return nil
 }
 
-func processTokenData(relayMode int, data string, responseTextBuilder *strings.Builder, toolCount *int) error {
+func processTokenData(c *gin.Context, relayMode int, data string, responseTextBuilder *strings.Builder, toolCount *int) error {
 	switch relayMode {
 	case relayconstant.RelayModeChatCompletions:
 		var streamResponse dto.ChatCompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			return err
 		}
+		for _, choice := range streamResponse.Choices {
+			if choice.FinishReason != nil && *choice.FinishReason == constant.FinishReasonContentFilter {
+				common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+				break
+			}
+		}
 		return ProcessStreamResponse(streamResponse, responseTextBuilder, toolCount)
 	case relayconstant.RelayModeCompletions:
 		var streamResponse dto.CompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			return err
+		}
+		for _, choice := range streamResponse.Choices {
+			if choice.FinishReason == constant.FinishReasonContentFilter {
+				common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+				break
+			}
 		}
 		processCompletionsStreamResponse(streamResponse, responseTextBuilder)
 	}

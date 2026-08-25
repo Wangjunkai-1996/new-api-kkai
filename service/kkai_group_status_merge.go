@@ -15,6 +15,10 @@ func mergeKKAIPerfBuckets(metrics map[string]kkaiGroupMetrics, buckets []perfmet
 		current.totalLatencyMs += bucket.TotalLatencyMs
 		current.ttftSumMs += bucket.TtftSumMs
 		current.ttftCount += bucket.TtftCount
+		current.cacheSampleCount += bucket.CacheSampleCount
+		current.cacheTrackedCount += bucket.CacheTrackedCount
+		current.cachePromptTokens += bucket.CachePromptTokens
+		current.cacheReadTokens += bucket.CacheReadTokens
 		current.sampledAt = max(current.sampledAt, bucket.LastSampleAt)
 		metrics[bucket.Group] = current
 	}
@@ -33,21 +37,32 @@ func mergeKKAIDatabaseAndLiveBuckets(databaseBuckets []model.KKAIPerfMetricBucke
 		current.sampledAt = max(current.sampledAt, bucket.BucketTs)
 		byBucket[key] = current
 	}
+	liveByHour := make(map[kkaiGroupMetricKey]kkaiGroupMetrics, len(liveBuckets))
 	for _, bucket := range liveBuckets {
 		key := kkaiGroupMetricKey{group: bucket.Group, bucketTs: bucket.BucketTs - bucket.BucketTs%3600}
-		live := kkaiGroupMetrics{
-			requestCount:   bucket.RequestCount,
-			successCount:   bucket.SuccessCount,
-			totalLatencyMs: bucket.TotalLatencyMs,
-			ttftSumMs:      bucket.TtftSumMs,
-			ttftCount:      bucket.TtftCount,
-			sampledAt:      bucket.LastSampleAt,
-		}
+		liveByHour[key] = liveByHour[key].add(kkaiGroupMetrics{
+			requestCount:      bucket.RequestCount,
+			successCount:      bucket.SuccessCount,
+			totalLatencyMs:    bucket.TotalLatencyMs,
+			ttftSumMs:         bucket.TtftSumMs,
+			ttftCount:         bucket.TtftCount,
+			cacheSampleCount:  bucket.CacheSampleCount,
+			cacheTrackedCount: bucket.CacheTrackedCount,
+			cachePromptTokens: bucket.CachePromptTokens,
+			cacheReadTokens:   bucket.CacheReadTokens,
+			sampledAt:         bucket.LastSampleAt,
+		})
+	}
+	for key, live := range liveByHour {
 		persisted, exists := byBucket[key]
 		if !exists || live.requestCount >= persisted.requestCount {
 			byBucket[key] = live
 			continue
 		}
+		persisted.cacheSampleCount = live.cacheSampleCount
+		persisted.cacheTrackedCount = live.cacheTrackedCount
+		persisted.cachePromptTokens = live.cachePromptTokens
+		persisted.cacheReadTokens = live.cacheReadTokens
 		persisted.sampledAt = max(persisted.sampledAt, live.sampledAt)
 		byBucket[key] = persisted
 	}
@@ -154,6 +169,10 @@ func (metrics kkaiGroupMetrics) add(other kkaiGroupMetrics) kkaiGroupMetrics {
 	metrics.totalLatencyMs += other.totalLatencyMs
 	metrics.ttftSumMs += other.ttftSumMs
 	metrics.ttftCount += other.ttftCount
+	metrics.cacheSampleCount += other.cacheSampleCount
+	metrics.cacheTrackedCount += other.cacheTrackedCount
+	metrics.cachePromptTokens += other.cachePromptTokens
+	metrics.cacheReadTokens += other.cacheReadTokens
 	metrics.sampledAt = max(metrics.sampledAt, other.sampledAt)
 	return metrics
 }

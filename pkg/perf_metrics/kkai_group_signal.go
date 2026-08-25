@@ -17,29 +17,36 @@ const (
 	KKAIGroupDataSourceNone       = "none"
 	KKAIGroupRecentSignalLimit    = 60
 
-	kkaiGroupMinuteSeconds = int64(60)
-	kkaiGroupHourSeconds   = int64(3600)
-	kkaiGroupStreamMaxLen  = int64(KKAIGroupRecentSignalLimit)
-	kkaiGroupLocalEventMax = KKAIGroupRecentSignalLimit
-	kkaiGroupMinuteTTL     = 30 * time.Minute
-	kkaiGroupHourTTL       = 26 * time.Hour
+	kkaiGroupMinuteSeconds     = int64(60)
+	kkaiGroupHistoricalSeconds = int64(300)
+	kkaiGroupStreamMaxLen      = int64(KKAIGroupRecentSignalLimit)
+	kkaiGroupLocalEventMax     = KKAIGroupRecentSignalLimit
+	kkaiGroupMinuteTTL         = 70 * time.Minute
+	kkaiGroupHistoricalTTL     = 26 * time.Hour
+
+	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v1:started_at"
 )
 
 type KKAIGroupBucket struct {
-	Group          string `json:"group"`
-	BucketTs       int64  `json:"bucket_ts"`
-	RequestCount   int64  `json:"request_count"`
-	SuccessCount   int64  `json:"success_count"`
-	TotalLatencyMs int64  `json:"total_latency_ms"`
-	TtftSumMs      int64  `json:"ttft_sum_ms"`
-	TtftCount      int64  `json:"ttft_count"`
-	LastSampleAt   int64  `json:"last_sample_at"`
+	Group             string `json:"group"`
+	BucketTs          int64  `json:"bucket_ts"`
+	RequestCount      int64  `json:"request_count"`
+	SuccessCount      int64  `json:"success_count"`
+	TotalLatencyMs    int64  `json:"total_latency_ms"`
+	TtftSumMs         int64  `json:"ttft_sum_ms"`
+	TtftCount         int64  `json:"ttft_count"`
+	CacheTrackedCount int64  `json:"cache_tracked_count"`
+	CacheSampleCount  int64  `json:"cache_sample_count"`
+	CachePromptTokens int64  `json:"cache_prompt_tokens"`
+	CacheReadTokens   int64  `json:"cache_read_tokens"`
+	LastSampleAt      int64  `json:"last_sample_at"`
 }
 
 type KKAIGroupBucketResult struct {
-	Source         string            `json:"source"`
-	RedisAvailable bool              `json:"redis_available"`
-	Buckets        []KKAIGroupBucket `json:"buckets"`
+	Source                 string            `json:"source"`
+	RedisAvailable         bool              `json:"redis_available"`
+	CacheTrackingStartedAt int64             `json:"cache_tracking_started_at"`
+	Buckets                []KKAIGroupBucket `json:"buckets"`
 }
 
 type KKAIGroupSignalEvent struct {
@@ -65,12 +72,16 @@ type kkaiGroupBucketKey struct {
 }
 
 type kkaiAtomicGroupBucket struct {
-	requestCount   atomic.Int64
-	successCount   atomic.Int64
-	totalLatencyMs atomic.Int64
-	ttftSumMs      atomic.Int64
-	ttftCount      atomic.Int64
-	lastSampleAt   atomic.Int64
+	requestCount      atomic.Int64
+	successCount      atomic.Int64
+	totalLatencyMs    atomic.Int64
+	ttftSumMs         atomic.Int64
+	ttftCount         atomic.Int64
+	cacheTrackedCount atomic.Int64
+	cacheSampleCount  atomic.Int64
+	cachePromptTokens atomic.Int64
+	cacheReadTokens   atomic.Int64
+	lastSampleAt      atomic.Int64
 }
 
 type kkaiGroupSignalBuffer struct {
@@ -84,10 +95,20 @@ var (
 	kkaiGroupLastCleanupAt atomic.Int64
 	kkaiGroupSignalSeq     atomic.Uint64
 	kkaiGroupSignalNodeID  = uuid.NewString()
+	kkaiGroupCacheGapEpoch atomic.Uint64
+	kkaiGroupCacheGapSeq   atomic.Uint64
 )
 
+func markKKAIGroupCacheGap() {
+	epoch := kkaiGroupCacheGapSeq.Add(1)
+	if epoch == 0 {
+		epoch = kkaiGroupCacheGapSeq.Add(1)
+	}
+	kkaiGroupCacheGapEpoch.Store(epoch)
+}
+
 func recordKKAILocalGroupSignal(sample Sample, observedAt time.Time) KKAIGroupSignalEvent {
-	for _, resolution := range []int64{kkaiGroupMinuteSeconds, kkaiGroupHourSeconds} {
+	for _, resolution := range []int64{kkaiGroupMinuteSeconds, kkaiGroupHistoricalSeconds} {
 		bucketTs := observedAt.Unix() - observedAt.Unix()%resolution
 		key := kkaiGroupBucketKey{group: sample.Group, bucketTs: bucketTs, resolution: resolution}
 		actual, _ := kkaiGroupBuckets.LoadOrStore(key, &kkaiAtomicGroupBucket{})

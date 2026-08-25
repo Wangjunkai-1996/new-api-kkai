@@ -143,7 +143,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 
 			lastStreamData = data
-			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
+			if err := processTokenData(c, info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
 			}
@@ -256,6 +256,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			CompletionTokens: completionTokens,
 			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
 		}
+		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
 		usageModified = true
 	}
 

@@ -29,6 +29,10 @@ const (
 	KKAIGroupExperienceNormal    = "normal"
 	KKAIGroupExperienceUnknown   = "unknown"
 
+	KKAIGroupCacheStatusOK          = "ok"
+	KKAIGroupCacheStatusEmpty       = "empty"
+	KKAIGroupCacheStatusUnavailable = "unavailable"
+
 	kkaiGroupStatusMessageExcellent   = "Group status message: excellent"
 	kkaiGroupStatusMessageSmooth      = "Group status message: smooth"
 	kkaiGroupStatusMessageStable      = "Group status message: stable"
@@ -55,11 +59,11 @@ const (
 )
 
 var (
-	kkaiGroupStatusNow          = time.Now
-	loadKKAIPerfMetricBuckets   = model.GetKKAIPerfMetricBuckets
-	queryKKAIGroupMinuteBuckets = perfmetrics.QueryKKAIGroupMinuteBuckets
-	queryKKAIGroupHourBuckets   = perfmetrics.QueryKKAIGroupHourBuckets
-	queryKKAIGroupRecentSignals = perfmetrics.QueryKKAIGroupRecentSignals
+	kkaiGroupStatusNow              = time.Now
+	loadKKAIPerfMetricBuckets       = model.GetKKAIPerfMetricBuckets
+	queryKKAIGroupMinuteBuckets     = perfmetrics.QueryKKAIGroupMinuteBuckets
+	queryKKAIGroupHistoricalBuckets = perfmetrics.QueryKKAIGroupHistoricalBuckets
+	queryKKAIGroupRecentSignals     = perfmetrics.QueryKKAIGroupRecentSignals
 )
 
 type KKAIGroupStatusRequest struct {
@@ -97,6 +101,13 @@ type KKAIGroupStatusEntry struct {
 	Stale            bool                   `json:"stale"`
 	DataSource       string                 `json:"data_source"`
 	RecentEvents     []KKAIGroupRecentEvent `json:"recent_events"`
+	CacheStats       *KKAIGroupCacheStats   `json:"cache_stats,omitempty"`
+}
+
+type KKAIGroupCacheStats struct {
+	Status      string   `json:"status"`
+	SampleCount int64    `json:"sample_count"`
+	HitRate     *float64 `json:"hit_rate"`
 }
 
 type KKAIGroupRecentEvent struct {
@@ -117,12 +128,16 @@ type kkaiGroupStatusWindow struct {
 }
 
 type kkaiGroupMetrics struct {
-	requestCount   int64
-	successCount   int64
-	totalLatencyMs int64
-	ttftSumMs      int64
-	ttftCount      int64
-	sampledAt      int64
+	requestCount      int64
+	successCount      int64
+	totalLatencyMs    int64
+	ttftSumMs         int64
+	ttftCount         int64
+	cacheSampleCount  int64
+	cacheTrackedCount int64
+	cachePromptTokens int64
+	cacheReadTokens   int64
+	sampledAt         int64
 }
 
 type kkaiGroupMetricKey struct {

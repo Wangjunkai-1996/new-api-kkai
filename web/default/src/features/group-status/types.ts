@@ -45,6 +45,12 @@ export type GroupRecentEvent = {
   latency_ms?: number
 }
 
+export type GroupCacheStats = {
+  status: 'ok' | 'empty' | 'unavailable'
+  sample_count: number
+  hit_rate: number | null
+}
+
 export type GroupStatusEntry = {
   group: string
   desc: string
@@ -63,6 +69,7 @@ export type GroupStatusEntry = {
   stale: boolean
   data_source: string
   recent_events: GroupRecentEvent[] | null
+  cache_stats?: GroupCacheStats
 }
 
 export type GroupStatusResult = {

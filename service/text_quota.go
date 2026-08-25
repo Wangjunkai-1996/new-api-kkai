@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -364,6 +366,66 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 	return "openai"
 }
 
+func isGroupStatusCacheEligibleRequest(relayInfo *relaycommon.RelayInfo) bool {
+	if relayInfo == nil {
+		return false
+	}
+
+	switch relayInfo.RelayMode {
+	case relayconstant.RelayModeChatCompletions,
+		relayconstant.RelayModeCompletions,
+		relayconstant.RelayModeResponses,
+		relayconstant.RelayModeResponsesCompact:
+		return true
+	}
+
+	// Native Claude messages have no dedicated relay mode.
+	if relayInfo.RelayFormat == types.RelayFormatClaude {
+		return true
+	}
+	if relayInfo.RelayMode != relayconstant.RelayModeGemini || relayInfo.RelayFormat != types.RelayFormatGemini {
+		return false
+	}
+
+	requestURL, err := url.Parse(relayInfo.RequestURLPath)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(requestURL.Path, ":generateContent") ||
+		strings.HasSuffix(requestURL.Path, ":streamGenerateContent")
+}
+
+func groupStatusCacheUsage(relayInfo *relaycommon.RelayInfo, rejected bool, localCountTokens bool, originUsage *dto.Usage, summary textQuotaSummary) *perfmetrics.CacheUsage {
+	if rejected ||
+		!isGroupStatusCacheEligibleRequest(relayInfo) ||
+		originUsage == nil ||
+		summary.PromptTokens < 0 ||
+		summary.CacheTokens < 0 {
+		return nil
+	}
+
+	usageBillingPath := usageBillingPathForLog(localCountTokens, originUsage)
+	switch usageBillingPath {
+	case usageBillingPathLocal,
+		usageBillingPathOpenAIEstimated,
+		usageBillingPathAnthropicEstimated,
+		usageBillingPathGeminiEstimated:
+		return nil
+	default:
+		cacheDenominator := summary.PromptTokens
+		if strings.EqualFold(summary.UsageSemantic, dto.BillingUsageSemanticAnthropic) {
+			cacheDenominator += summary.CacheTokens
+		}
+		if cacheDenominator <= 0 || summary.CacheTokens > cacheDenominator {
+			return nil
+		}
+		return &perfmetrics.CacheUsage{
+			PromptTokens: int64(cacheDenominator),
+			CachedTokens: int64(summary.CacheTokens),
+		}
+	}
+}
+
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
@@ -552,7 +614,14 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	} else {
 		model.RecordConsumeLog(ctx, relayInfo.UserId, consumeLog)
 	}
+	cacheUsage := groupStatusCacheUsage(
+		relayInfo,
+		adminRejectReason != "" || ctx.Writer.Status() >= 400,
+		common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens),
+		originUsage,
+		summary,
+	)
 	gopool.Go(func() {
-		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
+		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens), cacheUsage)
 	})
 }

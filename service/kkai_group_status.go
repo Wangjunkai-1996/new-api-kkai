@@ -28,20 +28,28 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 	metrics := make(map[string]kkaiGroupMetrics, len(groups))
 	dataSource := perfmetrics.KKAIGroupDataSourceNone
 	redisAvailable := signals.RedisAvailable
-	if window.minutes <= 15 {
+	cacheRedisAvailable := false
+	cacheWindowCovered := false
+	if window.minutes <= 60 {
 		buckets := queryKKAIGroupMinuteBuckets(startTs, endTs, groups)
 		mergeKKAIPerfBuckets(metrics, buckets.Buckets)
 		dataSource = buckets.Source
 		redisAvailable = buckets.RedisAvailable && signals.RedisAvailable
+		cacheRedisAvailable = buckets.RedisAvailable
+		cacheStartTs := startTs - startTs%int64(time.Minute/time.Second)
+		cacheWindowCovered = buckets.CacheTrackingStartedAt > 0 && cacheStartTs >= buckets.CacheTrackingStartedAt
 	} else {
 		databaseBuckets, err := loadKKAIPerfMetricBuckets(startTs, endTs, groups)
 		if err != nil {
 			return KKAIGroupStatusResult{}, err
 		}
-		hourly := queryKKAIGroupHourBuckets(startTs, endTs, groups)
-		metrics = mergeKKAIDatabaseAndLiveBuckets(databaseBuckets, hourly.Buckets)
-		dataSource = combinedKKAIGroupDataSource(len(databaseBuckets) > 0, hourly.Source)
-		redisAvailable = hourly.RedisAvailable && signals.RedisAvailable
+		historical := queryKKAIGroupHistoricalBuckets(startTs, endTs, groups)
+		metrics = mergeKKAIDatabaseAndLiveBuckets(databaseBuckets, historical.Buckets)
+		dataSource = combinedKKAIGroupDataSource(len(databaseBuckets) > 0, historical.Source)
+		redisAvailable = historical.RedisAvailable && signals.RedisAvailable
+		cacheRedisAvailable = historical.RedisAvailable
+		cacheStartTs := startTs - startTs%int64(5*time.Minute/time.Second)
+		cacheWindowCovered = historical.CacheTrackingStartedAt > 0 && cacheStartTs >= historical.CacheTrackingStartedAt
 	}
 
 	applyKKAIAutoGroupMetrics(metrics, request.UsableGroups, request.AutoGroups)
@@ -60,6 +68,8 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 			now,
 			window,
 			dataSource,
+			cacheRedisAvailable,
+			cacheWindowCovered,
 			recentEvents,
 		))
 	}

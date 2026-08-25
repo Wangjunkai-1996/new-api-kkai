@@ -12,6 +12,8 @@ func buildKKAIGroupStatusEntry(
 	now time.Time,
 	window kkaiGroupStatusWindow,
 	dataSource string,
+	cacheRedisAvailable bool,
+	cacheWindowCovered bool,
 	recentEvents []KKAIGroupRecentEvent,
 ) KKAIGroupStatusEntry {
 	successRate := roundKKAIPercent(metrics.successRate())
@@ -19,7 +21,7 @@ func buildKKAIGroupStatusEntry(
 	avgTtft := kkaiAverage(metrics.ttftSumMs, metrics.ttftCount)
 	stale := metrics.sampledAt > 0 && now.Sub(time.Unix(metrics.sampledAt, 0)) > window.staleAfter
 	confidenceStatus, message := classifyKKAIGroupConfidence(metrics, successRate, window, stale)
-	return KKAIGroupStatusEntry{
+	entry := KKAIGroupStatusEntry{
 		Group: group, Desc: desc, Status: kkaiLegacyGroupHealthStatus(confidenceStatus),
 		Confidence: kkaiGroupHealthConfidence(metrics.requestCount), Message: message,
 		ConfidenceStatus: confidenceStatus, ExperienceLabel: classifyKKAIGroupExperience(metrics, avgTtft, window, stale),
@@ -27,6 +29,31 @@ func buildKKAIGroupStatusEntry(
 		AvgLatencyMs: avgLatency, AvgTtftMs: avgTtft, UpdatedAt: metrics.sampledAt, SampledAt: metrics.sampledAt,
 		Stale: stale, DataSource: dataSource, RecentEvents: recentEvents,
 	}
+	if group == "default" || group == "codex-plus" || group == "plus" {
+		entry.CacheStats = buildKKAIGroupCacheStats(metrics, cacheRedisAvailable, cacheWindowCovered)
+	}
+	return entry
+}
+
+func buildKKAIGroupCacheStats(metrics kkaiGroupMetrics, redisAvailable bool, windowCovered bool) *KKAIGroupCacheStats {
+	stats := &KKAIGroupCacheStats{
+		Status:      KKAIGroupCacheStatusUnavailable,
+		SampleCount: metrics.cacheSampleCount,
+	}
+	if !redisAvailable || !windowCovered || metrics.cacheTrackedCount != metrics.requestCount {
+		return stats
+	}
+	if metrics.cacheSampleCount == 0 {
+		stats.Status = KKAIGroupCacheStatusEmpty
+		return stats
+	}
+	if metrics.cachePromptTokens > 0 {
+		hitRate := roundKKAIPercent(float64(metrics.cacheReadTokens) / float64(metrics.cachePromptTokens) * 100)
+		stats.Status = KKAIGroupCacheStatusOK
+		stats.HitRate = &hitRate
+		return stats
+	}
+	return stats
 }
 
 func classifyKKAIGroupConfidence(metrics kkaiGroupMetrics, successRate float64, window kkaiGroupStatusWindow, stale bool) (string, string) {

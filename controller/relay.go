@@ -284,7 +284,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	if newAPIError != nil {
 		gopool.Go(func() {
-			perfmetrics.RecordRelaySample(relayInfo, false, 0)
+			perfmetrics.RecordRelaySample(relayInfo, false, 0, nil)
 		})
 	}
 }
@@ -332,6 +332,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
+	common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "")
 	if info.ChannelMeta == nil {
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1

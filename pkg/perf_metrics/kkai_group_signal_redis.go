@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 	"github.com/redis/go-redis/v9"
 )
 
-func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt time.Time, event KKAIGroupSignalEvent) {
+func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt time.Time, event KKAIGroupSignalEvent) uint64 {
 	if pipe == nil {
-		return
+		return 0
 	}
 	ctx := context.Background()
 	for _, bucket := range []struct {
@@ -22,7 +23,7 @@ func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt 
 		prefix     string
 	}{
 		{kkaiGroupMinuteSeconds, kkaiGroupMinuteTTL, "minute"},
-		{kkaiGroupHourSeconds, kkaiGroupHourTTL, "hour"},
+		{kkaiGroupHistoricalSeconds, kkaiGroupHistoricalTTL, "historical-5m"},
 	} {
 		bucketTs := observedAt.Unix() - observedAt.Unix()%bucket.resolution
 		key := kkaiGroupRedisBucketKey(sample.Group, bucket.prefix, bucketTs)
@@ -37,6 +38,14 @@ func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt 
 			pipe.HIncrBy(ctx, key, "ttft", sample.TtftMs)
 			pipe.HIncrBy(ctx, key, "ttft_n", 1)
 		}
+		if sample.CacheTrackedCount > 0 {
+			pipe.HIncrBy(ctx, key, "cache_tracked", sample.CacheTrackedCount)
+		}
+		if sample.CacheSampleCount > 0 {
+			pipe.HIncrBy(ctx, key, "cache_n", sample.CacheSampleCount)
+			pipe.HIncrBy(ctx, key, "cache_prompt", sample.CachePromptTokens)
+			pipe.HIncrBy(ctx, key, "cache_read", sample.CacheReadTokens)
+		}
 		pipe.HSet(ctx, key, "last_ts", observedAt.Unix())
 		pipe.Expire(ctx, key, bucket.ttl)
 	}
@@ -46,6 +55,27 @@ func appendKKAIRedisGroupSignal(pipe redis.Pipeliner, sample Sample, observedAt 
 		"event_id": event.EventID, "observed_at_ns": event.ObservedAtNs,
 	}})
 	pipe.Persist(ctx, streamKey)
+
+	if sample.CacheTrackedCount <= 0 {
+		return 0
+	}
+	gapEpoch := kkaiGroupCacheGapEpoch.Load()
+	if gapEpoch == 0 {
+		pipe.SetNX(ctx, kkaiGroupCacheTrackingMarkerKey, observedAt.Unix(), 0)
+	} else {
+		pipe.Set(ctx, kkaiGroupCacheTrackingMarkerKey, observedAt.Unix(), 0)
+	}
+	return gapEpoch
+}
+
+func completeKKAIRedisGroupSignalWrite(gapEpoch uint64, err error) {
+	if err != nil && !errors.Is(err, redis.Nil) {
+		markKKAIGroupCacheGap()
+		return
+	}
+	if gapEpoch > 0 {
+		kkaiGroupCacheGapEpoch.CompareAndSwap(gapEpoch, 0)
+	}
 }
 
 func maintainKKAIGroupSignalStreams(ctx context.Context) error {
@@ -79,18 +109,28 @@ func QueryKKAIGroupMinuteBuckets(startTs int64, endTs int64, groups []string) KK
 	return queryKKAIGroupBuckets(startTs, endTs, groups, kkaiGroupMinuteSeconds, "minute")
 }
 
+func QueryKKAIGroupHistoricalBuckets(startTs int64, endTs int64, groups []string) KKAIGroupBucketResult {
+	return queryKKAIGroupBuckets(startTs, endTs, groups, kkaiGroupHistoricalSeconds, "historical-5m")
+}
+
+// QueryKKAIGroupHourBuckets is kept as a compatibility alias while callers
+// migrate to the five-minute historical bucket API.
 func QueryKKAIGroupHourBuckets(startTs int64, endTs int64, groups []string) KKAIGroupBucketResult {
-	return queryKKAIGroupBuckets(startTs, endTs, groups, kkaiGroupHourSeconds, "hour")
+	return QueryKKAIGroupHistoricalBuckets(startTs, endTs, groups)
 }
 
 func queryKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resolution int64, prefix string) KKAIGroupBucketResult {
 	local := localKKAIGroupBuckets(startTs, endTs, groups, resolution)
-	if !common.RedisEnabled || common.RDB == nil {
+	if !common.RedisEnabled {
+		return KKAIGroupBucketResult{Source: kkaiGroupSource(false, len(local) > 0), RedisAvailable: false, Buckets: local}
+	}
+	if common.RDB == nil {
 		return KKAIGroupBucketResult{Source: kkaiGroupSource(false, len(local) > 0), RedisAvailable: false, Buckets: local}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	pipe := common.RDB.Pipeline()
+	markerCommand := pipe.Get(ctx, kkaiGroupCacheTrackingMarkerKey)
 	type command struct {
 		group    string
 		bucketTs int64
@@ -105,6 +145,13 @@ func queryKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return KKAIGroupBucketResult{Source: kkaiGroupSource(false, len(local) > 0), RedisAvailable: false, Buckets: local}
+	}
+	cacheTrackingStartedAt := int64(0)
+	if marker, err := markerCommand.Result(); err == nil {
+		cacheTrackingStartedAt = parseRedisInt(marker)
+	}
+	if !perf_metrics_setting.GetSetting().Enabled || kkaiGroupCacheGapEpoch.Load() != 0 {
+		cacheTrackingStartedAt = 0
 	}
 	byKey := make(map[kkaiGroupBucketKey]KKAIGroupBucket, len(commands)+len(local))
 	redisPresent := false
@@ -134,7 +181,12 @@ func queryKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 		}
 		return buckets[i].Group < buckets[j].Group
 	})
-	return KKAIGroupBucketResult{Source: kkaiGroupSource(redisPresent, localPresent), RedisAvailable: true, Buckets: buckets}
+	return KKAIGroupBucketResult{
+		Source:                 kkaiGroupSource(redisPresent, localPresent),
+		RedisAvailable:         true,
+		CacheTrackingStartedAt: cacheTrackingStartedAt,
+		Buckets:                buckets,
+	}
 }
 
 func QueryKKAIGroupRecentSignals(groups []string, limit int) KKAIGroupSignalResult {

@@ -17,8 +17,6 @@ import (
 )
 
 func TestGeminiChatHandlerCompletionTokensExcludeToolUsePromptTokens(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -125,8 +123,6 @@ func TestGeminiStreamHandlerCompletionTokensExcludeToolUsePromptTokens(t *testin
 }
 
 func TestGeminiTextGenerationHandlerPromptTokensIncludeToolUsePromptTokens(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-preview:generateContent", nil)
@@ -174,9 +170,211 @@ func TestGeminiTextGenerationHandlerPromptTokensIncludeToolUsePromptTokens(t *te
 	require.Equal(t, 1120, usage.CompletionTokenDetails.ReasoningTokens)
 }
 
-func TestGeminiChatHandlerUsesEstimatedPromptTokensWhenUsagePromptMissing(t *testing.T) {
-	t.Parallel()
+func TestGeminiTextGenerationHandlerMarksEmptyCandidates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-preview:generateContent", nil)
 
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "gemini-3-flash-preview",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gemini-3-flash-preview",
+		},
+	}
+	payload := dto.GeminiChatResponse{
+		UsageMetadata: dto.GeminiUsageMetadata{
+			PromptTokenCount: 100,
+			TotalTokenCount:  100,
+		},
+	}
+	body, err := common.Marshal(payload)
+	require.NoError(t, err)
+
+	usage, newAPIError := GeminiTextGenerationHandler(c, info, &http.Response{
+		Body: io.NopCloser(bytes.NewReader(body)),
+	})
+
+	require.Nil(t, newAPIError)
+	require.NotNil(t, usage)
+	require.Equal(t, 100, usage.PromptTokens)
+	require.Equal(t, "gemini_empty_candidates", common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason))
+}
+
+func TestGeminiTextGenerationHandlerMarksFilteredCandidates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, finishReason := range []string{
+		"SAFETY",
+		"RECITATION",
+		"BLOCKLIST",
+		"PROHIBITED_CONTENT",
+		"SPII",
+		"OTHER",
+	} {
+		t.Run(finishReason, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-preview:generateContent", nil)
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "gemini-3-flash-preview",
+				ChannelMeta: &relaycommon.ChannelMeta{
+					UpstreamModelName: "gemini-3-flash-preview",
+				},
+			}
+			reason := finishReason
+			payload := dto.GeminiChatResponse{
+				Candidates: []dto.GeminiChatCandidate{
+					{
+						FinishReason: &reason,
+						Content: dto.GeminiChatContent{
+							Role: "model",
+						},
+					},
+				},
+				UsageMetadata: dto.GeminiUsageMetadata{
+					PromptTokenCount: 100,
+					TotalTokenCount:  100,
+				},
+			}
+			body, err := common.Marshal(payload)
+			require.NoError(t, err)
+
+			usage, newAPIError := GeminiTextGenerationHandler(c, info, &http.Response{
+				Body: io.NopCloser(bytes.NewReader(body)),
+			})
+
+			require.Nil(t, newAPIError)
+			require.NotNil(t, usage)
+			require.Equal(t, "gemini_finish_reason="+finishReason, common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason))
+		})
+	}
+}
+
+func TestGeminiChatHandlerMarksFilteredCandidate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		RelayFormat:     types.RelayFormatOpenAI,
+		OriginModelName: "gemini-3-flash-preview",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gemini-3-flash-preview",
+		},
+	}
+	finishReason := "SAFETY"
+	payload := dto.GeminiChatResponse{
+		Candidates: []dto.GeminiChatCandidate{
+			{
+				FinishReason: &finishReason,
+				Content: dto.GeminiChatContent{
+					Role: "model",
+				},
+			},
+		},
+		UsageMetadata: dto.GeminiUsageMetadata{
+			PromptTokenCount: 100,
+			TotalTokenCount:  100,
+		},
+	}
+	body, err := common.Marshal(payload)
+	require.NoError(t, err)
+
+	usage, newAPIError := GeminiChatHandler(c, info, &http.Response{
+		Body: io.NopCloser(bytes.NewReader(body)),
+	})
+
+	require.Nil(t, newAPIError)
+	require.NotNil(t, usage)
+	require.Equal(t, "gemini_finish_reason=SAFETY", common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason))
+}
+
+func TestGeminiStreamHandlerMarksOnlyEntirelyEmptyStreams(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldStreamingTimeout
+	})
+
+	usageMetadata := dto.GeminiUsageMetadata{
+		PromptTokenCount: 100,
+		TotalTokenCount:  100,
+	}
+	tests := []struct {
+		name       string
+		chunks     []dto.GeminiChatResponse
+		wantReason string
+	}{
+		{
+			name: "metadata-only stream",
+			chunks: []dto.GeminiChatResponse{
+				{UsageMetadata: usageMetadata},
+			},
+			wantReason: "gemini_empty_candidates",
+		},
+		{
+			name: "usage-only final chunk after candidate",
+			chunks: []dto.GeminiChatResponse{
+				{
+					Candidates: []dto.GeminiChatCandidate{
+						{Content: dto.GeminiChatContent{Role: "model", Parts: []dto.GeminiPart{{Text: "ok"}}}},
+					},
+				},
+				{UsageMetadata: usageMetadata},
+			},
+		},
+		{
+			name: "filtered candidate",
+			chunks: []dto.GeminiChatResponse{
+				{
+					Candidates: []dto.GeminiChatCandidate{
+						{
+							FinishReason: common.GetPointer("SAFETY"),
+							Content:      dto.GeminiChatContent{Role: "model"},
+						},
+					},
+				},
+				{UsageMetadata: usageMetadata},
+			},
+			wantReason: "gemini_finish_reason=SAFETY",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse", nil)
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "gemini-3-flash-preview",
+				ChannelMeta: &relaycommon.ChannelMeta{
+					UpstreamModelName: "gemini-3-flash-preview",
+				},
+			}
+
+			streamBody := make([]byte, 0)
+			for _, chunk := range test.chunks {
+				chunkData, err := common.Marshal(chunk)
+				require.NoError(t, err)
+				streamBody = append(streamBody, []byte("data: ")...)
+				streamBody = append(streamBody, chunkData...)
+				streamBody = append(streamBody, '\n')
+			}
+			streamBody = append(streamBody, []byte("data: [DONE]\n")...)
+
+			usage, newAPIError := geminiStreamHandler(c, info, &http.Response{
+				Body: io.NopCloser(bytes.NewReader(streamBody)),
+			}, func(_ string, _ *dto.GeminiChatResponse) bool {
+				return true
+			})
+
+			require.Nil(t, newAPIError)
+			require.NotNil(t, usage)
+			require.Equal(t, 100, usage.PromptTokens)
+			require.Equal(t, test.wantReason, common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason))
+		})
+	}
+}
+
+func TestGeminiChatHandlerUsesEstimatedPromptTokensWhenUsagePromptMissing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -283,8 +481,6 @@ func TestGeminiStreamHandlerUsesEstimatedPromptTokensWhenUsagePromptMissing(t *t
 }
 
 func TestGeminiTextGenerationHandlerUsesEstimatedPromptTokensWhenUsagePromptMissing(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-preview:generateContent", nil)
@@ -333,8 +529,6 @@ func TestGeminiTextGenerationHandlerUsesEstimatedPromptTokensWhenUsagePromptMiss
 }
 
 func TestGeminiChatHandlerMissingUsageMetadataBuildsEstimatedBillingUsage(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -428,8 +622,6 @@ func TestGeminiStreamHandlerPromptOnlyUsageMetadataEstimatesCompletionTokens(t *
 }
 
 func TestGeminiChatHandlerPromptOnlyUsageMetadataEstimatesCompletionTokens(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)

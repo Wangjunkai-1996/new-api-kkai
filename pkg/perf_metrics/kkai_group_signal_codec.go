@@ -10,7 +10,10 @@ import (
 func kkaiGroupBucketFromRedis(group string, bucketTs int64, values map[string]string) KKAIGroupBucket {
 	return KKAIGroupBucket{Group: group, BucketTs: bucketTs, RequestCount: parseRedisInt(values["req"]),
 		SuccessCount: parseRedisInt(values["ok"]), TotalLatencyMs: parseRedisInt(values["lat"]),
-		TtftSumMs: parseRedisInt(values["ttft"]), TtftCount: parseRedisInt(values["ttft_n"]), LastSampleAt: parseRedisInt(values["last_ts"])}
+		TtftSumMs: parseRedisInt(values["ttft"]), TtftCount: parseRedisInt(values["ttft_n"]),
+		CacheTrackedCount: parseRedisInt(values["cache_tracked"]),
+		CacheSampleCount:  parseRedisInt(values["cache_n"]), CachePromptTokens: parseRedisInt(values["cache_prompt"]),
+		CacheReadTokens: parseRedisInt(values["cache_read"]), LastSampleAt: parseRedisInt(values["last_ts"])}
 }
 
 func kkaiGroupSignalFromRedis(group string, values map[string]interface{}) (KKAIGroupSignalEvent, bool) {

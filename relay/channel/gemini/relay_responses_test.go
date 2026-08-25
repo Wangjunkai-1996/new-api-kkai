@@ -67,6 +67,37 @@ func TestGeminiResponsesHandlerReturnsOpenAIResponsesJSON(t *testing.T) {
 	assert.NotContains(t, got, `"candidates"`)
 }
 
+func TestGeminiResponsesHandlerMarksFilteredCandidate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set(common.RequestIdKey, "gemini-responses-filtered-test")
+
+	finishReason := "RECITATION"
+	payload := dto.GeminiChatResponse{
+		Candidates: []dto.GeminiChatCandidate{
+			{
+				FinishReason: &finishReason,
+				Content:      dto.GeminiChatContent{Role: "model"},
+			},
+		},
+		UsageMetadata: dto.GeminiUsageMetadata{
+			PromptTokenCount: 100,
+			TotalTokenCount:  100,
+		},
+	}
+	body, err := common.Marshal(payload)
+	require.NoError(t, err)
+
+	usage, newAPIError := GeminiResponsesHandler(c, newGeminiResponsesRelayInfo(false), &http.Response{
+		Body: io.NopCloser(bytes.NewReader(body)),
+	})
+
+	require.Nil(t, newAPIError)
+	require.NotNil(t, usage)
+	require.Equal(t, "gemini_finish_reason=RECITATION", common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason))
+}
+
 func TestGeminiResponsesHandlerClosesBodyOnReadError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

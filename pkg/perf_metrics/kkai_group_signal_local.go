@@ -6,6 +6,7 @@ import (
 )
 
 func localKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resolution int64) []KKAIGroupBucket {
+	startBucket := startTs - startTs%resolution
 	allowed := make(map[string]struct{}, len(groups))
 	for _, group := range groups {
 		allowed[group] = struct{}{}
@@ -13,7 +14,7 @@ func localKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 	buckets := make([]KKAIGroupBucket, 0)
 	kkaiGroupBuckets.Range(func(rawKey any, rawValue any) bool {
 		key := rawKey.(kkaiGroupBucketKey)
-		if key.resolution != resolution || key.bucketTs < startTs-resolution || key.bucketTs > endTs {
+		if key.resolution != resolution || key.bucketTs < startBucket || key.bucketTs > endTs {
 			return true
 		}
 		if _, ok := allowed[key.group]; !ok {
@@ -24,6 +25,12 @@ func localKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 			buckets = append(buckets, bucket)
 		}
 		return true
+	})
+	sort.Slice(buckets, func(i, j int) bool {
+		if buckets[i].Group == buckets[j].Group {
+			return buckets[i].BucketTs < buckets[j].BucketTs
+		}
+		return buckets[i].Group < buckets[j].Group
 	})
 	return buckets
 }
@@ -47,11 +54,11 @@ func localKKAIGroupRecentSignals(groups []string, limit int) []KKAIGroupSignalEv
 
 func cleanupKKAILocalGroupBuckets(now time.Time) {
 	minuteCutoff := now.Add(-kkaiGroupMinuteTTL).Unix()
-	hourCutoff := now.Add(-kkaiGroupHourTTL).Unix()
+	historicalCutoff := now.Add(-kkaiGroupHistoricalTTL).Unix()
 	kkaiGroupBuckets.Range(func(rawKey any, _ any) bool {
 		key := rawKey.(kkaiGroupBucketKey)
 		if (key.resolution == kkaiGroupMinuteSeconds && key.bucketTs < minuteCutoff) ||
-			(key.resolution == kkaiGroupHourSeconds && key.bucketTs < hourCutoff) {
+			(key.resolution == kkaiGroupHistoricalSeconds && key.bucketTs < historicalCutoff) {
 			kkaiGroupBuckets.Delete(rawKey)
 		}
 		return true
@@ -70,6 +77,14 @@ func (bucket *kkaiAtomicGroupBucket) add(sample Sample, sampledAt int64) {
 		bucket.ttftSumMs.Add(sample.TtftMs)
 		bucket.ttftCount.Add(1)
 	}
+	if sample.CacheTrackedCount > 0 {
+		bucket.cacheTrackedCount.Add(sample.CacheTrackedCount)
+	}
+	if sample.CacheSampleCount > 0 {
+		bucket.cacheSampleCount.Add(sample.CacheSampleCount)
+		bucket.cachePromptTokens.Add(sample.CachePromptTokens)
+		bucket.cacheReadTokens.Add(sample.CacheReadTokens)
+	}
 	for {
 		current := bucket.lastSampleAt.Load()
 		if sampledAt <= current || bucket.lastSampleAt.CompareAndSwap(current, sampledAt) {
@@ -83,6 +98,9 @@ func (bucket *kkaiAtomicGroupBucket) snapshot(group string, bucketTs int64) KKAI
 		Group: group, BucketTs: bucketTs,
 		RequestCount: bucket.requestCount.Load(), SuccessCount: bucket.successCount.Load(),
 		TotalLatencyMs: bucket.totalLatencyMs.Load(), TtftSumMs: bucket.ttftSumMs.Load(),
-		TtftCount: bucket.ttftCount.Load(), LastSampleAt: bucket.lastSampleAt.Load(),
+		TtftCount: bucket.ttftCount.Load(), CacheTrackedCount: bucket.cacheTrackedCount.Load(),
+		CacheSampleCount:  bucket.cacheSampleCount.Load(),
+		CachePromptTokens: bucket.cachePromptTokens.Load(), CacheReadTokens: bucket.cacheReadTokens.Load(),
+		LastSampleAt: bucket.lastSampleAt.Load(),
 	}
 }

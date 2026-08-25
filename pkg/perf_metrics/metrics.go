@@ -41,7 +41,7 @@ func RunMaintenance(ctx context.Context) error {
 	return nil
 }
 
-func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens int64) {
+func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens int64, cacheUsage *CacheUsage) {
 	if info == nil {
 		return
 	}
@@ -59,21 +59,35 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	if generationMs <= 0 {
 		generationMs = latencyMs
 	}
-	Record(Sample{
-		Model:        info.OriginModelName,
-		Group:        info.UsingGroup,
-		LatencyMs:    latencyMs,
-		TtftMs:       ttftMs,
-		HasTtft:      hasTtft,
-		Success:      success,
-		OutputTokens: outputTokens,
-		GenerationMs: generationMs,
-	})
+	sample := Sample{
+		Model:             info.OriginModelName,
+		Group:             info.UsingGroup,
+		LatencyMs:         latencyMs,
+		TtftMs:            ttftMs,
+		HasTtft:           hasTtft,
+		Success:           success,
+		OutputTokens:      outputTokens,
+		GenerationMs:      generationMs,
+		CacheTrackedCount: 1,
+	}
+	if success && cacheUsage != nil && cacheUsage.PromptTokens > 0 &&
+		cacheUsage.CachedTokens >= 0 && cacheUsage.CachedTokens <= cacheUsage.PromptTokens {
+		sample.CacheSampleCount = 1
+		sample.CachePromptTokens = cacheUsage.PromptTokens
+		sample.CacheReadTokens = cacheUsage.CachedTokens
+	}
+	Record(sample)
 }
 
 func Record(sample Sample) {
+	if sample.Model == "" {
+		return
+	}
 	setting := perf_metrics_setting.GetSetting()
-	if !setting.Enabled || sample.Model == "" {
+	if !setting.Enabled {
+		if sample.CacheTrackedCount > 0 {
+			markKKAIGroupCacheGap()
+		}
 		return
 	}
 	if sample.Group == "" {
@@ -81,6 +95,15 @@ func Record(sample Sample) {
 	}
 	if sample.LatencyMs < 0 {
 		sample.LatencyMs = 0
+	}
+	if sample.CacheTrackedCount < 0 {
+		sample.CacheTrackedCount = 0
+	}
+	if !sample.Success || sample.CacheSampleCount <= 0 || sample.CachePromptTokens <= 0 ||
+		sample.CacheReadTokens < 0 || sample.CacheReadTokens > sample.CachePromptTokens {
+		sample.CacheSampleCount = 0
+		sample.CachePromptTokens = 0
+		sample.CacheReadTokens = 0
 	}
 
 	observedAt := time.Now()
@@ -397,7 +420,16 @@ func avgTps(value counters) float64 {
 }
 
 func recordRedis(key bucketKey, sample Sample, observedAt time.Time, groupSignal KKAIGroupSignalEvent) {
-	if !common.RedisEnabled || common.RDB == nil {
+	if !common.RedisEnabled {
+		if sample.CacheTrackedCount > 0 {
+			markKKAIGroupCacheGap()
+		}
+		return
+	}
+	if common.RDB == nil {
+		if sample.CacheTrackedCount > 0 {
+			markKKAIGroupCacheGap()
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -420,9 +452,10 @@ func recordRedis(key bucketKey, sample Sample, observedAt time.Time, groupSignal
 		pipe.HIncrBy(ctx, redisKey, "out", sample.OutputTokens)
 		pipe.HIncrBy(ctx, redisKey, "gen_ms", sample.GenerationMs)
 	}
-	appendKKAIRedisGroupSignal(pipe, sample, observedAt, groupSignal)
+	cacheGapEpoch := appendKKAIRedisGroupSignal(pipe, sample, observedAt, groupSignal)
 	pipe.Expire(ctx, redisKey, time.Hour)
-	_, _ = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
+	completeKKAIRedisGroupSignalWrite(cacheGapEpoch, err)
 }
 
 func mergeRedisActiveBuckets(merged map[bucketKey]counters, params QueryParams, startTs int64, endTs int64) {

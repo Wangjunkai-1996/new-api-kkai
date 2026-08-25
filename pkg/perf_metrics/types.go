@@ -7,15 +7,24 @@ type Store interface {
 	Query(params QueryParams) (QueryResult, error)
 }
 
+type CacheUsage struct {
+	PromptTokens int64
+	CachedTokens int64
+}
+
 type Sample struct {
-	Model        string
-	Group        string
-	LatencyMs    int64
-	TtftMs       int64
-	HasTtft      bool
-	Success      bool
-	OutputTokens int64
-	GenerationMs int64
+	Model             string
+	Group             string
+	LatencyMs         int64
+	TtftMs            int64
+	HasTtft           bool
+	Success           bool
+	OutputTokens      int64
+	GenerationMs      int64
+	CacheTrackedCount int64
+	CacheSampleCount  int64
+	CachePromptTokens int64
+	CacheReadTokens   int64
 }
 
 type QueryParams struct {

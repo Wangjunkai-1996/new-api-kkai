@@ -11,9 +11,11 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -276,6 +278,177 @@ func TestCalculateTextQuotaSummaryUsesOpenAIBillingUsageBeforeTopLevelUsage(t *t
 	require.Equal(t, 9, summary.CompletionTokens)
 	require.Equal(t, 89, summary.TotalTokens)
 	require.Equal(t, 98, summary.Quota)
+}
+
+func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		relayInfo *relaycommon.RelayInfo
+		want      bool
+	}{
+		{
+			name:      "chat completions",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI},
+			want:      true,
+		},
+		{
+			name:      "legacy completions",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeCompletions, RelayFormat: types.RelayFormatOpenAI},
+			want:      true,
+		},
+		{
+			name:      "responses",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses, RelayFormat: types.RelayFormatOpenAIResponses},
+			want:      true,
+		},
+		{
+			name:      "responses compaction",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponsesCompact, RelayFormat: types.RelayFormatOpenAIResponsesCompaction},
+			want:      true,
+		},
+		{
+			name:      "native Claude messages",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeUnknown, RelayFormat: types.RelayFormatClaude},
+			want:      true,
+		},
+		{
+			name: "native Gemini generate content",
+			relayInfo: &relaycommon.RelayInfo{
+				RelayMode:      relayconstant.RelayModeGemini,
+				RelayFormat:    types.RelayFormatGemini,
+				RequestURLPath: "/v1beta/models/gemini-2.5-pro:generateContent",
+			},
+			want: true,
+		},
+		{
+			name: "native Gemini stream generate content with query",
+			relayInfo: &relaycommon.RelayInfo{
+				RelayMode:      relayconstant.RelayModeGemini,
+				RelayFormat:    types.RelayFormatGemini,
+				RequestURLPath: "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+			},
+			want: true,
+		},
+		{
+			name: "native Gemini embedding",
+			relayInfo: &relaycommon.RelayInfo{
+				RelayMode:      relayconstant.RelayModeGemini,
+				RelayFormat:    types.RelayFormatGemini,
+				RequestURLPath: "/v1beta/models/text-embedding-004:embedContent",
+			},
+		},
+		{
+			name: "native Gemini batch embedding",
+			relayInfo: &relaycommon.RelayInfo{
+				RelayMode:      relayconstant.RelayModeGemini,
+				RelayFormat:    types.RelayFormatGemini,
+				RequestURLPath: "/v1beta/models/text-embedding-004:batchEmbedContents",
+			},
+		},
+		{
+			name:      "image generation",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeImagesGenerations, RelayFormat: types.RelayFormatOpenAIImage},
+		},
+		{
+			name:      "OpenAI embedding",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeEmbeddings, RelayFormat: types.RelayFormatEmbedding},
+		},
+		{
+			name:      "rerank",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeRerank, RelayFormat: types.RelayFormatRerank},
+		},
+		{
+			name:      "audio transcription",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeAudioTranscription, RelayFormat: types.RelayFormatOpenAIAudio},
+		},
+		{
+			name:      "moderation",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeModerations, RelayFormat: types.RelayFormatOpenAI},
+		},
+		{
+			name: "malformed Gemini URL",
+			relayInfo: &relaycommon.RelayInfo{
+				RelayMode:      relayconstant.RelayModeGemini,
+				RelayFormat:    types.RelayFormatGemini,
+				RequestURLPath: "%zz:generateContent",
+			},
+		},
+		{name: "nil relay info"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, isGroupStatusCacheEligibleRequest(test.relayInfo))
+		})
+	}
+}
+
+func TestGroupStatusCacheUsageMatchesIncidentLogSemantics(t *testing.T) {
+	allowedRelay := &relaycommon.RelayInfo{
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		RelayFormat: types.RelayFormatOpenAI,
+	}
+	originUsage := &dto.Usage{PromptTokens: 1_000}
+	summary := textQuotaSummary{
+		PromptTokens:  1_000,
+		CacheTokens:   930,
+		UsageSemantic: dto.BillingUsageSemanticOpenAI,
+	}
+
+	cacheUsage := groupStatusCacheUsage(allowedRelay, false, false, originUsage, summary)
+	require.NotNil(t, cacheUsage)
+	assert.Equal(t, int64(1_000), cacheUsage.PromptTokens)
+	assert.Equal(t, int64(930), cacheUsage.CachedTokens)
+
+	assert.Nil(t, groupStatusCacheUsage(allowedRelay, true, false, originUsage, summary))
+	assert.Nil(t, groupStatusCacheUsage(allowedRelay, false, true, originUsage, summary))
+	assert.Nil(t, groupStatusCacheUsage(allowedRelay, false, false, nil, summary))
+	assert.Nil(t, groupStatusCacheUsage(&relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeEmbeddings}, false, false, originUsage, summary))
+
+	anthropic := summary
+	anthropic.UsageSemantic = dto.BillingUsageSemanticAnthropic
+	anthropicCacheUsage := groupStatusCacheUsage(allowedRelay, false, false, originUsage, anthropic)
+	require.NotNil(t, anthropicCacheUsage)
+	assert.Equal(t, int64(1_930), anthropicCacheUsage.PromptTokens)
+	assert.Equal(t, int64(930), anthropicCacheUsage.CachedTokens)
+
+	gemini := summary
+	gemini.UsageSemantic = dto.BillingUsageSemanticGemini
+	geminiCacheUsage := groupStatusCacheUsage(allowedRelay, false, false, originUsage, gemini)
+	require.NotNil(t, geminiCacheUsage)
+	assert.Equal(t, int64(1_000), geminiCacheUsage.PromptTokens)
+
+	allCachedAnthropic := anthropic
+	allCachedAnthropic.PromptTokens = 0
+	allCachedAnthropic.CacheTokens = 100
+	allCachedUsage := groupStatusCacheUsage(allowedRelay, false, false, originUsage, allCachedAnthropic)
+	require.NotNil(t, allCachedUsage)
+	assert.Equal(t, int64(100), allCachedUsage.PromptTokens)
+	assert.Equal(t, int64(100), allCachedUsage.CachedTokens)
+
+	zeroHit := summary
+	zeroHit.CacheTokens = 0
+	zeroHitUsage := groupStatusCacheUsage(allowedRelay, false, false, originUsage, zeroHit)
+	require.NotNil(t, zeroHitUsage)
+	assert.Zero(t, zeroHitUsage.CachedTokens)
+
+	estimatedUsage := &dto.Usage{
+		BillingUsage: dto.NewOpenAIChatBillingUsage(&dto.Usage{PromptTokens: 1_000}),
+	}
+	require.NotNil(t, estimatedUsage.BillingUsage)
+	estimatedUsage.BillingUsage.Estimated = true
+	assert.Nil(t, groupStatusCacheUsage(allowedRelay, false, false, estimatedUsage, summary))
+
+	invalidTokens := summary
+	invalidTokens.CacheTokens = invalidTokens.PromptTokens + 1
+	assert.Nil(t, groupStatusCacheUsage(allowedRelay, false, false, originUsage, invalidTokens))
+
+	invalidTokens = summary
+	invalidTokens.PromptTokens = 0
+	assert.Nil(t, groupStatusCacheUsage(allowedRelay, false, false, originUsage, invalidTokens))
 }
 
 func TestCalculateTextQuotaSummaryUsesOpenAIResponsesInputTokenDetails(t *testing.T) {

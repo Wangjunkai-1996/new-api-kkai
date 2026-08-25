@@ -37,6 +37,23 @@ func attachEstimatedGeminiBillingUsage(usage *dto.Usage) *dto.Usage {
 	return usage
 }
 
+func maybeMarkGeminiFilteredCandidate(c *gin.Context, response *dto.GeminiChatResponse) {
+	if c == nil || response == nil {
+		return
+	}
+	for _, candidate := range response.Candidates {
+		if candidate.FinishReason == nil {
+			continue
+		}
+		finishReason := strings.ToUpper(strings.TrimSpace(*candidate.FinishReason))
+		switch finishReason {
+		case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "OTHER":
+			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "gemini_finish_reason="+finishReason)
+			return
+		}
+	}
+}
+
 // patchGeminiZeroCompletionUsage estimates completion tokens locally when upstream
 // usageMetadata was billable but reported zero completion tokens even though output
 // content was actually received. Typical case: the client aborts a stream before the
@@ -136,6 +153,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var usage = &dto.Usage{}
 	var imageCount int
 	var hasBillableUsageMetadata bool
+	var hasCandidates bool
 	responseText := strings.Builder{}
 	var streamErr *types.NewAPIError
 
@@ -150,9 +168,12 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			sr.Stop(fmt.Errorf("unmarshal: %w", err))
 			return
 		}
+		maybeMarkGeminiFilteredCandidate(c, &geminiResponse)
 
 		if len(geminiResponse.Candidates) == 0 && geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason))
+		} else if len(geminiResponse.Candidates) > 0 {
+			hasCandidates = true
 		}
 
 		// 统计图片数量
@@ -180,6 +201,14 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	})
 	if streamErr != nil {
 		return nil, streamErr
+	}
+	if !hasCandidates &&
+		info.ReceivedResponseCount > 0 &&
+		info.StreamStatus != nil &&
+		info.StreamStatus.IsNormalEnd() &&
+		!info.StreamStatus.HasErrors() &&
+		common.GetContextKeyString(c, constant.ContextKeyAdminRejectReason) == "" {
+		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "gemini_empty_candidates")
 	}
 
 	if !hasBillableUsageMetadata {
@@ -320,6 +349,7 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	maybeMarkGeminiFilteredCandidate(c, &geminiResponse)
 	if len(geminiResponse.Candidates) == 0 {
 		usage := buildUsageFromGeminiResponse(c, info, &geminiResponse)
 

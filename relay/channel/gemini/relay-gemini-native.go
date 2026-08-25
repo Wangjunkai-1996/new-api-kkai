@@ -37,9 +37,14 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	maybeMarkGeminiFilteredCandidate(c, &geminiResponse)
 
-	if len(geminiResponse.Candidates) == 0 && geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
-		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason))
+	if len(geminiResponse.Candidates) == 0 {
+		rejectReason := "gemini_empty_candidates"
+		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
+			rejectReason = fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason)
+		}
+		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, rejectReason)
 	}
 
 	// 计算使用量（优先上游 UsageMetadata，缺失时本地估算并保留 Gemini 计费语义）
