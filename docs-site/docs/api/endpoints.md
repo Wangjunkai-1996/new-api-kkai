@@ -3,12 +3,73 @@ title: "接口端点"
 description: "KKRICH API 常用 OpenAI 兼容端点速查。"
 outline: [2, 3]
 ---
-<!-- Recovered from the public production rendering on 2026-08-25. -->
-<div class="kkr-recovered-page" v-pre>
-<div><h1 id="接口端点" tabindex="-1">接口端点 <a class="header-anchor" href="#接口端点" aria-label="Permalink to &quot;接口端点&quot;">​</a></h1><p>本文汇总 KKRICH / KKAI New API 常用 OpenAI 兼容端点。更多可用能力以控制面板和接口实际响应为准。</p><h2 id="请求地址" tabindex="-1">请求地址 <a class="header-anchor" href="#请求地址" aria-label="Permalink to &quot;请求地址&quot;">​</a></h2><p>基础地址：</p><div class="language-text vp-adaptive-theme line-numbers-mode"><button title="Copy Code" class="copy"></button><span class="lang">text</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>https://api.kkrich.ltd/v1</span></span></code></pre><div class="line-numbers-wrapper" aria-hidden="true"><span class="line-number">1</span><br></div></div><table tabindex="0"><thead><tr><th>功能</th><th>方法</th><th>路径</th><th>完整地址</th></tr></thead><tbody><tr><td>模型列表</td><td><code>GET</code></td><td><code>/models</code></td><td><code>https://api.kkrich.ltd/v1/models</code></td></tr><tr><td>对话补全</td><td><code>POST</code></td><td><code>/chat/completions</code></td><td><code>https://api.kkrich.ltd/v1/chat/completions</code></td></tr><tr><td>Responses</td><td><code>POST</code></td><td><code>/responses</code></td><td><code>https://api.kkrich.ltd/v1/responses</code></td></tr><tr><td>创建视频任务</td><td><code>POST</code></td><td><code>/video/generations</code></td><td><code>https://api.kkrich.ltd/v1/video/generations</code></td></tr><tr><td>查询视频任务</td><td><code>GET</code></td><td><code>/video/generations/{task_id}</code></td><td><code>https://api.kkrich.ltd/v1/video/generations/{task_id}</code></td></tr></tbody></table><h2 id="认证" tabindex="-1">认证 <a class="header-anchor" href="#认证" aria-label="Permalink to &quot;认证&quot;">​</a></h2><div class="language-http vp-adaptive-theme line-numbers-mode"><button title="Copy Code" class="copy"></button><span class="lang">http</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span style="--shiki-light:#22863A;--shiki-dark:#85E89D;">Authorization</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> Bearer $KKRICH_API_KEY</span></span>
-<span class="line"><span style="--shiki-light:#22863A;--shiki-dark:#85E89D;">Content-Type</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583;">:</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> application/json</span></span></code></pre><div class="line-numbers-wrapper" aria-hidden="true"><span class="line-number">1</span><br><span class="line-number">2</span><br></div></div><h2 id="参数" tabindex="-1">参数 <a class="header-anchor" href="#参数" aria-label="Permalink to &quot;参数&quot;">​</a></h2><p>不同端点的最小参数不同：</p><table tabindex="0"><thead><tr><th>端点</th><th>最小参数</th></tr></thead><tbody><tr><td><code>/models</code></td><td>无请求体。</td></tr><tr><td><code>/chat/completions</code></td><td><code>model</code>、<code>messages</code>。</td></tr><tr><td><code>/responses</code></td><td><code>model</code>、<code>input</code>。</td></tr><tr><td><code>/video/generations</code></td><td><code>model</code>、<code>prompt</code>、<code>seconds</code>。</td></tr></tbody></table><h2 id="示例" tabindex="-1">示例 <a class="header-anchor" href="#示例" aria-label="Permalink to &quot;示例&quot;">​</a></h2><div class="language-bash vp-adaptive-theme line-numbers-mode"><button title="Copy Code" class="copy"></button><span class="lang">bash</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;">curl</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> https://api.kkrich.ltd/v1/models</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> \</span></span>
-<span class="line"><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;">  -H</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> &quot;Authorization: Bearer </span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;">$KKRICH_API_KEY</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;">&quot;</span></span></code></pre><div class="line-numbers-wrapper" aria-hidden="true"><span class="line-number">1</span><br><span class="line-number">2</span><br></div></div><div class="language-bash vp-adaptive-theme line-numbers-mode"><button title="Copy Code" class="copy"></button><span class="lang">bash</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span style="--shiki-light:#6F42C1;--shiki-dark:#B392F0;">curl</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> https://api.kkrich.ltd/v1/chat/completions</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> \</span></span>
-<span class="line"><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;">  -H</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> &quot;Authorization: Bearer </span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8;">$KKRICH_API_KEY</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;">&quot;</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> \</span></span>
-<span class="line"><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;">  -H</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> &quot;Content-Type: application/json&quot;</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;"> \</span></span>
-<span class="line"><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF;">  -d</span><span style="--shiki-light:#032F62;--shiki-dark:#9ECBFF;"> &#39;{&quot;model&quot;:&quot;&lt;model-from-panel&gt;&quot;,&quot;messages&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;Hello&quot;}]}&#39;</span></span></code></pre><div class="line-numbers-wrapper" aria-hidden="true"><span class="line-number">1</span><br><span class="line-number">2</span><br><span class="line-number">3</span><br><span class="line-number">4</span><br></div></div><h2 id="错误" tabindex="-1">错误 <a class="header-anchor" href="#错误" aria-label="Permalink to &quot;错误&quot;">​</a></h2><p>接口路径错误通常返回 404 或客户端连接错误。参数错误通常返回 400。认证、权限、余额、模型和限速问题请结合响应体与控制面板排查。</p><h2 id="计费说明" tabindex="-1">计费说明 <a class="header-anchor" href="#计费说明" aria-label="Permalink to &quot;计费说明&quot;">​</a></h2><p>端点是否可用、模型价格、请求额度和限速规则以控制面板实时显示为准。不要根据示例路径推断某个未列出的能力一定可用。</p><p>Seedance 的异步任务、状态和参考视频参数参见 <a href="./video-generation">视频生成 API</a>。</p></div>
-</div>
+
+# 接口端点
+
+本文汇总 KKRICH / KKAI New API 常用端点。更多可用能力以控制面板和接口实际响应为准。
+
+## 请求地址
+
+通用 Base URL：
+
+```text
+https://api.kkrich.ltd/v1
+```
+
+| 功能 | 方法 | 路径 | 完整地址 |
+| --- | --- | --- | --- |
+| 模型列表 | `GET` | `/models` | `https://api.kkrich.ltd/v1/models` |
+| 对话补全 | `POST` | `/chat/completions` | `https://api.kkrich.ltd/v1/chat/completions` |
+| Responses | `POST` | `/responses` | `https://api.kkrich.ltd/v1/responses` |
+| 通用格式创建视频 | `POST` | `/video/generations` | `https://api.kkrich.ltd/v1/video/generations` |
+| 通用格式查询视频 | `GET` | `/video/generations/{task_id}` | `https://api.kkrich.ltd/v1/video/generations/{task_id}` |
+| OpenAI 兼容格式创建视频 | `POST` | `/videos` | `https://api.kkrich.ltd/v1/videos` |
+| OpenAI 兼容格式查询视频 | `GET` | `/videos/{task_id}` | `https://api.kkrich.ltd/v1/videos/{task_id}` |
+| 下载视频 | `GET` | `/videos/{task_id}/content` | `https://api.kkrich.ltd/v1/videos/{task_id}/content` |
+
+::: warning 只调用本站地址
+不要把上游渠道文档中的域名、路径或鉴权信息用在客户请求中。视频接口的完整地址始终以 `https://api.kkrich.ltd` 开头。
+:::
+
+## 认证
+
+```http
+Authorization: Bearer $KKRICH_API_KEY
+Content-Type: application/json
+```
+
+查询和下载视频也必须携带有效 Token，建议始终复用创建任务时的同一个 Token。
+
+## 最小参数
+
+| 端点 | 最小参数 |
+| --- | --- |
+| `/models` | 无请求体。 |
+| `/chat/completions` | `model`、`messages`。 |
+| `/responses` | `model`、`input`。 |
+| `/video/generations` | `model`、`prompt`。Seedance 特价版的 `duration` 和兼容字段 `seconds` 可省略，本站按 4 秒处理。 |
+| `/videos` | `model`、`prompt`。Seedance 特价版的 `duration` 和兼容字段 `seconds` 可省略，本站按 4 秒处理。 |
+
+Seedance 2.0 接受 4-15 秒整数，Seedance 2.5 接受 4-30 秒整数。缺失、`null`、空字符串、`0` 或 `1-3` 按 4 秒处理；负数、小数、非法字符串和超过模型上限的值返回 400。完整字段和响应协议参见 [Seedance 视频生成 API](./video-generation)。
+
+## 示例
+
+```bash
+curl "https://api.kkrich.ltd/v1/models" \
+  -H "Authorization: Bearer $KKRICH_API_KEY"
+```
+
+```bash
+curl "https://api.kkrich.ltd/v1/chat/completions" \
+  -H "Authorization: Bearer $KKRICH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<model-from-panel>","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+## 错误
+
+接口路径错误通常返回 404 或客户端连接错误，参数错误通常返回 400。认证、权限、余额、模型和限速问题请结合响应体与控制面板排查。
+
+## 计费说明
+
+端点是否可用、模型价格、请求额度和限速规则以控制面板实时显示为准。本文不维护模型价格或倍率。

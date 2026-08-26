@@ -3,12 +3,14 @@ package sora
 import (
 	"bytes"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 
@@ -105,9 +107,155 @@ func TestVideoStudioReferenceSecondsDriveBillingAndProjection(t *testing.T) {
 	require.Equal(t, map[string]any{
 		"model":           "sd_2.0_special_1080p_with_video_ref",
 		"prompt":          "continue the movement",
+		"duration":        float64(5),
 		"seconds":         float64(5),
 		"reference_video": "https://assets.example/reference.mp4",
 	}, readSoraRequestBody(t, body))
+}
+
+func TestSeedanceDurationFallbackAndValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		want    int
+		wantErr bool
+		model   string
+	}{
+		{name: "missing uses minimum", body: `{"model":"video-studio-model","prompt":"test"}`, want: 4, model: "sd_2.0_special_1080p"},
+		{name: "null duration uses minimum", body: `{"model":"video-studio-model","prompt":"test","duration":null}`, want: 4, model: "sd_2.0_special_1080p"},
+		{name: "empty duration uses minimum", body: `{"model":"video-studio-model","prompt":"test","duration":""}`, want: 4, model: "sd_2.0_special_1080p"},
+		{name: "null seconds uses minimum", body: `{"model":"video-studio-model","prompt":"test","seconds":null}`, want: 4, model: "sd_2.0_special_1080p"},
+		{name: "empty seconds uses minimum", body: `{"model":"video-studio-model","prompt":"test","seconds":""}`, want: 4, model: "sd_2.0_special_1080p"},
+		{name: "zero duration uses seconds", body: `{"model":"video-studio-model","prompt":"test","duration":0,"seconds":8}`, want: 8, model: "sd_2.0_special_1080p"},
+		{name: "short duration clamps", body: `{"model":"video-studio-model","prompt":"test","duration":2}`, want: 4, model: "sd_2.0_special_1080p"},
+		{name: "mismatch rejected", body: `{"model":"video-studio-model","prompt":"test","duration":8,"seconds":9}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "v2.0 upper bound rejected", body: `{"model":"video-studio-model","prompt":"test","duration":16}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "negative rejected", body: `{"model":"video-studio-model","prompt":"test","duration":-1}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "fraction rejected", body: `{"model":"video-studio-model","prompt":"test","duration":5.5}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "invalid string rejected", body: `{"model":"video-studio-model","prompt":"test","duration":"abc"}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "leading zero string rejected", body: `{"model":"video-studio-model","prompt":"test","duration":"05"}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "signed string rejected", body: `{"model":"video-studio-model","prompt":"test","duration":"+5"}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "padded string rejected", body: `{"model":"video-studio-model","prompt":"test","duration":" 5 "}`, wantErr: true, model: "sd_2.0_special_1080p"},
+		{name: "v2.5 upper bound rejected", body: `{"model":"video-studio-model","prompt":"test","seconds":31}`, wantErr: true, model: "seedance-2.5"},
+		{name: "v2.5 accepts thirty", body: `{"model":"video-studio-model","prompt":"test","duration":30}`, want: 30, model: "seedance-2.5"},
+		{name: "fast alias uses v2.0 bounds", body: `{"model":"video-studio-model","prompt":"test","duration":16}`, wantErr: true, model: "sd_2.0_fast_special_720p"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", tt.body)
+			info := newSoraRelayInfo(tt.model)
+			adaptor := &TaskAdaptor{}
+			err := adaptor.ValidateRequestAndSetAction(ctx, info)
+			if tt.wantErr {
+				require.NotNil(t, err)
+				assert.Equal(t, http.StatusBadRequest, err.StatusCode)
+				assert.Equal(t, "invalid_duration", err.Code)
+				return
+			}
+			require.Nil(t, err)
+			require.Equal(t, float64(tt.want), adaptor.EstimateBilling(ctx, info)["seconds"])
+			body, bodyErr := adaptor.BuildRequestBody(ctx, info)
+			require.NoError(t, bodyErr)
+			assert.Equal(t, float64(tt.want), readSoraRequestBody(t, body)["duration"])
+		})
+	}
+}
+
+func TestEstimateBillingPreservesLegacySoraDuration(t *testing.T) {
+	ctx := newSoraJSONContext(t, http.MethodPost, "/v1/videos", `{"model":"sora-2","prompt":"legacy","duration":7}`)
+	info := newSoraRelayInfo("sora-2")
+	adaptor := &TaskAdaptor{}
+
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+	assert.Equal(t, float64(7), adaptor.EstimateBilling(ctx, info)["seconds"])
+	body, err := adaptor.BuildRequestBody(ctx, info)
+	require.NoError(t, err)
+	assert.Equal(t, float64(7), readSoraRequestBody(t, body)["duration"])
+}
+
+func TestSeedanceDurationValidationFollowsModelMapping(t *testing.T) {
+	ctx := newSoraJSONContext(t, http.MethodPost, "/v1/videos", `{"model":"customer-video","prompt":"mapped","duration":16}`)
+	ctx.Set("model_mapping", `{"customer-video":"sd_2.0_special_720p"}`)
+	info := newSoraRelayInfo("customer-video")
+
+	err := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, err)
+	assert.Equal(t, "invalid_duration", err.Code)
+}
+
+func TestSeedanceSpecialRejectsMultipartBeforeGenericValidation(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", specialVideoModel))
+	require.NoError(t, writer.WriteField("prompt", "animate"))
+	require.NoError(t, writer.Close())
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", &body)
+	ctx.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	info := newSoraRelayInfo(specialVideoModel)
+
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_content_type", taskErr.Code)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.Contains(t, taskErr.Message, "application/json")
+}
+
+func TestSeedanceSpecialRejectsRemixButLegacySoraStillAllowsIt(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		model       string
+		wantCode    string
+		wantAllowed bool
+	}{
+		{name: "seedance special", model: specialVideoModel, wantCode: "unsupported_operation"},
+		{name: "legacy sora", model: "sora-2", wantAllowed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := newSoraJSONContext(t, http.MethodPost, "/v1/videos/task/remix", `{"model":"client-model","prompt":"continue"}`)
+			info := newSoraRelayInfo(test.model)
+			info.Action = constant.TaskActionRemix
+
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			if test.wantAllowed {
+				require.Nil(t, taskErr)
+				return
+			}
+			require.NotNil(t, taskErr)
+			assert.Equal(t, test.wantCode, taskErr.Code)
+			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+		})
+	}
+}
+
+func TestVideoStudioMetadataParseFailureIsRejectedBeforeBilling(t *testing.T) {
+	ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", `{
+		"model":"video-studio-model",
+		"prompt":"test prompt",
+		"metadata":"{not-json}"
+	}`)
+	info := newSoraRelayInfo(specialVideoModel)
+
+	taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "invalid_metadata", taskErr.Code)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+}
+
+func TestDurationModelMatchingOnlyUsesPublicAliases(t *testing.T) {
+	for _, model := range []string{
+		"customer-sd_2.0_special-model",
+		"customer-seedance-2.5-model",
+		"sd_2.0_special",
+		"sd_2.0_fast_special",
+		"sd_2.5_special_v1",
+	} {
+		t.Run(model, func(t *testing.T) {
+			_, _, supported := durationBoundsForModel(model)
+			assert.False(t, supported)
+		})
+	}
 }
 
 func TestBuildRequestBodyProjectsEveryVideoStudioModel(t *testing.T) {
@@ -127,10 +275,14 @@ func TestBuildRequestBodyProjectsEveryVideoStudioModel(t *testing.T) {
 			body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo(modelName))
 			require.NoError(t, err)
 
-			assert.Equal(t, map[string]any{
+			expected := map[string]any{
 				"model":  modelName,
 				"prompt": "test prompt",
-			}, readSoraRequestBody(t, body))
+			}
+			if modelName != "future-video-model" {
+				expected["duration"] = float64(4)
+			}
+			assert.Equal(t, expected, readSoraRequestBody(t, body))
 		})
 	}
 }
@@ -147,8 +299,9 @@ func TestBuildRequestBodyPreservesConfiguredVideoStudioFields(t *testing.T) {
 	body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo("seedance-2.5"))
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{
-		"model":  "seedance-2.5",
-		"prompt": "test prompt",
+		"model":    "seedance-2.5",
+		"prompt":   "test prompt",
+		"duration": float64(4),
 		"content": []any{map[string]any{
 			"type": "text",
 			"text": "configured input",
@@ -178,7 +331,7 @@ func TestBuildRequestBodyPreservesReferenceFieldsWithoutProjectionMetadata(t *te
 			name: "image",
 			body: `{"model":"video-studio-model","prompt":"test prompt","image":"https://assets.example/input.jpg"}`,
 			expected: map[string]any{
-				"model": "seedance-2.5", "prompt": "test prompt",
+				"model": "seedance-2.5", "prompt": "test prompt", "duration": float64(4),
 				"image": "https://assets.example/input.jpg",
 			},
 		},
@@ -186,7 +339,7 @@ func TestBuildRequestBodyPreservesReferenceFieldsWithoutProjectionMetadata(t *te
 			name: "images",
 			body: `{"model":"video-studio-model","prompt":"test prompt","images":["https://assets.example/input.jpg"]}`,
 			expected: map[string]any{
-				"model": "seedance-2.5", "prompt": "test prompt",
+				"model": "seedance-2.5", "prompt": "test prompt", "duration": float64(4),
 				"images": []any{"https://assets.example/input.jpg"},
 			},
 		},
@@ -220,6 +373,7 @@ func TestBuildRequestBodyDropsReferenceAliasesWithCanonicalReference(t *testing.
 	assert.Equal(t, map[string]any{
 		"model":           specialVideoModel,
 		"prompt":          "test prompt",
+		"duration":        float64(4),
 		"reference_image": "https://assets.example/canonical.jpg",
 	}, readSoraRequestBody(t, body))
 }
@@ -299,12 +453,16 @@ func TestBuildRequestBodyLeavesNonVideoStudioRequestsUnchanged(t *testing.T) {
 			body, err := (&TaskAdaptor{}).BuildRequestBody(ctx, newSoraRelayInfo(test.upstreamModel))
 			require.NoError(t, err)
 
-			assert.Equal(t, map[string]any{
+			expected := map[string]any{
 				"model":         test.upstreamModel,
 				"prompt":        "test prompt",
 				"group":         "preserved",
 				"future_option": "preserved",
-			}, readSoraRequestBody(t, body))
+			}
+			if test.upstreamModel == specialVideoModel {
+				expected["duration"] = float64(4)
+			}
+			assert.Equal(t, expected, readSoraRequestBody(t, body))
 		})
 	}
 }

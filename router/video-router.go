@@ -25,7 +25,7 @@ func SetVideoRouter(router *gin.Engine) {
 		videoV1Router.POST("/videos/:video_id/remix", controller.RelayTask)
 	}
 	// openai compatible API video routes
-	// docs: https://platform.openai.com/docs/api-reference/videos/create
+	// Customer-facing video protocol: https://api.kkrich.ltd/docs/apps/seedance
 	{
 		videoV1Router.POST("/videos", controller.RelayTask)
 		videoV1Router.GET("/videos/:task_id", controller.RelayTaskFetch)

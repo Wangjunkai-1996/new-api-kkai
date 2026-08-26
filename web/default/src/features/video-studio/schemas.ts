@@ -88,8 +88,6 @@ const SEEDANCE_SPECIAL_RATIOS = [
   'adaptive',
 ] as const
 
-const SEEDANCE_25_RATIOS = ['16:9', '9:16', '1:1'] as const
-
 const VIDEO_RATIO_LABELS: Readonly<Record<string, string>> = {
   '16:9': '横屏 16:9',
   '9:16': '竖屏 9:16',
@@ -183,9 +181,9 @@ const displayResolution = (resolution: string): string =>
 const getSeedance25PresetDetails = (
   model: string
 ): VideoModelPresetDetails | undefined => {
-  const match = /^seedance-2\.5(?:-(480p|720p|1080p|2k|4k))?$/.exec(model)
+  const match = /^seedance-2\.5$/.exec(model)
   if (!match) return undefined
-  const resolution = match[1] ?? '720p'
+  const resolution = '720p'
   const resolutionLabel = displayResolution(resolution)
   return {
     displayName: `Seedance 2.5 ${resolutionLabel}`,
@@ -194,9 +192,9 @@ const getSeedance25PresetDetails = (
     requiresVideoReference: false,
     durationRequestKey: 'duration',
     maxDuration: 30,
-    ratios: SEEDANCE_25_RATIOS,
+    ratios: SEEDANCE_SPECIAL_RATIOS,
     resolutions: [resolution],
-    supportsGenerateAudio: false,
+    supportsGenerateAudio: true,
   }
 }
 

@@ -777,6 +777,15 @@ type TaskSubmitReq struct {
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+
+	// These flags preserve the distinction between an omitted field and an
+	// explicit zero. They are needed when duration and seconds are supplied
+	// together so normalization can detect conflicting values.
+	durationProvided bool
+	secondsProvided  bool
+	// metadataErr preserves malformed Video Studio metadata so the Sora
+	// adaptor can return a stable field-specific 400 before billing.
+	metadataErr error
 }
 
 func (t *TaskSubmitReq) GetPrompt() string {
@@ -800,6 +809,10 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 
 	t.Duration = 0
 	t.Seconds = ""
+	t.Metadata = nil
+	t.durationProvided = false
+	t.secondsProvided = false
+	t.metadataErr = nil
 	if err := common.Unmarshal(data, &aux); err != nil {
 		return err
 	}
@@ -811,6 +824,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		}
 		if provided {
 			t.Duration = duration
+			t.durationProvided = true
 		}
 	}
 	if len(aux.Seconds) > 0 {
@@ -820,26 +834,124 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 		}
 		if provided {
 			t.Seconds = strconv.Itoa(seconds)
+			t.secondsProvided = true
 		}
 	}
 
 	if len(aux.Metadata) > 0 {
 		var metadataStr string
-		if err := common.Unmarshal(aux.Metadata, &metadataStr); err == nil && metadataStr != "" {
+		if err := common.Unmarshal(aux.Metadata, &metadataStr); err == nil {
+			if metadataStr == "" {
+				return nil
+			}
 			var metadataObj map[string]interface{}
 			if err := common.Unmarshal([]byte(metadataStr), &metadataObj); err == nil {
 				t.Metadata = metadataObj
 				return nil
 			}
+			t.metadataErr = fmt.Errorf("metadata must be a valid JSON object")
+			return nil
 		}
 
 		var metadataObj map[string]interface{}
 		if err := common.Unmarshal(aux.Metadata, &metadataObj); err == nil {
 			t.Metadata = metadataObj
+		} else {
+			t.metadataErr = fmt.Errorf("metadata must be a JSON object")
 		}
 	}
 
 	return nil
+}
+
+// DurationFieldProvided and SecondsFieldProvided report whether the client
+// supplied a non-empty value for the corresponding field. They are separate
+// from the parsed values so an explicit zero can still be validated.
+func (t TaskSubmitReq) DurationFieldProvided() bool {
+	return t.durationProvided || t.Duration != 0
+}
+
+func (t TaskSubmitReq) SecondsFieldProvided() bool {
+	return t.secondsProvided || t.Seconds != ""
+}
+
+// MergeTaskDurationFields fills missing top-level duration fields from a
+// secondary request (for example Video Studio metadata) while preserving
+// presence flags used by normalization.
+func MergeTaskDurationFields(primary, secondary TaskSubmitReq) TaskSubmitReq {
+	if !primary.DurationFieldProvided() && secondary.DurationFieldProvided() {
+		primary.Duration = secondary.Duration
+		primary.durationProvided = secondary.durationProvided
+	}
+	if !primary.SecondsFieldProvided() && secondary.SecondsFieldProvided() {
+		primary.Seconds = secondary.Seconds
+		primary.secondsProvided = secondary.secondsProvided
+	}
+	return primary
+}
+
+// NormalizeTaskDuration resolves the effective duration used by both billing
+// and provider request construction. Values below min (including zero) use
+// min, while negative, non-integer, conflicting, and out-of-range values are
+// rejected. The returned request carries canonical duration and seconds.
+func NormalizeTaskDuration(req TaskSubmitReq, min, max int) (TaskSubmitReq, int, error) {
+	if min <= 0 || max < min {
+		return req, 0, fmt.Errorf("invalid duration bounds")
+	}
+	if req.Duration < 0 {
+		return req, 0, fmt.Errorf("duration must not be negative")
+	}
+	duration := req.Duration
+	if duration > max {
+		return req, 0, fmt.Errorf("duration must be between %d and %d", min, max)
+	}
+
+	seconds := 0
+	if req.Seconds != "" {
+		parsed, err := strconv.Atoi(req.Seconds)
+		if err != nil {
+			return req, 0, fmt.Errorf("seconds must be an integer")
+		}
+		seconds = parsed
+	}
+	if seconds < 0 {
+		return req, 0, fmt.Errorf("seconds must not be negative")
+	}
+	if seconds > max {
+		return req, 0, fmt.Errorf("seconds must be between %d and %d", min, max)
+	}
+
+	durationHasValue := req.DurationFieldProvided() && duration > 0
+	secondsHasValue := req.SecondsFieldProvided() && seconds > 0
+	if durationHasValue && secondsHasValue {
+		durationEffective := duration
+		if durationEffective < min {
+			durationEffective = min
+		}
+		secondsEffective := seconds
+		if secondsEffective < min {
+			secondsEffective = min
+		}
+		if durationEffective != secondsEffective {
+			return req, 0, fmt.Errorf("duration and seconds must match")
+		}
+	}
+
+	effective := duration
+	if !durationHasValue {
+		effective = seconds
+	}
+	if effective < min {
+		effective = min
+	}
+	if effective > max {
+		return req, 0, fmt.Errorf("duration must be between %d and %d", min, max)
+	}
+	req.Duration = effective
+	if req.SecondsFieldProvided() {
+		req.Seconds = strconv.Itoa(effective)
+	}
+	return req, effective, nil
 }
 
 func parseTaskDurationField(raw json.RawMessage) (int, bool, error) {
@@ -870,6 +982,9 @@ func parseTaskDurationField(raw json.RawMessage) (int, bool, error) {
 	}
 }
 func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
+	if t.metadataErr != nil {
+		return t.metadataErr
+	}
 	metadata := t.Metadata
 	if metadata != nil {
 		metadataBytes, err := common.Marshal(metadata)
