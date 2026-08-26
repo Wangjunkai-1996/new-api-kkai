@@ -304,13 +304,76 @@ describe('video model admin form', () => {
       ['720p']
     )
 
+    const generateAudio = preset.specification.parameters[3]
+    assert.equal(generateAudio?.control, 'switch')
+    assert.equal(generateAudio?.required, false)
+
     const values = videoModelProfileFormSchema.parse(
       createVideoModelProfileFormValues(undefined, 'seedance-2.5')
     )
     const input = parseVideoModelProfileForm(values)
+    assert.deepEqual(input.specification.modes, preset.specification.modes)
     assert.deepEqual(
-      JSON.parse(JSON.stringify(input.specification)),
-      JSON.parse(JSON.stringify(preset.specification))
+      input.specification.parameters.map((parameter) =>
+        Object.fromEntries(
+          Object.entries({
+            ...parameter,
+            required: parameter.required ?? false,
+          }).filter(([, value]) => value !== undefined)
+        )
+      ),
+      preset.specification.parameters
+    )
+    assert.deepEqual(
+      input.specification.reference_inputs,
+      preset.specification.reference_inputs
+    )
+    assert.deepEqual(input.default_parameters, preset.default_parameters)
+  })
+
+  test('upgrades the live Seedance 2.5 profile without requiring new sample fields', () => {
+    const preset = getVideoModelPreset('seedance-2.5')
+    assert.ok(preset)
+    const existing: VideoModelProfile = {
+      ...profile,
+      id: 15,
+      model: 'seedance-2.5',
+      display_name: 'Seedance 2.5 720p',
+      specification_version: 1,
+      specification: {
+        ...preset.specification,
+        version: 1,
+        parameters: preset.specification.parameters.flatMap((parameter) => {
+          if (parameter.key === 'generate_audio') return []
+          if (parameter.key !== 'ratio' || parameter.control !== 'select') {
+            return [parameter]
+          }
+          return [{ ...parameter, options: parameter.options.slice(0, 3) }]
+        }),
+      },
+      default_parameters: {
+        duration: 5,
+        ratio: '16:9',
+        resolution: '720p',
+      },
+    }
+
+    const values = videoModelProfileFormSchema.parse(
+      createVideoModelProfileFormValues(existing)
+    )
+    const generateAudio = values.parameters.find(
+      (parameter) => parameter.key === 'generate_audio'
+    )
+    assert.equal(generateAudio?.required, false)
+    assert.equal(generateAudio?.default_value, true)
+
+    const input = parseVideoModelProfileForm(values, existing)
+    assert.equal(input.specification.version, 2)
+    assert.equal(
+      input.specification.parameters.find(
+        (parameter) => parameter.key === 'generate_audio'
+      )?.required ?? false,
+      false
     )
     assert.deepEqual(input.default_parameters, preset.default_parameters)
   })

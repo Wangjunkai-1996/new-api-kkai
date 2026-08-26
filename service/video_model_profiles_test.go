@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -267,6 +268,88 @@ func TestUpdateVideoModelProfileProtectsPublishedSampleReferenceSchema(t *testin
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestUpdateVideoModelProfileAllowsOptionalAudioForPublishedSeedance25Sample(t *testing.T) {
+	db := newVideoModelProfileTestDB(t)
+	minimum, maximum, step := float64(4), float64(30), float64(1)
+	oldRatios := []VideoParameterOption{
+		{Label: "16:9", Value: "16:9"},
+		{Label: "9:16", Value: "9:16"},
+		{Label: "1:1", Value: "1:1"},
+	}
+	oldSpecification := VideoModelSpec{
+		Version: 1,
+		Modes:   []string{VideoModeTextToVideo, VideoModeImageToVideo},
+		Parameters: []VideoParameterSpec{
+			{
+				Key: "duration", Label: "Duration", Control: VideoControlNumber, Required: true,
+				Default: float64(5), Min: &minimum, Max: &maximum, Step: &step,
+			},
+			{Key: "ratio", Label: "Ratio", Control: VideoControlSelect, Required: true, Default: "16:9", Options: oldRatios},
+			{
+				Key: "resolution", Label: "Resolution", Control: VideoControlSelect, Required: true,
+				Default: "720p", Options: []VideoParameterOption{{Label: "720p", Value: "720p"}},
+			},
+		},
+		ReferenceInputs: []VideoReferenceInputSpec{{
+			Role: model.VideoTaskAssetRoleReference, RequestKey: "reference_image", Required: true,
+		}},
+	}
+	oldSpecificationJSON, err := common.Marshal(oldSpecification)
+	require.NoError(t, err)
+	now := time.Now().Unix()
+	profile := model.KKAIVideoModelProfile{
+		Model: "seedance-2.5", DisplayName: "Seedance 2.5 720p", SpecificationVersion: oldSpecification.Version,
+		Specification:     string(oldSpecificationJSON),
+		DefaultParameters: `{"duration":5,"ratio":"16:9","resolution":"720p"}`,
+		Enabled:           true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&profile).Error)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: VideoStudioTokenGroup, Model: profile.Model, ChannelId: 1, Enabled: true, Priority: &priority,
+	}).Error)
+	require.NoError(t, db.Create(&model.KKAIVideoSample{
+		ModelProfileID: profile.ID, Title: "Published without audio", Prompt: "A wide establishing shot",
+		Mode: VideoModeTextToVideo, ModelVersion: oldSpecification.Version,
+		Parameters: `{"duration":5,"ratio":"16:9","resolution":"720p"}`, ReferenceAssetIDs: `[]`,
+		VideoAssetID: 99, AspectRatio: 16.0 / 9.0, Status: model.VideoSampleStatusPublished,
+		CreatedAt: now, UpdatedAt: now,
+	}).Error)
+
+	nextRatios := append([]VideoParameterOption{}, oldRatios...)
+	nextRatios = append(nextRatios,
+		VideoParameterOption{Label: "4:3", Value: "4:3"},
+		VideoParameterOption{Label: "3:4", Value: "3:4"},
+		VideoParameterOption{Label: "21:9", Value: "21:9"},
+		VideoParameterOption{Label: "Adaptive", Value: "adaptive"},
+	)
+	nextSpecification := oldSpecification
+	nextSpecification.Version = 2
+	nextSpecification.Parameters = append([]VideoParameterSpec{}, oldSpecification.Parameters...)
+	nextSpecification.Parameters[1].Options = nextRatios
+	nextSpecification.Parameters = append(nextSpecification.Parameters, VideoParameterSpec{
+		Key: "generate_audio", Label: "Generate audio", Control: VideoControlSwitch, Default: true,
+	})
+	defaults := map[string]any{
+		"duration": float64(5), "ratio": "16:9", "resolution": "720p", "generate_audio": true,
+	}
+
+	updated, err := UpdateVideoModelProfile(context.Background(), db, profile.ID, VideoModelProfileInput{
+		Model: profile.Model, DisplayName: profile.DisplayName, Specification: nextSpecification,
+		DefaultParameters: defaults, Enabled: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, updated.SpecificationVersion)
+	assert.Equal(t, 2, updated.Specification.Version)
+	assert.Equal(t, nextRatios, updated.Specification.Parameters[1].Options)
+	assert.False(t, updated.Specification.Parameters[3].Required)
+	assert.Equal(t, true, updated.Specification.Parameters[3].Default)
+	assert.Equal(t, defaults, updated.DefaultParameters)
+	assert.True(t, updated.Enabled)
+	require.NotNil(t, updated.HasPublishedSample)
+	assert.True(t, *updated.HasPublishedSample)
 }
 
 func TestCreateVideoSamplePersistsReferenceMappingSnapshot(t *testing.T) {

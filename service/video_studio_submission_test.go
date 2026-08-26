@@ -14,6 +14,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -277,6 +278,62 @@ func TestNormalizeVideoStudioSubmissionPersistedVideoReferenceUsesSecondsContrac
 				context.Background(), db, videoSubmissionTestStore{}, 42, candidate,
 			)
 			require.ErrorIs(t, err, ErrInvalidVideoParameters)
+		})
+	}
+}
+
+func TestNormalizeVideoStudioSubmissionProjectsSeedance25AudioDefaultAndExplicitFalse(t *testing.T) {
+	db := newVideoSubmissionTestDB(t)
+	minimum, maximum, step := float64(4), float64(30), float64(1)
+	profile := createEnabledVideoSubmissionProfile(t, db, "seedance-2.5", VideoModelSpec{
+		Version: 2,
+		Modes:   []string{VideoModeTextToVideo},
+		Parameters: []VideoParameterSpec{
+			{
+				Key: "duration", Label: "Duration", Control: VideoControlNumber, Required: true,
+				Min: &minimum, Max: &maximum, Step: &step,
+			},
+			{
+				Key: "ratio", Label: "Ratio", Control: VideoControlSelect, Required: true,
+				Options: []VideoParameterOption{{Label: "16:9", Value: "16:9"}},
+			},
+			{
+				Key: "resolution", Label: "Resolution", Control: VideoControlSelect, Required: true,
+				Options: []VideoParameterOption{{Label: "720p", Value: "720p"}},
+			},
+			{Key: "generate_audio", Label: "Generate audio", Control: VideoControlSwitch},
+		},
+	}, map[string]any{
+		"duration": 5, "ratio": "16:9", "resolution": "720p", "generate_audio": true,
+	})
+
+	tests := []struct {
+		name       string
+		parameters map[string]any
+		wantAudio  bool
+	}{
+		{name: "profile default", wantAudio: true},
+		{name: "explicit false", parameters: map[string]any{"generate_audio": false}, wantAudio: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			normalized, err := NormalizeVideoStudioSubmission(
+				context.Background(), db, videoSubmissionTestStore{}, 42,
+				VideoStudioSubmissionRequest{
+					TokenID: 1, Model: profile.Model, Mode: VideoModeTextToVideo,
+					Prompt: "A cinematic sunrise", Parameters: test.parameters,
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantAudio, normalized.Parameters["generate_audio"])
+
+			var payload map[string]any
+			require.NoError(t, common.Unmarshal(normalized.TaskPayload, &payload))
+			assert.Equal(t, test.wantAudio, payload["generate_audio"])
+			metadata, ok := payload["metadata"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, test.wantAudio, metadata["generate_audio"])
+			assert.Equal(t, payload["generate_audio"], metadata["generate_audio"])
 		})
 	}
 }

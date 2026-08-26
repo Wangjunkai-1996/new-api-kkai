@@ -108,6 +108,7 @@ type VideoModelPresetDetails = {
   ratios?: readonly string[]
   resolutions?: readonly string[]
   supportsGenerateAudio?: boolean
+  generateAudioRequired?: boolean
 }
 
 const VIDEO_MODEL_PRESET_DETAILS = {
@@ -195,6 +196,7 @@ const getSeedance25PresetDetails = (
     ratios: SEEDANCE_SPECIAL_RATIOS,
     resolutions: [resolution],
     supportsGenerateAudio: true,
+    generateAudioRequired: false,
   }
 }
 
@@ -262,7 +264,7 @@ export const getVideoModelPreset = (
       key: 'generate_audio',
       label: '生成音频',
       control: 'switch',
-      required: true,
+      required: details.generateAudioRequired ?? true,
     })
     defaultParameters.generate_audio = true
   }
