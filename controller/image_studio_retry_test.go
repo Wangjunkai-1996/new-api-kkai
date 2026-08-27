@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShouldRetryStopsAfterImageStudioBatchDispatch(t *testing.T) {
+func TestShouldRetryKeepsImageStudioChannelFailoverEnabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstreamErr := types.NewErrorWithStatusCode(
 		errors.New("upstream unavailable"),
@@ -27,22 +27,12 @@ func TestShouldRetryStopsAfterImageStudioBatchDispatch(t *testing.T) {
 		http.StatusBadGateway,
 	)
 
-	t.Run("single output remains retryable", func(t *testing.T) {
-		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-		require.NoError(t, service.SetImageStudioGenerationID(ctx, 1))
-		service.MarkImageStudioBatchDispatchAttempted(ctx, 1)
-		assert.True(t, shouldRetry(ctx, upstreamErr, 1))
-	})
-
-	t.Run("batch output cannot fail over after dispatch", func(t *testing.T) {
-		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-		require.NoError(t, service.SetImageStudioGenerationID(ctx, 1))
-		service.MarkImageStudioBatchDispatchAttempted(ctx, 2)
-		assert.False(t, shouldRetry(ctx, upstreamErr, 1))
-	})
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	require.NoError(t, service.SetImageStudioGenerationID(ctx, 1))
+	assert.True(t, shouldRetry(ctx, upstreamErr, 1))
 }
 
-func TestImageStudioBatchDispatchDoesNotFailOverToAnotherChannel(t *testing.T) {
+func TestImageStudioBatchKeepsExistingChannelFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
 	db := setupImageStudioIntegrationState(t)
@@ -52,7 +42,13 @@ func TestImageStudioBatchDispatchDoesNotFailOverToAnotherChannel(t *testing.T) {
 	t.Cleanup(func() { common.RetryTimes = previousRetryTimes })
 
 	var firstCalls atomic.Int32
-	firstUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	firstUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		var payload map[string]any
+		if err := common.DecodeJson(request.Body, &payload); err != nil {
+			t.Errorf("decode first provider request: %v", err)
+		}
+		assert.Equal(t, float64(2), payload["n"])
 		firstCalls.Add(1)
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusBadGateway)
@@ -61,7 +57,13 @@ func TestImageStudioBatchDispatchDoesNotFailOverToAnotherChannel(t *testing.T) {
 	t.Cleanup(firstUpstream.Close)
 
 	var fallbackCalls atomic.Int32
-	fallbackUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	fallbackUpstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		var payload map[string]any
+		if err := common.DecodeJson(request.Body, &payload); err != nil {
+			t.Errorf("decode fallback provider request: %v", err)
+		}
+		assert.Equal(t, float64(2), payload["n"])
 		fallbackCalls.Add(1)
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(
@@ -108,14 +110,19 @@ func TestImageStudioBatchDispatchDoesNotFailOverToAnotherChannel(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/pg/images",
-		bytes.NewReader(imageStudioIntegrationRequestBodyWithCount(t, db, "A batch without failover", 2)),
+		bytes.NewReader(imageStudioIntegrationRequestBodyWithCount(t, db, "A batch with normal failover", 2)),
 	)
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Idempotency-Key", "image-integration-batch-no-failover")
+	request.Header.Set("Idempotency-Key", "image-integration-batch-failover")
 	response := httptest.NewRecorder()
 	imageStudioIntegrationEngine(pipeline).ServeHTTP(response, request)
 
-	require.Equal(t, http.StatusBadGateway, response.Code, response.Body.String())
+	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
 	assert.EqualValues(t, 1, firstCalls.Load())
-	assert.Zero(t, fallbackCalls.Load())
+	assert.EqualValues(t, 1, fallbackCalls.Load())
+	var generation model.KKAIImageGeneration
+	require.NoError(t, db.First(&generation).Error)
+	assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
+	assert.Equal(t, 2, generation.SucceededCount)
+	assert.Len(t, store.objects, 2)
 }

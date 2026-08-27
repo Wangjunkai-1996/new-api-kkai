@@ -35,6 +35,7 @@ import type {
   ImageQuote,
   ImageQuoteRequest,
   ImageStudioAccessMode,
+  ImageStudioComposerMode,
 } from './types'
 
 export const normalizeImageStudioAccessMode = (
@@ -106,20 +107,29 @@ export const getImageProfileDefaults = (
 
 export const buildImageComposerValues = (
   profile: ImageModelProfile,
-  input?: Partial<ImageComposerValues>
+  input?: Partial<ImageComposerValues>,
+  mode: ImageStudioComposerMode = 'generation'
 ): ImageComposerValues => {
   const defaults = getImageProfileDefaults(profile)
   const inputParameters = { ...input?.parameters }
   const outputParameter = getImageOutputParameter(profile)
   if (outputParameter) {
-    const defaultCount = defaults[outputParameter.key]
-    const fallback = typeof defaultCount === 'number' ? defaultCount : 1
-    inputParameters[outputParameter.key] = clampImageOutputCount(
-      profile,
-      inputParameters[outputParameter.key],
-      fallback
-    )
-    defaults[outputParameter.key] = clampImageOutputCount(profile, defaultCount)
+    if (mode === 'edit') {
+      inputParameters[outputParameter.key] = 1
+      defaults[outputParameter.key] = 1
+    } else {
+      const defaultCount = defaults[outputParameter.key]
+      const fallback = typeof defaultCount === 'number' ? defaultCount : 1
+      inputParameters[outputParameter.key] = clampImageOutputCount(
+        profile,
+        inputParameters[outputParameter.key],
+        fallback
+      )
+      defaults[outputParameter.key] = clampImageOutputCount(
+        profile,
+        defaultCount
+      )
+    }
   }
   const provided = normalizeImageParameters(profile, inputParameters)
   return {

@@ -32,6 +32,7 @@ type ImageGenerationAccountingPayload struct {
 	ClientIP           string                 `json:"client_ip,omitempty"`
 	NodeName           string                 `json:"node_name,omitempty"`
 	LogParams          RecordConsumeLogParams `json:"log_params"`
+	OutputCount        int                    `json:"output_count,omitempty"`
 	PricingSnapshot    *imagepricing.Snapshot `json:"pricing_snapshot,omitempty"`
 	PricingActualCount int                    `json:"pricing_actual_count,omitempty"`
 }
@@ -43,6 +44,7 @@ func PrepareImageGenerationAccounting(
 	payload ImageGenerationAccountingPayload,
 ) error {
 	if db == nil || generationID <= 0 || payload.TargetQuota < 0 ||
+		payload.OutputCount < 1 || payload.OutputCount > dto.MaxImageN ||
 		payload.LogParams.Quota != payload.TargetQuota || payload.LogParams.ChannelId <= 0 {
 		return ErrImageBillingInvalidRequest
 	}
@@ -67,6 +69,7 @@ func PrepareImageGenerationAccounting(
 			(generation.BillingState != ImageGenerationBillingStateReserved &&
 				generation.BillingState != ImageGenerationBillingStateProcessing) ||
 			payload.TargetQuota > generation.ReservedQuota ||
+			payload.OutputCount > generation.RequestedCount ||
 			payload.LogParams.TokenId != generation.TokenID ||
 			payload.LogParams.ModelName != generation.Model {
 			return ErrImageBillingStateConflict
@@ -215,6 +218,9 @@ func decodeImageGenerationAccounting(event KKAIOutboxEvent) (ImageGenerationAcco
 }
 
 func validateImageGenerationAccountingSnapshot(payload ImageGenerationAccountingPayload) error {
+	if payload.OutputCount < 0 || payload.OutputCount > dto.MaxImageN {
+		return fmt.Errorf("%w: invalid image accounting output count", ErrImageBillingInvalidRequest)
+	}
 	if payload.PricingSnapshot == nil {
 		if payload.PricingActualCount != 0 {
 			return fmt.Errorf("%w: image pricing count without snapshot", ErrImageBillingInvalidRequest)
@@ -223,7 +229,8 @@ func validateImageGenerationAccountingSnapshot(payload ImageGenerationAccounting
 	}
 	if imagepricing.ValidateSnapshot(payload.PricingSnapshot) != nil ||
 		payload.PricingSnapshot.Model != payload.LogParams.ModelName ||
-		payload.PricingActualCount < 1 || payload.PricingActualCount > dto.MaxImageN {
+		payload.PricingActualCount < 1 || payload.PricingActualCount > dto.MaxImageN ||
+		(payload.OutputCount > 0 && payload.PricingActualCount != payload.OutputCount) {
 		return fmt.Errorf("%w: invalid image accounting pricing snapshot", ErrImageBillingInvalidRequest)
 	}
 	expectedQuota, err := imagepricing.CalculateQuotaStrict(payload.PricingSnapshot, payload.PricingActualCount)

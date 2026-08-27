@@ -292,7 +292,15 @@ func DiscardSubmittingImageGenerationAssets(
 	ctx context.Context, db *gorm.DB, generationID int64,
 ) error {
 	return discardImageGenerationAssets(
-		ctx, db, generationID, model.ImageGenerationStatusSubmitting,
+		ctx, db, generationID, model.ImageGenerationStatusSubmitting, false,
+	)
+}
+
+func DiscardNonReadySubmittingImageGenerationAssets(
+	ctx context.Context, db *gorm.DB, generationID int64,
+) error {
+	return discardImageGenerationAssets(
+		ctx, db, generationID, model.ImageGenerationStatusSubmitting, true,
 	)
 }
 
@@ -300,7 +308,7 @@ func discardRecoveringImageGenerationAssets(
 	ctx context.Context, db *gorm.DB, generationID int64,
 ) error {
 	return discardImageGenerationAssets(
-		ctx, db, generationID, model.ImageGenerationStatusRecovering,
+		ctx, db, generationID, model.ImageGenerationStatusRecovering, false,
 	)
 }
 
@@ -309,6 +317,7 @@ func discardImageGenerationAssets(
 	db *gorm.DB,
 	generationID int64,
 	expectedStatus string,
+	preserveReady bool,
 ) error {
 	if db == nil || generationID <= 0 {
 		return ErrImageGenerationNotFound
@@ -336,6 +345,9 @@ func discardImageGenerationAssets(
 		}
 		now := time.Now()
 		for _, asset := range assets {
+			if preserveReady && asset.State == model.ImageAssetStateReady {
+				continue
+			}
 			updated := tx.Model(&model.KKAIImageAsset{}).Where("id = ? AND deleted_at = 0", asset.ID).
 				Updates(map[string]any{
 					"state": model.ImageAssetStateDeleted, "deleted_at": now.Unix(), "updated_at": now.Unix(),
@@ -524,16 +536,24 @@ func ReconcileStaleImageGenerations(ctx context.Context, db *gorm.DB, staleBefor
 		return 0, nil
 	}
 	reconciled := 0
+	var reconcileErr error
 	for _, id := range ids {
 		applied, err := reconcileStaleImageGeneration(ctx, db, id, staleBefore)
 		if err != nil {
-			return reconciled, fmt.Errorf("reconcile stale image generation %d: %w", id, err)
+			reconcileErr = errors.Join(
+				reconcileErr,
+				fmt.Errorf("reconcile stale image generation %d: %w", id, err),
+			)
+			if ctx.Err() != nil {
+				return reconciled, reconcileErr
+			}
+			continue
 		}
 		if applied {
 			reconciled++
 		}
 	}
-	return reconciled, nil
+	return reconciled, reconcileErr
 }
 
 func reconcileStaleImageGeneration(
@@ -573,25 +593,46 @@ func reconcileStaleImageGeneration(
 	).Count(&readyAssets).Error; err != nil {
 		return false, err
 	}
-	if readyAssets == int64(generation.RequestedCount) && readyAssets > 0 {
+	var stagingAssets int64
+	if err := db.WithContext(ctx).Model(&model.KKAIImageAsset{}).Where(
+		"generation_id = ? AND state = ? AND deleted_at = 0",
+		generationID, model.ImageAssetStateStaging,
+	).Count(&stagingAssets).Error; err != nil {
+		return false, err
+	}
+	if readyAssets > 0 && readyAssets <= int64(generation.RequestedCount) && stagingAssets == 0 {
 		accounting, err := model.GetImageGenerationAccounting(ctx, db, generationID)
-		if err == nil {
+		legacyComplete := err == nil && accounting.OutputCount == 0 && readyAssets == int64(generation.RequestedCount)
+		partialComplete := err == nil && accounting.OutputCount == int(readyAssets)
+		if legacyComplete || partialComplete {
 			if _, err := model.SettleRecoveringImageGenerationBilling(
 				ctx, db, generationID, accounting.TargetQuota,
 			); err != nil {
 				return false, err
 			}
+			status := model.ImageGenerationStatusPartial
+			if readyAssets == int64(generation.RequestedCount) {
+				status = model.ImageGenerationStatusSucceeded
+			}
 			if err := finishRecoveringImageGeneration(
-				ctx, db, generationID, model.ImageGenerationStatusSucceeded,
+				ctx, db, generationID, status,
 				int(readyAssets), accounting.TargetQuota, "", "", "",
 			); err != nil && !errors.Is(err, ErrImageGenerationConflict) {
 				return false, err
 			}
 			return true, nil
 		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, err
 		}
+	}
+	switch generation.BillingState {
+	case model.ImageGenerationBillingStatePending,
+		model.ImageGenerationBillingStateReserved,
+		model.ImageGenerationBillingStateProcessing,
+		model.ImageGenerationBillingStateRefunded:
+	default:
+		return false, ErrImageGenerationConflict
 	}
 	if err := discardRecoveringImageGenerationAssets(ctx, db, generationID); err != nil {
 		return false, err
@@ -606,8 +647,8 @@ func reconcileStaleImageGeneration(
 	if readyAssets > 0 {
 		status = model.ImageGenerationStatusArchiveFailed
 		failureStage = "archive"
-		errorCode = "partial_archive_rejected"
-		errorMessage = "partial image delivery was discarded and refunded"
+		errorCode = "incomplete_accounting_intent"
+		errorMessage = "image delivery could not be recovered safely"
 	}
 	if err := finishRecoveringImageGeneration(
 		ctx, db, generationID, status, 0, 0, failureStage, errorCode, errorMessage,

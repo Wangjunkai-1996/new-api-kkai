@@ -35,7 +35,7 @@ func TestImageStudioChannelSelectionFiltersEveryPriority(t *testing.T) {
 				require.NoError(t, model.SyncChannelCacheOnce())
 			}
 
-			multiReferenceContext := imageStudioChannelSelectionContextWithOutputs(2, 2)
+			multiReferenceContext := imageStudioChannelSelectionContext(2)
 			selected, _, err := CacheGetRandomSatisfiedChannel(&RetryParam{
 				Ctx: multiReferenceContext, TokenGroup: groupName, ModelName: modelName,
 				RequestPath: "/v1/images/edits", Retry: common.GetPointer(0),
@@ -64,76 +64,6 @@ func TestImageStudioChannelSelectionFiltersEveryPriority(t *testing.T) {
 	}
 }
 
-func TestImageStudioChannelOutputCapabilities(t *testing.T) {
-	tests := []struct {
-		name        string
-		channelType int
-		want        int
-	}{
-		{"openai", constant.ChannelTypeOpenAI, MaxImageStudioOutputs},
-		{"gemini", constant.ChannelTypeGemini, MaxImageStudioOutputs},
-		{"vertex", constant.ChannelTypeVertexAi, MaxImageStudioOutputs},
-		{"minimax", constant.ChannelTypeMiniMax, MaxImageStudioOutputs},
-		{"replicate", constant.ChannelTypeReplicate, MaxImageStudioOutputs},
-		{"ali", constant.ChannelTypeAli, MaxImageStudioOutputs},
-		{"azure", constant.ChannelTypeAzure, 1},
-		{"unknown", constant.ChannelTypeUnknown, 1},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, ImageStudioChannelMaxOutputs(test.channelType))
-		})
-	}
-}
-
-func TestImageStudioChannelSelectionFiltersUnsupportedOutputCountsAcrossPriorities(t *testing.T) {
-	db := newImageStudioChannelSelectionTestDB(t)
-	const (
-		groupName = "image-output-selection"
-		modelName = "gpt-image-2"
-	)
-	seedImageStudioSelectionChannel(t, db, groupName, modelName, constant.ChannelTypeAzure, 30)
-	gemini := seedImageStudioSelectionChannel(t, db, groupName, modelName, constant.ChannelTypeGemini, 20)
-	replicate := seedImageStudioSelectionChannel(t, db, groupName, modelName, constant.ChannelTypeReplicate, 10)
-	common.MemoryCacheEnabled = true
-	require.NoError(t, model.SyncChannelCacheOnce())
-
-	requestContext := imageStudioChannelSelectionContextWithOutputs(0, 2)
-	selected, _, err := CacheGetRandomSatisfiedChannel(&RetryParam{
-		Ctx: requestContext, TokenGroup: groupName, ModelName: modelName,
-		RequestPath: "/v1/images/generations", Retry: common.GetPointer(0),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, selected)
-	assert.Equal(t, gemini.Id, selected.Id)
-
-	selected, _, err = CacheGetRandomSatisfiedChannel(&RetryParam{
-		Ctx: requestContext, TokenGroup: groupName, ModelName: modelName,
-		RequestPath: "/v1/images/generations", Retry: common.GetPointer(1),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, selected)
-	assert.Equal(t, replicate.Id, selected.Id)
-}
-
-func TestImageStudioChannelSelectionReportsUnsupportedOutputCount(t *testing.T) {
-	db := newImageStudioChannelSelectionTestDB(t)
-	const (
-		groupName = "single-output-only"
-		modelName = "gpt-image-2"
-	)
-	seedImageStudioSelectionChannel(t, db, groupName, modelName, constant.ChannelTypeAzure, 10)
-	common.MemoryCacheEnabled = true
-	require.NoError(t, model.SyncChannelCacheOnce())
-
-	selected, _, err := CacheGetRandomSatisfiedChannel(&RetryParam{
-		Ctx: imageStudioChannelSelectionContextWithOutputs(0, 2), TokenGroup: groupName, ModelName: modelName,
-		RequestPath: "/v1/images/generations", Retry: common.GetPointer(0),
-	})
-	assert.Nil(t, selected)
-	assert.ErrorIs(t, err, ErrNoChannelSupportsImageOutputCount)
-}
-
 func TestImageStudioChannelSelectionReportsUnsupportedMultiReferenceRequest(t *testing.T) {
 	db := newImageStudioChannelSelectionTestDB(t)
 	const (
@@ -153,15 +83,10 @@ func TestImageStudioChannelSelectionReportsUnsupportedMultiReferenceRequest(t *t
 }
 
 func imageStudioChannelSelectionContext(referenceCount int) *gin.Context {
-	return imageStudioChannelSelectionContextWithOutputs(referenceCount, 1)
-}
-
-func imageStudioChannelSelectionContextWithOutputs(referenceCount int, outputCount int) *gin.Context {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil)
 	SetImageStudioReferenceCount(ctx, referenceCount)
-	SetImageStudioRequestedOutputCount(ctx, outputCount)
 	return ctx
 }
 

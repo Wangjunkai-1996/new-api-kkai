@@ -27,8 +27,10 @@ import { useAuthStore } from '@/stores/auth-store'
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import type {
   CreateImageRequest,
+  ImageEditQuoteRequest,
   ImageModelProfile,
   ImageQuoteRequest,
+  ImageReferenceMetadata,
 } from '../types'
 import { ImageComposer } from './image-composer'
 
@@ -39,6 +41,8 @@ type GenerationVariables = {
 
 const mocks = vi.hoisted(() => ({
   models: [] as ImageModelProfile[],
+  editProfile: undefined as ImageModelProfile | undefined,
+  editQuoteRequest: null as ImageEditQuoteRequest | null,
   generationMutation: {
     isPending: false,
     variables: undefined as GenerationVariables | undefined,
@@ -56,8 +60,8 @@ const mocks = vi.hoisted(() => ({
     clear: vi.fn(),
   },
   reference: {
-    metadata: [],
-    files: [],
+    metadata: [] as ImageReferenceMetadata[],
+    files: [] as File[],
     processing: false,
     clear: vi.fn(),
   },
@@ -84,17 +88,28 @@ vi.mock('../queries', () => ({
       refetch: vi.fn().mockResolvedValue({ data: quote }),
     }
   },
-  useImageEditQuote: () => ({
-    data: undefined,
-    isFetching: false,
-    isError: false,
-    refetch: vi.fn().mockResolvedValue({ data: undefined }),
-  }),
+  useImageEditQuote: (request: ImageEditQuoteRequest | null) => {
+    mocks.editQuoteRequest = request
+    const quote = request
+      ? {
+          quota: 1,
+          display_amount: '$0.01',
+          quote_token: 'edit-quote-1',
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+        }
+      : undefined
+    return {
+      data: quote,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn().mockResolvedValue({ data: quote }),
+    }
+  },
 }))
 
 vi.mock('../hooks/use-image-edit-references', () => ({
   useImageEditReferences: () => ({
-    profile: undefined,
+    profile: mocks.editProfile,
     maxImages: 1,
     references: mocks.reference,
   }),
@@ -110,6 +125,10 @@ vi.mock('@/stores/image-studio-draft-store', () => ({
 
 vi.mock('./image-token-setup-dialog', () => ({
   ImageTokenSetupDialog: () => null,
+}))
+
+vi.mock('./image-reference-field', () => ({
+  ImageReferenceField: () => null,
 }))
 
 const profile = (): ImageModelProfile => ({
@@ -175,9 +194,15 @@ describe('image composer batch copy', () => {
       role: 1,
     })
     mocks.models = [profile()]
+    mocks.editProfile = undefined
+    mocks.editQuoteRequest = null
     mocks.generationMutation.isPending = false
     mocks.generationMutation.variables = undefined
     mocks.editMutation.isPending = false
+    mocks.reference.metadata = []
+    mocks.reference.files = []
+    mocks.reference.processing = false
+    mocks.reference.clear.mockClear()
   })
 
   test('shows the count for one image and updates button and price for four', async () => {
@@ -238,5 +263,36 @@ describe('image composer batch copy', () => {
     expect(
       screen.queryByRole('button', { name: 'Generating 1 image...' })
     ).not.toBeInTheDocument()
+  })
+
+  test('hides and forces the output count to one in edit mode', async () => {
+    const user = userEvent.setup()
+    const editProfile = profile()
+    editProfile.default_parameters = { variants: 4 }
+    mocks.models = [editProfile]
+    mocks.editProfile = editProfile
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
+    mocks.reference.files = [
+      new File(['reference'], 'reference.png', { type: 'image/png' }),
+    ]
+
+    render(
+      <ImageComposer tokenGate={tokenGate} onSubmitted={() => undefined} />
+    )
+
+    await user.type(await screen.findByLabelText('Prompt'), 'Edit this image')
+    expect(
+      screen.getByRole('group', { name: 'Number of images' })
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(
+      screen.queryByRole('group', { name: 'Number of images' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Candidates')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(mocks.editQuoteRequest?.parameters.variants).toBe(1)
+    })
   })
 })

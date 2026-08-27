@@ -119,24 +119,11 @@ func TestCreateAndUpdateImageModelProfileRequireVersionedSpecification(t *testin
 	assert.Equal(t, 2, updated.SpecificationVersion)
 }
 
-func TestListEffectiveImageModelProfilesIntersectsOutputLimits(t *testing.T) {
+func TestListEffectiveImageModelProfilesUsesProfileOutputLimit(t *testing.T) {
 	db := setupImageStudioTokenTest(t)
-	models := []struct {
-		name       string
-		profileMax int
-		channels   []int
-		want       int
-	}{
-		{"flux-effective-two", 2, []int{constant.ChannelTypeOpenAI}, 2},
-		{"flux-effective-single", 4, []int{constant.ChannelTypeAzure}, 1},
-		{"flux-effective-mixed", 4, []int{constant.ChannelTypeAzure, constant.ChannelTypeOpenAI}, 4},
-	}
-	for _, testModel := range models {
-		seedEffectiveImageModelProfile(t, db, testModel.name, testModel.profileMax)
-		for _, channelType := range testModel.channels {
-			seedEffectiveImageModelChannel(t, db, testModel.name, channelType)
-		}
-	}
+	const modelName = "flux-effective-four"
+	seedEffectiveImageModelProfile(t, db, modelName, 4)
+	seedEffectiveImageModelChannel(t, db, modelName, constant.ChannelTypeAzure)
 	ensured, err := EnsureImageStudioToken(context.Background(), db, 42, "", "192.0.2.1")
 	require.NoError(t, err)
 	require.NotNil(t, ensured.Token)
@@ -145,20 +132,17 @@ func TestListEffectiveImageModelProfilesIntersectsOutputLimits(t *testing.T) {
 		context.Background(), db, 42, ensured.Token.ID, "192.0.2.1",
 	)
 	require.NoError(t, err)
-	require.Len(t, views, len(models))
 	byModel := make(map[string]ImageModelProfileView, len(views))
 	for _, view := range views {
 		byModel[view.Model] = view
 	}
-	for _, testModel := range models {
-		view, exists := byModel[testModel.name]
-		require.True(t, exists)
-		assert.Equal(t, testModel.want, view.EffectiveMaxOutputs)
-	}
+	view, exists := byModel[modelName]
+	require.True(t, exists)
+	assert.Equal(t, 4, view.EffectiveMaxOutputs)
 }
 
 func TestEffectiveImageModelMaxOutputsDefaultsToOneWithoutCountParameter(t *testing.T) {
-	assert.Equal(t, 1, effectiveImageModelMaxOutputs(ImageModelSpec{Version: 1}, MaxImageStudioOutputs))
+	assert.Equal(t, 1, effectiveImageModelMaxOutputs(ImageModelSpec{Version: 1}))
 }
 
 func TestEffectiveImageModelMaxOutputsHonorsGlobalLimit(t *testing.T) {
@@ -172,7 +156,7 @@ func TestEffectiveImageModelMaxOutputsHonorsGlobalLimit(t *testing.T) {
 		"image_studio.max_images_per_generation": "2",
 	}))
 
-	assert.Equal(t, 2, effectiveImageModelMaxOutputs(validImageModelSpec(), MaxImageStudioOutputs))
+	assert.Equal(t, 2, effectiveImageModelMaxOutputs(validImageModelSpec()))
 }
 
 func seedEffectiveImageModelProfile(t *testing.T, db *gorm.DB, modelName string, maxOutputs int) {

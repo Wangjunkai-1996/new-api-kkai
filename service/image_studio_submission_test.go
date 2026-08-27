@@ -117,6 +117,11 @@ func TestNormalizeImageStudioEditBindsOrderedReferencesAndModelLimit(t *testing.
 	assert.EqualValues(t, 5678, normalized.References[1].SizeBytes)
 	assert.NotSame(t, &references[0], &normalized.References[0])
 
+	batchEdit := request
+	batchEdit.Parameters = map[string]any{"count": 2}
+	_, err = NormalizeImageStudioSubmission(context.Background(), db, 7, batchEdit)
+	assert.ErrorIs(t, err, ErrInvalidImageStudioSubmission)
+
 	generation, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
 		TokenID: 4, Model: profile.Model, Prompt: "edit the lighthouse",
 	})
@@ -480,7 +485,7 @@ func TestReconcileStaleImageGenerationSettlesPreparedQuotaExactlyOnce(t *testing
 	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, generation.ID))
 	require.NoError(t, model.PrepareImageGenerationAccounting(
 		context.Background(), db, generation.ID, model.ImageGenerationAccountingPayload{
-			TargetQuota: 200, CountStatistics: true,
+			TargetQuota: 200, CountStatistics: true, OutputCount: 2,
 			LogParams: model.RecordConsumeLogParams{
 				ChannelId: 3, ModelName: generation.Model, TokenId: generation.TokenID, Quota: 200,
 			},
@@ -519,7 +524,7 @@ func TestReconcileStaleImageGenerationSettlesPreparedQuotaExactlyOnce(t *testing
 	require.EqualValues(t, 1, user.RequestCount)
 }
 
-func TestReconcileStaleImageGenerationDiscardsPartialDeliveryAndRefunds(t *testing.T) {
+func TestReconcileStaleImageGenerationSettlesPartialDelivery(t *testing.T) {
 	db := newImageAccountingRecoveryTestDB(t)
 	require.NoError(t, db.Create(&model.User{
 		Id: 72, Username: "image-partial", Password: "password", Quota: 1_000,
@@ -532,7 +537,7 @@ func TestReconcileStaleImageGenerationDiscardsPartialDeliveryAndRefunds(t *testi
 	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, generation.ID))
 	require.NoError(t, model.PrepareImageGenerationAccounting(
 		context.Background(), db, generation.ID, model.ImageGenerationAccountingPayload{
-			TargetQuota: 200,
+			TargetQuota: 200, OutputCount: 1,
 			LogParams: model.RecordConsumeLogParams{
 				ChannelId: 3, ModelName: generation.Model, TokenId: generation.TokenID, Quota: 200,
 			},
@@ -555,20 +560,260 @@ func TestReconcileStaleImageGenerationDiscardsPartialDeliveryAndRefunds(t *testi
 	require.NoError(t, err)
 	require.Equal(t, 1, updated)
 	require.NoError(t, db.First(&generation, generation.ID).Error)
-	require.Equal(t, model.ImageGenerationStatusArchiveFailed, generation.Status)
-	require.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
-	require.Zero(t, generation.FinalQuota)
+	require.Equal(t, model.ImageGenerationStatusPartial, generation.Status)
+	require.Equal(t, model.ImageGenerationBillingStateSettled, generation.BillingState)
+	require.Equal(t, 1, generation.SucceededCount)
+	require.Equal(t, 200, generation.FinalQuota)
 	require.NoError(t, db.First(&asset, asset.ID).Error)
-	require.Equal(t, model.ImageAssetStateDeleted, asset.State)
-	require.NotZero(t, asset.DeletedAt)
+	require.Equal(t, model.ImageAssetStateReady, asset.State)
+	require.Zero(t, asset.DeletedAt)
 	var user model.User
 	require.NoError(t, db.First(&user, 72).Error)
-	require.EqualValues(t, 1_000, user.Quota)
+	require.EqualValues(t, 800, user.Quota)
 	var deletionEvents int64
 	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where(
 		"topic = ?", ImageAssetDeleteTopic,
 	).Count(&deletionEvents).Error)
-	require.EqualValues(t, 1, deletionEvents)
+	require.Zero(t, deletionEvents)
+}
+
+func TestReconcileStaleImageGenerationRefundsLegacyPartialAccountingMismatch(t *testing.T) {
+	db := newImageAccountingRecoveryTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id: 73, Username: "image-legacy-partial", Password: "password", Quota: 1_000,
+	}).Error)
+	generation := seedRecoverableImageGeneration(t, db, 73, 2)
+	_, err := model.ReserveImageGenerationBilling(
+		context.Background(), db, generation.ID, model.TaskBillingSourceWallet, 500,
+	)
+	require.NoError(t, err)
+	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, generation.ID))
+	old := time.Now().Add(-10 * time.Minute).Unix()
+	legacyAccounting, err := common.Marshal(model.ImageGenerationAccountingPayload{
+		GenerationID: generation.ID, TargetQuota: 200,
+		LogParams: model.RecordConsumeLogParams{
+			ChannelId: 3, ModelName: generation.Model, TokenId: generation.TokenID, Quota: 200,
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&model.KKAIOutboxEvent{
+		EventKey: fmt.Sprintf("image-accounting:%d", generation.ID),
+		Topic:    model.KKAIOutboxTopicImageAccounting, AggregateID: fmt.Sprintf("%d", generation.ID),
+		Payload: string(legacyAccounting), Status: model.KKAIOutboxStatusPending,
+		AvailableAt: old, CreatedAt: old,
+	}).Error)
+	asset := model.KKAIImageAsset{
+		GenerationID: &generation.ID, OwnerUserID: 73, Scope: model.ImageAssetScopeUser,
+		Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady,
+		ObjectKey: "image-legacy-partial/ready", ThumbnailState: model.ImageThumbnailStatePending,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	require.NoError(t, db.Create(&asset).Error)
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("id = ?", generation.ID).
+		Update("heartbeat_at", old).Error)
+
+	updated, err := ReconcileStaleImageGenerations(
+		context.Background(), db, time.Now().Add(-time.Minute), 10,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, updated)
+	require.NoError(t, db.First(&generation, generation.ID).Error)
+	require.Equal(t, model.ImageGenerationStatusArchiveFailed, generation.Status)
+	require.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
+	require.Zero(t, generation.SucceededCount)
+	require.Zero(t, generation.FinalQuota)
+	require.NoError(t, db.Unscoped().First(&asset, asset.ID).Error)
+	require.Equal(t, model.ImageAssetStateDeleted, asset.State)
+	require.NotZero(t, asset.DeletedAt)
+	var user model.User
+	require.NoError(t, db.First(&user, 73).Error)
+	require.EqualValues(t, 1_000, user.Quota)
+	require.Zero(t, user.UsedQuota)
+}
+
+func TestReconcileStaleImageGenerationsRefundsCountMismatchAndContinues(t *testing.T) {
+	db := newImageAccountingRecoveryTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id: 74, Username: "image-count-mismatch", Password: "password", Quota: 1_000,
+	}).Error)
+	require.NoError(t, db.Create(&model.User{
+		Id: 75, Username: "image-following-recovery", Password: "password", Quota: 1_000,
+		AffCode: "following-recovery",
+	}).Error)
+	mismatched := seedRecoverableImageGeneration(t, db, 74, 2)
+	_, err := model.ReserveImageGenerationBilling(
+		context.Background(), db, mismatched.ID, model.TaskBillingSourceWallet, 500,
+	)
+	require.NoError(t, err)
+	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, mismatched.ID))
+	require.NoError(t, model.PrepareImageGenerationAccounting(
+		context.Background(), db, mismatched.ID, model.ImageGenerationAccountingPayload{
+			TargetQuota: 200, OutputCount: 2,
+			LogParams: model.RecordConsumeLogParams{
+				ChannelId: 3, ModelName: mismatched.Model, TokenId: mismatched.TokenID, Quota: 200,
+			},
+		},
+	))
+	old := time.Now().Add(-10 * time.Minute).Unix()
+	mismatchedAsset := model.KKAIImageAsset{
+		GenerationID: &mismatched.ID, OwnerUserID: 74, Scope: model.ImageAssetScopeUser,
+		Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady,
+		ObjectKey: "image-count-mismatch/ready", ThumbnailState: model.ImageThumbnailStatePending,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	require.NoError(t, db.Create(&mismatchedAsset).Error)
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("id = ?", mismatched.ID).
+		Update("heartbeat_at", old).Error)
+
+	following := seedRecoverableImageGeneration(t, db, 75, 1)
+	require.Greater(t, following.ID, mismatched.ID)
+	_, err = model.ReserveImageGenerationBilling(
+		context.Background(), db, following.ID, model.TaskBillingSourceWallet, 300,
+	)
+	require.NoError(t, err)
+	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, following.ID))
+	require.NoError(t, model.PrepareImageGenerationAccounting(
+		context.Background(), db, following.ID, model.ImageGenerationAccountingPayload{
+			TargetQuota: 100, OutputCount: 1,
+			LogParams: model.RecordConsumeLogParams{
+				ChannelId: 3, ModelName: following.Model, TokenId: following.TokenID, Quota: 100,
+			},
+		},
+	))
+	followingAsset := model.KKAIImageAsset{
+		GenerationID: &following.ID, OwnerUserID: 75, Scope: model.ImageAssetScopeUser,
+		Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady,
+		ObjectKey: "image-following-recovery/ready", ThumbnailState: model.ImageThumbnailStatePending,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	require.NoError(t, db.Create(&followingAsset).Error)
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("id = ?", following.ID).
+		Update("heartbeat_at", old).Error)
+
+	updated, err := ReconcileStaleImageGenerations(
+		context.Background(), db, time.Now().Add(-time.Minute), 10,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, updated)
+
+	require.NoError(t, db.First(&mismatched, mismatched.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusArchiveFailed, mismatched.Status)
+	assert.Equal(t, model.ImageGenerationBillingStateRefunded, mismatched.BillingState)
+	assert.Zero(t, mismatched.SucceededCount)
+	assert.Zero(t, mismatched.FinalQuota)
+	require.NoError(t, db.Unscoped().First(&mismatchedAsset, mismatchedAsset.ID).Error)
+	assert.Equal(t, model.ImageAssetStateDeleted, mismatchedAsset.State)
+	assert.NotZero(t, mismatchedAsset.DeletedAt)
+	var mismatchedUser model.User
+	require.NoError(t, db.First(&mismatchedUser, 74).Error)
+	assert.EqualValues(t, 1_000, mismatchedUser.Quota)
+
+	require.NoError(t, db.First(&following, following.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusSucceeded, following.Status)
+	assert.Equal(t, model.ImageGenerationBillingStateSettled, following.BillingState)
+	assert.Equal(t, 1, following.SucceededCount)
+	assert.Equal(t, 100, following.FinalQuota)
+	require.NoError(t, db.First(&followingAsset, followingAsset.ID).Error)
+	assert.Equal(t, model.ImageAssetStateReady, followingAsset.State)
+	assert.Zero(t, followingAsset.DeletedAt)
+	var followingUser model.User
+	require.NoError(t, db.First(&followingUser, 75).Error)
+	assert.EqualValues(t, 900, followingUser.Quota)
+}
+
+func TestReconcileStaleImageGenerationsPreservesSettledAssetsAndContinues(t *testing.T) {
+	db := newImageAccountingRecoveryTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id: 76, Username: "image-settled-mismatch", Password: "password", Quota: 1_000,
+		AffCode: "settled-mismatch",
+	}).Error)
+	require.NoError(t, db.Create(&model.User{
+		Id: 77, Username: "image-after-settled", Password: "password", Quota: 1_000,
+		AffCode: "after-settled",
+	}).Error)
+
+	settled := seedRecoverableImageGeneration(t, db, 76, 2)
+	_, err := model.ReserveImageGenerationBilling(
+		context.Background(), db, settled.ID, model.TaskBillingSourceWallet, 500,
+	)
+	require.NoError(t, err)
+	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, settled.ID))
+	require.NoError(t, model.PrepareImageGenerationAccounting(
+		context.Background(), db, settled.ID, model.ImageGenerationAccountingPayload{
+			TargetQuota: 200, OutputCount: 2,
+			LogParams: model.RecordConsumeLogParams{
+				ChannelId: 3, ModelName: settled.Model, TokenId: settled.TokenID, Quota: 200,
+			},
+		},
+	))
+	_, err = model.SettleImageGenerationBilling(context.Background(), db, settled.ID, 200)
+	require.NoError(t, err)
+	old := time.Now().Add(-10 * time.Minute).Unix()
+	settledReadyAsset := model.KKAIImageAsset{
+		GenerationID: &settled.ID, OwnerUserID: 76, Scope: model.ImageAssetScopeUser,
+		Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady, Position: 0,
+		ObjectKey: "image-settled-mismatch/ready", ThumbnailState: model.ImageThumbnailStatePending,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	require.NoError(t, db.Create(&settledReadyAsset).Error)
+	settledStagingAsset := model.KKAIImageAsset{
+		GenerationID: &settled.ID, OwnerUserID: 76, Scope: model.ImageAssetScopeUser,
+		Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateStaging, Position: 1,
+		ObjectKey: "image-settled-mismatch/staging", ThumbnailState: model.ImageThumbnailStatePending,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	require.NoError(t, db.Create(&settledStagingAsset).Error)
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("id = ?", settled.ID).
+		Update("heartbeat_at", old).Error)
+
+	following := seedRecoverableImageGeneration(t, db, 77, 1)
+	require.Greater(t, following.ID, settled.ID)
+	_, err = model.ReserveImageGenerationBilling(
+		context.Background(), db, following.ID, model.TaskBillingSourceWallet, 300,
+	)
+	require.NoError(t, err)
+	require.NoError(t, model.MarkImageGenerationDispatching(context.Background(), db, following.ID))
+	require.NoError(t, model.PrepareImageGenerationAccounting(
+		context.Background(), db, following.ID, model.ImageGenerationAccountingPayload{
+			TargetQuota: 100, OutputCount: 1,
+			LogParams: model.RecordConsumeLogParams{
+				ChannelId: 3, ModelName: following.Model, TokenId: following.TokenID, Quota: 100,
+			},
+		},
+	))
+	followingAsset := model.KKAIImageAsset{
+		GenerationID: &following.ID, OwnerUserID: 77, Scope: model.ImageAssetScopeUser,
+		Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady,
+		ObjectKey: "image-after-settled/ready", ThumbnailState: model.ImageThumbnailStatePending,
+		CreatedAt: old, UpdatedAt: old,
+	}
+	require.NoError(t, db.Create(&followingAsset).Error)
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("id = ?", following.ID).
+		Update("heartbeat_at", old).Error)
+
+	updated, err := ReconcileStaleImageGenerations(
+		context.Background(), db, time.Now().Add(-time.Minute), 10,
+	)
+	require.ErrorIs(t, err, ErrImageGenerationConflict)
+	assert.Equal(t, 1, updated)
+
+	require.NoError(t, db.First(&settled, settled.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusRecovering, settled.Status)
+	assert.Equal(t, model.ImageGenerationBillingStateSettled, settled.BillingState)
+	assert.Equal(t, 200, settled.FinalQuota)
+	require.NoError(t, db.First(&settledReadyAsset, settledReadyAsset.ID).Error)
+	assert.Equal(t, model.ImageAssetStateReady, settledReadyAsset.State)
+	assert.Zero(t, settledReadyAsset.DeletedAt)
+	require.NoError(t, db.First(&settledStagingAsset, settledStagingAsset.ID).Error)
+	assert.Equal(t, model.ImageAssetStateStaging, settledStagingAsset.State)
+	assert.Zero(t, settledStagingAsset.DeletedAt)
+
+	require.NoError(t, db.First(&following, following.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusSucceeded, following.Status)
+	assert.Equal(t, model.ImageGenerationBillingStateSettled, following.BillingState)
+	assert.Equal(t, 1, following.SucceededCount)
+	require.NoError(t, db.First(&followingAsset, followingAsset.ID).Error)
+	assert.Equal(t, model.ImageAssetStateReady, followingAsset.State)
 }
 
 func TestImageStudioBillingGuardRejectsPriceIncreaseWithoutChargingConfirmedMaximum(t *testing.T) {

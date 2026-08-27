@@ -27,7 +27,7 @@ func TestParseImageRelayResponseFileAcceptsURLAndBase64Results(t *testing.T) {
 	assert.Equal(t, "aGVsbG8=", results[1].Base64)
 }
 
-func TestParseImageRelayResponseFileRejectsAmbiguousOrMismatchedResults(t *testing.T) {
+func TestParseImageRelayResponseFileRejectsAmbiguousOrExcessResults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "response.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{
 		"data": [{"url": "https://example.test/a", "b64_json": "aA=="}]
@@ -41,7 +41,14 @@ func TestParseImageRelayResponseFileRejectsAmbiguousOrMismatchedResults(t *testi
 	}`), 0o600))
 	_, err = ParseImageRelayResponseFile(path, 1<<20, 1)
 	require.ErrorIs(t, err, ErrInvalidImageRelayResponse)
+}
 
-	_, err = ParseImageRelayResponseFile(path, 1<<20, 3)
-	require.ErrorIs(t, err, ErrInvalidImageRelayResponse)
+func TestParseImageRelayResponseFileAcceptsShortBatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "response.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"data": [{"url": "https://example.test/a"}, {"url": "https://example.test/b"}]
+	}`), 0o600))
+	results, err := ParseImageRelayResponseFile(path, 1<<20, 3)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
 }

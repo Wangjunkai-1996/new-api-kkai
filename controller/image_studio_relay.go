@@ -119,7 +119,6 @@ func PrepareImageStudioRequest(c *gin.Context) {
 	}
 	c.Set(imageStudioNormalizedSubmissionContextKey, normalized)
 	service.SetImageStudioReferenceCount(c, len(normalized.References))
-	service.SetImageStudioRequestedOutputCount(c, normalized.RequestedCount)
 
 	if isImageStudioSubmitRequest(c) {
 		if err := service.ValidateImageStudioSubmitRequest(request); err != nil {
@@ -171,10 +170,6 @@ func QuoteImageStudioGeneration(c *gin.Context) {
 		respondImageStudioError(c, service.ErrInvalidImageStudioSubmission)
 		return
 	}
-	if err := service.ValidateSelectedImageStudioChannel(c); err != nil {
-		respondImageStudioError(c, err)
-		return
-	}
 	price, err := calculateImageStudioQuote(c)
 	if err != nil {
 		respondImageStudioError(c, err)
@@ -194,10 +189,6 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	normalized, ok := imageStudioNormalizedSubmission(c)
 	if !ok {
 		respondImageStudioSubmitGuardError(c, service.ErrInvalidImageStudioSubmission)
-		return
-	}
-	if err := service.ValidateSelectedImageStudioChannel(c); err != nil {
-		respondImageStudioError(c, err)
 		return
 	}
 	quote, err := service.ValidateImageStudioQuote(normalized, time.Now())
@@ -301,11 +292,11 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		respondImageStudioRelayFailure(c, capture.Status(), nil)
 		return
 	}
-	finalQuota, settled, quoteExceeded := service.ImageStudioFinalQuota(c)
+	finalQuota, billingPrepared, quoteExceeded := service.ImageStudioFinalQuota(c)
 	if capture.err != nil {
 		if err := finishImageStudioGenerationFailure(
 			finalizeContext, generation.ID, model.ImageGenerationStatusArchiveFailed,
-			finalQuota, "capture", "response_too_large", "image response could not be captured",
+			0, "capture", "response_too_large", "image response could not be captured",
 		); err != nil {
 			respondImageStudioError(c, err)
 			return
@@ -316,7 +307,7 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	if capture.Status() < http.StatusOK || capture.Status() >= http.StatusMultipleChoices {
 		if err := finishImageStudioGenerationFailure(
 			finalizeContext, generation.ID, model.ImageGenerationStatusFailed,
-			finalQuota, "relay", "relay_failed", "image provider request failed",
+			0, "relay", "relay_failed", "image provider request failed",
 		); err != nil {
 			respondImageStudioError(c, err)
 			return
@@ -340,7 +331,7 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		respondImageStudioRelayFailure(c, http.StatusBadGateway, nil)
 		return
 	}
-	if !settled {
+	if !billingPrepared {
 		if err := finishImageStudioGenerationFailure(
 			finalizeContext, generation.ID, model.ImageGenerationStatusFailed,
 			0, "billing", "billing_not_settled", "image generation billing was not settled",
@@ -363,34 +354,17 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		respondImageStudioGenerationFailure(c, finalizeContext, generation.ID)
 		return
 	}
-	archive, err := pipeline.ArchiveGeneration(finalizeContext, *generation, results)
-	if err != nil {
-		if discardErr := service.DiscardSubmittingImageGenerationAssets(
-			finalizeContext, model.DB, generation.ID,
-		); discardErr != nil {
-			respondImageStudioError(c, errors.Join(err, discardErr))
-			return
-		}
-		if err := finishImageStudioGenerationFailure(
-			finalizeContext, generation.ID, model.ImageGenerationStatusArchiveFailed,
-			0, "archive", "archive_failed", "image results could not be archived",
-		); err != nil {
-			respondImageStudioError(c, err)
-			return
-		}
-		respondImageStudioGenerationFailure(c, finalizeContext, generation.ID)
-		return
-	}
-	if archive.Ready != normalized.RequestedCount {
+	archive, archiveErr := pipeline.ArchiveGeneration(finalizeContext, *generation, results)
+	if archive == nil || archive.Ready == 0 {
 		if err := service.DiscardSubmittingImageGenerationAssets(
 			finalizeContext, model.DB, generation.ID,
 		); err != nil {
-			respondImageStudioError(c, err)
+			respondImageStudioError(c, errors.Join(archiveErr, err))
 			return
 		}
 		if err := finishImageStudioGenerationFailure(
 			finalizeContext, generation.ID, model.ImageGenerationStatusArchiveFailed,
-			0, "archive", "partial_archive_rejected", "image provider returned an incomplete deliverable set",
+			0, "archive", "archive_failed", "no image result could be archived",
 		); err != nil {
 			respondImageStudioError(c, err)
 			return
@@ -398,16 +372,42 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		respondImageStudioGenerationFailure(c, finalizeContext, generation.ID)
 		return
 	}
+	if archiveErr != nil || archive.Failed > 0 {
+		if err := service.DiscardNonReadySubmittingImageGenerationAssets(
+			finalizeContext, model.DB, generation.ID,
+		); err != nil {
+			respondImageStudioError(c, errors.Join(archiveErr, err))
+			return
+		}
+	}
+	if err := service.PrepareImageStudioDeliveryBilling(c, len(results), archive.Ready); err != nil {
+		// Ready assets remain non-deliverable while the generation is submitting.
+		// The reconciler settles a durable accounting intent or refunds and removes
+		// them if the intent could not be persisted.
+		respondImageStudioGenerationFailure(c, finalizeContext, generation.ID)
+		return
+	}
+	finalQuota, _, _ = service.ImageStudioFinalQuota(c)
 	if err := service.CommitImageStudioBilling(c); err != nil {
-		// The exact settlement intent and full asset set are durable. Leave the
+		// The exact settlement intent and ready asset set are durable. Leave the
 		// generation submitting so the reconciler can retry without refunding a
 		// delivered result or charging the maximum reservation.
 		respondImageStudioGenerationFailure(c, finalizeContext, generation.ID)
 		return
 	}
+	status := model.ImageGenerationStatusPartial
+	if archive.Ready == normalized.RequestedCount {
+		status = model.ImageGenerationStatusSucceeded
+	}
+	failureStage, errorCode, errorMessage := "", "", ""
+	if archiveErr != nil || archive.Failed > 0 {
+		failureStage = "archive"
+		errorCode = "partial_archive"
+		errorMessage = "some image results could not be archived"
+	}
 	if err := service.FinishImageGeneration(
-		finalizeContext, model.DB, generation.ID, model.ImageGenerationStatusSucceeded,
-		archive.Ready, finalQuota, "", "", "",
+		finalizeContext, model.DB, generation.ID, status,
+		archive.Ready, finalQuota, failureStage, errorCode, errorMessage,
 	); err != nil {
 		respondImageStudioError(c, err)
 		return

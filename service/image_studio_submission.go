@@ -175,6 +175,9 @@ func NormalizeImageStudioSubmission(
 	if err != nil {
 		return nil, err
 	}
+	if request.Mode == ImageStudioModeEdit && (relayRequest.N == nil || *relayRequest.N != 1) {
+		return nil, ErrInvalidImageStudioSubmission
+	}
 
 	normalized := &NormalizedImageStudioSubmission{
 		UserID: userID, TokenID: request.TokenID, ProfileID: profile.ID,

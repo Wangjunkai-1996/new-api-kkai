@@ -15,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -37,22 +36,6 @@ func TestDistributorRejectsSpecifiedChannelWithoutMultiReferenceCapability(t *te
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 	assert.Zero(t, selected)
 	assert.Contains(t, response.Body.String(), service.ErrNoChannelSupportsImageReferences.Error())
-}
-
-func TestDistributorRejectsSpecifiedChannelWithoutRequestedOutputCapability(t *testing.T) {
-	channels := setupImageStudioDistributorTest(t)
-	selected := 0
-	response := runImageStudioDistributorTestRequestWithCapabilities(t, 0, 2, func(c *gin.Context) {
-		common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, strconv.Itoa(channels.azure.Id))
-	}, func(c *gin.Context) {
-		selected = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
-		c.Status(http.StatusNoContent)
-	})
-
-	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
-	assert.Zero(t, selected)
-	assert.Contains(t, response.Body.String(), service.ErrNoChannelSupportsImageOutputCount.Error())
-	assert.Contains(t, response.Body.String(), string(types.ErrorCodeImageOutputCountUnavailable))
 }
 
 func TestDistributorSkipsIncompatibleAffinityWithoutClearingIt(t *testing.T) {
@@ -80,35 +63,9 @@ func TestDistributorSkipsIncompatibleAffinityWithoutClearingIt(t *testing.T) {
 	service.ClearCurrentChannelAffinityCache(verifyContext)
 }
 
-func TestDistributorSkipsOutputIncompatibleAffinityWithoutClearingIt(t *testing.T) {
-	channels := setupImageStudioDistributorTest(t)
-	affinityValue := fmt.Sprintf("image-output-affinity-%d", time.Now().UnixNano())
-	configureImageStudioAffinityTest(t, affinityValue, channels.azure.Id)
-
-	selected := 0
-	response := runImageStudioDistributorTestRequestWithCapabilities(t, 0, 2, func(c *gin.Context) {
-		c.Request.Header.Set("X-Image-Affinity", affinityValue)
-	}, func(c *gin.Context) {
-		selected = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
-		c.Status(http.StatusInternalServerError)
-	})
-
-	assert.Equal(t, http.StatusInternalServerError, response.Code)
-	assert.Equal(t, channels.replicate.Id, selected)
-
-	verifyContext := newImageStudioAffinityContext(affinityValue)
-	preferred, found := service.GetPreferredChannelByAffinity(
-		verifyContext, "gpt-image-2", service.ImageStudioTokenGroup,
-	)
-	assert.True(t, found)
-	assert.Equal(t, channels.azure.Id, preferred)
-	service.ClearCurrentChannelAffinityCache(verifyContext)
-}
-
 type imageStudioDistributorChannels struct {
 	replicate model.Channel
 	openAI    model.Channel
-	azure     model.Channel
 }
 
 func setupImageStudioDistributorTest(t *testing.T) imageStudioDistributorChannels {
@@ -131,11 +88,10 @@ func setupImageStudioDistributorTest(t *testing.T) imageStudioDistributorChannel
 		common.RedisEnabled = previousRedisEnabled
 	})
 
-	azure := seedImageStudioDistributorChannel(t, db, constant.ChannelTypeAzure, 30)
 	replicate := seedImageStudioDistributorChannel(t, db, constant.ChannelTypeReplicate, 20)
 	openAI := seedImageStudioDistributorChannel(t, db, constant.ChannelTypeOpenAI, 10)
 	require.NoError(t, model.SyncChannelCacheOnce())
-	return imageStudioDistributorChannels{replicate: replicate, openAI: openAI, azure: azure}
+	return imageStudioDistributorChannels{replicate: replicate, openAI: openAI}
 }
 
 func seedImageStudioDistributorChannel(t *testing.T, db *gorm.DB, channelType int, priority int64) model.Channel {
@@ -159,23 +115,12 @@ func runImageStudioDistributorTestRequest(
 	setup func(*gin.Context),
 	final func(*gin.Context),
 ) *httptest.ResponseRecorder {
-	return runImageStudioDistributorTestRequestWithCapabilities(t, 2, 1, setup, final)
-}
-
-func runImageStudioDistributorTestRequestWithCapabilities(
-	t *testing.T,
-	referenceCount int,
-	outputCount int,
-	setup func(*gin.Context),
-	final func(*gin.Context),
-) *httptest.ResponseRecorder {
 	t.Helper()
 	engine := gin.New()
 	engine.POST("/v1/images/edits", func(c *gin.Context) {
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, service.ImageStudioTokenGroup)
 		common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
-		service.SetImageStudioReferenceCount(c, referenceCount)
-		service.SetImageStudioRequestedOutputCount(c, outputCount)
+		service.SetImageStudioReferenceCount(c, 2)
 		setup(c)
 	}, Distribute(), final)
 	body := []byte(`{"model":"gpt-image-2"}`)

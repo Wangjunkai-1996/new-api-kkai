@@ -174,6 +174,7 @@ type RelayInfo struct {
 	BillingRequestInput           *billingexpr.RequestInput
 	ImagePricingSnapshot          *imagepricing.Snapshot
 	ImagePricingOutboundValidated bool
+	ImageOutputCount              int
 
 	Request dto.Request
 

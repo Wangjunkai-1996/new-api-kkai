@@ -103,28 +103,12 @@ func ListEffectiveImageModelProfiles(
 	if err != nil {
 		return nil, err
 	}
-	abilityChannels, err := enabledImageStudioAbilityChannelsForGroup(ctx, db, token.Group)
-	if err != nil || len(abilityChannels) == 0 {
-		return []ImageModelProfileView{}, err
-	}
-	models := make(map[string]struct{}, len(abilityChannels))
-	maxChannelOutputs := make(map[string]int, len(abilityChannels))
-	for _, abilityChannel := range abilityChannels {
-		models[abilityChannel.Model] = struct{}{}
-		channelMax := ImageStudioChannelMaxOutputs(abilityChannel.ChannelType)
-		if channelMax > maxChannelOutputs[abilityChannel.Model] {
-			maxChannelOutputs[abilityChannel.Model] = channelMax
-		}
-	}
-	modelNames := make([]string, 0, len(models))
-	for modelName := range models {
-		modelNames = append(modelNames, modelName)
-	}
-	if len(modelNames) == 0 {
+	models, err := enabledConfiguredImageStudioModelsForGroup(ctx, db, token.Group)
+	if err != nil || len(models) == 0 {
 		return []ImageModelProfileView{}, err
 	}
 	var profiles []model.KKAIImageModelProfile
-	if err := db.WithContext(ctx).Where("enabled = ? AND model IN ?", true, modelNames).Find(&profiles).Error; err != nil {
+	if err := db.WithContext(ctx).Where("enabled = ? AND model IN ?", true, models).Find(&profiles).Error; err != nil {
 		return nil, fmt.Errorf("list effective image model profiles: %w", err)
 	}
 	views := make([]ImageModelProfileView, 0, len(profiles))
@@ -136,7 +120,6 @@ func ListEffectiveImageModelProfiles(
 		if err != nil {
 			return nil, err
 		}
-		view.EffectiveMaxOutputs = effectiveImageModelMaxOutputs(view.Specification, maxChannelOutputs[view.Model])
 		views = append(views, view)
 	}
 	sort.SliceStable(views, func(left int, right int) bool {
@@ -148,7 +131,7 @@ func ListEffectiveImageModelProfiles(
 	return views, nil
 }
 
-func effectiveImageModelMaxOutputs(specification ImageModelSpec, maxChannelOutputs int) int {
+func effectiveImageModelMaxOutputs(specification ImageModelSpec) int {
 	profileMax := 1
 	for _, parameter := range specification.Parameters {
 		if parameter.RequestKey == "n" && parameter.Max != nil {
@@ -160,8 +143,8 @@ func effectiveImageModelMaxOutputs(specification ImageModelSpec, maxChannelOutpu
 	if profileMax > globalMax {
 		profileMax = globalMax
 	}
-	if maxChannelOutputs < profileMax {
-		profileMax = maxChannelOutputs
+	if profileMax > MaxImageStudioOutputs {
+		profileMax = MaxImageStudioOutputs
 	}
 	if profileMax < 1 {
 		return 1
@@ -379,7 +362,7 @@ func imageModelProfileView(profile model.KKAIImageModelProfile) (ImageModelProfi
 		ID: profile.ID, Model: profile.Model, DisplayName: profile.DisplayName, Description: profile.Description,
 		ProviderLabel: profile.ProviderLabel, SpecificationVersion: profile.SpecificationVersion,
 		Specification: specification, DefaultParameters: defaults,
-		EffectiveMaxOutputs: effectiveImageModelMaxOutputs(specification, MaxImageStudioOutputs), Enabled: profile.Enabled,
+		EffectiveMaxOutputs: effectiveImageModelMaxOutputs(specification), Enabled: profile.Enabled,
 		SortOrder: profile.SortOrder, CreatedAt: profile.CreatedAt, UpdatedAt: profile.UpdatedAt,
 	}, nil
 }

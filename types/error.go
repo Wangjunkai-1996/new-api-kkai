@@ -73,8 +73,7 @@ const (
 	ErrorCodeAccessDenied          ErrorCode = "access_denied"
 
 	// request error
-	ErrorCodeBadRequestBody              ErrorCode = "bad_request_body"
-	ErrorCodeImageOutputCountUnavailable ErrorCode = "image_output_count_unavailable"
+	ErrorCodeBadRequestBody ErrorCode = "bad_request_body"
 
 	// response error
 	ErrorCodeReadResponseBodyFailed ErrorCode = "read_response_body_failed"

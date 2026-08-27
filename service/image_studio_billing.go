@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
@@ -29,6 +30,9 @@ type imageStudioBillingGuard struct {
 	quoteExceeded    bool
 	settlementErr    error
 	relayInfo        *relaycommon.RelayInfo
+	accounting       *model.ImageGenerationAccountingPayload
+	accountingStored bool
+	requestedOutputs int
 }
 
 func SetImageStudioBillingGuard(c *gin.Context, maxQuota int) error {
@@ -77,23 +81,42 @@ func PrepareImageStudioBillingCommit(
 	if userSetting, err := model.GetUserSetting(relayInfo.UserId, false); err == nil && userSetting.RecordIpLog {
 		clientIP = c.ClientIP()
 	}
+	request, ok := relayInfo.Request.(*dto.ImageRequest)
+	if !ok {
+		return ErrImageStudioQuoteStale
+	}
+	requestedOutputs := 1
+	if request.N != nil {
+		if *request.N < 1 || *request.N > uint(dto.MaxImageN) {
+			return ErrImageStudioQuoteStale
+		}
+		requestedOutputs = int(*request.N)
+	}
+	outputCount := relayInfo.ImageOutputCount
+	if outputCount == 0 {
+		outputCount = requestedOutputs
+	}
+	if outputCount < 1 || outputCount > requestedOutputs {
+		return ErrImageStudioQuoteStale
+	}
 	pricingActualCount, err := imagePricingActualCount(relayInfo)
 	if err != nil {
 		return err
+	}
+	if pricingActualCount > 0 && pricingActualCount != outputCount {
+		return ErrImageStudioQuoteStale
 	}
 	accounting := model.ImageGenerationAccountingPayload{
 		GenerationID: generationID, TargetQuota: params.Quota, CountStatistics: totalTokens > 0,
 		Username: c.GetString("username"), UpstreamRequestID: c.GetString(common.UpstreamRequestIdKey),
 		ClientIP: clientIP, NodeName: common.NodeName, LogParams: params,
+		OutputCount:        outputCount,
 		PricingSnapshot:    cloneImagePricingSnapshot(relayInfo.ImagePricingSnapshot),
 		PricingActualCount: pricingActualCount,
 	}
-	prepareContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
-	defer cancel()
-	if err := model.PrepareImageGenerationAccounting(prepareContext, model.DB, generationID, accounting); err != nil {
-		return err
-	}
 	guard.relayInfo = relayInfo
+	guard.accounting = &accounting
+	guard.requestedOutputs = requestedOutputs
 	guard.billingPrepared = true
 	return nil
 }
@@ -103,18 +126,93 @@ func imagePricingActualCount(relayInfo *relaycommon.RelayInfo) (int, error) {
 		return 0, nil
 	}
 	count := relayInfo.ImagePricingSnapshot.RequestedCount
-	if actual, ok := relayInfo.PriceData.OtherRatios()["n"]; ok {
+	actual, hasActual := relayInfo.PriceData.OtherRatios()["n"]
+	if hasActual {
 		if actual < 1 || actual > dto.MaxImageN || actual != math.Trunc(actual) {
 			return 0, ErrImageStudioQuoteStale
 		}
 		count = int(actual)
 	}
+	if relayInfo.ImageOutputCount > 0 {
+		if relayInfo.ImageOutputCount > dto.MaxImageN {
+			return 0, ErrImageStudioQuoteStale
+		}
+		count = relayInfo.ImageOutputCount
+	}
 	return count, nil
+}
+
+func PrepareImageStudioDeliveryBilling(c *gin.Context, providerOutputCount int, deliveredOutputCount int) error {
+	guard, ok := imageStudioBillingGuardFromContext(c)
+	if !ok || !guard.billingPrepared || guard.billingCompleted || guard.accounting == nil ||
+		providerOutputCount < 1 || providerOutputCount > guard.requestedOutputs ||
+		deliveredOutputCount < 1 || deliveredOutputCount > providerOutputCount {
+		return ErrImageStudioQuoteStale
+	}
+	if guard.relayInfo.ImageOutputCount > 0 && guard.relayInfo.ImageOutputCount != providerOutputCount {
+		return ErrImageStudioQuoteStale
+	}
+	if guard.accountingStored {
+		if guard.accounting.OutputCount != deliveredOutputCount {
+			return ErrImageStudioQuoteStale
+		}
+		return nil
+	}
+
+	accounting := *guard.accounting
+	quota := accounting.TargetQuota
+	if accounting.PricingSnapshot != nil {
+		var err error
+		quota, err = imagepricing.CalculateQuotaStrict(accounting.PricingSnapshot, deliveredOutputCount)
+		if err != nil {
+			return ErrImageStudioQuoteStale
+		}
+		accounting.PricingActualCount = deliveredOutputCount
+	} else if deliveredOutputCount < accounting.OutputCount {
+		prorated := decimal.NewFromInt(int64(quota)).
+			Mul(decimal.NewFromInt(int64(deliveredOutputCount))).
+			Div(decimal.NewFromInt(int64(accounting.OutputCount)))
+		var clamp *common.QuotaClamp
+		quota, clamp = common.QuotaFromDecimalChecked(prorated)
+		if clamp != nil {
+			return clamp
+		}
+	}
+	if quota < 0 || quota > guard.maxQuota {
+		return ErrImageStudioQuoteStale
+	}
+	accounting.OutputCount = deliveredOutputCount
+	accounting.TargetQuota = quota
+	accounting.LogParams.Quota = quota
+	if accounting.LogParams.Other == nil {
+		accounting.LogParams.Other = make(map[string]interface{})
+	}
+	adminInfo, _ := accounting.LogParams.Other["admin_info"].(map[string]interface{})
+	if adminInfo == nil {
+		adminInfo = make(map[string]interface{})
+	}
+	adminInfo["image_outputs"] = map[string]int{
+		"provider":  providerOutputCount,
+		"delivered": deliveredOutputCount,
+	}
+	accounting.LogParams.Other["admin_info"] = adminInfo
+
+	prepareContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
+	defer cancel()
+	if err := model.PrepareImageGenerationAccounting(
+		prepareContext, model.DB, accounting.GenerationID, accounting,
+	); err != nil {
+		return err
+	}
+	guard.accounting = &accounting
+	guard.accountingStored = true
+	guard.finalQuota = quota
+	return nil
 }
 
 func CommitImageStudioBilling(c *gin.Context) error {
 	guard, ok := imageStudioBillingGuardFromContext(c)
-	if !ok || !guard.billingPrepared || guard.relayInfo == nil {
+	if !ok || !guard.billingPrepared || !guard.accountingStored || guard.relayInfo == nil {
 		return ErrImageStudioQuoteStale
 	}
 	if guard.billingCompleted {

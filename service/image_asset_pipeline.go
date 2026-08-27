@@ -87,7 +87,7 @@ func (pipeline *ImageAssetPipeline) ArchiveGeneration(
 		results[position].URL = ""
 		results[position].RevisedPrompt = ""
 		if err != nil {
-			return nil, err
+			return archiveResult, err
 		}
 		archiveResult.Assets = append(archiveResult.Assets, asset)
 		if asset.State == model.ImageAssetStateReady {

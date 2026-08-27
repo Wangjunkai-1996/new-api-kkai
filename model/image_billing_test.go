@@ -159,16 +159,18 @@ func TestImageGenerationSettlementPersistsStatisticsAndIdempotentConsumeLog(t *t
 		Id: 9, Name: "image-channel", Key: "test-key", Status: 1, Type: 1, UsedQuota: 7,
 	}).Error)
 	generation := seedImageBillingGeneration(t, db, 44)
+	require.NoError(t, db.Model(&generation).Update("requested_count", 2).Error)
+	generation.RequestedCount = 2
 	_, err := ReserveImageGenerationBilling(
 		context.Background(), db, generation.ID, TaskBillingSourceWallet, 300,
 	)
 	require.NoError(t, err)
 	payload := ImageGenerationAccountingPayload{
-		TargetQuota: 200, CountStatistics: true, Username: "image-accounting", PricingActualCount: 2,
+		TargetQuota: 200, CountStatistics: true, Username: "image-accounting", OutputCount: 2, PricingActualCount: 2,
 		PricingSnapshot: &imagepricing.Snapshot{
 			PolicyVersion: "test-v1", PolicyHash: strings.Repeat("a", 64),
 			Model: generation.Model, Size: "1024x1024", Tier: "1k",
-			UnitPrice: 1, QuotaPerUnit: 100, GroupRatio: 1, RequestedCount: 1,
+			UnitPrice: 1, QuotaPerUnit: 100, GroupRatio: 1, RequestedCount: 2,
 		},
 		LogParams: RecordConsumeLogParams{
 			ChannelId: 9, PromptTokens: 10, CompletionTokens: 20,
@@ -254,7 +256,7 @@ func prepareImageBillingAccounting(
 	t.Helper()
 	require.NoError(t, PrepareImageGenerationAccounting(
 		context.Background(), db, generation.ID, ImageGenerationAccountingPayload{
-			TargetQuota: targetQuota, CountStatistics: countStatistics,
+			TargetQuota: targetQuota, CountStatistics: countStatistics, OutputCount: generation.RequestedCount,
 			LogParams: RecordConsumeLogParams{
 				ChannelId: 1, ModelName: generation.Model, TokenId: generation.TokenID, Quota: targetQuota,
 			},

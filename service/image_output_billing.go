@@ -9,9 +9,9 @@ import (
 
 var ErrInvalidImageOutputCount = errors.New("invalid image output count")
 
-// ApplyImageOutputBillingCount records the provider's usable output count for
-// image adapters that do not return aggregate token usage.
-func ApplyImageOutputBillingCount(info *relaycommon.RelayInfo, outputCount int) error {
+// RecordImageOutputCount validates and records the provider's usable output
+// count without changing token-based billing ratios.
+func RecordImageOutputCount(info *relaycommon.RelayInfo, outputCount int) error {
 	if info == nil || outputCount < 1 || outputCount > dto.MaxImageN {
 		return ErrInvalidImageOutputCount
 	}
@@ -26,6 +26,16 @@ func ApplyImageOutputBillingCount(info *relaycommon.RelayInfo, outputCount int) 
 		if outputCount > requestedCount {
 			return ErrInvalidImageOutputCount
 		}
+	}
+	info.ImageOutputCount = outputCount
+	return nil
+}
+
+// ApplyImageOutputBillingCount records the provider's usable output count for
+// image adapters that do not return aggregate token usage.
+func ApplyImageOutputBillingCount(info *relaycommon.RelayInfo, outputCount int) error {
+	if err := RecordImageOutputCount(info, outputCount); err != nil {
+		return err
 	}
 
 	// AddOtherRatio replaces an existing value with the same key. Fixed-price

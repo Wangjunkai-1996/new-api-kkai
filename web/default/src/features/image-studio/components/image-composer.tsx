@@ -166,10 +166,7 @@ export function ImageComposer(props: {
     : undefined
   const submittedOutputCount =
     submittedProfile && submittedRequest
-      ? getImageOutputCount(
-          submittedProfile,
-          submittedRequest.parameters
-        )
+      ? getImageOutputCount(submittedProfile, submittedRequest.parameters)
       : outputCount
 
   useEffect(() => {
@@ -207,9 +204,11 @@ export function ImageComposer(props: {
       (profile) => profile.id === scopedDraft?.model_profile_id
     )
     const profile = draftProfile ?? models[0]
-    form.reset(buildImageComposerValues(profile, scopedDraft ?? undefined))
+    form.reset(
+      buildImageComposerValues(profile, scopedDraft ?? undefined, mode)
+    )
     initializedRef.current = true
-  }, [draft, draftUserId, form, modelsQuery.data, userId])
+  }, [draft, draftUserId, form, mode, modelsQuery.data, userId])
 
   useEffect(() => {
     if (!props.sample || !modelsQuery.data) return
@@ -222,11 +221,15 @@ export function ImageComposer(props: {
           )
     if (!profile) return
     form.reset(
-      buildImageComposerValues(profile, {
-        prompt: props.sample.prompt,
-        parameters: props.sample.parameters,
-        sample_id: props.sample.id,
-      })
+      buildImageComposerValues(
+        profile,
+        {
+          prompt: props.sample.prompt,
+          parameters: props.sample.parameters,
+          sample_id: props.sample.id,
+        },
+        mode
+      )
     )
     appliedSampleRef.current = props.sample.id
     initializedRef.current = true
@@ -255,11 +258,15 @@ export function ImageComposer(props: {
       parsed.data.parameters
     )
     if (!parsedParameters.success) return null
+    let requestParameters = parsedParameters.parameters
+    if (mode === 'edit' && outputParameterKey) {
+      requestParameters = { ...requestParameters, [outputParameterKey]: 1 }
+    }
     const request: ImageQuoteRequest = {
       token_id: props.tokenGate.tokenId,
       model: selectedProfile.model,
       prompt: parsed.data.prompt.trim(),
-      parameters: parsedParameters.parameters,
+      parameters: requestParameters,
       sample_id: parsed.data.sample_id,
     }
     if (mode === 'generation') return request
@@ -272,6 +279,7 @@ export function ImageComposer(props: {
     return buildImageEditQuoteRequest(request, reference.metadata)
   }, [
     mode,
+    outputParameterKey,
     props.tokenGate.tokenId,
     reference.metadata,
     selectedProfile,
@@ -321,7 +329,11 @@ export function ImageComposer(props: {
       return
     }
     form.reset(
-      buildImageComposerValues(profile, { prompt: form.getValues('prompt') })
+      buildImageComposerValues(
+        profile,
+        { prompt: form.getValues('prompt') },
+        mode
+      )
     )
     appliedSampleRef.current = undefined
   }
@@ -332,9 +344,13 @@ export function ImageComposer(props: {
     reference.clear()
     if (nextMode === 'edit' && editProfile) {
       form.reset(
-        buildImageComposerValues(editProfile, {
-          prompt: form.getValues('prompt'),
-        })
+        buildImageComposerValues(
+          editProfile,
+          {
+            prompt: form.getValues('prompt'),
+          },
+          nextMode
+        )
       )
     }
   }
@@ -595,7 +611,7 @@ export function ImageComposer(props: {
             <ImageParameterFields
               control={form.control}
               profile={selectedProfile}
-              hideOutputCount={mode === 'generation'}
+              hideOutputCount
             />
           )}
         </div>

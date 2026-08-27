@@ -360,10 +360,8 @@ func aliImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rela
 	}
 
 	imageResponses := responseAli2OpenAIImage(c, aliResponse, originRespBody, info, responseFormat)
-	if aliResponse.Usage.ImageCount != 0 {
-		info.PriceData.AddOtherRatio("n", float64(aliResponse.Usage.ImageCount))
-	} else if len(imageResponses.Data) != 0 {
-		info.PriceData.AddOtherRatio("n", float64(len(imageResponses.Data)))
+	if err := service.ApplyImageOutputBillingCount(info, len(imageResponses.Data)); err != nil {
+		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
 	}
 	jsonResponse, err := common.Marshal(imageResponses)
 	if err != nil {

@@ -165,7 +165,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		}
 	}
 	if channel == nil && len(allowedChannelTypes) > 0 {
-		return nil, selectGroup, requestCapabilityError(param.Ctx)
+		return nil, selectGroup, ErrNoChannelSupportsImageReferences
 	}
 	return channel, selectGroup, nil
 }

@@ -191,6 +191,36 @@ describe('image composer parameters', () => {
       1
     )
   })
+
+  test('forces edit output count to one for defaults and restored values', () => {
+    const editProfile: ImageModelProfile = {
+      ...profile,
+      default_parameters: { ...profile.default_parameters, count: 4 },
+    }
+
+    assert.equal(
+      buildImageComposerValues(editProfile, undefined, 'edit').parameters.count,
+      1
+    )
+    assert.deepEqual(
+      buildImageComposerValues(
+        editProfile,
+        { parameters: { count: 4 }, sample_id: 9 },
+        'edit'
+      ),
+      {
+        model_profile_id: editProfile.id,
+        prompt: '',
+        parameters: {
+          size: '1024x1024',
+          count: 1,
+          compression: 80,
+          watermark: false,
+        },
+        sample_id: 9,
+      }
+    )
+  })
 })
 
 describe('image submission recovery', () => {

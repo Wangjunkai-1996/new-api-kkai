@@ -119,11 +119,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if err := service.MarkImageStudioGenerationDispatching(c); err != nil {
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
-	requestedCount := 1
-	if request.N != nil {
-		requestedCount = int(*request.N)
-	}
-	service.MarkImageStudioBatchDispatchAttempted(c, requestedCount)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
