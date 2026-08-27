@@ -179,22 +179,53 @@ const displayResolution = (resolution: string): string =>
     ? resolution.toUpperCase()
     : resolution
 
+const SEEDANCE_25_MODEL_PRESET_DETAILS = {
+  'seedance-2.5': {
+    displayName: 'Seedance 2.5 720p',
+    description: '720p 文生 / 图生视频',
+    resolution: '720p',
+    requiresVideoReference: false,
+  },
+  'sd_2.5_special_720p': {
+    displayName: 'Seedance 2.5 720p',
+    description: '720p 文生 / 图生视频',
+    resolution: '720p',
+    requiresVideoReference: false,
+  },
+  'sd_2.5_special_1080p': {
+    displayName: 'Seedance 2.5 1080p',
+    description: '1080p 文生 / 图生视频',
+    resolution: '1080p',
+    requiresVideoReference: false,
+  },
+  'sd_2.5_special_720p_with_video_ref': {
+    displayName: 'Seedance 2.5 720p · 视频参考',
+    description: '720p 视频参考生成',
+    resolution: '720p',
+    requiresVideoReference: true,
+  },
+  'sd_2.5_special_1080p_with_video_ref': {
+    displayName: 'Seedance 2.5 1080p · 视频参考',
+    description: '1080p 视频参考生成',
+    resolution: '1080p',
+    requiresVideoReference: true,
+  },
+} as const satisfies Record<string, VideoModelPresetDetails>
+
 const getSeedance25PresetDetails = (
   model: string
 ): VideoModelPresetDetails | undefined => {
-  const match = /^seedance-2\.5$/.exec(model)
-  if (!match) return undefined
-  const resolution = '720p'
-  const resolutionLabel = displayResolution(resolution)
+  const details =
+    SEEDANCE_25_MODEL_PRESET_DETAILS[
+      model as keyof typeof SEEDANCE_25_MODEL_PRESET_DETAILS
+    ]
+  if (!details) return undefined
   return {
-    displayName: `Seedance 2.5 ${resolutionLabel}`,
-    description: `${resolutionLabel} 文生 / 图生视频`,
-    resolution,
-    requiresVideoReference: false,
+    ...details,
     durationRequestKey: 'duration',
     maxDuration: 30,
     ratios: SEEDANCE_SPECIAL_RATIOS,
-    resolutions: [resolution],
+    resolutions: [details.resolution],
     supportsGenerateAudio: true,
     generateAudioRequired: false,
   }

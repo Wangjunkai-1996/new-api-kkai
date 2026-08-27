@@ -10,9 +10,10 @@
 
 > 适用版本：Seedance 2.0 / 2.5 特价版。协议核验日期：2026-08-25。
 
-> **模型名和地址必须以本站为准**：渠道/供应商文档中的模型标识不是客户请求
-> `model` 值，本站只接受 `/v1/models` 返回的客户模型名。当前已核验的 2.5 公共名是
-> `seedance-2.5`；不要直接照抄渠道内部模型名，也不要把渠道请求地址、路径或鉴权方式
+> **模型名和地址必须以本站为准**：上游/供应商文档中的模型标识不是客户请求
+> `model` 值，本站只接受 `/v1/models` 返回的客户模型名。当前 2.5 正式名称为
+> `sd_2.5_special_720p`、`sd_2.5_special_1080p`、`sd_2.5_special_720p_with_video_ref` 和
+> `sd_2.5_special_1080p_with_video_ref`；已有 `seedance-2.5` 继续兼容。不要把上游 API 地址、路径、鉴权方式或模型 ID
 > 带到本站调用中。
 
 > **2.0 协议说明**：2.0 特价版的服务端协议已切换到 v2 适配，但客户侧模型别名、
@@ -107,13 +108,24 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 ### Seedance 2.5 特价版
 
-当前公开客户模型为 `seedance-2.5`，当前能力层为 **720p**。不要把未来分辨率
-别名当作已开通模型；如果控制台没有显示某个模型名，就不能调用它。
+当前正式客户模型有四个，命名沿用既有 2.0 规则，分别对应分辨率和参考方式：
+
+| 模型 | 输出分辨率 | 参考方式 |
+| --- | --- | --- |
+| `sd_2.5_special_720p` | 720p | 文生 / 单图参考 |
+| `sd_2.5_special_1080p` | 1080p | 文生 / 单图参考 |
+| `sd_2.5_special_720p_with_video_ref` | 720p | 必须单个视频参考；可选单图参考 |
+| `sd_2.5_special_1080p_with_video_ref` | 1080p | 必须单个视频参考；可选单图参考 |
+| `seedance-2.5` | 720p | 旧客户兼容别名；文生 / 单图参考 |
+
+模型是否对当前 Token 可见，仍以本站 `/v1/models` 返回结果为准；如果控制台没有显示
+某个名称，就不能调用它。
 
 - 时长：4-30 秒整数。
 - `ratio`：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
-- 图生视频：使用一个公开 HTTPS 或有效 `assetId://` 的 `reference_image`。
-- 不支持 `reference_video`。
+- 普通别名（不带 `with-video-ref`）：使用一个公开 HTTPS 或有效 `assetId://` 的
+  `reference_image`；不支持 `reference_video`。
+- `with-video-ref` 别名：必须使用一个 `reference_video`，也可以附带一个图片参考。
 - `generate_audio` 接受 `true` 或 `false`；为避免依赖缺省行为，客户端应显式传值。
 
 ## 4. 请求字段
@@ -125,15 +137,15 @@ curl "https://api.kkrich.ltd/v1/models" \
 | `duration` | integer 或整数字符串 | 否 | 4-15 | 4-30 | 推荐字段。缺失、空值、`0` 或 `1-3` 按 `4` 处理并按 `4` 计费。 |
 | `seconds` | integer 或整数字符串 | 否 | 4-15 | 4-30 | 兼容字段；缺失、空值、`0` 或 `1-3` 按 `4` 处理并按 `4` 计费。 |
 | `ratio` | string | 否 | 7 种 | 7 种 | 默认 `16:9`；支持 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。 |
-| `resolution` | string | 否 | 由模型决定 | 当前只能 `720p` | 2.0 分辨率由模型名决定；2.5 仅当前能力层 `720p`。 |
-| `reference_image` | string | 否 | 图生时使用 | 图生时使用 | 只能传一个图片引用；推荐使用公开 HTTPS URL。 |
+| `resolution` | string | 否 | 由模型决定 | 按别名为 `720p` 或 `1080p` | 2.0 分辨率由模型名决定；2.5 必须匹配所选别名。 |
+| `reference_image` | string | 否 | 图生时使用 | 普通别名单图参考；视频参考别名可选 | 只能传一个图片引用；推荐使用公开 HTTPS URL。 |
 | `input_reference` | string | 否 | 兼容别名 | 兼容别名 | 与 `reference_image` 互斥；新代码优先使用 `reference_image`。 |
-| `reference_video` | string | 条件 | `_with_video_ref` 必填 | 禁止 | 只能给 2.0 视频参考模型使用。 |
+| `reference_video` | string | 条件 | `_with_video_ref` 必填 | `with-video-ref` 别名必填；普通别名禁止 | 只能给支持视频参考的模型使用。 |
 | `generate_audio` | boolean | 否 | 支持 | 支持 | 显式传 `true` 或 `false`，不要依赖缺省值。 |
 
 `duration` 和 `seconds` 都可以省略；缺失、`null`、空字符串、`0` 和 `1-3` 会由本站
 服务端统一规范为有效时长 `4`，并按 `4` 秒计费。负数、小数、无法解析的值以及超过
-模型上限的值会直接返回 400（2.0 上限 15 秒，2.5 上限 30 秒）。两者同时传时，
+模型上限的值会直接返回 400（2.0 上限 15 秒，2.5 正式名称和兼容别名上限 30 秒）。两者同时传时，
 `null`、空字符串和 `0` 视为未提供，由另一个字段接管；两个非空且非 `0` 的值会先
 各自按最少 4 秒规范化，结果必须一致。为避免歧义并便于客户端展示，仍建议显式传入 2.0 的
 `4-15` 或 2.5 的 `4-30` 整数秒，例如 `5` 或 `"5"`；不要传 `5.0`、`"05"`。
@@ -145,8 +157,8 @@ curl "https://api.kkrich.ltd/v1/models" \
 - 公开 URL 必须使用 HTTPS 443 端口；不能带用户名密码、fragment、base64、`data:` 或
   本地路径。本站安全策略还会拒绝指向私网/保留地址或解析出混合公私网地址的域名。
 - 2.0 和 2.5 可以使用公开 HTTPS URL；也可以引用平台已经签发且处于可用状态的
-  `assetId://<asset_id>`。本文公共协议不提供创建资产 ID 的上传接口，普通 API 客户应使用
-  公开 HTTPS URL。视频参考遵循同样的规则。
+  `assetId://<asset_id>`。这些是参考素材地址/资产 ID，不是本站 API 地址；本文公共协议不
+  提供创建资产 ID 的上传接口，普通 API 客户应使用公开 HTTPS URL。视频参考遵循同样的规则。
 - 不要发送 `reference_images[]`、`aspect_ratio`、`width`、`height`、`fps`、`seed`、
   `n`、`size`、`metadata`、`content`、`tools` 等本文未列出的字段；严格的 Seedance
   适配器会拒绝未知字段，其他通用适配器也不保证透传结果。
@@ -158,14 +170,15 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 | 渠道文档概念 | 本站公共请求 | 说明 |
 | --- | --- | --- |
-| 2.5 渠道模型标识 | `model: "seedance-2.5"` | 客户模型名以本站 `/v1/models` 为准。 |
+| 2.5 上游模型标识 | 本站四个 `sd_2.5_special_*` 正式名称及兼容别名 | 客户模型名以本站 `/v1/models` 为准；不要发送上游模型 ID。 |
 | `aspect_ratio` | `ratio` | 只发送本站枚举值。 |
 | `reference_images[]` | 单个 `reference_image` 或 `input_reference` | 两个别名不能同时传。 |
 | 多个视频/音频参考、首帧/尾帧、`seed`、`tools` | 不支持 | 不要改名后强行透传。 |
 | 渠道专用任务提交/查询路径 | 本文列出的本站 `/v1/...` 路径 | 客户只请求 `api.kkrich.ltd`。 |
 
-素材 URL 由客户自行托管。下文的 `your-public-host.example` 仅用于占位，不能作为
-KKRICH API Base URL，也不需要向该域名发送 API 请求。
+素材 URL 由客户自行托管。下文的 `your-public-host.example` 仅用于参考素材占位，不能作为
+KKRICH API Base URL，也不需要向该域名发送 API 请求；所有 API 请求仍只发送到
+`https://api.kkrich.ltd`。
 
 本站公共接口没有可依赖的幂等键。不要把 `Idempotency-Key` 当成去重保证；提交超时或
 收到 `task_submission_unknown` 时只保存任务上下文并 GET 查询，不能自动重发 POST。
@@ -224,7 +237,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   -H "Authorization: Bearer $KKAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "seedance-2.5",
+    "model": "sd_2.5_special_720p",
     "prompt": "一列有轨电车穿过雨夜街道，镜头从高处缓慢下降，霓虹倒影，无字幕",
     "duration": 5,
     "ratio": "16:9",
@@ -240,13 +253,50 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   -H "Authorization: Bearer $KKAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "seedance-2.5",
+    "model": "sd_2.5_special_720p",
     "prompt": "让画面中的树叶随风摆动，镜头轻微推进，保持原有构图",
     "duration": 6,
     "ratio": "1:1",
     "resolution": "720p",
     "reference_image": "https://your-public-host.example/reference.jpg",
     "generate_audio": false
+  }'
+```
+
+### 2.5 1080p 文生视频
+
+```bash
+curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
+  -H "Authorization: Bearer $KKAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sd_2.5_special_1080p",
+    "prompt": "原创城市夜景，镜头平稳向前推进，无字幕、无 Logo",
+    "duration": 5,
+    "ratio": "16:9",
+    "resolution": "1080p",
+    "generate_audio": true
+  }'
+```
+
+### 2.5 视频参考
+
+带 `with-video-ref` 的别名必须提供一个 `reference_video`。下面以 720p 为例；使用
+1080p 时将模型和 `resolution` 一起改为 `sd_2.5_special_1080p_with_video_ref` 与
+`1080p`。
+
+```bash
+curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
+  -H "Authorization: Bearer $KKAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sd_2.5_special_720p_with_video_ref",
+    "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
+    "duration": 8,
+    "ratio": "9:16",
+    "resolution": "720p",
+    "reference_video": "https://your-public-host.example/reference.mp4",
+    "generate_audio": true
   }'
 ```
 
@@ -261,7 +311,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   "id": "task_01JVIDEOEXAMPLE",
   "task_id": "task_01JVIDEOEXAMPLE",
   "object": "video",
-  "model": "seedance-2.5",
+  "model": "sd_2.5_special_720p",
   "status": "queued",
   "progress": 0,
   "created_at": 1764347090,
@@ -376,7 +426,7 @@ TOKEN = os.environ["KKAI_API_KEY"]
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
 payload = {
-    "model": "seedance-2.5",
+    "model": "sd_2.5_special_720p",
     "prompt": "一列有轨电车穿过雨夜街道，镜头缓慢下降，无字幕",
     "duration": 5,
     "ratio": "16:9",
@@ -470,7 +520,7 @@ const token = process.env.KKAI_API_KEY;
 const headers = { Authorization: `Bearer ${token}` };
 
 const payload = {
-  model: "seedance-2.5",
+  model: "sd_2.5_special_720p",
   prompt: "一列有轨电车穿过雨夜街道，镜头缓慢下降，无字幕",
   duration: 5,
   ratio: "16:9",
@@ -627,9 +677,10 @@ if (!downloaded) {
 1. Token 属于 Seedance 视频分组，且模型名在当前可见模型列表中。
 2. `duration`/`seconds` 可省略，缺失、空值、`0` 或 `1-3` 会按 4 秒处理并按 4 秒计费；负数、小数和超出模型上限的值会被拒绝。客户端仍建议显式传入 4-15（2.0）或 4-30（2.5）的整数；两者同传时，`null`、空字符串和 `0` 视为未提供，两个非空且非 `0` 的值规范化后必须相等。
 3. `ratio` 使用本站支持的 7 个枚举值之一。
-4. 2.0 视频参考模型按当前配置带一个 `reference_video`；2.5 只使用 `reference_image`。
-5. 2.5 的图片是公开 HTTPS URL 或有效 `assetId://` 引用，并显式发送布尔值 `generate_audio`。
-6. 已准备记录本次调用时间、模型和客户端追踪 ID，方便提交结果不确定时支持排查。
+4. 2.5 普通别名的 `resolution` 与模型分别为 `720p`/`1080p`；视频参考别名同样要匹配分辨率。
+5. 2.0 视频参考模型和 2.5 `with-video-ref` 别名带一个 `reference_video`；普通 2.5 别名只使用 `reference_image`。
+6. 2.5 的图片/视频素材是公开 HTTPS URL 或有效 `assetId://` 引用，并显式发送布尔值 `generate_audio`。
+7. 已准备记录本次调用时间、模型和客户端追踪 ID，方便提交结果不确定时支持排查。
 
 任务处理中：
 

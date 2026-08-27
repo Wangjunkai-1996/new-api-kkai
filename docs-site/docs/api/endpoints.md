@@ -50,7 +50,12 @@ Content-Type: application/json
 | `/video/generations` | `model`、`prompt`。Seedance 特价版的 `duration` 和兼容字段 `seconds` 可省略，本站按 4 秒处理。 |
 | `/videos` | `model`、`prompt`。Seedance 特价版的 `duration` 和兼容字段 `seconds` 可省略，本站按 4 秒处理。 |
 
-Seedance 2.0 接受 4-15 秒整数，Seedance 2.5 接受 4-30 秒整数。缺失、`null`、空字符串、`0` 或 `1-3` 按 4 秒处理；负数、小数、非法字符串和超过模型上限的值返回 400。完整字段和响应协议参见 [Seedance 视频生成 API](./video-generation)。
+Seedance 2.0 接受 4-15 秒整数；四个成本表对应的 Seedance 2.5 名称（`sd_2.5_special_720p`、
+`sd_2.5_special_1080p`、`sd_2.5_special_720p_with_video_ref`、
+`sd_2.5_special_1080p_with_video_ref`）接受 4-30 秒整数，原有 `seedance-2.5*` 名称仍兼容。普通 2.5 名称用于文生/单图参考，
+`with-video-ref` 名称必须提供单个 `reference_video`。缺失、`null`、空字符串、`0` 或 `1-3`
+按 4 秒处理；负数、小数、非法字符串和超过模型上限的值返回 400。完整字段和响应协议参见
+[Seedance 视频生成 API](./video-generation)。
 
 ## 示例
 

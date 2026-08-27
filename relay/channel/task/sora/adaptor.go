@@ -102,7 +102,22 @@ var seedanceDurationBounds = map[string][2]int{
 	"sd_2.0_special_1080p_with_video_ref":     {4, 15},
 	"sd_2.0_special_2k_with_video_ref":        {4, 15},
 	"sd_2.0_special_4k_with_video_ref":        {4, 15},
-	"seedance-2.5":                            {4, 30},
+	// Seedance 2.5 uses one Model Center upstream model, but the public
+	// aliases represent separately priced capability tiers. Keep each alias
+	// explicit here so the same 4-30 second validation, billing fallback, and
+	// JSON canonicalization apply regardless of the selected resolution or
+	// video-reference tier.
+	// The original seedance-2.5 name remains a compatibility alias for the
+	// 720p tier. New 2.5 capabilities use the same sd_2.5_special_* naming
+	// convention as the established 2.0 models.
+	"seedance-2.5": {4, 30},
+	// These names match the four capability tiers supplied in the current
+	// Seedance 2.5 pricing sheet. Keep them as first-class public names while
+	// retaining the seedance-* aliases above for compatibility.
+	"sd_2.5_special_720p":                 {4, 30},
+	"sd_2.5_special_1080p":                {4, 30},
+	"sd_2.5_special_720p_with_video_ref":  {4, 30},
+	"sd_2.5_special_1080p_with_video_ref": {4, 30},
 }
 
 func durationBoundsForModel(model string) (int, int, bool) {

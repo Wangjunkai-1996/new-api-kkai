@@ -66,7 +66,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   -H "Authorization: Bearer $KKAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "seedance-2.5",
+    "model": "sd_2.5_special_720p",
     "prompt": "原创海边日出，镜头缓慢前移，无文字、无 Logo",
     "duration": 4,
     "ratio": "16:9",
@@ -87,7 +87,10 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 - 大小写、标点或分辨率后缀不一致。
 - Token 当前看不到该模型。
 
-处理：从本站 `/v1/models` 响应复制模型名。当前 2.5 客户模型名是 `seedance-2.5`；2.0 使用 [完整模型矩阵](/api/video-generation#seedance-2-0-特价版) 中的名称。
+处理：从本站 `/v1/models` 响应复制完整模型名。2.5 成本表对应的正式名称为：
+`sd_2.5_special_720p`、`sd_2.5_special_1080p`、`sd_2.5_special_720p_with_video_ref`、
+`sd_2.5_special_1080p_with_video_ref`；原有 `seedance-2.5*` 名称仍作为兼容别名；2.0 使用 [完整模型矩阵](/api/video-generation#seedance-2-0-特价版)
+中的名称。模型是否可用仍以当前 Token 返回结果为准。
 
 ### 时长错误
 
@@ -107,7 +110,8 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 两代模型支持 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
 
 - 字段名是 `ratio`，不是其他平台常见的画幅字段名。
-- 2.5 当前只接受 `resolution: "720p"`。
+- 2.5 的 `resolution` 必须与名称匹配：普通 `sd_2.5_special_720p` 使用 `720p`，
+  `sd_2.5_special_1080p` 使用 `1080p`；两个 `with-video-ref` 名称分别使用对应分辨率。
 - 2.0 分辨率由模型名决定；发送 `resolution` 时必须匹配模型名。
 
 ### `generate_audio` 类型错误
@@ -124,7 +128,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 ### 2.5 参考素材错误
 
-2.5 只支持一个图片参考：
+普通 2.5 名称（`sd_2.5_special_720p`、`sd_2.5_special_1080p`）只支持一个图片参考：
 
 ```json
 {
@@ -132,12 +136,13 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 }
 ```
 
-也可以使用平台已经签发且仍有效的 `assetId://<asset_id>`。不要自行编造资产 ID。
+也可以使用平台已经签发且仍有效的 `assetId://<asset_id>`。素材地址或资产 ID 只用于
+参考素材，不是本站 API Base URL；不要自行编造资产 ID。
 
 以下情况会失败：
 
 - 同时发送 `reference_image` 和 `input_reference`。
-- 发送 `reference_video` 或音频参考。
+- 对普通别名发送 `reference_video` 或音频参考。
 - 发送 `reference_images`、`reference_videos`、`reference_audios` 等数组字段。
 - 发送 `first_image`、`last_image`、`tools`、`seed` 等未支持字段。
 - 素材 URL 需要登录、Cookie、Referer 或自定义请求头才能访问。
@@ -155,6 +160,26 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 ```
 
 视频必须是无需登录即可读取的公开 HTTPS 直链，或有效的 `assetId://` 引用。
+
+### 2.5 视频参考别名
+
+`sd_2.5_special_720p_with_video_ref` 和 `sd_2.5_special_1080p_with_video_ref` 必须发送
+一个 `reference_video`，并将 `resolution` 分别设置为 `720p` 或 `1080p`：
+
+```json
+{
+  "model": "sd_2.5_special_720p_with_video_ref",
+  "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字",
+  "duration": 8,
+  "ratio": "9:16",
+  "resolution": "720p",
+  "reference_video": "https://media.your-domain.example/reference.mp4",
+  "generate_audio": true
+}
+```
+
+不要把 `reference_video` 发送给两个普通 2.5 别名；不要把视频参考别名的必填字段改成
+`reference_images` 或其他数组字段。
 
 ### 未知字段
 

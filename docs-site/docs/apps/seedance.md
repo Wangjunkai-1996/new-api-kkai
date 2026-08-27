@@ -27,7 +27,7 @@ pageClass: kkr-seedance-page kkr-seedance-landing
       <strong>16:9</strong>
     </div>
     <dl class="seedance-task-meta">
-      <div><dt>MODEL</dt><dd>seedance-2.5</dd></div>
+      <div><dt>MODEL</dt><dd>sd_2.5_special_720p</dd></div>
       <div><dt>STATUS</dt><dd class="seedance-status-ready">completed</dd></div>
       <div><dt>OUTPUT</dt><dd>/content</dd></div>
     </dl>
@@ -66,14 +66,23 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 | 需求 | 建议模型 | 时长 | 输出与参考 |
 | --- | --- | --- | --- |
-| 使用 2.5 特价版 | `seedance-2.5` | 4-30 秒 | 当前 720p；文生或单图参考 |
+| 2.5 兼容 720p | `seedance-2.5` | 4-30 秒 | 720p；文生或单图参考 |
+| 2.5 720p | `sd_2.5_special_720p` | 4-30 秒 | 720p；文生或单图参考 |
+| 2.5 1080p | `sd_2.5_special_1080p` | 4-30 秒 | 1080p；文生或单图参考 |
+| 2.5 视频参考 720p | `sd_2.5_special_720p_with_video_ref` | 4-30 秒 | 720p；必须单个视频参考 |
+| 2.5 视频参考 1080p | `sd_2.5_special_1080p_with_video_ref` | 4-30 秒 | 1080p；必须单个视频参考 |
 | 2.0 快速 720p | `sd_2.0_fast_special_720p` | 4-15 秒 | 文生或单图参考 |
 | 2.0 指定分辨率 | `sd_2.0_special_720p` / `1080p` / `2k` / `4k` | 4-15 秒 | 分辨率写在模型名中 |
 | 2.0 视频参考 | 名称以 `_with_video_ref` 结尾的 2.0 模型 | 4-15 秒 | 必须提供单个 `reference_video` |
 
 完整的 2.0 模型名称和差异见 [模型与能力矩阵](/api/video-generation#模型与能力矩阵)。模型是否可用始终以当前 Token 调用 `/v1/models` 的结果为准。
 
-2.0 和 2.5 都支持以下画幅：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
+四个 `sd_2.5_special_*` 名称是成本表对应的正式能力名；原有 `seedance-2.5*` 名称继续作为兼容别名。所有 2.5 名称都支持以下画幅：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
+2.5 的普通名称（不带 `with-video-ref`）用于文生或单图参考；带 `with-video-ref` 的名称
+必须提供一个 `reference_video`，不能只传提示词。四个正式名称都接受 `generate_audio: true`
+或 `false`，建议显式传入。
+
+2.0 也支持以上 7 种画幅；2.0 的视频参考能力仍由模型名末尾的 `_with_video_ref` 决定。
 
 ### 时长兜底
 
@@ -92,7 +101,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   -H "Authorization: Bearer $KKAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "seedance-2.5",
+    "model": "sd_2.5_special_720p",
     "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，路面有霓虹倒影，无文字、无 Logo",
     "duration": 5,
     "ratio": "16:9",
@@ -108,7 +117,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   "id": "task_01JVIDEOEXAMPLE",
   "task_id": "task_01JVIDEOEXAMPLE",
   "object": "video",
-  "model": "seedance-2.5",
+  "model": "sd_2.5_special_720p",
   "status": "queued",
   "progress": 0,
   "created_at": 1787587200,
@@ -171,18 +180,19 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   }'
 ```
 
-视频参考模型必须使用带 `_with_video_ref` 后缀的模型，并传一个 `reference_video`。不要把视频参考字段发给普通 2.0 模型或 `seedance-2.5`。
+视频参考模型必须使用带 `_with_video_ref` 后缀的 2.0 模型，或使用上表中的 2.5
+`with-video-ref` 别名，并传一个 `reference_video`。普通 2.0/2.5 别名不能发送视频参考字段。
 
 ## 图片与视频参考
 
-2.5 单图参考示例：
+2.5 单图参考示例（720p）：
 
 ```bash
 curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   -H "Authorization: Bearer $KKAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "seedance-2.5",
+    "model": "sd_2.5_special_720p",
     "prompt": "保持主体和构图，让树叶随风摆动，镜头轻微推进",
     "duration": 6,
     "ratio": "1:1",
@@ -195,12 +205,33 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 参考素材必须遵守以下规则：
 
 - 只传一个图片字段：`reference_image` 或兼容别名 `input_reference`，二选一。
-- 2.5 不接受视频或音频参考；不要发送 `reference_video`、`reference_audio` 及其数组形式。
+- 2.5 普通别名不接受视频或音频参考；不要发送 `reference_video`、`reference_audio` 及其数组形式。
+- 2.5 `with-video-ref` 别名必须发送一个 `reference_video`，不能把视频参考字段省略或改成数组。
 - 公开素材建议使用无需登录即可访问的 HTTPS 直链。本站会拒绝私网地址、本地路径、`data:` 和带凭据的 URL。
 - 已经由平台签发且仍有效的素材可使用 `assetId://<asset_id>`；不要自行编造资产 ID。
 - 不要发送 `reference_images`、`reference_videos`、`reference_audios`、`first_image`、`last_image`、`tools` 等未列入本站协议的字段。
 
 完整约束见 [请求字段](/api/video-generation#请求字段)。
+
+### 2.5 视频参考示例（1080p）
+
+```bash
+curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
+  -H "Authorization: Bearer $KKAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sd_2.5_special_1080p_with_video_ref",
+    "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
+    "duration": 8,
+    "ratio": "9:16",
+    "resolution": "1080p",
+    "reference_video": "https://media.your-domain.example/reference.mp4",
+    "generate_audio": true
+  }'
+```
+
+需要 720p 视频参考时，将 `model` 和 `resolution` 同时改为
+`sd_2.5_special_720p_with_video_ref` 与 `720p`。`resolution` 必须与所选 2.5 名称一致。
 
 ## 两套查询格式
 

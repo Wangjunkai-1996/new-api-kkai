@@ -547,7 +547,7 @@
       "post": {
         "summary": "创建视频",
         "deprecated": false,
-        "description": "OpenAI 兼容的视频生成接口。Seedance 2.0/2.5 特价版必须使用 JSON，并遵守本站模型、字段和参考素材约束。实际模型以本站 `/v1/models` 为准。\n\n完整文档：https://api.kkrich.ltd/docs/api/video-generation\n",
+        "description": "OpenAI 兼容的视频生成接口。Seedance 2.0/2.5 特价版必须使用 JSON，并遵守本站模型、字段和参考素材约束。2.5 正式客户模型为 sd_2.5_special_720p、sd_2.5_special_1080p、sd_2.5_special_720p_with_video_ref 和 sd_2.5_special_1080p_with_video_ref；seedance-2.5 继续作为 720p 兼容别名。实际可用模型以本站 `/v1/models` 为准。不要将上游 API 地址、路径、鉴权方式或模型 ID 用于本站请求。\n\n完整文档：https://api.kkrich.ltd/docs/api/video-generation\n",
         "operationId": "createVideo",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -559,13 +559,53 @@
               "schema": {
                 "$ref": "#/components/schemas/SeedanceVideoRequest"
               },
-              "example": {
-                "model": "seedance-2.5",
-                "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕",
-                "duration": 5,
-                "ratio": "16:9",
-                "resolution": "720p",
-                "generate_audio": true
+              "examples": {
+                "seedance25_720p": {
+                  "summary": "2.5 720p 文生/图生",
+                  "value": {
+                    "model": "sd_2.5_special_720p",
+                    "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕",
+                    "duration": 5,
+                    "ratio": "16:9",
+                    "resolution": "720p",
+                    "generate_audio": true
+                  }
+                },
+                "seedance25_1080p": {
+                  "summary": "2.5 1080p 文生/图生",
+                  "value": {
+                    "model": "sd_2.5_special_1080p",
+                    "prompt": "原创城市夜景，镜头平稳向前推进，无字幕、无 Logo",
+                    "duration": 5,
+                    "ratio": "16:9",
+                    "resolution": "1080p",
+                    "generate_audio": true
+                  }
+                },
+                "seedance25_720p_video_ref": {
+                  "summary": "2.5 720p 视频参考",
+                  "value": {
+                    "model": "sd_2.5_special_720p_with_video_ref",
+                    "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
+                    "duration": 8,
+                    "ratio": "9:16",
+                    "resolution": "720p",
+                    "reference_video": "https://media.your-domain.example/reference.mp4",
+                    "generate_audio": true
+                  }
+                },
+                "seedance25_1080p_video_ref": {
+                  "summary": "2.5 1080p 视频参考",
+                  "value": {
+                    "model": "sd_2.5_special_1080p_with_video_ref",
+                    "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
+                    "duration": 8,
+                    "ratio": "9:16",
+                    "resolution": "1080p",
+                    "reference_video": "https://media.your-domain.example/reference.mp4",
+                    "generate_audio": true
+                  }
+                }
               }
             },
             "multipart/form-data": {
@@ -608,7 +648,7 @@
                   "id": "task_01JVIDEOEXAMPLE",
                   "task_id": "task_01JVIDEOEXAMPLE",
                   "object": "video",
-                  "model": "seedance-2.5",
+                  "model": "sd_2.5_special_720p",
                   "status": "queued",
                   "progress": 0,
                   "created_at": 1787587200,
@@ -754,7 +794,7 @@
                 "example": {
                   "id": "task_01JVIDEOEXAMPLE",
                   "object": "video",
-                  "model": "seedance-2.5",
+                  "model": "sd_2.5_special_720p",
                   "status": "completed",
                   "progress": 100,
                   "created_at": 1787587200,
@@ -1318,7 +1358,7 @@
       "post": {
         "summary": "创建视频生成任务",
         "deprecated": false,
-        "description": "使用通用任务路径创建 Seedance 视频。成功响应仍是视频对象；保存其中的本站公开 `id`，并配套使用通用查询路径。\n\n完整文档：https://api.kkrich.ltd/docs/api/video-generation\n",
+        "description": "使用通用任务路径创建 Seedance 视频。2.5 正式客户模型为 sd_2.5_special_720p、sd_2.5_special_1080p、sd_2.5_special_720p_with_video_ref 和 sd_2.5_special_1080p_with_video_ref；seedance-2.5 继续作为 720p 兼容别名。普通名称用于文生/单图参考，with_video_ref 名称必须提供视频参考。成功响应仍是视频对象；保存其中的本站公开 `id`，并配套使用通用查询路径。不要使用上游 API 地址、路径、鉴权方式或模型 ID。\n\n完整文档：https://api.kkrich.ltd/docs/api/video-generation\n",
         "operationId": "createVideoGeneration",
         "tags": [
           "视频生成"
@@ -1330,13 +1370,53 @@
               "schema": {
                 "$ref": "#/components/schemas/SeedanceVideoRequest"
               },
-              "example": {
-                "model": "seedance-2.5",
-                "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕",
-                "duration": 5,
-                "ratio": "16:9",
-                "resolution": "720p",
-                "generate_audio": true
+              "examples": {
+                "seedance25_720p": {
+                  "summary": "2.5 720p 文生/图生",
+                  "value": {
+                    "model": "sd_2.5_special_720p",
+                    "prompt": "原创雨夜街道，一列有轨电车缓慢驶过，镜头平稳下降，无字幕",
+                    "duration": 5,
+                    "ratio": "16:9",
+                    "resolution": "720p",
+                    "generate_audio": true
+                  }
+                },
+                "seedance25_1080p": {
+                  "summary": "2.5 1080p 文生/图生",
+                  "value": {
+                    "model": "sd_2.5_special_1080p",
+                    "prompt": "原创城市夜景，镜头平稳向前推进，无字幕、无 Logo",
+                    "duration": 5,
+                    "ratio": "16:9",
+                    "resolution": "1080p",
+                    "generate_audio": true
+                  }
+                },
+                "seedance25_720p_video_ref": {
+                  "summary": "2.5 720p 视频参考",
+                  "value": {
+                    "model": "sd_2.5_special_720p_with_video_ref",
+                    "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
+                    "duration": 8,
+                    "ratio": "9:16",
+                    "resolution": "720p",
+                    "reference_video": "https://media.your-domain.example/reference.mp4",
+                    "generate_audio": true
+                  }
+                },
+                "seedance25_1080p_video_ref": {
+                  "summary": "2.5 1080p 视频参考",
+                  "value": {
+                    "model": "sd_2.5_special_1080p_with_video_ref",
+                    "prompt": "保持主体动作节奏，改为原创电影感冷色调，无文字、无 Logo",
+                    "duration": 8,
+                    "ratio": "9:16",
+                    "resolution": "1080p",
+                    "reference_video": "https://media.your-domain.example/reference.mp4",
+                    "generate_audio": true
+                  }
+                }
               }
             }
           },
@@ -1354,7 +1434,7 @@
                   "id": "task_01JVIDEOEXAMPLE",
                   "task_id": "task_01JVIDEOEXAMPLE",
                   "object": "video",
-                  "model": "seedance-2.5",
+                  "model": "sd_2.5_special_720p",
                   "status": "queued",
                   "progress": 0,
                   "created_at": 1787587200,
@@ -4660,7 +4740,7 @@
       },
       "SeedanceVideoRequest": {
         "type": "object",
-        "description": "Seedance 2.0/2.5 特价版客户请求。duration 和 seconds 均为可选兼容字段；缺失、null、空字符串、0 或 1-3 由本站按 4 秒处理并按 4 秒计费。负数、小数、无法解析的值和超过模型上限的值会被拒绝；2.0 上限 15 秒，2.5 上限 30 秒。模型可见性以本站 /v1/models 为准。",
+        "description": "Seedance 2.0/2.5 特价版客户请求。2.5 正式客户模型为 sd_2.5_special_720p（720p）、sd_2.5_special_1080p（1080p）、sd_2.5_special_720p_with_video_ref（720p 视频参考）和 sd_2.5_special_1080p_with_video_ref（1080p 视频参考）；seedance-2.5 继续作为 720p 兼容别名。普通名称支持文生/单图参考，with_video_ref 名称必须提供单个 reference_video。duration 和 seconds 均为可选兼容字段；缺失、null、空字符串、0 或 1-3 由本站按 4 秒处理并按 4 秒计费。负数、小数、无法解析的值和超过模型上限的值会被拒绝；2.0 上限 15 秒，2.5 上限 30 秒。模型可见性以本站 /v1/models 为准；不要发送上游 API 地址、路径、鉴权方式或模型 ID。",
         "additionalProperties": false,
         "required": [
           "model",
@@ -4669,8 +4749,15 @@
         "properties": {
           "model": {
             "type": "string",
-            "description": "大小写敏感的本站客户模型名，以当前 Token 调用 /v1/models 的结果为准",
-            "example": "seedance-2.5"
+            "description": "大小写敏感的本站客户模型名，以当前 Token 调用 /v1/models 的结果为准。2.5 正式名称：sd_2.5_special_720p、sd_2.5_special_1080p、sd_2.5_special_720p_with_video_ref、sd_2.5_special_1080p_with_video_ref；seedance-2.5 为 720p 兼容别名。不要发送上游模型 ID。",
+            "example": "sd_2.5_special_720p",
+            "x-kkrich-model-aliases": [
+              "sd_2.5_special_720p",
+              "sd_2.5_special_1080p",
+              "sd_2.5_special_720p_with_video_ref",
+              "sd_2.5_special_1080p_with_video_ref",
+              "seedance-2.5"
+            ]
           },
           "prompt": {
             "type": "string",
@@ -4727,7 +4814,7 @@
           },
           "resolution": {
             "type": "string",
-            "description": "2.0 必须匹配模型名；当前 seedance-2.5 只接受 720p",
+            "description": "2.0 必须匹配模型名；2.5 必须匹配名称：sd_2.5_special_720p、sd_2.5_special_720p_with_video_ref 和兼容别名 seedance-2.5 使用 720p，sd_2.5_special_1080p 与 sd_2.5_special_1080p_with_video_ref 使用 1080p",
             "enum": [
               "720p",
               "1080p",
@@ -4738,17 +4825,17 @@
           },
           "reference_image": {
             "type": "string",
-            "description": "单个图片参考；公开 HTTPS URL 或有效 assetId:// 引用。与 input_reference 二选一",
+            "description": "单个图片参考；公开 HTTPS URL 或有效 assetId:// 引用。与 input_reference 二选一。素材地址/资产 ID 不是本站 API 地址",
             "example": "https://media.your-domain.example/reference.jpg"
           },
           "input_reference": {
             "type": "string",
-            "description": "reference_image 的兼容别名，与 reference_image 二选一",
+            "description": "reference_image 的兼容别名，与 reference_image 二选一。素材地址/资产 ID 不是本站 API 地址",
             "example": "https://media.your-domain.example/reference.jpg"
           },
           "reference_video": {
             "type": "string",
-            "description": "仅 2.0 *_with_video_ref 模型允许且必填；其他 2.0 模型和 2.5 禁止",
+            "description": "2.0 *_with_video_ref 模型和 2.5 两个 with-video-ref 别名允许且必填；普通 2.0/2.5 别名禁止",
             "example": "https://media.your-domain.example/reference.mp4"
           },
           "generate_audio": {
@@ -4907,7 +4994,7 @@
           "model": {
             "type": "string",
             "description": "本站客户模型名",
-            "example": "seedance-2.5"
+            "example": "sd_2.5_special_720p"
           },
           "status": {
             "type": "string",

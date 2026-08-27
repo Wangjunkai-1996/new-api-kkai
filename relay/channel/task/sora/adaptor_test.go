@@ -2,6 +2,7 @@ package sora
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -113,6 +114,142 @@ func TestVideoStudioReferenceSecondsDriveBillingAndProjection(t *testing.T) {
 	}, readSoraRequestBody(t, body))
 }
 
+func TestSeedance25AliasesPreserveCapabilityFieldsAndCanonicalDuration(t *testing.T) {
+	tests := []struct {
+		name           string
+		model          string
+		resolution     string
+		referenceVideo string
+		referenceImage string
+	}{
+		{
+			name:           "720p text or image",
+			model:          "seedance-2.5",
+			resolution:     "720p",
+			referenceImage: "assetId://image-720",
+		},
+		{
+			name:           "pricing sheet 1080p",
+			model:          "sd_2.5_special_1080p",
+			resolution:     "1080p",
+			referenceImage: "assetId://image-1080",
+		},
+		{
+			name:           "pricing sheet 720p video reference",
+			model:          "sd_2.5_special_720p_with_video_ref",
+			resolution:     "720p",
+			referenceVideo: "assetId://video-720",
+		},
+		{
+			name:           "pricing sheet 1080p video reference",
+			model:          "sd_2.5_special_1080p_with_video_ref",
+			resolution:     "1080p",
+			referenceVideo: "assetId://video-1080",
+		},
+		{
+			name:           "pricing sheet 720p",
+			model:          "sd_2.5_special_720p",
+			resolution:     "720p",
+			referenceImage: "assetId://image-sheet-720",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{
+				"model":"client-video-model",
+				"prompt":"seedance 2.5 alias",
+				"duration":30,
+				"resolution":%q,
+				"ratio":"16:9",
+				"reference_image":%q,
+				"reference_video":%q,
+				"generate_audio":false
+			}`, tt.resolution, tt.referenceImage, tt.referenceVideo)
+			ctx := newSoraJSONContext(t, http.MethodPost, "/v1/videos", body)
+			info := newSoraRelayInfo(tt.model)
+			adaptor := &TaskAdaptor{}
+
+			require.Nil(t, adaptor.ValidateRequestAndSetAction(ctx, info))
+			assert.Equal(t, float64(30), adaptor.EstimateBilling(ctx, info)["seconds"])
+			requestBody, err := adaptor.BuildRequestBody(ctx, info)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]any{
+				"model":           tt.model,
+				"prompt":          "seedance 2.5 alias",
+				"duration":        float64(30),
+				"resolution":      tt.resolution,
+				"ratio":           "16:9",
+				"reference_image": tt.referenceImage,
+				"reference_video": tt.referenceVideo,
+				"generate_audio":  false,
+			}, readSoraRequestBody(t, requestBody))
+		})
+	}
+}
+
+func TestSeedance25AliasesRejectDurationAboveThirty(t *testing.T) {
+	for _, model := range []string{
+		"seedance-2.5",
+		"sd_2.5_special_720p",
+		"sd_2.5_special_1080p",
+		"sd_2.5_special_720p_with_video_ref",
+		"sd_2.5_special_1080p_with_video_ref",
+	} {
+		t.Run(model, func(t *testing.T) {
+			ctx := newSoraJSONContext(t, http.MethodPost, "/v1/videos", `{"model":"client-video-model","prompt":"too long","duration":31}`)
+			info := newSoraRelayInfo(model)
+
+			taskErr := (&TaskAdaptor{}).ValidateRequestAndSetAction(ctx, info)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+			assert.Equal(t, "invalid_duration", taskErr.Code)
+		})
+	}
+}
+
+func TestSeedance25VideoStudioAliasesProjectResolutionAndVideoReference(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      string
+		resolution string
+		video      string
+	}{
+		{name: "1080p image tier", model: "sd_2.5_special_1080p", resolution: "1080p"},
+		{name: "720p video tier", model: "sd_2.5_special_720p_with_video_ref", resolution: "720p", video: "assetId://video-720"},
+		{name: "1080p video tier", model: "sd_2.5_special_1080p_with_video_ref", resolution: "1080p", video: "assetId://video-1080"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{
+				"model":"video-studio-model",
+				"prompt":"video studio alias",
+				"duration":30,
+				"resolution":%q,
+				"ratio":"9:16",
+				"reference_video":%q,
+				"group":"Seedance video",
+				"mode":"image_to_video",
+				"metadata":{"duration":30,"resolution":%q,"ratio":"9:16","reference_video":%q}
+			}`, tt.resolution, tt.video, tt.resolution, tt.video)
+			ctx := newSoraJSONContext(t, http.MethodPost, "/pg/videos", body)
+			info := newSoraRelayInfo(tt.model)
+
+			requestBody, err := (&TaskAdaptor{}).BuildRequestBody(ctx, info)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]any{
+				"model":           tt.model,
+				"prompt":          "video studio alias",
+				"duration":        float64(30),
+				"resolution":      tt.resolution,
+				"ratio":           "9:16",
+				"reference_video": tt.video,
+			}, readSoraRequestBody(t, requestBody))
+		})
+	}
+}
+
 func TestSeedanceDurationFallbackAndValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -210,6 +347,10 @@ func TestSeedanceSpecialRejectsRemixButLegacySoraStillAllowsIt(t *testing.T) {
 		wantAllowed bool
 	}{
 		{name: "seedance special", model: specialVideoModel, wantCode: "unsupported_operation"},
+		{name: "pricing sheet 720p", model: "sd_2.5_special_720p", wantCode: "unsupported_operation"},
+		{name: "pricing sheet 1080p", model: "sd_2.5_special_1080p", wantCode: "unsupported_operation"},
+		{name: "pricing sheet 720p video reference", model: "sd_2.5_special_720p_with_video_ref", wantCode: "unsupported_operation"},
+		{name: "pricing sheet 1080p video reference", model: "sd_2.5_special_1080p_with_video_ref", wantCode: "unsupported_operation"},
 		{name: "legacy sora", model: "sora-2", wantAllowed: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
