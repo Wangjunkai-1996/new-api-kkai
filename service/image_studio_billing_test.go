@@ -32,6 +32,26 @@ func TestImageStudioMaximumPreconsumeIncludesCompletionAndAllRatios(t *testing.T
 	require.Equal(t, price.QuotaToPreConsume, relayInfo.PriceData.QuotaToPreConsume)
 }
 
+func TestImageStudioMaximumPreconsumeUsesRequestCountWithoutChangingFinalRatioBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(nil)
+	common.SetContextKey(c, constant.ContextKeyIsImageStudio, true)
+	relayInfo := &relaycommon.RelayInfo{}
+	price := types.PriceData{
+		ModelRatio: 1, CompletionRatio: 1,
+		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+	}
+
+	require.NoError(t, ApplyImageStudioMaximumPreconsume(
+		c, relayInfo, &price, 100, &types.TokenCountMeta{
+			MaxTokens: 100, BillingRatios: map[string]float64{"n": 4},
+		},
+	))
+	require.Equal(t, (common.PreConsumedQuota+100)*4, price.QuotaToPreConsume)
+	require.Nil(t, price.OtherRatios())
+	require.Nil(t, relayInfo.PriceData.OtherRatios())
+}
+
 func TestImageStudioMaximumPreconsumePreservesCompletePriceQuotes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(nil)

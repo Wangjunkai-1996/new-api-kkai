@@ -22,6 +22,11 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 import type { ImageGeneration } from '../types'
@@ -41,9 +46,15 @@ export function ImageGenerationCard(props: {
   onDelete: (generation: ImageGeneration) => void
 }) {
   const { t } = useTranslation()
-  const readyAssets = props.generation.assets.filter(
-    (asset) => asset.state === 'ready' && asset.content_url
-  )
+  const readyAssets = props.generation.assets
+    .filter((asset) => asset.state === 'ready' && asset.content_url)
+    .sort((left, right) => left.position - right.position || left.id - right.id)
+  let assetGridClass = 'grid-cols-1 grid-rows-1'
+  if (readyAssets.length === 2) {
+    assetGridClass = 'grid-cols-2 grid-rows-1'
+  } else if (readyAssets.length >= 3) {
+    assetGridClass = 'grid-cols-2 grid-rows-2'
+  }
   return (
     <Card
       className={cn(
@@ -54,7 +65,7 @@ export function ImageGenerationCard(props: {
       <div
         className={cn(
           'bg-muted grid aspect-square gap-0.5 overflow-hidden',
-          readyAssets.length > 1 && 'grid-cols-2'
+          assetGridClass
         )}
       >
         {readyAssets.length === 0 && (
@@ -65,22 +76,35 @@ export function ImageGenerationCard(props: {
             </span>
           </div>
         )}
-        {readyAssets.map((asset) => (
-          <a
-            key={asset.id}
-            href={asset.content_url}
-            target='_blank'
-            rel='noreferrer'
-            className='group relative min-h-0 overflow-hidden'
-          >
-            <img
-              src={asset.thumbnail_url || asset.content_url}
-              alt={props.generation.prompt}
-              className='size-full object-cover transition-transform group-hover:scale-[1.02]'
-              loading='lazy'
-            />
-          </a>
-        ))}
+        {readyAssets.map((asset, index) => {
+          const previewLabel = `${t('Preview')} ${String(index + 1)}`
+          return (
+            <Tooltip key={asset.id}>
+              <TooltipTrigger
+                render={
+                  <a
+                    href={asset.content_url}
+                    target='_blank'
+                    rel='noreferrer'
+                    aria-label={previewLabel}
+                    className={cn(
+                      'group relative min-h-0 min-w-0 overflow-hidden',
+                      readyAssets.length === 3 && index === 0 && 'row-span-2'
+                    )}
+                  />
+                }
+              >
+                <img
+                  src={asset.thumbnail_url || asset.content_url}
+                  alt={props.generation.prompt}
+                  className='size-full object-cover transition-transform group-hover:scale-[1.02]'
+                  loading='lazy'
+                />
+              </TooltipTrigger>
+              <TooltipContent>{previewLabel}</TooltipContent>
+            </Tooltip>
+          )
+        })}
       </div>
       <CardContent className='space-y-2 px-4 pt-4'>
         <div className='flex items-center justify-between gap-2'>
@@ -111,21 +135,30 @@ export function ImageGenerationCard(props: {
       </CardContent>
       <CardFooter className='justify-between px-3 pb-3'>
         <div className='flex gap-1'>
-          {readyAssets.map((asset) => (
-            <Button
-              key={asset.id}
-              size='icon-sm'
-              variant='ghost'
-              render={
-                <a
-                  href={asset.download_url || asset.content_url}
-                  aria-label={t('imageStudio.download')}
-                />
-              }
-            >
-              <Download aria-hidden='true' />
-            </Button>
-          ))}
+          {readyAssets.map((asset, index) => {
+            const downloadLabel = `${t('imageStudio.download')} ${String(index + 1)}`
+            return (
+              <Tooltip key={asset.id}>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size='icon-sm'
+                      variant='ghost'
+                      render={
+                        <a
+                          href={asset.download_url || asset.content_url}
+                          aria-label={downloadLabel}
+                        />
+                      }
+                    />
+                  }
+                >
+                  <Download aria-hidden='true' />
+                </TooltipTrigger>
+                <TooltipContent>{downloadLabel}</TooltipContent>
+              </Tooltip>
+            )
+          })}
         </div>
         <Button
           size='icon-sm'

@@ -33,6 +33,7 @@ describe('image reference response schemas', () => {
       specification_version: 1,
       specification: { version: 1, parameters: [] },
       default_parameters: {},
+      effective_max_outputs: 1,
       enabled: true,
       sort_order: 0,
       created_at: 1,
@@ -40,6 +41,12 @@ describe('image reference response schemas', () => {
     }
 
     assert.equal(imageModelProfileSchema.safeParse(model).success, true)
+    const legacyModel: Partial<typeof model> = { ...model }
+    delete legacyModel.effective_max_outputs
+    assert.equal(
+      imageModelProfileSchema.parse(legacyModel).effective_max_outputs,
+      1
+    )
     for (const maxReferenceImages of [0, 4]) {
       assert.equal(
         imageModelProfileSchema.safeParse({
@@ -59,6 +66,15 @@ describe('image reference response schemas', () => {
       }).success,
       false
     )
+    for (const effectiveMaxOutputs of [0, 5]) {
+      assert.equal(
+        imageModelProfileSchema.safeParse({
+          ...model,
+          effective_max_outputs: effectiveMaxOutputs,
+        }).success,
+        false
+      )
+    }
   })
 
   test('defaults missing capability reference byte limits conservatively', () => {

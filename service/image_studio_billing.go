@@ -188,7 +188,12 @@ func ApplyImageStudioMaximumPreconsume(
 	quotaDecimal := weightedTokens.
 		Mul(decimal.NewFromFloat(priceData.ModelRatio)).
 		Mul(decimal.NewFromFloat(priceData.GroupRatioInfo.GroupRatio))
-	quotaDecimal = priceData.ApplyOtherRatiosToDecimal(quotaDecimal)
+	maximumRatios := types.PriceData{}
+	maximumRatios.ReplaceOtherRatios(priceData.OtherRatios())
+	for name, ratio := range meta.BillingRatios {
+		maximumRatios.AddOtherRatio(name, ratio)
+	}
+	quotaDecimal = maximumRatios.ApplyOtherRatiosToDecimal(quotaDecimal)
 	quota, clamp := common.QuotaFromDecimalChecked(quotaDecimal)
 	if clamp != nil {
 		return clamp

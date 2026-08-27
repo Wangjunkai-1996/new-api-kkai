@@ -68,6 +68,7 @@ export type ImageModelProfile = {
   specification_version: number
   specification: ImageModelSpec
   default_parameters: ImageParameters
+  effective_max_outputs: number
   has_published_sample?: boolean
   enabled: boolean
   sort_order: number

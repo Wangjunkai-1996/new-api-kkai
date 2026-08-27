@@ -42,7 +42,7 @@ func ParseImageRelayResponseFile(path string, maxBytes int64, expectedCount int)
 	if err := common.DecodeJsonSingle(io.LimitReader(file, maxBytes+1), &response); err != nil {
 		return nil, ErrInvalidImageRelayResponse
 	}
-	if len(response.Data) == 0 || len(response.Data) > expectedCount {
+	if len(response.Data) != expectedCount {
 		return nil, ErrInvalidImageRelayResponse
 	}
 	results := make([]ImageRelayResult, 0, len(response.Data))

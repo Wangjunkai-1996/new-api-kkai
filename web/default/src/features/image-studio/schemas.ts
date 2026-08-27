@@ -76,6 +76,7 @@ export const imageModelProfileSchema = z.object({
     parameters: z.array(imageParameterSchema),
   }),
   default_parameters: imageParametersSchema,
+  effective_max_outputs: z.number().int().min(1).max(4).default(1),
   has_published_sample: z.boolean().optional(),
   enabled: z.boolean(),
   sort_order: z.number().int(),

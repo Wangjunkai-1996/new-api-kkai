@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -70,7 +71,7 @@ func TestImageStudioOutputLimitAcceptsLegacyBoundsButRejectsUnsafeMinimumDefault
 	}), ErrInvalidImageModelSpec)
 
 	unsafeMinimum := validImageModelSpec()
-	*unsafeMinimum.Parameters[1].Min = MaxImageStudioOutputs + 1
+	*unsafeMinimum.Parameters[1].Min = 2
 	*unsafeMinimum.Parameters[1].Max = dto.MaxImageN
 	assert.ErrorIs(t, ValidateImageModelSpec(unsafeMinimum, map[string]any{
 		"size": "1024x1024",
@@ -91,10 +92,14 @@ func TestValidateImageParametersRejectsUnknownFractionalAndProductOverflow(t *te
 
 	_, err := ValidateImageParameters(spec, map[string]any{"size": "1024x1024", "extra": true}, true)
 	assert.ErrorIs(t, err, ErrInvalidImageParameters)
-	_, err = ValidateImageParameters(spec, map[string]any{"size": "1024x1024", "count": 1.5}, true)
-	assert.ErrorIs(t, err, ErrInvalidImageParameters)
-	_, err = ValidateImageParameters(spec, map[string]any{"size": "1024x1024", "count": 5}, true)
-	assert.ErrorIs(t, err, ErrInvalidImageParameters)
+	for _, count := range []any{1, 2, MaxImageStudioOutputs} {
+		_, err = ValidateImageParameters(spec, map[string]any{"size": "1024x1024", "count": count}, true)
+		require.NoError(t, err)
+	}
+	for _, count := range []any{0, 1.5, MaxImageStudioOutputs + 1, math.MaxFloat64} {
+		_, err = ValidateImageParameters(spec, map[string]any{"size": "1024x1024", "count": count}, true)
+		assert.ErrorIs(t, err, ErrInvalidImageParameters)
+	}
 }
 
 func TestBuildImageRelayRequestUsesOnlyValidatedFieldsAndDisablesStreaming(t *testing.T) {

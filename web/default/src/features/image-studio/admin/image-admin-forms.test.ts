@@ -22,6 +22,7 @@ import { describe, test } from 'vitest'
 
 import type { ImageModelProfile } from '../types'
 import {
+  createImageParameterFormValues,
   createImageModelFormValues,
   imageModelFormSchema,
   parseImageModelForm,
@@ -61,6 +62,7 @@ const profile: ImageModelProfile = {
     ],
   },
   default_parameters: { count: 1, quality: 'standard' },
+  effective_max_outputs: 4,
   enabled: true,
   sort_order: 10,
   created_at: 1,
@@ -73,6 +75,20 @@ const issueMessages = (values: ImageModelFormValues): string[] => {
 }
 
 describe('image model admin form', () => {
+  test('creates a usable default for a newly added output count', () => {
+    assert.deepEqual(createImageParameterFormValues('n'), {
+      key: 'count',
+      label: 'n',
+      request_key: 'n',
+      required: false,
+      has_default: true,
+      default_value: 1,
+      options_text: '',
+      min: 1,
+      max: 4,
+    })
+  })
+
   test('supports the backend count range without weakening the user limit', () => {
     const values = createImageModelFormValues(profile)
     assert.equal(imageModelFormSchema.safeParse(values).success, true)

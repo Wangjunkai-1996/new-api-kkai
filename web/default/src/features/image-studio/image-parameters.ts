@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type {
+  ImageIntegerParameter,
   ImageModelProfile,
   ImageParameterControl,
   ImageParameters,
@@ -24,6 +25,52 @@ import type {
 } from './types'
 
 export const IMAGE_STUDIO_MAX_OUTPUTS = 4
+
+export const getImageOutputParameter = (
+  profile: ImageModelProfile
+): ImageIntegerParameter | undefined => {
+  const parameter = profile.specification.parameters.find(
+    (candidate) => candidate.request_key === 'n'
+  )
+  return parameter?.control === 'integer' ? parameter : undefined
+}
+
+export const getImageProfileMaxOutputs = (
+  profile: ImageModelProfile
+): number => {
+  const parameter = getImageOutputParameter(profile)
+  if (!parameter) return 1
+  return Math.max(
+    1,
+    Math.min(
+      parameter.max,
+      profile.effective_max_outputs,
+      IMAGE_STUDIO_MAX_OUTPUTS
+    )
+  )
+}
+
+export const clampImageOutputCount = (
+  profile: ImageModelProfile,
+  value: unknown,
+  fallback = 1
+): number => {
+  const max = getImageProfileMaxOutputs(profile)
+  const candidate =
+    typeof value === 'number' && Number.isInteger(value) ? value : fallback
+  return Math.max(1, Math.min(candidate, max))
+}
+
+export const getImageOutputCount = (
+  profile: ImageModelProfile,
+  parameters: Readonly<Record<string, unknown>>
+): number => {
+  const parameter = getImageOutputParameter(profile)
+  if (!parameter) return 1
+  const defaultValue = profile.default_parameters[parameter.key]
+  const fallback = typeof defaultValue === 'number' ? defaultValue : 1
+  return clampImageOutputCount(profile, parameters[parameter.key], fallback)
+}
 
 export type ImageParameterValidationError = {
   code:
@@ -43,7 +90,8 @@ export type ImageParametersParseResult =
 
 export const validateImageParameterValue = (
   parameter: ImageParameterControl,
-  value: unknown
+  value: unknown,
+  maxOutputs = IMAGE_STUDIO_MAX_OUTPUTS
 ): ImageParameterValidationError | undefined => {
   if (value === undefined || value === '') {
     return parameter.required
@@ -64,7 +112,7 @@ export const validateImageParameterValue = (
     }
     const effectiveMax =
       parameter.request_key === 'n'
-        ? Math.min(parameter.max, IMAGE_STUDIO_MAX_OUTPUTS)
+        ? Math.min(parameter.max, maxOutputs, IMAGE_STUDIO_MAX_OUTPUTS)
         : parameter.max
     if (value < parameter.min || value > effectiveMax) {
       return {
@@ -91,7 +139,11 @@ export const parseImageParameters = (
 
   for (const parameter of profile.specification.parameters) {
     const value = values[parameter.key]
-    const error = validateImageParameterValue(parameter, value)
+    const error = validateImageParameterValue(
+      parameter,
+      value,
+      profile.effective_max_outputs
+    )
     if (error) {
       errors.push(error)
       continue
@@ -114,7 +166,11 @@ export const normalizeImageParameters = (
   for (const parameter of profile.specification.parameters) {
     const value = values[parameter.key]
     if (
-      validateImageParameterValue(parameter, value) === undefined &&
+      validateImageParameterValue(
+        parameter,
+        value,
+        profile.effective_max_outputs
+      ) === undefined &&
       value !== undefined &&
       value !== ''
     ) {

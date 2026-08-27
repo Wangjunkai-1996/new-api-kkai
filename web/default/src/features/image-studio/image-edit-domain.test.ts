@@ -42,6 +42,7 @@ const profile: ImageModelProfile = {
     parameters: [],
   },
   default_parameters: {},
+  effective_max_outputs: 4,
   enabled: true,
   sort_order: 0,
   created_at: 1,

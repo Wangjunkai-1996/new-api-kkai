@@ -71,6 +71,27 @@ export const imageParameterFormSchema = z.object({
 
 export type ImageParameterFormValues = z.infer<typeof imageParameterFormSchema>
 
+export const createImageParameterFormValues = (
+  requestKey: ImageRequestField
+): ImageParameterFormValues => {
+  const control = controlForRequestField(requestKey)
+  const isOutputCount = requestKey === 'n'
+  let defaultValue: ImageParameterValue = ''
+  if (control === 'boolean') defaultValue = false
+  if (isOutputCount) defaultValue = 1
+  return {
+    key: isOutputCount ? 'count' : requestKey,
+    label: requestKey,
+    request_key: requestKey,
+    required: false,
+    has_default: isOutputCount,
+    default_value: defaultValue,
+    options_text: '',
+    min: isOutputCount ? 1 : 0,
+    max: isOutputCount ? IMAGE_STUDIO_MAX_OUTPUTS : 100,
+  }
+}
+
 export const imageModelFormSchema = z
   .object({
     model: z.string().trim().min(1, 'imageStudio.validation.modelRequired'),

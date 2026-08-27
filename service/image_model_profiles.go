@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"gorm.io/gorm"
 )
@@ -48,6 +49,7 @@ type ImageModelProfileView struct {
 	Specification        ImageModelSpec `json:"specification"`
 	DefaultParameters    map[string]any `json:"default_parameters"`
 	HasPublishedSample   *bool          `json:"has_published_sample,omitempty"`
+	EffectiveMaxOutputs  int            `json:"effective_max_outputs"`
 	Enabled              bool           `json:"enabled"`
 	SortOrder            int            `json:"sort_order"`
 	CreatedAt            int64          `json:"created_at"`
@@ -101,12 +103,28 @@ func ListEffectiveImageModelProfiles(
 	if err != nil {
 		return nil, err
 	}
-	models, err := enabledConfiguredImageStudioModelsForGroup(ctx, db, token.Group)
-	if err != nil || len(models) == 0 {
+	abilityChannels, err := enabledImageStudioAbilityChannelsForGroup(ctx, db, token.Group)
+	if err != nil || len(abilityChannels) == 0 {
+		return []ImageModelProfileView{}, err
+	}
+	models := make(map[string]struct{}, len(abilityChannels))
+	maxChannelOutputs := make(map[string]int, len(abilityChannels))
+	for _, abilityChannel := range abilityChannels {
+		models[abilityChannel.Model] = struct{}{}
+		channelMax := ImageStudioChannelMaxOutputs(abilityChannel.ChannelType)
+		if channelMax > maxChannelOutputs[abilityChannel.Model] {
+			maxChannelOutputs[abilityChannel.Model] = channelMax
+		}
+	}
+	modelNames := make([]string, 0, len(models))
+	for modelName := range models {
+		modelNames = append(modelNames, modelName)
+	}
+	if len(modelNames) == 0 {
 		return []ImageModelProfileView{}, err
 	}
 	var profiles []model.KKAIImageModelProfile
-	if err := db.WithContext(ctx).Where("enabled = ? AND model IN ?", true, models).Find(&profiles).Error; err != nil {
+	if err := db.WithContext(ctx).Where("enabled = ? AND model IN ?", true, modelNames).Find(&profiles).Error; err != nil {
 		return nil, fmt.Errorf("list effective image model profiles: %w", err)
 	}
 	views := make([]ImageModelProfileView, 0, len(profiles))
@@ -118,6 +136,7 @@ func ListEffectiveImageModelProfiles(
 		if err != nil {
 			return nil, err
 		}
+		view.EffectiveMaxOutputs = effectiveImageModelMaxOutputs(view.Specification, maxChannelOutputs[view.Model])
 		views = append(views, view)
 	}
 	sort.SliceStable(views, func(left int, right int) bool {
@@ -127,6 +146,27 @@ func ListEffectiveImageModelProfiles(
 		return views[left].Model < views[right].Model
 	})
 	return views, nil
+}
+
+func effectiveImageModelMaxOutputs(specification ImageModelSpec, maxChannelOutputs int) int {
+	profileMax := 1
+	for _, parameter := range specification.Parameters {
+		if parameter.RequestKey == "n" && parameter.Max != nil {
+			profileMax = *parameter.Max
+			break
+		}
+	}
+	globalMax := image_studio_setting.Get().MaxImagesPerGeneration
+	if profileMax > globalMax {
+		profileMax = globalMax
+	}
+	if maxChannelOutputs < profileMax {
+		profileMax = maxChannelOutputs
+	}
+	if profileMax < 1 {
+		return 1
+	}
+	return profileMax
 }
 
 func GetImageModelProfileByID(ctx context.Context, db *gorm.DB, id int64) (*ImageModelProfileView, error) {
@@ -338,7 +378,8 @@ func imageModelProfileView(profile model.KKAIImageModelProfile) (ImageModelProfi
 	return ImageModelProfileView{
 		ID: profile.ID, Model: profile.Model, DisplayName: profile.DisplayName, Description: profile.Description,
 		ProviderLabel: profile.ProviderLabel, SpecificationVersion: profile.SpecificationVersion,
-		Specification: specification, DefaultParameters: defaults, Enabled: profile.Enabled,
+		Specification: specification, DefaultParameters: defaults,
+		EffectiveMaxOutputs: effectiveImageModelMaxOutputs(specification, MaxImageStudioOutputs), Enabled: profile.Enabled,
 		SortOrder: profile.SortOrder, CreatedAt: profile.CreatedAt, UpdatedAt: profile.UpdatedAt,
 	}, nil
 }

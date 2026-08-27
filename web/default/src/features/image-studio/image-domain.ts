@@ -17,7 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { sha256Hex } from './image-hash'
-import { normalizeImageParameters } from './image-parameters'
+import {
+  clampImageOutputCount,
+  getImageOutputParameter,
+  normalizeImageParameters,
+} from './image-parameters'
 import type {
   CreateImageEditRequest,
   CreateImageRequest,
@@ -105,7 +109,19 @@ export const buildImageComposerValues = (
   input?: Partial<ImageComposerValues>
 ): ImageComposerValues => {
   const defaults = getImageProfileDefaults(profile)
-  const provided = normalizeImageParameters(profile, input?.parameters ?? {})
+  const inputParameters = { ...input?.parameters }
+  const outputParameter = getImageOutputParameter(profile)
+  if (outputParameter) {
+    const defaultCount = defaults[outputParameter.key]
+    const fallback = typeof defaultCount === 'number' ? defaultCount : 1
+    inputParameters[outputParameter.key] = clampImageOutputCount(
+      profile,
+      inputParameters[outputParameter.key],
+      fallback
+    )
+    defaults[outputParameter.key] = clampImageOutputCount(profile, defaultCount)
+  }
+  const provided = normalizeImageParameters(profile, inputParameters)
   return {
     model_profile_id: profile.id,
     prompt: input?.prompt ?? '',

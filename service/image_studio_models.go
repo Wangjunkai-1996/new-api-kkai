@@ -22,8 +22,25 @@ type imageStudioAbilityChannel struct {
 }
 
 func enabledImageStudioModelsForGroup(ctx context.Context, db *gorm.DB, group string) ([]string, error) {
+	rows, err := enabledImageStudioAbilityChannelsForGroup(ctx, db, group)
+	if err != nil {
+		return nil, err
+	}
+	models := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		models[row.Model] = struct{}{}
+	}
+	result := make([]string, 0, len(models))
+	for modelName := range models {
+		result = append(result, modelName)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func enabledImageStudioAbilityChannelsForGroup(ctx context.Context, db *gorm.DB, group string) ([]imageStudioAbilityChannel, error) {
 	if db == nil || strings.TrimSpace(group) == "" {
-		return []string{}, nil
+		return []imageStudioAbilityChannel{}, nil
 	}
 	var rows []imageStudioAbilityChannel
 	err := db.WithContext(ctx).Model(&model.Ability{}).
@@ -35,17 +52,12 @@ func enabledImageStudioModelsForGroup(ctx context.Context, db *gorm.DB, group st
 	if err != nil {
 		return nil, fmt.Errorf("list image studio abilities: %w", err)
 	}
-	models := make(map[string]struct{}, len(rows))
+	result := make([]imageStudioAbilityChannel, 0, len(rows))
 	for _, row := range rows {
 		if imageStudioChannelSupportsModel(row) {
-			models[row.Model] = struct{}{}
+			result = append(result, row)
 		}
 	}
-	result := make([]string, 0, len(models))
-	for modelName := range models {
-		result = append(result, modelName)
-	}
-	sort.Strings(result)
 	return result, nil
 }
 

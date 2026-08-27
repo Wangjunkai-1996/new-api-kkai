@@ -148,6 +148,11 @@ func validateImageStudioQuoteClaims(
 		}
 	}
 	if claims.ImagePricingSnapshot == nil {
+		countRatio, hasCountRatio := claims.OtherRatios["n"]
+		if (hasCountRatio && countRatio != float64(normalized.RequestedCount)) ||
+			(normalized.RequestedCount > 1 && !hasCountRatio) {
+			return ErrImageStudioQuoteMismatch
+		}
 		return nil
 	}
 	snapshot := claims.ImagePricingSnapshot

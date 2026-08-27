@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func seedImageStudioAbility(t *testing.T, modelName string) {
@@ -98,6 +99,7 @@ func TestCreateAndUpdateImageModelProfileRequireVersionedSpecification(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-image-1", created.Model)
 	assert.True(t, created.Enabled)
+	assert.Equal(t, MaxImageStudioOutputs, created.EffectiveMaxOutputs)
 
 	metadataOnly := imageModelProfileInput(1)
 	metadataOnly.Description = "Updated description"
@@ -115,6 +117,92 @@ func TestCreateAndUpdateImageModelProfileRequireVersionedSpecification(t *testin
 	updated, err = UpdateImageModelProfile(context.Background(), db, created.ID, changedSpec)
 	require.NoError(t, err)
 	assert.Equal(t, 2, updated.SpecificationVersion)
+}
+
+func TestListEffectiveImageModelProfilesIntersectsOutputLimits(t *testing.T) {
+	db := setupImageStudioTokenTest(t)
+	models := []struct {
+		name       string
+		profileMax int
+		channels   []int
+		want       int
+	}{
+		{"flux-effective-two", 2, []int{constant.ChannelTypeOpenAI}, 2},
+		{"flux-effective-single", 4, []int{constant.ChannelTypeAzure}, 1},
+		{"flux-effective-mixed", 4, []int{constant.ChannelTypeAzure, constant.ChannelTypeOpenAI}, 4},
+	}
+	for _, testModel := range models {
+		seedEffectiveImageModelProfile(t, db, testModel.name, testModel.profileMax)
+		for _, channelType := range testModel.channels {
+			seedEffectiveImageModelChannel(t, db, testModel.name, channelType)
+		}
+	}
+	ensured, err := EnsureImageStudioToken(context.Background(), db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, ensured.Token)
+
+	views, err := ListEffectiveImageModelProfiles(
+		context.Background(), db, 42, ensured.Token.ID, "192.0.2.1",
+	)
+	require.NoError(t, err)
+	require.Len(t, views, len(models))
+	byModel := make(map[string]ImageModelProfileView, len(views))
+	for _, view := range views {
+		byModel[view.Model] = view
+	}
+	for _, testModel := range models {
+		view, exists := byModel[testModel.name]
+		require.True(t, exists)
+		assert.Equal(t, testModel.want, view.EffectiveMaxOutputs)
+	}
+}
+
+func TestEffectiveImageModelMaxOutputsDefaultsToOneWithoutCountParameter(t *testing.T) {
+	assert.Equal(t, 1, effectiveImageModelMaxOutputs(ImageModelSpec{Version: 1}, MaxImageStudioOutputs))
+}
+
+func TestEffectiveImageModelMaxOutputsHonorsGlobalLimit(t *testing.T) {
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"image_studio.max_images_per_generation": "2",
+	}))
+
+	assert.Equal(t, 2, effectiveImageModelMaxOutputs(validImageModelSpec(), MaxImageStudioOutputs))
+}
+
+func seedEffectiveImageModelProfile(t *testing.T, db *gorm.DB, modelName string, maxOutputs int) {
+	t.Helper()
+	specification := validImageModelSpec()
+	*specification.Parameters[1].Max = maxOutputs
+	specificationJSON, err := common.Marshal(specification)
+	require.NoError(t, err)
+	defaultsJSON, err := common.Marshal(map[string]any{"size": "1024x1024", "count": 1})
+	require.NoError(t, err)
+	now := time.Now().Unix()
+	require.NoError(t, db.Create(&model.KKAIImageModelProfile{
+		Model: modelName, DisplayName: modelName, Description: "effective output test",
+		SpecificationVersion: specification.Version, Specification: string(specificationJSON),
+		DefaultParameters: string(defaultsJSON), Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}).Error)
+}
+
+func seedEffectiveImageModelChannel(t *testing.T, db *gorm.DB, modelName string, channelType int) {
+	t.Helper()
+	channel := model.Channel{
+		Type: channelType, Key: "effective-profile-key", Status: common.ChannelStatusEnabled,
+		Name: modelName, Models: modelName, Group: ImageStudioTokenGroup, CreatedTime: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&channel).Error)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: ImageStudioTokenGroup, Model: modelName, ChannelId: channel.Id,
+		Enabled: true, Priority: &priority,
+	}).Error)
 }
 
 func TestDeleteImageModelProfileRejectsReferencedProfile(t *testing.T) {

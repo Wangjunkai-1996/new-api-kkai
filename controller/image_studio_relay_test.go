@@ -65,6 +65,8 @@ func TestPrepareImageStudioRequestRewritesOnlyValidatedRelayFields(t *testing.T)
 	assert.NotContains(t, payload, "parameters")
 	assert.NotContains(t, payload, "extra_fields")
 	assert.NotContains(t, payload, "response_format")
+	common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeAzure)
+	assert.ErrorIs(t, service.ValidateSelectedImageStudioChannel(ctx), service.ErrNoChannelSupportsImageOutputCount)
 
 	var reservations int64
 	require.NoError(t, db.Model(&model.KKAIIdempotencyKey{}).Count(&reservations).Error)
@@ -303,11 +305,37 @@ func TestImageStudioErrorStatusPreservesClientAndConcurrencyFailures(t *testing.
 		{service.ErrImageArchiveTooLarge, http.StatusRequestEntityTooLarge, "image_asset_too_large"},
 		{service.ErrImageArchiveMIMERejected, http.StatusBadRequest, "invalid_image_asset"},
 		{service.ErrImageTemporaryStorageUnavailable, http.StatusServiceUnavailable, "image_temporary_storage_unavailable"},
+		{service.ErrNoChannelSupportsImageOutputCount, http.StatusServiceUnavailable, "image_output_count_unavailable"},
 	}
 	for _, test := range tests {
 		status, code := imageStudioErrorStatus(test.err)
 		assert.Equal(t, test.status, status)
 		assert.Equal(t, test.code, code)
+	}
+}
+
+func TestImageStudioQuoteAndSubmitRejectOutputIncompatibleSelectedChannel(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler gin.HandlerFunc
+	}{
+		{"quote", QuoteImageStudioGeneration},
+		{"submit", SubmitImageStudioGeneration},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, recorder := newImageStudioRelayContext(http.MethodPost, "/pg/images", nil)
+			ctx.Set(imageStudioNormalizedSubmissionContextKey, &service.NormalizedImageStudioSubmission{
+				RequestedCount: 2,
+			})
+			service.SetImageStudioRequestedOutputCount(ctx, 2)
+			common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeAzure)
+
+			test.handler(ctx)
+
+			assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "image_output_count_unavailable")
+		})
 	}
 }
 

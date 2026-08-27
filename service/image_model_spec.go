@@ -164,8 +164,8 @@ func validateImageParameterSpec(parameter ImageParameterSpec) error {
 			*parameter.Min < rule.minimum || *parameter.Max > rule.maximum || *parameter.Min > *parameter.Max {
 			return fmt.Errorf("%w: parameter %q has invalid integer bounds", ErrInvalidImageModelSpec, parameter.Key)
 		}
-		if parameter.RequestKey == "n" && *parameter.Min > MaxImageStudioOutputs {
-			return fmt.Errorf("%w: parameter %q minimum exceeds the image studio output limit", ErrInvalidImageModelSpec, parameter.Key)
+		if parameter.RequestKey == "n" && *parameter.Min != 1 {
+			return fmt.Errorf("%w: parameter %q minimum must be 1", ErrInvalidImageModelSpec, parameter.Key)
 		}
 	case ImageControlBoolean:
 		if len(parameter.Options) != 0 || parameter.Min != nil || parameter.Max != nil {

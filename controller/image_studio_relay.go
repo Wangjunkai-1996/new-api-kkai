@@ -119,6 +119,7 @@ func PrepareImageStudioRequest(c *gin.Context) {
 	}
 	c.Set(imageStudioNormalizedSubmissionContextKey, normalized)
 	service.SetImageStudioReferenceCount(c, len(normalized.References))
+	service.SetImageStudioRequestedOutputCount(c, normalized.RequestedCount)
 
 	if isImageStudioSubmitRequest(c) {
 		if err := service.ValidateImageStudioSubmitRequest(request); err != nil {
@@ -170,6 +171,10 @@ func QuoteImageStudioGeneration(c *gin.Context) {
 		respondImageStudioError(c, service.ErrInvalidImageStudioSubmission)
 		return
 	}
+	if err := service.ValidateSelectedImageStudioChannel(c); err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
 	price, err := calculateImageStudioQuote(c)
 	if err != nil {
 		respondImageStudioError(c, err)
@@ -189,6 +194,10 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	normalized, ok := imageStudioNormalizedSubmission(c)
 	if !ok {
 		respondImageStudioSubmitGuardError(c, service.ErrInvalidImageStudioSubmission)
+		return
+	}
+	if err := service.ValidateSelectedImageStudioChannel(c); err != nil {
+		respondImageStudioError(c, err)
 		return
 	}
 	quote, err := service.ValidateImageStudioQuote(normalized, time.Now())
@@ -447,13 +456,18 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	); err != nil {
 		return nil, err
 	}
+	quoteRatios := types.PriceData{}
+	quoteRatios.ReplaceOtherRatios(priceData.OtherRatios())
+	for name, ratio := range meta.BillingRatios {
+		quoteRatios.AddOtherRatio(name, ratio)
+	}
 	var pricingSnapshot *imagepricing.Snapshot
 	if relayInfo.ImagePricingSnapshot != nil {
 		cloned := *relayInfo.ImagePricingSnapshot
 		pricingSnapshot = &cloned
 	}
 	return &imageStudioQuotePrice{
-		Quota: priceData.QuotaToPreConsume, OtherRatios: priceData.OtherRatios(),
+		Quota: priceData.QuotaToPreConsume, OtherRatios: quoteRatios.OtherRatios(),
 		ImagePricingSnapshot: pricingSnapshot,
 	}, nil
 }

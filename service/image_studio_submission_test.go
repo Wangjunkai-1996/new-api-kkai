@@ -41,6 +41,33 @@ func TestNormalizeImageStudioSubmissionMergesDefaultsAndBuildsStrictRelayRequest
 	assert.Len(t, normalized.RequestHash, 64)
 }
 
+func TestImageStudioOutputCountChangesRequestHashAndConflictsOnIdempotencyKey(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	requests := make(map[int]*NormalizedImageStudioSubmission, 2)
+	for _, count := range []int{1, 4} {
+		normalized, err := NormalizeImageStudioSubmission(
+			context.Background(), db, 7, ImageStudioSubmissionRequest{
+				TokenID: 4, Model: profile.Model, Prompt: "the same prompt",
+				Parameters: map[string]any{"count": count},
+			},
+		)
+		require.NoError(t, err)
+		requests[count] = normalized
+	}
+	require.NotEqual(t, requests[1].RequestHash, requests[4].RequestHash)
+
+	_, err := ReserveIdempotencyKey(context.Background(), db, IdempotencyReservationRequest{
+		UserID: 7, Operation: model.ImageIdempotencyOperationSubmit,
+		Key: "same-key-different-count", RequestHash: requests[1].RequestHash,
+	})
+	require.NoError(t, err)
+	_, err = ReserveIdempotencyKey(context.Background(), db, IdempotencyReservationRequest{
+		UserID: 7, Operation: model.ImageIdempotencyOperationSubmit,
+		Key: "same-key-different-count", RequestHash: requests[4].RequestHash,
+	})
+	assert.ErrorIs(t, err, ErrIdempotencyConflict)
+}
+
 func TestImageStudioGenerationRequestHashRemainsBackwardCompatible(t *testing.T) {
 	normalized := &NormalizedImageStudioSubmission{
 		TokenID: 4, ProfileID: 8, SpecificationVersion: 3,
@@ -219,6 +246,30 @@ func TestImageStudioQuoteBindsNormalizedCreativeRequest(t *testing.T) {
 	normalized.RequestHash = changed
 	_, err = ValidateImageStudioQuote(normalized, now.Add(time.Minute))
 	require.ErrorIs(t, err, ErrImageStudioQuoteMismatch)
+}
+
+func TestImageStudioBatchQuoteBindsRequestedCountRatio(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "four candidates",
+		Parameters: map[string]any{"count": 4},
+	})
+	require.NoError(t, err)
+	now := time.Unix(1_800_000_000, 0)
+
+	_, err = newImageStudioQuoteAt(normalized, 1_000, nil, nil, now)
+	assert.ErrorIs(t, err, ErrImageStudioQuoteMismatch)
+	_, err = newImageStudioQuoteAt(normalized, 1_000, map[string]float64{"n": 3}, nil, now)
+	assert.ErrorIs(t, err, ErrImageStudioQuoteMismatch)
+
+	quote, err := newImageStudioQuoteAt(
+		normalized, 1_000, map[string]float64{"n": 4}, nil, now,
+	)
+	require.NoError(t, err)
+	normalized.QuoteToken = quote.QuoteToken
+	claims, err := ValidateImageStudioQuote(normalized, now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, float64(4), claims.OtherRatios["n"])
 }
 
 func TestImageStudioQuoteRejectsTamperedSignedClaims(t *testing.T) {

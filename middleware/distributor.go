@@ -53,13 +53,13 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
-			if !service.ChannelMeetsRequestCapabilities(c, channel) {
+			if capabilityErr := service.ImageStudioRequestCapabilityError(c, channel); capabilityErr != nil {
 				message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{
 					"Group": common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
 					"Model": modelRequest.Model,
-					"Error": service.ErrNoChannelSupportsImageReferences.Error(),
+					"Error": capabilityErr.Error(),
 				})
-				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, channelCapabilityErrorCode(capabilityErr))
 				return
 			}
 		} else {
@@ -153,7 +153,7 @@ func Distribute() func(c *gin.Context) {
 						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
 						//	message = "数据库一致性已被破坏，请联系管理员"
 						//}
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, channelCapabilityErrorCode(err))
 						return
 					}
 					if channel == nil {
@@ -170,6 +170,13 @@ func Distribute() func(c *gin.Context) {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
+}
+
+func channelCapabilityErrorCode(err error) types.ErrorCode {
+	if errors.Is(err, service.ErrNoChannelSupportsImageOutputCount) {
+		return types.ErrorCodeImageOutputCountUnavailable
+	}
+	return types.ErrorCodeModelNotFound
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.

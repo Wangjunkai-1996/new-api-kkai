@@ -21,6 +21,9 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'vitest'
 
 import {
+  getImageOutputCount,
+  getImageOutputParameter,
+  getImageProfileMaxOutputs,
   normalizeImageParameters,
   parseImageParameters,
 } from './image-parameters'
@@ -72,6 +75,7 @@ const profile: ImageModelProfile = {
     ],
   },
   default_parameters: {},
+  effective_max_outputs: 4,
   enabled: true,
   sort_order: 0,
   created_at: 1,
@@ -98,6 +102,36 @@ describe('image parameters', () => {
     assert.deepEqual(normalizeImageParameters(profile, { count: 4 }), {
       count: 4,
     })
+  })
+
+  test('uses the server-provided effective output limit', () => {
+    const limitedProfile = { ...profile, effective_max_outputs: 2 }
+
+    assert.equal(getImageOutputParameter(limitedProfile)?.key, 'count')
+    assert.equal(getImageProfileMaxOutputs(limitedProfile), 2)
+    assert.deepEqual(
+      parseImageParameters(limitedProfile, {
+        size: '1024x1024',
+        count: 3,
+      }),
+      {
+        success: false,
+        errors: [
+          {
+            code: 'out_of_range',
+            parameterKey: 'count',
+            min: 1,
+            max: 2,
+          },
+        ],
+      }
+    )
+  })
+
+  test('clamps a stale form count when the effective limit is refreshed', () => {
+    const refreshedProfile = { ...profile, effective_max_outputs: 1 }
+
+    assert.equal(getImageOutputCount(refreshedProfile, { count: 4 }), 1)
   })
 
   test('parses specification fields and strips unknown parameters', () => {

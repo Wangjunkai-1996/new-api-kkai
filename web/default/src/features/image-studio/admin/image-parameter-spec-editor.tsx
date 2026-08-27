@@ -36,28 +36,11 @@ import { Textarea } from '@/components/ui/textarea'
 import type { ImageParameterControl } from '../types'
 import {
   controlForImageRequestField,
+  createImageParameterFormValues,
   IMAGE_REQUEST_FIELDS,
   type ImageModelFormValues,
-  type ImageParameterFormValues,
   type ImageRequestField,
 } from './image-admin-forms'
-
-const newParameter = (
-  requestKey: ImageRequestField
-): ImageParameterFormValues => {
-  const control = controlForImageRequestField(requestKey)
-  return {
-    key: requestKey === 'n' ? 'count' : requestKey,
-    label: requestKey,
-    request_key: requestKey,
-    required: false,
-    has_default: false,
-    default_value: control === 'boolean' ? false : '',
-    options_text: '',
-    min: requestKey === 'n' ? 1 : 0,
-    max: requestKey === 'n' ? 4 : 100,
-  }
-}
 
 export function ImageParameterSpecEditor() {
   const { t } = useTranslation()
@@ -82,7 +65,10 @@ export function ImageParameterSpecEditor() {
           size='sm'
           variant='outline'
           disabled={!nextField}
-          onClick={() => nextField && fields.append(newParameter(nextField))}
+          onClick={() =>
+            nextField &&
+            fields.append(createImageParameterFormValues(nextField))
+          }
         >
           <Plus aria-hidden='true' />
           {t('imageStudio.admin.addParameter')}
@@ -112,16 +98,20 @@ function ParameterRow(props: { index: number; onRemove: () => void }) {
   })
   const control = controlForImageRequestField(requestKey)
   const changeRequestKey = (next: ImageRequestField): void => {
-    const nextControl = controlForImageRequestField(next)
+    const defaults = createImageParameterFormValues(next)
+    form.setValue(`parameters.${props.index}.key`, defaults.key)
     form.setValue(`parameters.${props.index}.request_key`, next)
-    form.setValue(`parameters.${props.index}.options_text`, '')
-    form.setValue(`parameters.${props.index}.min`, next === 'n' ? 1 : 0)
-    form.setValue(`parameters.${props.index}.max`, next === 'n' ? 4 : 100)
+    form.setValue(
+      `parameters.${props.index}.options_text`,
+      defaults.options_text
+    )
+    form.setValue(`parameters.${props.index}.min`, defaults.min)
+    form.setValue(`parameters.${props.index}.max`, defaults.max)
     form.setValue(
       `parameters.${props.index}.default_value`,
-      nextControl === 'boolean' ? false : ''
+      defaults.default_value
     )
-    form.setValue(`parameters.${props.index}.has_default`, false)
+    form.setValue(`parameters.${props.index}.has_default`, defaults.has_default)
   }
   return (
     <div className='space-y-3 rounded-lg border p-3'>

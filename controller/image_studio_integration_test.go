@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,7 +23,9 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	settingconfig "github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -119,6 +122,100 @@ func TestImageStudioSubmissionArchivesResultWithoutExposingProviderPayload(t *te
 	var consumeLogs int64
 	require.NoError(t, db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeLogs).Error)
 	assert.EqualValues(t, 1, consumeLogs)
+}
+
+func TestImageStudioRatioBatchQuoteAndSettlementMultiplyCountOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	db := setupImageStudioIntegrationState(t)
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-image-1":1}`))
+
+	const providerBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	var providerCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		var providerRequest dto.ImageRequest
+		require.NoError(t, common.DecodeJson(request.Body, &providerRequest))
+		require.NotNil(t, providerRequest.N)
+		providerCalls.Add(1)
+		data := make([]map[string]string, int(*providerRequest.N))
+		for index := range data {
+			data[index] = map[string]string{"b64_json": providerBase64}
+		}
+		body, err := common.Marshal(map[string]any{
+			"created": 1,
+			"data":    data,
+			"usage": map[string]int{
+				"input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+			},
+		})
+		require.NoError(t, err)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(body)
+	}))
+	t.Cleanup(upstream.Close)
+	var channel model.Channel
+	require.NoError(t, db.First(&channel).Error)
+	channel.BaseURL = &upstream.URL
+	require.NoError(t, db.Save(&channel).Error)
+	model.InitChannelCache()
+
+	store := &imageIntegrationAssetStore{objects: map[string][]byte{}}
+	pipeline, err := service.NewImageAssetPipeline(
+		db, store, service.NewHTTPImageArchiveFetcher(t.TempDir()), 1<<20, 100,
+	)
+	require.NoError(t, err)
+	engine := imageStudioIntegrationEngine(pipeline)
+
+	var token model.Token
+	require.NoError(t, db.First(&token).Error)
+	quotes := make(map[int]service.ImageStudioQuote, 2)
+	finalQuotas := make(map[int]int, 2)
+	for _, count := range []int{1, 4} {
+		quoteRequest := service.ImageStudioSubmissionRequest{
+			TokenID: token.Id, Model: "gpt-image-1", Prompt: "A priced batch",
+			Parameters: map[string]any{"count": count},
+		}
+		body, err := common.Marshal(quoteRequest)
+		require.NoError(t, err)
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/pg/images/quote", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		engine.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		var envelope struct {
+			Success bool                     `json:"success"`
+			Data    service.ImageStudioQuote `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
+		require.True(t, envelope.Success)
+		quotes[count] = envelope.Data
+
+		quoteRequest.QuoteToken = envelope.Data.QuoteToken
+		body, err = common.Marshal(quoteRequest)
+		require.NoError(t, err)
+		response = httptest.NewRecorder()
+		request = httptest.NewRequest(http.MethodPost, "/pg/images", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", fmt.Sprintf("ratio-batch-%d", count))
+		engine.ServeHTTP(response, request)
+		require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
+		var generation model.KKAIImageGeneration
+		require.NoError(t, db.Where("requested_count = ?", count).First(&generation).Error)
+		require.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
+		require.Equal(t, count, generation.SucceededCount)
+		finalQuotas[count] = generation.FinalQuota
+	}
+
+	require.Positive(t, quotes[1].Quota)
+	assert.Equal(t, quotes[1].Quota*4, quotes[4].Quota)
+	assert.Equal(t, float64(1), quotes[1].OtherRatios["n"])
+	assert.Equal(t, float64(4), quotes[4].OtherRatios["n"])
+	require.Positive(t, finalQuotas[1])
+	assert.Equal(t, finalQuotas[1], finalQuotas[4])
+	assert.EqualValues(t, 2, providerCalls.Load())
+	assert.Len(t, store.objects, 5)
 }
 
 func TestImageStudioSubmissionArchivesCompletedSSEAfterClientCancellation(t *testing.T) {
@@ -238,7 +335,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	pricingJSON, err := common.Marshal(pricingConfig)
 	require.NoError(t, err)
 	require.NoError(t, image_pricing_setting.UpdateByJSONString(string(pricingJSON)))
-	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 407).Update("quota", 2_000_000).Error)
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 407).Update("quota", 3_000_000).Error)
 
 	const providerBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 	imageBytes, err := base64.StdEncoding.DecodeString(providerBase64)
@@ -278,8 +375,9 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(fmt.Sprintf(
-			`{"created":1,"data":[{"b64_json":%q},{"b64_json":%q}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
-			providerBase64, providerBase64,
+			`{"created":1,"data":[{"b64_json":%q},{"b64_json":%q},{"b64_json":%q},{"b64_json":%q}],`+
+				`"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+			providerBase64, providerBase64, providerBase64, providerBase64,
 		)))
 	}))
 	t.Cleanup(upstream.Close)
@@ -304,7 +402,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	references := imageStudioEditTestReferences(referenceImages)
 	quoteRequest, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "Use this reference",
-		Parameters: map[string]any{"count": 2, "size": "1024x1024"},
+		Parameters: map[string]any{"count": 4, "size": "1024x1024"},
 		References: references,
 	})
 	require.NoError(t, err)
@@ -319,13 +417,13 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	}
 	require.NoError(t, common.Unmarshal(quoteResponse.Body.Bytes(), &quoteEnvelope))
 	require.True(t, quoteEnvelope.Success)
-	require.Equal(t, 1_005_000, quoteEnvelope.Data.Quota)
-	require.Equal(t, float64(2), quoteEnvelope.Data.OtherRatios["n"])
+	require.Equal(t, 2_010_000, quoteEnvelope.Data.Quota)
+	require.Equal(t, float64(4), quoteEnvelope.Data.OtherRatios["n"])
 	require.NotEmpty(t, quoteEnvelope.Data.QuoteToken)
 
 	submitJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "Use this reference",
-		Parameters: map[string]any{"count": 2, "size": "1024x1024"},
+		Parameters: map[string]any{"count": 4, "size": "1024x1024"},
 		QuoteToken: quoteEnvelope.Data.QuoteToken, References: references,
 	})
 	require.NoError(t, err)
@@ -342,7 +440,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	assert.Equal(t, service.ImageStudioEditModel, providerCall.Model)
 	assert.Equal(t, "Use this reference", providerCall.Prompt)
 	assert.Equal(t, "1024x1024", providerCall.Size)
-	assert.Equal(t, "2", providerCall.N)
+	assert.Equal(t, "4", providerCall.N)
 	assert.Equal(t, "false", providerCall.Stream)
 	assert.Equal(t, []string{"image/png", "image/png"}, providerCall.ContentTypes)
 	assert.Equal(t, referenceImages, providerCall.Images)
@@ -351,9 +449,16 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	require.NoError(t, db.First(&generation).Error)
 	assert.Equal(t, service.ImageStudioEditModel, generation.Model)
 	assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
-	assert.Equal(t, 2, generation.SucceededCount)
+	assert.Equal(t, 4, generation.RequestedCount)
+	assert.Equal(t, 4, generation.SucceededCount)
 	assert.Equal(t, quoteEnvelope.Data.Quota, generation.FinalQuota)
-	assert.Len(t, store.objects, 2)
+	assert.Len(t, store.objects, 4)
+	var assets []model.KKAIImageAsset
+	require.NoError(t, db.Order("position ASC, id ASC").Find(&assets).Error)
+	require.Len(t, assets, 4)
+	for position, asset := range assets {
+		assert.Equal(t, position, asset.Position)
+	}
 	var accountingEvent model.KKAIOutboxEvent
 	require.NoError(t, db.Where(
 		"topic = ? AND aggregate_id = ?",
@@ -374,7 +479,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	assert.Equal(t, "1024x1024", pricingSnapshot["size"])
 	assert.Equal(t, 0.67, pricingSnapshot["unit_price"])
 	assert.Equal(t, 1.5, pricingSnapshot["group_ratio"])
-	assert.Equal(t, float64(2), pricingSnapshot["requested_count"])
+	assert.Equal(t, float64(4), pricingSnapshot["requested_count"])
 }
 
 func TestImageStudioSubmissionFailureRefundsAndReplaysWithoutCallingProviderAgain(t *testing.T) {
@@ -586,6 +691,114 @@ func TestImageStudioPartialArchiveIsDiscardedAndFullyRefunded(t *testing.T) {
 	require.Zero(t, consumeLogs)
 }
 
+func TestImageStudioShortBatchResponseIsDiscardedAndFullyRefunded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	db := setupImageStudioIntegrationState(t)
+	const validImage = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(fmt.Sprintf(
+			`{"created":1,"data":[{"b64_json":%q},{"b64_json":%q},{"b64_json":%q}],`+
+				`"usage":{"input_tokens":1,"output_tokens":3,"total_tokens":4}}`,
+			validImage, validImage, validImage,
+		)))
+	}))
+	t.Cleanup(upstream.Close)
+	var channel model.Channel
+	require.NoError(t, db.First(&channel).Error)
+	channel.BaseURL = &upstream.URL
+	require.NoError(t, db.Save(&channel).Error)
+	model.InitChannelCache()
+
+	store := &imageIntegrationAssetStore{objects: map[string][]byte{}}
+	pipeline, err := service.NewImageAssetPipeline(
+		db, store, service.NewHTTPImageArchiveFetcher(t.TempDir()), 1<<20, 100,
+	)
+	require.NoError(t, err)
+	request := httptest.NewRequest(
+		http.MethodPost, "/pg/images",
+		bytes.NewReader(imageStudioIntegrationRequestBodyWithCount(t, db, "A short batch", 4)),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "image-integration-short-batch")
+	response := httptest.NewRecorder()
+	imageStudioIntegrationEngine(pipeline).ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusBadGateway, response.Code, response.Body.String())
+	assertImageStudioIntegrationBatchRefunded(t, db)
+	var assetCount int64
+	require.NoError(t, db.Model(&model.KKAIImageAsset{}).Count(&assetCount).Error)
+	assert.Zero(t, assetCount)
+	assert.Empty(t, store.objects)
+}
+
+func TestImageStudioOversizedBatchResponseIsFullyRefunded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	settings := image_studio_setting.Get()
+	require.NoError(t, settingconfig.GlobalConfig.LoadFromDB(map[string]string{
+		"image_studio.max_output_bytes":   "256",
+		"image_studio.max_response_bytes": "256",
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, settingconfig.GlobalConfig.LoadFromDB(map[string]string{
+			"image_studio.max_output_bytes":   fmt.Sprint(settings.MaxOutputBytes),
+			"image_studio.max_response_bytes": fmt.Sprint(settings.MaxResponseBytes),
+		}))
+	})
+	db := setupImageStudioIntegrationState(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(fmt.Sprintf(
+			`{"created":1,"data":[{"b64_json":%q}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+			strings.Repeat("A", 512),
+		)))
+	}))
+	t.Cleanup(upstream.Close)
+	var channel model.Channel
+	require.NoError(t, db.First(&channel).Error)
+	channel.BaseURL = &upstream.URL
+	require.NoError(t, db.Save(&channel).Error)
+	model.InitChannelCache()
+
+	store := &imageIntegrationAssetStore{objects: map[string][]byte{}}
+	pipeline, err := service.NewImageAssetPipeline(
+		db, store, service.NewHTTPImageArchiveFetcher(t.TempDir()), 1<<20, 100,
+	)
+	require.NoError(t, err)
+	request := httptest.NewRequest(
+		http.MethodPost, "/pg/images",
+		bytes.NewReader(imageStudioIntegrationRequestBodyWithCount(t, db, "An oversized batch", 4)),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "image-integration-oversized-batch")
+	response := httptest.NewRecorder()
+	imageStudioIntegrationEngine(pipeline).ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusBadGateway, response.Code, response.Body.String())
+	assertImageStudioIntegrationBatchRefunded(t, db)
+	assert.Empty(t, store.objects)
+}
+
+func assertImageStudioIntegrationBatchRefunded(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	var generation model.KKAIImageGeneration
+	require.NoError(t, db.First(&generation).Error)
+	assert.NotEqual(t, model.ImageGenerationStatusSucceeded, generation.Status)
+	assert.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
+	assert.Zero(t, generation.FinalQuota)
+	var activeAssets int64
+	require.NoError(t, db.Model(&model.KKAIImageAsset{}).Where("deleted_at = 0").Count(&activeAssets).Error)
+	assert.Zero(t, activeAssets)
+	var user model.User
+	require.NoError(t, db.First(&user, 407).Error)
+	assert.EqualValues(t, 100_000, user.Quota)
+	var consumeLogs int64
+	require.NoError(t, db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeLogs).Error)
+	assert.Zero(t, consumeLogs)
+}
+
 func imageStudioIntegrationRequestBody(t *testing.T, db *gorm.DB, prompt string) []byte {
 	return imageStudioIntegrationRequestBodyWithCount(t, db, prompt, 1)
 }
@@ -601,7 +814,9 @@ func imageStudioIntegrationRequestBodyWithCount(
 		Parameters: map[string]any{"count": count},
 	})
 	require.NoError(t, err)
-	quote, err := service.NewImageStudioQuote(normalized, 100_000, nil, nil)
+	quote, err := service.NewImageStudioQuote(
+		normalized, 100_000, map[string]float64{"n": float64(normalized.RequestedCount)}, nil,
+	)
 	require.NoError(t, err)
 	requestBody, err := common.Marshal(service.ImageStudioSubmissionRequest{
 		TokenID: token.Id, Model: normalized.Model, Prompt: normalized.Prompt,
@@ -616,8 +831,11 @@ func imageStudioIntegrationEngine(pipeline *service.ImageAssetPipeline) *gin.Eng
 	setup := func(c *gin.Context) {
 		c.Set("id", 407)
 		c.Set("user_group", "default")
-		c.Set(imageStudioAssetPipelineContextKey, pipeline)
+		if pipeline != nil {
+			c.Set(imageStudioAssetPipelineContextKey, pipeline)
+		}
 	}
+	engine.POST("/pg/images/quote", setup, PrepareImageStudioRequest, middleware.Distribute(), QuoteImageStudioGeneration)
 	engine.POST("/pg/images", setup, PrepareImageStudioRequest, middleware.Distribute(), SubmitImageStudioGeneration)
 	engine.POST("/pg/images/edits/quote", setup, PrepareImageStudioRequest, middleware.Distribute(), QuoteImageStudioGeneration)
 	engine.POST("/pg/images/edits", setup, PrepareImageStudioRequest, middleware.Distribute(), SubmitImageStudioGeneration)
@@ -694,6 +912,7 @@ func setupImageStudioIntegrationState(t *testing.T) *gorm.DB {
 	previousUsableGroups := setting.UserUsableGroups2JSONString()
 	previousGroupRatios := ratio_setting.GroupRatio2JSONString()
 	previousModelPrices := ratio_setting.ModelPrice2JSONString()
+	previousModelRatios := ratio_setting.ModelRatio2JSONString()
 	t.Cleanup(func() {
 		model.DB = previousDB
 		model.LOG_DB = previousLogDB
@@ -703,6 +922,7 @@ func setupImageStudioIntegrationState(t *testing.T) *gorm.DB {
 		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatios))
 		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousModelPrices))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousModelRatios))
 	})
 
 	dsn := fmt.Sprintf("file:image-integration-%d?mode=memory&cache=shared", time.Now().UnixNano())

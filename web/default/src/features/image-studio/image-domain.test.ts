@@ -81,6 +81,7 @@ const profile: ImageModelProfile = {
     compression: 80,
     watermark: false,
   },
+  effective_max_outputs: 4,
   enabled: true,
   sort_order: 0,
   created_at: 1,
@@ -122,6 +123,72 @@ describe('image composer parameters', () => {
         },
         sample_id: 9,
       }
+    )
+  })
+
+  test('clamps a draft output count by request field and effective limit', () => {
+    const limitedProfile: ImageModelProfile = {
+      ...profile,
+      effective_max_outputs: 2,
+      specification: {
+        ...profile.specification,
+        parameters: profile.specification.parameters.map((parameter) =>
+          parameter.request_key === 'n'
+            ? { ...parameter, key: 'variants' }
+            : parameter
+        ),
+      },
+      default_parameters: {
+        size: '1024x1024',
+        variants: 1,
+        compression: 80,
+        watermark: false,
+      },
+    }
+
+    assert.deepEqual(
+      buildImageComposerValues(limitedProfile, {
+        prompt: 'bounded batch',
+        parameters: { variants: 4 },
+      }).parameters,
+      {
+        size: '1024x1024',
+        variants: 2,
+        compression: 80,
+        watermark: false,
+      }
+    )
+  })
+
+  test('uses the target profile default when rebuilding after a model switch', () => {
+    const targetProfile: ImageModelProfile = {
+      ...profile,
+      id: 8,
+      default_parameters: {
+        ...profile.default_parameters,
+        count: 3,
+      },
+    }
+    const profileWithoutCountDefault: ImageModelProfile = {
+      ...targetProfile,
+      id: 9,
+      default_parameters: {
+        size: '1024x1024',
+        compression: 80,
+        watermark: false,
+      },
+    }
+
+    assert.equal(
+      buildImageComposerValues(targetProfile, { prompt: 'retained' }).parameters
+        .count,
+      3
+    )
+    assert.equal(
+      buildImageComposerValues(profileWithoutCountDefault, {
+        prompt: 'retained',
+      }).parameters.count,
+      1
     )
   })
 })

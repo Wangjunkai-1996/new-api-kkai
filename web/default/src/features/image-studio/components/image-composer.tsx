@@ -60,7 +60,11 @@ import {
   isImageEditQuoteRequest,
   isImageQuoteStaleResponse,
 } from '../image-edit-domain'
-import { parseImageParameters } from '../image-parameters'
+import {
+  getImageOutputCount,
+  getImageOutputParameter,
+  parseImageParameters,
+} from '../image-parameters'
 import {
   useCreateImageEdit,
   useCreateImageGeneration,
@@ -77,6 +81,7 @@ import type {
   ImageSample,
   ImageStudioComposerMode,
 } from '../types'
+import { ImageOutputQuantityField } from './image-output-quantity-field'
 import { ImageParameterFields } from './image-parameter-fields'
 import { ImageReferenceField } from './image-reference-field'
 import { ImageTokenSetupDialog } from './image-token-setup-dialog'
@@ -87,11 +92,17 @@ const EMPTY_VALUES: ImageComposerValues = {
   parameters: {},
 }
 
+function isImageQuoteExpiring(expiresAt: number): boolean {
+  return expiresAt <= Math.floor(Date.now() / 1000) + 5
+}
+
 function useDebouncedRequest<T>(request: T | null, delay: number): T | null {
   const [debounced, setDebounced] = useState(request)
   const latestRequestRef = useRef(request)
-  latestRequestRef.current = request
   const fingerprint = imageRequestFingerprint(request)
+  useEffect(() => {
+    latestRequestRef.current = request
+  }, [request])
   useEffect(() => {
     const timer = window.setTimeout(
       () => setDebounced(latestRequestRef.current),
@@ -136,6 +147,45 @@ export function ImageComposer(props: {
   const selectedProfile = modelsQuery.data?.find(
     (profile) => profile.id === values.model_profile_id
   )
+  const outputParameter = selectedProfile
+    ? getImageOutputParameter(selectedProfile)
+    : undefined
+  const outputParameterKey = outputParameter?.key
+  const currentOutputValue = outputParameterKey
+    ? values.parameters?.[outputParameterKey]
+    : undefined
+  const outputCount = selectedProfile
+    ? getImageOutputCount(selectedProfile, values.parameters ?? {})
+    : 1
+
+  const submittedRequest = generationMutation.variables?.request
+  const submittedProfile = submittedRequest
+    ? modelsQuery.data?.find(
+        (profile) => profile.model === submittedRequest.model
+      )
+    : undefined
+  const submittedOutputCount =
+    submittedProfile && submittedRequest
+      ? getImageOutputCount(
+          submittedProfile,
+          submittedRequest.parameters
+        )
+      : outputCount
+
+  useEffect(() => {
+    if (
+      mode !== 'generation' ||
+      !outputParameterKey ||
+      currentOutputValue === outputCount
+    ) {
+      return
+    }
+
+    form.setValue(`parameters.${outputParameterKey}`, outputCount, {
+      shouldDirty: true,
+      shouldValidate: true,
+    })
+  }, [currentOutputValue, form, mode, outputCount, outputParameterKey])
 
   useEffect(() => {
     hydrateDraft(userId)
@@ -298,7 +348,7 @@ export function ImageComposer(props: {
       return
     }
     let quote = currentQuote
-    if (quote.expires_at <= Math.floor(Date.now() / 1000) + 5) {
+    if (isImageQuoteExpiring(quote.expires_at)) {
       const refreshed = await quoteQuery.refetch()
       if (!refreshed.data) return
       quote = refreshed.data
@@ -387,21 +437,33 @@ export function ImageComposer(props: {
   let selectableProfiles = modelsQuery.data
   if (mode === 'edit') selectableProfiles = editProfile ? [editProfile] : []
 
-  let submitLabel = t('imageStudio.generate')
+  let submitLabel = t('imageStudio.generateCount', { count: outputCount })
   let submitIcon = <Sparkles aria-hidden='true' />
   if (mode === 'edit') {
     submitLabel = t('imageStudio.edit')
     submitIcon = <Pencil aria-hidden='true' />
   }
   if (submitPending) {
-    submitLabel =
-      mode === 'edit' ? t('imageStudio.editing') : t('imageStudio.generating')
+    if (mode === 'edit') {
+      submitLabel = t('imageStudio.editing')
+    } else {
+      submitLabel = t('imageStudio.generatingCount', {
+        count: submittedOutputCount,
+      })
+    }
     submitIcon = (
       <LoaderCircle
         className='animate-spin motion-reduce:animate-none'
         aria-hidden='true'
       />
     )
+  }
+  let displayedQuote = quoteDisplay
+  if (mode === 'generation') {
+    displayedQuote = t('imageStudio.estimatedPriceForCount', {
+      count: outputCount,
+      amount: quoteDisplay,
+    })
   }
 
   return (
@@ -473,7 +535,8 @@ export function ImageComposer(props: {
                     disabled={
                       !props.tokenGate.tokenId ||
                       modelsQuery.isLoading ||
-                      mode === 'edit'
+                      mode === 'edit' ||
+                      submitPending
                     }
                     onChange={(event) =>
                       changeModel(Number(event.target.value))
@@ -521,10 +584,18 @@ export function ImageComposer(props: {
               </FormItem>
             )}
           />
+          {mode === 'generation' && selectedProfile && (
+            <ImageOutputQuantityField
+              control={form.control}
+              profile={selectedProfile}
+              disabled={submitPending}
+            />
+          )}
           {selectedProfile && (
             <ImageParameterFields
               control={form.control}
               profile={selectedProfile}
+              hideOutputCount={mode === 'generation'}
             />
           )}
         </div>
@@ -538,7 +609,7 @@ export function ImageComposer(props: {
               aria-busy={quoteBusy}
               aria-live='polite'
             >
-              {quoteDisplay}
+              {displayedQuote}
             </span>
           </div>
           <Button

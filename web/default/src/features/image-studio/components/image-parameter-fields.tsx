@@ -24,7 +24,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 
-import { IMAGE_STUDIO_MAX_OUTPUTS } from '../image-parameters'
+import { getImageProfileMaxOutputs } from '../image-parameters'
 import type {
   ImageComposerValues,
   ImageModelProfile,
@@ -34,12 +34,18 @@ import type {
 export function ImageParameterFields(props: {
   control: Control<ImageComposerValues>
   profile: ImageModelProfile
+  hideOutputCount?: boolean
 }) {
   const { t } = useTranslation()
-  if (props.profile.specification.parameters.length === 0) return null
+  const parameters = props.hideOutputCount
+    ? props.profile.specification.parameters.filter(
+        (parameter) => parameter.request_key !== 'n'
+      )
+    : props.profile.specification.parameters
+  if (parameters.length === 0) return null
   return (
     <div className='grid gap-4'>
-      {props.profile.specification.parameters.map((parameter) => (
+      {parameters.map((parameter) => (
         <Controller
           key={parameter.key}
           control={props.control}
@@ -110,7 +116,7 @@ export function ImageParameterFields(props: {
                     min={parameter.min}
                     max={
                       parameter.request_key === 'n'
-                        ? Math.min(parameter.max, IMAGE_STUDIO_MAX_OUTPUTS)
+                        ? getImageProfileMaxOutputs(props.profile)
                         : parameter.max
                     }
                     value={typeof field.value === 'number' ? field.value : ''}
