@@ -4751,7 +4751,7 @@
             "type": "string",
             "description": "大小写敏感的本站客户模型名，以当前 Token 调用 /v1/models 的结果为准。2.5 正式名称：sd_2.5_special_720p、sd_2.5_special_1080p、sd_2.5_special_720p_with_video_ref、sd_2.5_special_1080p_with_video_ref；seedance-2.5 为 720p 兼容别名。不要发送上游模型 ID。",
             "example": "sd_2.5_special_720p",
-            "x-kkrich-model-aliases": [
+            "x-kkrich-model-names": [
               "sd_2.5_special_720p",
               "sd_2.5_special_1080p",
               "sd_2.5_special_720p_with_video_ref",
@@ -4835,7 +4835,7 @@
           },
           "reference_video": {
             "type": "string",
-            "description": "2.0 *_with_video_ref 模型和 2.5 两个 with-video-ref 别名允许且必填；普通 2.0/2.5 别名禁止",
+            "description": "2.0 *_with_video_ref 模型和 2.5 两个 *_with_video_ref 正式名称允许且必填；普通 2.0/2.5 名称禁止",
             "example": "https://media.your-domain.example/reference.mp4"
           },
           "generate_audio": {

@@ -16,7 +16,7 @@
 > `sd_2.5_special_1080p_with_video_ref`；已有 `seedance-2.5` 继续兼容。不要把上游 API 地址、路径、鉴权方式或模型 ID
 > 带到本站调用中。
 
-> **2.0 协议说明**：2.0 特价版的服务端协议已切换到 v2 适配，但客户侧模型别名、
+> **2.0 协议说明**：2.0 特价版的服务端协议已切换到 v2 适配，但本站客户模型名、
 > 请求字段、本站接口地址和鉴权方式均不变。客户仍按本文示例调用，不需要拼接任何
 > 内部或渠道地址。
 
@@ -64,7 +64,7 @@ Token 必须属于可用的 `Seedance 视频` 分组。不要把 Token 写入前
 
 ### 先确认 Token 可见模型
 
-模型启用、分组权限和别名可能随账号变化。正式提交前可用本站模型列表确认：
+模型启用和分组权限可能随账号变化。正式提交前可用本站模型列表确认：
 
 ```bash
 curl "https://api.kkrich.ltd/v1/models" \
@@ -123,9 +123,9 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 - 时长：4-30 秒整数。
 - `ratio`：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
-- 普通别名（不带 `with-video-ref`）：使用一个公开 HTTPS 或有效 `assetId://` 的
+- 普通正式名称（不带 `_with_video_ref` 后缀）：使用一个公开 HTTPS 或有效 `assetId://` 的
   `reference_image`；不支持 `reference_video`。
-- `with-video-ref` 别名：必须使用一个 `reference_video`，也可以附带一个图片参考。
+- `_with_video_ref` 正式名称：必须使用一个 `reference_video`，也可以附带一个图片参考。
 - `generate_audio` 接受 `true` 或 `false`；为避免依赖缺省行为，客户端应显式传值。
 
 ## 4. 请求字段
@@ -137,10 +137,10 @@ curl "https://api.kkrich.ltd/v1/models" \
 | `duration` | integer 或整数字符串 | 否 | 4-15 | 4-30 | 推荐字段。缺失、空值、`0` 或 `1-3` 按 `4` 处理并按 `4` 计费。 |
 | `seconds` | integer 或整数字符串 | 否 | 4-15 | 4-30 | 兼容字段；缺失、空值、`0` 或 `1-3` 按 `4` 处理并按 `4` 计费。 |
 | `ratio` | string | 否 | 7 种 | 7 种 | 默认 `16:9`；支持 `16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。 |
-| `resolution` | string | 否 | 由模型决定 | 按别名为 `720p` 或 `1080p` | 2.0 分辨率由模型名决定；2.5 必须匹配所选别名。 |
-| `reference_image` | string | 否 | 图生时使用 | 普通别名单图参考；视频参考别名可选 | 只能传一个图片引用；推荐使用公开 HTTPS URL。 |
+| `resolution` | string | 否 | 由模型决定 | 按模型名为 `720p` 或 `1080p` | 2.0 分辨率由模型名决定；2.5 必须匹配所选模型名。 |
+| `reference_image` | string | 否 | 图生时使用 | 普通名称单图参考；视频参考名称可选 | 只能传一个图片引用；推荐使用公开 HTTPS URL。 |
 | `input_reference` | string | 否 | 兼容别名 | 兼容别名 | 与 `reference_image` 互斥；新代码优先使用 `reference_image`。 |
-| `reference_video` | string | 条件 | `_with_video_ref` 必填 | `with-video-ref` 别名必填；普通别名禁止 | 只能给支持视频参考的模型使用。 |
+| `reference_video` | string | 条件 | `_with_video_ref` 必填 | `_with_video_ref` 名称必填；普通名称禁止 | 只能给支持视频参考的模型使用。 |
 | `generate_audio` | boolean | 否 | 支持 | 支持 | 显式传 `true` 或 `false`，不要依赖缺省值。 |
 
 `duration` 和 `seconds` 都可以省略；缺失、`null`、空字符串、`0` 和 `1-3` 会由本站
@@ -170,7 +170,7 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 | 渠道文档概念 | 本站公共请求 | 说明 |
 | --- | --- | --- |
-| 2.5 上游模型标识 | 本站四个 `sd_2.5_special_*` 正式名称及兼容别名 | 客户模型名以本站 `/v1/models` 为准；不要发送上游模型 ID。 |
+| 2.5 模型名称 | 本站四个 `sd_2.5_special_*` 正式名称及兼容别名 | 客户模型名以本站 `/v1/models` 为准；不要发送上游模型 ID。 |
 | `aspect_ratio` | `ratio` | 只发送本站枚举值。 |
 | `reference_images[]` | 单个 `reference_image` 或 `input_reference` | 两个别名不能同时传。 |
 | 多个视频/音频参考、首帧/尾帧、`seed`、`tools` | 不支持 | 不要改名后强行透传。 |
@@ -281,7 +281,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 ### 2.5 视频参考
 
-带 `with-video-ref` 的别名必须提供一个 `reference_video`。下面以 720p 为例；使用
+带 `_with_video_ref` 后缀的正式名称必须提供一个 `reference_video`。下面以 720p 为例；使用
 1080p 时将模型和 `resolution` 一起改为 `sd_2.5_special_1080p_with_video_ref` 与
 `1080p`。
 
@@ -677,8 +677,8 @@ if (!downloaded) {
 1. Token 属于 Seedance 视频分组，且模型名在当前可见模型列表中。
 2. `duration`/`seconds` 可省略，缺失、空值、`0` 或 `1-3` 会按 4 秒处理并按 4 秒计费；负数、小数和超出模型上限的值会被拒绝。客户端仍建议显式传入 4-15（2.0）或 4-30（2.5）的整数；两者同传时，`null`、空字符串和 `0` 视为未提供，两个非空且非 `0` 的值规范化后必须相等。
 3. `ratio` 使用本站支持的 7 个枚举值之一。
-4. 2.5 普通别名的 `resolution` 与模型分别为 `720p`/`1080p`；视频参考别名同样要匹配分辨率。
-5. 2.0 视频参考模型和 2.5 `with-video-ref` 别名带一个 `reference_video`；普通 2.5 别名只使用 `reference_image`。
+4. 2.5 普通名称的 `resolution` 与模型分别为 `720p`/`1080p`；视频参考名称同样要匹配分辨率。
+5. 2.0 视频参考模型和 2.5 `_with_video_ref` 正式名称带一个 `reference_video`；普通 2.5 名称只使用 `reference_image`。
 6. 2.5 的图片/视频素材是公开 HTTPS URL 或有效 `assetId://` 引用，并显式发送布尔值 `generate_audio`。
 7. 已准备记录本次调用时间、模型和客户端追踪 ID，方便提交结果不确定时支持排查。
 

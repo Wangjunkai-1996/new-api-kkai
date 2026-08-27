@@ -129,25 +129,25 @@ func TestSeedance25AliasesPreserveCapabilityFieldsAndCanonicalDuration(t *testin
 			referenceImage: "assetId://image-720",
 		},
 		{
-			name:           "pricing sheet 1080p",
+			name:           "official 2.5 1080p",
 			model:          "sd_2.5_special_1080p",
 			resolution:     "1080p",
 			referenceImage: "assetId://image-1080",
 		},
 		{
-			name:           "pricing sheet 720p video reference",
+			name:           "official 2.5 720p video reference",
 			model:          "sd_2.5_special_720p_with_video_ref",
 			resolution:     "720p",
 			referenceVideo: "assetId://video-720",
 		},
 		{
-			name:           "pricing sheet 1080p video reference",
+			name:           "official 2.5 1080p video reference",
 			model:          "sd_2.5_special_1080p_with_video_ref",
 			resolution:     "1080p",
 			referenceVideo: "assetId://video-1080",
 		},
 		{
-			name:           "pricing sheet 720p",
+			name:           "official 2.5 720p",
 			model:          "sd_2.5_special_720p",
 			resolution:     "720p",
 			referenceImage: "assetId://image-sheet-720",
@@ -347,10 +347,10 @@ func TestSeedanceSpecialRejectsRemixButLegacySoraStillAllowsIt(t *testing.T) {
 		wantAllowed bool
 	}{
 		{name: "seedance special", model: specialVideoModel, wantCode: "unsupported_operation"},
-		{name: "pricing sheet 720p", model: "sd_2.5_special_720p", wantCode: "unsupported_operation"},
-		{name: "pricing sheet 1080p", model: "sd_2.5_special_1080p", wantCode: "unsupported_operation"},
-		{name: "pricing sheet 720p video reference", model: "sd_2.5_special_720p_with_video_ref", wantCode: "unsupported_operation"},
-		{name: "pricing sheet 1080p video reference", model: "sd_2.5_special_1080p_with_video_ref", wantCode: "unsupported_operation"},
+		{name: "official 2.5 720p", model: "sd_2.5_special_720p", wantCode: "unsupported_operation"},
+		{name: "official 2.5 1080p", model: "sd_2.5_special_1080p", wantCode: "unsupported_operation"},
+		{name: "official 2.5 720p video reference", model: "sd_2.5_special_720p_with_video_ref", wantCode: "unsupported_operation"},
+		{name: "official 2.5 1080p video reference", model: "sd_2.5_special_1080p_with_video_ref", wantCode: "unsupported_operation"},
 		{name: "legacy sora", model: "sora-2", wantAllowed: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

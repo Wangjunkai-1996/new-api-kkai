@@ -87,9 +87,9 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 - 大小写、标点或分辨率后缀不一致。
 - Token 当前看不到该模型。
 
-处理：从本站 `/v1/models` 响应复制完整模型名。2.5 成本表对应的正式名称为：
+处理：从本站 `/v1/models` 响应复制完整模型名。沿用 Seedance 2.0 命名规则的 2.5 正式客户模型名为：
 `sd_2.5_special_720p`、`sd_2.5_special_1080p`、`sd_2.5_special_720p_with_video_ref`、
-`sd_2.5_special_1080p_with_video_ref`；原有 `seedance-2.5*` 名称仍作为兼容别名；2.0 使用 [完整模型矩阵](/api/video-generation#seedance-2-0-特价版)
+`sd_2.5_special_1080p_with_video_ref`；原有 `seedance-2.5` 仍作为 720p 兼容别名；2.0 使用 [完整模型矩阵](/api/video-generation#seedance-2-0-特价版)
 中的名称。模型是否可用仍以当前 Token 返回结果为准。
 
 ### 时长错误
@@ -111,7 +111,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 - 字段名是 `ratio`，不是其他平台常见的画幅字段名。
 - 2.5 的 `resolution` 必须与名称匹配：普通 `sd_2.5_special_720p` 使用 `720p`，
-  `sd_2.5_special_1080p` 使用 `1080p`；两个 `with-video-ref` 名称分别使用对应分辨率。
+  `sd_2.5_special_1080p` 使用 `1080p`；两个 `_with_video_ref` 名称分别使用对应分辨率。
 - 2.0 分辨率由模型名决定；发送 `resolution` 时必须匹配模型名。
 
 ### `generate_audio` 类型错误
@@ -142,7 +142,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 以下情况会失败：
 
 - 同时发送 `reference_image` 和 `input_reference`。
-- 对普通别名发送 `reference_video` 或音频参考。
+- 对普通 2.5 名称发送 `reference_video` 或音频参考。
 - 发送 `reference_images`、`reference_videos`、`reference_audios` 等数组字段。
 - 发送 `first_image`、`last_image`、`tools`、`seed` 等未支持字段。
 - 素材 URL 需要登录、Cookie、Referer 或自定义请求头才能访问。
@@ -161,7 +161,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 
 视频必须是无需登录即可读取的公开 HTTPS 直链，或有效的 `assetId://` 引用。
 
-### 2.5 视频参考别名
+### 2.5 视频参考模型
 
 `sd_2.5_special_720p_with_video_ref` 和 `sd_2.5_special_1080p_with_video_ref` 必须发送
 一个 `reference_video`，并将 `resolution` 分别设置为 `720p` 或 `1080p`：
@@ -178,7 +178,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 }
 ```
 
-不要把 `reference_video` 发送给两个普通 2.5 别名；不要把视频参考别名的必填字段改成
+不要把 `reference_video` 发送给两个普通 2.5 名称；不要把视频参考名称的必填字段改成
 `reference_images` 或其他数组字段。
 
 ### 未知字段

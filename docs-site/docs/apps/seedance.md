@@ -44,7 +44,7 @@ pageClass: kkr-seedance-page kkr-seedance-landing
 本文所有 API 地址都属于 `https://api.kkrich.ltd`。不要把其他平台或渠道文档中的域名、路径、模型名和鉴权方式复制到本站请求中。
 :::
 
-> **2.0 协议说明**：2.0 特价版的服务端协议已切换 v2，但客户侧模型别名、请求字段、
+> **2.0 协议说明**：2.0 特价版的服务端协议已切换 v2，但本站客户模型名、请求字段、
 > 本站接口地址和鉴权方式不变。现有客户请求无需改成其他地址。
 
 ## 开始前准备
@@ -77,8 +77,8 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 完整的 2.0 模型名称和差异见 [模型与能力矩阵](/api/video-generation#模型与能力矩阵)。模型是否可用始终以当前 Token 调用 `/v1/models` 的结果为准。
 
-四个 `sd_2.5_special_*` 名称是成本表对应的正式能力名；原有 `seedance-2.5*` 名称继续作为兼容别名。所有 2.5 名称都支持以下画幅：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
-2.5 的普通名称（不带 `with-video-ref`）用于文生或单图参考；带 `with-video-ref` 的名称
+四个 `sd_2.5_special_*` 名称沿用既有 Seedance 2.0 命名规则，是本站正式客户模型名，分别对应四个计费能力档；原有 `seedance-2.5` 仅作为 720p 兼容别名。所有 2.5 名称都支持以下画幅：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
+2.5 的普通名称（不带 `_with_video_ref` 后缀）用于文生或单图参考；带 `_with_video_ref` 后缀的名称
 必须提供一个 `reference_video`，不能只传提示词。四个正式名称都接受 `generate_audio: true`
 或 `false`，建议显式传入。
 
@@ -181,7 +181,7 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 ```
 
 视频参考模型必须使用带 `_with_video_ref` 后缀的 2.0 模型，或使用上表中的 2.5
-`with-video-ref` 别名，并传一个 `reference_video`。普通 2.0/2.5 别名不能发送视频参考字段。
+`_with_video_ref` 正式名称，并传一个 `reference_video`。普通 2.0/2.5 名称不能发送视频参考字段。
 
 ## 图片与视频参考
 
@@ -205,8 +205,8 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
 参考素材必须遵守以下规则：
 
 - 只传一个图片字段：`reference_image` 或兼容别名 `input_reference`，二选一。
-- 2.5 普通别名不接受视频或音频参考；不要发送 `reference_video`、`reference_audio` 及其数组形式。
-- 2.5 `with-video-ref` 别名必须发送一个 `reference_video`，不能把视频参考字段省略或改成数组。
+- 2.5 普通名称不接受视频或音频参考；不要发送 `reference_video`、`reference_audio` 及其数组形式。
+- 2.5 `_with_video_ref` 正式名称必须发送一个 `reference_video`，不能把视频参考字段省略或改成数组。
 - 公开素材建议使用无需登录即可访问的 HTTPS 直链。本站会拒绝私网地址、本地路径、`data:` 和带凭据的 URL。
 - 已经由平台签发且仍有效的素材可使用 `assetId://<asset_id>`；不要自行编造资产 ID。
 - 不要发送 `reference_images`、`reference_videos`、`reference_audios`、`first_image`、`last_image`、`tools` 等未列入本站协议的字段。
