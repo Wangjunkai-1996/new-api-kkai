@@ -60,7 +60,7 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
           render={({ field }) => (
             <FormItem className='gap-[6px]'>
               <label
-                className='text-lg leading-[22px] text-white'
+                className='text-base leading-5 text-white'
                 htmlFor='linkai-email'
               >
                 {t('Enter email address')}
@@ -70,7 +70,7 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
                   id='linkai-email'
                   autoComplete='username'
                   placeholder={t('Enter email address')}
-                  className='h-[50px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-[26px] text-lg text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
+                  className='h-[46px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-6 text-base text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
                   {...field}
                 />
               </FormControl>
@@ -83,9 +83,9 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
           control={form.control}
           name='password'
           render={({ field }) => (
-            <FormItem className='mt-[29px] gap-[6px]'>
+            <FormItem className='mt-6 gap-[6px]'>
               <label
-                className='block text-lg leading-[22px] text-white'
+                className='block text-base leading-5 text-white'
                 htmlFor='linkai-password'
               >
                 {t('Enter login password')}
@@ -96,7 +96,7 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
                   type='password'
                   autoComplete='current-password'
                   placeholder={t('Enter login password')}
-                  className='h-[50px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-[26px] text-lg text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
+                  className='h-[46px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-6 text-base text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
                   {...field}
                 />
               </FormControl>
@@ -122,14 +122,14 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
             status={status}
             checked={agreedToLegal}
             onCheckedChange={setAgreedToLegal}
-            className='mt-5'
+            className='mt-4'
           />
         )}
 
         <button
           type='submit'
           disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
-          className='mt-6 flex h-[49px] w-full items-center justify-center gap-2 rounded-full bg-[#e5e5e5] text-lg leading-[22px] font-bold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50'
+          className='mt-5 flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#e5e5e5] text-base leading-5 font-bold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50'
         >
           {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
           {t('Sign in')}
@@ -138,7 +138,7 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
         <button
           type='button'
           onClick={handlePasskeyLogin}
-          className='mt-[21px] flex h-[49px] w-full items-center justify-center rounded-full border border-[#2a2a2a] bg-[#1a1a1a] text-lg text-white transition hover:border-[#7258ce] hover:bg-[#211a31] disabled:cursor-not-allowed disabled:opacity-50'
+          className='mt-4 flex h-[46px] w-full items-center justify-center rounded-full border border-[#2a2a2a] bg-[#1a1a1a] text-base text-white transition hover:border-[#7258ce] hover:bg-[#211a31] disabled:cursor-not-allowed disabled:opacity-50'
           disabled={isPasskeyLoading}
         >
           {isPasskeyLoading && (

@@ -70,31 +70,31 @@ export function LinkAiAuthShell({
           aria-label={t('Back to home')}
         >
           {splitLogo ? (
-            <span className='flex items-center gap-[11px]'>
+            <span className='flex items-center gap-2.5'>
               <img
                 src={`${assetRoot}/raw-02.png`}
                 alt=''
-                className='h-8 w-auto sm:h-10'
+                className='h-8 w-auto'
                 aria-hidden='true'
               />
               <img
                 src={`${assetRoot}/raw-07.png`}
                 alt={t('LinkAI')}
-                className='h-[30px] w-auto sm:h-[37px]'
+                className='h-[30px] w-auto'
               />
             </span>
           ) : (
             <img
               src={`${assetRoot}/raw-06.png`}
               alt={t('LinkAI')}
-              className='h-8 w-auto sm:h-10'
+              className='h-8 w-auto'
             />
           )}
         </Link>
       </div>
 
       <section
-        className={`relative z-10 mx-auto flex min-h-svh w-[calc(100%-32px)] max-w-[660px] items-center py-16 sm:py-20 xl:py-[30px] ${panelClassName}`}
+        className={`relative z-10 mx-auto flex min-h-svh w-[calc(100%-32px)] max-w-[600px] items-center py-16 sm:py-20 xl:py-[30px] ${panelClassName}`}
       >
         <div
           data-linkai-auth-panel

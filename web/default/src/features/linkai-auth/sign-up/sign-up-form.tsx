@@ -60,7 +60,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-[22px]'>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-5'>
         <FormField
           control={form.control}
           name='email'
@@ -74,7 +74,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
           render={({ field }) => (
             <FormItem className='gap-[6px]'>
               <label
-                className='text-lg leading-[22px] text-white'
+                className='text-base leading-5 text-white'
                 htmlFor='linkai-register-email'
               >
                 {t('Enter email address')}
@@ -85,7 +85,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
                   type='email'
                   autoComplete='email'
                   placeholder={t('Enter email address')}
-                  className='h-[50px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-[26px] text-lg text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
+                  className='h-[46px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-6 text-base text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
                   {...field}
                 />
               </FormControl>
@@ -111,7 +111,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
           render={({ field }) => (
             <FormItem className='gap-[6px]'>
               <label
-                className='text-lg leading-[22px] text-white'
+                className='text-base leading-5 text-white'
                 htmlFor='linkai-register-password'
               >
                 {t('Enter login password')}
@@ -122,7 +122,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
                   type='password'
                   autoComplete='new-password'
                   placeholder={t('Enter password (8-20 characters)')}
-                  className='h-[50px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-[26px] text-lg text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
+                  className='h-[46px] w-full rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-6 text-base text-white transition outline-none placeholder:text-[#9b9b9b] focus:border-[#7258ce] focus:ring-2 focus:ring-[#7258ce]/20'
                   {...field}
                 />
               </FormControl>
@@ -137,7 +137,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
               value={verificationCode}
               onChange={(event) => setVerificationCode(event.target.value)}
               placeholder={t('Verification code')}
-              className='h-[50px] min-w-0 flex-1 rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-[26px] text-sm text-white outline-none focus:border-[#7258ce]'
+              className='h-[46px] min-w-0 flex-1 rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-6 text-sm text-white outline-none focus:border-[#7258ce]'
             />
             <button
               type='button'
@@ -183,7 +183,7 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
             !registrationEnabled ||
             (requiresLegalConsent && !agreedToLegal)
           }
-          className='flex h-[49px] w-full items-center justify-center gap-2 rounded-full bg-[#e5e5e5] text-lg font-bold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50'
+          className='flex h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#e5e5e5] text-base font-bold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50'
         >
           {isLoading && <Loader2 className='h-4 w-4 animate-spin' />}
           {t('Register with email')}

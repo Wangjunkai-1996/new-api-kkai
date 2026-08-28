@@ -37,18 +37,18 @@ export function LinkAiSignUpPage() {
       panelFile='raw-05.png'
       splitLogo
     >
-      <div className='mx-auto block w-full max-w-[555px] px-5 py-12 sm:px-0'>
-        <div className='mx-auto flex h-[38px] w-[115px] items-center justify-center rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-4 text-base tracking-[0.2em] text-[#9b9b9b]'>
+      <div className='mx-auto block w-full max-w-[504px] px-5 py-10 sm:px-0'>
+        <div className='mx-auto flex h-[34px] w-[104px] items-center justify-center rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-3 text-sm tracking-[0.2em] text-[#9b9b9b]'>
           {t('Register account')}
         </div>
-        <h1 className='mt-[18px] text-center text-[30px] leading-[43px] font-semibold tracking-[-0.02em] text-[#592fe0] sm:text-[36px]'>
+        <h1 className='mt-4 text-center text-[28px] leading-[38px] font-semibold tracking-[-0.02em] text-[#592fe0] sm:text-[32px]'>
           {t('Create your account')}
         </h1>
-        <p className='mt-[11px] text-center text-sm leading-[22px] text-[#9b9b9b] sm:text-lg'>
+        <p className='mt-2 text-center text-sm leading-5 text-[#9b9b9b] sm:text-base'>
           {t('Choose a social account or register with email')}
         </p>
 
-        <div className='mt-[38px] grid grid-cols-1 gap-3 sm:grid-cols-2'>
+        <div className='mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2'>
           <button
             type='button'
             onClick={() =>
@@ -58,12 +58,12 @@ export function LinkAiSignUpPage() {
                 state.oauth.handleGitHubLogin
               )
             }
-            className='flex h-[50px] items-center justify-center gap-3 rounded-full border border-[#2a2a2a] bg-[#1a1a1a] text-lg text-white transition hover:-translate-y-0.5 hover:border-[#7258ce] hover:bg-[#211a31] focus-visible:ring-2 focus-visible:ring-[#7258ce] focus-visible:outline-none'
+            className='flex h-[46px] items-center justify-center gap-3 rounded-full border border-[#2a2a2a] bg-[#1a1a1a] text-base text-white transition hover:-translate-y-0.5 hover:border-[#7258ce] hover:bg-[#211a31] focus-visible:ring-2 focus-visible:ring-[#7258ce] focus-visible:outline-none'
           >
             <img
               src={`${SIGN_UP_ASSET_ROOT}/raw-09.png`}
               alt=''
-              className='h-5 w-[18px] object-contain'
+              className='h-[18px] w-4 object-contain'
               aria-hidden='true'
             />
             {t('GitHub')}
@@ -77,19 +77,19 @@ export function LinkAiSignUpPage() {
                 state.oauth.handleOIDCLogin
               )
             }
-            className='flex h-[50px] items-center justify-center gap-3 rounded-full border border-[#2a2a2a] bg-[#1a1a1a] text-lg text-white transition hover:-translate-y-0.5 hover:border-[#7258ce] hover:bg-[#211a31] focus-visible:ring-2 focus-visible:ring-[#7258ce] focus-visible:outline-none'
+            className='flex h-[46px] items-center justify-center gap-3 rounded-full border border-[#2a2a2a] bg-[#1a1a1a] text-base text-white transition hover:-translate-y-0.5 hover:border-[#7258ce] hover:bg-[#211a31] focus-visible:ring-2 focus-visible:ring-[#7258ce] focus-visible:outline-none'
           >
             <img
               src={`${SIGN_UP_ASSET_ROOT}/raw-10.png`}
               alt=''
-              className='h-[22px] w-[22px] object-contain'
+              className='h-5 w-5 object-contain'
               aria-hidden='true'
             />
             {t('Google')}
           </button>
         </div>
 
-        <div className='mt-12 mb-[23px] flex h-[23px] items-center gap-[18px] text-[15px] text-[#9b9b9b]'>
+        <div className='mt-10 mb-5 flex h-5 items-center gap-4 text-sm text-[#9b9b9b]'>
           <span className='h-[2px] flex-1 bg-[#2c2c2c]' />
           <span>{t('Or')}</span>
           <span className='h-[2px] flex-1 bg-[#2c2c2c]' />
@@ -99,7 +99,7 @@ export function LinkAiSignUpPage() {
 
         <p
           data-linkai-auth-footer
-          className='mt-8 text-center text-sm text-[#9b9b9b] sm:text-lg'
+          className='mt-6 text-center text-sm text-[#9b9b9b] sm:text-base'
         >
           {t('Already have an account?')}{' '}
           <Link

@@ -48,7 +48,7 @@ export function LinkAiLegalConsent({
     <label
       htmlFor={id}
       className={cn(
-        'flex cursor-pointer items-center gap-[10px] px-4 text-sm leading-6 text-[#9b9b9b] sm:text-base',
+        'flex cursor-pointer items-center gap-[10px] px-4 text-sm leading-5 text-[#9b9b9b]',
         className
       )}
     >
