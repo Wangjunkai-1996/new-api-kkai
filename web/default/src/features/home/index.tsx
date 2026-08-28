@@ -20,14 +20,14 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
-import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, HowItWorks, Stats } from './components'
+import { LinkAiHome } from './components/linkai-home'
 import { useHomePageContent } from './hooks'
+import { LegacyHome } from './legacy-home'
 
 export function Home() {
   const { i18n, t } = useTranslation()
@@ -120,14 +120,9 @@ export function Home() {
     )
   }
 
-  return (
-    <PublicLayout showMainContainer={false}>
-      <Hero isAuthenticated={isAuthenticated} />
-      <Stats />
-      <Features />
-      <HowItWorks />
-      <CTA isAuthenticated={isAuthenticated} />
-      <Footer />
-    </PublicLayout>
-  )
+  if (import.meta.env.VITE_HOME_VARIANT === 'legacy') {
+    return <LegacyHome />
+  }
+
+  return <LinkAiHome isAuthenticated={isAuthenticated} />
 }

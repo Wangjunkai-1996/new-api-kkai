@@ -16,19 +16,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
-
-import { LinkAiSignUpPage } from '@/features/linkai-auth/sign-up'
+import { PublicLayout } from '@/components/layout'
+import { Footer } from '@/components/layout/components/footer'
 import { useAuthStore } from '@/stores/auth-store'
 
-export const Route = createFileRoute('/(auth)/sign-up')({
-  component: LinkAiSignUpPage,
-  beforeLoad: async () => {
-    const { auth } = useAuthStore.getState()
+import { CTA, Features, Hero, HowItWorks, Stats } from './components'
 
-    // 如果已经有用户信息，说明已登录，注册页对其无意义，跳转到 dashboard
-    if (auth.user) {
-      throw redirect({ to: '/dashboard' })
-    }
-  },
-})
+export function LegacyHome() {
+  const user = useAuthStore((state) => state.auth.user)
+
+  return (
+    <PublicLayout showMainContainer={false}>
+      <Hero isAuthenticated={!!user} />
+      <Stats />
+      <Features />
+      <HowItWorks />
+      <CTA isAuthenticated={!!user} />
+      <Footer />
+    </PublicLayout>
+  )
+}
