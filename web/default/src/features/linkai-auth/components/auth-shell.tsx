@@ -44,8 +44,8 @@ export function LinkAiAuthShell({
   const { t } = useTranslation()
 
   return (
-    <main className='relative min-h-svh overflow-hidden bg-black text-white lg:min-h-[max(100svh,1192px)]'>
-      <div className='pointer-events-none absolute inset-x-0 top-20 bottom-0 min-h-[720px] overflow-hidden lg:top-[112px] lg:min-h-[1080px]'>
+    <main className='relative min-h-svh overflow-x-hidden bg-black text-white'>
+      <div className='pointer-events-none absolute inset-0 min-h-[720px] overflow-hidden'>
         <img
           src={`${assetRoot}/${backgroundFile}`}
           alt=''
@@ -60,7 +60,10 @@ export function LinkAiAuthShell({
         />
       </div>
 
-      <div className='absolute top-8 left-6 z-20 sm:left-8 lg:top-[204px] lg:left-[88px]'>
+      <div
+        data-linkai-auth-logo
+        className='absolute top-6 left-6 z-20 sm:top-8 sm:left-8 xl:top-10 xl:left-6 2xl:left-[88px]'
+      >
         <Link
           to='/'
           className='block w-fit transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:outline-none'
@@ -91,9 +94,12 @@ export function LinkAiAuthShell({
       </div>
 
       <section
-        className={`relative z-10 mx-auto w-[calc(100%-32px)] max-w-[660px] pt-28 pb-10 lg:pt-[322px] lg:pb-[82px] ${panelClassName}`}
+        className={`relative z-10 mx-auto flex min-h-svh w-[calc(100%-32px)] max-w-[660px] items-center py-16 sm:py-20 xl:py-[30px] ${panelClassName}`}
       >
-        <div className='relative isolate min-h-[788px] overflow-hidden rounded-[20px] bg-black lg:h-[788px]'>
+        <div
+          data-linkai-auth-panel
+          className='relative isolate w-full min-w-0 overflow-hidden rounded-[20px] bg-black'
+        >
           <img
             src={`${assetRoot}/${panelFile}`}
             alt=''

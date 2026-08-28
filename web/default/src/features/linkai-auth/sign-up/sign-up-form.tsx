@@ -16,8 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link } from '@tanstack/react-router'
-import { Check, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Turnstile } from '@/components/turnstile'
@@ -29,6 +28,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 
+import { LinkAiLegalConsent } from '../components/legal-consent'
 import type { LinkAiSignUpState } from './use-linkai-sign-up'
 
 type LinkAiSignUpFormProps = {
@@ -168,33 +168,12 @@ export function LinkAiSignUpForm({ state }: LinkAiSignUpFormProps) {
         )}
 
         {requiresLegalConsent && (
-          <label className='flex cursor-pointer items-center gap-[10px] px-4 text-sm text-[#9b9b9b] sm:text-base'>
-            <input
-              type='checkbox'
-              checked={agreedToLegal}
-              onChange={(event) => setAgreedToLegal(event.target.checked)}
-              className='peer sr-only'
-            />
-            <span className='flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-[4px] border border-[#eeeeee] text-black peer-checked:bg-white'>
-              {agreedToLegal && <Check className='h-4 w-4' strokeWidth={3} />}
-            </span>
-            <span>
-              {t('I agree to the')}{' '}
-              <Link
-                to='/user-agreement'
-                className='text-[#eeeeee] hover:underline'
-              >
-                {t('Terms of Service')}
-              </Link>{' '}
-              {t('and')}{' '}
-              <Link
-                to='/privacy-policy'
-                className='text-[#eeeeee] hover:underline'
-              >
-                {t('Privacy Policy')}
-              </Link>
-            </span>
-          </label>
+          <LinkAiLegalConsent
+            id='linkai-sign-up-legal-consent'
+            status={status}
+            checked={agreedToLegal}
+            onCheckedChange={setAgreedToLegal}
+          />
         )}
 
         <button

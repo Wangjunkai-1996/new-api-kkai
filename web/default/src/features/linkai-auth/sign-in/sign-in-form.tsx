@@ -27,8 +27,8 @@ import {
   FormItem,
   FormMessage,
 } from '@/components/ui/form'
-import { LegalConsent } from '@/features/auth/components/legal-consent'
 
+import { LinkAiLegalConsent } from '../components/legal-consent'
 import type { LinkAiSignInState } from './use-linkai-sign-in'
 
 type LinkAiSignInFormProps = {
@@ -117,11 +117,12 @@ export function LinkAiSignInForm({ state }: LinkAiSignInFormProps) {
         )}
 
         {requiresLegalConsent && (
-          <LegalConsent
+          <LinkAiLegalConsent
+            id='linkai-sign-in-legal-consent'
             status={status}
             checked={agreedToLegal}
             onCheckedChange={setAgreedToLegal}
-            className='mt-5 text-[#9d9da5]'
+            className='mt-5'
           />
         )}
 

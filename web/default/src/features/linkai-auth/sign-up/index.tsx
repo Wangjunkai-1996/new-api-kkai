@@ -37,7 +37,7 @@ export function LinkAiSignUpPage() {
       panelFile='raw-05.png'
       splitLogo
     >
-      <div className='mx-auto block h-full w-full max-w-[555px] [scrollbar-width:none] overflow-y-auto px-5 pt-12 sm:px-0 [&::-webkit-scrollbar]:hidden'>
+      <div className='mx-auto block w-full max-w-[555px] px-5 py-12 sm:px-0'>
         <div className='mx-auto flex h-[38px] w-[115px] items-center justify-center rounded-full border border-[#2a2a2a] bg-[#1a1a1a] px-4 text-base tracking-[0.2em] text-[#9b9b9b]'>
           {t('Register account')}
         </div>
@@ -97,7 +97,10 @@ export function LinkAiSignUpPage() {
 
         <LinkAiSignUpForm state={state} />
 
-        <p className='mt-8 text-center text-sm text-[#9b9b9b] sm:text-lg'>
+        <p
+          data-linkai-auth-footer
+          className='mt-8 text-center text-sm text-[#9b9b9b] sm:text-lg'
+        >
           {t('Already have an account?')}{' '}
           <Link
             to='/sign-in'

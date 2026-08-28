@@ -29,7 +29,7 @@ export function LinkAiSignInPage() {
 
   return (
     <LinkAiAuthShell>
-      <div className='mx-auto block h-full w-full max-w-[555px] [scrollbar-width:none] overflow-y-auto px-5 pt-12 sm:px-0 [&::-webkit-scrollbar]:hidden'>
+      <div className='mx-auto block w-full max-w-[555px] px-5 py-12 sm:px-0'>
         <div className='mx-auto flex h-[38px] w-[115px] items-center justify-center rounded-[17px] border border-[#2a2a2a] bg-[#1a1a1a] px-4 text-base tracking-[0.2em] text-[#9b9b9b]'>
           {t('User sign in')}
         </div>
@@ -87,7 +87,10 @@ export function LinkAiSignInPage() {
 
         <LinkAiSignInForm state={state} />
 
-        <div className='mt-[23px] flex flex-col gap-3 px-1 text-sm leading-[22px] text-[#9b9b9b] sm:flex-row sm:items-center sm:justify-between sm:text-lg'>
+        <div
+          data-linkai-auth-footer
+          className='mt-[23px] flex flex-col gap-3 px-1 text-sm leading-[22px] text-[#9b9b9b] sm:flex-row sm:items-center sm:justify-between sm:text-lg'
+        >
           <p>
             {t("Don't have an account?")}{' '}
             <Link
