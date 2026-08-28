@@ -19,8 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
-import { useStatus } from '@/hooks/use-status'
-
 import { LINKAI_HOME_ASSETS } from './assets'
 
 type FooterColumnProps = {
@@ -81,9 +79,6 @@ export function LinkAiTeamCta(props: TeamCtaProps) {
 
 export function LinkAiLandingFooter() {
   const { t } = useTranslation()
-  const { status } = useStatus()
-  const docsHref =
-    (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
   const currentYear = new Date().getFullYear()
 
   return (
@@ -119,22 +114,12 @@ export function LinkAiLandingFooter() {
               </Link>
             </FooterColumn>
             <FooterColumn title={t('linkaiHome.footer.support')}>
-              <a
-                href={docsHref}
-                target='_blank'
-                rel='noreferrer'
-                className='hover:text-white'
-              >
+              <Link to='/docs' className='hover:text-white'>
                 {t('linkaiHome.footer.helpCenter')}
-              </a>
-              <a
-                href={docsHref}
-                target='_blank'
-                rel='noreferrer'
-                className='hover:text-white'
-              >
+              </Link>
+              <Link to='/docs' className='hover:text-white'>
                 {t('linkaiHome.footer.apiDocs')}
-              </a>
+              </Link>
             </FooterColumn>
             <FooterColumn title={t('linkaiHome.footer.social')}>
               <a

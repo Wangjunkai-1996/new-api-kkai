@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
-import { ModelDetails } from '@/features/pricing/components/model-details'
+import { LinkAiModelDetailPage } from '@/features/linkai-public/model-square/model-detail-page'
 import { getFreshModuleAccess } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -53,5 +53,5 @@ export const Route = createFileRoute('/pricing/$modelId/')({
       }
     }
   },
-  component: ModelDetails,
+  component: LinkAiModelDetailPage,
 })

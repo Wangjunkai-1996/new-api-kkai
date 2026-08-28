@@ -16,17 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export const LINKAI_HEADER_EXPANDED_CONTAINER_CLASS =
-  'max-w-[1920px] px-5 pt-5 sm:px-8 lg:px-[5vw] lg:pt-[51px]'
+import { createFileRoute } from '@tanstack/react-router'
+import z from 'zod'
 
-export const LINKAI_HEADER_EXPANDED_ROW_CLASS =
-  'min-h-[68px] rounded-none border-transparent bg-transparent px-0 py-0 shadow-none backdrop-blur-none'
+import { LinkAiDocsPage } from '@/features/linkai-public/docs'
 
-export const LINKAI_HEADER_EXPANDED_LOGO_CLASS =
-  'w-[154px] sm:w-[190px] lg:w-[242px]'
+const docsSearchSchema = z.object({
+  article: z.string().optional().catch(undefined),
+})
 
-export const LINKAI_HEADER_EXPANDED_NAV_CLASS =
-  'mr-[clamp(0px,calc(20vw-270px),114px)] h-[66px] w-[29.7vw] max-w-[570px] rounded-full border border-white/70 bg-black/20 px-5 backdrop-blur-md'
+export const Route = createFileRoute('/docs/')({
+  validateSearch: docsSearchSchema,
+  component: DocsRoute,
+})
 
-export const LINKAI_HEADER_DESKTOP_ACTIONS_CLASS =
-  'col-start-3 row-start-1 hidden w-[278px] shrink-0 items-center justify-end gap-1 text-white xl:flex'
+function DocsRoute() {
+  const { article } = Route.useSearch()
+  const navigate = Route.useNavigate()
+
+  return (
+    <LinkAiDocsPage
+      articleId={article}
+      onArticleChange={(articleId) =>
+        navigate({ search: { article: articleId }, replace: true })
+      }
+    />
+  )
+}

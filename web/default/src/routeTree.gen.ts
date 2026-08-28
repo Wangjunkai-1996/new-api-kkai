@@ -35,6 +35,7 @@ import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_aut
 import { Route as AboutIndexRouteImport } from './routes/about/index'
 import { Route as ConsoleLogRouteImport } from './routes/console/log'
 import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
+import { Route as DocsIndexRouteImport } from './routes/docs/index'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
@@ -71,6 +72,7 @@ import { Route as AuthenticatedVideoStudioLibraryRouteImport } from './routes/_a
 import { Route as AuthenticatedVideoStudioTasksRouteImport } from './routes/_authenticated/video-studio/tasks'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
+import { Route as RankingsCategoryIdIndexRouteImport } from './routes/rankings/$categoryId/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
 import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
@@ -216,6 +218,11 @@ const ConsoleLogRoute = ConsoleLogRouteImport.update({
 const ConsoleTopupRoute = ConsoleTopupRouteImport.update({
   id: '/console/topup',
   path: '/console/topup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: '/docs/',
+  path: '/docs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OauthProviderRoute = OauthProviderRouteImport.update({
@@ -425,6 +432,11 @@ const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   path: '/pricing/$modelId/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RankingsCategoryIdIndexRoute = RankingsCategoryIdIndexRouteImport.update({
+  id: '/rankings/$categoryId/',
+  path: '/rankings/$categoryId/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSystemSettingsAuthIndexRoute =
   AuthenticatedSystemSettingsAuthIndexRouteImport.update({
     id: '/auth/',
@@ -536,6 +548,7 @@ export interface FileRoutesByFullPath {
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
+  '/docs/': typeof DocsIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -571,6 +584,7 @@ export interface FileRoutesByFullPath {
   '/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/rankings/$categoryId/': typeof RankingsCategoryIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -608,6 +622,7 @@ export interface FileRoutesByTo {
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about': typeof AboutIndexRoute
+  '/docs': typeof DocsIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
@@ -643,6 +658,7 @@ export interface FileRoutesByTo {
   '/video-studio': typeof AuthenticatedVideoStudioIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
+  '/rankings/$categoryId': typeof RankingsCategoryIdIndexRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -687,6 +703,7 @@ export interface FileRoutesById {
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
   '/about/': typeof AboutIndexRoute
+  '/docs/': typeof DocsIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
@@ -722,6 +739,7 @@ export interface FileRoutesById {
   '/_authenticated/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/rankings/$categoryId/': typeof RankingsCategoryIdIndexRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/_authenticated/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -765,6 +783,7 @@ export interface FileRouteTypes {
     | '/console/topup'
     | '/oauth/$provider'
     | '/about/'
+    | '/docs/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -800,6 +819,7 @@ export interface FileRouteTypes {
     | '/video-studio/'
     | '/wallet/'
     | '/pricing/$modelId/'
+    | '/rankings/$categoryId/'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -837,6 +857,7 @@ export interface FileRouteTypes {
     | '/console/topup'
     | '/oauth/$provider'
     | '/about'
+    | '/docs'
     | '/pricing'
     | '/rankings'
     | '/setup'
@@ -872,6 +893,7 @@ export interface FileRouteTypes {
     | '/video-studio'
     | '/wallet'
     | '/pricing/$modelId'
+    | '/rankings/$categoryId'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -915,6 +937,7 @@ export interface FileRouteTypes {
     | '/console/topup'
     | '/oauth/$provider'
     | '/about/'
+    | '/docs/'
     | '/pricing/'
     | '/rankings/'
     | '/setup/'
@@ -950,6 +973,7 @@ export interface FileRouteTypes {
     | '/_authenticated/video-studio/'
     | '/_authenticated/wallet/'
     | '/pricing/$modelId/'
+    | '/rankings/$categoryId/'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
     | '/_authenticated/system-settings/content/$section'
@@ -982,10 +1006,12 @@ export interface RootRouteChildren {
   ConsoleTopupRoute: typeof ConsoleTopupRoute
   OauthProviderRoute: typeof OauthProviderRoute
   AboutIndexRoute: typeof AboutIndexRoute
+  DocsIndexRoute: typeof DocsIndexRoute
   PricingIndexRoute: typeof PricingIndexRoute
   RankingsIndexRoute: typeof RankingsIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
   PricingModelIdIndexRoute: typeof PricingModelIdIndexRoute
+  RankingsCategoryIdIndexRoute: typeof RankingsCategoryIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1170,6 +1196,13 @@ declare module '@tanstack/react-router' {
       path: '/console/topup'
       fullPath: '/console/topup'
       preLoaderRoute: typeof ConsoleTopupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/': {
+      id: '/docs/'
+      path: '/docs'
+      fullPath: '/docs/'
+      preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oauth/$provider': {
@@ -1422,6 +1455,13 @@ declare module '@tanstack/react-router' {
       path: '/pricing/$modelId'
       fullPath: '/pricing/$modelId/'
       preLoaderRoute: typeof PricingModelIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/rankings/$categoryId/': {
+      id: '/rankings/$categoryId/'
+      path: '/rankings/$categoryId'
+      fullPath: '/rankings/$categoryId/'
+      preLoaderRoute: typeof RankingsCategoryIdIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/system-settings/auth/': {
@@ -1743,10 +1783,12 @@ const rootRouteChildren: RootRouteChildren = {
   ConsoleTopupRoute: ConsoleTopupRoute,
   OauthProviderRoute: OauthProviderRoute,
   AboutIndexRoute: AboutIndexRoute,
+  DocsIndexRoute: DocsIndexRoute,
   PricingIndexRoute: PricingIndexRoute,
   RankingsIndexRoute: RankingsIndexRoute,
   SetupIndexRoute: SetupIndexRoute,
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
+  RankingsCategoryIdIndexRoute: RankingsCategoryIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

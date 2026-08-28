@@ -23,7 +23,6 @@ import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { useNotifications } from '@/hooks/use-notifications'
-import { useStatus } from '@/hooks/use-status'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -45,20 +44,13 @@ export function LinkAiLandingHeader() {
   const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const user = useAuthStore((state) => state.auth.user)
-  const { status } = useStatus()
   const notifications = useNotifications()
-  const docsHref =
-    (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
   const links: LinkAiHeaderLink[] = [
     { href: '/', label: t('Home') },
     { href: '/pricing', label: t('Model Square') },
     { href: '/rankings', label: t('Rankings') },
-    {
-      href: docsHref,
-      label: t('Docs'),
-      external: docsHref.startsWith('http'),
-    },
+    { href: '/docs', label: t('Docs') },
     { href: '/about', label: t('About') },
   ]
 
