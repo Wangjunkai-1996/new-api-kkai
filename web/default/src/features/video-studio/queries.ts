@@ -94,8 +94,10 @@ export const videoStudioQueryKeys = {
     [...videoStudioQueryKeys.sampleAll(userId), tokenId, id] as const,
   token: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'token'),
+  quoteAll: (userId: number) =>
+    privateUserQueryKey(userId, 'video-studio', 'quote'),
   quote: (userId: number, request: VideoQuoteRequest) =>
-    privateUserQueryKey(userId, 'video-studio', 'quote', request),
+    [...videoStudioQueryKeys.quoteAll(userId), request] as const,
   generationsAll: (userId: number) =>
     privateUserQueryKey(userId, 'video-studio', 'generations'),
   generations: (
@@ -147,6 +149,7 @@ export const useVideoModels = (tokenId?: number | null) => {
     queryKey: videoStudioQueryKeys.models(userId, tokenId ?? 0),
     queryFn: () => getVideoModels(tokenId ?? 0),
     enabled: userId > 0 && Boolean(tokenId),
+    retry: false,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
@@ -186,7 +189,7 @@ export const useVideoTokenCapability = () => {
   return useQuery({
     queryKey: videoStudioQueryKeys.token(userId),
     queryFn: getVideoTokenCapability,
-    enabled: userId > 0,
+    enabled: false,
     retry: false,
     staleTime: 30_000,
   })

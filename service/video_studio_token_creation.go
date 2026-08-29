@@ -54,7 +54,9 @@ func EnsureVideoStudioToken(
 			if err != nil {
 				return result, err
 			}
-			if modelName != "" && !containsVideoStudioModel(result.EffectiveModels, modelName) {
+			if len(result.EffectiveModels) == 0 ||
+				(modelName != "" && !containsVideoStudioModel(result.EffectiveModels, modelName)) {
+				result.Status = VideoStudioTokenStatusModelsUnavailable
 				return result, ErrVideoStudioTokenModelsUnavailable
 			}
 			result.CanCreate = false
@@ -87,16 +89,14 @@ func ensureVideoStudioTokenOnce(
 		if !videoStudioUserCanUseGroup(user) {
 			return ErrVideoStudioTokenGroupUnavailable
 		}
-		existing, migrated, err := findUsableVideoStudioToken(ctx, tx, userID, "", clientIP)
+		existing, effectiveModels, migrated, err := findUsableVideoStudioToken(
+			ctx, tx, userID, clientIP, modelName == "",
+		)
 		migratedToken = migratedToken || migrated
 		if err != nil {
 			return err
 		}
 		if existing != nil {
-			effectiveModels, err := effectiveVideoStudioModelsForTokenRecord(ctx, tx, existing)
-			if err != nil {
-				return err
-			}
 			if modelName != "" && !containsVideoStudioModel(effectiveModels, modelName) {
 				return ErrVideoStudioTokenModelsUnavailable
 			}

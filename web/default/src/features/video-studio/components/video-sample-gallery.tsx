@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { AxiosError } from 'axios'
 import { Film, LoaderCircle, RotateCw } from 'lucide-react'
 import {
   useCallback,
@@ -40,8 +41,12 @@ import {
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 
-import { useVideoModels, useVideoSamples } from '../queries'
-import type { VideoSample } from '../types'
+import { useVideoSamples } from '../queries'
+import type {
+  VideoModelProfile,
+  VideoSample,
+  VideoStudioApiError,
+} from '../types'
 import { shouldAutoLoadNextVideoSamplePage } from '../video-domain'
 import {
   VIDEO_SAMPLE_CATEGORIES,
@@ -49,11 +54,17 @@ import {
   VIDEO_SAMPLE_CATEGORY_LABEL_KEYS,
   type VideoSampleCategory,
 } from '../video-sample-categories'
+import {
+  getVideoTokenErrorKind,
+  type VideoTokenErrorKind,
+} from '../video-token-access'
 import { VideoSampleCard } from './video-sample-card'
 
 type VideoSampleGalleryProps = {
+  models: VideoModelProfile[]
   tokenId?: number | null
   selectedSampleId?: number
+  onTokenError: (errorKind: VideoTokenErrorKind) => boolean
   onTrySample: (sample: VideoSample) => void
 }
 
@@ -112,6 +123,7 @@ const getLaneCount = (width: number): number => {
 
 export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const { t } = useTranslation()
+  const onTokenError = props.onTokenError
   const scrollRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const [previewRegistry, dispatchPreview] = useReducer(
@@ -122,7 +134,6 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const [categoryFilter, setCategoryFilter] = useState<
     VideoSampleCategory | ''
   >('')
-  const modelsQuery = useVideoModels(props.tokenId)
   const samplesQuery = useVideoSamples(props.tokenId, {
     model: modelFilter || undefined,
     category: categoryFilter || undefined,
@@ -154,6 +165,20 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   }, [])
 
   useEffect(() => {
+    if (!samplesQuery.isError && !samplesQuery.isFetchNextPageError) return
+    const responseError =
+      samplesQuery.error instanceof AxiosError
+        ? (samplesQuery.error.response?.data as VideoStudioApiError | undefined)
+        : undefined
+    onTokenError(getVideoTokenErrorKind(responseError?.code))
+  }, [
+    onTokenError,
+    samplesQuery.error,
+    samplesQuery.isError,
+    samplesQuery.isFetchNextPageError,
+  ])
+
+  useEffect(() => {
     const element = scrollRef.current
     if (!element) return
     const observer = new ResizeObserver((entries) => {
@@ -163,6 +188,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     return () => observer.disconnect()
   }, [])
 
+  // oxlint-disable-next-line react/incompatible-library -- TanStack Virtual exposes non-memoizable callbacks by design.
   const virtualizer = useVirtualizer({
     count: samples.length,
     getScrollElement: () => scrollRef.current,
@@ -244,7 +270,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
           <NativeSelectOption value=''>
             {t('videoStudio.allModels')}
           </NativeSelectOption>
-          {modelsQuery.data?.map((profile) => (
+          {props.models.map((profile) => (
             <NativeSelectOption key={profile.id} value={profile.model}>
               {profile.display_name}
             </NativeSelectOption>

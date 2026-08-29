@@ -22,15 +22,16 @@ import { test } from 'vitest'
 
 import { videoTokenCapabilitySchema } from './schemas'
 import {
+  forgetVideoTokenAutoEnsure,
   getVideoTokenGateAction,
   getVideoTokenErrorKind,
   getVideoTokenRequestFailureAccess,
   getVideoTokenScopeAccess,
   getVideoTokenTerminalAccess,
   releaseVideoTokenScopeBlocker,
-  rememberVideoTokenAutoPrompt,
+  rememberVideoTokenAutoEnsure,
   resolveVideoTokenAccess,
-  shouldAutoPromptVideoToken,
+  shouldAutoEnsureVideoToken,
 } from './video-token-access'
 
 const requiredGroup = 'Seedance 视频'
@@ -69,7 +70,7 @@ test('uses only a positive token id from the required video group', () => {
   })
 })
 
-test('asks for confirmation only when the account may create the video key', () => {
+test('recognizes when the account may create the missing video key', () => {
   assert.deepEqual(
     resolveVideoTokenAccess({
       required_group: requiredGroup,
@@ -176,45 +177,47 @@ test('fails closed for malformed or wrong-group token capabilities', () => {
   )
 })
 
-test('remembers an automatic prompt for the bound key scope', () => {
-  const promptedScopes = new Set<string>()
+test('starts the automatic ensure once per user without waiting for capability data', () => {
+  const attemptedUsers = new Set<number>()
   const missingAccess = {
     kind: 'missing' as const,
     requiredGroup,
   }
 
-  assert.equal(
-    shouldAutoPromptVideoToken(promptedScopes, 11, missingAccess),
-    true
-  )
-  rememberVideoTokenAutoPrompt(promptedScopes, 11, requiredGroup)
+  assert.equal(shouldAutoEnsureVideoToken(attemptedUsers, 11, null), true)
+  rememberVideoTokenAutoEnsure(attemptedUsers, 11)
 
-  // A model switch and return resolve to the same user/group prompt scope.
   assert.equal(
-    shouldAutoPromptVideoToken(promptedScopes, 11, missingAccess),
+    shouldAutoEnsureVideoToken(attemptedUsers, 11, missingAccess.kind),
     false
   )
   assert.equal(
-    shouldAutoPromptVideoToken(promptedScopes, 11, missingAccess),
+    shouldAutoEnsureVideoToken(attemptedUsers, 11, 'group-unavailable'),
     false
+  )
+
+  forgetVideoTokenAutoEnsure(attemptedUsers, 11)
+  assert.equal(
+    shouldAutoEnsureVideoToken(attemptedUsers, 11, missingAccess.kind),
+    true
   )
 })
 
-test('keeps automatic prompt memory independent across accounts', () => {
-  const promptedScopes = new Set<string>()
+test('keeps automatic ensure memory independent across accounts', () => {
+  const attemptedUsers = new Set<number>()
   const missingAccess = {
     kind: 'missing' as const,
     requiredGroup,
   }
 
-  rememberVideoTokenAutoPrompt(promptedScopes, 11, requiredGroup)
+  rememberVideoTokenAutoEnsure(attemptedUsers, 11)
 
   assert.equal(
-    shouldAutoPromptVideoToken(promptedScopes, 11, missingAccess),
+    shouldAutoEnsureVideoToken(attemptedUsers, 11, missingAccess.kind),
     false
   )
   assert.equal(
-    shouldAutoPromptVideoToken(promptedScopes, 22, missingAccess),
+    shouldAutoEnsureVideoToken(attemptedUsers, 22, missingAccess.kind),
     true
   )
 })
@@ -235,8 +238,9 @@ test('keeps group permission failures distinct from API and network failures', (
   assert.equal(getVideoTokenErrorKind(undefined), 'request-failed')
 })
 
-test('turns terminal create races into recheck-only states', () => {
+test('retries ensure failures with POST and reserves GET rechecks for invalid tokens', () => {
   const missingAccess = { kind: 'missing' as const, requiredGroup }
+  assert.equal(getVideoTokenGateAction(null, false), 'create')
   assert.equal(getVideoTokenGateAction(missingAccess, false), 'create')
 
   for (const errorKind of [
@@ -246,8 +250,13 @@ test('turns terminal create races into recheck-only states', () => {
   ] as const) {
     const terminalAccess = getVideoTokenTerminalAccess(errorKind, requiredGroup)
     assert.ok(terminalAccess)
-    assert.equal(getVideoTokenGateAction(terminalAccess, false), 'recheck')
+    assert.equal(getVideoTokenGateAction(terminalAccess, false), 'create')
   }
+
+  assert.equal(
+    getVideoTokenGateAction({ kind: 'invalid', requiredGroup }, false),
+    'recheck'
+  )
 
   assert.equal(
     getVideoTokenTerminalAccess('request-failed', requiredGroup),

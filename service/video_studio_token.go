@@ -83,18 +83,16 @@ func GetVideoStudioTokenStatus(
 		capability.Status = VideoStudioTokenStatusGroupUnavailable
 		return capability, nil
 	}
-	token, migrated, err := findUsableVideoStudioToken(ctx, db, userID, "", clientIP)
+	modelName = strings.TrimSpace(modelName)
+	token, effectiveModels, migrated, err := findUsableVideoStudioToken(
+		ctx, db, userID, clientIP, modelName == "",
+	)
 	invalidateMigratedVideoStudioTokenCache(userID, migrated)
 	if err != nil {
 		return capability, err
 	}
-	modelName = strings.TrimSpace(modelName)
+	capability.EffectiveModels = effectiveModels
 	if token == nil {
-		effectiveModels, err := enabledVideoStudioTokenModels(ctx, db)
-		if err != nil {
-			return capability, err
-		}
-		capability.EffectiveModels = effectiveModels
 		if modelName != "" && !containsVideoStudioModel(effectiveModels, modelName) {
 			capability.Status = VideoStudioTokenStatusModelsUnavailable
 			return capability, nil
@@ -108,11 +106,6 @@ func GetVideoStudioTokenStatus(
 		return capability, nil
 	}
 
-	effectiveModels, err := effectiveVideoStudioModelsForTokenRecord(ctx, db, token)
-	if err != nil {
-		return capability, err
-	}
-	capability.EffectiveModels = effectiveModels
 	capability.HasUsableToken = true
 	capability.Token = videoStudioTokenView(token)
 	if modelName != "" && !containsVideoStudioModel(effectiveModels, modelName) {
@@ -197,19 +190,25 @@ func findUsableVideoStudioToken(
 	ctx context.Context,
 	db *gorm.DB,
 	userID int,
-	modelName string,
 	clientIP string,
-) (*model.Token, bool, error) {
+	requireEffectiveModels bool,
+) (*model.Token, []string, bool, error) {
 	tokens, migrated, err := listUsableVideoStudioTokens(ctx, db, userID, clientIP)
 	if err != nil {
-		return nil, migrated, err
+		return nil, nil, migrated, err
+	}
+	configuredModels, err := enabledConfiguredVideoStudioModelsForGroup(ctx, db, VideoStudioTokenGroup)
+	if err != nil {
+		return nil, nil, migrated, err
 	}
 	for index := range tokens {
-		if videoStudioTokenAllowsModel(&tokens[index], modelName) {
-			return &tokens[index], migrated, nil
+		effectiveModels := filterVideoStudioModelsForToken(&tokens[index], configuredModels)
+		if requireEffectiveModels && len(effectiveModels) == 0 {
+			continue
 		}
+		return &tokens[index], effectiveModels, migrated, nil
 	}
-	return nil, migrated, nil
+	return nil, configuredModels, migrated, nil
 }
 
 func listUsableVideoStudioTokens(
@@ -225,13 +224,25 @@ func listUsableVideoStudioTokens(
 		return nil, false, fmt.Errorf("list video studio tokens: %w", err)
 	}
 	migrated := false
+	var legacyModels []string
+	legacyModelsLoaded := false
 	for index := range tokens {
-		if hasVideoStudioManagedTokenSignature(&tokens[index]) {
-			repaired, err := repairLegacyVideoStudioTokenLimits(ctx, db, &tokens[index])
-			migrated = migrated || repaired
+		token := &tokens[index]
+		if !hasVideoStudioManagedTokenSignature(token) || !token.ModelLimitsEnabled {
+			continue
+		}
+		if !legacyModelsLoaded {
+			models, err := legacyVideoStudioProfileSnapshot(ctx, db)
 			if err != nil {
 				return nil, migrated, err
 			}
+			legacyModels = models
+			legacyModelsLoaded = true
+		}
+		repaired, err := repairLegacyVideoStudioTokenLimitsWithSnapshot(ctx, db, token, legacyModels)
+		migrated = migrated || repaired
+		if err != nil {
+			return nil, migrated, err
 		}
 	}
 	usable := make([]model.Token, 0, len(tokens))
@@ -262,6 +273,15 @@ func repairLegacyVideoStudioTokenLimits(ctx context.Context, db *gorm.DB, token 
 	if err != nil {
 		return false, err
 	}
+	return repairLegacyVideoStudioTokenLimitsWithSnapshot(ctx, db, token, legacyModels)
+}
+
+func repairLegacyVideoStudioTokenLimitsWithSnapshot(
+	ctx context.Context,
+	db *gorm.DB,
+	token *model.Token,
+	legacyModels []string,
+) (bool, error) {
 	if len(legacyModels) == 0 || token.ModelLimits != strings.Join(legacyModels, ",") {
 		return false, nil
 	}
@@ -402,8 +422,18 @@ func effectiveVideoStudioModelsForTokenRecord(ctx context.Context, db *gorm.DB, 
 		return nil, ErrVideoStudioTokenInvalid
 	}
 	models, err := enabledConfiguredVideoStudioModelsForGroup(ctx, db, token.Group)
-	if err != nil || !token.ModelLimitsEnabled {
+	if err != nil {
 		return models, err
+	}
+	return filterVideoStudioModelsForToken(token, models), nil
+}
+
+func filterVideoStudioModelsForToken(token *model.Token, models []string) []string {
+	if token == nil {
+		return []string{}
+	}
+	if !token.ModelLimitsEnabled {
+		return models
 	}
 	filtered := make([]string, 0, len(models))
 	for _, modelName := range models {
@@ -411,7 +441,7 @@ func effectiveVideoStudioModelsForTokenRecord(ctx context.Context, db *gorm.DB, 
 			filtered = append(filtered, modelName)
 		}
 	}
-	return filtered, nil
+	return filtered
 }
 
 func videoStudioTokenView(token *model.Token) *VideoStudioTokenView {

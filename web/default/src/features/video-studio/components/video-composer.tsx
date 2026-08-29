@@ -17,11 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Link } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
-import { ChevronDown, KeyRound, LoaderCircle, Sparkles } from 'lucide-react'
+import { ChevronDown, LoaderCircle, Sparkles } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -50,7 +49,6 @@ import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
 import type { VideoTokenGateState } from '../hooks/use-video-token-gate'
 import {
   useCreateVideoGeneration,
-  useVideoModels,
   useVideoQuote,
   useVideoReferenceAssetHydration,
 } from '../queries'
@@ -64,6 +62,7 @@ import type {
   VideoAsset,
   VideoComposerValues,
   VideoGenerationMode,
+  VideoModelProfile,
   VideoSample,
   VideoStudioApiError,
   VideoSubmissionReceipt,
@@ -93,9 +92,9 @@ import {
 import { getVideoTokenErrorKind } from '../video-token-access'
 import { VideoAssetUploader } from './video-asset-uploader'
 import { VideoParameterFields } from './video-parameter-fields'
-import { VideoTokenSetupDialog } from './video-token-setup-dialog'
 
 type VideoComposerProps = {
+  models: VideoModelProfile[]
   sample?: VideoSample
   videoTokenGate: VideoTokenGateState
   onSubmitted?: (receipt: VideoSubmissionReceipt) => void
@@ -111,7 +110,6 @@ const getVideoStudioResponseError = (
 
 export function VideoComposer(props: VideoComposerProps) {
   const { t } = useTranslation()
-  const modelsQuery = useVideoModels(props.videoTokenGate.tokenId)
   const draft = useVideoStudioDraftStore((state) => state.draft)
   const saveDraft = useVideoStudioDraftStore((state) => state.saveDraft)
   const clearDraft = useVideoStudioDraftStore((state) => state.clearDraft)
@@ -134,7 +132,6 @@ export function VideoComposer(props: VideoComposerProps) {
     referenceHydrationIds
   )
 
-  const firstProfile = modelsQuery.data?.[0]
   const form = useForm<VideoComposerValues>({
     resolver: zodResolver(videoComposerSchema),
     defaultValues: {
@@ -148,7 +145,7 @@ export function VideoComposer(props: VideoComposerProps) {
 
   const values = useWatch({ control: form.control }) as VideoComposerValues
   const debouncedValues = useDebounce(values, 300)
-  const selectedProfile = modelsQuery.data?.find(
+  const selectedProfile = props.models.find(
     (profile) => profile.id === values.model_profile_id
   )
   const videoTokenGate = props.videoTokenGate
@@ -166,18 +163,18 @@ export function VideoComposer(props: VideoComposerProps) {
   )
 
   useEffect(() => {
-    if (!modelsQuery.data || initializedRef.current) return
-    const restored = restoreVideoComposerDraft(modelsQuery.data, draft)
+    if (initializedRef.current) return
+    const restored = restoreVideoComposerDraft(props.models, draft)
     if (!restored) return
     initializedRef.current = true
     referenceSyncBlockedRef.current = restored.reference_asset_ids.length > 0
     setReferenceHydrationIds(restored.reference_asset_ids)
     form.reset(restored)
-  }, [draft, form, modelsQuery.data])
+  }, [draft, form, props.models])
 
   useEffect(() => {
-    if (!props.sample || !modelsQuery.data) return
-    const profile = modelsQuery.data.find(
+    if (!props.sample) return
+    const profile = props.models.find(
       (item) => item.id === props.sample?.model_profile_id
     )
     if (!profile) return
@@ -187,7 +184,7 @@ export function VideoComposer(props: VideoComposerProps) {
     setReferenceAssets(getSampleReferenceAssets(props.sample, profile))
     setAppliedSampleId(props.sample.id)
     setSubmissionLock(null)
-  }, [form, modelsQuery.data, props.sample])
+  }, [form, props.models, props.sample])
 
   useEffect(() => {
     if (!values.model_profile_id) return
@@ -221,7 +218,7 @@ export function VideoComposer(props: VideoComposerProps) {
     if (!videoTokenId) return null
     const parsed = videoComposerSchema.safeParse(debouncedValues)
     if (!parsed.success) return null
-    const profile = modelsQuery.data?.find(
+    const profile = props.models.find(
       (item) => item.id === parsed.data.model_profile_id
     )
     if (!profile || validateComposerForProfile(parsed.data, profile)) {
@@ -233,7 +230,7 @@ export function VideoComposer(props: VideoComposerProps) {
       videoTokenId,
       appliedSampleId
     )
-  }, [appliedSampleId, debouncedValues, modelsQuery.data, videoTokenId])
+  }, [appliedSampleId, debouncedValues, props.models, videoTokenId])
 
   const quoteQuery = useVideoQuote(quoteRequest, quoteRequest !== null)
   const refetchQuote = quoteQuery.refetch
@@ -288,7 +285,7 @@ export function VideoComposer(props: VideoComposerProps) {
   }, [blockAndRecheckVideoToken, quoteQuery.error, quoteQuery.isError])
 
   const handleModelChange = (profileId: number) => {
-    const profile = modelsQuery.data?.find((item) => item.id === profileId)
+    const profile = props.models.find((item) => item.id === profileId)
     if (!profile) return
     const nextValues = buildVideoComposerValues(profile)
     nextValues.prompt = form.getValues('prompt')
@@ -368,11 +365,6 @@ export function VideoComposer(props: VideoComposerProps) {
     clearDraft()
     form.reset(clearedValues)
     focusReferenceUploader()
-  }
-
-  const handleVideoTokenPrimaryAction = () => {
-    setSubmitError(null)
-    videoTokenGate.openOrRetry()
   }
 
   const handleSubmit = form.handleSubmit(async (submittedValues) => {
@@ -464,33 +456,6 @@ export function VideoComposer(props: VideoComposerProps) {
     }
   })
 
-  if (modelsQuery.isLoading && !modelsQuery.data) {
-    return (
-      <div className='flex min-h-48 items-center justify-center' role='status'>
-        <LoaderCircle
-          className='text-muted-foreground size-5 animate-spin motion-reduce:animate-none'
-          aria-hidden='true'
-        />
-        <span className='sr-only'>{t('videoStudio.loadingModels')}</span>
-      </div>
-    )
-  }
-
-  if (modelsQuery.isError || !firstProfile) {
-    return (
-      <div className='flex min-h-48 flex-col items-center justify-center gap-3 px-5 text-center'>
-        <p className='text-sm font-medium'>{t('videoStudio.noModels')}</p>
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={() => modelsQuery.refetch()}
-        >
-          {t('videoStudio.retry')}
-        </Button>
-      </div>
-    )
-  }
-
   const referenceRoles = selectedProfile
     ? getVideoReferenceRoles(selectedProfile, values.mode)
     : []
@@ -499,95 +464,29 @@ export function VideoComposer(props: VideoComposerProps) {
     t(VIDEO_REFERENCE_ROLE_LABEL_KEYS[role])
   )
   const usesVideoReference = referenceRoles.includes('reference_video')
-  const videoTokenReady = videoTokenGate.access?.kind === 'ready'
-  const videoTokenMissing = videoTokenGate.access?.kind === 'missing'
-  const videoTokenGroupUnavailable =
-    videoTokenGate.access?.kind === 'group-unavailable'
-  const videoTokenLimitReached = videoTokenGate.access?.kind === 'limit-reached'
-  const videoTokenModelsUnavailable =
-    videoTokenGate.access?.kind === 'models-unavailable'
-  const videoTokenInvalid = videoTokenGate.access?.kind === 'invalid'
   let generateLabel = t('videoStudio.generate')
-  if (!videoTokenReady) {
-    if (
-      videoTokenGate.checking ||
-      (videoTokenGate.gateAction === 'recheck' && videoTokenGate.queryFetching)
-    ) {
-      generateLabel = t('videoStudio.videoKey.checking')
-    } else if (videoTokenMissing) {
-      generateLabel = t('videoStudio.videoKey.createAndContinue')
-    } else if (videoTokenGate.gateAction === 'recheck') {
-      generateLabel = t('videoStudio.videoKey.retryCheck')
-    }
-  } else {
-    if (quoteReady) {
-      generateLabel = t('videoStudio.generateWithPrice', {
-        price: quoteDisplay,
-      })
-    }
-    if (quoteQuery.isFetching) generateLabel = t('videoStudio.quoting')
+  if (quoteReady) {
+    generateLabel = t('videoStudio.generateWithPrice', {
+      price: quoteDisplay,
+    })
   }
+  if (quoteQuery.isFetching) generateLabel = t('videoStudio.quoting')
   const quoteRetryAvailable =
-    videoTokenReady &&
-    quoteRequest !== null &&
-    quoteQuery.isError &&
-    !quoteQuery.isFetching
+    quoteRequest !== null && quoteQuery.isError && !quoteQuery.isFetching
   if (quoteRetryAvailable) generateLabel = t('videoStudio.retry')
   if (createMutation.isPending) generateLabel = t('Submitting...')
-  let quoteStatusMessage: ReactNode = null
-  if (videoTokenGate.checking) {
-    quoteStatusMessage = t('videoStudio.videoKey.checking')
-  } else if (videoTokenGate.checkFailed) {
-    quoteStatusMessage = t('videoStudio.videoKey.checkFailed')
-  } else if (videoTokenMissing) {
-    quoteStatusMessage = t('videoStudio.videoKey.requiredBeforePricing', {
-      group: videoTokenGate.requiredGroup,
-    })
-  } else if (videoTokenGroupUnavailable) {
-    quoteStatusMessage = t('videoStudio.videoKey.groupUnavailable', {
-      group: videoTokenGate.requiredGroup,
-    })
-  } else if (videoTokenLimitReached) {
-    quoteStatusMessage = (
-      <span>
-        {t('videoStudio.videoKey.limitReached')}{' '}
-        <Link
-          to='/keys'
-          className='text-foreground underline underline-offset-2'
-        >
-          {t('videoStudio.videoKey.manageKeys')}
-        </Link>
-      </span>
-    )
-  } else if (videoTokenModelsUnavailable) {
-    quoteStatusMessage = t('videoStudio.videoKey.modelsUnavailable')
-  } else if (videoTokenInvalid) {
-    quoteStatusMessage = t('videoStudio.videoKey.invalidResponse')
-  } else if (quoteReady) {
-    quoteStatusMessage = t('videoStudio.quoteReady')
-  }
+  let quoteStatusMessage = quoteReady ? t('videoStudio.quoteReady') : null
   if (submissionLock !== null) {
     quoteStatusMessage = submissionLock.taskId
       ? t('videoStudio.submissionLocked', { taskId: submissionLock.taskId })
       : t('videoStudio.submissionUnknown')
   }
-  let primaryActionDisabled =
+  const primaryActionDisabled =
     createMutation.isPending ||
-    videoTokenGate.creating ||
-    submissionLock !== null
-  if (videoTokenReady) {
-    primaryActionDisabled ||= !quoteReady && !quoteRetryAvailable
-  } else {
-    primaryActionDisabled ||=
-      !videoTokenGate.actionAvailable || videoTokenGate.queryFetching
-  }
-  const primaryActionBusy =
-    createMutation.isPending ||
-    videoTokenGate.checking ||
-    (videoTokenGate.gateAction === 'recheck' && videoTokenGate.queryFetching) ||
-    (videoTokenReady && quoteQuery.isFetching)
+    submissionLock !== null ||
+    (!quoteReady && !quoteRetryAvailable)
+  const primaryActionBusy = createMutation.isPending || quoteQuery.isFetching
   let primaryActionIcon = <Sparkles aria-hidden='true' />
-  if (!videoTokenReady) primaryActionIcon = <KeyRound aria-hidden='true' />
   if (primaryActionBusy) {
     primaryActionIcon = (
       <LoaderCircle
@@ -619,7 +518,7 @@ export function VideoComposer(props: VideoComposerProps) {
                       handleModelChange(Number(event.target.value))
                     }
                   >
-                    {modelsQuery.data?.map((profile) => (
+                    {props.models.map((profile) => (
                       <NativeSelectOption key={profile.id} value={profile.id}>
                         {profile.display_name}
                       </NativeSelectOption>
@@ -815,13 +714,10 @@ export function VideoComposer(props: VideoComposerProps) {
             </p>
           )}
           <Button
-            type={videoTokenReady ? 'submit' : 'button'}
+            type='submit'
             size='lg'
             className='w-full'
             disabled={primaryActionDisabled}
-            onClick={
-              videoTokenReady ? undefined : handleVideoTokenPrimaryAction
-            }
           >
             {primaryActionIcon}
             {generateLabel}
@@ -834,15 +730,6 @@ export function VideoComposer(props: VideoComposerProps) {
           </div>
         </div>
       </form>
-
-      <VideoTokenSetupDialog
-        open={videoTokenGate.dialogOpen}
-        requiredGroup={videoTokenGate.requiredGroup}
-        creating={videoTokenGate.creating}
-        errorMessage={videoTokenGate.createError}
-        onOpenChange={videoTokenGate.handleDialogOpenChange}
-        onConfirm={() => void videoTokenGate.createAndContinue()}
-      />
     </Form>
   )
 }

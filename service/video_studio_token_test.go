@@ -118,6 +118,141 @@ func TestGetVideoStudioTokenStatusBindsTheFirstUsableKeyBeforeApplyingLegacyMode
 	assert.Equal(t, []string{"video-model-a"}, status.EffectiveModels)
 }
 
+func TestVideoStudioTokenWithoutModelHintReplacesObsoleteRestrictedKey(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	ctx := context.Background()
+	obsolete := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimits = "retired-video-model"
+	})
+
+	hinted, err := GetVideoStudioTokenStatus(ctx, db, 42, "video-model-a", "192.0.2.1")
+	require.NoError(t, err)
+	assert.True(t, hinted.HasUsableToken)
+	assert.False(t, hinted.CanCreate)
+	assert.Equal(t, VideoStudioTokenStatusModelsUnavailable, hinted.Status)
+	require.NotNil(t, hinted.Token)
+	assert.Equal(t, obsolete.Id, hinted.Token.ID)
+	_, err = EnsureVideoStudioToken(ctx, db, 42, "video-model-a", "192.0.2.1")
+	require.ErrorIs(t, err, ErrVideoStudioTokenModelsUnavailable)
+
+	status, err := GetVideoStudioTokenStatus(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	assert.False(t, status.HasUsableToken)
+	assert.True(t, status.CanCreate)
+	assert.Equal(t, VideoStudioTokenStatusMissing, status.Status)
+	assert.Nil(t, status.Token)
+	assert.Equal(t, []string{"video-model-a", "video-model-b"}, status.EffectiveModels)
+
+	first, err := EnsureVideoStudioToken(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, first.Token)
+	assert.True(t, first.Created)
+	assert.NotEqual(t, obsolete.Id, first.Token.ID)
+	assert.Equal(t, []string{"video-model-a", "video-model-b"}, first.EffectiveModels)
+
+	second, err := EnsureVideoStudioToken(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, second.Token)
+	assert.False(t, second.Created)
+	assert.Equal(t, first.Token.ID, second.Token.ID)
+
+	var created model.Token
+	require.NoError(t, db.First(&created, first.Token.ID).Error)
+	assert.Equal(t, videoStudioTokenName, created.Name)
+	assert.False(t, created.ModelLimitsEnabled)
+	assert.Equal(t, VideoStudioTokenGroup, created.Group)
+}
+
+func TestVideoStudioTokenWithoutModelHintSkipsObsoleteKeyForLaterUsableKey(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	ctx := context.Background()
+	createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimits = "retired-video-model"
+	})
+	usable := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimits = "video-model-b"
+	})
+
+	status, err := GetVideoStudioTokenStatus(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, status.Token)
+	assert.True(t, status.HasUsableToken)
+	assert.False(t, status.CanCreate)
+	assert.Equal(t, VideoStudioTokenStatusReady, status.Status)
+	assert.Equal(t, usable.Id, status.Token.ID)
+	assert.Equal(t, []string{"video-model-b"}, status.EffectiveModels)
+
+	ensured, err := EnsureVideoStudioToken(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, ensured.Token)
+	assert.False(t, ensured.Created)
+	assert.Equal(t, usable.Id, ensured.Token.ID)
+}
+
+func TestVideoStudioTokenWithoutModelHintPreservesSelectionPriority(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	ctx := context.Background()
+	firstOrdinary := createVideoStudioTestToken(t, db, nil)
+	createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.ModelLimits = "video-model-b"
+	})
+	managed := createVideoStudioTestToken(t, db, func(token *model.Token) {
+		token.Name = videoStudioTokenName
+		token.ModelLimitsEnabled = false
+		token.ModelLimits = ""
+	})
+
+	status, err := GetVideoStudioTokenStatus(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, status.Token)
+	assert.Equal(t, managed.Id, status.Token.ID)
+
+	require.NoError(t, db.Model(&model.Token{}).Where("id = ?", managed.Id).
+		Update("status", common.TokenStatusDisabled).Error)
+	status, err = GetVideoStudioTokenStatus(ctx, db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+	require.NotNil(t, status.Token)
+	assert.Equal(t, firstOrdinary.Id, status.Token.ID)
+}
+
+func TestVideoStudioTokenWithoutModelHintHonorsCreationConstraints(t *testing.T) {
+	t.Run("token limit", func(t *testing.T) {
+		db := setupVideoStudioTokenTest(t)
+		createVideoStudioTestToken(t, db, func(token *model.Token) {
+			token.ModelLimits = "retired-video-model"
+		})
+		previousMax := operation_setting.GetTokenSetting().MaxUserTokens
+		operation_setting.GetTokenSetting().MaxUserTokens = 1
+		t.Cleanup(func() { operation_setting.GetTokenSetting().MaxUserTokens = previousMax })
+
+		status, err := GetVideoStudioTokenStatus(context.Background(), db, 42, "", "192.0.2.1")
+		require.NoError(t, err)
+		assert.False(t, status.HasUsableToken)
+		assert.False(t, status.CanCreate)
+		assert.Equal(t, VideoStudioTokenStatusLimitReached, status.Status)
+		_, err = EnsureVideoStudioToken(context.Background(), db, 42, "", "192.0.2.1")
+		require.ErrorIs(t, err, ErrVideoStudioTokenLimitReached)
+	})
+
+	t.Run("models unavailable", func(t *testing.T) {
+		db := setupVideoStudioTokenTest(t)
+		createVideoStudioTestToken(t, db, func(token *model.Token) {
+			token.ModelLimits = "retired-video-model"
+		})
+		require.NoError(t, db.Model(&model.KKAIVideoModelProfile{}).
+			Where("enabled = ?", true).Update("enabled", false).Error)
+
+		status, err := GetVideoStudioTokenStatus(context.Background(), db, 42, "", "192.0.2.1")
+		require.NoError(t, err)
+		assert.False(t, status.HasUsableToken)
+		assert.False(t, status.CanCreate)
+		assert.Equal(t, VideoStudioTokenStatusModelsUnavailable, status.Status)
+		assert.Empty(t, status.EffectiveModels)
+		_, err = EnsureVideoStudioToken(context.Background(), db, 42, "", "192.0.2.1")
+		require.ErrorIs(t, err, ErrVideoStudioTokenModelsUnavailable)
+	})
+}
+
 func TestEnsureVideoStudioTokenIsIdempotentAndUsesEnabledModelWhitelist(t *testing.T) {
 	db := setupVideoStudioTokenTest(t)
 	ctx := context.Background()
@@ -148,6 +283,29 @@ func TestEnsureVideoStudioTokenIsIdempotentAndUsesEnabledModelWhitelist(t *testi
 	assert.Empty(t, token.ModelLimits)
 	assert.Equal(t, VideoStudioTokenGroup, token.Group)
 	assert.False(t, token.CrossGroupRetry)
+}
+
+func TestEnsureVideoStudioTokenRejectsEmptyModelsAfterCreation(t *testing.T) {
+	db := setupVideoStudioTokenTest(t)
+	const callbackName = "test:disable-video-models-after-token-create"
+	require.NoError(t, db.Callback().Create().After("gorm:create").Register(callbackName, func(tx *gorm.DB) {
+		created, ok := tx.Statement.Dest.(*model.Token)
+		if !ok || created.Name != videoStudioTokenName {
+			return
+		}
+		err := tx.Session(&gorm.Session{NewDB: true}).Model(&model.KKAIVideoModelProfile{}).
+			Where("enabled = ?", true).Update("enabled", false).Error
+		if err != nil {
+			tx.AddError(err)
+		}
+	}))
+	t.Cleanup(func() { _ = db.Callback().Create().Remove(callbackName) })
+
+	result, err := EnsureVideoStudioToken(context.Background(), db, 42, "", "192.0.2.1")
+	require.ErrorIs(t, err, ErrVideoStudioTokenModelsUnavailable)
+	assert.True(t, result.Created)
+	assert.Equal(t, VideoStudioTokenStatusModelsUnavailable, result.Status)
+	assert.Empty(t, result.EffectiveModels)
 }
 
 func TestLegacyVideoStudioTokenLazilyFollowsNewGroupAbilities(t *testing.T) {

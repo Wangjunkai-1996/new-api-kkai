@@ -17,8 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { SlidersHorizontal } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { AxiosError } from 'axios'
+import {
+  CircleAlert,
+  LoaderCircle,
+  RotateCw,
+  SlidersHorizontal,
+} from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -30,6 +36,14 @@ import {
   DrawerTitle,
 } from '@/components/ui/drawer'
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty'
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -40,10 +54,16 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 
 import { VideoComposer } from './components/video-composer'
 import { VideoSampleGallery } from './components/video-sample-gallery'
+import { VideoStudioEntryGate } from './components/video-studio-entry-gate'
 import { VideoStudioNav } from './components/video-studio-nav'
 import { useVideoTokenGate } from './hooks/use-video-token-gate'
-import { useVideoSample } from './queries'
-import type { VideoSample, VideoSubmissionReceipt } from './types'
+import { useVideoModels, useVideoSample } from './queries'
+import type {
+  VideoSample,
+  VideoStudioApiError,
+  VideoSubmissionReceipt,
+} from './types'
+import { getVideoTokenErrorKind } from './video-token-access'
 
 type VideoCreatePageProps = {
   initialSampleId?: number
@@ -68,19 +88,48 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
   const desktop = useMediaQuery('(min-width: 1180px)')
   const mobile = useMediaQuery('(max-width: 767px)')
   const videoTokenGate = useVideoTokenGate()
+  const modelsQuery = useVideoModels(videoTokenGate.tokenId)
   const initialSampleQuery = useVideoSample(
     props.initialSampleId,
     videoTokenGate.tokenId
   )
   const composerButtonRef = useRef<HTMLButtonElement>(null)
-  const [selectedSample, setSelectedSample] = useState<
+  const [selectedSampleOverride, setSelectedSample] = useState<
     VideoSample | undefined
   >()
+  const selectedSample = selectedSampleOverride ?? initialSampleQuery.data
   const [composerOpen, setComposerOpen] = useState(false)
+  const blockAndRecheckVideoToken = videoTokenGate.blockAndRecheck
+  const markVideoTokenHealthy = videoTokenGate.markTokenHealthy
 
   useEffect(() => {
-    if (initialSampleQuery.data) setSelectedSample(initialSampleQuery.data)
-  }, [initialSampleQuery.data])
+    if (!modelsQuery.isError) return
+    const responseError =
+      modelsQuery.error instanceof AxiosError
+        ? (modelsQuery.error.response?.data as VideoStudioApiError | undefined)
+        : undefined
+    blockAndRecheckVideoToken(getVideoTokenErrorKind(responseError?.code))
+  }, [blockAndRecheckVideoToken, modelsQuery.error, modelsQuery.isError])
+
+  useEffect(() => {
+    if (!modelsQuery.isSuccess || !videoTokenGate.tokenId) return
+    markVideoTokenHealthy(videoTokenGate.tokenId)
+  }, [markVideoTokenHealthy, modelsQuery.isSuccess, videoTokenGate.tokenId])
+
+  useEffect(() => {
+    if (!initialSampleQuery.isError) return
+    const responseError =
+      initialSampleQuery.error instanceof AxiosError
+        ? (initialSampleQuery.error.response?.data as
+            | VideoStudioApiError
+            | undefined)
+        : undefined
+    blockAndRecheckVideoToken(getVideoTokenErrorKind(responseError?.code))
+  }, [
+    blockAndRecheckVideoToken,
+    initialSampleQuery.error,
+    initialSampleQuery.isError,
+  ])
 
   const trySample = (sample: VideoSample) => {
     setSelectedSample(sample)
@@ -112,8 +161,94 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
     [navigateToLibrary]
   )
 
+  const models = modelsQuery.data ?? []
+  let entryState: ReactNode = null
+  if (!videoTokenGate.tokenId) {
+    entryState = <VideoStudioEntryGate gate={videoTokenGate} />
+  } else if (modelsQuery.isError && !modelsQuery.data) {
+    entryState = (
+      <Empty className='min-h-80 rounded-none' role='alert'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <CircleAlert className='text-destructive' aria-hidden='true' />
+          </EmptyMedia>
+          <EmptyTitle>{t('videoStudio.workspace.prepareFailed')}</EmptyTitle>
+          <EmptyDescription>
+            {t('videoStudio.workspace.prepareFailedDescription')}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            type='button'
+            size='sm'
+            disabled={modelsQuery.isFetching}
+            onClick={() => void modelsQuery.refetch()}
+          >
+            <RotateCw data-icon='inline-start' aria-hidden='true' />
+            {t('videoStudio.retry')}
+          </Button>
+        </EmptyContent>
+      </Empty>
+    )
+  } else if (
+    !modelsQuery.data ||
+    (models.length === 0 && modelsQuery.isFetching)
+  ) {
+    entryState = (
+      <Empty className='min-h-80 rounded-none' role='status'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <LoaderCircle
+              className='animate-spin motion-reduce:animate-none'
+              aria-hidden='true'
+            />
+          </EmptyMedia>
+          <EmptyTitle>{t('videoStudio.workspace.preparing')}</EmptyTitle>
+          <EmptyDescription>
+            {t('videoStudio.workspace.preparingDescription')}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  } else if (models.length === 0) {
+    entryState = (
+      <Empty className='min-h-80 rounded-none' role='alert'>
+        <EmptyHeader>
+          <EmptyMedia variant='icon'>
+            <CircleAlert className='text-destructive' aria-hidden='true' />
+          </EmptyMedia>
+          <EmptyTitle>{t('videoStudio.noModels')}</EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            type='button'
+            size='sm'
+            disabled={modelsQuery.isFetching}
+            onClick={() => void modelsQuery.refetch()}
+          >
+            <RotateCw data-icon='inline-start' aria-hidden='true' />
+            {t('videoStudio.retry')}
+          </Button>
+        </EmptyContent>
+      </Empty>
+    )
+  }
+
+  if (entryState) {
+    return (
+      <main
+        id='content'
+        className='flex size-full min-h-0 flex-col overflow-hidden'
+      >
+        <VideoStudioNav />
+        {entryState}
+      </main>
+    )
+  }
+
   const composer = (
     <VideoComposer
+      models={models}
       sample={selectedSample}
       videoTokenGate={videoTokenGate}
       onSubmitted={handleSubmitted}
@@ -140,8 +275,10 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
       <VideoStudioNav action={composerAction} />
       <div className='flex min-h-0 flex-1'>
         <VideoSampleGallery
+          models={models}
           tokenId={videoTokenGate.tokenId}
           selectedSampleId={selectedSample?.id}
+          onTokenError={blockAndRecheckVideoToken}
           onTrySample={trySample}
         />
         {desktop && (

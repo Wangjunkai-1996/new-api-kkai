@@ -92,27 +92,30 @@ export const resolveVideoTokenAccess = (
   }
 }
 
-const videoTokenPromptScope = (userId: number, requiredGroup: string): string =>
-  JSON.stringify([userId, requiredGroup.trim()])
-
-export const shouldAutoPromptVideoToken = (
-  promptedScopes: ReadonlySet<string>,
+export const shouldAutoEnsureVideoToken = (
+  attemptedUsers: ReadonlySet<number>,
   userId: number,
-  access: VideoTokenAccess | null
+  accessKind: VideoTokenAccess['kind'] | null | undefined
 ): boolean => {
-  if (userId <= 0 || access?.kind !== 'missing') return false
-  return !promptedScopes.has(
-    videoTokenPromptScope(userId, access.requiredGroup)
-  )
+  if (userId <= 0 || accessKind === 'ready' || accessKind === 'invalid') {
+    return false
+  }
+  return !attemptedUsers.has(userId)
 }
 
-export const rememberVideoTokenAutoPrompt = (
-  promptedScopes: Set<string>,
-  userId: number,
-  requiredGroup: string
+export const rememberVideoTokenAutoEnsure = (
+  attemptedUsers: Set<number>,
+  userId: number
 ): void => {
-  if (userId <= 0 || !requiredGroup.trim()) return
-  promptedScopes.add(videoTokenPromptScope(userId, requiredGroup))
+  if (userId <= 0) return
+  attemptedUsers.add(userId)
+}
+
+export const forgetVideoTokenAutoEnsure = (
+  attemptedUsers: Set<number>,
+  userId: number
+): void => {
+  attemptedUsers.delete(userId)
 }
 
 export const getVideoTokenTerminalAccess = (
@@ -167,11 +170,9 @@ export const getVideoTokenGateAction = (
   access: VideoTokenAccess | null,
   checkFailed: boolean
 ): VideoTokenGateAction => {
-  if (access?.kind === 'missing') return 'create'
-  if (checkFailed || (access !== null && access.kind !== 'ready')) {
-    return 'recheck'
-  }
-  return 'none'
+  if (checkFailed || access?.kind === 'invalid') return 'recheck'
+  if (access?.kind === 'ready') return 'none'
+  return 'create'
 }
 
 export const getVideoTokenErrorKind = (code?: string): VideoTokenErrorKind => {

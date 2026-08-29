@@ -20,7 +20,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -29,20 +28,28 @@ import {
   useCreateVideoToken,
   useIsCreatingVideoToken,
   useVideoTokenCapability,
+  videoStudioQueryKeys,
 } from '../queries'
 import type { VideoStudioApiError } from '../types'
 import {
+  forgetVideoTokenAutoEnsure,
   getVideoTokenGateAction,
   getVideoTokenErrorKind,
   getVideoTokenRequestFailureAccess,
   getVideoTokenScopeAccess,
+  getVideoTokenTerminalAccess,
   releaseVideoTokenScopeBlocker,
-  rememberVideoTokenAutoPrompt,
+  rememberVideoTokenAutoEnsure,
   resolveVideoTokenAccess,
-  shouldAutoPromptVideoToken,
+  shouldAutoEnsureVideoToken,
   type VideoTokenErrorKind,
   type VideoTokenScopeBlocker,
 } from '../video-token-access'
+
+type VideoTokenCreateFailure = Readonly<{
+  userId: number
+  message: string
+}>
 
 export const useVideoTokenGate = () => {
   const { t } = useTranslation()
@@ -51,70 +58,60 @@ export const useVideoTokenGate = () => {
   const queryClient = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const creating = useIsCreatingVideoToken(userId)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
+  const [createFailure, setCreateFailure] =
+    useState<VideoTokenCreateFailure | null>(null)
   const [tokenBlocker, setTokenBlocker] =
     useState<VideoTokenScopeBlocker | null>(null)
-  const promptedScopesRef = useRef<Set<string>>(new Set())
-  const currentUserIdRef = useRef(userId)
-  currentUserIdRef.current = userId
+  const attemptedUsersRef = useRef<Set<number>>(new Set())
+  const tokenRecoveryAttemptsRef = useRef<Set<string>>(new Set())
+  const attemptScopeUserRef = useRef(userId)
   const queriedAccess = capabilityQuery.data
     ? resolveVideoTokenAccess(capabilityQuery.data)
     : null
-  const access = getVideoTokenScopeAccess(
-    queriedAccess,
-    tokenBlocker,
-    userId
-  )
+  const access = getVideoTokenScopeAccess(queriedAccess, tokenBlocker, userId)
+  const accessKind = access?.kind
+  const queriedTokenId =
+    queriedAccess?.kind === 'ready' ? queriedAccess.tokenId : null
   const refetch = capabilityQuery.refetch
   const requiredGroup =
     access?.requiredGroup ||
     capabilityQuery.data?.required_group ||
     t('videoStudio.videoKey.videoGroup')
-  const checking =
-    userId > 0 && !capabilityQuery.data && capabilityQuery.isFetching
+  const checking = userId > 0 && capabilityQuery.isFetching
   const checkFailed =
-    userId > 0 &&
-    !capabilityQuery.data &&
-    capabilityQuery.isError &&
-    !capabilityQuery.isFetching
+    userId > 0 && capabilityQuery.isError && !capabilityQuery.isFetching
   const gateAction = getVideoTokenGateAction(access, checkFailed)
 
-  useEffect(() => {
-    setDialogOpen(false)
-    setCreateError(null)
-    setTokenBlocker(null)
-  }, [userId])
-
-  useEffect(() => {
-    if (!access || access.kind === 'missing') return
-    setDialogOpen(false)
-    setCreateError(null)
-  }, [access])
-
-  useEffect(() => {
-    if (
-      !access ||
-      !shouldAutoPromptVideoToken(promptedScopesRef.current, userId, access)
-    ) {
-      return
-    }
-    rememberVideoTokenAutoPrompt(
-      promptedScopesRef.current,
-      userId,
-      access.requiredGroup
-    )
-    setDialogOpen(true)
-  }, [access, userId])
+  const clearVideoTokenWorkspaceQueries = useCallback(() => {
+    queryClient.removeQueries({
+      queryKey: videoStudioQueryKeys.modelsAll(userId),
+    })
+    queryClient.removeQueries({
+      queryKey: videoStudioQueryKeys.samplesAll(userId),
+    })
+    queryClient.removeQueries({
+      queryKey: videoStudioQueryKeys.sampleAll(userId),
+    })
+    queryClient.removeQueries({
+      queryKey: videoStudioQueryKeys.quoteAll(userId),
+    })
+  }, [queryClient, userId])
 
   const recheckCapability = useCallback(async () => {
     if (userId <= 0) return
     const result = await refetch()
-    if (currentUserIdRef.current !== userId) return
+    if ((useAuthStore.getState().auth.user?.id ?? 0) !== userId) return
+    const nextAccess = result.data ? resolveVideoTokenAccess(result.data) : null
+    if (nextAccess?.kind === 'ready') {
+      clearVideoTokenWorkspaceQueries()
+    }
+    if (nextAccess?.kind === 'missing') {
+      forgetVideoTokenAutoEnsure(attemptedUsersRef.current, userId)
+    }
     setTokenBlocker((current) =>
       releaseVideoTokenScopeBlocker(current, userId, result.isSuccess)
     )
-  }, [refetch, userId])
+  }, [clearVideoTokenWorkspaceQueries, refetch, userId])
 
   const blockAndRecheck = useCallback(
     (errorKind: VideoTokenErrorKind): boolean => {
@@ -126,32 +123,33 @@ export const useVideoTokenGate = () => {
       if (!blockedAccess) return false
 
       setTokenBlocker({ userId, access: blockedAccess })
-      setDialogOpen(false)
-      setCreateError(null)
+      setCreateFailure(null)
+      if (errorKind !== 'token-invalid' || !queriedTokenId) return true
+
+      const recoveryScope = `${String(userId)}:${String(queriedTokenId)}`
+      if (tokenRecoveryAttemptsRef.current.has(recoveryScope)) return true
+      tokenRecoveryAttemptsRef.current.add(recoveryScope)
       void recheckCapability()
       return true
     },
-    [recheckCapability, requiredGroup, userId]
+    [queriedTokenId, recheckCapability, requiredGroup, userId]
   )
 
-  const openOrRetry = useCallback(() => {
-    if (gateAction === 'create') {
-      setCreateError(null)
-      setDialogOpen(true)
-      return
-    }
-    if (gateAction === 'recheck') void recheckCapability()
-  }, [gateAction, recheckCapability])
-
-  const handleDialogOpenChange = useCallback((open: boolean) => {
-    setDialogOpen(open)
-    if (!open) setCreateError(null)
-  }, [])
+  const markTokenHealthy = useCallback(
+    (tokenId: number) => {
+      if (userId <= 0 || tokenId <= 0) return
+      tokenRecoveryAttemptsRef.current.delete(
+        `${String(userId)}:${String(tokenId)}`
+      )
+    },
+    [userId]
+  )
 
   const createAndContinue = useCallback(async () => {
     if (
       userId <= 0 ||
-      access?.kind !== 'missing' ||
+      accessKind === 'ready' ||
+      accessKind === 'invalid' ||
       !canStartVideoTokenCreate(queryClient, userId)
     ) {
       return
@@ -159,9 +157,9 @@ export const useVideoTokenGate = () => {
 
     const variables = { userId }
     const isCurrentRequestScope = () => {
-      return currentUserIdRef.current === variables.userId
+      return (useAuthStore.getState().auth.user?.id ?? 0) === variables.userId
     }
-    setCreateError(null)
+    setCreateFailure(null)
     try {
       const capability = await createMutation.mutateAsync(variables)
       if (!isCurrentRequestScope()) return
@@ -173,20 +171,23 @@ export const useVideoTokenGate = () => {
           nextAccess.kind === 'models-unavailable'
         ) {
           setTokenBlocker({ userId, access: nextAccess })
-          setDialogOpen(false)
-          void recheckCapability()
           return
         }
-        setCreateError(t('videoStudio.videoKey.invalidResponse'))
+        setCreateFailure({
+          userId,
+          message: t('videoStudio.workspace.prepareFailedDescription'),
+        })
         return
       }
 
-      setDialogOpen(false)
-      let successMessage = t('videoStudio.videoKey.ready')
-      if (capability.created) {
-        successMessage = t('videoStudio.videoKey.created')
+      if (
+        accessKind === 'group-unavailable' ||
+        accessKind === 'limit-reached' ||
+        accessKind === 'models-unavailable'
+      ) {
+        clearVideoTokenWorkspaceQueries()
       }
-      toast.success(successMessage)
+      setTokenBlocker(null)
     } catch (error) {
       if (!isCurrentRequestScope()) return
       const responseError =
@@ -194,34 +195,80 @@ export const useVideoTokenGate = () => {
           ? (error.response?.data as VideoStudioApiError | undefined)
           : undefined
       const errorKind = getVideoTokenErrorKind(responseError?.code)
-      if (blockAndRecheck(errorKind)) return
-      setCreateError(t('videoStudio.videoKey.createFailed'))
+      const terminalAccess = getVideoTokenTerminalAccess(
+        errorKind,
+        requiredGroup
+      )
+      if (terminalAccess) {
+        setTokenBlocker({ userId, access: terminalAccess })
+        return
+      }
+      if (errorKind === 'token-invalid' && blockAndRecheck(errorKind)) return
+      setCreateFailure({
+        userId,
+        message: t('videoStudio.workspace.prepareFailedDescription'),
+      })
     }
   }, [
-    access,
+    accessKind,
     blockAndRecheck,
+    clearVideoTokenWorkspaceQueries,
     createMutation,
     queryClient,
-    recheckCapability,
+    requiredGroup,
     t,
     userId,
   ])
+
+  useEffect(() => {
+    if (attemptScopeUserRef.current !== userId) {
+      attemptScopeUserRef.current = userId
+      forgetVideoTokenAutoEnsure(attemptedUsersRef.current, userId)
+    }
+    if (
+      !shouldAutoEnsureVideoToken(attemptedUsersRef.current, userId, accessKind)
+    ) {
+      return
+    }
+    rememberVideoTokenAutoEnsure(attemptedUsersRef.current, userId)
+    void createAndContinue()
+  }, [accessKind, createAndContinue, userId])
+
+  const retry = useCallback(() => {
+    if (gateAction === 'recheck') {
+      void recheckCapability()
+      return
+    }
+    if (gateAction === 'create') void createAndContinue()
+  }, [createAndContinue, gateAction, recheckCapability])
+
+  const visibleCreateError =
+    (!accessKind || accessKind === 'missing') &&
+    createFailure?.userId === userId
+      ? createFailure.message
+      : null
+  const preparing =
+    checking ||
+    creating ||
+    (userId > 0 && !access && !visibleCreateError) ||
+    (accessKind === 'missing' && !visibleCreateError)
 
   return {
     access,
     tokenId: access?.kind === 'ready' ? access.tokenId : null,
     requiredGroup,
     checking,
+    preparing,
     checkFailed,
     gateAction,
     actionAvailable: gateAction !== 'none',
     queryFetching: capabilityQuery.isFetching,
-    dialogOpen,
     creating,
-    createError,
+    createError: visibleCreateError,
     blockAndRecheck,
-    openOrRetry,
-    handleDialogOpenChange,
+    markTokenHealthy,
+    retry,
+    openOrRetry: retry,
     createAndContinue,
   }
 }
