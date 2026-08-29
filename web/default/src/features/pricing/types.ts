@@ -27,6 +27,13 @@ export type PricingVendor = {
   description?: string
 }
 
+/**
+ * Groups are addressed by their stable key. The pricing endpoint keeps this
+ * legacy map shape for compatibility; labels are supplied separately via
+ * `group_display_names`.
+ */
+export type PricingUsableGroup = Record<string, string>
+
 export type PricingModel = {
   id: number
   model_name: string
@@ -94,7 +101,8 @@ export type PricingData = {
   data: PricingModel[]
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
-  usable_group: Record<string, { desc: string; ratio: number }>
+  usable_group: PricingUsableGroup
+  group_display_names?: Record<string, string>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
 }

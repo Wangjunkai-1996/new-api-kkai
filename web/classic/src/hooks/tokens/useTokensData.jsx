@@ -43,6 +43,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [groupRatios, setGroupRatios] = useState({});
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
   const [activePage, setActivePage] = useState(1);
   const [tokenCount, setTokenCount] = useState(0);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
@@ -452,10 +453,19 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       .then((res) => {
         if (res.data.success && res.data.data) {
           const ratios = {};
+          const displayNames = {};
           for (const [name, info] of Object.entries(res.data.data)) {
             ratios[name] = info.ratio;
+            const configured =
+              typeof info.display_name === 'string'
+                ? info.display_name.trim()
+                : '';
+            const legacy =
+              typeof info.desc === 'string' ? info.desc.trim() : '';
+            displayNames[name] = configured || legacy || name;
           }
           setGroupRatios(ratios);
+          setGroupDisplayNames(displayNames);
         }
       })
       .catch(() => {});
@@ -470,6 +480,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     pageSize,
     searching,
     groupRatios,
+    groupDisplayNames,
 
     // Selection state
     selectedKeys,

@@ -77,6 +77,14 @@ function getRatioBadgeClassName(ratio: ApiKeyGroupOption['ratio']) {
   return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300'
 }
 
+function getDistinctDescription(
+  option?: ApiKeyGroupOption
+): string | undefined {
+  const description = option?.desc?.trim()
+  if (!description || description === option?.label?.trim()) return undefined
+  return description
+}
+
 function GroupRatioBadge({ ratio }: { ratio: ApiKeyGroupOption['ratio'] }) {
   const { t } = useTranslation()
   const label = formatGroupRatio(ratio, t('Ratio'))
@@ -107,6 +115,7 @@ export function ApiKeyGroupCombobox({
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
   const selectedOption = options.find((option) => option.value === value)
+  const selectedDescription = getDistinctDescription(selectedOption)
 
   const filteredOptions = useMemo(() => {
     const search = searchValue.trim().toLowerCase()
@@ -148,9 +157,9 @@ export function ApiKeyGroupCombobox({
             <span className='block truncate font-medium'>
               {selectedOption?.label || placeholder || t('Select a group')}
             </span>
-            {selectedOption?.desc && (
+            {selectedDescription && (
               <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
-                {selectedOption.desc}
+                {selectedDescription}
               </span>
             )}
           </span>
@@ -192,9 +201,9 @@ export function ApiKeyGroupCombobox({
                     <span className='block truncate font-medium'>
                       {option.label}
                     </span>
-                    {option.desc && (
+                    {getDistinctDescription(option) && (
                       <span className='text-muted-foreground block truncate text-xs'>
-                        {option.desc}
+                        {getDistinctDescription(option)}
                       </span>
                     )}
                   </span>

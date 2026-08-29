@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -89,6 +89,26 @@ const SubscriptionPlansCard = ({
   const [paying, setPaying] = useState(false);
   const [selectedEpayMethod, setSelectedEpayMethod] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
+
+  useEffect(() => {
+    API.get('/api/user/self/groups')
+      .then((res) => {
+        if (!res.data?.success || !res.data?.data) return;
+        const names = {};
+        Object.entries(res.data.data).forEach(([group, info]) => {
+          const configured =
+            typeof info?.display_name === 'string'
+              ? info.display_name.trim()
+              : '';
+          const legacy =
+            typeof info?.desc === 'string' ? info.desc.trim() : '';
+          names[group] = configured || legacy || group;
+        });
+        setGroupDisplayNames(names);
+      })
+      .catch(() => {});
+  }, []);
 
   const epayMethods = useMemo(() => getEpayMethods(payMethods), [payMethods]);
 
@@ -504,7 +524,7 @@ const SubscriptionPlansCard = ({
                     ? `${t('总额度')}: ${renderQuota(totalAmount)}`
                     : `${t('总额度')}: ${t('不限')}`;
                 const upgradeLabel = plan?.upgrade_group
-                  ? `${t('升级分组')}: ${plan.upgrade_group}`
+                  ? `${t('升级分组')}: ${groupDisplayNames[plan.upgrade_group] || plan.upgrade_group}`
                   : null;
                 const resetLabel =
                   formatSubscriptionResetPeriod(plan, t) === t('不重置')
@@ -669,6 +689,7 @@ const SubscriptionPlansCard = ({
         paying={paying}
         selectedEpayMethod={selectedEpayMethod}
         setSelectedEpayMethod={setSelectedEpayMethod}
+        groupDisplayNames={groupDisplayNames}
         epayMethods={epayMethods}
         enableOnlineTopUp={enableOnlineTopUp}
         enableStripeTopUp={enableStripeTopUp}

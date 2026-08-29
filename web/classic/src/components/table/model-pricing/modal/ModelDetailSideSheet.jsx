@@ -41,6 +41,7 @@ const ModelDetailSideSheet = ({
   displayPrice,
   showRatio,
   usableGroup,
+  groupDisplayNames,
   vendorsMap,
   endpointMap,
   autoGroups,
@@ -117,6 +118,7 @@ const ModelDetailSideSheet = ({
                 displayPrice={displayPrice}
                 showRatio={showRatio}
                 usableGroup={usableGroup}
+                groupDisplayNames={groupDisplayNames}
                 autoGroups={autoGroups}
                 t={t}
               />

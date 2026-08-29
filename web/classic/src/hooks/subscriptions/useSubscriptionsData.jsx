@@ -29,6 +29,7 @@ export const useSubscriptionsData = () => {
   // State management
   const [allPlans, setAllPlans] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
 
   // Pagination (client-side for now)
   const [activePage, setActivePage] = useState(1);
@@ -118,9 +119,26 @@ export const useSubscriptionsData = () => {
     setShowEdit(true);
   };
 
+  const loadGroupDisplayNames = async () => {
+    try {
+      const res = await API.get('/api/group/');
+      if (!res?.data?.success) return;
+      const configured = res.data?.display_names || {};
+      const groups = Array.isArray(res.data?.data) ? res.data.data : [];
+      const resolved = {};
+      groups.forEach((group) => {
+        resolved[group] = configured[group] || group;
+      });
+      setGroupDisplayNames(resolved);
+    } catch (e) {
+      // Keep the canonical group keys when display-name loading fails.
+    }
+  };
+
   // Initialize data on component mount
   useEffect(() => {
     loadPlans();
+    loadGroupDisplayNames();
   }, []);
 
   const planCount = allPlans.length;
@@ -134,6 +152,7 @@ export const useSubscriptionsData = () => {
     plans,
     planCount,
     loading,
+    groupDisplayNames,
 
     // Modal state
     showEdit,

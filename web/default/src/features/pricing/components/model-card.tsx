@@ -21,6 +21,10 @@ import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import {
+  resolveGroupDisplayName,
+  type GroupDisplayNameMap,
+} from '@/lib/group-display'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -44,6 +48,7 @@ export interface ModelCardProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   selectedGroup?: string
+  groupDisplayNames?: GroupDisplayNameMap
   perf?: ModelPerfBadgeData
 }
 
@@ -80,6 +85,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     : null
 
   const primaryGroup = groups[0]
+  const primaryGroupLabel = primaryGroup
+    ? resolveGroupDisplayName(primaryGroup, props.groupDisplayNames)
+    : undefined
   const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
   const hiddenCount =
     Math.max(groups.length - 1, 0) +
@@ -250,7 +258,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
           {primaryGroup && (
             <span className='text-muted-foreground text-sm font-medium'>
-              {primaryGroup}
+              {primaryGroupLabel}
             </span>
           )}
           <ModelBillingModeBadge model={props.model} />

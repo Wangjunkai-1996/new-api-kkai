@@ -212,11 +212,21 @@ export const processModelsData = (data, currentModel) => {
 // 处理分组数据
 export const processGroupsData = (data, userGroup) => {
   let groupOptions = Object.entries(data).map(([group, info]) => ({
-    label:
-      info.desc.length > 20 ? info.desc.substring(0, 20) + '...' : info.desc,
+    label: (() => {
+      const configured =
+        typeof info?.display_name === 'string' ? info.display_name.trim() : '';
+      const legacy = typeof info?.desc === 'string' ? info.desc.trim() : '';
+      const resolved = configured || legacy || group;
+      return resolved.length > 20
+        ? resolved.substring(0, 20) + '...'
+        : resolved;
+    })(),
     value: group,
-    ratio: info.ratio,
-    fullLabel: info.desc,
+    ratio: info?.ratio,
+    fullLabel:
+      typeof info?.desc === 'string' && info.desc.trim()
+        ? info.desc.trim()
+        : group,
   }));
 
   if (groupOptions.length === 0) {

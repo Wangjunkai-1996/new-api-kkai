@@ -37,6 +37,7 @@ const ChannelsTable = (channelsData) => {
     enableBatchDelete,
     compactMode,
     visibleColumns,
+    groupDisplayNames,
     setSelectedChannels,
     handlePageChange,
     handlePageSizeChange,
@@ -90,6 +91,7 @@ const ChannelsTable = (channelsData) => {
       setCurrentMultiKeyChannel,
       openUpstreamUpdateModal,
       detectChannelUpstreamUpdates,
+      groupDisplayNames,
     });
   }, [
     t,
@@ -114,6 +116,7 @@ const ChannelsTable = (channelsData) => {
     setCurrentMultiKeyChannel,
     openUpstreamUpdateModal,
     detectChannelUpstreamUpdates,
+    groupDisplayNames,
   ]);
 
   // Filter columns based on visibility settings

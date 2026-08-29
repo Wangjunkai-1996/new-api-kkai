@@ -35,6 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
@@ -285,6 +286,7 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',
@@ -578,6 +580,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {group ? (
                 <GroupBadge
                   group={group}
+                  displayName={
+                    sensitiveVisible ? groupDisplayNames[group] : undefined
+                  }
                   label={sensitiveVisible ? undefined : '••••'}
                   type='text'
                   size='sm'

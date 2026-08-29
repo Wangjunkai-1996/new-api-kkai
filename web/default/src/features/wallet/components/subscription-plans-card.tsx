@@ -58,6 +58,7 @@ import type {
 } from '@/features/subscriptions/types'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 
 import type { PaymentMethod, TopupInfo } from '../types'
 
@@ -99,6 +100,7 @@ export function SubscriptionPlansCard({
   onPurchaseSuccess,
 }: SubscriptionPlansCardProps) {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
 
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [activeSubscriptions, setActiveSubscriptions] = useState<
@@ -544,7 +546,7 @@ export function SubscriptionPlansCard({
                   : `${t('Total Quota')}: ${t('Unlimited')}`,
                 limit > 0 ? `${t('Purchase Limit')}: ${limit}` : null,
                 plan.upgrade_group
-                  ? `${t('Upgrade Group')}: ${plan.upgrade_group}`
+                  ? `${t('Upgrade Group')}: ${groupDisplayNames[plan.upgrade_group] || plan.upgrade_group}`
                   : null,
               ].filter(Boolean) as string[]
 

@@ -86,6 +86,7 @@ type KKAIGroupStatusResult struct {
 type KKAIGroupStatusEntry struct {
 	Group            string                 `json:"group"`
 	Desc             string                 `json:"desc"`
+	DisplayName      string                 `json:"display_name"`
 	Status           string                 `json:"status"`
 	Confidence       string                 `json:"confidence"`
 	Message          string                 `json:"message"`

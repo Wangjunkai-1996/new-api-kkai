@@ -46,6 +46,7 @@ export function Pricing() {
     models,
     vendors,
     groupRatio,
+    groupDisplayNames,
     usableGroup,
     endpointMap,
     autoGroups,
@@ -131,6 +132,7 @@ export function Pricing() {
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
           selectedGroup={groupFilter}
+          groupDisplayNames={groupDisplayNames}
         />
       )
     }
@@ -144,6 +146,7 @@ export function Pricing() {
         showRechargePrice={showRechargePrice}
         selectedGroup={groupFilter}
         onModelClick={handleModelClick}
+        groupDisplayNames={groupDisplayNames}
       />
     )
   }
@@ -216,6 +219,7 @@ export function Pricing() {
               onTagChange={setTagFilter}
               vendors={vendors || []}
               groups={availableGroups}
+              groupDisplayNames={groupDisplayNames}
               groupRatios={groupRatio}
               tags={availableTags}
               models={models || []}
@@ -248,6 +252,7 @@ export function Pricing() {
                 onTagChange={setTagFilter}
                 vendors={vendors || []}
                 groups={availableGroups}
+                groupDisplayNames={groupDisplayNames}
                 groupRatios={groupRatio}
                 tags={availableTags}
                 models={models || []}
@@ -268,6 +273,7 @@ export function Pricing() {
               }}
               model={selectedModel}
               groupRatio={groupRatio || {}}
+              groupDisplayNames={groupDisplayNames}
               usableGroup={usableGroup || {}}
               endpointMap={
                 (endpointMap as Record<

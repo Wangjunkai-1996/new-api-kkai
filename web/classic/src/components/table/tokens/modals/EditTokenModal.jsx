@@ -138,7 +138,11 @@ const EditTokenModal = (props) => {
     const { success, message, data } = res.data;
     if (success) {
       let localGroupOptions = Object.entries(data).map(([group, info]) => ({
-        label: info.desc,
+        label:
+          (typeof info.display_name === 'string' &&
+            info.display_name.trim()) ||
+          (typeof info.desc === 'string' && info.desc.trim()) ||
+          group,
         value: group,
         ratio: info.ratio,
       }));

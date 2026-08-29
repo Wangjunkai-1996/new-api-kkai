@@ -48,6 +48,7 @@ const SubscriptionPurchaseModal = ({
   paying,
   selectedEpayMethod,
   setSelectedEpayMethod,
+  groupDisplayNames = {},
   epayMethods = [],
   enableOnlineTopUp = false,
   enableStripeTopUp = false,
@@ -152,7 +153,7 @@ const SubscriptionPurchaseModal = ({
                     {t('升级分组')}：
                   </Text>
                   <Text className='text-slate-900 dark:text-slate-100'>
-                    {plan.upgrade_group}
+                    {groupDisplayNames[plan.upgrade_group] || plan.upgrade_group}
                   </Text>
                 </div>
               ) : null}

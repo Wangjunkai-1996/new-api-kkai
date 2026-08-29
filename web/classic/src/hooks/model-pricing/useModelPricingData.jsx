@@ -52,6 +52,7 @@ export const useModelPricingData = () => {
   const [loading, setLoading] = useState(true);
   const [groupRatio, setGroupRatio] = useState({});
   const [usableGroup, setUsableGroup] = useState({});
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
   const [endpointMap, setEndpointMap] = useState({});
   const [autoGroups, setAutoGroups] = useState([]);
 
@@ -239,12 +240,29 @@ export const useModelPricingData = () => {
       vendors,
       group_ratio,
       usable_group,
+      group_display_names,
       supported_endpoint,
       auto_groups,
     } = res.data;
     if (success) {
       setGroupRatio(group_ratio);
       setUsableGroup(usable_group);
+      const resolvedGroupDisplayNames = {};
+      Object.entries(usable_group || {}).forEach(([group, description]) => {
+        const configured =
+          typeof group_display_names?.[group] === 'string'
+            ? group_display_names[group].trim()
+            : '';
+        const legacy =
+          typeof description === 'string' ? description.trim() : '';
+        resolvedGroupDisplayNames[group] = configured || legacy || group;
+      });
+      Object.entries(group_display_names || {}).forEach(([group, label]) => {
+        if (!resolvedGroupDisplayNames[group] && typeof label === 'string') {
+          resolvedGroupDisplayNames[group] = label.trim() || group;
+        }
+      });
+      setGroupDisplayNames(resolvedGroupDisplayNames);
       setSelectedGroup('all');
       // 构建供应商 Map 方便查找
       const vendorMap = {};
@@ -299,7 +317,7 @@ export const useModelPricingData = () => {
     } else {
       showInfo(
         t('当前查看的分组为：{{group}}，倍率为：{{ratio}}', {
-          group: group,
+          group: groupDisplayNames[group] || group,
           ratio: groupRatio[group] ?? 1,
         }),
       );
@@ -375,6 +393,7 @@ export const useModelPricingData = () => {
     loading,
     groupRatio,
     usableGroup,
+    groupDisplayNames,
     endpointMap,
     autoGroups,
 

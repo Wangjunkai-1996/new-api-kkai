@@ -33,6 +33,7 @@ const ModelPricingTable = ({
   displayPrice,
   showRatio,
   usableGroup,
+  groupDisplayNames = {},
   autoGroups = [],
   t,
 }) => {
@@ -89,7 +90,7 @@ const ModelPricingTable = ({
         dataIndex: 'group',
         render: (text) => (
           <Tag color='white' size='small' shape='circle'>
-            {text}
+            {groupDisplayNames[text] || usableGroup?.[text] || text}
             {t('分组')}
           </Tag>
         ),
@@ -185,7 +186,7 @@ const ModelPricingTable = ({
           {autoChain.map((g, idx) => (
             <React.Fragment key={g}>
               <Tag color='white' size='small' shape='circle'>
-                {g}
+                {groupDisplayNames[g] || usableGroup?.[g] || g}
                 {t('分组')}
               </Tag>
               {idx < autoChain.length - 1 && <span className='text-sm'>→</span>}

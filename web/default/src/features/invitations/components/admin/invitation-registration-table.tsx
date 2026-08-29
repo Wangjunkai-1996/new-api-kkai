@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import {
   Table,
   TableBody,
@@ -40,6 +41,7 @@ export const InvitationRegistrationTable = (props: {
   onAction: (action: RegistrationRewardAction) => void
 }) => {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
   return (
     <div className='overflow-x-auto rounded-md border'>
       <Table>
@@ -63,7 +65,10 @@ export const InvitationRegistrationTable = (props: {
               <TableCell>
                 {registration.inviteeName || registration.inviteeId}
               </TableCell>
-              <TableCell>{registration.userGroup}</TableCell>
+              <TableCell>
+                {groupDisplayNames[registration.userGroup] ||
+                  registration.userGroup}
+              </TableCell>
               <TableCell>
                 <RewardStatus
                   generated={registration.inviterRewardGenerated}

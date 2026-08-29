@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -24,6 +24,7 @@ import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { formatQuota } from '@/lib/format'
 
 import { formatDuration, formatResetPeriod } from '../lib'
@@ -32,6 +33,7 @@ import { DataTableRowActions } from './data-table-row-actions'
 
 export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
 
   return useMemo(
     (): ColumnDef<PlanRecord>[] => [
@@ -187,7 +189,10 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
           }
           return (
             <BadgeCell>
-              <GroupBadge group={group} />
+              <GroupBadge
+                group={group}
+                displayName={groupDisplayNames[group]}
+              />
             </BadgeCell>
           )
         },
@@ -200,6 +205,6 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         meta: { pinned: 'right' as const },
       },
     ],
-    [t]
+    [groupDisplayNames, t]
   )
 }

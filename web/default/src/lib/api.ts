@@ -22,6 +22,8 @@ import { toast } from 'sonner'
 
 import { useAuthStore } from '@/stores/auth-store'
 
+import type { UserGroupInfo } from './group-display'
+
 declare module 'axios' {
   export interface AxiosRequestConfig {
     skipBusinessError?: boolean
@@ -200,7 +202,7 @@ export async function getUserModels(): Promise<{
 export async function getUserGroups(): Promise<{
   success: boolean
   message?: string
-  data?: Record<string, { desc: string; ratio: number | string }>
+  data?: Record<string, UserGroupInfo>
 }> {
   const res = await api.get('/api/user/self/groups')
   return res.data

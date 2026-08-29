@@ -45,6 +45,8 @@ export interface UserProfile {
   email?: string
   /** User group */
   group: string
+  /** User-facing group label; requests continue to use `group`. */
+  group_display_name?: string
   /** Current quota balance */
   quota: number
   /** Total used quota */

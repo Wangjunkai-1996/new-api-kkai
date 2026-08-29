@@ -34,6 +34,7 @@ export const useModelsData = () => {
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [searching, setSearching] = useState(false);
   const [modelCount, setModelCount] = useState(0);
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
 
   // Modal states
   const [showEdit, setShowEdit] = useState(false);
@@ -424,6 +425,18 @@ export const useModelsData = () => {
     (async () => {
       await loadVendors();
     })();
+    API.get('/api/group/')
+      .then((res) => {
+        if (!res?.data?.success) return;
+        const configured = res.data?.display_names || {};
+        const groups = Array.isArray(res.data?.data) ? res.data.data : [];
+        const resolved = {};
+        groups.forEach((group) => {
+          resolved[group] = configured[group] || group;
+        });
+        setGroupDisplayNames(resolved);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -435,6 +448,7 @@ export const useModelsData = () => {
     activePage,
     pageSize,
     modelCount,
+    groupDisplayNames,
 
     // Selection state
     selectedKeys,

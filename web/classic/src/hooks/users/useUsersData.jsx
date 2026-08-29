@@ -34,6 +34,7 @@ export const useUsersData = () => {
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
   const [userCount, setUserCount] = useState(0);
 
   // Modal states
@@ -241,9 +242,16 @@ export const useUsersData = () => {
       if (res === undefined) {
         return;
       }
+      const displayNames = res.data?.display_names || {};
+      const groups = Array.isArray(res.data?.data) ? res.data.data : [];
+      const resolvedDisplayNames = {};
+      groups.forEach((group) => {
+        resolvedDisplayNames[group] = displayNames[group] || group;
+      });
+      setGroupDisplayNames(resolvedDisplayNames);
       setGroupOptions(
-        res.data.data.map((group) => ({
-          label: group,
+        groups.map((group) => ({
+          label: displayNames[group] || group,
           value: group,
         })),
       );
@@ -283,6 +291,7 @@ export const useUsersData = () => {
     userCount,
     searching,
     groupOptions,
+    groupDisplayNames,
 
     // Modal state
     showAddUser,

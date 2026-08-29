@@ -233,7 +233,12 @@ export async function updateBillingPreference(
   return res.data
 }
 
-export async function getGroups(): Promise<ApiResponse<string[]>> {
+export interface GroupsResponse extends ApiResponse<string[]> {
+  /** User-facing labels keyed by the canonical group key. */
+  display_names?: Record<string, string>
+}
+
+export async function getGroups(): Promise<GroupsResponse> {
   const res = await api.get('/api/group')
   return res.data
 }

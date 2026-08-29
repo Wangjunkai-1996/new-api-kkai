@@ -59,7 +59,7 @@ interface ModelOption {
 interface GroupOption {
   label: string
   value: string
-  ratio?: number
+  ratio?: number | string
   desc?: string
   description?: string
 }
@@ -78,6 +78,12 @@ interface GroupSelectorProps {
   onGroupChange: (value: string) => void
   className?: string
   disabled?: boolean
+}
+
+function getDistinctGroupDescription(group: GroupOption): string | undefined {
+  const description = group.desc?.trim() || group.description?.trim()
+  if (!description || description === group.label.trim()) return undefined
+  return description
 }
 
 const ModelTriggerButton = React.forwardRef<
@@ -385,6 +391,7 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
           const searchTerm = search.toLowerCase()
           const searchableFields = [
             group.label,
+            group.desc || '',
             group.description || '',
             group.value,
           ]
@@ -403,44 +410,51 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
             <div className='text-muted-foreground px-2 py-1 text-[10px] font-medium'>
               {t('Model Group')}
             </div>
-            {groups.map((group) => (
-              <CommandItem
-                key={group.value}
-                value={group.value}
-                onSelect={handleGroupChange}
-                className={cn(
-                  'mb-0.5 flex items-center justify-between rounded-lg px-2 py-2 text-xs',
-                  'transition-all duration-200',
-                  'hover:bg-accent',
-                  'data-[selected=true]:bg-accent'
-                )}
-              >
-                <div className='flex min-w-0 flex-1 items-center gap-2 pr-4'>
-                  <div className='flex min-w-0 flex-1 flex-col'>
-                    <span className='text-foreground truncate text-[11px] font-medium'>
-                      {group.label}
-                    </span>
-                    {(group.desc || group.description) && (
-                      <div className='text-muted-foreground truncate text-[9px] leading-tight'>
-                        {group.desc || group.description}
-                        {group.ratio && (
-                          <>
-                            {' · '}
-                            {t('Ratio: {{value}}', { value: group.ratio })}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <Check
+            {groups.map((group) => {
+              const description = getDistinctGroupDescription(group)
+              const hasRatio = group.ratio !== undefined && group.ratio !== ''
+
+              return (
+                <CommandItem
+                  key={group.value}
+                  value={group.value}
+                  onSelect={handleGroupChange}
                   className={cn(
-                    'ml-auto h-4 w-4',
-                    selectedGroup === group.value ? 'opacity-100' : 'opacity-0'
+                    'mb-0.5 flex items-center justify-between rounded-lg px-2 py-2 text-xs',
+                    'transition-all duration-200',
+                    'hover:bg-accent',
+                    'data-[selected=true]:bg-accent'
                   )}
-                />
-              </CommandItem>
-            ))}
+                >
+                  <div className='flex min-w-0 flex-1 items-center gap-2 pr-4'>
+                    <div className='flex min-w-0 flex-1 flex-col'>
+                      <span className='text-foreground truncate text-[11px] font-medium'>
+                        {group.label}
+                      </span>
+                      {(description || hasRatio) && (
+                        <div className='text-muted-foreground truncate text-[9px] leading-tight'>
+                          {description}
+                          {hasRatio && (
+                            <>
+                              {' · '}
+                              {t('Ratio: {{value}}', { value: group.ratio })}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Check
+                    className={cn(
+                      'ml-auto h-4 w-4',
+                      selectedGroup === group.value
+                        ? 'opacity-100'
+                        : 'opacity-0'
+                    )}
+                  />
+                </CommandItem>
+              )
+            })}
           </CommandGroup>
         </CommandList>
       </Command>
@@ -462,49 +476,54 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
           </DrawerHeader>
           <div className='max-h-[calc(80vh-100px)] overflow-y-auto px-4 pb-6'>
             <div className='space-y-2'>
-              {groups.map((group) => (
-                <Button
-                  key={group.value}
-                  variant='outline'
-                  onClick={() => handleGroupChange(group.value)}
-                  className={cn(
-                    'flex h-auto w-full items-center justify-between rounded-lg p-4 text-left whitespace-normal',
-                    'border-border hover:bg-accent',
-                    selectedGroup === group.value
-                      ? 'bg-accent border-primary/20'
-                      : 'bg-background'
-                  )}
-                >
-                  <div className='flex min-w-0 flex-1 items-center gap-3'>
-                    <div className='flex min-w-0 flex-1 flex-col'>
-                      <span className='text-foreground text-sm font-medium'>
-                        {group.label}
-                      </span>
-                      {(group.desc || group.description) && (
-                        <div className='text-muted-foreground mt-0.5 text-xs'>
-                          {group.desc || group.description}
-                          {group.ratio && (
-                            <>
-                              {' · '}
-                              {t('Ratio: {{value}}', {
-                                value: group.ratio,
-                              })}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <Check
+              {groups.map((group) => {
+                const description = getDistinctGroupDescription(group)
+                const hasRatio = group.ratio !== undefined && group.ratio !== ''
+
+                return (
+                  <Button
+                    key={group.value}
+                    variant='outline'
+                    onClick={() => handleGroupChange(group.value)}
                     className={cn(
-                      'ml-3 h-5 w-5 shrink-0',
+                      'flex h-auto w-full items-center justify-between rounded-lg p-4 text-left whitespace-normal',
+                      'border-border hover:bg-accent',
                       selectedGroup === group.value
-                        ? 'opacity-100'
-                        : 'opacity-0'
+                        ? 'bg-accent border-primary/20'
+                        : 'bg-background'
                     )}
-                  />
-                </Button>
-              ))}
+                  >
+                    <div className='flex min-w-0 flex-1 items-center gap-3'>
+                      <div className='flex min-w-0 flex-1 flex-col'>
+                        <span className='text-foreground text-sm font-medium'>
+                          {group.label}
+                        </span>
+                        {(description || hasRatio) && (
+                          <div className='text-muted-foreground mt-0.5 text-xs'>
+                            {description}
+                            {hasRatio && (
+                              <>
+                                {' · '}
+                                {t('Ratio: {{value}}', {
+                                  value: group.ratio,
+                                })}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <Check
+                      className={cn(
+                        'ml-3 h-5 w-5 shrink-0',
+                        selectedGroup === group.value
+                          ? 'opacity-100'
+                          : 'opacity-0'
+                      )}
+                    />
+                  </Button>
+                )
+              })}
             </div>
           </div>
         </DrawerContent>

@@ -27,6 +27,10 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import {
+  resolveGroupDisplayName,
+  type GroupDisplayNameMap,
+} from '@/lib/group-display'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -68,6 +72,7 @@ export interface PricingSidebarProps {
   onTagChange: (value: string) => void
   vendors: PricingVendor[]
   groups: string[]
+  groupDisplayNames?: GroupDisplayNameMap
   groupRatios?: Record<string, number>
   tags: string[]
   models: PricingModel[]
@@ -187,7 +192,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
     },
     ...props.groups.map((group) => ({
       value: group,
-      label: group,
+      label: resolveGroupDisplayName(group, props.groupDisplayNames),
       suffix: formatGroupRatio(props.groupRatios?.[group]),
     })),
   ]

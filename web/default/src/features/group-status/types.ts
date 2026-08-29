@@ -54,6 +54,7 @@ export type GroupCacheStats = {
 export type GroupStatusEntry = {
   group: string
   desc: string
+  display_name?: string
   status: GroupHealthStatus
   confidence: GroupHealthConfidence
   message: string

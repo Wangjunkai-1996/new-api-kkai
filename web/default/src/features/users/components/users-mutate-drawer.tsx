@@ -62,6 +62,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -107,6 +108,7 @@ export function UsersMutateDrawer({
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const { triggerRefresh } = useUsers()
+  const groupDisplayNames = useGroupDisplayNames()
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
@@ -363,7 +365,7 @@ export function UsersMutateDrawer({
                           items={[
                             ...groups.map((group) => ({
                               value: group,
-                              label: group,
+                              label: groupDisplayNames[group] || group,
                             })),
                           ]}
                           onValueChange={field.onChange}
@@ -378,7 +380,7 @@ export function UsersMutateDrawer({
                             <SelectGroup>
                               {groups.map((group) => (
                                 <SelectItem key={group} value={group}>
-                                  {group}
+                                  {groupDisplayNames[group] || group}
                                 </SelectItem>
                               ))}
                             </SelectGroup>

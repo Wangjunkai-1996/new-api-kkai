@@ -66,6 +66,7 @@ type GroupFormValues = {
   GroupRatio: string
   TopupGroupRatio: string
   UserUsableGroups: string
+  GroupDisplayNames: string
   GroupGroupRatio: string
   AutoGroups: string
   DefaultUseAutoGroup: boolean
@@ -118,13 +119,17 @@ export const GroupRatioForm = memo(function GroupRatioForm({
       { fallback: {}, silent: true }
     )
     return [
-      ...new Set([
-        ...Object.keys(ratioMap),
-        ...Object.keys(usableMap),
-        ...Object.keys(topupMap),
-      ]),
-    ]
-  }, [watchedGroupRatio, watchedUserUsableGroups, watchedTopupGroupRatio])
+        ...new Set([
+          ...Object.keys(ratioMap),
+          ...Object.keys(usableMap),
+          ...Object.keys(topupMap),
+        ]),
+      ]
+  }, [
+    watchedGroupRatio,
+    watchedUserUsableGroups,
+    watchedTopupGroupRatio,
+  ])
 
   return (
     <div className='space-y-6'>
@@ -167,6 +172,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               groupRatio={form.watch('GroupRatio')}
               topupGroupRatio={form.watch('TopupGroupRatio')}
               userUsableGroups={form.watch('UserUsableGroups')}
+              groupDisplayNames={form.watch('GroupDisplayNames')}
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
               groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
@@ -260,6 +266,23 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     {t(
                       'JSON map of group → description exposed when users create API keys.'
                     )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupDisplayNames'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Display name')}</FormLabel>
+                  <FormControl>
+                    <Textarea rows={6} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Display name shown to users.')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

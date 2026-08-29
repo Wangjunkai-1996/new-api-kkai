@@ -77,6 +77,7 @@ export const useLogsData = () => {
 
   // User and admin
   const isAdminUser = isAdmin();
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
   // Role-specific storage key to prevent different roles from overwriting each other
   const STORAGE_KEY = isAdminUser
     ? 'logs-table-columns-admin'
@@ -186,6 +187,36 @@ export const useLogsData = () => {
     useState(null);
   const [showParamOverrideModal, setShowParamOverrideModal] = useState(false);
   const [paramOverrideTarget, setParamOverrideTarget] = useState(null);
+
+  const loadGroupDisplayNames = async () => {
+    try {
+      const endpoint = isAdminUser ? '/api/group/' : '/api/user/self/groups';
+      const res = await API.get(endpoint);
+      if (!res?.data?.success) return;
+
+      const resolved = {};
+      const configured = res.data?.display_names || {};
+      if (Array.isArray(res.data?.data)) {
+        res.data.data.forEach((group) => {
+          resolved[group] = configured[group] || group;
+        });
+      } else if (res.data?.data && typeof res.data.data === 'object') {
+        Object.entries(res.data.data).forEach(([group, info]) => {
+          const displayName =
+            typeof info?.display_name === 'string'
+              ? info.display_name.trim()
+              : '';
+          const description =
+            typeof info?.desc === 'string' ? info.desc.trim() : '';
+          resolved[group] =
+            configured[group] || displayName || description || group;
+        });
+      }
+      setGroupDisplayNames(resolved);
+    } catch (e) {
+      // Keep canonical group keys when display-name loading fails.
+    }
+  };
 
   // Initialize default column visibility
   const initDefaultColumns = () => {
@@ -816,6 +847,7 @@ export const useLogsData = () => {
       .catch((reason) => {
         showError(reason);
       });
+    loadGroupDisplayNames();
   }, []);
 
   // Initialize statistics when formApi is available
@@ -845,6 +877,7 @@ export const useLogsData = () => {
     logType,
     stat,
     isAdminUser,
+    groupDisplayNames,
 
     // Form state
     formApi,

@@ -316,6 +316,7 @@ export const getUsersColumns = ({
   showResetPasskeyModal,
   showResetTwoFAModal,
   showUserSubscriptionsModal,
+  groupDisplayNames = {},
 }) => {
   return [
     {
@@ -342,7 +343,7 @@ export const getUsersColumns = ({
       title: t('分组'),
       dataIndex: 'group',
       render: (text, record, index) => {
-        return <div>{renderGroup(text)}</div>;
+        return <div>{renderGroup(text, groupDisplayNames)}</div>;
       },
     },
     {

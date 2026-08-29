@@ -327,6 +327,7 @@ export const getChannelsColumns = ({
   setCurrentMultiKeyChannel,
   openUpstreamUpdateModal,
   detectChannelUpstreamUpdates,
+  groupDisplayNames = {},
 }) => {
   return [
     {
@@ -471,7 +472,7 @@ export const getChannelsColumns = ({
                 if (b === 'default') return 1;
                 return a.localeCompare(b);
               })
-              .map((item, index) => renderGroup(item))}
+              .map((item, index) => renderGroup(item, groupDisplayNames))}
           </Space>
         </div>
       ),

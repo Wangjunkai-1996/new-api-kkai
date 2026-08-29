@@ -26,6 +26,10 @@ import {
 } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
+import {
+  resolveGroupDisplayName,
+  type GroupDisplayNameMap,
+} from '@/lib/group-display'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
@@ -53,6 +57,7 @@ export interface PricingColumnsOptions {
   usdExchangeRate?: number
   showRechargePrice?: boolean
   selectedGroup?: string
+  groupDisplayNames?: GroupDisplayNameMap
 }
 
 export function usePricingColumns(
@@ -65,6 +70,7 @@ export function usePricingColumns(
     usdExchangeRate = 1,
     showRechargePrice = false,
     selectedGroup,
+    groupDisplayNames,
   } = options
 
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
@@ -400,7 +406,12 @@ export function usePricingColumns(
         return (
           <BadgeListCell
             items={groups.map((group) => (
-              <GroupBadge key={group} group={group} size='sm' />
+              <GroupBadge
+                key={group}
+                group={group}
+                label={resolveGroupDisplayName(group, groupDisplayNames)}
+                size='sm'
+              />
             ))}
             tooltipClassName='max-w-[280px] p-2'
           />

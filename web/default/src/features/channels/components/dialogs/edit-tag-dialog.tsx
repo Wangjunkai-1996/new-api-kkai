@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 
 import {
   editTagChannels,
@@ -59,6 +60,7 @@ export function EditTagDialog({ open, onOpenChange }: EditTagDialogProps) {
   const { t } = useTranslation()
   const { currentTag } = useChannels()
   const queryClient = useQueryClient()
+  const groupDisplayNames = useGroupDisplayNames()
 
   // Form state
   const [newTag, setNewTag] = useState('')
@@ -429,6 +431,7 @@ export function EditTagDialog({ open, onOpenChange }: EditTagDialogProps) {
                 <GroupBadge
                   key={group}
                   group={group}
+                  displayName={groupDisplayNames[group]}
                   className={`cursor-pointer rounded-sm transition-opacity hover:opacity-70 ${
                     selectedGroups.includes(group) ? 'bg-muted/70 px-1' : ''
                   }`}

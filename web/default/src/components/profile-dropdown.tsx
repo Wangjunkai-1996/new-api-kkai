@@ -92,7 +92,7 @@ export function ProfileDropdown() {
                   <>
                     <span className='text-muted-foreground text-xs'>·</span>
                     <span className='text-muted-foreground truncate text-xs'>
-                      {String(user.group)}
+                      {user.group_display_name || String(user.group)}
                     </span>
                   </>
                 )}

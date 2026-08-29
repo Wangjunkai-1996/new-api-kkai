@@ -104,7 +104,7 @@ function MobileUserProfile({ user, onNavigate }: MobileUserProfileProps) {
                 <>
                   <span className='text-muted-foreground text-xs'>·</span>
                   <span className='text-muted-foreground text-xs'>
-                    {String(user.group)}
+                    {user.group_display_name || String(user.group)}
                   </span>
                 </>
               )}

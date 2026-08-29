@@ -64,7 +64,7 @@ function formatResetPeriod(plan, t) {
   return t('不重置');
 }
 
-const renderPlanTitle = (text, record, t) => {
+const renderPlanTitle = (text, record, t, groupDisplayNames = {}) => {
   const subtitle = record?.plan?.subtitle;
   const plan = record?.plan;
   const popoverContent = (
@@ -90,7 +90,11 @@ const renderPlanTitle = (text, record, t) => {
           <Text>{t('不限')}</Text>
         )}
         <Text type='tertiary'>{t('升级分组')}</Text>
-        <Text>{plan?.upgrade_group ? plan.upgrade_group : t('不升级')}</Text>
+        <Text>
+          {plan?.upgrade_group
+            ? groupDisplayNames[plan.upgrade_group] || plan.upgrade_group
+            : t('不升级')}
+        </Text>
         <Text type='tertiary'>{t('购买上限')}</Text>
         <Text>
           {plan?.max_purchase_per_user > 0
@@ -183,11 +187,11 @@ const renderTotalAmount = (text, record, t) => {
   );
 };
 
-const renderUpgradeGroup = (text, record, t) => {
+const renderUpgradeGroup = (text, record, t, groupDisplayNames = {}) => {
   const group = record?.plan?.upgrade_group || '';
   return (
     <Text type={group ? 'secondary' : 'tertiary'}>
-      {group ? group : t('不升级')}
+      {group ? groupDisplayNames[group] || group : t('不升级')}
     </Text>
   );
 };
@@ -295,6 +299,7 @@ export const getSubscriptionsColumns = ({
   setPlanEnabled,
   enableEpay,
   complianceConfirmed = true,
+  groupDisplayNames = {},
 }) => {
   return [
     {
@@ -307,7 +312,8 @@ export const getSubscriptionsColumns = ({
       title: t('套餐'),
       dataIndex: ['plan', 'title'],
       width: 200,
-      render: (text, record) => renderPlanTitle(text, record, t),
+      render: (text, record) =>
+        renderPlanTitle(text, record, t, groupDisplayNames),
     },
     {
       title: t('价格'),
@@ -356,7 +362,8 @@ export const getSubscriptionsColumns = ({
     {
       title: t('升级分组'),
       width: 100,
-      render: (text, record) => renderUpgradeGroup(text, record, t),
+      render: (text, record) =>
+        renderUpgradeGroup(text, record, t, groupDisplayNames),
     },
     {
       title: t('操作'),

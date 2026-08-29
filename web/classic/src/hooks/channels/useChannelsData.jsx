@@ -53,6 +53,7 @@ export const useChannelsData = () => {
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [channelCount, setChannelCount] = useState(0);
   const [groupOptions, setGroupOptions] = useState([]);
+  const [groupDisplayNames, setGroupDisplayNames] = useState({});
 
   // UI states
   const [showEdit, setShowEdit] = useState(false);
@@ -562,9 +563,16 @@ export const useChannelsData = () => {
     try {
       let res = await API.get(`/api/group/`);
       if (res === undefined) return;
+      const displayNames = res.data?.display_names || {};
+      const groups = Array.isArray(res.data?.data) ? res.data.data : [];
+      const resolvedDisplayNames = {};
+      groups.forEach((group) => {
+        resolvedDisplayNames[group] = displayNames[group] || group;
+      });
+      setGroupDisplayNames(resolvedDisplayNames);
       setGroupOptions(
-        res.data.data.map((group) => ({
-          label: group,
+        groups.map((group) => ({
+          label: displayNames[group] || group,
           value: group,
         })),
       );
@@ -1142,6 +1150,7 @@ export const useChannelsData = () => {
     pageSize,
     channelCount,
     groupOptions,
+    groupDisplayNames,
     idSort,
     enableTagMode,
     enableBatchDelete,

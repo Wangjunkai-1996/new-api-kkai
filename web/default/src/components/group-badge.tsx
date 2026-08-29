@@ -27,6 +27,8 @@ type GroupBadgeProps = Omit<
   'autoColor' | 'label' | 'variant'
 > & {
   group?: string | null
+  /** Optional user-facing label; `group` remains the canonical key. */
+  displayName?: string
   label?: string
   ratio?: number | null
 }
@@ -44,12 +46,22 @@ function getGroupRatioClassName(ratio: number): string {
 function getGroupLabel(params: {
   labelOverride?: string
   groupName?: string
+  displayName?: string
   isAutoGroup: boolean
   isEmptyGroup: boolean
   t: (key: string) => string
 }): string {
-  if (params.labelOverride) return params.labelOverride
+  // Some callers resolve a missing display name before rendering and pass the
+  // canonical `auto` key as an explicit label. Keep the built-in translation
+  // for that special group while still honoring a configured custom label.
+  if (
+    params.labelOverride &&
+    !(params.isAutoGroup && params.labelOverride.trim() === params.groupName)
+  ) {
+    return params.labelOverride
+  }
   if (params.isEmptyGroup) return params.t('User Group')
+  if (params.displayName?.trim()) return params.displayName.trim()
   if (params.isAutoGroup) return params.t('Auto')
   return params.groupName ?? ''
 }
@@ -58,6 +70,7 @@ export function GroupBadge(props: GroupBadgeProps) {
   const { t } = useTranslation()
   const {
     group,
+    displayName,
     label: labelOverride,
     ratio,
     copyable = false,
@@ -72,6 +85,7 @@ export function GroupBadge(props: GroupBadgeProps) {
   const label = getGroupLabel({
     labelOverride,
     groupName,
+    displayName,
     isAutoGroup,
     isEmptyGroup,
     t,
@@ -81,6 +95,10 @@ export function GroupBadge(props: GroupBadgeProps) {
     <StatusBadge
       {...badgeProps}
       copyable={copyable}
+      // Display labels may change; copied values must remain the canonical key.
+      // Keep the exact canonical key when copying; display-only whitespace
+      // must never be normalized into a different persisted group value.
+      copyText={group ?? ''}
       label={label}
       showDot={showDot ?? (isSpecialGroup ? false : undefined)}
       variant={isSpecialGroup ? 'neutral' : undefined}

@@ -39,6 +39,16 @@ const STATUS_RELATED_KEYS = [
   'general_setting.custom_currency_exchange_rate',
 ]
 
+// These settings change labels or the set of selectable groups. Invalidate
+// every derived catalog so a rename is visible without forcing a logout or a
+// second manual selection by users.
+const GROUP_RELATED_KEYS = [
+  'GroupRatio',
+  'UserUsableGroups',
+  'GroupDisplayNames',
+  'GroupGroupRatio',
+]
+
 export function useUpdateOption() {
   const queryClient = useQueryClient()
 
@@ -57,6 +67,13 @@ export function useUpdateOption() {
           } catch {
             /* empty */
           }
+        }
+
+        if (GROUP_RELATED_KEYS.includes(variables.key)) {
+          queryClient.invalidateQueries({ queryKey: ['groups'] })
+          queryClient.invalidateQueries({ queryKey: ['user-groups'] })
+          queryClient.invalidateQueries({ queryKey: ['group-display-names'] })
+          queryClient.invalidateQueries({ queryKey: ['pricing'] })
         }
 
         toast.success(i18next.t('Setting updated successfully'))

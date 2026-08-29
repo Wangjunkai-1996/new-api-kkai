@@ -21,6 +21,7 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { GroupBadge } from '@/components/group-badge'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { cn } from '@/lib/utils'
 
 import { CHANNEL_STATUS } from '../constants'
@@ -48,6 +49,7 @@ function ChannelCardComponent({
 }) {
   const { t } = useTranslation()
   const { sensitiveVisible } = useChannels()
+  const groupDisplayNames = useGroupDisplayNames()
   const isTagRow = isTagAggregateRow(row.original)
   const cells = row.getAllCells()
 
@@ -164,6 +166,9 @@ function ChannelCardComponent({
                 <GroupBadge
                   key={g}
                   group={g}
+                  displayName={
+                    sensitiveVisible ? groupDisplayNames[g] : undefined
+                  }
                   label={sensitiveVisible ? undefined : SENSITIVE_MASK}
                   size='sm'
                 />

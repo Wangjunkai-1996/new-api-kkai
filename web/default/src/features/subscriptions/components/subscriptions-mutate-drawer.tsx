@@ -61,6 +61,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 
 import {
@@ -95,6 +96,7 @@ export function SubscriptionsMutateDrawer({
   const { t } = useTranslation()
   const isEdit = !!currentRow?.plan?.id
   const { triggerRefresh } = useSubscriptions()
+  const groupDisplayNames = useGroupDisplayNames()
   const { meta: currencyMeta } = getCurrencyDisplay()
   const tokensOnly = currencyMeta.kind === 'tokens'
   const currencyLabel = getCurrencyLabel()
@@ -396,7 +398,10 @@ export function SubscriptionsMutateDrawer({
                       <Select
                         items={[
                           { value: '__none__', label: t('No Upgrade') },
-                          ...groupOptions.map((g) => ({ value: g, label: g })),
+                          ...groupOptions.map((g) => ({
+                            value: g,
+                            label: groupDisplayNames[g] || g,
+                          })),
                         ]}
                         onValueChange={(v) =>
                           field.onChange(v === '__none__' ? '' : v)
@@ -415,7 +420,7 @@ export function SubscriptionsMutateDrawer({
                             </SelectItem>
                             {groupOptions.map((g) => (
                               <SelectItem key={g} value={g}>
-                                {g}
+                                {groupDisplayNames[g] || g}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -438,7 +443,10 @@ export function SubscriptionsMutateDrawer({
                             value: '__none__',
                             label: t('Downgrade to pre-purchase group'),
                           },
-                          ...groupOptions.map((g) => ({ value: g, label: g })),
+                          ...groupOptions.map((g) => ({
+                            value: g,
+                            label: groupDisplayNames[g] || g,
+                          })),
                         ]}
                         onValueChange={(v) =>
                           field.onChange(v === '__none__' ? '' : v)
@@ -459,7 +467,7 @@ export function SubscriptionsMutateDrawer({
                             </SelectItem>
                             {groupOptions.map((g) => (
                               <SelectItem key={g} value={g}>
-                                {g}
+                                {groupDisplayNames[g] || g}
                               </SelectItem>
                             ))}
                           </SelectGroup>

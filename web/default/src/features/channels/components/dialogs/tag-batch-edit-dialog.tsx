@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 
 import {
   getTagModels,
@@ -54,6 +55,7 @@ export function TagBatchEditDialog({
   const { t } = useTranslation()
   const { currentTag } = useChannels()
   const queryClient = useQueryClient()
+  const groupDisplayNames = useGroupDisplayNames()
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -75,9 +77,9 @@ export function TagBatchEditDialog({
     const allGroups = new Set([...groupsData.data, ...groups])
     return Array.from(allGroups).map((group) => ({
       value: group,
-      label: group,
+      label: groupDisplayNames[group] || group,
     }))
-  }, [groupsData, groups])
+  }, [groupsData, groups, groupDisplayNames])
 
   useEffect(() => {
     if (open && currentTag) {

@@ -23,6 +23,10 @@ import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '@/components/status-badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatTimestampRelative } from '@/lib/format'
+import {
+  getUserGroupDescription,
+  getUserGroupDisplayName,
+} from '@/lib/group-display'
 import { cn } from '@/lib/utils'
 
 import { formatGroupDuration, formatGroupSuccessRate } from '../format'
@@ -80,6 +84,13 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
     GROUP_EXPERIENCE_META[props.group.experience_label].icon
   const lastSignalAt = getGroupLastSignalAt(props.group)
   const statusMessage = t(getGroupStatusMessage(props.group))
+  const displayName = getUserGroupDisplayName(props.group.group, {
+    display_name: props.group.display_name,
+    desc: props.group.desc,
+  })
+  const description =
+    getUserGroupDescription({ desc: props.group.desc }, displayName) ??
+    t('User group')
 
   return (
     <Card
@@ -101,13 +112,13 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
           </div>
           <div className='min-w-0 flex-1 pt-0.5'>
             <div className='truncate text-base font-semibold'>
-              {props.group.group}
+              {displayName}
             </div>
             <div
               className='text-muted-foreground truncate text-xs'
-              title={props.group.desc || t('User group')}
+              title={description}
             >
-              {props.group.desc || t('User group')}
+              {description}
             </div>
           </div>
           <StatusBadge

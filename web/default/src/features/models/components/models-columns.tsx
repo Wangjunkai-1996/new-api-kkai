@@ -31,6 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { formatTimestampToDate } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
@@ -55,6 +56,7 @@ function getCompactModelIcon(iconKey: string) {
  */
 export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
 
   // Get translated configs
   const NAME_RULE_CONFIG = getNameRuleConfig(t)
@@ -359,7 +361,12 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
           <BadgeListCell
             max={3}
             items={(groups ?? []).map((g) => (
-              <GroupBadge key={g} group={g} size='sm' />
+              <GroupBadge
+                key={g}
+                group={g}
+                displayName={groupDisplayNames[g]}
+                size='sm'
+              />
             ))}
           />
         )

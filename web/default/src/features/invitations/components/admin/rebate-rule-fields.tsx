@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 
 import type { RebateRuleFormValues } from '../../schemas'
 import { ALL_USER_GROUP, type UserGroup } from '../../types'
@@ -37,6 +38,7 @@ export const RebateRuleFields = (props: {
   groups?: UserGroup[]
 }) => {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
   return (
     <>
       <div className='space-y-2'>
@@ -56,7 +58,9 @@ export const RebateRuleFields = (props: {
             </SelectItem>
             {props.groups?.map((group) => (
               <SelectItem key={group.name} value={group.name}>
-                {group.name} ({group.user_count})
+                {groupDisplayNames[group.name] || group.name} ({
+                  group.user_count
+                })
               </SelectItem>
             ))}
           </SelectContent>

@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Label } from '@/components/ui/label'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { formatQuota, formatCompactNumber } from '@/lib/format'
 
 import { getUserInfo } from '../../api'
@@ -40,6 +41,7 @@ export function UserInfoDialog({
   onOpenChange,
 }: UserInfoDialogProps) {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -131,7 +133,10 @@ export function UserInfoDialog({
               value={formatCompactNumber(userInfo.request_count)}
             />
             {userInfo.group && (
-              <InfoItem label={t('User Group')} value={userInfo.group} />
+              <InfoItem
+                label={t('User Group')}
+                value={groupDisplayNames[userInfo.group] || userInfo.group}
+              />
             )}
           </div>
 

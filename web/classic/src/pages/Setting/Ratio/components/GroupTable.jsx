@@ -1,3 +1,22 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   Button,
@@ -10,62 +29,28 @@ import {
 import { IconPlus, IconDelete } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import CardTable from '../../../../components/common/ui/CardTable';
+import {
+  buildGroupTableRows,
+  serializeGroupTable,
+} from './group-table-serialization';
 
 const { Text } = Typography;
 
 let _idCounter = 0;
 const uid = () => `gr_${++_idCounter}`;
 
-function parseJSON(str, fallback) {
-  if (!str || !str.trim()) return fallback;
-  try {
-    return JSON.parse(str);
-  } catch {
-    return fallback;
-  }
-}
+export { serializeGroupTable };
 
-function buildRows(groupRatioStr, userUsableGroupsStr) {
-  const ratioMap = parseJSON(groupRatioStr, {});
-  const usableMap = parseJSON(userUsableGroupsStr, {});
-
-  const allNames = new Set([
-    ...Object.keys(ratioMap),
-    ...Object.keys(usableMap),
-  ]);
-
-  return Array.from(allNames).map((name) => ({
-    _id: uid(),
-    name,
-    ratio: ratioMap[name] ?? 1,
-    selectable: name in usableMap,
-    description: usableMap[name] ?? '',
-  }));
-}
-
-export function serializeGroupTable(rows) {
-  const groupRatio = {};
-  const userUsableGroups = {};
-
-  rows.forEach((row) => {
-    if (!row.name) return;
-    groupRatio[row.name] = row.ratio;
-    if (row.selectable) {
-      userUsableGroups[row.name] = row.description;
-    }
-  });
-
-  return {
-    GroupRatio: JSON.stringify(groupRatio, null, 2),
-    UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
-  };
-}
-
-export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
+export default function GroupTable({
+  groupRatio,
+  userUsableGroups,
+  groupDisplayNames,
+  onChange,
+}) {
   const { t } = useTranslation();
 
   const [rows, setRows] = useState(() =>
-    buildRows(groupRatio, userUsableGroups),
+    buildGroupTableRows(groupRatio, userUsableGroups, groupDisplayNames, uid),
   );
 
   // Use functional setRows to keep updateRow/addRow/removeRow referentially
@@ -85,7 +70,18 @@ export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
   const updateRow = useCallback(
     (id, field, value) => {
       emitAndSet((prev) =>
-        prev.map((r) => (r._id === id ? { ...r, [field]: value } : r)),
+        prev.map((r) =>
+          r._id === id
+            ? {
+                ...r,
+                [field]: value,
+                editedFields: {
+                  ...(r.editedFields || {}),
+                  [field]: true,
+                },
+              }
+            : r,
+        ),
       );
     },
     [emitAndSet],
@@ -105,9 +101,11 @@ export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
         {
           _id: uid(),
           name: newName,
+          displayName: '',
           ratio: 1,
           selectable: true,
           description: '',
+          isNew: true,
         },
       ];
     });
@@ -146,10 +144,26 @@ export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
           <Input
             size='small'
             value={record.name}
+            readOnly={!record.isNew}
+            title={record.isNew ? undefined : t('分组名称')}
             status={
               duplicateNamesRef.current.has(record.name) ? 'warning' : undefined
             }
-            onChange={(v) => updateRow(record._id, 'name', v)}
+            onChange={(v) => record.isNew && updateRow(record._id, 'name', v)}
+          />
+        ),
+      },
+      {
+        title: t('显示名称'),
+        dataIndex: 'displayName',
+        key: 'displayName',
+        width: 180,
+        render: (_, record) => (
+          <Input
+            size='small'
+            value={record.displayName}
+            placeholder={record.name || t('显示名称')}
+            onChange={(v) => updateRow(record._id, 'displayName', v)}
           />
         ),
       },

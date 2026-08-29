@@ -159,6 +159,11 @@ func setupLogin(user *model.User, c *gin.Context) {
 			"role":         user.Role,
 			"status":       user.Status,
 			"group":        user.Group,
+			// The canonical key remains unchanged; this field is only for UI labels.
+			"group_display_name": setting.GetGroupDisplayNameWithFallback(
+				user.Group,
+				setting.GetUsableGroupDescription(user.Group),
+			),
 		},
 	})
 }
@@ -473,18 +478,22 @@ func GetSelf(c *gin.Context) {
 
 	// 构建响应数据，包含用户信息和权限
 	responseData := map[string]interface{}{
-		"id":                user.Id,
-		"username":          user.Username,
-		"display_name":      user.DisplayName,
-		"role":              user.Role,
-		"status":            user.Status,
-		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
-		"group":             user.Group,
+		"id":           user.Id,
+		"username":     user.Username,
+		"display_name": user.DisplayName,
+		"role":         user.Role,
+		"status":       user.Status,
+		"email":        user.Email,
+		"github_id":    user.GitHubId,
+		"discord_id":   user.DiscordId,
+		"oidc_id":      user.OidcId,
+		"wechat_id":    user.WeChatId,
+		"telegram_id":  user.TelegramId,
+		"group":        user.Group,
+		"group_display_name": setting.GetGroupDisplayNameWithFallback(
+			user.Group,
+			setting.GetUsableGroupDescription(user.Group),
+		),
 		"quota":             user.Quota,
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,

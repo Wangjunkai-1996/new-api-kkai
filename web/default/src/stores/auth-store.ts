@@ -34,6 +34,8 @@ export interface AuthUser {
   role: number
   status?: number
   group?: string
+  /** User-facing label; the group key above remains canonical. */
+  group_display_name?: string
   quota?: number
   used_quota?: number
   request_count?: number

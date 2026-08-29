@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { useStatus } from '@/hooks/use-status'
+import { resolveGroupDisplayName } from '@/lib/group-display'
 
 import { getPricing } from '../api'
 
@@ -62,11 +63,37 @@ export function usePricingData() {
     })
   }, [data])
 
+  const groupDisplayNames = useMemo(() => {
+    const usableGroups = data?.usable_group ?? {}
+    const configuredNames = data?.group_display_names
+    const names: Record<string, string> = {}
+
+    for (const [group, description] of Object.entries(usableGroups)) {
+      names[group] = resolveGroupDisplayName(
+        group,
+        configuredNames,
+        description
+      )
+    }
+
+    // Keep labels for metadata that may be returned before the usable-group
+    // map is refreshed, while still preferring the canonical key at render
+    // time when no usable group is present.
+    for (const group of Object.keys(configuredNames ?? {})) {
+      if (!names[group]) {
+        names[group] = resolveGroupDisplayName(group, configuredNames)
+      }
+    }
+
+    return names
+  }, [data])
+
   return {
     models,
     vendors: data?.vendors ?? [],
     groupRatio: data?.group_ratio ?? {},
     usableGroup: data?.usable_group ?? {},
+    groupDisplayNames,
     endpointMap: data?.supported_endpoint ?? {},
     autoGroups: data?.auto_groups ?? [],
     isLoading,

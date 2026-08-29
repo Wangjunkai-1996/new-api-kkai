@@ -112,6 +112,7 @@ import {
   useSecureVerification,
 } from '@/features/auth/secure-verification'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
 import {
   ADMIN_PERMISSION_ACTIONS,
@@ -609,6 +610,7 @@ export function ChannelMutateDrawer({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { setOpen } = useChannels()
+  const groupDisplayNames = useGroupDisplayNames()
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
     currentUser,
@@ -906,9 +908,9 @@ export function ChannelMutateDrawer({
     const allGroups = new Set([...groupsData.data, ...(currentGroups || [])])
     return [...allGroups].map((group) => ({
       value: group,
-      label: group,
+      label: groupDisplayNames[group] || group,
     }))
-  }, [groupsData, currentGroups])
+  }, [groupsData, currentGroups, groupDisplayNames])
 
   // Parse current models as array
   const currentModelsArray = useMemo(

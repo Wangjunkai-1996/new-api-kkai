@@ -3,6 +3,8 @@ package service
 import (
 	"math"
 	"time"
+
+	"github.com/QuantumNous/new-api/setting"
 )
 
 func buildKKAIGroupStatusEntry(
@@ -22,8 +24,10 @@ func buildKKAIGroupStatusEntry(
 	stale := metrics.sampledAt > 0 && now.Sub(time.Unix(metrics.sampledAt, 0)) > window.staleAfter
 	confidenceStatus, message := classifyKKAIGroupConfidence(metrics, successRate, window, stale)
 	entry := KKAIGroupStatusEntry{
-		Group: group, Desc: desc, Status: kkaiLegacyGroupHealthStatus(confidenceStatus),
-		Confidence: kkaiGroupHealthConfidence(metrics.requestCount), Message: message,
+		Group: group, Desc: desc,
+		DisplayName: setting.GetGroupDisplayNameWithFallback(group, desc),
+		Status:      kkaiLegacyGroupHealthStatus(confidenceStatus),
+		Confidence:  kkaiGroupHealthConfidence(metrics.requestCount), Message: message,
 		ConfidenceStatus: confidenceStatus, ExperienceLabel: classifyKKAIGroupExperience(metrics, avgTtft, window, stale),
 		DisplayMessage: message, RequestCount: metrics.requestCount, SuccessRate: successRate,
 		AvgLatencyMs: avgLatency, AvgTtftMs: avgTtft, UpdatedAt: metrics.sampledAt, SampledAt: metrics.sampledAt,

@@ -46,6 +46,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { toIntlLocale } from '@/i18n/languages'
 import {
   formatCurrencyFromUSD,
@@ -591,6 +592,7 @@ export function useChannelsColumns(
 ): ColumnDef<Channel>[] {
   const { t, i18n } = useTranslation()
   const { sensitiveVisible } = useChannels()
+  const groupDisplayNames = useGroupDisplayNames()
   const enableSelection = options.enableSelection ?? true
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   // The column definitions only depend on the translation function, the active
@@ -1067,6 +1069,9 @@ export function useChannelsColumns(
                 <GroupBadge
                   key={g}
                   group={g}
+                  displayName={
+                    sensitiveVisible ? groupDisplayNames[g] : undefined
+                  }
                   label={sensitiveVisible ? undefined : SENSITIVE_MASK}
                   size='sm'
                 />
@@ -1225,6 +1230,6 @@ export function useChannelsColumns(
         meta: { pinned: 'right' as const },
       },
     ],
-    [enableSelection, t, locale, sensitiveVisible]
+    [enableSelection, t, locale, sensitiveVisible, groupDisplayNames]
   )
 }

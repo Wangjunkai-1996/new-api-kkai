@@ -45,6 +45,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import type { GroupDisplayNameMap } from '@/lib/group-display'
 import { cn } from '@/lib/utils'
 
 import {
@@ -86,6 +87,7 @@ export interface PricingToolbarProps {
   onTagChange: (value: string) => void
   vendors: PricingVendor[]
   groups: string[]
+  groupDisplayNames?: GroupDisplayNameMap
   groupRatios?: Record<string, number>
   tags: string[]
   models: PricingModel[]
@@ -134,7 +136,7 @@ function SegmentedControl(props: {
 
         return (
           <Tooltip key={option.value}>
-            <TooltipTrigger render={button}></TooltipTrigger>
+            <TooltipTrigger render={button} />
             <TooltipContent side='bottom' className='text-xs'>
               {option.tooltip}
             </TooltipContent>
@@ -298,6 +300,7 @@ export function PricingToolbar(props: PricingToolbarProps) {
               onTagChange={props.onTagChange}
               vendors={props.vendors}
               groups={props.groups}
+              groupDisplayNames={props.groupDisplayNames}
               groupRatios={props.groupRatios}
               tags={props.tags}
               models={props.models}

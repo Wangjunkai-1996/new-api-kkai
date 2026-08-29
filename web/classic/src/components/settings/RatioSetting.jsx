@@ -47,6 +47,7 @@ const RatioSetting = () => {
     DefaultUseAutoGroup: false,
     ExposeRatioEnabled: false,
     UserUsableGroups: '',
+    GroupDisplayNames: '{}',
     'group_ratio_setting.group_special_usable_group': '',
   });
 

@@ -55,6 +55,10 @@ import {
   formatUptimePct,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
+import {
+  resolveGroupDisplayName,
+  type GroupDisplayNameMap,
+} from '@/lib/group-display'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -73,6 +77,7 @@ import type {
   ModelCapability,
   PriceType,
   PricingModel,
+  PricingUsableGroup,
   TokenUnit,
 } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
@@ -443,7 +448,10 @@ function ModelBackendSignalsSection(props: { model: PricingModel }) {
   )
 }
 
-function ModelBackendProviderSection(props: { model: PricingModel }) {
+function ModelBackendProviderSection(props: {
+  model: PricingModel
+  groupDisplayNames?: GroupDisplayNameMap
+}) {
   const { t } = useTranslation()
   const model = props.model
   const groups = normalizeCatalogItems(model.enable_groups)
@@ -468,7 +476,11 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   if (groups.length > 0) {
     cells.push(
       <CatalogInfoCell key='groups' label={t('Groups')}>
-        <CatalogPillList items={groups} />
+        <CatalogPillList
+          items={groups.map((group) =>
+            resolveGroupDisplayName(group, props.groupDisplayNames)
+          )}
+        />
       </CatalogInfoCell>
     )
   }
@@ -509,12 +521,18 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
   )
 }
 
-function ModelBackendDetailsSection(props: { model: PricingModel }) {
+function ModelBackendDetailsSection(props: {
+  model: PricingModel
+  groupDisplayNames?: GroupDisplayNameMap
+}) {
   return (
     <>
       <ModelBackendQuickStats model={props.model} />
       <ModelBackendSignalsSection model={props.model} />
-      <ModelBackendProviderSection model={props.model} />
+      <ModelBackendProviderSection
+        model={props.model}
+        groupDisplayNames={props.groupDisplayNames}
+      />
     </>
   )
 }
@@ -784,7 +802,11 @@ function PriceSection(props: {
 // Auto group chain (used inside group pricing section)
 // ----------------------------------------------------------------------------
 
-function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
+function AutoGroupChain(props: {
+  model: PricingModel
+  autoGroups: string[]
+  groupDisplayNames?: GroupDisplayNameMap
+}) {
   const { t } = useTranslation()
   const modelEnableGroups = Array.isArray(props.model.enable_groups)
     ? props.model.enable_groups
@@ -801,7 +823,11 @@ function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
       <span className='text-muted-foreground/40'>→</span>
       {autoChain.map((g, idx) => (
         <span key={g} className='flex items-center gap-1'>
-          <GroupBadge group={g} size='sm' />
+          <GroupBadge
+            group={g}
+            label={resolveGroupDisplayName(g, props.groupDisplayNames)}
+            size='sm'
+          />
           {idx < autoChain.length - 1 && (
             <span className='text-muted-foreground/40'>→</span>
           )}
@@ -852,7 +878,8 @@ function getDynamicFormattedPricesByTier(
 function GroupPricingSection(props: {
   model: PricingModel
   groupRatio: Record<string, number>
-  usableGroup: Record<string, { desc: string; ratio: number }>
+  usableGroup: PricingUsableGroup
+  groupDisplayNames?: GroupDisplayNameMap
   autoGroups: string[]
   priceRate: number
   usdExchangeRate: number
@@ -897,7 +924,11 @@ function GroupPricingSection(props: {
     return (
       <section>
         <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <AutoGroupChain
+          model={props.model}
+          autoGroups={props.autoGroups}
+          groupDisplayNames={props.groupDisplayNames}
+        />
         <p className='text-muted-foreground text-sm'>
           {t(
             'This model is not available in any group, or no group pricing information is configured.'
@@ -917,7 +948,11 @@ function GroupPricingSection(props: {
       return (
         <section>
           <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-          <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+          <AutoGroupChain
+            model={props.model}
+            autoGroups={props.autoGroups}
+            groupDisplayNames={props.groupDisplayNames}
+          />
           <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
             <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
               {t('Special billing expression')}
@@ -966,7 +1001,11 @@ function GroupPricingSection(props: {
     return (
       <section>
         <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <AutoGroupChain
+          model={props.model}
+          autoGroups={props.autoGroups}
+          groupDisplayNames={props.groupDisplayNames}
+        />
         <div className='space-y-3'>
           {availableGroups.map((group) => {
             const ratio = props.groupRatio[group] || 1
@@ -977,7 +1016,14 @@ function GroupPricingSection(props: {
             return (
               <div key={group} className='overflow-hidden rounded-lg border'>
                 <div className='bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2'>
-                  <GroupBadge group={group} size='sm' />
+                  <GroupBadge
+                    group={group}
+                    label={resolveGroupDisplayName(
+                      group,
+                      props.groupDisplayNames
+                    )}
+                    size='sm'
+                  />
                   <span className='text-muted-foreground font-mono text-xs'>
                     {ratio}x
                   </span>
@@ -1045,7 +1091,11 @@ function GroupPricingSection(props: {
   return (
     <section>
       <SectionTitle>{t('Pricing by Group')}</SectionTitle>
-      <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+      <AutoGroupChain
+        model={props.model}
+        autoGroups={props.autoGroups}
+        groupDisplayNames={props.groupDisplayNames}
+      />
       <StaticDataTable
         className='-mx-4 rounded-none border-0 sm:mx-0'
         tableClassName='text-sm'
@@ -1058,7 +1108,13 @@ function GroupPricingSection(props: {
             header: t('Group'),
             className: thClass,
             cellClassName: 'py-2.5',
-            cell: (group) => <GroupBadge group={group} size='sm' />,
+            cell: (group) => (
+              <GroupBadge
+                group={group}
+                label={resolveGroupDisplayName(group, props.groupDisplayNames)}
+                size='sm'
+              />
+            ),
           },
           {
             id: 'ratio',
@@ -1128,7 +1184,8 @@ const TAB_META: Record<
 export interface ModelDetailsContentProps {
   model: PricingModel
   groupRatio: Record<string, number>
-  usableGroup: Record<string, { desc: string; ratio: number }>
+  usableGroup: PricingUsableGroup
+  groupDisplayNames?: GroupDisplayNameMap
   endpointMap: Record<string, { path?: string; method?: string }>
   autoGroups: string[]
   priceRate: number
@@ -1185,6 +1242,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               model={props.model}
               groupRatio={props.groupRatio}
               usableGroup={props.usableGroup}
+              groupDisplayNames={props.groupDisplayNames}
               autoGroups={props.autoGroups}
               priceRate={props.priceRate}
               usdExchangeRate={props.usdExchangeRate}
@@ -1193,11 +1251,17 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             />
           </section>
 
-          <ModelBackendDetailsSection model={props.model} />
+          <ModelBackendDetailsSection
+            model={props.model}
+            groupDisplayNames={props.groupDisplayNames}
+          />
         </TabsContent>
 
         <TabsContent value='performance' className='outline-none'>
-          <ModelDetailsPerformance model={props.model} />
+          <ModelDetailsPerformance
+            model={props.model}
+            groupDisplayNames={props.groupDisplayNames}
+          />
         </TabsContent>
 
         <TabsContent value='api' className='outline-none'>
@@ -1253,6 +1317,7 @@ export function ModelDetails() {
   const {
     models,
     groupRatio,
+    groupDisplayNames,
     usableGroup,
     endpointMap,
     autoGroups,
@@ -1332,6 +1397,7 @@ export function ModelDetails() {
         <ModelDetailsContent
           model={model}
           groupRatio={groupRatio || {}}
+          groupDisplayNames={groupDisplayNames}
           usableGroup={usableGroup || {}}
           autoGroups={autoGroups || []}
           priceRate={priceRate ?? 1}

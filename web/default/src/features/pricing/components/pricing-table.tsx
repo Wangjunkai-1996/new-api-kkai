@@ -26,6 +26,7 @@ import {
   DataTableView,
   useDataTable,
 } from '@/components/data-table'
+import type { GroupDisplayNameMap } from '@/lib/group-display'
 
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
@@ -39,6 +40,7 @@ export interface PricingTableProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   selectedGroup?: string
+  groupDisplayNames?: GroupDisplayNameMap
   onModelClick?: (modelName: string) => void
 }
 
@@ -52,6 +54,7 @@ export function PricingTable(props: PricingTableProps) {
     tokenUnit = DEFAULT_TOKEN_UNIT,
     showRechargePrice = false,
     selectedGroup,
+    groupDisplayNames,
     onModelClick,
   } = props
 
@@ -66,6 +69,7 @@ export function PricingTable(props: PricingTableProps) {
     usdExchangeRate,
     showRechargePrice,
     selectedGroup,
+    groupDisplayNames,
   })
 
   const { table } = useDataTable({

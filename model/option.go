@@ -31,6 +31,9 @@ func AllOption() ([]*Option, error) {
 
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
+	// InitOptionMap is a full rebuild. Clear labels first so a database reload
+	// cannot retain display names that belonged to the previous option set.
+	setting.ResetGroupDisplayNames()
 	common.OptionMap = make(map[string]string)
 
 	// 添加原有的系统配置
@@ -149,6 +152,7 @@ func InitOptionMap() {
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
+	common.OptionMap["GroupDisplayNames"] = setting.GroupDisplayNames2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
 	common.OptionMap[image_pricing_setting.OptionKey] = image_pricing_setting.JSON()
@@ -277,6 +281,14 @@ func updateOptionMap(key string, value string) (err error) {
 	defer common.OptionMapRWMutex.Unlock()
 	if key == image_pricing_setting.OptionKey {
 		if err := image_pricing_setting.UpdateByJSONString(value); err != nil {
+			return err
+		}
+	}
+	// Validate and activate display names before publishing the raw option.
+	// This keeps OptionMap and the runtime resolver in sync when an old or
+	// externally edited database row contains malformed JSON.
+	if key == "GroupDisplayNames" {
+		if err := setting.UpdateGroupDisplayNamesByJSONString(value); err != nil {
 			return err
 		}
 	}
@@ -605,6 +617,9 @@ func updateOptionMap(key string, value string) (err error) {
 func validateOptionValue(key, value string) error {
 	if key == image_pricing_setting.OptionKey {
 		return image_pricing_setting.ValidateJSON(value)
+	}
+	if key == "GroupDisplayNames" {
+		return setting.ValidateGroupDisplayNamesJSON(value)
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)

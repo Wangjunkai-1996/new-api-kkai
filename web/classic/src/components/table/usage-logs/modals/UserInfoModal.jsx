@@ -25,6 +25,7 @@ const UserInfoModal = ({
   showUserInfo,
   setShowUserInfoModal,
   userInfoData,
+  groupDisplayNames = {},
   t,
 }) => {
   const infoItemStyle = {
@@ -117,7 +118,9 @@ const UserInfoModal = ({
             {userInfoData.group && (
               <div style={colStyle}>
                 {renderLabel(t('用户组'), 'tertiary')}
-                <div style={valueStyle}>{userInfoData.group}</div>
+                <div style={valueStyle}>
+                  {groupDisplayNames[userInfoData.group] || userInfoData.group}
+                </div>
               </div>
             )}
           </div>

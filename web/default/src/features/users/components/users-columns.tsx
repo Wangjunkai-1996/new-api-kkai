@@ -31,6 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import { formatQuota, formatTimestamp } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -51,6 +52,7 @@ function getQuotaProgressColor(percentage: number): string {
 
 export function useUsersColumns(): ColumnDef<User>[] {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
   return [
     {
       id: 'select',
@@ -236,7 +238,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const group = row.getValue('group') as string
         return (
           <BadgeCell>
-            <GroupBadge group={group} />
+            <GroupBadge group={group} displayName={groupDisplayNames[group]} />
           </BadgeCell>
         )
       },

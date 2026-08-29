@@ -44,6 +44,22 @@ const BASE_GROUP: GroupStatusEntry = {
 }
 
 describe('group status card', () => {
+  test('renders the configured display name and keeps the description', () => {
+    render(
+      <GroupStatusCard
+        group={{
+          ...BASE_GROUP,
+          display_name: 'Customer plan',
+          desc: 'Low-cost model pool',
+        }}
+      />
+    )
+
+    expect(screen.getByText('Customer plan')).toBeInTheDocument()
+    expect(screen.getByText('Low-cost model pool')).toBeInTheDocument()
+    expect(screen.queryByText('test-group')).not.toBeInTheDocument()
+  })
+
   test('does not render cache hit rate data', () => {
     render(
       <GroupStatusCard

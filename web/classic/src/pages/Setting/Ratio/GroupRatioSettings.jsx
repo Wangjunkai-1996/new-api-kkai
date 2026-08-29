@@ -53,6 +53,7 @@ const { Text, Title, Paragraph } = Typography;
 const OPTION_KEYS = [
   'GroupRatio',
   'UserUsableGroups',
+  'GroupDisplayNames',
   'GroupGroupRatio',
   'group_ratio_setting.group_special_usable_group',
   'AutoGroups',
@@ -77,6 +78,7 @@ export default function GroupRatioSettings(props) {
   const [inputs, setInputs] = useState({
     GroupRatio: '',
     UserUsableGroups: '',
+    GroupDisplayNames: '{}',
     GroupGroupRatio: '',
     'group_ratio_setting.group_special_usable_group': '',
     AutoGroups: '',
@@ -146,6 +148,11 @@ export default function GroupRatioSettings(props) {
         currentInputs[key] = props.options[key];
       }
     }
+    // Older installations may not have the optional display-name setting.
+    // Keep a valid empty object in the form so visual edits never erase it.
+    if (!Object.hasOwn(currentInputs, 'GroupDisplayNames')) {
+      currentInputs.GroupDisplayNames = '{}';
+    }
     setInputs(currentInputs);
     setInputsRow(structuredClone(currentInputs));
     dataVersionRef.current += 1;
@@ -155,8 +162,13 @@ export default function GroupRatioSettings(props) {
   }, [props.options]);
 
   const handleGroupTableChange = useCallback(
-    ({ GroupRatio, UserUsableGroups }) => {
-      setInputs((prev) => ({ ...prev, GroupRatio, UserUsableGroups }));
+    ({ GroupRatio, UserUsableGroups, GroupDisplayNames }) => {
+      setInputs((prev) => ({
+        ...prev,
+        GroupRatio,
+        UserUsableGroups,
+        GroupDisplayNames,
+      }));
     },
     [],
   );
@@ -188,6 +200,7 @@ export default function GroupRatioSettings(props) {
           key={`gt_${dv}`}
           groupRatio={inputs.GroupRatio}
           userUsableGroups={inputs.UserUsableGroups}
+          groupDisplayNames={inputs.GroupDisplayNames}
           onChange={handleGroupTableChange}
         />
       </Form.Section>
@@ -267,6 +280,27 @@ export default function GroupRatioSettings(props) {
       style={{ marginBottom: 15 }}
     >
       <Form.Section text={t('分组JSON设置')}>
+        <Row gutter={16}>
+          <Col xs={24} sm={16}>
+            <Form.TextArea
+              label={t('显示名称')}
+              placeholder={t('为一个 JSON 文本')}
+              field={'GroupDisplayNames'}
+              autosize={{ minRows: 4, maxRows: 10 }}
+              trigger='blur'
+              stopValidateWithError
+              rules={[
+                {
+                  validator: (rule, value) => verifyJSON(value),
+                  message: t('不是合法的 JSON 字符串'),
+                },
+              ]}
+              onChange={(value) =>
+                setInputs((prev) => ({ ...prev, GroupDisplayNames: value }))
+              }
+            />
+          </Col>
+        </Row>
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.TextArea

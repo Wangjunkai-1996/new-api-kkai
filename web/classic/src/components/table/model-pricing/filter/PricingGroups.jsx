@@ -34,6 +34,7 @@ const PricingGroups = ({
   filterGroup,
   setFilterGroup,
   usableGroup = {},
+  groupDisplayNames = {},
   groupRatio = {},
   models = [],
   loading = false,
@@ -63,7 +64,10 @@ const PricingGroups = ({
     }
     return {
       value: g,
-      label: g === 'all' ? t('全部分组') : g,
+      label:
+        g === 'all'
+          ? t('全部分组')
+          : groupDisplayNames[g] || usableGroup[g] || g,
       tagCount: ratioDisplay,
     };
   });

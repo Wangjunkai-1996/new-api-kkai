@@ -781,7 +781,7 @@ export function renderText(text, limit) {
  * @param {string} group - The input group string
  * @returns {JSX.Element} - The rendered group tags
  */
-export function renderGroup(group) {
+export function renderGroup(group, displayNames = {}) {
   if (group === '') {
     return (
         <Tag key='default' color='white' shape='circle'>
@@ -818,7 +818,7 @@ export function renderGroup(group) {
                 }
               }}
           >
-            {group}
+              {displayNames[group] || group}
           </Tag>
       ))}
     </span>

@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import {
   Table,
   TableBody,
@@ -38,6 +39,7 @@ export const RebateRulesTable = (props: {
   onDelete: (rule: RebateRule) => void
 }) => {
   const { t } = useTranslation()
+  const groupDisplayNames = useGroupDisplayNames()
   return (
     <div className='overflow-hidden rounded-md border'>
       <Table>
@@ -56,7 +58,7 @@ export const RebateRulesTable = (props: {
                 <Badge variant='secondary'>
                   {rule.user_group === ALL_USER_GROUP
                     ? t('All User Groups')
-                    : rule.user_group}
+                    : groupDisplayNames[rule.user_group] || rule.user_group}
                 </Badge>
               </TableCell>
               <TableCell>{t(rule.rule_type)}</TableCell>

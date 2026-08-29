@@ -184,9 +184,10 @@ const EditTagModal = (props) => {
       if (res === undefined) {
         return;
       }
+      const displayNames = res.data?.display_names || {};
       setGroupOptions(
         res.data.data.map((group) => ({
-          label: group,
+          label: displayNames[group] || group,
           value: group,
         })),
       );
