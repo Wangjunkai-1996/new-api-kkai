@@ -2,9 +2,12 @@
 
 ARG BUN_IMAGE=oven/bun:1.3.13@sha256:bb35eafd10b2e969809384850ff0474ba36a491239d715864bc87787b4cdf0a4
 ARG GO_IMAGE=golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
+# Multi-platform index; its linux/amd64 child remains pinned by GO_IMAGE.
+ARG GO_BUILD_IMAGE=golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
 ARG BUSYBOX_IMAGE=busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
 ARG KKAI_SCHEMA_CONTRACT=feature
+ARG MEDIA_BUILD_PARALLELISM=2
 ARG FFMPEG_VERSION=7.1.1
 ARG FFMPEG_SOURCE_SHA256=0c8da2f11579a01e014fc007cbacf5bb4da1d06afd0b43c7f8097ec7c0f143ba
 ARG X264_REVISION=b35605ace3ddf7c1a5d67a2eb553f034aef41d55
@@ -18,15 +21,19 @@ WORKDIR /build/web
 COPY web/package.json web/bun.lock ./
 COPY web/default/package.json ./default/package.json
 COPY web/classic/package.json ./classic/package.json
-RUN --mount=type=cache,id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked \
-    bun install --frozen-lockfile --network-concurrency=1
+# BuildKit may schedule independent stages together. This locked, empty cache
+# mount is a builder-local semaphore for the CPU/memory-heavy build steps.
+RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
+    --mount=type=cache,id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked \
+    bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1
 
 FROM web-deps AS web-default
 
 ARG APP_VERSION
 ARG KKAI_SCHEMA_CONTRACT
 COPY web/default ./default
-RUN test -n "${APP_VERSION}" \
+RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
+    test -n "${APP_VERSION}" \
     && cd default \
     && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" VITE_KKAI_SCHEMA_CONTRACT="${KKAI_SCHEMA_CONTRACT}" bun run build
 
@@ -34,15 +41,17 @@ FROM web-deps AS web-classic
 
 ARG APP_VERSION
 COPY web/classic ./classic
-RUN test -n "${APP_VERSION}" \
+RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
+    test -n "${APP_VERSION}" \
     && cd classic \
     && VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
 
-FROM ${GO_IMAGE} AS backend
+FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS backend
 
 ARG APP_VERSION
 ARG KKAI_SCHEMA_CONTRACT
 ARG SOURCE_REVISION
+ARG GO_BUILD_PARALLELISM=4
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ENV CGO_ENABLED=0 \
@@ -59,25 +68,32 @@ COPY . .
 COPY --from=web-default /build/web/default/dist ./web/default/dist
 COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked \
+    --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
     test -n "${APP_VERSION}" \
     && test -n "${SOURCE_REVISION}" \
+    && case "${GO_BUILD_PARALLELISM}" in \
+      [1-9]|[1-5][0-9]|6[0-4]) ;; \
+      *) echo "invalid GO_BUILD_PARALLELISM: ${GO_BUILD_PARALLELISM}" >&2; exit 1 ;; \
+    esac \
     && case "${KKAI_SCHEMA_CONTRACT}" in \
       feature) export GOFLAGS= ;; \
       bridge) export GOFLAGS=-tags=kkai_bridge ;; \
       *) echo "invalid KKAI schema contract: ${KKAI_SCHEMA_CONTRACT}" >&2; exit 1 ;; \
     esac \
-    && go build -trimpath \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/new-api . \
-    && go build -trimpath \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/kkai-migrate ./cmd/kkai-migrate \
-    && go build -trimpath \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
 
-FROM ${GO_IMAGE} AS runtime-tools
+FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS runtime-tools
 
+ARG GO_BUILD_PARALLELISM=4
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 WORKDIR /tools
 COPY --from=kkai_image go.mod go.sum ./
@@ -86,14 +102,21 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
 COPY --from=kkai_image cmd ./cmd
 COPY --from=kkai_image internal ./internal
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
-    go build -trimpath -ldflags '-s -w -buildid=' -o /out/new-api-entrypoint ./cmd/entrypoint \
-    && go build -trimpath -ldflags '-s -w -buildid=' -o /out/newapi-risk-guard ./cmd/riskguard
+    --mount=type=cache,id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked \
+    --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
+    case "${GO_BUILD_PARALLELISM}" in \
+      [1-9]|[1-5][0-9]|6[0-4]) ;; \
+      *) echo "invalid GO_BUILD_PARALLELISM: ${GO_BUILD_PARALLELISM}" >&2; exit 1 ;; \
+    esac \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath -ldflags '-s -w -buildid=' -o /out/new-api-entrypoint ./cmd/entrypoint \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath -ldflags '-s -w -buildid=' -o /out/newapi-risk-guard ./cmd/riskguard
 
 FROM ${BUSYBOX_IMAGE} AS health-tools
 
 FROM ${GO_IMAGE} AS video-media-build
 
 ARG GO_IMAGE
+ARG MEDIA_BUILD_PARALLELISM=2
 ARG FFMPEG_VERSION
 ARG FFMPEG_SOURCE_SHA256
 ARG X264_REVISION
@@ -105,7 +128,8 @@ COPY --from=kkai_image ffmpeg/build.sh /opt/video-media-build/build.sh
 COPY --from=kkai_image ffmpeg/verify-static.sh /opt/video-media-build/verify-static.sh
 COPY --from=kkai_image ffmpeg/verify.sh /opt/video-media-build/verify.sh
 COPY --from=kkai_image ffmpeg/PROVENANCE.md /opt/video-media-build/PROVENANCE.md
-RUN chmod 0755 \
+RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
+    chmod 0755 \
       /opt/video-media-build/build.sh \
       /opt/video-media-build/verify-static.sh \
       /opt/video-media-build/verify.sh \
@@ -115,6 +139,7 @@ RUN chmod 0755 \
        X264_SOURCE_SHA256="${X264_SOURCE_SHA256}" \
        SOURCE_DATE_EPOCH="${VIDEO_MEDIA_SOURCE_DATE_EPOCH}" \
        MEDIA_BUILD_IMAGE="${GO_IMAGE}" \
+       MEDIA_BUILD_PARALLELISM="${MEDIA_BUILD_PARALLELISM}" \
        MEDIA_MATERIAL_DIR=/opt/video-media-build \
        /opt/video-media-build/build.sh
 

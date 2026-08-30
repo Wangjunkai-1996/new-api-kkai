@@ -9,6 +9,12 @@ set -eu
 : "${MEDIA_BUILD_IMAGE:?missing MEDIA_BUILD_IMAGE}"
 : "${MEDIA_MATERIAL_DIR:?missing MEDIA_MATERIAL_DIR}"
 
+media_build_parallelism=${MEDIA_BUILD_PARALLELISM:-2}
+case "${media_build_parallelism}" in
+  [1-9]|[1-5][0-9]|6[0-4]) ;;
+  *) echo "invalid MEDIA_BUILD_PARALLELISM: ${media_build_parallelism}" >&2; exit 1 ;;
+esac
+
 readonly BUILD_ROOT=/build/video-media
 readonly PREFIX="${BUILD_ROOT}/prefix"
 readonly SOURCE_ROOT="${BUILD_ROOT}/sources"
@@ -53,7 +59,7 @@ build_x264() {
     --chroma-format=420 \
     --extra-cflags="-O2 -ffile-prefix-map=${BUILD_ROOT}=. -fdebug-prefix-map=${BUILD_ROOT}=." \
     --extra-ldflags="-Wl,--build-id=none"
-  make -j4
+  make -j"${media_build_parallelism}"
   make install-lib-static
 }
 
@@ -95,7 +101,7 @@ build_ffmpeg() {
     --enable-encoder=libx264,mjpeg \
     --enable-parser=h264,hevc,av1,mpeg4video,vp8,vp9,mjpeg \
     --enable-filter=scale,testsrc2
-  make -j4 ffmpeg ffprobe
+  make -j"${media_build_parallelism}" ffmpeg ffprobe
   cp ffmpeg ffprobe "${OUTPUT_ROOT}/"
   strip "${OUTPUT_ROOT}/ffmpeg" "${OUTPUT_ROOT}/ffprobe"
 }

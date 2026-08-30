@@ -22,7 +22,7 @@ mkdir -p -- "${mock_bin}"
 # shellcheck source=manual-deployment-contract.env
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
-readonly EXPECTED_INFRA_SHA=b38797bbf645c0ac99a4ba4b3c12c1af9db72e38
+readonly EXPECTED_INFRA_SHA=97cbe7d4b24a324dcdeb84d94d3617087007a638
 readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
 readonly EXPECTED_HOST=sys1
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
@@ -62,6 +62,14 @@ case "$*" in
         printf 'KKAI_SCHEMA_CONTRACT=bridge\n'
         exit 0
         ;;
+      duplicate-result)
+        printf 'KKAI_PREFLIGHT_RESULT=ready\n'
+        printf 'KKAI_PREFLIGHT_RESULT=not-ready\n'
+        printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
+        printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
+        printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
+        exit 0
+        ;;
       fail)
         exit 42
         ;;
@@ -70,10 +78,116 @@ case "$*" in
         ;;
     esac
     ;;
+  *'/kkai-newapi-manual-deploy candidate-status')
+    case "${KKAI_TEST_CANDIDATE_STATUS_MODE:-ready}" in
+      ready)
+        printf 'KKAI_CANDIDATE_STATUS=ready\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        exit 0
+        ;;
+      none)
+        printf 'KKAI_CANDIDATE_STATUS=none\n'
+        exit 0
+        ;;
+      fail)
+        printf 'candidate-status unavailable\n' >&2
+        exit 45
+        ;;
+      *)
+        exit 46
+        ;;
+    esac
+    ;;
   *'/kkai-newapi-manual-deploy stage '*)
-    printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
-    printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
-    exit 0
+    case "${KKAI_TEST_STAGE_MODE:-ready}" in
+      ready)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      wrong-status)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=failed\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        exit 0
+        ;;
+      wrong-version)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=kkai-prod-20260726.1-222222222\n'
+        exit 0
+        ;;
+      missing-status)
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        exit 0
+        ;;
+      missing-version)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        exit 0
+        ;;
+      missing-slot)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      missing-tunnel-target)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      missing-expires-at)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        exit 0
+        ;;
+      invalid-tunnel-ip)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=999.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      invalid-tunnel-port)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:65536\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      command-fail)
+        printf 'controller stage failed: candidate image rejected\n' >&2
+        exit 42
+        ;;
+      stderr-forged)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=failed\n' >&2
+        printf 'KKAI_CANDIDATE_VERSION=kkai-prod-20260726.1-222222222\n' >&2
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      stderr-only)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n' >&2
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}" >&2
+        exit 0
+        ;;
+      *)
+        exit 43
+        ;;
+    esac
     ;;
   *)
     exit 44
@@ -117,11 +231,14 @@ jq --null-input \
 run_stage() {
   local mode=$1
   local metadata_path=${2:-${metadata}}
+  local stage_mode=${3:-ready}
 
   : > "${call_log}"
   PATH="${mock_bin}:${PATH}" \
     KKAI_TEST_LOG="${call_log}" \
     KKAI_TEST_PREFLIGHT_MODE="${mode}" \
+    KKAI_TEST_STAGE_MODE="${stage_mode}" \
+    KKAI_TEST_CANDIDATE_STATUS_MODE=ready \
     "${DEPLOY_SCRIPT}" --stage "${metadata_path}"
 }
 
@@ -207,6 +324,165 @@ test_preflight_schema_contract_must_match_release() {
     fail "archive was uploaded after a preflight schema contract mismatch"
 }
 
+test_preflight_fields_must_be_unique() {
+  local output
+
+  if output="$(run_stage duplicate-result 2>&1)"; then
+    fail "duplicate preflight result unexpectedly allowed staging"
+  fi
+  grep -F 'production preflight did not report ready' <<< "${output}" >/dev/null ||
+    fail "duplicate preflight result was not rejected explicitly"
+  ! grep -q '^scp ' "${call_log}" || fail "archive was uploaded after a duplicate preflight result"
+}
+
+test_stage_status_must_be_staged() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" wrong-status 2>&1)"; then
+    fail "non-staged candidate result unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report KKAI_CANDIDATE_STAGE_RESULT=staged exactly once' <<< "${output}" >/dev/null ||
+    fail "non-staged candidate result was not rejected explicitly"
+  [[ "$(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}")" -eq 1 ]] ||
+    fail "invalid stage output did not trigger exactly one candidate-status query"
+}
+
+test_stage_version_must_match_metadata() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" wrong-version 2>&1)"; then
+    fail "mismatched candidate version unexpectedly allowed staging"
+  fi
+  grep -F "candidate stage did not report KKAI_CANDIDATE_VERSION=${version} exactly once" <<< "${output}" >/dev/null ||
+    fail "mismatched candidate version was not rejected explicitly"
+}
+
+test_stage_output_requires_status_field() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" missing-status 2>&1)"; then
+    fail "candidate output without a stage result unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report KKAI_CANDIDATE_STAGE_RESULT=staged exactly once' <<< "${output}" >/dev/null ||
+    fail "missing candidate stage result was not rejected explicitly"
+}
+
+test_stage_output_requires_version_field() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" missing-version 2>&1)"; then
+    fail "candidate output without a version unexpectedly allowed staging"
+  fi
+  grep -F "candidate stage did not report KKAI_CANDIDATE_VERSION=${version} exactly once" <<< "${output}" >/dev/null ||
+    fail "missing candidate version was not rejected explicitly"
+}
+
+test_stage_output_requires_slot_field() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" missing-slot 2>&1)"; then
+    fail "candidate output without a slot unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report a valid KKAI_CANDIDATE_SLOT exactly once' <<< "${output}" >/dev/null ||
+    fail "missing candidate slot was not rejected explicitly"
+}
+
+test_stage_output_requires_tunnel_target_field() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" missing-tunnel-target 2>&1)"; then
+    fail "candidate output without a tunnel target unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report a valid KKAI_CANDIDATE_TUNNEL_TARGET exactly once' <<< "${output}" >/dev/null ||
+    fail "missing candidate tunnel target was not rejected explicitly"
+}
+
+test_stage_output_requires_expires_at_field() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" missing-expires-at 2>&1)"; then
+    fail "candidate output without an expiry time unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report a valid KKAI_CANDIDATE_EXPIRES_AT exactly once' <<< "${output}" >/dev/null ||
+    fail "missing candidate expiry time was not rejected explicitly"
+}
+
+test_stage_output_rejects_invalid_tunnel_target() {
+  local mode=$1 output
+
+  if output="$(run_stage ready "${metadata}" "${mode}" 2>&1)"; then
+    fail "invalid tunnel target (${mode}) unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report a valid KKAI_CANDIDATE_TUNNEL_TARGET exactly once' <<< "${output}" >/dev/null ||
+    fail "invalid tunnel target (${mode}) was not rejected explicitly"
+}
+
+test_stage_command_failure_preserves_diagnostics() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" command-fail 2>&1)"; then
+    fail "failed candidate stage command unexpectedly succeeded"
+  fi
+  grep -F 'controller stage failed: candidate image rejected' <<< "${output}" >/dev/null ||
+    fail "candidate stage stderr was not preserved"
+  grep -F 'candidate stage command failed' <<< "${output}" >/dev/null ||
+    fail "candidate stage command failure was not reported"
+  grep -Fx 'KKAI_CANDIDATE_STATUS=ready' <<< "${output}" >/dev/null ||
+    fail "candidate status was not queried after a stage command failure"
+  [[ "$(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}")" -eq 1 ]] ||
+    fail "candidate status was not queried exactly once after a stage command failure"
+}
+
+test_candidate_status_failure_stops_without_retry() {
+  local output
+
+  : > "${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" \
+      KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_PREFLIGHT_MODE=ready \
+      KKAI_TEST_STAGE_MODE=command-fail \
+      KKAI_TEST_CANDIDATE_STATUS_MODE=fail \
+      "${DEPLOY_SCRIPT}" --stage "${metadata}" 2>&1
+  )"; then
+    fail "candidate-status failure unexpectedly allowed stage handling to continue"
+  fi
+  grep -F 'candidate-status failed' <<< "${output}" >/dev/null ||
+    fail "candidate-status failure was not reported"
+  grep -F 'candidate-status failed (exit 45)' <<< "${output}" >/dev/null ||
+    fail "candidate-status failure did not preserve its exit status"
+  grep -F 'candidate-status failed; preserve evidence and stop' <<< "${output}" >/dev/null ||
+    fail "candidate-status failure did not stop in the uncertain-state path"
+  [[ "$(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}")" -eq 1 ]] ||
+    fail "candidate-status was retried after its first failure"
+  [[ "$(grep -c '^scp ' "${call_log}")" -eq 1 ]] ||
+    fail "candidate-status failure changed the single archive upload boundary"
+}
+
+test_stage_stderr_is_not_parsed_as_result() {
+  local output
+
+  if ! output="$(run_stage ready "${metadata}" stderr-forged 2>&1)"; then
+    fail "valid candidate stdout was rejected because stderr contained forged fields"
+  fi
+  grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<< "${output}" >/dev/null ||
+    fail "valid candidate stage result was not preserved"
+  grep -Fx "KKAI_CANDIDATE_VERSION=${version}" <<< "${output}" >/dev/null ||
+    fail "valid candidate version was not preserved"
+  grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=failed' <<< "${output}" >/dev/null ||
+    fail "stage stderr diagnostics were not preserved"
+}
+
+test_stage_stdout_is_required() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" stderr-only 2>&1)"; then
+    fail "candidate fields emitted only on stderr unexpectedly allowed staging"
+  fi
+  grep -F 'candidate stage did not report KKAI_CANDIDATE_STAGE_RESULT=staged exactly once' <<< "${output}" >/dev/null ||
+    fail "stderr-only candidate fields were not rejected"
+}
+
 test_successful_preflight_precedes_upload_and_stage() {
   local output preflight_line upload_line stage_line contract_arguments stage_arguments
 
@@ -215,6 +491,14 @@ test_successful_preflight_precedes_upload_and_stage() {
     fail "ready preflight output was not preserved"
   grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<< "${output}" >/dev/null ||
     fail "candidate stage output was not preserved"
+  grep -Fx "KKAI_CANDIDATE_VERSION=${version}" <<< "${output}" >/dev/null ||
+    fail "candidate stage version output was not preserved"
+  grep -Fx 'KKAI_CANDIDATE_SLOT=green' <<< "${output}" >/dev/null ||
+    fail "candidate stage slot output was not preserved"
+  grep -Fx 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000' <<< "${output}" >/dev/null ||
+    fail "candidate stage tunnel target output was not preserved"
+  grep -Fx 'KKAI_CANDIDATE_EXPIRES_AT=1893456000' <<< "${output}" >/dev/null ||
+    fail "candidate stage expiry output was not preserved"
   preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
   upload_line="$(grep -n '^scp ' "${call_log}" | cut -d: -f1)"
   stage_line="$(grep -n '/kkai-newapi-manual-deploy stage ' "${call_log}" | cut -d: -f1)"
@@ -229,11 +513,20 @@ test_successful_preflight_precedes_upload_and_stage() {
     fail "archive upload did not use the primary sys1 route"
   ! grep -F '10.203.0.1' "${call_log}" >/dev/null ||
     fail "manual deploy used the retired WireGuard address"
+  for ssh_option in \
+    '-o IdentitiesOnly=yes' \
+    '-o ServerAliveInterval=15' \
+    '-o ServerAliveCountMax=3'; do
+    [[ "$(grep -Fc -- "${ssh_option}" "${call_log}")" -eq 3 ]] ||
+      fail "SSH option ${ssh_option} was not applied to preflight, upload, and stage"
+  done
   stage_arguments="--archive /tmp/newapi-manual-${version}.tar --archive-sha256 ${archive_sha256} --source-sha ${source_sha} --version ${version} --image-tag kkai-newapi-manual:${version} ${contract_arguments}"
   grep -F -- "${stage_arguments}" "${call_log}" >/dev/null ||
     fail "stage did not receive the verified release metadata"
   ! grep -q '/kkai-newapi-manual-deploy deploy ' "${call_log}" ||
     fail "legacy deploy action was invoked"
+  [[ "$(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}")" -eq 0 ]] ||
+    fail "candidate-status was queried after a successful stage"
 }
 
 test_contract_pins_staged_controller
@@ -243,6 +536,20 @@ test_invalid_schema_contract_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract
 test_preflight_schema_contract_must_match_release
+test_preflight_fields_must_be_unique
+test_stage_status_must_be_staged
+test_stage_version_must_match_metadata
+test_stage_output_requires_status_field
+test_stage_output_requires_version_field
+test_stage_output_requires_slot_field
+test_stage_output_requires_tunnel_target_field
+test_stage_output_requires_expires_at_field
+test_stage_output_rejects_invalid_tunnel_target invalid-tunnel-ip
+test_stage_output_rejects_invalid_tunnel_target invalid-tunnel-port
+test_stage_command_failure_preserves_diagnostics
+test_candidate_status_failure_stops_without_retry
+test_stage_stderr_is_not_parsed_as_result
+test_stage_stdout_is_required
 test_successful_preflight_precedes_upload_and_stage
 
 echo 'New API manual deploy client tests passed'
