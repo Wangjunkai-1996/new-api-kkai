@@ -125,16 +125,16 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if upstreamErr := structuredStreamError(data); upstreamErr != nil {
-			streamErr = upstreamErr
-			sr.Stop(upstreamErr)
-			return
-		}
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 				sr.Error(err)
 			}
+		}
+		if upstreamErr := structuredStreamError(data); upstreamErr != nil {
+			streamErr = upstreamErr
+			sr.Stop(upstreamErr)
+			return
 		}
 		if len(data) > 0 {
 			// 对音频模型，保存倒数第二个stream data

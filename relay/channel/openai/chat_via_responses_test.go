@@ -257,7 +257,29 @@ func TestOaiStreamHandlerDetectsPolicyAfterClientDisconnectAndOrdinaryChunk(t *t
 	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
 	require.True(t, types.IsSkipRetryError(apiErr))
 	require.Equal(t, service.KKAIPolicyCausalityClientToken, service.ClassifyKKAIUpstreamPolicyError(apiErr).Causality)
-	require.Contains(t, recorder.Body.String(), "first")
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), "first"))
+	require.NotContains(t, recorder.Body.String(), "request rejected")
+}
+
+func TestOaiStreamHandlerFlushesPendingChunkBeforeStructuredError(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","model":"gpt-test","choices":[{"index":0,"delta":{"content":"only"}}]}`,
+		`data: {"error":{"message":"request rejected","type":"policy_error","code":"cyber_policy"}}`,
+		``,
+	}, "\n\n")
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+
+	usage, apiErr := OaiStreamHandler(c, info, resp)
+
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCode("cyber_policy"), apiErr.GetErrorCode())
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), "only"))
+	require.NotContains(t, recorder.Body.String(), "request rejected")
 }
 
 func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {
