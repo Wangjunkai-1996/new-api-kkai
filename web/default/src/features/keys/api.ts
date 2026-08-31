@@ -116,3 +116,10 @@ export async function fetchTokenKeysBatch(ids: number[]): Promise<{
   const res = await api.post('/api/token/batch/keys', { ids })
   return res.data
 }
+
+export async function getTokenModels(
+  tokenId: number
+): Promise<ApiResponse<string[]>> {
+  const res = await api.get(`/api/token/${tokenId}/models`)
+  return res.data
+}

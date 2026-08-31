@@ -26,12 +26,15 @@ import { Button } from '@/components/ui/button'
 import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { getUserModels } from '@/lib/api'
+import { privateUserQueryKey } from '@/lib/private-query-cache'
+import { useAuthStore } from '@/stores/auth-store'
+
+import { getTokenModels } from '../../api'
 
 const APP_CONFIGS = {
   claude: {
     label: 'Claude',
-    defaultName: 'My Claude',
+    defaultName: 'KKAI',
     modelFields: [
       { key: 'model', labelKey: 'Primary Model', required: true },
       { key: 'haikuModel', labelKey: 'Haiku Model', required: false },
@@ -41,12 +44,12 @@ const APP_CONFIGS = {
   },
   codex: {
     label: 'Codex',
-    defaultName: 'My Codex',
+    defaultName: 'KKAI',
     modelFields: [{ key: 'model', labelKey: 'Primary Model', required: true }],
   },
   gemini: {
     label: 'Gemini',
-    defaultName: 'My Gemini',
+    defaultName: 'KKAI',
     modelFields: [{ key: 'model', labelKey: 'Primary Model', required: true }],
   },
 } as const
@@ -73,7 +76,7 @@ function buildCCSwitchURL(
   apiKey: string
 ): string {
   const serverAddress = getServerAddress()
-  const endpoint = app === 'codex' ? serverAddress + '/v1' : serverAddress
+  const endpoint = app === 'codex' ? `${serverAddress}/v1` : serverAddress
   const params = new URLSearchParams()
   params.set('resource', 'provider')
   params.set('app', app)
@@ -92,25 +95,43 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   tokenKey: string
+  tokenId: number
 }
 
 export function CCSwitchDialog(props: Props) {
   const { t } = useTranslation()
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const [app, setApp] = useState<AppType>('claude')
   const [name, setName] = useState<string>(APP_CONFIGS.claude.defaultName)
   const [models, setModels] = useState<Record<string, string>>({})
 
-  const { data: modelsData } = useQuery({
-    queryKey: ['user-models-ccswitch'],
-    queryFn: getUserModels,
-    enabled: props.open,
-    staleTime: 5 * 60 * 1000,
+  const modelsQuery = useQuery({
+    queryKey: privateUserQueryKey(
+      userId,
+      'api-keys',
+      'cc-switch-models',
+      props.tokenId
+    ),
+    queryFn: async () => {
+      const response = await getTokenModels(props.tokenId)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to fetch models'))
+      }
+      return response.data ?? []
+    },
+    enabled: props.open && props.tokenId > 0 && userId > 0,
+    staleTime: 0,
+    retry: false,
   })
+  const hasAvailableModels =
+    !modelsQuery.isFetching &&
+    !modelsQuery.isError &&
+    (modelsQuery.data?.length ?? 0) > 0
 
   const modelOptions = useMemo(() => {
-    const items = modelsData?.data ?? []
+    const items = hasAvailableModels ? (modelsQuery.data ?? []) : []
     return items.map((m) => ({ value: m, label: m }))
-  }, [modelsData?.data])
+  }, [hasAvailableModels, modelsQuery.data])
 
   useEffect(() => {
     if (props.open) {
@@ -121,7 +142,7 @@ export function CCSwitchDialog(props: Props) {
 
       setName(APP_CONFIGS.claude.defaultName)
     }
-  }, [props.open])
+  }, [props.open, props.tokenId])
 
   const currentConfig = APP_CONFIGS[app]
 
@@ -160,7 +181,9 @@ export function CCSwitchDialog(props: Props) {
           <Button variant='outline' onClick={() => props.onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button onClick={handleSubmit}>{t('Open CC Switch')}</Button>
+          <Button disabled={!hasAvailableModels} onClick={handleSubmit}>
+            {t('Open CC Switch')}
+          </Button>
         </>
       }
     >
@@ -196,9 +219,29 @@ export function CCSwitchDialog(props: Props) {
             onValueChange={setName}
             placeholder={currentConfig.defaultName}
             emptyText=''
-            allowCustomValue={true}
+            allowCustomValue
           />
         </div>
+
+        {modelsQuery.isFetching && (
+          <p className='text-muted-foreground text-sm' aria-live='polite'>
+            {t('Loading...')}
+          </p>
+        )}
+        {modelsQuery.isError && (
+          <p className='text-destructive text-sm' role='alert'>
+            {modelsQuery.error instanceof Error
+              ? modelsQuery.error.message
+              : t('Failed to fetch models')}
+          </p>
+        )}
+        {!modelsQuery.isFetching &&
+          !modelsQuery.isError &&
+          modelsQuery.data?.length === 0 && (
+            <p className='text-muted-foreground text-sm'>
+              {t('No models found')}
+            </p>
+          )}
 
         {currentConfig.modelFields.map((field) => (
           <div key={field.key} className='space-y-2'>

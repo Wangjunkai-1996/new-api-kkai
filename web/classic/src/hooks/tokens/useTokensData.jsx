@@ -151,36 +151,37 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       return resolvedTokenKeys[tokenId];
     }
 
-    if (keyRequestsRef.current[tokenId]) {
-      return keyRequestsRef.current[tokenId];
+    let request = keyRequestsRef.current[tokenId];
+    if (!request) {
+      request = (async () => {
+        setLoadingTokenKeys((prev) => ({ ...prev, [tokenId]: true }));
+        try {
+          const fullKey = await fetchTokenKeyById(tokenId);
+          setResolvedTokenKeys((prev) => ({ ...prev, [tokenId]: fullKey }));
+          return fullKey;
+        } finally {
+          delete keyRequestsRef.current[tokenId];
+          setLoadingTokenKeys((prev) => {
+            const next = { ...prev };
+            delete next[tokenId];
+            return next;
+          });
+        }
+      })();
+      keyRequestsRef.current[tokenId] = request;
     }
 
-    const request = (async () => {
-      setLoadingTokenKeys((prev) => ({ ...prev, [tokenId]: true }));
-      try {
-        const fullKey = await fetchTokenKeyById(tokenId);
-        setResolvedTokenKeys((prev) => ({ ...prev, [tokenId]: fullKey }));
-        return fullKey;
-      } catch (error) {
-        const normalizedError = new Error(
-          error?.message || t('获取令牌密钥失败'),
-        );
-        if (!suppressError) {
-          showError(normalizedError.message);
-        }
-        throw normalizedError;
-      } finally {
-        delete keyRequestsRef.current[tokenId];
-        setLoadingTokenKeys((prev) => {
-          const next = { ...prev };
-          delete next[tokenId];
-          return next;
-        });
+    try {
+      return await request;
+    } catch (error) {
+      const normalizedError = new Error(
+        error?.message || t('获取令牌密钥失败'),
+      );
+      if (!suppressError) {
+        showError(normalizedError.message);
       }
-    })();
-
-    keyRequestsRef.current[tokenId] = request;
-    return request;
+      throw normalizedError;
+    }
   };
 
   const toggleTokenVisibility = async (record) => {
@@ -214,11 +215,11 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
 
   // Open link function for chat integrations
   const onOpenLink = async (type, url, record) => {
-    const fullKey = await fetchTokenKey(record);
     if (url && url.startsWith('ccswitch')) {
-      openCCSwitchModal(fullKey);
+      openCCSwitchModal(record);
       return;
     }
+    const fullKey = await fetchTokenKey(record);
     if (url && url.startsWith('fluent')) {
       openFluentNotification(fullKey);
       return;
@@ -307,8 +308,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   // Search tokens function
   const searchTokens = async (page = 1, size = pageSize) => {
     const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1;
-    const normalizedSize =
-      Number.isInteger(size) && size > 0 ? size : pageSize;
+    const normalizedSize = Number.isInteger(size) && size > 0 ? size : pageSize;
 
     const { searchKeyword, searchToken } = getFormValues();
     if (searchKeyword === '' && searchToken === '') {

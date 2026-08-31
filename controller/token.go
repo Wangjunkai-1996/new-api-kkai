@@ -9,7 +9,9 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -75,6 +77,65 @@ func GetToken(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+}
+
+func GetTokenModels(c *gin.Context) {
+	tokenId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	userId := c.GetInt("id")
+	token, err := model.GetTokenByIds(tokenId, userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	user, err := model.GetUserCache(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	usableGroups := service.GetUserUsableGroups(user.Group)
+	effectiveGroup := token.Group
+	if effectiveGroup == "" {
+		effectiveGroup = user.Group
+	}
+
+	groups := make([]string, 0)
+	explicitGroupValid := token.Group == "" || token.Group == "auto" || ratio_setting.ContainsGroupRatio(token.Group)
+	if _, ok := usableGroups[effectiveGroup]; ok && explicitGroupValid {
+		if effectiveGroup == "auto" {
+			groups = service.GetUserAutoGroup(user.Group)
+		} else {
+			groups = append(groups, effectiveGroup)
+		}
+	}
+
+	models := make([]string, 0)
+	for _, group := range groups {
+		for _, modelName := range model.GetGroupEnabledModels(group) {
+			if !common.StringsContains(models, modelName) {
+				models = append(models, modelName)
+			}
+		}
+	}
+
+	if token.ModelLimitsEnabled {
+		limits := token.GetModelLimitsMap()
+		filteredModels := make([]string, 0, len(models))
+		for _, modelName := range models {
+			matchingName := ratio_setting.FormatMatchingModelName(modelName)
+			if limits[matchingName] {
+				filteredModels = append(filteredModels, modelName)
+			}
+		}
+		models = filteredModels
+	}
+
+	common.ApiSuccess(c, models)
 }
 
 func GetTokenKey(c *gin.Context) {

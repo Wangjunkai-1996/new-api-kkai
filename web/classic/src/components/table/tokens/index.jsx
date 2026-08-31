@@ -43,13 +43,35 @@ import { useTokensData } from '../../../hooks/tokens/useTokensData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
 
+function buildModelOptions(models, t) {
+  const categories = getModelCategories(t);
+  return (models || []).map((model) => {
+    let icon = null;
+    for (const [key, category] of Object.entries(categories)) {
+      if (key !== 'all' && category.filter({ model_name: model })) {
+        icon = category.icon;
+        break;
+      }
+    }
+    return {
+      label: (
+        <span className='flex items-center gap-1'>
+          {icon}
+          {model}
+        </span>
+      ),
+      value: model,
+    };
+  });
+}
+
 function TokensPage() {
   // Define the function first, then pass it into the hook to avoid TDZ errors
   const openFluentNotificationRef = useRef(null);
   const openCCSwitchModalRef = useRef(null);
   const tokensData = useTokensData(
     (key) => openFluentNotificationRef.current?.(key),
-    (key) => openCCSwitchModalRef.current?.(key),
+    (record) => openCCSwitchModalRef.current?.(record),
   );
   const isMobile = useIsMobile();
   const latestRef = useRef({
@@ -66,6 +88,8 @@ function TokensPage() {
   const [prefillKey, setPrefillKey] = useState('');
   const [ccSwitchVisible, setCCSwitchVisible] = useState(false);
   const [ccSwitchKey, setCCSwitchKey] = useState('');
+  const [ccSwitchModelOptions, setCCSwitchModelOptions] = useState([]);
+  const ccSwitchModelsRequestRef = useRef(0);
 
   // Keep latest data for handlers inside notifications
   useEffect(() => {
@@ -91,32 +115,22 @@ function TokensPage() {
       const res = await API.get('/api/user/models');
       const { success, message, data } = res.data || {};
       if (success) {
-        const categories = getModelCategories(tokensData.t);
-        const options = (data || []).map((model) => {
-          let icon = null;
-          for (const [key, category] of Object.entries(categories)) {
-            if (key !== 'all' && category.filter({ model_name: model })) {
-              icon = category.icon;
-              break;
-            }
-          }
-          return {
-            label: (
-              <span className='flex items-center gap-1'>
-                {icon}
-                {model}
-              </span>
-            ),
-            value: model,
-          };
-        });
-        setModelOptions(options);
+        setModelOptions(buildModelOptions(data, tokensData.t));
       } else {
         showError(tokensData.t(message));
       }
     } catch (e) {
       showError(e.message || 'Failed to load models');
     }
+  };
+
+  const loadCCSwitchModels = async (tokenId) => {
+    const res = await API.get(`/api/token/${tokenId}/models`);
+    const { success, message, data } = res.data || {};
+    if (!success) {
+      throw new Error(tokensData.t(message || '加载模型失败'));
+    }
+    return buildModelOptions(data, tokensData.t);
   };
 
   function openFluentNotification(key) {
@@ -191,12 +205,23 @@ function TokensPage() {
   // assign after definition so hook callback can call it safely
   openFluentNotificationRef.current = openFluentNotification;
 
-  function openCCSwitchModal(key) {
-    if (modelOptions.length === 0) {
-      loadModels();
+  async function openCCSwitchModal(record) {
+    const requestId = ++ccSwitchModelsRequestRef.current;
+    setCCSwitchModelOptions([]);
+    try {
+      const [key, options] = await Promise.all([
+        tokensData.fetchTokenKey(record, { suppressError: true }),
+        loadCCSwitchModels(record?.id),
+      ]);
+      if (ccSwitchModelsRequestRef.current !== requestId) return;
+
+      setCCSwitchKey(key || '');
+      setCCSwitchModelOptions(options);
+      setCCSwitchVisible(true);
+    } catch (error) {
+      if (ccSwitchModelsRequestRef.current !== requestId) return;
+      showError(error?.message || tokensData.t('加载模型失败'));
     }
-    setCCSwitchKey(key || '');
-    setCCSwitchVisible(true);
   }
   openCCSwitchModalRef.current = openCCSwitchModal;
 
@@ -388,7 +413,7 @@ function TokensPage() {
         visible={ccSwitchVisible}
         onClose={() => setCCSwitchVisible(false)}
         tokenKey={ccSwitchKey}
-        modelOptions={modelOptions}
+        modelOptions={ccSwitchModelOptions}
       />
 
       <CardPro

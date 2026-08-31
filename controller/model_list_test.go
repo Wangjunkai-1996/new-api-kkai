@@ -12,8 +12,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
@@ -213,6 +215,88 @@ func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 	GetUserModels(vipContext)
 
 	require.Empty(t, decodeUserModelsResponse(t, vipRecorder))
+}
+
+func TestGetTokenModelsUsesEffectiveGroupAndModelLimits(t *testing.T) {
+	originalAutoGroups := setting.AutoGroups2JsonString()
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
+	})
+
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["vip","default"]`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{
+		"auto":"Auto","default":"Default","vip":"VIP","other":"Other"
+	}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Token{}))
+	require.NoError(t, db.Create(&model.User{
+		Id:       1004,
+		Username: "token-model-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-default-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "zz-shared-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "gpt-4-gizmo-demo", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "zz-vip-model", ChannelId: 2, Enabled: true},
+		{Group: "vip", Model: "zz-shared-model", ChannelId: 2, Enabled: true},
+		{Group: "other", Model: "zz-other-model", ChannelId: 3, Enabled: true},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Token{
+		{
+			Id: 1, UserId: 1004, Name: "inherited", Key: "inherited-key",
+			Group: "", Status: common.TokenStatusEnabled,
+		},
+		{
+			Id: 2, UserId: 1004, Name: "auto-limited", Key: "auto-limited-key",
+			Group: "auto", Status: common.TokenStatusEnabled,
+			ModelLimitsEnabled: true,
+			ModelLimits:        "zz-vip-model,zz-shared-model,gpt-4-gizmo-*,zz-other-model",
+		},
+		{
+			Id: 3, UserId: 1004, Name: "deprecated-group", Key: "deprecated-group-key",
+			Group: "other", Status: common.TokenStatusEnabled,
+		},
+	}).Error)
+
+	inheritedRecorder := httptest.NewRecorder()
+	inheritedContext, _ := gin.CreateTestContext(inheritedRecorder)
+	inheritedContext.Params = gin.Params{{Key: "id", Value: "1"}}
+	inheritedContext.Set("id", 1004)
+
+	GetTokenModels(inheritedContext)
+
+	require.ElementsMatch(t, []string{
+		"zz-default-model", "zz-shared-model", "gpt-4-gizmo-demo",
+	}, decodeUserModelsResponse(t, inheritedRecorder))
+
+	autoRecorder := httptest.NewRecorder()
+	autoContext, _ := gin.CreateTestContext(autoRecorder)
+	autoContext.Params = gin.Params{{Key: "id", Value: "2"}}
+	autoContext.Set("id", 1004)
+
+	GetTokenModels(autoContext)
+
+	require.ElementsMatch(t, []string{
+		"zz-vip-model", "zz-shared-model", "gpt-4-gizmo-demo",
+	}, decodeUserModelsResponse(t, autoRecorder))
+
+	deprecatedRecorder := httptest.NewRecorder()
+	deprecatedContext, _ := gin.CreateTestContext(deprecatedRecorder)
+	deprecatedContext.Params = gin.Params{{Key: "id", Value: "3"}}
+	deprecatedContext.Set("id", 1004)
+
+	GetTokenModels(deprecatedContext)
+
+	require.Empty(t, decodeUserModelsResponse(t, deprecatedRecorder))
 }
 
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
