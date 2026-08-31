@@ -14,18 +14,49 @@ const dateFnsDir = path.dirname(require.resolve('date-fns/package.json'));
 
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] });
-  const clientServerUrl =
-    process.env.VITE_REACT_APP_SERVER_URL ||
-    env.rawPublicVars.VITE_REACT_APP_SERVER_URL ||
-    '';
+  const forceRelativeApi = process.env.KKAI_EXTERNAL_FRONTEND_BUILD === '1';
+  const clientServerUrl = forceRelativeApi
+    ? ''
+    : process.env.VITE_REACT_APP_SERVER_URL ||
+      env.rawPublicVars.VITE_REACT_APP_SERVER_URL ||
+      '';
   const proxyServerUrl = clientServerUrl || 'http://localhost:3000';
+  const invitationsApiUrl =
+    process.env.VITE_INVITATIONS_API_URL ||
+    env.rawPublicVars.VITE_INVITATIONS_API_URL ||
+    'http://localhost:6212';
   const isProd = envMode === 'production';
   const devProxy = Object.fromEntries(
-    (['/api', '/mj', '/pg'] as const).map((key) => [
+    (
+      [
+        '/api',
+        '/invitations/api',
+        '/mj',
+        '/pg',
+        '/v1',
+        '/v1beta',
+        '/suno',
+        '/kling',
+        '/jimeng',
+      ] as const
+    ).map((key) => [
       key,
-      { target: proxyServerUrl, changeOrigin: true },
+      {
+        target: key === '/invitations/api' ? invitationsApiUrl : proxyServerUrl,
+        changeOrigin: true,
+        ...(key === '/invitations/api'
+          ? { pathRewrite: { '^/invitations/api': '/api' } }
+          : {}),
+      },
     ]),
-  ) as Record<string, { target: string; changeOrigin: boolean }>;
+  ) as Record<
+    string,
+    {
+      target: string;
+      changeOrigin: boolean;
+      pathRewrite?: Record<string, string>;
+    }
+  >;
 
   return {
     plugins: [pluginReact()],

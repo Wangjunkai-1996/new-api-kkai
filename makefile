@@ -12,7 +12,7 @@ DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 
-.PHONY: all web-install build-web build-web-classic build-all-web start-api dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup test-manual-deploy test-standby-sync
+.PHONY: all web-install build-web build-web-classic build-all-web build-backend-only test-backend-only test-frontend-build start-api dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup test-manual-deploy test-standby-sync
 
 all: build-all-web start-api
 
@@ -30,9 +30,23 @@ build-web-classic: web-install
 
 build-all-web: build-web build-web-classic
 
+# Compile the API without a frontend tree. The external build tag supplies
+# empty embed symbols; production's default target remains self-contained.
+BACKEND_ONLY_OUTPUT ?= .local-releases/backend-only/new-api
+
+build-backend-only:
+	@mkdir -p "$(dir $(BACKEND_ONLY_OUTPUT))"
+	@go build -tags=external_frontend -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(APP_VERSION)'" -o "$(BACKEND_ONLY_OUTPUT)" .
+
+test-backend-only:
+	@go test -tags=external_frontend .
+
+test-frontend-build:
+	@bash scripts/kkai/frontend-build-release_test.sh
+
 start-api:
 	@echo "Starting api dev server..."
-	@cd $(API_DIR) && go run main.go &
+	@cd $(API_DIR) && go run . &
 
 dev-api:
 	@echo "Starting api services (docker)..."

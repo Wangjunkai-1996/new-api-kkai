@@ -21,6 +21,16 @@ type ThemeAssets struct {
 	ClassicIndexPage []byte
 }
 
+func (assets ThemeAssets) hasEmbeddedFrontend() bool {
+	if len(assets.DefaultIndexPage) == 0 || len(assets.ClassicIndexPage) == 0 {
+		return false
+	}
+
+	_, defaultErr := assets.DefaultBuildFS.ReadFile("web/default/dist/index.html")
+	_, classicErr := assets.ClassicBuildFS.ReadFile("web/classic/dist/index.html")
+	return defaultErr == nil && classicErr == nil
+}
+
 func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 	defaultFS := common.EmbedFolder(assets.DefaultBuildFS, "web/default/dist")
 	classicFS := common.EmbedFolder(assets.ClassicBuildFS, "web/classic/dist")
@@ -32,7 +42,7 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 	router.Use(static.Serve("/", themeFS))
 	router.NoRoute(func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
-		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+		if isAPIStylePath(c.Request.URL.Path) {
 			controller.RelayNotFound(c)
 			return
 		}
@@ -43,4 +53,42 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.DefaultIndexPage)
 		}
 	})
+}
+
+func setExternalFrontendNoRoute(router *gin.Engine) {
+	router.NoRoute(func(c *gin.Context) {
+		if isAPIStylePath(c.Request.URL.Path) {
+			c.Set(middleware.RouteTagKey, "api")
+			controller.RelayNotFound(c)
+			return
+		}
+
+		c.Set(middleware.RouteTagKey, "web")
+		c.AbortWithStatus(http.StatusNotFound)
+	})
+}
+
+func isAPIStylePath(path string) bool {
+	for _, prefix := range []string{
+		"/api",
+		"/invitations/api",
+		"/assets",
+		"/v1",
+		"/v1beta",
+		"/pg",
+		"/mj",
+		"/suno",
+		"/kling",
+		"/jimeng",
+	} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+
+	// The legacy Midjourney API accepts a dynamic first path segment, e.g.
+	// /proxy/mj/submit/imagine. Keep unmatched requests under that route in
+	// the API error format instead of returning an HTML/SPA response.
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	return len(segments) >= 2 && segments[1] == "mj"
 }

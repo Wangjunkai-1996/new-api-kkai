@@ -1,5 +1,6 @@
-# Backend-only build for frontend development
-# Skips frontend build, uses a placeholder for //go:embed web/dist
+# Backend-only build for frontend development.
+# The external_frontend tag removes static embed requirements; the Rsbuild
+# dev server supplies the UI and proxies API requests to this container.
 
 FROM golang:1.26.1-alpine AS builder
 
@@ -8,6 +9,7 @@ ARG TARGETOS
 ARG TARGETARCH
 ENV GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64}
 ENV GOEXPERIMENT=greenteagc
+ENV FRONTEND_MODE=external
 
 WORKDIR /build
 
@@ -16,13 +18,13 @@ RUN go mod download
 
 COPY . .
 
-RUN mkdir -p web/default/dist web/classic/dist && \
-    echo '<!doctype html><html><head><title>dev</title></head><body>use frontend dev server</body></html>' > web/default/dist/index.html && \
-    echo '<!doctype html><html><head><title>dev</title></head><body>use frontend dev server</body></html>' > web/classic/dist/index.html
-
-RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
+RUN go build -tags=external_frontend -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
 
 FROM debian:bookworm-slim
+
+# The runtime image has no embedded frontend assets, so keep the backend in
+# external mode after the multi-stage boundary as well.
+ENV FRONTEND_MODE=external
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata wget \

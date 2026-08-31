@@ -82,6 +82,75 @@ The application and `/kkai-migrate` are compiled with
 AutoMigrate when it starts in the read-only idle slot. Database maintenance is
 separate from ordinary application delivery.
 
+## External frontend compile mode
+
+The normal (unnamed) Dockerfile target remains the self-contained production
+image: it embeds both `web/default/dist` and `web/classic/dist` and is the
+fallback release artifact. The application also supports an
+`external_frontend` Go build tag. That tag supplies empty embed symbols so a
+backend can be compiled without a frontend tree; run it together with
+`FRONTEND_MODE=external` and serve the frontend from the edge layer. It must
+not be used as a production release until the edge/static artifact controller
+is installed and verified.
+
+For a local compile-only check (no Docker image or deployment is produced):
+
+```bash
+make test-backend-only
+make build-backend-only
+```
+
+`build-backend-only` writes the binary to
+`.local-releases/backend-only/new-api`. The default `make`/Dockerfile targets
+are unchanged and continue to require and embed the built frontend assets.
+When running that binary directly, set `FRONTEND_MODE=external`; the Docker
+development image and compose service set it automatically.
+
+The standalone frontend artifact is built locally with
+`scripts/kkai/frontend-build-release.sh`. It uses the same source commit as
+the backend, runs a frozen Bun install by default, and emits an immutable
+theme directory, `manifest.sha256`, `frontend.json`, `release-pair.json`, and
+a `.tar.gz` archive. Artifact builds force a relative API base even when a local
+`.env.production` contains `VITE_REACT_APP_SERVER_URL`; the edge must therefore
+proxy API requests on the same origin. The script does not switch a live
+frontend pointer or deploy anything. Use `--skip-install` only for isolated
+tests with a prepared dependency tree.
+
+```bash
+scripts/kkai/frontend-build-release.sh \
+  --schema-contract bridge \
+  --backend-source-sha "$(git rev-parse HEAD)" \
+  --backend-release-id "${BACKEND_RELEASE_ID:?set the backend release ID from backend metadata}" \
+  --api-contract "${API_CONTRACT:?set the API contract accepted by the edge controller}"
+```
+
+For a real release pair, pass the exact backend release ID emitted by
+`build-manual-release.sh`; the script's same-ID fallback is intended only for
+local builds that deliberately use one shared release identifier. The API
+contract has no implicit default; use the integer registered by the backend and
+edge controller for the pair.
+
+The future edge/static controller must verify both the archive checksum and
+every entry in `manifest.sha256` before publishing an immutable theme path. It
+should select the theme reported by the backend's `/api/status` response (or
+the artifact's `default_theme` during bootstrap), serve that theme's
+`index.html` for non-API SPA routes, and proxy these NewAPI API prefixes to the
+backend: `/api`, `/v1`, `/v1beta`, `/pg`, `/mj`, `/:mode/mj`, `/suno`,
+`/kling`, and `/jimeng`. Proxy `/invitations/api/` to the independent KKAI
+Invitations service and rewrite that prefix to `/api/` upstream (for example,
+`/invitations/api/invitations/status` becomes `/api/invitations/status`); never
+send the public prefix to NewAPI. During local Rsbuild development, set
+`VITE_INVITATIONS_API_URL` to that service (the default is
+`http://localhost:6212`); the dev proxy applies the same rewrite. The backend
+returns a plain 404 for an unmatched web request in external mode, so a missing
+edge fallback is visible instead of silently serving an empty embedded page.
+
+The production edge must not consume this artifact until its static
+preflight/stage/promote controller and deployment contract have been installed
+and verified in the infrastructure checkout. See
+`scripts/kkai/frontend-build-release.md` for the complete artifact contract and
+focused regression command.
+
 When Docker build stages require the operator workstation proxy, pass it
 explicitly without changing the image definition. The port below is the
 current local `kkai-mirror-builder` setting; verify it with
