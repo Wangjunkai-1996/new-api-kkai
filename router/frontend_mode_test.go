@@ -108,6 +108,11 @@ func TestExternalFrontendModeUsesAPI404WithoutRedirectOrSPA(t *testing.T) {
 	assert.Contains(t, apiRecorder.Body.String(), `"error"`)
 	assert.NotContains(t, apiRecorder.Header().Values("Location"), "https://frontend.example.test")
 
+	dashboardAPIRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(dashboardAPIRecorder, httptest.NewRequest(http.MethodGet, "/dashboard/billing/does-not-exist", nil))
+	require.Equal(t, http.StatusNotFound, dashboardAPIRecorder.Code)
+	assert.Contains(t, dashboardAPIRecorder.Body.String(), `"error"`)
+
 	webRecorder := httptest.NewRecorder()
 	engine.ServeHTTP(webRecorder, httptest.NewRequest(http.MethodGet, "/dashboard/does-not-exist", nil))
 	require.Equal(t, http.StatusNotFound, webRecorder.Code)
@@ -125,6 +130,7 @@ func TestIsAPIStylePathUsesSegmentBoundaries(t *testing.T) {
 		"/api",
 		"/api/missing",
 		"/invitations/api/missing",
+		"/dashboard/billing/missing",
 		"/assets/missing",
 		"/v1/missing",
 		"/v1beta/missing",
@@ -141,6 +147,7 @@ func TestIsAPIStylePathUsesSegmentBoundaries(t *testing.T) {
 	for _, path := range []string{
 		"/apiary/missing",
 		"/invitations/apiary/missing",
+		"/dashboard/billingish/missing",
 		"/v10/missing",
 		"/proxy/mjure/missing",
 		"/dashboard/missing",

@@ -72,6 +72,7 @@ func isAPIStylePath(path string) bool {
 	for _, prefix := range []string{
 		"/api",
 		"/invitations/api",
+		"/dashboard/billing",
 		"/assets",
 		"/v1",
 		"/v1beta",
