@@ -116,6 +116,7 @@ chmod 0755 "${mock_bin}/git" "${mock_bin}/docker"
 run_build() {
   local mode=$1
   local output_name=${2:-${mode}}
+  local frontend_mode=${3:-embedded}
   local output_dir="${test_root}/out-${output_name}"
   local output
 
@@ -128,6 +129,7 @@ run_build() {
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
         --schema-contract bridge \
+        --frontend-mode "${frontend_mode}" \
         --version "${version}" \
         --output-dir "${output_dir}" 2>&1
   )"; then
@@ -135,6 +137,8 @@ run_build() {
   fi
   [[ -s "${output_dir}/${version}.tar" ]] || fail "${mode} build did not write an archive"
   [[ -s "${output_dir}/${version}.json" ]] || fail "${mode} build did not write metadata"
+  [[ "$(jq --raw-output .frontend_mode "${output_dir}/${version}.json")" == "${frontend_mode}" ]] ||
+    fail "${mode} build metadata did not record frontend mode ${frontend_mode}"
   printf '%s\n' "${output}"
 }
 
@@ -159,6 +163,40 @@ expect_build_defaults() {
     fail 'default Go build parallelism was not forwarded'
   grep -F -- '--build-arg MEDIA_BUILD_PARALLELISM=2' "${call_log}" >/dev/null ||
     fail 'default media build parallelism was not forwarded'
+  grep -F -- '--target runtime-embedded' "${call_log}" >/dev/null ||
+    fail 'default build did not select the embedded runtime target'
+  grep -F -- '--build-arg KKAI_FRONTEND_MODE=embedded' "${call_log}" >/dev/null ||
+    fail 'default embedded frontend mode was not forwarded'
+}
+
+expect_external_frontend_mode() {
+  run_build direct-unix external external >/dev/null
+  grep -F -- '--target runtime-external' "${call_log}" >/dev/null ||
+    fail 'external build did not select the external runtime target'
+  grep -F -- '--build-arg KKAI_FRONTEND_MODE=external' "${call_log}" >/dev/null ||
+    fail 'external frontend mode was not forwarded'
+}
+
+expect_invalid_frontend_mode_rejected() {
+  local output
+
+  : >"${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" \
+      KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_ENDPOINT_MODE=direct-unix \
+      TMPDIR="${build_tmp}" \
+      "${BUILD_SCRIPT}" \
+        --schema-contract bridge \
+        --frontend-mode remote \
+        --version "${version}" \
+        --output-dir "${test_root}/out-invalid-frontend" 2>&1
+  )"; then
+    fail 'invalid frontend mode unexpectedly succeeded'
+  fi
+  grep -F 'frontend mode must be embedded or external' <<<"${output}" >/dev/null ||
+    fail 'invalid frontend mode was not rejected explicitly'
+  [[ ! -s "${call_log}" ]] || fail 'invalid frontend mode reached an external command'
 }
 
 expect_no_resource_limits() {
@@ -254,6 +292,8 @@ expect_direct_uri direct-unix
 expect_direct_uri direct-npipe
 expect_context_name
 expect_build_defaults
+expect_external_frontend_mode
+expect_invalid_frontend_mode_rejected
 expect_no_resource_limits
 expect_invalid_parallelism_rejected
 expect_build_lock_rejected

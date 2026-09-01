@@ -40,6 +40,16 @@ Rsbuild development, set `VITE_INVITATIONS_API_URL` to that service; it
 defaults to `http://localhost:6212`, applies the same rewrite, and is used only
 by the dev proxy.
 
+The artifact intentionally does not contain a `frontend_mode` field. It records
+the frontend source and the exact backend release/source/schema/API coordinates;
+`frontend_mode` is a coordinated backend/edge contract. Pair an artifact with a
+backend release whose metadata, image label, and `FRONTEND_MODE` environment
+entry all agree. An `embedded` backend must be paired with the embedded edge
+configuration; an `external` backend must be paired with an installed and
+verified artifact plus the external edge configuration. The controller checks
+the backend manifest before installation, so do not install an artifact against
+a release with different source, version, image, schema, or API coordinates.
+
 ## Output
 
 The output directory contains an archive, outer metadata, and an extracted
@@ -68,7 +78,8 @@ infrastructure controller.
 `frontend.json` records the frontend source SHA, paired backend values, API and
 schema contracts, selected themes, Bun version, lockfile SHA-256, and the
 relative API policy. `release-pair.json` is the promotion-time compatibility
-record. `manifest.sha256` covers every release file except the manifest itself,
+record; it deliberately does not replace the backend/edge mode contract.
+`manifest.sha256` covers every release file except the manifest itself,
 including the three legal-notice files. The outer JSON additionally records the
 archive and manifest digests.
 
@@ -84,6 +95,27 @@ paths without running Bun or writing output.
 The script verifies the source commit, branch, and clean worktree before the
 build and checks the worktree again after the build. Local experiments can
 explicitly opt out with `--allow-non-production` and/or `--allow-dirty`.
+
+## Mode switch and rollback
+
+Use the pinned frontend controller for every artifact install and pointer
+change. For `embedded` to `external`, keep the backend embedded while the
+matching artifact is installed and checked, then:
+
+1. Validate and install the artifact; verify its selected theme, API proxy,
+   login, cookies, SSE, and media paths through the private edge path.
+2. Converge the platform manifest to `frontend_mode: external` and verify the
+   public edge serves the artifact and proxies every approved NewAPI prefix.
+3. Build, stage, and promote a backend release with
+   `--frontend-mode external`; the NewAPI planner requires the edge manifest to
+   already report `external` and rejects a mode-only reuse of an old release.
+4. Verify the candidate and public status before treating the pair as active.
+
+For the reverse switch, install/verify the embedded-capable backend first, then
+converge the edge back to `embedded`. If either side fails, restore the backend
+to `embedded` before restoring the edge mode, and only then move the frontend
+`current` pointer to the verified `previous` artifact. Use controller rollback
+operations for these changes; never edit release files or symlinks by hand.
 
 Run the focused regression test with:
 

@@ -21,6 +21,7 @@ sha256_file() {
 output_dir="${ROOT}/.local-releases"
 version=''
 schema_contract=''
+frontend_mode='embedded'
 builder="${BUILDX_BUILDER:-kkai-mirror-builder}"
 go_build_parallelism="${KKAI_GO_BUILD_PARALLELISM:-4}"
 media_build_parallelism="${KKAI_MEDIA_BUILD_PARALLELISM:-2}"
@@ -98,6 +99,7 @@ while (( $# > 0 )); do
   case "$1" in
     --output-dir) output_dir=$2 ;;
     --schema-contract) schema_contract=$2 ;;
+    --frontend-mode) frontend_mode=$2 ;;
     --version) version=$2 ;;
     --builder) builder=$2 ;;
     --go-build-parallelism) go_build_parallelism=$2 ;;
@@ -120,6 +122,10 @@ done
 case "${schema_contract}" in
   feature | bridge) ;;
   *) die "schema contract must be feature or bridge" ;;
+esac
+case "${frontend_mode}" in
+  embedded | external) ;;
+  *) die "frontend mode must be embedded or external" ;;
 esac
 [[ "${builder}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
   die "invalid Buildx builder name"
@@ -157,6 +163,10 @@ fi
   die "invalid version for source ${source_sha}"
 
 image_tag="kkai-newapi-manual:${version}"
+case "${frontend_mode}" in
+  embedded) docker_target=runtime-embedded ;;
+  external) docker_target=runtime-external ;;
+esac
 mkdir -p -- "${output_dir}"
 output_dir="$(cd -- "${output_dir}" && pwd)"
 archive="${output_dir}/${version}.tar"
@@ -190,6 +200,7 @@ fi
 echo "Using Buildx builder: ${builder}"
 echo "Go build parallelism: ${go_build_parallelism}"
 echo "Media build parallelism: ${media_build_parallelism}"
+echo "Frontend mode: ${frontend_mode}"
 if [[ -n "${build_cpu_quota}" || -n "${build_memory_limit}" ]]; then
   echo "Build resource limits: cpu-quota=${build_cpu_quota:-default}, memory=${build_memory_limit:-default}"
 else
@@ -218,10 +229,12 @@ fi
 
 docker "${build_args[@]}" \
   --platform linux/amd64 \
+  --target "${docker_target}" \
   --file "${ROOT}/build/kkai-image/Dockerfile" \
   --build-context "kkai_image=${ROOT}/build/kkai-image" \
   --build-arg "APP_VERSION=${version}" \
   --build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}" \
+  --build-arg "KKAI_FRONTEND_MODE=${frontend_mode}" \
   --build-arg "SOURCE_REVISION=${source_sha}" \
   --build-arg "GO_BUILD_PARALLELISM=${go_build_parallelism}" \
   --build-arg "MEDIA_BUILD_PARALLELISM=${media_build_parallelism}" \
@@ -235,6 +248,7 @@ jq --null-input \
   --arg source_sha "${source_sha}" \
   --arg image_tag "${image_tag}" \
   --arg schema_contract "${schema_contract}" \
+  --arg frontend_mode "${frontend_mode}" \
   --arg archive "$(basename -- "${archive}")" \
   --arg archive_sha256 "${archive_sha256}" \
   '{
@@ -242,6 +256,7 @@ jq --null-input \
     source_sha: $source_sha,
     image_tag: $image_tag,
     schema_contract: $schema_contract,
+    frontend_mode: $frontend_mode,
     archive: $archive,
     archive_sha256: $archive_sha256,
     platform: "linux/amd64"

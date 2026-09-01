@@ -22,12 +22,13 @@ mkdir -p -- "${mock_bin}"
 # shellcheck source=manual-deployment-contract.env
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
-readonly EXPECTED_INFRA_SHA=26709cf78a5cdaf908d6accdddff299da9cf4cdf
+readonly EXPECTED_INFRA_SHA=292d0bc36f88a1f03794ecc770ef219ef20e4747
 readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
 readonly EXPECTED_HOST=sys1
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
 export KKAI_TEST_EXPECTED_PROTOCOL="${KKAI_DEPLOYMENT_PROTOCOL}"
 export KKAI_TEST_EXPECTED_SCHEMA_CONTRACT=feature
+export KKAI_TEST_EXPECTED_FRONTEND_MODE=embedded
 
 cat > "${mock_bin}/ssh" <<'EOF'
 #!/usr/bin/env bash
@@ -41,6 +42,7 @@ case "$*" in
         printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
         printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
         printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
+        printf 'KKAI_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
         exit 0
         ;;
       wrong-sha)
@@ -60,6 +62,15 @@ case "$*" in
         printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
         printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
         printf 'KKAI_SCHEMA_CONTRACT=bridge\n'
+        printf 'KKAI_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
+        exit 0
+        ;;
+      wrong-frontend-mode)
+        printf 'KKAI_PREFLIGHT_RESULT=ready\n'
+        printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
+        printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
+        printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
+        printf 'KKAI_FRONTEND_MODE=external\n'
         exit 0
         ;;
       duplicate-result)
@@ -68,6 +79,7 @@ case "$*" in
         printf 'KKAI_DEPLOYMENT_PROTOCOL=%s\n' "${KKAI_TEST_EXPECTED_PROTOCOL}"
         printf 'KKAI_INFRA_SHA=%s\n' "${KKAI_TEST_EXPECTED_INFRA_SHA}"
         printf 'KKAI_SCHEMA_CONTRACT=%s\n' "${KKAI_TEST_EXPECTED_SCHEMA_CONTRACT}"
+        printf 'KKAI_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
         exit 0
         ;;
       fail)
@@ -108,6 +120,7 @@ case "$*" in
         printf 'KKAI_CANDIDATE_SLOT=green\n'
         printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
         printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        printf 'KKAI_CANDIDATE_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
         exit 0
         ;;
       wrong-status)
@@ -149,6 +162,33 @@ case "$*" in
         printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
         exit 0
         ;;
+      missing-frontend-mode)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        exit 0
+        ;;
+      wrong-frontend-mode)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        printf 'KKAI_CANDIDATE_FRONTEND_MODE=external\n'
+        exit 0
+        ;;
+      duplicate-frontend-mode)
+        printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
+        printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
+        printf 'KKAI_CANDIDATE_SLOT=green\n'
+        printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
+        printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        printf 'KKAI_CANDIDATE_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
+        printf 'KKAI_CANDIDATE_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
+        exit 0
+        ;;
       invalid-tunnel-ip)
         printf 'KKAI_CANDIDATE_STAGE_RESULT=staged\n'
         printf 'KKAI_CANDIDATE_VERSION=%s\n' "${KKAI_TEST_EXPECTED_VERSION}"
@@ -177,6 +217,7 @@ case "$*" in
         printf 'KKAI_CANDIDATE_SLOT=green\n'
         printf 'KKAI_CANDIDATE_TUNNEL_TARGET=10.0.0.2:3000\n'
         printf 'KKAI_CANDIDATE_EXPIRES_AT=1893456000\n'
+        printf 'KKAI_CANDIDATE_FRONTEND_MODE=%s\n' "${KKAI_TEST_EXPECTED_FRONTEND_MODE}"
         exit 0
         ;;
       stderr-only)
@@ -205,6 +246,7 @@ chmod 0755 "${mock_bin}/ssh" "${mock_bin}/scp"
 readonly source_sha=1111111111111111111111111111111111111111
 readonly version=kkai-prod-20260726.1-111111111
 readonly schema_contract=feature
+readonly frontend_mode=embedded
 export KKAI_TEST_EXPECTED_VERSION="${version}"
 readonly archive="${test_root}/${version}.tar"
 readonly metadata="${test_root}/${version}.json"
@@ -216,6 +258,7 @@ jq --null-input \
   --arg source_sha "${source_sha}" \
   --arg image_tag "kkai-newapi-manual:${version}" \
   --arg schema_contract "${schema_contract}" \
+  --arg frontend_mode "${frontend_mode}" \
   --arg archive "$(basename -- "${archive}")" \
   --arg archive_sha256 "${archive_sha256}" \
   '{
@@ -223,6 +266,7 @@ jq --null-input \
     source_sha: $source_sha,
     image_tag: $image_tag,
     schema_contract: $schema_contract,
+    frontend_mode: $frontend_mode,
     archive: $archive,
     archive_sha256: $archive_sha256,
     platform: "linux/amd64"
@@ -290,6 +334,18 @@ test_invalid_schema_contract_prevents_remote_calls() {
   [[ ! -s "${call_log}" ]] || fail "invalid schema contract made a remote call"
 }
 
+test_invalid_frontend_mode_prevents_remote_calls() {
+  local invalid_metadata="${test_root}/invalid-frontend-mode.json" output
+
+  jq '.frontend_mode = "remote"' "${metadata}" > "${invalid_metadata}"
+  if output="$(run_stage ready "${invalid_metadata}" 2>&1)"; then
+    fail "invalid frontend mode unexpectedly allowed staging"
+  fi
+  grep -F 'invalid frontend mode' <<< "${output}" >/dev/null ||
+    fail "invalid frontend mode was not rejected explicitly"
+  [[ ! -s "${call_log}" ]] || fail "invalid frontend mode made a remote call"
+}
+
 test_preflight_output_must_match_contract() {
   local output
 
@@ -322,6 +378,18 @@ test_preflight_schema_contract_must_match_release() {
     fail "mismatched preflight schema contract was not rejected"
   ! grep -q '^scp ' "${call_log}" ||
     fail "archive was uploaded after a preflight schema contract mismatch"
+}
+
+test_preflight_frontend_mode_must_match_release() {
+  local output
+
+  if output="$(run_stage wrong-frontend-mode 2>&1)"; then
+    fail "mismatched preflight frontend mode unexpectedly allowed staging"
+  fi
+  grep -F 'production preflight frontend mode mismatch' <<< "${output}" >/dev/null ||
+    fail "mismatched preflight frontend mode was not rejected"
+  ! grep -q '^scp ' "${call_log}" ||
+    fail "archive was uploaded after a preflight frontend mode mismatch"
 }
 
 test_preflight_fields_must_be_unique() {
@@ -405,6 +473,36 @@ test_stage_output_requires_expires_at_field() {
   fi
   grep -F 'candidate stage did not report a valid KKAI_CANDIDATE_EXPIRES_AT exactly once' <<< "${output}" >/dev/null ||
     fail "missing candidate expiry time was not rejected explicitly"
+}
+
+test_stage_output_requires_frontend_mode_field() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" missing-frontend-mode 2>&1)"; then
+    fail "candidate output without a frontend mode unexpectedly allowed staging"
+  fi
+  grep -F "candidate stage did not report KKAI_CANDIDATE_FRONTEND_MODE=${frontend_mode} exactly once" <<< "${output}" >/dev/null ||
+    fail "missing candidate frontend mode was not rejected explicitly"
+}
+
+test_stage_output_frontend_mode_must_match_metadata() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" wrong-frontend-mode 2>&1)"; then
+    fail "mismatched candidate frontend mode unexpectedly allowed staging"
+  fi
+  grep -F "candidate stage did not report KKAI_CANDIDATE_FRONTEND_MODE=${frontend_mode} exactly once" <<< "${output}" >/dev/null ||
+    fail "mismatched candidate frontend mode was not rejected explicitly"
+}
+
+test_stage_output_frontend_mode_must_be_unique() {
+  local output
+
+  if output="$(run_stage ready "${metadata}" duplicate-frontend-mode 2>&1)"; then
+    fail "duplicate candidate frontend mode unexpectedly allowed staging"
+  fi
+  grep -F "candidate stage did not report KKAI_CANDIDATE_FRONTEND_MODE=${frontend_mode} exactly once" <<< "${output}" >/dev/null ||
+    fail "duplicate candidate frontend mode was not rejected explicitly"
 }
 
 test_stage_output_rejects_invalid_tunnel_target() {
@@ -499,12 +597,14 @@ test_successful_preflight_precedes_upload_and_stage() {
     fail "candidate stage tunnel target output was not preserved"
   grep -Fx 'KKAI_CANDIDATE_EXPIRES_AT=1893456000' <<< "${output}" >/dev/null ||
     fail "candidate stage expiry output was not preserved"
+  grep -Fx "KKAI_CANDIDATE_FRONTEND_MODE=${frontend_mode}" <<< "${output}" >/dev/null ||
+    fail "candidate stage frontend mode output was not preserved"
   preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
   upload_line="$(grep -n '^scp ' "${call_log}" | cut -d: -f1)"
   stage_line="$(grep -n '/kkai-newapi-manual-deploy stage ' "${call_log}" | cut -d: -f1)"
   [[ "${preflight_line}" -lt "${upload_line}" && "${upload_line}" -lt "${stage_line}" ]] ||
     fail "preflight, upload, and stage order is invalid"
-  contract_arguments="--expected-infra-sha ${KKAI_INFRA_SHA} --deployment-protocol ${KKAI_DEPLOYMENT_PROTOCOL} --schema-contract ${schema_contract}"
+  contract_arguments="--expected-infra-sha ${KKAI_INFRA_SHA} --deployment-protocol ${KKAI_DEPLOYMENT_PROTOCOL} --schema-contract ${schema_contract} --frontend-mode ${frontend_mode}"
   [[ "$(grep -Fc -- "${contract_arguments}" "${call_log}")" -eq 2 ]] ||
     fail "preflight and stage did not share the pinned contract"
   [[ "$(grep -Ec -- "^ssh .* ${EXPECTED_HOST} sudo " "${call_log}")" -eq 2 ]] ||
@@ -533,9 +633,11 @@ test_contract_pins_staged_controller
 test_requires_explicit_stage_action
 test_preflight_failure_prevents_upload
 test_invalid_schema_contract_prevents_remote_calls
+test_invalid_frontend_mode_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract
 test_preflight_schema_contract_must_match_release
+test_preflight_frontend_mode_must_match_release
 test_preflight_fields_must_be_unique
 test_stage_status_must_be_staged
 test_stage_version_must_match_metadata
@@ -544,6 +646,9 @@ test_stage_output_requires_version_field
 test_stage_output_requires_slot_field
 test_stage_output_requires_tunnel_target_field
 test_stage_output_requires_expires_at_field
+test_stage_output_requires_frontend_mode_field
+test_stage_output_frontend_mode_must_match_metadata
+test_stage_output_frontend_mode_must_be_unique
 test_stage_output_rejects_invalid_tunnel_target invalid-tunnel-ip
 test_stage_output_rejects_invalid_tunnel_target invalid-tunnel-port
 test_stage_command_failure_preserves_diagnostics

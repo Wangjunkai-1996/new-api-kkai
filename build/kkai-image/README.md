@@ -34,7 +34,9 @@ on this Mac. Override the builder name with `--builder NAME` (or
 endpoint.
 
 The Dockerfile uses a locked BuildKit cache mount as a builder-local semaphore
-around the six CPU/memory-heavy install and compile steps. BuildKit can
+around the seven CPU/memory-heavy install and compile steps (the shared web
+install, two web bundles, two backend variants, runtime tools, and media
+packaging). BuildKit can
 otherwise start the frontend, Go, and media stages at the same time and
 exhaust the Docker VM even when each individual command has a limit. The gate
 keeps those steps one-at-a-time; package-level parallelism inside each step is
@@ -82,16 +84,42 @@ The application and `/kkai-migrate` are compiled with
 AutoMigrate when it starts in the read-only idle slot. Database maintenance is
 separate from ordinary application delivery.
 
-## External frontend compile mode
+## Frontend modes
 
-The normal (unnamed) Dockerfile target remains the self-contained production
-image: it embeds both `web/default/dist` and `web/classic/dist` and is the
-fallback release artifact. The application also supports an
-`external_frontend` Go build tag. That tag supplies empty embed symbols so a
-backend can be compiled without a frontend tree; run it together with
-`FRONTEND_MODE=external` and serve the frontend from the edge layer. It must
-not be used as a production release until the edge/static artifact controller
-is installed and verified.
+`build-manual-release.sh` defaults to `--frontend-mode embedded`. The mode is a
+release property and must be selected explicitly for an external split:
+
+```bash
+# Self-contained image; embeds both web/default and web/classic.
+scripts/kkai/build-manual-release.sh \
+  --schema-contract bridge \
+  --frontend-mode embedded
+
+# Backend-only image; the edge serves the separately published frontend.
+scripts/kkai/build-manual-release.sh \
+  --schema-contract bridge \
+  --frontend-mode external
+```
+
+The embedded path selects the `runtime-embedded`/`backend` targets and copies
+both built web bundles into the image. The external path selects
+`runtime-external`/`backend-external`, enables the `external_frontend` Go build
+tag (plus `kkai_bridge` for the bridge schema), and does not depend on
+`web-deps`, `web-default`, or `web-classic`. This keeps a backend-only build
+from loading or compiling frontend stages.
+
+Every release must carry one consistent mode in all four places: the metadata
+`frontend_mode` field, the image label
+`io.kkrich.frontend-mode`, the image environment entry
+`FRONTEND_MODE=embedded|external`, and the controller request. The deploy
+client rejects missing or invalid metadata and the controller rejects an image
+whose label or environment disagrees with the request. Do not change
+`FRONTEND_MODE` by editing a running container; build a new immutable image.
+
+The external image is safe to stage only after the matching frontend artifact
+and edge controller are installed and verified. The `external_frontend` tag
+supplies empty embed symbols so the backend can run without a frontend tree;
+the edge must provide the actual `default` or `classic` SPA files.
 
 For a local compile-only check (no Docker image or deployment is produced):
 
@@ -130,14 +158,22 @@ local builds that deliberately use one shared release identifier. The API
 contract has no implicit default; use the integer registered by the backend and
 edge controller for the pair.
 
-The future edge/static controller must verify both the archive checksum and
-every entry in `manifest.sha256` before publishing an immutable theme path. It
-should select the theme reported by the backend's `/api/status` response (or
-the artifact's `default_theme` during bootstrap), serve that theme's
-`index.html` for non-API SPA routes, and proxy these NewAPI API prefixes to the
-backend: `/api`, `/v1`, `/v1beta`, `/pg`, `/mj`, `/:mode/mj`, `/suno`,
-`/kling`, and `/jimeng`. Proxy `/invitations/api/` to the independent KKAI
-Invitations service and rewrite that prefix to `/api/` upstream (for example,
+The artifact intentionally has no `frontend_mode` field. Mode belongs to the
+backend/edge contract: pair an embedded artifact install with a backend release
+whose metadata, image label, and `FRONTEND_MODE` all say `embedded`; pair an
+external artifact install with a backend built using `--frontend-mode external`
+and an edge manifest already set to `external`. The artifact controller checks
+the exact backend source/release/image/schema/API coordinates before install;
+recheck those coordinates after installation and before changing either mode.
+
+The installed edge controller verifies both the archive checksum and every
+entry in `manifest.sha256` before publishing an immutable theme path. It selects
+the theme reported by the backend's `/api/status` response (or the artifact's
+`default_theme` during bootstrap), serves that theme's `index.html` for
+non-API SPA routes, and proxies these NewAPI API prefixes to the backend:
+`/api`, `/v1`, `/v1beta`, `/pg`, `/mj`, `/:mode/mj`, `/suno`, `/kling`, and
+`/jimeng`. It proxies `/invitations/api/` to the independent KKAI Invitations
+service and rewrites that prefix to `/api/` upstream (for example,
 `/invitations/api/invitations/status` becomes `/api/invitations/status`); never
 send the public prefix to NewAPI. During local Rsbuild development, set
 `VITE_INVITATIONS_API_URL` to that service (the default is
@@ -145,9 +181,13 @@ send the public prefix to NewAPI. During local Rsbuild development, set
 returns a plain 404 for an unmatched web request in external mode, so a missing
 edge fallback is visible instead of silently serving an empty embedded page.
 
-The production edge must not consume this artifact until its static
-preflight/stage/promote controller and deployment contract have been installed
-and verified in the infrastructure checkout. See
+For `embedded` to `external`, install and verify the matching artifact first,
+then set the platform edge manifest to `external` and verify the static/API
+paths, and only afterward stage and promote the external backend. The NewAPI
+planner enforces this edge-first order. If the switch fails, restore the backend
+to `embedded` first, then restore the edge mode, and finally point the frontend
+controller at the verified `previous` artifact. Use controller operations for
+all pointer changes; do not edit symlinks or release files by hand. See
 `scripts/kkai/frontend-build-release.md` for the complete artifact contract and
 focused regression command.
 

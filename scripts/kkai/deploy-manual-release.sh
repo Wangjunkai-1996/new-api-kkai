@@ -54,8 +54,10 @@ stage_validation_error=''
 validate_stage_output() {
   local output=$1
   local expected_version=$2
+  local expected_frontend_mode=$3
   local stage_result_count stage_version_count exact_stage_result_count exact_stage_version_count
-  local stage_slot_count stage_tunnel_count stage_expires_count
+  local stage_slot_count stage_tunnel_count stage_expires_count stage_frontend_mode_count
+  local exact_stage_frontend_mode_count
   local stage_slot stage_tunnel stage_expires stage_tunnel_value
 
   stage_validation_error=''
@@ -94,6 +96,13 @@ validate_stage_output() {
     stage_validation_error='candidate stage did not report a valid KKAI_CANDIDATE_EXPIRES_AT exactly once'
     return 1
   fi
+
+  stage_frontend_mode_count="$(grep -Ec '^KKAI_CANDIDATE_FRONTEND_MODE=' <<<"${output}" || true)"
+  exact_stage_frontend_mode_count="$(grep -Fxc -- "KKAI_CANDIDATE_FRONTEND_MODE=${expected_frontend_mode}" <<<"${output}" || true)"
+  if [[ "${stage_frontend_mode_count}" -ne 1 || "${exact_stage_frontend_mode_count}" -ne 1 ]]; then
+    stage_validation_error="candidate stage did not report KKAI_CANDIDATE_FRONTEND_MODE=${expected_frontend_mode} exactly once"
+    return 1
+  fi
 }
 
 sha256_file() {
@@ -127,6 +136,7 @@ version="$(jq --exit-status --raw-output '.version' "${METADATA}")"
 source_sha="$(jq --exit-status --raw-output '.source_sha' "${METADATA}")"
 image_tag="$(jq --exit-status --raw-output '.image_tag' "${METADATA}")"
 schema_contract="$(jq --exit-status --raw-output '.schema_contract' "${METADATA}")"
+frontend_mode="$(jq --exit-status --raw-output '.frontend_mode' "${METADATA}")"
 archive_name="$(jq --exit-status --raw-output '.archive' "${METADATA}")"
 archive_sha256="$(jq --exit-status --raw-output '.archive_sha256' "${METADATA}")"
 platform="$(jq --exit-status --raw-output '.platform' "${METADATA}")"
@@ -138,6 +148,10 @@ platform="$(jq --exit-status --raw-output '.platform' "${METADATA}")"
 case "${schema_contract}" in
   feature | bridge) ;;
   *) die "invalid schema contract" ;;
+esac
+case "${frontend_mode}" in
+  embedded | external) ;;
+  *) die "invalid frontend mode" ;;
 esac
 [[ "${archive_name}" == "$(basename -- "${archive_name}")" ]] || die "invalid archive name"
 [[ "${archive_sha256}" =~ ^[0-9a-f]{64}$ ]] || die "invalid archive checksum"
@@ -200,7 +214,8 @@ if ! preflight_output="$(
     sudo -n /usr/local/sbin/kkai-newapi-manual-deploy preflight \
       --expected-infra-sha "${KKAI_INFRA_SHA}" \
       --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}" \
-      --schema-contract "${schema_contract}"
+      --schema-contract "${schema_contract}" \
+      --frontend-mode "${frontend_mode}"
 )"; then
   die "production preflight failed; archive was not uploaded"
 fi
@@ -224,6 +239,11 @@ require_single_exact_line \
   KKAI_SCHEMA_CONTRACT \
   "KKAI_SCHEMA_CONTRACT=${schema_contract}" \
   "production preflight schema contract mismatch"
+require_single_exact_line \
+  "${preflight_output}" \
+  KKAI_FRONTEND_MODE \
+  "KKAI_FRONTEND_MODE=${frontend_mode}" \
+  "production preflight frontend mode mismatch"
 printf '%s\n' "${preflight_output}"
 
 stage_stdout="$(mktemp "${TMPDIR:-/tmp}/kkai-newapi-stage-stdout.XXXXXX")" ||
@@ -244,7 +264,8 @@ if ssh "${SSH_OPTIONS[@]}" "${HOST}" \
       --image-tag "${image_tag}" \
       --expected-infra-sha "${KKAI_INFRA_SHA}" \
       --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}" \
-      --schema-contract "${schema_contract}" 2>"${stage_stderr}" |
+      --schema-contract "${schema_contract}" \
+      --frontend-mode "${frontend_mode}" 2>"${stage_stderr}" |
     tee "${stage_stdout}"; then
   stage_statuses=("${PIPESTATUS[@]}")
 else
@@ -256,6 +277,6 @@ if [[ "${stage_statuses[0]:-1}" -ne 0 || "${stage_statuses[1]:-1}" -ne 0 ]]; the
 fi
 [[ ! -s "${stage_stderr}" ]] || cat -- "${stage_stderr}" >&2
 stage_output="$(<"${stage_stdout}")"
-if ! validate_stage_output "${stage_output}" "${version}"; then
+if ! validate_stage_output "${stage_output}" "${version}" "${frontend_mode}"; then
   handle_uncertain_stage "${stage_validation_error}" "${stage_output}"
 fi

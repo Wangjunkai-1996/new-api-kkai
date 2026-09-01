@@ -7,6 +7,7 @@ ARG GO_BUILD_IMAGE=golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe03
 ARG BUSYBOX_IMAGE=busybox:1.37.0-musl@sha256:6be969a074d06073a62ad8ccfd2ad6ec2790cae25d519d8df255ba24819d96f0
 ARG DISTROLESS_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:7a2bd171a18bdd39a4729600d0dca5f16e779d41156a6908b4f8a9a289e76d92
 ARG KKAI_SCHEMA_CONTRACT=feature
+ARG KKAI_FRONTEND_MODE=embedded
 ARG MEDIA_BUILD_PARALLELISM=2
 ARG FFMPEG_VERSION=7.1.1
 ARG FFMPEG_SOURCE_SHA256=0c8da2f11579a01e014fc007cbacf5bb4da1d06afd0b43c7f8097ec7c0f143ba
@@ -50,6 +51,7 @@ FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS backend
 
 ARG APP_VERSION
 ARG KKAI_SCHEMA_CONTRACT
+ARG KKAI_FRONTEND_MODE
 ARG SOURCE_REVISION
 ARG GO_BUILD_PARALLELISM=4
 ARG TARGETOS=linux
@@ -79,6 +81,52 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
     && case "${KKAI_SCHEMA_CONTRACT}" in \
       feature) export GOFLAGS= ;; \
       bridge) export GOFLAGS=-tags=kkai_bridge ;; \
+      *) echo "invalid KKAI schema contract: ${KKAI_SCHEMA_CONTRACT}" >&2; exit 1 ;; \
+    esac \
+    && test "${KKAI_FRONTEND_MODE}" = embedded \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.Version=${APP_VERSION}' -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
+      -o /out/new-api . \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
+      -o /out/kkai-migrate ./cmd/kkai-migrate \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
+      -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
+
+FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS backend-external
+
+ARG APP_VERSION
+ARG KKAI_SCHEMA_CONTRACT
+ARG KKAI_FRONTEND_MODE
+ARG SOURCE_REVISION
+ARG GO_BUILD_PARALLELISM=4
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ENV CGO_ENABLED=0 \
+    GO111MODULE=on \
+    GOEXPERIMENT=greenteagc \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH}
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    go mod download && go mod verify
+COPY . .
+RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked \
+    --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
+    test -n "${APP_VERSION}" \
+    && test -n "${SOURCE_REVISION}" \
+    && test "${KKAI_FRONTEND_MODE}" = external \
+    && case "${GO_BUILD_PARALLELISM}" in \
+      [1-9]|[1-5][0-9]|6[0-4]) ;; \
+      *) echo "invalid GO_BUILD_PARALLELISM: ${GO_BUILD_PARALLELISM}" >&2; exit 1 ;; \
+    esac \
+    && case "${KKAI_SCHEMA_CONTRACT}" in \
+      feature) export GOFLAGS=-tags=external_frontend ;; \
+      bridge) export GOFLAGS=-tags=kkai_bridge,external_frontend ;; \
       *) echo "invalid KKAI schema contract: ${KKAI_SCHEMA_CONTRACT}" >&2; exit 1 ;; \
     esac \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
@@ -156,7 +204,7 @@ RUN printf '%s  %s\n%s  %s\n' \
 FROM scratch AS video-media-package
 COPY --from=video-media-audit /package /package
 
-FROM ${DISTROLESS_IMAGE}
+FROM ${DISTROLESS_IMAGE} AS runtime-base
 
 ARG APP_VERSION
 ARG KKAI_SCHEMA_CONTRACT
@@ -172,9 +220,6 @@ LABEL org.opencontainers.image.title="KKAI New API" \
       org.opencontainers.image.licenses="AGPL-3.0 AND GPL-3.0-or-later" \
       io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"
 
-COPY --from=backend --chown=10007:10007 /out/new-api /new-api
-COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
-COPY --from=backend --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/newapi-risk-guard /newapi-risk-guard
 COPY --from=health-tools --chown=10007:10007 /bin/busybox /usr/bin/wget
@@ -194,3 +239,24 @@ USER 10007:10007
 EXPOSE 3000
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["/new-api-entrypoint"]
+
+FROM runtime-base AS runtime-embedded
+
+LABEL io.kkrich.frontend-mode="embedded"
+ENV FRONTEND_MODE=embedded
+COPY --from=backend --chown=10007:10007 /out/new-api /new-api
+COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
+
+FROM runtime-base AS runtime-external
+
+LABEL io.kkrich.frontend-mode="external"
+ENV FRONTEND_MODE=external
+COPY --from=backend-external --chown=10007:10007 /out/new-api /new-api
+COPY --from=backend-external --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend-external --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
+
+# Keep an unqualified build backward-compatible with the existing embedded
+# production image. The manual release script selects the external target
+# explicitly when requested.
+FROM runtime-embedded AS runtime

@@ -46,11 +46,29 @@ for image_arg in BUN_IMAGE GO_IMAGE GO_BUILD_IMAGE BUSYBOX_IMAGE DISTROLESS_IMAG
   grep -Eq "^ARG ${image_arg}=[^[:space:]]+@sha256:[0-9a-f]{64}$" "${DOCKERFILE}" ||
     fail "${image_arg} is not pinned to an immutable digest"
 done
-[[ "$(grep -Fc -- 'FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS backend' "${DOCKERFILE}")" -eq 1 ]] ||
+[[ "$(grep -Ec '^FROM --platform=\$BUILDPLATFORM \${GO_BUILD_IMAGE} AS backend$' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "backend Go compilation does not use the native build platform"
+[[ "$(grep -Ec '^FROM --platform=\$BUILDPLATFORM \${GO_BUILD_IMAGE} AS backend-external$' "${DOCKERFILE}")" -eq 1 ]] ||
+  fail "external backend Go compilation does not use the native build platform"
+external_backend_stage="$(sed -n '/^FROM --platform=\$BUILDPLATFORM \${GO_BUILD_IMAGE} AS backend-external$/,/^FROM --platform=\$BUILDPLATFORM \${GO_BUILD_IMAGE} AS runtime-tools$/p' "${DOCKERFILE}")"
+[[ -n "${external_backend_stage}" ]] || fail "external backend stage cannot be isolated"
+! grep -Eq 'web-(deps|default|classic)' <<<"${external_backend_stage}" ||
+  fail "external backend stage must not depend on frontend build stages"
+grep -Fq -- 'feature) export GOFLAGS=-tags=external_frontend' <<<"${external_backend_stage}" ||
+  fail "external feature builds do not enable the external_frontend tag"
+grep -Fq -- 'bridge) export GOFLAGS=-tags=kkai_bridge,external_frontend' <<<"${external_backend_stage}" ||
+  fail "external bridge builds do not preserve both required Go tags"
+external_runtime_stage="$(sed -n '/^FROM runtime-base AS runtime-external$/,/^FROM runtime-embedded AS runtime$/p' "${DOCKERFILE}")"
+[[ -n "${external_runtime_stage}" ]] || fail "external runtime stage cannot be isolated"
+grep -Fq -- 'COPY --from=backend-external ' <<<"${external_runtime_stage}" ||
+  fail "external runtime does not copy the external backend"
+grep -Fq -- 'LABEL io.kkrich.frontend-mode="external"' <<<"${external_runtime_stage}" ||
+  fail "external runtime image label is missing"
+grep -Fq -- 'ENV FRONTEND_MODE=external' <<<"${external_runtime_stage}" ||
+  fail "external runtime environment mode is missing"
 [[ "$(grep -Fc -- 'FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS runtime-tools' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "runtime tool compilation does not use the native build platform"
-[[ "$(grep -Fc -- 'id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked' "${DOCKERFILE}")" -eq 6 ]] ||
+[[ "$(grep -Fc -- 'id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked' "${DOCKERFILE}")" -eq 7 ]] ||
   fail "CPU/memory-heavy build stages must share the serialized BuildKit gate"
 "${FFMPEG_POLICY_TEST}"
 contains '-o /out/new-api .' "${DOCKERFILE}" || fail "Dockerfile does not build the application"
@@ -68,8 +86,8 @@ contains 'GOFLAGS=-tags=kkai_bridge' "${DOCKERFILE}" ||
   fail "Dockerfile cannot compile the explicit bridge schema contract"
 contains 'io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"' "${DOCKERFILE}" ||
   fail "runtime image does not identify its schema contract"
-[[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 3 ]] ||
-  fail "application, migrator, and archive executor must compile with external schema management"
+[[ "$(grep -Fc 'common.SchemaManagementMode=external' "${DOCKERFILE}")" -eq 6 ]] ||
+  fail "application, migrator, and archive executor must compile with external schema management in both backend targets"
 [[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "frontend dependencies must use one serialized, shared install stage"
 [[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1' "${MAKEFILE}")" -eq 1 ]] ||
@@ -94,8 +112,8 @@ for ignored_path in '.local-releases/' '/docs-site/' '/electron/' '/scripts/kkai
 done
 contains 'id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked' "${DOCKERFILE}" ||
   fail "Go compiler cache mount is missing"
-[[ "$(grep -Fc -- 'go build -p "${GO_BUILD_PARALLELISM}"' "${DOCKERFILE}")" -eq 5 ]] ||
-  fail "all Go production tools must honor the bounded build parallelism"
+[[ "$(grep -Fc -- 'go build -p "${GO_BUILD_PARALLELISM}"' "${DOCKERFILE}")" -eq 8 ]] ||
+  fail "all Go production tools must honor the bounded build parallelism in both backend targets"
 contains 'ARG GO_BUILD_PARALLELISM=4' "${DOCKERFILE}" ||
   fail "Dockerfile does not define a bounded Go build parallelism"
 contains 'ARG MEDIA_BUILD_PARALLELISM=2' "${DOCKERFILE}" ||
@@ -163,10 +181,18 @@ contains 'schema contract must be selected explicitly with --schema-contract bri
   fail "manual builds do not require explicit schema contract selection"
 contains '--schema-contract) schema_contract=$2' "${BUILD_SCRIPT}" ||
   fail "manual builds cannot explicitly select the bridge schema contract"
+contains '--frontend-mode) frontend_mode=$2' "${BUILD_SCRIPT}" ||
+  fail "manual builds cannot explicitly select the frontend mode"
+contains '--target "${docker_target}"' "${BUILD_SCRIPT}" ||
+  fail "manual builds do not select the frontend-specific Docker target"
 contains '--build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}"' "${BUILD_SCRIPT}" ||
   fail "manual builds do not bind the selected schema contract into the image"
+contains '--build-arg "KKAI_FRONTEND_MODE=${frontend_mode}"' "${BUILD_SCRIPT}" ||
+  fail "manual builds do not bind the frontend mode into the image"
 contains 'schema_contract: $schema_contract' "${BUILD_SCRIPT}" ||
   fail "release metadata does not identify the schema contract"
+contains 'frontend_mode: $frontend_mode' "${BUILD_SCRIPT}" ||
+  fail "release metadata does not identify the frontend mode"
 contains 'BUILD_HTTP_PROXY' "${BUILD_SCRIPT}" || fail "manual build cannot accept an HTTP proxy"
 contains '--build-arg "HTTP_PROXY=${build_http_proxy}"' "${BUILD_SCRIPT}" ||
   fail "manual build does not forward the HTTP proxy into build stages"
@@ -196,7 +222,7 @@ contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
 contains '--deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not pin the deployment protocol"
 contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
-contains 'KKAI_INFRA_SHA=97cbe7d4b24a324dcdeb84d94d3617087007a638' "${DEPLOY_CONTRACT}" ||
+contains 'KKAI_INFRA_SHA=292d0bc36f88a1f03794ecc770ef219ef20e4747' "${DEPLOY_CONTRACT}" ||
   fail "manual deployment contract does not pin the approved infrastructure commit"
 contains 'KKAI_DEPLOYMENT_PROTOCOL=router-v3-staged' "${DEPLOY_CONTRACT}" ||
   fail "manual deployment contract does not pin the staged protocol"
