@@ -8,9 +8,10 @@ service, or call an infrastructure deployment controller.
 ## Production invocation
 
 Run it from the clean local `production/kkrich` checkout after selecting the
-schema contract from current production evidence. The backend release values
-are required so an operator can verify the frontend/backend pair before a
-promotion:
+schema contract from current production evidence. For an external-mode
+transition, build and stage the backend first, then take every backend value
+from that immutable staged release manifest. Production builds require the
+backend image digest so promotion can verify the complete pair:
 
 ```bash
 scripts/kkai/frontend-build-release.sh \
@@ -19,6 +20,7 @@ scripts/kkai/frontend-build-release.sh \
   --release-id kkai-frontend-20260901.175000-abcdef123 \
   --backend-release-id kkai-prod-20260901.175000-abcdef123 \
   --backend-source-sha <40-character-backend-sha> \
+  --backend-image-digest <staged-sha256-image-id> \
   --output-dir .local-releases/frontend
 ```
 
@@ -99,17 +101,27 @@ explicitly opt out with `--allow-non-production` and/or `--allow-dirty`.
 ## Mode switch and rollback
 
 Use the pinned frontend controller for every artifact install and pointer
-change. For `embedded` to `external`, keep the backend embedded while the
-matching artifact is installed and checked, then:
+change. For `embedded` to `external`, keep the active backend embedded while
+the external backend remains staged, then:
 
-1. Validate and install the artifact; verify its selected theme, API proxy,
-   login, cookies, SSE, and media paths through the private edge path.
-2. Converge the platform manifest to `frontend_mode: external` and verify the
-   public edge serves the artifact and proxies every approved NewAPI prefix.
-3. Build, stage, and promote a backend release with
-   `--frontend-mode external`; the NewAPI planner requires the edge manifest to
-   already report `external` and rejects a mode-only reuse of an old release.
-4. Verify the candidate and public status before treating the pair as active.
+1. Build and stage a backend release with `--frontend-mode external`. Stage may
+   defer the live Edge-mode gate, but it must leave the public router unchanged.
+2. Build the frontend artifact from the staged manifest's exact
+   release/source/image/schema/API coordinates. Validate and install it with an
+   explicit `--backend-manifest` pointing at that staged release. Verify the
+   selected release tree, pointer, theme entry page, and offline OpenResty
+   configuration. There is no isolated candidate Edge path, so do not claim
+   live static or proxy workflow acceptance before the Edge switch.
+3. Use the pinned infrastructure `platform-edge` entrypoint to converge the
+   platform manifest to `frontend_mode: external`. This is the live Edge
+   switch after offline preflight; immediately verify the public static page,
+   approved NewAPI and Invitations prefixes, login, cookies, SSE, and media
+   paths. The Edge-only scope gate must reject any PostgreSQL, Redis, shared
+   Compose, credential, database-role, or systemd-unit change.
+4. Recheck the staged backend candidate, complete its normal canary, and
+   promote. Promotion rechecks both the live Edge mode and the selected exact
+   frontend/backend pair under the shared platform operation lock. Verify
+   public status before treating the pair as active.
 
 For the reverse switch, install/verify the embedded-capable backend first, then
 converge the edge back to `embedded`. If either side fails, restore the backend

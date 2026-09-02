@@ -253,6 +253,10 @@ if [[ -z "${backend_release_id}" ]]; then
   backend_release_id="${release_id}"
 fi
 validate_release_id "backend release ID" "${backend_release_id}"
+if [[ -z "${backend_image_digest}" &&
+      "${allow_nonproduction}" -ne 1 && "${allow_dirty}" -ne 1 ]]; then
+  die "production frontend builds require --backend-image-digest"
+fi
 
 if [[ -z "${build_timestamp}" ]]; then
   build_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

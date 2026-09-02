@@ -20,6 +20,7 @@ readonly lock_dir="${test_root}/build.lock"
 source_sha="$(git -C "${ROOT}" rev-parse HEAD)"
 readonly source_sha
 readonly release_id="frontend-test-20260901-1"
+readonly backend_image_digest="sha256:$(printf '2%.0s' {1..64})"
 mkdir -p -- "${mock_bin}"
 
 cat >"${mock_bin}/bun" <<'EOF_BUN'
@@ -88,6 +89,7 @@ run_build() {
         --source-sha "${source_sha}" \
         --schema-contract bridge \
         --api-contract 7 \
+        --backend-image-digest "${backend_image_digest}" \
         --build-timestamp 2026-09-01T00:00:00Z \
         --allow-dirty \
         --lock-dir "${lock_dir}" \
@@ -122,7 +124,8 @@ grep -F 'run build -- --dist-path' "${call_log}" >/dev/null ||
   fail 'frontend build command was not invoked'
 
 jq -e --arg id "${release_id}" \
-  '.release_id == $id and .backend_release_id == "backend-test-20260901-1" and .themes == ["default", "classic"] and .api_contract == 7 and .api_base_url == "relative"' \
+  --arg digest "${backend_image_digest}" \
+  '.release_id == $id and .backend_release_id == "backend-test-20260901-1" and .backend_image_digest == $digest and .themes == ["default", "classic"] and .api_contract == 7 and .api_base_url == "relative"' \
   "${out_both}/${release_id}.json" >/dev/null || fail 'artifact metadata is incorrect'
 jq -e '.build.install == "frozen" and .build.lockfile == "web/bun.lock"' \
   "${release_root}/frontend.json" >/dev/null || fail 'frontend build metadata is incorrect'
@@ -217,5 +220,23 @@ if invalid_output="$({
 fi
 grep -F 'schema contract must be bridge or feature' <<<"${invalid_output}" >/dev/null ||
   fail 'invalid schema contract error was not explicit'
+
+if missing_digest_output="$({
+  "${BUILD_SCRIPT}" \
+    --dry-run \
+    --source-root "${ROOT}" \
+    --source-sha "${source_sha}" \
+    --release-id frontend-production-missing-digest \
+    --backend-source-sha "${source_sha}" \
+    --backend-release-id backend-test-20260901-1 \
+    --schema-contract bridge \
+    --api-contract 1 \
+    --output-dir "${test_root}/missing-digest" 2>&1
+} 2>&1)"; then
+  fail 'production build without a backend image digest unexpectedly succeeded'
+fi
+grep -F 'production frontend builds require --backend-image-digest' \
+  <<<"${missing_digest_output}" >/dev/null ||
+  fail 'missing backend image digest error was not explicit'
 
 echo 'Frontend artifact build regression tests passed.'
