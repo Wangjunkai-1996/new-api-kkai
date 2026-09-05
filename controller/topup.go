@@ -534,6 +534,12 @@ func RequestAmount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "success", "data": strconv.FormatFloat(payMoney, 'f', 2, 64)})
 }
 
+type topUpHistoryResponse struct {
+	*common.PageInfo
+	TodayPaymentTotal float64 `json:"today_payment_total"`
+	TodayPaymentDate  string  `json:"today_payment_date"`
+}
+
 func GetUserTopUps(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
@@ -554,9 +560,20 @@ func GetUserTopUps(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+	todayPaymentTotal, err := model.GetTopUpTodayPaymentTotal(&userId, now)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(topups)
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, topUpHistoryResponse{
+		PageInfo:          pageInfo,
+		TodayPaymentTotal: todayPaymentTotal,
+		TodayPaymentDate:  now.Format("2006-01-02"),
+	})
 }
 
 // GetAllTopUps 管理员获取全平台充值记录
@@ -579,9 +596,20 @@ func GetAllTopUps(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
+	todayPaymentTotal, err := model.GetTopUpTodayPaymentTotal(nil, now)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(topups)
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, topUpHistoryResponse{
+		PageInfo:          pageInfo,
+		TodayPaymentTotal: todayPaymentTotal,
+		TodayPaymentDate:  now.Format("2006-01-02"),
+	})
 }
 
 type AdminCompleteTopupRequest struct {

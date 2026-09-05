@@ -279,6 +279,8 @@ export interface TopupRecord {
 export interface BillingHistoryResponse {
   items: TopupRecord[]
   total: number
+  today_payment_total: number
+  today_payment_date: string
 }
 
 /**

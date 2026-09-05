@@ -68,6 +68,8 @@ export function BillingHistoryDialog({
   const {
     records,
     total,
+    todayPaymentTotal,
+    todayPaymentDate,
     page,
     pageSize,
     keyword,
@@ -78,7 +80,7 @@ export function BillingHistoryDialog({
     handlePageSizeChange,
     handleSearch,
     handleCompleteOrder,
-  } = useBillingHistory()
+  } = useBillingHistory({ enabled: open })
 
   const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
@@ -108,6 +110,32 @@ export function BillingHistoryDialog({
         bodyClassName='space-y-3'
       >
         <div className='min-h-0 space-y-3'>
+          <dl
+            className='flex min-h-9 flex-wrap items-baseline justify-between gap-x-4 gap-y-1'
+            aria-live='polite'
+            aria-busy={loading}
+          >
+            <dt className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
+              <span className='text-sm font-medium'>
+                {t("Today's payment total")}
+              </span>
+              {todayPaymentDate && (
+                <time
+                  dateTime={todayPaymentDate}
+                  className='text-muted-foreground text-xs'
+                >
+                  {todayPaymentDate}
+                </time>
+              )}
+            </dt>
+            <dd className='text-xl font-semibold wrap-anywhere tabular-nums'>
+              {loading ? (
+                <Skeleton className='h-7 w-28' />
+              ) : (
+                formatNumber(todayPaymentTotal)
+              )}
+            </dd>
+          </dl>
           {/* Search and Filter Bar */}
           <div className='flex items-center gap-2'>
             <div className='relative flex-1'>
@@ -128,7 +156,7 @@ export function BillingHistoryDialog({
               ]}
               value={pageSize.toString()}
               onValueChange={(value) =>
-                value !== null && handlePageSizeChange(parseInt(value))
+                value !== null && handlePageSizeChange(Number.parseInt(value))
               }
             >
               <SelectTrigger className='h-9 w-[92px] sm:w-32'>
@@ -146,11 +174,14 @@ export function BillingHistoryDialog({
           </div>
 
           {/* Records List */}
-          <div className='max-h-[min(54vh,520px)] overflow-y-auto pr-1'>
-            {loading ? (
+          <div className='max-h-[min(42vh,360px)] overflow-y-auto pr-1 sm:max-h-[min(54vh,520px)]'>
+            {loading && (
               <div className='space-y-3'>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className='rounded-lg border p-3 sm:p-4'>
+                {[1, 2, 3, 4, 5].map((placeholder) => (
+                  <div
+                    key={placeholder}
+                    className='rounded-lg border p-3 sm:p-4'
+                  >
                     <div className='flex items-start justify-between'>
                       <div className='flex-1 space-y-2'>
                         <Skeleton className='h-4 w-48' />
@@ -166,7 +197,8 @@ export function BillingHistoryDialog({
                   </div>
                 ))}
               </div>
-            ) : records.length === 0 ? (
+            )}
+            {!loading && records.length === 0 && (
               <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
                 <p className='text-sm font-medium'>
                   {t('No billing records found')}
@@ -177,7 +209,8 @@ export function BillingHistoryDialog({
                     : t('Your transaction history will appear here')}
                 </p>
               </div>
-            ) : (
+            )}
+            {!loading && records.length > 0 && (
               <div className='space-y-3'>
                 {records.map((record) => {
                   const statusConfig = getStatusConfig(record.status)
@@ -188,15 +221,15 @@ export function BillingHistoryDialog({
                     >
                       {/* Header Row */}
                       <div className='flex items-start justify-between gap-2'>
-                        <div className='flex-1 space-y-1'>
-                          <div className='flex min-w-0 items-center gap-2'>
-                            <code className='text-foreground truncate font-mono text-sm'>
+                        <div className='min-w-0 flex-1 space-y-1'>
+                          <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                            <code className='text-foreground max-w-[calc(100%-2rem)] truncate font-mono text-sm'>
                               {record.trade_no}
                             </code>
                             <Button
                               variant='ghost'
                               size='sm'
-                              className='h-5 w-5 p-0'
+                              className='h-5 w-5 shrink-0 p-0'
                               onClick={() => copyToClipboard(record.trade_no)}
                             >
                               {copiedText === record.trade_no ? (

@@ -36,6 +36,7 @@ import type { TopupRecord } from '../types'
 // ============================================================================
 
 interface UseBillingHistoryOptions {
+  enabled?: boolean
   /** Initial page number */
   initialPage?: number
   /** Initial page size */
@@ -43,11 +44,15 @@ interface UseBillingHistoryOptions {
 }
 
 export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
-  const { initialPage = 1, initialPageSize = 10 } = options
+  const { enabled = true, initialPage = 1, initialPageSize = 10 } = options
   const isAdmin = useIsAdmin()
 
   const [records, setRecords] = useState<TopupRecord[]>([])
   const [total, setTotal] = useState(0)
+  const [todayPaymentTotal, setTodayPaymentTotal] = useState<number | null>(
+    null
+  )
+  const [todayPaymentDate, setTodayPaymentDate] = useState<string | null>(null)
   const [page, setPage] = useState(initialPage)
   const [pageSize, setPageSize] = useState(initialPageSize)
   const [keyword, setKeyword] = useState('')
@@ -72,12 +77,16 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
       if (isApiSuccess(response) && response.data) {
         setRecords(response.data.items || [])
         setTotal(response.data.total || 0)
+        setTodayPaymentTotal(response.data.today_payment_total ?? null)
+        setTodayPaymentDate(response.data.today_payment_date ?? null)
       } else {
         toast.error(
           response.message || i18next.t('Failed to load billing history')
         )
         setRecords([])
         setTotal(0)
+        setTodayPaymentTotal(null)
+        setTodayPaymentDate(null)
       }
     } catch (error) {
       if (requestId !== requestIdRef.current) return
@@ -87,6 +96,8 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
       toast.error(i18next.t('Failed to load billing history'))
       setRecords([])
       setTotal(0)
+      setTodayPaymentTotal(null)
+      setTodayPaymentDate(null)
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false)
@@ -154,14 +165,21 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
 
   // Fetch data after the search draft has settled.
   useEffect(() => {
-    if (keyword !== debouncedKeyword) return
+    if (!enabled || keyword !== debouncedKeyword) return
 
+    // Loading state tracks the async request started by this effect.
+    // eslint-disable-next-line react/set-state-in-effect
     fetchBillingHistory()
-  }, [debouncedKeyword, fetchBillingHistory, keyword])
+    return () => {
+      requestIdRef.current += 1
+    }
+  }, [debouncedKeyword, enabled, fetchBillingHistory, keyword])
 
   return {
     records,
     total,
+    todayPaymentTotal,
+    todayPaymentDate,
     page,
     pageSize,
     keyword,

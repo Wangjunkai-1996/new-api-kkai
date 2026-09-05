@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -174,6 +175,18 @@ const topUpQueryWindowSeconds int64 = 30 * 24 * 60 * 60
 // topUpQueryCutoff 返回允许查询的最早 create_time（秒级 Unix 时间戳）。
 func topUpQueryCutoff() int64 {
 	return common.GetTimestamp() - topUpQueryWindowSeconds
+}
+
+func GetTopUpTodayPaymentTotal(userId *int, now time.Time) (float64, error) {
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	query := DB.Model(&TopUp{}).
+		Where("status = ? AND complete_time >= ? AND complete_time < ?", common.TopUpStatusSuccess, start.Unix(), start.AddDate(0, 0, 1).Unix())
+	if userId != nil {
+		query = query.Where("user_id = ?", *userId)
+	}
+	var total float64
+	err := query.Select("COALESCE(SUM(money), 0)").Scan(&total).Error
+	return total, err
 }
 
 func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
