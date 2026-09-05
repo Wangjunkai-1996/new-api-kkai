@@ -109,7 +109,7 @@ contains 'curl --fail --location --retry' "${MEDIA_BUILD_SCRIPT}" ||
   fail "source downloads do not use the fail-closed curl transport when available"
 contains '--tls-max 1.2' "${MEDIA_BUILD_SCRIPT}" ||
   fail "source downloads do not pin the compatible TLS maximum"
-contains 'curl=8.21.0-r0' "${MEDIA_PACKAGE_LOCK}" ||
+contains 'curl=8.22.0-r0' "${MEDIA_PACKAGE_LOCK}" ||
   fail "the locked media build toolchain does not include curl"
 contains 'sha256sum -c' "${MEDIA_BUILD_SCRIPT}" || fail "source archives are not checksum-verified"
 contains '--disable-network' "${MEDIA_BUILD_SCRIPT}" || fail "FFmpeg network support is not disabled"
