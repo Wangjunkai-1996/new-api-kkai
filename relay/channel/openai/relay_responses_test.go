@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
@@ -184,8 +185,163 @@ func TestOaiResponsesStreamHandlerRejectsFailedOrUnterminatedStreams(t *testing.
 			require.True(t, types.IsSkipRetryError(apiErr))
 			require.NotNil(t, info.StreamStatus)
 			require.True(t, info.StreamStatus.HasErrors())
+			if test.name == "failed event preserves upstream error" {
+				require.Equal(t, "response.failed", common.GetContextKeyString(c, constant.ContextKeyResponsesStreamFailedEventType))
+				require.Equal(t, "overloaded", common.GetContextKeyString(c, constant.ContextKeyResponsesStreamUpstreamErrorCode))
+				require.Equal(t, "upstream overloaded", common.GetContextKeyString(c, constant.ContextKeyResponsesStreamUpstreamErrorMessage))
+				require.False(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamOutputStarted))
+				require.Equal(t, 1, common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamEventCount))
+				require.Equal(t, http.StatusOK, common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamUpstreamStatusCode))
+				require.True(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamTerminalError))
+				require.False(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamRetryAllowed))
+			}
 		})
 	}
+}
+
+func TestOaiResponsesStreamHandlerRecordsWhitespaceSemanticOutputBeforeFailure(t *testing.T) {
+	body := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\" \"}\n\n" +
+		"data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"message\":\"overloaded\",\"code\":\"server_is_overloaded\"}}}\n\n"
+	c, resp, info := newResponsesStreamHandlerTest(t, body)
+
+	usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	require.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+	require.True(t, types.IsSkipRetryError(apiErr))
+	require.True(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamOutputStarted))
+	require.Equal(t, "server_is_overloaded", common.GetContextKeyString(c, constant.ContextKeyResponsesStreamUpstreamErrorCode))
+	require.Equal(t, 3, common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamEventCount))
+	require.Equal(t, http.StatusOK, common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamUpstreamStatusCode))
+	require.True(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamTerminalError))
+	require.False(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamRetryAllowed))
+}
+
+func TestResponsesStreamSemanticOutputDetectorUsesRawEventFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType string
+		data      string
+		want      bool
+	}{
+		{
+			name:      "function arguments done",
+			eventType: "response.function_call_arguments.done",
+			data:      `{"type":"response.function_call_arguments.done","arguments":"{\"x\":1}"}`,
+			want:      true,
+		},
+		{
+			name:      "whitespace function arguments done is output",
+			eventType: "response.function_call_arguments.done",
+			data:      `{"type":"response.function_call_arguments.done","arguments":" "}`,
+			want:      true,
+		},
+		{
+			name:      "empty function arguments done",
+			eventType: "response.function_call_arguments.done",
+			data:      `{"type":"response.function_call_arguments.done","arguments":""}`,
+		},
+		{
+			name:      "custom tool input done",
+			eventType: "response.custom_tool_call_input.done",
+			data:      `{"type":"response.custom_tool_call_input.done","input":"patch"}`,
+			want:      true,
+		},
+		{
+			name:      "reasoning encrypted item",
+			eventType: "response.output_item.added",
+			data:      `{"type":"response.output_item.added","item":{"type":"reasoning","encrypted_content":"opaque"}}`,
+			want:      true,
+		},
+		{
+			name:      "empty reasoning skeleton",
+			eventType: "response.output_item.added",
+			data:      `{"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}`,
+		},
+		{
+			name:      "whitespace reasoning summary part is output",
+			eventType: "response.reasoning_summary_part.added",
+			data:      `{"type":"response.reasoning_summary_part.added","part":{"type":"summary_text","text":" "}}`,
+			want:      true,
+		},
+		{
+			name:      "audio delta",
+			eventType: "response.audio_transcript.delta",
+			data:      `{"type":"response.audio_transcript.delta","delta":"spoken"}`,
+			want:      true,
+		},
+		{
+			name:      "image partial",
+			eventType: "response.image_generation_call.partial_image",
+			data:      `{"type":"response.image_generation_call.partial_image","partial_image_b64":"abc"}`,
+			want:      true,
+		},
+		{
+			name:      "done item is a replay boundary",
+			eventType: "response.output_item.done",
+			data:      `{"type":"response.output_item.done","item":{"type":"reasoning"}}`,
+			want:      true,
+		},
+		{
+			name:      "empty completed response",
+			eventType: "response.completed",
+			data:      `{"type":"response.completed","response":{"output":[]}}`,
+		},
+		{
+			name:      "completed function call output",
+			eventType: "response.completed",
+			data:      `{"type":"response.completed","response":{"output":[{"type":"function_call","arguments":"{\"x\":1}"}]}}`,
+			want:      true,
+		},
+		{
+			name:      "error is not semantic output",
+			eventType: "error",
+			data:      `{"type":"error","error":{"code":"server_is_overloaded"}}`,
+		},
+		{
+			name:      "future event is conservatively guarded",
+			eventType: "response.future_event",
+			data:      `{"type":"response.future_event"}`,
+			want:      true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := &dto.ResponsesStreamResponse{Type: test.eventType}
+			require.Equal(t, test.want, responsesStreamEventStartsSemanticOutput(response, test.data))
+		})
+	}
+}
+
+func TestOaiResponsesStreamHandlerBoundsAndRedactsFailureDiagnostics(t *testing.T) {
+	message := `upstream rejected Authorization: "Bearer sk-client-secret" and "api_key":"provider-secret"; ` + strings.Repeat("x", responsesStreamDiagnosticMessageLimit)
+	payload, err := common.Marshal(gin.H{
+		"type": "response.failed",
+		"response": gin.H{
+			"status": "failed",
+			"error":  gin.H{"message": message, "code": "overloaded"},
+		},
+	})
+	require.NoError(t, err)
+	c, resp, info := newResponsesStreamHandlerTest(t, "data: "+string(payload)+"\n\n")
+
+	usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+
+	require.Nil(t, usage)
+	require.NotNil(t, apiErr)
+	got := common.GetContextKeyString(c, constant.ContextKeyResponsesStreamUpstreamErrorMessage)
+
+	require.LessOrEqual(t, len(got), responsesStreamDiagnosticMessageLimit)
+	require.Contains(t, got, "upstream rejected")
+	require.Equal(t, "response.failed", common.GetContextKeyString(c, constant.ContextKeyResponsesStreamFailedEventType))
+	require.NotContains(t, got, "Bearer sk-client-secret")
+	require.NotContains(t, got, "Bearer")
+	require.NotContains(t, got, "sk-client-secret")
+	require.NotContains(t, got, "provider-secret")
+	require.Contains(t, got, "[redacted]")
 }
 
 func TestOaiResponsesStreamHandlerClassifiesTopLevelPolicyErrorsBeforeForwarding(t *testing.T) {

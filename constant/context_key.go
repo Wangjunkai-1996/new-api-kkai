@@ -63,6 +63,16 @@ const (
 	// It is not returned to end users, but can be persisted into consume/error logs for debugging.
 	ContextKeyAdminRejectReason ContextKey = "admin_reject_reason"
 
+	// Responses stream failure diagnostics are admin-only error-log metadata.
+	ContextKeyResponsesStreamFailedEventType      ContextKey = "responses_stream_failed_event_type"
+	ContextKeyResponsesStreamUpstreamErrorCode    ContextKey = "responses_stream_upstream_error_code"
+	ContextKeyResponsesStreamUpstreamErrorMessage ContextKey = "responses_stream_upstream_error_message"
+	ContextKeyResponsesStreamOutputStarted        ContextKey = "responses_stream_output_started"
+	ContextKeyResponsesStreamEventCount           ContextKey = "responses_stream_event_count"
+	ContextKeyResponsesStreamUpstreamStatusCode   ContextKey = "responses_stream_upstream_status_code"
+	ContextKeyResponsesStreamTerminalError        ContextKey = "responses_stream_terminal_error"
+	ContextKeyResponsesStreamRetryAllowed         ContextKey = "responses_stream_retry_allowed"
+
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage      ContextKey = "language"
 	ContextKeyIsStream      ContextKey = "is_stream"

@@ -449,6 +449,17 @@ func processChannelErrorAfterKKAIPolicy(c *gin.Context, channelError types.Chann
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		if eventType := common.GetContextKeyString(c, constant.ContextKeyResponsesStreamFailedEventType); eventType != "" ||
+			common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamUpstreamStatusCode) > 0 {
+			adminInfo["responses_stream_failed_event_type"] = eventType
+			adminInfo["responses_stream_upstream_error_code"] = common.GetContextKeyString(c, constant.ContextKeyResponsesStreamUpstreamErrorCode)
+			adminInfo["responses_stream_upstream_error_message"] = common.GetContextKeyString(c, constant.ContextKeyResponsesStreamUpstreamErrorMessage)
+			adminInfo["responses_stream_output_started"] = common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamOutputStarted)
+			adminInfo["responses_stream_event_count"] = common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamEventCount)
+			adminInfo["responses_stream_upstream_status_code"] = common.GetContextKeyInt(c, constant.ContextKeyResponsesStreamUpstreamStatusCode)
+			adminInfo["responses_stream_terminal_error"] = common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamTerminalError)
+			adminInfo["responses_stream_retry_allowed"] = common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamRetryAllowed)
+		}
 		other["admin_info"] = adminInfo
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
