@@ -43,6 +43,23 @@ func TestRelayInfoResetAttemptTimingAllowsNextAttemptToRecordFirstResponse(t *te
 	require.NotEqual(t, start.Add(200*time.Millisecond), info.FirstResponseTime)
 }
 
+func TestRelayInfoDefersFirstResponseUntilSemanticOutput(t *testing.T) {
+	start := time.Now()
+	info := &RelayInfo{
+		StartTime:         start,
+		FirstResponseTime: start.Add(-time.Second),
+		isFirstResponse:   true,
+	}
+	info.DeferFirstResponseUntilSemantic()
+	info.SetFirstResponseTime()
+	require.Equal(t, start.Add(-time.Second), info.FirstResponseTime)
+	require.True(t, info.isFirstResponse)
+
+	info.SetSemanticFirstResponseTime()
+	require.True(t, info.FirstResponseTime.After(start))
+	require.False(t, info.isFirstResponse)
+}
+
 func TestRelayInfoGetFinalRequestRelayFormatFallsBackToConversionChain(t *testing.T) {
 	info := &RelayInfo{
 		RelayFormat:            types.RelayFormatOpenAI,

@@ -100,6 +100,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	info.DeferFirstResponseUntilSemantic()
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
@@ -121,6 +122,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		if responsesStreamEventStartsSemanticOutput(&streamResponse, data) {
 			common.SetContextKey(c, constant.ContextKeyResponsesStreamOutputStarted, true)
+		}
+		if responsesStreamEventStartsFirstResponse(&streamResponse, data) {
+			info.SetSemanticFirstResponseTime()
 		}
 		if strings.HasPrefix(streamResponse.Type, "response.") || streamResponse.Type == "error" {
 			switch streamResponse.Type {
@@ -254,6 +258,27 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
 	return usage, nil
+}
+
+// responsesStreamEventStartsFirstResponse is stricter than the diagnostic
+// output guard: unknown future control events must not become "first token".
+func responsesStreamEventStartsFirstResponse(response *dto.ResponsesStreamResponse, rawData string) bool {
+	if response == nil {
+		return false
+	}
+	switch strings.TrimSpace(response.Type) {
+	case "response.output_item.added", "response.reasoning_summary_part.added", "response.content_part.added",
+		"response.output_item.done", "response.content_part.done", "response.output_text.delta",
+		"response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.function_call_arguments.delta",
+		"response.audio_transcript.delta", "response.audio.delta", "response.custom_tool_call_input.delta",
+		"response.refusal.delta", "response.output_text.done", "response.reasoning_summary_text.done",
+		"response.reasoning_text.done", "response.audio_transcript.done", "response.function_call_arguments.done",
+		"response.custom_tool_call_input.done", "response.image_generation_call.partial_image",
+		"response.reasoning_summary_part.done", "response.completed", "response.done":
+		return responsesStreamEventStartsSemanticOutput(response, rawData)
+	default:
+		return false
+	}
 }
 
 // responsesStreamEventStartsSemanticOutput uses the original event JSON rather

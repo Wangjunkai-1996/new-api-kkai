@@ -113,6 +113,9 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			streamErr = upstreamErr
 			break
 		}
+		if responsesStreamEventStartsFirstResponse(&streamResp, data) {
+			info.SetSemanticFirstResponseTime()
+		}
 		accumulator.ProcessEvent(&streamResp)
 		switch streamResp.Type {
 		case "response.completed", "response.done", "response.incomplete":
@@ -189,6 +192,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	info.DeferFirstResponseUntilSemantic()
 
 	responseId := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
