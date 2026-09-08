@@ -87,18 +87,17 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
-	TokenId               int
-	TokenKey              string
-	TokenGroup            string
-	UserId                int
-	UsingGroup            string // 使用的分组，当auto跨分组重试时，会变动
-	UserGroup             string // 用户所在分组
-	TokenUnlimited        bool
-	StartTime             time.Time
-	UpstreamHeaderTime    time.Time
-	FirstResponseTime     time.Time
-	isFirstResponse       bool
-	firstResponseSemantic bool
+	TokenId            int
+	TokenKey           string
+	TokenGroup         string
+	UserId             int
+	UsingGroup         string // 使用的分组，当auto跨分组重试时，会变动
+	UserGroup          string // 用户所在分组
+	TokenUnlimited     bool
+	StartTime          time.Time
+	UpstreamHeaderTime time.Time
+	FirstResponseTime  time.Time
+	isFirstResponse    bool
 	//SendLastReasoningResponse bool
 	IsStream bool
 	// ClientIsStream preserves the stream flag from the client request. Some
@@ -743,25 +742,6 @@ func (info *RelayInfo) SetReasoningEffort(effort string) {
 }
 
 func (info *RelayInfo) SetFirstResponseTime() {
-	if info == nil {
-		return
-	}
-	if info.isFirstResponse && !info.firstResponseSemantic {
-		info.FirstResponseTime = time.Now()
-		info.isFirstResponse = false
-	}
-}
-
-// DeferFirstResponseUntilSemantic makes the first response timestamp wait for
-// an output-bearing event. This is needed for Responses streams, whose first
-// SSE frames are normally response.created/in_progress control events.
-func (info *RelayInfo) DeferFirstResponseUntilSemantic() {
-	if info != nil {
-		info.firstResponseSemantic = true
-	}
-}
-
-func (info *RelayInfo) SetSemanticFirstResponseTime() {
 	if info == nil {
 		return
 	}

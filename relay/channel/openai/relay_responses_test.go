@@ -316,23 +316,6 @@ func TestResponsesStreamSemanticOutputDetectorUsesRawEventFields(t *testing.T) {
 	}
 }
 
-func TestResponsesStreamFirstResponseDetectorIgnoresControlAndUnknownEvents(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		typ  string
-		data string
-		want bool
-	}{
-		{name: "created", typ: "response.created", data: `{"type":"response.created"}`},
-		{name: "future control", typ: "response.future_event", data: `{"type":"response.future_event"}`},
-		{name: "text delta", typ: "response.output_text.delta", data: `{"type":"response.output_text.delta","delta":"x"}`, want: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			require.Equal(t, test.want, responsesStreamEventStartsFirstResponse(&dto.ResponsesStreamResponse{Type: test.typ}, test.data))
-		})
-	}
-}
-
 func TestOaiResponsesStreamHandlerBoundsAndRedactsFailureDiagnostics(t *testing.T) {
 	message := `upstream rejected Authorization: "Bearer sk-client-secret" and "api_key":"provider-secret"; ` + strings.Repeat("x", responsesStreamDiagnosticMessageLimit)
 	payload, err := common.Marshal(gin.H{
