@@ -163,6 +163,27 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 	}
 }
 
+func resolveModelRequestRateLimit(c *gin.Context) (totalMaxCount, successMaxCount int) {
+	totalMaxCount = setting.ModelRequestRateLimitCount
+	successMaxCount = setting.ModelRequestRateLimitSuccessCount
+
+	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+	if group == "" {
+		group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	}
+	if groupTotalCount, groupSuccessCount, found := setting.GetGroupRateLimit(group); found {
+		totalMaxCount = groupTotalCount
+		successMaxCount = groupSuccessCount
+	}
+
+	username := common.GetContextKeyString(c, constant.ContextKeyUserName)
+	if userTotalCount, userSuccessCount, found := setting.GetUserRateLimit(c.GetInt("id"), username); found {
+		totalMaxCount = userTotalCount
+		successMaxCount = userSuccessCount
+	}
+	return totalMaxCount, successMaxCount
+}
+
 // ModelRequestRateLimit 模型请求限流中间件
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
@@ -172,23 +193,9 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			return
 		}
 
-		// 计算限流参数
+		// 用户配置优先于分组配置，分组配置优先于全局配置。
 		duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
-		totalMaxCount := setting.ModelRequestRateLimitCount
-		successMaxCount := setting.ModelRequestRateLimitSuccessCount
-
-		// 获取分组
-		group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
-		if group == "" {
-			group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-		}
-
-		//获取分组的限流配置
-		groupTotalCount, groupSuccessCount, found := setting.GetGroupRateLimit(group)
-		if found {
-			totalMaxCount = groupTotalCount
-			successMaxCount = groupSuccessCount
-		}
+		totalMaxCount, successMaxCount := resolveModelRequestRateLimit(c)
 
 		// 根据存储类型选择并执行限流处理器
 		if common.RedisEnabled {

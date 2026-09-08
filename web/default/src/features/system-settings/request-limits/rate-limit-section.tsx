@@ -47,16 +47,21 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { RateLimitVisualEditor } from './rate-limit-visual-editor'
 
-const isValidJSON = (value: string | undefined) => {
+const isValidRateLimitJSON = (
+  value: string | undefined,
+  isValidKey: (key: string) => boolean = () => true
+) => {
   if (!value || value.trim() === '') return true
   try {
     const parsed = JSON.parse(value)
     if (typeof parsed !== 'object' || Array.isArray(parsed)) {
       return false
     }
-    for (const [, val] of Object.entries(parsed)) {
+    for (const [key, val] of Object.entries(parsed)) {
+      if (!isValidKey(key)) return false
       if (!Array.isArray(val) || val.length !== 2) return false
       if (typeof val[0] !== 'number' || typeof val[1] !== 'number') return false
+      if (!Number.isInteger(val[0]) || !Number.isInteger(val[1])) return false
       if (val[0] < 0 || val[1] < 1) return false
       if (val[0] > 2147483647 || val[1] > 2147483647) return false
     }
@@ -75,9 +80,26 @@ const createRateLimitSchema = (t: (key: string) => string) =>
     ModelRequestRateLimitGroup: z
       .string()
       .optional()
-      .refine(isValidJSON, {
+      .refine(isValidRateLimitJSON, {
         message: t('Invalid JSON format or values out of allowed range'),
       }),
+    ModelRequestRateLimitUser: z
+      .string()
+      .optional()
+      .refine(
+        (value) =>
+          isValidRateLimitJSON(
+            value,
+            (key) =>
+              /^id:[1-9]\d*$/.test(key) ||
+              (key.startsWith('username:') &&
+                key.slice(9).length > 0 &&
+                key.slice(9).trim() === key.slice(9))
+          ),
+        {
+          message: t('Invalid user rate limit configuration'),
+        }
+      ),
   })
 
 type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
@@ -161,7 +183,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                         step={1}
                         {...field}
                         onChange={(e) =>
-                          field.onChange(parseInt(e.target.value) || 0)
+                          field.onChange(Number.parseInt(e.target.value) || 0)
                         }
                       />
                       <span className='text-muted-foreground text-sm'>
@@ -192,7 +214,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                         step={1}
                         {...field}
                         onChange={(e) =>
-                          field.onChange(parseInt(e.target.value) || 0)
+                          field.onChange(Number.parseInt(e.target.value) || 0)
                         }
                       />
                       <span className='text-muted-foreground text-sm'>
@@ -223,7 +245,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                         step={1}
                         {...field}
                         onChange={(e) =>
-                          field.onChange(parseInt(e.target.value) || 1)
+                          field.onChange(Number.parseInt(e.target.value) || 1)
                         }
                       />
                       <span className='text-muted-foreground text-sm'>
@@ -308,6 +330,29 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                     </div>
                   </FormDescription>
                 )}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='ModelRequestRateLimitUser'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('User-specific rate limits')}</FormLabel>
+                <FormDescription>
+                  {t(
+                    'User rules override group and global limits and share the same period.'
+                  )}
+                </FormDescription>
+                <FormControl>
+                  <RateLimitVisualEditor
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    scope='user'
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}

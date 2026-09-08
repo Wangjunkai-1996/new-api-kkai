@@ -145,6 +145,7 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap["ModelRequestRateLimitUser"] = setting.ModelRequestRateLimitUser2JSONString()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -284,11 +285,16 @@ func updateOptionMap(key string, value string) (err error) {
 			return err
 		}
 	}
-	// Validate and activate display names before publishing the raw option.
-	// This keeps OptionMap and the runtime resolver in sync when an old or
+	// Activate validated runtime settings before publishing their raw options.
+	// This keeps OptionMap and runtime resolvers in sync when an old or
 	// externally edited database row contains malformed JSON.
 	if key == "GroupDisplayNames" {
 		if err := setting.UpdateGroupDisplayNamesByJSONString(value); err != nil {
+			return err
+		}
+	}
+	if key == "ModelRequestRateLimitUser" {
+		if err := setting.UpdateModelRequestRateLimitUserByJSONString(value); err != nil {
 			return err
 		}
 	}
@@ -623,6 +629,9 @@ func validateOptionValue(key, value string) error {
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
+	}
+	if key == "ModelRequestRateLimitUser" {
+		return setting.CheckModelRequestRateLimitUser(value)
 	}
 	return nil
 }
