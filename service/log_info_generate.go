@@ -84,6 +84,9 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if firstSSEMs, ok := firstSSELatencyMs(relayInfo); ok {
 		other["first_sse_ms"] = float64(firstSSEMs)
 	}
+	if headerMs, ok := upstreamHeaderLatencyMs(relayInfo); ok {
+		other["upstream_header_ms"] = float64(headerMs)
+	}
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
 	}
@@ -131,12 +134,6 @@ func appendImagePricingInfo(relayInfo *relaycommon.RelayInfo, adminInfo map[stri
 }
 
 func firstResponseDisplayMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
-	if relayInfo == nil || relayInfo.StartTime.IsZero() {
-		return 0, false
-	}
-	if !relayInfo.UpstreamHeaderTime.IsZero() && relayInfo.UpstreamHeaderTime.After(relayInfo.StartTime) {
-		return relayInfo.UpstreamHeaderTime.Sub(relayInfo.StartTime).Milliseconds(), true
-	}
 	return firstSSELatencyMs(relayInfo)
 }
 
@@ -148,6 +145,14 @@ func firstSSELatencyMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
 		return 0, false
 	}
 	return relayInfo.FirstResponseTime.Sub(relayInfo.StartTime).Milliseconds(), true
+}
+
+func upstreamHeaderLatencyMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
+	if relayInfo == nil || relayInfo.StartTime.IsZero() ||
+		relayInfo.UpstreamHeaderTime.IsZero() || !relayInfo.UpstreamHeaderTime.After(relayInfo.StartTime) {
+		return 0, false
+	}
+	return relayInfo.UpstreamHeaderTime.Sub(relayInfo.StartTime).Milliseconds(), true
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {

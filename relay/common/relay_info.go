@@ -742,10 +742,24 @@ func (info *RelayInfo) SetReasoningEffort(effort string) {
 }
 
 func (info *RelayInfo) SetFirstResponseTime() {
+	if info == nil {
+		return
+	}
 	if info.isFirstResponse {
 		info.FirstResponseTime = time.Now()
 		info.isFirstResponse = false
 	}
+}
+
+// ResetAttemptTiming clears measurements from a failed upstream attempt while
+// preserving the request start time used for the final latency metrics.
+func (info *RelayInfo) ResetAttemptTiming() {
+	if info == nil {
+		return
+	}
+	info.UpstreamHeaderTime = time.Time{}
+	info.FirstResponseTime = info.StartTime.Add(-time.Second)
+	info.isFirstResponse = true
 }
 
 func (info *RelayInfo) HasSendResponse() bool {

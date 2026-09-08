@@ -27,7 +27,7 @@ func newLogInfoTestRelayInfo(start time.Time) relaycommon.RelayInfo {
 	}
 }
 
-func TestGenerateTextOtherInfoUsesUpstreamHeaderTimeForDisplayedFRT(t *testing.T) {
+func TestGenerateTextOtherInfoUsesFirstSSEForDisplayedFRT(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0)
 	relayInfo := newLogInfoTestRelayInfo(start)
 	relayInfo.UpstreamHeaderTime = start.Add(1500 * time.Millisecond)
@@ -35,8 +35,9 @@ func TestGenerateTextOtherInfoUsesUpstreamHeaderTimeForDisplayedFRT(t *testing.T
 
 	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
 
-	require.Equal(t, float64(1500), other["frt"])
+	require.Equal(t, float64(25000), other["frt"])
 	require.Equal(t, float64(25000), other["first_sse_ms"])
+	require.Equal(t, float64(1500), other["upstream_header_ms"])
 }
 
 func TestGenerateTextOtherInfoFallsBackToFirstSSEWhenHeaderTimeMissing(t *testing.T) {
@@ -48,6 +49,7 @@ func TestGenerateTextOtherInfoFallsBackToFirstSSEWhenHeaderTimeMissing(t *testin
 
 	require.Equal(t, float64(8000), other["frt"])
 	require.Equal(t, float64(8000), other["first_sse_ms"])
+	require.NotContains(t, other, "upstream_header_ms")
 }
 
 func TestGenerateTextOtherInfoIgnoresInvalidHeaderTime(t *testing.T) {
@@ -60,6 +62,7 @@ func TestGenerateTextOtherInfoIgnoresInvalidHeaderTime(t *testing.T) {
 
 	require.Equal(t, float64(4000), other["frt"])
 	require.Equal(t, float64(4000), other["first_sse_ms"])
+	require.NotContains(t, other, "upstream_header_ms")
 }
 
 func TestGenerateTextOtherInfoOmitsInvalidResponseTimings(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	rootcommon "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -23,6 +24,23 @@ func TestRelayInfoGetFinalRequestRelayFormatPrefersExplicitFinal(t *testing.T) {
 	}
 
 	require.Equal(t, types.RelayFormat(types.RelayFormatOpenAIResponses), info.GetFinalRequestRelayFormat())
+}
+
+func TestRelayInfoResetAttemptTimingAllowsNextAttemptToRecordFirstResponse(t *testing.T) {
+	start := time.Now().Add(-time.Second)
+	info := &RelayInfo{
+		StartTime:          start,
+		UpstreamHeaderTime: start.Add(100 * time.Millisecond),
+		FirstResponseTime:  start.Add(200 * time.Millisecond),
+		isFirstResponse:    false,
+	}
+
+	info.ResetAttemptTiming()
+	info.SetFirstResponseTime()
+
+	require.True(t, info.FirstResponseTime.After(start))
+	require.True(t, info.UpstreamHeaderTime.IsZero())
+	require.NotEqual(t, start.Add(200*time.Millisecond), info.FirstResponseTime)
 }
 
 func TestRelayInfoGetFinalRequestRelayFormatFallsBackToConversionChain(t *testing.T) {
