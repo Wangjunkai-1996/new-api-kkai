@@ -97,7 +97,11 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 	if relayInfo.ResponsesUsageInfo != nil {
 		if webSearchTool, exists := relayInfo.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool.CallCount > 0 {
 			summary.WebSearchCallCount = webSearchTool.CallCount
-			summary.WebSearchPrice = operation_setting.GetToolPriceForModel("web_search_preview", summary.ModelName)
+			toolName := webSearchTool.ToolName
+			if toolName == "" {
+				toolName = dto.BuildInToolWebSearchPreview
+			}
+			summary.WebSearchPrice = operation_setting.GetToolPriceForModel(toolName, summary.ModelName)
 			surcharge = surcharge.Add(decimal.NewFromFloat(summary.WebSearchPrice).
 				Mul(decimal.NewFromInt(int64(webSearchTool.CallCount))).
 				Div(decimal.NewFromInt(1000)).
@@ -135,7 +139,14 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 		}
 	}
 
-	if ctx.GetBool("image_generation_call") {
+	if toolUsage := relayInfo.ResponsesUsageInfo; toolUsage != nil && toolUsage.ImageGenerationCalls != nil {
+		var imagePrice decimal.Decimal
+		for _, image := range toolUsage.ImageGenerationCalls {
+			imagePrice = imagePrice.Add(decimal.NewFromFloat(operation_setting.GetGPTImage1PriceOnceCall(image.Quality, image.Size)))
+		}
+		summary.ImageGenerationCallPrice = imagePrice.InexactFloat64()
+		surcharge = surcharge.Add(imagePrice.Mul(dGroupRatio).Mul(dQuotaPerUnit))
+	} else if ctx.GetBool("image_generation_call") {
 		summary.ImageGenerationCallPrice = operation_setting.GetGPTImage1PriceOnceCall(ctx.GetString("image_generation_call_quality"), ctx.GetString("image_generation_call_size"))
 		surcharge = surcharge.Add(decimal.NewFromFloat(summary.ImageGenerationCallPrice).
 			Mul(dGroupRatio).
@@ -186,10 +197,11 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 // effectiveBillingUsage; PostTextConsumeQuota performs that remap once and shares
 // the result with tiered billing, affinity observation and logging.
 func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) textQuotaSummary {
+	frtMs, _ := firstSSELatencyMs(relayInfo)
 	summary := textQuotaSummary{
 		ModelName:            relayInfo.OriginModelName,
 		TokenName:            ctx.GetString("token_name"),
-		UseTimeSeconds:       time.Now().Unix() - relayInfo.StartTime.Unix(),
+		UseTimeSeconds:       elapsedSeconds(relayInfo.StartTime, time.Now(), frtMs),
 		CompletionRatio:      relayInfo.PriceData.CompletionRatio,
 		CacheRatio:           relayInfo.PriceData.CacheRatio,
 		ImageRatio:           relayInfo.PriceData.ImageRatio,

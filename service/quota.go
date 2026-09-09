@@ -39,6 +39,24 @@ type QuotaInfo struct {
 	GroupRatio    float64
 }
 
+func elapsedSeconds(start, now time.Time, frtMs int64) int64 {
+	if start.IsZero() || !now.After(start) {
+		return 0
+	}
+	elapsed := now.Sub(start)
+	seconds := int64(elapsed / time.Second)
+	if elapsed%time.Second != 0 {
+		seconds++
+	}
+	if frtMs > 0 {
+		frtSeconds := (frtMs + 999) / 1000
+		if seconds < frtSeconds {
+			seconds = frtSeconds
+		}
+	}
+	return seconds
+}
+
 func hasCustomModelRatio(modelName string, currentRatio float64) bool {
 	defaultRatio, exists := ratio_setting.GetDefaultModelRatioMap()[modelName]
 	if !exists {
@@ -168,7 +186,8 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		tieredResult = tieredRes
 	}
 
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	frtMs, _ := firstSSELatencyMs(relayInfo)
+	useTimeSeconds := elapsedSeconds(relayInfo.StartTime, time.Now(), frtMs)
 	textInputTokens := usage.InputTokenDetails.TextTokens
 	textOutTokens := usage.OutputTokenDetails.TextTokens
 
@@ -291,7 +310,8 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		tieredResult = tieredRes
 	}
 
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	frtMs, _ := firstSSELatencyMs(relayInfo)
+	useTimeSeconds := elapsedSeconds(relayInfo.StartTime, time.Now(), frtMs)
 	textInputTokens := usage.PromptTokensDetails.TextTokens
 	textOutTokens := usage.CompletionTokenDetails.TextTokens
 

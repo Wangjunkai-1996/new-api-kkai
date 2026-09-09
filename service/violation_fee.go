@@ -148,7 +148,8 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 	model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(feeQuota))
 	model.UpdateChannelUsedQuota(relayInfo.ChannelId, feeQuota)
 
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	frtMs, _ := firstSSELatencyMs(relayInfo)
+	useTimeSeconds := elapsedSeconds(relayInfo.StartTime, time.Now(), frtMs)
 	tokenName := ctx.GetString("token_name")
 	oai := apiErr.ToOpenAIError()
 

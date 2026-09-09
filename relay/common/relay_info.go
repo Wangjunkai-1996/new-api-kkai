@@ -58,7 +58,13 @@ type BuildInToolInfo struct {
 }
 
 type ResponsesUsageInfo struct {
-	BuiltInTools map[string]*BuildInToolInfo
+	BuiltInTools         map[string]*BuildInToolInfo
+	ImageGenerationCalls []ResponsesImageGenerationCall
+}
+
+type ResponsesImageGenerationCall struct {
+	Quality string
+	Size    string
 }
 
 type ChannelMeta struct {

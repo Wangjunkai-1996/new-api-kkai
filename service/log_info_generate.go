@@ -134,7 +134,7 @@ func appendImagePricingInfo(relayInfo *relaycommon.RelayInfo, adminInfo map[stri
 }
 
 func firstResponseDisplayMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
-	return firstSSELatencyMs(relayInfo)
+	return upstreamHeaderLatencyMs(relayInfo)
 }
 
 func firstSSELatencyMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
