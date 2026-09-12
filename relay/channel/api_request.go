@@ -651,6 +651,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	// transparent stream retries.
 	relayClient := *client
 	relayClient.CheckRedirect = keepUpstreamRedirectResponse
+	// Negotiate the timing comment after all client/header overrides.
+	req.Header.Del("X-Sub2-TTFT")
+	if info.IsStream && info.ApiType == systemconstant.APITypeOpenAI {
+		req.Header.Set("X-Sub2-TTFT", "1")
+	}
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
 	if info.IsStream {

@@ -8,6 +8,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +39,38 @@ func TestGenerateTextOtherInfoUsesUpstreamHeaderForDisplayedFRT(t *testing.T) {
 	require.Equal(t, float64(1500), other["frt"])
 	require.Equal(t, float64(25000), other["first_sse_ms"])
 	require.Equal(t, float64(1500), other["upstream_header_ms"])
+	assert.NotContains(t, other, "sub2_ttft_ms")
+}
+
+func TestGenerateTextOtherInfoUsesSub2TTFTSidebandForDisplayedFRT(t *testing.T) {
+	for _, timingMs := range []int64{0, 1180} {
+		t.Run(time.Duration(timingMs*int64(time.Millisecond)).String(), func(t *testing.T) {
+			start := time.Unix(1_700_000_000, 0)
+			relayInfo := newLogInfoTestRelayInfo(start)
+			relayInfo.UpstreamHeaderTime = start.Add(44 * time.Second)
+			relayInfo.FirstResponseTime = start.Add(45 * time.Second)
+			relayInfo.SetSub2TTFTMs(timingMs)
+
+			other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+
+			assert.Equal(t, float64(timingMs), other["frt"])
+			assert.Equal(t, float64(timingMs), other["sub2_ttft_ms"])
+			assert.Equal(t, float64(44000), other["upstream_header_ms"])
+			assert.Equal(t, float64(45000), other["first_sse_ms"])
+		})
+	}
+}
+
+func TestGenerateTextOtherInfoIgnoresInvalidSub2TTFTAndUsesHeader(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	relayInfo := newLogInfoTestRelayInfo(start)
+	relayInfo.UpstreamHeaderTime = start.Add(1500 * time.Millisecond)
+	relayInfo.SetSub2TTFTMs(-1)
+
+	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+
+	assert.Equal(t, float64(1500), other["frt"])
+	assert.NotContains(t, other, "sub2_ttft_ms")
 }
 
 func TestGenerateTextOtherInfoOmitsFRTWhenHeaderTimeMissing(t *testing.T) {

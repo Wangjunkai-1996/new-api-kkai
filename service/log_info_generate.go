@@ -81,6 +81,9 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if frtMs, ok := firstResponseDisplayMs(relayInfo); ok {
 		other["frt"] = float64(frtMs)
 	}
+	if sub2TTFTMs, ok := relayInfo.Sub2TTFTMs(); ok {
+		other["sub2_ttft_ms"] = float64(sub2TTFTMs)
+	}
 	if firstSSEMs, ok := firstSSELatencyMs(relayInfo); ok {
 		other["first_sse_ms"] = float64(firstSSEMs)
 	}
@@ -134,6 +137,9 @@ func appendImagePricingInfo(relayInfo *relaycommon.RelayInfo, adminInfo map[stri
 }
 
 func firstResponseDisplayMs(relayInfo *relaycommon.RelayInfo) (int64, bool) {
+	if sub2TTFTMs, ok := relayInfo.Sub2TTFTMs(); ok {
+		return sub2TTFTMs, true
+	}
 	return upstreamHeaderLatencyMs(relayInfo)
 }
 

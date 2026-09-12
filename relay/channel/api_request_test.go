@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	systemconstant "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
@@ -116,6 +117,46 @@ func TestDoRequestRecordsUpstreamHeaderTime(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, response.Body.Close())
 	require.True(t, info.UpstreamHeaderTime.After(info.StartTime))
+}
+
+func TestDoRequestNegotiatesSub2TTFTForOpenAIStreams(t *testing.T) {
+	service.InitHttpClient()
+	tests := []struct {
+		name       string
+		stream     bool
+		apiType    int
+		wantHeader string
+	}{
+		{name: "OpenAI stream", stream: true, apiType: systemconstant.APITypeOpenAI, wantHeader: "1"},
+		{name: "OpenAI nonstream", apiType: systemconstant.APITypeOpenAI},
+		{name: "other stream", stream: true, apiType: systemconstant.APITypeAnthropic},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			header := make(chan string, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				header <- r.Header.Get("X-Sub2-TTFT")
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(upstream.Close)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", http.NoBody)
+			req, err := http.NewRequest(http.MethodPost, upstream.URL, http.NoBody)
+			require.NoError(t, err)
+			req.Header.Set("X-Sub2-TTFT", "client-value")
+			info := &relaycommon.RelayInfo{
+				IsStream:    tt.stream,
+				DisablePing: true,
+				ChannelMeta: &relaycommon.ChannelMeta{ApiType: tt.apiType},
+			}
+
+			resp, err := doRequest(ctx, req, info)
+
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, tt.wantHeader, <-header)
+		})
+	}
 }
 
 func TestSetupApiRequestHeaderUsesUpstreamStreamWithoutChangingClientMode(t *testing.T) {

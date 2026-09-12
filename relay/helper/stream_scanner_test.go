@@ -99,6 +99,71 @@ func TestStreamScannerHandler_EmptyBody(t *testing.T) {
 	assert.False(t, called.Load(), "handler should not be called for empty body")
 }
 
+func TestStreamScannerHandler_Sub2TTFTSideband(t *testing.T) {
+	tests := []struct {
+		name    string
+		comment string
+		wantMs  int64
+		wantSet bool
+	}{
+		{name: "valid", comment: ": sub2-ttft-ms=1180\n", wantMs: 1180, wantSet: true},
+		{name: "zero", comment: ": sub2-ttft-ms=0\n", wantSet: true},
+		{name: "duplicate", comment: ": sub2-ttft-ms=1180\n: sub2-ttft-ms=44000\n", wantMs: 1180, wantSet: true},
+		{name: "invalid then valid", comment: ": sub2-ttft-ms=-1\n: sub2-ttft-ms=1180\n", wantMs: 1180, wantSet: true},
+		{name: "negative", comment: ": sub2-ttft-ms=-1\n"},
+		{name: "malformed", comment: ": sub2-ttft-ms=1.18\n"},
+		{name: "overflow", comment: ": sub2-ttft-ms=9223372036854775808\n"},
+		{name: "unrelated", comment: ": keepalive\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, resp, info := setupStreamTest(t, strings.NewReader(tt.comment+"data: {\"id\":\"x\"}\n"+"data: [DONE]\n"))
+			var received []string
+
+			StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+				received = append(received, data)
+			})
+
+			ttftMs, ttftSet := info.Sub2TTFTMs()
+			assert.Equal(t, tt.wantSet, ttftSet)
+			assert.Equal(t, tt.wantMs, ttftMs)
+			assert.Equal(t, 1, info.ReceivedResponseCount)
+			assert.Equal(t, []string{`{"id":"x"}`}, received)
+		})
+	}
+}
+
+func TestStreamScannerHandler_Sub2TTFTCommentIsNotResponseData(t *testing.T) {
+	c, resp, info := setupStreamTest(t, strings.NewReader(": sub2-ttft-ms=1180\n"))
+	initialResponseTime := info.FirstResponseTime
+	var called bool
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		called = true
+	})
+
+	_, ttftSet := info.Sub2TTFTMs()
+	require.True(t, ttftSet)
+	assert.False(t, called)
+	assert.Zero(t, info.ReceivedResponseCount)
+	assert.Equal(t, initialResponseTime, info.FirstResponseTime)
+}
+
+func TestStreamScannerHandler_Sub2TTFTDoesNotLeakBetweenAttempts(t *testing.T) {
+	c, resp, info := setupStreamTest(t, strings.NewReader(": sub2-ttft-ms=1180\n"))
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+	_, ttftSet := info.Sub2TTFTMs()
+	require.True(t, ttftSet)
+	info.ResetAttemptTiming()
+	resp.Body = io.NopCloser(strings.NewReader(": keepalive\n"))
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	ttftMs, ttftSet := info.Sub2TTFTMs()
+	assert.False(t, ttftSet)
+	assert.Zero(t, ttftMs)
+}
+
 func TestStreamScannerHandler_1000Chunks(t *testing.T) {
 	t.Parallel()
 

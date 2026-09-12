@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -250,6 +251,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
+			trimmedData := strings.TrimSpace(data)
+			const sub2TTFTPrefix = ": sub2-ttft-ms="
+			if strings.HasPrefix(trimmedData, sub2TTFTPrefix) {
+				if ttftMs, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(trimmedData, sub2TTFTPrefix)), 10, 64); err == nil {
+					info.SetSub2TTFTMs(ttftMs)
+				}
+				continue
+			}
 
 			if len(data) < 6 {
 				continue

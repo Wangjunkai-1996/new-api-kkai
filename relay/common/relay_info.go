@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -103,7 +104,9 @@ type RelayInfo struct {
 	StartTime          time.Time
 	UpstreamHeaderTime time.Time
 	FirstResponseTime  time.Time
-	isFirstResponse    bool
+	// Zero means no timing comment; otherwise stores milliseconds plus one.
+	sub2TTFTMs      uint64
+	isFirstResponse bool
 	//SendLastReasoningResponse bool
 	IsStream bool
 	// ClientIsStream preserves the stream flag from the client request. Some
@@ -733,6 +736,24 @@ func (info *RelayInfo) SetUpstreamHeaderTime() {
 	}
 }
 
+func (info *RelayInfo) SetSub2TTFTMs(ms int64) {
+	if info == nil || ms < 0 {
+		return
+	}
+	atomic.CompareAndSwapUint64(&info.sub2TTFTMs, 0, uint64(ms)+1)
+}
+
+func (info *RelayInfo) Sub2TTFTMs() (int64, bool) {
+	if info == nil {
+		return 0, false
+	}
+	value := atomic.LoadUint64(&info.sub2TTFTMs)
+	if value == 0 {
+		return 0, false
+	}
+	return int64(value - 1), true
+}
+
 func (info *RelayInfo) GetReasoningEffort() string {
 	if info == nil {
 		return ""
@@ -765,6 +786,7 @@ func (info *RelayInfo) ResetAttemptTiming() {
 	}
 	info.UpstreamHeaderTime = time.Time{}
 	info.FirstResponseTime = info.StartTime.Add(-time.Second)
+	atomic.StoreUint64(&info.sub2TTFTMs, 0)
 	info.isFirstResponse = true
 }
 

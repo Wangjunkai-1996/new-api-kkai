@@ -34,6 +34,7 @@ func TestRelayInfoResetAttemptTimingAllowsNextAttemptToRecordFirstResponse(t *te
 		FirstResponseTime:  start.Add(200 * time.Millisecond),
 		isFirstResponse:    false,
 	}
+	info.SetSub2TTFTMs(1180)
 
 	info.ResetAttemptTiming()
 	info.SetFirstResponseTime()
@@ -41,6 +42,12 @@ func TestRelayInfoResetAttemptTimingAllowsNextAttemptToRecordFirstResponse(t *te
 	require.True(t, info.FirstResponseTime.After(start))
 	require.True(t, info.UpstreamHeaderTime.IsZero())
 	require.NotEqual(t, start.Add(200*time.Millisecond), info.FirstResponseTime)
+	_, timingSet := info.Sub2TTFTMs()
+	assert.False(t, timingSet)
+	info.SetSub2TTFTMs(900)
+	timingMs, timingSet := info.Sub2TTFTMs()
+	assert.True(t, timingSet)
+	assert.Equal(t, int64(900), timingMs)
 }
 
 func TestRelayInfoGetFinalRequestRelayFormatFallsBackToConversionChain(t *testing.T) {
