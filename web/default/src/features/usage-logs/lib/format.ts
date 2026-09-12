@@ -203,8 +203,8 @@ export function getTimeColor(
 export function getFirstResponseTimeColor(
   seconds: number
 ): 'success' | 'warning' | 'danger' {
-  if (seconds < 5) return 'success'
-  if (seconds < 10) return 'warning'
+  if (seconds <= 10) return 'success'
+  if (seconds <= 15) return 'warning'
   return 'danger'
 }
 

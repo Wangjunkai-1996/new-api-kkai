@@ -233,27 +233,27 @@ function renderUseTime(type, t) {
 }
 
 function renderFirstUseTime(type, t) {
-  let time = parseFloat(type) / 1000.0;
-  time = time.toFixed(1);
-  if (time < 3) {
+  const time = parseFloat(type) / 1000.0;
+  const displayTime = time.toFixed(1);
+  if (time <= 10) {
     return (
       <Tag color='green' shape='circle'>
         {' '}
-        {time} s{' '}
+        {displayTime} s{' '}
       </Tag>
     );
-  } else if (time < 10) {
+  } else if (time <= 15) {
     return (
       <Tag color='orange' shape='circle'>
         {' '}
-        {time} s{' '}
+        {displayTime} s{' '}
       </Tag>
     );
   } else {
     return (
       <Tag color='red' shape='circle'>
         {' '}
-        {time} s{' '}
+        {displayTime} s{' '}
       </Tag>
     );
   }
