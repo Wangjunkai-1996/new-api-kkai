@@ -209,13 +209,18 @@ handle_uncertain_stage() {
 }
 
 preflight_output=''
+preflight_arguments=(
+  --expected-infra-sha "${KKAI_INFRA_SHA}"
+  --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
+  --schema-contract "${schema_contract}"
+  --frontend-mode "${frontend_mode}"
+)
+[[ "${frontend_mode}" == external ]] &&
+  preflight_arguments+=(--defer-frontend-mode-gate)
 if ! preflight_output="$(
   ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     sudo -n /usr/local/sbin/kkai-newapi-manual-deploy preflight \
-      --expected-infra-sha "${KKAI_INFRA_SHA}" \
-      --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}" \
-      --schema-contract "${schema_contract}" \
-      --frontend-mode "${frontend_mode}"
+      "${preflight_arguments[@]}"
 )"; then
   die "production preflight failed; archive was not uploaded"
 fi
