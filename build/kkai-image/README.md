@@ -116,10 +116,12 @@ client rejects missing or invalid metadata and the controller rejects an image
 whose label or environment disagrees with the request. Do not change
 `FRONTEND_MODE` by editing a running container; build a new immutable image.
 
-The external image is safe to stage only after the matching frontend artifact
-and edge controller are installed and verified. The `external_frontend` tag
-supplies empty embed symbols so the backend can run without a frontend tree;
-the edge must provide the actual `default` or `classic` SPA files.
+The external image may be staged privately with the pinned controller before
+the Edge mode switch. Its exact paired frontend and effective external Edge
+must be verified before any external backend canary or promotion. The
+`external_frontend` tag supplies empty embed symbols so the backend can run
+without a frontend tree; the edge provides the actual `default` or `classic`
+SPA files.
 
 For a local compile-only check (no Docker image or deployment is produced):
 
@@ -149,6 +151,7 @@ scripts/kkai/frontend-build-release.sh \
   --schema-contract bridge \
   --backend-source-sha "$(git rev-parse HEAD)" \
   --backend-release-id "${BACKEND_RELEASE_ID:?set the backend release ID from backend metadata}" \
+  --backend-image-digest "${BACKEND_IMAGE_DIGEST:?set the image ID from the checksummed backend archive}" \
   --api-contract "${API_CONTRACT:?set the API contract accepted by the edge controller}"
 ```
 
@@ -159,12 +162,11 @@ contract has no implicit default; use the integer registered by the backend and
 edge controller for the pair.
 
 The artifact intentionally has no `frontend_mode` field. Mode belongs to the
-backend/edge contract: pair an embedded artifact install with a backend release
-whose metadata, image label, and `FRONTEND_MODE` all say `embedded`; pair an
-external artifact install with a backend built using `--frontend-mode external`
-and an edge manifest already set to `external`. The artifact controller checks
-the exact backend source/release/image/schema/API coordinates before install;
-recheck those coordinates after installation and before changing either mode.
+backend/edge contract: an embedded backend supports either Edge mode during the
+transition, while an external backend requires effective external Edge. The
+artifact controller checks exact backend source/release/image/schema/API
+coordinates before install. A locally prepared pair must be checked against
+the actual staged manifest before installation and before changing either mode.
 
 The installed edge controller verifies both the archive checksum and every
 entry in `manifest.sha256` before publishing an immutable theme path. It selects
@@ -181,13 +183,17 @@ send the public prefix to NewAPI. During local Rsbuild development, set
 returns a plain 404 for an unmatched web request in external mode, so a missing
 edge fallback is visible instead of silently serving an empty embedded page.
 
-For `embedded` to `external`, install and verify the matching artifact first,
-then set the platform edge manifest to `external` and verify the static/API
-paths, and only afterward stage and promote the external backend. The NewAPI
-planner enforces this edge-first order. If the switch fails, restore the backend
-to `embedded` first, then restore the edge mode, and finally point the frontend
-controller at the verified `previous` artifact. Use controller operations for
-all pointer changes; do not edit symlinks or release files by hand. See
+For `embedded` to `external`, build the exact pair locally, install the pinned
+controller under production authorization, and stage the backend only after
+the previous release's 24-hour rollback retention is satisfied. Install and
+verify the paired artifact while public Edge is embedded. Use the pinned
+infrastructure runbook's `prepare-edge` and explicitly accepted `apply-edge`
+plan to activate the private static service through graceful HUP, then verify
+static/API/login/SSE behavior before the backend canary and promotion. Do not
+use the ordinary Edge-rebuilding path without a maintenance decision. If the
+switch fails, complete backend/canary rollback to `embedded` before restoring
+Edge with the same accepted plan. Use controller operations for all pointer
+changes; do not edit symlinks or release files by hand. See
 `scripts/kkai/frontend-build-release.md` for the complete artifact contract and
 focused regression command.
 
