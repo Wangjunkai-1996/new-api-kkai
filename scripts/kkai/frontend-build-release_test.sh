@@ -100,6 +100,7 @@ run_build() {
 
 out_both="${test_root}/out-both"
 run_build "${out_both}" "${release_id}" \
+  --theme both \
   --backend-source-sha "${source_sha}" \
   --backend-release-id backend-test-20260901-1 >/dev/null
 
@@ -174,10 +175,15 @@ fi
 [[ ! -e "${lock_dir}" ]] || fail 'failed theme build left its lock'
 
 out_default="${test_root}/out-default"
-run_build "${out_default}" "${release_id}-default" --theme default --skip-install >/dev/null
+run_build "${out_default}" "${release_id}-default" >/dev/null
 default_root="${out_default}/frontend-releases/${release_id}-default"
 [[ -f ${default_root}/default/index.html ]] || fail 'default-only artifact is missing default theme'
 [[ ! -e ${default_root}/classic ]] || fail 'default-only artifact contains classic theme'
+grep -Fx 'install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default' \
+  "${call_log}" >/dev/null || fail 'default build must install only the default workspace'
+if tar -tzf "${out_default}/${release_id}-default.tar.gz" | grep -F '/classic/' >/dev/null; then
+  fail 'default-only archive contains classic theme'
+fi
 jq -e '.themes == ["default"] and .theme_selection == "default"' \
   "${out_default}/${release_id}-default.json" >/dev/null || fail 'default-only metadata is incorrect'
 jq -e '.default_theme == "default"' \
@@ -211,7 +217,19 @@ dry_run_output="$(
     --output-dir "${dry_output}"
 )" || fail 'dry-run unexpectedly failed'
 grep -F 'DRY_RUN=1' <<<"${dry_run_output}" >/dev/null || fail 'dry-run marker is missing'
+grep -Fx 'FRONTEND_THEMES=default' <<<"${dry_run_output}" >/dev/null || fail 'dry-run did not select only default'
 [[ ! -e ${dry_output} ]] || fail 'dry-run wrote output files'
+
+for unsupported_production_theme in classic both; do
+  if production_theme_output="$(
+    "${BUILD_SCRIPT}" --dry-run --theme "${unsupported_production_theme}" \
+      --schema-contract bridge --api-contract 1 2>&1
+  )"; then
+    fail "production ${unsupported_production_theme} build unexpectedly succeeded"
+  fi
+  grep -F 'production frontend builds require the default theme' \
+    <<<"${production_theme_output}" >/dev/null || fail 'production theme rejection was not explicit'
+done
 
 if invalid_output="$({
   "${BUILD_SCRIPT}" --source-sha "${source_sha}" --schema-contract invalid --allow-dirty 2>&1

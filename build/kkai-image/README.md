@@ -138,8 +138,8 @@ development image and compose service set it automatically.
 
 The standalone frontend artifact is built locally with
 `scripts/kkai/frontend-build-release.sh`. It uses the same source commit as
-the backend, runs a frozen Bun install by default, and emits an immutable
-theme directory, `manifest.sha256`, `frontend.json`, `release-pair.json`, and
+the backend, runs a filtered frozen Bun install, and emits only the modern
+`default` theme directory, `manifest.sha256`, `frontend.json`, `release-pair.json`, and
 a `.tar.gz` archive. Artifact builds force a relative API base even when a local
 `.env.production` contains `VITE_REACT_APP_SERVER_URL`; the edge must therefore
 proxy API requests on the same origin. The script does not switch a live
@@ -149,6 +149,7 @@ tests with a prepared dependency tree.
 ```bash
 scripts/kkai/frontend-build-release.sh \
   --schema-contract bridge \
+  --theme default \
   --backend-source-sha "$(git rev-parse HEAD)" \
   --backend-release-id "${BACKEND_RELEASE_ID:?set the backend release ID from backend metadata}" \
   --backend-image-digest "${BACKEND_IMAGE_DIGEST:?set the image ID from the checksummed backend archive}" \
@@ -169,9 +170,10 @@ coordinates before install. A locally prepared pair must be checked against
 the actual staged manifest before installation and before changing either mode.
 
 The installed edge controller verifies both the archive checksum and every
-entry in `manifest.sha256` before publishing an immutable theme path. It selects
-the theme reported by the backend's `/api/status` response (or the artifact's
-`default_theme` during bootstrap), serves that theme's `index.html` for
+entry in `manifest.sha256` before publishing an immutable theme path. The
+reviewed Edge configuration explicitly selects `default`; it does not switch
+themes automatically from `/api/status`. Verify that this selection matches
+the current public UI before preparing a plan. It serves that theme's `index.html` for
 non-API SPA routes, and proxies these NewAPI API prefixes to the backend:
 `/api`, `/v1`, `/v1beta`, `/pg`, `/mj`, `/:mode/mj`, `/suno`, `/kling`, and
 `/jimeng`. It proxies `/invitations/api/` to the independent KKAI Invitations

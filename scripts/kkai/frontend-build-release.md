@@ -1,7 +1,7 @@
 # Independent Frontend Artifact
 
-`frontend-build-release.sh` builds the `default` and `classic` Rsbuild
-bundles as a separate, immutable artifact. It is a packaging command only: it
+`frontend-build-release.sh` builds the modern `default` Rsbuild bundle as a
+separate, immutable production artifact. It is a packaging command only: it
 does not upload files, change `current` or `previous` pointers, restart a
 service, or call an infrastructure deployment controller.
 
@@ -19,6 +19,7 @@ complete pair:
 scripts/kkai/frontend-build-release.sh \
   --schema-contract bridge \
   --api-contract 1 \
+  --theme default \
   --release-id kkai-frontend-20260901.175000-abcdef123 \
   --backend-release-id kkai-prod-20260901.175000-abcdef123 \
   --backend-source-sha <40-character-backend-sha> \
@@ -26,16 +27,21 @@ scripts/kkai/frontend-build-release.sh \
   --output-dir .local-releases/frontend
 ```
 
-The command runs the following frozen dependency install before building both
-themes:
+The command installs only the selected workspace and builds the modern UI:
 
 ```text
-bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1
+bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default
 bun run build -- --dist-path <temporary-directory>
 ```
 
 `--skip-install` is restricted to explicitly local runs (`--allow-dirty` or
 `--allow-non-production`) and should not be used for a production release.
+
+Production builds accept only `--theme default`, which is also the default
+when no theme is specified. `classic` source stays available for upstream
+integration; `--theme classic` and `--theme both` require an explicit local
+`--allow-dirty` or `--allow-non-production` run. Existing artifacts remain
+immutable and must retain their original theme metadata for rollback checks.
 
 The browser artifact always uses relative API URLs. The production edge must
 proxy NewAPI paths and route `/invitations/api/` to the independent KKAI
@@ -62,7 +68,6 @@ release directory for local inspection:
 ```text
 frontend-releases/<release-id>/
   default/
-  classic/
   LICENSE
   NOTICE
   THIRD-PARTY-LICENSES.md
@@ -144,7 +149,8 @@ Run the focused regression test with:
 scripts/kkai/frontend-build-release_test.sh
 ```
 
-The test mocks Bun, checks frozen install forwarding, both-theme output,
-metadata, legal-file checksums, archive contents, single-theme selection,
+The test mocks Bun, checks filtered frozen install forwarding, default-only
+production selection, local legacy-theme compatibility, metadata, legal-file
+checksums, archive contents,
 duplicate release rejection, dry-run non-mutation, and cleanup after a failed
 theme build.

@@ -18,7 +18,7 @@ usage() {
   cat <<'EOF_USAGE'
 Usage: frontend-build-release.sh [options]
 
-Build default and classic frontend bundles into an immutable archive.
+Build the default frontend bundle into an immutable production archive.
 
 Required:
   --schema-contract bridge|feature
@@ -31,7 +31,7 @@ Common options:
   --backend-source-sha SHA         Backend commit paired with this frontend
   --backend-release-id ID          Backend release identifier
   --backend-image-digest DIGEST    Optional sha256:<64 hex> image digest
-  --theme default|classic|both      Bundle selection (default: both)
+  --theme default|classic|both      Default: default; classic/both are local-only
   --build-timestamp RFC3339         Metadata timestamp (UTC, ending in Z)
   --source-root DIR                 Application checkout to build
   --bun-bin PATH                    Bun executable (or test double)
@@ -97,7 +97,7 @@ backend_release_id="${KKAI_FRONTEND_BACKEND_RELEASE_ID:-}"
 backend_image_digest="${KKAI_FRONTEND_BACKEND_IMAGE_DIGEST:-}"
 schema_contract="${KKAI_FRONTEND_SCHEMA_CONTRACT:-}"
 api_contract="${KKAI_FRONTEND_API_CONTRACT:-}"
-theme_selection="${KKAI_FRONTEND_THEME:-both}"
+theme_selection="${KKAI_FRONTEND_THEME:-default}"
 build_timestamp="${KKAI_FRONTEND_BUILD_TIMESTAMP:-}"
 bun_bin="${KKAI_FRONTEND_BUN_BIN:-bun}"
 git_bin="${KKAI_FRONTEND_GIT_BIN:-git}"
@@ -189,6 +189,15 @@ case "${theme_selection}" in
     die "theme must be default, classic, or both"
     ;;
 esac
+
+if [[ "${theme_selection}" != default && "${allow_nonproduction}" -ne 1 && "${allow_dirty}" -ne 1 ]]; then
+  die "production frontend builds require the default theme; classic/both are restricted to local compatibility builds"
+fi
+
+install_args=(install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1)
+for theme in "${themes[@]}"; do
+  install_args+=(--filter "./${theme}")
+done
 
 [[ -n "${schema_contract}" ]] ||
   die "schema contract must be selected explicitly with --schema-contract bridge|feature"
@@ -304,8 +313,10 @@ if (( dry_run )); then
   printf 'FRONTEND_API_CONTRACT=%s\n' "${api_contract}"
   printf 'FRONTEND_THEMES=%s\n' "${theme_selection}"
   if (( install_deps )); then
-    printf 'INSTALL cwd=%q %q install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1\n' \
+    printf 'INSTALL cwd=%q %q' \
       "${source_root}/web" "${bun_bin}"
+    printf ' %q' "${install_args[@]}"
+    printf '\n'
   else
     printf 'INSTALL=skipped\n'
   fi
@@ -389,7 +400,7 @@ mkdir -p -- "${tmp_release}" "${tmp_root}/build"
 if (( install_deps )); then
   (
     cd -- "${source_root}/web"
-    "${bun_bin}" install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1
+    "${bun_bin}" "${install_args[@]}"
   )
 fi
 
