@@ -39,10 +39,13 @@ export function useHomePageContent(): HomePageContentResult {
     let mounted = true
 
     const loadContent = async () => {
-      // Load from localStorage first for immediate display
-      const cached = localStorage.getItem(STORAGE_KEY)
-      if (cached && mounted) {
-        setContent(cached)
+      try {
+        const cached = localStorage.getItem(STORAGE_KEY)
+        if (cached && mounted) {
+          setContent(cached)
+        }
+      } catch {
+        // Browser storage is optional; the API remains authoritative.
       }
 
       try {
@@ -51,13 +54,16 @@ export function useHomePageContent(): HomePageContentResult {
 
         if (!mounted) return
 
-        if (success && data) {
-          setContent(data)
-          localStorage.setItem(STORAGE_KEY, data)
-        } else {
-          // Clear content if API returns empty
-          setContent('')
-          localStorage.removeItem(STORAGE_KEY)
+        const nextContent = success && data ? data : ''
+        setContent(nextContent)
+        try {
+          if (nextContent) {
+            localStorage.setItem(STORAGE_KEY, nextContent)
+          } else {
+            localStorage.removeItem(STORAGE_KEY)
+          }
+        } catch {
+          // A cache write failure must not turn a successful response into an error.
         }
       } catch (error) {
         if (!mounted) return

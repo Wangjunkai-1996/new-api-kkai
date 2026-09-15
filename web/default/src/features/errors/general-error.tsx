@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate, useRouter } from '@tanstack/react-router'
+import { RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -46,6 +47,12 @@ export function GeneralError({
   const navigate = useNavigate()
   const { history } = useRouter()
   const status = getHttpStatus(error)
+  const isChunkLoadError =
+    error instanceof Error &&
+    (error.name === 'ChunkLoadError' ||
+      /Loading (?:CSS )?chunk .+ failed|Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(
+        error.message
+      ))
   const isRateLimited = status === 429
   const title = isRateLimited
     ? t('Too many requests')
@@ -57,7 +64,7 @@ export function GeneralError({
   return (
     <div className={cn('h-svh w-full', className)}>
       <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
-        {!minimal && (
+        {!minimal && !isChunkLoadError && (
           <h1 className='text-[7rem] leading-tight font-bold'>
             {status ?? 500}
           </h1>
@@ -66,6 +73,12 @@ export function GeneralError({
         <p className='text-muted-foreground text-center'>
           {t('We apologize for the inconvenience.')} <br /> {description}
         </p>
+        {isChunkLoadError && (
+          <Button className='mt-4' onClick={() => window.location.reload()}>
+            <RefreshCw aria-hidden='true' />
+            {t('Refresh')}
+          </Button>
+        )}
         {!minimal && (
           <p className='text-muted-foreground text-center text-sm'>
             {t('If this keeps happening, please report it on GitHub Issues.')}

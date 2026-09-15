@@ -1,21 +1,25 @@
 package perfmetrics
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
-func flushCompletedBuckets() {
-	currentBucket := bucketStart(time.Now().Unix())
+// FlushLocalBuckets persists this process's increments, including its active
+// bucket, so draining a serving slot does not discard the current interval.
+func FlushLocalBuckets(ctx context.Context) error {
+	var flushErrors []error
 	hotBuckets.Range(func(key, value any) bool {
-		k := key.(bucketKey)
-		if k.bucketTs >= currentBucket {
-			return true
+		if err := ctx.Err(); err != nil {
+			flushErrors = append(flushErrors, err)
+			return false
 		}
+		k := key.(bucketKey)
 
 		bucket := value.(*atomicBucket)
 		drained := bucket.drain()
@@ -24,7 +28,7 @@ func flushCompletedBuckets() {
 			return true
 		}
 
-		err := model.UpsertPerfMetric(&model.PerfMetric{
+		err := model.UpsertPerfMetric(ctx, &model.PerfMetric{
 			ModelName:      k.model,
 			Group:          k.group,
 			BucketTs:       k.bucketTs,
@@ -38,13 +42,14 @@ func flushCompletedBuckets() {
 		})
 		if err != nil {
 			bucket.addCounters(drained)
-			common.SysError(fmt.Sprintf("failed to flush perf metric bucket model=%s group=%s bucket=%d: %s", k.model, k.group, k.bucketTs, err.Error()))
+			flushErrors = append(flushErrors, fmt.Errorf("flush perf metric bucket model=%s group=%s bucket=%d: %w", k.model, k.group, k.bucketTs, err))
 			return true
 		}
 
 		deleteOldEmptyBucket(k, key)
 		return true
 	})
+	return errors.Join(append(flushErrors, ctx.Err())...)
 }
 
 func deleteOldEmptyBucket(k bucketKey, rawKey any) {
@@ -53,14 +58,15 @@ func deleteOldEmptyBucket(k bucketKey, rawKey any) {
 	}
 }
 
-func cleanupExpiredMetrics(retentionDays int) {
+func cleanupExpiredMetrics(ctx context.Context, retentionDays int) error {
 	if retentionDays <= 0 {
-		return
+		return nil
 	}
 	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
-	if err := model.DeletePerfMetricsBefore(cutoff); err != nil {
-		common.SysError("failed to cleanup expired perf metrics: " + err.Error())
+	if err := model.DeletePerfMetricsBefore(ctx, cutoff); err != nil {
+		return fmt.Errorf("cleanup expired perf metrics: %w", err)
 	}
+	return nil
 }
 
 func redisCounters(values map[string]string) counters {

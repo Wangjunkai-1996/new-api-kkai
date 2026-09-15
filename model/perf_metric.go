@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"time"
 
 	"gorm.io/gorm"
@@ -26,11 +27,11 @@ func (PerfMetric) TableName() string {
 	return "perf_metrics"
 }
 
-func UpsertPerfMetric(metric *PerfMetric) error {
+func UpsertPerfMetric(ctx context.Context, metric *PerfMetric) error {
 	if metric == nil || metric.RequestCount == 0 {
 		return nil
 	}
-	return DB.Clauses(clause.OnConflict{
+	return DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "model_name"},
 			{Name: "group"},
@@ -115,11 +116,11 @@ func GetPerfMetricsSummaryBucketsAll(startTs int64, endTs int64, groups []string
 	return summaries, err
 }
 
-func DeletePerfMetricsBefore(cutoffTs int64) error {
+func DeletePerfMetricsBefore(ctx context.Context, cutoffTs int64) error {
 	if cutoffTs <= 0 {
 		return nil
 	}
-	return DB.Where("bucket_ts < ?", cutoffTs).Delete(&PerfMetric{}).Error
+	return DB.WithContext(ctx).Where("bucket_ts < ?", cutoffTs).Delete(&PerfMetric{}).Error
 }
 
 func PerfMetricStartTime(hours int) int64 {

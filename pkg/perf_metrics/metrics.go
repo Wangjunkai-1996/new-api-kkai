@@ -26,11 +26,9 @@ func RunMaintenance(ctx context.Context) error {
 	}
 	setting := perf_metrics_setting.GetSetting()
 	if setting.Enabled {
-		flushCompletedBuckets()
-		if err := ctx.Err(); err != nil {
+		if err := cleanupExpiredMetrics(ctx, setting.RetentionDays); err != nil {
 			return err
 		}
-		cleanupExpiredMetrics(setting.RetentionDays)
 		if err := ctx.Err(); err != nil {
 			return err
 		}

@@ -7,9 +7,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -43,7 +47,7 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 			require.False(t, descriptor.FlushesProcessLocalState)
 			continue
 		}
-		if descriptor.Name == "quota-dashboard-flush" {
+		if descriptor.Name == "quota-dashboard-flush" || descriptor.Name == "performance-metric-flush" {
 			require.True(t, descriptor.WritesData)
 			require.False(t, descriptor.RequiresLeaderLease)
 			require.True(t, descriptor.FlushesProcessLocalState)
@@ -69,6 +73,53 @@ func TestServingBackgroundRuntimeOwnsProcessLocalFlushes(t *testing.T) {
 	runtime := currentBackgroundJobRuntime("node-test-worker")
 	require.False(t, runtime.WriteJobsEnabled)
 	require.True(t, runtime.LocalWriteJobsEnabled)
+}
+
+func TestServingBackgroundShutdownPersistsPerformanceSamples(t *testing.T) {
+	t.Setenv(common.NodeRoleEnvironmentVariable, string(common.NodeRoleServing))
+	t.Setenv("DISABLE_BACKGROUND_TASKS", "true")
+	t.Setenv("BATCH_UPDATE_ENABLED", "false")
+	t.Setenv("CHANNEL_UPDATE_FREQUENCY", "")
+	t.Setenv(service.KKAIRiskStreamSecretEnvironmentVariable, "")
+	previousRole := common.CurrentNodeRole()
+	previousDisabled := common.WriteBackgroundTasksDisabled()
+	require.NoError(t, common.InitNodeRoleFromEnvironment())
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
+	previousDB, previousRedis := model.DB, common.RedisEnabled
+	previousExport, previousFrequency := common.DataExportEnabled, common.SyncFrequency
+	metricsSetting := config.GlobalConfig.Get("perf_metrics_setting").(*perf_metrics_setting.PerfMetricsSetting)
+	previousMetrics := *metricsSetting
+	model.DB, common.RedisEnabled = db, false
+	common.DataExportEnabled, common.SyncFrequency = false, 60
+	metricsSetting.Enabled = true
+	t.Cleanup(func() {
+		model.DB, common.RedisEnabled = previousDB, previousRedis
+		common.DataExportEnabled, common.SyncFrequency = previousExport, previousFrequency
+		*metricsSetting = previousMetrics
+		t.Setenv(common.NodeRoleEnvironmentVariable, string(previousRole))
+		if previousDisabled {
+			t.Setenv("DISABLE_BACKGROUND_TASKS", "true")
+		} else {
+			t.Setenv("DISABLE_BACKGROUND_TASKS", "false")
+		}
+		require.NoError(t, common.InitNodeRoleFromEnvironment())
+		require.NoError(t, sqlDB.Close())
+	})
+	registry, err := newApplicationBackgroundJobs("node-metric-shutdown")
+	require.NoError(t, err)
+	perfmetrics.Record(perfmetrics.Sample{Model: "serving-shutdown", Group: "default", Success: true, LatencyMs: 200})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.NoError(t, registry.Run(ctx, currentBackgroundJobRuntime("node-metric-shutdown")))
+	var row model.PerfMetric
+	require.NoError(t, db.Where("model_name = ?", "serving-shutdown").First(&row).Error)
+	assert.EqualValues(t, 1, row.RequestCount)
+	assert.EqualValues(t, 200, row.TotalLatencyMs)
 }
 
 func TestApplicationBackgroundJobsRejectLocalBatchQuotaBuffer(t *testing.T) {

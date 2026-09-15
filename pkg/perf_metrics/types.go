@@ -1,6 +1,9 @@
 package perfmetrics
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 type Store interface {
 	Record(sample Sample)
@@ -89,6 +92,7 @@ type counters struct {
 }
 
 type atomicBucket struct {
+	mu             sync.Mutex
 	requestCount   atomic.Int64
 	successCount   atomic.Int64
 	totalLatencyMs atomic.Int64
@@ -99,6 +103,8 @@ type atomicBucket struct {
 }
 
 func (b *atomicBucket) add(sample Sample) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.requestCount.Add(1)
 	if sample.Success {
 		b.successCount.Add(1)
@@ -117,6 +123,8 @@ func (b *atomicBucket) add(sample Sample) {
 }
 
 func (b *atomicBucket) snapshot() counters {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return counters{
 		requestCount:   b.requestCount.Load(),
 		successCount:   b.successCount.Load(),
@@ -129,6 +137,8 @@ func (b *atomicBucket) snapshot() counters {
 }
 
 func (b *atomicBucket) drain() counters {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return counters{
 		requestCount:   b.requestCount.Swap(0),
 		successCount:   b.successCount.Swap(0),
@@ -141,6 +151,8 @@ func (b *atomicBucket) drain() counters {
 }
 
 func (b *atomicBucket) addCounters(c counters) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if c.requestCount != 0 {
 		b.requestCount.Add(c.requestCount)
 	}
