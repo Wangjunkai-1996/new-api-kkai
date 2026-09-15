@@ -32,3 +32,21 @@ func TestGetStatusExposesVideoStudioUploadLimits(t *testing.T) {
 	require.Equal(t, video_studio_setting.Get().WorkerEnabled, response.Data.VideoStudio.ProcessingAvailable)
 	require.Equal(t, video_studio_setting.Get().UploadLimits(), response.Data.VideoStudio.UploadLimits)
 }
+
+func TestGetStatusExposesFrontendMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FRONTEND_MODE", "external")
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+
+	GetStatus(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Data struct {
+			FrontendMode string `json:"frontend_mode"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "external", response.Data.FrontendMode)
+}

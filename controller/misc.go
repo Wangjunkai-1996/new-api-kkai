@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -53,9 +54,14 @@ func GetStatus(c *gin.Context) {
 	legalSetting := system_setting.GetLegalSettings()
 	videoStudioSetting := video_studio_setting.Get()
 	imageStudioSetting := image_studio_setting.Get()
+	frontendMode := strings.TrimSpace(os.Getenv("FRONTEND_MODE"))
+	if frontendMode == "" {
+		frontendMode = "embedded"
+	}
 
 	data := gin.H{
 		"version":                     common.Version,
+		"frontend_mode":               frontendMode,
 		"start_time":                  common.StartTime,
 		"email_verification":          common.EmailVerificationEnabled,
 		"github_oauth":                common.GitHubOAuthEnabled,
