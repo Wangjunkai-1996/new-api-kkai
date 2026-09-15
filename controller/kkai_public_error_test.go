@@ -311,7 +311,7 @@ func TestKKAIPublicLocalPolicyCodesRemainStableAndNeverRetry(t *testing.T) {
 			assert.Equal(t, test.status, status)
 			assert.Equal(t, test.code, publicErr.Code)
 			assert.True(t, processKKAIPolicyAPIError(ctx, types.ChannelError{}, apiErr))
-			assert.False(t, shouldRetry(ctx, apiErr, 3))
+			assert.False(t, shouldRetry(ctx, nil, apiErr, 3))
 
 			taskErr := &dto.TaskError{
 				Code:               string(test.code),
@@ -367,7 +367,7 @@ func TestKKAIPolicyContextStopsNormalAndTaskRetries(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, detected)
 
-	assert.False(t, shouldRetry(ctx, apiErr, 3))
+	assert.False(t, shouldRetry(ctx, nil, apiErr, 3))
 	assert.False(t, shouldRetryTaskRelay(ctx, 1, &dto.TaskError{StatusCode: http.StatusInternalServerError}, 3))
 }
 

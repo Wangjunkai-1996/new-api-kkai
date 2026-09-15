@@ -929,7 +929,7 @@ func processChannelTestPolicyError(channel *model.Channel, result testResult) bo
 }
 
 func automaticChannelTestDisableDecision(newAPIError *types.NewAPIError, policyDetected bool, milliseconds int64, disableThreshold int64) (*types.NewAPIError, bool) {
-	if policyDetected {
+	if policyDetected || service.IsUpstreamPoolExhausted(newAPIError) {
 		return newAPIError, false
 	}
 	shouldBanChannel := newAPIError != nil && service.ShouldDisableChannel(newAPIError)

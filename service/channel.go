@@ -46,7 +46,7 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if !common.AutomaticDisableChannelEnabled {
 		return false
 	}
-	if err == nil {
+	if err == nil || IsUpstreamPoolExhausted(err) {
 		return false
 	}
 	if types.IsChannelError(err) {

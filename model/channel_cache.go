@@ -119,10 +119,11 @@ func GetRandomSatisfiedChannel(
 	retry int,
 	requestPath string,
 	allowedChannelTypes []int,
+	excludedChannelIDs ...int,
 ) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath, allowedChannelTypes)
+		return GetChannel(group, model, retry, requestPath, allowedChannelTypes, excludedChannelIDs...)
 	}
 
 	channelSyncLock.RLock()
@@ -139,6 +140,19 @@ func GetRandomSatisfiedChannel(
 		channels = filterChannelsByRequestPathAndModel(
 			group2model2channels[group][normalizedModel], requestPath, model, allowedChannelTypes,
 		)
+	}
+	if len(excludedChannelIDs) > 0 {
+		excluded := make(map[int]struct{}, len(excludedChannelIDs))
+		for _, id := range excludedChannelIDs {
+			excluded[id] = struct{}{}
+		}
+		available := make([]int, 0, len(channels))
+		for _, id := range channels {
+			if _, skip := excluded[id]; !skip {
+				available = append(available, id)
+			}
+		}
+		channels = available
 	}
 
 	if len(channels) == 0 {

@@ -157,6 +157,40 @@ func TestAutomaticChannelTestStillBansOrdinarySlowResponse(t *testing.T) {
 	require.Equal(t, types.ErrorCodeChannelResponseTimeExceeded, effectiveErr.GetErrorCode())
 }
 
+func TestAutomaticChannelTestPreservesPoolAdmissionFailures(t *testing.T) {
+	previousAutomaticDisable := common.AutomaticDisableChannelEnabled
+	previousStatusCodes := operation_setting.AutomaticDisableStatusCodesToString()
+	t.Cleanup(func() {
+		common.AutomaticDisableChannelEnabled = previousAutomaticDisable
+		require.NoError(t, operation_setting.AutomaticDisableStatusCodesFromString(previousStatusCodes))
+	})
+	common.AutomaticDisableChannelEnabled = true
+	require.NoError(t, operation_setting.AutomaticDisableStatusCodesFromString("401,429,503"))
+	for _, tt := range []struct {
+		code, errorType string
+		status          int
+		wantBan         bool
+	}{
+		{"account_pool_exhausted", "api_error", 503, false},
+		{"account_pool_rate_limited", "rate_limit_error", 429, false},
+		{"egress_capacity_exhausted", "rate_limit_error", 429, false},
+		{"invalid_api_key", "authentication_error", 401, true},
+		{"rate_limit_exceeded", "rate_limit_error", 429, true},
+		{"unavailable", "api_error", 503, true},
+	} {
+		t.Run(tt.code, func(t *testing.T) {
+			apiErr := types.WithOpenAIError(types.OpenAIError{Code: tt.code, Type: tt.errorType}, tt.status,
+				types.ErrOptionWithOriginalStatusCode(tt.status))
+			assert.Equal(t, tt.wantBan, service.ShouldDisableChannel(apiErr), "live requests use the same admission exception")
+			for _, milliseconds := range []int64{0, 10_000} {
+				effectiveErr, shouldBan := automaticChannelTestDisableDecision(apiErr, false, milliseconds, 1)
+				assert.Equal(t, tt.wantBan, shouldBan, "elapsed milliseconds: %d", milliseconds)
+				assert.Same(t, apiErr, effectiveErr, "a pool admission failure must not become a timeout ban")
+			}
+		})
+	}
+}
+
 func TestProcessChannelTestPolicyErrorRecordsAuditOnlyIncident(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.KKAIPolicyIncident{}, &model.KKAIOutboxEvent{}))

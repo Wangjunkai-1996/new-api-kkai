@@ -88,6 +88,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	defer func() {
 		if newAPIError != nil {
+			if !c.Writer.Written() && newAPIError.RetryAfter != "" {
+				c.Header("Retry-After", newAPIError.RetryAfter)
+			}
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
@@ -270,10 +273,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
+		if service.IsUpstreamPoolExhausted(newAPIError) {
+			retryParam.ExcludedChannelIDs = append(retryParam.ExcludedChannelIDs, channel.Id)
+		} else {
+			retryParam.PriorityRetry++
+		}
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		if !shouldRetry(c, relayInfo, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
 	}
@@ -358,6 +366,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
+		if len(retryParam.ExcludedChannelIDs) > 0 && service.IsUpstreamPoolExhausted(info.LastError) {
+			return nil, info.LastError
+		}
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
@@ -368,11 +379,19 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return channel, nil
 }
 
-func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
-	if service.ShouldSkipRetryAfterKKAIPolicy(c) {
+func shouldRetry(c *gin.Context, info *relaycommon.RelayInfo, openaiErr *types.NewAPIError, retryTimes int) bool {
+	if openaiErr == nil || (c.Request != nil && c.Request.Context().Err() != nil) {
 		return false
 	}
-	if openaiErr == nil {
+	if c.Writer.Written() {
+		// Realtime hijacks the client before dialing upstream; that handshake
+		// does not prevent failover while no upstream connection has succeeded.
+		if info == nil || info.RelayFormat != types.RelayFormatOpenAIRealtime ||
+			info.TargetWs != nil || openaiErr.GetErrorCode() != types.ErrorCodeDoRequestFailed {
+			return false
+		}
+	}
+	if service.ShouldSkipRetryAfterKKAIPolicy(c) {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {

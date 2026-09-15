@@ -103,6 +103,7 @@ type NewAPIError struct {
 	errorCode          ErrorCode
 	StatusCode         int
 	Metadata           json.RawMessage
+	RetryAfter         string
 	originalStatusCode int
 	originalErrorCode  ErrorCode
 	policyEvidence     string

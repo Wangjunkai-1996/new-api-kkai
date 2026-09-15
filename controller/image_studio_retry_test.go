@@ -29,7 +29,7 @@ func TestShouldRetryKeepsImageStudioChannelFailoverEnabled(t *testing.T) {
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	require.NoError(t, service.SetImageStudioGenerationID(ctx, 1))
-	assert.True(t, shouldRetry(ctx, upstreamErr, 1))
+	assert.True(t, shouldRetry(ctx, nil, upstreamErr, 1))
 }
 
 func TestImageStudioBatchKeepsExistingChannelFailover(t *testing.T) {

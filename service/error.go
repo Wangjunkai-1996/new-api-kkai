@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -83,6 +84,17 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 }
 
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
+	defer func() {
+		if !IsUpstreamPoolExhausted(newApiErr) {
+			return
+		}
+		value := strings.TrimSpace(resp.Header.Get("Retry-After"))
+		if seconds, err := strconv.ParseUint(value, 10, 31); err == nil {
+			newApiErr.RetryAfter = strconv.FormatUint(seconds, 10)
+		} else if retryAt, err := http.ParseTime(value); err == nil && retryAt.After(time.Now()) {
+			newApiErr.RetryAfter = retryAt.UTC().Format(http.TimeFormat)
+		}
+	}()
 	upstreamStatusOption := types.ErrOptionWithOriginalStatusCode(resp.StatusCode)
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode, upstreamStatusOption)
 
@@ -191,6 +203,27 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}
 	return
+}
+
+// IsUpstreamPoolExhausted recognizes the pool-level admission contract from a
+// configured upstream. Ordinary rate limits and individual key failures do not
+// authorize excluding an entire channel, even if their messages mention a pool.
+func IsUpstreamPoolExhausted(apiErr *types.NewAPIError) bool {
+	if apiErr == nil || apiErr.GetErrorType() != types.ErrorTypeOpenAIError {
+		return false
+	}
+	providerError, ok := apiErr.RelayError.(types.OpenAIError)
+	if !ok {
+		return false
+	}
+	switch apiErr.GetOriginalErrorCode() {
+	case "account_pool_exhausted":
+		return apiErr.GetOriginalStatusCode() == http.StatusServiceUnavailable && providerError.Type == "api_error"
+	case "egress_capacity_exhausted", "account_pool_rate_limited":
+		return apiErr.GetOriginalStatusCode() == http.StatusTooManyRequests && providerError.Type == "rate_limit_error"
+	default:
+		return false
+	}
 }
 
 func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) {

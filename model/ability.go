@@ -60,9 +60,12 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-func enabledAbilityQuery(group string, model string, allowedChannelTypes []int) *gorm.DB {
+func enabledAbilityQuery(group string, model string, allowedChannelTypes []int, excludedChannelIDs ...int) *gorm.DB {
 	query := DB.Model(&Ability{}).
 		Where(&Ability{Group: group, Model: model, Enabled: true})
+	if len(excludedChannelIDs) > 0 {
+		query = query.Where("abilities.channel_id NOT IN ?", excludedChannelIDs)
+	}
 	if len(allowedChannelTypes) > 0 {
 		query = query.Joins("JOIN channels ON channels.id = abilities.channel_id").
 			Where("channels.type IN ?", allowedChannelTypes)
@@ -116,11 +119,17 @@ func getChannelQuery(group string, model string, retry int, allowedChannelTypes 
 	return channelQuery.Select("abilities.*"), nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string, allowedChannelTypes []int) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, allowedChannelTypes []int, excludedChannelIDs ...int) (*Channel, error) {
 	var abilities []Ability
-
-	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry, allowedChannelTypes)
+	var channelQuery *gorm.DB
+	var err error
+	if len(excludedChannelIDs) > 0 {
+		// Filter path capabilities before applying the remaining retry priority.
+		channelQuery = enabledAbilityQuery(group, model, allowedChannelTypes, excludedChannelIDs...).
+			Select("abilities.*").Order("abilities.priority DESC")
+	} else {
+		channelQuery, err = getChannelQuery(group, model, retry, allowedChannelTypes)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +142,25 @@ func GetChannel(group string, model string, retry int, requestPath string, allow
 		return nil, err
 	}
 	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
+	if len(excludedChannelIDs) > 0 && len(abilities) > 0 {
+		priorities := []int64{lo.FromPtr(abilities[0].Priority)}
+		for _, ability := range abilities[1:] {
+			if priority := lo.FromPtr(ability.Priority); priority != priorities[len(priorities)-1] {
+				priorities = append(priorities, priority)
+			}
+		}
+		if retry >= len(priorities) {
+			retry = len(priorities) - 1
+		}
+		priority := priorities[retry]
+		selected := abilities[:0]
+		for _, ability := range abilities {
+			if lo.FromPtr(ability.Priority) == priority {
+				selected = append(selected, ability)
+			}
+		}
+		abilities = selected
+	}
 	channel := Channel{}
 	if len(abilities) > 0 {
 		// Randomly choose one
