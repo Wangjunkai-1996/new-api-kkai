@@ -639,6 +639,7 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	c.Set(common2.UpstreamRequestIdKey, "")
 	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
@@ -691,7 +692,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	info.SetUpstreamHeaderTime()
 
-	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
+	upID := resp.Header.Get(common2.RequestIdKey)
+	if upID == "" {
+		upID = resp.Header.Get("X-Client-Request-ID")
+	}
+	if upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
 

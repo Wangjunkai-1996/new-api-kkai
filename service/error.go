@@ -85,6 +85,14 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	defer func() {
+		// A gateway that already exhausted this request's account/retry budget
+		// owns its terminal failure. Re-entering it would reset that budget.
+		// Preserve the original error and status; this says nothing about the
+		// health or remaining capacity of the channel as a whole.
+		if newApiErr != nil && resp.StatusCode >= 400 && resp.StatusCode <= 599 &&
+			resp.Header.Get("X-Sub2-Retry-Status") == "exhausted" {
+			types.ErrOptionWithSkipRetry()(newApiErr)
+		}
 		if !IsUpstreamPoolExhausted(newApiErr) {
 			return
 		}

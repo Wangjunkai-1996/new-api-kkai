@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	commonpkg "github.com/QuantumNous/new-api/common"
 	systemconstant "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -117,6 +118,85 @@ func TestDoRequestRecordsUpstreamHeaderTime(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, response.Body.Close())
 	require.True(t, info.UpstreamHeaderTime.After(info.StartTime))
+}
+
+func TestDoRequestRecordsGatewayRequestID(t *testing.T) {
+	service.InitHttpClient()
+	for _, tt := range []struct {
+		name, oneAPI, client, generic, want string
+	}{
+		{"Sub2 ID", "", "sub2-request-123", "provider-request", "sub2-request-123"},
+		{"existing priority", "oneapi-request", "sub2-request", "provider-request", "oneapi-request"},
+		{"provider ID only", "", "", "provider-request", ""},
+		{"absent", "", "", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set(commonpkg.RequestIdKey, tt.oneAPI)
+				w.Header().Set("X-Client-Request-ID", tt.client)
+				w.Header().Set("X-Request-Id", tt.generic)
+				w.WriteHeader(http.StatusBadGateway)
+			}))
+			t.Cleanup(upstream.Close)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", http.NoBody)
+			request, err := http.NewRequest(http.MethodPost, upstream.URL, http.NoBody)
+			require.NoError(t, err)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+			response, err := doRequest(ctx, request, info)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			assert.Equal(t, tt.want, ctx.GetString(commonpkg.UpstreamRequestIdKey))
+		})
+	}
+}
+
+func TestDoRequestClearsPreviousAttemptRequestID(t *testing.T) {
+	service.InitHttpClient()
+	for _, tt := range []struct {
+		name, generic  string
+		networkFailure bool
+	}{
+		{name: "no correlation headers"},
+		{name: "provider ID only", generic: "provider-request"},
+		{name: "network failure", networkFailure: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/first" {
+					w.Header().Set("X-Client-Request-ID", "first-sub2-request")
+				} else if tt.generic != "" {
+					w.Header().Set("X-Request-Id", tt.generic)
+				}
+				w.WriteHeader(http.StatusBadGateway)
+			}))
+			t.Cleanup(upstream.Close)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", http.NoBody)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+			request, err := http.NewRequest(http.MethodPost, upstream.URL+"/first", http.NoBody)
+			require.NoError(t, err)
+			response, err := doRequest(ctx, request, info)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, "first-sub2-request", ctx.GetString(commonpkg.UpstreamRequestIdKey))
+
+			if tt.networkFailure {
+				upstream.Close()
+			}
+			request, err = http.NewRequest(http.MethodPost, upstream.URL+"/second", http.NoBody)
+			require.NoError(t, err)
+			response, err = doRequest(ctx, request, info)
+			if tt.networkFailure {
+				require.Error(t, err)
+				assert.Nil(t, response)
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+			}
+			assert.Empty(t, ctx.GetString(commonpkg.UpstreamRequestIdKey))
+		})
+	}
 }
 
 func TestDoRequestNegotiatesSub2TTFTForOpenAIStreams(t *testing.T) {

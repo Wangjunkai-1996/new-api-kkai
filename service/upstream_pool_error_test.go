@@ -74,3 +74,33 @@ func TestUpstreamPoolRetryAfter(t *testing.T) {
 		})
 	}
 }
+
+func TestUpstreamRequestRetryExhaustionPreservesError(t *testing.T) {
+	for _, tt := range []struct {
+		name, marker string
+		status       int
+		wantStop     bool
+	}{
+		{"exhausted 502", "exhausted", 502, true},
+		{"exhausted 429", "exhausted", 429, true},
+		{"exhausted 504", "exhausted", 504, true},
+		{"ordinary failure", "", 502, false},
+		{"unknown marker", "retry", 502, false},
+		{"success cannot mark exhaustion", "exhausted", 200, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := RelayErrorHandler(context.Background(), &http.Response{
+				StatusCode: tt.status,
+				Header:     http.Header{"X-Sub2-Retry-Status": []string{tt.marker}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"error":{"code":"upstream_error","type":"upstream_error","message":"attempt limit reached"}}`)),
+			}, false)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStop, types.IsSkipRetryError(apiErr))
+			assert.Equal(t, tt.status, apiErr.StatusCode)
+			assert.False(t, IsUpstreamPoolExhausted(apiErr), "request exhaustion is not a pool admission failure")
+			ResetStatusCode(apiErr, `{"502":503}`)
+			assert.Equal(t, tt.wantStop, types.IsSkipRetryError(apiErr), "local status mapping must not reset the upstream retry decision")
+		})
+	}
+}

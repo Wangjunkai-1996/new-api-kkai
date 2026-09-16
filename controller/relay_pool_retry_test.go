@@ -29,15 +29,19 @@ func TestRelayExhaustedPoolIsNotReplayed(t *testing.T) {
 		status, retries, firstCalls, finalStatus int
 		backup                                   bool
 		intermediateFailure, disableMemoryCache  bool
+		requestRetryExhausted                    bool
 	}{
-		{"single exhausted pool", "account_pool_exhausted", "api_error", 503, 2, 1, 503, false, false, false},
-		{"single exhausted egress", "egress_capacity_exhausted", "rate_limit_error", 429, 2, 1, 429, false, false, false},
-		{"single cooling pool", "account_pool_rate_limited", "rate_limit_error", 429, 2, 1, 429, false, false, false},
-		{"healthy backup", "account_pool_exhausted", "api_error", 503, 2, 1, 200, true, false, false},
-		{"retries disabled", "account_pool_exhausted", "api_error", 503, 0, 1, 503, true, false, false},
-		{"ordinary key limit", "rate_limit_exceeded", "rate_limit_error", 429, 2, 3, 429, false, false, false},
-		{"pool then ordinary failure cached", "account_pool_exhausted", "api_error", 503, 2, 1, 200, true, true, false},
-		{"pool then ordinary failure database", "account_pool_exhausted", "api_error", 503, 2, 1, 200, true, true, true},
+		{"single exhausted pool", "account_pool_exhausted", "api_error", 503, 2, 1, 503, false, false, false, false},
+		{"single exhausted egress", "egress_capacity_exhausted", "rate_limit_error", 429, 2, 1, 429, false, false, false, false},
+		{"single cooling pool", "account_pool_rate_limited", "rate_limit_error", 429, 2, 1, 429, false, false, false, false},
+		{"healthy backup", "account_pool_exhausted", "api_error", 503, 2, 1, 200, true, false, false, false},
+		{"retries disabled", "account_pool_exhausted", "api_error", 503, 0, 1, 503, true, false, false, false},
+		{"ordinary key limit", "rate_limit_exceeded", "rate_limit_error", 429, 2, 3, 429, false, false, false, false},
+		{"pool then ordinary failure cached", "account_pool_exhausted", "api_error", 503, 2, 1, 200, true, true, false, false},
+		{"pool then ordinary failure database", "account_pool_exhausted", "api_error", 503, 2, 1, 200, true, true, true, false},
+		{"request budget exhausted before output", "upstream_error", "upstream_error", 502, 2, 1, 502, false, false, false, true},
+		{"request budget does not reset on backup", "upstream_error", "upstream_error", 502, 2, 1, 502, true, false, false, true},
+		{"ordinary 502 retains retries", "upstream_error", "upstream_error", 502, 2, 3, 502, false, false, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
@@ -58,6 +62,9 @@ func TestRelayExhaustedPoolIsNotReplayed(t *testing.T) {
 				firstCalls.Add(1)
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "90")
+				if tt.requestRetryExhausted {
+					w.Header().Set("X-Sub2-Retry-Status", "exhausted")
+				}
 				w.WriteHeader(tt.status)
 				_, _ = fmt.Fprintf(w, `{"error":{"code":%q,"type":%q,"message":"capacity unavailable"}}`, tt.code, tt.errType)
 			}))
@@ -117,7 +124,7 @@ func TestRelayExhaustedPoolIsNotReplayed(t *testing.T) {
 				assert.Empty(t, response.Header().Get("Retry-After"), "a recovered request must not inherit failed-attempt headers")
 			} else {
 				assert.Zero(t, backupCalls.Load())
-				if tt.code != "rate_limit_exceeded" {
+				if tt.code != "rate_limit_exceeded" && tt.code != "upstream_error" {
 					assert.Equal(t, "90", response.Header().Get("Retry-After"))
 					assert.Contains(t, response.Body.String(), tt.code)
 				}
@@ -144,6 +151,100 @@ func TestShouldRetryStopsAfterOutputOrCancellation(t *testing.T) {
 		}
 		assert.False(t, shouldRetry(ctx, nil, apiErr, 2))
 		cancel()
+	}
+}
+
+func TestResponsesRelayExhaustedBudgetStopsOuterRetry(t *testing.T) {
+	for _, exhausted := range []bool{true, false} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("exhausted_%v/stream_%v", exhausted, stream), func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				service.InitHttpClient()
+				db := setupImageStudioIntegrationState(t)
+				constant.ErrorLogEnabled = false
+				previousRetries, previousCountToken := common.RetryTimes, constant.CountToken
+				common.RetryTimes, constant.CountToken = 2, false
+				t.Cleanup(func() { common.RetryTimes, constant.CountToken = previousRetries, previousCountToken })
+				require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"gpt-5.6-sol":0}`))
+				var token model.Token
+				require.NoError(t, db.First(&token).Error)
+				user, err := model.GetUserCache(token.UserId)
+				require.NoError(t, err)
+
+				var firstCalls, backupCalls atomic.Int32
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					assert.Equal(t, http.MethodPost, r.Method)
+					assert.Equal(t, "/v1/responses", r.URL.Path)
+					var request struct {
+						Model  string `json:"model"`
+						Stream bool   `json:"stream"`
+					}
+					assert.NoError(t, common.DecodeJson(r.Body, &request))
+					assert.Equal(t, "gpt-5.6-sol", request.Model)
+					assert.Equal(t, stream, request.Stream)
+					switch r.Header.Get("Authorization") {
+					case "Bearer provider-key":
+						firstCalls.Add(1)
+					case "Bearer backup-key":
+						backupCalls.Add(1)
+					default:
+						t.Errorf("unexpected upstream credential")
+					}
+					w.Header().Set("Content-Type", "application/json")
+					if exhausted {
+						w.Header().Set("X-Sub2-Retry-Status", "exhausted")
+					}
+					w.WriteHeader(http.StatusBadGateway)
+					_, _ = w.Write([]byte(`{"error":{"code":"upstream_error","type":"upstream_error","message":"temporary upstream failure"}}`))
+				}))
+				t.Cleanup(upstream.Close)
+				var first model.Channel
+				require.NoError(t, db.First(&first).Error)
+				require.NoError(t, db.Model(&first).Updates(map[string]any{
+					"base_url": upstream.URL, "models": "gpt-5.6-sol", "priority": 30,
+				}).Error)
+				require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", first.Id).
+					Updates(map[string]any{"model": "gpt-5.6-sol", "priority": 30}).Error)
+				priority, weight, autoBan := int64(10), uint(100), 0
+				backup := model.Channel{Type: constant.ChannelTypeOpenAI, Key: "backup-key", Status: common.ChannelStatusEnabled,
+					Name: "same pool backup channel", Models: "gpt-5.6-sol", Group: first.Group,
+					BaseURL: &upstream.URL, Priority: &priority, Weight: &weight, AutoBan: &autoBan}
+				require.NoError(t, db.Create(&backup).Error)
+				require.NoError(t, db.Create(&model.Ability{Group: first.Group, Model: backup.Models, ChannelId: backup.Id,
+					Enabled: true, Priority: &priority, Weight: weight}).Error)
+				require.NoError(t, model.SyncChannelCacheOnce())
+
+				engine := gin.New()
+				engine.POST("/v1/responses", func(c *gin.Context) {
+					user.WriteContext(c)
+					c.Set(common.RequestIdKey, "responses-retry-test")
+					common.SetContextKey(c, constant.ContextKeyUsingGroup, token.Group)
+					require.NoError(t, middleware.SetupContextForToken(c, &token))
+				}, middleware.Distribute(), func(c *gin.Context) { Relay(c, types.RelayFormatOpenAIResponses) })
+				request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
+					fmt.Sprintf(`{"model":"gpt-5.6-sol","input":"hello","stream":%v,"max_output_tokens":8}`, stream)))
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Authorization", "Bearer pooltesttoken")
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+
+				require.Equal(t, http.StatusBadGateway, response.Code, response.Body.String())
+				var envelope struct {
+					Error types.OpenAIError `json:"error"`
+				}
+				require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
+				assert.Equal(t, "upstream_error", envelope.Error.Code)
+				assert.Equal(t, "upstream_error", envelope.Error.Type)
+				assert.Equal(t, "temporary upstream failure", envelope.Error.Message)
+				if exhausted {
+					assert.EqualValues(t, 1, firstCalls.Load())
+					assert.Zero(t, backupCalls.Load(), "an exhausted request must not reset its budget through another channel")
+				} else {
+					assert.EqualValues(t, 3, firstCalls.Load()+backupCalls.Load())
+					assert.Positive(t, backupCalls.Load(), "an ordinary 502 still retries through the eligible backup channel")
+				}
+			})
+		}
 	}
 }
 
