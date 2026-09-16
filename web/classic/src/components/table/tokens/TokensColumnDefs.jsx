@@ -94,15 +94,17 @@ const renderGroupColumn = (
   t,
   groupRatios = {},
   groupDisplayNames = {},
+  autoGroupNames = [],
 ) => {
   const isAutoGroup =
-    text === 'auto' || record?.is_auto === true || record?.is_auto_group === true;
+    text === 'auto' ||
+    autoGroupNames.includes(text) ||
+    record?.is_auto === true ||
+    record?.is_auto_group === true;
   if (isAutoGroup) {
     return (
       <Tooltip
-        content={t(
-          '当前分组为 auto，会自动选择最优分组，当一个组不可用时自动降级到下一个组（熔断机制）',
-        )}
+        content={t('智能熔断')}
         position='top'
       >
         <Tag color='white' shape='circle'>
@@ -489,6 +491,7 @@ export const getTokensColumns = ({
   refresh,
   groupRatios = {},
   groupDisplayNames = {},
+  autoGroupNames = [],
 }) => {
   return [
     {
@@ -511,7 +514,14 @@ export const getTokensColumns = ({
       dataIndex: 'group',
       key: 'group',
       render: (text, record) =>
-        renderGroupColumn(text, record, t, groupRatios, groupDisplayNames),
+        renderGroupColumn(
+          text,
+          record,
+          t,
+          groupRatios,
+          groupDisplayNames,
+          autoGroupNames,
+        ),
     },
     {
       title: t('密钥'),

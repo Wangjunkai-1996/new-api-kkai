@@ -167,6 +167,9 @@ func parseAutoGroups(jsonString string) ([]string, error) {
 }
 
 func parseAutoGroupProfiles(jsonString string) (map[string][]string, error) {
+	if strings.TrimSpace(jsonString) == "" {
+		return map[string][]string{}, nil
+	}
 	var parsed map[string][]string
 	if err := common.Unmarshal([]byte(jsonString), &parsed); err != nil {
 		return nil, err

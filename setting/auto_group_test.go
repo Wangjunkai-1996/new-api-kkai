@@ -31,6 +31,7 @@ func TestAutoGroupProfilesAreAtomicAndCopied(t *testing.T) {
 }
 
 func TestAutoGroupProfilesRejectInvalidNamesAndReferences(t *testing.T) {
+	assert.NoError(t, ValidateAutoGroupProfilesJSON(""))
 	for _, invalid := range []string{
 		`{"auto": ["default"]}`,
 		`{"": ["default"]}`,
