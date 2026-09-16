@@ -23,17 +23,35 @@ blue-green slots, rollback, or `api.kkrich.ltd`:
    generated metadata file with
    `scripts/kkai/deploy-manual-release.sh --stage METADATA.json`.
 
+Select release scope before applying step 4. Documentation-only work needs no
+build or production access. A frontend-only change follows runbook 21 for
+format 2, or runbook 20 for legacy format 1, against the current backend
+manifest and does not stage or promote a backend. A backend
+or combined release uses `--frontend-mode external` and the complete
+10%/50%/100% canary (at least 120 seconds per level). Format 1 retains exact
+frontend/backend pairing. After runbook 21's controller/Edge/contract migration,
+format 2 uses explicit API compatibility: compatible backend updates must not
+build, repackage or switch the frontend. Frontend prepare/activate runs outside
+backend candidate/rollout transactions. Local code does not prove installation.
+Routine external releases do not repeat the initial Edge/ACME adoption.
+
 Select `--schema-contract` explicitly from current live-schema evidence before
 building. `make newapi-status` and the deployer's generic preflight do not prove
 database compatibility. An application-only release on schema v7 uses the
 `(7,8,7)` `bridge` profile. Without exact v8 evidence, use `bridge`; use the
 `(8,8,8)` `feature` profile only after v8 has been independently observed.
-Schema migration is a separate authorized operation.
+Schema migration is a separate authorized operation. These image-selection
+rules apply when building a backend. Format 2 frontend builds have no backend
+schema input; only legacy format 1 copies the selected backend contract.
 
 The deploy script must use `scripts/kkai/manual-deployment-contract.env` and
 complete the controller's read-only preflight before uploading an image. Update
 that contract only together with installation of the exact pinned infra commit;
 never bypass its SHA or protocol checks.
+
+The pin selects the installed controller revision, not necessarily the latest
+documentation-only infra HEAD. Documentation changes alone do not require a
+controller reinstall, pin change, image build or full regression suite.
 
 The only production application branch is the local `production/kkrich` branch.
 Before a build, the worktree must be clean, the current commit and tree objects
@@ -54,6 +72,12 @@ version and the smallest affected workflow pass. Do not pause for duplicate
 approval at that point. A build-only or stage-only request does not authorize
 promotion, and any version mismatch, candidate failure, newly discovered risk,
 or scope change requires stopping before promotion.
+
+The promote wrapper finalizes the canary internally. Do not unconditionally
+finalize a second time. For an interrupted finalize, use the recorded rollout
+ID, target version and target slot together; slot-only lookup can match old
+history. Error-window review is performed by the executing operator/agent and
+does not introduce another user approval step.
 
 Build one immutable release per exact source commit. If a failed build reveals
 a required source, lockfile, or build-dependency change, validate and commit the
