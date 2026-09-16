@@ -24,8 +24,9 @@ blue-green slots, rollback, or `api.kkrich.ltd`:
    `scripts/kkai/deploy-manual-release.sh --stage METADATA.json`.
 
 Select release scope before applying step 4. Documentation-only work needs no
-build or production access. A frontend-only change follows runbook 20 against
-the current backend manifest and does not stage or promote a backend. A backend
+build or production access. A frontend-only change follows runbook 21 for
+format 2, or runbook 20 for legacy format 1, against the current backend
+manifest and does not stage or promote a backend. A backend
 or combined release uses `--frontend-mode external` and the complete
 10%/50%/100% canary (at least 120 seconds per level). Format 1 retains exact
 frontend/backend pairing. After runbook 21's controller/Edge/contract migration,
