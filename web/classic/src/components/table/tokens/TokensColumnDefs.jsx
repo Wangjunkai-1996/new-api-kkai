@@ -103,10 +103,7 @@ const renderGroupColumn = (
     record?.is_auto_group === true;
   if (isAutoGroup) {
     return (
-      <Tooltip
-        content={t('智能熔断')}
-        position='top'
-      >
+      <Tooltip content={t('智能熔断')} position='top'>
         <Tag color='white' shape='circle'>
           {t('智能熔断')}
           {record && record.cross_group_retry ? `(${t('跨分组')})` : ''}
