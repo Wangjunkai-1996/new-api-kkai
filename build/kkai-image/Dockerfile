@@ -36,7 +36,7 @@ COPY web/default ./default
 RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
     test -n "${APP_VERSION}" \
     && cd default \
-    && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" VITE_KKAI_SCHEMA_CONTRACT="${KKAI_SCHEMA_CONTRACT}" bun run build
+    && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
 
 FROM web-deps AS web-classic
 
@@ -209,6 +209,7 @@ FROM ${DISTROLESS_IMAGE} AS runtime-base
 ARG APP_VERSION
 ARG KKAI_SCHEMA_CONTRACT
 ARG SOURCE_REVISION
+ARG KKAI_CONSOLE_CONTRACT
 ARG FFMPEG_VERSION
 ARG FFMPEG_BINARY_SHA256
 ARG FFPROBE_BINARY_SHA256
@@ -218,7 +219,8 @@ LABEL org.opencontainers.image.title="KKAI New API" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="AGPL-3.0 AND GPL-3.0-or-later" \
-      io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"
+      io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}" \
+      io.kkrich.console-contract="${KKAI_CONSOLE_CONTRACT}"
 
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint
 COPY --from=runtime-tools --chown=10007:10007 /out/newapi-risk-guard /newapi-risk-guard

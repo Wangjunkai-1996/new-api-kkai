@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useConsoleContract } from '@/hooks/use-console-contract'
+
 import { zodResolver } from '@hookform/resolvers/zod'
 import { isAxiosError } from 'axios'
 import { LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -86,7 +88,6 @@ import {
 } from '../video-domain'
 import {
   VIDEO_SAMPLE_CATEGORIES,
-  VIDEO_SAMPLE_CATEGORIES_ENABLED,
   VIDEO_SAMPLE_CATEGORY_LABEL_KEYS,
   type VideoSampleCategory,
 } from '../video-sample-categories'
@@ -94,6 +95,8 @@ import { VideoAdminWorkspace } from './video-admin-workspace'
 
 export function VideoSampleAdmin() {
   const { t } = useTranslation()
+  const { contract } = useConsoleContract()
+  const categoriesEnabled = contract?.capabilities.includes('video_sample_categories') ?? false
   const modelsQuery = useAdminVideoModels()
   const samplesQuery = useAdminVideoSamples()
   const saveMutation = useSaveAdminVideoSample()
@@ -116,8 +119,8 @@ export function VideoSampleAdmin() {
     () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [samplesQuery.data]
   )
-  const selectedProfileId = form.watch('model_profile_id')
-  const selectedMode = form.watch('mode')
+  const selectedProfileId = useWatch({ control: form.control, name: 'model_profile_id' })
+  const selectedMode = useWatch({ control: form.control, name: 'mode' })
   const selectedProfile = modelsQuery.data?.find(
     (model) => model.id === selectedProfileId
   )
@@ -169,6 +172,7 @@ export function VideoSampleAdmin() {
     analyzedAssetSignatureRef.current = ''
     titledAssetIdRef.current = 0
     form.reset(createVideoSampleFormValues(selected ?? undefined, profile))
+    // oxlint-disable-next-line react/set-state-in-effect -- Hydrate the editor when an async catalog selection resolves.
     setVideoAssets(selected ? [getSampleVideoAsset(selected)] : [])
     setReferenceAssets(
       selected ? getSampleReferenceAssets(selected, profile) : []
@@ -185,6 +189,7 @@ export function VideoSampleAdmin() {
     ) {
       return
     }
+    // oxlint-disable-next-line react/set-state-in-effect -- Synchronize externally prepared media metadata without resetting form edits.
     setVideoAssets((assets) => {
       const current = assets[0]
       if (assets.length !== 1 || current?.id !== hydrated.id) return assets
@@ -291,6 +296,7 @@ export function VideoSampleAdmin() {
         shouldValidate: true,
       })
       form.setValue('reference_asset_ids', [], { shouldValidate: true })
+      // oxlint-disable-next-line react/set-state-in-effect -- Keep selected media consistent with the asynchronously loaded model limits.
       setReferenceAssets([])
       return
     }
@@ -456,7 +462,7 @@ export function VideoSampleAdmin() {
     setReferenceAssets([])
   }
 
-  const submit = form.handleSubmit(async (values) => {
+  const submit = (event: React.FormEvent<HTMLFormElement>) => form.handleSubmit(async (values) => {
     if (!selectedProfile) {
       form.setError('model_profile_id', {
         message: 'videoStudio.validation.modelRequired',
@@ -570,7 +576,7 @@ export function VideoSampleAdmin() {
           : t('videoStudio.admin.saveFailed'))
       form.setError('root', { message })
     }
-  })
+  })(event)
 
   const confirmDelete = async () => {
     if (!selected) return
@@ -815,7 +821,7 @@ export function VideoSampleAdmin() {
                 </FormItem>
               )}
             />
-            {VIDEO_SAMPLE_CATEGORIES_ENABLED && (
+            {categoriesEnabled && (
               <FormField
                 control={form.control}
                 name='category'

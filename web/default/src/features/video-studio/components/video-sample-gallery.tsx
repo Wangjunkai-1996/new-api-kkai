@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useConsoleContract } from '@/hooks/use-console-contract'
+
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { AxiosError } from 'axios'
 import { Film, LoaderCircle, RotateCw } from 'lucide-react'
@@ -50,7 +52,6 @@ import type {
 import { shouldAutoLoadNextVideoSamplePage } from '../video-domain'
 import {
   VIDEO_SAMPLE_CATEGORIES,
-  VIDEO_SAMPLE_CATEGORIES_ENABLED,
   VIDEO_SAMPLE_CATEGORY_LABEL_KEYS,
   type VideoSampleCategory,
 } from '../video-sample-categories'
@@ -123,6 +124,8 @@ const getLaneCount = (width: number): number => {
 
 export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const { t } = useTranslation()
+  const { contract } = useConsoleContract()
+  const categoriesEnabled = contract?.capabilities.includes('video_sample_categories') ?? false
   const onTokenError = props.onTokenError
   const scrollRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -136,7 +139,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   >('')
   const samplesQuery = useVideoSamples(props.tokenId, {
     model: modelFilter || undefined,
-    category: categoryFilter || undefined,
+    category: categoriesEnabled ? categoryFilter || undefined : undefined,
   })
   const {
     fetchNextPage,
@@ -276,7 +279,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        {VIDEO_SAMPLE_CATEGORIES_ENABLED && (
+        {categoriesEnabled && (
           <NativeSelect
             size='sm'
             value={categoryFilter}

@@ -85,6 +85,11 @@ export default defineConfig(({ envMode }) => {
       },
     },
     source: {
+      define: {
+        'import.meta.env.VITE_KKAI_FRONTEND_DELIVERY': JSON.stringify(
+          process.env.VITE_KKAI_FRONTEND_DELIVERY || ''
+        ),
+      },
       entry: {
         index: './src/main.tsx',
       },
@@ -103,6 +108,7 @@ export default defineConfig(({ envMode }) => {
       proxy: devProxy,
     },
     output: {
+      assetPrefix: process.env.KKAI_FRONTEND_ASSET_PREFIX || '/',
       // Production optimizations
       minify: isProd,
       target: 'web',

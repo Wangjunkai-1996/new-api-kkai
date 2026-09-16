@@ -41,6 +41,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--describe-console-contract" {
+		payload, err := common.Marshal(common.ConsoleContract())
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(string(payload))
+		return
+	}
 	startTime := time.Now()
 
 	err := InitResources()

@@ -20,9 +20,11 @@ Usage: frontend-build-release.sh [options]
 
 Build the default frontend bundle into an immutable production archive.
 
-Required:
+Compatibility comes from web/default/console-contract.json.
+Legacy migration only:
+  --legacy-pair                    Build the old, exactly paired format
   --schema-contract bridge|feature
-  --api-contract NUMBER             Integer API compatibility contract
+  --api-contract NUMBER
 
 Common options:
   --output-dir DIR                 Artifact output directory
@@ -112,12 +114,18 @@ case "${KKAI_FRONTEND_SKIP_INSTALL:-}" in
   '') ;;
   *) die "KKAI_FRONTEND_SKIP_INSTALL must be 1/0, true/false, or yes/no" ;;
 esac
+legacy_pair=0
+required_capabilities='[]'
 dry_run=0
 allow_nonproduction=0
 allow_dirty=0
 
 while (( $# > 0 )); do
   case "$1" in
+    --legacy-pair)
+      legacy_pair=1
+      shift
+      ;;
     --dry-run)
       dry_run=1
       shift
@@ -199,6 +207,12 @@ for theme in "${themes[@]}"; do
   install_args+=(--filter "./${theme}")
 done
 
+case "${source_root}" in
+  /*) ;;
+  *) source_root="${ROOT}/${source_root}" ;;
+esac
+
+if (( legacy_pair )); then
 [[ -n "${schema_contract}" ]] ||
   die "schema contract must be selected explicitly with --schema-contract bridge|feature"
 case "${schema_contract}" in
@@ -214,10 +228,13 @@ if [[ -n "${backend_image_digest}" ]]; then
     die "backend image digest must match sha256:<64 lowercase hex>"
 fi
 
-case "${source_root}" in
-  /*) ;;
-  *) source_root="${ROOT}/${source_root}" ;;
-esac
+else
+  [[ -z "${schema_contract}${api_contract}${backend_source_sha}${backend_release_id}${backend_image_digest}" ]] ||
+    die "backend pairing arguments require --legacy-pair; independent builds use the source contract"
+  [[ "${theme_selection}" == default ]] || die "independent frontend requires default theme"
+  api_contract="$("${jq_bin}" -er '.api_contract | select(type == "number" and . >= 1 and floor == .)' "${source_root}/web/default/console-contract.json")" || die "invalid frontend API contract"
+  required_capabilities="$("${jq_bin}" -ce '.required_capabilities | select(type == "array") | select(all(.[]; type == "string" and test("^[a-z][a-z0-9_]{0,63}$"))) | select(length == (unique | length))' "${source_root}/web/default/console-contract.json")" || die "invalid frontend capabilities"
+fi
 
 # Resolve the source commit before deriving the release ID. A supplied SHA is
 # useful for deterministic tests, but production builds still verify HEAD.
@@ -248,6 +265,7 @@ if [[ -z "${release_id}" ]]; then
 fi
 validate_release_id "release ID" "${release_id}"
 
+if (( legacy_pair )); then
 if [[ -z "${backend_source_sha}" ]]; then
   if [[ "${allow_nonproduction}" -ne 1 && "${allow_dirty}" -ne 1 ]]; then
     die "production frontend builds require --backend-source-sha"
@@ -265,6 +283,8 @@ validate_release_id "backend release ID" "${backend_release_id}"
 if [[ -z "${backend_image_digest}" &&
       "${allow_nonproduction}" -ne 1 && "${allow_dirty}" -ne 1 ]]; then
   die "production frontend builds require --backend-image-digest"
+fi
+
 fi
 
 if [[ -z "${build_timestamp}" ]]; then
@@ -321,8 +341,8 @@ if (( dry_run )); then
     printf 'INSTALL=skipped\n'
   fi
   for theme in "${themes[@]}"; do
-    printf 'BUILD theme=%s cwd=%q env=KKAI_EXTERNAL_FRONTEND_BUILD=1,VITE_REACT_APP_SERVER_URL="",VITE_REACT_APP_VERSION=%q,VITE_KKAI_SCHEMA_CONTRACT=%q %q run build -- --dist-path %q\n' \
-      "${theme}" "${source_root}/web/${theme}" "${release_id}" "${schema_contract}" \
+    printf 'BUILD theme=%s cwd=%q env=KKAI_EXTERNAL_FRONTEND_BUILD=1,VITE_REACT_APP_SERVER_URL="",VITE_REACT_APP_VERSION=%q %q run build -- --dist-path %q\n' \
+      "${theme}" "${source_root}/web/${theme}" "${release_id}" \
       "${bun_bin}" "<temporary-dir>/${theme}"
   done
   printf 'ARCHIVE=%s/%s.tar.gz\n' "${output_dir}" "${release_id}"
@@ -419,7 +439,11 @@ for theme in "${themes[@]}"; do
   (
     cd -- "${theme_source_dir}"
     export VITE_REACT_APP_VERSION="${release_id}"
-    export VITE_KKAI_SCHEMA_CONTRACT="${schema_contract}"
+    export VITE_KKAI_FRONTEND_DELIVERY=legacy
+    if (( ! legacy_pair )); then
+      export VITE_KKAI_FRONTEND_DELIVERY=independent
+      export KKAI_FRONTEND_ASSET_PREFIX="/frontend-releases/${release_id}/default/"
+    fi
     export VITE_REACT_APP_SERVER_URL=""
     export KKAI_EXTERNAL_FRONTEND_BUILD=1
     if [[ "${theme}" == "default" ]]; then

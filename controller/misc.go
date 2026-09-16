@@ -60,6 +60,7 @@ func GetStatus(c *gin.Context) {
 	}
 
 	data := gin.H{
+		"console_contract":            common.ConsoleContract(),
 		"version":                     common.Version,
 		"frontend_mode":               frontendMode,
 		"start_time":                  common.StartTime,

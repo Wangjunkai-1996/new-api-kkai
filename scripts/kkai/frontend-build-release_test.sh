@@ -83,7 +83,7 @@ run_build() {
     PATH="${mock_bin}:${PATH}" \
       KKAI_TEST_LOG="${call_log}" \
       KKAI_TEST_INSTALL_MARKER="${install_marker}" \
-      "${BUILD_SCRIPT}" \
+      "${BUILD_SCRIPT}" --legacy-pair \
         --output-dir "${output_dir}" \
         --release-id "${id}" \
         --source-sha "${source_sha}" \
@@ -151,7 +151,7 @@ if PATH="${mock_bin}:${PATH}" \
   KKAI_TEST_LOG="${call_log}" \
   KKAI_TEST_INSTALL_MARKER="${install_marker}" \
   KKAI_TEST_FAIL_BUILD=1 \
-  "${BUILD_SCRIPT}" \
+  "${BUILD_SCRIPT}" --legacy-pair \
     --output-dir "${failed_output}" \
     --release-id "${release_id}-failed" \
     --source-sha "${source_sha}" \
@@ -204,7 +204,7 @@ KKAI_FRONTEND_SKIP_INSTALL=0 run_build "${false_env_output}" "${release_id}-fals
 
 dry_output="${test_root}/dry-output"
 dry_run_output="$(
-  "${BUILD_SCRIPT}" \
+  "${BUILD_SCRIPT}" --legacy-pair \
     --dry-run \
     --skip-install \
     --allow-non-production \
@@ -222,7 +222,7 @@ grep -Fx 'FRONTEND_THEMES=default' <<<"${dry_run_output}" >/dev/null || fail 'dr
 
 for unsupported_production_theme in classic both; do
   if production_theme_output="$(
-    "${BUILD_SCRIPT}" --dry-run --theme "${unsupported_production_theme}" \
+    "${BUILD_SCRIPT}" --legacy-pair --dry-run --theme "${unsupported_production_theme}" \
       --schema-contract bridge --api-contract 1 2>&1
   )"; then
     fail "production ${unsupported_production_theme} build unexpectedly succeeded"
@@ -232,7 +232,7 @@ for unsupported_production_theme in classic both; do
 done
 
 if invalid_output="$({
-  "${BUILD_SCRIPT}" --source-sha "${source_sha}" --schema-contract invalid --allow-dirty 2>&1
+  "${BUILD_SCRIPT}" --legacy-pair --source-sha "${source_sha}" --schema-contract invalid --allow-dirty 2>&1
 } 2>&1)"; then
   fail 'invalid schema contract unexpectedly succeeded'
 fi
@@ -240,7 +240,7 @@ grep -F 'schema contract must be bridge or feature' <<<"${invalid_output}" >/dev
   fail 'invalid schema contract error was not explicit'
 
 if missing_digest_output="$({
-  "${BUILD_SCRIPT}" \
+  "${BUILD_SCRIPT}" --legacy-pair \
     --dry-run \
     --source-root "${ROOT}" \
     --source-sha "${source_sha}" \
@@ -256,5 +256,18 @@ fi
 grep -F 'production frontend builds require --backend-image-digest' \
   <<<"${missing_digest_output}" >/dev/null ||
   fail 'missing backend image digest error was not explicit'
+
+# The normal format builds without backend coordinates or a schema profile.
+independent_id="${release_id}-independent"
+PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+  KKAI_TEST_INSTALL_MARKER="${install_marker}" \
+  "${BUILD_SCRIPT}" --release-id "${independent_id}" --allow-dirty \
+  --output-dir "${test_root}/independent" --lock-dir "${lock_dir}" >/dev/null
+jq -e '.format_version == 2 and .api_contract == 1 and .required_capabilities == [] and
+  (has("backend_release_id") | not) and (has("backend_source_sha") | not) and
+  (has("backend_image_digest") | not) and (has("schema_contract") | not)' \
+  "${test_root}/independent/${independent_id}.json" >/dev/null || fail 'independent artifact still binds a backend'
+[[ ! -e "${test_root}/independent/frontend-releases/${independent_id}/release-pair.json" ]] ||
+  fail 'independent artifact contains a legacy pair'
 
 echo 'Frontend artifact build regression tests passed.'

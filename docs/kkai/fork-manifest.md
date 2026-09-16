@@ -35,7 +35,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Approved exclusion: CC Switch `c8b0d60c` rejects remote `configUrl` exchange; unsafe URI credentials are forbidden |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Complete; upstream Waffo retained and fork UI restored |
 | Classic frontend customization | KKAI-compatible classic build and UI, excluding CC Switch | production fork | Complete; build compatibility and recharge-pricing default restored |
-| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` | Simple read-only idle-slot deployment |
+| Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` | Private serving candidate, 10%/50%/100% canary, separate writer and readonly rollback slot |
 | Risk guard edge service | Detection only; no direct database writes | legacy `ops/ai-risk-guard` | Implementation complete; edge activation remains separate from application delivery |
 | Signed internal attribution | Exact origin allowlist, HMAC, timestamp, nonce contract | legacy private-IP headers | Complete |
 
@@ -45,7 +45,8 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 - Broad cleanup or reformatting of upstream files.
 - Translation completeness work for this remediation.
 - Floating upgrades beyond the pinned upstream commit.
-- Direct edits to `production/kkrich` outside the normal reviewed merge flow.
+- Unreviewed or unvalidated production changes; use the confirmed checkout and
+  local `production/kkrich` release target without requiring a new branch/worktree.
 - Builds on the production server.
 
 An upstream defect may only be changed when it blocks a documented KKAI
@@ -71,17 +72,18 @@ compatibility behavior rather than presented as general upstream cleanup.
    replacement is independent from active-slot switching.
 8. CC Switch URLs carry a short-lived one-time ticket, never a reusable API
    key.
-9. The new idle-slot instance always uses read-only database credentials and runs
-   no background writers while its health and version are checked.
-10. Release-link changes and systemd restarts are an infrastructure-owned
-    transaction. Application delivery never stops a slot or changes traffic;
-    after the switch, only the selected release may own the stable alias and
-    writer role, while the previous release remains available for rollback.
+9. The resting standby uses read-only database credentials. A staged acceptance
+   candidate is `serving` with production writer credentials and global jobs
+   disabled; request-local writes and flushes are expected.
+10. Slot and release-link changes are owned by the official infrastructure
+    controller. The stable router owns `newapi-active`, serving slots handle
+    requests, and the separate writer is the single leader. Promotion does not
+    restart systemd or recreate Redis; the old version remains the rollback target.
 
 ## Migration Rules
 
 - Database maintenance is separate from ordinary blue/green application
-  delivery; the release path neither observes nor changes the schema.
+  delivery; the release path checks the selected schema contract but never migrates.
 - Destructive schema changes require their own explicit operator plan.
 - Every fork migration must have an idempotency test and a production-clone
   smoke test on PostgreSQL.
@@ -89,6 +91,13 @@ compatibility behavior rather than presented as general upstream cleanup.
   when production uses PostgreSQL.
 
 ## Development Quality Checks
+
+The following describes the full fork-baseline comparison tool, not a mandatory
+checklist for every iteration. Routine changes use the smallest relevant tests;
+documentation-only changes use diff/link/interface checks. External production
+frontend artifacts contain default only; classic builds and historical baseline
+worktrees are not prerequisites for ordinary releases. Do not invoke full mode
+or create its temporary worktree without the applicable explicit authorization.
 
 `scripts/kkai/check-fork-quality.sh` enforces the following:
 

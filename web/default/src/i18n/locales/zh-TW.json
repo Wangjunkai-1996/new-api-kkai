@@ -4928,6 +4928,7 @@
     "The model you're looking for doesn't exist.": "您查找的模型不存在。",
     "The name displayed across the application": "在整個套用程式中顯示的名稱",
     "The new token will only be shown once. Copy it and store it securely.": "新令牌僅顯示一次。請複製並妥善保存。",
+    "The page is temporarily unavailable. Your edits are preserved. Please retry shortly.": "The page is temporarily unavailable. Your edits are preserved. Please retry shortly.",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "伺服器的公開URL，用於OAuthCallback、Webhook和其他外部整合",
     "The requested chat preset does not exist or has been removed.": "請求的聊天預設不存在或已被刪除。",
     "The reset request stays disabled until a credit is available.": "沒有可用次數時，重置請求會保持停用。",

@@ -4928,6 +4928,7 @@
     "The model you're looking for doesn't exist.": "Модель, которую вы ищете, не существует.",
     "The name displayed across the application": "Имя, отображаемое в приложении",
     "The new token will only be shown once. Copy it and store it securely.": "Новый токен будет показан только один раз. Скопируйте его и сохраните в безопасном месте.",
+    "The page is temporarily unavailable. Your edits are preserved. Please retry shortly.": "Страница временно недоступна. Ваши изменения сохранены на странице. Повторите попытку чуть позже.",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "Публичный URL вашего сервера, используемый для OAuth-перенаправлений, вебхуков и других внешних интеграций",
     "The requested chat preset does not exist or has been removed.": "Запрошенный предустановленный чат не существует или был удален.",
     "The reset request stays disabled until a credit is available.": "Запрос сброса недоступен, пока нет доступного сброса.",

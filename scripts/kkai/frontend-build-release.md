@@ -5,23 +5,44 @@ separate, immutable production artifact. It is a packaging command only: it
 does not upload files, change `current` or `previous` pointers, restart a
 service, or call an infrastructure deployment controller.
 
+## Independent production format (2)
+
+The normal builder reads `web/default/console-contract.json` and emits format 2:
+
+```bash
+scripts/kkai/frontend-build-release.sh --theme default
+```
+
+No backend identity, schema profile or API-contract override is required or
+accepted. The frontend owns its source/release/checksums and immutable asset URL.
+Deploy only after infrastructure runbook 21's controller, Edge and backend
+contract migration. Use prepare/activate; compatible backend updates preserve
+this artifact and its current/previous pointers. Installed historical versions
+can be activated without their archive. These are source capabilities until
+that exact controller is installed and the migration accepted.
+
+The remainder describes **legacy format 1** and its first-adoption history.
+Those builds now require `--legacy-pair`; retain them only for explicit migration
+or existing rollback contracts. Never edit old metadata to upgrade formats.
+
 ## Production invocation
 
-Run it from the clean local `production/kkrich` checkout after selecting the
-schema contract from current production evidence. For local preparation, build
-the external backend first and take its release/source/schema values from the
-exact generated metadata and its image ID from the checksummed archive. Before
-installation, recheck every value against the immutable staged backend manifest.
+Run it from the clean local `production/kkrich` checkout. For frontend-only
+changes, take backend release/source/image/schema coordinates from the immutable
+manifest selected by the current backend; no backend build or stage is needed.
+Frontend source SHA may differ from backend source SHA. For backend/combined
+changes, stage the external backend and use that candidate's immutable manifest.
+Local preparation may read exact generated backend metadata and the checksummed
+archive image ID, but installation must recheck them against the selected manifest.
 Production builds require the backend image digest so promotion can verify the
 complete pair:
 
 ```bash
-scripts/kkai/frontend-build-release.sh \
+scripts/kkai/frontend-build-release.sh --legacy-pair \
   --schema-contract bridge \
   --api-contract 1 \
   --theme default \
-  --release-id kkai-frontend-20260901.175000-abcdef123 \
-  --backend-release-id kkai-prod-20260901.175000-abcdef123 \
+  --backend-release-id <verified-backend-release-id> \
   --backend-source-sha <40-character-backend-sha> \
   --backend-image-digest <exact-sha256-image-id> \
   --output-dir .local-releases/frontend
@@ -107,6 +128,22 @@ explicitly opt out with `--allow-non-production` and/or `--allow-dirty`.
 
 ## Mode switch and rollback
 
+Routine releases after external adoption follow the daily-release sections in
+infrastructure runbook 20. Frontend-only updates build, validate and install this
+artifact against the unchanged current backend; installation is immediately
+public. They do not require backend canary, Edge/ACME adoption or a platform
+rebuild. Backend changes currently still need a new exactly paired frontend
+artifact, even with unchanged UI source; metadata-only rebinding is not implemented.
+
+Use `rollback --installed` for the selected previous artifact with retained
+outer metadata and the correct backend manifest. This is a current/previous
+swap, not arbitrary historical restore. After independent frontend updates,
+the previous frontend may no longer be the backend rollback partner; record
+those two readiness claims separately as required by runbook 20.
+
+The following sequence is only for a first embedded-to-external migration, not
+the default procedure for each iteration.
+
 Use the pinned frontend controller for every artifact install and pointer
 change. For `embedded` to `external`, keep the active backend embedded while
 the external backend remains staged, then:
@@ -115,8 +152,10 @@ the external backend remains staged, then:
    in the application contract, and build a unique external/bridge backend plus
    its exact paired frontend artifact. Local builds do not require staging.
 2. After production preparation is authorized, install the matching controller
-   and ACME lock support, then stage the backend. Respect the previous release's
-   24-hour rollback retention before replacing its slot. Stage may defer the
+   and ACME lock support, then stage the backend. Preserve the previous release's
+   rollback directory/image for the retention window; stage may temporarily
+   replace its running idle-slot container and abort restores it. Retention is
+   not a blanket 24-hour ban on the next authorized release. Stage may defer the
    live Edge-mode gate and must leave the public router unchanged.
 3. Validate and install the frontend with an explicit `--backend-manifest`
    pointing at that staged release while Edge is still embedded. Verify the

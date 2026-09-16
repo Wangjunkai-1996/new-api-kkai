@@ -12,15 +12,6 @@ export const VIDEO_SAMPLE_CATEGORIES = [
 
 export type VideoSampleCategory = (typeof VIDEO_SAMPLE_CATEGORIES)[number]
 
-export const isVideoSampleCategoryEnabledForContract = (
-  contract: string | undefined
-): boolean => contract !== 'bridge'
-
-export const VIDEO_SAMPLE_CATEGORIES_ENABLED =
-  isVideoSampleCategoryEnabledForContract(
-    import.meta.env.VITE_KKAI_SCHEMA_CONTRACT
-  )
-
 export const VIDEO_SAMPLE_CATEGORY_LABEL_KEYS: Record<
   VideoSampleCategory,
   string

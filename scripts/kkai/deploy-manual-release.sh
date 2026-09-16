@@ -160,6 +160,10 @@ esac
 archive="$(dirname -- "${METADATA}")/${archive_name}"
 [[ -f "${archive}" ]] || die "release archive is missing"
 [[ "$(sha256_file "${archive}")" == "${archive_sha256}" ]] || die "archive checksum mismatch"
+if jq --exit-status 'has("console_contract")' "${METADATA}" >/dev/null; then
+  python3 "${ROOT}/scripts/kkai/verify-release-console-contract.py" "${METADATA}" ||
+    die "release console contract does not match the image archive"
+fi
 
 readonly HOST=sys1
 readonly KEY="${HOME}/.ssh/ovh_sys1"

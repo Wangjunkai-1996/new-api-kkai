@@ -47,12 +47,14 @@ from database time, not container clocks. Business jobs must honor context
 cancellation; the fence is not a substitute for cancellation inside a
 long-running external request or database transaction.
 
-During an ordinary blue/green release, the new idle-slot instance starts as
-`standby-readonly` for health and version checks. The restricted infrastructure
-deployer owns the release-link switch and systemd restart, then verifies that
-the selected release is the sole stable-alias owner and writer. The application
-workflow never stops or restarts production slots, and the previous release
-remains the rollback target.
+During staged blue/green acceptance, the idle slot is replaced with a `serving`
+candidate using the production writer database identity. Global background jobs
+are disabled, but accepted requests and process-local flushes can write business
+data. The private candidate proxy isolates traffic, not data. The official
+controller performs canary and promotion, keeps the stable alias on the router,
+drains the previous slot into `standby-readonly`, and updates the separate single
+leader/writer. Ordinary promotion does not restart systemd or recreate Redis.
+Abort restores the preserved rollback release in the idle slot.
 
 ## Standby Safety
 
@@ -71,11 +73,17 @@ migrations or implicit ability repair.
 The application registry contains these classes:
 
 - Read-only: runtime options, channel cache, authorization policy, pricing.
-- Request-local writes: quota dashboard flush.
+- Request-local writes: quota dashboard flush and performance metric flush.
 - Leader writes: system instance reporting, system task maintenance, Codex
-  credential refresh, subscription maintenance, performance metric flush,
+  credential refresh, subscription maintenance, performance metric maintenance,
   optional channel balance refresh, KKAI risk stream consumption, and durable
   outbox delivery.
+
+Performance flush drains complete process-local samples, including the current
+bucket, on its interval and graceful shutdown. Failed increments are restored
+for retry; database operations honor the job context. Leader maintenance owns
+retention cleanup. Abrupt termination can still lose the unflushed tail, and
+database/hot-bucket queries are not a strongly consistent snapshot.
 
 Adding a recurring writer requires a registry entry, context-aware execution,
 and a regression test proving that it runs only within its declared request-local

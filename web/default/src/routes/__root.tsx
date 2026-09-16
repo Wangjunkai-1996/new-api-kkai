@@ -33,6 +33,7 @@ import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
+import { ConsoleCompatibilityBoundary } from '@/components/console-compatibility-boundary'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
 function RootComponent() {
@@ -49,7 +50,7 @@ function RootComponent() {
   return (
     <ThemeCustomizationProvider>
       <NavigationProgress />
-      <Outlet />
+      <ConsoleCompatibilityBoundary><Outlet /></ConsoleCompatibilityBoundary>
       <Toaster closeButton duration={5000} position='top-center' richColors />
       {import.meta.env.MODE === 'development' && (
         <>

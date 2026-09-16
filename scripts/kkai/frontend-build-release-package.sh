@@ -81,6 +81,17 @@ package_frontend_release() {
       generated_at: $build_timestamp
     }' >"${tmp_release}/release-pair.json"
 
+  local conversion_file="${tmp_release}/frontend.json"
+  if (( ! legacy_pair )); then
+    "${jq_bin}" --argjson required "${required_capabilities}" \
+      --arg asset_base "/frontend-releases/${release_id}/default/" \
+      'del(.backend_source_sha, .backend_release_id, .backend_image_digest, .schema_contract) |
+       .format_version = 2 | .required_capabilities = $required | .asset_base_url = $asset_base' \
+      "${conversion_file}" > "${conversion_file}.tmp"
+    mv -- "${conversion_file}.tmp" "${conversion_file}"
+  fi
+  if (( ! legacy_pair )); then rm -- "${tmp_release}/release-pair.json"; fi
+
   manifest_path="${tmp_release}/manifest.sha256"
   : >"${manifest_path}"
   while IFS= read -r file; do
@@ -140,6 +151,16 @@ package_frontend_release() {
       generated_at: $build_timestamp,
       platform: "web"
     }' >"${tmp_metadata}"
+
+  conversion_file="${tmp_metadata}"
+  if (( ! legacy_pair )); then
+    "${jq_bin}" --argjson required "${required_capabilities}" \
+      --arg asset_base "/frontend-releases/${release_id}/default/" \
+      'del(.backend_source_sha, .backend_release_id, .backend_image_digest, .schema_contract) |
+       .format_version = 2 | .required_capabilities = $required | .asset_base_url = $asset_base' \
+      "${conversion_file}" > "${conversion_file}.tmp"
+    mv -- "${conversion_file}.tmp" "${conversion_file}"
+  fi
 
   # Each final move is atomic on the same filesystem. If a later move fails,
   # the EXIT trap removes any earlier move so callers never see a partial release.

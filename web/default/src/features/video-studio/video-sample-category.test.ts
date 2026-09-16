@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'vitest'
 
 import { parseVideoSampleForm, videoSampleFormSchema } from './schemas'
-import { isVideoSampleCategoryEnabledForContract } from './video-sample-categories'
 
 const sampleFormInput = {
   model_profile_id: 1,
@@ -34,10 +33,4 @@ describe('video sample category form contract', () => {
 
     assert.equal(parsed.success, false)
   })
-})
-
-test('video sample categories are hidden in the schema bridge build', () => {
-  assert.equal(isVideoSampleCategoryEnabledForContract('bridge'), false)
-  assert.equal(isVideoSampleCategoryEnabledForContract('feature'), true)
-  assert.equal(isVideoSampleCategoryEnabledForContract(undefined), true)
 })

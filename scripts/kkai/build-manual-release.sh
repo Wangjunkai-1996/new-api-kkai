@@ -227,6 +227,8 @@ if [[ -n "${build_no_proxy}" ]]; then
   build_args+=(--build-arg "no_proxy=${build_no_proxy}")
 fi
 
+console_contract="$(jq -ce --arg profile "${schema_contract}" '.[$profile]' "${ROOT}/common/console_contract.json")"
+
 docker "${build_args[@]}" \
   --platform linux/amd64 \
   --target "${docker_target}" \
@@ -234,6 +236,7 @@ docker "${build_args[@]}" \
   --build-context "kkai_image=${ROOT}/build/kkai-image" \
   --build-arg "APP_VERSION=${version}" \
   --build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}" \
+  --build-arg "KKAI_CONSOLE_CONTRACT=${console_contract}" \
   --build-arg "KKAI_FRONTEND_MODE=${frontend_mode}" \
   --build-arg "SOURCE_REVISION=${source_sha}" \
   --build-arg "GO_BUILD_PARALLELISM=${go_build_parallelism}" \
@@ -247,6 +250,7 @@ jq --null-input \
   --arg version "${version}" \
   --arg source_sha "${source_sha}" \
   --arg image_tag "${image_tag}" \
+  --argjson console_contract "${console_contract}" \
   --arg schema_contract "${schema_contract}" \
   --arg frontend_mode "${frontend_mode}" \
   --arg archive "$(basename -- "${archive}")" \
@@ -256,6 +260,7 @@ jq --null-input \
     source_sha: $source_sha,
     image_tag: $image_tag,
     schema_contract: $schema_contract,
+    console_contract: $console_contract,
     frontend_mode: $frontend_mode,
     archive: $archive,
     archive_sha256: $archive_sha256,
