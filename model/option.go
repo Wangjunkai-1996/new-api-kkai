@@ -660,6 +660,17 @@ func validateOptionValue(key, value string) error {
 	if key == "AutoGroupProfiles" {
 		return setting.ValidateAutoGroupProfilesJSONAgainstGroups(value, ratio_setting.GetGroupRatioCopy())
 	}
+	if key == "GroupRatio" {
+		var groups map[string]float64
+		if err := common.UnmarshalJsonStr(value, &groups); err != nil {
+			return err
+		}
+		for name := range setting.GetAutoGroupProfilesCopy() {
+			if _, exists := groups[name]; exists {
+				return fmt.Errorf("pricing group %q conflicts with an auto group profile", name)
+			}
+		}
+	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
 	}
@@ -674,8 +685,10 @@ func validateAutoGroupProfileReferences(value string) error {
 		return nil
 	}
 	var profiles map[string][]string
-	if err := common.UnmarshalJsonStr(value, &profiles); err != nil {
-		return err
+	if strings.TrimSpace(value) != "" {
+		if err := common.UnmarshalJsonStr(value, &profiles); err != nil {
+			return err
+		}
 	}
 	removed := make([]string, 0)
 	for name := range setting.GetAutoGroupProfilesCopy() {
