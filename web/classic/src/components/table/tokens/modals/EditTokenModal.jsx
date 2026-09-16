@@ -145,10 +145,13 @@ const EditTokenModal = (props) => {
           group,
         value: group,
         ratio: info.ratio,
+        isAuto: info.is_auto === true || info.is_auto_group === true,
       }));
       if (statusState?.status?.default_use_auto_group) {
-        if (localGroupOptions.some((group) => group.value === 'auto')) {
-          localGroupOptions.sort((a, b) => (a.value === 'auto' ? -1 : 1));
+        if (localGroupOptions.some((group) => group.isAuto || group.value === 'auto')) {
+          localGroupOptions.sort((a, b) =>
+            a.isAuto || a.value === 'auto' ? -1 : 1,
+          );
         }
       }
       setGroups(localGroupOptions);
@@ -417,7 +420,13 @@ const EditTokenModal = (props) => {
                   <Col
                     span={24}
                     style={{
-                      display: values.group === 'auto' ? 'block' : 'none',
+                      display:
+                        groups.some(
+                          (group) =>
+                            group.value === values.group && group.isAuto,
+                        ) || values.group === 'auto'
+                          ? 'block'
+                          : 'none',
                     }}
                   >
                     <Form.Switch

@@ -201,17 +201,25 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         const group = row.getValue('group') as string
         const groupInfo = group ? groupMetadata[group] : undefined
         const ratio =
-          group && group !== 'auto' && typeof groupInfo?.ratio === 'number'
+          group &&
+          group !== 'auto' &&
+          groupInfo?.is_auto !== true &&
+          groupInfo?.is_auto_group !== true &&
+          typeof groupInfo?.ratio === 'number'
             ? groupInfo.ratio
             : undefined
 
-        if (group === 'auto') {
+        const isAutoGroup =
+          groupInfo?.is_auto === true ||
+          groupInfo?.is_auto_group === true ||
+          group === 'auto'
+        if (isAutoGroup) {
           return (
             <Tooltip>
               <TooltipTrigger
                 render={<BadgeCell className='gap-1.5 text-xs' />}
               >
-                <GroupBadge group='auto' />
+                <GroupBadge group={group} isAutoGroup />
                 {apiKey.cross_group_retry && (
                   <StatusBadge
                     label={t('Cross-group')}

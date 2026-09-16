@@ -95,7 +95,9 @@ const renderGroupColumn = (
   groupRatios = {},
   groupDisplayNames = {},
 ) => {
-  if (text === 'auto') {
+  const isAutoGroup =
+    text === 'auto' || record?.is_auto === true || record?.is_auto_group === true;
+  if (isAutoGroup) {
     return (
       <Tooltip
         content={t(

@@ -67,10 +67,11 @@ var (
 )
 
 type KKAIGroupStatusRequest struct {
-	UsableGroups map[string]string
-	AutoGroups   []string
-	Hours        int
-	Window       string
+	UsableGroups      map[string]string
+	AutoGroups        []string
+	AutoGroupProfiles map[string][]string
+	Hours             int
+	Window            string
 }
 
 type KKAIGroupStatusResult struct {

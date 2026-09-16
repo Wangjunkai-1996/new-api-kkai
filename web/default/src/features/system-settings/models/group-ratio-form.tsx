@@ -69,6 +69,7 @@ type GroupFormValues = {
   GroupDisplayNames: string
   GroupGroupRatio: string
   AutoGroups: string
+  AutoGroupProfiles: string
   DefaultUseAutoGroup: boolean
   GroupSpecialUsableGroup: string
 }
@@ -322,6 +323,25 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                   <FormDescription>
                     {t(
                       'JSON array of group identifiers. When enabled below, new tokens rotate through this list.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='AutoGroupProfiles'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Named auto group profiles')}</FormLabel>
+                  <FormControl>
+                    <Textarea rows={6} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON object mapping each automatic group name to its ordered candidate groups, for example auto2.'
                     )}
                   </FormDescription>
                   <FormMessage />

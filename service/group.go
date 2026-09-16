@@ -43,14 +43,43 @@ func GroupInUserUsableGroups(userGroup, groupName string) bool {
 
 // GetUserAutoGroup 根据用户分组获取自动分组设置
 func GetUserAutoGroup(userGroup string) []string {
-	groups := GetUserUsableGroups(userGroup)
-	autoGroups := make([]string, 0)
-	for _, group := range setting.GetAutoGroups() {
-		if _, ok := groups[group]; ok {
-			autoGroups = append(autoGroups, group)
+	return GetUserAutoGroupCandidates(userGroup, "auto")
+}
+
+// GetUserAutoGroupCandidates returns the configured candidate order for a
+// virtual auto group, filtered by the user's usable groups.
+func GetUserAutoGroupCandidates(userGroup, autoGroup string) []string {
+	if !setting.IsAutoGroup(autoGroup) {
+		return []string{}
+	}
+	usableGroups := GetUserUsableGroups(userGroup)
+	candidates := setting.GetAutoGroupCandidates(autoGroup)
+	result := make([]string, 0, len(candidates))
+	for _, group := range candidates {
+		if setting.IsAutoGroup(group) {
+			continue
+		}
+		if _, ok := usableGroups[group]; ok {
+			result = append(result, group)
 		}
 	}
-	return autoGroups
+	return result
+}
+
+// GetUserAutoGroups returns virtual auto groups the user is allowed to use.
+func GetUserAutoGroups(userGroup string) []string {
+	usableGroups := GetUserUsableGroups(userGroup)
+	result := make([]string, 0, len(setting.GetAutoGroupProfilesCopy())+1)
+	for _, autoGroup := range setting.GetAutoGroupNames() {
+		if _, ok := usableGroups[autoGroup]; ok {
+			result = append(result, autoGroup)
+		}
+	}
+	return result
+}
+
+func IsAutoGroup(group string) bool {
+	return setting.IsAutoGroup(group)
 }
 
 // GetUserGroupRatio 获取用户使用某个分组的倍率

@@ -21,6 +21,7 @@ import { useMemo } from 'react'
 
 import { useStatus } from '@/hooks/use-status'
 import { resolveGroupDisplayName } from '@/lib/group-display'
+import { normalizeAutoGroupChains } from '@/lib/auto-groups'
 
 import { getPricing } from '../api'
 
@@ -96,6 +97,10 @@ export function usePricingData() {
     groupDisplayNames,
     endpointMap: data?.supported_endpoint ?? {},
     autoGroups: data?.auto_groups ?? [],
+    autoGroupChains: normalizeAutoGroupChains(
+      data?.auto_group_chains,
+      data?.auto_groups
+    ),
     isLoading,
     error,
     refetch,

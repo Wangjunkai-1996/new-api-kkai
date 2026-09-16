@@ -224,6 +224,7 @@ export type ModelSettings = {
   GroupDisplayNames: string
   GroupGroupRatio: string
   AutoGroups: string
+  AutoGroupProfiles: string
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
   RetryTimes: number
@@ -284,6 +285,7 @@ export type BillingSettings = {
   GroupDisplayNames: string
   GroupGroupRatio: string
   AutoGroups: string
+  AutoGroupProfiles: string
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
   PayAddress: string

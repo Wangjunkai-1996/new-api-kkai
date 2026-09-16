@@ -50,6 +50,7 @@ export function Pricing() {
     usableGroup,
     endpointMap,
     autoGroups,
+    autoGroupChains,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -101,9 +102,11 @@ export function Pricing() {
   const availableGroups = useMemo(
     () =>
       Object.keys(usableGroup || {}).filter(
-        (g) => !EXCLUDED_GROUPS.includes(g)
+        (g) =>
+          !EXCLUDED_GROUPS.includes(g) &&
+          !Object.hasOwn(autoGroupChains, g)
       ),
-    [usableGroup]
+    [usableGroup, autoGroupChains]
   )
 
   const handleClearAll = useCallback(() => {
@@ -282,6 +285,7 @@ export function Pricing() {
                 >) || {}
               }
               autoGroups={autoGroups || []}
+              autoGroupChains={autoGroupChains}
               priceRate={priceRate ?? 1}
               usdExchangeRate={usdExchangeRate ?? 1}
               tokenUnit={tokenUnit}

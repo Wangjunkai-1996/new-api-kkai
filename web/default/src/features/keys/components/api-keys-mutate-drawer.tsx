@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -65,6 +65,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import { isAutoGroupName } from '@/lib/auto-groups'
 import { toUserGroupOption } from '@/lib/group-display'
 import { cn } from '@/lib/utils'
 
@@ -124,7 +125,13 @@ export function ApiKeysMutateDrawer({
   const groups: ApiKeyGroupOption[] = Object.entries(groupsRaw).map(
     ([key, info]) => toUserGroupOption(key, info)
   )
-  const backendHasAuto = groups.some((g) => g.value === 'auto')
+  const autoGroupNames = useMemo(
+    () => new Set(groups.filter((group) => group.isAuto).map((group) => group.value)),
+    [groups]
+  )
+  const backendHasAuto = groups.some(
+    (group) => group.isAuto || group.value === 'auto'
+  )
   const schema = getApiKeyFormSchema(t)
 
   const form = useForm<ApiKeyFormValues>({
@@ -157,16 +164,16 @@ export function ApiKeysMutateDrawer({
         groups[0]?.value ??
         ''
       form.setValue('group', fallback)
-      if (currentGroup === 'auto') {
+      if (isAutoGroupName(currentGroup, autoGroupNames)) {
         form.setValue('cross_group_retry', false)
       }
     }
-  }, [groups, form])
+  }, [groups, form, autoGroupNames])
 
   const onSubmit = async (data: ApiKeyFormValues) => {
     setIsSubmitting(true)
     try {
-      const basePayload = transformFormDataToPayload(data)
+      const basePayload = transformFormDataToPayload(data, autoGroupNames)
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey({
@@ -315,7 +322,7 @@ export function ApiKeysMutateDrawer({
                 )}
               />
 
-              {selectedGroup === 'auto' && (
+              {isAutoGroupName(selectedGroup, autoGroupNames) && (
                 <FormField
                   control={form.control}
                   name='cross_group_retry'

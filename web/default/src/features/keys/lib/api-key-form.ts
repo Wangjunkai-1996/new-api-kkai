@@ -20,9 +20,10 @@ import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+import { isAutoGroupName } from '@/lib/auto-groups'
 
 import { DEFAULT_GROUP } from '../constants'
-import { type ApiKeyFormData, type ApiKey } from '../types'
+import type { ApiKeyFormData, ApiKey } from '../types'
 
 // ============================================================================
 // Form Schema
@@ -95,7 +96,8 @@ export function getApiKeyFormDefaultValues(
  * Transform form data to API payload
  */
 export function transformFormDataToPayload(
-  data: ApiKeyFormValues
+  data: ApiKeyFormValues,
+  autoGroupNames?: ReadonlySet<string>
 ): ApiKeyFormData {
   return {
     name: data.name,
@@ -110,7 +112,12 @@ export function transformFormDataToPayload(
     model_limits: data.model_limits.join(','),
     allow_ips: data.allow_ips || '',
     group: data.group || '',
-    cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+    cross_group_retry: isAutoGroupName(
+      data.group,
+      autoGroupNames
+    )
+      ? !!data.cross_group_retry
+      : false,
   }
 }
 

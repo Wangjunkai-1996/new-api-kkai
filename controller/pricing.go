@@ -64,6 +64,10 @@ func GetPricing(c *gin.Context) {
 			description,
 		)
 	}
+	autoGroupProfiles := make(map[string][]string)
+	for _, autoGroup := range service.GetUserAutoGroups(group) {
+		autoGroupProfiles[autoGroup] = service.GetUserAutoGroupCandidates(group, autoGroup)
+	}
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
@@ -81,6 +85,7 @@ func GetPricing(c *gin.Context) {
 		"group_display_names": groupDisplayNames,
 		"supported_endpoint":  model.GetSupportedEndpointMap(),
 		"auto_groups":         service.GetUserAutoGroup(group),
+		"auto_group_chains":   autoGroupProfiles,
 		"pricing_version":     "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
 }

@@ -29,6 +29,8 @@ type GroupBadgeProps = Omit<
   group?: string | null
   /** Optional user-facing label; `group` remains the canonical key. */
   displayName?: string
+  /** Marks a named automatic group without relying on its identifier. */
+  isAutoGroup?: boolean
   label?: string
   ratio?: number | null
 }
@@ -71,6 +73,7 @@ export function GroupBadge(props: GroupBadgeProps) {
   const {
     group,
     displayName,
+    isAutoGroup: isAutoGroupOverride,
     label: labelOverride,
     ratio,
     copyable = false,
@@ -79,7 +82,7 @@ export function GroupBadge(props: GroupBadgeProps) {
     ...badgeProps
   } = props
   const groupName = group?.trim()
-  const isAutoGroup = groupName === 'auto'
+  const isAutoGroup = isAutoGroupOverride ?? groupName === 'auto'
   const isEmptyGroup = !groupName
   const isSpecialGroup = isAutoGroup || isEmptyGroup
   const label = getGroupLabel({

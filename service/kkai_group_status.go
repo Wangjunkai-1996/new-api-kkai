@@ -52,9 +52,17 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 		cacheWindowCovered = historical.CacheTrackingStartedAt > 0 && cacheStartTs >= historical.CacheTrackingStartedAt
 	}
 
-	applyKKAIAutoGroupMetrics(metrics, request.UsableGroups, request.AutoGroups)
+	profiles := request.AutoGroupProfiles
+	if len(profiles) == 0 && len(request.AutoGroups) > 0 {
+		profiles = map[string][]string{"auto": request.AutoGroups}
+	}
+	for profile, candidates := range profiles {
+		applyKKAIAutoGroupMetricsForProfile(metrics, request.UsableGroups, profile, candidates)
+	}
 	eventsByGroup := kkaiGroupRecentEventsByGroup(signals.Events, kkaiGroupRecentEventLimit)
-	applyKKAIAutoGroupEvents(eventsByGroup, request.UsableGroups, request.AutoGroups, kkaiGroupRecentEventLimit)
+	for profile, candidates := range profiles {
+		applyKKAIAutoGroupEventsForProfile(eventsByGroup, request.UsableGroups, profile, candidates, kkaiGroupRecentEventLimit)
+	}
 	entries := make([]KKAIGroupStatusEntry, 0, len(groups))
 	for _, group := range groups {
 		recentEvents := eventsByGroup[group]

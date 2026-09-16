@@ -27,6 +27,8 @@ export type UserGroupInfo = {
   display_name?: string | null
   displayName?: string | null
   ratio?: number | string | null
+  is_auto?: boolean
+  is_auto_group?: boolean
 }
 
 export type UserGroupOption = {
@@ -34,6 +36,7 @@ export type UserGroupOption = {
   value: string
   ratio: number | string
   desc?: string
+  isAuto?: boolean
 }
 
 export type GroupDisplayNameMap = Readonly<
@@ -99,6 +102,7 @@ export function toUserGroupOption(
     label,
     value: group,
     ratio: info?.ratio ?? '',
+    ...(info?.is_auto || info?.is_auto_group ? { isAuto: true } : {}),
     ...(description ? { desc: description } : {}),
   }
 }

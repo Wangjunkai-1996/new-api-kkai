@@ -105,10 +105,10 @@ func GetTokenModels(c *gin.Context) {
 	}
 
 	groups := make([]string, 0)
-	explicitGroupValid := token.Group == "" || token.Group == "auto" || ratio_setting.ContainsGroupRatio(token.Group)
+	explicitGroupValid := token.Group == "" || service.IsAutoGroup(token.Group) || ratio_setting.ContainsGroupRatio(token.Group)
 	if _, ok := usableGroups[effectiveGroup]; ok && explicitGroupValid {
-		if effectiveGroup == "auto" {
-			groups = service.GetUserAutoGroup(user.Group)
+		if service.IsAutoGroup(effectiveGroup) {
+			groups = service.GetUserAutoGroupCandidates(user.Group, effectiveGroup)
 		} else {
 			groups = append(groups, effectiveGroup)
 		}

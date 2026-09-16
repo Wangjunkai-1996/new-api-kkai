@@ -105,6 +105,7 @@ export type PricingData = {
   group_display_names?: Record<string, string>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
+  auto_group_chains?: Record<string, string[]>
 }
 
 export type TokenUnit = 'M' | 'K'

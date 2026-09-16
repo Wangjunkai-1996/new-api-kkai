@@ -125,6 +125,7 @@ func InitOptionMap() {
 	common.OptionMap["TopupGroupRatio"] = common.TopupGroupRatio2JSONString()
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
+	common.OptionMap["AutoGroupProfiles"] = setting.AutoGroupProfiles2JsonString()
 	common.OptionMap["DefaultUseAutoGroup"] = strconv.FormatBool(setting.DefaultUseAutoGroup)
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
 	common.OptionMap["GitHubClientId"] = ""
@@ -220,6 +221,11 @@ func UpdateOption(key string, value string) error {
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
+	if key == "AutoGroupProfiles" {
+		if err := validateAutoGroupProfileReferences(value); err != nil {
+			return err
+		}
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -252,6 +258,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
+		if key == "AutoGroupProfiles" {
+			if err := validateAutoGroupProfileReferences(value); err != nil {
+				return err
+			}
+		}
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		for k, v := range values {
@@ -278,6 +289,20 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	// Validate JSON-backed auto-group settings before publishing the raw value.
+	// Startup synchronization can encounter externally edited database rows; a
+	// malformed value must not replace the last known-good OptionMap entry.
+	if key == "AutoGroups" {
+		if err := setting.ValidateAutoGroupsJSON(value); err != nil {
+			return err
+		}
+	}
+	if key == "AutoGroupProfiles" {
+		if err := setting.ValidateAutoGroupProfilesJSONAgainstGroups(value, ratio_setting.GetGroupRatioCopy()); err != nil {
+			return err
+		}
+	}
+
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	if key == image_pricing_setting.OptionKey {
@@ -436,6 +461,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateChatsByJsonString(value)
 	case "AutoGroups":
 		err = setting.UpdateAutoGroupsByJsonString(value)
+	case "AutoGroupProfiles":
+		err = setting.UpdateAutoGroupProfilesByJsonString(value)
 	case "CustomCallbackAddress":
 		operation_setting.CustomCallbackAddress = value
 	case "EpayId":
@@ -627,11 +654,44 @@ func validateOptionValue(key, value string) error {
 	if key == "GroupDisplayNames" {
 		return setting.ValidateGroupDisplayNamesJSON(value)
 	}
+	if key == "AutoGroups" {
+		return setting.ValidateAutoGroupsJSON(value)
+	}
+	if key == "AutoGroupProfiles" {
+		return setting.ValidateAutoGroupProfilesJSONAgainstGroups(value, ratio_setting.GetGroupRatioCopy())
+	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
 	}
 	if key == "ModelRequestRateLimitUser" {
 		return setting.CheckModelRequestRateLimitUser(value)
+	}
+	return nil
+}
+
+func validateAutoGroupProfileReferences(value string) error {
+	if DB == nil {
+		return nil
+	}
+	var profiles map[string][]string
+	if err := common.UnmarshalJsonStr(value, &profiles); err != nil {
+		return err
+	}
+	removed := make([]string, 0)
+	for name := range setting.GetAutoGroupProfilesCopy() {
+		if _, ok := profiles[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	var count int64
+	if err := DB.Model(&Token{}).Where(commonGroupCol+" IN ?", removed).Count(&count).Error; err != nil {
+		return fmt.Errorf("check auto group profile references: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("cannot remove auto group profile(s) still used by %d API key(s): %s", count, strings.Join(removed, ", "))
 	}
 	return nil
 }

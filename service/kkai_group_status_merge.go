@@ -87,19 +87,20 @@ func combinedKKAIGroupDataSource(hasDatabase bool, liveSource string) string {
 }
 
 func applyKKAIAutoGroupMetrics(metrics map[string]kkaiGroupMetrics, usableGroups map[string]string, autoGroups []string) {
-	if _, ok := usableGroups["auto"]; !ok {
+	applyKKAIAutoGroupMetricsForProfile(metrics, usableGroups, "auto", autoGroups)
+}
+
+func applyKKAIAutoGroupMetricsForProfile(metrics map[string]kkaiGroupMetrics, usableGroups map[string]string, profile string, autoGroups []string) {
+	if _, ok := usableGroups[profile]; !ok {
 		return
 	}
-	auto := metrics["auto"]
+	auto := metrics[profile]
 	for _, group := range autoGroups {
-		if group == "auto" {
-			continue
-		}
 		if _, ok := usableGroups[group]; ok {
 			auto = auto.add(metrics[group])
 		}
 	}
-	metrics["auto"] = auto
+	metrics[profile] = auto
 }
 
 func kkaiGroupRecentEventsByGroup(events []perfmetrics.KKAIGroupSignalEvent, limit int) map[string][]KKAIGroupRecentEvent {
@@ -125,14 +126,15 @@ func kkaiGroupRecentEventsByGroup(events []perfmetrics.KKAIGroupSignalEvent, lim
 }
 
 func applyKKAIAutoGroupEvents(events map[string][]KKAIGroupRecentEvent, usableGroups map[string]string, autoGroups []string, limit int) {
-	if _, ok := usableGroups["auto"]; !ok {
+	applyKKAIAutoGroupEventsForProfile(events, usableGroups, "auto", autoGroups, limit)
+}
+
+func applyKKAIAutoGroupEventsForProfile(events map[string][]KKAIGroupRecentEvent, usableGroups map[string]string, profile string, autoGroups []string, limit int) {
+	if _, ok := usableGroups[profile]; !ok {
 		return
 	}
-	auto := append([]KKAIGroupRecentEvent(nil), events["auto"]...)
+	auto := append([]KKAIGroupRecentEvent(nil), events[profile]...)
 	for _, group := range autoGroups {
-		if group == "auto" {
-			continue
-		}
 		if _, ok := usableGroups[group]; ok {
 			auto = append(auto, events[group]...)
 		}
@@ -141,7 +143,7 @@ func applyKKAIAutoGroupEvents(events map[string][]KKAIGroupRecentEvent, usableGr
 	if len(auto) > limit {
 		auto = auto[len(auto)-limit:]
 	}
-	events["auto"] = auto
+	events[profile] = auto
 }
 
 func kkaiGroupRecentEventLess(left KKAIGroupRecentEvent, right KKAIGroupRecentEvent) bool {

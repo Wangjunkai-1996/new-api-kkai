@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { EXCLUDED_GROUPS, FILTER_ALL, QUOTA_TYPE_VALUES } from '../constants'
+import { isAutoGroupName, type AutoGroupChains } from '@/lib/auto-groups'
 import type { PricingModel, PricingUsableGroup } from '../types'
 
 // ----------------------------------------------------------------------------
@@ -28,14 +29,17 @@ import type { PricingModel, PricingUsableGroup } from '../types'
  */
 export function getAvailableGroups(
   model: PricingModel,
-  usableGroup: PricingUsableGroup
+  usableGroup: PricingUsableGroup,
+  autoGroupChains?: AutoGroupChains
 ): string[] {
   const modelEnableGroups = Array.isArray(model.enable_groups)
     ? model.enable_groups
     : []
 
   return Object.keys(usableGroup)
-    .filter((g) => !EXCLUDED_GROUPS.includes(g))
+    .filter(
+      (g) => !EXCLUDED_GROUPS.includes(g) && !isAutoGroupName(g, autoGroupChains)
+    )
     .filter((g) => modelEnableGroups.includes(g))
 }
 

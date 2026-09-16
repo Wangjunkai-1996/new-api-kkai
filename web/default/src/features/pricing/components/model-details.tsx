@@ -59,6 +59,11 @@ import {
   resolveGroupDisplayName,
   type GroupDisplayNameMap,
 } from '@/lib/group-display'
+import {
+  getAutoGroupChain,
+  getAutoGroupNames,
+  type AutoGroupChains,
+} from '@/lib/auto-groups'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -805,33 +810,45 @@ function PriceSection(props: {
 function AutoGroupChain(props: {
   model: PricingModel
   autoGroups: string[]
+  autoGroupChains?: AutoGroupChains
   groupDisplayNames?: GroupDisplayNameMap
 }) {
   const { t } = useTranslation()
   const modelEnableGroups = Array.isArray(props.model.enable_groups)
     ? props.model.enable_groups
     : []
-  const autoChain = props.autoGroups.filter((g) =>
-    modelEnableGroups.includes(g)
-  )
+  const chains = props.autoGroupChains ?? { auto: props.autoGroups }
+  const visibleChains = getAutoGroupNames(chains)
+    .map((name) => ({
+      name,
+      groups: getAutoGroupChain(chains, name).filter((g) =>
+        modelEnableGroups.includes(g)
+      ),
+    }))
+    .filter((chain) => chain.groups.length > 0)
 
-  if (autoChain.length === 0) return null
+  if (visibleChains.length === 0) return null
 
   return (
-    <div className='text-muted-foreground mb-3 flex flex-wrap items-center gap-1 text-xs'>
-      <span className='font-medium'>{t('Auto Group Chain')}</span>
-      <span className='text-muted-foreground/40'>→</span>
-      {autoChain.map((g, idx) => (
-        <span key={g} className='flex items-center gap-1'>
-          <GroupBadge
-            group={g}
-            label={resolveGroupDisplayName(g, props.groupDisplayNames)}
-            size='sm'
-          />
-          {idx < autoChain.length - 1 && (
-            <span className='text-muted-foreground/40'>→</span>
-          )}
-        </span>
+    <div className='text-muted-foreground mb-3 space-y-1 text-xs'>
+      {visibleChains.map((chain) => (
+        <div key={chain.name} className='flex flex-wrap items-center gap-1'>
+          <span className='font-medium'>{t('Auto Group Chain')}</span>
+          <span className='text-muted-foreground/70'>{chain.name}</span>
+          <span className='text-muted-foreground/40'>→</span>
+          {chain.groups.map((g, idx) => (
+            <span key={g} className='flex items-center gap-1'>
+              <GroupBadge
+                group={g}
+                label={resolveGroupDisplayName(g, props.groupDisplayNames)}
+                size='sm'
+              />
+              {idx < chain.groups.length - 1 && (
+                <span className='text-muted-foreground/40'>→</span>
+              )}
+            </span>
+          ))}
+        </div>
       ))}
     </div>
   )
@@ -881,6 +898,7 @@ function GroupPricingSection(props: {
   usableGroup: PricingUsableGroup
   groupDisplayNames?: GroupDisplayNameMap
   autoGroups: string[]
+  autoGroupChains?: AutoGroupChains
   priceRate: number
   usdExchangeRate: number
   tokenUnit: TokenUnit
@@ -890,8 +908,13 @@ function GroupPricingSection(props: {
   const showRechargePrice = props.showRechargePrice ?? false
 
   const availableGroups = useMemo(
-    () => getAvailableGroups(props.model, props.usableGroup || {}),
-    [props.model, props.usableGroup]
+    () =>
+      getAvailableGroups(
+        props.model,
+        props.usableGroup || {},
+        props.autoGroupChains
+      ),
+    [props.model, props.usableGroup, props.autoGroupChains]
   )
 
   const isTokenBased = isTokenBasedModel(props.model)
@@ -927,6 +950,7 @@ function GroupPricingSection(props: {
         <AutoGroupChain
           model={props.model}
           autoGroups={props.autoGroups}
+          autoGroupChains={props.autoGroupChains}
           groupDisplayNames={props.groupDisplayNames}
         />
         <p className='text-muted-foreground text-sm'>
@@ -951,6 +975,7 @@ function GroupPricingSection(props: {
           <AutoGroupChain
             model={props.model}
             autoGroups={props.autoGroups}
+            autoGroupChains={props.autoGroupChains}
             groupDisplayNames={props.groupDisplayNames}
           />
           <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
@@ -1004,6 +1029,7 @@ function GroupPricingSection(props: {
         <AutoGroupChain
           model={props.model}
           autoGroups={props.autoGroups}
+          autoGroupChains={props.autoGroupChains}
           groupDisplayNames={props.groupDisplayNames}
         />
         <div className='space-y-3'>
@@ -1094,6 +1120,7 @@ function GroupPricingSection(props: {
       <AutoGroupChain
         model={props.model}
         autoGroups={props.autoGroups}
+        autoGroupChains={props.autoGroupChains}
         groupDisplayNames={props.groupDisplayNames}
       />
       <StaticDataTable
@@ -1188,6 +1215,7 @@ export interface ModelDetailsContentProps {
   groupDisplayNames?: GroupDisplayNameMap
   endpointMap: Record<string, { path?: string; method?: string }>
   autoGroups: string[]
+  autoGroupChains?: AutoGroupChains
   priceRate: number
   usdExchangeRate: number
   tokenUnit: TokenUnit
@@ -1244,6 +1272,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usableGroup={props.usableGroup}
               groupDisplayNames={props.groupDisplayNames}
               autoGroups={props.autoGroups}
+              autoGroupChains={props.autoGroupChains}
               priceRate={props.priceRate}
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
@@ -1321,6 +1350,7 @@ export function ModelDetails() {
     usableGroup,
     endpointMap,
     autoGroups,
+    autoGroupChains,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -1400,6 +1430,7 @@ export function ModelDetails() {
           groupDisplayNames={groupDisplayNames}
           usableGroup={usableGroup || {}}
           autoGroups={autoGroups || []}
+          autoGroupChains={autoGroupChains}
           priceRate={priceRate ?? 1}
           usdExchangeRate={usdExchangeRate ?? 1}
           tokenUnit={tokenUnit}

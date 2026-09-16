@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isAutoGroupName } from '@/lib/auto-groups'
+
 import type { PricingModel } from '../types'
 import {
   hashStringToSeed,
@@ -309,7 +311,9 @@ function groupFactor(
  * row for each enabled group, sorted alphabetically.
  */
 export function buildGroupPerformance(model: PricingModel): GroupPerformance[] {
-  const groups = (model.enable_groups ?? []).filter((g) => g && g !== 'auto')
+  const groups = (model.enable_groups ?? []).filter(
+    (g) => g && !isAutoGroupName(g)
+  )
   const targets = groups.length > 0 ? groups : ['default']
   const profile = PROFILE_BY_NAME(model.model_name)
   const spec = PROFILE_SPECS[profile]
@@ -807,7 +811,9 @@ export type RateLimit = {
 
 /** Build per-group RPM / TPM / RPD limits for the model. */
 export function buildRateLimits(model: PricingModel): RateLimit[] {
-  const groups = (model.enable_groups ?? []).filter((g) => g && g !== 'auto')
+  const groups = (model.enable_groups ?? []).filter(
+    (g) => g && !isAutoGroupName(g)
+  )
   const targets = groups.length > 0 ? groups : ['default']
   const cat = apiCategoryOf(model)
   const baseSeed = hashStringToSeed(`${model.model_name}:rl`)

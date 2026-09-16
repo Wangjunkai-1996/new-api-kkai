@@ -48,11 +48,12 @@ func GetUserGroups(c *gin.Context) {
 			}
 		}
 	}
-	if _, ok := userUsableGroups["auto"]; ok {
-		usableGroups["auto"] = map[string]interface{}{
+	for _, autoGroup := range service.GetUserAutoGroups(userGroup) {
+		usableGroups[autoGroup] = map[string]interface{}{
 			"ratio":        "自动",
-			"desc":         setting.GetUsableGroupDescription("auto"),
-			"display_name": setting.GetGroupDisplayName("auto"),
+			"desc":         setting.GetUsableGroupDescription(autoGroup),
+			"display_name": setting.GetGroupDisplayName(autoGroup),
+			"is_auto":      true,
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{

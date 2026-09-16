@@ -25,11 +25,17 @@ func GetKKAIGroupStatus(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	usableGroups := service.GetUserUsableGroups(userGroup)
+	autoGroupProfiles := make(map[string][]string)
+	for _, autoGroup := range service.GetUserAutoGroups(userGroup) {
+		autoGroupProfiles[autoGroup] = service.GetUserAutoGroupCandidates(userGroup, autoGroup)
+	}
 	result, err := service.GetKKAIGroupStatuses(service.KKAIGroupStatusRequest{
-		UsableGroups: service.GetUserUsableGroups(userGroup),
-		AutoGroups:   setting.GetAutoGroups(),
-		Hours:        hours,
-		Window:       c.Query("window"),
+		UsableGroups:      usableGroups,
+		AutoGroups:        setting.GetAutoGroups(),
+		AutoGroupProfiles: autoGroupProfiles,
+		Hours:             hours,
+		Window:            c.Query("window"),
 	})
 	if err != nil {
 		common.ApiError(c, err)

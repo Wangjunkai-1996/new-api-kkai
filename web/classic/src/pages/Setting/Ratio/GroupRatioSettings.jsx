@@ -57,6 +57,7 @@ const OPTION_KEYS = [
   'GroupGroupRatio',
   'group_ratio_setting.group_special_usable_group',
   'AutoGroups',
+  'AutoGroupProfiles',
   'DefaultUseAutoGroup',
 ];
 
@@ -82,6 +83,7 @@ export default function GroupRatioSettings(props) {
     GroupGroupRatio: '',
     'group_ratio_setting.group_special_usable_group': '',
     AutoGroups: '',
+    AutoGroupProfiles: '{}',
     DefaultUseAutoGroup: false,
   });
   const refForm = useRef();
@@ -230,6 +232,41 @@ export default function GroupRatioSettings(props) {
                 {t('开启后创建令牌默认选择auto分组，初始令牌也将设为auto')}
               </Text>
             </Form.Slot>
+          </Col>
+        </Row>
+        <Row gutter={16}>
+          <Col xs={24} sm={16}>
+            <Form.TextArea
+              label={t('命名自动分组策略')}
+              placeholder={t('例如：{"auto2":["vip","default"]}')}
+              field='AutoGroupProfiles'
+              autosize={{ minRows: 6, maxRows: 12 }}
+              trigger='blur'
+              stopValidateWithError
+              rules={[{
+                validator: (rule, value) => {
+                  if (!value || value.trim() === '') return true;
+                  try {
+                    const parsed = JSON.parse(value);
+                    return parsed && !Array.isArray(parsed) &&
+                      typeof parsed === 'object' &&
+                      Object.entries(parsed).every(([name, groups]) =>
+                        /^auto[2-9][0-9]*$/.test(name) &&
+                        Array.isArray(groups) &&
+                        groups.length > 0 &&
+                        new Set(groups).size === groups.length &&
+                        groups.every((group) => typeof group === 'string'),
+                      );
+                  } catch {
+                    return false;
+                  }
+                },
+                message: t('必须是命名自动分组到有序分组数组的 JSON 对象'),
+              }]}
+              onChange={(value) =>
+                setInputs((prev) => ({ ...prev, AutoGroupProfiles: value }))
+              }
+            />
           </Col>
         </Row>
         <AutoGroupList
