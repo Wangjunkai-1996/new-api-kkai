@@ -62,71 +62,146 @@ func TestChannelSelectionExcludesExhaustedPoolsPerRequest(t *testing.T) {
 
 func TestExhaustedPoolAutoGroupRetryBoundaries(t *testing.T) {
 	previousAutoGroups := setting.AutoGroups2JsonString()
+	previousProfiles := setting.AutoGroupProfiles2JsonString()
 	previousUsableGroups := setting.UserUsableGroups2JSONString()
 	previousRetries := common.RetryTimes
 	t.Cleanup(func() {
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
+		require.NoError(t, setting.UpdateAutoGroupProfilesByJsonString(previousProfiles))
 		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
 		common.RetryTimes = previousRetries
 	})
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["pool-primary","pool-backup"]`))
+	require.NoError(t, setting.UpdateAutoGroupProfilesByJsonString(`{"auto2":["pool-primary","pool-backup"]}`))
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"pool-primary":"Primary","pool-backup":"Backup"}`))
 	common.RetryTimes = 2
 
 	for _, memoryCache := range []bool{false, true} {
-		for _, tt := range []struct {
-			name            string
-			crossGroupRetry bool
-			poolOnly        bool
-		}{
-			{"mixed failures with cross-group retry", true, false},
-			{"mixed failures without cross-group retry", false, false},
-			{"empty pool with cross-group retry", true, true},
-			{"empty pool without cross-group retry", false, true},
-		} {
-			t.Run(fmt.Sprintf("memory_cache_%t/%s", memoryCache, tt.name), func(t *testing.T) {
-				db := newImageStudioChannelSelectionTestDB(t)
-				const modelName = "gpt-5.5"
-				first := seedImageStudioSelectionChannel(t, db, "pool-primary", modelName, constant.ChannelTypeOpenAI, 30)
-				wantIDs := []int{first.Id}
-				if !tt.poolOnly {
-					second := seedImageStudioSelectionChannel(t, db, "pool-primary", modelName, constant.ChannelTypeOpenAI, 20)
-					third := seedImageStudioSelectionChannel(t, db, "pool-primary", modelName, constant.ChannelTypeOpenAI, 10)
-					wantIDs = append(wantIDs, second.Id, third.Id)
-				}
-				backup := seedImageStudioSelectionChannel(t, db, "pool-backup", modelName, constant.ChannelTypeOpenAI, 30)
-				seedImageStudioSelectionChannel(t, db, "pool-backup", modelName, constant.ChannelTypeOpenAI, 10)
-				if tt.crossGroupRetry {
-					wantIDs = append(wantIDs, backup.Id)
-				}
-				common.MemoryCacheEnabled = memoryCache
-				if memoryCache {
-					require.NoError(t, model.SyncChannelCacheOnce())
-				}
+		for _, tokenGroup := range []string{"auto", "auto2"} {
+			for _, tt := range []struct {
+				name            string
+				crossGroupRetry bool
+				poolOnly        bool
+				disableFirst    bool
+			}{
+				{"mixed failures with cross-group retry", true, false, false},
+				{"mixed failures without cross-group retry", false, false, false},
+				{"empty pool with cross-group retry", true, true, false},
+				{"empty pool without cross-group retry", false, true, false},
+				{"disabled channel with cross-group retry", true, true, true},
+				{"disabled channel without cross-group retry", false, true, true},
+			} {
+				t.Run(fmt.Sprintf("memory_cache_%t/%s/%s", memoryCache, tokenGroup, tt.name), func(t *testing.T) {
+					db := newImageStudioChannelSelectionTestDB(t)
+					const modelName = "gpt-5.5"
+					first := seedImageStudioSelectionChannel(t, db, "pool-primary", modelName, constant.ChannelTypeOpenAI, 30)
+					wantIDs := []int{first.Id}
+					if !tt.poolOnly {
+						second := seedImageStudioSelectionChannel(t, db, "pool-primary", modelName, constant.ChannelTypeOpenAI, 20)
+						third := seedImageStudioSelectionChannel(t, db, "pool-primary", modelName, constant.ChannelTypeOpenAI, 10)
+						wantIDs = append(wantIDs, second.Id, third.Id)
+					}
+					backup := seedImageStudioSelectionChannel(t, db, "pool-backup", modelName, constant.ChannelTypeOpenAI, 30)
+					seedImageStudioSelectionChannel(t, db, "pool-backup", modelName, constant.ChannelTypeOpenAI, 10)
+					if tt.crossGroupRetry {
+						wantIDs = append(wantIDs, backup.Id)
+					}
+					common.MemoryCacheEnabled = memoryCache
+					if memoryCache {
+						require.NoError(t, model.SyncChannelCacheOnce())
+					}
+					ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+					ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+					common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, tt.crossGroupRetry)
+					param := &RetryParam{Ctx: ctx, TokenGroup: tokenGroup, ModelName: modelName, RequestPath: ctx.Request.URL.Path}
+					var gotIDs []int
+					for ; param.GetRetry() <= common.RetryTimes; param.IncreaseRetry() {
+						selected, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+						require.NoError(t, err)
+						if selected == nil {
+							break
+						}
+						assert.Equal(t, selected.Group, selectedGroup)
+						assert.Equal(t, selected.Group, common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+						gotIDs = append(gotIDs, selected.Id)
+						require.LessOrEqual(t, len(gotIDs), len(wantIDs), "each group must retain its attempt budget")
+						if selected.Group == "pool-backup" {
+							break
+						}
+						if selected.Id == first.Id {
+							if tt.disableFirst {
+								require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", selected.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
+								require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", selected.Id).Update("enabled", false).Error)
+								if memoryCache {
+									require.NoError(t, model.SyncChannelCacheOnce())
+								}
+							} else {
+								param.ExcludedChannelIDs = append(param.ExcludedChannelIDs, selected.Id)
+							}
+						} else {
+							param.PriorityRetry++
+						}
+					}
+					assert.Equal(t, wantIDs, gotIDs, "pool failures retain the attempt budget and cross-group permission")
+				})
+			}
+		}
+	}
+}
+
+func TestAutoGroupSelectionKeepsProfilesAndRequestStateIndependent(t *testing.T) {
+	previousAutoGroups := setting.AutoGroups2JsonString()
+	previousProfiles := setting.AutoGroupProfiles2JsonString()
+	previousUsableGroups := setting.UserUsableGroups2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
+		require.NoError(t, setting.UpdateAutoGroupProfilesByJsonString(previousProfiles))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsableGroups))
+	})
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["legacy"]`))
+	require.NoError(t, setting.UpdateAutoGroupProfilesByJsonString(`{"auto2":["unavailable","private","profile"],"auto3":["private"]}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"legacy":"Legacy","unavailable":"Unavailable","profile":"Profile"}`))
+
+	for _, memoryCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("memory_cache_%t", memoryCache), func(t *testing.T) {
+			db := newImageStudioChannelSelectionTestDB(t)
+			const modelName = "gpt-5.5"
+			legacy := seedImageStudioSelectionChannel(t, db, "legacy", modelName, constant.ChannelTypeOpenAI, 10)
+			profile := seedImageStudioSelectionChannel(t, db, "profile", modelName, constant.ChannelTypeOpenAI, 10)
+			seedImageStudioSelectionChannel(t, db, "private", modelName, constant.ChannelTypeOpenAI, 100)
+			common.MemoryCacheEnabled = memoryCache
+			if memoryCache {
+				require.NoError(t, model.SyncChannelCacheOnce())
+			}
+
+			for _, tc := range []struct {
+				tokenGroup string
+				channelID  int
+				group      string
+			}{
+				{"auto2", profile.Id, "profile"},
+				{"auto", legacy.Id, "legacy"},
+				{"auto2", profile.Id, "profile"},
+				{"auto3", 0, ""},
+			} {
 				ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-				common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, tt.crossGroupRetry)
-				param := &RetryParam{Ctx: ctx, TokenGroup: "auto", ModelName: modelName, RequestPath: ctx.Request.URL.Path}
-				var gotIDs []int
-				for ; param.GetRetry() <= common.RetryTimes; param.IncreaseRetry() {
-					selected, _, err := CacheGetRandomSatisfiedChannel(param)
-					require.NoError(t, err)
-					if selected == nil {
-						break
-					}
-					gotIDs = append(gotIDs, selected.Id)
-					require.LessOrEqual(t, len(gotIDs), len(wantIDs), "each group must retain its attempt budget")
-					if selected.Group == "pool-backup" {
-						break
-					}
-					if selected.Id == first.Id {
-						param.ExcludedChannelIDs = append(param.ExcludedChannelIDs, selected.Id)
-					} else {
-						param.PriorityRetry++
-					}
+				common.SetContextKey(ctx, constant.ContextKeyTokenGroup, tc.tokenGroup)
+				param := &RetryParam{Ctx: ctx, TokenGroup: tc.tokenGroup, ModelName: modelName, RequestPath: ctx.Request.URL.Path}
+				selected, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+				if tc.channelID == 0 {
+					require.ErrorContains(t, err, "not enabled")
+					assert.Nil(t, selected)
+					assert.Empty(t, common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+					continue
 				}
-				assert.Equal(t, wantIDs, gotIDs, "pool failures retain the attempt budget and cross-group permission")
-			})
-		}
+				require.NoError(t, err)
+				require.NotNil(t, selected)
+				assert.Equal(t, tc.channelID, selected.Id)
+				assert.Equal(t, tc.group, selectedGroup)
+				assert.Equal(t, tc.group, common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+				assert.Equal(t, tc.tokenGroup, common.GetContextKeyString(ctx, constant.ContextKeyTokenGroup))
+			}
+		})
 	}
 }

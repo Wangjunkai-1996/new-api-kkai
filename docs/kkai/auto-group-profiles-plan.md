@@ -34,7 +34,7 @@
 ### 2.1 名称规则
 
 - `auto` 是保留的兼容名称，由 `AutoGroups` 管理。
-- 新 profile 使用 `auto2`、`auto3`、`auto10` 等格式，规则为 `^auto[2-9][0-9]*$`。
+- 新 profile 使用 `auto2`、`auto3`、`auto10` 等格式，规则为 `^auto(?:[2-9]|[1-9][0-9]+)$`，即不含前导零且不小于 2 的整数后缀。
 - 不接受空名、`auto1`、重复候选、空候选数组、嵌套对象、自引用或候选中的虚拟自动组。
 - profile 名不能同时作为普通 `GroupRatio` 分组名。option 校验层保存时返回明确错误，不静默覆盖普通分组。
 - 候选分组可以暂时不存在于分组比例表；运行时沿用现有逻辑取用户可用组与候选列表的交集，找不到渠道时返回无可用渠道。
@@ -43,7 +43,7 @@
 
 - 删除 profile 配置前，后端查询并提示仍有 API Key 使用该 profile；第一版禁止直接删除，要求先把这些 Key 改回普通组或另一个自动组。
 - profile 候选为空或 JSON 损坏时，更新失败并保留上一份有效配置。启动加载也先解析、校验，再原子替换，不能像当前 `UpdateAutoGroupsByJsonString` 那样先清空后解析。
-- 旧 `AutoGroups` 配置为空的行为保持不变：`auto` 报未启用；额外 profile 为空时只影响对应 profile。
+- 旧 `AutoGroups` 的 `null` 和空数组均保留禁用语义，序列化统一输出 `[]`；原有重复项、空字符串和物理 `auto` 候选保持兼容。新增 profile 使用上述严格校验，空候选更新被拒绝。
 
 ## 3. 后端实现分层
 
@@ -164,7 +164,7 @@ bun run test -- src/features/system-settings/models/group-ratio-visual-editor.te
 bun run i18n:check
 ```
 
-实际脚本若不支持路径参数，则使用对应脚本的全项目版本，并记录原因；不在 L2 变更中默认运行全仓库构建。
+按实际脚本选择受影响文件的检查入口；不支持路径参数时记录验证缺口，不替换为未获授权的全项目检查。正式发布遵守前端必需的 typecheck、受影响文件 lint/format 和生产构建门禁。
 
 在 `web/classic` 只运行受影响的 lint/build 检查，具体命令以该目录 package.json 为准。
 

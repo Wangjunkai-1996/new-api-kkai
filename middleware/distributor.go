@@ -112,10 +112,11 @@ func Distribute() func(c *gin.Context) {
 						if service.IsAutoGroup(usingGroup) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroupCandidates(userGroup, usingGroup)
-							for _, g := range autoGroups {
+							for groupIndex, g := range autoGroups {
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
+									common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, groupIndex)
 									channel = preferred
 									affinityUsable = true
 									service.MarkChannelAffinityUsed(c, g, preferred.Id)
@@ -145,7 +146,7 @@ func Distribute() func(c *gin.Context) {
 					if err != nil {
 						showGroup := usingGroup
 						if service.IsAutoGroup(usingGroup) {
-							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
+							showGroup = fmt.Sprintf("%s(%s)", usingGroup, selectGroup)
 						}
 						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
 						// 如果错误，但是渠道不为空，说明是数据库一致性问题

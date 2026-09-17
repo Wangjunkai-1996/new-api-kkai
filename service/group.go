@@ -56,7 +56,7 @@ func GetUserAutoGroupCandidates(userGroup, autoGroup string) []string {
 	candidates := setting.GetAutoGroupCandidates(autoGroup)
 	result := make([]string, 0, len(candidates))
 	for _, group := range candidates {
-		if setting.IsAutoGroup(group) {
+		if setting.ContainsAutoGroupProfile(group) {
 			continue
 		}
 		if _, ok := usableGroups[group]; ok {

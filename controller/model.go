@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -227,15 +228,15 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	ownerGroups := groups.ownerGroups
+	isAutoGroup := service.IsAutoGroup(groups.tokenGroup)
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
+	var tokenModelLimit map[string]bool
 	if modelLimitEnable {
-		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
-		var tokenModelLimit map[string]bool
-		if ok {
-			tokenModelLimit = s.(map[string]bool)
-		} else {
-			tokenModelLimit = map[string]bool{}
+		if limits, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit); ok {
+			tokenModelLimit, _ = limits.(map[string]bool)
 		}
+	}
+	if modelLimitEnable && !isAutoGroup {
 		for allowModel, _ := range tokenModelLimit {
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(allowModel) {
@@ -246,7 +247,7 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	} else {
 		var models []string
-		if service.IsAutoGroup(groups.tokenGroup) {
+		if isAutoGroup {
 			for _, autoGroup := range ownerGroups {
 				groupModels := model.GetGroupEnabledModels(autoGroup)
 				for _, g := range groupModels {
@@ -259,6 +260,9 @@ func ListModels(c *gin.Context, modelType int) {
 			models = model.GetGroupEnabledModels(ownerGroups[0])
 		}
 		for _, modelName := range models {
+			if modelLimitEnable && !tokenModelLimit[ratio_setting.FormatMatchingModelName(modelName)] {
+				continue
+			}
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(modelName) {
 					continue

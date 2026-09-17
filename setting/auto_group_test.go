@@ -35,12 +35,31 @@ func TestAutoGroupProfilesRejectInvalidNamesAndReferences(t *testing.T) {
 	for _, invalid := range []string{
 		`{"auto": ["default"]}`,
 		`{"": ["default"]}`,
+		`{"auto1": ["default"]}`,
+		`{"auto01": ["default"]}`,
 		`{"auto2": []}`,
 		`{"auto2": ["default", "default"]}`,
+		`{"auto2": ["auto"]}`,
+		`{"auto2": ["auto2"]}`,
 		`{"auto2": ["auto3"], "auto3": ["default"]}`,
 	} {
 		require.Error(t, ValidateAutoGroupProfilesJSON(invalid), invalid)
 	}
+	require.NoError(t, ValidateAutoGroupProfilesJSON(`{"auto10": ["default"]}`))
+}
+
+func TestAutoGroupsPreserveLegacyConfigurations(t *testing.T) {
+	original := AutoGroups2JsonString()
+	t.Cleanup(func() { require.NoError(t, UpdateAutoGroupsByJsonString(original)) })
+
+	for _, value := range []string{"null", "[]"} {
+		require.NoError(t, UpdateAutoGroupsByJsonString(value))
+		assert.Empty(t, GetAutoGroups())
+		assert.Equal(t, "[]", AutoGroups2JsonString())
+		require.NoError(t, UpdateAutoGroupsByJsonString(AutoGroups2JsonString()))
+	}
+	require.NoError(t, UpdateAutoGroupsByJsonString(`["vip","vip",""]`))
+	assert.Equal(t, []string{"vip", "vip", ""}, GetAutoGroups())
 }
 
 func TestAutoGroupsUpdateIsAtomicOnMalformedJSON(t *testing.T) {
@@ -48,7 +67,7 @@ func TestAutoGroupsUpdateIsAtomicOnMalformedJSON(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, UpdateAutoGroupsByJsonString(original)) })
 
 	require.NoError(t, UpdateAutoGroupsByJsonString(`["vip"]`))
-	require.Error(t, UpdateAutoGroupsByJsonString(`["vip","vip"]`))
+	require.Error(t, UpdateAutoGroupsByJsonString(`["vip",`))
 	assert.Equal(t, []string{"vip"}, GetAutoGroups())
 	require.Error(t, UpdateAutoGroupsByJsonString(`{"broken": true}`))
 	assert.Equal(t, []string{"vip"}, GetAutoGroups())

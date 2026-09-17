@@ -136,12 +136,28 @@ const createGroupSchema = (t: Translate) =>
         parsed !== null &&
         typeof parsed === 'object' &&
         !Array.isArray(parsed) &&
-        Object.values(parsed).every(
-          (value) =>
+        Object.entries(parsed).every(
+          ([name, value]) =>
+            /^auto(?:[2-9]|[1-9][0-9]+)$/.test(name) &&
             Array.isArray(value) &&
-            value.every((item) => typeof item === 'string')
+            value.length > 0 &&
+            new Set(value).size === value.length &&
+            value.every(
+              (item) => typeof item === 'string' && item.trim().length > 0
+            )
+        ) &&
+        Object.entries(parsed).every(
+          ([, value]) =>
+            Array.isArray(value) &&
+            value.every(
+              (item) =>
+                typeof item === 'string' &&
+                item !== 'auto' &&
+                !Object.hasOwn(parsed, item)
+            )
         ),
-      predicateMessage: 'Expected a JSON object of ordered group arrays',
+      predicateMessage:
+        'Expected named auto group profiles with unique, non-empty candidate groups',
     }),
     DefaultUseAutoGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
@@ -192,7 +208,7 @@ export function RatioSettingsCard({
     },
   })
 
-  const modelNormalizedDefaults = useRef({
+  const initialModelNormalizedDefaults = {
     ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
     ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
     CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
@@ -206,9 +222,10 @@ export function RatioSettingsCard({
     ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-  })
+  }
+  const modelNormalizedDefaults = useRef(initialModelNormalizedDefaults)
   const [savedModelValues, setSavedModelValues] = useState(
-    modelNormalizedDefaults.current
+    initialModelNormalizedDefaults
   )
 
   const groupNormalizedDefaults = useRef({

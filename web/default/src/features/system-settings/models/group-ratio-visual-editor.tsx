@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   GripVertical,
   Info,
@@ -85,6 +87,7 @@ type GroupRatioVisualEditorProps = {
   groupDisplayNames: string
   groupGroupRatio: string
   autoGroups: string
+  autoGroupProfiles: string
   groupSpecialUsableGroup: string
   onChange: (field: string, value: string) => void
 }
@@ -116,6 +119,22 @@ function parseUsableMap(value: string): Record<string, string> {
     fallback: {},
     silent: true,
   })
+}
+
+function parseAutoGroupProfiles(value: string): Record<string, string[]> {
+  const parsed = safeJsonParse<Record<string, string[]>>(value, {
+    fallback: {},
+    silent: true,
+  })
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  return Object.fromEntries(
+    Object.entries(parsed).filter(
+      ([name, groups]) =>
+        /^auto(?:[2-9]|[1-9][0-9]+)$/.test(name) &&
+        Array.isArray(groups) &&
+        groups.every((group) => typeof group === 'string')
+    )
+  )
 }
 
 function parseNestedRatioMap(
@@ -183,6 +202,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   groupDisplayNames,
   groupGroupRatio,
   autoGroups,
+  autoGroupProfiles,
   groupSpecialUsableGroup,
   onChange,
 }: GroupRatioVisualEditorProps) {
@@ -248,6 +268,84 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
     () => registryNames.filter((name) => !autoGroupsList.includes(name)),
     [registryNames, autoGroupsList]
   )
+
+  const profiles = useMemo(
+    () => parseAutoGroupProfiles(autoGroupProfiles),
+    [autoGroupProfiles]
+  )
+  const profileNames = useMemo(() => Object.keys(profiles).sort(), [profiles])
+  const [profileSelection, setSelectedProfile] = useState<string | null>(null)
+  const [newProfileName, setNewProfileName] = useState('')
+  const selectedProfile =
+    profileSelection && profileNames.includes(profileSelection)
+      ? profileSelection
+      : (profileNames[0] ?? null)
+  const realGroupNames = useMemo(
+    () =>
+      Object.keys(parseRatioMap(groupRatio) ?? {}).filter(
+        (name) => name !== 'auto' && !profileNames.includes(name)
+      ),
+    [groupRatio, profileNames]
+  )
+
+  const updateProfiles = useCallback(
+    (next: Record<string, string[]>) =>
+      onChange('AutoGroupProfiles', JSON.stringify(next, null, 2)),
+    [onChange]
+  )
+
+  const selectedProfileChain = useMemo(
+    () => (selectedProfile ? (profiles[selectedProfile] ?? []) : []),
+    [profiles, selectedProfile]
+  )
+  const profileCandidates = realGroupNames.filter(
+    (name) => !selectedProfileChain.includes(name)
+  )
+
+  const handleAddProfile = useCallback(() => {
+    const name = newProfileName.trim()
+    if (
+      !/^auto(?:[2-9]|[1-9][0-9]+)$/.test(name) ||
+      profiles[name] ||
+      realGroupNames.includes(name) ||
+      realGroupNames.length === 0
+    ) {
+      return
+    }
+    updateProfiles({ ...profiles, [name]: realGroupNames.slice(0, 1) })
+    setSelectedProfile(name)
+    setNewProfileName('')
+  }, [newProfileName, profiles, realGroupNames, updateProfiles])
+
+  const updateSelectedProfileChain = useCallback(
+    (nextChain: string[]) => {
+      if (!selectedProfile) return
+      updateProfiles({ ...profiles, [selectedProfile]: nextChain })
+    },
+    [profiles, selectedProfile, updateProfiles]
+  )
+
+  const handleProfileMove = useCallback(
+    (index: number, direction: 'up' | 'down') => {
+      const nextChain = [...selectedProfileChain]
+      const nextIndex = direction === 'up' ? index - 1 : index + 1
+      if (nextIndex < 0 || nextIndex >= nextChain.length) return
+      ;[nextChain[index], nextChain[nextIndex]] = [
+        nextChain[nextIndex],
+        nextChain[index],
+      ]
+      updateSelectedProfileChain(nextChain)
+    },
+    [selectedProfileChain, updateSelectedProfileChain]
+  )
+
+  const handleDeleteProfile = useCallback(() => {
+    if (!selectedProfile) return
+    const nextProfiles = { ...profiles }
+    delete nextProfiles[selectedProfile]
+    updateProfiles(nextProfiles)
+    setSelectedProfile(null)
+  }, [profiles, selectedProfile, updateProfiles])
 
   return (
     <div className='space-y-4'>
@@ -327,6 +425,130 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         </CardContent>
       </Card>
 
+      <Card
+        className={sectionCardClassName}
+        aria-label={t('Named auto group profiles')}
+      >
+        <CardHeader className={sectionHeaderClassName}>
+          <CardTitle>{t('Named auto group profiles')}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className='space-y-4'>
+            <div className='flex flex-col gap-2 sm:flex-row'>
+              <Input
+                value={newProfileName}
+                onChange={(event) => setNewProfileName(event.target.value)}
+                placeholder='auto2'
+                aria-label={t('Auto group name')}
+                className='sm:max-w-48'
+              />
+              <Button
+                type='button'
+                variant='outline'
+                onClick={handleAddProfile}
+                disabled={
+                  !/^auto(?:[2-9]|[1-9][0-9]+)$/.test(newProfileName.trim()) ||
+                  !!profiles[newProfileName.trim()] ||
+                  realGroupNames.includes(newProfileName.trim()) ||
+                  realGroupNames.length === 0
+                }
+              >
+                <Plus className='mr-2 h-4 w-4' />
+                {t('Add')}
+              </Button>
+            </div>
+
+            {profileNames.length > 0 && (
+              <div className='grid gap-4 sm:grid-cols-[12rem_minmax(0,1fr)]'>
+                <GroupNameSelect
+                  options={profileNames}
+                  value={selectedProfile}
+                  placeholder={t('Auto group name')}
+                  onValueChange={setSelectedProfile}
+                  className='w-full'
+                />
+                <div className='space-y-3'>
+                  <GroupNameSelect
+                    options={profileCandidates}
+                    value={null}
+                    placeholder={t('Add group')}
+                    onValueChange={(group) =>
+                      updateSelectedProfileChain([
+                        ...selectedProfileChain,
+                        group,
+                      ])
+                    }
+                    className='w-full'
+                  />
+                  {selectedProfileChain.length > 0 && (
+                    <div className='space-y-2'>
+                      {selectedProfileChain.map((group, index) => (
+                        <div
+                          key={`${selectedProfile}-${group}`}
+                          className='flex items-center gap-2 rounded-md border p-3'
+                        >
+                          <span className='min-w-0 flex-1 truncate font-medium'>
+                            {group}
+                          </span>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            aria-label={`${t('Move up')} ${group}`}
+                            title={t('Move up')}
+                            disabled={index === 0}
+                            onClick={() => handleProfileMove(index, 'up')}
+                          >
+                            <ArrowUp className='h-4 w-4' />
+                          </Button>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            aria-label={`${t('Move down')} ${group}`}
+                            title={t('Move down')}
+                            disabled={index === selectedProfileChain.length - 1}
+                            onClick={() => handleProfileMove(index, 'down')}
+                          >
+                            <ArrowDown className='h-4 w-4' />
+                          </Button>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            aria-label={`${t('Delete')} ${group}`}
+                            title={t('Delete')}
+                            disabled={selectedProfileChain.length <= 1}
+                            onClick={() =>
+                              updateSelectedProfileChain(
+                                selectedProfileChain.filter(
+                                  (_, i) => i !== index
+                                )
+                              )
+                            }
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    className='text-destructive hover:text-destructive'
+                    onClick={handleDeleteProfile}
+                  >
+                    <Trash2 className='mr-2 h-4 w-4' />
+                    {t('Delete')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <GroupDetailSheet
         groupName={detailGroup}
         onOpenChange={(open) => {
@@ -378,6 +600,7 @@ function GroupPricingTable({
       topupGroupRatio,
       groupDisplayNames
     )
+    // oxlint-disable-next-line react/set-state-in-effect -- Synchronize rows when external pricing inputs change.
     setRows((currentRows) => {
       if (groupPricingSignature(currentRows) === incomingSignature) {
         return currentRows
@@ -1007,6 +1230,7 @@ function GroupOverrideDialog({
 
   useEffect(() => {
     if (!open) {
+      // oxlint-disable-next-line react/set-state-in-effect -- Reset dialog fields when it closes.
       setTargetGroup(null)
       setRatio('')
       return

@@ -64,7 +64,11 @@ function getGroupLabel(params: {
   }
   if (params.isEmptyGroup) return params.t('User Group')
   if (params.displayName?.trim()) return params.displayName.trim()
-  if (params.isAutoGroup) return params.t('Auto')
+  if (params.isAutoGroup) {
+    return params.groupName === 'auto'
+      ? params.t('Auto')
+      : (params.groupName ?? params.t('Auto'))
+  }
   return params.groupName ?? ''
 }
 

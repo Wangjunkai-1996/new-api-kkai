@@ -105,7 +105,7 @@ const renderGroupColumn = (
     return (
       <Tooltip content={t('智能熔断')} position='top'>
         <Tag color='white' shape='circle'>
-          {t('智能熔断')}
+          {text === 'auto' ? t('智能熔断') : `${t('智能熔断')} (${text})`}
           {record && record.cross_group_retry ? `(${t('跨分组')})` : ''}
         </Tag>
       </Tooltip>

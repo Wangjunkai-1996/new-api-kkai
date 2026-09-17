@@ -128,7 +128,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				autoGroup, param.ModelName, priorityRetry, param.RequestPath, allowedChannelTypes, param.ExcludedChannelIDs...,
 			)
 			if channel == nil {
-				if len(param.ExcludedChannelIDs) > 0 && !crossGroupRetry {
+				_, selectedBefore := common.GetContextKey(param.Ctx, constant.ContextKeyAutoGroup)
+				if !crossGroupRetry && (selectedBefore || len(param.ExcludedChannelIDs) > 0) {
 					return nil, autoGroup, nil
 				}
 				// Current group has no available channel for this model, try next group

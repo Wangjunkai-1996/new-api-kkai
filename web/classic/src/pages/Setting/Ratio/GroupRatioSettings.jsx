@@ -251,7 +251,7 @@ export default function GroupRatioSettings(props) {
                     return parsed && !Array.isArray(parsed) &&
                       typeof parsed === 'object' &&
                       Object.entries(parsed).every(([name, groups]) =>
-                        /^auto[2-9][0-9]*$/.test(name) &&
+                        /^auto(?:[2-9]|[1-9][0-9]+)$/.test(name) &&
                         Array.isArray(groups) &&
                         groups.length > 0 &&
                         new Set(groups).size === groups.length &&

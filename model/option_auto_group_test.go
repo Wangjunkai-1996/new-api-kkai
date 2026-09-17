@@ -83,7 +83,7 @@ func TestUpdateOptionMapAutoGroupsRejectsMalformedValueBeforePublishing(t *testi
 	common.OptionMapRWMutex.RLock()
 	validOptionValue := common.OptionMap["AutoGroups"]
 	common.OptionMapRWMutex.RUnlock()
-	require.Error(t, updateOptionMap("AutoGroups", `["vip","vip"]`))
+	require.Error(t, updateOptionMap("AutoGroups", `["vip",`))
 	common.OptionMapRWMutex.RLock()
 	optionValueAfterError := common.OptionMap["AutoGroups"]
 	common.OptionMapRWMutex.RUnlock()

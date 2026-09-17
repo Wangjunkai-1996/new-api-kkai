@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, KeyRound, Settings2, WalletCards } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useForm, type SubmitErrorHandler } from 'react-hook-form'
+import { useForm, useWatch, type SubmitErrorHandler } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -64,8 +64,8 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { isAutoGroupName } from '@/lib/auto-groups'
+import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { toUserGroupOption } from '@/lib/group-display'
 import { cn } from '@/lib/utils'
 
@@ -126,12 +126,13 @@ export function ApiKeysMutateDrawer({
     ([key, info]) => toUserGroupOption(key, info)
   )
   const autoGroupNames = useMemo(
-    () => new Set(groups.filter((group) => group.isAuto).map((group) => group.value)),
+    () =>
+      new Set(
+        groups.filter((group) => group.isAuto).map((group) => group.value)
+      ),
     [groups]
   )
-  const backendHasAuto = groups.some(
-    (group) => group.isAuto || group.value === 'auto'
-  )
+  const backendHasAuto = groups.some((group) => group.value === 'auto')
   const schema = getApiKeyFormSchema(t)
 
   const form = useForm<ApiKeyFormValues>({
@@ -198,7 +199,8 @@ export function ApiKeysMutateDrawer({
             name:
               i === 0 && data.name
                 ? data.name
-                : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
+                : // oxlint-disable-next-line react/purity -- Batch key names intentionally use a random suffix.
+                  `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
           })
           if (result.success) {
             successCount++
@@ -250,8 +252,11 @@ export function ApiKeysMutateDrawer({
   const quotaPlaceholder = tokensOnly
     ? t('Enter quota in tokens')
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
-  const selectedGroup = form.watch('group')
-  const unlimitedQuota = form.watch('unlimited_quota')
+  const selectedGroup = useWatch({ control: form.control, name: 'group' })
+  const unlimitedQuota = useWatch({
+    control: form.control,
+    name: 'unlimited_quota',
+  })
 
   return (
     <Sheet

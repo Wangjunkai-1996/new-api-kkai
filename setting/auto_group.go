@@ -17,7 +17,7 @@ var autoGroups = []string{
 
 var autoGroupProfiles = map[string][]string{}
 var autoGroupMutex sync.RWMutex
-var autoGroupProfileNamePattern = regexp.MustCompile(`^auto[2-9][0-9]*$`)
+var autoGroupProfileNamePattern = regexp.MustCompile(`^auto(?:[2-9]|[1-9][0-9]+)$`)
 
 var DefaultUseAutoGroup = false
 
@@ -151,19 +151,10 @@ func parseAutoGroups(jsonString string) ([]string, error) {
 		return nil, err
 	}
 	if parsed == nil {
-		return nil, errors.New("auto groups must be a JSON array")
+		// Legacy null disables auto routing, just like an empty array.
+		return []string{}, nil
 	}
-	seen := make(map[string]struct{}, len(parsed))
-	for i, group := range parsed {
-		if strings.TrimSpace(group) == "" {
-			return nil, fmt.Errorf("auto group at index %d cannot be empty", i)
-		}
-		if _, ok := seen[group]; ok {
-			return nil, fmt.Errorf("duplicate auto group %q", group)
-		}
-		seen[group] = struct{}{}
-	}
-	return append([]string(nil), parsed...), nil
+	return parsed, nil
 }
 
 func parseAutoGroupProfiles(jsonString string) (map[string][]string, error) {
@@ -189,6 +180,9 @@ func parseAutoGroupProfiles(jsonString string) (map[string][]string, error) {
 		for i, group := range groups {
 			if strings.TrimSpace(group) == "" {
 				return nil, fmt.Errorf("auto group profile %q has empty group at index %d", name, i)
+			}
+			if group == "auto" {
+				return nil, fmt.Errorf("auto group profile %q cannot reference virtual group %q", name, group)
 			}
 			if _, ok := seen[group]; ok {
 				return nil, fmt.Errorf("auto group profile %q contains duplicate group %q", name, group)

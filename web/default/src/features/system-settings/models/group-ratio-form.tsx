@@ -176,6 +176,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               groupDisplayNames={form.watch('GroupDisplayNames')}
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
+              autoGroupProfiles={form.watch('AutoGroupProfiles')}
               groupSpecialUsableGroup={form.watch('GroupSpecialUsableGroup')}
               onChange={(field, value) =>
                 handleFieldChange(field as keyof GroupFormValues, value)
