@@ -319,9 +319,10 @@ func (token *Token) Update() (err error) {
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
 }
 
-// UpdateGroup updates only the token's group routing fields. clearRetry is
-// true for ordinary groups, where cross-group retry is not applicable.
-func (token *Token) UpdateGroup(group string, clearRetry bool) error {
+// UpdateGroup updates only the token's group routing fields. A nil retry
+// override preserves the existing cross-group retry setting; non-nil values
+// apply the setting for the new group.
+func (token *Token) UpdateGroup(group string, retryOverride *bool) error {
 	if token == nil || token.Id == 0 || token.UserId == 0 {
 		return errors.New("token 为空！")
 	}
@@ -333,8 +334,8 @@ func (token *Token) UpdateGroup(group string, clearRetry bool) error {
 	}
 
 	updates := map[string]any{"group": group}
-	if clearRetry {
-		updates["cross_group_retry"] = false
+	if retryOverride != nil {
+		updates["cross_group_retry"] = *retryOverride
 	}
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -358,8 +359,8 @@ func (token *Token) UpdateGroup(group string, clearRetry bool) error {
 		return err
 	}
 	token.Group = group
-	if clearRetry {
-		token.CrossGroupRetry = false
+	if retryOverride != nil {
+		token.CrossGroupRetry = *retryOverride
 	}
 	return nil
 }

@@ -319,7 +319,13 @@ export function ApiKeysMutateDrawer({
                       <ApiKeyGroupCombobox
                         options={groups}
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(nextGroup) => {
+                          field.onChange(nextGroup)
+                          form.setValue(
+                            'cross_group_retry',
+                            isAutoGroupName(nextGroup, autoGroupNames)
+                          )
+                        }}
                         placeholder={t('Select a group')}
                       />
                     </FormControl>

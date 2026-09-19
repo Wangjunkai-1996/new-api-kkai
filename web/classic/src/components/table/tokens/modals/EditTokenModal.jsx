@@ -397,6 +397,18 @@ const EditTokenModal = (props) => {
                         placeholder={t('令牌分组，默认为用户的分组')}
                         optionList={groups}
                         renderOptionItem={renderGroupOption}
+                        onChange={(value) => {
+                          const isAutoGroup =
+                            value === 'auto' ||
+                            groups.some(
+                              (group) =>
+                                group.value === value && group.isAuto,
+                            );
+                          formApiRef.current?.setValue(
+                            'cross_group_retry',
+                            isAutoGroup,
+                          );
+                        }}
                         filter={(input, option) => {
                           const q = input.toLowerCase();
                           return (

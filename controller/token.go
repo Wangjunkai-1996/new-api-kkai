@@ -410,7 +410,13 @@ func UpdateTokenGroup(c *gin.Context) {
 		return
 	}
 
-	if err := token.UpdateGroup(group, !service.IsAutoGroup(group)); err != nil {
+	var retryOverride *bool
+	if !service.IsAutoGroup(group) {
+		retryOverride = common.GetPointer(false)
+	} else if group != token.Group {
+		retryOverride = common.GetPointer(true)
+	}
+	if err := token.UpdateGroup(group, retryOverride); err != nil {
 		common.ApiError(c, err)
 		return
 	}

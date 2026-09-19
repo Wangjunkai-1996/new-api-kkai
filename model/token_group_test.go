@@ -20,7 +20,8 @@ func TestUpdateGroupInvalidatesTokenCache(t *testing.T) {
 	assert.Equal(t, "default", loaded.Group)
 	require.True(t, server.Exists(getTokenCacheKey(token.Key)))
 
-	require.NoError(t, loaded.UpdateGroup("vip", true))
+	retryDisabled := false
+	require.NoError(t, loaded.UpdateGroup("vip", &retryDisabled))
 	_, err = cacheGetTokenByKey(token.Key)
 	assert.Error(t, err)
 
@@ -43,7 +44,7 @@ func TestUpdateGroupDoesNotOverwriteStaleSnapshotFields(t *testing.T) {
 		"remain_quota":      42,
 		"cross_group_retry": true,
 	}).Error)
-	require.NoError(t, loaded.UpdateGroup("vip", false))
+	require.NoError(t, loaded.UpdateGroup("vip", nil))
 
 	stored := getTokenFromDB(t, token.Id)
 	assert.Equal(t, "vip", stored.Group)
@@ -57,7 +58,8 @@ func TestUpdateGroupFailsClosedWhenCacheFenceCannotBeWritten(t *testing.T) {
 	token := createReserveTestToken(t, 100)
 	server.Close()
 
-	err := token.UpdateGroup("vip", true)
+	retryDisabled := false
+	err := token.UpdateGroup("vip", &retryDisabled)
 	assert.Error(t, err)
 	var stored Token
 	require.NoError(t, DB.First(&stored, token.Id).Error)

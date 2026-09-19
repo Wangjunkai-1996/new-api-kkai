@@ -139,6 +139,34 @@ func TestUpdateTokenGroupPreservesRetryForAutoGroup(t *testing.T) {
 	assert.True(t, stored.CrossGroupRetry)
 }
 
+func TestUpdateTokenGroupEnablesRetryForNewAutoGroup(t *testing.T) {
+	token := setupTokenGroupTest(t)
+	token.CrossGroupRetry = false
+	require.NoError(t, token.Update())
+
+	response := updateTokenGroup(t, token.Id, 1, "auto2")
+	assert.True(t, response.Success, response.Message)
+
+	var stored model.Token
+	require.NoError(t, model.DB.First(&stored, token.Id).Error)
+	assert.Equal(t, "auto2", stored.Group)
+	assert.True(t, stored.CrossGroupRetry)
+}
+
+func TestUpdateTokenGroupPreservesExplicitRetryDisableForSameAutoGroup(t *testing.T) {
+	token := setupTokenGroupTest(t)
+	token.Group = "auto2"
+	token.CrossGroupRetry = false
+	require.NoError(t, token.Update())
+
+	response := updateTokenGroup(t, token.Id, 1, "auto2")
+	assert.True(t, response.Success, response.Message)
+
+	var stored model.Token
+	require.NoError(t, model.DB.First(&stored, token.Id).Error)
+	assert.False(t, stored.CrossGroupRetry)
+}
+
 func TestUpdateTokenGroupPreservesCanonicalGroupKey(t *testing.T) {
 	token := setupTokenGroupTest(t)
 	response := updateTokenGroup(t, token.Id, 1, " premium ")
