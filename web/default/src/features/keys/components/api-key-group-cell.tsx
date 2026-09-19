@@ -23,7 +23,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { Loader2, RotateCw } from 'lucide-react'
+import { Edit3, Loader2, RotateCw } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -31,6 +31,7 @@ import { toast } from 'sonner'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import { useConsoleContract } from '@/hooks/use-console-contract'
 import { getUserGroups } from '@/lib/api'
 import { toUserGroupOption } from '@/lib/group-display'
 
@@ -49,7 +50,10 @@ type ApiKeyGroupCellProps = {
 export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const { triggerRefresh } = useApiKeys()
+  const { setCurrentRow, setOpen, triggerRefresh } = useApiKeys()
+  const { contract } = useConsoleContract()
+  const supportsInlineGroup =
+    contract?.capabilities.includes('token_group_inline') ?? false
   const group = props.apiKey.group ?? ''
   const pending =
     useIsMutating({ mutationKey: ['token-group', props.apiKey.id] }) > 0
@@ -181,22 +185,54 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
 
   return (
     <div className='max-w-full'>
-      <ApiKeyGroupCombobox
-        options={options}
-        value={group}
-        onValueChange={handleChange}
-        compact
-        pending={pending}
-        disabled={pending}
-        onOpen={() => {
-          if (groupsQuery.isStale && !groupsQuery.isFetching) {
-            void groupsQuery.refetch()
+      {supportsInlineGroup ? (
+        <ApiKeyGroupCombobox
+          options={options}
+          value={group}
+          onValueChange={handleChange}
+          compact
+          pending={pending}
+          disabled={pending}
+          onOpen={() => {
+            if (groupsQuery.isStale && !groupsQuery.isFetching) {
+              void groupsQuery.refetch()
+            }
+          }}
+          statusContent={groupStatusContent}
+          triggerAriaLabel={`${t('Group')}: ${props.apiKey.name}`}
+          trigger={
+            <span className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden'>
+              <GroupBadge
+                group={group}
+                displayName={selectedOption?.label}
+                isAutoGroup={isAutoGroup}
+                ratio={ratio}
+                className='max-w-[10rem]'
+              />
+              {isAutoGroup && props.apiKey.cross_group_retry && (
+                <StatusBadge
+                  label={t('Cross-group')}
+                  variant='info'
+                  copyable={false}
+                  className='hidden shrink-0 text-[10px] xl:inline-flex'
+                />
+              )}
+            </span>
           }
-        }}
-        statusContent={groupStatusContent}
-        triggerAriaLabel={`${t('Group')}: ${props.apiKey.name}`}
-        trigger={
-          <span className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden'>
+        />
+      ) : (
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          className='hover:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-2 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none'
+          aria-label={`${t('Group')}: ${props.apiKey.name}`}
+          onClick={() => {
+            setCurrentRow(props.apiKey)
+            setOpen('update')
+          }}
+        >
+          <span className='min-w-0 flex-1 overflow-hidden'>
             <GroupBadge
               group={group}
               displayName={selectedOption?.label}
@@ -204,17 +240,10 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
               ratio={ratio}
               className='max-w-[10rem]'
             />
-            {isAutoGroup && props.apiKey.cross_group_retry && (
-              <StatusBadge
-                label={t('Cross-group')}
-                variant='info'
-                copyable={false}
-                className='hidden shrink-0 text-[10px] xl:inline-flex'
-              />
-            )}
           </span>
-        }
-      />
+          <Edit3 className='text-muted-foreground size-3.5 shrink-0' />
+        </Button>
+      )}
     </div>
   )
 }

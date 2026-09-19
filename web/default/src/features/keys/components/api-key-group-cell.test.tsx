@@ -30,6 +30,8 @@ const apiMocks = vi.hoisted(() => ({
 }))
 
 const contextMocks = vi.hoisted(() => ({
+  setCurrentRow: vi.fn(),
+  setOpen: vi.fn(),
   triggerRefresh: vi.fn(),
 }))
 
@@ -37,6 +39,8 @@ const toastMocks = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
 }))
+
+const contractState = vi.hoisted(() => ({ supportsInlineGroup: true }))
 
 vi.mock('@/lib/api', () => ({
   getUserGroups: apiMocks.getUserGroups,
@@ -51,6 +55,16 @@ vi.mock('./api-keys-provider', () => ({
 }))
 
 vi.mock('sonner', () => ({ toast: toastMocks }))
+
+vi.mock('@/hooks/use-console-contract', () => ({
+  useConsoleContract: () => ({
+    contract: {
+      capabilities: contractState.supportsInlineGroup
+        ? ['token_group_inline']
+        : [],
+    },
+  }),
+}))
 
 const userGroups = {
   default: {
@@ -125,6 +139,7 @@ describe('ApiKeyGroupCell', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+    contractState.supportsInlineGroup = true
     for (const queryClient of queryClients) queryClient.clear()
     queryClients.length = 0
   })
@@ -179,5 +194,20 @@ describe('ApiKeyGroupCell', () => {
     expect(contextMocks.triggerRefresh).not.toHaveBeenCalled()
     expect(toastMocks.error).toHaveBeenCalledWith('Group update rejected')
     expect(trigger).toHaveTextContent('Default')
+  })
+
+  test('opens the full editor when the backend lacks inline group support', async () => {
+    contractState.supportsInlineGroup = false
+    const user = userEvent.setup()
+    renderCell()
+
+    const fallback = await screen.findByRole('button', {
+      name: 'Group: Primary key',
+    })
+    await user.click(fallback)
+
+    expect(contextMocks.setCurrentRow).toHaveBeenCalledWith(apiKey)
+    expect(contextMocks.setOpen).toHaveBeenCalledWith('update')
+    expect(apiMocks.updateApiKeyGroup).not.toHaveBeenCalled()
   })
 })

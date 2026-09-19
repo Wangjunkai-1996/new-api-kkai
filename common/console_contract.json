@@ -1,4 +1,4 @@
 {
-  "bridge": {"format_version": 1, "api_contracts": [1], "capabilities": []},
-  "feature": {"format_version": 1, "api_contracts": [1], "capabilities": ["video_sample_categories"]}
+  "bridge": {"format_version": 1, "api_contracts": [1], "capabilities": ["token_group_inline"]},
+  "feature": {"format_version": 1, "api_contracts": [1], "capabilities": ["token_group_inline", "video_sample_categories"]}
 }

@@ -11,7 +11,7 @@ func TestConsoleContract(t *testing.T) {
 	contract := ConsoleContract()
 	require.Equal(t, 1, contract.FormatVersion)
 	require.Contains(t, contract.APIContracts, 1)
-	assert.Equal(t, consoleContractProfile == "feature", len(contract.Capabilities) > 0)
+	assert.Contains(t, contract.Capabilities, "token_group_inline")
 	if consoleContractProfile == "feature" {
 		assert.Contains(t, contract.Capabilities, "video_sample_categories")
 	}
