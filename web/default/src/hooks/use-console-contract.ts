@@ -8,10 +8,11 @@ export function useConsoleContract() {
   const query = useQuery({
     queryKey: ['console-contract', delivery],
     queryFn: async () => {
-      const raw = delivery
-        ? (await api.get('/console-runtime.json', { skipErrorHandler: true }))
-            .data
-        : (await getStatus())?.console_contract
+      const raw =
+        delivery === 'independent'
+          ? (await api.get('/console-runtime.json', { skipErrorHandler: true }))
+              .data
+          : (await getStatus())?.console_contract
       const contract = parseConsoleContract(raw)
       if (!contract) throw new Error('Console compatibility is unavailable')
       return contract

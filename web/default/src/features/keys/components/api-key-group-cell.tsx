@@ -233,13 +233,23 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
           }}
         >
           <span className='min-w-0 flex-1 overflow-hidden'>
-            <GroupBadge
-              group={group}
-              displayName={selectedOption?.label}
-              isAutoGroup={isAutoGroup}
-              ratio={ratio}
-              className='max-w-[10rem]'
-            />
+            <span className='flex min-w-0 items-center gap-1.5 overflow-hidden'>
+              <GroupBadge
+                group={group}
+                displayName={selectedOption?.label}
+                isAutoGroup={isAutoGroup}
+                ratio={ratio}
+                className='max-w-[10rem]'
+              />
+              {isAutoGroup && props.apiKey.cross_group_retry && (
+                <StatusBadge
+                  label={t('Cross-group')}
+                  variant='info'
+                  copyable={false}
+                  className='hidden shrink-0 text-[10px] xl:inline-flex'
+                />
+              )}
+            </span>
           </span>
           <Edit3 className='text-muted-foreground size-3.5 shrink-0' />
         </Button>
