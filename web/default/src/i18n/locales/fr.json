@@ -5945,6 +5945,8 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
+    "Failed to update token group": "Échec de la mise à jour du groupe de jetons",
+    "Token group updated": "Groupe de jetons mis à jour",
     "Zoom": "Zoom"
   }
 }

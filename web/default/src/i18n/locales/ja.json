@@ -5945,6 +5945,8 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
+    "Failed to update token group": "トークングループの更新に失敗しました",
+    "Token group updated": "トークングループを更新しました",
     "Zoom": "ズーム"
   }
 }

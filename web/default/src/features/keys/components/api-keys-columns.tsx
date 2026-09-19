@@ -16,12 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
-import { BadgeCell, TruncatedCell } from '@/components/data-table'
-import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
@@ -31,17 +28,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { toIntlLocale } from '@/i18n/languages'
-import { getUserGroups } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
 import { formatQuota } from '@/lib/format'
-import {
-  getUserGroupDisplayName,
-  type UserGroupInfo,
-} from '@/lib/group-display'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
 import type { ApiKey } from '../types'
+import { ApiKeyGroupCell } from './api-key-group-cell'
 import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
   ApiKeyCell,
@@ -56,23 +49,8 @@ function getQuotaProgressColor(percentage: number): string {
   return '[&_[data-slot=progress-indicator]]:bg-emerald-500'
 }
 
-function useGroupMetadata(): Record<string, UserGroupInfo> {
-  const { data } = useQuery({
-    queryKey: ['user-groups'],
-    queryFn: getUserGroups,
-    staleTime: 0,
-    select: (res) => {
-      if (!res.success || !res.data) return {}
-      return res.data
-    },
-  })
-
-  return data ?? {}
-}
-
 export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
   const { t, i18n } = useTranslation()
-  const groupMetadata = useGroupMetadata()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const justNowLabel = t('Just now')
   const staleAccessThreshold = dayjs(now).subtract(3, 'month').valueOf()
@@ -196,63 +174,8 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
     {
       accessorKey: 'group',
       header: t('Group'),
-      cell: ({ row }) => {
-        const apiKey = row.original
-        const group = row.getValue('group') as string
-        const groupInfo = group ? groupMetadata[group] : undefined
-        const ratio =
-          group &&
-          group !== 'auto' &&
-          groupInfo?.is_auto !== true &&
-          groupInfo?.is_auto_group !== true &&
-          typeof groupInfo?.ratio === 'number'
-            ? groupInfo.ratio
-            : undefined
-
-        const isAutoGroup =
-          groupInfo?.is_auto === true ||
-          groupInfo?.is_auto_group === true ||
-          group === 'auto'
-        if (isAutoGroup) {
-          return (
-            <Tooltip>
-              <TooltipTrigger
-                render={<BadgeCell className='gap-1.5 text-xs' />}
-              >
-                <GroupBadge group={group} isAutoGroup />
-                {apiKey.cross_group_retry && (
-                  <StatusBadge
-                    label={t('Cross-group')}
-                    variant='info'
-                    copyable={false}
-                  />
-                )}
-              </TooltipTrigger>
-              <TooltipContent>
-                <span className='text-xs'>
-                  {t(
-                    'Automatically selects the best available group with circuit breaker mechanism'
-                  )}
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          )
-        }
-        return (
-          <TruncatedCell
-            className='-ml-1.5'
-            tooltipContent={group || '-'}
-            tooltipClassName='break-all'
-          >
-            <GroupBadge
-              group={group}
-              label={getUserGroupDisplayName(group, groupInfo)}
-              ratio={ratio}
-            />
-          </TruncatedCell>
-        )
-      },
-      size: 160,
+      cell: ({ row }) => <ApiKeyGroupCell apiKey={row.original} />,
+      size: 190,
       meta: { mobileHidden: true },
     },
     {

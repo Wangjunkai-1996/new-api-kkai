@@ -373,6 +373,55 @@ func UpdateToken(c *gin.Context) {
 	})
 }
 
+type TokenGroupUpdate struct {
+	Group *string `json:"group"`
+}
+
+func UpdateTokenGroup(c *gin.Context) {
+	tokenID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || tokenID <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	var request TokenGroupUpdate
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if request.Group == nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	group := *request.Group
+	userID := c.GetInt("id")
+	token, err := model.GetTokenByIds(tokenID, userID)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	user, err := model.GetUserById(userID, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !service.IsUserTokenGroupUsable(user.Group, group) {
+		common.ApiErrorI18n(c, i18n.MsgTokenGroupInvalid)
+		return
+	}
+
+	if err := token.UpdateGroup(group, !service.IsAutoGroup(group)); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	updatedToken, err := model.GetTokenByIds(tokenID, userID)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, buildMaskedTokenResponse(updatedToken))
+}
+
 type TokenBatch struct {
 	Ids []int `json:"ids"`
 }

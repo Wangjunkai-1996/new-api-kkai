@@ -53,6 +53,7 @@ import {
   ERROR_MESSAGES,
 } from '../constants'
 import type { ApiKey } from '../types'
+import { ApiKeyGroupCell } from './api-key-group-cell'
 import { ApiKeyCell } from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
 import { useApiKeys } from './api-keys-provider'
@@ -163,6 +164,15 @@ function ApiKeysMobileList({
                 <ApiKeyCell apiKey={apiKey} />
               </div>
               <DataTableRowActions row={row} />
+            </div>
+
+            <div className='flex min-w-0 items-center justify-between gap-3'>
+              <span className='text-muted-foreground shrink-0 text-xs'>
+                {t('Group')}
+              </span>
+              <div className='max-w-[75%] min-w-0'>
+                <ApiKeyGroupCell apiKey={apiKey} />
+              </div>
             </div>
 
             <div className='flex items-center justify-between gap-2 text-xs'>

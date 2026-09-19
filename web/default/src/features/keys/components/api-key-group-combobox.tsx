@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Check, ChevronsUpDown } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Check, ChevronsUpDown, Loader2 } from 'lucide-react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -43,6 +43,7 @@ export type ApiKeyGroupOption = {
   desc?: string
   ratio?: number | string
   isAuto?: boolean
+  disabled?: boolean
 }
 
 type ApiKeyGroupComboboxProps = {
@@ -51,13 +52,23 @@ type ApiKeyGroupComboboxProps = {
   onValueChange: (value: string) => void
   placeholder?: string
   disabled?: boolean
+  compact?: boolean
+  pending?: boolean
+  onOpen?: () => void
+  statusContent?: ReactNode
+  trigger?: ReactNode
+  triggerAriaLabel?: string
 }
 
 function formatGroupRatio(
   ratio: ApiKeyGroupOption['ratio'],
-  ratioLabel: string
+  ratioLabel: string,
+  isAuto: boolean,
+  autoLabel: string
 ) {
   if (ratio === undefined || ratio === null || ratio === '') return null
+  if (isAuto) return autoLabel
+  if (typeof ratio !== 'number') return String(ratio)
   return `${ratio}x ${ratioLabel}`
 }
 
@@ -86,9 +97,15 @@ function getDistinctDescription(
   return description
 }
 
-function GroupRatioBadge({ ratio }: { ratio: ApiKeyGroupOption['ratio'] }) {
+function GroupRatioBadge({
+  ratio,
+  isAuto = false,
+}: {
+  ratio: ApiKeyGroupOption['ratio']
+  isAuto?: boolean
+}) {
   const { t } = useTranslation()
-  const label = formatGroupRatio(ratio, t('Ratio'))
+  const label = formatGroupRatio(ratio, t('Ratio'), isAuto, t('Auto'))
 
   if (!label) return null
 
@@ -111,6 +128,12 @@ export function ApiKeyGroupCombobox({
   onValueChange,
   placeholder,
   disabled,
+  compact = false,
+  pending = false,
+  onOpen,
+  statusContent,
+  trigger,
+  triggerAriaLabel,
 }: ApiKeyGroupComboboxProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -134,13 +157,19 @@ export function ApiKeyGroupCombobox({
   }, [options, searchValue])
 
   const handleSelect = (selectedValue: string) => {
-    onValueChange(selectedValue)
+    if (selectedValue !== value) onValueChange(selectedValue)
     setOpen(false)
     setSearchValue('')
   }
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (!nextOpen) setSearchValue('')
+    if (nextOpen) onOpen?.()
+  }
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         render={
           <Button
@@ -148,30 +177,47 @@ export function ApiKeyGroupCombobox({
             variant='outline'
             role='combobox'
             aria-expanded={open}
+            aria-label={triggerAriaLabel}
             disabled={disabled}
-            className='border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3'
+            className={cn(
+              compact
+                ? 'hover:bg-muted/70 data-popup-open:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-1 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none transition-[background-color,border-color,box-shadow] data-popup-open:border-ring data-popup-open:ring-ring/20 data-popup-open:ring-[3px]'
+                : 'border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3'
+            )}
           />
         }
       >
-        <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
-          <span className='min-w-0'>
-            <span className='block truncate font-medium'>
-              {selectedOption?.label || placeholder || t('Select a group')}
-            </span>
-            {selectedDescription && (
-              <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
-                {selectedDescription}
+        {trigger || (
+          <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
+            <span className='min-w-0'>
+              <span className='block truncate font-medium'>
+                {selectedOption?.label || placeholder || t('Select a group')}
               </span>
-            )}
+              {selectedDescription && (
+                <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
+                  {selectedDescription}
+                </span>
+              )}
+            </span>
+            <span className='hidden sm:block'>
+              <GroupRatioBadge
+                ratio={selectedOption?.ratio}
+                isAuto={selectedOption?.isAuto}
+              />
+            </span>
           </span>
-          <span className='hidden sm:block'>
-            <GroupRatioBadge ratio={selectedOption?.ratio} />
-          </span>
-        </span>
-        <ChevronsUpDown className='h-4 w-4 shrink-0 opacity-50' />
+        )}
+        {pending ? (
+          <Loader2 className='text-muted-foreground h-3.5 w-3.5 shrink-0 animate-spin' />
+        ) : (
+          <ChevronsUpDown className='text-muted-foreground h-3.5 w-3.5 shrink-0' />
+        )}
       </PopoverTrigger>
       <PopoverContent
-        className='data-closed:zoom-out-100 data-open:zoom-in-100 data-[side=bottom]:slide-in-from-top-0 data-[side=left]:slide-in-from-right-0 data-[side=right]:slide-in-from-left-0 data-[side=top]:slide-in-from-bottom-0 w-[var(--anchor-width)] overflow-hidden rounded-xl p-0 shadow-lg data-closed:duration-75 data-open:duration-100'
+        align='start'
+        collisionPadding={12}
+        sideOffset={8}
+        className='data-closed:zoom-out-100 data-open:zoom-in-100 data-[side=bottom]:slide-in-from-top-0 data-[side=left]:slide-in-from-right-0 data-[side=right]:slide-in-from-left-0 data-[side=top]:slide-in-from-bottom-0 w-[min(24rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] min-w-[min(18rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl p-0.5 shadow-lg data-closed:duration-75 data-open:duration-100'
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
@@ -181,37 +227,46 @@ export function ApiKeyGroupCombobox({
             placeholder={t('Search...')}
             value={searchValue}
             onValueChange={setSearchValue}
+            className='h-8'
           />
           <CommandList className='max-h-[360px]'>
-            <CommandEmpty>{t('No group found.')}</CommandEmpty>
-            <CommandGroup>
-              {filteredOptions.map((option) => (
-                <CommandItem
-                  key={option.value}
-                  value={option.value}
-                  onSelect={() => handleSelect(option.value)}
-                  className='data-[selected=true]:bg-muted items-start gap-3 rounded-lg px-3 py-3 transition-colors'
-                >
-                  <Check
-                    className={cn(
-                      'mt-0.5 h-4 w-4',
-                      value === option.value ? 'opacity-100' : 'opacity-0'
-                    )}
-                  />
-                  <span className='min-w-0 flex-1'>
-                    <span className='block truncate font-medium'>
-                      {option.label}
-                    </span>
-                    {getDistinctDescription(option) && (
-                      <span className='text-muted-foreground block truncate text-xs'>
-                        {getDistinctDescription(option)}
+            {statusContent || (
+              <>
+                <CommandEmpty>{t('No group found.')}</CommandEmpty>
+                <CommandGroup>
+                  {filteredOptions.map((option) => (
+                    <CommandItem
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                      onSelect={() => handleSelect(option.value)}
+                      className='data-[selected=true]:bg-muted/80 data-[selected=true]:border-border/60 items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 transition-colors data-[disabled=true]:opacity-60 [&>svg:last-child]:hidden'
+                    >
+                      <Check
+                        className={cn(
+                          'mt-0.5 h-4 w-4',
+                          value === option.value ? 'opacity-100' : 'opacity-0'
+                        )}
+                      />
+                      <span className='min-w-0 flex-1'>
+                        <span className='block truncate font-medium'>
+                          {option.label}
+                        </span>
+                        {getDistinctDescription(option) && (
+                          <span className='text-muted-foreground block truncate text-xs'>
+                            {getDistinctDescription(option)}
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <GroupRatioBadge ratio={option.ratio} />
-                </CommandItem>
-              ))}
-            </CommandGroup>
+                      <GroupRatioBadge
+                        ratio={option.ratio}
+                        isAuto={option.isAuto}
+                      />
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

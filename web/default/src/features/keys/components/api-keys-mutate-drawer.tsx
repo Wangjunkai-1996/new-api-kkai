@@ -117,7 +117,8 @@ export function ApiKeysMutateDrawer({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
     enabled: open,
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   const models = modelsData?.data || []

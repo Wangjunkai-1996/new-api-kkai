@@ -5945,6 +5945,8 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
+    "Failed to update token group": "Failed to update token group",
+    "Token group updated": "Token group updated",
     "Zoom": "Zoom"
   }
 }

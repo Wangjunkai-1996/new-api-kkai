@@ -5945,6 +5945,8 @@
     "Zero retention": "零數據保留",
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
+    "Failed to update token group": "令牌分組更新失敗",
+    "Token group updated": "令牌分組已更新",
     "Zoom": "縮放"
   }
 }

@@ -41,6 +41,26 @@ func GroupInUserUsableGroups(userGroup, groupName string) bool {
 	return ok
 }
 
+// IsUserTokenGroupUsable reports whether a token may explicitly use group.
+// Empty means that the token follows the user's current group.
+func IsUserTokenGroupUsable(userGroup, group string) bool {
+	if group == "" {
+		return true
+	}
+	if IsAutoGroup(group) {
+		for _, autoGroup := range GetUserAutoGroups(userGroup) {
+			if autoGroup == group {
+				return true
+			}
+		}
+		return false
+	}
+	if !GroupInUserUsableGroups(userGroup, group) {
+		return false
+	}
+	return ratio_setting.ContainsGroupRatio(group)
+}
+
 // GetUserAutoGroup 根据用户分组获取自动分组设置
 func GetUserAutoGroup(userGroup string) []string {
 	return GetUserAutoGroupCandidates(userGroup, "auto")

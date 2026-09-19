@@ -319,6 +319,51 @@ func (token *Token) Update() (err error) {
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
 }
 
+// UpdateGroup updates only the token's group routing fields. clearRetry is
+// true for ordinary groups, where cross-group retry is not applicable.
+func (token *Token) UpdateGroup(group string, clearRetry bool) error {
+	if token == nil || token.Id == 0 || token.UserId == 0 {
+		return errors.New("token 为空！")
+	}
+	if common.RedisEnabled && token.Key == "" {
+		return errors.New("token key 为空！")
+	}
+	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
+		return fmt.Errorf("failed to invalidate token cache before group update: %w", cacheErr)
+	}
+
+	updates := map[string]any{"group": group}
+	if clearRetry {
+		updates["cross_group_retry"] = false
+	}
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	result := tx.Model(&Token{}).
+		Where("id = ? AND user_id = ?", token.Id, token.UserId).
+		Updates(updates)
+	if result.Error != nil {
+		tx.Rollback()
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		var existing Token
+		if err := tx.Where("id = ? AND user_id = ?", token.Id, token.UserId).First(&existing).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+	token.Group = group
+	if clearRetry {
+		token.CrossGroupRetry = false
+	}
+	return nil
+}
+
 func (token *Token) SelectUpdate() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before status update: " + cacheErr.Error())

@@ -76,6 +76,20 @@ export async function updateApiKey(
   return res.data
 }
 
+// Update only the token group so quota and other token settings cannot be
+// overwritten by a stale list row.
+export async function updateApiKeyGroup(
+  id: number,
+  group: string
+): Promise<ApiResponse<ApiKey>> {
+  const res = await api.patch(
+    `/api/token/${id}/group`,
+    { group },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  return res.data
+}
+
 // Delete a single API key
 export async function deleteApiKey(id: number): Promise<ApiResponse> {
   const res = await api.delete(`/api/token/${id}/`)
