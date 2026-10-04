@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,27 @@ func newImageTestContext(t *testing.T, body, contentType string, isStream bool) 
 		IsStream:    isStream,
 	}
 	return c, recorder, resp, info
+}
+
+func TestNormalizeOpenAIUsageMapsOutputImageTokens(t *testing.T) {
+	usage := &dto.Usage{
+		InputTokens:  15,
+		OutputTokens: 1352,
+		InputTokensDetails: &dto.InputTokenDetails{
+			TextTokens: 15,
+		},
+		OutputTokensDetails: &dto.OutputTokenDetails{
+			ImageTokens: 1120,
+			TextTokens:  232,
+		},
+	}
+
+	normalizeOpenAIUsage(usage)
+
+	require.Equal(t, 15, usage.PromptTokens)
+	require.Equal(t, 1352, usage.CompletionTokens)
+	require.Equal(t, 1120, usage.CompletionTokenDetails.ImageTokens)
+	require.Equal(t, 232, usage.CompletionTokenDetails.TextTokens)
 }
 
 func TestOpenaiImageDoResponseUsesInfoIsStream(t *testing.T) {
