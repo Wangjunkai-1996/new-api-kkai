@@ -71,7 +71,7 @@ export async function getTaskPluginOptions(): Promise<TaskPluginOption[]> {
   return requireServerSuccess(response.data).data
 }
 
-export type CodexUsageResponse = {
+export type CodexUsageResponseX = {
   success: boolean
   message?: string
   upstream_status?: number

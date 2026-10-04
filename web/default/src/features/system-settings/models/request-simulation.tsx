@@ -108,7 +108,6 @@ export function RequestSimulation(props: RequestSimulationProps) {
     open && timeMode === 'current'
   )
 
-  // oxlint-disable-next-line react/preserve-manual-memoization
   const result = useMemo(() => {
     if (!open) return null
     let requestBody: unknown

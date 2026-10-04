@@ -88,7 +88,6 @@ export function PricingAmountInput({
         ref={(element) => {
           element?.setCustomValidity(error)
           if (typeof props.ref === 'function') return props.ref(element)
-          // oxlint-disable-next-line react/immutability
           if (props.ref) props.ref.current = element
         }}
         data-pricing-amount=''
