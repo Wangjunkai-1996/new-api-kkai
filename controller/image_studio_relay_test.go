@@ -27,6 +27,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -381,6 +382,9 @@ func resetImageStudioSubmissionCapacity(t *testing.T) {
 
 func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 	t.Helper()
+	withTieredBillingConfig(t, map[string]string{
+		service.ImageStudioEditModel: billing_setting.BillingModeRatio,
+	}, map[string]string{})
 	gin.SetMode(gin.TestMode)
 	previousDB := model.DB
 	previousRedisEnabled := common.RedisEnabled

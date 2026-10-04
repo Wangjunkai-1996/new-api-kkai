@@ -168,8 +168,12 @@ func observeCurrentSchema(ctx context.Context, db *gorm.DB) (*kkaimigrate.Observ
 	if err != nil {
 		return nil, err
 	}
-	if err := model.ValidateMainSchemaPrerequisites(db.WithContext(ctx)); err != nil {
-		return nil, err
+	// Observe validates the historical schema at its recorded version. The
+	// current application models apply only after its runtime schema is present.
+	if observation.CurrentVersion >= kkaimigrate.RequiredRuntimeVersion {
+		if err := model.ValidateMainSchemaPrerequisites(db.WithContext(ctx)); err != nil {
+			return nil, err
+		}
 	}
 	return observation, nil
 }

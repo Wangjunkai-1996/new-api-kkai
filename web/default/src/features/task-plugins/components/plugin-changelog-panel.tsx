@@ -116,9 +116,7 @@ export function PluginChangelogPanel(props: PluginChangelogPanelProps) {
         <section key={section.category} className='space-y-2'>
           <h3 className='font-medium'>{categoryLabels[section.category]}</h3>
           <div lang={changelog.locale}>
-            <Markdown>
-              {section.markdown}
-            </Markdown>
+            <Markdown>{section.markdown}</Markdown>
           </div>
         </section>
       ))}

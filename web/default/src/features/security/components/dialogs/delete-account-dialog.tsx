@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { deleteUserAccount } from '@/features/profile/api'
 import { clearAuthentication } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useAccountSecurity } from '../../hooks/use-account-security'
 
@@ -39,18 +40,23 @@ interface DeleteAccountDialogProps {
 }
 
 export function DeleteAccountDialog(props: DeleteAccountDialogProps) {
+  const sessionKey = useAuthStore(
+    (state) => `${state.auth.user?.id ?? ''}:${state.auth.session?.sid ?? ''}`
+  )
+  return (
+    <DeleteAccountDialogContent
+      key={`${sessionKey}:${props.open}:${props.username}`}
+      {...props}
+    />
+  )
+}
+
+function DeleteAccountDialogContent(props: DeleteAccountDialogProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const confirmationId = useId()
   const [confirmation, setConfirmation] = useState('')
   const security = useAccountSecurity()
-  const cancel = security.cancel
-
-  useEffect(() => {
-    setConfirmation('')
-    if (!props.open) cancel()
-  }, [props.open, props.username, security.sessionKey, cancel])
-
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       security.cancel()

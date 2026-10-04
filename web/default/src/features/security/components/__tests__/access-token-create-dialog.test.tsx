@@ -124,26 +124,26 @@ beforeEach(() => {
   list = { items: [], legacy: null }
   vi.spyOn(api, 'get').mockImplementation(
     async (url: string, config?: ApiRequestConfig) => {
-    if (url === '/api/verify/methods') {
-      return {
-        data: {
-          success: true,
+      if (url === '/api/verify/methods') {
+        return {
           data: {
-            scope: config?.params?.scope,
-            methods: [{ method: 'password', available: true }],
-            oauth_providers: [],
-            password_encryption_enabled: false,
+            success: true,
+            data: {
+              scope: config?.params?.scope,
+              methods: [{ method: 'password', available: true }],
+              oauth_providers: [],
+              password_encryption_enabled: false,
+            },
           },
-        },
+        }
       }
-    }
-    if (url === '/api/user/access_tokens/catalog') {
-      return { data: { success: true, data: catalog } }
-    }
-    if (url === '/api/user/access_tokens') {
-      return { data: { success: true, data: list } }
-    }
-    throw new Error(`Unexpected GET ${url}`)
+      if (url === '/api/user/access_tokens/catalog') {
+        return { data: { success: true, data: catalog } }
+      }
+      if (url === '/api/user/access_tokens') {
+        return { data: { success: true, data: list } }
+      }
+      throw new Error(`Unexpected GET ${url}`)
     }
   )
   vi.spyOn(api, 'post').mockImplementation(async (url, data) => {

@@ -93,7 +93,9 @@ export function normalizeAdminPermissions(
   return normalized
 }
 
-export function permissionMatrixToScopes(matrix: AdminPermissionMatrix): string[] {
+export function permissionMatrixToScopes(
+  matrix: AdminPermissionMatrix
+): string[] {
   const scopes: string[] = []
   for (const [resource, actions] of Object.entries(matrix)) {
     for (const [action, granted] of Object.entries(actions)) {

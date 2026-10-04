@@ -108,7 +108,7 @@ export function RequestSimulation(props: RequestSimulationProps) {
     open && timeMode === 'current'
   )
 
-  const result = useMemo(() => {
+  const result = (() => {
     if (!open) return null
     let requestBody: unknown
     let requestHeaders: unknown
@@ -179,19 +179,7 @@ export function RequestSimulation(props: RequestSimulationProps) {
         headers: requestHeaders as Record<string, string>,
       },
     })
-  }, [
-    open,
-    imageCount,
-    body,
-    headers,
-    timeMode,
-    fixedTime,
-    liveTime,
-    props.expression,
-    props.tokens,
-    usage,
-    props.usageSchema,
-  ])
+  })()
 
   let error = ''
   if (result && 'inputError' in result) error = t(result.inputError)

@@ -9,19 +9,21 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
 // rc41ArchitectureMigration adds the official rc.41 token, task-plugin, and
-// persisted login-encryption-key stores and nullable account metadata while preserving existing records.
+// persisted login-encryption-key stores, account metadata, and Midjourney billing
+// attribution while preserving existing records.
 func rc41ArchitectureMigration() migration {
 	return migration{
 		Version:          9,
 		Name:             "rc41_scoped_tokens_and_task_plugins",
 		Kind:             MigrationKindExpand,
-		ImplementationID: "rc41_scoped_tokens_and_task_plugins_v1",
+		ImplementationID: "rc41_scoped_tokens_and_task_plugins_v2",
 		ChecksumVersion:  migrationChecksumSchemaBackfill,
-		BackfillSpec:     "provision one persisted RSA login key and the official 30-day legacy token retirement deadline; preserve existing values",
-		BackfillID:       "provision_rc41_authentication_v1",
+		BackfillSpec:     "provision one persisted RSA login key and the official 30-day legacy token retirement deadline with identity-only conflict updates; preserve existing values and omit key material from SQL logs",
+		BackfillID:       "provision_rc41_authentication_v2",
 		Backfill:         backfillRC41Authentication,
 		Statements:       rc41ArchitectureSchemaStatements,
 	}
@@ -45,6 +47,8 @@ route VARCHAR(255), status INTEGER, success BOOLEAN, request_id VARCHAR(64), con
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_category ON audit_logs (category)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN access_token_created_at BIGINT`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE passkey_credentials ADD COLUMN rp_id VARCHAR(253)`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN token_id BIGINT`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN billing_channel_id BIGINT`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS user_access_tokens (
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 user_id INTEGER,
@@ -99,6 +103,8 @@ route VARCHAR(255), status INT, success BOOLEAN, request_id VARCHAR(64), content
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_category ON audit_logs (category)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN access_token_created_at BIGINT`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE passkey_credentials ADD COLUMN rp_id VARCHAR(253)`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN token_id BIGINT`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN billing_channel_id BIGINT`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS user_access_tokens (
 id BIGINT AUTO_INCREMENT PRIMARY KEY,
 user_id INT,
@@ -153,6 +159,8 @@ route VARCHAR(255), status INTEGER, success BOOLEAN, request_id VARCHAR(64), con
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_category ON audit_logs (category)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN access_token_created_at BIGINT`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE passkey_credentials ADD COLUMN rp_id VARCHAR(253)`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN token_id BIGINT`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN billing_channel_id BIGINT`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS user_access_tokens (
 id BIGSERIAL PRIMARY KEY,
 user_id INTEGER,
@@ -202,7 +210,14 @@ func backfillRC41Authentication(tx *gorm.DB) error {
 		if err != nil {
 			return err
 		}
-		if err := tx.Table("login_encryption_keys").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "slot"}}, DoNothing: true}).Create(map[string]any{"slot": "active", "private_key_pem": key}).Error; err != nil {
+		// A map has no primary-key metadata for MySQL's DoNothing emulation.
+		// Updating only the conflicting identity preserves the existing key.
+		// Suppress SQL logging because even an error must not print the PEM.
+		if err := tx.Session(&gorm.Session{Logger: tx.Logger.LogMode(logger.Silent)}).
+			Table("login_encryption_keys").Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "slot"}},
+			DoUpdates: clause.AssignmentColumns([]string{"slot"}),
+		}).Create(map[string]any{"slot": "active", "private_key_pem": key}).Error; err != nil {
 			return err
 		}
 		if err := tx.Table("login_encryption_keys").Where("slot = ?", "active").Take(&stored).Error; err != nil {
@@ -215,7 +230,10 @@ func backfillRC41Authentication(tx *gorm.DB) error {
 		return fmt.Errorf("invalid persisted login encryption key: %w", err)
 	}
 	deadline := strconv.FormatInt(time.Now().Unix()+30*24*60*60, 10)
-	if err := tx.Table("options").Clauses(clause.OnConflict{DoNothing: true}).Create(map[string]any{"key": "LegacyAccessTokenRetireAt", "value": deadline}).Error; err != nil {
+	if err := tx.Table("options").Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"key"}),
+	}).Create(map[string]any{"key": "LegacyAccessTokenRetireAt", "value": deadline}).Error; err != nil {
 		return err
 	}
 	var option struct{ Value string }

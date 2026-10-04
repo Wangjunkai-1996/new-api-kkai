@@ -29,7 +29,14 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react'
-import { type Ref, useEffect, useId, useRef, useState } from 'react'
+import {
+  type Ref,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -82,14 +89,28 @@ type VideoAssetUploaderProps = {
 }
 
 export function VideoAssetUploader(props: VideoAssetUploaderProps) {
+  return (
+    <VideoAssetUploadSession
+      key={`${props.purpose}:${Boolean(props.adminUpload)}`}
+      {...props}
+    />
+  )
+}
+
+function VideoAssetUploadSession({
+  inputRef,
+  ...props
+}: VideoAssetUploaderProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
   const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const inputId = useId()
   const propsRef = useRef(props)
-  propsRef.current = props
   const assetsRef = useRef(props.assets)
-  assetsRef.current = props.assets
+  useLayoutEffect(() => {
+    propsRef.current = props
+    assetsRef.current = props.assets
+  }, [props])
   const uploadResumes = useVideoStudioDraftStore((state) => state.uploadResumes)
   const saveUploadResume = useVideoStudioDraftStore(
     (state) => state.saveUploadResume
@@ -105,25 +126,24 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
     new Set()
   )
   const inspectionStartedAtRef = useRef(new Map<number, number>())
-  const [inspectionNow, setInspectionNow] = useState(() => Date.now())
+  const [inspectionClock, setInspectionClock] = useState(() => ({
+    now: Date.now(),
+    startedAt: new Map<number, number>(),
+  }))
   useEffect(() => {
     const now = Date.now()
     const pendingAssetIds = new Set<number>()
-    let changed = false
     for (const asset of props.assets) {
       if (!isVideoAssetInspectionPending(asset)) continue
       pendingAssetIds.add(asset.id)
       if (inspectionStartedAtRef.current.has(asset.id)) continue
       const updatedAt = asset.updated_at > 0 ? asset.updated_at * 1_000 : now
       inspectionStartedAtRef.current.set(asset.id, Math.min(now, updatedAt))
-      changed = true
     }
     for (const assetId of inspectionStartedAtRef.current.keys()) {
       if (pendingAssetIds.has(assetId)) continue
       inspectionStartedAtRef.current.delete(assetId)
-      changed = true
     }
-    if (changed) setInspectionNow(now)
   }, [props.assets])
   const uploadLimits =
     status?.video_studio?.upload_limits ??
@@ -151,10 +171,9 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
       ? error.message
       : t('videoStudio.uploadFailed')
   }
+  const adminUpload = Boolean(props.adminUpload)
   const [uploadProtocol] = useState(() =>
-    createVideoUploadProtocol({
-      admin: () => Boolean(propsRef.current.adminUpload),
-    })
+    createVideoUploadProtocol({ admin: () => adminUpload })
   )
   const [uppy] = useState(() => {
     const instance = new Uppy<VideoUploadMeta, VideoUploadResponseBody>({
@@ -255,17 +274,24 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
       const startedAt = inspectionStartedAtRef.current.get(asset.id)
       if (startedAt === undefined) continue
       const deadline = startedAt + 60_000
-      if (deadline > inspectionNow) {
+      if (
+        deadline > inspectionClock.now ||
+        inspectionClock.startedAt.get(asset.id) !== startedAt
+      ) {
         nextDeadline = Math.min(nextDeadline, deadline)
       }
     }
     if (!Number.isFinite(nextDeadline)) return
     const timer = window.setTimeout(
-      () => setInspectionNow(Date.now()),
+      () =>
+        setInspectionClock({
+          now: Date.now(),
+          startedAt: new Map(inspectionStartedAtRef.current),
+        }),
       Math.max(0, nextDeadline - now)
     )
     return () => window.clearTimeout(timer)
-  }, [inspectionNow, props.assets])
+  }, [inspectionClock, props.assets])
 
   const commitUploadedAsset = (asset: VideoAsset, fileId: string) => {
     const latestProps = propsRef.current
@@ -481,10 +507,10 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
           const isVideo = asset.mime_type?.startsWith('video/')
           const showMedia = shouldRenderVideoAssetMedia(asset)
           const startedAt =
-            inspectionStartedAtRef.current.get(asset.id) ?? inspectionNow
+            inspectionClock.startedAt.get(asset.id) ?? inspectionClock.now
           const inspectionTakingLong = isVideoAssetInspectionTakingLong(
             asset,
-            Math.max(0, inspectionNow - startedAt)
+            Math.max(0, inspectionClock.now - startedAt)
           )
           const inspectionQuery = inspectionQueries[index]
           const assetUrl = showMedia
@@ -633,7 +659,7 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
             )}
           >
             <input
-              ref={props.inputRef}
+              ref={inputRef}
               id={inputId}
               type='file'
               className='sr-only'

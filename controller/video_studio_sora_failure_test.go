@@ -204,7 +204,7 @@ func TestVideoStudioSoraHTTPRejectionRefundsWalletAndFailsGeneration(t *testing.
 	assert.Equal(t, "/v1/videos", observation.path)
 	assert.Equal(t, "Bearer strict-adapter-key", observation.authorization)
 	assert.Equal(t, map[string]any{
-		"model":    studioModel,
+		"model":    "sd_2.0_special_1080p",
 		"prompt":   "A precise camera movement",
 		"duration": float64(5),
 		"mode":     "text_to_video",
@@ -218,6 +218,8 @@ func TestVideoStudioSoraHTTPRejectionRefundsWalletAndFailsGeneration(t *testing.
 	var task model.Task
 	require.NoError(t, db.First(&task).Error)
 	assert.EqualValues(t, model.TaskStatusFailure, task.Status)
+	assert.Equal(t, studioModel, task.Properties.OriginModelName)
+	assert.Equal(t, "sd_2.0_special_1080p", task.Properties.UpstreamModelName)
 	assert.Equal(t, model.TaskBillingStateRefunded, task.PrivateData.BillingState)
 	assert.Zero(t, task.Quota)
 	assert.Empty(t, task.PrivateData.UpstreamTaskID)

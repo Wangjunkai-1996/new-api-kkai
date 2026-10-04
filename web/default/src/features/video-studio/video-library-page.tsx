@@ -66,6 +66,11 @@ const TARGET_DISCOVERY_TIMEOUT_MS = 30_000
 export function VideoLibraryPage(props: VideoLibraryPageProps) {
   const { t } = useTranslation()
   const [targetWaitExpired, setTargetWaitExpired] = useState(false)
+  const [observedTargetId, setObservedTargetId] = useState(props.targetTaskId)
+  if (observedTargetId !== props.targetTaskId) {
+    setObservedTargetId(props.targetTaskId)
+    setTargetWaitExpired(false)
+  }
   const [targetWaitAttempt, setTargetWaitAttempt] = useState(0)
   const generationsQuery = useVideoGenerations(
     {},
@@ -101,6 +106,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
       )
     : undefined
   const targetFound = Boolean(targetGeneration)
+  if (targetFound && targetWaitExpired) setTargetWaitExpired(false)
   const targetPending = Boolean(
     props.targetTaskId && !targetFound && !targetWaitExpired
   )
@@ -109,7 +115,6 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
   )
 
   useEffect(() => {
-    setTargetWaitExpired(false)
     if (!props.targetTaskId || targetFound) return
 
     const timeout = window.setTimeout(
@@ -143,8 +148,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
     return () => window.cancelAnimationFrame(frame)
   }, [props.targetTaskId, targetGeneration])
 
-  useEffect(() => {
-    if (activePlayerId === null) return
+  if (activePlayerId !== null) {
     const activeGeneration = generations.find(
       (generation) => generation.id === activePlayerId
     )
@@ -155,7 +159,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
     ) {
       setActivePlayerId(null)
     }
-  }, [activePlayerId, generations])
+  }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
@@ -174,6 +178,7 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
   }
 
   const retryTargetDiscovery = () => {
+    setTargetWaitExpired(false)
     setTargetWaitAttempt((attempt) => attempt + 1)
     void generationsQuery.refresh()
   }

@@ -22,7 +22,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
-import { EditorView, lineNumbers, placeholder as codeMirrorPlaceholder } from '@codemirror/view'
+import {
+  EditorView,
+  lineNumbers,
+  placeholder as codeMirrorPlaceholder,
+} from '@codemirror/view'
 import { tags as highlightTags } from '@lezer/highlight'
 import {
   CheckIcon,
@@ -311,21 +315,6 @@ function CodeMirrorCodeView({
   const onChangeRef = useRef(onChange)
   const onKeyDownRef = useRef(onKeyDown)
   const editorMinHeight = `${Math.max(4, rows) * 1.5 + 2}rem`
-  // onKeyDown is delivered through a ref so a new handler identity from the
-  // parent (recreated on every keystroke-driven render) does not invalidate
-  // the extensions and tear down the EditorView, which would reset the cursor
-  // to the document start and make typing appear right-to-left.
-  const editorExtensions = useMemo(
-    () =>
-    getCodeMirrorExtensions({
-        language,
-        onKeyDown: (event) => onKeyDownRef.current?.(event),
-        readOnly,
-        showLineNumbers,
-      }),
-    [language, readOnly, showLineNumbers]
-  )
-
   useEffect(() => {
     onChangeRef.current = onChange
     onKeyDownRef.current = onKeyDown
@@ -337,6 +326,13 @@ function CodeMirrorCodeView({
       return
     }
 
+    // Handler changes must not rebuild the editor and reset the cursor.
+    const editorExtensions = getCodeMirrorExtensions({
+      language,
+      onKeyDown: (event) => onKeyDownRef.current?.(event),
+      readOnly,
+      showLineNumbers,
+    })
     const editorView = new EditorView({
       doc: initialValueRef.current,
       extensions: [
@@ -359,7 +355,7 @@ function CodeMirrorCodeView({
       editorView.destroy()
       editorViewRef.current = null
     }
-  }, [autoFocus, editorExtensions])
+  }, [autoFocus, language, placeholder, readOnly, showLineNumbers])
 
   useEffect(() => {
     // Track the latest value so a future editor rebuild (e.g. language change)

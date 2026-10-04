@@ -530,13 +530,13 @@ func TestTaskMediaResponseHeaderTimeoutCancelsBeforeHeaders(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
-func TestWriteVideoDataURLStreamsAndSupportsHead(t *testing.T) {
+func TestWriteTaskMediaDataURLStreamsAndSupportsHead(t *testing.T) {
 	const dataURL = "data:video/mp4;base64,Y29tcGxldGUtYm9keQ=="
 
 	getRecorder := httptest.NewRecorder()
 	getContext, _ := gin.CreateTestContext(getRecorder)
 	getContext.Request = httptest.NewRequest(http.MethodGet, "/content", nil)
-	require.NoError(t, writeVideoDataURL(getContext, dataURL))
+	require.NoError(t, writeTaskMediaDataURL(getContext, dataURL))
 	assert.Equal(t, http.StatusOK, getRecorder.Code)
 	assert.Equal(t, "complete-body", getRecorder.Body.String())
 	assert.Equal(t, "13", getRecorder.Header().Get("Content-Length"))
@@ -544,13 +544,13 @@ func TestWriteVideoDataURLStreamsAndSupportsHead(t *testing.T) {
 	headRecorder := httptest.NewRecorder()
 	headContext, _ := gin.CreateTestContext(headRecorder)
 	headContext.Request = httptest.NewRequest(http.MethodHead, "/content", nil)
-	require.NoError(t, writeVideoDataURL(headContext, dataURL))
+	require.NoError(t, writeTaskMediaDataURL(headContext, dataURL))
 	assert.Equal(t, http.StatusOK, headRecorder.Code)
 	assert.Empty(t, headRecorder.Body.String())
 	assert.Equal(t, "13", headRecorder.Header().Get("Content-Length"))
 }
 
-func TestWriteVideoDataURLRejectsOversizedPayloadBeforeDecode(t *testing.T) {
+func TestWriteTaskMediaDataURLRejectsOversizedPayloadBeforeDecode(t *testing.T) {
 	previousLimit := taskMediaDataURLMaxEncodedBytes
 	taskMediaDataURLMaxEncodedBytes = 32
 	t.Cleanup(func() { taskMediaDataURLMaxEncodedBytes = previousLimit })
@@ -559,7 +559,7 @@ func TestWriteVideoDataURLRejectsOversizedPayloadBeforeDecode(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/content", nil)
 
-	err := writeVideoDataURL(c, "data:video/mp4;base64,"+strings.Repeat("A", 64))
+	err := writeTaskMediaDataURL(c, "data:video/mp4;base64,"+strings.Repeat("A", 64))
 
 	assert.ErrorIs(t, err, errTaskMediaRequestRejected)
 	assert.Empty(t, recorder.Header().Get("Content-Type"))

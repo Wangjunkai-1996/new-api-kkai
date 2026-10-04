@@ -94,25 +94,40 @@ export function buildOAuthAuthorizationUrl(
 ): string {
   switch (provider) {
     case 'github':
-      if (status.github_client_id) return buildGitHubOAuthUrl(status.github_client_id, state)
+      if (status.github_client_id) {
+        return buildGitHubOAuthUrl(status.github_client_id, state)
+      }
       break
     case 'discord':
-      if (status.discord_client_id) return buildDiscordOAuthUrl(status.discord_client_id, state)
+      if (status.discord_client_id) {
+        return buildDiscordOAuthUrl(status.discord_client_id, state)
+      }
       break
     case 'oidc':
       if (status.oidc_authorization_endpoint && status.oidc_client_id) {
-        return buildOIDCOAuthUrl(status.oidc_authorization_endpoint, status.oidc_client_id, state)
+        return buildOIDCOAuthUrl(
+          status.oidc_authorization_endpoint,
+          status.oidc_client_id,
+          state
+        )
       }
       break
     case 'linuxdo':
-      if (status.linuxdo_client_id) return buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
+      if (status.linuxdo_client_id) {
+        return buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
+      }
       break
     default: {
-      const custom = status.custom_oauth_providers?.find((item) => item.slug === provider)
+      const custom = status.custom_oauth_providers?.find(
+        (item) => item.slug === provider
+      )
       if (custom) {
         const url = new URL(custom.authorization_endpoint)
         url.searchParams.set('client_id', custom.client_id)
-        url.searchParams.set('redirect_uri', window.location.origin + '/oauth/' + provider)
+        url.searchParams.set(
+          'redirect_uri',
+          window.location.origin + '/oauth/' + provider
+        )
         url.searchParams.set('response_type', 'code')
         url.searchParams.set('state', state)
         if (custom.scopes) url.searchParams.set('scope', custom.scopes)

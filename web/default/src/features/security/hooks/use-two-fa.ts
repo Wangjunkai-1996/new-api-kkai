@@ -16,10 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback } from 'react'
 
 import type { TwoFAStatus } from '@/features/profile/types'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { get2FAStatus } from '../api'
 
@@ -34,32 +36,26 @@ const DEFAULT_STATUS: TwoFAStatus = {
 }
 
 export function useTwoFA(enabled = true) {
-  const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<TwoFAStatus>(DEFAULT_STATUS)
-  const [error, setError] = useState<string>()
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const query = useQuery({
+    queryKey: ['security', 'two-fa', userId, sessionId],
+    queryFn: get2FAStatus,
+    enabled,
+    retry: false,
+  })
 
-  const fetchStatus = useCallback(async () => {
-    if (!enabled) return
-
-    try {
-      setLoading(true)
-      setError(undefined)
-      setStatus(await get2FAStatus())
-    } catch (error) {
-      setError(AuthOperationError.from(error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [enabled])
-
-  useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
+  const reload = query.refetch
+  const refetch = useCallback(async () => {
+    await reload()
+  }, [reload])
 
   return {
-    status,
-    loading,
-    error,
-    refetch: fetchStatus,
+    status: query.data ?? DEFAULT_STATUS,
+    loading: query.isFetching,
+    error: query.error
+      ? AuthOperationError.from(query.error).message
+      : undefined,
+    refetch,
   }
 }

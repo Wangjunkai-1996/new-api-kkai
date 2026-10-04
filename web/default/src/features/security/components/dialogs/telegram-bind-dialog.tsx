@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Send } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -43,7 +44,12 @@ interface TelegramBindDialogProps {
   onSuccess: () => void
 }
 
-export function TelegramBindDialog({
+export function TelegramBindDialog(props: TelegramBindDialogProps) {
+  if (!props.open) return null
+  return <TelegramBindDialogContent {...props} />
+}
+
+function TelegramBindDialogContent({
   open,
   onOpenChange,
   botName,
@@ -51,43 +57,30 @@ export function TelegramBindDialog({
 }: TelegramBindDialogProps) {
   const { t } = useTranslation()
   const widgetRef = useRef<HTMLDivElement>(null)
-  const [callbackUrl, setCallbackUrl] = useState<string | null>(null)
-  const [flowToken, setFlowToken] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const createBindFlow = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
+  const [bindingError, setError] = useState<string | null>(null)
+  const flow = useQuery({
+    queryKey: ['security', 'telegram-binding', botName],
+    queryFn: async () => {
       const response = await startTelegramBind()
       if (!response.success || !response.data?.callback_url) {
         throw createServerError(response, t('Failed to start Telegram binding'))
       }
-      setFlowToken(response.data.flow_token)
-      setCallbackUrl(
-        new URL(response.data.callback_url, window.location.origin).toString()
-      )
-    } catch (bindError: unknown) {
-      setError(
-        bindError instanceof Error
-          ? bindError.message
-          : t('Failed to start Telegram binding')
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
-
-  useEffect(() => {
-    if (!open) {
-      setCallbackUrl(null)
-      setFlowToken(null)
-      setError(null)
-      return
-    }
-    void createBindFlow()
-  }, [createBindFlow, open])
+      return response.data
+    },
+    retry: false,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  })
+  const flowToken = flow.data?.flow_token
+  const callbackUrl = flow.data?.callback_url
+    ? new URL(flow.data.callback_url, window.location.origin).toString()
+    : null
+  const loading = flow.isFetching
+  const error = bindingError ?? flow.error?.message
+  const createBindFlow = () => {
+    setError(null)
+    void flow.refetch()
+  }
 
   useEffect(() => {
     if (!open || !flowToken) return

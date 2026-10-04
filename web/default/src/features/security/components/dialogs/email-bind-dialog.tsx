@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -43,6 +43,7 @@ import {
 } from '@/features/profile/api'
 import type { EmailBindingFlow } from '@/features/profile/types'
 import { useCountdown } from '@/hooks/use-countdown'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useAccountSecurity } from '../../hooks/use-account-security'
 
@@ -69,6 +70,15 @@ interface EmailBindDialogProps {
 }
 
 export function EmailBindDialog(props: EmailBindDialogProps) {
+  const sessionKey = useAuthStore(
+    (state) => `${state.auth.user?.id ?? ''}:${state.auth.session?.sid ?? ''}`
+  )
+  return (
+    <EmailBindDialogContent key={`${sessionKey}:${props.open}`} {...props} />
+  )
+}
+
+function EmailBindDialogContent(props: EmailBindDialogProps) {
   const { t } = useTranslation()
   const security = useAccountSecurity()
   const [flow, setFlow] = useState<EmailBindingFlow | null>(null)
@@ -78,27 +88,6 @@ export function EmailBindDialog(props: EmailBindDialogProps) {
   })
   const resend = useCountdown({ initialSeconds: 60 })
   const deadline = useCountdown({ initialSeconds: 600 })
-  const reset = form.reset
-  const cancel = security.cancel
-  const resetResend = resend.reset
-  const resetDeadline = deadline.reset
-
-  useEffect(() => {
-    reset(emptyEmailForm)
-    setFlow(null)
-    resetResend()
-    resetDeadline()
-  }, [security.sessionKey, reset, resetResend, resetDeadline])
-  useEffect(() => {
-    if (!props.open) {
-      cancel()
-      reset(emptyEmailForm)
-      setFlow(null)
-      resetResend()
-      resetDeadline()
-    }
-  }, [props.open, cancel, reset, resetResend, resetDeadline])
-
   const terminalFailure =
     security.error?.code === 'EMAIL_BINDING_LOCKED' ||
     security.error?.code === 'AUTH_FLOW_INVALID' ||
@@ -232,7 +221,7 @@ export function EmailBindDialog(props: EmailBindDialogProps) {
         <Form {...form}>
           <form
             id='email-bind-form'
-            onSubmit={form.handleSubmit(submit)}
+            onSubmit={(event) => void form.handleSubmit(submit)(event)}
             className='space-y-4'
           >
             <FormField

@@ -27,6 +27,7 @@ import {
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { useEffect } from 'react'
 
+import { ConsoleCompatibilityBoundary } from '@/components/console-compatibility-boundary'
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
@@ -34,7 +35,6 @@ import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
-import { ConsoleCompatibilityBoundary } from '@/components/console-compatibility-boundary'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import {
   bootstrapAuthentication,
@@ -89,7 +89,9 @@ function RootComponent() {
   return (
     <ThemeCustomizationProvider>
       <NavigationProgress />
-      <ConsoleCompatibilityBoundary><Outlet /></ConsoleCompatibilityBoundary>
+      <ConsoleCompatibilityBoundary>
+        <Outlet />
+      </ConsoleCompatibilityBoundary>
       <Toaster closeButton duration={5000} position='top-center' richColors />
       {import.meta.env.MODE === 'development' && (
         <>

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -1320,13 +1321,13 @@ func TopUp(c *gin.Context) {
 type UpdateUserSettingRequest struct {
 	QuotaWarningType                 *string  `json:"notify_type"`
 	QuotaWarningThreshold            *float64 `json:"quota_warning_threshold"`
-	WebhookUrl                       string   `json:"webhook_url,omitempty"`
-	WebhookSecret                    string   `json:"webhook_secret,omitempty"`
-	NotificationEmail                string   `json:"notification_email,omitempty"`
-	BarkUrl                          string   `json:"bark_url,omitempty"`
-	GotifyUrl                        string   `json:"gotify_url,omitempty"`
-	GotifyToken                      string   `json:"gotify_token,omitempty"`
-	GotifyPriority                   int      `json:"gotify_priority,omitempty"`
+	WebhookUrl                       *string  `json:"webhook_url,omitempty"`
+	WebhookSecret                    *string  `json:"webhook_secret,omitempty"`
+	NotificationEmail                *string  `json:"notification_email,omitempty"`
+	BarkUrl                          *string  `json:"bark_url,omitempty"`
+	GotifyUrl                        *string  `json:"gotify_url,omitempty"`
+	GotifyToken                      *string  `json:"gotify_token,omitempty"`
+	GotifyPriority                   *int     `json:"gotify_priority,omitempty"`
 	UpstreamModelUpdateNotifyEnabled *bool    `json:"upstream_model_update_notify_enabled,omitempty"`
 	AcceptUnsetModelRatioModel       *bool    `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                      *bool    `json:"record_ip_log"`
@@ -1345,86 +1346,40 @@ func UpdateUserSetting(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	existingSettings := user.GetSetting()
-	notifyType := existingSettings.NotifyType
+	settings := user.GetSetting()
 	if req.QuotaWarningType != nil {
-		notifyType = *req.QuotaWarningType
+		settings.NotifyType = *req.QuotaWarningType
 	}
-	quotaWarningThreshold := existingSettings.QuotaWarningThreshold
 	if req.QuotaWarningThreshold != nil {
-		quotaWarningThreshold = *req.QuotaWarningThreshold
+		settings.QuotaWarningThreshold = *req.QuotaWarningThreshold
 	}
-
-	notificationUpdate := req.QuotaWarningType != nil || req.QuotaWarningThreshold != nil
-	if notificationUpdate {
-		if notifyType != dto.NotifyTypeEmail && notifyType != dto.NotifyTypeWebhook && notifyType != dto.NotifyTypeBark && notifyType != dto.NotifyTypeGotify {
-			common.ApiErrorI18n(c, i18n.MsgSettingInvalidType)
-			return
-		}
-		if quotaWarningThreshold <= 0 {
-			common.ApiErrorI18n(c, i18n.MsgQuotaThresholdGtZero)
-			return
-		}
+	if req.WebhookUrl != nil {
+		settings.WebhookUrl = *req.WebhookUrl
 	}
-
-	// Validate notification-specific fields only when the corresponding setting is supplied.
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeWebhook {
-		if req.WebhookUrl == "" {
-			common.ApiErrorI18n(c, i18n.MsgSettingWebhookEmpty)
-			return
-		}
-		if _, err := url.ParseRequestURI(req.WebhookUrl); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgSettingWebhookInvalid)
-			return
-		}
+	if req.WebhookSecret != nil {
+		settings.WebhookSecret = *req.WebhookSecret
 	}
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeEmail && req.NotificationEmail != "" && !strings.Contains(req.NotificationEmail, "@") {
-		common.ApiErrorI18n(c, i18n.MsgSettingEmailInvalid)
-		return
+	if req.NotificationEmail != nil {
+		settings.NotificationEmail = *req.NotificationEmail
 	}
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeBark {
-		if req.BarkUrl == "" {
-			common.ApiErrorI18n(c, i18n.MsgSettingBarkUrlEmpty)
-			return
-		}
-		if _, err := url.ParseRequestURI(req.BarkUrl); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgSettingBarkUrlInvalid)
-			return
-		}
-		if !strings.HasPrefix(req.BarkUrl, "https://") && !strings.HasPrefix(req.BarkUrl, "http://") {
-			common.ApiErrorI18n(c, i18n.MsgSettingUrlMustHttp)
-			return
+	if req.BarkUrl != nil {
+		settings.BarkUrl = *req.BarkUrl
+	}
+	if req.GotifyUrl != nil {
+		settings.GotifyUrl = *req.GotifyUrl
+	}
+	if req.GotifyToken != nil {
+		settings.GotifyToken = *req.GotifyToken
+	}
+	if req.GotifyPriority != nil {
+		settings.GotifyPriority = *req.GotifyPriority
+		if settings.GotifyPriority < 0 || settings.GotifyPriority > 10 {
+			settings.GotifyPriority = 5
 		}
 	}
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeGotify {
-		if req.GotifyUrl == "" {
-			common.ApiErrorI18n(c, i18n.MsgSettingGotifyUrlEmpty)
-			return
-		}
-		if req.GotifyToken == "" {
-			common.ApiErrorI18n(c, i18n.MsgSettingGotifyTokenEmpty)
-			return
-		}
-		if _, err := url.ParseRequestURI(req.GotifyUrl); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgSettingGotifyUrlInvalid)
-			return
-		}
-		if !strings.HasPrefix(req.GotifyUrl, "https://") && !strings.HasPrefix(req.GotifyUrl, "http://") {
-			common.ApiErrorI18n(c, i18n.MsgSettingUrlMustHttp)
-			return
-		}
-	}
-
-	upstreamModelUpdateNotifyEnabled := existingSettings.UpstreamModelUpdateNotifyEnabled
 	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
-		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
+		settings.UpstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
 	}
-
-	// 构建设置
-	settings := existingSettings
-	settings.NotifyType = notifyType
-	settings.QuotaWarningThreshold = quotaWarningThreshold
-	settings.UpstreamModelUpdateNotifyEnabled = upstreamModelUpdateNotifyEnabled
 	if req.AcceptUnsetModelRatioModel != nil {
 		settings.AcceptUnsetRatioModel = *req.AcceptUnsetModelRatioModel
 	}
@@ -1432,33 +1387,57 @@ func UpdateUserSetting(c *gin.Context) {
 		settings.RecordIpLog = *req.RecordIpLog
 	}
 
-	// 如果是webhook类型,添加webhook相关设置
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeWebhook {
-		settings.WebhookUrl = req.WebhookUrl
-		if req.WebhookSecret != "" {
-			settings.WebhookSecret = req.WebhookSecret
+	notificationUpdate := req.QuotaWarningType != nil || req.QuotaWarningThreshold != nil ||
+		req.WebhookUrl != nil || req.WebhookSecret != nil || req.NotificationEmail != nil ||
+		req.BarkUrl != nil || req.GotifyUrl != nil || req.GotifyToken != nil || req.GotifyPriority != nil
+	if notificationUpdate {
+		if settings.NotifyType == "" && req.QuotaWarningType == nil {
+			settings.NotifyType = dto.NotifyTypeEmail
 		}
-	}
+		if settings.NotifyType != dto.NotifyTypeEmail && settings.NotifyType != dto.NotifyTypeWebhook && settings.NotifyType != dto.NotifyTypeBark && settings.NotifyType != dto.NotifyTypeGotify {
+			common.ApiErrorI18n(c, i18n.MsgSettingInvalidType)
+			return
+		}
+		if settings.QuotaWarningThreshold <= 0 {
+			common.ApiErrorI18n(c, i18n.MsgQuotaThresholdGtZero)
+			return
+		}
 
-	// 如果提供了通知邮箱，添加到设置中
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeEmail && req.NotificationEmail != "" {
-		settings.NotificationEmail = req.NotificationEmail
-	}
-
-	// 如果是Bark类型，添加Bark URL到设置中
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeBark {
-		settings.BarkUrl = req.BarkUrl
-	}
-
-	// 如果是Gotify类型，添加Gotify配置到设置中
-	if req.QuotaWarningType != nil && notifyType == dto.NotifyTypeGotify {
-		settings.GotifyUrl = req.GotifyUrl
-		settings.GotifyToken = req.GotifyToken
-		// Gotify优先级范围0-10，超出范围则使用默认值5
-		if req.GotifyPriority < 0 || req.GotifyPriority > 10 {
-			settings.GotifyPriority = 5
-		} else {
-			settings.GotifyPriority = req.GotifyPriority
+		var targetURL, emptyMessage, invalidMessage string
+		switch settings.NotifyType {
+		case dto.NotifyTypeEmail:
+			if settings.NotificationEmail != "" {
+				address, err := mail.ParseAddress(settings.NotificationEmail)
+				if err != nil || address.Address != settings.NotificationEmail {
+					common.ApiErrorI18n(c, i18n.MsgSettingEmailInvalid)
+					return
+				}
+			}
+		case dto.NotifyTypeWebhook:
+			targetURL, emptyMessage, invalidMessage = settings.WebhookUrl, i18n.MsgSettingWebhookEmpty, i18n.MsgSettingWebhookInvalid
+		case dto.NotifyTypeBark:
+			targetURL, emptyMessage, invalidMessage = settings.BarkUrl, i18n.MsgSettingBarkUrlEmpty, i18n.MsgSettingBarkUrlInvalid
+		case dto.NotifyTypeGotify:
+			if settings.GotifyToken == "" {
+				common.ApiErrorI18n(c, i18n.MsgSettingGotifyTokenEmpty)
+				return
+			}
+			targetURL, emptyMessage, invalidMessage = settings.GotifyUrl, i18n.MsgSettingGotifyUrlEmpty, i18n.MsgSettingGotifyUrlInvalid
+		}
+		if settings.NotifyType != dto.NotifyTypeEmail {
+			if targetURL == "" {
+				common.ApiErrorI18n(c, emptyMessage)
+				return
+			}
+			parsed, err := url.ParseRequestURI(targetURL)
+			if err != nil || parsed.Hostname() == "" {
+				common.ApiErrorI18n(c, invalidMessage)
+				return
+			}
+			if parsed.Scheme != "https" && parsed.Scheme != "http" {
+				common.ApiErrorI18n(c, i18n.MsgSettingUrlMustHttp)
+				return
+			}
 		}
 	}
 

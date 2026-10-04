@@ -101,7 +101,9 @@ interface AuthState {
     bootstrapState: AuthBootstrapState
     setBundle: (bundle: AuthBundle) => void
     setUser: (user: AuthUser | null) => void
-    setPendingLoginVerification: (pending: PendingLoginVerification | null) => void
+    setPendingLoginVerification: (
+      pending: PendingLoginVerification | null
+    ) => void
     setBootstrapState: (bootstrapState: AuthBootstrapState) => void
     reset: (bootstrapState?: AuthBootstrapState) => void
   }

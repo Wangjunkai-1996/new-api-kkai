@@ -37,20 +37,18 @@ import type { SystemStatus, CustomOAuthProviderInfo } from '../types'
 export function useOAuthLogin(status: SystemStatus | null) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
-  const [githubButtonText, setGithubButtonText] = useState('')
+  const [githubButtonText, setGithubButtonText] = useState<string | null>(null)
   const [githubButtonDisabled, setGithubButtonDisabled] = useState(false)
   const githubTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const { auth } = useAuthStore()
 
   useEffect(() => {
-    setGithubButtonText(t('Continue with GitHub'))
-
     return () => {
       if (githubTimeoutRef.current) {
         clearTimeout(githubTimeoutRef.current)
       }
     }
-  }, [t])
+  }, [])
 
   const resetSession = async () => {
     try {
@@ -98,7 +96,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
       const url = buildGitHubOAuthUrl(status.github_client_id, state)
       window.open(url, '_self')
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to start GitHub login'))
       if (githubTimeoutRef.current) {
         clearTimeout(githubTimeoutRef.current)
@@ -123,7 +121,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
       const url = buildDiscordOAuthUrl(status.discord_client_id, state)
       window.open(url, '_self')
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to start Discord login'))
     } finally {
       setIsLoading(false)
@@ -148,7 +146,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
         state
       )
       window.open(url, '_self')
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to start OIDC login'))
     } finally {
       setIsLoading(false)
@@ -169,7 +167,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
       const url = buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
       window.open(url, '_self')
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to start LinuxDO login'))
     } finally {
       setIsLoading(false)
@@ -203,7 +201,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
       }
 
       window.open(url.toString(), '_self')
-    } catch (_error) {
+    } catch {
       toast.error(
         t('Failed to start {{provider}} login', { provider: provider.name })
       )
@@ -214,7 +212,7 @@ export function useOAuthLogin(status: SystemStatus | null) {
 
   return {
     isLoading,
-    githubButtonText,
+    githubButtonText: githubButtonText ?? t('Continue with GitHub'),
     githubButtonDisabled,
     handleGitHubLogin,
     handleDiscordLogin,

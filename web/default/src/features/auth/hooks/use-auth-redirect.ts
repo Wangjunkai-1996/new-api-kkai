@@ -20,9 +20,16 @@ import { useNavigate } from '@tanstack/react-router'
 import i18n from 'i18next'
 import { useCallback } from 'react'
 
-import { getSavedLanguage, sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import {
+  getSavedLanguage,
+  sanitizeAuthRedirect,
+} from '@/features/auth/lib/auth-redirect'
 import { applyAuthBundle, isAuthBundle } from '@/lib/auth-session'
-import { useAuthStore, type AuthBundle, type LoginChallenge } from '@/stores/auth-store'
+import {
+  useAuthStore,
+  type AuthBundle,
+  type LoginChallenge,
+} from '@/stores/auth-store'
 
 function isLoginChallenge(value: unknown): value is LoginChallenge {
   if (!value || typeof value !== 'object') return false

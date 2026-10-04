@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -25,6 +26,7 @@ import {
   prepareCredentialCreationOptions,
 } from '@/lib/passkey'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   beginPasskeyRegistration,
@@ -32,42 +34,33 @@ import {
   finishPasskeyRegistration,
   getPasskeyStatus,
 } from '../api'
-import type { PasskeyStatus } from '../types'
 
 export function usePasskeyManagement() {
-  const [status, setStatus] = useState<PasskeyStatus | null>(null)
-  const [statusError, setStatusError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [registering, setRegistering] = useState(false)
-  const [removing, setRemoving] = useState(false)
-  const [supported, setSupported] = useState(false)
-  const operation = useRef<AbortController | null>(null)
-  const mounted = useRef(true)
-
-  const fetchStatus = useCallback(async () => {
-    setLoading(true)
-    try {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const query = useQuery({
+    queryKey: ['security', 'passkey', userId, sessionId],
+    queryFn: async () => {
       const response = await getPasskeyStatus()
       if (!response.success || !response.data) {
         throw new AuthOperationError(
           response.message || 'Failed to load Passkey status'
         )
       }
-      if (!mounted.current) return
-      setStatus(response.data)
-      setStatusError(null)
-    } catch (error) {
-      if (mounted.current) {
-        setStatusError(AuthOperationError.from(error).message)
-      }
-    } finally {
-      if (mounted.current) setLoading(false)
-    }
-  }, [])
+      return response.data
+    },
+    retry: false,
+  })
+  const status = query.data ?? null
+  const fetchStatus = query.refetch
+  const [registering, setRegistering] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [supported, setSupported] = useState(false)
+  const operation = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
 
   useEffect(() => {
     mounted.current = true
-    void fetchStatus()
     void isPasskeySupported().then((value) => {
       if (mounted.current) setSupported(value)
     })
@@ -75,7 +68,7 @@ export function usePasskeyManagement() {
       mounted.current = false
       operation.current?.abort()
     }
-  }, [fetchStatus])
+  }, [])
 
   const register = useCallback(
     async (proofToken: string) => {
@@ -176,8 +169,10 @@ export function usePasskeyManagement() {
 
   return {
     status,
-    statusError,
-    loading,
+    statusError: query.error
+      ? AuthOperationError.from(query.error).message
+      : null,
+    loading: query.isFetching,
     registering,
     removing,
     supported,

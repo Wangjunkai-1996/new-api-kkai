@@ -1,13 +1,18 @@
 package kkaimigrate
 
 import (
+	"bytes"
 	"context"
-	"github.com/QuantumNous/new-api/model"
+	"log"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestRC41ArchitectureMigrationIsAdditiveAcrossDialects(t *testing.T) {
@@ -100,4 +105,54 @@ func TestRC41ExpandPreservesDataAndProvisionsAuthenticationOnce(t *testing.T) {
 	require.Equal(t, "password", restored.Other.LoginMethod)
 	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
 	require.NoError(t, CheckRequired(context.Background(), db))
+}
+
+func TestRC41ExpandPreservesLegacyMidjourneyBilling(t *testing.T) {
+	db := newMigrationTestDB(t)
+	require.NoError(t, db.Exec(`INSERT INTO midjourneys (id, mj_id, channel_id, quota, status)
+VALUES (1, 'legacy-task', 43, 120, 'SUCCESS')`).Error)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, AuthenticationSchemaVersion, RC41ArchitectureSchemaVersion)
+	require.NoError(t, err)
+	_, err = ApplyRC41ArchitectureExpand(context.Background(), db, Options{})
+	require.NoError(t, err)
+
+	var legacy model.Midjourney
+	require.NoError(t, db.First(&legacy, 1).Error)
+	assert.Equal(t, "legacy-task", legacy.MjId)
+	assert.Equal(t, "SUCCESS", legacy.Status)
+	assert.Equal(t, 120, legacy.Quota)
+	assert.Zero(t, legacy.TokenId)
+	assert.Zero(t, legacy.BillingChannelId)
+	assert.Equal(t, 43, legacy.GetBillingChannelId())
+	var untouched int64
+	require.NoError(t, db.Table("midjourneys").Where("id = 1 AND token_id IS NULL AND billing_channel_id IS NULL").Count(&untouched).Error)
+	assert.EqualValues(t, 1, untouched)
+
+	previousDB := model.DB
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB })
+	legacy.TokenId = 9
+	legacy.BillingChannelId = 51
+	legacy.Quota = 150
+	require.NoError(t, legacy.UpdateBillingState())
+	_, err = ApplyRC41ArchitectureExpand(context.Background(), db, Options{})
+	require.NoError(t, err)
+	var restored model.Midjourney
+	require.NoError(t, db.First(&restored, 1).Error)
+	assert.Equal(t, legacy, restored)
+	assert.Equal(t, 51, restored.GetBillingChannelId())
+	require.NoError(t, CheckRequired(context.Background(), db))
+}
+
+func TestRC41AuthenticationWriteFailureDoesNotLogPrivateKey(t *testing.T) {
+	db := newMigrationTestDB(t)
+	require.NoError(t, executeMigrationSchema(db, DialectSQLite, rc41ArchitectureMigration()))
+	require.NoError(t, db.Exec(`CREATE TRIGGER reject_login_key BEFORE INSERT ON login_encryption_keys
+BEGIN SELECT RAISE(ABORT, 'rejected login key'); END`).Error)
+	var output bytes.Buffer
+	db = db.Session(&gorm.Session{Logger: logger.New(log.New(&output, "", 0), logger.Config{LogLevel: logger.Info})})
+	err := db.Transaction(backfillRC41Authentication)
+	require.ErrorContains(t, err, "rejected login key")
+	assert.NotContains(t, output.String(), "PRIVATE KEY")
+	assert.NotContains(t, output.String(), "INSERT INTO `login_encryption_keys`")
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"gorm.io/gorm"
@@ -271,7 +272,11 @@ func UpdateImageModelProfile(ctx context.Context, db *gorm.DB, id int64, input I
 }
 
 func imageStudioBillingModeSupported(modelName string) bool {
-	return billing_setting.GetBillingMode(strings.TrimSpace(modelName)) != billing_setting.BillingModeTieredExpr
+	modelName = strings.TrimSpace(modelName)
+	if _, configured, err := image_pricing_setting.Resolve(modelName, ""); configured {
+		return err == nil
+	}
+	return billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr
 }
 
 func imageStudioModelsWithSupportedBilling(models []string) []string {

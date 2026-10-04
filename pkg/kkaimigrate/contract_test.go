@@ -29,8 +29,8 @@ func TestPostgresV3OutboxShapeRejectsMismatchedV4Version(t *testing.T) {
 	require.NoError(t, err)
 	columnTypes, err := db.Migrator().ColumnTypes("kkai_outbox")
 	require.NoError(t, err)
-	require.NoError(t, validatePostgresOutboxEventKeyShape(columnTypes, JobLeaseSchemaVersion))
+	require.NoError(t, validateOutboxEventKeyShape(columnTypes, JobLeaseSchemaVersion))
 
-	err = validatePostgresOutboxEventKeyShape(columnTypes, OutboxEventKeySchemaVersion)
+	err = validateOutboxEventKeyShape(columnTypes, OutboxEventKeySchemaVersion)
 	require.ErrorIs(t, err, ErrSchemaNotReady)
 }

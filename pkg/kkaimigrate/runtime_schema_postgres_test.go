@@ -42,6 +42,15 @@ func TestObserveAcceptsPostgresSingleColumnUniqueAsSelectOnlyRole(t *testing.T) 
 		require.NoError(t, adminDB.Exec(fmt.Sprintf("DROP ROLE IF EXISTS %s", roleName)).Error)
 	})
 
+	for _, statement := range []string{
+		"CREATE TABLE users (id BIGINT PRIMARY KEY, telegram_id TEXT)",
+		"CREATE TABLE tokens (id BIGINT PRIMARY KEY)",
+		"CREATE TABLE passkey_credentials (id BIGINT PRIMARY KEY)",
+		`CREATE TABLE options ("key" VARCHAR(255) PRIMARY KEY, value TEXT)`,
+		"CREATE TABLE midjourneys (id BIGINT PRIMARY KEY)",
+	} {
+		require.NoError(t, adminDB.Exec(statement).Error)
+	}
 	_, err = Apply(context.Background(), adminDB, Options{})
 	require.NoError(t, err)
 	require.NoError(t, adminDB.Exec(fmt.Sprintf("ALTER ROLE %s SET default_transaction_read_only = on", roleName)).Error)

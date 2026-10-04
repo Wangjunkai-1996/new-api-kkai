@@ -20,7 +20,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   act,
   cleanup,
-  render,
+  render as renderWithProviders,
   screen,
   waitFor,
   within,
@@ -58,6 +58,11 @@ const credential = {
 }
 
 let client: QueryClient
+function render(ui: React.ReactNode) {
+  return renderWithProviders(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+  )
+}
 beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false } },

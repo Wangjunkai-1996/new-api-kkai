@@ -53,8 +53,8 @@ import {
   prepareCredentialRequestOptions,
   isPasskeySupported as detectPasskeySupport,
 } from '@/lib/passkey'
-import { cn } from '@/lib/utils'
 import { getServerErrorMessage } from '@/lib/server-error-message'
+import { cn } from '@/lib/utils'
 
 export function UserAuthForm({
   className,
@@ -235,9 +235,7 @@ export function UserAuthForm({
     setIsPasskeyLoading(true)
     try {
       const begin = await beginPasskeyLogin()
-      const publicKey = prepareCredentialRequestOptions(
-        begin.options ?? begin
-      )
+      const publicKey = prepareCredentialRequestOptions(begin.options ?? begin)
 
       const credential = (await navigator.credentials.get({
         publicKey,

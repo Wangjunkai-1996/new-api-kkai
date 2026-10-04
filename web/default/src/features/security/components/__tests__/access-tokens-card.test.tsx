@@ -132,31 +132,31 @@ beforeEach(() => {
   catalogGate = Promise.resolve()
   vi.spyOn(api, 'get').mockImplementation(
     async (url: string, config?: ApiRequestConfig) => {
-    if (url === '/api/audit/self') {
-      return { data: { success: true, data: { items: [], total: 0 } } }
-    }
-    if (url === '/api/verify/methods') {
-      return {
-        data: {
-          success: true,
-          data: {
-            scope: config?.params?.scope,
-            methods: [{ method: 'password', available: true }],
-            oauth_providers: [],
-            password_encryption_enabled: false,
-          },
-        },
+      if (url === '/api/audit/self') {
+        return { data: { success: true, data: { items: [], total: 0 } } }
       }
-    }
-    if (url === '/api/user/access_tokens/catalog') {
-      await catalogGate
-      return { data: { success: true, data: catalog } }
-    }
-    if (url === '/api/user/access_tokens') {
-      if (listFailure) throw listFailure
-      return { data: { success: true, data: list } }
-    }
-    throw new Error(`Unexpected GET ${url}`)
+      if (url === '/api/verify/methods') {
+        return {
+          data: {
+            success: true,
+            data: {
+              scope: config?.params?.scope,
+              methods: [{ method: 'password', available: true }],
+              oauth_providers: [],
+              password_encryption_enabled: false,
+            },
+          },
+        }
+      }
+      if (url === '/api/user/access_tokens/catalog') {
+        await catalogGate
+        return { data: { success: true, data: catalog } }
+      }
+      if (url === '/api/user/access_tokens') {
+        if (listFailure) throw listFailure
+        return { data: { success: true, data: list } }
+      }
+      throw new Error(`Unexpected GET ${url}`)
     }
   )
   vi.spyOn(api, 'post').mockImplementation(async (url, data) => {

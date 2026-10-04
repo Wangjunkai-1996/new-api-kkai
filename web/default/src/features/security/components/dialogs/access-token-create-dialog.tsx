@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { DateTimePicker } from '@/components/datetime-picker'
@@ -63,7 +63,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps) {
     resolver: zodResolver(accessTokenFormSchema),
     defaultValues: defaultAccessTokenFormValues,
   })
-  const expiry = form.watch('expiry')
+  const expiry = useWatch({ control: form.control, name: 'expiry' })
   const groups = accessTokenPermissionGroups(props.catalog)
 
   const close = () => {
@@ -115,7 +115,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps) {
         <form
           id='access-token-create-form'
           className='space-y-5 py-2'
-          onSubmit={form.handleSubmit(submit)}
+          onSubmit={(event) => void form.handleSubmit(submit)(event)}
         >
           <FormField
             control={form.control}

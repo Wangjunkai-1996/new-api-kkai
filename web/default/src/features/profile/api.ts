@@ -174,11 +174,15 @@ export async function bindEmail(
 ): Promise<ApiResponse | AccountSecurityResult> {
   if (oldCode !== undefined && signal) {
     return authResult(
-      api.post('/api/oauth/email/bind', {
-        flow_token: emailOrFlow,
-        new_code: code,
-        old_code: oldCode,
-      }, { ...authRequestOptions, singleUseAuthorization: true, signal })
+      api.post(
+        '/api/oauth/email/bind',
+        {
+          flow_token: emailOrFlow,
+          new_code: code,
+          old_code: oldCode,
+        },
+        { ...authRequestOptions, singleUseAuthorization: true, signal }
+      )
     )
   }
   const res = await api.post('/api/oauth/email/bind', {
@@ -194,12 +198,16 @@ export function startEmailBinding(
   signal: AbortSignal
 ): Promise<EmailBindingFlow> {
   return authResult(
-    api.post('/api/oauth/email/bind/start', { email }, {
-      ...authRequestOptions,
-      headers: { 'X-Security-Proof': proofToken },
-      singleUseAuthorization: true,
-      signal,
-    })
+    api.post(
+      '/api/oauth/email/bind/start',
+      { email },
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
   )
 }
 
@@ -208,11 +216,15 @@ export function resendEmailBinding(
   signal: AbortSignal
 ): Promise<EmailBindingFlow> {
   return authResult(
-    api.post('/api/oauth/email/bind/resend', { flow_token: flowToken }, {
-      ...authRequestOptions,
-      singleUseAuthorization: true,
-      signal,
-    })
+    api.post(
+      '/api/oauth/email/bind/resend',
+      { flow_token: flowToken },
+      {
+        ...authRequestOptions,
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
   )
 }
 
@@ -232,12 +244,16 @@ export async function bindWeChat(
 ): Promise<ApiResponse | AccountSecurityResult> {
   if (proof && signal) {
     return authResult(
-      api.post('/api/oauth/wechat/bind', { code }, {
-        ...authRequestOptions,
-        headers: { 'X-Security-Proof': proof },
-        singleUseAuthorization: true,
-        signal,
-      })
+      api.post(
+        '/api/oauth/wechat/bind',
+        { code },
+        {
+          ...authRequestOptions,
+          headers: { 'X-Security-Proof': proof },
+          singleUseAuthorization: true,
+          signal,
+        }
+      )
     )
   }
   const res = await api.post(

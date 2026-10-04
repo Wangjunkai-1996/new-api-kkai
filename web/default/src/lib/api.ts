@@ -147,9 +147,7 @@ export function disable2FA(
 }
 
 // Regenerate 2FA backup codes
-export function regenerate2FABackupCodes(
-  code: string
-): Promise<{
+export function regenerate2FABackupCodes(code: string): Promise<{
   success: boolean
   message?: string
   data?: { backup_codes: string[] }

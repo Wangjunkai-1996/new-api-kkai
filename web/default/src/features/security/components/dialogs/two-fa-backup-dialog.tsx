@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -27,6 +27,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { regenerate2FABackupCodes } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useAccountSecurity } from '../../hooks/use-account-security'
 
@@ -37,16 +38,18 @@ interface TwoFABackupDialogProps {
 }
 
 export function TwoFABackupDialog(props: TwoFABackupDialogProps) {
+  const sessionKey = useAuthStore(
+    (state) => `${state.auth.user?.id ?? ''}:${state.auth.session?.sid ?? ''}`
+  )
+  return (
+    <TwoFABackupDialogContent key={`${sessionKey}:${props.open}`} {...props} />
+  )
+}
+
+function TwoFABackupDialogContent(props: TwoFABackupDialogProps) {
   const { t } = useTranslation()
   const [backupCodes, setBackupCodes] = useState<string[]>([])
   const security = useAccountSecurity()
-  const cancel = security.cancel
-
-  useEffect(() => {
-    setBackupCodes([])
-    if (!props.open) cancel()
-  }, [props.open, security.sessionKey, cancel])
-
   const handleOpenChange = (open: boolean) => {
     const changed = !open && backupCodes.length > 0
     if (!open) {

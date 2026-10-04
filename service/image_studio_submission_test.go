@@ -88,6 +88,7 @@ func TestImageStudioGenerationRequestHashRemainsBackwardCompatible(t *testing.T)
 }
 
 func TestNormalizeImageStudioEditBindsOrderedReferencesAndModelLimit(t *testing.T) {
+	enableImageResolutionPricingForTest(t)
 	db, profile := newImageSubmissionTestDB(t)
 	require.NoError(t, db.Model(&profile).Update("model", ImageStudioEditModel).Error)
 	profile.Model = ImageStudioEditModel
@@ -166,6 +167,7 @@ func TestNormalizeImageStudioEditBindsOrderedReferencesAndModelLimit(t *testing.
 }
 
 func TestNormalizeImageStudioEditDefaultsToOneReferenceAndEnforcesByteLimits(t *testing.T) {
+	enableImageResolutionPricingForTest(t)
 	db, profile := newImageSubmissionTestDB(t)
 	require.NoError(t, db.Model(&profile).Update("model", ImageStudioEditModel).Error)
 	profile.Model = ImageStudioEditModel
@@ -194,6 +196,7 @@ func TestNormalizeImageStudioEditDefaultsToOneReferenceAndEnforcesByteLimits(t *
 }
 
 func TestImageStudioEditQuoteRejectsReorderedUploadedReferences(t *testing.T) {
+	enableImageResolutionPricingForTest(t)
 	db, profile := newImageSubmissionTestDB(t)
 	require.NoError(t, db.Model(&profile).Update("model", ImageStudioEditModel).Error)
 	profile.Model = ImageStudioEditModel

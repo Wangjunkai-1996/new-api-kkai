@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { AlertTriangle } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -27,6 +27,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { disable2FA } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useAccountSecurity } from '../../hooks/use-account-security'
 
@@ -37,17 +38,19 @@ interface TwoFADisableDialogProps {
 }
 
 export function TwoFADisableDialog(props: TwoFADisableDialogProps) {
+  const sessionKey = useAuthStore(
+    (state) => `${state.auth.user?.id ?? ''}:${state.auth.session?.sid ?? ''}`
+  )
+  return (
+    <TwoFADisableDialogContent key={`${sessionKey}:${props.open}`} {...props} />
+  )
+}
+
+function TwoFADisableDialogContent(props: TwoFADisableDialogProps) {
   const { t } = useTranslation()
   const confirmId = useId()
   const [confirmed, setConfirmed] = useState(false)
   const security = useAccountSecurity()
-  const cancel = security.cancel
-
-  useEffect(() => {
-    setConfirmed(false)
-    if (!props.open) cancel()
-  }, [props.open, security.sessionKey, cancel])
-
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       security.cancel()

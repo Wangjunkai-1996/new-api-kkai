@@ -90,6 +90,11 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 				return err
 			}
 		}
+		if requirement.Table == "kkai_outbox" && dialect == DialectMySQL && currentVersion >= OutboxEventKeySchemaVersion {
+			if err := validateOutboxEventKeyShape(columnTypes, currentVersion); err != nil {
+				return err
+			}
+		}
 		if requirement.Table == "kkai_video_samples" && len(requirement.Columns) == 1 && requirement.Columns[0] == "category" {
 			if err := validateVideoSampleCategoryColumn(db, dialect); err != nil {
 				return err
@@ -188,6 +193,7 @@ var authenticationRuntimeUniqueIndexes = []runtimeIndexRequirement{
 var rc41ArchitectureRuntimeSchemaRequirements = []runtimeSchemaRequirement{
 	{Table: "users", Columns: []string{"access_token_created_at"}},
 	{Table: "passkey_credentials", Columns: []string{"rp_id"}},
+	{Table: "midjourneys", Columns: []string{"token_id", "billing_channel_id"}},
 	{Table: "audit_logs", Columns: []string{"id", "event_id", "user_id", "username", "actor_role", "created_at", "category", "action", "token_ref", "auth_method", "ip", "user_agent", "method", "route", "status", "success", "request_id", "content", "other"}},
 	{Table: "user_access_tokens", Columns: []string{
 		"id", "user_id", "name", "token_hash", "token_hint", "scopes", "expires_at", "last_used_at", "last_used_ip", "created_at",
@@ -383,7 +389,7 @@ func validateVideoSampleCategoryColumnShape(columnTypes []gorm.ColumnType, diale
 }
 
 func validatePostgresOutboxEventKey(db *gorm.DB, columnTypes []gorm.ColumnType, currentVersion int64) error {
-	if err := validatePostgresOutboxEventKeyShape(columnTypes, currentVersion); err != nil {
+	if err := validateOutboxEventKeyShape(columnTypes, currentVersion); err != nil {
 		return err
 	}
 
@@ -408,7 +414,7 @@ SELECT EXISTS (
 	return nil
 }
 
-func validatePostgresOutboxEventKeyShape(columnTypes []gorm.ColumnType, currentVersion int64) error {
+func validateOutboxEventKeyShape(columnTypes []gorm.ColumnType, currentVersion int64) error {
 	var eventKey gorm.ColumnType
 	for _, columnType := range columnTypes {
 		if columnType.Name() == "event_key" {
@@ -428,7 +434,7 @@ func validatePostgresOutboxEventKeyShape(columnTypes []gorm.ColumnType, currentV
 	length, hasLength := eventKey.Length()
 	if (typeName != "varchar" && typeName != "character varying") || !hasLength || length != expectedLength {
 		return fmt.Errorf(
-			"%w: PostgreSQL kkai_outbox.event_key must be VARCHAR(%d) at schema version %d",
+			"%w: kkai_outbox.event_key must be VARCHAR(%d) at schema version %d",
 			ErrSchemaNotReady,
 			expectedLength,
 			currentVersion,
@@ -436,7 +442,7 @@ func validatePostgresOutboxEventKeyShape(columnTypes []gorm.ColumnType, currentV
 	}
 	nullable, hasNullable := eventKey.Nullable()
 	if !hasNullable || nullable {
-		return fmt.Errorf("%w: PostgreSQL kkai_outbox.event_key must be NOT NULL", ErrSchemaNotReady)
+		return fmt.Errorf("%w: kkai_outbox.event_key must be NOT NULL", ErrSchemaNotReady)
 	}
 	return nil
 }

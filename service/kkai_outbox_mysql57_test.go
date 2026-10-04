@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -45,7 +46,7 @@ func TestKKAIOutboxMySQL57MigrationAndClaim(t *testing.T) {
 	require.Equal(t, 1, result.Delivered)
 }
 
-func TestKKAIOutboxMySQL57CompatibilityRequiresExplicitMaintenance(t *testing.T) {
+func TestKKAIOutboxMySQL57RejectsDriftAfterRecordedMigration(t *testing.T) {
 	db := mysql57KKAIIntegrationDB(t)
 	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
@@ -57,10 +58,13 @@ func TestKKAIOutboxMySQL57CompatibilityRequiresExplicitMaintenance(t *testing.T)
 	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.EqualValues(t, 192, mysql57EventKeyLength(t, db))
+	err = kkaimigrate.CheckRequired(context.Background(), db)
+	require.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
+	assert.ErrorContains(t, err, "kkai_outbox.event_key must be VARCHAR(191)")
 
 	_, err = kkaimigrate.ApplyMySQL57Compatibility(context.Background(), db, kkaimigrate.Options{})
-	require.NoError(t, err)
-	require.EqualValues(t, 191, mysql57EventKeyLength(t, db))
+	require.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
+	assert.EqualValues(t, 192, mysql57EventKeyLength(t, db))
 }
 
 func mysql57KKAIIntegrationDB(t *testing.T) *gorm.DB {
@@ -77,6 +81,15 @@ func mysql57KKAIIntegrationDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	resetMySQL57KKAIIntegrationSchema(t, db)
 	t.Cleanup(func() { resetMySQL57KKAIIntegrationSchema(t, db) })
+	for _, statement := range []string{
+		"CREATE TABLE users (id BIGINT PRIMARY KEY, telegram_id TEXT)",
+		"CREATE TABLE tokens (id BIGINT PRIMARY KEY)",
+		"CREATE TABLE passkey_credentials (id BIGINT PRIMARY KEY)",
+		"CREATE TABLE options (`key` VARCHAR(255) PRIMARY KEY, value TEXT)",
+		"CREATE TABLE midjourneys (id BIGINT PRIMARY KEY)",
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
 	return db
 }
 
@@ -94,12 +107,34 @@ func mysql57EventKeyLength(t *testing.T, db *gorm.DB) int64 {
 func resetMySQL57KKAIIntegrationSchema(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	for _, table := range []string{
+		"audit_logs",
+		"login_encryption_keys",
+		"task_plugins",
+		"user_access_tokens",
+		"auth_flows",
+		"external_identity_claims",
+		"user_sessions",
+		"kkai_image_assets",
+		"kkai_image_generations",
+		"kkai_image_samples",
+		"kkai_image_model_profiles",
+		"kkai_video_task_assets",
+		"kkai_video_assets",
+		"kkai_video_generations",
+		"kkai_video_samples",
+		"kkai_video_model_profiles",
+		"kkai_idempotency_keys",
 		"kkai_internal_balance_adjustments",
 		"kkai_policy_incidents",
 		"kkai_job_leases",
 		"kkai_outbox",
 		"kkai_schema_migrations",
+		"midjourneys",
+		"options",
+		"passkey_credentials",
+		"tokens",
+		"users",
 	} {
-		require.NoError(t, db.Exec("DROP TABLE IF EXISTS "+table).Error)
+		require.NoError(t, db.Migrator().DropTable(table))
 	}
 }

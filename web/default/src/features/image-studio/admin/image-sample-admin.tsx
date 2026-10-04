@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ImagePlus, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -93,7 +93,10 @@ export function ImageSampleAdmin() {
     asset?.thumbnail_url,
     asset?.content_url,
   ])
-  const profileId = form.watch('model_profile_id')
+  const profileId = useWatch({
+    control: form.control,
+    name: 'model_profile_id',
+  })
   const profile = modelsQuery.data?.find((model) => model.id === profileId)
 
   useEffect(() => {
@@ -102,7 +105,6 @@ export function ImageSampleAdmin() {
       (model) => model.id === selected.model_profile_id
     )
     form.reset(createImageSampleFormValues(selected, selectedProfile))
-    setAsset(selected.asset)
   }, [form, modelsQuery.data, selected])
 
   const startCreate = (): void => {
@@ -202,6 +204,7 @@ export function ImageSampleAdmin() {
             onClick={() => {
               setCreating(false)
               setSelected(sample)
+              setAsset(sample.asset)
             }}
           >
             <img

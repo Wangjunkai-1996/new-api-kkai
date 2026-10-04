@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -28,6 +29,7 @@ id INTEGER PRIMARY KEY
 )`).Error)
 	require.NoError(t, db.Exec("CREATE TABLE passkey_credentials (id INTEGER PRIMARY KEY)").Error)
 	require.NoError(t, db.Exec("CREATE TABLE options (key VARCHAR(255) PRIMARY KEY, value TEXT)").Error)
+	require.NoError(t, db.Exec("CREATE TABLE midjourneys (id INTEGER PRIMARY KEY, mj_id TEXT, channel_id BIGINT, quota BIGINT, status TEXT)").Error)
 	return db
 }
 
@@ -51,6 +53,36 @@ func TestApplyCreatesVersionedSchemaAndIsIdempotent(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&count).Error)
 	require.EqualValues(t, RequiredRuntimeVersion, count)
+}
+
+func TestMaintenanceTargetsExpandSequentiallyThroughV9(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
+	require.NoError(t, err)
+	for _, target := range []struct {
+		version int64
+		apply   func(context.Context, *gorm.DB, Options) (*Result, error)
+	}{
+		{4, ApplyOutboxEventKeyCompatibility},
+		{5, ApplyVideoStudioExpand},
+		{6, ApplyVideoSampleCategoryExpand},
+		{7, ApplyImageStudioExpand},
+		{8, ApplyAuthenticationExpand},
+		{9, ApplyRC41ArchitectureExpand},
+	} {
+		t.Run(fmt.Sprintf("v%d", target.version), func(t *testing.T) {
+			before, err := Observe(context.Background(), db)
+			require.NoError(t, err)
+			require.Equal(t, target.version-1, before.CurrentVersion)
+			result, err := target.apply(context.Background(), db, Options{})
+			require.NoError(t, err)
+			assert.Len(t, result.Applied, int(target.version))
+			after, err := Observe(context.Background(), db)
+			require.NoError(t, err)
+			assert.Equal(t, target.version, after.CurrentVersion)
+		})
+	}
+	require.NoError(t, CheckRequired(context.Background(), db))
 }
 
 func TestApplyDryRunDoesNotChangeSchema(t *testing.T) {
@@ -451,7 +483,7 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 		{
 			Version:  RC41ArchitectureSchemaVersion,
 			Name:     "rc41_scoped_tokens_and_task_plugins",
-			Checksum: "e95d9237555c86c1a9a5e6b07fc3c32368aec610209d79d4cd7aab76f33874ce",
+			Checksum: "27d9c4e172d5c222c40a2072b8e76cebe90f7daf52d97394ddd550f10cbee953",
 		},
 	}, Plan())
 }

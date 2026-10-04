@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -159,7 +158,7 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	if strings.HasPrefix(videoURL, "data:") {
-		if err := writeVideoDataURL(c, videoURL); err != nil {
+		if err := writeTaskMediaDataURL(c, videoURL); err != nil {
 			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to decode video data URL for task %s: %s", taskID, err.Error()))
 			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
 		}
@@ -258,37 +257,4 @@ func videoProxyRangeHeader(header http.Header) (string, error) {
 		return "", fmt.Errorf("invalid range header")
 	}
 	return value, nil
-}
-
-func writeVideoDataURL(c *gin.Context, dataURL string) error {
-	parts := strings.SplitN(dataURL, ",", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid data url")
-	}
-
-	header := parts[0]
-	payload := parts[1]
-	if !strings.HasPrefix(header, "data:") || !strings.Contains(header, ";base64") {
-		return fmt.Errorf("unsupported data url")
-	}
-
-	mimeType := strings.TrimPrefix(header, "data:")
-	mimeType = strings.TrimSuffix(mimeType, ";base64")
-	if mimeType == "" {
-		mimeType = "video/mp4"
-	}
-
-	videoBytes, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil {
-		videoBytes, err = base64.RawStdEncoding.DecodeString(payload)
-		if err != nil {
-			return err
-		}
-	}
-
-	c.Writer.Header().Set("Content-Type", mimeType)
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
-	c.Writer.WriteHeader(http.StatusOK)
-	_, err = c.Writer.Write(videoBytes)
-	return err
 }

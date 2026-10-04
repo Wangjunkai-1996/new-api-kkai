@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Mail, Shield, Send, Link2, Unlink } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SiGithub, SiWechat, SiLinux } from 'react-icons/si'
 import { toast } from 'sonner'
@@ -52,6 +53,7 @@ import {
   authRequestOptions,
   authResult,
 } from '@/lib/secure-verification'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useAccountSecurity } from '../hooks/use-account-security'
 import { EmailBindDialog } from './dialogs/email-bind-dialog'
@@ -74,11 +76,17 @@ type PreparedOAuthBinding = AccountSecurityResult & {
   url: string
 }
 
-export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
+export function AccountBindings(props: AccountBindingsProps) {
+  const sessionKey = useAuthStore(
+    (state) => `${state.auth.user?.id ?? ''}:${state.auth.session?.sid ?? ''}`
+  )
+  return <AccountBindingsContent key={sessionKey} {...props} />
+}
+
+function AccountBindingsContent({ profile, onUpdate }: AccountBindingsProps) {
   const { t } = useTranslation()
   const dialogs = useDialogs<DialogKey>()
   const { status, loading } = useStatus()
-  const [customBindings, setCustomBindings] = useState<CustomOAuthBinding[]>([])
   const [unbindTarget, setUnbindTarget] = useState<CustomOAuthBinding | null>(
     null
   )
@@ -92,26 +100,21 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
   const customProviders = status?.custom_oauth_providers as
     | CustomOAuthProviderInfo[]
     | undefined
+  const customBindingsQuery = useQuery({
+    queryKey: ['security', 'oauth-bindings', profile?.id, security.sessionKey],
+    queryFn: async () => {
+      const response = await getSelfOAuthBindings()
+      return response.success && response.data ? response.data : []
+    },
+    enabled: Boolean(customProviders?.length),
+  })
+  const fetchCustomBindings = async () => {
+    if (customProviders?.length) await customBindingsQuery.refetch()
+  }
   const customBindingsByProviderId = useMemo(
-    () => indexCustomOAuthBindings(customBindings),
-    [customBindings]
+    () => indexCustomOAuthBindings(customBindingsQuery.data ?? []),
+    [customBindingsQuery.data]
   )
-
-  const fetchCustomBindings = useCallback(async () => {
-    if (!customProviders || customProviders.length === 0) return
-    try {
-      const res = await getSelfOAuthBindings()
-      if (res.success && res.data) {
-        setCustomBindings(res.data)
-      }
-    } catch {
-      // ignore
-    }
-  }, [customProviders])
-
-  useEffect(() => {
-    fetchCustomBindings()
-  }, [fetchCustomBindings])
 
   const handleUnbindCustom = async () => {
     if (!unbindTarget) return
@@ -215,13 +218,6 @@ export function AccountBindings({ profile, onUpdate }: AccountBindingsProps) {
 
   const handleBindCustomOAuth = (provider: CustomOAuthProviderInfo) =>
     startOAuthBinding(provider.slug)
-
-  const closeDialogs = dialogs.closeAll
-  useEffect(() => {
-    setPreparedBinding(null)
-    setUnbindTarget(null)
-    closeDialogs()
-  }, [security.sessionKey, closeDialogs])
 
   if (!profile || !status || loading) return null
 

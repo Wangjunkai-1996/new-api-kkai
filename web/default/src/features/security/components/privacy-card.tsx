@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -38,16 +38,19 @@ type PrivacyCardProps = {
 }
 
 export function PrivacyCard(props: PrivacyCardProps) {
+  return (
+    <PrivacyCardForm
+      key={`${props.profile.id}:${props.profile.setting}`}
+      {...props}
+    />
+  )
+}
+
+function PrivacyCardForm(props: PrivacyCardProps) {
   const { t } = useTranslation()
   const [recordIpLog, setRecordIpLog] = useState(() =>
     Boolean(parseUserSettings(props.profile.setting).record_ip_log)
   )
-  useEffect(() => {
-    setRecordIpLog(
-      Boolean(parseUserSettings(props.profile.setting).record_ip_log)
-    )
-  }, [props.profile.setting])
-
   const save = useMutation({
     mutationFn: async () => {
       const response = await updateUserSettings({ record_ip_log: recordIpLog })

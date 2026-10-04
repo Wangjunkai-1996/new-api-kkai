@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -54,29 +54,31 @@ type MarketplaceSourcesDialogProps = {
 type DraftRow = MarketplaceSource & { rowId: string }
 
 export function MarketplaceSourcesDialog(props: MarketplaceSourcesDialogProps) {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [draft, setDraft] = useState<DraftRow[]>([])
-  const nextRowId = useRef(0)
-  const makeRowId = () => {
-    nextRowId.current += 1
-    return `row-${nextRowId.current}`
-  }
   const sourcesQuery = useQuery({
     queryKey: ['task-plugin-marketplace-sources'],
     queryFn: listMarketplaceSources,
     enabled: props.open,
   })
+  return (
+    <MarketplaceSourcesEditor
+      key={`${props.open}:${JSON.stringify(sourcesQuery.data ?? [])}`}
+      {...props}
+      sources={sourcesQuery.data ?? []}
+    />
+  )
+}
 
-  // The dialog edits a local copy so a half-typed row is never pushed to the
-  // server; it is re-seeded whenever the dialog opens with fresh server data.
-  useEffect(() => {
-    if (props.open && sourcesQuery.data) {
-      setDraft(
-        sourcesQuery.data.map((source) => ({ ...source, rowId: makeRowId() }))
-      )
-    }
-  }, [props.open, sourcesQuery.data])
+function MarketplaceSourcesEditor(
+  props: MarketplaceSourcesDialogProps & { sources: MarketplaceSource[] }
+) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = useState<DraftRow[]>(() =>
+    props.sources.map((source, index) => ({
+      ...source,
+      rowId: `source-${index}`,
+    }))
+  )
 
   const saveMutation = useMutation({
     mutationFn: updateMarketplaceSources,
@@ -175,7 +177,7 @@ export function MarketplaceSourcesDialog(props: MarketplaceSourcesDialogProps) {
             onClick={() =>
               setDraft((rows) => [
                 ...rows,
-                { name: '', index_url: '', rowId: makeRowId() },
+                { name: '', index_url: '', rowId: crypto.randomUUID() },
               ])
             }
           >

@@ -131,8 +131,9 @@ export async function createOAuthAuthorization(
       skipBusinessError: true,
     }
   )
-  if (!res.data?.success)
+  if (!res.data?.success) {
     throw new Error(res.data?.message || 'Failed to initialize OAuth')
+  }
   const data = res.data.data
   return typeof data === 'string'
     ? { state: data }
