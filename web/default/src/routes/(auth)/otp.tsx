@@ -16,10 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { Otp } from '@/features/auth/otp'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/(auth)/otp')({
+  beforeLoad: () => {
+    if (!useAuthStore.getState().auth.pendingLoginVerification) {
+      throw redirect({ to: '/sign-in', replace: true })
+    }
+  },
   component: Otp,
 })

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { User } from '@/features/users/types'
+import type { AuthBundle, LoginChallenge } from '@/stores/auth-store'
 
 // ============================================================================
 // API Payloads
@@ -30,6 +30,7 @@ export interface LoginPayload {
 
 export interface TwoFAPayload {
   code: string
+  flow_token: string
 }
 
 export interface RegisterPayload {
@@ -63,16 +64,13 @@ export interface BindEmailPayload {
 export interface LoginResponse {
   success: boolean
   message: string
-  data?: {
-    require_2fa?: boolean
-    id?: number
-  }
+  data?: AuthBundle | LoginChallenge
 }
 
 export interface Login2FAResponse {
   success: boolean
   message: string
-  data?: User
+  data?: AuthBundle
 }
 
 export interface ApiResponse {
@@ -110,6 +108,7 @@ export interface SystemStatus {
     oidc_enabled?: boolean
     oidc_authorization_endpoint?: string
     oidc_client_id?: string
+    oidc_display_name?: string
     linuxdo_oauth?: boolean
     linuxdo_client_id?: string
     telegram_oauth?: boolean
@@ -156,6 +155,7 @@ export interface SystemStatus {
   oidc_enabled?: boolean
   oidc_authorization_endpoint?: string
   oidc_client_id?: string
+  oidc_display_name?: string
   linuxdo_oauth?: boolean
   linuxdo_client_id?: string
   telegram_oauth?: boolean

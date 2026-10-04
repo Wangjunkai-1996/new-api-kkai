@@ -29,7 +29,7 @@ import (
 type reliabilityTaskAdaptor struct {
 	taskcommon.BaseBilling
 	doRequest  func(*gin.Context, *relaycommon.RelayInfo, io.Reader) (*http.Response, error)
-	doResponse func(*gin.Context, *http.Response, *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError)
+	doResponse func(*gin.Context, *http.Response, *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError)
 }
 
 func (a *reliabilityTaskAdaptor) Init(_ *relaycommon.RelayInfo) {}
@@ -54,18 +54,22 @@ func (a *reliabilityTaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.Rel
 	return a.doRequest(c, info, body)
 }
 
-func (a *reliabilityTaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+func (a *reliabilityTaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 	return a.doResponse(c, resp, info)
+}
+
+func newTestTaskSubmitResponse(upstreamID string, data []byte, clientBody any) (*channel.TaskSubmitResponse, error) {
+	return &channel.TaskSubmitResponse{UpstreamTaskID: upstreamID, TaskData: data, ClientResponse: clientBody}, nil
 }
 
 func (a *reliabilityTaskAdaptor) GetModelList() []string { return nil }
 func (a *reliabilityTaskAdaptor) GetChannelName() string { return "reliability-test" }
 
-func (a *reliabilityTaskAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+func (a *reliabilityTaskAdaptor) FetchTask(_ string, _ string, _ *model.Task, _ string) (*http.Response, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (a *reliabilityTaskAdaptor) ParseTaskResult(_ []byte) (*relaycommon.TaskInfo, error) {
+func (a *reliabilityTaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, _ []byte) (*relaycommon.TaskInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -90,9 +94,9 @@ func TestSubmitPreparedTaskPersistsBeforeUpstreamAndBuffersSuccess(t *testing.T)
 			Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-task"}`)),
 		}, nil
 	}
-	adaptor.doResponse = func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+	adaptor.doResponse = func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 		clientBody := map[string]string{"id": info.PublicTaskID}
-		response, err := channel.NewJSONTaskSubmitResponse("upstream-task", []byte(`{"id":"upstream-task"}`), clientBody)
+		response, err := newTestTaskSubmitResponse("upstream-task", []byte(`{"id":"upstream-task"}`), clientBody)
 		require.NoError(t, err)
 		return response, nil
 	}
@@ -119,7 +123,7 @@ func TestSubmitPreparedTaskPersistsBeforeUpstreamAndBuffersSuccess(t *testing.T)
 		Count(&accountingEvents).Error)
 	assert.EqualValues(t, 1, accountingEvents)
 
-	require.NoError(t, result.Response.WriteTo(ctx))
+	ctx.JSON(http.StatusOK, result.Response.ClientResponse)
 	assert.JSONEq(t, `{"id":"task_public"}`, recorder.Body.String())
 }
 
@@ -138,7 +142,7 @@ func TestSubmitPreparedTaskDoesNotCallUpstreamWhenProvisionalInsertFails(t *test
 			upstreamCalled = true
 			return nil, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			return nil, nil
 		},
 	}
@@ -165,7 +169,7 @@ func TestSubmitPreparedTaskRollsBackProvisionalTaskWhenPersistHookFails(t *testi
 			upstreamCalled = true
 			return nil, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			return nil, nil
 		},
 	}
@@ -195,12 +199,12 @@ func TestSubmitPreparedTaskKeepsDefinitiveApplicationRejectionRetryable(t *testi
 				Body:       io.NopCloser(strings.NewReader(`{"code":"rate_limited"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			return nil, channel.NewRejectedTaskResponseError(&dto.TaskError{
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			return nil, &dto.TaskError{
 				Code:       "rate_limited",
 				Message:    "try another channel",
 				StatusCode: http.StatusTooManyRequests,
-			})
+			}
 		},
 	}
 
@@ -229,12 +233,13 @@ func TestSubmitPreparedTaskTreatsUncertainApplicationResponseAsUnknown(t *testin
 				Body:       io.NopCloser(strings.NewReader(`{"malformed":true}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			return nil, channel.NewUncertainTaskResponseError(&dto.TaskError{
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			return nil, &dto.TaskError{
+				NoRetry:    true,
 				Code:       "invalid_response",
 				Message:    "upstream acceptance cannot be determined",
 				StatusCode: http.StatusBadGateway,
-			})
+			}
 		},
 	}
 
@@ -272,12 +277,12 @@ func TestSubmitPreparedTaskUpgradesRejectedResponseToUnknownWhenClaimResetFails(
 				Body:       io.NopCloser(strings.NewReader(`{"code":"rejected"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			return nil, channel.NewRejectedTaskResponseError(&dto.TaskError{
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			return nil, &dto.TaskError{
 				Code:       "rejected",
 				Message:    "upstream rejected the request",
 				StatusCode: http.StatusBadRequest,
-			})
+			}
 		},
 	}
 
@@ -302,7 +307,7 @@ func TestSubmitPreparedTaskMarksTransportFailureUnknownWithoutRetryOrRefund(t *t
 		doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
 			return nil, channel.NewTaskRequestError(errors.New("connection reset"), true)
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			return nil, nil
 		},
 	}
@@ -328,7 +333,7 @@ func TestSubmitPreparedTaskKeepsPreWriteTransportFailureRetryable(t *testing.T) 
 		doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
 			return nil, channel.NewTaskRequestError(errors.New("dial failed before request write"), false)
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("pre-write failure must not reach the adaptor parser")
 			return nil, nil
 		},
@@ -361,7 +366,7 @@ func TestSubmitPreparedTaskTreatsFailedPreWriteClaimResetAsUnknown(t *testing.T)
 		doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
 			return nil, channel.NewTaskRequestError(errors.New("dial failed before request write"), false)
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("failed claim reset must not reach the upstream response parser")
 			return nil, nil
 		},
@@ -403,8 +408,8 @@ func TestSubmitPreparedTaskRecoversAcceptedTaskAfterTransientFinalPersistFailure
 				Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-task"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			response, err := channel.NewJSONTaskSubmitResponse(
+		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			response, err := newTestTaskSubmitResponse(
 				"upstream-task",
 				[]byte(`{"id":"upstream-task"}`),
 				map[string]string{"id": info.PublicTaskID},
@@ -447,8 +452,8 @@ func TestSubmitPreparedTaskSettlesAcceptedFreeTaskImmediately(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-free-task"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			response, err := channel.NewJSONTaskSubmitResponse(
+		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			response, err := newTestTaskSubmitResponse(
 				"upstream-free-task",
 				[]byte(`{"id":"upstream-free-task"}`),
 				map[string]string{"id": info.PublicTaskID},
@@ -482,7 +487,7 @@ func TestSubmitPreparedTaskTreatsAmbiguousHTTPStatusAsUnknown(t *testing.T) {
 						Body:       io.NopCloser(strings.NewReader(`{"error":"temporary"}`)),
 					}, nil
 				},
-				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 					t.Fatal("ambiguous HTTP response must not reach the adaptor parser")
 					return nil, nil
 				},
@@ -516,8 +521,8 @@ func TestSubmitPreparedTaskAcceptsSuccessfulTwoXXStatuses(t *testing.T) {
 						Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-task"}`)),
 					}, nil
 				},
-				doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-					response, err := channel.NewJSONTaskSubmitResponse(
+				doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+					response, err := newTestTaskSubmitResponse(
 						"upstream-task",
 						[]byte(`{"id":"upstream-task"}`),
 						map[string]string{"id": info.PublicTaskID},
@@ -567,8 +572,8 @@ func TestSubmitPreparedTaskRetriesAcceptedPersistenceWithoutResubmitting(t *test
 				Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-task"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			response, err := channel.NewJSONTaskSubmitResponse(
+		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			response, err := newTestTaskSubmitResponse(
 				"upstream-task",
 				[]byte(`{"id":"upstream-task"}`),
 				map[string]string{"id": info.PublicTaskID},
@@ -616,8 +621,8 @@ func TestSubmitPreparedTaskRecoversAcceptedReceiptAfterTaskPersistenceRetriesExh
 				Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-task"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			response, err := channel.NewJSONTaskSubmitResponse(
+		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			response, err := newTestTaskSubmitResponse(
 				"upstream-task",
 				[]byte(`{"id":"upstream-task"}`),
 				map[string]string{"id": info.PublicTaskID},
@@ -698,8 +703,8 @@ func TestSubmitPreparedTaskKeepsUnknownResidualWhenTaskAndReceiptWritesFail(t *t
 				Body:       io.NopCloser(strings.NewReader(`{"id":"upstream-task"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			response, err := channel.NewJSONTaskSubmitResponse(
+		doResponse: func(_ *gin.Context, _ *http.Response, info *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			response, err := newTestTaskSubmitResponse(
 				"upstream-task",
 				[]byte(`{"id":"upstream-task"}`),
 				map[string]string{"id": info.PublicTaskID},
@@ -741,12 +746,12 @@ func TestSubmitPreparedTaskKeepsDefinitiveBodylessTwoXXRejectionRetryable(t *tes
 				StatusCode: http.StatusNoContent,
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
-			return nil, channel.NewRejectedTaskResponseError(&dto.TaskError{
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+			return nil, &dto.TaskError{
 				Code:       "invalid_empty_body",
 				Message:    "empty response",
 				StatusCode: http.StatusBadGateway,
-			})
+			}
 		},
 	}
 
@@ -774,7 +779,7 @@ func TestSubmitPreparedTaskKeepsExplicitHTTPRejectionRetryable(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader(`{"error":"rate_limited"}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("explicit HTTP rejection must not reach the adaptor parser")
 			return nil, nil
 		},
@@ -800,7 +805,7 @@ func TestSubmitPreparedTaskMarksCyberHTTPRejectionAsUpstream(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader("cyber_policy")),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("explicit HTTP rejection must not reach the adaptor parser")
 			return nil, nil
 		},
@@ -842,7 +847,7 @@ func TestSubmitPreparedTaskDoesNotOverwriteDispatchingStateFromStaleReplay(t *te
 			upstreamCalled = true
 			return nil, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("stale replay must not reach the upstream response parser")
 			return nil, nil
 		},

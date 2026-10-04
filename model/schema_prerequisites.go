@@ -9,12 +9,18 @@ import (
 )
 
 var ErrMainSchemaNotReady = errors.New("main application schema is not ready")
+var ErrLogSchemaNotReady = errors.New("log application schema is not ready")
 
 func mainDatabaseAutoMigrateModels() []any {
 	return []any{
 		&Channel{},
 		&Token{},
 		&User{},
+		&UserSession{},
+		&AuthFlow{},
+		&ExternalIdentityClaim{},
+		&UserAccessToken{},
+		&LoginEncryptionKey{},
 		&PasskeyCredential{},
 		&Option{},
 		&Redemption{},
@@ -24,6 +30,7 @@ func mainDatabaseAutoMigrateModels() []any {
 		&TopUp{},
 		&QuotaData{},
 		&Task{},
+		&TaskPlugin{},
 		&Model{},
 		&Vendor{},
 		&PrefillGroup{},
@@ -46,10 +53,18 @@ func mainDatabaseAutoMigrateModels() []any {
 }
 
 func ValidateMainSchemaPrerequisites(db *gorm.DB) error {
-	if db == nil {
-		return ErrMainSchemaNotReady
-	}
 	models := append(mainDatabaseAutoMigrateModels(), &SubscriptionPlan{})
+	return validateSchemaPrerequisites(db, models, ErrMainSchemaNotReady)
+}
+
+func ValidateLogSchemaPrerequisites(db *gorm.DB) error {
+	return validateSchemaPrerequisites(db, []any{&Log{}, &AuditLog{}}, ErrLogSchemaNotReady)
+}
+
+func validateSchemaPrerequisites(db *gorm.DB, models []any, notReady error) error {
+	if db == nil {
+		return notReady
+	}
 	for _, modelValue := range models {
 		statement := &gorm.Statement{DB: db}
 		if err := statement.Parse(modelValue); err != nil {
@@ -57,7 +72,7 @@ func ValidateMainSchemaPrerequisites(db *gorm.DB) error {
 		}
 		table := statement.Schema.Table
 		if !db.Migrator().HasTable(modelValue) {
-			return fmt.Errorf("%w: missing table %s", ErrMainSchemaNotReady, table)
+			return fmt.Errorf("%w: missing table %s", notReady, table)
 		}
 		columnTypes, err := db.Migrator().ColumnTypes(modelValue)
 		if err != nil {
@@ -72,7 +87,7 @@ func ValidateMainSchemaPrerequisites(db *gorm.DB) error {
 				continue
 			}
 			if _, ok := actualColumns[field.DBName]; !ok {
-				return fmt.Errorf("%w: missing column %s.%s", ErrMainSchemaNotReady, table, field.DBName)
+				return fmt.Errorf("%w: missing column %s.%s", notReady, table, field.DBName)
 			}
 		}
 		if db.Dialector.Name() == "postgres" {

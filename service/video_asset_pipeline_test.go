@@ -22,11 +22,11 @@ type archiveSourceRefreshAdaptor struct {
 
 func (adaptor *archiveSourceRefreshAdaptor) Init(*relaycommon.RelayInfo) {}
 
-func (adaptor *archiveSourceRefreshAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+func (adaptor *archiveSourceRefreshAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
 	return adaptor.response, nil
 }
 
-func (adaptor *archiveSourceRefreshAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (adaptor *archiveSourceRefreshAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
 	return nil, nil
 }
 

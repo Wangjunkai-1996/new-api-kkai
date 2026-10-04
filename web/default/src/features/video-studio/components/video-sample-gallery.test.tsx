@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -108,12 +109,14 @@ describe('video sample token recovery', () => {
     setSamplesQuery({ error: tokenInvalidError(), ...scenario })
 
     render(
-      <VideoSampleGallery
-        models={[]}
-        tokenId={17}
-        onTokenError={mocks.onTokenError}
-        onTrySample={() => undefined}
-      />
+      <QueryClientProvider client={new QueryClient()}>
+        <VideoSampleGallery
+          models={[]}
+          tokenId={17}
+          onTokenError={mocks.onTokenError}
+          onTrySample={() => undefined}
+        />
+      </QueryClientProvider>
     )
 
     await waitFor(() => {
@@ -129,12 +132,14 @@ describe('video sample token recovery', () => {
     })
 
     render(
-      <VideoSampleGallery
-        models={[]}
-        tokenId={17}
-        onTokenError={mocks.onTokenError}
-        onTrySample={() => undefined}
-      />
+      <QueryClientProvider client={new QueryClient()}>
+        <VideoSampleGallery
+          models={[]}
+          tokenId={17}
+          onTokenError={mocks.onTokenError}
+          onTrySample={() => undefined}
+        />
+      </QueryClientProvider>
     )
 
     await waitFor(() => {

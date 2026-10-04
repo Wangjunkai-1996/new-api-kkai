@@ -1,7 +1,7 @@
 package model
 
 import (
-	"context"
+	"errors"
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 1
+const userCacheSchemaVersion = 2
 
 // UserBase struct remains the same as it represents the cached data structure
 type UserBase struct {
@@ -20,8 +20,10 @@ type UserBase struct {
 	Email       string `json:"email"`
 	Quota       int64  `json:"quota"`
 	Status      int    `json:"status"`
+	Role        int    `json:"role"`
 	Username    string `json:"username"`
 	Setting     string `json:"setting"`
+	AuthVersion int64  `json:"-"`
 	CacheSchema int    `json:"-"`
 }
 
@@ -89,47 +91,6 @@ func updateUserCache(user User) error {
 	return writeUserCache(user.ToBaseUser(), false)
 }
 
-// writeUserCache creates a complete cache hash on a cold read. Refreshes of an
-// existing hash never overwrite Quota because live reservations update it
-// atomically ahead of the database snapshot.
-func writeUserCache(user *UserBase, includeQuota bool) error {
-	if user == nil || user.Id <= 0 || !common.RedisEnabled {
-		return nil
-	}
-	user.CacheSchema = userCacheSchemaVersion
-	includeQuotaArg := 0
-	if includeQuota {
-		includeQuotaArg = 1
-	}
-	const script = `
-local include_quota = tonumber(ARGV[8]) == 1
-local exists = redis.call('EXISTS', KEYS[1]) == 1
-local schema = tonumber(redis.call('HGET', KEYS[1], 'CacheSchema') or '0')
-if not include_quota and (not exists or schema ~= tonumber(ARGV[7])) then
-  return 0
-end
-if include_quota and (not exists or schema ~= tonumber(ARGV[7])) then
-  redis.call('DEL', KEYS[1])
-  redis.call('HSET', KEYS[1],
-    'Id', ARGV[1], 'Group', ARGV[2], 'Email', ARGV[3], 'Status', ARGV[4],
-    'Username', ARGV[5], 'Setting', ARGV[6], 'CacheSchema', ARGV[7],
-    'Quota', ARGV[9])
-else
-  redis.call('HSET', KEYS[1],
-    'Id', ARGV[1], 'Group', ARGV[2], 'Email', ARGV[3], 'Status', ARGV[4],
-    'Username', ARGV[5], 'Setting', ARGV[6], 'CacheSchema', ARGV[7])
-  if include_quota and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
-    redis.call('HSET', KEYS[1], 'Quota', ARGV[9])
-  end
-end
-redis.call('EXPIRE', KEYS[1], ARGV[10])
-return 1`
-	return common.RDB.Eval(context.Background(), script, []string{getUserCacheKey(user.Id)},
-		user.Id, user.Group, user.Email, user.Status, user.Username, user.Setting,
-		user.CacheSchema, includeQuotaArg, user.Quota, userCacheTTLSeconds(),
-	).Err()
-}
-
 // GetUserCache gets complete user cache from hash
 func GetUserCache(userId int) (userCache *UserBase, err error) {
 	// Try getting from Redis first
@@ -143,13 +104,19 @@ func GetUserCache(userId int) (userCache *UserBase, err error) {
 	if err != nil {
 		return nil, err // Return nil and error if DB lookup fails
 	}
-	userCache = user.ToBaseUser()
 	if common.RedisEnabled {
+		floor, floorErr := getUserAuthVersionFloor(userId)
+		if floorErr == nil && floor > user.AuthVersion {
+			return nil, ErrUserAuthCachePending
+		}
 		if cacheErr := populateUserCache(*user); cacheErr != nil {
+			if errors.Is(cacheErr, ErrUserAuthCachePending) {
+				return nil, cacheErr
+			}
 			common.SysLog("failed to synchronously populate user cache: " + cacheErr.Error())
 		}
 	}
-	return userCache, nil
+	return user.ToBaseUser(), nil
 }
 
 func cacheGetUserBase(userId int) (*UserBase, error) {
@@ -162,8 +129,15 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 	if err != nil {
 		return nil, err
 	}
-	if userCache.Id != userId || userCache.CacheSchema != userCacheSchemaVersion {
+	if userCache.Id != userId || userCache.CacheSchema != userCacheSchemaVersion || userCache.AuthVersion <= 0 {
 		return nil, fmt.Errorf("user cache schema is stale")
+	}
+	floor, err := getUserAuthVersionFloor(userId)
+	if err != nil {
+		return nil, err
+	}
+	if floor > userCache.AuthVersion {
+		return nil, ErrUserAuthCachePending
 	}
 	return &userCache, nil
 }
@@ -263,21 +237,18 @@ func updateUserSettingCache(userId int, setting string) error {
 
 // updateUserCacheField updates only a complete cache hash. It never creates a
 // partial hash that could be mistaken for an authoritative quota snapshot.
-func updateUserCacheField(userId int, field string, value interface{}) error {
+func updateUserCacheField(userId int, field string, value any) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	const script = `
-if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[1])
-  or tonumber(redis.call('HGET', KEYS[1], 'CacheSchema') or '0') ~= tonumber(ARGV[4]) then
-  return 0
-end
-redis.call('HSET', KEYS[1], ARGV[2], ARGV[3])
-redis.call('EXPIRE', KEYS[1], ARGV[5])
-return 1`
-	return common.RDB.Eval(context.Background(), script, []string{getUserCacheKey(userId)},
-		userId, field, value, userCacheSchemaVersion, userCacheTTLSeconds(),
-	).Err()
+	var user User
+	if err := DB.Select("id", "auth_version").Where("id = ?", userId).First(&user).Error; err != nil {
+		return err
+	}
+	if user.AuthVersion <= 0 {
+		return fmt.Errorf("invalid user auth version")
+	}
+	return updateUserCacheFieldAtVersion(userId, field, value, user.AuthVersion)
 }
 
 // GetUserLanguage returns the user's language preference from cache
@@ -288,4 +259,43 @@ func GetUserLanguage(userId int) string {
 		return ""
 	}
 	return userCache.GetSetting().Language
+}
+
+func RefreshUserGroupCache(userId int) error {
+	if !common.RedisEnabled {
+		return nil
+	}
+	if userId <= 0 {
+		return fmt.Errorf("invalid user id")
+	}
+	var authoritative User
+	if err := DB.Select("id", "auth_version", commonGroupCol).Where("id = ?", userId).First(&authoritative).Error; err != nil {
+		return err
+	}
+	// Group transitions intentionally keep the same authentication version. A
+	// refresh that read the previous group can therefore arrive after a newer
+	// refresh and still pass the auth-version fence. Re-read after every write
+	// and repair the cache when the authoritative group changed in between.
+	for range 3 {
+		if err := updateUserCacheFieldAtVersion(userId, "Group", authoritative.Group, authoritative.AuthVersion); err != nil {
+			return err
+		}
+
+		var verified User
+		if err := DB.Select("id", "auth_version", commonGroupCol).Where("id = ?", userId).First(&verified).Error; err != nil {
+			return err
+		}
+		if verified.AuthVersion == authoritative.AuthVersion && verified.Group == authoritative.Group {
+			return nil
+		}
+		authoritative = verified
+	}
+
+	// Preserve the freshest snapshot observed even when the row was too busy to
+	// stabilize within the bounded retries. Returning an error lets best-effort
+	// callers emit an operation-specific warning.
+	if err := updateUserCacheFieldAtVersion(userId, "Group", authoritative.Group, authoritative.AuthVersion); err != nil {
+		return err
+	}
+	return fmt.Errorf("user group changed repeatedly during cache refresh")
 }

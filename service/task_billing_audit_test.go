@@ -27,8 +27,9 @@ func TestTaskBillingAuditLogDetailsKeepsManagedProviderReasonAdminOnly(t *testin
 	other, content := taskBillingAuditLogDetails(task, payload)
 
 	assert.Empty(t, content)
-	assert.Equal(t, publicFailureReason, other["reason"])
-	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	snapshot := other.Snapshot()
+	assert.Equal(t, publicFailureReason, snapshot["reason"])
+	adminInfo, ok := snapshot["admin_info"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, rawProviderReason, adminInfo["provider_failure_reason"])
 }

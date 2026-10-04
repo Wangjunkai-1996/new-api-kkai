@@ -1,1 +1,1 @@
-{"api_contract": 1, "required_capabilities": []}
+{"api_contract": 2, "required_capabilities": ["dashboard_jwt", "scoped_access_tokens", "task_plugins", "studio_media_urls"]}

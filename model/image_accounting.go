@@ -170,7 +170,7 @@ func RecordImageGenerationAccountingLog(
 		ModelName: params.ModelName, Quota: params.Quota, ChannelId: params.ChannelId,
 		TokenId: params.TokenId, UseTime: params.UseTimeSeconds, IsStream: params.IsStream,
 		Group: params.Group, Ip: payload.ClientIP, RequestId: requestID,
-		UpstreamRequestId: payload.UpstreamRequestID, Other: common.MapToJsonStr(params.Other),
+		UpstreamRequestId: payload.UpstreamRequestID, Other: params.Other.JSONString(),
 	}
 	if err := logDB.WithContext(ctx).Create(log).Error; err != nil {
 		return false, err

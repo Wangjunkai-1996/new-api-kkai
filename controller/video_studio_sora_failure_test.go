@@ -204,11 +204,15 @@ func TestVideoStudioSoraHTTPRejectionRefundsWalletAndFailsGeneration(t *testing.
 	assert.Equal(t, "/v1/videos", observation.path)
 	assert.Equal(t, "Bearer strict-adapter-key", observation.authorization)
 	assert.Equal(t, map[string]any{
-		"model":          "sd_2.0_special_1080p",
-		"prompt":         "A precise camera movement",
-		"duration":       float64(5),
-		"ratio":          "16:9",
-		"generate_audio": false,
+		"model":    studioModel,
+		"prompt":   "A precise camera movement",
+		"duration": float64(5),
+		"mode":     "text_to_video",
+		"metadata": map[string]any{
+			"duration":       float64(5),
+			"ratio":          "16:9",
+			"generate_audio": false,
+		},
 	}, observation.payload)
 
 	var task model.Task

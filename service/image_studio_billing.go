@@ -185,17 +185,12 @@ func PrepareImageStudioDeliveryBilling(c *gin.Context, providerOutputCount int, 
 	accounting.TargetQuota = quota
 	accounting.LogParams.Quota = quota
 	if accounting.LogParams.Other == nil {
-		accounting.LogParams.Other = make(map[string]interface{})
+		accounting.LogParams.Other = model.NewLogOther()
 	}
-	adminInfo, _ := accounting.LogParams.Other["admin_info"].(map[string]interface{})
-	if adminInfo == nil {
-		adminInfo = make(map[string]interface{})
-	}
-	adminInfo["image_outputs"] = map[string]int{
+	accounting.LogParams.Other.SetAdmin("image_outputs", map[string]int{
 		"provider":  providerOutputCount,
 		"delivered": deliveredOutputCount,
-	}
-	accounting.LogParams.Other["admin_info"] = adminInfo
+	})
 
 	prepareContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
 	defer cancel()

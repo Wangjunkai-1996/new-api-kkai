@@ -49,12 +49,12 @@ func (TaskAccountingHandler) Handle(ctx context.Context, event model.KKAIOutboxE
 		accountingContext = &model.TaskAccountingContext{}
 	}
 	other := taskBillingOther(task)
-	other["is_task"] = true
+	other.SetPublic("is_task", true)
 	if accountingContext.RequestPath != "" {
-		other["request_path"] = accountingContext.RequestPath
+		other.SetPublic("request_path", accountingContext.RequestPath)
 	}
 	if accountingContext.HasUserGroupRatio {
-		other["user_group_ratio"] = accountingContext.UserGroupRatio
+		other.SetPublic("user_group_ratio", accountingContext.UserGroupRatio)
 	}
 	attachQuotaSaturationToOther(other, accountingContext.QuotaClamp)
 
@@ -88,7 +88,7 @@ func (TaskAccountingHandler) Handle(ctx context.Context, event model.KKAIOutboxE
 		TokenName: accountingContext.TokenName,
 		ModelName: taskModelName(task),
 		Content:   logContent,
-		Other:     common.MapToJsonStr(other),
+		Other:     other.JSONString(),
 	}
 	created, err := model.CompleteTaskAccountingLog(ctx, task.ID, log)
 	if err != nil {

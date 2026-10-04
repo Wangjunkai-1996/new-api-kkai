@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 )
 
 const (
@@ -58,16 +59,10 @@ func usageBillingPathForLog(isLocalCountTokens bool, usage *dto.Usage) string {
 	return usageBillingPathUpstream
 }
 
-func appendUsageBillingPathForLog(other map[string]interface{}, isLocalCountTokens bool, usage *dto.Usage) {
-	if other == nil {
-		return
+func appendUsageBillingPathForLog(other *model.LogOther, isLocalCountTokens bool, usage *dto.Usage) {
+	if other != nil {
+		other.SetAdmin("usage_billing_path", usageBillingPathForLog(isLocalCountTokens, usage))
 	}
-	adminInfo, ok := other["admin_info"].(map[string]interface{})
-	if !ok || adminInfo == nil {
-		adminInfo = make(map[string]interface{})
-		other["admin_info"] = adminInfo
-	}
-	adminInfo["usage_billing_path"] = usageBillingPathForLog(isLocalCountTokens, usage)
 }
 
 func usageFromBillingUsage(usage *dto.Usage) (*dto.Usage, bool) {

@@ -125,10 +125,12 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		ModelName: CovertMjpActionToModelName(task.Action),
 		Quota:     quota,
 		TokenId:   task.TokenId,
-		Other: map[string]interface{}{
-			"task_id": task.MjId,
-			"reason":  reason,
-		},
+		Other: func() *model.LogOther {
+			other := model.NewLogOther()
+			other.SetPublic("task_id", task.MjId)
+			other.SetPublic("reason", reason)
+			return other
+		}(),
 	})
 
 	task.Quota = 0

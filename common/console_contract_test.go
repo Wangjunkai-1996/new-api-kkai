@@ -10,12 +10,12 @@ import (
 func TestConsoleContract(t *testing.T) {
 	contract := ConsoleContract()
 	require.Equal(t, 1, contract.FormatVersion)
-	require.Contains(t, contract.APIContracts, 1)
+	require.Equal(t, []int{2}, contract.APIContracts)
 	assert.Contains(t, contract.Capabilities, "token_group_inline")
 	if consoleContractProfile == "feature" {
 		assert.Contains(t, contract.Capabilities, "video_sample_categories")
 	}
 	// Callers cannot mutate subsequent status/CLI declarations.
 	contract.APIContracts[0] = 99
-	assert.Equal(t, []int{1}, ConsoleContract().APIContracts)
+	assert.Equal(t, []int{2}, ConsoleContract().APIContracts)
 }

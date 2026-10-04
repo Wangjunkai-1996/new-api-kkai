@@ -52,23 +52,25 @@ func SetRouter(router *gin.Engine, assets ThemeAssets) {
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)
+	SetTaskPluginProtocolRouter(router)
+	SetTaskRouter(router)
 	SetVideoRouter(router)
+	pluginDispatcher := SetPluginRouter(router)
 	if mode == frontendModeExternal {
 		// FRONTEND_MODE=external takes precedence over the legacy redirect
 		// setting; the edge server owns all frontend requests in this mode.
 		if frontendBaseURL := strings.TrimSpace(os.Getenv("FRONTEND_BASE_URL")); frontendBaseURL != "" {
 			common.SysLog("FRONTEND_BASE_URL is ignored when FRONTEND_MODE=external")
 		}
-		setExternalFrontendNoRoute(router)
+		setExternalFrontendNoRoute(router, pluginDispatcher)
 		return
 	}
 
 	if frontendBaseURL == "" {
-		SetWebRouter(router, assets)
+		SetWebRouter(router, assets, pluginDispatcher)
 	} else {
 		frontendBaseURL = strings.TrimSuffix(frontendBaseURL, "/")
-		router.NoRoute(func(c *gin.Context) {
-			c.Set(middleware.RouteTagKey, "web")
+		router.NoRoute(pluginDispatcher, middleware.RouteTag("web"), middleware.AccessTokenAudit(), func(c *gin.Context) {
 			c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("%s%s", frontendBaseURL, c.Request.RequestURI))
 		})
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 
 	"gorm.io/gorm"
 )
@@ -45,6 +46,8 @@ type TaskBillingReservationRequest struct {
 }
 
 type TaskSubmissionAttempt struct {
+	Execution         *TaskExecutionSnapshot
+	TieredSnapshot    *billingexpr.BillingSnapshot
 	Platform          constant.TaskPlatform
 	ChannelID         int
 	Action            string
@@ -53,15 +56,20 @@ type TaskSubmissionAttempt struct {
 }
 
 type TaskSubmissionAcceptance struct {
-	UpstreamTaskID string
-	TaskData       []byte
-	ChannelID      int
-	Status         TaskStatus
-	Progress       string
-	FailReason     string
-	FinishTime     int64
-	OtherRatios    map[string]float64
-	TargetQuota    int
+	PluginState     []byte
+	ResultURL       string
+	ArchiveSource   string
+	ResultDiscarded bool
+	TieredSnapshot  *billingexpr.BillingSnapshot
+	UpstreamTaskID  string
+	TaskData        []byte
+	ChannelID       int
+	Status          TaskStatus
+	Progress        string
+	FailReason      string
+	FinishTime      int64
+	OtherRatios     map[string]float64
+	TargetQuota     int
 }
 
 type TaskSubmissionAmbiguity struct {
@@ -174,6 +182,10 @@ func ClaimTaskSubmission(ctx context.Context, taskID int64, attempt *TaskSubmiss
 			return nil
 		}
 		if attempt != nil {
+			task.PrivateData.Execution = attempt.Execution
+			if task.PrivateData.BillingContext != nil {
+				task.PrivateData.BillingContext.TieredSnapshot = attempt.TieredSnapshot
+			}
 			task.Platform = attempt.Platform
 			task.ChannelId = attempt.ChannelID
 			task.Action = attempt.Action
@@ -279,7 +291,7 @@ func MarkTaskSubmissionAmbiguous(ctx context.Context, taskID int64, ambiguity Ta
 
 func PersistTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptance TaskSubmissionAcceptance) (*Task, bool, error) {
 	if taskID <= 0 || acceptance.UpstreamTaskID == "" || acceptance.TargetQuota < 0 ||
-		(acceptance.Status != TaskStatusSubmitted && acceptance.Status != TaskStatusUnknown) {
+		!validTaskAcceptanceStatus(acceptance.Status) {
 		return nil, false, ErrTaskBillingInvalidRequest
 	}
 	if ctx == nil {
@@ -321,7 +333,7 @@ func PersistTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptan
 
 func RecoverTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptance TaskSubmissionAcceptance) (*Task, bool, error) {
 	if taskID <= 0 || acceptance.UpstreamTaskID == "" || acceptance.TargetQuota < 0 ||
-		(acceptance.Status != TaskStatusSubmitted && acceptance.Status != TaskStatusUnknown) {
+		!validTaskAcceptanceStatus(acceptance.Status) {
 		return nil, false, ErrTaskBillingInvalidRequest
 	}
 	if ctx == nil {
@@ -368,7 +380,20 @@ func RecoverTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptan
 	return recoveredTask, recovered, err
 }
 
+func validTaskAcceptanceStatus(status TaskStatus) bool {
+	switch status {
+	case TaskStatusSubmitted, TaskStatusQueued, TaskStatusInProgress, TaskStatusUnknown, TaskStatusSuccess, TaskStatusFailure:
+		return true
+	default:
+		return false
+	}
+}
+
 func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptance) {
+	task.PrivateData.PluginState = append(json.RawMessage(nil), acceptance.PluginState...)
+	task.PrivateData.ResultURL = acceptance.ResultURL
+	task.PrivateData.ArchiveSource = acceptance.ArchiveSource
+	task.PrivateData.ResultDiscarded = acceptance.ResultDiscarded
 	task.PrivateData.UpstreamTaskID = acceptance.UpstreamTaskID
 	if acceptance.ChannelID > 0 {
 		task.ChannelId = acceptance.ChannelID
@@ -377,6 +402,7 @@ func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptan
 		task.PrivateData.BillingContext = &TaskBillingContext{}
 	}
 	task.PrivateData.BillingContext.OtherRatios = cloneTaskBillingRatios(acceptance.OtherRatios)
+	task.PrivateData.BillingContext.TieredSnapshot = acceptance.TieredSnapshot
 	task.PrivateData.BillingState = TaskBillingStateAccepted
 	task.PrivateData.AccountingRequired = true
 	if task.PrivateData.AccountingState == "" {
@@ -387,6 +413,11 @@ func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptan
 		task.PrivateData.AccountingQuota = acceptance.TargetQuota
 	}
 	task.Data = append(json.RawMessage(nil), acceptance.TaskData...)
+	if acceptance.ResultDiscarded {
+		task.Data = nil
+		task.PrivateData.PluginState = nil
+		task.PrivateData.ResultURL = ""
+	}
 	task.Status = acceptance.Status
 	task.Progress = acceptance.Progress
 	task.FailReason = acceptance.FailReason
@@ -415,6 +446,9 @@ func AdjustTaskBillingWithAudit(ctx context.Context, taskID int64, targetQuota i
 		}
 		if billingContext := task.PrivateData.BillingContext; billingContext != nil && billingContext.MaxQuota != nil && targetQuota > *billingContext.MaxQuota {
 			targetQuota = *billingContext.MaxQuota
+		}
+		if audit.TieredSnapshot != nil && task.PrivateData.BillingContext != nil {
+			task.PrivateData.BillingContext.TieredSnapshot = audit.TieredSnapshot
 		}
 		mutation.Task = task
 		mutation.PreviousQuota = task.Quota
@@ -606,6 +640,7 @@ func (task *Task) UpdateWithStatusPreservingBilling(from TaskSnapshot) (bool, er
 		privateData := current.PrivateData
 		privateData.ResultURL = task.PrivateData.ResultURL
 		privateData.ArchiveSource = task.PrivateData.ArchiveSource
+		privateData.PluginState = task.PrivateData.PluginState
 		task.PrivateData = privateData
 		task.UpdatedAt = time.Now().Unix()
 		result := tx.Model(&Task{}).

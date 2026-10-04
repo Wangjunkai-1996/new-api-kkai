@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -469,11 +471,88 @@ func validateTwoFactorAuth(twoFA *model.TwoFA, code string) bool {
 	return false
 }
 
+// maxTaskExtendPluginKeys bounds the plugins one New API channel can be
+// extended with; it comfortably covers every built-in and installed plugin.
+const maxTaskExtendPluginKeys = 32
+
 // validateChannel 通用的渠道校验函数
 func validateChannel(channel *model.Channel, isAdd bool) error {
+	if channel == nil {
+		return fmt.Errorf("channel cannot be empty")
+	}
+
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
+	}
+	if channel.Type == constant.ChannelTypeTaskPlugin {
+		pluginKey := strings.TrimSpace(channel.GetSetting().TaskPluginKey)
+		if pluginKey == "" {
+			return fmt.Errorf("task plugin key is required")
+		}
+		if len(pluginKey) > 30 {
+			return fmt.Errorf("task plugin key must not exceed 30 characters")
+		}
+		plugin, ok := jsplugin.DefaultRegistry.Get(pluginKey)
+		if !ok {
+			return fmt.Errorf("task plugin %q is not registered", pluginKey)
+		}
+		if channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "" {
+			// The plugin default is persisted onto the channel instead of being
+			// resolved per request, so the destination host stays an auditable
+			// channel property that only an administrator edit can change.
+			if plugin.Meta.BaseURL == "" {
+				return fmt.Errorf("base URL is required for task plugin channels")
+			}
+			defaultBaseURL := plugin.Meta.BaseURL
+			channel.BaseURL = &defaultBaseURL
+		}
+	}
+
+	setting := channel.GetSetting()
+	if channel.Type != constant.ChannelTypeNewAPI && len(setting.TaskExtendPluginKeys) > 0 {
+		return fmt.Errorf("task_extend_plugin_keys is only supported on New API channels")
+	}
+	if channel.Type == constant.ChannelTypeNewAPI {
+		if len(setting.TaskExtendPluginKeys) > maxTaskExtendPluginKeys {
+			return fmt.Errorf("task_extend_plugin_keys must not exceed %d plugins", maxTaskExtendPluginKeys)
+		}
+		// The single key stays valid on a New API channel, so both bindings are
+		// checked as one set.
+		keys := setting.TaskExtendPluginKeys
+		if setting.TaskPluginKey != "" {
+			keys = append([]string{setting.TaskPluginKey}, keys...)
+		}
+		bound := make(map[string]struct{}, len(keys))
+		for _, key := range keys {
+			if key == "" || key != strings.TrimSpace(key) {
+				return fmt.Errorf("task plugin key %q is invalid", key)
+			}
+			if len(key) > 30 {
+				return fmt.Errorf("task plugin key must not exceed 30 characters")
+			}
+			if _, duplicate := bound[key]; duplicate {
+				return fmt.Errorf("task plugin %q is bound more than once", key)
+			}
+			plugin, ok := jsplugin.DefaultRegistry.Get(key)
+			if !ok {
+				return fmt.Errorf("task plugin %q is not registered", key)
+			}
+			if !plugin.Meta.SupportsUpstream(jsplugin.UpstreamKindNewAPI) {
+				return fmt.Errorf("task plugin %q does not support a New API upstream and cannot be bound to a New API channel", key)
+			}
+			bound[key] = struct{}{}
+		}
+	}
+
+	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("New API channel base URL cannot be empty")
+	}
+	if channel.Type == constant.ChannelTypeVLLM && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("vLLM channel base URL cannot be empty")
+	}
+	if channel.Type == constant.ChannelTypeSGLang && strings.TrimSpace(channel.GetBaseURL()) == "" {
+		return fmt.Errorf("SGLang channel base URL cannot be empty")
 	}
 
 	// 如果是添加操作，检查 channel 和 key 是否为空
@@ -608,6 +687,21 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 
+	// Binding a plugin needs the same permission on a New API channel as the
+	// type-61 channel dedicated to it.
+	if addChannelRequest.Channel != nil &&
+		(addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin || len(addChannelRequest.Channel.GetSetting().TaskPluginBindings()) > 0) &&
+		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "task plugin channels require the task_plugin.bind permission",
+		})
+		return
+	}
+
+	baseURLFromPluginDefault := addChannelRequest.Channel != nil &&
+		addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin &&
+		(addChannelRequest.Channel.BaseURL == nil || strings.TrimSpace(*addChannelRequest.Channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -693,11 +787,15 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 	service.ResetProxyClientCache()
-	recordManageAudit(c, "channel.create", map[string]interface{}{
+	createAudit := map[string]interface{}{
 		"name":  addChannelRequest.Channel.Name,
 		"type":  addChannelRequest.Channel.Type,
 		"count": len(channels),
-	})
+	}
+	if baseURLFromPluginDefault {
+		createAudit["base_url_source"] = "plugin_default"
+	}
+	recordManageAudit(c, "channel.create", createAudit)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -940,6 +1038,17 @@ func UpdateChannel(c *gin.Context) {
 	}
 	clearChannelReadOnlyFields(&channel, requestData)
 
+	if channel.Type == constant.ChannelTypeTaskPlugin &&
+		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "task plugin channels require the task_plugin.bind permission",
+		})
+		return
+	}
+
+	baseURLFromPluginDefault := channel.Type == constant.ChannelTypeTaskPlugin &&
+		(channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(&channel.Channel, false); err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -954,6 +1063,20 @@ func UpdateChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": err.Error(),
+		})
+		return
+	}
+
+	_, settingProvided := requestData["setting"]
+	// Changing which plugins a channel binds needs the bind permission on any
+	// channel type; resubmitting an unchanged New API binding list does not, so
+	// administrators without it can still edit the rest of a gateway channel.
+	if settingProvided &&
+		!slices.Equal(channel.GetSetting().TaskPluginBindings(), originChannel.GetSetting().TaskPluginBindings()) &&
+		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "task plugin channels require the task_plugin.bind permission",
 		})
 		return
 	}
@@ -1076,11 +1199,15 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
-	recordManageAudit(c, "channel.update", map[string]interface{}{
+	updateAudit := map[string]interface{}{
 		"id":             channel.Id,
 		"name":           channel.Name,
 		"changed_fields": changedFields,
-	})
+	}
+	if baseURLFromPluginDefault {
+		updateAudit["base_url_source"] = "plugin_default"
+	}
+	recordManageAudit(c, "channel.update", updateAudit)
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
 	c.JSON(http.StatusOK, gin.H{
@@ -1378,6 +1505,12 @@ func CopyChannel(c *gin.Context) {
 	if err != nil {
 		common.SysError("failed to get channel by id: " + err.Error())
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道信息失败，请稍后重试"})
+		return
+	}
+
+	if (origin.Type == constant.ChannelTypeTaskPlugin || len(origin.GetSetting().TaskPluginBindings()) > 0) &&
+		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "task plugin channels require the task_plugin.bind permission"})
 		return
 	}
 

@@ -65,6 +65,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	if currentVersion >= AuthenticationSchemaVersion {
 		requirements = append(requirements, authenticationRuntimeSchemaRequirements...)
 	}
+	if currentVersion >= RC41ArchitectureSchemaVersion {
+		requirements = append(requirements, rc41ArchitectureRuntimeSchemaRequirements...)
+	}
 	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
@@ -94,7 +97,12 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		}
 	}
 	if currentVersion >= AuthenticationSchemaVersion {
-		return validateAuthenticationRuntimeSchema(db, dialect)
+		if err := validateAuthenticationRuntimeSchema(db, dialect); err != nil {
+			return err
+		}
+	}
+	if currentVersion >= RC41ArchitectureSchemaVersion {
+		return validateRC41ArchitectureRuntimeSchema(db, dialect)
 	}
 	return nil
 }
@@ -177,6 +185,26 @@ var authenticationRuntimeUniqueIndexes = []runtimeIndexRequirement{
 	{Table: "external_identity_claims", Name: "idx_external_identity_user", Columns: []string{"provider", "user_id"}},
 }
 
+var rc41ArchitectureRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "users", Columns: []string{"access_token_created_at"}},
+	{Table: "passkey_credentials", Columns: []string{"rp_id"}},
+	{Table: "audit_logs", Columns: []string{"id", "event_id", "user_id", "username", "actor_role", "created_at", "category", "action", "token_ref", "auth_method", "ip", "user_agent", "method", "route", "status", "success", "request_id", "content", "other"}},
+	{Table: "user_access_tokens", Columns: []string{
+		"id", "user_id", "name", "token_hash", "token_hint", "scopes", "expires_at", "last_used_at", "last_used_ip", "created_at",
+	}},
+	{Table: "task_plugins", Columns: []string{
+		"id", "key", "api_version", "version", "source", "source_hash", "icon", "enabled", "active", "created_at", "remark",
+	}},
+	{Table: "login_encryption_keys", Columns: []string{"id", "slot", "private_key_pem"}},
+}
+
+var rc41ArchitectureRuntimeUniqueIndexes = []runtimeIndexRequirement{
+	{Table: "audit_logs", Name: "idx_audit_logs_event_id", Columns: []string{"event_id"}},
+	{Table: "user_access_tokens", Name: "idx_user_access_tokens_token_hash", Columns: []string{"token_hash"}},
+	{Table: "task_plugins", Name: "uk_task_plugin_key_version", Columns: []string{"key", "version"}},
+	{Table: "login_encryption_keys", Name: "idx_login_encryption_keys_slot", Columns: []string{"slot"}},
+}
+
 func validateAuthenticationRuntimeSchema(db *gorm.DB, dialect string) error {
 	for _, requirement := range authenticationRuntimeUniqueIndexes {
 		if err := validateRuntimeUniqueIndex(db, dialect, requirement); err != nil {
@@ -200,6 +228,15 @@ func validateAuthenticationRuntimeSchema(db *gorm.DB, dialect string) error {
 	}
 	if unmapped != 0 {
 		return fmt.Errorf("%w: unmapped_legacy_telegram_identity_count=%d", ErrSchemaNotReady, unmapped)
+	}
+	return nil
+}
+
+func validateRC41ArchitectureRuntimeSchema(db *gorm.DB, dialect string) error {
+	for _, requirement := range rc41ArchitectureRuntimeUniqueIndexes {
+		if err := validateRuntimeUniqueIndex(db, dialect, requirement); err != nil {
+			return err
+		}
 	}
 	return nil
 }

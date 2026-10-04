@@ -45,11 +45,11 @@ type taskPollingResponseAdaptor struct {
 	parseCalls int
 }
 
-func (a *completedArchiveSourceAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (a *completedArchiveSourceAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, _ []byte) (*relaycommon.TaskInfo, error) {
 	return a.result, nil
 }
 
-func (a *completedArchiveSourceAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+func (a *completedArchiveSourceAdaptor) FetchTask(_ string, _ string, _ *model.Task, _ string) (*http.Response, error) {
 	body := a.body
 	if body == "" {
 		body = `{"response":{"videos":[{"bytesBase64Encoded":"dmlkZW8=","mimeType":"video/mp4"}]}}`
@@ -60,22 +60,22 @@ func (a *completedArchiveSourceAdaptor) FetchTask(_ string, _ string, _ map[stri
 	}, nil
 }
 
-func (a *taskPollingResponseAdaptor) FetchTask(_ string, _ string, _ map[string]any, _ string) (*http.Response, error) {
+func (a *taskPollingResponseAdaptor) FetchTask(_ string, _ string, _ *model.Task, _ string) (*http.Response, error) {
 	return &http.Response{
 		StatusCode: a.statusCode,
 		Body:       io.NopCloser(bytes.NewBufferString(a.body)),
 	}, nil
 }
 
-func (a *taskPollingResponseAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (a *taskPollingResponseAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, _ []byte) (*relaycommon.TaskInfo, error) {
 	a.parseCalls++
 	return a.result, nil
 }
 
 func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
-func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]any, _ string) (*http.Response, error) {
-	taskID, _ := body["task_id"].(string)
+func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task, _ string) (*http.Response, error) {
+	taskID := task.GetUpstreamTaskID()
 	if taskID == a.blockTaskID && a.releaseBlock != nil {
 		a.blockOnce.Do(func() {
 			if a.blockStarted != nil {
@@ -113,7 +113,7 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 	}, nil
 }
 
-func (a *taskPollingFetchAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (a *taskPollingFetchAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, _ []byte) (*relaycommon.TaskInfo, error) {
 	return &relaycommon.TaskInfo{Status: model.TaskStatusInProgress}, nil
 }
 

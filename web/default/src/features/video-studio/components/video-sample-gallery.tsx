@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useConsoleContract } from '@/hooks/use-console-contract'
-
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { AxiosError } from 'axios'
 import { Film, LoaderCircle, RotateCw } from 'lucide-react'
@@ -42,6 +40,8 @@ import {
 } from '@/components/ui/empty'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useConsoleContract } from '@/hooks/use-console-contract'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 
 import { useVideoSamples } from '../queries'
 import type {
@@ -125,7 +125,8 @@ const getLaneCount = (width: number): number => {
 export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const { t } = useTranslation()
   const { contract } = useConsoleContract()
-  const categoriesEnabled = contract?.capabilities.includes('video_sample_categories') ?? false
+  const categoriesEnabled =
+    contract?.capabilities.includes('video_sample_categories') ?? false
   const onTokenError = props.onTokenError
   const scrollRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -151,6 +152,16 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [samplesQuery.data]
   )
+  const mediaPaths = useMemo(
+    () =>
+      samples.flatMap((sample) => [
+        sample.video_url,
+        sample.poster_url,
+        sample.preview_url,
+      ]),
+    [samples]
+  )
+  const mediaQuery = useStudioMediaUrls(mediaPaths)
   const lanes = getLaneCount(width)
   const gap = 12
   const columnWidth = Math.max(0, (width - gap * (lanes - 1)) / lanes)
@@ -377,7 +388,24 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
                   }}
                 >
                   <VideoSampleCard
-                    sample={sample}
+                    sample={{
+                      ...sample,
+                      video_url:
+                        signedStudioMediaUrl(
+                          sample.video_url,
+                          mediaQuery.data?.urls
+                        ) ?? '',
+                      poster_url:
+                        signedStudioMediaUrl(
+                          sample.poster_url,
+                          mediaQuery.data?.urls
+                        ) ?? '',
+                      preview_url:
+                        signedStudioMediaUrl(
+                          sample.preview_url,
+                          mediaQuery.data?.urls
+                        ) ?? '',
+                    }}
                     active={previewRegistry.activeId === sample.id}
                     warmed={previewRegistry.warmedIds.includes(sample.id)}
                     selected={props.selectedSampleId === sample.id}

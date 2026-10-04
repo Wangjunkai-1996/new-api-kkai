@@ -46,6 +46,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 import { cn } from '@/lib/utils'
 
 import {
@@ -84,6 +85,14 @@ export function ImageSampleAdmin() {
     () => samplesQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [samplesQuery.data]
   )
+  const mediaQuery = useStudioMediaUrls([
+    ...samples.flatMap((sample) => [
+      sample.asset.thumbnail_url,
+      sample.asset.content_url,
+    ]),
+    asset?.thumbnail_url,
+    asset?.content_url,
+  ])
   const profileId = form.watch('model_profile_id')
   const profile = modelsQuery.data?.find((model) => model.id === profileId)
 
@@ -196,7 +205,10 @@ export function ImageSampleAdmin() {
             }}
           >
             <img
-              src={sample.asset.thumbnail_url || sample.asset.content_url}
+              src={signedStudioMediaUrl(
+                sample.asset.thumbnail_url || sample.asset.content_url,
+                mediaQuery.data?.urls
+              )}
               alt=''
               className='size-10 rounded object-cover'
             />
@@ -332,6 +344,7 @@ export function ImageSampleAdmin() {
                 <FormItem>
                   <AssetPicker
                     asset={asset}
+                    signedUrls={mediaQuery.data?.urls}
                     disabled={Boolean(selected)}
                     uploading={uploadMutation.isPending}
                     onUpload={upload}
@@ -445,6 +458,7 @@ export function ImageSampleAdmin() {
 
 function AssetPicker(props: {
   asset: ImageAsset | null
+  signedUrls?: Record<string, string>
   disabled: boolean
   uploading: boolean
   onUpload: (file?: File) => Promise<void>
@@ -458,7 +472,10 @@ function AssetPicker(props: {
       </FormLabel>
       {props.asset ? (
         <img
-          src={props.asset.thumbnail_url || props.asset.content_url}
+          src={signedStudioMediaUrl(
+            props.asset.thumbnail_url || props.asset.content_url,
+            props.signedUrls
+          )}
           alt=''
           className='max-h-72 rounded-lg border object-contain'
         />

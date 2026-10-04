@@ -79,11 +79,12 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 		MatchedTier:  "base",
 		RequestRules: requestRules,
 	})
+	snapshot := other.Snapshot()
 
-	require.Equal(t, "tiered_expr", other["billing_mode"])
-	require.Equal(t, "base", other["matched_tier"])
-	require.Equal(t, requestRules, other["request_rules"])
-	require.NotEmpty(t, other["expr_b64"])
+	require.Equal(t, "tiered_expr", snapshot["billing_mode"])
+	require.Equal(t, "base", snapshot["matched_tier"])
+	require.Equal(t, requestRules, snapshot["request_rules"])
+	require.NotEmpty(t, snapshot["expr_b64"])
 }
 
 func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {

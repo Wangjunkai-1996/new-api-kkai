@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
@@ -58,6 +60,12 @@ func InitOptionMap() {
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
 	common.OptionMap["TaskEnabled"] = strconv.FormatBool(common.TaskEnabled)
+	common.OptionMap["TaskPluginEnabled"] = strconv.FormatBool(constant.TaskPluginEnabled)
+	jsplugin.DefaultRegistry.SetEnabled(constant.TaskPluginEnabled)
+	common.OptionMap[setting.TaskPluginMarketplaceSourcesKey] = setting.TaskPluginMarketplaceSources2JsonString()
+	common.OptionMap[setting.TaskPluginDisabledFactoryKeysKey] = "[]"
+	jsplugin.DefaultRegistry.SetDisabledFactoryKeys(nil)
+	common.OptionMap["TaskPublicAddress"] = system_setting.TaskPublicAddress
 	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(common.DataExportEnabled)
 	common.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
@@ -203,21 +211,36 @@ func loadOptionsFromDatabase() {
 }
 
 func SyncOptionsOnce() error {
+	passkeyOptionMutex.Lock()
+	defer passkeyOptionMutex.Unlock()
 	options, err := AllOption()
 	if err != nil {
 		return err
 	}
 	var syncErrors []error
+	passkeyOptions := make(map[string]string)
 	for _, option := range options {
+		if IsPasskeyDomainOption(option.Key) {
+			passkeyOptions[option.Key] = option.Value
+			continue
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			syncErrors = append(syncErrors, fmt.Errorf("option %s: %w", option.Key, err))
 		}
 	}
+	applyPasskeyDomainOptions(passkeyOptions)
 	return errors.Join(syncErrors...)
 }
 
 func UpdateOption(key string, value string) error {
+	if IsModelPricingOption(key) {
+		return UpdateModelPricingOptions(map[string]string{key: value})
+	}
+	if IsPasskeyDomainOption(key) {
+		_, err := UpdatePasskeyDomainOptions(map[string]string{key: value}, false, "")
+		return err
+	}
 	if err := validateOptionValue(key, value); err != nil {
 		return err
 	}
@@ -262,6 +285,12 @@ func UpdateOptionsBulk(values map[string]string) error {
 			if err := validateAutoGroupProfileReferences(value); err != nil {
 				return err
 			}
+		}
+	}
+	for key := range values {
+		if IsPasskeyDomainOption(key) {
+			_, err := UpdatePasskeyDomainOptions(values, false, "")
+			return err
 		}
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -393,6 +422,9 @@ func updateOptionMap(key string, value string) (err error) {
 			common.DrawingEnabled = boolValue
 		case "TaskEnabled":
 			common.TaskEnabled = boolValue
+		case "TaskPluginEnabled":
+			constant.TaskPluginEnabled = boolValue
+			jsplugin.DefaultRegistry.SetEnabled(boolValue)
 		case "DataExportEnabled":
 			common.DataExportEnabled = boolValue
 		case "DefaultCollapseSidebar":
@@ -435,6 +467,9 @@ func updateOptionMap(key string, value string) (err error) {
 			ratio_setting.SetExposeRatioEnabled(boolValue)
 		}
 	}
+	if key == setting.TaskPluginDisabledFactoryKeysKey {
+		jsplugin.DefaultRegistry.SetDisabledFactoryKeys(setting.ParseTaskPluginDisabledFactoryKeys(value))
+	}
 	switch key {
 	case "EmailDomainWhitelist":
 		common.EmailDomainWhitelist = strings.Split(value, ",")
@@ -449,6 +484,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.SMTPFrom = value
 	case "SMTPToken":
 		common.SMTPToken = value
+	case "TaskPublicAddress":
+		system_setting.TaskPublicAddress = value
 	case "ServerAddress":
 		system_setting.ServerAddress = value
 	case "WorkerUrl":
@@ -648,6 +685,9 @@ func updateOptionMap(key string, value string) (err error) {
 }
 
 func validateOptionValue(key, value string) error {
+	if key == legacyAccessTokenRetireAtKey {
+		return errLegacyRetireAtReadOnly
+	}
 	if key == image_pricing_setting.OptionKey {
 		return image_pricing_setting.ValidateJSON(value)
 	}

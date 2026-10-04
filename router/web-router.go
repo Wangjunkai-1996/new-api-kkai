@@ -31,7 +31,7 @@ func (assets ThemeAssets) hasEmbeddedFrontend() bool {
 	return defaultErr == nil && classicErr == nil
 }
 
-func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
+func SetWebRouter(router *gin.Engine, assets ThemeAssets, pluginDispatcher gin.HandlerFunc) {
 	defaultFS := common.EmbedFolder(assets.DefaultBuildFS, "web/default/dist")
 	classicFS := common.EmbedFolder(assets.ClassicBuildFS, "web/classic/dist")
 	themeFS := common.NewThemeAwareFS(defaultFS, classicFS)
@@ -40,9 +40,12 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
 	router.Use(static.Serve("/", themeFS))
-	router.NoRoute(func(c *gin.Context) {
+	router.NoRoute(pluginDispatcher, func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
 		if isAPIStylePath(c.Request.URL.Path) {
+			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private, max-age=0")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
 			controller.RelayNotFound(c)
 			return
 		}
@@ -55,8 +58,8 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 	})
 }
 
-func setExternalFrontendNoRoute(router *gin.Engine) {
-	router.NoRoute(func(c *gin.Context) {
+func setExternalFrontendNoRoute(router *gin.Engine, pluginDispatcher gin.HandlerFunc) {
+	router.NoRoute(pluginDispatcher, func(c *gin.Context) {
 		if isAPIStylePath(c.Request.URL.Path) {
 			c.Set(middleware.RouteTagKey, "api")
 			controller.RelayNotFound(c)

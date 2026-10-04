@@ -48,7 +48,7 @@ func (TaskBillingAuditHandler) Handle(ctx context.Context, event model.KKAIOutbo
 		Content:   content,
 		ModelName: taskModelName(&task),
 		Quota:     payload.Quota,
-		Other:     common.MapToJsonStr(other),
+		Other:     other.JSONString(),
 	}
 	created, err := model.CompleteTaskBillingAuditLog(ctx, payload.TaskID, payload.BillingRevision, log)
 	if err != nil {
@@ -93,23 +93,18 @@ func validateTaskBillingAuditPayload(payload model.TaskBillingAuditPayload) erro
 	return nil
 }
 
-func taskBillingAuditLogDetails(task *model.Task, payload model.TaskBillingAuditPayload) (map[string]interface{}, string) {
+func taskBillingAuditLogDetails(task *model.Task, payload model.TaskBillingAuditPayload) (*model.LogOther, string) {
 	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
+	other.SetPublic("task_id", task.TaskID)
 	if payload.Operation == model.TaskBillingAuditOperationRefund {
-		other["reason"] = task.PublicFailureReason(payload.Reason)
+		other.SetPublic("reason", task.PublicFailureReason(payload.Reason))
 		if task.IsAssetHostedResult() && payload.Reason != "" {
-			adminInfo, _ := other["admin_info"].(map[string]interface{})
-			if adminInfo == nil {
-				adminInfo = make(map[string]interface{})
-				other["admin_info"] = adminInfo
-			}
-			adminInfo["provider_failure_reason"] = payload.Reason
+			other.SetAdmin("provider_failure_reason", payload.Reason)
 		}
 		return other, ""
 	}
-	other["pre_consumed_quota"] = payload.PreviousQuota
-	other["actual_quota"] = payload.CurrentQuota
+	other.SetPublic("pre_consumed_quota", payload.PreviousQuota)
+	other.SetPublic("actual_quota", payload.CurrentQuota)
 	for _, clamp := range payload.QuotaClamps {
 		attachQuotaSaturationToOther(other, clamp)
 	}

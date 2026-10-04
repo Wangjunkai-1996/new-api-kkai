@@ -1,7 +1,11 @@
 package model
 
 import (
+	"slices"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -62,10 +66,108 @@ func isChannelEnabledForGroupModelDB(group string, modelName string, channelID i
 }
 
 func isChannelIDInList(list []int, channelID int) bool {
-	for _, id := range list {
-		if id == channelID {
-			return true
+	return slices.Contains(list, channelID)
+}
+
+var filterEvalOrder = []dto.ChannelFilterKind{
+	dto.FilterRequestPath,
+	dto.FilterTaskPluginIdentity,
+	dto.FilterResponsesWebSocket,
+}
+
+// ChannelSatisfiesFilters reports whether a channel passes every request filter.
+func ChannelSatisfiesFilters(ch *Channel, modelName string, filters []dto.ChannelFilter) (bool, dto.ChannelFilterKind) {
+	if ch == nil {
+		return false, ""
+	}
+	for _, kind := range filterEvalOrder {
+		for _, filter := range filters {
+			if filter.Kind == kind && !channelMatchesFilter(ch, modelName, filter) {
+				return false, kind
+			}
 		}
 	}
-	return false
+	return true, ""
+}
+
+func filterCandidateIDs(ids []int, modelName string, filters []dto.ChannelFilter) (kept []int, emptiedBy dto.ChannelFilterKind) {
+	if len(ids) == 0 || len(filters) == 0 {
+		return ids, ""
+	}
+	kept = ids
+	for _, kind := range filterEvalOrder {
+		kindFilters := filtersByKind(filters, kind)
+		if len(kindFilters) == 0 {
+			continue
+		}
+		next := make([]int, 0, len(kept))
+		for _, id := range kept {
+			channel, exists := channelsIDM[id]
+			if candidatePassesKindFilters(channel, exists, modelName, kind, kindFilters) {
+				next = append(next, id)
+			}
+		}
+		if len(kept) > 0 && len(next) == 0 {
+			return next, kind
+		}
+		kept = next
+	}
+	return kept, ""
+}
+
+func filtersByKind(filters []dto.ChannelFilter, kind dto.ChannelFilterKind) []dto.ChannelFilter {
+	matched := make([]dto.ChannelFilter, 0, len(filters))
+	for _, filter := range filters {
+		if filter.Kind == kind {
+			matched = append(matched, filter)
+		}
+	}
+	return matched
+}
+
+func candidatePassesKindFilters(ch *Channel, exists bool, modelName string, kind dto.ChannelFilterKind, filters []dto.ChannelFilter) bool {
+	if kind == dto.FilterRequestPath && !exists {
+		return true
+	}
+	if !exists || ch == nil {
+		return false
+	}
+	for _, filter := range filters {
+		if !channelMatchesFilter(ch, modelName, filter) {
+			return false
+		}
+	}
+	return true
+}
+
+func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter) bool {
+	switch filter.Kind {
+	case dto.FilterRequestPath:
+		if filter.RequestPath == "" || !constant.IsAdvancedCustomChannel(ch.Type) {
+			return true
+		}
+		config := ch.GetOtherSettings().AdvancedCustom
+		return config != nil && config.SupportsPathForModel(filter.RequestPath, modelName)
+	case dto.FilterTaskPluginIdentity:
+		if filter.TaskPluginKey == "" {
+			return ch.Type != constant.ChannelTypeTaskPlugin
+		}
+		if ch.Type == constant.ChannelTypeTaskPlugin || ch.Type == constant.ChannelTypeNewAPI {
+			settings := ch.GetSetting()
+			if settings.BindsTaskPlugin(filter.TaskPluginKey) {
+				return true
+			}
+			for _, key := range filter.TaskPluginKeys {
+				if settings.BindsTaskPlugin(key) {
+					return true
+				}
+			}
+			return false
+		}
+		return slices.Contains(filter.TaskPluginChannelTypes, ch.Type)
+	case dto.FilterResponsesWebSocket:
+		return ch.GetSetting().ResponsesWebSocketEnabled
+	default:
+		return true
+	}
 }

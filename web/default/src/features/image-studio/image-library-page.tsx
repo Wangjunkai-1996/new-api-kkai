@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/empty'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 
 import { ImageGenerationCard } from './components/image-generation-card'
 import { ImageStudioNav } from './components/image-studio-nav'
@@ -63,6 +64,18 @@ export function ImageLibraryPage(props: {
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
     [query.data]
   )
+  const mediaPaths = useMemo(
+    () =>
+      generations.flatMap((generation) =>
+        generation.assets.flatMap((asset) => [
+          asset.content_url,
+          asset.thumbnail_url,
+          asset.download_url,
+        ])
+      ),
+    [generations]
+  )
+  const mediaQuery = useStudioMediaUrls(mediaPaths)
   const target = generations.find(
     (generation) => generation.id === props.targetGenerationId
   )
@@ -183,7 +196,24 @@ export function ImageLibraryPage(props: {
                 ref={generation.id === target?.id ? targetRef : undefined}
               >
                 <ImageGenerationCard
-                  generation={generation}
+                  generation={{
+                    ...generation,
+                    assets: generation.assets.map((asset) => ({
+                      ...asset,
+                      content_url: signedStudioMediaUrl(
+                        asset.content_url,
+                        mediaQuery.data?.urls
+                      ),
+                      thumbnail_url: signedStudioMediaUrl(
+                        asset.thumbnail_url,
+                        mediaQuery.data?.urls
+                      ),
+                      download_url: signedStudioMediaUrl(
+                        asset.download_url,
+                        mediaQuery.data?.urls
+                      ),
+                    })),
+                  }}
                   highlighted={generation.id === target?.id}
                   onDelete={setDeleteTarget}
                 />

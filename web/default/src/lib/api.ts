@@ -1,3 +1,4 @@
+import type { UserGroupInfo } from './group-display'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,162 +17,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import axios, { type AxiosRequestConfig } from 'axios'
-import { t } from 'i18next'
-import { toast } from 'sonner'
+import { api } from './http-client'
+import { authRequestOptions, authResult } from './secure-verification'
 
-import { useAuthStore } from '@/stores/auth-store'
-
-import type { UserGroupInfo } from './group-display'
-
-declare module 'axios' {
-  export interface AxiosRequestConfig {
-    skipBusinessError?: boolean
-    skipErrorHandler?: boolean
-    disableDuplicate?: boolean
-  }
-}
-
-export type ApiRequestConfig = AxiosRequestConfig
-
-// ============================================================================
-// Axios Instance Configuration
-// ============================================================================
-
-// Base URL: empty string for same-origin API requests
-const baseURL = ''
-
-// Create axios instance with default config
-export const api = axios.create({
-  baseURL,
-  withCredentials: true, // Include cookies in cross-origin requests
-  headers: {
-    'Cache-Control': 'no-store', // Prevent caching
-  },
-})
-
-// ============================================================================
-// Request Deduplication
-// ============================================================================
-
-// Deduplicate concurrent GET requests to the same URL
-// Prevents multiple identical requests from being sent simultaneously
-const inFlightGet = new Map<string, Promise<unknown>>()
-const originalGet = api.get.bind(api)
-
-api.get = ((url: string, config: ApiRequestConfig = {}) => {
-  const disableDuplicate = config.disableDuplicate
-  if (disableDuplicate) return originalGet(url, config)
-
-  const params = config.params ? JSON.stringify(config.params) : '{}'
-  const key = `${url}?${params}`
-
-  // Return existing in-flight request if available
-  if (inFlightGet.has(key)) return inFlightGet.get(key)!
-
-  // Create new request and clean up after completion
-  const req = originalGet(url, config).finally(() => inFlightGet.delete(key))
-  inFlightGet.set(key, req)
-  return req
-}) as typeof api.get
-
-// ============================================================================
-// Response Interceptor
-// ============================================================================
-
-// Handle business logic errors and HTTP errors globally
-api.interceptors.response.use(
-  (response) => {
-    const skipBusiness = response.config.skipBusinessError
-
-    // Unified business response format: { success, message, data }
-    if (
-      !skipBusiness &&
-      response &&
-      response.data &&
-      typeof response.data.success === 'boolean'
-    ) {
-      if (!response.data.success) {
-        // Show error toast for business failures
-        const msg = response.data.message || t('Request failed')
-        toast.error(msg)
-      }
-    }
-    return response
-  },
-  (error) => {
-    const skip = error?.config?.skipErrorHandler
-    const status = error?.response?.status
-
-    if (status === 401) {
-      try {
-        useAuthStore.getState().auth.reset()
-      } catch {
-        /* empty */
-      }
-
-      if (!skip) {
-        toast.error(t('Session expired!'))
-      }
-    } else if (!skip) {
-      // Other errors: show error message from response or default
-      const msg =
-        error?.response?.data?.message || error?.message || t('Request failed')
-      toast.error(msg)
-    }
-    return Promise.reject(error)
-  }
-)
-
-// ============================================================================
-// Common Headers Utility
-// ============================================================================
-
-/**
- * Get user ID from localStorage
- */
-function getUserId(): string | null {
-  try {
-    if (typeof window !== 'undefined') {
-      return window.localStorage.getItem('uid')
-    }
-  } catch {
-    /* empty */
-  }
-  return null
-}
-
-/**
- * Get common request headers (for both axios and SSE requests)
- */
-export function getCommonHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-
-  const uid = getUserId()
-  if (uid) {
-    headers['New-Api-User'] = uid
-  }
-
-  return headers
-}
-
-// ============================================================================
-// Request Interceptor
-// ============================================================================
-
-// Attach user ID header for all requests
-api.interceptors.request.use((config) => {
-  const uid = getUserId()
-  if (uid) {
-    // Custom header for user identification
-    ;(config.headers as Record<string, string>)['New-Api-User'] = uid
-  }
-  return config
-})
-
-// ============================================================================
+export { api }
+export type { ApiRequestConfig } from './http-client'
+export {
+  applyAuthBundle,
+  applyAuthRotation,
+  bootstrapAuthentication,
+  clearAuthenticatedClientState,
+  clearAuthentication,
+  getCommonHeaders,
+  getFreshAuthHeaders,
+  isAuthBundle,
+  refreshAuthentication,
+  resolveAuthentication,
+  AuthRotationError,
+} from './auth-session'
+export type { AuthTokenRotation, RefreshOutcome } from './auth-session'
 // Common API Functions
 // ============================================================================
 
@@ -251,13 +115,69 @@ export async function enable2FA(code: string) {
 }
 
 // Disable 2FA with verification code
-export async function disable2FA(code: string) {
-  const res = await api.post('/api/user/2fa/disable', { code })
-  return res.data
+export function disable2FA(
+  code: string
+): Promise<{ success: boolean; message?: string }>
+export function disable2FA(
+  proofToken: string,
+  signal: AbortSignal
+): Promise<{ notification_warning?: boolean }>
+export function disable2FA(
+  proofToken: string,
+  signal?: AbortSignal
+): Promise<unknown> {
+  if (signal) {
+    return authResult(
+      api.post(
+        '/api/user/2fa/disable',
+        {},
+        {
+          ...authRequestOptions,
+          headers: { 'X-Security-Proof': proofToken },
+          acceptAuthRotation: true,
+          singleUseAuthorization: true,
+          signal,
+        }
+      )
+    )
+  }
+  return api
+    .post('/api/user/2fa/disable', { code: proofToken })
+    .then((res) => res.data)
 }
 
 // Regenerate 2FA backup codes
-export async function regenerate2FABackupCodes(code: string) {
-  const res = await api.post('/api/user/2fa/backup_codes', { code })
-  return res.data
+export function regenerate2FABackupCodes(
+  code: string
+): Promise<{
+  success: boolean
+  message?: string
+  data?: { backup_codes: string[] }
+}>
+export function regenerate2FABackupCodes(
+  proofToken: string,
+  signal: AbortSignal
+): Promise<{ backup_codes: string[]; notification_warning?: boolean }>
+export function regenerate2FABackupCodes(
+  proofToken: string,
+  signal?: AbortSignal
+): Promise<unknown> {
+  if (signal) {
+    return authResult(
+      api.post(
+        '/api/user/2fa/backup_codes',
+        {},
+        {
+          ...authRequestOptions,
+          headers: { 'X-Security-Proof': proofToken },
+          acceptAuthRotation: true,
+          singleUseAuthorization: true,
+          signal,
+        }
+      )
+    )
+  }
+  return api
+    .post('/api/user/2fa/backup_codes', { code: proofToken })
+    .then((res) => res.data)
 }

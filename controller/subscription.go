@@ -407,13 +407,13 @@ func resolveAdvanceResetTime(value *bool) bool {
 	return *value
 }
 
-func recordSubscriptionResetUserLogs(result *model.SubscriptionResetResult, adminInfo map[string]interface{}) {
+func recordSubscriptionResetUserLogs(result *model.SubscriptionResetResult, adminInfo *model.AuditAdminInfo) {
 	if result == nil || result.ResetCount == 0 {
 		return
 	}
 	content := fmt.Sprintf("管理员重置订阅套餐 %s（ID: %d）额度", result.PlanTitle, result.PlanId)
 	for _, userId := range result.AffectedUserIds {
-		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo)
+		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo, nil)
 	}
 }
 

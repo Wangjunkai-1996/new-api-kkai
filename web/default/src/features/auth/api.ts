@@ -17,7 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { clearAuthentication } from '@/lib/auth-session'
+import { useAuthStore } from '@/stores/auth-store'
 
+import type { VerificationOperation } from './secure-verification/types'
 import type {
   LoginPayload,
   LoginResponse,
@@ -43,20 +46,31 @@ export async function login(payload: LoginPayload) {
     {
       username: payload.username,
       password: payload.password,
-    }
+    },
+    { skipAuthRefresh: true, skipErrorHandler: true }
   )
   return res.data
 }
 
 // Two-factor authentication login
 export async function login2fa(payload: TwoFAPayload) {
-  const res = await api.post<Login2FAResponse>('/api/user/login/2fa', payload)
+  const res = await api.post<Login2FAResponse>(
+    '/api/user/login/verify',
+    { ...payload, method: '2fa' },
+    { skipAuthRefresh: true }
+  )
   return res.data
 }
 
 // User logout
 export async function logout(): Promise<ApiResponse> {
-  const res = await api.get('/api/user/logout')
+  const sid = useAuthStore.getState().auth.session?.sid
+  const res = await api.post('/api/user/auth/logout', undefined, {
+    headers: sid ? { 'X-Auth-Session': sid } : undefined,
+    skipAuthRefresh: true,
+    skipErrorHandler: true,
+  })
+  clearAuthentication()
   return res.data
 }
 
@@ -86,12 +100,54 @@ export async function githubOAuthStart(clientId: string, state: string) {
 }
 
 // Get OAuth state for CSRF protection
-export async function getOAuthState(): Promise<string> {
-  const aff =
-    typeof window !== 'undefined' ? (localStorage.getItem('aff') ?? '') : ''
-  const res = await api.get('/api/oauth/state', { params: { aff } })
-  if (res.data?.success) return res.data.data
-  return ''
+export async function getOAuthState(provider: string): Promise<string> {
+  return (await createOAuthAuthorization(provider, 'login')).state
+}
+
+export async function createOAuthAuthorization(
+  provider: string,
+  intent: 'login' | 'bind' | 'verify',
+  operation?: VerificationOperation,
+  signal?: AbortSignal,
+  proofToken?: string
+): Promise<{ state: string; authorizationUrl?: string }> {
+  const res = await api.post(
+    '/api/oauth/state',
+    {
+      provider,
+      intent,
+      aff:
+        intent === 'login' && typeof window !== 'undefined'
+          ? (localStorage.getItem('aff') ?? '')
+          : undefined,
+      scope: operation?.scope,
+      context: operation?.context,
+    },
+    {
+      signal,
+      skipAuthRefresh: intent === 'login',
+      singleUseAuthorization: intent === 'bind',
+      ...(proofToken ? { headers: { 'X-Security-Proof': proofToken } } : {}),
+      skipBusinessError: true,
+    }
+  )
+  if (!res.data?.success)
+    throw new Error(res.data?.message || 'Failed to initialize OAuth')
+  const data = res.data.data
+  return typeof data === 'string'
+    ? { state: data }
+    : {
+        state: data?.flow_token ?? '',
+        authorizationUrl: data?.authorization_url,
+      }
+}
+
+export async function createOAuthFlow(
+  provider: string,
+  intent: 'login' | 'bind' | 'verify',
+  operation?: VerificationOperation
+): Promise<string> {
+  return (await createOAuthAuthorization(provider, intent, operation)).state
 }
 
 // WeChat login by authorization code

@@ -21,6 +21,12 @@ For commercial licensing, please contact support@quantumnous.com
 // All label/name values are i18n keys; use t(value) when displaying.
 // ============================================================================
 
+export const CHANNEL_TYPE_SUB2API = 59
+export const CHANNEL_TYPE_NEW_API = 60
+export const CHANNEL_TYPE_TASK_PLUGIN = 61
+export const CHANNEL_TYPE_VLLM = 62
+export const CHANNEL_TYPE_SGLANG = 63
+
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',
@@ -77,12 +83,19 @@ export const CHANNEL_TYPES = {
   56: 'Replicate',
   57: 'ChatGPT Subscription (Codex)',
   58: 'Advanced Custom',
+  59: 'Sub2API',
+  60: 'New API',
+  61: 'Task Plugin',
+  62: 'vLLM',
+  63: 'SGLang',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 33, 24, 43, 3, 41, 48, 58, 42, 34, 20, 4, 40, 27, 25, 17, 26, 15, 46,
   23, 18, 45, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21, 44, 2, 5, 36,
   50, 51, 52, 53, 54, 55, 56,
+  CHANNEL_TYPE_SUB2API, CHANNEL_TYPE_NEW_API, CHANNEL_TYPE_TASK_PLUGIN,
+  CHANNEL_TYPE_VLLM, CHANNEL_TYPE_SGLANG,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {

@@ -228,6 +228,9 @@ func InitLogDB() (err error) {
 		LOG_DB = DB
 		common.SetLogDatabaseType(common.MainDatabaseType())
 		initCol()
+		if common.CanRunRuntimeAutoMigrate() {
+			return MigrateAuditLogs()
+		}
 		return
 	}
 	db, dbType, err := chooseDB("LOG_SQL_DSN", true)
@@ -274,6 +277,15 @@ func migrateDB() error {
 
 	err := DB.AutoMigrate(mainDatabaseAutoMigrateModels()...)
 	if err != nil {
+		return err
+	}
+	if err := InitializeUserAuthVersions(); err != nil {
+		return err
+	}
+	if err := EnsureLegacyAccessTokenRetireAt(common.GetTimestamp()); err != nil {
+		return fmt.Errorf("initialize legacy access token deadline: %w", err)
+	}
+	if err := InitializeExternalIdentityClaims(); err != nil {
 		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
@@ -330,6 +342,9 @@ func migrateDBFast() error {
 }
 
 func migrateLOGDB() error {
+	if err := MigrateAuditLogs(); err != nil {
+		return err
+	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		return migrateClickHouseLogDB()
 	}

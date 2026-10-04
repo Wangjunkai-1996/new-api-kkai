@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -77,22 +76,23 @@ func rejectTaskHTTPResponse(task *model.Task, result *TaskSubmitResult, statusCo
 	return upstreamErr
 }
 
-func rejectParsedTaskResponse(task *model.Task, result *TaskSubmitResult, responseErr *channel.TaskResponseError) *dto.TaskError {
-	policyErr := responseErr.TaskError != nil &&
-		(service.IsKKAILocalPolicyCode(responseErr.TaskError.Code) ||
-			service.ClassifyKKAITaskPolicyError(responseErr.TaskError).Detected)
+// rejectParsedTaskError handles the new plugin parser contract. A parser
+// returns the host DTO directly; the host owns the durable claim reset after
+// the response has been classified as a rejected submission.
+func rejectParsedTaskError(task *model.Task, result *TaskSubmitResult, taskErr *dto.TaskError) *dto.TaskError {
+	if taskErr == nil {
+		taskErr = service.TaskErrorWrapperLocal(errors.New("upstream rejected task submission"), "task_rejected", http.StatusBadRequest)
+	}
+	policyErr := service.IsKKAILocalPolicyCode(taskErr.Code) || service.ClassifyKKAITaskPolicyError(taskErr).Detected
 	result.Outcome = TaskSubmitRejected
 	if resetErr := resetTaskSubmissionClaim(task); resetErr != nil {
 		result.Outcome = TaskSubmitUnknown
 		task.PrivateData.TargetQuota = quotaPointer(result.Quota)
 		unknownErr := markTaskSubmissionUnknown(task, fmt.Errorf("reset submission claim after adaptor rejection: %w", resetErr))
 		if policyErr {
-			return responseErr.TaskError
+			return taskErr
 		}
 		return unknownErr
 	}
-	if responseErr.TaskError != nil {
-		return responseErr.TaskError
-	}
-	return service.TaskErrorWrapperLocal(errors.New("upstream rejected task submission"), "task_rejected", http.StatusBadRequest)
+	return taskErr
 }

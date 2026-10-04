@@ -289,13 +289,14 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	}
 
 	other := taskBillingOther(task)
+	snapshot := other.Snapshot()
 
-	assert.Equal(t, 2.0, other["seconds"])
-	assert.Equal(t, 1.0, other["identity"])
-	assert.NotContains(t, other, "zero")
-	assert.NotContains(t, other, "negative")
-	assert.NotContains(t, other, "nan")
-	assert.NotContains(t, other, "inf")
+	assert.Equal(t, 2.0, snapshot["seconds"])
+	assert.Equal(t, 1.0, snapshot["identity"])
+	assert.NotContains(t, snapshot, "zero")
+	assert.NotContains(t, snapshot, "negative")
+	assert.NotContains(t, snapshot, "nan")
+	assert.NotContains(t, snapshot, "inf")
 }
 
 func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {
@@ -2233,10 +2234,12 @@ type mockAdaptor struct {
 }
 
 func (m *mockAdaptor) Init(_ *relaycommon.RelayInfo) {}
-func (m *mockAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+func (m *mockAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
 	return nil, nil
 }
-func (m *mockAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) { return nil, nil }
+func (m *mockAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
+	return nil, nil
+}
 func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return m.adjustReturn
 }

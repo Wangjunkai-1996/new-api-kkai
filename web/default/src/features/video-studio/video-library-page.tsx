@@ -49,6 +49,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 
 import { VideoGenerationCard } from './components/video-generation-card'
 import { VideoStudioNav } from './components/video-studio-nav'
@@ -84,6 +85,16 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
       return true
     })
   }, [generationsQuery.items])
+  const mediaPaths = useMemo(
+    () =>
+      generations.flatMap((generation) => [
+        generation.video_url,
+        generation.poster_url,
+        generation.download_url,
+      ]),
+    [generations]
+  )
+  const mediaQuery = useStudioMediaUrls(mediaPaths)
   const targetGeneration = props.targetTaskId
     ? generations.find(
         (generation) => generation.task_id === props.targetTaskId
@@ -356,7 +367,21 @@ export function VideoLibraryPage(props: VideoLibraryPageProps) {
                   ref={highlighted ? targetCardRef : undefined}
                 >
                   <VideoGenerationCard
-                    generation={generation}
+                    generation={{
+                      ...generation,
+                      video_url: signedStudioMediaUrl(
+                        generation.video_url,
+                        mediaQuery.data?.urls
+                      ),
+                      poster_url: signedStudioMediaUrl(
+                        generation.poster_url,
+                        mediaQuery.data?.urls
+                      ),
+                      download_url: signedStudioMediaUrl(
+                        generation.download_url,
+                        mediaQuery.data?.urls
+                      ),
+                    }}
                     highlighted={highlighted}
                     playing={activePlayerId === generation.id}
                     onPlay={(target) => setActivePlayerId(target.id)}

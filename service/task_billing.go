@@ -2,11 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"maps"
+	"math"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -63,26 +68,78 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 }
 
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
-func taskBillingOther(task *model.Task) map[string]interface{} {
-	other := make(map[string]interface{})
+func taskBillingOther(task *model.Task) *model.LogOther {
+	other := model.NewLogOther()
 	if bc := task.PrivateData.BillingContext; bc != nil {
-		other["model_price"] = bc.ModelPrice
+		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {
-			other["model_ratio"] = bc.ModelRatio
+			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
-		other["group_ratio"] = bc.GroupRatio
+		other.SetPublic("group_ratio", bc.GroupRatio)
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
-				other[k] = v
+				if !other.SetPublic(k, v) {
+					common.SysError("task billing other ratio key rejected: " + k)
+				}
 			}
+		}
+		if snap := bc.TieredSnapshot; snap != nil {
+			other.SetPublic("billing_mode", "tiered_expr")
+			other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
+			other.SetPublic("matched_tier", snap.EstimatedTier)
+			if len(snap.UsageFacts) > 0 {
+				other.SetPublic("usage_facts", snap.UsageFacts)
+			}
+			setTaskImageCount(other, snap.UsageFacts["image_count"])
+		} else if priceData := taskBillingContextPriceData(bc); priceData != nil {
+			setTaskImageCount(other, priceData.OtherRatios()["image_count"])
 		}
 	}
 	props := task.Properties
 	if props.UpstreamModelName != "" && props.UpstreamModelName != props.OriginModelName {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = props.UpstreamModelName
+		other.SetPublic("is_model_mapped", true)
+		other.SetPublic("upstream_model_name", props.UpstreamModelName)
 	}
+	appendTaskLogInfo(task, other)
 	return other
+}
+
+// setTaskImageCount publishes the billed image quantity of an image task as
+// other.image_count, the same field the HTTP image relay writes, so the log
+// detail shows one "billable image count" regardless of the serving path. The
+// value is a host-validated count fact (at most dto.MaxImageN), never a quota.
+func setTaskImageCount(other *model.LogOther, value any) {
+	count, ok := value.(float64)
+	if !ok || count < 0 || count > float64(dto.MaxImageN) {
+		return
+	}
+	other.SetPublic("image_count", common.QuotaRound(count))
+}
+
+func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
+	if task == nil || other == nil {
+		return
+	}
+	if task.TaskID != "" {
+		other.SetPublic("task_id", task.TaskID)
+	}
+	if task.PrivateData.ResultDiscarded {
+		// The result was delivered inline and the upstream snapshot was not
+		// persisted, so no artifact can be retrieved for this task.
+		other.SetPublic("result_discarded", true)
+	}
+	if task.PrivateData.Execution != nil {
+		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)
+	}
+	if task.PrivateData.UpstreamTaskID == "" && task.PrivateData.NodeName == "" {
+		return
+	}
+	if task.PrivateData.UpstreamTaskID != "" {
+		other.SetRoot("upstream_task_id", task.PrivateData.UpstreamTaskID)
+	}
+	if task.PrivateData.NodeName != "" {
+		other.SetRoot("node_name", task.PrivateData.NodeName)
+	}
 }
 
 func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData {
@@ -138,8 +195,8 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 
 	// 4. 记录日志
 	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
-	other["reason"] = reason
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("reason", reason)
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,
 		LogType:   model.LogTypeRefund,
@@ -240,9 +297,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		logQuota = -quotaDelta
 	}
 	other := taskBillingOther(task)
-	other["task_id"] = task.TaskID
-	other["pre_consumed_quota"] = preConsumedQuota
-	other["actual_quota"] = actualQuota
+	other.SetPublic("task_id", task.TaskID)
+	other.SetPublic("pre_consumed_quota", preConsumedQuota)
+	other.SetPublic("actual_quota", actualQuota)
 	for _, clamp := range clamps {
 		attachQuotaSaturationToOther(other, clamp)
 	}
@@ -261,9 +318,14 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 }
 
 func recalculateDurableTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
+	var snapshot *billingexpr.BillingSnapshot
+	if task.PrivateData.BillingContext != nil {
+		snapshot = task.PrivateData.BillingContext.TieredSnapshot
+	}
 	mutation, err := model.AdjustTaskBillingWithAudit(ctx, task.ID, actualQuota, model.TaskBillingAuditRequest{
-		Reason:      reason,
-		QuotaClamps: clamps,
+		Reason:         reason,
+		QuotaClamps:    clamps,
+		TieredSnapshot: snapshot,
 	})
 	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("持久化任务差额结算失败 task %s: %s", task.TaskID, err.Error()))
@@ -314,4 +376,21 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, billingContext.ModelRatio, billingContext.GroupRatio, otherMultiplier)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+}
+
+// EvaluateTaskCompletionUsage evaluates actual facts against the frozen task
+// expression. It neither mutates the snapshot nor moves funds: synchronous
+// submission and polling have different persistence and settlement barriers.
+func EvaluateTaskCompletionUsage(snap *billingexpr.BillingSnapshot, facts map[string]any) (billingexpr.TieredResult, map[string]any, error) {
+	if snap == nil {
+		return billingexpr.TieredResult{}, nil, fmt.Errorf("task billing snapshot is missing")
+	}
+	usage := make(map[string]any, len(snap.UsageFacts)+len(facts))
+	maps.Copy(usage, snap.UsageFacts)
+	maps.Copy(usage, facts)
+	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usage})
+	if err == nil && (result.ActualQuotaBeforeGroup < 0 || math.IsNaN(result.ActualQuotaBeforeGroup)) {
+		err = fmt.Errorf("task completion expression produced an invalid cost")
+	}
+	return result, usage, err
 }

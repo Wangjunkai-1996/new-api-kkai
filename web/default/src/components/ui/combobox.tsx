@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils'
 
 type LegacyComboboxProps = {
   options: ComboboxInputOption[]
-  value?: string
+  value?: string | null
   onValueChange?: (value: string | null) => void
   placeholder?: string
   searchPlaceholder?: string
@@ -48,7 +48,9 @@ type LegacyComboboxProps = {
   allowCustomValue?: boolean
   className?: string
   id?: string
+  'aria-label'?: string
   openOnFocus?: boolean
+  disabled?: boolean
 }
 
 function Combobox(props: LegacyComboboxProps): React.ReactElement
@@ -70,6 +72,8 @@ function Combobox(
         placeholder={props.searchPlaceholder ?? props.placeholder}
         emptyText={props.emptyText}
         className={props.className}
+        aria-label={props['aria-label']}
+        disabled={props.disabled}
         allowCustomValue={props.allowCustomValue}
         openOnFocus={props.openOnFocus}
       />

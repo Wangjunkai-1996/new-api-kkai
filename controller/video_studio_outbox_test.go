@@ -43,6 +43,7 @@ func TestAdminRedriveVideoStudioOutboxEventRestoresAggregateAndAudits(t *testing
 	model.LOG_DB = db
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Log{}, &model.KKAIOutboxEvent{}, &model.KKAIVideoAsset{},
+		&model.AuditLog{},
 	))
 	require.NoError(t, db.Create(&model.User{
 		Id: 42, Username: "video-admin", Password: "not-a-real-password",
@@ -101,10 +102,12 @@ func TestAdminRedriveVideoStudioOutboxEventRestoresAggregateAndAudits(t *testing
 	require.Equal(t, model.KKAIOutboxStatusPending, event.Status)
 	require.Zero(t, event.Attempts)
 
-	var audit model.Log
-	require.NoError(t, db.Where("type = ?", model.LogTypeManage).First(&audit).Error)
+	var audit model.AuditLog
+	require.NoError(t, db.First(&audit).Error)
 	var other map[string]interface{}
-	require.NoError(t, common.UnmarshalJsonStr(audit.Other, &other))
+	encodedOther, err := common.Marshal(audit.Other)
+	require.NoError(t, err)
+	require.NoError(t, common.Unmarshal(encodedOther, &other))
 	op, ok := other["op"].(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, "video.outbox.redrive", op["action"])

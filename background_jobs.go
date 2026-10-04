@@ -39,6 +39,14 @@ func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegist
 
 	writeJobs := []service.BackgroundJob{
 		{
+			Name:                "auth-artifact-cleanup",
+			Interval:            service.AuthArtifactCleanupInterval,
+			RunOnStart:          true,
+			WritesData:          true,
+			RequiresLeaderLease: true,
+			Run:                 service.RunAuthArtifactCleanup,
+		},
+		{
 			Name:                "system-instance-report",
 			Interval:            service.SystemInstanceReportInterval,
 			RunOnStart:          true,
@@ -154,6 +162,9 @@ func syncRuntimeCaches(ctx context.Context) error {
 	var syncErrors []error
 	if err := model.SyncOptionsOnce(); err != nil {
 		syncErrors = append(syncErrors, fmt.Errorf("options: %w", err))
+	}
+	if err := controller.SyncTaskPluginsOnce(); err != nil {
+		syncErrors = append(syncErrors, fmt.Errorf("task plugins: %w", err))
 	}
 	if common.MemoryCacheEnabled {
 		if err := model.SyncChannelCacheOnce(); err != nil {

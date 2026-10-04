@@ -22,7 +22,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
-import { EditorView, lineNumbers } from '@codemirror/view'
+import { EditorView, lineNumbers, placeholder as codeMirrorPlaceholder } from '@codemirror/view'
 import { tags as highlightTags } from '@lezer/highlight'
 import {
   CheckIcon,
@@ -78,6 +78,7 @@ type CodeBlockEditorProps = Omit<
   language: BundledLanguage | string
   onChange: (value: string) => void
   onKeyDown?: (event: globalThis.KeyboardEvent) => void
+  placeholder?: string
   rows?: number
   title?: ReactNode
   value: string
@@ -89,6 +90,7 @@ type CodeMirrorCodeViewProps = {
   language: BundledLanguage | string
   onChange?: (value: string) => void
   onKeyDown?: (event: globalThis.KeyboardEvent) => void
+  placeholder?: string
   readOnly?: boolean
   rows?: number
   showLineNumbers?: boolean
@@ -297,6 +299,7 @@ function CodeMirrorCodeView({
   language,
   onChange,
   onKeyDown,
+  placeholder,
   readOnly = false,
   rows = 8,
   showLineNumbers = true,
@@ -314,7 +317,7 @@ function CodeMirrorCodeView({
   // to the document start and make typing appear right-to-left.
   const editorExtensions = useMemo(
     () =>
-      getCodeMirrorExtensions({
+    getCodeMirrorExtensions({
         language,
         onKeyDown: (event) => onKeyDownRef.current?.(event),
         readOnly,
@@ -338,6 +341,7 @@ function CodeMirrorCodeView({
       doc: initialValueRef.current,
       extensions: [
         ...editorExtensions,
+        ...(placeholder ? [codeMirrorPlaceholder(placeholder)] : []),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current?.(update.state.doc.toString())
@@ -579,6 +583,7 @@ export const CodeBlockEditor = ({
   language,
   onChange,
   onKeyDown,
+  placeholder,
   rows = 8,
   title,
   value,
@@ -599,6 +604,7 @@ export const CodeBlockEditor = ({
         language={language}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        placeholder={placeholder}
         rows={rows}
         showLineNumbers
         value={value}

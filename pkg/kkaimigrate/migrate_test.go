@@ -26,6 +26,8 @@ telegram_id TEXT
 	require.NoError(t, db.Exec(`CREATE TABLE tokens (
 id INTEGER PRIMARY KEY
 )`).Error)
+	require.NoError(t, db.Exec("CREATE TABLE passkey_credentials (id INTEGER PRIMARY KEY)").Error)
+	require.NoError(t, db.Exec("CREATE TABLE options (key VARCHAR(255) PRIMARY KEY, value TEXT)").Error)
 	return db
 }
 
@@ -445,6 +447,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  AuthenticationSchemaVersion,
 			Name:     "stateless_authentication",
 			Checksum: "4e96401b2e276968fca0f83e68b79eee7a862d2a7fadec2c13c99e9fd349e07d",
+		},
+		{
+			Version:  RC41ArchitectureSchemaVersion,
+			Name:     "rc41_scoped_tokens_and_task_plugins",
+			Checksum: "e95d9237555c86c1a9a5e6b07fc3c32368aec610209d79d4cd7aab76f33874ce",
 		},
 	}, Plan())
 }

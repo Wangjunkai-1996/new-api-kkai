@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,8 +22,9 @@ const (
 )
 
 type TaskBillingAuditRequest struct {
-	Reason      string
-	QuotaClamps []*common.QuotaClamp
+	TieredSnapshot *billingexpr.BillingSnapshot
+	Reason         string
+	QuotaClamps    []*common.QuotaClamp
 }
 
 type TaskBillingAuditPayload struct {
