@@ -195,6 +195,26 @@ func TestFetchOrdinaryOpenAIModelsKeepsExistingEmptyDataBehavior(t *testing.T) {
 	require.Empty(t, models)
 }
 
+func TestFetchVolcEngineModelsUsesAPIv3Endpoint(t *testing.T) {
+	requestPath := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath <- r.URL.Path
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seed-1"}]}`))
+	}))
+	defer server.Close()
+
+	baseURL := server.URL
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeVolcEngine,
+		Key:     "volc-key",
+		BaseURL: &baseURL,
+	}
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"doubao-seed-1"}, models)
+	require.Equal(t, "/api/v3/models", <-requestPath)
+}
+
 func TestFetchModelsAdvancedCustomCreatePreview(t *testing.T) {
 	receivedAuthorization := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
