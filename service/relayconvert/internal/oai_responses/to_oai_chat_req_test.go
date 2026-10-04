@@ -129,6 +129,44 @@ func TestResponsesRequestToChatCompletionsRequestAssistantTextAndFunctionCallCoe
 	assert.JSONEq(t, `{"ok":true}`, got.Messages[1].StringContent())
 }
 
+func TestResponsesRequestToChatCompletionsRequestHoistsToolOutputMedia(t *testing.T) {
+	got, err := ResponsesRequestToChatCompletionsRequest(&dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: mustRawMessage(t, []map[string]any{
+			{"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": `{"q":"x"}`},
+			{"type": "function_call", "call_id": "call_2", "name": "lookup", "arguments": `{"q":"y"}`},
+			{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output": []any{
+					map[string]any{"type": "input_text", "text": "first result"},
+					map[string]any{"type": "input_image", "image_url": "https://example.test/one.png"},
+				},
+			},
+			{
+				"type":    "function_call_output",
+				"call_id": "call_2",
+				"output": []any{
+					map[string]any{"type": "input_image", "image_url": "https://example.test/two.png"},
+				},
+			},
+		}),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.Messages, 4)
+	assert.Equal(t, "assistant", got.Messages[0].Role)
+	assert.Equal(t, "tool", got.Messages[1].Role)
+	assert.Equal(t, "first result", got.Messages[1].StringContent())
+	assert.Equal(t, "tool", got.Messages[2].Role)
+	assert.Equal(t, "[image]", got.Messages[2].StringContent())
+
+	media := got.Messages[3].ParseContent()
+	require.Len(t, media, 2)
+	assert.Equal(t, "https://example.test/one.png", media[0].GetImageMedia().Url)
+	assert.Equal(t, "https://example.test/two.png", media[1].GetImageMedia().Url)
+}
+
 func TestResponsesRequestToChatCompletionsRequestOnlyFunctionCallCreatesAssistant(t *testing.T) {
 	got, err := ResponsesRequestToChatCompletionsRequest(&dto.OpenAIResponsesRequest{
 		Model: "gpt-test",

@@ -188,9 +188,9 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info *re
 					if mediaMsg.IsStringContent() {
 						oaiToolMessage.SetStringContent(mediaMsg.GetStringContent())
 					} else {
-						mediaContents := mediaMsg.ParseMediaContent()
-						encodedJSON, _ := common.Marshal(mediaContents)
-						oaiToolMessage.SetStringContent(string(encodedJSON))
+						content, media := claudeToolResultToChat(mediaMsg.ParseMediaContent())
+						oaiToolMessage.SetStringContent(content)
+						mediaMessages = append(mediaMessages, media...)
 					}
 					openAIMessages = append(openAIMessages, oaiToolMessage)
 				}
@@ -218,4 +218,37 @@ func requestToJSONString(v interface{}) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+func claudeToolResultToChat(blocks []dto.ClaudeMediaMessage) (string, []dto.MediaContent) {
+	texts := make([]string, 0, len(blocks))
+	media := make([]dto.MediaContent, 0, len(blocks))
+	for _, block := range blocks {
+		switch {
+		case block.Type == "text" || block.Type == "input_text":
+			if text := block.GetText(); text != "" {
+				texts = append(texts, text)
+			}
+		case block.Type == "image" && block.Source != nil:
+			url := block.Source.Url
+			if url == "" {
+				url = fmt.Sprintf("data:%s;base64,%s", block.Source.MediaType, common.Interface2String(block.Source.Data))
+			}
+			media = append(media, dto.MediaContent{
+				Type:     "image_url",
+				ImageUrl: &dto.MessageImageUrl{Url: url},
+			})
+		default:
+			return requestToJSONString(blocks), nil
+		}
+	}
+
+	switch {
+	case len(texts) == 0 && len(media) == 0:
+		return requestToJSONString(blocks), nil
+	case len(texts) == 0:
+		return "[image]", media
+	default:
+		return strings.Join(texts, "\n"), media
+	}
 }
