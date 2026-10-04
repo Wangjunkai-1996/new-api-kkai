@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -29,7 +30,7 @@ func TestSubmitPreparedTaskTreatsAuditUnavailableAsDefinitivePolicyRejection(t *
 				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"policy_audit_unavailable"}}`)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("policy rejection must not reach the adaptor parser")
 			return nil, nil
 		},
@@ -62,7 +63,7 @@ func TestSubmitPreparedTaskPreservesUnauthorizedUpstreamKeyPolicy(t *testing.T) 
 				)),
 			}, nil
 		},
-		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+		doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 			t.Fatal("policy rejection must not reach the adaptor parser")
 			return nil, nil
 		},
@@ -124,7 +125,7 @@ func TestSubmitPreparedTaskRejectsEmbedded2xxPolicyErrorsBeforeAdaptor(t *testin
 						Body:       io.NopCloser(strings.NewReader(test.payload)),
 					}, nil
 				},
-				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 					t.Fatal("embedded policy rejection must not reach the adaptor parser")
 					return nil, nil
 				},
@@ -190,7 +191,7 @@ func TestSubmitPreparedTaskPreservesPolicyErrorsWhenStateRecoveryFails(t *testin
 				doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
 					return &http.Response{StatusCode: test.status, Body: io.NopCloser(strings.NewReader(test.body))}, nil
 				},
-				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *channel.TaskResponseError) {
+				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
 					t.Fatal("policy rejection must not reach the adaptor parser")
 					return nil, nil
 				},

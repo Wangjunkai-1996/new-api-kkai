@@ -153,17 +153,16 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 	tokenName := ctx.GetString("token_name")
 	oai := apiErr.ToOpenAIError()
 
-	other := map[string]any{
-		"violation_fee":        true,
-		"violation_fee_code":   string(types.ErrorCodeViolationFeeGrokCSAM),
-		"fee_quota":            feeQuota,
-		"base_amount":          settings.ViolationDeductionAmount,
-		"group_ratio":          groupRatio,
-		"status_code":          apiErr.StatusCode,
-		"upstream_error_type":  oai.Type,
-		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
-		"violation_fee_marker": CSAMViolationMarker,
-	}
+	other := model.NewLogOther()
+	other.SetAdmin("violation_fee", true)
+	other.SetAdmin("violation_fee_code", string(types.ErrorCodeViolationFeeGrokCSAM))
+	other.SetAdmin("fee_quota", feeQuota)
+	other.SetAdmin("base_amount", settings.ViolationDeductionAmount)
+	other.SetPublic("group_ratio", groupRatio)
+	other.SetAdmin("status_code", apiErr.StatusCode)
+	other.SetAdmin("upstream_error_type", oai.Type)
+	other.SetAdmin("upstream_error_code", fmt.Sprintf("%v", oai.Code))
+	other.SetAdmin("violation_fee_marker", CSAMViolationMarker)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:      relayInfo.ChannelId,

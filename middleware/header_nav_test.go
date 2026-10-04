@@ -9,8 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -47,10 +46,10 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 	}
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:header-nav-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
 	require.NoError(t, db.Create(&model.User{
 		Id: 1, Username: "tester", Password: "unused", Role: common.RoleCommonUser,
-		Status: status, Group: "live-group",
+		Status: status, Group: "live-group", AuthVersion: 1,
 	}).Error)
 	return performHeaderNavRequestWithDB(t, handler, authenticated, db)
 }
@@ -58,45 +57,42 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 func performHeaderNavRequestWithDB(t *testing.T, handler gin.HandlerFunc, authenticated bool, db *gorm.DB) *httptest.ResponseRecorder {
 	t.Helper()
 	previousDB := model.DB
+	previousRedisEnabled := common.RedisEnabled
 	model.DB = db
-	t.Cleanup(func() { model.DB = previousDB })
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.RedisEnabled = previousRedisEnabled
+	})
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(sessions.Sessions("session", cookie.NewStore([]byte("header-nav-test"))))
-	router.GET("/login", func(c *gin.Context) {
-		session := sessions.Default(c)
-		session.Set("username", "tester")
-		session.Set("role", common.RoleCommonUser)
-		session.Set("id", 1)
-		session.Set("status", common.UserStatusEnabled)
-		session.Set("group", "stale-group")
-		if err := session.Save(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false})
-			return
-		}
-		c.Status(http.StatusNoContent)
-	})
 	router.GET("/api/test", handler, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "group": c.GetString("group")})
 	})
 
-	var cookies []*http.Cookie
+	var accessToken string
 	if authenticated {
-		loginRecorder := httptest.NewRecorder()
-		loginRequest := httptest.NewRequest(http.MethodGet, "/login", nil)
-		router.ServeHTTP(loginRecorder, loginRequest)
-		require.Equal(t, http.StatusNoContent, loginRecorder.Code)
-		cookies = loginRecorder.Result().Cookies()
+		now := time.Now().Unix()
+		session := &model.UserSession{
+			SID: "header-nav-session", UserID: 1, Version: 1, UserAuthVersion: 1,
+			Status: model.UserSessionStatusActive, RefreshHash: "test-refresh-hash",
+			CreatedAt: now, LastActiveAt: now, ExpiresAt: now + 3600,
+		}
+		if db != nil {
+			require.NoError(t, model.CreateUserSession(session))
+		}
+		var err error
+		accessToken, _, err = service.IssueAccessToken(service.AuthIdentity{
+			UserID: 1, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1,
+		})
+		require.NoError(t, err)
 	}
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	if authenticated {
-		request.Header.Set("New-Api-User", "1")
-		for _, cookie := range cookies {
-			request.AddCookie(cookie)
-		}
+		request.Header.Set("Authorization", "Bearer "+accessToken)
 	}
 	router.ServeHTTP(recorder, request)
 	return recorder

@@ -29,6 +29,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 import { cn } from '@/lib/utils'
 
 import { useImageSamples } from '../queries'
@@ -45,6 +46,15 @@ export function ImageSampleGallery(props: {
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
     [query.data]
   )
+  const mediaPaths = useMemo(
+    () =>
+      samples.flatMap((sample) => [
+        sample.asset.content_url,
+        sample.asset.thumbnail_url,
+      ]),
+    [samples]
+  )
+  const mediaQuery = useStudioMediaUrls(mediaPaths)
 
   return (
     <section className='min-w-0 flex-1 overflow-y-auto p-3 sm:p-4'>
@@ -98,8 +108,10 @@ export function ImageSampleGallery(props: {
       {samples.length > 0 && (
         <div className='grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4'>
           {samples.map((sample) => {
-            const imageUrl =
-              sample.asset.thumbnail_url || sample.asset.content_url
+            const imageUrl = signedStudioMediaUrl(
+              sample.asset.thumbnail_url || sample.asset.content_url,
+              mediaQuery.data?.urls
+            )
             return (
               <button
                 key={sample.id}

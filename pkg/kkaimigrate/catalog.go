@@ -78,6 +78,7 @@ func migrationSet() []migration {
 			BackfillID:       "backfill_stateless_authentication_v3",
 			Backfill:         backfillAuthenticationSchema,
 		},
+		rc41ArchitectureMigration(),
 	}
 }
 

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
   AddChannelRequest,
@@ -47,6 +48,28 @@ const channelActionConfig = (
   skipBusinessError: true,
   skipErrorHandler: true,
 })
+
+export type TaskPluginOption = {
+  sortPriority?: number
+  website?: string
+  key: string
+  name: string
+  description?: Record<string, string> | null
+  icon?: string
+  hasIcon?: boolean
+  baseUrl?: string
+  models: string[]
+  channelTypes?: number[] | null
+  upstreams?: string[] | null
+}
+
+export async function getTaskPluginOptions(): Promise<TaskPluginOption[]> {
+  const response = await api.get<{
+    success: boolean
+    data: TaskPluginOption[]
+  }>('/api/task_plugin_options')
+  return requireServerSuccess(response.data).data
+}
 
 export type CodexUsageResponse = {
   success: boolean
@@ -295,13 +318,17 @@ export async function deleteDisabledChannels(): Promise<{
  */
 export async function getChannelKey(
   id: number,
-  code?: string
+  proofToken: string,
+  signal?: AbortSignal
 ): Promise<{ success: boolean; message?: string; data?: { key: string } }> {
-  const payload = code ? { code } : undefined
   const res = await api.post(
     `/api/channel/${id}/key`,
-    payload,
-    channelActionConfig()
+    undefined,
+    channelActionConfig({
+      headers: { 'X-Security-Proof': proofToken },
+      signal,
+      singleUseAuthorization: true,
+    })
   )
   return res.data
 }

@@ -159,6 +159,9 @@ func RedisHSetObj(key string, obj interface{}, expiration time.Duration) error {
 }
 
 func RedisHGetObj(key string, obj interface{}) error {
+	if RDB == nil {
+		return errors.New("redis client is unavailable")
+	}
 	if DebugEnabled {
 		SysLog(fmt.Sprintf("Redis HGETALL: key=%s", key))
 	}

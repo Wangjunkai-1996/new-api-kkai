@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func TestTasksToDtoRedactsAssetHostedResultsForTaskSelf(t *testing.T) {
 		Data: json.RawMessage(`{"secret":"upstream payload"}`),
 	}}
 
-	result := tasksToDto(tasks, false)
+	result := tasksToDto(tasks, false, common.RoleCommonUser)
 	require.Len(t, result, 1)
 	assert.Empty(t, result[0].ResultURL)
 	assert.Nil(t, result[0].Data)

@@ -2,10 +2,44 @@ package common
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
 )
+
+// NormalizeOrigin validates and canonicalizes an origin used by browser
+// authentication endpoints. Paths, credentials, queries, fragments, and
+// wildcard hosts are rejected so origin checks remain exact.
+func NormalizeOrigin(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" || strings.ContainsAny(raw, "\r\n") {
+		return "", fmt.Errorf("origin is empty or invalid")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid origin: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("origin scheme must be http or https")
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return "", fmt.Errorf("origin must contain only scheme and host")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || strings.Contains(host, "*") {
+		return "", fmt.Errorf("origin host is empty")
+	}
+	port := parsed.Port()
+	normalizedHost := host
+	if strings.Contains(host, ":") {
+		normalizedHost = "[" + host + "]"
+	}
+	if port == "" || (parsed.Scheme == "http" && port == "80") || (parsed.Scheme == "https" && port == "443") {
+		return parsed.Scheme + "://" + normalizedHost, nil
+	}
+	return parsed.Scheme + "://" + net.JoinHostPort(host, port), nil
+}
 
 func InitSessionCookieSettings() error {
 	secureRaw := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE"))
@@ -35,14 +69,14 @@ func InitSessionCookieSettings() error {
 		if trustedURL == "" {
 			return fmt.Errorf("SESSION_COOKIE_TRUSTED_URL contains an empty URL")
 		}
-		parsedURL, err := url.Parse(trustedURL)
+		normalizedOrigin, err := NormalizeOrigin(trustedURL)
 		if err != nil {
 			return fmt.Errorf("invalid SESSION_COOKIE_TRUSTED_URL: %w", err)
 		}
-		if parsedURL.Scheme != "https" || parsedURL.Host == "" {
+		if !strings.HasPrefix(normalizedOrigin, "https://") {
 			return fmt.Errorf("SESSION_COOKIE_TRUSTED_URL must contain only https URLs with hosts")
 		}
-		SessionCookieTrustedURLs = append(SessionCookieTrustedURLs, trustedURL)
+		SessionCookieTrustedURLs = append(SessionCookieTrustedURLs, normalizedOrigin)
 	}
 
 	SessionCookieSecure = true

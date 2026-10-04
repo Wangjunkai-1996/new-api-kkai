@@ -48,7 +48,7 @@ type TaskAdaptor interface {
 	EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64
 
 	// AdjustBillingOnSubmit returns adjusted OtherRatios from the upstream
-	// submit response. Called after a successful DoResponse.
+	// submit response. Called after a successful ParseResponse.
 	// If the upstream returned actual parameters that differ from the estimate
 	// (e.g. actual seconds), return updated ratios so the caller can recalculate
 	// the quota and settle the delta with the pre-charge.
@@ -69,27 +69,36 @@ type TaskAdaptor interface {
 	BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error)
 
 	DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error)
-	DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*TaskSubmitResponse, *TaskResponseError)
+	ParseResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*TaskSubmitResponse, *dto.TaskError)
 
 	GetModelList() []string
 	GetChannelName() string
 
 	// ── Polling ──────────────────────────────────────────────────────
 
-	FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error)
-	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
+	FetchTask(baseUrl, key string, task *model.Task, proxy string) (*http.Response, error)
+	ParseTaskResult(task *model.Task, resp *http.Response, respBody []byte) (*relaycommon.TaskInfo, error)
 }
 
-// TaskSubmitResponse holds the complete client response without writing it.
-// The relay flushes it only after the accepted upstream task is durable locally.
+// TaskSubmitResponse is the transport-independent result of parsing an
+// upstream task submission. Parsing must not write to the client response.
 type TaskSubmitResponse struct {
 	UpstreamTaskID string
 	TaskData       []byte
-	StatusCode     int
-	ContentType    string
-	Body           []byte
+	ClientResponse any
+	Immediate      *relaycommon.TaskInfo
+	PluginState    []byte
+	// Legacy buffered response fields are retained for task adaptor tests and
+	// compatibility helpers. New adaptors should prefer ClientResponse.
+	StatusCode  int
+	ContentType string
+	Body        []byte
 }
 
+// TaskResponseError preserves the pre-rc.41 distinction between a rejected
+// request and a transport failure where the upstream may have accepted it.
+// The current TaskAdaptor contract returns *dto.TaskError directly; callers
+// that still use this helper can migrate without changing retry semantics.
 type TaskResponseError struct {
 	TaskError          *dto.TaskError
 	submissionPossible bool
@@ -142,35 +151,75 @@ func (r *TaskSubmitResponse) WriteTo(c *gin.Context) error {
 	return err
 }
 
-// TaskRequestError distinguishes failures known to happen before dispatch from
-// transport failures where the upstream may already have accepted the task.
+type OpenAIVideoConverter interface {
+	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
+}
+
+type TaskArtifact = types.TaskArtifact
+
+type TaskArtifactClientRequest struct {
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+type TaskArtifactProvider interface {
+	ListArtifacts(task *model.Task) ([]TaskArtifact, error)
+}
+
+type TaskContentRequest struct {
+	URL            string
+	Method         string
+	Headers        map[string]string
+	Body           []byte
+	Credentialless bool
+}
+
+type TaskContentRequestProvider interface {
+	BuildContentRequest(task *model.Task, artifactKey string, clientRequest TaskArtifactClientRequest) (*TaskContentRequest, error)
+}
+
+// TaskRequestError records whether an upstream request may have been written.
+// Callers must not retry when a transport failure occurred after dispatch.
 type TaskRequestError struct {
-	err                error
+	Err                error
 	submissionPossible bool
 }
 
 func NewTaskRequestError(err error, submissionPossible bool) *TaskRequestError {
-	return &TaskRequestError{err: err, submissionPossible: submissionPossible}
+	return &TaskRequestError{Err: err, submissionPossible: submissionPossible}
 }
 
 func (e *TaskRequestError) Error() string {
-	if e == nil || e.err == nil {
+	if e == nil || e.Err == nil {
 		return "task request failed"
 	}
-	return e.err.Error()
+	return e.Err.Error()
 }
 
 func (e *TaskRequestError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
-	return e.err
+	return e.Err
 }
 
 func (e *TaskRequestError) SubmissionPossible() bool {
 	return e != nil && e.submissionPossible
 }
 
-type OpenAIVideoConverter interface {
-	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
+type TaskUsageFactsProvider interface {
+	ExtractUsageFacts(c *gin.Context, info *relaycommon.RelayInfo) map[string]any
+}
+
+// TaskValidatedBillingProvider lets an adaptor reject invalid usage facts at
+// the existing estimate point, after model mapping and before quota
+// multiplication. Non-plugin task adaptors keep using EstimateBilling.
+type TaskValidatedBillingProvider interface {
+	EstimateBillingValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, error)
+}
+
+// TaskValidatedUsageFactsProvider is the tiered-billing counterpart to
+// TaskValidatedBillingProvider.
+type TaskValidatedUsageFactsProvider interface {
+	ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error)
 }

@@ -1,6 +1,7 @@
 package ratio_setting
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -687,3 +688,26 @@ func GetModelRatioOrPrice(model string) (float64, bool, bool) { // price or rati
 	}
 	return 37.5, false, false
 }
+
+// HasConfiguredModelRatio excludes the self-use fallback from administrator defaults.
+func HasConfiguredModelRatio(name string) bool {
+	_, ok := modelRatioMap.Get(FormatMatchingModelName(name))
+	return ok
+}
+
+func GetDefaultPricingMaps() map[string]map[string]float64 {
+	defaults := map[string]map[string]float64{
+		"ModelPrice": defaultModelPrice, "ModelRatio": defaultModelRatio,
+		"CompletionRatio": defaultCompletionRatio, "CacheRatio": defaultCacheRatio,
+		"CreateCacheRatio": defaultCreateCacheRatio, "ImageRatio": defaultImageRatio,
+		"AudioRatio": defaultAudioRatio, "AudioCompletionRatio": defaultAudioCompletionRatio,
+	}
+	result := make(map[string]map[string]float64, len(defaults))
+	for key, values := range defaults {
+		result[key] = make(map[string]float64, len(values))
+		maps.Copy(result[key], values)
+	}
+	return result
+}
+
+const DefaultImageRatio = 1.0

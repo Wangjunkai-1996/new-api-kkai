@@ -369,10 +369,8 @@ func (pipeline *VideoAssetPipeline) refreshVideoArchiveSource(ctx context.Contex
 	adaptor.Init(&relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: baseURL, ApiKey: key},
 	})
-	response, err := adaptor.FetchTask(baseURL, key, map[string]any{
-		"task_id": task.GetUpstreamTaskID(),
-		"action":  task.Action,
-	}, channel.GetSetting().Proxy)
+	taskCopy := task
+	response, err := adaptor.FetchTask(baseURL, key, &taskCopy, channel.GetSetting().Proxy)
 	if err != nil {
 		return "", err
 	}
@@ -387,7 +385,7 @@ func (pipeline *VideoAssetPipeline) refreshVideoArchiveSource(ctx context.Contex
 	if err != nil {
 		return "", err
 	}
-	result, err := adaptor.ParseTaskResult(body)
+	result, err := adaptor.ParseTaskResult(&taskCopy, response, body)
 	if err != nil || result == nil {
 		return "", ErrVideoArchiveResponseRejected
 	}

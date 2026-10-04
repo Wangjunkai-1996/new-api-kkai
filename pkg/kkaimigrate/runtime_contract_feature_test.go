@@ -13,12 +13,12 @@ func TestContractForDialectUsesAuthenticationRuntime(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
-			require.EqualValues(t, 8, contract.RuntimeMinVersion)
-			require.EqualValues(t, 8, contract.RuntimeMaxVersion)
-			require.EqualValues(t, 8, contract.MigrationTargetVersion)
+			require.EqualValues(t, 9, contract.RuntimeMinVersion)
+			require.EqualValues(t, 9, contract.RuntimeMaxVersion)
+			require.EqualValues(t, 9, contract.MigrationTargetVersion)
 			require.Equal(t, MigrationKindNone, contract.MigrationKind)
 			require.Equal(t, map[string]string{
-				"8": contract.MigrationSetDigest,
+				"9": contract.MigrationSetDigest,
 			}, contract.CompatiblePrefixes)
 			require.Regexp(t, `^sha256:[0-9a-f]{64}$`, contract.MigrationSetDigest)
 		})

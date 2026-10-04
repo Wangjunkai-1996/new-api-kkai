@@ -451,17 +451,17 @@ func processChannelErrorAfterKKAIPolicy(c *gin.Context, channelError types.Chann
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
 		channelId := c.GetInt("channel_id")
-		other := make(map[string]interface{})
+		other := model.NewLogOther()
 		if c.Request != nil && c.Request.URL != nil {
-			other["request_path"] = c.Request.URL.Path
+			other.SetPublic("request_path", c.Request.URL.Path)
 		}
-		other["error_type"] = err.GetErrorType()
-		other["error_code"] = err.GetErrorCode()
-		other["status_code"] = err.StatusCode
-		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
+		other.SetPublic("error_type", err.GetErrorType())
+		other.SetPublic("error_code", err.GetErrorCode())
+		other.SetPublic("status_code", err.StatusCode)
 		adminInfo := make(map[string]interface{})
+		adminInfo["channel_id"] = channelId
+		adminInfo["channel_name"] = c.GetString("channel_name")
+		adminInfo["channel_type"] = c.GetInt("channel_type")
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
 		if isMultiKey {
@@ -480,7 +480,8 @@ func processChannelErrorAfterKKAIPolicy(c *gin.Context, channelError types.Chann
 			adminInfo["responses_stream_terminal_error"] = common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamTerminalError)
 			adminInfo["responses_stream_retry_allowed"] = common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamRetryAllowed)
 		}
-		other["admin_info"] = adminInfo
+		other.MergeAdmin(adminInfo)
+		service.AppendTaskPluginContextAuditInfo(c, other)
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()
@@ -611,139 +612,26 @@ func PlaygroundTask(c *gin.Context) {
 func RelayTask(c *gin.Context) {
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, &dto.TaskError{
-			Code:       "gen_relay_info_failed",
-			Message:    err.Error(),
-			StatusCode: http.StatusInternalServerError,
-		})
+		respondTaskSubmissionError(c, &dto.TaskError{Code: "gen_relay_info_failed", Message: err.Error(), StatusCode: http.StatusInternalServerError})
 		return
 	}
-
+	if action := c.GetString("task_action"); action != "" {
+		relayInfo.Action = action
+	}
 	if taskErr := relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
-		respondTaskError(c, taskErr)
+		respondTaskSubmissionError(c, taskErr)
 		return
 	}
-
-	var result *relay.TaskSubmitResult
-	var task *model.Task
-	var taskErr *dto.TaskError
-	defer func() {
-		if taskErr == nil || (result != nil && !result.CanRefund()) {
-			return
-		}
-		if relayInfo.Billing != nil {
-			relayInfo.Billing.Refund(c)
-		}
-		if task != nil && task.ID > 0 {
-			failedTask, _, finalizeErr := model.FailTaskBeforeSubmission(c, task.ID, "task submission failed")
-			if finalizeErr != nil {
-				common.SysError("finalize failed task error: " + finalizeErr.Error())
-			} else if failedTask != nil {
-				*task = *failedTask
-			}
-		}
-	}()
-
-	retryParam := &service.RetryParam{
-		Ctx:         c,
-		TokenGroup:  relayInfo.TokenGroup,
-		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
-		Retry:       common.GetPointer(0),
+	if taskErr := relay.ApplyOriginTaskAffinity(c, relayInfo); taskErr != nil {
+		respondTaskSubmissionError(c, taskErr)
+		return
 	}
-
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		var channel *model.Channel
-
-		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
-			channel = lockedCh
-			if retryParam.GetRetry() > 0 {
-				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
-					break
-				}
-			}
-		} else {
-			var channelErr *types.NewAPIError
-			channel, channelErr = getChannel(c, relayInfo, retryParam)
-			if channelErr != nil {
-				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
-				break
-			}
-		}
-
-		addUsedChannel(c, channel.Id)
-		bodyStorage, bodyErr := common.GetBodyStorage(c)
-		if bodyErr != nil {
-			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
-			} else {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
-			}
-			break
-		}
-		c.Request.Body = io.NopCloser(bodyStorage)
-
-		attemptResult, attemptErr := relay.RelayTaskSubmit(c, relayInfo, task)
-		if attemptResult != nil {
-			result = attemptResult
-			task = attemptResult.Task
-		}
-		taskErr = attemptErr
-		if taskErr == nil {
-			break
-		}
-
-		if !taskErr.LocalError {
-			channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-				common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
-			policyDetected := processKKAIPolicyTaskError(c, channelError, taskErr)
-			processChannelErrorAfterKKAIPolicy(c, channelError,
-				kkaiTaskAPIError(taskErr),
-				policyDetected)
-		}
-
-		if result != nil && !result.CanRetry() {
-			break
-		}
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
-			break
-		}
-	}
-
-	useChannel := c.GetStringSlice("use_channel")
-	if len(useChannel) > 1 {
-		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
-		logger.LogInfo(c, retryLogStr)
-	}
-
-	if taskErr == nil && result != nil {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
-		}
-
-		otherRatios := relayInfo.PriceData.OtherRatios()
-		if otherRatios == nil {
-			otherRatios = map[string]float64{}
-		}
-		if ratiosJSON, marshalErr := common.Marshal(otherRatios); marshalErr == nil {
-			c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
-		}
-		if result.Response == nil {
-			taskErr = service.TaskErrorWrapperLocal(errors.New("task response is empty"), "empty_task_response", http.StatusInternalServerError)
-		} else if writeErr := result.Response.WriteTo(c); writeErr != nil {
-			common.SysError("write task response error: " + writeErr.Error())
-		}
-	} else if taskErr != nil && result != nil && !result.CanRefund() {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle unknown task billing error: " + settleErr.Error())
-		}
-	}
-
+	outcome, taskErr := executeTaskSubmission(c, relayInfo)
 	if taskErr != nil {
-		respondTaskError(c, taskErr)
+		respondTaskSubmissionError(c, taskErr)
+		return
 	}
+	presentTaskSubmission(c, outcome)
 }
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）

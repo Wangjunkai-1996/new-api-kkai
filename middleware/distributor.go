@@ -14,7 +14,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -32,6 +34,7 @@ type ModelRequest struct {
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
+		service.AppendTaskPluginIdentityFilter(c, c.GetString("expected_task_plugin_key"))
 		channelId, ok := common.GetContextKey(c, constant.ContextKeyTokenSpecificChannelId)
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
 		if err != nil {
@@ -108,6 +111,7 @@ func Distribute() func(c *gin.Context) {
 						!service.ChannelMeetsRequestCapabilities(c, preferred)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
 						!capabilityMismatch &&
+						channelMatchesExpectedTaskPlugin(c, preferred, c.GetString("expected_task_plugin_key")) &&
 						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
 						if service.IsAutoGroup(usingGroup) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
@@ -165,7 +169,12 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if channel != nil {
+			if apiErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); apiErr != nil {
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, apiErr.Error())
+				return
+			}
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
@@ -190,12 +199,87 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
 }
 
+func channelMatchesExpectedTaskPlugin(c *gin.Context, channel *model.Channel, expected string) bool {
+	if channel == nil {
+		return false
+	}
+	if c != nil {
+		if _, matched := pinnedEndpointCandidateForChannel(c, channel, expected); matched {
+			return true
+		}
+	}
+	if expected == "" {
+		return channel.Type != constant.ChannelTypeTaskPlugin
+	}
+	if channel.Type == constant.ChannelTypeTaskPlugin || channel.Type == constant.ChannelTypeNewAPI {
+		return channel.GetSetting().BindsTaskPlugin(expected)
+	}
+
+	if c == nil {
+		return false
+	}
+	value, exists := c.Get(jsplugin.ContextKeyPinnedPlugin)
+	pinned, ok := value.(jsplugin.PinnedPlugin)
+	if !exists || !ok || pinned.Generation == nil || pinned.Plugin == nil || pinned.Plugin.Meta.Key != expected {
+		return false
+	}
+	plugin, ok := pinned.Generation.GetByChannelType(channel.Type)
+	return ok && plugin == pinned.Plugin
+}
+
+func pinnedEndpointCandidateForChannel(c *gin.Context, channel *model.Channel, expected string) (jsplugin.ProtocolBinding, bool) {
+	if c == nil || channel == nil || expected == "" {
+		return jsplugin.ProtocolBinding{}, false
+	}
+	value, exists := c.Get(jsplugin.ContextKeyPinnedEndpoint)
+	pinned, ok := value.(jsplugin.PinnedEndpoint)
+	if !exists || !ok || pinned.Generation == nil || pinned.Plugin == nil {
+		return jsplugin.ProtocolBinding{}, false
+	}
+	candidates := pinned.Candidates
+	if len(candidates) == 0 {
+		candidates = []jsplugin.ProtocolBinding{{Plugin: pinned.Plugin, Protocol: pinned.Protocol, Operation: pinned.Operation, Model: pinned.Model}}
+	}
+	expectedOwned := false
+	selected := jsplugin.ProtocolBinding{}
+	setting := channel.GetSetting()
+	for _, candidate := range candidates {
+		if candidate.Plugin == nil {
+			continue
+		}
+		if candidate.Plugin.Meta.Key == expected {
+			expectedOwned = true
+		}
+		if channel.Type == constant.ChannelTypeTaskPlugin || channel.Type == constant.ChannelTypeNewAPI {
+			// A New API channel may bind several candidates. The first bound
+			// candidate in generation order executes, so the billing provider
+			// depends only on the channel and the request, never on which
+			// channels an earlier retry attempt happened to try.
+			if selected.Plugin == nil && setting.BindsTaskPlugin(candidate.Plugin.Meta.Key) {
+				selected = candidate
+			}
+			continue
+		}
+		plugin, indexed := pinned.Generation.GetByChannelType(channel.Type)
+		if indexed && plugin == candidate.Plugin {
+			selected = candidate
+		}
+	}
+	return selected, expectedOwned && selected.Plugin != nil
+}
+
 // getModelFromRequest 从请求中读取模型信息
 // 根据 Content-Type 自动处理：
 // - application/json
 // - application/x-www-form-urlencoded
 // - multipart/form-data
 func getModelFromRequest(c *gin.Context) (*ModelRequest, error) {
+	if cached, exists := c.Get(contextKeyTaskPluginEndpointModel); exists {
+		if modelRequest, ok := cached.(ModelRequest); ok {
+			cachedRequest := modelRequest
+			return &cachedRequest, nil
+		}
+	}
 	if strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/json") {
 		modelRequest, err := getModelFromJSONBody(c)
 		if err != nil {
@@ -225,6 +309,10 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 		return nil, errors.New("invalid JSON request body")
 	}
 
+	if countTopLevelJSONKey(requestBody, "model") > 1 {
+		return nil, errors.New("model must be provided once")
+	}
+
 	values := gjson.GetManyBytes(requestBody, "model", "group")
 	model, err := getJSONStringValue(values[0], "model")
 	if err != nil {
@@ -246,6 +334,64 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 	}, nil
 }
 
+func countTopLevelJSONKey(data []byte, target string) int {
+	depth := 0
+	inString := false
+	escaped := false
+	stringStart := 0
+	expectingKey := false
+	count := 0
+	for index, current := range data {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if current == '\\' {
+				escaped = true
+				continue
+			}
+			if current != '"' {
+				continue
+			}
+			inString = false
+			if depth == 1 && expectingKey {
+				key := string(data[stringStart:index])
+				var decodedKey string
+				if common.Unmarshal(data[stringStart-1:index+1], &decodedKey) == nil {
+					key = decodedKey
+				}
+				cursor := index + 1
+				for cursor < len(data) && (data[cursor] == ' ' || data[cursor] == '\t' || data[cursor] == '\r' || data[cursor] == '\n') {
+					cursor++
+				}
+				if cursor < len(data) && data[cursor] == ':' && key == target {
+					count++
+				}
+				expectingKey = false
+			}
+			continue
+		}
+		switch current {
+		case '"':
+			inString = true
+			stringStart = index + 1
+		case '{':
+			depth++
+			if depth == 1 {
+				expectingKey = true
+			}
+		case '}':
+			depth--
+		case ',':
+			if depth == 1 {
+				expectingKey = true
+			}
+		}
+	}
+	return count
+}
+
 func getJSONStringValue(result gjson.Result, field string) (string, error) {
 	if !result.Exists() || result.Type == gjson.Null {
 		return "", nil
@@ -260,7 +406,9 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	var modelRequest ModelRequest
 	shouldSelectChannel := true
 	var err error
-	if strings.Contains(c.Request.URL.Path, "/mj/") {
+	if modelName := c.GetString("resolved_task_model"); modelName != "" {
+		modelRequest.Model = modelName
+	} else if strings.Contains(c.Request.URL.Path, "/mj/") {
 		relayMode := relayconstant.Path2RelayModeMidjourney(c.Request.URL.Path)
 		if relayMode == relayconstant.RelayModeMidjourneyTaskFetch ||
 			relayMode == relayconstant.RelayModeMidjourneyTaskFetchByCondition ||
@@ -455,8 +603,43 @@ func getTaskOriginModelName(c *gin.Context) string {
 
 func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) *types.NewAPIError {
 	c.Set("original_model", modelName) // for retry
+	expectedPlugin := c.GetString("expected_task_plugin_key")
 	if channel == nil {
+		logTaskPluginChannelDecision(c, nil, modelName, "channel_rejected", "nil_channel")
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if expectedPlugin != "" && !channelMatchesExpectedTaskPlugin(c, channel, expectedPlugin) {
+		logTaskPluginChannelDecision(c, channel, modelName, "channel_rejected", "identity_mismatch")
+		return types.NewError(
+			errors.New("selected channel does not match the pinned task plugin"),
+			types.ErrorCodeGetChannelFailed,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	if candidate, matched := pinnedEndpointCandidateForChannel(c, channel, expectedPlugin); matched {
+		if value, exists := c.Get(jsplugin.ContextKeyPinnedEndpoint); exists {
+			if pinned, ok := value.(jsplugin.PinnedEndpoint); ok && candidate.Plugin != nil && candidate.Plugin != pinned.Plugin {
+				previousPlugin := pinned.Plugin.Meta.Key
+				pinned.Plugin = candidate.Plugin
+				pinned.Protocol = candidate.Protocol
+				pinned.Operation = candidate.Operation
+				c.Set(jsplugin.ContextKeyPinnedEndpoint, pinned)
+				c.Set(jsplugin.ContextKeyPinnedPlugin, jsplugin.PinnedPlugin{Generation: pinned.Generation, Plugin: candidate.Plugin})
+				c.Set("expected_task_plugin_key", candidate.Plugin.Meta.Key)
+				c.Set("task_plugin_key", candidate.Plugin.Meta.Key)
+				c.Set("platform", candidate.Plugin.Meta.Key)
+				logger.LogDebug(
+					c,
+					"task_plugin subsystem=endpoint event=provider_selected generation=%d previous_plugin=%q plugin=%q model=%q channel_id=%d channel_type=%d",
+					pinned.Generation.Number,
+					previousPlugin,
+					candidate.Plugin.Meta.Key,
+					modelName,
+					channel.Id,
+					channel.Type,
+				)
+			}
+		}
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
@@ -464,6 +647,17 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)
 	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
+	switch channel.Type {
+	case constant.ChannelTypeTaskPlugin:
+		c.Set("task_plugin_key", channel.GetSetting().TaskPluginKey)
+	case constant.ChannelTypeNewAPI:
+		// The bound plugin verified above executes; ordinary requests through
+		// the same gateway channel carry no pinned plugin.
+		if executing := c.GetString("expected_task_plugin_key"); executing != "" {
+			c.Set("task_plugin_key", executing)
+		}
+	}
+	logTaskPluginChannelDecision(c, channel, modelName, "channel_selected", "")
 	paramOverride := channel.GetParamOverride()
 	headerOverride := channel.GetHeaderOverride()
 	if mergedParam, applied := service.ApplyChannelAffinityOverrideTemplate(c, paramOverride); applied {

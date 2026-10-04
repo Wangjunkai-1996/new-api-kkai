@@ -33,6 +33,10 @@ auth.user_id_format_error: "無權進行此操作，New-Api-User 格式錯誤"
 auth.user_id_mismatch: "無權進行此操作，New-Api-User 與登入使用者不匹配"
 auth.user_banned: "使用者已被封禁"
 auth.insufficient_privilege: "無權進行此操作，權限不足"
+auth.access_token_expired: "無權進行此操作，access token 已過期"
+auth.legacy_access_token_retired: "舊版 access token 已停用，請在安全設定中建立新令牌"
+auth.access_token_scope_denied: "access token 缺少所需權限：{{.Scope}}"
+auth.access_token_limit: "最多只能建立 {{.Count}} 個 access token"
 
 # Token messages
 token.name_too_long: "令牌名稱過長"

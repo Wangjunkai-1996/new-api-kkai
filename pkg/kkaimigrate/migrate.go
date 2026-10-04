@@ -31,6 +31,7 @@ const (
 	VideoSampleCategorySchemaVersion int64 = 6
 	ImageStudioSchemaVersion         int64 = 7
 	AuthenticationSchemaVersion      int64 = 8
+	RC41ArchitectureSchemaVersion    int64 = 9
 )
 
 var (
@@ -191,6 +192,21 @@ func ApplyAuthenticationExpand(ctx context.Context, db *gorm.DB, options Options
 		)
 	}
 	return applyThroughVersion(ctx, db, options, AuthenticationSchemaVersion, MaxCompatibleVersion)
+}
+
+// ApplyRC41ArchitectureExpand adds scoped dashboard tokens, task plugins, and
+// login encryption keys after the v8 authentication schema is validated.
+func ApplyRC41ArchitectureExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, AuthenticationSchemaVersion, AuthenticationSchemaVersion, MaxCompatibleVersion); err != nil {
+		return nil, fmt.Errorf(
+			"KKAI migration target %d requires validated authentication schema %d: %w",
+			RC41ArchitectureSchemaVersion, AuthenticationSchemaVersion, err,
+		)
+	}
+	return applyThroughVersion(ctx, db, options, RC41ArchitectureSchemaVersion, MaxCompatibleVersion)
 }
 
 func applyThroughVersion(ctx context.Context, db *gorm.DB, options Options, currentVersion int64, compatibleVersion int64) (*Result, error) {

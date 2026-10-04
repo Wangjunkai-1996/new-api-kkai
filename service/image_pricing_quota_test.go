@@ -59,8 +59,8 @@ func TestImagePricingSettlementUsesFrozenInputsAndActualCount(t *testing.T) {
 	summary = calculateTextQuotaSummary(context, info, usage)
 	assert.Equal(t, 201, summary.Quota)
 
-	other := GenerateTextOtherInfo(context, info, 0, summary.GroupRatio, 0, 0, 0, summary.ModelPrice, -1)
-	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	snapshot := GenerateTextOtherInfo(context, info, 0, summary.GroupRatio, 0, 0, 0, summary.ModelPrice, -1).Snapshot()
+	adminInfo, ok := snapshot["admin_info"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, info.ImagePricingSnapshot, adminInfo["image_pricing"])
 }

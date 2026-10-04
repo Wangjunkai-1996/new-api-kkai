@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 
 	"gorm.io/gorm"
 )
@@ -26,15 +27,20 @@ type TaskBillingRecoveryPayload struct {
 }
 
 type TaskBillingRecoveryAcceptanceReceipt struct {
-	UpstreamTaskID string             `json:"upstream_task_id"`
-	RawResponse    json.RawMessage    `json:"raw_response"`
-	ChannelID      int                `json:"channel_id"`
-	Status         model.TaskStatus   `json:"status"`
-	Progress       string             `json:"progress"`
-	FailReason     string             `json:"fail_reason,omitempty"`
-	FinishTime     int64              `json:"finish_time,omitempty"`
-	OtherRatios    map[string]float64 `json:"other_ratios,omitempty"`
-	TargetQuota    int                `json:"target_quota"`
+	PluginState     json.RawMessage              `json:"plugin_state,omitempty"`
+	ResultURL       string                       `json:"result_url,omitempty"`
+	ArchiveSource   string                       `json:"archive_source,omitempty"`
+	ResultDiscarded bool                         `json:"result_discarded,omitempty"`
+	TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+	UpstreamTaskID  string                       `json:"upstream_task_id"`
+	RawResponse     json.RawMessage              `json:"raw_response"`
+	ChannelID       int                          `json:"channel_id"`
+	Status          model.TaskStatus             `json:"status"`
+	Progress        string                       `json:"progress"`
+	FailReason      string                       `json:"fail_reason,omitempty"`
+	FinishTime      int64                        `json:"finish_time,omitempty"`
+	OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`
+	TargetQuota     int                          `json:"target_quota"`
 }
 
 type TaskBillingRecoveryHandler struct{}
@@ -60,7 +66,7 @@ func EnqueueTaskBillingRecovery(ctx context.Context, tx *gorm.DB, task *model.Ta
 
 func StoreTaskBillingRecoveryAcceptanceReceipt(ctx context.Context, taskID int64, receipt TaskBillingRecoveryAcceptanceReceipt) error {
 	if taskID <= 0 || receipt.UpstreamTaskID == "" || receipt.TargetQuota < 0 ||
-		(receipt.Status != model.TaskStatusSubmitted && receipt.Status != model.TaskStatusUnknown) {
+		(receipt.Status != model.TaskStatusSubmitted && receipt.Status != model.TaskStatusUnknown && receipt.Status != model.TaskStatusQueued && receipt.Status != model.TaskStatusInProgress && receipt.Status != model.TaskStatusSuccess && receipt.Status != model.TaskStatusFailure) {
 		return model.ErrTaskBillingInvalidRequest
 	}
 	if ctx == nil {
@@ -129,15 +135,20 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 	if payload.Acceptance != nil {
 		receipt := payload.Acceptance
 		recoveredTask, recovered, err := model.RecoverTaskSubmissionAcceptance(ctx, payload.TaskID, model.TaskSubmissionAcceptance{
-			UpstreamTaskID: receipt.UpstreamTaskID,
-			TaskData:       receipt.RawResponse,
-			ChannelID:      receipt.ChannelID,
-			Status:         receipt.Status,
-			Progress:       receipt.Progress,
-			FailReason:     receipt.FailReason,
-			FinishTime:     receipt.FinishTime,
-			OtherRatios:    receipt.OtherRatios,
-			TargetQuota:    receipt.TargetQuota,
+			PluginState:     receipt.PluginState,
+			ResultURL:       receipt.ResultURL,
+			ArchiveSource:   receipt.ArchiveSource,
+			ResultDiscarded: receipt.ResultDiscarded,
+			TieredSnapshot:  receipt.TieredSnapshot,
+			UpstreamTaskID:  receipt.UpstreamTaskID,
+			TaskData:        receipt.RawResponse,
+			ChannelID:       receipt.ChannelID,
+			Status:          receipt.Status,
+			Progress:        receipt.Progress,
+			FailReason:      receipt.FailReason,
+			FinishTime:      receipt.FinishTime,
+			OtherRatios:     receipt.OtherRatios,
+			TargetQuota:     receipt.TargetQuota,
 		})
 		if err != nil {
 			return err

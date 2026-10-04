@@ -80,6 +80,27 @@ func TestValidateMainSchemaPrerequisitesRejectsMissingColumn(t *testing.T) {
 	require.ErrorContains(t, err, "channels.")
 }
 
+func TestValidateLogSchemaPrerequisitesIsReadOnly(t *testing.T) {
+	db := newSchemaPrerequisiteTestDB(t)
+	require.NoError(t, db.AutoMigrate(&AuditLog{}))
+	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+	require.NoError(t, ValidateLogSchemaPrerequisites(db))
+}
+
+func TestValidateLogSchemaPrerequisitesRejectsMissingAuditSchema(t *testing.T) {
+	for _, missingColumn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("missing column %t", missingColumn), func(t *testing.T) {
+			db := newSchemaPrerequisiteTestDB(t)
+			if missingColumn {
+				require.NoError(t, db.Exec("CREATE TABLE audit_logs (id INTEGER PRIMARY KEY)").Error)
+			}
+			err := ValidateLogSchemaPrerequisites(db)
+			require.ErrorIs(t, err, ErrLogSchemaNotReady)
+			require.ErrorContains(t, err, "audit_logs")
+		})
+	}
+}
+
 func TestValidatePostgresApplicationColumnTypesRejectsLegacyTypes(t *testing.T) {
 	tests := []struct {
 		name    string

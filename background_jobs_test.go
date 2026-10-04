@@ -36,7 +36,12 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 	descriptors := registry.Descriptors()
 	require.NotEmpty(t, descriptors)
 	foundPerformanceMetricFlush := false
+	foundAuthArtifactCleanup := false
 	for _, descriptor := range descriptors {
+		if descriptor.Name == "auth-artifact-cleanup" {
+			foundAuthArtifactCleanup = true
+			require.True(t, descriptor.RunOnStart)
+		}
 		if descriptor.Name == "performance-metric-flush" {
 			foundPerformanceMetricFlush = true
 			require.True(t, descriptor.RunOnStart)
@@ -58,6 +63,7 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 		require.False(t, descriptor.FlushesProcessLocalState, descriptor.Name)
 	}
 	require.True(t, foundPerformanceMetricFlush)
+	require.True(t, foundAuthArtifactCleanup)
 }
 
 func TestServingBackgroundRuntimeOwnsProcessLocalFlushes(t *testing.T) {

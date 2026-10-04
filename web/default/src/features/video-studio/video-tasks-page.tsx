@@ -32,6 +32,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatTimestampToDate } from '@/lib/format'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 
 import { VideoStudioNav } from './components/video-studio-nav'
 import { useVideoGenerations } from './queries'
@@ -61,6 +62,12 @@ export function VideoTasksPage() {
   const { t } = useTranslation()
   const generationsQuery = useVideoGenerations({}, true)
   const generations = generationsQuery.items
+  const mediaQuery = useStudioMediaUrls(
+    generations.flatMap((generation) => [
+      generation.poster_url,
+      generation.video_url,
+    ])
+  )
 
   return (
     <main
@@ -157,6 +164,14 @@ export function VideoTasksPage() {
           <div className='divide-border overflow-hidden rounded-lg border'>
             {generations.map((generation) => {
               const status = generation.status
+              const posterUrl = signedStudioMediaUrl(
+                generation.poster_url,
+                mediaQuery.data?.urls
+              )
+              const videoUrl = signedStudioMediaUrl(
+                generation.video_url,
+                mediaQuery.data?.urls
+              )
               const progress = getVideoProgress(generation)
               const failureMessageKey =
                 getVideoGenerationFailureMessageKey(generation)
@@ -166,9 +181,9 @@ export function VideoTasksPage() {
                   className='bg-background flex min-w-0 items-center gap-3 border-b p-3 last:border-b-0 sm:gap-4'
                 >
                   <div className='bg-muted flex aspect-video w-24 shrink-0 items-center justify-center overflow-hidden rounded-md sm:w-32'>
-                    {generation.poster_url ? (
+                    {posterUrl ? (
                       <img
-                        src={generation.poster_url}
+                        src={posterUrl}
                         alt={generation.prompt}
                         className='size-full object-cover'
                       />
@@ -222,16 +237,12 @@ export function VideoTasksPage() {
                     )}
                   </div>
 
-                  {status === 'ready' && generation.video_url && (
+                  {status === 'ready' && videoUrl && (
                     <Button
                       size='sm'
                       variant='outline'
                       className='hidden shrink-0 sm:inline-flex'
-                      render={
-                        <a href={generation.video_url}>
-                          {t('videoStudio.play')}
-                        </a>
-                      }
+                      render={<a href={videoUrl}>{t('videoStudio.play')}</a>}
                     />
                   )}
                 </article>

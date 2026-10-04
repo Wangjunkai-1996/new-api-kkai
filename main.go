@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	"github.com/QuantumNous/new-api/relay"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
@@ -32,8 +33,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
@@ -41,6 +40,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "plugin" {
+		os.Exit(jsplugin.RunCLI(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--describe-console-contract" {
 		payload, err := common.Marshal(common.ConsoleContract())
 		if err != nil {
@@ -89,6 +91,12 @@ func main() {
 	// endpoint inference can read cached route settings on first request.
 	model.GetPricing()
 
+	// Apply database overrides before serving or starting task polling.
+	if err := controller.SyncTaskPluginsOnce(); err != nil {
+		common.FatalLog("failed to initialize task plugins: " + err.Error())
+		return
+	}
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle).
 	// Must run before the system task runner starts: the async_task_poll handler
 	// calls service.RunTaskPollingOnce, which needs this factory set.
@@ -134,6 +142,10 @@ func main() {
 
 	// Initialize HTTP server
 	server := gin.New()
+	if err := middleware.ConfigureTrustedProxies(server); err != nil {
+		common.FatalLog("failed to configure trusted proxies: " + err.Error())
+		return
+	}
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		common.SysLog(fmt.Sprintf("panic detected: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -149,16 +161,6 @@ func main() {
 	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
-	// Initialize session store
-	store := cookie.NewStore([]byte(common.SessionSecret))
-	store.Options(sessions.Options{
-		Path:     "/",
-		MaxAge:   2592000, // 30 days
-		HttpOnly: true,
-		Secure:   common.SessionCookieSecure,
-		SameSite: http.SameSiteStrictMode,
-	})
-	server.Use(sessions.Sessions("session", store))
 
 	InjectUmamiAnalytics()
 	InjectGoogleAnalytics()
@@ -301,6 +303,22 @@ func InitResources() error {
 	if err = kkaimigrate.CheckRequired(context.Background(), model.DB); err != nil {
 		return fmt.Errorf("KKAI schema check failed; run cmd/kkai-migrate before starting NewAPI: %w", err)
 	}
+	if !common.CanRunRuntimeAutoMigrate() {
+		if err = model.LoadLegacyAccessTokenRetireAt(); err != nil {
+			return fmt.Errorf("load legacy access token deadline: %w", err)
+		}
+	}
+	if common.PasswordLoginEncryptionEnabled {
+		if common.CanRunRuntimeAutoMigrate() {
+			err = model.InitPasswordEncryption()
+		} else {
+			err = model.LoadPasswordEncryption()
+		}
+		if err != nil {
+			common.FatalLog("failed to initialize password encryption: " + err.Error())
+			return err
+		}
+	}
 	if err = authz.Init(model.DB); err != nil {
 		common.FatalLog("failed to initialize authorization: " + err.Error())
 		return err
@@ -322,6 +340,11 @@ func InitResources() error {
 	if common.IsStandbyReadonly() && model.LOG_DB != model.DB {
 		if err = model.EnableStandbyReadOnlyGuard(model.LOG_DB); err != nil {
 			return err
+		}
+	}
+	if !common.CanRunRuntimeAutoMigrate() {
+		if err = model.ValidateLogSchemaPrerequisites(model.LOG_DB); err != nil {
+			return fmt.Errorf("log schema check failed; migrate the log database before starting NewAPI: %w", err)
 		}
 	}
 

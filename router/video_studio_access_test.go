@@ -12,11 +12,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/video_studio_setting"
 
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -24,10 +23,10 @@ import (
 )
 
 type videoStudioAccessFixture struct {
-	engine  *gin.Engine
-	db      *gorm.DB
-	cookies []*http.Cookie
-	userID  int
+	engine      *gin.Engine
+	db          *gorm.DB
+	accessToken string
+	userID      int
 }
 
 func newVideoStudioAccessFixture(t *testing.T, accessMode string) videoStudioAccessFixture {
@@ -37,10 +36,13 @@ func newVideoStudioAccessFixture(t *testing.T, accessMode string) videoStudioAcc
 	dsn := fmt.Sprintf("file:video-access-%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
 	previousDB := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = previousDB })
+	previousRedisEnabled := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previousRedisEnabled })
 
 	rawSetting := config.GlobalConfig.Get("video_studio")
 	originalSetting, err := config.ConfigToMap(rawSetting)
@@ -55,38 +57,23 @@ func newVideoStudioAccessFixture(t *testing.T, accessMode string) videoStudioAcc
 		Role: common.RoleAdminUser, Status: common.UserStatusEnabled, Group: "default",
 	}
 	require.NoError(t, db.Create(&user).Error)
+	bundle, err := service.CreateLoginSession(user.Id, "test", "127.0.0.1", "router-test")
+	require.NoError(t, err)
 
 	engine := gin.New()
-	engine.Use(sessions.Sessions("session", cookie.NewStore([]byte("video-access-test"))))
-	engine.GET("/login", func(c *gin.Context) {
-		session := sessions.Default(c)
-		session.Set("username", user.Username)
-		session.Set("role", common.RoleAdminUser)
-		session.Set("id", user.Id)
-		session.Set("status", common.UserStatusEnabled)
-		session.Set("group", user.Group)
-		require.NoError(t, session.Save())
-		c.Status(http.StatusNoContent)
-	})
 	engine.GET("/video-access-probe", middleware.UserAuth(), middleware.VideoStudioAccess(), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"role": c.GetInt("role"), "status": c.GetInt("status")})
 	})
 	registerVideoStudioAPIRoutes(engine.Group("/api"))
 	SetRelayRouter(engine)
 
-	loginRecorder := httptest.NewRecorder()
-	engine.ServeHTTP(loginRecorder, httptest.NewRequest(http.MethodGet, "/login", nil))
-	require.Equal(t, http.StatusNoContent, loginRecorder.Code)
-	return videoStudioAccessFixture{engine: engine, db: db, cookies: loginRecorder.Result().Cookies(), userID: user.Id}
+	return videoStudioAccessFixture{engine: engine, db: db, accessToken: bundle.AccessToken, userID: user.Id}
 }
 
 func (fixture videoStudioAccessFixture) request(method string, path string, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
-	request.Header.Set("New-Api-User", fmt.Sprintf("%d", fixture.userID))
 	request.Header.Set("Content-Type", "application/json")
-	for _, sessionCookie := range fixture.cookies {
-		request.AddCookie(sessionCookie)
-	}
+	request.Header.Set("Authorization", "Bearer "+fixture.accessToken)
 	recorder := httptest.NewRecorder()
 	fixture.engine.ServeHTTP(recorder, request)
 	return recorder
@@ -133,7 +120,7 @@ func TestVideoStudioAccessRejectsStaleEnabledSessionAfterUserDisabled(t *testing
 		Update("status", common.UserStatusDisabled).Error)
 
 	recorder := fixture.request(http.MethodGet, "/video-access-probe", "")
-	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 	require.Contains(t, recorder.Body.String(), `"success":false`)
 	require.NotContains(t, strings.ToLower(recorder.Body.String()), "database")
 }

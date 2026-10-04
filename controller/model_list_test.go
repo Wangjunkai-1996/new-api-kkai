@@ -16,8 +16,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -51,7 +49,10 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{},
+		&model.TwoFA{}, &model.PasskeyCredential{}, &model.UserSession{},
+	))
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -459,44 +460,36 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-unpriced-model")
 }
 
-func TestCheckUpdatePasswordRequiresCurrentPassword(t *testing.T) {
-	db := setupModelListControllerTestDB(t)
-	hashedPassword, err := common.Password2Hash("CurrentPassword123")
-	require.NoError(t, err)
-	user := &model.User{
-		Username: "password-user",
-		Password: hashedPassword,
-		Status:   common.UserStatusEnabled,
+func TestUpdateSelfPasswordRequiresSecurityProof(t *testing.T) {
+	for _, existingPassword := range []string{"CurrentPassword123", ""} {
+		t.Run(fmt.Sprintf("existing=%t", existingPassword != ""), func(t *testing.T) {
+			db := setupModelListControllerTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.AuditLog{}))
+			storedPassword := ""
+			if existingPassword != "" {
+				var err error
+				storedPassword, err = common.HashAccountPassword(existingPassword)
+				require.NoError(t, err)
+			}
+			user := &model.User{Username: "password-user", Password: storedPassword, Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(user).Error)
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPut, "/api/user/self", strings.NewReader(`{"password":"NewPassword123","original_password":"CurrentPassword123"}`))
+			ctx.Set("id", user.Id)
+			ctx.Set("role", user.Role)
+			ctx.Set("session_id", "live-session")
+			ctx.Set("auth_version", user.AuthVersion)
+			ctx.Set("session_version", int64(1))
+			UpdateSelf(ctx)
+			require.Equal(t, http.StatusForbidden, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "SECURITY_PROOF_REQUIRED")
+			var stored model.User
+			require.NoError(t, db.First(&stored, user.Id).Error)
+			assert.Equal(t, storedPassword, stored.Password)
+			assert.Equal(t, user.AuthVersion, stored.AuthVersion)
+		})
 	}
-	require.NoError(t, db.Create(user).Error)
-
-	updatePassword, err := checkUpdatePassword("", "", user.Id)
-	require.NoError(t, err)
-	assert.False(t, updatePassword)
-
-	updatePassword, err = checkUpdatePassword("", "NewPassword123", user.Id)
-	require.Error(t, err)
-	assert.False(t, updatePassword)
-	assert.ErrorIs(t, err, errOriginalPasswordFail)
-
-	updatePassword, err = checkUpdatePassword("CurrentPassword123", "NewPassword123", user.Id)
-	require.NoError(t, err)
-	assert.True(t, updatePassword)
-}
-
-func TestCheckUpdatePasswordRejectsHistoricalEmptyPassword(t *testing.T) {
-	db := setupModelListControllerTestDB(t)
-	user := &model.User{
-		Username: "legacy-passwordless-user",
-		Password: "",
-		Status:   common.UserStatusEnabled,
-	}
-	require.NoError(t, db.Create(user).Error)
-
-	updatePassword, err := checkUpdatePassword("", "NewPassword123", user.Id)
-	require.Error(t, err)
-	assert.False(t, updatePassword)
-	assert.ErrorIs(t, err, errUserPasswordUnset)
 }
 
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
@@ -515,16 +508,15 @@ func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
 	require.NoError(t, db.Create(user).Error)
 
 	router := gin.New()
-	store := cookie.NewStore([]byte("test-session-secret"))
-	router.Use(sessions.Sessions("session", store))
 	router.GET("/", func(c *gin.Context) {
 		setupLogin(&model.User{
-			Id:       user.Id,
-			Username: user.Username,
-			Role:     user.Role,
-			Status:   user.Status,
-			Group:    user.Group,
-		}, c)
+			Id:          user.Id,
+			AuthVersion: user.AuthVersion,
+			Username:    user.Username,
+			Role:        user.Role,
+			Status:      user.Status,
+			Group:       user.Group,
+		}, nil, c)
 	})
 
 	recorder := httptest.NewRecorder()

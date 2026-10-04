@@ -105,6 +105,8 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		//http router
 		httpRouter := relayV1Router.Group("")
+		httpRouter.Use(middleware.PinTaskPluginEndpoint())
+		httpRouter.Use(middleware.PrepareTaskPluginEndpoint())
 		httpRouter.Use(middleware.Distribute())
 
 		// claude related routes
@@ -122,7 +124,9 @@ func SetRelayRouter(router *gin.Engine) {
 
 		// response related routes
 		httpRouter.POST("/responses", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIResponses)
+			controller.RelayTaskPluginEndpoint(c, func(c *gin.Context) {
+				controller.Relay(c, types.RelayFormatOpenAIResponses)
+			})
 		})
 		httpRouter.POST("/responses/compact", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
@@ -133,10 +137,14 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 		httpRouter.POST("/images/generations", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIImage)
+			controller.RelayTaskPluginEndpoint(c, func(c *gin.Context) {
+				controller.Relay(c, types.RelayFormatOpenAIImage)
+			})
 		})
 		httpRouter.POST("/images/edits", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIImage)
+			controller.RelayTaskPluginEndpoint(c, func(c *gin.Context) {
+				controller.Relay(c, types.RelayFormatOpenAIImage)
+			})
 		})
 
 		// embedding related routes

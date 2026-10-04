@@ -258,3 +258,17 @@ func parseModelSyncFilter(syncOfficial string) (value int, ok bool) {
 		return n, true
 	}
 }
+
+// MatchesName applies a metadata rule to a concrete channel model name.
+func (mi *Model) MatchesName(name string) bool {
+	switch mi.NameRule {
+	case NameRulePrefix:
+		return strings.HasPrefix(name, mi.ModelName)
+	case NameRuleSuffix:
+		return strings.HasSuffix(name, mi.ModelName)
+	case NameRuleContains:
+		return strings.Contains(name, mi.ModelName)
+	default:
+		return name == mi.ModelName
+	}
+}

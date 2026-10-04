@@ -36,6 +36,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { useStatus } from '@/hooks/use-status'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
@@ -223,6 +224,12 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
   })
   const inspectedAssets = props.assets.map(
     (asset, index) => inspectionQueries[index]?.data ?? asset
+  )
+  const mediaQuery = useStudioMediaUrls(
+    inspectedAssets.flatMap((asset) => [
+      asset.content_url || getVideoAssetContentUrl(asset.id),
+      asset.poster_url,
+    ])
   )
 
   useEffect(() => {
@@ -481,8 +488,15 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
           )
           const inspectionQuery = inspectionQueries[index]
           const assetUrl = showMedia
-            ? asset.content_url || getVideoAssetContentUrl(asset.id)
+            ? signedStudioMediaUrl(
+                asset.content_url || getVideoAssetContentUrl(asset.id),
+                mediaQuery.data?.urls
+              )
             : undefined
+          const posterUrl = signedStudioMediaUrl(
+            asset.poster_url,
+            mediaQuery.data?.urls
+          )
           let mediaContent
           if (!showMedia) {
             mediaContent = (
@@ -494,15 +508,11 @@ export function VideoAssetUploader(props: VideoAssetUploaderProps) {
                 )}
               </div>
             )
-          } else if (
-            isVideo &&
-            props.purpose === 'sample' &&
-            asset.poster_url
-          ) {
+          } else if (isVideo && props.purpose === 'sample' && posterUrl) {
             mediaContent = (
               <img
                 className='size-full object-cover'
-                src={asset.poster_url}
+                src={posterUrl}
                 alt={asset.original_filename || props.label}
               />
             )

@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = 6
+	KnownCatalogVersion     int64 = RC41ArchitectureSchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"

@@ -27,6 +27,7 @@ export type UserPermissions = {
 }
 
 export interface AuthUser {
+  has_password?: boolean
   id: number
   username: string
   display_name?: string
@@ -45,66 +46,115 @@ export interface AuthUser {
   aff_history_quota?: number
   inviter_id?: number
   github_id?: string
+  discord_id?: string
   oidc_id?: string
   wechat_id?: string
   telegram_id?: string
   linux_do_id?: string
+  language?: string
   setting?: Record<string, unknown> | string
   stripe_customer?: string
   sidebar_modules?: string
   permissions?: UserPermissions
 }
 
+export interface LoginSession {
+  sid: string
+  current: boolean
+  login_method: string
+  ip: string
+  user_agent: string
+  created_at: number
+  last_active_at: number
+  expires_at: number
+}
+
+export interface AuthBundle {
+  access_token: string
+  token_type: 'Bearer' | string
+  access_expires_at: number
+  user: AuthUser
+  session: LoginSession
+}
+
+export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
+
+export interface LoginChallenge {
+  require_verification: true
+  flow_token: string
+  expires_at: number
+  methods: { method: '2fa' | 'passkey'; available: boolean; reason?: string }[]
+}
+
+export interface PendingLoginVerification {
+  challenge: LoginChallenge
+  redirectTo?: string
+}
+
 interface AuthState {
   auth: {
     user: AuthUser | null
+    accessToken: string | null
+    accessExpiresAt: number | null
+    session: LoginSession | null
+    pendingLoginVerification: PendingLoginVerification | null
+    bootstrapState: AuthBootstrapState
+    setBundle: (bundle: AuthBundle) => void
     setUser: (user: AuthUser | null) => void
-    reset: () => void
+    setPendingLoginVerification: (pending: PendingLoginVerification | null) => void
+    setBootstrapState: (bootstrapState: AuthBootstrapState) => void
+    reset: (bootstrapState?: AuthBootstrapState) => void
   }
 }
 
-export const useAuthStore = create<AuthState>()((set) => {
-  // Restore user info from localStorage
-  const initUser = (() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const saved = window.localStorage.getItem('user')
-        return saved ? JSON.parse(saved) : null
-      }
-    } catch {
-      // Clear dirty data when parsing fails
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('user')
-      }
-    }
-    return null
-  })()
-
-  return {
-    auth: {
-      user: initUser,
-      setUser: (user) =>
-        set((state) => {
-          // Persist user to localStorage
-          if (typeof window !== 'undefined') {
-            if (user) {
-              window.localStorage.setItem('user', JSON.stringify(user))
-            } else {
-              window.localStorage.removeItem('user')
-            }
-          }
-          return { ...state, auth: { ...state.auth, user } }
-        }),
-      reset: () =>
-        set((state) => {
-          if (typeof window !== 'undefined') {
-            window.localStorage.removeItem('user')
-          }
-          return {
-            ...state,
-            auth: { ...state.auth, user: null },
-          }
-        }),
-    },
-  }
-})
+export const useAuthStore = create<AuthState>()((set) => ({
+  auth: {
+    user: null,
+    accessToken: null,
+    accessExpiresAt: null,
+    session: null,
+    pendingLoginVerification: null,
+    bootstrapState: 'idle',
+    setBundle: (bundle) =>
+      set((state) => ({
+        auth: {
+          ...state.auth,
+          user: bundle.user,
+          accessToken: bundle.access_token,
+          accessExpiresAt: bundle.access_expires_at,
+          session: bundle.session,
+          pendingLoginVerification: null,
+          bootstrapState: 'complete',
+        },
+      })),
+    setUser: (user) =>
+      set((state) => ({
+        auth: {
+          ...state.auth,
+          user,
+          pendingLoginVerification:
+            state.auth.user?.id === user?.id
+              ? state.auth.pendingLoginVerification
+              : null,
+        },
+      })),
+    setPendingLoginVerification: (pendingLoginVerification) =>
+      set((state) => ({
+        auth: { ...state.auth, pendingLoginVerification },
+      })),
+    setBootstrapState: (bootstrapState) =>
+      set((state) => ({ auth: { ...state.auth, bootstrapState } })),
+    reset: (bootstrapState = 'complete') =>
+      set((state) => ({
+        auth: {
+          ...state.auth,
+          user: null,
+          accessToken: null,
+          accessExpiresAt: null,
+          session: null,
+          pendingLoginVerification: null,
+          bootstrapState,
+        },
+      })),
+  },
+}))

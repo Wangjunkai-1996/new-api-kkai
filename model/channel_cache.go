@@ -121,9 +121,43 @@ func GetRandomSatisfiedChannel(
 	allowedChannelTypes []int,
 	excludedChannelIDs ...int,
 ) (*Channel, error) {
+	return getRandomSatisfiedChannel(group, model, retry, requestPath, allowedChannelTypes, nil, excludedChannelIDs...)
+}
+
+// GetRandomSatisfiedChannelWithFilters is the task/plugin-aware selector. It
+// keeps the legacy selector contract for existing callers while applying the
+// request's channel constraints before priority and weighted selection.
+func GetRandomSatisfiedChannelWithFilters(
+	group string,
+	model string,
+	retry int,
+	requestPath string,
+	allowedChannelTypes []int,
+	filters []dto.ChannelFilter,
+	excludedChannelIDs ...int,
+) (*Channel, error) {
+	return getRandomSatisfiedChannel(group, model, retry, requestPath, allowedChannelTypes, filters, excludedChannelIDs...)
+}
+
+func getRandomSatisfiedChannel(
+	group string,
+	model string,
+	retry int,
+	requestPath string,
+	allowedChannelTypes []int,
+	filters []dto.ChannelFilter,
+	excludedChannelIDs ...int,
+) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, requestPath, allowedChannelTypes, excludedChannelIDs...)
+		channel, err := GetChannel(group, model, retry, requestPath, allowedChannelTypes, excludedChannelIDs...)
+		if err != nil || channel == nil || len(filters) == 0 {
+			return channel, err
+		}
+		if ok, _ := ChannelSatisfiesFilters(channel, model, filters); !ok {
+			return nil, nil
+		}
+		return channel, nil
 	}
 
 	channelSyncLock.RLock()
@@ -157,6 +191,12 @@ func GetRandomSatisfiedChannel(
 
 	if len(channels) == 0 {
 		return nil, nil
+	}
+	if len(filters) > 0 {
+		channels, _ = filterCandidateIDs(channels, model, filters)
+		if len(channels) == 0 {
+			return nil, nil
+		}
 	}
 
 	if len(channels) == 1 {

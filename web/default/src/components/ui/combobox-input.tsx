@@ -37,8 +37,10 @@ interface ComboboxInputProps {
   emptyText?: string
   className?: string
   id?: string
+  'aria-label'?: string
   allowCustomValue?: boolean
   openOnFocus?: boolean
+  disabled?: boolean
 }
 
 export function ComboboxInput({
@@ -49,8 +51,10 @@ export function ComboboxInput({
   emptyText = 'No option found.',
   className,
   id,
+  'aria-label': ariaLabel,
   allowCustomValue = false,
   openOnFocus = true,
+  disabled = false,
 }: ComboboxInputProps) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
@@ -163,6 +167,8 @@ export function ComboboxInput({
       <Input
         ref={inputRef}
         id={id}
+        aria-label={ariaLabel}
+        disabled={disabled}
         type='text'
         role='combobox'
         aria-expanded={open}
@@ -172,6 +178,7 @@ export function ComboboxInput({
         placeholder={placeholder}
         value={displayValue}
         onChange={(e) => {
+          if (disabled) return
           const nextValue = e.target.value
           setSearchValue(nextValue)
           if (allowCustomValue) {
@@ -180,12 +187,14 @@ export function ComboboxInput({
           if (!open) setOpen(true)
         }}
         onPointerDown={() => {
+          if (disabled) return
           pointerFocusRef.current = true
           if (document.activeElement === inputRef.current && !open) {
             setOpen(true)
           }
         }}
         onFocus={() => {
+          if (disabled) return
           setSearchValue(allowCustomValue && !selectedOption ? value : '')
           if (openOnFocus || pointerFocusRef.current) {
             setOpen(true)

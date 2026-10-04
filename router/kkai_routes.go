@@ -8,6 +8,7 @@ import (
 
 func registerKKAIRoutes(apiRouter *gin.RouterGroup, anonymousRequestBodyLimit gin.HandlerFunc) {
 	apiRouter.GET("/status/groups", middleware.UserAuth(), controller.GetKKAIGroupStatus)
+	apiRouter.POST("/studio/media-urls", middleware.UserAuth(), controller.SignStudioMediaURLs)
 	registerVideoStudioAPIRoutes(apiRouter)
 	registerImageStudioAPIRoutes(apiRouter)
 

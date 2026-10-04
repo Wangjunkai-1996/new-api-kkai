@@ -1,10 +1,14 @@
 package operation_setting
 
 import (
+	"encoding/json"
+	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync/atomic"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
@@ -32,6 +36,8 @@ var defaultToolPriceOverrides = map[string]float64{
 	"web_search_preview:gpt-4o-mini*":  25.0,
 	"web_search_preview:gpt-4.1-mini*": 25.0,
 }
+
+const ToolPriceOptionKey = "tool_price_setting.prices"
 
 // ToolPriceSetting is managed by config.GlobalConfig.Register.
 type ToolPriceSetting struct {
@@ -71,6 +77,31 @@ type toolPriceIndex struct {
 }
 
 var currentIndex atomic.Pointer[toolPriceIndex]
+
+// ValidateToolPricesJSON validates an operator-supplied complete price map.
+func ValidateToolPricesJSON(value string) error {
+	rawValue := json.RawMessage(strings.TrimSpace(value))
+	if common.GetJsonType(rawValue) != "object" {
+		return fmt.Errorf("工具价格必须是 JSON 对象")
+	}
+	var rawPrices map[string]json.RawMessage
+	if err := common.Unmarshal(rawValue, &rawPrices); err != nil {
+		return fmt.Errorf("解析工具价格失败: %w", err)
+	}
+	for name, rawPrice := range rawPrices {
+		if common.GetJsonType(rawPrice) != "number" {
+			return fmt.Errorf("工具价格 %q 必须是非负数字", name)
+		}
+		var price float64
+		if err := common.Unmarshal(rawPrice, &price); err != nil {
+			return fmt.Errorf("解析工具价格 %q 失败: %w", name, err)
+		}
+		if price < 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+			return fmt.Errorf("工具价格 %q 必须是有限的非负数字", name)
+		}
+	}
+	return nil
+}
 
 // RebuildToolPriceIndex rebuilds the lookup index from the current config.
 // Called on init and after config updates. Not on the billing hot path.

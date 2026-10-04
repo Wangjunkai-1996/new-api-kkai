@@ -54,6 +54,7 @@ import {
   isPasskeySupported as detectPasskeySupport,
 } from '@/lib/passkey'
 import { cn } from '@/lib/utils'
+import { getServerErrorMessage } from '@/lib/server-error-message'
 
 export function UserAuthForm({
   className,
@@ -63,7 +64,7 @@ export function UserAuthForm({
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
-  const [agreedToLegal, setAgreedToLegal] = useState(false)
+  const [acceptedLegalTerms, setAgreedToLegal] = useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
@@ -87,11 +88,12 @@ export function UserAuthForm({
     setTurnstileToken,
     validateTurnstile,
   } = useTurnstile()
-  const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
+  const { handleLoginResult } = useAuthRedirect()
 
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
+  const agreedToLegal = !requiresLegalConsent || acceptedLegalTerms
   const passkeyButtonDisabled =
     isPasskeyLoading ||
     !passkeySupported ||
@@ -107,14 +109,6 @@ export function UserAuthForm({
   )
   const hasAlternativeLogin =
     passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
-
-  useEffect(() => {
-    if (requiresLegalConsent) {
-      setAgreedToLegal(false)
-    } else {
-      setAgreedToLegal(true)
-    }
-  }, [requiresLegalConsent])
 
   useEffect(() => {
     detectPasskeySupport()
@@ -167,16 +161,15 @@ export function UserAuthForm({
       })
 
       if (res.success) {
-        if (res.data?.require_2fa) {
-          redirectTo2FA()
-          return
+        form.setValue('password', '')
+        if (await handleLoginResult(res.data, redirectTo)) {
+          toast.success(t('Welcome back!'))
         }
-
-        await handleLoginSuccess(res.data as { id?: number } | null, redirectTo)
-        toast.success(t('Welcome back!'))
+      } else {
+        toast.error(getServerErrorMessage(res, loginFailedMessage))
       }
-    } catch (_error) {
-      // Errors are handled by global interceptor
+    } catch (error) {
+      toast.error(getServerErrorMessage(error, loginFailedMessage))
     } finally {
       setIsLoading(false)
     }
@@ -209,13 +202,14 @@ export function UserAuthForm({
     try {
       const res = await wechatLoginByCode(wechatCode)
       if (res?.success) {
-        await handleLoginSuccess(res.data as { id?: number } | null, redirectTo)
-        toast.success(t('Signed in via WeChat'))
+        if (await handleLoginResult(res.data, redirectTo)) {
+          toast.success(t('Signed in via WeChat'))
+        }
         handleWeChatDialogChange(false)
       } else {
         toast.error(res?.message || loginFailedMessage)
       }
-    } catch (_error) {
+    } catch {
       toast.error(loginFailedMessage)
     } finally {
       setIsWeChatSubmitting(false)
@@ -241,12 +235,8 @@ export function UserAuthForm({
     setIsPasskeyLoading(true)
     try {
       const begin = await beginPasskeyLogin()
-      if (!begin.success) {
-        throw new Error(begin.message || t('Failed to start Passkey login'))
-      }
-
       const publicKey = prepareCredentialRequestOptions(
-        begin.data?.options ?? begin.data
+        begin.options ?? begin
       )
 
       const credential = (await navigator.credentials.get({
@@ -263,20 +253,14 @@ export function UserAuthForm({
         throw new Error(t('Invalid Passkey response'))
       }
 
-      const finish = await finishPasskeyLogin(assertion)
-      if (!finish.success) {
-        throw new Error(finish.message || t('Failed to complete Passkey login'))
-      }
-
-      if (!finish.data) {
+      if (!begin.flow_token) {
         throw new Error(t('Missing user data from Passkey login response'))
       }
 
-      await handleLoginSuccess(
-        finish.data as { id?: number } | null,
-        redirectTo
-      )
-      toast.success(t('Signed in with Passkey'))
+      const finish = await finishPasskeyLogin(begin.flow_token, assertion)
+      if (await handleLoginResult(finish, redirectTo)) {
+        toast.success(t('Signed in with Passkey'))
+      }
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'NotAllowedError') {
         toast.info(t('Passkey login was cancelled or timed out'))

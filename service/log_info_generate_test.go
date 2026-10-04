@@ -34,12 +34,12 @@ func TestGenerateTextOtherInfoUsesUpstreamHeaderForDisplayedFRT(t *testing.T) {
 	relayInfo.UpstreamHeaderTime = start.Add(1500 * time.Millisecond)
 	relayInfo.FirstResponseTime = start.Add(25 * time.Second)
 
-	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+	snapshot := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1).Snapshot()
 
-	require.Equal(t, float64(1500), other["frt"])
-	require.Equal(t, float64(25000), other["first_sse_ms"])
-	require.Equal(t, float64(1500), other["upstream_header_ms"])
-	assert.NotContains(t, other, "sub2_ttft_ms")
+	require.Equal(t, float64(1500), snapshot["frt"])
+	require.Equal(t, float64(25000), snapshot["first_sse_ms"])
+	require.Equal(t, float64(1500), snapshot["upstream_header_ms"])
+	assert.NotContains(t, snapshot, "sub2_ttft_ms")
 }
 
 func TestGenerateTextOtherInfoUsesSub2TTFTSidebandForDisplayedFRT(t *testing.T) {
@@ -51,12 +51,12 @@ func TestGenerateTextOtherInfoUsesSub2TTFTSidebandForDisplayedFRT(t *testing.T) 
 			relayInfo.FirstResponseTime = start.Add(45 * time.Second)
 			relayInfo.SetSub2TTFTMs(timingMs)
 
-			other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+			snapshot := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1).Snapshot()
 
-			assert.Equal(t, float64(timingMs), other["frt"])
-			assert.Equal(t, float64(timingMs), other["sub2_ttft_ms"])
-			assert.Equal(t, float64(44000), other["upstream_header_ms"])
-			assert.Equal(t, float64(45000), other["first_sse_ms"])
+			assert.Equal(t, float64(timingMs), snapshot["frt"])
+			assert.Equal(t, float64(timingMs), snapshot["sub2_ttft_ms"])
+			assert.Equal(t, float64(44000), snapshot["upstream_header_ms"])
+			assert.Equal(t, float64(45000), snapshot["first_sse_ms"])
 		})
 	}
 }
@@ -67,10 +67,10 @@ func TestGenerateTextOtherInfoIgnoresInvalidSub2TTFTAndUsesHeader(t *testing.T) 
 	relayInfo.UpstreamHeaderTime = start.Add(1500 * time.Millisecond)
 	relayInfo.SetSub2TTFTMs(-1)
 
-	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+	snapshot := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1).Snapshot()
 
-	assert.Equal(t, float64(1500), other["frt"])
-	assert.NotContains(t, other, "sub2_ttft_ms")
+	assert.Equal(t, float64(1500), snapshot["frt"])
+	assert.NotContains(t, snapshot, "sub2_ttft_ms")
 }
 
 func TestGenerateTextOtherInfoOmitsFRTWhenHeaderTimeMissing(t *testing.T) {
@@ -78,11 +78,11 @@ func TestGenerateTextOtherInfoOmitsFRTWhenHeaderTimeMissing(t *testing.T) {
 	relayInfo := newLogInfoTestRelayInfo(start)
 	relayInfo.FirstResponseTime = start.Add(8 * time.Second)
 
-	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+	snapshot := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1).Snapshot()
 
-	require.NotContains(t, other, "frt")
-	require.Equal(t, float64(8000), other["first_sse_ms"])
-	require.NotContains(t, other, "upstream_header_ms")
+	require.NotContains(t, snapshot, "frt")
+	require.Equal(t, float64(8000), snapshot["first_sse_ms"])
+	require.NotContains(t, snapshot, "upstream_header_ms")
 }
 
 func TestGenerateTextOtherInfoIgnoresInvalidHeaderTime(t *testing.T) {
@@ -91,11 +91,11 @@ func TestGenerateTextOtherInfoIgnoresInvalidHeaderTime(t *testing.T) {
 	relayInfo.UpstreamHeaderTime = start.Add(-time.Second)
 	relayInfo.FirstResponseTime = start.Add(4 * time.Second)
 
-	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+	snapshot := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1).Snapshot()
 
-	require.NotContains(t, other, "frt")
-	require.Equal(t, float64(4000), other["first_sse_ms"])
-	require.NotContains(t, other, "upstream_header_ms")
+	require.NotContains(t, snapshot, "frt")
+	require.Equal(t, float64(4000), snapshot["first_sse_ms"])
+	require.NotContains(t, snapshot, "upstream_header_ms")
 }
 
 func TestGenerateTextOtherInfoOmitsInvalidResponseTimings(t *testing.T) {
@@ -103,8 +103,8 @@ func TestGenerateTextOtherInfoOmitsInvalidResponseTimings(t *testing.T) {
 	relayInfo := newLogInfoTestRelayInfo(start)
 	relayInfo.FirstResponseTime = start.Add(-time.Second)
 
-	other := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1)
+	snapshot := GenerateTextOtherInfo(newLogInfoTestContext(), &relayInfo, 1, 1, 1, 0, 0, -1, -1).Snapshot()
 
-	require.NotContains(t, other, "frt")
-	require.NotContains(t, other, "first_sse_ms")
+	require.NotContains(t, snapshot, "frt")
+	require.NotContains(t, snapshot, "first_sse_ms")
 }
