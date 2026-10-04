@@ -78,6 +78,8 @@ export type CodexUsageResponseX = {
   data?: Record<string, unknown>
 }
 
+export type CodexUsageResponse = CodexUsageResponseX
+
 export type CodexResetCreditsResponse = CodexUsageResponse
 
 export type CodexUsageResetResponse = CodexUsageResponse
