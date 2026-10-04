@@ -492,10 +492,38 @@ func reasoningEffortFromRequest(request dto.Request) string {
 		}
 	case *dto.GeminiChatRequest:
 		if req != nil && req.GenerationConfig.ThinkingConfig != nil {
-			effort = req.GenerationConfig.ThinkingConfig.ThinkingLevel
+			effort = canonicalGeminiThinkingLevel(req.GenerationConfig.ThinkingConfig.ThinkingLevel)
+			if effort == "" && req.GenerationConfig.ThinkingConfig.ThinkingBudget != nil {
+				effort = geminiThinkingEffortFromBudget(*req.GenerationConfig.ThinkingConfig.ThinkingBudget)
+			}
 		}
 	}
 	return strings.TrimSpace(effort)
+}
+
+func canonicalGeminiThinkingLevel(level string) string {
+	trimmed := strings.TrimSpace(level)
+	switch strings.ToLower(trimmed) {
+	case "minimal", "low", "medium", "high":
+		return strings.ToLower(trimmed)
+	default:
+		return trimmed
+	}
+}
+
+func geminiThinkingEffortFromBudget(budget int) string {
+	switch {
+	case budget == 0:
+		return "none"
+	case budget < 0:
+		return "high"
+	case budget <= 1024:
+		return "low"
+	case budget <= 8192:
+		return "medium"
+	default:
+		return "high"
+	}
 }
 
 func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
