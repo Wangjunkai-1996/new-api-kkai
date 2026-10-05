@@ -1247,6 +1247,10 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 }
 
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
+	quota, err := common.HistoricalCreditQuota("tasks", task.ID, task.Quota)
+	if err != nil {
+		common.SysError("task historical quota unavailable: " + err.Error())
+	}
 	return &dto.TaskDto{
 		ID:         task.ID,
 		CreatedAt:  task.CreatedAt,
@@ -1256,7 +1260,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		UserId:     task.UserId,
 		Group:      task.Group,
 		ChannelId:  task.ChannelId,
-		Quota:      task.Quota,
+		Quota:      quota,
 		Action:     task.Action,
 		Status:     string(task.Status),
 		FailReason: task.PublicFailReason(),

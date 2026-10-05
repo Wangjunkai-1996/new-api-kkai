@@ -376,6 +376,10 @@ func buildImageGenerationView(
 	generation model.KKAIImageGeneration,
 	assets []model.KKAIImageAsset,
 ) (ImageGenerationView, error) {
+	quota, err := common.HistoricalCreditQuota("kkai_image_generations", generation.ID, generation.FinalQuota)
+	if err != nil {
+		return ImageGenerationView{}, err
+	}
 	parameters := map[string]any{}
 	if err := common.UnmarshalJsonStr(generation.Parameters, &parameters); err != nil {
 		return ImageGenerationView{}, fmt.Errorf("decode image generation parameters: %w", err)
@@ -408,7 +412,7 @@ func buildImageGenerationView(
 		SpecificationVersion: generation.SpecificationVersion, Model: generation.Model,
 		Prompt: generation.Prompt, Parameters: parameters, RequestID: generation.RequestID,
 		Status: status, RequestedCount: generation.RequestedCount,
-		SucceededCount: generation.SucceededCount, FinalQuota: generation.FinalQuota,
+		SucceededCount: generation.SucceededCount, FinalQuota: quota,
 		FailureStage: generation.FailureStage, ErrorCode: generation.ErrorCode,
 		ErrorMessage: generation.ErrorMessage, StartedAt: generation.StartedAt,
 		FinishedAt: generation.FinishedAt, CreatedAt: generation.CreatedAt, Assets: assetViews,

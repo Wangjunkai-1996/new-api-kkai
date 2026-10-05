@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -22,6 +23,10 @@ func GetAllRedemptions(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
+	if err := model.NormalizeRedemptionCreditEpoch(redemptions); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetItems(redemptions)
 	common.ApiSuccess(c, pageInfo)
 	return
@@ -37,6 +42,10 @@ func SearchRedemptions(c *gin.Context) {
 		return
 	}
 	pageInfo.SetTotal(int(total))
+	if err := model.NormalizeRedemptionCreditEpoch(redemptions); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetItems(redemptions)
 	common.ApiSuccess(c, pageInfo)
 	return
@@ -50,6 +59,10 @@ func GetRedemption(c *gin.Context) {
 	}
 	redemption, err := model.GetRedemptionById(id)
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.NormalizeRedemptionCreditEpoch([]*model.Redemption{redemption}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -150,6 +163,15 @@ func UpdateRedemption(c *gin.Context) {
 	cleanRedemption, err := model.GetRedemptionById(redemption.Id)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if epoch != nil && (epoch.LegacyUsedRedemptionIDs == nil || epoch.IsLegacyUsedRedemption(int64(cleanRedemption.Id))) {
+		common.ApiError(c, errors.New("historical redeemed vouchers cannot be modified after currency migration"))
 		return
 	}
 	if statusOnly == "" {

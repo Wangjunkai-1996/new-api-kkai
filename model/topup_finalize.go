@@ -23,6 +23,7 @@ var (
 	ErrTopUpFinalizationInvalidInput = errors.New("invalid topup finalization input")
 	ErrTopUpQuotaInvalid             = errors.New("invalid topup quota delta")
 	ErrTopUpPaymentProviderInvalid   = errors.New("invalid topup payment provider")
+	ErrTopUpLegacyReviewRequired     = errors.New("legacy topup is on hold; manual review is required")
 	errTopUpRebateBoundaryInvalid    = errors.New("invalid topup rebate active boundary")
 )
 
@@ -156,6 +157,18 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 			return ErrTopUpStatusInvalid
 		}
 
+		epoch, err := common.CurrentCreditEpoch()
+		if err != nil {
+			return err
+		}
+		if epoch != nil {
+			if _, ok := epoch.LegacyMaxIDs["top_ups"]; !ok {
+				return common.ErrCreditEpochInvalid
+			}
+		}
+		if epoch.IsLegacy("top_ups", int64(topUp.Id)) {
+			return ErrTopUpLegacyReviewRequired
+		}
 		user := &User{}
 		if err := lockForUpdate(tx).Where("id = ?", topUp.UserId).First(user).Error; err != nil {
 			return err

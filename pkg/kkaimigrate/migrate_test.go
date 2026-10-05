@@ -483,7 +483,7 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 		{
 			Version:  RC41ArchitectureSchemaVersion,
 			Name:     "rc41_scoped_tokens_and_task_plugins",
-			Checksum: "27d9c4e172d5c222c40a2072b8e76cebe90f7daf52d97394ddd550f10cbee953",
+			Checksum: "98105b79eb9f712885de2b6858ccb372dda9aece4799e5443d403b014e5c60d4",
 		},
 	}, Plan())
 }

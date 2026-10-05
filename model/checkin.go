@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -150,10 +151,18 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 
 	// 转换为不包含敏感字段的记录
 	checkinRecords := make([]CheckinRecord, len(records))
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil {
+		return nil, err
+	}
 	for i, r := range records {
+		quota := r.QuotaAwarded
+		if epoch.IsLegacy("checkins", int64(r.Id)) {
+			quota = common.QuotaFromDecimal(decimal.NewFromInt(common.LegacyCreditToUSD(int64(quota))))
+		}
 		checkinRecords[i] = CheckinRecord{
 			CheckinDate:  r.CheckinDate,
-			QuotaAwarded: r.QuotaAwarded,
+			QuotaAwarded: quota,
 		}
 	}
 
@@ -163,8 +172,16 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 	// 获取用户所有时间的签到统计
 	var totalCheckins int64
 	var totalQuota int64
-	DB.Model(&Checkin{}).Where("user_id = ?", userId).Count(&totalCheckins)
-	DB.Model(&Checkin{}).Where("user_id = ?", userId).Select("COALESCE(SUM(quota_awarded), 0)").Scan(&totalQuota)
+	quotaExpr, err := creditEpochQuotaExpression(DB, "checkins")
+	if err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&Checkin{}).Where("user_id = ?", userId).Count(&totalCheckins).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&Checkin{}).Where("user_id = ?", userId).Select("COALESCE(SUM(" + quotaExpr + "), 0)").Scan(&totalQuota).Error; err != nil {
+		return nil, err
+	}
 
 	return map[string]interface{}{
 		"total_quota":      totalQuota,      // 所有时间累计获得的额度

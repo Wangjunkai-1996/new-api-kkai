@@ -31,7 +31,7 @@ func TestRC41ArchitectureMigrationIsAdditiveAcrossDialects(t *testing.T) {
 				allSQL = append(allSQL, statement.SQL)
 			}
 			joined := strings.Join(allSQL, "\n")
-			for _, table := range []string{"user_access_tokens", "task_plugins", "login_encryption_keys", "audit_logs"} {
+			for _, table := range []string{"user_access_tokens", "task_plugins", "login_encryption_keys", "audit_logs", "kkai_credit_migration_receipts"} {
 				require.Contains(t, joined, "CREATE TABLE IF NOT EXISTS "+table)
 			}
 			require.Contains(t, joined, "CREATE UNIQUE INDEX idx_user_access_tokens_token_hash")
@@ -40,6 +40,9 @@ func TestRC41ArchitectureMigrationIsAdditiveAcrossDialects(t *testing.T) {
 			if dialect == DialectMySQL {
 				require.Contains(t, joined, "source LONGTEXT NOT NULL")
 				require.Contains(t, joined, "icon LONGTEXT NOT NULL")
+				for _, column := range []string{"before_image", "after_image", "options_before", "options_after"} {
+					require.Contains(t, joined, column+" LONGTEXT NOT NULL")
+				}
 			} else {
 				require.Contains(t, joined, "source TEXT NOT NULL")
 				require.Contains(t, joined, "icon TEXT NOT NULL")
@@ -49,11 +52,13 @@ func TestRC41ArchitectureMigrationIsAdditiveAcrossDialects(t *testing.T) {
 }
 
 func TestRC41ArchitectureSQLiteDDLExecutes(t *testing.T) {
-	db := newAuthenticationSchemaTestDB(t)
+	db := newMigrationTestDB(t)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, AuthenticationSchemaVersion, RC41ArchitectureSchemaVersion)
+	require.NoError(t, err)
 	for _, statement := range rc41ArchitectureSchemaStatements[DialectSQLite] {
 		require.NoError(t, executeMigrationStatement(db, DialectSQLite, statement), statement.SQL)
 	}
-	for _, table := range []string{"user_access_tokens", "task_plugins", "login_encryption_keys", "audit_logs"} {
+	for _, table := range []string{"user_access_tokens", "task_plugins", "login_encryption_keys", "audit_logs", "kkai_credit_migration_receipts"} {
 		require.True(t, db.Migrator().HasTable(table), table)
 	}
 	for table, indexes := range map[string][]string{
@@ -146,13 +151,58 @@ VALUES (1, 'legacy-task', 43, 120, 'SUCCESS')`).Error)
 
 func TestRC41AuthenticationWriteFailureDoesNotLogPrivateKey(t *testing.T) {
 	db := newMigrationTestDB(t)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, AuthenticationSchemaVersion, RC41ArchitectureSchemaVersion)
+	require.NoError(t, err)
 	require.NoError(t, executeMigrationSchema(db, DialectSQLite, rc41ArchitectureMigration()))
 	require.NoError(t, db.Exec(`CREATE TRIGGER reject_login_key BEFORE INSERT ON login_encryption_keys
 BEGIN SELECT RAISE(ABORT, 'rejected login key'); END`).Error)
 	var output bytes.Buffer
 	db = db.Session(&gorm.Session{Logger: logger.New(log.New(&output, "", 0), logger.Config{LogLevel: logger.Info})})
-	err := db.Transaction(backfillRC41Authentication)
+	err = db.Transaction(backfillRC41Authentication)
 	require.ErrorContains(t, err, "rejected login key")
 	assert.NotContains(t, output.String(), "PRIVATE KEY")
 	assert.NotContains(t, output.String(), "INSERT INTO `login_encryption_keys`")
+}
+
+func TestRC41CreditReceiptPreservesLargeImagesAndIdentity(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, AuthenticationSchemaVersion, RC41ArchitectureSchemaVersion)
+	require.NoError(t, err)
+	require.NoError(t, executeMigrationSchema(db, DialectSQLite, rc41ArchitectureMigration()))
+	snapshot := strings.Repeat("balance-image", 10000)
+	row := map[string]any{"migration_id": "usd-credit-v1", "plan_hash": "plan", "pricing_plan_hash": "pricing", "state": "applied", "before_image": snapshot, "after_image": snapshot, "options_before": snapshot, "options_after": snapshot, "created_at": int64(1), "updated_at": int64(1)}
+	require.NoError(t, db.Table("kkai_credit_migration_receipts").Create(row).Error)
+	require.Error(t, db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).Table("kkai_credit_migration_receipts").Create(row).Error)
+	require.NoError(t, executeMigrationSchema(db, DialectSQLite, rc41ArchitectureMigration()))
+	var restored struct{ BeforeImage, AfterImage, OptionsBefore, OptionsAfter, PricingPlanHash string }
+	require.NoError(t, db.Table("kkai_credit_migration_receipts").Where("migration_id = ?", "usd-credit-v1").Take(&restored).Error)
+	assert.Equal(t, snapshot, restored.BeforeImage)
+	assert.Equal(t, snapshot, restored.AfterImage)
+	assert.Equal(t, snapshot, restored.OptionsBefore)
+	assert.Equal(t, snapshot, restored.OptionsAfter)
+	assert.Equal(t, "pricing", restored.PricingPlanHash)
+}
+
+func TestRC41LedgerEpochExpansionPreservesAuditValues(t *testing.T) {
+	db := newMigrationTestDB(t)
+	_, err := applyThroughVersion(context.Background(), db, Options{}, AuthenticationSchemaVersion, RC41ArchitectureSchemaVersion)
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(`INSERT INTO kkai_internal_balance_adjustments
+ (id,operation_id,user_id,delta,reason,metadata,payload_sha256,balance_before,balance_after,created_at)
+ VALUES (1,'legacy-rebate',2,1330,'rebate','{}','old-hash',100,1430,1)`).Error)
+	_, err = ApplyRC41ArchitectureExpand(context.Background(), db, Options{})
+	require.NoError(t, err)
+	var row struct {
+		Delta, BalanceBefore, BalanceAfter int64
+		PayloadSHA256                      string
+		WalletDelta                        *int64
+		SourceEpoch                        *string
+	}
+	require.NoError(t, db.Table("kkai_internal_balance_adjustments").Where("id = ?", 1).Take(&row).Error)
+	assert.EqualValues(t, 1330, row.Delta)
+	assert.EqualValues(t, 100, row.BalanceBefore)
+	assert.EqualValues(t, 1430, row.BalanceAfter)
+	assert.Equal(t, "old-hash", row.PayloadSHA256)
+	assert.Nil(t, row.WalletDelta)
+	assert.Nil(t, row.SourceEpoch)
 }

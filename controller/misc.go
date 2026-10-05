@@ -50,6 +50,16 @@ func GetStatus(c *gin.Context) {
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
 
+	creditEpoch := common.CreditEpochLegacy
+	cutover, err := common.ParseCreditEpochCutover(common.OptionMap[common.CreditEpochOption])
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Credit currency configuration is unavailable"})
+		return
+	}
+	if cutover != nil {
+		creditEpoch = cutover.TargetEpoch + ":" + cutover.MigrationID
+	}
+
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
 	videoStudioSetting := video_studio_setting.Get()
@@ -61,6 +71,7 @@ func GetStatus(c *gin.Context) {
 
 	data := gin.H{
 		"console_contract":            common.ConsoleContract(),
+		"credit_epoch":                creditEpoch,
 		"version":                     common.Version,
 		"frontend_mode":               frontendMode,
 		"start_time":                  common.StartTime,

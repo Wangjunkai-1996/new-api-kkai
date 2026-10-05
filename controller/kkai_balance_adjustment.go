@@ -17,9 +17,11 @@ func CreateKKAIBalanceAdjustment(c *gin.Context) {
 		return
 	}
 
-	result, err := service.ApplyKKAIBalanceAdjustment(request)
+	result, err := service.ApplyKKAIBalanceAdjustment(request, c.GetHeader("X-KKAI-Quota-Epoch"))
 	if err != nil {
 		switch {
+		case errors.Is(err, common.ErrCreditEpochInvalid):
+			writeKKAIBalanceError(c, http.StatusConflict, "credit_epoch_mismatch", "credit currency does not match the operation")
 		case errors.Is(err, service.ErrKKAIBalanceAdjustmentInvalidInput):
 			writeKKAIBalanceError(c, http.StatusBadRequest, "invalid_request", "invalid request")
 		case errors.Is(err, service.ErrKKAIBalanceAdjustmentUserNotFound):

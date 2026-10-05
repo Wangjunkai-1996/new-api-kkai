@@ -3,14 +3,55 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTopUpRebateEpochHeaderPreservesImmutablePayload(t *testing.T) {
+	cutover, err := common.Marshal(common.CreditEpochCutover{
+		Version: 1, MigrationID: "cutover", SourceEpoch: common.CreditEpochLegacy,
+		TargetEpoch: common.CreditEpochUSD, Numerator: 3, Denominator: 40,
+		PlanHash: "wallet", PricingPlanHash: "pricing", AppliedAt: 1,
+		LegacyMaxIDs:      map[string]int64{"kkai_outbox": 10},
+		LegacyTopUpPolicy: "hold",
+	})
+	require.NoError(t, err)
+	common.OptionMapRWMutex.Lock()
+	previous := common.OptionMap
+	common.OptionMap = map[string]string{common.CreditEpochOption: string(cutover)}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previous
+		common.OptionMapRWMutex.Unlock()
+	})
+	for _, tc := range []struct {
+		id    int64
+		epoch string
+	}{{10, common.CreditEpochLegacy}, {11, common.CreditEpochUSD}} {
+		event := topUpRebateOutboxEvent(t)
+		event.ID = tc.id
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, readErr := io.ReadAll(r.Body)
+			assert.NoError(t, readErr)
+			assert.Equal(t, event.Payload, string(body))
+			assert.Equal(t, tc.epoch, r.Header.Get("X-KKAI-Credit-Epoch"))
+			assert.Equal(t, "cutover", r.Header.Get("X-KKAI-Credit-Migration"))
+			w.WriteHeader(http.StatusCreated)
+		}))
+		handler := &TopUpRebateOutboxHandler{client: server.Client(), endpoint: server.URL, secret: "test-secret"}
+		err := handler.Handle(context.Background(), event)
+		server.Close()
+		require.NoError(t, err)
+	}
+}
 
 func topUpRebateOutboxEvent(t *testing.T) model.KKAIOutboxEvent {
 	t.Helper()

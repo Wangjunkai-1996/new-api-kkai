@@ -685,6 +685,9 @@ func updateOptionMap(key string, value string) (err error) {
 }
 
 func validateOptionValue(key, value string) error {
+	if key == common.CreditEpochOption {
+		return errors.New("credit epoch can only be changed by the offline migration")
+	}
 	if key == legacyAccessTokenRetireAtKey {
 		return errLegacyRetireAtReadOnly
 	}

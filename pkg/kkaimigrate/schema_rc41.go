@@ -20,7 +20,7 @@ func rc41ArchitectureMigration() migration {
 		Version:          9,
 		Name:             "rc41_scoped_tokens_and_task_plugins",
 		Kind:             MigrationKindExpand,
-		ImplementationID: "rc41_scoped_tokens_and_task_plugins_v2",
+		ImplementationID: "rc41_scoped_tokens_and_task_plugins_v3",
 		ChecksumVersion:  migrationChecksumSchemaBackfill,
 		BackfillSpec:     "provision one persisted RSA login key and the official 30-day legacy token retirement deadline with identity-only conflict updates; preserve existing values and omit key material from SQL logs",
 		BackfillID:       "provision_rc41_authentication_v2",
@@ -31,6 +31,18 @@ func rc41ArchitectureMigration() migration {
 
 var rc41ArchitectureSchemaStatements = map[string][]migrationStatement{
 	DialectSQLite: {
+		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS kkai_credit_migration_receipts (
+migration_id VARCHAR(128) PRIMARY KEY,
+plan_hash VARCHAR(128) NOT NULL,
+pricing_plan_hash VARCHAR(128) NOT NULL,
+state VARCHAR(16) NOT NULL,
+before_image TEXT NOT NULL,
+after_image TEXT NOT NULL,
+options_before TEXT NOT NULL,
+options_after TEXT NOT NULL,
+created_at BIGINT NOT NULL,
+updated_at BIGINT NOT NULL
+)`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS audit_logs (
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 event_id VARCHAR(64), user_id INTEGER, username VARCHAR(64), actor_role INTEGER,
@@ -45,6 +57,8 @@ route VARCHAR(255), status INTEGER, success BOOLEAN, request_id VARCHAR(64), con
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_created_at ON audit_logs (created_at)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_username ON audit_logs (username)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_category ON audit_logs (category)`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE kkai_internal_balance_adjustments ADD COLUMN wallet_delta BIGINT`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE kkai_internal_balance_adjustments ADD COLUMN source_epoch VARCHAR(32)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN access_token_created_at BIGINT`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE passkey_credentials ADD COLUMN rp_id VARCHAR(253)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN token_id BIGINT`},
@@ -87,6 +101,18 @@ private_key_pem TEXT NOT NULL
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE UNIQUE INDEX idx_login_encryption_keys_slot ON login_encryption_keys (slot)`},
 	},
 	DialectMySQL: {
+		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS kkai_credit_migration_receipts (
+migration_id VARCHAR(128) PRIMARY KEY,
+plan_hash VARCHAR(128) NOT NULL,
+pricing_plan_hash VARCHAR(128) NOT NULL,
+state VARCHAR(16) NOT NULL,
+before_image LONGTEXT NOT NULL,
+after_image LONGTEXT NOT NULL,
+options_before LONGTEXT NOT NULL,
+options_after LONGTEXT NOT NULL,
+created_at BIGINT NOT NULL,
+updated_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS audit_logs (
 id BIGINT AUTO_INCREMENT PRIMARY KEY,
 event_id VARCHAR(64), user_id INT, username VARCHAR(64), actor_role INT,
@@ -101,6 +127,8 @@ route VARCHAR(255), status INT, success BOOLEAN, request_id VARCHAR(64), content
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_created_at ON audit_logs (created_at)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_username ON audit_logs (username)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_category ON audit_logs (category)`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE kkai_internal_balance_adjustments ADD COLUMN wallet_delta BIGINT`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE kkai_internal_balance_adjustments ADD COLUMN source_epoch VARCHAR(32)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN access_token_created_at BIGINT`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE passkey_credentials ADD COLUMN rp_id VARCHAR(253)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN token_id BIGINT`},
@@ -143,6 +171,18 @@ private_key_pem TEXT NOT NULL
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE UNIQUE INDEX idx_login_encryption_keys_slot ON login_encryption_keys (slot)`},
 	},
 	DialectPostgres: {
+		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS kkai_credit_migration_receipts (
+migration_id VARCHAR(128) PRIMARY KEY,
+plan_hash VARCHAR(128) NOT NULL,
+pricing_plan_hash VARCHAR(128) NOT NULL,
+state VARCHAR(16) NOT NULL,
+before_image TEXT NOT NULL,
+after_image TEXT NOT NULL,
+options_before TEXT NOT NULL,
+options_after TEXT NOT NULL,
+created_at BIGINT NOT NULL,
+updated_at BIGINT NOT NULL
+)`},
 		{Operation: migrationOperationCreateTable, SQL: `CREATE TABLE IF NOT EXISTS audit_logs (
 id BIGSERIAL PRIMARY KEY,
 event_id VARCHAR(64), user_id INTEGER, username VARCHAR(64), actor_role INTEGER,
@@ -157,6 +197,8 @@ route VARCHAR(255), status INTEGER, success BOOLEAN, request_id VARCHAR(64), con
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_created_at ON audit_logs (created_at)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_username ON audit_logs (username)`},
 		{Operation: migrationOperationCreateIndex, SQL: `CREATE INDEX idx_audit_logs_category ON audit_logs (category)`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE kkai_internal_balance_adjustments ADD COLUMN wallet_delta BIGINT`},
+		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE kkai_internal_balance_adjustments ADD COLUMN source_epoch VARCHAR(32)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE users ADD COLUMN access_token_created_at BIGINT`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE passkey_credentials ADD COLUMN rp_id VARCHAR(253)`},
 		{Operation: migrationOperationAddNullableColumn, SQL: `ALTER TABLE midjourneys ADD COLUMN token_id BIGINT`},

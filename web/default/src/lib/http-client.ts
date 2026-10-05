@@ -46,6 +46,18 @@ declare module 'axios' {
 
 export type ApiRequestConfig = AxiosRequestConfig
 
+// A form belongs to the first network status observed by this document. Never
+// adopt another tab's localStorage or a background refresh across a cutover.
+let pageCreditEpoch: string | undefined
+export function bindPageCreditEpoch(epoch: unknown): void {
+  if (pageCreditEpoch !== undefined) return
+  if (typeof epoch === 'string' && epoch.length > 0) {
+    pageCreditEpoch = epoch
+  } else {
+    pageCreditEpoch = 'legacy_075'
+  }
+}
+
 export const api = axios.create({
   baseURL: '',
   withCredentials: true,
@@ -145,6 +157,9 @@ api.interceptors.response.use(
 )
 
 api.interceptors.request.use(async (config) => {
+  if (pageCreditEpoch !== undefined) {
+    config.headers.set('X-KKAI-Credit-Epoch', pageCreditEpoch)
+  }
   if (config.singleUseAuthorization || config.headers.has('X-Security-Proof')) {
     // Refresh before spending a proof/flow, never by replaying its request.
     config.skipAuthRefresh = true

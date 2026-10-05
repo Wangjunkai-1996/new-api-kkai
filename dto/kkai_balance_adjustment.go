@@ -36,6 +36,7 @@ type KKAIBalanceAdjustmentRequest struct {
 	Delta       int64                          `json:"delta"`
 	Reason      string                         `json:"reason"`
 	Metadata    *KKAIBalanceAdjustmentMetadata `json:"metadata,omitempty"`
+	QuotaEpoch  string                         `json:"quota_epoch,omitempty"`
 }
 
 func (request *KKAIBalanceAdjustmentRequest) UnmarshalJSON(data []byte) error {
@@ -45,6 +46,7 @@ func (request *KKAIBalanceAdjustmentRequest) UnmarshalJSON(data []byte) error {
 		"delta":        {},
 		"reason":       {},
 		"metadata":     {},
+		"quota_epoch":  {},
 	}); err != nil {
 		return err
 	}

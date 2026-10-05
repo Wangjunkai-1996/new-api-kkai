@@ -66,6 +66,26 @@ func (h *TopUpRebateOutboxHandler) Handle(ctx context.Context, event model.KKAIO
 	}
 	req.Header.Set("Authorization", "Bearer "+h.secret)
 	req.Header.Set("Content-Type", "application/json")
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil {
+		return err
+	}
+	if epoch != nil {
+		if event.ID <= 0 {
+			return common.ErrCreditEpochInvalid
+		}
+		if _, ok := epoch.LegacyMaxIDs["kkai_outbox"]; !ok {
+			return common.ErrCreditEpochInvalid
+		}
+		unit := common.CreditEpochUSD
+		if epoch.IsLegacy("kkai_outbox", event.ID) {
+			unit = common.CreditEpochLegacy
+		}
+		// The immutable payload and its idempotency hash are not rewritten.
+		// The authenticated receiver must bind this unit to its own ledger.
+		req.Header.Set("X-KKAI-Credit-Epoch", unit)
+		req.Header.Set("X-KKAI-Credit-Migration", epoch.MigrationID)
+	}
 	client := *h.client
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse

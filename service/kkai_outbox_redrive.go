@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
 	"gorm.io/gorm"
@@ -15,6 +16,8 @@ import (
 )
 
 var kkaiOutboxRedriveKeyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
+
+var ErrKKAILegacyOutboxHeld = errors.New("legacy financial event is held after currency migration")
 
 // RedriveKKAIOutboxDeadEvent reuses the original row so its ID, event key,
 // aggregate, topic, and business payload remain the durable lineage.
@@ -56,6 +59,21 @@ func redriveKKAIOutboxDeadEvent(
 		marker := "redrive_key=" + redriveKey
 		if event.Status != model.KKAIOutboxStatusDead || strings.HasPrefix(strings.TrimSpace(event.LastError), marker+" ") {
 			return nil
+		}
+		epoch, err := common.CurrentCreditEpoch()
+		if err != nil {
+			return err
+		}
+		if epoch != nil {
+			if _, ok := epoch.LegacyMaxIDs["kkai_outbox"]; !ok {
+				return common.ErrCreditEpochInvalid
+			}
+			if epoch.IsLegacy("kkai_outbox", event.ID) && !isVideoOutboxTopic(event.Topic) &&
+				event.Topic != ImageAssetThumbnailTopic && event.Topic != ImageAssetDeleteTopic {
+				// Asset work has no money delta. Old financial dead letters stay
+				// unchanged until their original settlement can be reconciled.
+				return ErrKKAILegacyOutboxHeld
+			}
 		}
 		if prepare != nil {
 			if err := prepare(ctx, tx, event, now); err != nil {

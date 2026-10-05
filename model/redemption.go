@@ -12,18 +12,42 @@ import (
 )
 
 type Redemption struct {
-	Id           int            `json:"id"`
-	UserId       int            `json:"user_id"`
-	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
-	Status       int            `json:"status" gorm:"default:1"`
-	Name         string         `json:"name" gorm:"index"`
-	Quota        int            `json:"quota" gorm:"default:100"`
-	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
-	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
-	Count        int            `json:"count" gorm:"-:all"` // only for api request
-	UsedUserId   int            `json:"used_user_id"`
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
-	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+	Id            int            `json:"id"`
+	UserId        int            `json:"user_id"`
+	Key           string         `json:"key" gorm:"type:char(32);uniqueIndex"`
+	Status        int            `json:"status" gorm:"default:1"`
+	Name          string         `json:"name" gorm:"index"`
+	Quota         int            `json:"quota" gorm:"default:100"`
+	CreatedTime   int64          `json:"created_time" gorm:"bigint"`
+	RedeemedTime  int64          `json:"redeemed_time" gorm:"bigint"`
+	Count         int            `json:"count" gorm:"-:all"` // only for api request
+	UsedUserId    int            `json:"used_user_id"`
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
+	ExpiredTime   int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+	QuotaEpoch    string         `json:"quota_epoch,omitempty" gorm:"-:all"`
+	OriginalQuota *int           `json:"original_quota,omitempty" gorm:"-:all"`
+}
+
+// NormalizeRedemptionCreditEpoch changes API copies only. Used legacy vouchers
+// retain their original stored amount; vouchers still usable at cutover were
+// already converted by the migration, even if they have since been redeemed.
+func NormalizeRedemptionCreditEpoch(redemptions []*Redemption) error {
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil || epoch == nil {
+		return err
+	}
+	if epoch.LegacyUsedRedemptionIDs == nil {
+		return common.ErrCreditEpochInvalid
+	}
+	for _, redemption := range redemptions {
+		redemption.QuotaEpoch = common.CreditEpochUSD
+		if redemption.OriginalQuota == nil && epoch.IsLegacyUsedRedemption(int64(redemption.Id)) {
+			original := redemption.Quota
+			redemption.OriginalQuota = &original
+			redemption.Quota = int(common.LegacyCreditToUSD(int64(original)))
+		}
+	}
+	return nil
 }
 
 func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {

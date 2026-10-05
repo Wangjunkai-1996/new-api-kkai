@@ -35,6 +35,7 @@ type KKAIBalanceAdjustmentInput struct {
 	PayloadSHA256       string
 	OriginalOperationID *string
 	CreatedAt           int64
+	QuotaEpoch          string
 }
 
 type KKAIBalanceAdjustmentResult struct {
@@ -75,25 +76,37 @@ func ApplyKKAIBalanceAdjustment(input KKAIBalanceAdjustmentInput) (*KKAIBalanceA
 			if stored.PayloadSHA256 != input.PayloadSHA256 {
 				return ErrKKAIBalanceAdjustmentIdempotencyConflict
 			}
+			storedEpoch := stored.SourceEpoch
+			if storedEpoch == "" {
+				storedEpoch = common.CreditEpochLegacy
+			}
+			if input.QuotaEpoch != "" && input.QuotaEpoch != storedEpoch {
+				return ErrKKAIBalanceAdjustmentIdempotencyConflict
+			}
 			result.Adjustment = &stored
 			result.Replayed = true
 			return nil
 		}
 
-		if err := validateKKAIBalanceReversal(tx, input); err != nil {
+		walletDelta, sourceEpoch, err := resolveKKAIBalanceWalletDelta(tx, input)
+		if err != nil {
 			return err
 		}
-		balanceAfter, err := updateKKAIBalanceUserQuota(tx, input.UserID, input.Delta)
+		balanceAfter, err := updateKKAIBalanceUserQuota(tx, input.UserID, walletDelta)
 		if err != nil {
 			return err
 		}
 		candidate.BalanceAfter = balanceAfter
-		candidate.BalanceBefore = balanceAfter - input.Delta
+		candidate.BalanceBefore = balanceAfter - walletDelta
+		candidate.WalletDelta = &walletDelta
+		candidate.SourceEpoch = sourceEpoch
 		if err := tx.Model(&KKAIInternalBalanceAdjustment{}).
 			Where("id = ?", candidate.ID).
 			Updates(map[string]any{
 				"balance_before": candidate.BalanceBefore,
 				"balance_after":  candidate.BalanceAfter,
+				"wallet_delta":   walletDelta,
+				"source_epoch":   sourceEpoch,
 			}).Error; err != nil {
 			return err
 		}
@@ -118,6 +131,9 @@ func validKKAIBalanceAdjustmentInput(input KKAIBalanceAdjustmentInput) bool {
 	if input.Delta == 0 || input.Delta == math.MinInt64 {
 		return false
 	}
+	if input.QuotaEpoch != "" && input.QuotaEpoch != common.CreditEpochLegacy && input.QuotaEpoch != common.CreditEpochUSD {
+		return false
+	}
 	if len(input.Metadata) > 2048 || len(input.PayloadSHA256) != 64 || input.CreatedAt <= 0 {
 		return false
 	}
@@ -136,25 +152,74 @@ func validKKAIBalanceAdjustmentInput(input KKAIBalanceAdjustmentInput) bool {
 	}
 }
 
-func validateKKAIBalanceReversal(tx *gorm.DB, input KKAIBalanceAdjustmentInput) error {
+func resolveKKAIBalanceWalletDelta(tx *gorm.DB, input KKAIBalanceAdjustmentInput) (int64, string, error) {
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil {
+		return 0, "", err
+	}
+	if epoch != nil {
+		if _, ok := epoch.LegacyMaxIDs["kkai_internal_balance_adjustments"]; !ok {
+			return 0, "", common.ErrCreditEpochInvalid
+		}
+	}
 	if input.OriginalOperationID == nil {
-		return nil
+		source := input.QuotaEpoch
+		if epoch == nil {
+			if source == common.CreditEpochUSD {
+				return 0, "", common.ErrCreditEpochInvalid
+			}
+			return input.Delta, common.CreditEpochLegacy, nil
+		}
+		// A delayed payout cannot be classified from its arrival timestamp.
+		// Existing idempotent operations were handled above; new operations must
+		// declare the unit agreed with the external invitation ledger.
+		switch source {
+		case common.CreditEpochLegacy:
+			return common.LegacyCreditToUSD(input.Delta), source, nil
+		case common.CreditEpochUSD:
+			return input.Delta, source, nil
+		default:
+			return 0, "", common.ErrCreditEpochInvalid
+		}
 	}
 	var original KKAIInternalBalanceAdjustment
 	if err := lockForUpdate(tx).Where("operation_id = ?", *input.OriginalOperationID).First(&original).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrKKAIBalanceAdjustmentReversalConflict
+			return 0, "", ErrKKAIBalanceAdjustmentReversalConflict
 		}
-		return err
+		return 0, "", err
 	}
 	if original.UserID != input.UserID || original.Reason != KKAIBalanceAdjustmentReasonCredit ||
 		original.Delta <= 0 || original.Delta != -input.Delta {
-		return ErrKKAIBalanceAdjustmentReversalConflict
+		return 0, "", ErrKKAIBalanceAdjustmentReversalConflict
 	}
-	return nil
+	source := original.SourceEpoch
+	if source == "" {
+		source = common.CreditEpochLegacy
+	}
+	if input.QuotaEpoch != "" && input.QuotaEpoch != source {
+		return 0, "", ErrKKAIBalanceAdjustmentReversalConflict
+	}
+	if epoch == nil {
+		return input.Delta, source, nil
+	}
+	if epoch.IsLegacy("kkai_internal_balance_adjustments", original.ID) {
+		return -common.LegacyCreditToUSD(original.Delta), common.CreditEpochLegacy, nil
+	}
+	if original.WalletDelta == nil || *original.WalletDelta < 0 {
+		return 0, "", common.ErrCreditEpochInvalid
+	}
+	return -*original.WalletDelta, source, nil
 }
 
 func updateKKAIBalanceUserQuota(tx *gorm.DB, userID int, delta int64) (int64, error) {
+	if delta == 0 {
+		var user User
+		if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userID).First(&user).Error; err != nil {
+			return 0, err
+		}
+		return user.Quota, nil
+	}
 	query := tx.Model(&User{}).Where("id = ?", userID)
 	if delta < 0 {
 		query = query.Where("COALESCE(quota, 0) >= ?", -delta)

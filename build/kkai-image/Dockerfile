@@ -91,6 +91,9 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/kkai-migrate ./cmd/kkai-migrate \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid=" \
+      -o /out/kkai-credit-migrate ./cmd/kkai-credit-migrate \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
 
@@ -135,6 +138,9 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/kkai-migrate ./cmd/kkai-migrate \
+    && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
+      -ldflags "-s -w -buildid=" \
+      -o /out/kkai-credit-migrate ./cmd/kkai-credit-migrate \
     && go build -p "${GO_BUILD_PARALLELISM}" -trimpath \
       -ldflags "-s -w -buildid= -X 'github.com/QuantumNous/new-api/common.SchemaManagementMode=external'" \
       -o /out/kkai-video-archive-once ./cmd/kkai-video-archive-once
@@ -248,6 +254,7 @@ LABEL io.kkrich.frontend-mode="embedded"
 ENV FRONTEND_MODE=embedded
 COPY --from=backend --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend --chown=10007:10007 /out/kkai-credit-migrate /kkai-credit-migrate
 COPY --from=backend --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
 
 FROM runtime-base AS runtime-external
@@ -256,6 +263,7 @@ LABEL io.kkrich.frontend-mode="external"
 ENV FRONTEND_MODE=external
 COPY --from=backend-external --chown=10007:10007 /out/new-api /new-api
 COPY --from=backend-external --chown=10007:10007 /out/kkai-migrate /kkai-migrate
+COPY --from=backend-external --chown=10007:10007 /out/kkai-credit-migrate /kkai-credit-migrate
 COPY --from=backend-external --chown=10007:10007 /out/kkai-video-archive-once /kkai-video-archive-once
 
 # Keep an unqualified build backward-compatible with the existing embedded

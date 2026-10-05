@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 
 	"gorm.io/gorm"
 )
@@ -78,6 +79,35 @@ type Log struct {
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string `json:"other"`
+	QuotaEpoch        string `json:"quota_epoch,omitempty" gorm:"-"`
+	PricingEpoch      string `json:"pricing_epoch,omitempty" gorm:"-"`
+	OriginalQuota     *int   `json:"original_quota,omitempty" gorm:"-"`
+}
+
+// Historical pricing snapshots remain untouched. Only the response's quota
+// is normalized; original_quota and pricing_epoch retain its provenance.
+func normalizeLogCreditEpoch(logs []*Log) error {
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil || epoch == nil {
+		return err
+	}
+	if _, ok := epoch.LegacyMaxIDs["logs"]; !ok {
+		return common.ErrCreditEpochInvalid
+	}
+	for _, entry := range logs {
+		if entry.QuotaEpoch != "" {
+			continue
+		}
+		entry.QuotaEpoch = common.CreditEpochUSD
+		entry.PricingEpoch = common.CreditEpochUSD
+		if epoch.IsLegacy("logs", int64(entry.Id)) {
+			original := entry.Quota
+			entry.OriginalQuota = &original
+			entry.Quota = common.QuotaFromDecimal(decimal.NewFromInt(common.LegacyCreditToUSD(int64(original))))
+			entry.PricingEpoch = common.CreditEpochLegacy
+		}
+	}
+	return nil
 }
 
 // don't use iota, avoid change log type value
@@ -143,6 +173,12 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 		order = clickHouseLogOrder("")
 	}
 	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
+	if err != nil {
+		return nil, err
+	}
+	if err = normalizeLogCreditEpoch(logs); err != nil {
+		return nil, err
+	}
 	formatUserLogs(logs, 0)
 	return logs, err
 }
@@ -508,6 +544,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if err != nil {
 		return nil, 0, err
 	}
+	if err = normalizeLogCreditEpoch(logs); err != nil {
+		return nil, 0, err
+	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		assignDisplayLogIds(logs, startIdx)
 	}
@@ -601,6 +640,9 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		return nil, 0, errors.New("查询日志失败")
 	}
 
+	if err = normalizeLogCreditEpoch(logs); err != nil {
+		return nil, 0, err
+	}
 	formatUserLogs(logs, startIdx)
 	return logs, total, err
 }
@@ -612,7 +654,11 @@ type Stat struct {
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
-	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
+	quotaExpr, err := creditEpochQuotaExpression(LOG_DB, "logs")
+	if err != nil {
+		return stat, err
+	}
+	tx := LOG_DB.Table("logs").Select("COALESCE(sum(" + quotaExpr + "), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")

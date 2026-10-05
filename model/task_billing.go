@@ -35,6 +35,7 @@ var (
 	ErrTaskBillingInsufficientSubscription = errors.New("insufficient subscription quota")
 	ErrTaskBillingInsufficientToken        = errors.New("insufficient token quota")
 	ErrTaskBillingRefundNotAllowed         = errors.New("task billing refund is not allowed")
+	ErrLegacyTaskBillingHeld               = errors.New("legacy task billing is held after credit cutover")
 )
 
 type TaskBillingReservationRequest struct {
@@ -726,11 +727,30 @@ func cloneTaskBillingRatios(ratios map[string]float64) map[string]float64 {
 }
 
 func lockTaskBillingRow(tx *gorm.DB, taskID int64) (*Task, error) {
+	if err := ValidateTaskCreditEpoch(taskID); err != nil {
+		return nil, err
+	}
 	var task Task
 	if err := lockForUpdate(tx).Where("id = ?", taskID).First(&task).Error; err != nil {
 		return nil, err
 	}
 	return &task, nil
+}
+
+// ValidateTaskCreditEpoch prevents immutable legacy task amounts from moving
+// funds in the new currency, including an explicit retry of a settled task.
+func ValidateTaskCreditEpoch(taskID int64) error {
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil || epoch == nil {
+		return err
+	}
+	if _, exists := epoch.LegacyMaxIDs["tasks"]; !exists || taskID <= 0 {
+		return common.ErrCreditEpochInvalid
+	}
+	if epoch.IsLegacy("tasks", taskID) {
+		return ErrLegacyTaskBillingHeld
+	}
+	return nil
 }
 
 func reserveTaskWallet(tx *gorm.DB, userID int, quota int) error {

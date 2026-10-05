@@ -33,9 +33,23 @@ type KKAIBalanceAdjustmentResponse struct {
 	BalanceAfter  int64  `json:"balance_after"`
 	CreatedAt     int64  `json:"created_at"`
 	Replayed      bool   `json:"replayed"`
+	WalletDelta   *int64 `json:"wallet_delta,omitempty"`
+	SourceEpoch   string `json:"source_epoch,omitempty"`
 }
 
-func ApplyKKAIBalanceAdjustment(request dto.KKAIBalanceAdjustmentRequest) (*KKAIBalanceAdjustmentResponse, error) {
+func ApplyKKAIBalanceAdjustment(request dto.KKAIBalanceAdjustmentRequest, transportEpoch ...string) (*KKAIBalanceAdjustmentResponse, error) {
+	sourceEpoch := request.QuotaEpoch
+	if len(transportEpoch) > 1 {
+		return nil, ErrKKAIBalanceAdjustmentInvalidInput
+	}
+	if len(transportEpoch) == 1 && transportEpoch[0] != "" {
+		if sourceEpoch != "" && sourceEpoch != transportEpoch[0] {
+			return nil, ErrKKAIBalanceAdjustmentInvalidInput
+		}
+		sourceEpoch = transportEpoch[0]
+	}
+	// Existing outbox JSON is immutable. Its authenticated transport may
+	// declare the source unit without changing the canonical payload hash.
 	metadata := request.Metadata
 	if metadata == nil {
 		metadata = &dto.KKAIBalanceAdjustmentMetadata{}
@@ -54,12 +68,14 @@ func ApplyKKAIBalanceAdjustment(request dto.KKAIBalanceAdjustmentRequest) (*KKAI
 		Delta       int64                             `json:"delta"`
 		Reason      string                            `json:"reason"`
 		Metadata    dto.KKAIBalanceAdjustmentMetadata `json:"metadata"`
+		QuotaEpoch  string                            `json:"quota_epoch,omitempty"`
 	}{
 		OperationID: request.OperationID,
 		UserID:      request.UserID,
 		Delta:       request.Delta,
 		Reason:      request.Reason,
 		Metadata:    *metadata,
+		QuotaEpoch:  request.QuotaEpoch,
 	})
 	if err != nil {
 		return nil, err
@@ -79,6 +95,7 @@ func ApplyKKAIBalanceAdjustment(request dto.KKAIBalanceAdjustmentRequest) (*KKAI
 		PayloadSHA256:       hex.EncodeToString(payloadHash[:]),
 		OriginalOperationID: originalOperationID,
 		CreatedAt:           common.GetTimestamp(),
+		QuotaEpoch:          sourceEpoch,
 	})
 	if err != nil {
 		return nil, err
@@ -94,6 +111,8 @@ func ApplyKKAIBalanceAdjustment(request dto.KKAIBalanceAdjustmentRequest) (*KKAI
 		BalanceAfter:  adjustment.BalanceAfter,
 		CreatedAt:     adjustment.CreatedAt,
 		Replayed:      result.Replayed,
+		WalletDelta:   adjustment.WalletDelta,
+		SourceEpoch:   adjustment.SourceEpoch,
 	}, nil
 }
 

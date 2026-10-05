@@ -294,12 +294,16 @@ func buildVideoGenerationViews(ctx context.Context, db *gorm.DB, generations []m
 		}
 		// A generation row is authoritative even before legacy tasks are backfilled.
 		task.PrivateData.AssetHostedResult = true
+		quota, err := common.HistoricalCreditQuota("tasks", task.ID, task.Quota)
+		if err != nil {
+			return nil, err
+		}
 		view := VideoGenerationView{
 			ID: generation.ID, TaskID: task.TaskID, ModelProfileID: generation.ModelProfileID,
 			SampleID: generation.SampleID, Model: generation.Model, Mode: generation.Mode,
 			Prompt: generation.Prompt, Parameters: parameters, Progress: task.Progress,
 			FailureReason: task.PublicFailReason(), FailureCode: videoGenerationFailureCode(task),
-			Quota: task.Quota, CreatedAt: generation.CreatedAt, UpdatedAt: generation.UpdatedAt,
+			Quota: quota, CreatedAt: generation.CreatedAt, UpdatedAt: generation.UpdatedAt,
 		}
 		assetID, hasOutput := outputByTask[generation.TaskID]
 		var output *model.KKAIVideoAsset

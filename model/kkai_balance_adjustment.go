@@ -14,6 +14,8 @@ type KKAIInternalBalanceAdjustment struct {
 	BalanceBefore       int64   `json:"balance_before" gorm:"type:bigint;not null"`
 	BalanceAfter        int64   `json:"balance_after" gorm:"type:bigint;not null"`
 	CreatedAt           int64   `json:"created_at" gorm:"type:bigint;not null;index"`
+	WalletDelta         *int64  `json:"wallet_delta,omitempty" gorm:"type:bigint"`
+	SourceEpoch         string  `json:"source_epoch,omitempty" gorm:"type:varchar(32)"`
 }
 
 func (KKAIInternalBalanceAdjustment) TableName() string {

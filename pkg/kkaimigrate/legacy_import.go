@@ -99,19 +99,9 @@ func importLegacyBalanceAdjustments(db *gorm.DB) error {
 		return err
 	}
 	for _, row := range rows {
-		adjustment := model.KKAIInternalBalanceAdjustment{
-			OperationID:         row.OperationID,
-			UserID:              row.UserID,
-			Delta:               row.Delta,
-			Reason:              row.Reason,
-			Metadata:            normalizedLegacyJSON(row.Metadata),
-			PayloadSHA256:       row.PayloadSHA256,
-			OriginalOperationID: row.OriginalOperationID,
-			BalanceBefore:       row.BalanceBefore,
-			BalanceAfter:        row.BalanceAfter,
-			CreatedAt:           row.CreatedAt,
-		}
-		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&adjustment).Error; err != nil {
+		row.Metadata = normalizedLegacyJSON(row.Metadata)
+		// v2 imports only its original columns, before later ledger expansions.
+		if err := db.Table("kkai_internal_balance_adjustments").Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
 			return err
 		}
 	}

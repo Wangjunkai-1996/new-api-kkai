@@ -472,6 +472,10 @@ func GetSelf(c *gin.Context) {
 		return
 	}
 	responseData := buildSelfUserData(user)
+	responseData["auth_method"] = "access_token"
+	if _, ok := middleware.GetSessionAuthIdentity(c); ok {
+		responseData["auth_method"] = "session"
+	}
 	// The authenticated role is loaded from GetUserCache. It should equal the
 	// row role, but use it for capabilities so GetSelf and login/refresh remain
 	// consistent with the authorization decision made for this request.

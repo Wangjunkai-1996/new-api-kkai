@@ -120,8 +120,12 @@ func SaveQuotaDataCache() error {
 }
 
 func persistQuotaData(quotaData *QuotaData) error {
+	query, err := currentQuotaDataBuckets()
+	if err != nil {
+		return err
+	}
 	quotaDataDB := &QuotaData{}
-	err := DB.Table("quota_data").
+	err = query.
 		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 		First(quotaDataDB).Error
@@ -134,8 +138,28 @@ func persistQuotaData(quotaData *QuotaData) error {
 	return DB.Table("quota_data").Create(quotaData).Error
 }
 
+func currentQuotaDataBuckets() (*gorm.DB, error) {
+	query := DB.Table("quota_data")
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil {
+		return nil, err
+	}
+	if epoch != nil {
+		cutoff, exists := epoch.LegacyMaxIDs["quota_data"]
+		if !exists {
+			return nil, common.ErrCreditEpochInvalid
+		}
+		query = query.Where("id > ?", cutoff)
+	}
+	return query, nil
+}
+
 func increaseQuotaData(quotaData *QuotaData) error {
-	return DB.Table("quota_data").
+	query, err := currentQuotaDataBuckets()
+	if err != nil {
+		return err
+	}
+	return query.
 		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 		Updates(map[string]interface{}{
@@ -146,10 +170,14 @@ func increaseQuotaData(quotaData *QuotaData) error {
 }
 
 func GetQuotaDataByUsername(username string, startTime int64, endTime int64) (quotaData []*QuotaData, err error) {
+	quotaExpr, err := creditEpochQuotaExpression(DB, "quota_data")
+	if err != nil {
+		return nil, err
+	}
 	var quotaDatas []*QuotaData
 	// 从quota_data表中查询数据
 	err = DB.Table("quota_data").
-		Select("user_id, username, model_name, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select("user_id, username, model_name, created_at, sum(count) as count, sum("+quotaExpr+") as quota, sum(token_used) as token_used").
 		Where("username = ? and created_at >= ? and created_at <= ?", username, startTime, endTime).
 		Group("user_id, username, model_name, created_at").
 		Find(&quotaDatas).Error
@@ -157,10 +185,14 @@ func GetQuotaDataByUsername(username string, startTime int64, endTime int64) (qu
 }
 
 func GetQuotaDataByUserId(userId int, startTime int64, endTime int64) (quotaData []*QuotaData, err error) {
+	quotaExpr, err := creditEpochQuotaExpression(DB, "quota_data")
+	if err != nil {
+		return nil, err
+	}
 	var quotaDatas []*QuotaData
 	// 从quota_data表中查询数据
 	err = DB.Table("quota_data").
-		Select("user_id, username, model_name, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select("user_id, username, model_name, created_at, sum(count) as count, sum("+quotaExpr+") as quota, sum(token_used) as token_used").
 		Where("user_id = ? and created_at >= ? and created_at <= ?", userId, startTime, endTime).
 		Group("user_id, username, model_name, created_at").
 		Find(&quotaDatas).Error
@@ -168,9 +200,13 @@ func GetQuotaDataByUserId(userId int, startTime int64, endTime int64) (quotaData
 }
 
 func GetQuotaDataGroupByUser(startTime int64, endTime int64) (quotaData []*QuotaData, err error) {
+	quotaExpr, err := creditEpochQuotaExpression(DB, "quota_data")
+	if err != nil {
+		return nil, err
+	}
 	var quotaDatas []*QuotaData
 	err = DB.Table("quota_data").
-		Select("username, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select("username, created_at, sum(count) as count, sum("+quotaExpr+") as quota, sum(token_used) as token_used").
 		Where("created_at >= ? and created_at <= ?", startTime, endTime).
 		Group("username, created_at").
 		Find(&quotaDatas).Error
@@ -181,10 +217,14 @@ func GetAllQuotaDates(startTime int64, endTime int64, username string) (quotaDat
 	if username != "" {
 		return GetQuotaDataByUsername(username, startTime, endTime)
 	}
+	quotaExpr, err := creditEpochQuotaExpression(DB, "quota_data")
+	if err != nil {
+		return nil, err
+	}
 	var quotaDatas []*QuotaData
 	// 从quota_data表中查询数据
-	// only select model_name, sum(count) as count, sum(quota) as quota, model_name, created_at from quota_data group by model_name, created_at;
+	// only select model_name, sum(count) as count, sum("+quotaExpr+") as quota, model_name, created_at from quota_data group by model_name, created_at;
 	//err = DB.Table("quota_data").Where("created_at >= ? and created_at <= ?", startTime, endTime).Find(&quotaDatas).Error
-	err = DB.Table("quota_data").Select("model_name, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, created_at").Where("created_at >= ? and created_at <= ?", startTime, endTime).Group("model_name, created_at").Find(&quotaDatas).Error
+	err = DB.Table("quota_data").Select("model_name, sum(count) as count, sum("+quotaExpr+") as quota, sum(token_used) as token_used, created_at").Where("created_at >= ? and created_at <= ?", startTime, endTime).Group("model_name, created_at").Find(&quotaDatas).Error
 	return quotaDatas, err
 }

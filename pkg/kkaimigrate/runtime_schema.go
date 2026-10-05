@@ -191,6 +191,8 @@ var authenticationRuntimeUniqueIndexes = []runtimeIndexRequirement{
 }
 
 var rc41ArchitectureRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "kkai_internal_balance_adjustments", Columns: []string{"wallet_delta", "source_epoch"}},
+	{Table: "kkai_credit_migration_receipts", Columns: []string{"migration_id", "plan_hash", "pricing_plan_hash", "state", "before_image", "after_image", "options_before", "options_after", "created_at", "updated_at"}},
 	{Table: "users", Columns: []string{"access_token_created_at"}},
 	{Table: "passkey_credentials", Columns: []string{"rp_id"}},
 	{Table: "midjourneys", Columns: []string{"token_id", "billing_channel_id"}},
