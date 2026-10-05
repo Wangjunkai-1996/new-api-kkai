@@ -12,7 +12,7 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
-PG_V9_DIGEST = "sha256:cc1fd8e06a943a01531257e66929183734bdb1377f2584f0f57ab66f7c991034"
+PG_V9_DIGEST = "sha256:4e65c4c6c49ad3ce1d87e3a144df3b0a57a3f408f3323226dd81b6b7a16972c1"
 SCHEMA_CONTRACT = {
     "runtime_min_version": 9,
     "runtime_max_version": 9,
@@ -112,19 +112,34 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
         endpoint = run("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}")
     if not endpoint.startswith(("unix:///", "npipe:///")):
         raise ValueError("maintenance preparation requires a local Docker endpoint")
-    # Load the already built archive, then probe only its immutable ID. These
-    # commands have no network, credentials, production mounts or application DB.
+    # Docker Desktop may expose a manifest digest as its local immutable ID.
+    # Bind that ID to the verified archive before probing; retain the archive's
+    # config digest in the plan for the remote Linux image identity.
     run("docker", "image", "load", "--input", str(archive_path))
+    loaded = json.loads(run("docker", "image", "inspect", tag))
+    if not isinstance(loaded, list) or len(loaded) != 1:
+        raise ValueError("loaded image identity is ambiguous")
+    local = loaded[0]
+    local_id = local.get("Id", "")
+    local_rootfs = local.get("RootFS", {})
+    if (not re.fullmatch(r"sha256:[0-9a-f]{64}", local_id)
+            or local.get("Architecture") != config["architecture"]
+            or local.get("Os") != config["os"]
+            or local.get("Config") != image
+            or config.get("rootfs") != {
+                "type": local_rootfs.get("Type"), "diff_ids": local_rootfs.get("Layers"),
+            }):
+        raise ValueError("loaded image identity differs from the verified archive")
     schema = json.loads(run(
         "docker", "run", "--rm", "--pull", "never", "--network", "none",
-        "--entrypoint", "/kkai-migrate", image_id,
+        "--entrypoint", "/kkai-migrate", local_id,
         "--describe-contract", "--dialect", "postgres", "--json",
     ))
     if schema != SCHEMA_CONTRACT:
         raise ValueError("binary schema contract does not match the reviewed PostgreSQL v9 contract")
     binary_console = json.loads(run(
         "docker", "run", "--rm", "--pull", "never", "--network", "none",
-        "--entrypoint", "/new-api", image_id, "--describe-console-contract",
+        "--entrypoint", "/new-api", local_id, "--describe-console-contract",
     ))
     if binary_console != console:
         raise ValueError("binary console contract differs from the archive label")

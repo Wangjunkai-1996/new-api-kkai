@@ -1,4 +1,5 @@
 import hashlib
+import copy
 import importlib.util
 import io
 import json
@@ -29,6 +30,7 @@ class MaintenanceReleaseTests(unittest.TestCase):
         }
         config = {
             "architecture": "amd64", "os": "linux",
+            "rootfs": {"type": "layers", "diff_ids": ["sha256:" + "5" * 64]},
             "config": {
                 "User": "10007:10007", "Entrypoint": ["/new-api-entrypoint"],
                 "Env": ["FRONTEND_MODE=external"],
@@ -53,6 +55,11 @@ class MaintenanceReleaseTests(unittest.TestCase):
                 member.size = len(data)
                 archive.addfile(member, io.BytesIO(data))
         self.image_id = "sha256:" + hashlib.sha256(json.dumps(config).encode()).hexdigest()
+        self.local_image = {
+            "Id": "sha256:" + "4" * 64, "Architecture": "amd64", "Os": "linux",
+            "Config": copy.deepcopy(config["config"]),
+            "RootFS": {"Type": "layers", "Layers": config["rootfs"]["diff_ids"][:]},
+        }
         self.metadata.write_text(json.dumps({
             "source_sha": "1" * 40, "version": self.version, "image_tag": tag,
             "release_purpose": "maintenance-preparation", "schema_contract": "feature",
@@ -75,11 +82,14 @@ class MaintenanceReleaseTests(unittest.TestCase):
         if arguments[1] == "context":
             return self.endpoint
         if arguments[1] == "image":
-            return "loaded"
+            if arguments[2] == "load":
+                return "loaded"
+            self.assertEqual(arguments, ("docker", "image", "inspect", f"kkai-newapi-manual:{self.version}"))
+            return json.dumps([self.local_image])
         self.assertEqual(arguments[:8], (
             "docker", "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint",
         ))
-        self.assertEqual(arguments[9], self.image_id)
+        self.assertEqual(arguments[9], self.local_image["Id"])
         if arguments[8] == "/kkai-migrate":
             self.assertEqual(arguments[10:], ("--describe-contract", "--dialect", "postgres", "--json"))
             return json.dumps(self.schema)
@@ -98,6 +108,24 @@ class MaintenanceReleaseTests(unittest.TestCase):
         self.assertEqual(plan["console_contract"], self.console)
         self.assertEqual(plan["planned_infra_sha"], "3" * 40)
         self.assertEqual(plan["metadata_sha256"], maintenance.digest_file(self.metadata))
+
+    def test_classic_docker_config_id_is_also_supported(self):
+        self.local_image["Id"] = self.image_id
+        self.assertEqual(self.plan()["image_id"], self.image_id)
+
+    def test_loaded_image_drift_is_rejected_before_binary_execution(self):
+        original = copy.deepcopy(self.local_image)
+        for field, value in (
+            ("Id", "mutable-tag"), ("Architecture", "arm64"), ("Os", "windows"),
+            ("Config", {**original["Config"], "Env": ["FRONTEND_MODE=embedded"]}),
+            ("RootFS", {"Type": "layers", "Layers": ["sha256:" + "6" * 64]}),
+        ):
+            with self.subTest(field=field):
+                self.local_image = {**original, field: value}
+                self.calls.clear()
+                with self.assertRaisesRegex(ValueError, "loaded image identity"):
+                    self.plan()
+                self.assertFalse(any(call[:2] == ("docker", "run") for call in self.calls))
 
     def test_tampered_archive_is_rejected_before_any_command(self):
         with (self.root / f"{self.version}.tar").open("ab") as archive:
