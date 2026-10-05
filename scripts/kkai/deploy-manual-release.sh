@@ -122,6 +122,8 @@ readonly METADATA
 for command_name in jq scp ssh; do
   command -v "${command_name}" >/dev/null 2>&1 || die "missing ${command_name}"
 done
+jq --exit-status '(.release_purpose // "application") == "application"' "${METADATA}" >/dev/null ||
+  die "maintenance-preparation artifacts require the separately authorized maintenance controller; ordinary stage is forbidden"
 
 KKAI_INFRA_SHA=''
 KKAI_DEPLOYMENT_PROTOCOL=''

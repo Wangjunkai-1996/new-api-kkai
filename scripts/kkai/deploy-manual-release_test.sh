@@ -22,7 +22,7 @@ mkdir -p -- "${mock_bin}"
 # shellcheck source=manual-deployment-contract.env
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
-readonly EXPECTED_INFRA_SHA=438fd447cdf748ff104315de58f24c7b2ed5023d
+readonly EXPECTED_INFRA_SHA=f8f3a0afa5ccbe533e5ebd34fc343643ae05748e
 readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
 readonly EXPECTED_HOST=sys1
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
@@ -334,6 +334,18 @@ test_invalid_schema_contract_prevents_remote_calls() {
   [[ ! -s "${call_log}" ]] || fail "invalid schema contract made a remote call"
 }
 
+test_maintenance_preparation_prevents_remote_calls() {
+  local maintenance_metadata="${test_root}/maintenance.json" output
+
+  jq '.release_purpose = "maintenance-preparation"' "${metadata}" > "${maintenance_metadata}"
+  if output="$(run_stage ready "${maintenance_metadata}" 2>&1)"; then
+    fail "maintenance preparation unexpectedly allowed ordinary staging"
+  fi
+  grep -F 'ordinary stage is forbidden' <<< "${output}" >/dev/null ||
+    fail "maintenance preparation was not rejected explicitly"
+  [[ ! -s "${call_log}" ]] || fail "maintenance preparation made a remote call"
+}
+
 test_invalid_frontend_mode_prevents_remote_calls() {
   local invalid_metadata="${test_root}/invalid-frontend-mode.json" output
 
@@ -633,6 +645,7 @@ test_contract_pins_staged_controller
 test_requires_explicit_stage_action
 test_preflight_failure_prevents_upload
 test_invalid_schema_contract_prevents_remote_calls
+test_maintenance_preparation_prevents_remote_calls
 test_invalid_frontend_mode_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract

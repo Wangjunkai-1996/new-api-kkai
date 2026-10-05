@@ -53,13 +53,13 @@ snapshot 状态机也没有 v9 流程。
 新旧前端 API 契约又没有交集，当前 release controller 不能原子切换前端、后端和数据库。
 不能通过更改 JSON 声明、放宽门禁或提前激活新版前端处理这些问题。
 
-因此本轮没有上传、stage、canary、promote 或执行任何生产迁移。后端正式镜像构建也保留到
-专用迁移流程和目标 schema 证据满足门禁后；前端独立产物可以在本地准备。
+因此本轮没有上传、stage、canary、promote 或执行任何生产迁移。专用维护预构建入口现已
+实现并通过定向测试；它只准备目标 v9 产物，不宣称线上已是 v9，也不允许普通 stage 使用。
 
 ## 推荐后续方案：维护窗口内联合升级
 
-这属于基础设施/schema 升级。现有正常蓝绿入口不能直接执行下面的流程；需要先实现并
-验收专用维护事务。以下是待实现/待批准计划，不是已经具备的生产能力。
+这属于基础设施/schema 升级。现有正常蓝绿入口不能直接执行下面的流程。维护事务正在
+本地实现和验收；只有完成全部产物、控制器和演练门禁后才能成为可执行的生产方案。
 
 1. 在当前 infra 分支补齐 v9 的精确 contract、digest、snapshot、observe 与恢复校验。
    迁移器必须绑定审核过的不可变新版镜像，不能继续强制取旧 current 镜像，也不能仅在
@@ -87,4 +87,46 @@ schema apply 授权与 runbook 21 的不兼容契约维护边界，并与本轮�
 
 未运行 `go test ./...` 或整个 workspace 测试。前端全目录 lint/format 的首轮检查存在
 未改动文件的既有错误；随后仅修复并检查本次改动范围，没有修改全站历史代码或关闭规则。
-生产候选验收、真实业务数据副本恢复演练、维护事务的实现/故障恢复与生产公开切换均尚未完成。
+生产候选验收、真实业务数据副本恢复演练、维护事务的完整集成验收与生产公开切换均尚未完成。
+
+## 维护窗口前的进一步准备
+
+2026-10-05 的独立只读检查仍显示原版本 `HEALTHY`。本次取得的 schema-only dump 不含
+业务行、owner 或 ACL，SHA256 为
+`bd50712cfd527044be4be55e68c8b90f5a3610c35f26ef51a395ba066f0187ac`。
+生产 NewAPI 专库约 7.9 GiB；此数值只用于容量准备，不是恢复时间承诺。
+
+使用完整生产 DDL 和合成业务数据的 PostgreSQL 18.4 演练已通过：v7→v8→v9、重复迁移、
+存量原列指纹、密钥/PAT/退休时间幂等，以及 `pg_dump` / `pg_restore` 恢复到 v7。
+测试本体约 6 秒，仅证明合成数据上的行为，不能用来估计生产停机时间。
+证据在 `.local-releases/rc41-preparation/maintenance-exact-schema-rehearsal/`。
+
+维护准备构建使用现有 Mac builder，完整后端镜像内的 `/new-api` 与 `/kkai-migrate`
+共享同一个不可变 image ID：
+
+```bash
+scripts/kkai/build-manual-release.sh \
+  --prepare-maintenance --schema-contract feature --frontend-mode external \
+  --planned-infra-sha REVIEWED_LOCAL_INFRA_COMMIT \
+  --planned-deployment-protocol rc41-maintenance-v1
+```
+
+仅在生产 checkout 门禁满足后执行。输出 `.maintenance.json` 绑定源码提交/tree、镜像 ID、
+archive/metadata SHA256、精确 `(9,9,9)` 与 PostgreSQL digest、console API 2，以及计划
+安装的控制器。`planned-infra-sha` 不代表已经安装，不修改现行 application contract pin。
+生成的 metadata 含 `release_purpose: maintenance-preparation`，普通 deploy wrapper
+在任何 SSH/SCP 前拒绝它。
+
+独立前端可复用已验证产物
+`kkai-frontend-20261004.1791150534-1d46a87cf`，format 2 / API 2，archive SHA256
+`a5f50ae72dea8466e6efe98e28da260dcb14a49678f92a88cc614d3db9e5e157`。
+改变后端发布工具而未改变前端代码不要求重建它。
+
+同一新版镜像的两槽及两份对称 manifests 已通过实际模板/Compose/现有对称校验演练。
+这提供 v9 内的槽位故障切换，不能回退 rc.41 的代码缺陷。公开前恢复旧版需要完整旧
+前后端与专库备份；一旦启动新版 writer 或接入公开流量，就不能再把旧备份恢复称为无损回退。
+
+当前应用和 infra 中另一项美元额度迁移的未跟踪文件保持原样，不属于本次升级。
+其引起的干净构建门禁与 infra source-size 门禁冲突必须单独解决，不能隐式 stage、ignore、
+删除或用更改测试 baseline 掩盖。正式镜像仍未构建，维护工具仍未安装，生产停写和迁移仍待
+用户通知维护窗口。

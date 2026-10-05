@@ -29,6 +29,7 @@ case "$*" in
     printf 'production/kkrich\n'
     ;;
   *'status --porcelain=v1 --untracked-files=all')
+    [[ ${KKAI_TEST_DIRTY:-false} == false ]] || printf '?? unrelated-user-file\n'
     ;;
   *'rev-parse HEAD')
     printf '1111111111111111111111111111111111111111\n'
@@ -112,6 +113,14 @@ echo "unexpected docker invocation: $*" >&2
 exit 94
 EOF
 chmod 0755 "${mock_bin}/git" "${mock_bin}/docker"
+
+cat >"${mock_bin}/python3" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'python3 %s\n' "$*" >>"${KKAI_TEST_LOG}"
+[[ $1 == */prepare-maintenance-release.py && $2 == create ]] || exit 95
+EOF
+chmod 0755 "${mock_bin}/python3"
 
 run_build() {
   local mode=$1
@@ -288,6 +297,47 @@ expect_remote_rejected() {
     fail 'remote endpoint was bootstrapped before local endpoint validation'
 }
 
+expect_maintenance_preparation() {
+  local output_dir="${test_root}/out-maintenance" output
+  local planned_sha=3333333333333333333333333333333333333333
+
+  : >"${call_log}"
+  if ! output="$(
+    PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
+      "${BUILD_SCRIPT}" --schema-contract feature --frontend-mode external \
+      --prepare-maintenance --planned-infra-sha "${planned_sha}" \
+      --planned-deployment-protocol rc41-maintenance-v1 \
+      --version "${version}" --output-dir "${output_dir}" 2>&1
+  )"; then
+    fail "maintenance preparation failed\n${output}"
+  fi
+  output_dir="$(cd -- "${output_dir}" && pwd)"
+  jq -e '.release_purpose == "maintenance-preparation" and .schema_contract == "feature" and .frontend_mode == "external"' \
+    "${output_dir}/${version}.json" >/dev/null || fail 'maintenance metadata is not marked'
+  grep -F -- "prepare-maintenance-release.py create --metadata ${output_dir}/${version}.json --planned-infra-sha ${planned_sha} --planned-deployment-protocol rc41-maintenance-v1" \
+    "${call_log}" >/dev/null || fail 'maintenance plan did not receive exact release coordinates'
+  [[ $(grep -c '^docker buildx build --builder ' "${call_log}") == 1 ]] ||
+    fail 'maintenance preparation did not build exactly one backend image'
+}
+
+expect_maintenance_rejected() {
+  local reason=$1 output
+  shift
+  : >"${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
+      "${BUILD_SCRIPT}" --schema-contract feature --frontend-mode external \
+      --version "${version}" --output-dir "${test_root}/out-rejected" "$@" 2>&1
+  )"; then
+    fail "invalid maintenance preparation succeeded: ${reason}"
+  fi
+  grep -F "${reason}" <<<"${output}" >/dev/null ||
+    fail "maintenance preparation failed for the wrong reason\n${output}"
+  ! grep -Eq '^docker |^python3 ' "${call_log}" || fail 'invalid maintenance preparation reached build or artifact inspection'
+}
+
 expect_direct_uri direct-unix
 expect_direct_uri direct-npipe
 expect_context_name
@@ -298,4 +348,14 @@ expect_no_resource_limits
 expect_invalid_parallelism_rejected
 expect_build_lock_rejected
 expect_remote_rejected
+expect_maintenance_preparation
+expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
+expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \
+  --planned-infra-sha 3333333333333333333333333333333333333333
+expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --schema-contract bridge
+expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --frontend-mode embedded
+expect_maintenance_rejected 'require --prepare-maintenance' --planned-infra-sha 3333333333333333333333333333333333333333
+KKAI_TEST_DIRTY=true expect_maintenance_rejected 'production builds require a clean worktree' \
+  --prepare-maintenance --planned-infra-sha 3333333333333333333333333333333333333333 \
+  --planned-deployment-protocol rc41-maintenance-v1
 echo 'Manual build endpoint regression tests passed.'

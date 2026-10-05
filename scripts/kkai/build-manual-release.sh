@@ -22,6 +22,9 @@ output_dir="${ROOT}/.local-releases"
 version=''
 schema_contract=''
 frontend_mode='embedded'
+prepare_maintenance=false
+planned_infra_sha=''
+planned_deployment_protocol=''
 builder="${BUILDX_BUILDER:-kkai-mirror-builder}"
 go_build_parallelism="${KKAI_GO_BUILD_PARALLELISM:-4}"
 media_build_parallelism="${KKAI_MEDIA_BUILD_PARALLELISM:-2}"
@@ -88,6 +91,11 @@ resolve_builder_endpoint_host() {
 
 while (( $# > 0 )); do
   case "$1" in
+    --prepare-maintenance)
+      prepare_maintenance=true
+      shift
+      continue
+      ;;
     --no-resource-limits)
       build_cpu_quota=''
       build_memory_limit=''
@@ -100,6 +108,8 @@ while (( $# > 0 )); do
     --output-dir) output_dir=$2 ;;
     --schema-contract) schema_contract=$2 ;;
     --frontend-mode) frontend_mode=$2 ;;
+    --planned-infra-sha) planned_infra_sha=$2 ;;
+    --planned-deployment-protocol) planned_deployment_protocol=$2 ;;
     --version) version=$2 ;;
     --builder) builder=$2 ;;
     --go-build-parallelism) go_build_parallelism=$2 ;;
@@ -127,6 +137,16 @@ case "${frontend_mode}" in
   embedded | external) ;;
   *) die "frontend mode must be embedded or external" ;;
 esac
+if [[ "${prepare_maintenance}" == true ]]; then
+  [[ "${schema_contract}" == feature && "${frontend_mode}" == external ]] ||
+    die "maintenance preparation requires feature schema and external frontend"
+  [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ ]] || die "maintenance preparation requires planned infrastructure SHA"
+  [[ "${planned_deployment_protocol}" =~ ^[a-z][a-z0-9-]{2,63}$ ]] ||
+    die "maintenance preparation requires planned deployment protocol"
+  command -v python3 >/dev/null || die "missing python3"
+elif [[ -n "${planned_infra_sha}" || -n "${planned_deployment_protocol}" ]]; then
+  die "planned infrastructure arguments require --prepare-maintenance"
+fi
 [[ "${builder}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
   die "invalid Buildx builder name"
 [[ "${go_build_parallelism}" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]] ||
@@ -173,7 +193,8 @@ archive="${output_dir}/${version}.tar"
 metadata="${output_dir}/${version}.json"
 
 acquire_build_lock
-[[ ! -e "${archive}" && ! -e "${metadata}" ]] || die "release output already exists"
+[[ ! -e "${archive}" && ! -e "${metadata}" && ! -e "${output_dir}/${version}.maintenance.json" ]] ||
+  die "release output already exists"
 
 if ! builder_info="$(docker buildx inspect "${builder}" 2>&1)"; then
   die "Buildx builder ${builder} is unavailable"
@@ -255,6 +276,7 @@ jq --null-input \
   --arg frontend_mode "${frontend_mode}" \
   --arg archive "$(basename -- "${archive}")" \
   --arg archive_sha256 "${archive_sha256}" \
+  --argjson prepare_maintenance "${prepare_maintenance}" \
   '{
     version: $version,
     source_sha: $source_sha,
@@ -265,6 +287,16 @@ jq --null-input \
     archive: $archive,
     archive_sha256: $archive_sha256,
     platform: "linux/amd64"
-  }' > "${metadata}"
+  } + (if $prepare_maintenance then {release_purpose: "maintenance-preparation"} else {} end)' > "${metadata}"
+
+if [[ "${prepare_maintenance}" == true ]]; then
+  [[ "$(git -C "${ROOT}" rev-parse HEAD)" == "${source_sha}" &&
+     -z "$(git -C "${ROOT}" status --porcelain=v1 --untracked-files=all)" ]] ||
+    die "checkout changed during maintenance preparation; artifact is not accepted"
+  python3 "${ROOT}/scripts/kkai/prepare-maintenance-release.py" create \
+    --metadata "${metadata}" \
+    --planned-infra-sha "${planned_infra_sha}" \
+    --planned-deployment-protocol "${planned_deployment_protocol}"
+fi
 
 echo "MANUAL_RELEASE_METADATA=${metadata}"
