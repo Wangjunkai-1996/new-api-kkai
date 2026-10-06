@@ -204,7 +204,10 @@ export function RatioSettingsCard({
   const updateOption = useUpdateOption()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const pricingQuery = useModelPricing()
+  const needsModelPricing = visibleTabs.some(
+    (tab) => tab === 'models' || tab === 'unset-models'
+  )
+  const pricingQuery = useModelPricing([], needsModelPricing)
   const savePricing = useSaveModelPricing()
   const [pricingBaseline, setPricingBaseline] =
     useState<ModelPricingConfig | null>(null)
