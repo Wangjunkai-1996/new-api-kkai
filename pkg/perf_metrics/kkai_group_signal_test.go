@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 	"github.com/alicebob/miniredis/v2"
@@ -108,14 +109,20 @@ func TestKKAIGroupCacheTrackingResetsAfterCollectionIsReenabled(t *testing.T) {
 	require.NoError(t, client.Set(context.Background(), kkaiGroupCacheTrackingMarkerKey, initialMarker, 0).Err())
 
 	metricsSetting.Enabled = false
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 90})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 90
+	RecordRelayResult(context.Background(), info, nil)
 	assert.NotZero(t, kkaiGroupCacheGapEpoch.Load())
 	result := QueryKKAIGroupMinuteBuckets(time.Now().Add(-time.Minute).Unix(), time.Now().Unix(), []string{info.UsingGroup})
 	assert.True(t, result.RedisAvailable)
 	assert.Zero(t, result.CacheTrackingStartedAt)
 
 	metricsSetting.Enabled = true
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 90})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 90
+	RecordRelayResult(context.Background(), info, nil)
 	assert.Zero(t, kkaiGroupCacheGapEpoch.Load())
 	recoveredMarker, err := client.Get(context.Background(), kkaiGroupCacheTrackingMarkerKey).Int64()
 	require.NoError(t, err)
@@ -140,14 +147,20 @@ func TestKKAIGroupCacheTrackingResetsAfterRedisIsReenabled(t *testing.T) {
 	require.NoError(t, client.Set(context.Background(), kkaiGroupCacheTrackingMarkerKey, initialMarker, 0).Err())
 
 	common.RedisEnabled = false
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 90})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 90
+	RecordRelayResult(context.Background(), info, nil)
 	assert.NotZero(t, kkaiGroupCacheGapEpoch.Load())
 	result := QueryKKAIGroupMinuteBuckets(time.Now().Add(-time.Minute).Unix(), time.Now().Unix(), []string{info.UsingGroup})
 	assert.False(t, result.RedisAvailable)
 	assert.Zero(t, result.CacheTrackingStartedAt)
 
 	common.RedisEnabled = true
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 90})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 90
+	RecordRelayResult(context.Background(), info, nil)
 	assert.Zero(t, kkaiGroupCacheGapEpoch.Load())
 	recoveredMarker, err := client.Get(context.Background(), kkaiGroupCacheTrackingMarkerKey).Int64()
 	require.NoError(t, err)
@@ -203,8 +216,15 @@ func TestKKAIGroupLocalCacheUsageCountsRequestHits(t *testing.T) {
 		IsStream:        true,
 	}
 
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 100})
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 900, CachedTokens: 0})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+
+	info.PerformanceCacheReadTokens = 100
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 900
+	info.PerformanceCacheReadTokens = 0
+	RecordRelayResult(context.Background(), info, nil)
 
 	buckets := QueryKKAIGroupMinuteBuckets(time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group})
 	var tracked, samples, hits, promptTokens, cachedTokens int64
@@ -233,12 +253,29 @@ func TestKKAIGroupLocalCacheUsageDistinguishesZeroHitFromIneligibleSamples(t *te
 		IsStream:        true,
 	}
 
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 0})
-	RecordRelaySample(info, true, 0, nil)
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 0, CachedTokens: 0})
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: -1})
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 101})
-	RecordRelaySample(info, false, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 80})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+
+	info.PerformanceCacheReadTokens = 0
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = false
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 0
+	info.PerformanceCacheReadTokens = 0
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = -1
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 101
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 80
+	RecordRelayResult(context.Background(), info, types.InitOpenAIError("server_error", 500))
 
 	buckets := QueryKKAIGroupMinuteBuckets(time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group})
 	var requests, successes, tracked, samples, hits, promptTokens, cachedTokens int64

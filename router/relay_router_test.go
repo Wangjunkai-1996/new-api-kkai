@@ -89,6 +89,27 @@ func TestListModelsSupportsOpenAIAndGeminiAuthentication(t *testing.T) {
 	}
 }
 
+func TestNewRelayRoutesRequireAuthenticationAndRejectUnsupportedCountTokens(t *testing.T) {
+	engine := gin.New()
+	SetRelayRouter(engine)
+	for _, test := range []struct {
+		method string
+		path   string
+		status int
+	}{
+		{http.MethodPost, "/v1/alpha/search", http.StatusUnauthorized},
+		{http.MethodGet, "/v1/responses", http.StatusUnauthorized},
+		{http.MethodPost, "/v1/responses/compact", http.StatusUnauthorized},
+		{http.MethodPost, "/v1beta/models/gemini-2.5-flash:countTokens", http.StatusNotFound},
+	} {
+		t.Run(test.method+test.path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, httptest.NewRequest(test.method, test.path, strings.NewReader(`{"model":"gpt-5"}`)))
+			assert.Equal(t, test.status, response.Code, response.Body.String())
+		})
+	}
+}
+
 func setupRelayRouterTestDB(t *testing.T) {
 	t.Helper()
 

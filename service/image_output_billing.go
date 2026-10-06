@@ -3,8 +3,8 @@ package service
 import (
 	"errors"
 
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 var ErrInvalidImageOutputCount = errors.New("invalid image output count")

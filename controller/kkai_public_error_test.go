@@ -11,8 +11,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -310,7 +310,7 @@ func TestKKAIPublicLocalPolicyCodesRemainStableAndNeverRetry(t *testing.T) {
 			status, publicErr := kkaiPublicOpenAIError(ctx, apiErr)
 			assert.Equal(t, test.status, status)
 			assert.Equal(t, test.code, publicErr.Code)
-			assert.True(t, processKKAIPolicyAPIError(ctx, types.ChannelError{}, apiErr))
+			assert.True(t, service.ProcessKKAIPolicyAPIError(ctx, types.ChannelError{}, apiErr))
 			assert.False(t, shouldRetry(ctx, nil, apiErr, 3))
 
 			taskErr := &dto.TaskError{
@@ -394,7 +394,7 @@ func TestProcessChannelErrorAfterPolicyDoesNotLogCredentials(t *testing.T) {
 		common.LogWriterMu.Unlock()
 	})
 
-	processChannelErrorAfterKKAIPolicy(ctx, types.ChannelError{ChannelId: 12}, apiErr, true)
+	service.ProcessChannelErrorAfterPolicy(ctx, types.ChannelError{ChannelId: 12}, apiErr, nil, true)
 
 	require.Contains(t, logBuffer.String(), "policy event detected")
 	require.NotContains(t, logBuffer.String(), "sk-client-secret")

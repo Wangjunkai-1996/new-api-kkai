@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"maps"
 	"math"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/shopspring/decimal"
 )
 
@@ -194,7 +196,7 @@ func PreviewModelPricingConversion(name string, draft PricingValues) (*ModelPric
 		if channel.Type == constant.ChannelTypeTaskPlugin {
 			return &ModelPricingConversion{UnsupportedReason: "Task pricing must be converted manually using the task usage schema."}, nil
 		}
-		if slices.Contains(common.GetEndpointTypesByChannelType(channel.Type, name), constant.EndpointTypeOpenAIVideo) {
+		if slices.Contains(common.GetEndpointTypesByChannelType(channel.Type, name), relaytypes.EndpointTypeOpenAIVideo) {
 			return &ModelPricingConversion{UnsupportedReason: "Video pricing must be converted manually."}, nil
 		}
 		if channel.Status == common.ChannelStatusEnabled && channel.Type == constant.ChannelTypeOpenRouter && strings.Contains(strings.ToLower(name), "claude") && !fixedPrice {
@@ -208,6 +210,16 @@ func PreviewModelPricingConversion(name string, draft PricingValues) (*ModelPric
 			var mapping map[string]string
 			if err := common.UnmarshalJsonStr(*channel.ModelMapping, &mapping); err != nil {
 				return &ModelPricingConversion{UnsupportedReason: "The model routing configuration could not be verified."}, nil
+			}
+			// Resolve reasoning aliases at every mapping hop, just as relay does.
+			candidates := []string{name}
+			for _, target := range mapping {
+				candidates = append(candidates, target)
+			}
+			for _, candidate := range candidates {
+				if mapping[candidate] == "" {
+					mapping[candidate] = mapping[hostreasoning.BaseModelName(candidate)]
+				}
 			}
 			var cycle bool
 			upstream, cycle = followChannelModelMapping(mapping, name)
@@ -243,14 +255,14 @@ func PreviewModelPricingConversion(name string, draft PricingValues) (*ModelPric
 			return &ModelPricingConversion{UnsupportedReason: "The model routing configuration could not be verified."}, nil
 		}
 		for endpoint := range endpoints {
-			switch constant.EndpointType(endpoint) {
-			case constant.EndpointTypeImageGeneration:
+			switch relaytypes.EndpointType(endpoint) {
+			case relaytypes.EndpointTypeImageGeneration:
 				if fixedPrice {
 					preview.BillingDetails.ImageCount = true
 				}
-			case constant.EndpointTypeOpenAIVideo:
+			case relaytypes.EndpointTypeOpenAIVideo:
 				return &ModelPricingConversion{UnsupportedReason: "Video pricing must be converted manually."}, nil
-			case constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse, constant.EndpointTypeAnthropic, constant.EndpointTypeGemini, constant.EndpointTypeEmbeddings, constant.EndpointTypeJinaRerank:
+			case relaytypes.EndpointTypeOpenAI, relaytypes.EndpointTypeOpenAIResponse, relaytypes.EndpointTypeAnthropic, relaytypes.EndpointTypeGemini, relaytypes.EndpointTypeEmbeddings, relaytypes.EndpointTypeJinaRerank:
 				// These endpoints use the ordinary token/fixed-request settlement.
 			}
 		}

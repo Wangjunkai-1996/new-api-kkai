@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 )
 
@@ -57,6 +58,41 @@ func ValidateMainSchemaPrerequisites(db *gorm.DB) error {
 	return validateSchemaPrerequisites(db, models, ErrMainSchemaNotReady)
 }
 
+// Existing wallets must be widened by the explicit maintenance migration,
+// never by a serving process or an implicit AutoMigrate.
+func ensureUserQuotaColumns(db *gorm.DB, databaseType common.DatabaseType) error {
+	if db == nil || databaseType == common.DatabaseTypeSQLite || !db.Migrator().HasTable(&User{}) {
+		return nil
+	}
+	types, err := db.Migrator().ColumnTypes(&User{})
+	if err != nil {
+		return fmt.Errorf("inspect users wallet schema: %w", err)
+	}
+	columns := make(map[string]gorm.ColumnType, len(types))
+	for _, column := range types {
+		columns[column.Name()] = column
+	}
+	return validateWalletQuotaColumnTypes(columns, databaseType)
+}
+
+func validateWalletQuotaColumnTypes(columns map[string]gorm.ColumnType, databaseType common.DatabaseType) error {
+	for _, columnName := range []string{"quota", "used_quota"} {
+		column, ok := columns[columnName]
+		if !ok {
+			return fmt.Errorf("%w: missing column users.%s", ErrMainSchemaNotReady, columnName)
+		}
+		actualType := strings.ToLower(strings.TrimSpace(column.DatabaseTypeName()))
+		valid := actualType == "bigint"
+		if databaseType == common.DatabaseTypePostgreSQL {
+			valid = valid || actualType == "int8"
+		}
+		if !valid {
+			return fmt.Errorf("%w: %s users.%s must be BIGINT, found %s", ErrMainSchemaNotReady, databaseType, columnName, actualType)
+		}
+	}
+	return nil
+}
+
 func ValidateLogSchemaPrerequisites(db *gorm.DB) error {
 	return validateSchemaPrerequisites(db, []any{&Log{}, &AuditLog{}}, ErrLogSchemaNotReady)
 }
@@ -94,6 +130,10 @@ func validateSchemaPrerequisites(db *gorm.DB, models []any, notReady error) erro
 			if err := validatePostgresApplicationColumnTypes(table, actualColumns); err != nil {
 				return err
 			}
+		} else if table == "users" && db.Dialector.Name() == "mysql" {
+			if err := validateWalletQuotaColumnTypes(actualColumns, common.DatabaseTypeMySQL); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -102,21 +142,7 @@ func validateSchemaPrerequisites(db *gorm.DB, models []any, notReady error) erro
 func validatePostgresApplicationColumnTypes(table string, columns map[string]gorm.ColumnType) error {
 	switch table {
 	case "users":
-		for _, columnName := range []string{"quota", "used_quota"} {
-			column, ok := columns[columnName]
-			if !ok {
-				return fmt.Errorf("%w: missing column users.%s", ErrMainSchemaNotReady, columnName)
-			}
-			actualType := strings.ToLower(column.DatabaseTypeName())
-			if actualType != "int8" && actualType != "bigint" {
-				return fmt.Errorf(
-					"%w: PostgreSQL users.%s must be BIGINT, found %s",
-					ErrMainSchemaNotReady,
-					columnName,
-					actualType,
-				)
-			}
-		}
+		return validateWalletQuotaColumnTypes(columns, common.DatabaseTypePostgreSQL)
 	case "tokens":
 		modelLimits, ok := columns["model_limits"]
 		if !ok {

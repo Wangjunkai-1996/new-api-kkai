@@ -20,6 +20,7 @@ import {
   Activity,
   BadgeCheck,
   Box,
+  ClipboardList,
   CreditCard,
   FileText,
   Film,
@@ -125,6 +126,11 @@ export function useSidebarData(): SidebarData {
             title: t('Group Status'),
             url: '/group-status',
             icon: BadgeCheck,
+          },
+          {
+            title: t('Audit Logs'),
+            url: '/usage-logs/audit',
+            icon: ClipboardList,
           },
           {
             title: t('Task Logs'),

@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/relayconvert"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,32 +41,12 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, service.NewKKAIStructuredRelayError(oaiError)
 	}
 
-	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, &responsesResp)
+	var toolUsage responsesToolUsage
+	toolUsage.observeResponse(&responsesResp)
+	info.ObserveResponseModel(responsesResp.Model)
+	responseValue, usage, err := convertResponsesResponseForClient(c, info, &responsesResp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-	chatResp, ok := chatResult.Value.(*dto.OpenAITextResponse)
-	if !ok {
-		return nil, types.NewOpenAIError(fmt.Errorf("expected OpenAI chat response, got %T", chatResult.Value), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-	if chatID := helper.GetResponseID(c); chatID != "" {
-		chatResp.Id = chatID
-	}
-	usage := chatResult.Usage
-
-	if usage == nil || usage.TotalTokens == 0 {
-		text := service.ExtractOutputTextFromResponses(&responsesResp)
-		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
-		chatResp.Usage = *usage
-	}
-
-	responseValue := any(chatResp)
-	if info.RelayFormat != types.RelayFormatOpenAI {
-		targetResult, err := relayconvert.ConvertResponse(c, info, info.RelayFormat, chatResp)
-		if err != nil {
-			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-		}
-		responseValue = targetResult.Value
 	}
 	responseBody, err := common.Marshal(responseValue)
 	if err != nil {
@@ -74,9 +54,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
-	var toolUsage responsesToolUsage
-	toolUsage.observeResponse(&responsesResp)
-	// Responses-to-Chat conversion does not deliver generated images.
+	// Conversion to Chat/Claude/Gemini does not deliver generated images.
 	toolUsage.commit(info, false)
 	return usage, nil
 }
@@ -87,6 +65,8 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	}
 	defer service.CloseResponseBodyGracefully(resp)
 
+	info.StreamStatus = relaycommon.NewStreamStatus()
+	info.StreamStatus.RequireTerminal()
 	accumulator := relayconvert.NewResponsesBufferedAccumulator()
 	var finalResponse *dto.OpenAIResponsesResponse
 	var streamErr *types.NewAPIError
@@ -114,12 +94,16 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			break
 		}
+		if streamResp.Response != nil {
+			info.ObserveResponseModel(streamResp.Response.Model)
+		}
+		service.ObserveResponsesOutcome(info, &streamResp)
 		if upstreamErr := responsesStreamError(&streamResp); upstreamErr != nil {
 			streamErr = upstreamErr
 			break
 		}
-		accumulator.ProcessEvent(&streamResp)
 		toolUsage.observeEvent(&streamResp)
+		accumulator.ProcessEvent(&streamResp)
 		switch streamResp.Type {
 		case "response.completed", "response.done", "response.incomplete":
 			finalResponse = streamResp.Response
@@ -132,6 +116,12 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 				}
 			}
 		case "response.failed", "response.error", "response.cancelled", "response.canceled", "error":
+			if streamResp.Response != nil {
+				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
+					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+					break
+				}
+			}
 			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 		if streamErr != nil || finalResponse != nil {
@@ -147,38 +137,16 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	if finalResponse == nil {
 		finalResponse = &dto.OpenAIResponsesResponse{
 			ID:        helper.GetResponseID(c),
-			CreatedAt: int(time.Now().Unix()),
+			CreatedAt: dto.IntValue(time.Now().Unix()),
 			Model:     info.UpstreamModelName,
 			Status:    []byte(`"completed"`),
 		}
 	}
 	accumulator.SupplementResponseOutput(finalResponse)
 
-	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, finalResponse)
+	responseValue, usage, err := convertResponsesResponseForClient(c, info, finalResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-	chatResp, ok := chatResult.Value.(*dto.OpenAITextResponse)
-	if !ok {
-		return nil, types.NewOpenAIError(fmt.Errorf("expected OpenAI chat response, got %T", chatResult.Value), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-	if chatID := helper.GetResponseID(c); chatID != "" {
-		chatResp.Id = chatID
-	}
-	usage := chatResult.Usage
-	if usage == nil || usage.TotalTokens == 0 {
-		text := service.ExtractOutputTextFromResponses(finalResponse)
-		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
-		chatResp.Usage = *usage
-	}
-
-	responseValue := any(chatResp)
-	if info.RelayFormat != types.RelayFormatOpenAI {
-		targetResult, err := relayconvert.ConvertResponse(c, info, info.RelayFormat, chatResp)
-		if err != nil {
-			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-		}
-		responseValue = targetResult.Value
 	}
 	responseBody, err := common.Marshal(responseValue)
 	if err != nil {
@@ -186,12 +154,34 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+	// Conversion to Chat/Claude/Gemini does not deliver generated images.
 	toolUsage.commit(info, false)
 	return usage, nil
 }
 
+func convertResponsesResponseForClient(c *gin.Context, info *relaycommon.RelayInfo, response *dto.OpenAIResponsesResponse) (any, *dto.Usage, error) {
+	if responseID := helper.GetResponseID(c); responseID != "" {
+		response.ID = responseID
+	}
+
+	usage := relayconvert.UsageFromResponsesUsage(response.Usage)
+	if usage == nil || usage.TotalTokens == 0 {
+		text := service.ExtractOutputTextFromResponses(response)
+		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
+		response.Usage = relayconvert.UsageFromChatUsage(usage)
+	}
+
+	result, err := service.ConvertResponse(c, info, info.RelayFormat, response)
+	if err != nil {
+		return nil, nil, err
+	}
+	if result.Usage != nil && result.Usage.TotalTokens != 0 {
+		usage = result.Usage
+	}
+	return result.Value, usage, nil
+}
+
 func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	var toolUsage responsesToolUsage
 	if resp == nil || resp.Body == nil {
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
@@ -209,6 +199,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	var toolUsage responsesToolUsage
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -285,21 +276,25 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Error(err)
 			return
 		}
+
+		if streamResp.Response != nil {
+			info.ObserveResponseModel(streamResp.Response.Model)
+		}
+		service.ObserveResponsesOutcome(info, &streamResp)
 		if upstreamErr := responsesStreamError(&streamResp); upstreamErr != nil {
 			streamErr = upstreamErr
 			sr.Stop(upstreamErr)
 			return
 		}
-
 		switch streamResp.Type {
 		case "response.error", "response.failed", "response.cancelled", "response.canceled", "error":
 			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			sr.Stop(streamErr)
 			return
 		}
-
 		toolUsage.observeEvent(&streamResp)
-		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &streamResp)
+
+		results, err := service.ConvertStreamResponseChunk(c, info, state, &streamResp)
 		if err != nil {
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			sr.Stop(streamErr)
@@ -312,6 +307,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			}
 		}
 	})
+	info.StreamStatus.RequireTerminal()
 
 	if streamErr != nil {
 		return nil, streamErr
@@ -326,7 +322,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
 		info.ClaudeConvertInfo.Usage = usage
 	}
-	finalResults, err := relayconvert.FinalizeStreamResponse(c, info, state)
+	finalResults, err := service.FinalizeStreamResponse(c, info, state)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
@@ -344,6 +340,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		helper.Done(c)
 	}
+	// Conversion to Chat/Claude/Gemini does not deliver generated images.
 	toolUsage.commit(info, false)
 	return usage, nil
 }

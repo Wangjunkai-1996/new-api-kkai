@@ -3,8 +3,8 @@ package service
 import (
 	"strings"
 
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 const (
@@ -26,10 +26,12 @@ func effectiveBillingUsage(usage *dto.Usage) *dto.Usage {
 }
 
 func usageBillingPathForLog(isLocalCountTokens bool, usage *dto.Usage) string {
-	if isLocalCountTokens {
-		return usageBillingPathLocal
-	}
-	if usage == nil || usage.BillingUsage == nil {
+	// Match settlement: a valid provider billing snapshot takes precedence over
+	// the fallback local token count, while source labels alone are not usage.
+	if _, ok := usageFromBillingUsage(usage); !ok {
+		if isLocalCountTokens {
+			return usageBillingPathLocal
+		}
 		return usageBillingPathUpstream
 	}
 	source := strings.TrimSpace(usage.BillingUsage.Source)

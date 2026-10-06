@@ -229,7 +229,7 @@ func initTaskArtifactAdaptor(task *model.Task) (relaychannel.TaskAdaptor, error)
 	}
 	baseURL := channelModel.GetBaseURL()
 	if baseURL == "" {
-		baseURL = constant.ChannelBaseURLs[channelModel.Type]
+		baseURL = constant.GetChannelBaseURL(channelModel.Type)
 	}
 	adaptor.Init(&relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{

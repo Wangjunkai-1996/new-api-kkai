@@ -23,6 +23,7 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const GROUP_DISPLAY_NAMES_QUERY_KEY = 'group-display-names'
+const EMPTY_GROUP_DISPLAY_NAMES: Record<string, string> = {}
 
 /**
  * Resolve labels from the authenticated user's group metadata endpoint.
@@ -81,5 +82,5 @@ export function useGroupDisplayNames(): Record<string, string> {
     staleTime: 60_000,
   })
 
-  return data ?? {}
+  return data ?? EMPTY_GROUP_DISPLAY_NAMES
 }

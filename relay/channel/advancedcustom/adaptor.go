@@ -9,16 +9,16 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/relayconvert"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
@@ -262,7 +262,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err := a.resolve(c, info); err != nil {
 		return nil, err
 	}
-	if !a.converted && a.converter != relayconvert.ConverterNone {
+	if !a.converted && !a.route.SupportsPassThroughBody() {
 		return nil, errors.New("advanced custom converter routes cannot be used with pass-through request body")
 	}
 
@@ -283,6 +283,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	switch a.converter {
+	case dto.AdvancedCustomConverterSGLangRerank:
+		return a.doSGLangRerankResponse(c, resp, info)
 	case relayconvert.ConverterNone:
 		return a.doNativeResponse(c, resp, info)
 	case relayconvert.ConverterClaudeMessagesToOpenAIChat,

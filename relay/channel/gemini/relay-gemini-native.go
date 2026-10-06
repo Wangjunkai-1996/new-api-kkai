@@ -2,26 +2,26 @@ package gemini
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
 	// 读取响应体
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadRelayResponseBody(c.Request.Context(), resp.Body)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -37,6 +37,8 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	info.ObserveResponseModel(gjson.GetBytes(responseBody, "modelVersion").Str)
+	countGeminiBillableFunctionCalls(info, &geminiResponse)
 	maybeMarkGeminiFilteredCandidate(c, &geminiResponse)
 
 	if len(geminiResponse.Candidates) == 0 {
@@ -44,6 +46,7 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
 			rejectReason = fmt.Sprintf("gemini_block_reason=%s", *geminiResponse.PromptFeedback.BlockReason)
 		}
+		info.PerformanceBusinessRejection = true
 		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, rejectReason)
 	}
 
@@ -58,7 +61,7 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadRelayResponseBody(c.Request.Context(), resp.Body)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}

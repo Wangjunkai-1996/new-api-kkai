@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  useId,
   useState,
   type Dispatch,
   type ReactNode,
@@ -55,6 +56,7 @@ type TaskPluginPricingEditorProps = {
 
 export function TaskPluginPricingEditor(props: TaskPluginPricingEditorProps) {
   const { t } = useTranslation()
+  const id = useId()
   const [selected, setSelected] = useState('__model__')
   const usesExpression = props.modelBillingMode !== 'ratio'
   const incompatible = props.variants.filter((variant) => {
@@ -204,6 +206,7 @@ export function TaskPluginPricingEditor(props: TaskPluginPricingEditorProps) {
         return (
           <TabsContent key={key} value={key} keepMounted className='space-y-3'>
             <SettingsSwitchField
+              controlId={`${id}-${key}`}
               checked={separate}
               label={t('Set separately for this provider')}
               description={!separate ? inheritDescription : undefined}

@@ -31,14 +31,7 @@ import {
   Route,
   WalletCards,
 } from 'lucide-react'
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { MultiSelect } from '@/components/multi-select'
@@ -86,6 +79,7 @@ import type {
 } from '@/features/dashboard/types'
 import { formatQuota } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { computeTimeRange } from '@/lib/time'
 import { useChartTheme } from '@/lib/use-chart-theme'
 import { cn } from '@/lib/utils'
@@ -284,7 +278,10 @@ export function FlowCharts(props: FlowChartsProps) {
     () => stages.filter((stage) => !hiddenStages.includes(stage)),
     [stages, hiddenStages]
   )
-  useEffect(() => {
+  const [previousVisibleStages, setPreviousVisibleStages] =
+    useState(visibleStages)
+  if (previousVisibleStages !== visibleStages) {
+    setPreviousVisibleStages(visibleStages)
     const visible = new Set(visibleStages)
     setSelectedNodes((prev) => {
       const next = prev.filter((filter) => visible.has(filter.kind))
@@ -296,7 +293,7 @@ export function FlowCharts(props: FlowChartsProps) {
     // The graph reshapes when columns are toggled, so any highlighted edge may
     // no longer exist. Drop the link selection rather than leave it dangling.
     setActiveFlowLink(undefined)
-  }, [visibleStages])
+  }
   const toggleStage = (stage: FlowNodeKind) => {
     setHiddenStages((prev) => {
       const hidden = new Set(prev)
@@ -336,7 +333,8 @@ export function FlowCharts(props: FlowChartsProps) {
     isLoading,
   } = useQuery({
     queryKey: ['dashboard', 'flow', flowQueryParams, flowRole],
-    queryFn: () => getFlowQuotaDates(flowQueryParams, isAdmin),
+    queryFn: async () =>
+      requireServerSuccess(await getFlowQuotaDates(flowQueryParams, isAdmin)),
     select: (res) =>
       requireSuccessfulFlowRows(res, t('Please try again later.')),
     staleTime: 60_000,

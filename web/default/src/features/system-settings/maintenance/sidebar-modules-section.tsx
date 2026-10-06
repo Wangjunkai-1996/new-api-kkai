@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -110,6 +110,10 @@ export function SidebarModulesSection({
         title: t('Usage logs'),
         description: t('Detailed request logs for investigations.'),
       },
+      audit: {
+        title: t('Audit Logs'),
+        description: t('Login, security and access records'),
+      },
       midjourney: {
         title: t('Drawing logs'),
         description: t('History of MjProxy-style image tasks.'),
@@ -127,6 +131,10 @@ export function SidebarModulesSection({
       personal: {
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
+      },
+      security: {
+        title: t('Security & Access'),
+        description: t('Manage your security settings and account access'),
       },
     },
     admin: {
@@ -183,6 +191,8 @@ export function SidebarModulesSection({
   }
 
   const sections = Object.entries(config)
+
+  const moduleValues = useWatch({ control: form.control })
 
   return (
     <SettingsSection title={t('Sidebar modules')}>
@@ -254,7 +264,7 @@ export function SidebarModulesSection({
                                 onCheckedChange={field.onChange}
                                 disabled={
                                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  !form.watch(`${sectionKey}.enabled` as any)
+                                  !moduleValues[sectionKey]?.enabled
                                 }
                               />
                             </FormControl>

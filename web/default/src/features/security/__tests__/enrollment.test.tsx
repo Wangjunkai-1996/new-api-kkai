@@ -1,3 +1,13 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  act,
+  cleanup,
+  render as renderUI,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,16 +26,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import {
-  act,
-  cleanup,
-  render as renderWithProviders,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -57,12 +58,13 @@ const credential = {
   getClientExtensionResults: () => ({}),
 }
 
-let client: QueryClient
-function render(ui: React.ReactNode) {
-  return renderWithProviders(
+function render(ui: ReactNode) {
+  return renderUI(
     <QueryClientProvider client={client}>{ui}</QueryClientProvider>
   )
 }
+
+let client: QueryClient
 beforeEach(() => {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false } },

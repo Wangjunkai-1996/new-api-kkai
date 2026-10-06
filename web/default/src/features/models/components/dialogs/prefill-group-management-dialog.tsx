@@ -25,7 +25,7 @@ import {
   RefreshCcw,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -52,6 +52,8 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { deletePrefillGroup, getPrefillGroups } from '../../api'
@@ -93,7 +95,7 @@ export function PrefillGroupManagementDialog({
     refetch: refetchGroups,
   } = useQuery({
     queryKey: prefillGroupsQueryKeys.list(),
-    queryFn: () => getPrefillGroups(),
+    queryFn: async () => requireServerSuccess(await getPrefillGroups()),
     enabled: open,
   })
 
@@ -126,12 +128,14 @@ export function PrefillGroupManagementDialog({
     [sortedGroups]
   )
 
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
     if (!open) {
       setDeleteState({ open: false, group: null })
       setIsDeleting(false)
     }
-  }, [open])
+  }
 
   const handleDeleteClick = (group: PrefillGroup) => {
     setDeleteState({ open: true, group })
@@ -149,10 +153,10 @@ export function PrefillGroupManagementDialog({
         })
         setDeleteState({ open: false, group: null })
       } else {
-        toast.error(response.message || t('Failed to delete group'))
+        handleServerError(response, t('Failed to delete group'))
       }
     } catch (err: unknown) {
-      toast.error((err as Error)?.message || t('Failed to delete group'))
+      handleServerError(err, t('Failed to delete group'))
     } finally {
       setIsDeleting(false)
     }

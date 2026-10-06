@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* eslint-disable react-refresh/only-export-components */
 'use client'
 
+import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
@@ -79,6 +80,7 @@ type CodeBlockEditorProps = Omit<
 > & {
   actions?: ReactNode
   ariaLabel: string
+  autoFocus?: boolean
   language: BundledLanguage | string
   onChange: (value: string) => void
   onKeyDown?: (event: globalThis.KeyboardEvent) => void
@@ -143,7 +145,8 @@ const codeMirrorTheme = EditorView.theme({
     lineHeight: '1.5rem',
     minHeight: 'var(--code-editor-min-height)',
     minWidth: 'max-content',
-    padding: '1rem 1rem 1rem 0',
+    // CodeMirror already accounts for the content's vertical padding.
+    padding: '0 1rem 0 0',
   },
   '.cm-editor': {
     background: 'transparent',
@@ -159,7 +162,8 @@ const codeMirrorTheme = EditorView.theme({
     fontFamily: 'var(--font-mono)',
     fontSize: '13px',
     lineHeight: '1.5rem',
-    padding: '1rem 1rem 1rem 0',
+    // CodeMirror already accounts for the content's vertical padding.
+    padding: '0 1rem 0 0',
   },
   '.cm-gutters:empty': {
     display: 'none',
@@ -227,6 +231,14 @@ function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
     requestedLanguage === 'mdx'
   ) {
     return markdown()
+  }
+
+  if (requestedLanguage === 'javascript' || requestedLanguage === 'jsx') {
+    return javascript({ jsx: requestedLanguage === 'jsx' })
+  }
+
+  if (requestedLanguage === 'typescript' || requestedLanguage === 'tsx') {
+    return javascript({ jsx: requestedLanguage === 'tsx', typescript: true })
   }
 
   return []
@@ -575,6 +587,7 @@ export const CodeBlock = ({
 export const CodeBlockEditor = ({
   actions,
   ariaLabel,
+  autoFocus = true,
   className,
   language,
   onChange,
@@ -596,7 +609,7 @@ export const CodeBlockEditor = ({
     >
       <CodeMirrorCodeView
         ariaLabel={ariaLabel}
-        autoFocus
+        autoFocus={autoFocus}
         language={language}
         onChange={onChange}
         onKeyDown={onKeyDown}

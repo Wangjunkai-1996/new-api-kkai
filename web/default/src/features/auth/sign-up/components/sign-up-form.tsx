@@ -50,6 +50,9 @@ import {
   saveAffiliateCode,
 } from '@/features/auth/lib/storage'
 import { useStatus } from '@/hooks/use-status'
+import { handleServerError } from '@/lib/handle-server-error'
+import { AuthOperationError } from '@/lib/secure-verification'
+import { createServerError } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 export function SignUpForm({
@@ -63,6 +66,7 @@ export function SignUpForm({
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
+  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
   const { status } = useStatus()
@@ -95,12 +99,6 @@ export function SignUpForm({
   })
 
   const emailValue = useWatch({ control: form.control, name: 'email' })
-  let sendCodeContent: ReactNode = t('Send code')
-  if (isActive) {
-    sendCodeContent = t('Resend ({{seconds}}s)', { seconds: secondsLeft })
-  } else if (isSendingCode) {
-    sendCodeContent = <Loader2 className='h-4 w-4 animate-spin' />
-  }
   const emailVerificationRequired = !!status?.email_verification
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
@@ -125,6 +123,13 @@ export function SignUpForm({
       ''
     )
   }, [status])
+
+  const [previousLegalConsent, setPreviousLegalConsent] =
+    useState(requiresLegalConsent)
+  if (previousLegalConsent !== requiresLegalConsent) {
+    setPreviousLegalConsent(requiresLegalConsent)
+    setAgreedToLegal(!requiresLegalConsent)
+  }
 
   useEffect(() => {
     const aff = new URLSearchParams(window.location.search).get('aff')?.trim()
@@ -168,17 +173,22 @@ export function SignUpForm({
         toast.success(t('Account created! Please sign in'))
         redirectToLogin()
       } else {
-        toast.error(res?.message || t('Failed to create account'))
+        handleServerError(createServerError(res, t('Failed to create account')))
       }
-    } catch {
-      // Errors are handled by global interceptor
+    } catch (error) {
+      handleServerError(
+        AuthOperationError.from(error, t('Failed to create account'))
+      )
     } finally {
       setIsLoading(false)
     }
   }
 
   async function handleSendVerificationCode() {
-    await sendCode(emailValue || '')
+    if (await sendCode(emailValue || '')) {
+      setTurnstileToken('')
+      setTurnstileWidgetKey((current) => current + 1)
+    }
   }
 
   const handleOpenWeChatDialog = () => {
@@ -208,18 +218,29 @@ export function SignUpForm({
     try {
       const res = await wechatLoginByCode(wechatCode)
       if (res?.success) {
+        handleWeChatDialogChange(false)
         if (await handleLoginResult(res.data)) {
           toast.success(t('Signed in via WeChat'))
         }
-        handleWeChatDialogChange(false)
       } else {
-        toast.error(res?.message || t('Login failed'))
+        handleServerError(createServerError(res, t('Login failed')))
       }
-    } catch {
-      toast.error(t('Login failed'))
+    } catch (error: unknown) {
+      handleServerError(
+        new AuthOperationError(t('Login failed'), undefined, { cause: error })
+      )
     } finally {
       setIsWeChatSubmitting(false)
     }
+  }
+
+  let verificationCodeAction: ReactNode = t('Send code')
+  if (isActive) {
+    verificationCodeAction = t('Resend ({{seconds}}s)', {
+      seconds: secondsLeft,
+    })
+  } else if (isSendingCode) {
+    verificationCodeAction = <Loader2 className='h-4 w-4 animate-spin' />
   }
 
   return (
@@ -253,7 +274,7 @@ export function SignUpForm({
               <FormLabel>{t('Password')}</FormLabel>
               <FormControl>
                 <PasswordInput
-                  placeholder={t('Enter password (8-20 characters)')}
+                  placeholder={t('Enter password (8–128 characters)')}
                   {...field}
                 />
               </FormControl>
@@ -322,7 +343,7 @@ export function SignUpForm({
                 }
                 onClick={handleSendVerificationCode}
               >
-                {sendCodeContent}
+                {verificationCodeAction}
               </Button>
             </div>
           </>
@@ -332,6 +353,7 @@ export function SignUpForm({
         {isTurnstileEnabled && (
           <div className='mt-2'>
             <Turnstile
+              key={turnstileWidgetKey}
               siteKey={turnstileSiteKey}
               onVerify={setTurnstileToken}
             />

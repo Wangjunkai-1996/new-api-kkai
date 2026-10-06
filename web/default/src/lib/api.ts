@@ -1,4 +1,7 @@
-import type { UserGroupInfo } from './group-display'
+import { api, bindPageCreditEpoch } from '@/lib/http-client'
+import { authRequestOptions, authResult } from '@/lib/secure-verification'
+import { requireServerSuccess } from '@/lib/server-error-message'
+
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,11 +20,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api, bindPageCreditEpoch } from './http-client'
-import { authRequestOptions, authResult } from './secure-verification'
+import type { UserGroupInfo } from './group-display'
 
-export { api }
-export type { ApiRequestConfig } from './http-client'
 export {
   applyAuthBundle,
   applyAuthRotation,
@@ -34,25 +34,22 @@ export {
   refreshAuthentication,
   resolveAuthentication,
   AuthRotationError,
-} from './auth-session'
-export type { AuthTokenRotation, RefreshOutcome } from './auth-session'
-// Common API Functions
+} from '@/lib/auth-session'
+export type { AuthTokenRotation, RefreshOutcome } from '@/lib/auth-session'
+export { api }
+export type { ApiRequestConfig } from '@/lib/http-client'
+
+// ============================================================================
+// User APIs
 // ============================================================================
 
-// ----------------------------------------------------------------------------
-// User APIs
-// ----------------------------------------------------------------------------
-
-// Get current user info
 export async function getSelf() {
   const res = await api.get('/api/user/self', {
-    // Avoid global 401 toast during guards/preloads
     skipErrorHandler: true,
   })
   return res.data
 }
 
-// Get user available models
 export async function getUserModels(): Promise<{
   success: boolean
   message?: string
@@ -62,7 +59,6 @@ export async function getUserModels(): Promise<{
   return res.data
 }
 
-// Get user groups with descriptions and ratios
 export async function getUserGroups(): Promise<{
   success: boolean
   message?: string
@@ -72,114 +68,71 @@ export async function getUserGroups(): Promise<{
   return res.data
 }
 
-// ----------------------------------------------------------------------------
+// ============================================================================
 // System APIs
-// ----------------------------------------------------------------------------
+// ============================================================================
 
-// Get system status
 export async function getStatus() {
   const res = await api.get('/api/status')
-  const status = res.data?.data as Record<string, unknown> | undefined
-  if (status) {
-    bindPageCreditEpoch(status.credit_epoch)
-  }
+  const status = requireServerSuccess(res.data)?.data as Record<string, unknown>
+  if (status) bindPageCreditEpoch(status.credit_epoch)
   return status
 }
 
-// Get system notice
 export async function getNotice(): Promise<{
   success: boolean
   message?: string
   data?: string
 }> {
-  const res = await api.get('/api/notice')
+  // Drop the client's global `Cache-Control: no-store` for this public,
+  // non-user-specific payload. `no-store` forbids the browser from keeping a
+  // copy at all, so it would never hold an ETag to revalidate with and the
+  // server could never answer 304. The server sends `no-cache`, so the browser
+  // still revalidates on every request and an admin edit shows up immediately.
+  const res = await api.get('/api/notice', {
+    headers: { 'Cache-Control': null },
+  })
   return res.data
 }
 
-// ----------------------------------------------------------------------------
+// ============================================================================
 // 2FA Management APIs
-// ----------------------------------------------------------------------------
+// ============================================================================
 
-// Get 2FA status
-export async function get2FAStatus() {
-  const res = await api.get('/api/user/2fa/status')
-  return res.data
-}
-
-// Setup 2FA
-export async function setup2FA() {
-  const res = await api.post('/api/user/2fa/setup')
-  return res.data
-}
-
-// Enable 2FA with verification code
-export async function enable2FA(code: string) {
-  const res = await api.post('/api/user/2fa/enable', { code })
-  return res.data
-}
-
-// Disable 2FA with verification code
-export function disable2FA(
-  code: string
-): Promise<{ success: boolean; message?: string }>
-export function disable2FA(
-  proofToken: string,
-  signal: AbortSignal
-): Promise<{ notification_warning?: boolean }>
 export function disable2FA(
   proofToken: string,
   signal?: AbortSignal
-): Promise<unknown> {
-  if (signal) {
-    return authResult(
-      api.post(
-        '/api/user/2fa/disable',
-        {},
-        {
-          ...authRequestOptions,
-          headers: { 'X-Security-Proof': proofToken },
-          acceptAuthRotation: true,
-          singleUseAuthorization: true,
-          signal,
-        }
-      )
+): Promise<{ notification_warning?: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/disable',
+      {},
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+        signal,
+      }
     )
-  }
-  return api
-    .post('/api/user/2fa/disable', { code: proofToken })
-    .then((res) => res.data)
+  )
 }
 
-// Regenerate 2FA backup codes
-export function regenerate2FABackupCodes(code: string): Promise<{
-  success: boolean
-  message?: string
-  data?: { backup_codes: string[] }
-}>
-export function regenerate2FABackupCodes(
-  proofToken: string,
-  signal: AbortSignal
-): Promise<{ backup_codes: string[]; notification_warning?: boolean }>
 export function regenerate2FABackupCodes(
   proofToken: string,
   signal?: AbortSignal
-): Promise<unknown> {
-  if (signal) {
-    return authResult(
-      api.post(
-        '/api/user/2fa/backup_codes',
-        {},
-        {
-          ...authRequestOptions,
-          headers: { 'X-Security-Proof': proofToken },
-          acceptAuthRotation: true,
-          singleUseAuthorization: true,
-          signal,
-        }
-      )
+): Promise<{ backup_codes: string[]; notification_warning?: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/backup_codes',
+      {},
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+        signal,
+      }
     )
-  }
-  return api
-    .post('/api/user/2fa/backup_codes', { code: proofToken })
-    .then((res) => res.data)
+  )
 }

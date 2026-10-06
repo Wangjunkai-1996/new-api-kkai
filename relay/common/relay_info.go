@@ -11,12 +11,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/types"
+	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -30,22 +33,15 @@ type ThinkingContentInfo struct {
 }
 
 const (
-	LastMessageTypeNone     = "none"
-	LastMessageTypeText     = "text"
-	LastMessageTypeTools    = "tools"
-	LastMessageTypeThinking = "thinking"
+	LastMessageTypeNone     = convmeta.LastMessageTypeNone
+	LastMessageTypeText     = convmeta.LastMessageTypeText
+	LastMessageTypeTools    = convmeta.LastMessageTypeTools
+	LastMessageTypeThinking = convmeta.LastMessageTypeThinking
 )
 
-type ClaudeConvertInfo struct {
-	LastMessagesType string
-	Index            int
-	Usage            *dto.Usage
-	FinishReason     string
-	Done             bool
-
-	ToolCallBaseIndex      int
-	ToolCallMaxIndexOffset int
-}
+// ClaudeConvertInfo now lives with the converters (convmeta); the alias keeps
+// host code and adaptors compiling unchanged.
+type ClaudeConvertInfo = convmeta.ClaudeConvertInfo
 
 type RerankerInfo struct {
 	Documents       []any
@@ -79,8 +75,8 @@ type ChannelMeta struct {
 	ApiKey               string
 	Organization         string
 	ChannelCreateTime    int64
-	ParamOverride        map[string]interface{}
-	HeadersOverride      map[string]interface{}
+	ParamOverride        map[string]any
+	HeadersOverride      map[string]any
 	ChannelSetting       dto.ChannelSettings
 	ChannelOtherSettings dto.ChannelOtherSettings
 	UpstreamModelName    string
@@ -103,47 +99,60 @@ type RelayInfo struct {
 	TokenUnlimited     bool
 	StartTime          time.Time
 	UpstreamHeaderTime time.Time
-	FirstResponseTime  time.Time
 	// Zero means no timing comment; otherwise stores milliseconds plus one.
-	sub2TTFTMs      uint64
-	isFirstResponse bool
+	sub2TTFTMs        uint64
+	FirstResponseTime time.Time
+	isFirstResponse   bool
 	//SendLastReasoningResponse bool
-	IsStream bool
-	// ClientIsStream preserves the stream flag from the client request. Some
-	// handlers may update IsStream after seeing an upstream SSE response, but
-	// cache eligibility must follow the client's requested response mode.
+	// Preserve the client response mode when upstream uses SSE internally.
 	ClientIsStream         *bool
 	UpstreamIsStream       bool
+	IsStream               bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
 	UsePrice               bool
 	RelayMode              int
 	OriginModelName        string
-	RequestURLPath         string
-	RequestHeaders         map[string]string
-	ShouldIncludeUsage     bool
-	DisablePing            bool // 是否禁止向下游发送自定义 Ping
-	ClientWs               *websocket.Conn
-	TargetWs               *websocket.Conn
-	InputAudioFormat       string
-	OutputAudioFormat      string
-	RealtimeTools          []dto.RealTimeTool
-	IsFirstRequest         bool
-	AudioUsage             bool
-	ReasoningEffort        string
-	UserSetting            dto.UserSetting
-	UserEmail              string
-	UserQuota              int64
-	RelayFormat            types.RelayFormat
-	SendResponseCount      int
-	ReceivedResponseCount  int
-	FinalPreConsumedQuota  int // 最终预消耗的配额
+	ResponseModel          *ResponseModel
+
+	// BillingModelName is the pricing identity for this request. It is kept
+	// separate from OriginModelName and UpstreamModelName so virtual pricing
+	// aliases never participate in channel selection or upstream routing.
+	BillingModelName string
+
+	RequestURLPath     string
+	RequestHeaders     map[string]string
+	ShouldIncludeUsage bool
+	DisablePing        bool // 是否禁止向下游发送自定义 Ping
+	ClientWs           *websocket.Conn
+	TargetWs           *websocket.Conn
+	InputAudioFormat   string
+	OutputAudioFormat  string
+	RealtimeTools      []dto.RealTimeTool
+	IsFirstRequest     bool
+	AudioUsage         bool
+	ReasoningEffort    string
+	// ReasoningConversion is the suffix-derived reasoning intent attached
+	// after model mapping. Converters read it via ReasoningState().
+	ReasoningConversion *dto.ReasoningConversionState
+	UserSetting         dto.UserSetting
+	UserEmail           string
+	UserQuota           int64
+	RelayFormat         types.RelayFormat
+	SendResponseCount   int
+	// ClaudeToChatStreamState / ChatToGeminiStreamState hold per-attempt
+	// stream converters. InitChannelMeta nils them so a retry cannot resume a
+	// dirty converter (advanced tool index / finalized).
+	ClaudeToChatStreamState any
+	ChatToGeminiStreamState any
+	ReceivedResponseCount   int
+	FinalPreConsumedQuota   int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
 	ForcePreConsume bool
 	// Billing 是计费会话，封装了预扣费/结算/退款的统一生命周期。
-	// 免费模型时为 nil。
+	// 初始免费组可为 nil；若 auto 重试切换到付费组，会在发送前创建。
 	Billing BillingSettler
 	// BillingSource indicates whether this request is billed from wallet quota or subscription.
 	// "" or "wallet" => wallet; "subscription" => subscription
@@ -166,21 +175,28 @@ type RelayInfo struct {
 	IsChannelTest                         bool // channel test request
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
-	RuntimeHeadersOverride                map[string]interface{}
+	RuntimeHeadersOverride                map[string]any
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
 
-	PriceData types.PriceData
+	PriceData hosttypes.PriceData
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
-	// int32 bound (or NaN fallback) while computing this request's charge.
+	// supported single-request bound (or NaN fallback) while computing this request's charge.
 	// It is surfaced onto the consume/task log's admin_info for auditing.
 	QuotaClamp *common.QuotaClamp
 
-	// TieredBillingSnapshot is a frozen snapshot of tiered billing rules
-	// captured at pre-consume time. Non-nil only when billing mode is "tiered_expr".
-	TieredBillingSnapshot         *billingexpr.BillingSnapshot
-	BillingRequestInput           *billingexpr.RequestInput
+	// TieredBillingSnapshot captures tiered billing rules at pre-consume time.
+	// Auto-group retries refresh its group-dependent fields before each attempt
+	// and again before settlement. Non-nil only when billing mode is "tiered_expr".
+	TieredBillingSnapshot *billingexpr.BillingSnapshot
+	BillingRequestInput   *billingexpr.RequestInput
+	BillingImageCount     *int
+	// ImageRequestCount is the effective quantity sent on the current attempt;
+	// ImageQuotaBeforeGroup is the frozen legacy estimate before request ratios.
+	ImageRequestCount     int
+	ImageQuotaBeforeGroup float64
+
 	ImagePricingSnapshot          *imagepricing.Snapshot
 	ImagePricingOutboundValidated bool
 	ImageOutputCount              int
@@ -195,6 +211,23 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+	// PerformanceOutputTokens is captured by settlement and sampled once at
+	// the request boundary, independently of billing success or failure.
+	PerformanceCachePromptTokens int64
+	PerformanceCacheReadTokens   int64
+	PerformanceCacheUsageKnown   bool
+	PerformanceOutputTokens      int64
+	PerformanceBusinessRejection bool
+
+	// convOptions caches the converter settings snapshot (see ConvOptions).
+	convOptions *convmeta.Options
+	// responsesToolState is written by request conversion and read by the
+	// matching response conversion (see ResponsesToolState).
+	responsesToolState *convmeta.ResponsesToolState
+
+	conversionDiagnostics          []types.ConversionDiagnostic
+	conversionDiagnosticKeys       map[conversionDiagnosticKey]struct{}
+	conversionDiagnosticsTruncated bool
 
 	ThinkingContentInfo
 	TokenCountMeta
@@ -205,7 +238,44 @@ type RelayInfo struct {
 	*TaskRelayInfo
 }
 
+// UpdateImageCount replaces the billable quantity without changing the frozen
+// request parameters or multiplying the legacy and expression prices together.
+func (info *RelayInfo) UpdateImageCount(count int64) {
+	if info == nil || count <= 0 || count > int64(dto.MaxImageN) {
+		return
+	}
+	if info.PriceData.UsePrice {
+		info.PriceData.AddOtherRatio("n", float64(count))
+	}
+	if info.TieredBillingSnapshot != nil && info.TieredBillingSnapshot.EstimatedImageCount != nil {
+		n := int(count)
+		info.BillingImageCount = &n
+	}
+}
+
+func (info *RelayInfo) RequestedImageCount() int {
+	if info.ImageRequestCount > 0 {
+		return info.ImageRequestCount
+	}
+	if info.TieredBillingSnapshot != nil && info.TieredBillingSnapshot.EstimatedImageCount != nil {
+		return *info.TieredBillingSnapshot.EstimatedImageCount
+	}
+	if count, ok := info.PriceData.OtherRatios()["n"]; ok && count >= 1 && count <= dto.MaxImageN {
+		return int(count)
+	}
+	return 1
+}
+
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.ResponseModel = nil
+	info.FinalRequestRelayFormat = ""
+	info.RequestConversionChain = nil
+	info.InitRequestConversionChain()
+	// Per-attempt only. Do not clear StreamStatus, conversion diagnostics,
+	// LastError, or billing accumulators — those are request-scoped.
+	info.SendResponseCount = 0
+	info.ClaudeToChatStreamState = nil
+	info.ChatToGeminiStreamState = nil
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -245,16 +315,30 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		channelMeta.ChannelOtherSettings = channelOtherSettings
 	}
 
+	if constant.IsAdvancedCustomChannel(channelType) &&
+		!channelMeta.ChannelSetting.PassThroughBodyEnabled &&
+		c.Request != nil && c.Request.URL != nil {
+		route, matched := channelMeta.ChannelOtherSettings.AdvancedCustom.MatchPathForModel(c.Request.URL.Path, info.OriginModelName)
+		if matched && route.PassThroughBodyEnabled {
+			channelMeta.ChannelSetting.PassThroughBodyEnabled = true
+		}
+	}
+
 	if streamSupportedChannels[channelMeta.ChannelType] {
 		channelMeta.SupportStreamOptions = true
 	}
 
 	info.ChannelMeta = channelMeta
 
+	// Channel identity feeds the converter options snapshot (e.g.
+	// OpenRouterDialect); drop the cache so a cross-channel retry rebuilds it.
+	info.convOptions = nil
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelMeta.ChannelSetting.PassThroughBodyEnabled {
 		info.ReasoningEffort = ""
+		info.ReasoningConversion = nil
 	} else {
 		info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
+		info.ReasoningConversion = nil
 	}
 
 	// reset some fields based on channel meta
@@ -275,10 +359,12 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "RelayFormat: %s, ", info.RelayFormat)
 	fmt.Fprintf(b, "RelayMode: %d, ", info.RelayMode)
 	fmt.Fprintf(b, "IsStream: %t, ", info.IsStream)
-	fmt.Fprintf(b, "UpstreamIsStream: %t, ", info.UpstreamIsStream)
 	fmt.Fprintf(b, "IsPlayground: %t, ", info.IsPlayground)
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)
+	if info.BillingModelName != "" && info.BillingModelName != info.OriginModelName {
+		fmt.Fprintf(b, "BillingModelName: %q, ", info.BillingModelName)
+	}
 	fmt.Fprintf(b, "EstimatePromptTokens: %d, ", info.estimatePromptTokens)
 	fmt.Fprintf(b, "ShouldIncludeUsage: %t, ", info.ShouldIncludeUsage)
 	fmt.Fprintf(b, "DisablePing: %t, ", info.DisablePing)
@@ -340,19 +426,6 @@ func (info *RelayInfo) ToString() string {
 	return b.String()
 }
 
-// IsClientStream reports whether the client requested a streamed response.
-// Synthetic RelayInfo values created outside the request path do not have the
-// preserved marker, so they fall back to the mutable IsStream field.
-func (info *RelayInfo) IsClientStream() bool {
-	if info == nil {
-		return false
-	}
-	if info.ClientIsStream != nil {
-		return *info.ClientIsStream
-	}
-	return info.IsStream
-}
-
 // 定义支持流式选项的通道类型
 var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeOpenAI:         true,
@@ -374,6 +447,11 @@ var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeMiniMax:        true,
 	constant.ChannelTypeSiliconFlow:    true,
 	constant.ChannelTypeAdvancedCustom: true,
+	constant.ChannelTypeSub2API:        true,
+	constant.ChannelTypeNewAPI:         true,
+	constant.ChannelTypeVLLM:           true,
+	constant.ChannelTypeSGLang:         true,
+	constant.ChannelTypeTencent:        true,
 }
 
 func GenRelayInfoWs(c *gin.Context, ws *websocket.Conn) *RelayInfo {
@@ -492,38 +570,17 @@ func reasoningEffortFromRequest(request dto.Request) string {
 		}
 	case *dto.GeminiChatRequest:
 		if req != nil && req.GenerationConfig.ThinkingConfig != nil {
-			effort = canonicalGeminiThinkingLevel(req.GenerationConfig.ThinkingConfig.ThinkingLevel)
-			if effort == "" && req.GenerationConfig.ThinkingConfig.ThinkingBudget != nil {
-				effort = geminiThinkingEffortFromBudget(*req.GenerationConfig.ThinkingConfig.ThinkingBudget)
+			config := req.GenerationConfig.ThinkingConfig
+			effort = config.ThinkingLevel
+			if canonical, err := kitreasoning.ParseEffort(effort); err == nil {
+				effort = string(canonical)
+			}
+			if effort == "" && config.ThinkingBudget != nil {
+				effort = string(kitreasoning.EffortFromBudget(*config.ThinkingBudget))
 			}
 		}
 	}
 	return strings.TrimSpace(effort)
-}
-
-func canonicalGeminiThinkingLevel(level string) string {
-	trimmed := strings.TrimSpace(level)
-	switch strings.ToLower(trimmed) {
-	case "minimal", "low", "medium", "high":
-		return strings.ToLower(trimmed)
-	default:
-		return trimmed
-	}
-}
-
-func geminiThinkingEffortFromBudget(budget int) string {
-	switch {
-	case budget == 0:
-		return "none"
-	case budget < 0:
-		return "high"
-	case budget <= 1024:
-		return "low"
-	case budget <= 8192:
-		return "medium"
-	default:
-		return "high"
-	}
 }
 
 func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
@@ -546,7 +603,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	isStream := false
 
 	if request != nil {
-		isStream = request.IsStream(c)
+		isStream = request.IsStream(c.Request)
 	}
 	c.Set(string(constant.ContextKeyIsStream), isStream)
 
@@ -557,6 +614,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		reqId = common.NewRequestId()
 	}
 	reasoningEffort := reasoningEffortFromRequest(request)
+	originModelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 	info := &RelayInfo{
 		Request:         request,
 		ReasoningEffort: reasoningEffort,
@@ -568,7 +626,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt64(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		OriginModelName: originModelName,
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
@@ -602,10 +660,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		info.IsPlayground = true
 		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
 		info.RequestURLPath = "/v1" + info.RequestURLPath
-	} else if common.GetContextKeyBool(c, constant.ContextKeyIsPlayground) {
-		// Internal playground routes may canonicalize their path before relay so
-		// channel routing sees the upstream endpoint. Preserve billing semantics.
-		info.IsPlayground = true
+		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
+		info.RequestURLPath = "/v1" + info.RequestURLPath
 	}
 
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
@@ -672,6 +728,11 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 			return GenRelayInfoResponsesCompaction(c, request), nil
 		}
 		return nil, errors.New("request is not a OpenAIResponsesCompactionRequest")
+	case types.RelayFormatOpenAIAlphaSearch:
+		if request, ok := request.(*dto.AlphaSearchRequest); ok {
+			return GenRelayInfoAlphaSearch(c, request), nil
+		}
+		return nil, errors.New("request is not a AlphaSearchRequest")
 	case types.RelayFormatTask:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
@@ -746,40 +807,92 @@ func GenRelayInfoResponsesCompaction(c *gin.Context, request *dto.OpenAIResponse
 	return info
 }
 
+func GenRelayInfoAlphaSearch(c *gin.Context, request *dto.AlphaSearchRequest) *RelayInfo {
+	info := genBaseRelayInfo(c, request)
+	if info.RelayMode == relayconstant.RelayModeUnknown {
+		info.RelayMode = relayconstant.RelayModeAlphaSearch
+	}
+	info.RelayFormat = types.RelayFormatOpenAIAlphaSearch
+	info.ResponsesUsageInfo = &ResponsesUsageInfo{
+		BuiltInTools: map[string]*BuildInToolInfo{
+			dto.BuildInToolWebSearchPreview: {
+				ToolName:  dto.BuildInToolWebSearchPreview,
+				CallCount: 0,
+			},
+		},
+	}
+	return info
+}
+
 //func (info *RelayInfo) SetPromptTokens(promptTokens int) {
 //	info.promptTokens = promptTokens
 //}
 
 func (info *RelayInfo) SetEstimatePromptTokens(promptTokens int) {
+	if info == nil {
+		return
+	}
 	info.estimatePromptTokens = promptTokens
 }
 
 func (info *RelayInfo) GetEstimatePromptTokens() int {
+	if info == nil {
+		return 0
+	}
 	return info.estimatePromptTokens
 }
 
-func (info *RelayInfo) SetUpstreamHeaderTime() {
-	if info.UpstreamHeaderTime.IsZero() {
-		info.UpstreamHeaderTime = time.Now()
-	}
-}
+// ---------------------------------------------------------------------------
+// convmeta.Meta implementation — the view format converters see. Keep these
+// thin: they only expose protocol state, never billing/user fields.
+// ---------------------------------------------------------------------------
 
-func (info *RelayInfo) SetSub2TTFTMs(ms int64) {
-	if info == nil || ms < 0 {
-		return
-	}
-	atomic.CompareAndSwapUint64(&info.sub2TTFTMs, 0, uint64(ms)+1)
-}
+var _ convmeta.Meta = (*RelayInfo)(nil)
 
-func (info *RelayInfo) Sub2TTFTMs() (int64, bool) {
+func (info *RelayInfo) GetOriginModelName() string {
 	if info == nil {
-		return 0, false
+		return ""
 	}
-	value := atomic.LoadUint64(&info.sub2TTFTMs)
-	if value == 0 {
-		return 0, false
+	return info.OriginModelName
+}
+
+// GetBillingModelName returns the effective pricing identity without changing
+// either the client-visible model or the model sent to the selected channel.
+func (info *RelayInfo) GetBillingModelName() string {
+	if info == nil {
+		return ""
 	}
-	return int64(value - 1), true
+	if info.BillingModelName != "" {
+		return info.BillingModelName
+	}
+	return info.OriginModelName
+}
+
+func (info *RelayInfo) GetUpstreamModelName() string {
+	if info == nil || info.ChannelMeta == nil {
+		return ""
+	}
+	return info.UpstreamModelName
+}
+
+func (info *RelayInfo) HasChannelMeta() bool { return info != nil && info.ChannelMeta != nil }
+
+func (info *RelayInfo) GetChannelID() int {
+	if info == nil || info.ChannelMeta == nil {
+		return 0
+	}
+	return info.ChannelId
+}
+
+func (info *RelayInfo) GetChannelType() int {
+	if info == nil || info.ChannelMeta == nil {
+		return 0
+	}
+	return info.ChannelType
+}
+
+func (info *RelayInfo) GetIsStream() bool {
+	return info != nil && info.IsStream
 }
 
 func (info *RelayInfo) GetReasoningEffort() string {
@@ -796,6 +909,89 @@ func (info *RelayInfo) SetReasoningEffort(effort string) {
 	info.ReasoningEffort = strings.TrimSpace(effort)
 }
 
+func (info *RelayInfo) ReasoningState() *dto.ReasoningConversionState {
+	if info == nil {
+		return nil
+	}
+	return info.ReasoningConversion
+}
+
+func (info *RelayInfo) EnsureClaudeConvertInfo() *convmeta.ClaudeConvertInfo {
+	if info == nil {
+		return &convmeta.ClaudeConvertInfo{
+			LastMessagesType: convmeta.LastMessageTypeNone,
+		}
+	}
+	if info.ClaudeConvertInfo == nil {
+		info.ClaudeConvertInfo = &convmeta.ClaudeConvertInfo{
+			LastMessagesType: convmeta.LastMessageTypeNone,
+		}
+	}
+	return info.ClaudeConvertInfo
+}
+
+func (info *RelayInfo) ResponsesToolState() *convmeta.ResponsesToolState {
+	if info == nil {
+		return nil
+	}
+	return info.responsesToolState
+}
+
+func (info *RelayInfo) SetResponsesToolState(state *convmeta.ResponsesToolState) {
+	if info != nil {
+		info.responsesToolState = state
+	}
+}
+
+func (info *RelayInfo) GetSendResponseCount() int {
+	if info == nil {
+		return 0
+	}
+	return info.SendResponseCount
+}
+
+func (info *RelayInfo) IncrSendResponseCount() {
+	if info == nil {
+		return
+	}
+	info.SendResponseCount++
+}
+
+// ConvOptions snapshots host settings for the converters. Rebuilt on each
+// call site's first use; cached so one relay session sees one snapshot.
+func (info *RelayInfo) ConvOptions() *convmeta.Options {
+	if info != nil && info.convOptions != nil {
+		return info.convOptions
+	}
+
+	claudeSettings := model_setting.GetClaudeSettings()
+	geminiSettings := model_setting.GetGeminiSettings()
+	options := &convmeta.Options{
+		Claude: convmeta.ClaudeOptions{
+			ThinkingAdapterEnabled:                claudeSettings.ThinkingAdapterEnabled,
+			ThinkingAdapterBudgetTokensPercentage: claudeSettings.ThinkingAdapterBudgetTokensPercentage,
+			DefaultMaxTokens:                      claudeSettings.GetDefaultMaxTokens,
+		},
+		Gemini: convmeta.GeminiOptions{
+			ThinkingAdapterEnabled:                geminiSettings.ThinkingAdapterEnabled,
+			ThinkingAdapterBudgetTokensPercentage: geminiSettings.ThinkingAdapterBudgetTokensPercentage,
+			FunctionCallThoughtSignatureEnabled:   geminiSettings.FunctionCallThoughtSignatureEnabled,
+			SupportsImagine:                       model_setting.IsGeminiModelSupportImagine,
+			SafetySetting:                         model_setting.GetGeminiSafetySetting,
+		},
+		OpenRouterDialect:      info != nil && info.GetChannelType() == constant.ChannelTypeOpenRouter,
+		PreserveThinkingSuffix: model_setting.ShouldPreserveThinkingSuffix,
+		PreserveEffortTail:     model_setting.ShouldPreserveEffortTail,
+	}
+	if info != nil {
+		if info.ChannelMeta != nil {
+			options.ToolLossPolicy = types.ConversionLossPolicy(info.ChannelOtherSettings.ToolLossPolicy)
+		}
+		info.convOptions = options
+	}
+	return options
+}
+
 func (info *RelayInfo) SetFirstResponseTime() {
 	if info == nil {
 		return
@@ -804,18 +1000,6 @@ func (info *RelayInfo) SetFirstResponseTime() {
 		info.FirstResponseTime = time.Now()
 		info.isFirstResponse = false
 	}
-}
-
-// ResetAttemptTiming clears measurements from a failed upstream attempt while
-// preserving the request start time used for the final latency metrics.
-func (info *RelayInfo) ResetAttemptTiming() {
-	if info == nil {
-		return
-	}
-	info.UpstreamHeaderTime = time.Time{}
-	info.FirstResponseTime = info.StartTime.Add(-time.Second)
-	atomic.StoreUint64(&info.sub2TTFTMs, 0)
-	info.isFirstResponse = true
 }
 
 func (info *RelayInfo) HasSendResponse() bool {
@@ -848,8 +1032,6 @@ type OriginTaskRef struct {
 	Status         string
 	Data           []byte
 }
-
-func (info *RelayInfo) HasChannelMeta() bool { return info != nil && info.ChannelMeta != nil }
 
 type TaskSubmitReq struct {
 	Prompt         string                 `json:"prompt"`
@@ -1246,4 +1428,48 @@ func RemoveGeminiDisabledFields(jsonData []byte) ([]byte, error) {
 		return jsonData, nil
 	}
 	return jsonDataAfter, nil
+}
+
+func (info *RelayInfo) IsClientStream() bool {
+	if info == nil {
+		return false
+	}
+	if info.ClientIsStream != nil {
+		return *info.ClientIsStream
+	}
+	return info.IsStream
+}
+
+func (info *RelayInfo) SetUpstreamHeaderTime() {
+	if info.UpstreamHeaderTime.IsZero() {
+		info.UpstreamHeaderTime = time.Now()
+	}
+}
+
+func (info *RelayInfo) SetSub2TTFTMs(ms int64) {
+	if info == nil || ms < 0 {
+		return
+	}
+	atomic.CompareAndSwapUint64(&info.sub2TTFTMs, 0, uint64(ms)+1)
+}
+
+func (info *RelayInfo) Sub2TTFTMs() (int64, bool) {
+	if info == nil {
+		return 0, false
+	}
+	value := atomic.LoadUint64(&info.sub2TTFTMs)
+	if value == 0 {
+		return 0, false
+	}
+	return int64(value - 1), true
+}
+
+func (info *RelayInfo) ResetAttemptTiming() {
+	if info == nil {
+		return
+	}
+	info.UpstreamHeaderTime = time.Time{}
+	info.FirstResponseTime = info.StartTime.Add(-time.Second)
+	atomic.StoreUint64(&info.sub2TTFTMs, 0)
+	info.isFirstResponse = true
 }

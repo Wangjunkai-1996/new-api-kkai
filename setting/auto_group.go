@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -19,7 +21,12 @@ var autoGroupProfiles = map[string][]string{}
 var autoGroupMutex sync.RWMutex
 var autoGroupProfileNamePattern = regexp.MustCompile(`^auto(?:[2-9]|[1-9][0-9]+)$`)
 
+const DefaultMaxTokenAutoGroups = 5
+
 var DefaultUseAutoGroup = false
+var maxTokenAutoGroups atomic.Int64
+
+func init() { maxTokenAutoGroups.Store(DefaultMaxTokenAutoGroups) }
 
 func IsAutoGroup(name string) bool {
 	return name == "auto" || ContainsAutoGroupProfile(name)
@@ -199,4 +206,25 @@ func parseAutoGroupProfiles(jsonString string) (map[string][]string, error) {
 		}
 	}
 	return profiles, nil
+}
+
+func GetMaxTokenAutoGroups() int {
+	return int(maxTokenAutoGroups.Load())
+}
+
+func ValidateMaxTokenAutoGroups(value string) error {
+	maxCount, err := strconv.Atoi(value)
+	if err != nil || maxCount <= 0 {
+		return fmt.Errorf("MaxTokenAutoGroups must be a positive integer")
+	}
+	return nil
+}
+
+func UpdateMaxTokenAutoGroups(value string) error {
+	if err := ValidateMaxTokenAutoGroups(value); err != nil {
+		return err
+	}
+	maxCount, _ := strconv.Atoi(value)
+	maxTokenAutoGroups.Store(int64(maxCount))
+	return nil
 }

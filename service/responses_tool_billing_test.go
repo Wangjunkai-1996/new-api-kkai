@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,10 +45,19 @@ func TestResponsesToolSurchargeUsesActualCountsAndImageSpecifications(t *testing
 			summary := textQuotaSummary{ModelName: "gpt-4o", GroupRatio: 1.25}
 			quota := calculateTextToolCallSurcharge(ctx, info, &summary)
 			require.Equal(t, tc.wantQuota, quota.String())
-			assert.Equal(t, tc.wantWebPrice, summary.WebSearchPrice)
 			assert.Equal(t, tc.wantImagePrice, summary.ImageGenerationCallPrice)
-			assert.Equal(t, tc.webCalls, summary.WebSearchCallCount)
-			assert.Equal(t, tc.fileCalls, summary.FileSearchCallCount)
+			var webCalls, fileCalls int
+			for _, item := range summary.ToolSurchargeItems {
+				switch item.Name {
+				case dto.BuildInToolWebSearch, dto.BuildInToolWebSearchPreview:
+					webCalls += item.Count
+					assert.Equal(t, tc.wantWebPrice, item.Price)
+				case dto.BuildInToolFileSearch:
+					fileCalls += item.Count
+				}
+			}
+			assert.Equal(t, tc.webCalls, webCalls)
+			assert.Equal(t, tc.fileCalls, fileCalls)
 		})
 	}
 }

@@ -20,7 +20,6 @@ import { Check, ChevronsUpDown, Loader2 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -35,7 +34,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { useMediaQuery } from '@/hooks'
 import { cn } from '@/lib/utils'
+
+import {
+  AUTO_GROUP_FRAME_CLASS_NAME,
+  AutoGroupFlowBorder,
+  GroupRatioBadge,
+} from './auto-group-visuals'
 
 export type ApiKeyGroupOption = {
   value: string
@@ -60,66 +66,12 @@ type ApiKeyGroupComboboxProps = {
   triggerAriaLabel?: string
 }
 
-function formatGroupRatio(
-  ratio: ApiKeyGroupOption['ratio'],
-  ratioLabel: string,
-  isAuto: boolean,
-  autoLabel: string
-) {
-  if (ratio === undefined || ratio === null || ratio === '') return null
-  if (isAuto) return autoLabel
-  if (typeof ratio !== 'number') return String(ratio)
-  return `${ratio}x ${ratioLabel}`
-}
-
-function getRatioBadgeClassName(ratio: ApiKeyGroupOption['ratio']) {
-  if (typeof ratio !== 'number') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300'
-  }
-
-  if (ratio > 5) {
-    return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300'
-  }
-  if (ratio > 3) {
-    return 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/40 dark:text-orange-300'
-  }
-  if (ratio > 1) {
-    return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300'
-  }
-  return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300'
-}
-
 function getDistinctDescription(
   option?: ApiKeyGroupOption
 ): string | undefined {
   const description = option?.desc?.trim()
   if (!description || description === option?.label?.trim()) return undefined
   return description
-}
-
-function GroupRatioBadge({
-  ratio,
-  isAuto = false,
-}: {
-  ratio: ApiKeyGroupOption['ratio']
-  isAuto?: boolean
-}) {
-  const { t } = useTranslation()
-  const label = formatGroupRatio(ratio, t('Ratio'), isAuto, t('Auto'))
-
-  if (!label) return null
-
-  return (
-    <Badge
-      variant='outline'
-      className={cn(
-        'max-w-24 shrink-0 truncate text-[10px] sm:max-w-none sm:text-xs',
-        getRatioBadgeClassName(ratio)
-      )}
-    >
-      {label}
-    </Badge>
-  )
 }
 
 export function ApiKeyGroupCombobox({
@@ -138,7 +90,10 @@ export function ApiKeyGroupCombobox({
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState('')
+  const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const selectedOption = options.find((option) => option.value === value)
+  const isAutoSelected =
+    selectedOption?.value === 'auto' || Boolean(selectedOption?.isAuto)
   const selectedDescription = getDistinctDescription(selectedOption)
 
   const filteredOptions = useMemo(() => {
@@ -177,16 +132,26 @@ export function ApiKeyGroupCombobox({
             variant='outline'
             role='combobox'
             aria-expanded={open}
+            data-auto-group-effect={isAutoSelected ? 'trigger' : undefined}
             aria-label={triggerAriaLabel}
             disabled={disabled}
             className={cn(
+              'relative',
               compact
                 ? 'hover:bg-muted/70 data-popup-open:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-1 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none transition-[background-color,border-color,box-shadow] data-popup-open:border-ring data-popup-open:ring-ring/20 data-popup-open:ring-[3px]'
-                : 'border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3'
+                : 'border-input bg-muted/40 hover:bg-muted/55 hover:text-foreground active:bg-background data-popup-open:border-ring data-popup-open:bg-background data-popup-open:ring-ring/20 h-auto min-h-14 w-full justify-between gap-2 rounded-lg px-3 py-2 text-start shadow-none transition-[background-color,border-color,box-shadow] duration-150 data-popup-open:ring-[3px] sm:min-h-20 sm:gap-3 sm:px-4 sm:py-3',
+              isAutoSelected &&
+                cn(
+                  AUTO_GROUP_FRAME_CLASS_NAME,
+                  'hover:border-primary/55 data-popup-open:border-primary/55 data-popup-open:ring-primary/20'
+                )
             )}
           />
         }
       >
+        {isAutoSelected && (
+          <AutoGroupFlowBorder shouldReduceMotion={shouldReduceMotion} />
+        )}
         {trigger || (
           <span className='flex min-w-0 flex-1 items-center justify-between gap-2 sm:gap-3'>
             <span className='min-w-0'>
@@ -202,7 +167,8 @@ export function ApiKeyGroupCombobox({
             <span className='hidden sm:block'>
               <GroupRatioBadge
                 ratio={selectedOption?.ratio}
-                isAuto={selectedOption?.isAuto}
+                isAuto={isAutoSelected}
+                shouldReduceMotion={shouldReduceMotion}
               />
             </span>
           </span>
@@ -234,36 +200,57 @@ export function ApiKeyGroupCombobox({
               <>
                 <CommandEmpty>{t('No group found.')}</CommandEmpty>
                 <CommandGroup>
-                  {filteredOptions.map((option) => (
-                    <CommandItem
-                      key={option.value}
-                      value={option.value}
-                      disabled={option.disabled}
-                      onSelect={() => handleSelect(option.value)}
-                      className='data-[selected=true]:bg-muted/80 data-[selected=true]:border-border/60 items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 transition-colors data-[disabled=true]:opacity-60 [&>svg:last-child]:hidden'
-                    >
-                      <Check
+                  {filteredOptions.map((option) => {
+                    const isAutoOption =
+                      option.value === 'auto' || Boolean(option.isAuto)
+                    return (
+                      <CommandItem
+                        key={option.value}
+                        value={option.value}
+                        disabled={option.disabled}
+                        data-auto-group-effect={
+                          isAutoOption ? 'option' : undefined
+                        }
+                        onSelect={() => handleSelect(option.value)}
                         className={cn(
-                          'mt-0.5 h-4 w-4',
-                          value === option.value ? 'opacity-100' : 'opacity-0'
+                          'data-[selected=true]:bg-muted/80 data-[selected=true]:border-border/60 items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 transition-colors data-[disabled=true]:opacity-60 [&>svg:last-child]:hidden',
+                          isAutoOption &&
+                            cn(
+                              AUTO_GROUP_FRAME_CLASS_NAME,
+                              'border-primary/35 data-[selected=true]:border-primary/55'
+                            )
                         )}
-                      />
-                      <span className='min-w-0 flex-1'>
-                        <span className='block truncate font-medium'>
-                          {option.label}
-                        </span>
-                        {getDistinctDescription(option) && (
-                          <span className='text-muted-foreground block truncate text-xs'>
-                            {getDistinctDescription(option)}
+                      >
+                        {isAutoOption && (
+                          <AutoGroupFlowBorder
+                            shouldReduceMotion={shouldReduceMotion}
+                          />
+                        )}
+                        <Check
+                          aria-hidden='true'
+                          className={cn(
+                            'mt-0.5 h-4 w-4',
+                            value === option.value ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                        <span className='min-w-0 flex-1'>
+                          <span className='block truncate font-medium'>
+                            {option.label}
                           </span>
-                        )}
-                      </span>
-                      <GroupRatioBadge
-                        ratio={option.ratio}
-                        isAuto={option.isAuto}
-                      />
-                    </CommandItem>
-                  ))}
+                          {getDistinctDescription(option) && (
+                            <span className='text-muted-foreground block truncate text-xs'>
+                              {getDistinctDescription(option)}
+                            </span>
+                          )}
+                        </span>
+                        <GroupRatioBadge
+                          ratio={option.ratio}
+                          isAuto={isAutoOption}
+                          shouldReduceMotion={shouldReduceMotion}
+                        />
+                      </CommandItem>
+                    )
+                  })}
                 </CommandGroup>
               </>
             )}

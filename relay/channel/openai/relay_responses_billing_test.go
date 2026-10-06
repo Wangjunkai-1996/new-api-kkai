@@ -7,15 +7,19 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/types"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestResponsesHandlersBillActualToolCalls(t *testing.T) {
+	operation_setting.SetToolPriceForTest("priced_fn", 5)
+	t.Cleanup(func() { operation_setting.DeleteToolPriceForTest("priced_fn") })
 	handlers := []struct {
 		name    string
 		stream  bool
@@ -33,6 +37,8 @@ func TestResponsesHandlersBillActualToolCalls(t *testing.T) {
 		{ID: "ws_2", Type: dto.BuildInCallWebSearchCall, Status: "completed"},
 		{ID: "fs_1", Type: dto.BuildInCallFileSearchCall, Status: "completed"},
 		{ID: "fc_1", Type: "function_call", Name: "web_search", CallId: "call_1", Arguments: []byte(`"{}"`)},
+		{ID: "fc_2", Type: "function_call", Name: "priced_fn", CallId: "call_2", Arguments: []byte(`"{}"`)},
+		{ID: "fc_3", Type: "function_call", Name: "unpriced_fn", CallId: "call_3", Arguments: []byte(`"{}"`)},
 	}
 	cases := []struct {
 		name            string
@@ -57,6 +63,7 @@ func TestResponsesHandlersBillActualToolCalls(t *testing.T) {
 			outputs: []dto.ResponsesOutput{
 				{ID: "img_1", Type: dto.ResponsesOutputTypeImageGenerationCall, Status: "completed", Result: "image1", Quality: "low", Size: "1024x1024"},
 				{ID: "img_2", Type: dto.ResponsesOutputTypeImageGenerationCall, Status: "completed", Result: "image2", Quality: "high", Size: "1536x1024"},
+				{ID: "img_duplicate", Type: dto.ResponsesOutputTypeImageGenerationCall, Status: "completed", Result: "image1", Quality: "low", Size: "1024x1024"},
 				{ID: "img_failed", Type: dto.ResponsesOutputTypeImageGenerationCall, Status: "failed", Result: "partial"},
 				{ID: "img_empty", Type: dto.ResponsesOutputTypeImageGenerationCall, Status: "completed"},
 			},
@@ -121,6 +128,13 @@ func TestResponsesHandlersBillActualToolCalls(t *testing.T) {
 				assert.Equal(t, tc.webTool, tools[dto.BuildInToolWebSearchPreview].ToolName)
 				assert.Equal(t, tc.wantFile, tools[dto.BuildInToolFileSearch].CallCount)
 				assert.NotContains(t, tools, "function")
+				assert.NotContains(t, tools, "unpriced_fn")
+				if tc.wantWeb > 0 {
+					require.Contains(t, tools, "priced_fn")
+					assert.Equal(t, 1, tools["priced_fn"].CallCount)
+				} else {
+					assert.NotContains(t, tools, "priced_fn")
+				}
 				if handler.convert {
 					assert.Empty(t, info.ResponsesUsageInfo.ImageGenerationCalls, "Chat conversion must not bill images it does not deliver")
 				} else {
@@ -169,6 +183,46 @@ func TestResponsesToolBillingRequiresSuccessfulImageTerminal(t *testing.T) {
 			require.Nil(t, apiErr)
 			require.NotNil(t, info.ResponsesUsageInfo)
 			assert.Len(t, info.ResponsesUsageInfo.ImageGenerationCalls, 1)
+		})
+	}
+}
+
+func TestChatHandlersBillPricedFunctionCalls(t *testing.T) {
+	operation_setting.SetToolPriceForTest("priced_chat_fn", 5)
+	t.Cleanup(func() { operation_setting.DeleteToolPriceForTest("priced_chat_fn") })
+	tests := []struct {
+		name   string
+		stream bool
+		handle func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
+	}{
+		{"chat_json", false, OpenaiHandler},
+		{"chat_stream", true, OaiStreamHandler},
+		{"responses_json", false, OaiChatToResponsesHandler},
+		{"responses_stream", true, OaiChatToResponsesStreamHandler},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := `[{"index":0,"id":"call_1","type":"function","function":{"name":"priced_chat_fn","arguments":"{}"}},{"index":1,"id":"call_2","type":"function","function":{"name":"unpriced_chat_fn","arguments":"{}"}},{"index":2,"id":"call_3","type":"function","function":{"name":"web_search","arguments":"{}"}}]`
+			body := `{"id":"chat_1","model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","tool_calls":` + calls + `},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
+			if test.stream {
+				first := `data: {"id":"chat_1","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":` + calls + `}}]}` + "\n\n"
+				body = first + `data: {"id":"chat_1","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}` + "\n\ndata: [DONE]\n\n"
+			}
+			c, resp, info := newResponsesStreamHandlerTest(t, body)
+			info.IsStream = test.stream
+			info.RelayFormat = types.RelayFormatOpenAI
+			info.RelayMode = relayconstant.RelayModeChatCompletions
+			if strings.HasPrefix(test.name, "responses_") {
+				info.RelayFormat = types.RelayFormatOpenAIResponses
+			}
+			usage, apiErr := test.handle(c, info, resp)
+			require.Nil(t, apiErr)
+			require.Equal(t, 5, usage.TotalTokens)
+			require.NotNil(t, info.ResponsesUsageInfo)
+			require.Contains(t, info.ResponsesUsageInfo.BuiltInTools, "priced_chat_fn")
+			assert.Equal(t, 1, info.ResponsesUsageInfo.BuiltInTools["priced_chat_fn"].CallCount)
+			assert.NotContains(t, info.ResponsesUsageInfo.BuiltInTools, "unpriced_chat_fn")
+			assert.NotContains(t, info.ResponsesUsageInfo.BuiltInTools, "web_search")
 		})
 	}
 }

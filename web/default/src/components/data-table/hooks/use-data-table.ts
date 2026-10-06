@@ -41,6 +41,7 @@ import * as React from 'react'
 
 type DataTableFeatureOptions<TData> = Pick<
   TableOptions<TData>,
+  | 'enableSorting'
   | 'enableRowSelection'
   | 'getRowId'
   | 'getSubRows'
@@ -275,6 +276,8 @@ function readColumnSizing(
 }
 
 export function useDataTable<TData>(options: UseDataTableOptions<TData>) {
+  'use no memo' // TanStack Table exposes a mutable instance.
+
   const {
     data,
     columns,
@@ -371,6 +374,7 @@ export function useDataTable<TData>(options: UseDataTableOptions<TData>) {
       ? Math.ceil(totalCount / pagination.pageSize)
       : undefined)
 
+  // oxlint-disable-next-line react/incompatible-library -- TanStack Table uses a mutable instance; this component explicitly opts out of compiler memoization.
   const table = useReactTable({
     data,
     columns,
@@ -386,6 +390,7 @@ export function useDataTable<TData>(options: UseDataTableOptions<TData>) {
       globalFilter: options.globalFilter,
       pagination,
     },
+    enableSorting: options.enableSorting,
     enableRowSelection: options.enableRowSelection,
     getRowId: options.getRowId,
     getSubRows: options.getSubRows,

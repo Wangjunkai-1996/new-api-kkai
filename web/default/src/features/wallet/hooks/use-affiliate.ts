@@ -16,12 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getSelf } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getAffiliateCode, transferAffiliateQuota } from '../api'
 import { generateAffiliateLink } from '../lib'
@@ -31,30 +35,26 @@ import { generateAffiliateLink } from '../lib'
 // ============================================================================
 
 export function useAffiliate() {
-  const [affiliateCode, setAffiliateCode] = useState<string>('')
-  const [affiliateLink, setAffiliateLink] = useState<string>('')
-  const [loading, setLoading] = useState(true)
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const [transferring, setTransferring] = useState(false)
   const { copyToClipboard } = useCopyToClipboard()
-
-  // Fetch affiliate code
-  const fetchAffiliateCode = useCallback(async () => {
-    try {
-      setLoading(true)
-      const response = await getAffiliateCode()
-
-      if (response.success && response.data) {
-        setAffiliateCode(response.data)
-        const link = generateAffiliateLink(response.data)
-        setAffiliateLink(link)
-      }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch affiliate code:', error)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const query = useQuery({
+    queryKey: ['affiliate-code', userId, sessionId],
+    queryFn: async () => {
+      const response = requireServerSuccess(await getAffiliateCode())
+      return response.data || ''
+    },
+    retry: false,
+  })
+  const affiliateCode = query.data || ''
+  const affiliateLink = affiliateCode
+    ? generateAffiliateLink(affiliateCode)
+    : ''
+  const queryError = query.error
+  useEffect(() => {
+    if (queryError) handleServerError(queryError)
+  }, [queryError])
 
   // Copy affiliate link
   const copyAffiliateLink = useCallback(() => {
@@ -73,27 +73,23 @@ export function useAffiliate() {
         return true
       }
 
-      toast.error(response.message || i18next.t('Transfer failed'))
+      handleServerError(response, i18next.t('Transfer failed'))
       return false
     } catch (_error) {
-      toast.error(i18next.t('Transfer failed'))
+      handleServerError(_error, i18next.t('Transfer failed'))
       return false
     } finally {
       setTransferring(false)
     }
   }, [])
 
-  useEffect(() => {
-    fetchAffiliateCode()
-  }, [fetchAffiliateCode])
-
   return {
     affiliateCode,
     affiliateLink,
-    loading,
+    loading: query.isFetching,
     transferring,
     copyAffiliateLink,
     transferQuota,
-    refetch: fetchAffiliateCode,
+    refetch: query.refetch,
   }
 }

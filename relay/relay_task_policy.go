@@ -3,6 +3,7 @@ package relay
 import (
 	"errors"
 	"fmt"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,7 +13,7 @@ import (
 )
 
 func embeddedTaskPolicyError(statusCode int, responseBody []byte) *dto.TaskError {
-	var envelope dto.GeneralErrorResponse
+	var envelope relaydto.GeneralErrorResponse
 	if err := common.Unmarshal(responseBody, &envelope); err != nil || common.GetJsonType(envelope.Error) != "object" {
 		return nil
 	}

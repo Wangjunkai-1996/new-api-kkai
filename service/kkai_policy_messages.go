@@ -3,7 +3,7 @@ package service
 import (
 	"fmt"
 
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 func KKAIPolicyMessageForKeyword() string {

@@ -7,7 +7,12 @@ describe('console API compatibility', () => {
     const contract = parseConsoleContract({
       format_version: 1,
       api_contracts: [1, 2],
-      capabilities: [],
+      capabilities: [
+        'dashboard_jwt',
+        'scoped_access_tokens',
+        'task_plugins',
+        'studio_media_urls',
+      ],
     })
     expect(supportsConsole(contract)).toBe(true)
   })
@@ -31,8 +36,29 @@ describe('console API compatibility', () => {
       supportsConsole(
         parseConsoleContract({
           format_version: 1,
+          api_contracts: [3],
+          capabilities: [
+            'dashboard_jwt',
+            'scoped_access_tokens',
+            'task_plugins',
+            'studio_media_urls',
+          ],
+        })
+      )
+    ).toBe(false)
+  })
+
+  it('rejects the correct API version when a required capability is missing', () => {
+    expect(
+      supportsConsole(
+        parseConsoleContract({
+          format_version: 1,
           api_contracts: [2],
-          capabilities: [],
+          capabilities: [
+            'dashboard_jwt',
+            'scoped_access_tokens',
+            'task_plugins',
+          ],
         })
       )
     ).toBe(false)

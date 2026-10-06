@@ -155,6 +155,10 @@ function buildCCSwitchURL(app, name, models, apiKey) {
   }
   params.set('homepage', serverAddress);
   params.set('enabled', 'true');
+  params.set('usageEnabled', 'true');
+  params.set('usageScript', btoa(CC_SWITCH_TOKEN_USAGE_SCRIPT));
+  params.set('usageBaseUrl', serverAddress);
+  params.set('usageAutoInterval', '30');
   return `ccswitch://v1/import?${params.toString()}`;
 }
 

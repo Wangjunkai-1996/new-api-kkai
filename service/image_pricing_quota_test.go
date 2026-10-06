@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -86,4 +87,23 @@ func TestImagePricingSettlementMatchesRoundedQuoteWithFractionalGroupRatio(t *te
 
 	assert.Equal(t, 335001, summary.Quota)
 	assert.Equal(t, info.PriceData.QuotaToPreConsume, summary.Quota)
+}
+
+func TestImagePricingRetryCannotChangeConfirmedQuantity(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		PriceData: types.PriceData{QuotaToPreConsume: 200},
+		ImagePricingSnapshot: &imagepricing.Snapshot{
+			PolicyVersion: "v1", PolicyHash: "quote", Model: "image-test",
+			Size: "1024x1024", Tier: "1k", UnitPrice: 1,
+			QuotaPerUnit: 100, GroupRatio: 1, RequestedCount: 2,
+		},
+	}
+
+	err := PrepareImageBillingForRequest(ctx, info, 3)
+
+	require.NotNil(t, err)
+	assert.Equal(t, relaytypes.ErrorCodeQuoteStale, err.GetErrorCode())
+	assert.Equal(t, 200, info.PriceData.QuotaToPreConsume)
+	assert.Nil(t, info.Billing)
 }

@@ -16,51 +16,57 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 
+import { handleServerError } from '@/lib/handle-server-error'
+import { createServerError } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
+
 import { getUserProfile, updateUserProfile, updateUserSettings } from '../api'
-import type {
-  UserProfile,
-  UpdateUserRequest,
-  UpdateUserSettingsRequest,
-} from '../types'
+import type { UpdateUserRequest, UpdateUserSettingsRequest } from '../types'
 
 // ============================================================================
 // Profile Hook
 // ============================================================================
 
 export function useProfile() {
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [loading, setLoading] = useState(true)
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
   const [updating, setUpdating] = useState(false)
-
-  // Fetch user profile (with optional silent mode)
-  const fetchProfile = useCallback(async (silent = false) => {
-    try {
-      if (!silent) {
-        setLoading(true)
-      }
+  const [refreshing, setRefreshing] = useState(false)
+  const query = useQuery({
+    queryKey: ['profile', userId, sessionId],
+    queryFn: async () => {
       const response = await getUserProfile()
-
-      if (response.success && response.data) {
-        setProfile(response.data)
+      if (!response.success || !response.data) {
+        throw createServerError(response, i18next.t('Failed to load profile'))
       }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch profile:', error)
-      if (!silent) {
-        toast.error(i18next.t('Failed to load profile'))
-      }
-    } finally {
-      if (!silent) {
-        setLoading(false)
-      }
+      return response.data
+    },
+    retry: false,
+  })
+  const reload = query.refetch
+  const queryError = query.error
+  useEffect(() => {
+    if (queryError) {
+      handleServerError(queryError, i18next.t('Failed to load profile'))
     }
-  }, [])
+  }, [queryError])
 
-  // Refresh profile silently (without loading state)
+  const fetchProfile = useCallback(
+    async (silent = false) => {
+      if (!silent) setRefreshing(true)
+      try {
+        await reload()
+      } finally {
+        if (!silent) setRefreshing(false)
+      }
+    },
+    [reload]
+  )
   const refreshProfile = useCallback(async () => {
     await fetchProfile(true)
   }, [fetchProfile])
@@ -78,12 +84,10 @@ export function useProfile() {
           return true
         }
 
-        toast.error(response.message || i18next.t('Failed to update profile'))
+        handleServerError(response, i18next.t('Failed to update profile'))
         return false
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to update profile:', error)
-        toast.error(i18next.t('Failed to update profile'))
+        handleServerError(error, i18next.t('Failed to update profile'))
         return false
       } finally {
         setUpdating(false)
@@ -105,12 +109,10 @@ export function useProfile() {
           return true
         }
 
-        toast.error(response.message || i18next.t('Failed to update settings'))
+        handleServerError(response, i18next.t('Failed to update settings'))
         return false
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to update settings:', error)
-        toast.error(i18next.t('Failed to update settings'))
+        handleServerError(error, i18next.t('Failed to update settings'))
         return false
       } finally {
         setUpdating(false)
@@ -119,14 +121,9 @@ export function useProfile() {
     [refreshProfile]
   )
 
-  // Initial fetch
-  useEffect(() => {
-    fetchProfile()
-  }, [fetchProfile])
-
   return {
-    profile,
-    loading,
+    profile: query.data ?? null,
+    loading: query.isPending || refreshing,
     updating,
     fetchProfile,
     refreshProfile,

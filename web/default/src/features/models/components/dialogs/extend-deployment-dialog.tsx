@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -26,6 +26,8 @@ import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { estimatePrice, extendDeployment, getDeployment } from '../../api'
 import { deploymentsQueryKeys } from '../../lib'
@@ -49,13 +51,18 @@ export function ExtendDeploymentDialog({
   const [hours, setHours] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
     if (open) setHours(1)
-  }, [open])
+  }
 
   const { data: detailsRes, isLoading: isLoadingDetails } = useQuery({
     queryKey: ['deployment-details-for-extend', deploymentId],
-    queryFn: () => (deploymentId ? getDeployment(deploymentId) : null),
+    queryFn: async () =>
+      requireServerSuccess(
+        await (deploymentId ? getDeployment(deploymentId) : null)
+      ),
     enabled: open && deploymentId !== null,
   })
 
@@ -97,17 +104,19 @@ export function ExtendDeploymentDialog({
     isFetching: isFetchingPrice,
   } = useQuery({
     queryKey: ['deployment-extend-price', deploymentId, hours, priceParams],
-    queryFn: () =>
-      priceParams
-        ? estimatePrice({
-            location_ids: priceParams.location_ids,
-            hardware_id: priceParams.hardware_id,
-            gpus_per_container: priceParams.gpus_per_container,
-            replica_count: priceParams.replica_count,
-            duration_hours: hours,
-            currency: 'usdc',
-          })
-        : null,
+    queryFn: async () =>
+      requireServerSuccess(
+        await (priceParams
+          ? estimatePrice({
+              location_ids: priceParams.location_ids,
+              hardware_id: priceParams.hardware_id,
+              gpus_per_container: priceParams.gpus_per_container,
+              replica_count: priceParams.replica_count,
+              duration_hours: hours,
+              currency: 'usdc',
+            })
+          : null)
+      ),
     enabled: open && Boolean(priceParams) && hours > 0,
   })
 
@@ -151,9 +160,9 @@ export function ExtendDeploymentDialog({
         onOpenChange(false)
         return
       }
-      toast.error(res.message || t('Extend failed'))
+      handleServerError(res, t('Extend failed'))
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('Extend failed'))
+      handleServerError(err, t('Extend failed'))
     } finally {
       setIsSubmitting(false)
     }
@@ -211,16 +220,18 @@ export function ExtendDeploymentDialog({
           <div className='space-y-1'>
             <div className='text-sm font-medium'>{t('Estimated cost')}</div>
             <div className='text-muted-foreground text-sm'>
-              {isLoadingPrice || isFetchingPrice ? (
+              {(isLoadingPrice || isFetchingPrice) && (
                 <span className='inline-flex items-center gap-2'>
                   <Loader2 className='h-4 w-4 animate-spin' />
                   {t('Calculating...')}
                 </span>
-              ) : priceParams ? (
-                priceSummary || t('Not available')
-              ) : (
-                t('Not available')
               )}
+              {!(isLoadingPrice || isFetchingPrice) &&
+                priceParams &&
+                (priceSummary || t('Not available'))}
+              {!(isLoadingPrice || isFetchingPrice) &&
+                !priceParams &&
+                t('Not available')}
             </div>
             {!priceParams ? (
               <div className='text-muted-foreground text-xs'>

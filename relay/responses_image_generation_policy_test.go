@@ -11,13 +11,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/relayconvert"
 	"github.com/QuantumNous/new-api/setting/model_setting"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -431,7 +431,7 @@ func TestTextHelperEnforcesImageGenerationPolicyAfterChatToResponsesConversion(t
 		Model:    "gpt-5",
 		Messages: []dto.Message{{Role: "user", Content: "draw an image"}},
 		Tools: []dto.ToolCallRequest{
-			{Type: dto.BuildInToolImageGeneration},
+			{Type: dto.CustomType, Custom: []byte(`{"type":"image_generation"}`)},
 			{Type: "function", Function: dto.FunctionRequest{Name: "lookup"}},
 		},
 	}
@@ -447,7 +447,7 @@ func TestTextHelperEnforcesImageGenerationPolicyAfterChatToResponsesConversion(t
 
 	apiErr := TextHelper(ctx, info)
 	require.NotNil(t, apiErr, "the fake upstream deliberately returns 400")
-	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, int32(1), calls.Load(), "unexpected pre-upstream rejection: %v", apiErr)
 	gotBody := <-receivedBodies
 	assert.NotContains(t, string(gotBody), dto.BuildInToolImageGeneration)
 	assert.Contains(t, string(gotBody), `"name":"lookup"`)

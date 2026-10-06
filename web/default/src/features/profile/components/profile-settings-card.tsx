@@ -42,6 +42,7 @@ export function ProfileSettingsCard({
   onProfileUpdate,
 }: ProfileSettingsCardProps) {
   const { t } = useTranslation()
+
   if (loading) {
     return (
       <Card data-card-hover='false' className='gap-0 overflow-hidden py-0'>
@@ -50,7 +51,7 @@ export function ProfileSettingsCard({
           <Skeleton className='mt-2 h-4 w-48' />
         </CardHeader>
         <CardContent className='space-y-4 p-3 sm:p-5'>
-          {['notification-method', 'notification-target', 'save'].map((key) => (
+          {['notifications', 'threshold', 'preferences'].map((key) => (
             <Skeleton key={key} className='h-20 w-full' />
           ))}
         </CardContent>
@@ -61,7 +62,7 @@ export function ProfileSettingsCard({
   return (
     <TitledCard
       title={t('Settings')}
-      description={t('Configure your account preferences and integrations')}
+      description={t('Settings & Preferences')}
       icon={<Settings className='h-4 w-4' />}
       iconTone='info'
       disableHoverEffect

@@ -27,12 +27,14 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/mistral"
 	"github.com/QuantumNous/new-api/relay/channel/mokaai"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
+	"github.com/QuantumNous/new-api/relay/channel/newapi"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/perplexity"
 	"github.com/QuantumNous/new-api/relay/channel/replicate"
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
+	"github.com/QuantumNous/new-api/relay/channel/sub2api"
 	"github.com/QuantumNous/new-api/relay/channel/submodel"
 	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel/tencent"
@@ -60,7 +62,7 @@ func GetAdaptor(apiType int) channel.Adaptor {
 	case constant.APITypePaLM:
 		return &palm.Adaptor{}
 	case constant.APITypeTencent:
-		return &tencent.Adaptor{}
+		return &tencent.DispatchAdaptor{}
 	case constant.APITypeXunfei:
 		return &xunfei.Adaptor{}
 	case constant.APITypeZhipu:
@@ -117,6 +119,10 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &codex.Adaptor{}
 	case constant.APITypeAdvancedCustom:
 		return &advancedcustom.Adaptor{}
+	case constant.APITypeSub2API:
+		return &sub2api.Adaptor{}
+	case constant.APITypeNewAPI:
+		return &newapi.Adaptor{}
 	}
 	return nil
 }
@@ -159,6 +165,10 @@ func ResolveTaskPluginForPlatform(generation *pluginruntime.RoutingGeneration, p
 	return generation.Get(string(platform))
 }
 
+// TaskPlatformUnavailableError explains why no adaptor serves the platform:
+// the task-plugin system is switched off, the resolved plugin is disabled,
+// or the platform simply names nothing. The distinction is user-actionable,
+// so it must survive into the client-facing message.
 func TaskPlatformUnavailableError(platform constant.TaskPlatform) (string, string) {
 	if !pluginruntime.DefaultRegistry.Enabled() {
 		return "task_plugin_system_disabled", "the task plugin system is disabled on this gateway"
@@ -183,6 +193,9 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 	return jspluginadaptor.New(plugin)
 }
 
+// getTaskAdaptorForRequest preserves the exact plugin object pinned by the
+// declarative or shared-endpoint router. Legacy task routes are pinned here
+// from one registry generation before the adaptor is returned.
 func getTaskAdaptorForRequest(c *gin.Context, platform constant.TaskPlatform) (constant.TaskPlatform, channel.TaskAdaptor) {
 	if c != nil {
 		if value, exists := c.Get(pluginruntime.ContextKeyPinnedPlugin); exists {
@@ -213,7 +226,10 @@ func getTaskAdaptorForRequest(c *gin.Context, platform constant.TaskPlatform) (c
 		return platform, nil
 	}
 	if c != nil {
-		c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Generation: generation, Plugin: plugin})
+		c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{
+			Generation: generation,
+			Plugin:     plugin,
+		})
 	}
 	return platform, jspluginadaptor.New(plugin)
 }

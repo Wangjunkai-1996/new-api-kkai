@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,15 +12,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 var (
@@ -54,28 +56,24 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		var responseStatus string
 		if err := common.Unmarshal(responsesResponse.Status, &responseStatus); err == nil &&
 			strings.EqualFold(strings.TrimSpace(responseStatus), "incomplete") {
+			info.PerformanceBusinessRejection = true
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_responses_incomplete_reason=content_filter")
 		}
 	}
+
+	info.ObserveResponseModel(responsesResponse.Model)
+	responseBody = rewriteSGLangResponsesCreatedAt(info, responseBody, "created_at", responsesResponse.CreatedAt)
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	// compute usage
-	usage := dto.Usage{}
-	if responsesResponse.Usage != nil {
-		usage.PromptTokens = responsesResponse.Usage.InputTokens
-		usage.CompletionTokens = responsesResponse.Usage.OutputTokens
-		usage.TotalTokens = responsesResponse.Usage.TotalTokens
-		if responsesResponse.Usage.InputTokensDetails != nil {
-			usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
-			usage.PromptTokensDetails.CacheWriteTokens = responsesResponse.Usage.InputTokensDetails.CacheWriteTokens
-		}
-	}
+	usage := &dto.Usage{}
+	service.ApplyResponsesUsage(usage, responsesResponse.Usage)
 	var toolUsage responsesToolUsage
 	toolUsage.observeResponse(&responsesResponse)
 	toolUsage.commit(info, true)
-	return &usage, nil
+	return usage, nil
 }
 
 func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -86,8 +84,28 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	defer service.CloseResponseBodyGracefully(resp)
 
-	var usage = &dto.Usage{}
-	var responseTextBuilder strings.Builder
+	accumulator := service.NewResponsesUsageAccumulator(info)
+	var reportedUsage dto.Usage
+	// The accumulator observes tools before the terminal arrives. Keep those
+	// provisional counts isolated until this upstream attempt succeeds.
+	previousTools := info.ResponsesUsageInfo
+	if previousTools != nil {
+		copy := *previousTools
+		copy.BuiltInTools = make(map[string]*relaycommon.BuildInToolInfo, len(previousTools.BuiltInTools))
+		for name, tool := range previousTools.BuiltInTools {
+			if tool != nil {
+				value := *tool
+				copy.BuiltInTools[name] = &value
+			}
+		}
+		info.ResponsesUsageInfo = &copy
+	}
+	committedTools := false
+	defer func() {
+		if !committedTools {
+			info.ResponsesUsageInfo = previousTools
+		}
+	}()
 	var streamErr *types.NewAPIError
 	var toolUsage responsesToolUsage
 	sawSuccessfulTerminal := false
@@ -105,21 +123,36 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		accumulator.Observe(&streamResponse)
+		if streamResponse.Response != nil {
+			service.ApplyResponsesUsage(&reportedUsage, streamResponse.Response.Usage)
+			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
+		}
+		// A token limit is a valid billed termination, not a provider failure.
+		tokenLimited := false
+		if streamResponse.Type == "response.incomplete" && streamResponse.Response != nil && streamResponse.Response.IncompleteDetails != nil {
+			reason := strings.ToLower(strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reason))
+			tokenLimited = reason == "max_output_tokens" || reason == "max_tokens"
+			if reason == "content_filter" {
+				info.PerformanceBusinessRejection = true
+				common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_responses_incomplete_reason=content_filter")
+			}
+		}
 		if responsesStreamEventStartsSemanticOutput(&streamResponse, data) {
 			common.SetContextKey(c, constant.ContextKeyResponsesStreamOutputStarted, true)
 		}
-		if strings.HasPrefix(streamResponse.Type, "response.") || streamResponse.Type == "error" {
+		if !tokenLimited && (strings.HasPrefix(streamResponse.Type, "response.") || streamResponse.Type == "error") {
 			switch streamResponse.Type {
 			case "response.failed", "response.incomplete", "response.error", "response.cancelled", "response.canceled", "error":
 				common.SetContextKey(c, constant.ContextKeyResponsesStreamFailedEventType, sanitizeResponsesStreamDiagnosticField(streamResponse.Type))
-				if openAIError := streamResponse.GetOpenAIError(); openAIError != nil {
+				if openAIError := responsesStreamOpenAIError(&streamResponse); openAIError != nil {
 					common.SetContextKey(c, constant.ContextKeyResponsesStreamUpstreamErrorCode, sanitizeResponsesStreamDiagnosticField(responsesStreamErrorCode(openAIError)))
 					common.SetContextKey(c, constant.ContextKeyResponsesStreamUpstreamErrorMessage, sanitizeResponsesStreamDiagnosticMessage(openAIError.Message))
 				}
 			}
 		}
 		if upstreamErr := responsesStreamError(&streamResponse); upstreamErr != nil {
-			markResponsesStreamFailure(c, streamResponse.Type, responsesStreamErrorCode(streamResponse.GetOpenAIError()), upstreamErr.Error(), true)
+			markResponsesStreamFailure(c, streamResponse.Type, responsesStreamErrorCode(responsesStreamOpenAIError(&streamResponse)), upstreamErr.Error(), true)
 			streamErr = upstreamErr
 			sr.Stop(upstreamErr)
 			return
@@ -127,32 +160,20 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			sawSuccessfulTerminal = true
-			if streamResponse.Response != nil {
-				if streamResponse.Response.Usage != nil {
-					if streamResponse.Response.Usage.InputTokens != 0 {
-						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
-					}
-					if streamResponse.Response.Usage.OutputTokens != 0 {
-						usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
-					}
-					if streamResponse.Response.Usage.TotalTokens != 0 {
-						usage.TotalTokens = streamResponse.Response.Usage.TotalTokens
-					}
-					if streamResponse.Response.Usage.InputTokensDetails != nil {
-						usage.PromptTokensDetails.CachedTokens = streamResponse.Response.Usage.InputTokensDetails.CachedTokens
-						usage.PromptTokensDetails.CacheWriteTokens = streamResponse.Response.Usage.InputTokensDetails.CacheWriteTokens
-					}
-				}
-			}
 			sr.Done()
 		case "response.failed", "response.incomplete", "response.error", "response.cancelled", "response.canceled", "error":
+			if tokenLimited {
+				sawSuccessfulTerminal = true
+				sr.Done()
+				break
+			}
 			message := fmt.Sprintf("responses stream ended with %s", streamResponse.Type)
 			if streamResponse.Response != nil && streamResponse.Response.IncompleteDetails != nil {
 				if reason := strings.TrimSpace(streamResponse.Response.IncompleteDetails.Reason); reason != "" {
 					message += fmt.Sprintf(" (reason=%s)", reason)
 				}
 			}
-			markResponsesStreamFailure(c, streamResponse.Type, responsesStreamErrorCode(streamResponse.GetOpenAIError()), message, true)
+			markResponsesStreamFailure(c, streamResponse.Type, responsesStreamErrorCode(responsesStreamOpenAIError(&streamResponse)), message, true)
 			streamErr = types.NewOpenAIError(
 				errors.New(message),
 				types.ErrorCodeBadResponse,
@@ -160,18 +181,18 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				types.ErrOptionWithSkipRetry(),
 			)
 			sr.Stop(streamErr)
-		case "response.output_text.delta":
-			// 处理输出文本
-			responseTextBuilder.WriteString(streamResponse.Delta)
 		}
 		if streamErr == nil {
 			toolUsage.observeEvent(&streamResponse)
 			sendResponsesStreamData(c, streamResponse, data)
 		}
 	})
+	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
+	info.StreamStatus.RequireTerminal()
 	if streamErr != nil {
 		return nil, streamErr
 	}
+	usage := accumulator.Finish()
 	if !sawSuccessfulTerminal {
 		endReason := relaycommon.StreamEndReasonNone
 		var endErr error
@@ -179,10 +200,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			endReason = info.StreamStatus.EndReason
 			endErr = info.StreamStatus.EndError
 		}
-		if endReason == relaycommon.StreamEndReasonClientGone {
-			// A client disconnect is not an upstream response failure. Keep the
-			// usage collected so far and let the normal billing path settle it.
-		} else {
+		clientCancelled := endReason == relaycommon.StreamEndReasonClientGone || errors.Is(c.Request.Context().Err(), context.Canceled)
+		interrupted := clientCancelled || endReason == relaycommon.StreamEndReasonTimeout
+		measuredUsage := usage.CompletionTokens > 0 || reportedUsage.TotalTokens > 0 || reportedUsage.PromptTokens > 0
+		// Only measurable output from an explicit timeout or client cancellation
+		// settles partially. EOF and upstream failures retain the failure boundary.
+		if !interrupted || !measuredUsage {
 			message := fmt.Sprintf(
 				"responses stream ended without a successful terminal event (reason=%s, received=%d)",
 				endReason,
@@ -205,26 +228,24 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if usage.CompletionTokens == 0 {
-		// 计算输出文本的 token 数量
-		tempStr := responseTextBuilder.String()
-		if len(tempStr) > 0 {
-			// 非正常结束，使用输出文本的 token 数量
-			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
-			usage.CompletionTokens = completionTokens
-			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
-		}
-	}
-
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		usage.PromptTokens = info.GetEstimatePromptTokens()
+	if (usage.CompletionTokens != 0 && reportedUsage.CompletionTokens == 0) ||
+		(usage.PromptTokens != 0 && reportedUsage.PromptTokens == 0) {
 		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
 	}
-
-	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-
-	toolUsage.commit(info, true)
+	toolUsage.commit(info, sawSuccessfulTerminal)
+	committedTools = true
 	return usage, nil
+}
+
+func rewriteSGLangResponsesCreatedAt(info *relaycommon.RelayInfo, payload []byte, path string, createdAt dto.IntValue) []byte {
+	if info.GetChannelType() != constant.ChannelTypeSGLang || !gjson.GetBytes(payload, path).Exists() {
+		return payload
+	}
+	patched, err := sjson.SetBytes(payload, path, int(createdAt))
+	if err != nil {
+		return payload
+	}
+	return patched
 }
 
 // responsesStreamEventStartsSemanticOutput uses the original event JSON rather

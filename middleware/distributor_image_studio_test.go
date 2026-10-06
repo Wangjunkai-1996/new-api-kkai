@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -27,7 +27,7 @@ func TestDistributorRejectsSpecifiedChannelWithoutMultiReferenceCapability(t *te
 	channels := setupImageStudioDistributorTest(t)
 	selected := 0
 	response := runImageStudioDistributorTestRequest(t, func(c *gin.Context) {
-		common.SetContextKey(c, constant.ContextKeyTokenSpecificChannelId, strconv.Itoa(channels.replicate.Id))
+		service.GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: channels.replicate.Id, Source: dto.PinSourceToken, Rank: dto.PinRankToken, RetryMode: dto.PinRetrySingleAttempt})
 	}, func(c *gin.Context) {
 		selected = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
 		c.Status(http.StatusNoContent)

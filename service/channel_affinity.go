@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/cachex"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/hot"
 	"github.com/tidwall/gjson"
@@ -548,6 +548,7 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 }
 
 func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
+	state := RequestPolicy(c)
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil || !setting.Enabled {
 		return 0, false
@@ -593,11 +594,13 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		}
 		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, affinityValue)
 		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
+		state.SessionMode, state.SessionModeSource = EffectiveSessionMode(setting, rule)
+		state.RuleName = rule.Name
 		setChannelAffinityContext(c, channelAffinityMeta{
 			CacheKey:       cacheKeyFull,
 			TTLSeconds:     ttlSeconds,
 			RuleName:       rule.Name,
-			SkipRetry:      rule.SkipRetryOnFailure,
+			SkipRetry:      state.SessionMode == "strict",
 			ParamTemplate:  cloneStringAnyMap(rule.ParamOverrideTemplate),
 			KeySourceType:  strings.TrimSpace(usedSource.Type),
 			KeySourceKey:   strings.TrimSpace(usedSource.Key),
@@ -609,6 +612,10 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			RequestPath:    path,
 		})
 
+		state.AddEvent(PolicyEvent{Decision: PolicyDecision{Action: "match", Reason: "session_rule_matched", Source: "session_rule"}})
+		if state.SessionMode == "off" {
+			return 0, false
+		}
 		cache := getChannelAffinityCache()
 		channelID, found, err := cache.Get(cacheKeySuffix)
 		if err != nil {
@@ -703,6 +710,9 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
 	if c == nil || adminInfo == nil {
 		return
 	}
+	if events := RequestPolicy(c).Events(); len(events) > 0 {
+		adminInfo["request_policy"] = events
+	}
 	anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo)
 	if !ok || anyInfo == nil {
 		return
@@ -711,6 +721,10 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
 }
 
 func RecordChannelAffinity(c *gin.Context, channelID int) {
+	state := RequestPolicy(c)
+	if state.SessionMode == "off" {
+		return
+	}
 	if channelID <= 0 {
 		return
 	}

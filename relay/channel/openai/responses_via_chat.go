@@ -6,13 +6,14 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/relayconvert"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,10 +36,17 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, service.NewKKAIStructuredRelayError(oaiError)
 	}
 
+	info.ObserveResponseModel(chatResp.Model)
+	for _, choice := range chatResp.Choices {
+		if choice.FinishReason == constant.FinishReasonContentFilter {
+			info.PerformanceBusinessRejection = true
+			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+		}
+	}
 	if responseID := helper.GetResponseID(c); responseID != "" {
 		chatResp.Id = responseID
 	}
-	convertResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAIResponses, &chatResp)
+	convertResult, err := service.ConvertResponse(c, info, types.RelayFormatOpenAIResponses, &chatResp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -59,6 +67,11 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+	for _, choice := range chatResp.Choices {
+		for _, call := range choice.Message.ParseToolCalls() {
+			info.CountBillableToolCall(dto.BuildInCallFunctionCall, call.Function.Name)
+		}
+	}
 	return usage, nil
 }
 
@@ -70,13 +83,16 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 	responseID := helper.GetResponseID(c)
 	state, err := relayconvert.NewResponseStreamState(types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, relayconvert.ResponseStreamOptions{
-		ID:    responseID,
-		Model: info.UpstreamModelName,
+		ID:                 responseID,
+		Model:              info.UpstreamModelName,
+		EmitSequenceNumber: true,
 	})
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	seenCalls := make(map[string]struct{})
+	var functionNames []string
 
 	sendEvent := func(event relayconvert.ChatToResponsesStreamEvent) bool {
 		data, err := common.Marshal(event.Payload)
@@ -84,7 +100,30 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data))
+		if err := helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data)); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			return false
+		}
+		return true
+	}
+	failResponsesStream := func(err error) bool {
+		if streamErr == nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+		failureResults, handled := state.FailResponsesStream("server_error", err.Error(), "")
+		if !handled {
+			return false
+		}
+		for _, result := range failureResults {
+			event, ok := result.Value.(relayconvert.ChatToResponsesStreamEvent)
+			if !ok {
+				streamErr = types.NewOpenAIError(fmt.Errorf("expected OAI responses stream event, got %T", result.Value), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				return true
+			}
+			if !sendEvent(event) {
+				return true
+			}
+		}
 		return true
 	}
 
@@ -96,6 +135,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		if upstreamErr := structuredStreamError(data); upstreamErr != nil {
 			streamErr = upstreamErr
+			if upstreamErr.GetPolicyEvidence() == "" && !service.IsKKAILocalPolicyCode(string(upstreamErr.GetErrorCode()), string(upstreamErr.GetOriginalErrorCode())) {
+				failResponsesStream(upstreamErr)
+			}
 			sr.Stop(upstreamErr)
 			return
 		}
@@ -103,12 +145,23 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		var chunk dto.ChatCompletionsStreamResponse
 		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
 			logger.LogError(c, "failed to unmarshal chat stream response: "+err.Error())
-			sr.Error(err)
+			if failResponsesStream(err) {
+				sr.Stop(streamErr)
+				return
+			}
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			sr.Stop(streamErr)
 			return
 		}
 
-		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &chunk)
+		info.ObserveResponseModel(chunk.Model)
+		observeStreamChoices(info, data, seenCalls, &functionNames)
+		results, err := service.ConvertStreamResponseChunk(c, info, state, &chunk)
 		if err != nil {
+			if failResponsesStream(err) {
+				sr.Stop(streamErr)
+				return
+			}
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			sr.Stop(streamErr)
 			return
@@ -126,6 +179,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			}
 		}
 	})
+	info.StreamStatus.RequireTerminal()
 
 	if streamErr != nil {
 		return nil, streamErr
@@ -137,8 +191,11 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		state.SetUsage(usage)
 	}
 
-	finalResults, err := relayconvert.FinalizeStreamResponse(c, info, state)
+	finalResults, err := service.FinalizeStreamResponse(c, info, state)
 	if err != nil {
+		if failResponsesStream(err) {
+			return usage, streamErr
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	for _, result := range finalResults {
@@ -149,6 +206,10 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if !sendEvent(event) {
 			return nil, streamErr
 		}
+	}
+
+	for _, name := range functionNames {
+		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
 
 	return usage, nil

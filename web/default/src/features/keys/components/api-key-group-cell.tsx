@@ -123,6 +123,7 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
                 ? {
                     ...item,
                     group: updatedToken.group,
+                    auto_groups: updatedToken.auto_groups,
                     cross_group_retry: updatedToken.cross_group_retry,
                   }
                 : item

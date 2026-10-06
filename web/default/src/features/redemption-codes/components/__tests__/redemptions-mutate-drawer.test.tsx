@@ -1,3 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  fireEvent,
+  render as renderUI,
+  screen,
+  waitFor,
+  type RenderResult,
+} from '@testing-library/react'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,16 +24,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  type RenderResult,
-} from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, test } from 'vitest'
 
 import type { Redemption } from '../../types'
+
+const clients: QueryClient[] = []
+function render(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  clients.push(client)
+  return renderUI(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  })
+}
+afterEach(() => {
+  for (const client of clients.splice(0)) client.clear()
+})
 
 const i18n = (await import('i18next')).default
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -213,7 +231,7 @@ describe('redemption drawer', () => {
 
     await renderDrawer(redemption(1))
     await waitFor(() =>
-      expect(document.body).toHaveTextContent('Something went wrong!')
+      expect(document.body).toHaveTextContent('network failure')
     )
 
     expect(getSaveButton()).toBeDisabled()
@@ -221,19 +239,23 @@ describe('redemption drawer', () => {
     expect(updates).toEqual([])
   })
 
-  test('blocks updates and uses localized feedback for unsuccessful responses', async () => {
-    apiClient.get = async () => ({
-      data: { success: false, message: 'raw server message' },
-    })
-
-    await renderDrawer(redemption(1))
-    await waitFor(() =>
-      expect(document.body).toHaveTextContent('Failed to load')
-    )
-
-    expect(getSaveButton()).toBeDisabled()
-    expect(document.body).not.toHaveTextContent('raw server message')
-  })
+  test.each([
+    {
+      message: 'Redemption code is no longer available',
+      expected: 'Redemption code is no longer available',
+    },
+    { message: undefined, expected: 'Failed to load' },
+  ])(
+    'blocks updates and reports the server reason or localized fallback: $expected',
+    async ({ message, expected }) => {
+      apiClient.get = async () => ({
+        data: { success: false, message },
+      })
+      await renderDrawer(redemption(1))
+      await waitFor(() => expect(document.body).toHaveTextContent(expected))
+      expect(getSaveButton()).toBeDisabled()
+    }
+  )
 
   test('keeps the original quota when another field changes', async () => {
     const original = redemption(1)

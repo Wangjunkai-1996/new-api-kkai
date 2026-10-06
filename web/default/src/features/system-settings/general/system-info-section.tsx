@@ -65,6 +65,9 @@ const _systemInfoSchema = z.object({
   Footer: z.string().optional(),
   About: z.string().optional(),
   HomePageContent: z.string().optional(),
+  general_setting: z.object({
+    docs_link: z.string(),
+  }),
   legal: z.object({
     user_agreement: z.string().optional(),
     privacy_policy: z.string().optional(),
@@ -98,6 +101,9 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
     HomePageContent: normalizeValue(defaultValues.HomePageContent),
+    general_setting: {
+      docs_link: normalizeValue(defaultValues.general_setting?.docs_link),
+    },
     legal: {
       user_agreement: normalizeValue(defaultValues.legal?.user_agreement),
       privacy_policy: normalizeValue(defaultValues.legal?.privacy_policy),
@@ -114,12 +120,17 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     ServerAddress: z.string().optional(),
     TaskPublicAddress: z.string().refine(isValidTaskPublicAddress, {
       error: () =>
-        t('Enter a valid public task URL without query or fragment.'),
+        t(
+          'Enter an absolute HTTP(S) URL without credentials, query parameters, or fragments'
+        ),
     }),
     Logo: z.string().url().optional().or(z.literal('')),
     Footer: z.string().optional(),
     About: z.string().optional(),
     HomePageContent: z.string().optional(),
+    general_setting: z.object({
+      docs_link: z.string(),
+    }),
     legal: z.object({
       user_agreement: z.string().optional(),
       privacy_policy: z.string().optional(),
@@ -145,7 +156,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
         let allSucceeded = true
         for (const [key, value] of otherEntries) {
           let v = normalizeValue(value)
-          if (key === 'ServerAddress') {
+          if (key === 'ServerAddress' || key === 'TaskPublicAddress') {
             v = v.replace(/\/+$/, '')
           }
           const res = await updateOption.mutateAsync({
@@ -283,16 +294,16 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                 name='TaskPublicAddress'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Task public address')}</FormLabel>
+                    <FormLabel>{t('Async Task Public Address')}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='https://tasks.example.com'
+                        placeholder='https://media.example.com/tasks'
                         {...field}
                       />
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Public base URL used by task plugins for callback and artifact links. Leave empty to use the server address.'
+                        'Public base URL for async task media. Supports a dedicated media domain, port, or Nginx path prefix; falls back to Server Address when empty.'
                       )}
                     </FormDescription>
                     <FormMessage />
@@ -314,6 +325,26 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     </FormControl>
                     <FormDescription>
                       {t('URL to your logo image (optional)')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='general_setting.docs_link'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Documentation Link')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder={t('https://docs.example.com')}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Link to your documentation site')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

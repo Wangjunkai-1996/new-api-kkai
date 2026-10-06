@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -51,6 +52,8 @@ import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import {
   SettingsForm,
@@ -187,7 +190,6 @@ type PerformanceStats = {
 export function PerformanceSection(props: Props) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const [stats, setStats] = useState<PerformanceStats | null>(null)
 
   const formDefaults = useMemo(
     () => buildFormDefaults(props.defaultValues),
@@ -212,18 +214,21 @@ export function PerformanceSection(props: Props) {
     form.reset(buildFormDefaults(props.defaultValues))
   }, [props.defaultValues, form])
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await api.get('/api/performance/stats')
-      if (res.data.success) setStats(res.data.data)
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
+  const snapshot = useQuery({
+    queryKey: ['/api/performance/stats'],
+    queryFn: async () => {
+      const response = await api.get('/api/performance/stats')
+      requireServerSuccess(response.data)
+      return response.data.data as PerformanceStats
+    },
+    retry: false,
+  })
+  const stats = snapshot.data ?? null
+  const fetchStats = snapshot.refetch
+  const snapshotError = snapshot.error
   useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
+    if (snapshotError) handleServerError(snapshotError)
+  }, [snapshotError])
 
   const onSubmit = async (values: PerfFormValues) => {
     const normalized = normalizeFormValues(values)
@@ -255,9 +260,11 @@ export function PerformanceSection(props: Props) {
       if (res.data.success) {
         toast.success(t('Disk cache cleared'))
         fetchStats()
+      } else {
+        handleServerError(res.data)
       }
-    } catch {
-      toast.error(t('Cleanup failed'))
+    } catch (error) {
+      handleServerError(error, t('Cleanup failed'))
     }
   }
 
@@ -267,9 +274,11 @@ export function PerformanceSection(props: Props) {
       if (res.data.success) {
         toast.success(t('Statistics reset'))
         fetchStats()
+      } else {
+        handleServerError(res.data)
       }
-    } catch {
-      toast.error(t('Reset failed'))
+    } catch (error) {
+      handleServerError(error, t('Reset failed'))
     }
   }
 
@@ -279,17 +288,26 @@ export function PerformanceSection(props: Props) {
       if (res.data.success) {
         toast.success(t('GC executed'))
         fetchStats()
+      } else {
+        handleServerError(res.data)
       }
-    } catch {
-      toast.error(t('GC execution failed'))
+    } catch (error) {
+      handleServerError(error, t('GC execution failed'))
     }
   }
 
-  const diskEnabled = form.watch('performance_setting.disk_cache_enabled')
-  const monitorEnabled = form.watch('performance_setting.monitor_enabled')
-  const maxCacheSizeRaw = form.watch(
-    'performance_setting.disk_cache_max_size_mb'
-  )
+  const diskEnabled = useWatch({
+    control: form.control,
+    name: 'performance_setting.disk_cache_enabled',
+  })
+  const monitorEnabled = useWatch({
+    control: form.control,
+    name: 'performance_setting.monitor_enabled',
+  })
+  const maxCacheSizeRaw = useWatch({
+    control: form.control,
+    name: 'performance_setting.disk_cache_max_size_mb',
+  })
   const maxCacheSizeMb =
     typeof maxCacheSizeRaw === 'number'
       ? maxCacheSizeRaw
@@ -315,9 +333,11 @@ export function PerformanceSection(props: Props) {
   return (
     <SettingsSection title={t('Performance Settings')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm
+          onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
+        >
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => void form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending}
           />
           {/* Disk Cache Settings */}
@@ -535,7 +555,7 @@ export function PerformanceSection(props: Props) {
       <div className='space-y-4'>
         <div className='flex items-center gap-2'>
           <h4 className='font-medium'>{t('Performance Monitor')}</h4>
-          <Button variant='outline' size='sm' onClick={fetchStats}>
+          <Button variant='outline' size='sm' onClick={() => void fetchStats()}>
             {t('Refresh Stats')}
           </Button>
           <AlertDialog>

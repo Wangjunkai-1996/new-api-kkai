@@ -19,9 +19,9 @@ import (
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -519,6 +519,11 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
+	if strings.HasPrefix(fullRequestURL, "https://") {
+		fullRequestURL = "wss://" + strings.TrimPrefix(fullRequestURL, "https://")
+	} else if strings.HasPrefix(fullRequestURL, "http://") {
+		fullRequestURL = "ws://" + strings.TrimPrefix(fullRequestURL, "http://")
+	}
 	targetHeader := http.Header{}
 	err = a.SetupRequestHeader(c, &targetHeader, info)
 	if err != nil {
@@ -537,7 +542,15 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
-	targetConn, targetResponse, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
+	dialer := *websocket.DefaultDialer
+	if info.ChannelSetting.Proxy != "" {
+		proxyURL, _, proxyErr := common2.ParseProxyURLRuntime(info.ChannelSetting.Proxy)
+		if proxyErr != nil {
+			return nil, proxyErr
+		}
+		dialer.Proxy = http.ProxyURL(proxyURL)
+	}
+	targetConn, targetResponse, err := dialer.DialContext(c.Request.Context(), fullRequestURL, targetHeader)
 	if err != nil {
 		if targetResponse != nil {
 			if targetResponse.Body == nil {
@@ -547,9 +560,6 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		}
 		return nil, fmt.Errorf("dial failed to %s: %w", common.SanitizeURLForLog(fullRequestURL), err)
 	}
-	// send request body
-	//all, err := io.ReadAll(requestBody)
-	//err = service.WssString(c, targetConn, string(all))
 	return targetConn, nil
 }
 
@@ -640,7 +650,7 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	c.Set(common2.UpstreamRequestIdKey, "")
-	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}

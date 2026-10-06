@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -10,10 +11,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -129,12 +130,12 @@ func TestAutomaticChannelTestCyberNeverBecomesTimeoutBan(t *testing.T) {
 	previousAutomaticDisable := common.AutomaticDisableChannelEnabled
 	common.AutomaticDisableChannelEnabled = true
 	t.Cleanup(func() { common.AutomaticDisableChannelEnabled = previousAutomaticDisable })
-	apiErr := types.NewErrorWithStatusCode(
+	apiErr := relaytypes.NewErrorWithStatusCode(
 		errors.New("cyber_policy"),
-		types.ErrorCodeBadResponseStatusCode,
+		relaytypes.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
-		types.ErrOptionWithOriginalStatusCode(http.StatusForbidden),
-		types.ErrOptionWithPolicyEvidence("cyber_policy"),
+		relaytypes.ErrOptionWithOriginalStatusCode(http.StatusForbidden),
+		relaytypes.ErrOptionWithPolicyEvidence("cyber_policy"),
 	)
 	policyDetected := service.ClassifyKKAIUpstreamPolicyError(apiErr).Detected
 	require.True(t, policyDetected)
@@ -155,7 +156,7 @@ func TestAutomaticChannelTestStillBansOrdinarySlowResponse(t *testing.T) {
 
 	require.True(t, shouldBan)
 	require.NotNil(t, effectiveErr)
-	require.Equal(t, types.ErrorCodeChannelResponseTimeExceeded, effectiveErr.GetErrorCode())
+	require.Equal(t, relaytypes.ErrorCodeChannelResponseTimeExceeded, effectiveErr.GetErrorCode())
 }
 
 func TestAutomaticChannelTestPreservesPoolAdmissionFailures(t *testing.T) {
@@ -180,8 +181,8 @@ func TestAutomaticChannelTestPreservesPoolAdmissionFailures(t *testing.T) {
 		{"unavailable", "api_error", 503, true},
 	} {
 		t.Run(tt.code, func(t *testing.T) {
-			apiErr := types.WithOpenAIError(types.OpenAIError{Code: tt.code, Type: tt.errorType}, tt.status,
-				types.ErrOptionWithOriginalStatusCode(tt.status))
+			apiErr := relaytypes.WithOpenAIError(relaytypes.OpenAIError{Code: tt.code, Type: tt.errorType}, tt.status,
+				relaytypes.ErrOptionWithOriginalStatusCode(tt.status))
 			assert.Equal(t, tt.wantBan, service.ShouldDisableChannel(apiErr), "live requests use the same admission exception")
 			for _, milliseconds := range []int64{0, 10_000} {
 				effectiveErr, shouldBan := automaticChannelTestDisableDecision(apiErr, false, milliseconds, 1)
@@ -206,12 +207,12 @@ func TestProcessChannelTestPolicyErrorRecordsAuditOnlyIncident(t *testing.T) {
 		Status:      common.ChannelStatusEnabled,
 		ChannelInfo: model.ChannelInfo{IsMultiKey: true},
 	}
-	apiErr := types.NewErrorWithStatusCode(
+	apiErr := relaytypes.NewErrorWithStatusCode(
 		errors.New("cyber_policy"),
-		types.ErrorCodeBadResponseStatusCode,
+		relaytypes.ErrorCodeBadResponseStatusCode,
 		http.StatusForbidden,
-		types.ErrOptionWithOriginalStatusCode(http.StatusForbidden),
-		types.ErrOptionWithPolicyEvidence("cyber_policy"),
+		relaytypes.ErrOptionWithOriginalStatusCode(http.StatusForbidden),
+		relaytypes.ErrOptionWithPolicyEvidence("cyber_policy"),
 	)
 
 	detected := processChannelTestPolicyError(channel, testResult{context: ctx, newAPIError: apiErr})

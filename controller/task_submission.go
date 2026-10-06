@@ -16,8 +16,8 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -79,6 +79,7 @@ func respondTaskSubmissionError(c *gin.Context, taskErr *dto.TaskError) {
 	if taskErr == nil {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("task submission failed"), "task_submit_failed", http.StatusInternalServerError)
 	}
+	service.RecordRequestPolicyTermination(c, taskSubmissionAPIError(taskErr))
 	if middleware.RespondTaskPluginError(c, taskErr) {
 		return
 	}
@@ -115,6 +116,7 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 		var channel *model.Channel
 		if locked, ok := relayInfo.LockedChannel.(*model.Channel); ok && locked != nil {
 			channel = locked
+			service.RequestPolicy(c).BeginAttempt(channel, relayInfo.UsingGroup)
 			if retryParam.GetRetry() > 0 {
 				if setupErr := middlewareSetupTaskChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
 					taskErr = setupErr
@@ -133,7 +135,7 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 			taskErr = service.TaskErrorWrapperLocal(errors.New("channel unavailable"), "get_channel_failed", http.StatusServiceUnavailable)
 			break
 		}
-		addUsedChannel(c, channel.Id)
+		service.AppendUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			status := http.StatusBadRequest
@@ -151,12 +153,20 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 		if taskErr == nil {
 			break
 		}
+		channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+		policyDetected := false
 		if !taskErr.LocalError {
-			channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
-			policyDetected := processKKAIPolicyTaskError(c, channelError, taskErr)
-			processChannelErrorAfterKKAIPolicy(c, channelError, kkaiTaskAPIError(taskErr), policyDetected)
+			policyDetected = processKKAIPolicyTaskError(c, channelError, taskErr)
 		}
-		if result != nil && !result.CanRetry() || !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+		decision := decideTaskRetry(c, taskErr, common.RetryTimes-retryParam.GetRetry())
+		if result != nil && !result.CanRetry() {
+			decision = service.PolicyDecision{Action: "stop", Reason: "task_accepted", Source: "system"}
+		}
+		service.RecordPolicyFailure(c, channel.Id, kkaiTaskAPIError(taskErr), decision)
+		if !taskErr.LocalError {
+			service.ProcessChannelErrorAfterPolicy(c, channelError, kkaiTaskAPIError(taskErr), relayInfo, policyDetected)
+		}
+		if decision.Action != "retry" {
 			break
 		}
 	}

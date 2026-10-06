@@ -15,15 +15,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -361,7 +361,7 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -390,7 +390,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return normalizeModelNames(models), nil
 	}
 
-	if channel.Type == constant.ChannelTypeAdvancedCustom {
+	if channel.Type == constant.ChannelTypeCodex {
+		return service.FetchCodexChannelModels(channel)
+	}
+
+	if constant.IsAdvancedCustomChannel(channel.Type) {
 		return fetchAdvancedCustomUpstreamModelIDs(channel, baseURL)
 	}
 

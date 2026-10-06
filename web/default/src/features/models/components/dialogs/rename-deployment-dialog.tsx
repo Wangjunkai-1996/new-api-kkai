@@ -18,13 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { handleServerError } from '@/lib/handle-server-error'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { checkClusterNameAvailability, updateDeploymentName } from '../../api'
 import { deploymentsQueryKeys } from '../../lib'
@@ -45,15 +47,20 @@ export function RenameDeploymentDialog({
   const [name, setName] = useState(currentName || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
+  const [source, setSource] = useState({ open, currentName })
+  if (source.open !== open || source.currentName !== currentName) {
+    setSource({ open, currentName })
     if (open) setName(currentName || '')
-  }, [open, currentName])
+  }
 
   const trimmed = name.trim()
 
   const { data: checkRes, isFetching: isChecking } = useQuery({
     queryKey: ['deployment-rename-check', trimmed],
-    queryFn: () => (trimmed ? checkClusterNameAvailability(trimmed) : null),
+    queryFn: async () =>
+      requireServerSuccess(
+        await (trimmed ? checkClusterNameAvailability(trimmed) : null)
+      ),
     enabled: open && Boolean(trimmed),
     staleTime: 10_000,
   })
@@ -98,9 +105,9 @@ export function RenameDeploymentDialog({
         onOpenChange(false)
         return
       }
-      toast.error(res.message || t('Rename failed'))
+      handleServerError(res, t('Rename failed'))
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('Rename failed'))
+      handleServerError(err, t('Rename failed'))
     } finally {
       setIsSubmitting(false)
     }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
 	"net/http"
 	"sync"
@@ -143,7 +144,7 @@ func seedTaskPollingChannel(t *testing.T, id int, disableSleep bool) {
 		Status: common.ChannelStatusEnabled,
 	}
 	if disableSleep {
-		ch.SetOtherSettings(dto.ChannelOtherSettings{DisableTaskPollingSleep: true})
+		ch.SetOtherSettings(relaydto.ChannelOtherSettings{DisableTaskPollingSleep: true})
 	}
 	require.NoError(t, model.DB.Create(ch).Error)
 }

@@ -228,6 +228,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	requestURL := getMjRequestPath(c.Request.URL.String())
 	baseURL := c.GetString("base_url")
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
+	service.RequestPolicy(c).BeginAttempt(&model.Channel{Id: c.GetInt("channel_id")}, info.UsingGroup)
 	mjResp, _, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
 	if err != nil {
 		return &mjResp.Response
@@ -269,10 +270,12 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		common.SysLog("error settling Midjourney quota: " + billingErr.Error())
 	}
 	if billingApplied {
+		service.MarkRequestPolicySuccess(c, nil)
 		billingChannelId := midjourneyTask.GetBillingChannelId()
 		tokenName := c.GetString("token_name")
 		logContent := fmt.Sprintf("模型固定价格 %.2f，分组倍率 %.2f，操作 %s", priceData.ModelPrice, priceData.GroupRatioInfo.GroupRatio, constant.MjActionSwapFace)
 		other := service.GenerateMjOtherInfo(info, priceData)
+		other.SetAdmin("request_policy", service.RequestPolicy(c).Events())
 		model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 			ChannelId: billingChannelId,
 			ModelName: modelName,
@@ -539,6 +542,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 
+	service.RequestPolicy(c).BeginAttempt(&model.Channel{Id: c.GetInt("channel_id")}, relayInfo.UsingGroup)
 	midjResponseWithStatus, responseBody, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
 	if err != nil {
 		return &midjResponseWithStatus.Response
@@ -634,10 +638,12 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		common.SysLog("error settling Midjourney quota: " + billingErr.Error())
 	}
 	if billingApplied {
+		service.MarkRequestPolicySuccess(c, nil)
 		billingChannelId := midjourneyTask.GetBillingChannelId()
 		tokenName := c.GetString("token_name")
 		logContent := fmt.Sprintf("模型固定价格 %.2f，分组倍率 %.2f，操作 %s，ID %s", priceData.ModelPrice, priceData.GroupRatioInfo.GroupRatio, midjRequest.Action, midjResponse.Result)
 		other := service.GenerateMjOtherInfo(relayInfo, priceData)
+		other.SetAdmin("request_policy", service.RequestPolicy(c).Events())
 		model.RecordConsumeLog(c, relayInfo.UserId, model.RecordConsumeLogParams{
 			ChannelId: billingChannelId,
 			ModelName: modelName,

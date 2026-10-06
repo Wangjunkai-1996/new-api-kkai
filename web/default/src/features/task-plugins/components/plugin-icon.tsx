@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '@/lib/api'
 import { getLobeIcon } from '@/lib/lobe-icon'
@@ -50,24 +50,28 @@ function GatewayPluginIcon(props: PluginIconProps) {
         skipErrorHandler: true,
         skipBusinessError: true,
       })
-      if (!response.data.type.startsWith('image/')) return null
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.addEventListener('load', () => resolve(String(reader.result)))
-        reader.addEventListener('error', () => reject(reader.error))
-        reader.readAsDataURL(response.data)
-      })
+      return response.data.type.startsWith('image/') ? response.data : null
     },
     staleTime: 5 * 60 * 1000,
     retry: false,
     meta: { errorToast: false },
   })
+  const [image, setImage] = useState<{ blob: Blob; src: string } | null>(null)
+  useEffect(() => {
+    if (!query.data) return
+    const src = URL.createObjectURL(query.data)
+    // Blob URLs belong to the mounted image and must be revoked on replacement.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setImage({ blob: query.data, src })
+    return () => URL.revokeObjectURL(src)
+  }, [query.data])
+
   return (
     <PluginIcon
       plugin={{
         ...props.plugin,
         hasIcon: false,
-        iconSrc: query.data ?? undefined,
+        iconSrc: image?.blob === query.data ? image?.src : undefined,
       }}
       size={props.size}
     />

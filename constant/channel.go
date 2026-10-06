@@ -205,6 +205,13 @@ func IsAdvancedCustomChannel(channelType int) bool {
 	}
 }
 
+func GetChannelBaseURL(channelType int) string {
+	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
+		return ""
+	}
+	return ChannelBaseURLs[channelType]
+}
+
 func GetChannelTypeName(channelType int) string {
 	if name, ok := ChannelTypeNames[channelType]; ok {
 		return name

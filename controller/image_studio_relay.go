@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -272,7 +273,7 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		c.Request.Context(), time.Duration(settings.SubmissionTimeoutSecs)*time.Second,
 	)
 	c.Request = c.Request.WithContext(relayContext)
-	Relay(c, types.RelayFormatOpenAIImage)
+	Relay(c, relaytypes.RelayFormatOpenAIImage)
 	relayCancel()
 	c.Writer = originalWriter
 	if err := capture.Close(); err != nil && capture.err == nil {
@@ -430,11 +431,11 @@ func applyImageStudioTokenContext(c *gin.Context, tokenID int, modelName string)
 }
 
 func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
-	request, err := helper.GetAndValidateRequest(c, types.RelayFormatOpenAIImage)
+	request, err := helper.GetAndValidateRequest(c, relaytypes.RelayFormatOpenAIImage)
 	if err != nil {
 		return nil, err
 	}
-	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAIImage, request, nil)
+	relayInfo, err := relaycommon.GenRelayInfo(c, relaytypes.RelayFormatOpenAIImage, request, nil)
 	if err != nil {
 		return nil, err
 	}

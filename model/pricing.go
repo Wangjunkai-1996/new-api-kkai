@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"strings"
 
 	"sync"
@@ -9,8 +10,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -44,7 +45,7 @@ type Pricing struct {
 	AudioRatio             *float64                             `json:"audio_ratio,omitempty"`
 	AudioCompletionRatio   *float64                             `json:"audio_completion_ratio,omitempty"`
 	EnableGroup            []string                             `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType              `json:"supported_endpoint_types"`
+	SupportedEndpointTypes []relaytypes.EndpointType            `json:"supported_endpoint_types"`
 	BillingMode            string                               `json:"billing_mode,omitempty"`
 	BillingExpr            string                               `json:"billing_expr,omitempty"`
 	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
@@ -73,7 +74,7 @@ var (
 )
 
 var (
-	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
+	modelSupportEndpointTypes = make(map[string][]relaytypes.EndpointType)
 	modelSupportEndpointsLock = sync.RWMutex{}
 )
 
@@ -109,20 +110,20 @@ func GetVendors() []PricingVendor {
 	return vendorsList
 }
 
-func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
+func GetModelSupportEndpointTypes(model string) []relaytypes.EndpointType {
 	if model == "" {
-		return make([]constant.EndpointType, 0)
+		return make([]relaytypes.EndpointType, 0)
 	}
 	modelSupportEndpointsLock.RLock()
 	defer modelSupportEndpointsLock.RUnlock()
 	if endpoints, ok := modelSupportEndpointTypes[model]; ok {
 		return endpoints
 	}
-	return make([]constant.EndpointType, 0)
+	return make([]relaytypes.EndpointType, 0)
 }
 
-func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCustomConfigs map[int]*dto.AdvancedCustomConfig) []constant.EndpointType {
-	if ability.ChannelType != constant.ChannelTypeAdvancedCustom {
+func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCustomConfigs map[int]*dto.AdvancedCustomConfig) []relaytypes.EndpointType {
+	if !constant.IsAdvancedCustomChannel(ability.ChannelType) {
 		return common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
 	}
 	if config := advancedCustomConfigs[ability.ChannelId]; config != nil {
@@ -143,7 +144,7 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 	channelIDs := make([]int, 0)
 	seen := make(map[int]struct{})
 	for _, ability := range enableAbilities {
-		if ability.ChannelType != constant.ChannelTypeAdvancedCustom {
+		if !constant.IsAdvancedCustomChannel(ability.ChannelType) {
 			continue
 		}
 		if _, exists := seen[ability.ChannelId]; exists {
@@ -174,7 +175,7 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 			common.SysLog(fmt.Sprintf("load advanced custom channel settings error: channel_id=%d, error=%v", channelID, err))
 			continue
 		}
-		if channel.Type != constant.ChannelTypeAdvancedCustom {
+		if !constant.IsAdvancedCustomChannel(channel.Type) {
 			continue
 		}
 		if config := channel.GetOtherSettings().AdvancedCustom; config != nil {
@@ -201,54 +202,11 @@ func updatePricing() {
 	// 预加载模型元数据与供应商一次，避免循环查询
 	var allMeta []Model
 	_ = DB.Find(&allMeta).Error
-	metaMap := make(map[string]*Model)
-	prefixList := make([]*Model, 0)
-	suffixList := make([]*Model, 0)
-	containsList := make([]*Model, 0)
-	for i := range allMeta {
-		m := &allMeta[i]
-		if m.NameRule == NameRuleExact {
-			metaMap[m.ModelName] = m
-		} else {
-			switch m.NameRule {
-			case NameRulePrefix:
-				prefixList = append(prefixList, m)
-			case NameRuleSuffix:
-				suffixList = append(suffixList, m)
-			case NameRuleContains:
-				containsList = append(containsList, m)
-			}
-		}
+	names := make([]string, 0, len(enableAbilities))
+	for _, ability := range enableAbilities {
+		names = append(names, ability.Model)
 	}
-
-	// 将非精确规则模型匹配到 metaMap
-	for _, m := range prefixList {
-		for _, pricingModel := range enableAbilities {
-			if strings.HasPrefix(pricingModel.Model, m.ModelName) {
-				if _, exists := metaMap[pricingModel.Model]; !exists {
-					metaMap[pricingModel.Model] = m
-				}
-			}
-		}
-	}
-	for _, m := range suffixList {
-		for _, pricingModel := range enableAbilities {
-			if strings.HasSuffix(pricingModel.Model, m.ModelName) {
-				if _, exists := metaMap[pricingModel.Model]; !exists {
-					metaMap[pricingModel.Model] = m
-				}
-			}
-		}
-	}
-	for _, m := range containsList {
-		for _, pricingModel := range enableAbilities {
-			if strings.Contains(pricingModel.Model, m.ModelName) {
-				if _, exists := metaMap[pricingModel.Model]; !exists {
-					metaMap[pricingModel.Model] = m
-				}
-			}
-		}
-	}
+	metaMap := resolveModelMetadata(allMeta, names)
 
 	// 预加载供应商
 	var vendors []Vendor
@@ -319,11 +277,11 @@ func updatePricing() {
 		}
 	}
 
-	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
+	modelSupportEndpointTypes = make(map[string][]relaytypes.EndpointType)
 	for model, endpoints := range modelSupportEndpointsStr {
-		supportedEndpoints := make([]constant.EndpointType, 0)
+		supportedEndpoints := make([]relaytypes.EndpointType, 0)
 		for _, endpointStr := range endpoints {
-			endpointType := constant.EndpointType(endpointStr)
+			endpointType := relaytypes.EndpointType(endpointStr)
 			supportedEndpoints = append(supportedEndpoints, endpointType)
 		}
 		modelSupportEndpointTypes[model] = supportedEndpoints

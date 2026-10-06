@@ -31,6 +31,7 @@ ENV GOEXPERIMENT=greenteagc
 WORKDIR /build
 
 ADD go.mod go.sum ./
+COPY relaykit/go.mod relaykit/go.sum ./relaykit/
 RUN go mod download
 
 COPY . .

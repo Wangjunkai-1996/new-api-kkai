@@ -1,45 +1,65 @@
 package common
 
-import "github.com/QuantumNous/new-api/constant"
+import (
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/relaykit/types"
+)
 
 // GetEndpointTypesByChannelType 获取渠道最优先端点类型（所有的渠道都支持 OpenAI 端点）
-func GetEndpointTypesByChannelType(channelType int, modelName string) []constant.EndpointType {
-	var endpointTypes []constant.EndpointType
+func GetEndpointTypesByChannelType(channelType int, modelName string) []types.EndpointType {
+	var endpointTypes []types.EndpointType
 	switch channelType {
 	case constant.ChannelTypeJina:
-		endpointTypes = []constant.EndpointType{constant.EndpointTypeJinaRerank}
+		endpointTypes = []types.EndpointType{types.EndpointTypeJinaRerank}
 	//case constant.ChannelTypeMidjourney, constant.ChannelTypeMidjourneyPlus:
-	//	endpointTypes = []constant.EndpointType{constant.EndpointTypeMidjourney}
+	//	endpointTypes = []types.EndpointType{types.EndpointTypeMidjourney}
 	//case constant.ChannelTypeSunoAPI:
-	//	endpointTypes = []constant.EndpointType{constant.EndpointTypeSuno}
+	//	endpointTypes = []types.EndpointType{types.EndpointTypeSuno}
 	//case constant.ChannelTypeKling:
-	//	endpointTypes = []constant.EndpointType{constant.EndpointTypeKling}
+	//	endpointTypes = []types.EndpointType{types.EndpointTypeKling}
 	//case constant.ChannelTypeJimeng:
-	//	endpointTypes = []constant.EndpointType{constant.EndpointTypeJimeng}
+	//	endpointTypes = []types.EndpointType{types.EndpointTypeJimeng}
 	case constant.ChannelTypeAws:
 		fallthrough
 	case constant.ChannelTypeAnthropic:
-		endpointTypes = []constant.EndpointType{constant.EndpointTypeAnthropic, constant.EndpointTypeOpenAI}
+		endpointTypes = []types.EndpointType{types.EndpointTypeAnthropic, types.EndpointTypeOpenAI}
 	case constant.ChannelTypeVertexAi:
 		fallthrough
 	case constant.ChannelTypeGemini:
-		endpointTypes = []constant.EndpointType{constant.EndpointTypeGemini, constant.EndpointTypeOpenAI}
+		endpointTypes = []types.EndpointType{types.EndpointTypeGemini, types.EndpointTypeOpenAI}
 	case constant.ChannelTypeOpenRouter: // OpenRouter 只支持 OpenAI 端点
-		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
+		endpointTypes = []types.EndpointType{types.EndpointTypeOpenAI}
 	case constant.ChannelTypeXai:
-		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
+		endpointTypes = []types.EndpointType{types.EndpointTypeOpenAI, types.EndpointTypeOpenAIResponse}
+	case constant.ChannelTypeVLLM, constant.ChannelTypeSGLang:
+		endpointTypes = GetAdvancedCustomPreset(channelType).SupportedEndpointTypesForModel(modelName)
 	case constant.ChannelTypeSora:
-		endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
+		endpointTypes = []types.EndpointType{types.EndpointTypeOpenAIVideo}
+	case constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
+		endpointTypes = []types.EndpointType{
+			types.EndpointTypeOpenAI,
+			types.EndpointTypeOpenAIResponse,
+			types.EndpointTypeOpenAIResponseCompact,
+			types.EndpointTypeAnthropic,
+			types.EndpointTypeGemini,
+			types.EndpointTypeOpenAIAlphaSearch,
+		}
+	case constant.ChannelTypeCodex:
+		endpointTypes = []types.EndpointType{
+			types.EndpointTypeOpenAIResponse,
+			types.EndpointTypeOpenAIResponseCompact,
+			types.EndpointTypeOpenAIAlphaSearch,
+		}
 	default:
 		if IsOpenAIResponseOnlyModel(modelName) {
-			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAIResponse}
+			endpointTypes = []types.EndpointType{types.EndpointTypeOpenAIResponse}
 		} else {
-			endpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
+			endpointTypes = []types.EndpointType{types.EndpointTypeOpenAI}
 		}
 	}
 	if IsImageGenerationModel(modelName) {
 		// add to first
-		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeImageGeneration}, endpointTypes...)
+		endpointTypes = append([]types.EndpointType{types.EndpointTypeImageGeneration}, endpointTypes...)
 	}
 	return endpointTypes
 }

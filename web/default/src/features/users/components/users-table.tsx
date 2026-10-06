@@ -18,8 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import type { SortingState } from '@tanstack/react-table'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import {
   DISABLED_ROW_DESKTOP,
@@ -29,6 +30,7 @@ import {
 } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { createServerError } from '@/lib/server-error-message'
 
 import { getUsers, searchUsers } from '../api'
 import {
@@ -37,7 +39,7 @@ import {
   getUserRoleOptions,
   isUserDeleted,
 } from '../constants'
-import type { User } from '../types'
+import type { UserSortBy, User } from '../types'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 import { useUsersColumns } from './users-columns'
 import { useUsers } from './users-provider'
@@ -51,6 +53,10 @@ function isDisabledUserRow(user: User) {
 export function UsersTable() {
   const { t } = useTranslation()
   const columns = useUsersColumns()
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: 'id', desc: true },
+  ])
+  const activeSort = sorting[0] ?? { id: 'id', desc: true }
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
@@ -96,6 +102,8 @@ export function UsersTable() {
       roleFilter,
       groupFilter,
       refreshTrigger,
+      activeSort.id,
+      activeSort.desc,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
@@ -104,6 +112,8 @@ export function UsersTable() {
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
+        sort_by: activeSort.id as UserSortBy,
+        sort_order: activeSort.desc ? ('desc' as const) : ('asc' as const),
       }
 
       const result =
@@ -118,10 +128,10 @@ export function UsersTable() {
           : await getUsers(params)
 
       if (!result.success) {
-        toast.error(
-          result.message || `Failed to ${hasFilter ? 'search' : 'load'} users`
+        throw createServerError(
+          result,
+          t(hasFilter ? 'Failed to search users' : 'Failed to load users')
         )
-        return { items: [], total: 0 }
       }
 
       return {
@@ -157,6 +167,12 @@ export function UsersTable() {
     onPaginationChange,
     onGlobalFilterChange,
     onColumnFiltersChange,
+    sorting,
+    onSortingChange: (updater) => {
+      setSorting(updater)
+      onPaginationChange((previous) => ({ ...previous, pageIndex: 0 }))
+    },
+    manualSorting: true,
     manualPagination: true,
     manualFiltering: true,
     totalCount: data?.total || 0,
@@ -192,13 +208,10 @@ export function UsersTable() {
           },
         ],
       }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledUserRow(row.original)) return undefined
+        return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+      }}
       bulkActions={<DataTableBulkActions table={table} />}
     />
   )

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"io"
 	"math"
 	"net/http"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -25,6 +25,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -38,7 +39,7 @@ import (
 type testResult struct {
 	context     *gin.Context
 	localErr    error
-	newAPIError *types.NewAPIError
+	newAPIError *relaytypes.NewAPIError
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
@@ -47,7 +48,7 @@ func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) s
 		return normalized
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
-		return string(constant.EndpointTypeOpenAIResponse)
+		return string(relaytypes.EndpointTypeOpenAIResponse)
 	}
 	return normalized
 }
@@ -113,7 +114,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	// 如果指定了端点类型，使用指定的端点类型
 	if endpointType != "" {
-		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
+		if endpointInfo, ok := common.GetDefaultEndpointInfo(relaytypes.EndpointType(endpointType)); ok {
 			requestPath = endpointInfo.Path
 		}
 	} else {
@@ -145,7 +146,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
 	// GeminiChatRequest.IsStream 依据请求 URL 判定，合成请求路径需与生产入口保持一致
-	if isStream && constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
+	if isStream && relaytypes.EndpointType(endpointType) == relaytypes.EndpointTypeGemini {
 		requestPath = strings.Replace(requestPath, ":generateContent", ":streamGenerateContent", 1)
 	}
 	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
@@ -177,52 +178,52 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	// Determine relay format based on endpoint type or request path
-	var relayFormat types.RelayFormat
+	var relayFormat relaytypes.RelayFormat
 	if endpointType != "" {
 		// 根据指定的端点类型设置 relayFormat
-		switch constant.EndpointType(endpointType) {
-		case constant.EndpointTypeOpenAI:
-			relayFormat = types.RelayFormatOpenAI
-		case constant.EndpointTypeOpenAIResponse:
-			relayFormat = types.RelayFormatOpenAIResponses
-		case constant.EndpointTypeOpenAIResponseCompact:
-			relayFormat = types.RelayFormatOpenAIResponsesCompaction
-		case constant.EndpointTypeAnthropic:
-			relayFormat = types.RelayFormatClaude
-		case constant.EndpointTypeGemini:
-			relayFormat = types.RelayFormatGemini
-		case constant.EndpointTypeJinaRerank:
-			relayFormat = types.RelayFormatRerank
-		case constant.EndpointTypeImageGeneration:
-			relayFormat = types.RelayFormatOpenAIImage
-		case constant.EndpointTypeEmbeddings:
-			relayFormat = types.RelayFormatEmbedding
+		switch relaytypes.EndpointType(endpointType) {
+		case relaytypes.EndpointTypeOpenAI:
+			relayFormat = relaytypes.RelayFormatOpenAI
+		case relaytypes.EndpointTypeOpenAIResponse:
+			relayFormat = relaytypes.RelayFormatOpenAIResponses
+		case relaytypes.EndpointTypeOpenAIResponseCompact:
+			relayFormat = relaytypes.RelayFormatOpenAIResponsesCompaction
+		case relaytypes.EndpointTypeAnthropic:
+			relayFormat = relaytypes.RelayFormatClaude
+		case relaytypes.EndpointTypeGemini:
+			relayFormat = relaytypes.RelayFormatGemini
+		case relaytypes.EndpointTypeJinaRerank:
+			relayFormat = relaytypes.RelayFormatRerank
+		case relaytypes.EndpointTypeImageGeneration:
+			relayFormat = relaytypes.RelayFormatOpenAIImage
+		case relaytypes.EndpointTypeEmbeddings:
+			relayFormat = relaytypes.RelayFormatEmbedding
 		default:
-			relayFormat = types.RelayFormatOpenAI
+			relayFormat = relaytypes.RelayFormatOpenAI
 		}
 	} else {
 		// 根据请求路径自动检测
-		relayFormat = types.RelayFormatOpenAI
+		relayFormat = relaytypes.RelayFormatOpenAI
 		if c.Request.URL.Path == "/v1/embeddings" {
-			relayFormat = types.RelayFormatEmbedding
+			relayFormat = relaytypes.RelayFormatEmbedding
 		}
 		if c.Request.URL.Path == "/v1/images/generations" {
-			relayFormat = types.RelayFormatOpenAIImage
+			relayFormat = relaytypes.RelayFormatOpenAIImage
 		}
 		if c.Request.URL.Path == "/v1/messages" {
-			relayFormat = types.RelayFormatClaude
+			relayFormat = relaytypes.RelayFormatClaude
 		}
 		if strings.Contains(c.Request.URL.Path, "/v1beta/models") {
-			relayFormat = types.RelayFormatGemini
+			relayFormat = relaytypes.RelayFormatGemini
 		}
 		if c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank" {
-			relayFormat = types.RelayFormatRerank
+			relayFormat = relaytypes.RelayFormatRerank
 		}
 		if c.Request.URL.Path == "/v1/responses" {
-			relayFormat = types.RelayFormatOpenAIResponses
+			relayFormat = relaytypes.RelayFormatOpenAIResponses
 		}
 		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
-			relayFormat = types.RelayFormatOpenAIResponsesCompaction
+			relayFormat = relaytypes.RelayFormatOpenAIResponsesCompaction
 		}
 	}
 
@@ -234,7 +235,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeGenRelayInfoFailed),
+			newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeGenRelayInfoFailed),
 		}
 	}
 
@@ -246,7 +247,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+			newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeJsonMarshalFailed),
 		}
 	}
 
@@ -255,7 +256,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeChannelModelMappedError),
+			newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeChannelModelMappedError),
 		}
 	}
 
@@ -270,7 +271,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    fmt.Errorf("responses compaction test only supports openai/codex channels, got api type %d", apiType),
-			newAPIError: types.NewError(fmt.Errorf("unsupported api type: %d", apiType), types.ErrorCodeInvalidApiType),
+			newAPIError: relaytypes.NewError(fmt.Errorf("unsupported api type: %d", apiType), relaytypes.ErrorCodeInvalidApiType),
 		}
 	}
 	adaptor := relay.GetAdaptor(apiType)
@@ -278,7 +279,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    fmt.Errorf("invalid api type: %d, adaptor is nil", apiType),
-			newAPIError: types.NewError(fmt.Errorf("invalid api type: %d, adaptor is nil", apiType), types.ErrorCodeInvalidApiType),
+			newAPIError: relaytypes.NewError(fmt.Errorf("invalid api type: %d, adaptor is nil", apiType), relaytypes.ErrorCodeInvalidApiType),
 		}
 	}
 
@@ -292,7 +293,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest)),
+			newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeModelPriceError, relaytypes.ErrOptionWithStatusCode(http.StatusBadRequest)),
 		}
 	}
 
@@ -309,7 +310,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    errors.New("invalid embedding request type"),
-				newAPIError: types.NewError(errors.New("invalid embedding request type"), types.ErrorCodeConvertRequestFailed),
+				newAPIError: relaytypes.NewError(errors.New("invalid embedding request type"), relaytypes.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeImagesGenerations:
@@ -320,7 +321,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    errors.New("invalid image request type"),
-				newAPIError: types.NewError(errors.New("invalid image request type"), types.ErrorCodeConvertRequestFailed),
+				newAPIError: relaytypes.NewError(errors.New("invalid image request type"), relaytypes.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeRerank:
@@ -331,7 +332,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    errors.New("invalid rerank request type"),
-				newAPIError: types.NewError(errors.New("invalid rerank request type"), types.ErrorCodeConvertRequestFailed),
+				newAPIError: relaytypes.NewError(errors.New("invalid rerank request type"), relaytypes.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeResponses:
@@ -342,7 +343,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    errors.New("invalid response request type"),
-				newAPIError: types.NewError(errors.New("invalid response request type"), types.ErrorCodeConvertRequestFailed),
+				newAPIError: relaytypes.NewError(errors.New("invalid response request type"), relaytypes.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeResponsesCompact:
@@ -361,7 +362,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    errors.New("invalid response compaction request type"),
-				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
+				newAPIError: relaytypes.NewError(errors.New("invalid response compaction request type"), relaytypes.ErrorCodeConvertRequestFailed),
 			}
 		}
 	default:
@@ -376,7 +377,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    errors.New("invalid chat request type"),
-				newAPIError: types.NewError(errors.New("invalid chat request type"), types.ErrorCodeConvertRequestFailed),
+				newAPIError: relaytypes.NewError(errors.New("invalid chat request type"), relaytypes.ErrorCodeConvertRequestFailed),
 			}
 		}
 	}
@@ -385,7 +386,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
+			newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeConvertRequestFailed),
 		}
 	}
 	jsonData, err := common.Marshal(convertedRequest)
@@ -393,7 +394,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+			newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeJsonMarshalFailed),
 		}
 	}
 
@@ -419,7 +420,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				newAPIError: relaytypes.NewError(err, relaytypes.ErrorCodeChannelParamOverrideInvalid),
 			}
 		}
 	}
@@ -431,7 +432,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError),
+			newAPIError: relaytypes.NewOpenAIError(err, relaytypes.ErrorCodeDoRequestFailed, http.StatusInternalServerError),
 		}
 	}
 	var httpResp *http.Response
@@ -452,7 +453,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError),
+				newAPIError: relaytypes.NewOpenAIError(err, relaytypes.ErrorCodeBadResponse, http.StatusInternalServerError),
 			}
 		}
 	}
@@ -469,7 +470,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    usageErr,
-			newAPIError: types.NewOpenAIError(usageErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
+			newAPIError: relaytypes.NewOpenAIError(usageErr, relaytypes.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
 	result := w.Result()
@@ -478,14 +479,14 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		return testResult{
 			context:     c,
 			localErr:    err,
-			newAPIError: types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
+			newAPIError: relaytypes.NewOpenAIError(err, relaytypes.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError),
 		}
 	}
 	if bodyErr := validateTestResponseBody(respBody, isStream); bodyErr != nil {
 		return testResult{
 			context:     c,
 			localErr:    bodyErr,
-			newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
+			newAPIError: relaytypes.NewOpenAIError(bodyErr, relaytypes.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
 	info.SetEstimatePromptTokens(usage.PromptTokens)
@@ -531,7 +532,7 @@ func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Requ
 
 func settleTestQuota(info *relaycommon.RelayInfo, priceData types.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
-		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
+		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == relaytypes.RelayFormatClaude
 		usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
 		if ok, quota, result := service.TryTieredSettle(info, service.BuildTieredTokenParams(usage, isClaudeUsageSemantic, usedVars)); ok {
 			return quota, result
@@ -695,14 +696,14 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 
 	// 根据端点类型构建不同的测试请求
 	if endpointType != "" {
-		switch constant.EndpointType(endpointType) {
-		case constant.EndpointTypeEmbeddings:
+		switch relaytypes.EndpointType(endpointType) {
+		case relaytypes.EndpointTypeEmbeddings:
 			// 返回 EmbeddingRequest
 			return &dto.EmbeddingRequest{
 				Model: model,
 				Input: []any{"hello world"},
 			}
-		case constant.EndpointTypeImageGeneration:
+		case relaytypes.EndpointTypeImageGeneration:
 			// 返回 ImageRequest
 			return &dto.ImageRequest{
 				Model:  model,
@@ -710,7 +711,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				N:      lo.ToPtr(uint(1)),
 				Size:   "1024x1024",
 			}
-		case constant.EndpointTypeJinaRerank:
+		case relaytypes.EndpointTypeJinaRerank:
 			// 返回 RerankRequest
 			return &dto.RerankRequest{
 				Model:     model,
@@ -718,20 +719,20 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 				TopN:      lo.ToPtr(2),
 			}
-		case constant.EndpointTypeOpenAIResponse:
+		case relaytypes.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest
 			return &dto.OpenAIResponsesRequest{
 				Model:  model,
 				Input:  json.RawMessage(`[{"role":"user","content":"hi"}]`),
 				Stream: lo.ToPtr(isStream),
 			}
-		case constant.EndpointTypeOpenAIResponseCompact:
+		case relaytypes.EndpointTypeOpenAIResponseCompact:
 			// 返回 OpenAIResponsesCompactionRequest
 			return &dto.OpenAIResponsesCompactionRequest{
 				Model: model,
 				Input: testResponsesInput,
 			}
-		case constant.EndpointTypeAnthropic:
+		case relaytypes.EndpointTypeAnthropic:
 			return &dto.ClaudeRequest{
 				Model:     model,
 				Stream:    lo.ToPtr(isStream),
@@ -743,7 +744,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 					},
 				},
 			}
-		case constant.EndpointTypeGemini:
+		case relaytypes.EndpointTypeGemini:
 			return &dto.GeminiChatRequest{
 				Contents: []dto.GeminiChatContent{
 					{
@@ -755,7 +756,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 					MaxOutputTokens: lo.ToPtr(uint(3000)),
 				},
 			}
-		case constant.EndpointTypeOpenAI:
+		case relaytypes.EndpointTypeOpenAI:
 			req := &dto.GeneralOpenAIRequest{
 				Model:  model,
 				Stream: lo.ToPtr(isStream),
@@ -914,9 +915,9 @@ func processChannelTestPolicyError(channel *model.Channel, result testResult) bo
 	if channel == nil || result.context == nil || result.newAPIError == nil {
 		return false
 	}
-	return processKKAIPolicyAPIError(
+	return service.ProcessKKAIPolicyAPIError(
 		result.context,
-		*types.NewChannelError(
+		*relaytypes.NewChannelError(
 			channel.Id,
 			channel.Type,
 			channel.Name,
@@ -928,14 +929,14 @@ func processChannelTestPolicyError(channel *model.Channel, result testResult) bo
 	)
 }
 
-func automaticChannelTestDisableDecision(newAPIError *types.NewAPIError, policyDetected bool, milliseconds int64, disableThreshold int64) (*types.NewAPIError, bool) {
+func automaticChannelTestDisableDecision(newAPIError *relaytypes.NewAPIError, policyDetected bool, milliseconds int64, disableThreshold int64) (*relaytypes.NewAPIError, bool) {
 	if policyDetected || service.IsUpstreamPoolExhausted(newAPIError) {
 		return newAPIError, false
 	}
 	shouldBanChannel := newAPIError != nil && service.ShouldDisableChannel(newAPIError)
 	if common.AutomaticDisableChannelEnabled && !shouldBanChannel && milliseconds > disableThreshold {
 		err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
-		return types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout), true
+		return relaytypes.NewOpenAIError(err, relaytypes.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout), true
 	}
 	return newAPIError, shouldBanChannel
 }
@@ -965,10 +966,11 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	}
 
 	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-		processChannelErrorAfterKKAIPolicy(
+		service.ProcessChannelErrorAfterPolicy(
 			result.context,
-			*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()),
+			*relaytypes.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()),
 			newAPIError,
+			nil,
 			policyDetected,
 		)
 		summary.Disabled++

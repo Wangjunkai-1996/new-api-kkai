@@ -11,9 +11,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -58,6 +58,8 @@ type Channel struct {
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
 }
+
+const ChannelStatusReasonAllKeysDisabled = "All keys are disabled"
 
 type ChannelInfo struct {
 	IsMultiKey             bool                  `json:"is_multi_key"`                        // 是否多Key模式
@@ -163,12 +165,13 @@ func ApplyChannelGroupFilter(query *gorm.DB, group string) *gorm.DB {
 
 // Value implements driver.Valuer interface
 func (c ChannelInfo) Value() (driver.Value, error) {
-	return common.Marshal(&c)
+	b, err := common.Marshal(&c)
+	return string(b), err
 }
 
 // Scan implements sql.Scanner interface
 func (c *ChannelInfo) Scan(value interface{}) error {
-	bytesValue, _ := value.([]byte)
+	bytesValue := jsonScanBytes(value)
 	return common.Unmarshal(bytesValue, c)
 }
 
@@ -462,26 +465,32 @@ func BatchInsertChannels(channels []Channel) error {
 	return tx.Commit().Error
 }
 
-func BatchDeleteChannels(ids []int) error {
+func BatchDeleteChannels(ids []int) (int64, error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	// 使用事务 分批删除channel表和abilities表
 	tx := DB.Begin()
 	if tx.Error != nil {
-		return tx.Error
+		return 0, tx.Error
 	}
+	var deletedCount int64
 	for _, chunk := range lo.Chunk(ids, 200) {
-		if err := tx.Where("id in (?)", chunk).Delete(&Channel{}).Error; err != nil {
+		result := tx.Where("id in (?)", chunk).Delete(&Channel{})
+		if result.Error != nil {
 			tx.Rollback()
-			return err
+			return 0, result.Error
 		}
+		deletedCount += result.RowsAffected
 		if err := tx.Where("channel_id in (?)", chunk).Delete(&Ability{}).Error; err != nil {
 			tx.Rollback()
-			return err
+			return 0, err
 		}
 	}
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return 0, err
+	}
+	return deletedCount, nil
 }
 
 func (channel *Channel) GetPriority() int64 {
@@ -504,7 +513,7 @@ func (channel *Channel) GetBaseURL() string {
 	}
 	url := *channel.BaseURL
 	if url == "" {
-		url = constant.ChannelBaseURLs[channel.Type]
+		url = constant.GetChannelBaseURL(channel.Type)
 	}
 	return url
 }
@@ -691,7 +700,7 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 		if !hasEnabledMultiKey(keys, channel.ChannelInfo.MultiKeyStatusList) {
 			channel.Status = common.ChannelStatusAutoDisabled
 			info := channel.GetOtherInfo()
-			info["status_reason"] = "All keys are disabled"
+			info["status_reason"] = ChannelStatusReasonAllKeysDisabled
 			info["status_time"] = common.GetTimestamp()
 			channel.SetOtherInfo(info)
 		} else if status == common.ChannelStatusEnabled {
@@ -762,7 +771,10 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	if err != nil {
 		return false
 	} else {
-		if channel.Status == status {
+		overridesKeyExhaustion := channel.ChannelInfo.IsMultiKey && usingKey == "" &&
+			status == common.ChannelStatusManuallyDisabled && reason != ChannelStatusReasonAllKeysDisabled &&
+			channel.GetOtherInfo()["status_reason"] == ChannelStatusReasonAllKeysDisabled
+		if channel.Status == status && !overridesKeyExhaustion {
 			return false
 		}
 
@@ -799,6 +811,19 @@ func EnableChannelByTag(tag string) error {
 }
 
 func DisableChannelByTag(tag string) error {
+	// Explicit tag-level disable also cancels automatic restoration for
+	// channels that were already disabled because all keys were unavailable.
+	var channels []Channel
+	if err := DB.Where("tag = ?", tag).Find(&channels).Error; err != nil {
+		return err
+	}
+	for _, channel := range channels {
+		if channel.ChannelInfo.IsMultiKey && channel.GetOtherInfo()["status_reason"] == ChannelStatusReasonAllKeysDisabled {
+			if !UpdateChannelStatus(channel.Id, "", common.ChannelStatusManuallyDisabled, "manual tag operation") {
+				return fmt.Errorf("failed to disable channel #%d by tag", channel.Id)
+			}
+		}
+	}
 	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusManuallyDisabled).Error
 	if err != nil {
 		return err
@@ -956,6 +981,12 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
+		return fmt.Errorf("invalid channel proxy: %w", err)
+	}
+	if err := channelParams.ValidateHTTPTransport(); err != nil {
+		return err
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)
@@ -963,7 +994,13 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
-	if channel.Type == constant.ChannelTypeAdvancedCustom {
+	if err := channelOtherSettings.ValidateToolLossPolicy(); err != nil {
+		return err
+	}
+	if preset := common.GetAdvancedCustomPreset(channel.Type); preset != nil {
+		channelOtherSettings.AdvancedCustom = preset
+	}
+	if constant.IsAdvancedCustomChannel(channel.Type) {
 		if channelOtherSettings.AdvancedCustom == nil {
 			return fmt.Errorf("advanced_custom is required")
 		}
@@ -971,6 +1008,11 @@ func (channel *Channel) ValidateSettings() error {
 	if channelOtherSettings.AdvancedCustom != nil {
 		if err := channelOtherSettings.AdvancedCustom.Validate(); err != nil {
 			return err
+		}
+	}
+	if constant.IsAdvancedCustomChannel(channel.Type) && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
+		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
+			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
 		}
 	}
 	return nil
@@ -1007,6 +1049,9 @@ func (channel *Channel) GetOtherSettings() dto.ChannelOtherSettings {
 			channel.OtherSettings = "{}" // 清空设置以避免后续错误
 			_ = channel.Save()           // 保存修改
 		}
+	}
+	if preset := common.GetAdvancedCustomPreset(channel.Type); preset != nil {
+		setting.AdvancedCustom = preset
 	}
 	return setting
 }

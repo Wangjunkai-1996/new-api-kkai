@@ -75,6 +75,12 @@ func ChannelType2APIType(channelType int) (int, bool) {
 		apiType = constant.APITypeReplicate
 	case constant.ChannelTypeCodex:
 		apiType = constant.APITypeCodex
+	case constant.ChannelTypeSub2API:
+		apiType = constant.APITypeSub2API
+	case constant.ChannelTypeNewAPI:
+		apiType = constant.APITypeNewAPI
+	case constant.ChannelTypeVLLM, constant.ChannelTypeSGLang:
+		apiType = constant.APITypeAdvancedCustom
 	case constant.ChannelTypeAdvancedCustom:
 		apiType = constant.APITypeAdvancedCustom
 	}
@@ -82,4 +88,17 @@ func ChannelType2APIType(channelType int) (int, bool) {
 		return constant.APITypeOpenAI, false
 	}
 	return apiType, true
+}
+
+func SupportsResponsesCompact(channelType, apiType int) bool {
+	switch apiType {
+	case constant.APITypeOpenAI,
+		constant.APITypeCodex,
+		constant.APITypeAdvancedCustom,
+		constant.APITypeSub2API,
+		constant.APITypeNewAPI:
+		return true
+	default:
+		return false
+	}
 }

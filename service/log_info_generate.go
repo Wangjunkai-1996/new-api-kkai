@@ -3,15 +3,16 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -64,8 +65,43 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	}
 }
 
+// AppendRelayLogAdminInfo records relay routing and conversion diagnostics in
+// the admin-only scope shared by successful and failed request logs.
+func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
+	if ctx == nil || other == nil {
+		return
+	}
+	other.SetAdmin("use_channel", ctx.GetStringSlice("use_channel"))
+	if relayInfo != nil {
+		if billingModel := relayInfo.GetBillingModelName(); billingModel != "" && billingModel != relayInfo.OriginModelName {
+			other.SetAdmin("billing_model", billingModel)
+		}
+		if diagnostics := relayInfo.ConversionDiagnostics(); len(diagnostics) > 0 {
+			other.SetAdmin("conversion_diagnostics", diagnostics)
+		}
+		if relayInfo.ConversionDiagnosticsTruncated() {
+			other.SetAdmin("conversion_diagnostics_truncated", true)
+		}
+	}
+	if common.GetContextKeyBool(ctx, constant.ContextKeyChannelIsMultiKey) {
+		other.SetAdmin("is_multi_key", true)
+		other.SetAdmin("multi_key_index", common.GetContextKeyInt(ctx, constant.ContextKeyChannelMultiKeyIndex))
+	}
+	if common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens) {
+		other.SetAdmin("local_count_tokens", true)
+	}
+
+	adminInfo := map[string]interface{}{}
+	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	other.MergeAdmin(adminInfo)
+	if events := RequestPolicy(ctx).Events(); len(events) > 0 {
+		other.SetAdmin("request_policy", events)
+	}
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) *model.LogOther {
+	MarkRequestPolicySuccess(ctx, relayInfo.StreamStatus)
 	other := model.NewLogOther()
 	other.SetPublic("model_ratio", modelRatio)
 	other.SetPublic("group_ratio", groupRatio)
@@ -99,22 +135,8 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 		other.SetPublic("is_system_prompt_overwritten", true)
 	}
 
-	adminInfo := map[string]interface{}{}
-	adminInfo["use_channel"] = ctx.GetStringSlice("use_channel")
-	isMultiKey := common.GetContextKeyBool(ctx, constant.ContextKeyChannelIsMultiKey)
-	if isMultiKey {
-		adminInfo["is_multi_key"] = true
-		adminInfo["multi_key_index"] = common.GetContextKeyInt(ctx, constant.ContextKeyChannelMultiKeyIndex)
-	}
-
-	isLocalCountTokens := common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens)
-	if isLocalCountTokens {
-		adminInfo["local_count_tokens"] = isLocalCountTokens
-	}
-
-	AppendChannelAffinityAdminInfo(ctx, adminInfo)
-
-	other.MergeAdmin(adminInfo)
+	AppendRelayLogAdminInfo(ctx, relayInfo, other)
+	AppendResponseModelLogInfo(relayInfo, other)
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
@@ -123,6 +145,21 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+// AppendResponseModelLogInfo records upstream declarations without changing
+// the selected model, request payload, or charge.
+func AppendResponseModelLogInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
+	if relayInfo == nil || relayInfo.ResponseModel == nil || other == nil {
+		return
+	}
+	observation := relayInfo.ResponseModel
+	if observation.ReturnedModel == observation.RequestedModel &&
+		(observation.UpstreamModel == "" || observation.UpstreamModel == observation.RequestedModel) &&
+		(relayInfo.ChannelMeta == nil || !relayInfo.IsModelMapped) {
+		return
+	}
+	other.SetPublic("response_model", *observation)
 }
 
 func appendImagePricingInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
@@ -169,13 +206,17 @@ func appendStreamStatus(relayInfo *relaycommon.RelayInfo, other *model.LogOther)
 		return
 	}
 	ss := relayInfo.StreamStatus
+	outcome := ss.OutcomeSnapshot()
 	status := "ok"
-	if !ss.IsNormalEnd() || ss.HasErrors() {
+	if !ss.IsNormalEnd() || outcome.HasErrors || outcome.Response == relaycommon.ResponseOutcomeFailed {
 		status = "error"
 	}
 	streamInfo := map[string]interface{}{
 		"status":     status,
-		"end_reason": string(ss.EndReason),
+		"end_reason": string(outcome.EndReason),
+	}
+	if outcome.Response != relaycommon.ResponseOutcomeUnknown {
+		streamInfo["response_status"] = string(outcome.Response)
 	}
 	if ss.EndError != nil {
 		streamInfo["end_error"] = ss.EndError.Error()
@@ -255,13 +296,13 @@ func appendRequestConversionChain(relayInfo *relaycommon.RelayInfo, other *model
 	chain := make([]string, 0, len(relayInfo.RequestConversionChain))
 	for _, f := range relayInfo.RequestConversionChain {
 		switch f {
-		case types.RelayFormatOpenAI:
+		case relaytypes.RelayFormatOpenAI:
 			chain = append(chain, "OpenAI Compatible")
-		case types.RelayFormatClaude:
+		case relaytypes.RelayFormatClaude:
 			chain = append(chain, "Claude Messages")
-		case types.RelayFormatGemini:
+		case relaytypes.RelayFormatGemini:
 			chain = append(chain, "Google Gemini")
-		case types.RelayFormatOpenAIResponses:
+		case relaytypes.RelayFormatOpenAIResponses:
 			chain = append(chain, "OpenAI Responses")
 		default:
 			chain = append(chain, string(f))
@@ -277,7 +318,7 @@ func appendFinalRequestFormat(relayInfo *relaycommon.RelayInfo, other *model.Log
 	if relayInfo == nil || other == nil {
 		return
 	}
-	if relayInfo.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
+	if relayInfo.GetFinalRequestRelayFormat() == relaytypes.RelayFormatClaude {
 		// claude indicates the final upstream request format is Claude Messages.
 		// Frontend log rendering uses this to keep the original Claude input display.
 		other.SetPublic("claude", true)
@@ -354,9 +395,36 @@ func InjectTieredBillingInfo(other *model.LogOther, relayInfo *relaycommon.Relay
 	other.SetPublic("billing_mode", "tiered_expr")
 	other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
 	if result != nil {
+		if tokens := result.BillingTokens; tokens != nil && result.BillingUnit == billingexpr.BillingUnitToken {
+			other.SetPublic("image_cache_tokens", tokens.ImgCR)
+			other.SetPublic("billing_tokens", map[string]float64{
+				"p": tokens.P, "c": tokens.C, "len": tokens.Len,
+				"cr": tokens.CR, "cc": tokens.CC, "cc1h": tokens.CC1h,
+				"img": tokens.Img, "img_cr": tokens.ImgCR, "img_o": tokens.ImgO,
+				"ai": tokens.AI, "ao": tokens.AO,
+			})
+		}
+		if result.ImageCount != nil {
+			other.SetPublic("image_count", *result.ImageCount)
+		}
 		other.SetPublic("matched_tier", result.MatchedTier)
+		if result.BillingUnit != "" {
+			other.SetPublic("billing_unit", result.BillingUnit)
+		}
+		if result.FixedPrice != nil {
+			other.SetPublic("fixed_price", *result.FixedPrice)
+		}
 		if len(result.RequestRules) > 0 {
 			other.SetPublic("request_rules", result.RequestRules)
+		}
+	} else if snap.EstimatedBillingUnit != "" {
+		if snap.EstimatedImageCount != nil {
+			other.SetPublic("image_count", *snap.EstimatedImageCount)
+		}
+		other.SetPublic("matched_tier", snap.EstimatedTier)
+		other.SetPublic("billing_unit", snap.EstimatedBillingUnit)
+		if snap.EstimatedFixedPrice != nil {
+			other.SetPublic("fixed_price", *snap.EstimatedFixedPrice)
 		}
 	}
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
@@ -17,10 +16,11 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
@@ -260,7 +260,7 @@ func ListModels(c *gin.Context, modelType int) {
 			models = model.GetGroupEnabledModels(ownerGroups[0])
 		}
 		for _, modelName := range models {
-			if modelLimitEnable && !tokenModelLimit[ratio_setting.FormatMatchingModelName(modelName)] {
+			if modelLimitEnable && !tokenModelLimit[ratio_setting.RoutingMatchModelName(modelName)] {
 				continue
 			}
 			if !acceptUnsetRatioModel {

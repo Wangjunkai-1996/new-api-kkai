@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +11,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -421,9 +422,9 @@ func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T)
 	payload := decodeListModelsPayload(t, recorder)
 	require.Len(t, payload.Data, 1)
 	require.Equal(t, "gemini-3.5-flash", payload.Data[0].Id)
-	require.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeOpenAI,
-		constant.EndpointTypeOpenAIResponse,
+	require.Equal(t, []relaytypes.EndpointType{
+		relaytypes.EndpointTypeOpenAI,
+		relaytypes.EndpointTypeOpenAIResponse,
 	}, payload.Data[0].SupportedEndpointTypes)
 }
 

@@ -18,11 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -38,7 +39,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 
 import {
   SettingsForm,
@@ -50,7 +50,7 @@ import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const thinkingBlacklistExample = JSON.stringify(
-  ['moonshotai/kimi-k2-thinking', 'kimi-k2-thinking'],
+  ['moonshotai/kimi-k2-thinking', 'kimi-k2-thinking', 're:.*@sha256:.*'],
   null,
   2
 )
@@ -155,22 +155,10 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
     form.reset(defaultValues as GlobalModelSettingsFormInput)
   }, [defaultValues, form])
 
-  const pingEnabled = form.watch('general_setting.ping_interval_enabled')
-
-  const formatJsonField = (
-    field:
-      | 'global.thinking_model_blacklist'
-      | 'global.chat_completions_to_responses_policy'
-  ) => {
-    const raw = form.getValues(field)
-    if (!raw || !raw.trim()) return
-    try {
-      const formatted = JSON.stringify(JSON.parse(raw), null, 2)
-      form.setValue(field, formatted, { shouldDirty: true })
-    } catch {
-      toast.error(t('Invalid JSON format'))
-    }
-  }
+  const pingEnabled = useWatch({
+    control: form.control,
+    name: 'general_setting.ping_interval_enabled',
+  })
 
   const onSubmit = async (values: GlobalModelSettingsFormValues) => {
     const flattenedDefaults = flattenGlobalValues(defaultValues)
@@ -233,30 +221,21 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   {t('Models that skip thinking suffix processing')}
                 </FormLabel>
                 <FormControl>
-                  <Textarea
-                    rows={4}
+                  <JsonCodeEditor
+                    value={field.value}
+                    onChange={(value) => field.onChange(value)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    textareaRef={field.ref}
                     placeholder={`${t('Example:')}\n${thinkingBlacklistExample}`}
-                    {...field}
-                    onChange={(event) => field.onChange(event.target.value)}
+                    heightClassName='h-32 min-h-32 max-h-32'
                   />
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Models listed here will not automatically append or remove -thinking / -nothinking suffixes.'
+                    'Models listed here skip automatic -thinking / -nothinking suffix handling. Matched names are also exempt from @-modifier parsing and 400 validation. Prefix an entry with re: to match the full model name as a Go regular expression, for example re:.*@sha256:.*'
                   )}
                 </FormDescription>
-                <div className='flex flex-wrap gap-2'>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={() =>
-                      formatJsonField('global.thinking_model_blacklist')
-                    }
-                  >
-                    {t('Format JSON')}
-                  </Button>
-                </div>
                 <FormMessage />
               </FormItem>
             )}
@@ -292,11 +271,13 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 <FormItem>
                   <FormLabel>{t('Policy JSON')}</FormLabel>
                   <FormControl>
-                    <Textarea
-                      rows={8}
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={(value) => field.onChange(value)}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
                       placeholder={`${t('Example (specific channels):')}\n${chatToResponsesPolicyExample}\n\n${t('Example (all channels):')}\n${chatToResponsesPolicyAllChannelsExample}`}
-                      {...field}
-                      onChange={(event) => field.onChange(event.target.value)}
                     />
                   </FormControl>
                   <FormDescription>
@@ -330,18 +311,6 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                       }
                     >
                       {t('Fill example (all channels)')}
-                    </Button>
-                    <Button
-                      type='button'
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        formatJsonField(
-                          'global.chat_completions_to_responses_policy'
-                        )
-                      }
-                    >
-                      {t('Format JSON')}
                     </Button>
                   </div>
                   <FormMessage />

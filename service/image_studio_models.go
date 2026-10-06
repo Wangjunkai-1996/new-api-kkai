@@ -3,13 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"gorm.io/gorm"
 )
@@ -62,20 +63,26 @@ func enabledImageStudioAbilityChannelsForGroup(ctx context.Context, db *gorm.DB,
 }
 
 func imageStudioChannelSupportsModel(row imageStudioAbilityChannel) bool {
-	if row.ChannelType == constant.ChannelTypeAdvancedCustom {
+	if constant.IsAdvancedCustomChannel(row.ChannelType) {
 		var settings dto.ChannelOtherSettings
-		if strings.TrimSpace(row.OtherSettings) == "" || common.UnmarshalJsonStr(row.OtherSettings, &settings) != nil || settings.AdvancedCustom == nil {
+		if strings.TrimSpace(row.OtherSettings) != "" && common.UnmarshalJsonStr(row.OtherSettings, &settings) != nil {
+			return false
+		}
+		if settings.AdvancedCustom == nil {
+			settings.AdvancedCustom = common.GetAdvancedCustomPreset(row.ChannelType)
+		}
+		if settings.AdvancedCustom == nil {
 			return false
 		}
 		for _, endpoint := range settings.AdvancedCustom.SupportedEndpointTypesForModel(row.Model) {
-			if endpoint == constant.EndpointTypeImageGeneration {
+			if endpoint == relaytypes.EndpointTypeImageGeneration {
 				return true
 			}
 		}
 		return false
 	}
 	for _, endpoint := range common.GetEndpointTypesByChannelType(row.ChannelType, row.Model) {
-		if endpoint == constant.EndpointTypeImageGeneration {
+		if endpoint == relaytypes.EndpointTypeImageGeneration {
 			return true
 		}
 	}

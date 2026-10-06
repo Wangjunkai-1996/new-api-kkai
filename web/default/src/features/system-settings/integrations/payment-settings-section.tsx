@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Code2, Eye, ShieldAlert } from 'lucide-react'
 import * as React from 'react'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
@@ -46,6 +46,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
 import { confirmPaymentCompliance } from '../api'
@@ -260,18 +261,25 @@ export function PaymentSettingsSection({
       productID: waffoPancakeProvisionedProductID ?? '',
     })
 
-  React.useEffect(() => {
+  const [previousPayMethods, setPreviousPayMethods] = React.useState(
+    waffoDefaultValues.WaffoPayMethods
+  )
+  if (previousPayMethods !== waffoDefaultValues.WaffoPayMethods) {
+    setPreviousPayMethods(waffoDefaultValues.WaffoPayMethods)
     setWaffoPayMethods(parseWaffoPayMethods(waffoDefaultValues.WaffoPayMethods))
-  }, [waffoDefaultValues.WaffoPayMethods])
-
-  React.useEffect(() => {
+  }
+  const bindingSource = `${waffoPancakeProvisionedStoreID ?? ''}:${waffoPancakeProvisionedProductID ?? ''}`
+  const [previousBindingSource, setPreviousBindingSource] =
+    React.useState(bindingSource)
+  if (previousBindingSource !== bindingSource) {
+    setPreviousBindingSource(bindingSource)
     const nextBinding = {
       storeID: waffoPancakeProvisionedStoreID ?? '',
       productID: waffoPancakeProvisionedProductID ?? '',
     }
     setWaffoPancakeSelection(nextBinding)
     setWaffoPancakeSavedBinding(nextBinding)
-  }, [waffoPancakeProvisionedProductID, waffoPancakeProvisionedStoreID])
+  }
 
   const complianceStatements = React.useMemo(
     () => [
@@ -339,11 +347,11 @@ export function PaymentSettingsSection({
         setShowComplianceDialog(false)
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
       } else {
-        toast.error(data.message || t('Failed to confirm compliance'))
+        handleServerError(data, t('Failed to confirm compliance'))
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || t('Failed to confirm compliance'))
+      handleServerError(error, t('Failed to confirm compliance'))
     },
   })
 
@@ -758,13 +766,14 @@ export function PaymentSettingsSection({
       }
 
       const reason = typeof body?.data === 'string' ? body.data : undefined
-      toast.error(
-        reason
+      handleServerError(body, undefined, {
+        title: reason
           ? `${t('Waffo Pancake save failed')}: ${reason}`
-          : t('Waffo Pancake save failed')
-      )
+          : t('Waffo Pancake save failed'),
+      })
     } catch (error) {
-      toast.error(
+      handleServerError(
+        error,
         `${t('Waffo Pancake save failed')}: ${
           error instanceof Error ? error.message : String(error)
         }`
@@ -772,7 +781,8 @@ export function PaymentSettingsSection({
     }
   }
 
-  const currentFormValues = form.watch()
+  const watchedFormValues = useWatch({ control: form.control })
+  const currentFormValues = { ...initialFormValues, ...watchedFormValues }
   const waffoValues: WaffoSettingsValues = {
     WaffoEnabled: currentFormValues.WaffoEnabled,
     WaffoApiKey: currentFormValues.WaffoApiKey,
@@ -863,7 +873,7 @@ export function PaymentSettingsSection({
 
       <Form {...form}>
         <SettingsForm
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
           className={cn(
             'gap-y-8',
             !complianceConfirmed && 'pointer-events-none opacity-40'
@@ -871,7 +881,7 @@ export function PaymentSettingsSection({
           data-no-autosubmit='true'
         >
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => void form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending || isSubmitting}
             saveLabel='Save all settings'
           />

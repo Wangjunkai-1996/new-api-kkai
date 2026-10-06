@@ -1,6 +1,8 @@
 package common
 
-import "github.com/QuantumNous/new-api/constant"
+import (
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
+)
 
 // EndpointInfo 描述单个端点的默认请求信息
 // path: 上游路径
@@ -16,19 +18,20 @@ type EndpointInfo struct {
 }
 
 // defaultEndpointInfoMap 保存内置端点的默认 Path 与 Method
-var defaultEndpointInfoMap = map[constant.EndpointType]EndpointInfo{
-	constant.EndpointTypeOpenAI:                {Path: "/v1/chat/completions", Method: "POST"},
-	constant.EndpointTypeOpenAIResponse:        {Path: "/v1/responses", Method: "POST"},
-	constant.EndpointTypeOpenAIResponseCompact: {Path: "/v1/responses/compact", Method: "POST"},
-	constant.EndpointTypeAnthropic:             {Path: "/v1/messages", Method: "POST"},
-	constant.EndpointTypeGemini:                {Path: "/v1beta/models/{model}:generateContent", Method: "POST"},
-	constant.EndpointTypeJinaRerank:            {Path: "/v1/rerank", Method: "POST"},
-	constant.EndpointTypeImageGeneration:       {Path: "/v1/images/generations", Method: "POST"},
-	constant.EndpointTypeEmbeddings:            {Path: "/v1/embeddings", Method: "POST"},
+var defaultEndpointInfoMap = map[relaytypes.EndpointType]EndpointInfo{
+	relaytypes.EndpointTypeOpenAI:                {Path: "/v1/chat/completions", Method: "POST"},
+	relaytypes.EndpointTypeOpenAIResponse:        {Path: "/v1/responses", Method: "POST"},
+	relaytypes.EndpointTypeOpenAIResponseCompact: {Path: "/v1/responses/compact", Method: "POST"},
+	relaytypes.EndpointTypeOpenAIAlphaSearch:     {Path: "/v1/alpha/search", Method: "POST"},
+	relaytypes.EndpointTypeAnthropic:             {Path: "/v1/messages", Method: "POST"},
+	relaytypes.EndpointTypeGemini:                {Path: "/v1beta/models/{model}:generateContent", Method: "POST"},
+	relaytypes.EndpointTypeJinaRerank:            {Path: "/v1/rerank", Method: "POST"},
+	relaytypes.EndpointTypeImageGeneration:       {Path: "/v1/images/generations", Method: "POST"},
+	relaytypes.EndpointTypeEmbeddings:            {Path: "/v1/embeddings", Method: "POST"},
 }
 
 // GetDefaultEndpointInfo 返回指定端点类型的默认信息以及是否存在
-func GetDefaultEndpointInfo(et constant.EndpointType) (EndpointInfo, bool) {
+func GetDefaultEndpointInfo(et relaytypes.EndpointType) (EndpointInfo, bool) {
 	info, ok := defaultEndpointInfoMap[et]
 	return info, ok
 }

@@ -41,7 +41,6 @@ export function PricingAmountInput({
   onChange,
   currency = USD_PRICING_CURRENCY,
   grouped,
-  ref: forwardedRef,
   ...props
 }: PricingAmountInputProps) {
   const { t } = useTranslation()
@@ -88,8 +87,10 @@ export function PricingAmountInput({
         {...props}
         ref={(element) => {
           element?.setCustomValidity(error)
-          if (typeof forwardedRef === 'function') return forwardedRef(element)
-          if (forwardedRef) forwardedRef.current = element
+          if (typeof props.ref === 'function') return props.ref(element)
+          // React requires forwarding the mounted input through object refs.
+          // eslint-disable-next-line react/immutability
+          if (props.ref) props.ref.current = element
         }}
         data-pricing-amount=''
         type='text'

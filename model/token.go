@@ -397,6 +397,9 @@ func (token *Token) UpdateGroup(group string, retryOverride *bool) error {
 	}
 
 	updates := map[string]any{"group": group}
+	if token.Group != group {
+		updates["auto_groups"] = ""
+	}
 	if retryOverride != nil {
 		updates["cross_group_retry"] = *retryOverride
 	}
@@ -420,6 +423,9 @@ func (token *Token) UpdateGroup(group string, retryOverride *bool) error {
 	}
 	if err := tx.Commit().Error; err != nil {
 		return err
+	}
+	if token.Group != group {
+		token.AutoGroups = ""
 	}
 	token.Group = group
 	if retryOverride != nil {

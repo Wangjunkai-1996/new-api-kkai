@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -654,6 +655,12 @@ func GetAudioRatioCopy() map[string]float64 {
 
 func GetAudioCompletionRatioCopy() map[string]float64 {
 	return audioCompletionRatioMap.ReadAll()
+}
+
+// RoutingMatchModelName strips request modifiers before channel and token-limit
+// fallback matching, then applies the configured wildcard conventions.
+func RoutingMatchModelName(name string) string {
+	return FormatMatchingModelName(hostreasoning.BaseModelName(name))
 }
 
 // 转换模型名，减少渠道必须配置各种带参数模型

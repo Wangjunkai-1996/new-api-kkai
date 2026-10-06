@@ -213,8 +213,14 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/request_policy", controller.GetRequestPolicy)
+			optionRoute.PATCH("/request_policy", controller.UpdateRequestPolicy)
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.PUT("/passkey/domains", controller.UpdatePasskeyDomains)
+			optionRoute.GET("/model_pricing", controller.GetModelPricingConfig)
+			optionRoute.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
+			optionRoute.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
+			optionRoute.POST("/model_pricing/preview", controller.PreviewModelPricing)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -278,6 +284,7 @@ func SetApiRouter(router *gin.Engine) {
 		tokenRoute.Use(middleware.UserAuth())
 		{
 			tokenRoute.GET("/", controller.GetAllTokens)
+			tokenRoute.GET("/auto-groups", controller.GetTokenAutoGroups)
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
 			tokenRoute.GET("/:id/models", controller.GetTokenModels)
 			tokenRoute.PATCH("/:id/group", controller.UpdateTokenGroup)
@@ -307,6 +314,7 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.GET("/search", controller.SearchRedemptions)
 			redemptionRoute.GET("/:id", controller.GetRedemption)
 			redemptionRoute.POST("/", controller.AddRedemption)
+			redemptionRoute.POST("/batch", controller.DeleteRedemptionBatch)
 			redemptionRoute.PUT("/", controller.UpdateRedemption)
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
@@ -330,6 +338,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
+			systemTaskRoute.DELETE("/history", controller.DeleteSystemTaskHistory)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)
 		}
@@ -381,6 +390,8 @@ func SetApiRouter(router *gin.Engine) {
 		vendorRoute := apiRouter.Group("/vendors")
 		vendorRoute.Use(middleware.AdminAuth())
 		{
+			vendorRoute.POST("/operations/preview", controller.PreviewVendorOperation)
+			vendorRoute.POST("/operations", controller.ApplyVendorOperation)
 			vendorRoute.GET("/", controller.GetAllVendors)
 			vendorRoute.GET("/search", controller.SearchVendors)
 			vendorRoute.GET("/:id", controller.GetVendorMeta)
@@ -394,6 +405,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			modelsRoute.GET("/sync_upstream/preview", controller.SyncUpstreamPreview)
 			modelsRoute.POST("/sync_upstream", controller.SyncUpstreamModels)
+			modelsRoute.POST("/delete", controller.BatchDeleteModelMeta)
 			modelsRoute.GET("/missing", controller.GetMissingModels)
 			modelsRoute.GET("/", controller.GetAllModelsMeta)
 			modelsRoute.GET("/search", controller.SearchModelsMeta)

@@ -2,17 +2,18 @@ package service
 
 import (
 	"context"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -32,7 +33,7 @@ func TestImageStudioMaximumPreconsumeIncludesCompletionAndAllRatios(t *testing.T
 	price.AddOtherRatio("n", 2)
 
 	require.NoError(t, ApplyImageStudioMaximumPreconsume(
-		c, relayInfo, &price, 100, &types.TokenCountMeta{MaxTokens: 1_000},
+		c, relayInfo, &price, 100, &relaytypes.TokenCountMeta{MaxTokens: 1_000},
 	))
 	require.Equal(t, 7_500, price.QuotaToPreConsume)
 	require.Equal(t, price.QuotaToPreConsume, relayInfo.PriceData.QuotaToPreConsume)
@@ -49,7 +50,7 @@ func TestImageStudioMaximumPreconsumeUsesRequestCountWithoutChangingFinalRatioBi
 	}
 
 	require.NoError(t, ApplyImageStudioMaximumPreconsume(
-		c, relayInfo, &price, 100, &types.TokenCountMeta{
+		c, relayInfo, &price, 100, &relaytypes.TokenCountMeta{
 			MaxTokens: 100, BillingRatios: map[string]float64{"n": 4},
 		},
 	))
@@ -66,7 +67,7 @@ func TestImageStudioMaximumPreconsumePreservesCompletePriceQuotes(t *testing.T) 
 	relayInfo := &relaycommon.RelayInfo{}
 	price := types.PriceData{UsePrice: true, QuotaToPreConsume: 321}
 	require.NoError(t, ApplyImageStudioMaximumPreconsume(
-		c, relayInfo, &price, 100, &types.TokenCountMeta{MaxTokens: 1_000},
+		c, relayInfo, &price, 100, &relaytypes.TokenCountMeta{MaxTokens: 1_000},
 	))
 	require.Equal(t, 321, price.QuotaToPreConsume)
 	require.Equal(t, 321, relayInfo.PriceData.QuotaToPreConsume)
@@ -81,7 +82,7 @@ func TestImageStudioMaximumPreconsumeRejectsUnboundedTieredExpression(t *testing
 	}
 	price := types.PriceData{QuotaToPreConsume: 654}
 	require.ErrorIs(t, ApplyImageStudioMaximumPreconsume(
-		c, relayInfo, &price, 100, &types.TokenCountMeta{MaxTokens: 1_000},
+		c, relayInfo, &price, 100, &relaytypes.TokenCountMeta{MaxTokens: 1_000},
 	), ErrImageModelBillingUnsupported)
 }
 

@@ -27,7 +27,7 @@ func IsChannelEnabledForGroupModel(group string, modelName string, channelID int
 	if isChannelIDInList(group2model2channels[group][modelName], channelID) {
 		return true
 	}
-	normalized := ratio_setting.FormatMatchingModelName(modelName)
+	normalized := ratio_setting.RoutingMatchModelName(modelName)
 	if normalized != "" && normalized != modelName {
 		return isChannelIDInList(group2model2channels[group][normalized], channelID)
 	}
@@ -54,7 +54,7 @@ func isChannelEnabledForGroupModelDB(group string, modelName string, channelID i
 	if err == nil && count > 0 {
 		return true
 	}
-	normalized := ratio_setting.FormatMatchingModelName(modelName)
+	normalized := ratio_setting.RoutingMatchModelName(modelName)
 	if normalized == "" || normalized == modelName {
 		return false
 	}
@@ -73,6 +73,8 @@ var filterEvalOrder = []dto.ChannelFilterKind{
 	dto.FilterRequestPath,
 	dto.FilterTaskPluginIdentity,
 	dto.FilterResponsesWebSocket,
+	dto.FilterAllowedChannelTypes,
+	dto.FilterExcludedChannels,
 }
 
 // ChannelSatisfiesFilters reports whether a channel passes every request filter.
@@ -166,7 +168,26 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 		}
 		return slices.Contains(filter.TaskPluginChannelTypes, ch.Type)
 	case dto.FilterResponsesWebSocket:
-		return ch.GetSetting().ResponsesWebSocketEnabled
+		if !ch.GetSetting().ResponsesWebSocketEnabled {
+			return false
+		}
+		switch ch.Type {
+		case constant.ChannelTypeOpenAI, constant.ChannelTypeCodex, constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
+			return true
+		case constant.ChannelTypeAdvancedCustom, constant.ChannelTypeVLLM, constant.ChannelTypeSGLang:
+			config := ch.GetOtherSettings().AdvancedCustom
+			if config == nil {
+				return false
+			}
+			route, ok := config.MatchPathForModel("/v1/responses", modelName)
+			return ok && route.IsNative()
+		default:
+			return false
+		}
+	case dto.FilterAllowedChannelTypes:
+		return len(filter.AllowedChannelTypes) == 0 || slices.Contains(filter.AllowedChannelTypes, ch.Type)
+	case dto.FilterExcludedChannels:
+		return !slices.Contains(filter.ExcludedChannelIDs, ch.Id)
 	default:
 		return true
 	}

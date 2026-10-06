@@ -24,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
+	"github.com/QuantumNous/new-api/pkg/wsmanager"
 	"github.com/QuantumNous/new-api/relay"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/router"
@@ -116,6 +117,7 @@ func main() {
 		return
 	}
 	backgroundCtx, stopBackgroundJobs := context.WithCancel(context.Background())
+	wsmanager.StartSubscriber(backgroundCtx)
 	backgroundDone := make(chan error, 1)
 	go func() {
 		backgroundDone <- backgroundJobs.Run(backgroundCtx, currentBackgroundJobRuntime(backgroundWorker))

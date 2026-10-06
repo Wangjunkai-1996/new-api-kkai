@@ -285,3 +285,9 @@ custom_oauth.name_empty: "Provider name cannot be empty"
 custom_oauth.has_bindings: "Cannot delete provider with existing user bindings"
 custom_oauth.binding_not_found: "OAuth binding not found"
 custom_oauth.provider_id_field_invalid: "Could not extract user ID from provider response"
+
+token.auto_groups_too_many: "A token can select at most {{.Max}} Auto groups"
+
+token.auto_groups_duplicate: "Auto group {{.Group}} is duplicated"
+
+token.auto_groups_invalid: "Auto group {{.Group}} is unavailable or unauthorized"

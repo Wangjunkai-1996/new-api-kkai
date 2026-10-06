@@ -1,6 +1,7 @@
 package perfmetrics
 
 import (
+	"context"
 	"strconv"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 // Non-stream responses do not have a cache event. They still need to count as
 // tracked requests so the status window can distinguish complete tracking from
 // an observability gap, but must not affect the cache sample denominator.
-func TestRecordRelaySampleExcludesNonStreamCacheUsage(t *testing.T) {
+func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-stream-boundary-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	baseInfo := &relaycommon.RelayInfo{
@@ -27,8 +28,15 @@ func TestRecordRelaySampleExcludesNonStreamCacheUsage(t *testing.T) {
 	streamInfo := *baseInfo
 	streamInfo.IsStream = true
 
-	RecordRelaySample(&nonStreamInfo, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 100})
-	RecordRelaySample(&streamInfo, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 100})
+	nonStreamInfo.PerformanceCacheUsageKnown = true
+	nonStreamInfo.PerformanceCachePromptTokens = 100
+
+	nonStreamInfo.PerformanceCacheReadTokens = 100
+	RecordRelayResult(context.Background(), &nonStreamInfo, nil)
+	streamInfo.PerformanceCacheUsageKnown = true
+	streamInfo.PerformanceCachePromptTokens = 100
+	streamInfo.PerformanceCacheReadTokens = 100
+	RecordRelayResult(context.Background(), &streamInfo, nil)
 
 	result := QueryKKAIGroupMinuteBuckets(
 		time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group},
@@ -51,7 +59,7 @@ func TestRecordRelaySampleExcludesNonStreamCacheUsage(t *testing.T) {
 	assert.Equal(t, 100.0, float64(hits)/float64(samples)*100)
 }
 
-func TestRecordRelaySampleUsesClientStreamFlag(t *testing.T) {
+func TestRecordRelayResultUsesClientStreamFlag(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-client-stream-flag-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	clientStream := false
@@ -63,7 +71,11 @@ func TestRecordRelaySampleUsesClientStreamFlag(t *testing.T) {
 		ClientIsStream:  &clientStream,
 	}
 
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 100})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+
+	info.PerformanceCacheReadTokens = 100
+	RecordRelayResult(context.Background(), info, nil)
 
 	result := QueryKKAIGroupMinuteBuckets(
 		time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group},
@@ -110,7 +122,7 @@ func TestRecordNormalizesLowCacheHitMarker(t *testing.T) {
 	assert.Zero(t, hits)
 }
 
-func TestRecordRelaySampleRequiresHalfContextForCacheHit(t *testing.T) {
+func TestRecordRelayResultRequiresHalfContextForCacheHit(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-half-threshold-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	info := &relaycommon.RelayInfo{
@@ -120,9 +132,19 @@ func TestRecordRelaySampleRequiresHalfContextForCacheHit(t *testing.T) {
 		IsStream:        true,
 	}
 
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 49})
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 100, CachedTokens: 50})
-	RecordRelaySample(info, true, 0, &CacheUsage{PromptTokens: 20_055, CachedTokens: 3_840})
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+
+	info.PerformanceCacheReadTokens = 49
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 100
+	info.PerformanceCacheReadTokens = 50
+	RecordRelayResult(context.Background(), info, nil)
+	info.PerformanceCacheUsageKnown = true
+	info.PerformanceCachePromptTokens = 20_055
+	info.PerformanceCacheReadTokens = 3_840
+	RecordRelayResult(context.Background(), info, nil)
 
 	result := QueryKKAIGroupMinuteBuckets(
 		time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group},

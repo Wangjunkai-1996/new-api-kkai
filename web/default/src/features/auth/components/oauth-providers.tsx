@@ -23,6 +23,7 @@ import {
   IconDiscord,
   IconGithub,
   IconLinuxDo,
+  IconTelegram,
   IconWeChat,
 } from '@/assets/brand-icons'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,7 @@ type OAuthProvidersProps = {
   className?: string
   onWeChatLogin?: () => void
   isWeChatLoading?: boolean
+  redirectTo?: string
 }
 
 type ProviderButton = {
@@ -53,6 +55,7 @@ export function OAuthProviders({
   className,
   onWeChatLogin,
   isWeChatLoading = false,
+  redirectTo,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
   const {
@@ -65,7 +68,7 @@ export function OAuthProviders({
     handleLinuxDOLogin,
     handleTelegramLogin,
     handleCustomOAuthLogin,
-  } = useOAuthLogin(status)
+  } = useOAuthLogin(status, redirectTo)
 
   const providerButtons: ProviderButton[] = []
 
@@ -99,10 +102,11 @@ export function OAuthProviders({
   }
 
   if (status?.oidc_enabled) {
+    const oidcDisplayName = status.oidc_display_name?.trim() || 'OIDC'
     providerButtons.push({
       key: 'oidc',
       label: t('Continue with {{name}}', {
-        name: status.oidc_display_name || 'OIDC',
+        name: oidcDisplayName,
       }),
       onClick: handleOIDCLogin,
     })
@@ -122,6 +126,7 @@ export function OAuthProviders({
       key: 'telegram',
       label: t('Continue with Telegram'),
       onClick: handleTelegramLogin,
+      icon: <IconTelegram data-icon='inline-start' />,
     })
   }
 

@@ -49,13 +49,6 @@ import type {
   VerificationRequirements,
 } from './types'
 
-export async function createOAuthFlow(
-  provider: string,
-  intent: 'login' | 'bind' | 'verify'
-): Promise<string> {
-  return (await createOAuthAuthorization(provider, intent)).state
-}
-
 export async function checkVerificationMethods(
   scope: SecurityProofScope,
   signal?: AbortSignal

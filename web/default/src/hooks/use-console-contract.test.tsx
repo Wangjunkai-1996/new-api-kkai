@@ -30,12 +30,27 @@ describe('useConsoleContract', () => {
     getStatus.mockResolvedValue({
       console_contract: {
         format_version: 1,
-        api_contracts: [1],
-        capabilities: ['token_group_inline'],
+        api_contracts: [2],
+        capabilities: [
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+          'token_group_inline',
+        ],
       },
     })
     apiGet.mockResolvedValue({
-      data: { format_version: 1, api_contracts: [1], capabilities: [] },
+      data: {
+        format_version: 1,
+        api_contracts: [2],
+        capabilities: [
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+        ],
+      },
     })
   })
 
@@ -70,5 +85,6 @@ describe('useConsoleContract', () => {
     })
     expect(getStatus).not.toHaveBeenCalled()
     expect(result.current.required).toBe(true)
+    expect(result.current.compatible).toBe(true)
   })
 })

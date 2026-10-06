@@ -94,7 +94,8 @@ export function usePasskeyManagement() {
           )
         }
         const credential = (await createCredential(
-          prepareCredentialCreationOptions(begin.options ?? begin)
+          prepareCredentialCreationOptions(begin.options ?? begin),
+          controller.signal
         )) as PublicKeyCredential | null
         controller.signal.throwIfAborted()
         if (!credential) {

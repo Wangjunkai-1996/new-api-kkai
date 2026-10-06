@@ -315,7 +315,7 @@ func (pipeline *VideoAssetPipeline) resolveVideoArchiveSource(ctx context.Contex
 		case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
 			baseURL := strings.TrimRight(channel.GetBaseURL(), "/")
 			if baseURL == "" {
-				baseURL = strings.TrimRight(constant.ChannelBaseURLs[channel.Type], "/")
+				baseURL = strings.TrimRight(constant.GetChannelBaseURL(channel.Type), "/")
 			}
 			if baseURL == "" || task.GetUpstreamTaskID() == "" {
 				return resolvedVideoArchiveSource{}, ErrVideoArchiveSourceRejected
@@ -334,7 +334,7 @@ func (pipeline *VideoAssetPipeline) resolveVideoArchiveSource(ctx context.Contex
 	if channel.Type == constant.ChannelTypeGemini {
 		geminiBaseURL := channel.GetBaseURL()
 		if geminiBaseURL == "" {
-			geminiBaseURL = constant.ChannelBaseURLs[channel.Type]
+			geminiBaseURL = constant.GetChannelBaseURL(channel.Type)
 		}
 		if VideoSourceCanUseProviderCredentials(resolved.fetch.Source, geminiBaseURL) {
 			key := strings.TrimSpace(task.PrivateData.Key)
@@ -360,7 +360,7 @@ func (pipeline *VideoAssetPipeline) refreshVideoArchiveSource(ctx context.Contex
 	}
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
-		baseURL = constant.ChannelBaseURLs[channel.Type]
+		baseURL = constant.GetChannelBaseURL(channel.Type)
 	}
 	key := channel.Key
 	if task.PrivateData.Key != "" {

@@ -101,6 +101,7 @@ export function AuditLogViewer(props: {
       })
     },
     enableRowSelection: false,
+    enableSorting: false,
     manualFiltering: true,
     manualPagination: true,
   })

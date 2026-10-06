@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"math"
 	"net/http"
 	"strconv"
@@ -14,7 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 func MidjourneyErrorWrapper(code int, desc string) *dto.MidjourneyResponse {
@@ -58,7 +59,7 @@ func MidjourneyErrorWithStatusCodeWrapper(code int, desc string, statusCode int)
 //	return openaiErr
 //}
 
-func ClaudeErrorWrapper(err error, code string, statusCode int) *dto.ClaudeErrorWithStatusCode {
+func ClaudeErrorWrapper(err error, code string, statusCode int) *relaydto.ClaudeErrorWithStatusCode {
 	text := err.Error()
 	lowerText := strings.ToLower(text)
 	if !strings.HasPrefix(lowerText, "get file base64 from url") {
@@ -71,13 +72,13 @@ func ClaudeErrorWrapper(err error, code string, statusCode int) *dto.ClaudeError
 		Message: text,
 		Type:    "new_api_error",
 	}
-	return &dto.ClaudeErrorWithStatusCode{
+	return &relaydto.ClaudeErrorWithStatusCode{
 		Error:      claudeError,
 		StatusCode: statusCode,
 	}
 }
 
-func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.ClaudeErrorWithStatusCode {
+func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *relaydto.ClaudeErrorWithStatusCode {
 	claudeErr := ClaudeErrorWrapper(err, code, statusCode)
 	claudeErr.LocalError = true
 	return claudeErr
@@ -115,7 +116,7 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		return
 	}
 	CloseResponseBodyGracefully(resp)
-	var errResponse dto.GeneralErrorResponse
+	var errResponse relaydto.GeneralErrorResponse
 	responseBodyText := string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)
 	err = common.Unmarshal(responseBody, &errResponse)
@@ -317,7 +318,7 @@ func TaskErrorWrapperUpstream(err error, code string, statusCode int) *dto.TaskE
 	taskErr := TaskErrorWrapper(err, code, statusCode)
 	taskErr.UpstreamStatusCode = statusCode
 	localPolicyCode := KKAILocalPolicyCode(code)
-	var errResponse dto.GeneralErrorResponse
+	var errResponse relaydto.GeneralErrorResponse
 	if common.Unmarshal([]byte(err.Error()), &errResponse) == nil {
 		structuredAPIError := NewKKAIStructuredRelayErrorFromField(errResponse.Error)
 		upstreamCode := types.ErrorCode("")

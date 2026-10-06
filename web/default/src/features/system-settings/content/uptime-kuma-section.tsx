@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2, Save } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -49,6 +49,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { handleServerError } from '@/lib/handle-server-error'
 
 import { SettingsSwitchField } from '../components/settings-form-layout'
 import { SettingsSection } from '../components/settings-section'
@@ -92,7 +93,17 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const uptimeKumaSchema = createUptimeKumaSchema(t)
-  const [groups, setGroups] = useState<UptimeKumaGroup[]>([])
+  const savedItems = useMemo<UptimeKumaGroup[]>(() => {
+    try {
+      const parsed = JSON.parse(data || '[]')
+      return Array.isArray(parsed)
+        ? parsed.map((item, index) => ({ ...item, id: item.id || index + 1 }))
+        : []
+    } catch {
+      return []
+    }
+  }, [data])
+  const [groups, setGroups] = useState(savedItems)
   const [isEnabled, setIsEnabled] = useState(enabled)
   const [hasChanges, setHasChanges] = useState(false)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -110,25 +121,16 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     },
   })
 
-  useEffect(() => {
-    try {
-      const parsed = JSON.parse(data || '[]')
-      if (Array.isArray(parsed)) {
-        setGroups(
-          parsed.map((item, idx) => ({
-            ...item,
-            id: item.id || idx + 1,
-          }))
-        )
-      }
-    } catch {
-      setGroups([])
-    }
-  }, [data])
-
-  useEffect(() => {
+  const [previousData, setPreviousData] = useState(data)
+  if (previousData !== data) {
+    setPreviousData(data)
+    setGroups(savedItems)
+  }
+  const [previousEnabled, setPreviousEnabled] = useState(enabled)
+  if (previousEnabled !== enabled) {
+    setPreviousEnabled(enabled)
     setIsEnabled(enabled)
-  }, [enabled])
+  }
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {
@@ -138,8 +140,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
       })
       setIsEnabled(checked)
       toast.success(t('Setting saved'))
-    } catch {
-      toast.error(t('Failed to update setting'))
+    } catch (error) {
+      handleServerError(error, t('Failed to update setting'))
     }
   }
 
@@ -222,8 +224,8 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
       })
       setHasChanges(false)
       toast.success(t('Uptime Kuma groups saved successfully'))
-    } catch {
-      toast.error(t('Failed to save Uptime Kuma groups'))
+    } catch (error) {
+      handleServerError(error, t('Failed to save Uptime Kuma groups'))
     }
   }
 

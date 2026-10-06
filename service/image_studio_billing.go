@@ -3,15 +3,16 @@ package service
 import (
 	"context"
 	"errors"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"math"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -249,7 +250,7 @@ func ApplyImageStudioMaximumPreconsume(
 	relayInfo *relaycommon.RelayInfo,
 	priceData *types.PriceData,
 	promptTokens int,
-	meta *types.TokenCountMeta,
+	meta *relaytypes.TokenCountMeta,
 ) error {
 	if c == nil || !common.GetContextKeyBool(c, constant.ContextKeyIsImageStudio) {
 		return nil

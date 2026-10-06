@@ -10,10 +10,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -63,6 +63,22 @@ func TestOaiResponsesStreamHandlerAcceptsSuccessfulTerminalEvents(t *testing.T) 
 			require.NotNil(t, info.StreamStatus)
 			require.True(t, info.StreamStatus.IsNormalEnd())
 			require.False(t, info.StreamStatus.HasErrors())
+		})
+	}
+}
+
+func TestOaiResponsesStreamHandlerBillsTokenLimitTermination(t *testing.T) {
+	for _, reason := range []string{"max_output_tokens", "max_tokens"} {
+		t.Run(reason, func(t *testing.T) {
+			body := `data: {"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"` + reason + `"},"usage":{"input_tokens":20,"output_tokens":10,"total_tokens":30,"input_tokens_details":{"cached_tokens":7},"output_tokens_details":{"reasoning_tokens":4}}}}` + "\n\n"
+			c, resp, info := newResponsesStreamHandlerTest(t, body)
+			usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+			require.Nil(t, apiErr)
+			require.Equal(t, 30, usage.TotalTokens)
+			require.Equal(t, 7, usage.PromptTokensDetails.CachedTokens)
+			require.Equal(t, 4, usage.CompletionTokenDetails.ReasoningTokens)
+			require.Equal(t, reason, info.StreamStatus.OutcomeSnapshot().IncompleteReason)
+			require.False(t, common.GetContextKeyBool(c, constant.ContextKeyResponsesStreamTerminalError))
 		})
 	}
 }
@@ -156,9 +172,9 @@ func TestOaiResponsesStreamHandlerRejectsFailedOrUnterminatedStreams(t *testing.
 			wantMessage: "upstream overloaded",
 		},
 		{
-			name:        "incomplete event includes reason",
-			body:        "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n",
-			wantMessage: "response.incomplete (reason=max_output_tokens)",
+			name:        "unknown incomplete reason is failure",
+			body:        "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"upstream_interrupted\"}}}\n\n",
+			wantMessage: "response.incomplete (reason=upstream_interrupted)",
 		},
 		{
 			name:        "eof before terminal event",

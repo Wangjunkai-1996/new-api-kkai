@@ -3,6 +3,10 @@ package service
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -126,4 +130,38 @@ func GetGroupsEnabledModels(groups []string) []string {
 		}
 	}
 	return models
+}
+
+// FilterUserTokenAutoGroups preserves a token's order within the current profile
+// and permissions. An emptied explicit list must never fall back to global Auto.
+func FilterUserTokenAutoGroups(userGroup, profile string, groups []string) []string {
+	allowed := GetUserAutoGroupCandidates(userGroup, profile)
+	maxCount := setting.GetMaxTokenAutoGroups()
+	filtered := make([]string, 0, min(len(groups), maxCount))
+	seen := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		if seen[group] || !common.StringsContains(allowed, group) {
+			continue
+		}
+		seen[group] = true
+		filtered = append(filtered, group)
+		if len(filtered) == maxCount {
+			break
+		}
+	}
+	return filtered
+}
+
+// GetRequestAutoGroupCandidates resolves inherited versus explicit per-token
+// routing consistently for normal selection and affinity restoration.
+func GetRequestAutoGroupCandidates(c *gin.Context, userGroup, profile string) []string {
+	value, exists := common.GetContextKey(c, constant.ContextKeyTokenAutoGroups)
+	if !exists {
+		return GetUserAutoGroupCandidates(userGroup, profile)
+	}
+	groups, ok := value.([]string)
+	if !ok {
+		return []string{}
+	}
+	return FilterUserTokenAutoGroups(userGroup, profile, groups)
 }

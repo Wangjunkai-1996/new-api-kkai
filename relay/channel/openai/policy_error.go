@@ -2,9 +2,9 @@ package openai
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 )
 
 func structuredStreamError(data string) *types.NewAPIError {
@@ -51,7 +51,7 @@ func responsesStreamError(response *dto.ResponsesStreamResponse) *types.NewAPIEr
 	if response == nil {
 		return nil
 	}
-	apiErr := service.NewKKAIStructuredRelayError(response.GetOpenAIError())
+	apiErr := service.NewKKAIStructuredRelayError(responsesStreamOpenAIError(response))
 	if apiErr == nil {
 		return nil
 	}
@@ -59,4 +59,22 @@ func responsesStreamError(response *dto.ResponsesStreamResponse) *types.NewAPIEr
 	// no-retry behavior even for ordinary provider failures; policy attribution
 	// still depends exclusively on the structured code/evidence.
 	return types.NewError(apiErr, apiErr.GetErrorCode(), types.ErrOptionWithSkipRetry())
+}
+
+func responsesStreamOpenAIError(response *dto.ResponsesStreamResponse) *types.OpenAIError {
+	if response == nil {
+		return nil
+	}
+	if upstreamErr := dto.GetOpenAIError(response.Error); upstreamErr != nil {
+		return upstreamErr
+	}
+	if response.Response != nil {
+		if upstreamErr := response.Response.GetOpenAIError(); upstreamErr != nil {
+			return upstreamErr
+		}
+	}
+	if response.Type == "error" && (response.Code != "" || response.Message != "") {
+		return &types.OpenAIError{Type: "error", Code: response.Code, Message: response.Message, Param: response.Param}
+	}
+	return nil
 }

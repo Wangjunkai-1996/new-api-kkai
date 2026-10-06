@@ -57,6 +57,7 @@ type TaskSubmissionAttempt struct {
 }
 
 type TaskSubmissionAcceptance struct {
+	RequestPolicy   json.RawMessage
 	PluginState     []byte
 	ResultURL       string
 	ArchiveSource   string
@@ -391,6 +392,7 @@ func validTaskAcceptanceStatus(status TaskStatus) bool {
 }
 
 func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptance) {
+	task.PrivateData.RequestPolicy = append(json.RawMessage(nil), acceptance.RequestPolicy...)
 	task.PrivateData.PluginState = append(json.RawMessage(nil), acceptance.PluginState...)
 	task.PrivateData.ResultURL = acceptance.ResultURL
 	task.PrivateData.ArchiveSource = acceptance.ArchiveSource

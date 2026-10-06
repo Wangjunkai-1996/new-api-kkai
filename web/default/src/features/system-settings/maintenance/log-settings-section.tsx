@@ -17,7 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -61,6 +62,11 @@ import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
 import { formatTimestampToDate } from '@/lib/format'
+import { handleServerError } from '@/lib/handle-server-error'
+import {
+  requireServerSuccess,
+  createServerError,
+} from '@/lib/server-error-message'
 
 import {
   getCurrentLogCleanupTask,
@@ -159,27 +165,29 @@ export function LogSettingsSection({
     null
   )
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-  const [serverLogInfo, setServerLogInfo] = useState<ServerLogInfo | null>(null)
   const [serverLogCleanupMode, setServerLogCleanupMode] = useState('by_count')
   const [serverLogCleanupValue, setServerLogCleanupValue] = useState(10)
   const [serverLogCleanupLoading, setServerLogCleanupLoading] = useState(false)
 
-  const fetchServerLogInfo = useCallback(async () => {
-    try {
-      const res = await api.get('/api/performance/logs')
-      if (res.data.success) setServerLogInfo(res.data.data)
-    } catch {
-      /* ignore */
-    }
-  }, [])
+  const snapshot = useQuery({
+    queryKey: ['/api/performance/logs'],
+    queryFn: async () => {
+      const response = await api.get('/api/performance/logs')
+      requireServerSuccess(response.data)
+      return response.data.data as ServerLogInfo
+    },
+    retry: false,
+  })
+  const serverLogInfo = snapshot.data ?? null
+  const fetchServerLogInfo = snapshot.refetch
+  const snapshotError = snapshot.error
+  useEffect(() => {
+    if (snapshotError) handleServerError(snapshotError)
+  }, [snapshotError])
 
   useEffect(() => {
     form.reset({ LogConsumeEnabled: defaultEnabled })
   }, [defaultEnabled, form])
-
-  useEffect(() => {
-    fetchServerLogInfo()
-  }, [fetchServerLogInfo])
 
   useEffect(() => {
     let cancelled = false
@@ -242,7 +250,7 @@ export function LogSettingsSection({
                 : t('No log entries matched the selected time.')
             )
           } else if (res.data.status === 'failed') {
-            toast.error(res.data.error || t('Failed to clean logs'))
+            handleServerError(res.data, t('Failed to clean logs'))
           }
         }
       } catch {
@@ -283,7 +291,7 @@ export function LogSettingsSection({
     try {
       const res = await startLogCleanupTask(purgeTimestamp)
       if (!res.success) {
-        throw new Error(res.message || t('Failed to clean logs'))
+        throw createServerError(res, t('Failed to clean logs'))
       }
       if (!res.data) {
         throw new Error(t('Failed to clean logs'))
@@ -294,7 +302,7 @@ export function LogSettingsSection({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t('Failed to clean logs')
-      toast.error(message)
+      handleServerError(error, message)
     } finally {
       setIsStartingLogCleanup(false)
     }
@@ -324,11 +332,11 @@ export function LogSettingsSection({
           })
         )
       } else {
-        toast.error(res.data.message || t('Cleanup failed'))
+        handleServerError(res.data, t('Cleanup failed'))
       }
       fetchServerLogInfo()
-    } catch {
-      toast.error(t('Cleanup failed'))
+    } catch (error) {
+      handleServerError(error, t('Cleanup failed'))
     } finally {
       setServerLogCleanupLoading(false)
     }
@@ -337,9 +345,11 @@ export function LogSettingsSection({
   return (
     <SettingsSection title={t('Log Maintenance')}>
       <Form {...form}>
-        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+        <SettingsForm
+          onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
+        >
           <SettingsPageFormActions
-            onSave={form.handleSubmit(onSubmit)}
+            onSave={() => void form.handleSubmit(onSubmit)()}
             isSaving={updateOption.isPending}
             saveLabel='Save log settings'
           />

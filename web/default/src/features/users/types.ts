@@ -78,9 +78,19 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
+export type UserSortBy =
+  | 'id'
+  | 'username'
+  | 'quota'
+  | 'group'
+  | 'created_at'
+  | 'last_login_at'
+
 export interface GetUsersParams {
   p?: number
   page_size?: number
+  sort_by?: UserSortBy
+  sort_order?: 'asc' | 'desc'
 }
 
 export interface GetUsersResponse {
@@ -94,7 +104,7 @@ export interface GetUsersResponse {
   }
 }
 
-export interface SearchUsersParams {
+export interface SearchUsersParams extends GetUsersParams {
   keyword?: string
   group?: string
   role?: string

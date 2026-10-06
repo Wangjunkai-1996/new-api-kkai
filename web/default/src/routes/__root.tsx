@@ -103,7 +103,7 @@ function RootComponent() {
   )
 }
 
-// 缓存 setup 状态检查结果，避免每次导航都重复调用 API
+// 同一页面会话内避免重复检查；刷新后重新校验当前服务实例。
 let setupStatusChecked = false
 
 export const Route = createRootRouteWithContext<{
@@ -131,8 +131,11 @@ export const Route = createRootRouteWithContext<{
         authBootstrap,
       ])
 
-      if (status?.success && status.data && !status.data.status) {
-        throw redirect({ to: '/setup' })
+      if (status?.success && status.data) {
+        if (!status.data.status) {
+          throw redirect({ to: '/setup' })
+        }
+        setupStatusChecked = true
       }
       if (status?.success && status.data) setupStatusChecked = true
     } else {

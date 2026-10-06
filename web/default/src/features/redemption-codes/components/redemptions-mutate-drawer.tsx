@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -50,13 +51,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import {
+  formatQuotaWithCurrency,
+  getCurrencyDisplay,
+  getCurrencyLabel,
+} from '@/lib/currency'
 import {
   formatQuota,
   getEditableQuotaStep,
   parseQuotaFromDollars,
 } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
+import { createServerError } from '@/lib/server-error-message'
 import { addTimeToDate } from '@/lib/time'
 
 import { createRedemption, updateRedemption, getRedemption } from '../api'
@@ -69,6 +75,10 @@ import {
   transformRedemptionToFormDefaults,
 } from '../lib'
 import type { Redemption } from '../types'
+import {
+  RedemptionsExportDialog,
+  type RedemptionExportData,
+} from './redemptions-export-dialog'
 import { useRedemptions } from './redemptions-provider'
 
 type RedemptionsMutateDrawerProps = {
@@ -77,83 +87,77 @@ type RedemptionsMutateDrawerProps = {
   currentRow?: Redemption
 }
 
-export function RedemptionsMutateDrawer({
+export function RedemptionsMutateDrawer(props: RedemptionsMutateDrawerProps) {
+  const [createdCodes, setCreatedCodes] = useState<RedemptionExportData | null>(
+    null
+  )
+  return (
+    <>
+      <RedemptionsMutateDrawerContent
+        key={`${props.open}:${props.currentRow?.id}`}
+        {...props}
+        onCreated={setCreatedCodes}
+      />
+      {createdCodes && (
+        <RedemptionsExportDialog
+          data={createdCodes}
+          onClose={() => setCreatedCodes(null)}
+        />
+      )}
+    </>
+  )
+}
+
+function RedemptionsMutateDrawerContent({
   open,
   onOpenChange,
   currentRow,
-}: RedemptionsMutateDrawerProps) {
+  onCreated,
+}: RedemptionsMutateDrawerProps & {
+  onCreated: (data: RedemptionExportData) => void
+}) {
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const redemptionId = currentRow?.id
   const { triggerRefresh } = useRedemptions()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [redemptionLoadState, setRedemptionLoadState] = useState<
-    'idle' | 'loading' | 'ready' | 'error'
-  >('idle')
-  const [loadedRedemption, setLoadedRedemption] = useState<Redemption | null>(
-    null
-  )
-
   const form = useForm<RedemptionFormValues>({
     resolver: zodResolver(getRedemptionFormSchema(t)),
     defaultValues: REDEMPTION_FORM_DEFAULT_VALUES,
   })
 
-  // Load existing data when updating
+  const details = useQuery({
+    queryKey: ['redemption-details', redemptionId],
+    enabled: open && isUpdate && redemptionId !== undefined,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      if (redemptionId === undefined) {
+        throw new Error(t('Failed to load'))
+      }
+      const result = await getRedemption(redemptionId)
+      if (!result.success || !result.data || result.data.id !== redemptionId) {
+        throw createServerError(result, t('Failed to load'))
+      }
+      return result.data
+    },
+    retry: false,
+  })
+  const loadedRedemption = details.data
+  const detailsError = details.error
   useEffect(() => {
-    if (!open) {
-      setRedemptionLoadState('idle')
-      setLoadedRedemption(null)
-      return
+    if (loadedRedemption) {
+      form.reset(transformRedemptionToFormDefaults(loadedRedemption))
     }
-
-    if (!isUpdate || redemptionId === undefined) {
-      form.reset(REDEMPTION_FORM_DEFAULT_VALUES)
-      setRedemptionLoadState('ready')
-      setLoadedRedemption(null)
-      return
-    }
-
-    let ignoreResult = false
-
-    form.reset(REDEMPTION_FORM_DEFAULT_VALUES)
-    setRedemptionLoadState('loading')
-    setLoadedRedemption(null)
-
-    void getRedemption(redemptionId)
-      .then((result) => {
-        if (ignoreResult) return
-
-        if (
-          !result.success ||
-          !result.data ||
-          result.data.id !== redemptionId
-        ) {
-          setRedemptionLoadState('error')
-          toast.error(t('Failed to load'))
-          return
-        }
-
-        form.reset(transformRedemptionToFormDefaults(result.data))
-        setLoadedRedemption(result.data)
-        setRedemptionLoadState('ready')
-      })
-      .catch((error: unknown) => {
-        if (ignoreResult) return
-
-        setRedemptionLoadState('error')
-        handleServerError(error)
-      })
-
-    return () => {
-      ignoreResult = true
-    }
-  }, [open, isUpdate, redemptionId, form, t])
-
+  }, [loadedRedemption, form])
+  useEffect(() => {
+    if (detailsError) handleServerError(detailsError, t('Failed to load'))
+  }, [detailsError, t])
   const isUpdateReady =
     !isUpdate ||
-    (redemptionLoadState === 'ready' && loadedRedemption?.id === redemptionId)
-  const isLoadingRedemption = redemptionLoadState === 'loading'
+    (!details.isFetching &&
+      !details.isError &&
+      loadedRedemption?.id === redemptionId)
+  const isLoadingRedemption = isUpdate && details.isFetching
 
   const onSubmit = async (data: RedemptionFormValues) => {
     if (isUpdate && (!currentRow || !loadedRedemption || !isUpdateReady)) {
@@ -177,6 +181,8 @@ export function RedemptionsMutateDrawer({
           toast.success(t(SUCCESS_MESSAGES.REDEMPTION_UPDATED))
           onOpenChange(false)
           triggerRefresh()
+        } else {
+          handleServerError(result)
         }
       } else {
         // Create mode
@@ -190,10 +196,23 @@ export function RedemptionsMutateDrawer({
                 })
               : t(SUCCESS_MESSAGES.REDEMPTION_CREATED)
           )
+          if (result.data?.length) {
+            onCreated({
+              keys: result.data,
+              name: basePayload.name,
+              quota: formatQuotaWithCurrency(basePayload.quota, {
+                abbreviate: false,
+              }),
+            })
+          }
           onOpenChange(false)
           triggerRefresh()
+        } else {
+          handleServerError(result)
         }
       }
+    } catch (error) {
+      handleServerError(error)
     } finally {
       setIsSubmitting(false)
     }

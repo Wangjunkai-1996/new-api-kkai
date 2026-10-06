@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"errors"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
 	"net/http"
 	"strings"
@@ -15,8 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -322,7 +323,7 @@ func respondVideoStudioIdempotentReplay(c *gin.Context, modelName string, taskID
 		respondVideoStudioError(c, service.ErrIdempotencyInProgress)
 		return
 	}
-	response := dto.NewOpenAIVideo()
+	response := relaydto.NewOpenAIVideo()
 	response.ID = taskID
 	response.TaskID = taskID
 	response.Model = modelName

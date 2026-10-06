@@ -12,13 +12,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 
@@ -73,6 +73,68 @@ func clearChannelInfo(channel *model.Channel) {
 	}
 }
 
+func channelIDsFromChannels(channels []*model.Channel) []int {
+	ids := make([]int, 0, len(channels))
+	for _, channel := range channels {
+		if channel != nil && channel.Id > 0 {
+			ids = append(ids, channel.Id)
+		}
+	}
+	return ids
+}
+
+func closeActiveChannelWebSockets(channelIDs []int) {
+	service.CloseActiveWebSocketsForChannels(channelIDs, service.ChannelDisabledCloseReason)
+}
+
+func hasEnabledMultiKey(channel *model.Channel) bool {
+	if channel == nil || !channel.ChannelInfo.IsMultiKey {
+		return true
+	}
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		return false
+	}
+	for i := range keys {
+		if channel.ChannelInfo.MultiKeyStatusList == nil {
+			return true
+		}
+		if status, ok := channel.ChannelInfo.MultiKeyStatusList[i]; !ok || status == common.ChannelStatusEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+func disableMultiKeyChannelIfUnavailable(channel *model.Channel) bool {
+	if channel == nil || !channel.ChannelInfo.IsMultiKey || hasEnabledMultiKey(channel) {
+		return false
+	}
+	if channel.Status != common.ChannelStatusEnabled {
+		return true
+	}
+	channel.Status = common.ChannelStatusManuallyDisabled
+	info := channel.GetOtherInfo()
+	info["status_reason"] = model.ChannelStatusReasonAllKeysDisabled
+	info["status_time"] = common.GetTimestamp()
+	channel.SetOtherInfo(info)
+	return true
+}
+
+func restoreMultiKeyChannelIfAvailable(channel *model.Channel) {
+	if channel.Status != common.ChannelStatusManuallyDisabled || !hasEnabledMultiKey(channel) {
+		return
+	}
+	info := channel.GetOtherInfo()
+	if info["status_reason"] != model.ChannelStatusReasonAllKeysDisabled {
+		return
+	}
+	channel.Status = common.ChannelStatusEnabled
+	info["status_reason"] = ""
+	info["status_time"] = common.GetTimestamp()
+	channel.SetOtherInfo(info)
+}
+
 func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	if statusFilter == common.ChannelStatusEnabled {
 		return query.Where("status = ?", common.ChannelStatusEnabled)
@@ -94,8 +156,25 @@ func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm
 }
 
 func GetChannelOps(c *gin.Context) {
+	snapshot := model.CurrentRequestPolicy()
+	automaticDisable, source := snapshot.AutoDisable, "global"
+	if value, present := c.GetQuery("auto_ban"); present {
+		autoBan, err := strconv.ParseBool(value)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		automaticDisable = automaticDisable && autoBan
+		if snapshot.AutoDisable {
+			source = "global_and_channel"
+			if !autoBan {
+				source = "channel"
+			}
+		}
+	}
 	common.ApiSuccess(c, gin.H{
-		"retry_times": common.RetryTimes,
+		"retry_times":    snapshot.RetryTimes,
+		"request_policy": gin.H{"automatic_disable": automaticDisable, "source": source},
 	})
 }
 
@@ -816,6 +895,7 @@ func DeleteChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	closeActiveChannelWebSockets([]int{id})
 	recordManageAudit(c, "channel.delete", map[string]interface{}{
 		"id":   id,
 		"name": channelName,
@@ -828,12 +908,18 @@ func DeleteChannel(c *gin.Context) {
 }
 
 func DeleteDisabledChannel(c *gin.Context) {
+	var ids []int
+	if err := model.DB.Model(&model.Channel{}).Where("status = ? or status = ?", common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled).Pluck("id", &ids).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	rows, err := model.DeleteDisabledChannel()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.InitChannelCache()
+	closeActiveChannelWebSockets(ids)
 	recordManageAudit(c, "channel.delete_disabled", map[string]interface{}{
 		"count": rows,
 	})
@@ -867,12 +953,19 @@ func DisableTagChannels(c *gin.Context) {
 		})
 		return
 	}
+	channels, err := model.GetChannelsByTag(channelTag.Tag, false, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	ids := channelIDsFromChannels(channels)
 	err = model.DisableChannelByTag(channelTag.Tag)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.InitChannelCache()
+	closeActiveChannelWebSockets(ids)
 	recordManageAudit(c, "channel.tag_disable", map[string]interface{}{
 		"tag": channelTag.Tag,
 	})
@@ -984,19 +1077,20 @@ func DeleteChannelBatch(c *gin.Context) {
 		})
 		return
 	}
-	err = model.BatchDeleteChannels(channelBatch.Ids)
+	deletedCount, err := model.BatchDeleteChannels(channelBatch.Ids)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.InitChannelCache()
+	closeActiveChannelWebSockets(channelBatch.Ids)
 	recordManageAudit(c, "channel.delete_batch", map[string]interface{}{
-		"count": len(channelBatch.Ids),
+		"count": deletedCount,
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    len(channelBatch.Ids),
+		"data":    deletedCount,
 	})
 	return
 }
@@ -1232,6 +1326,9 @@ func UpdateChannelStatus(c *gin.Context) {
 	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
 	if changed {
 		model.InitChannelCache()
+		if req.Status != common.ChannelStatusEnabled {
+			closeActiveChannelWebSockets([]int{id})
+		}
 		service.ResetProxyClientCache()
 	}
 	recordManageAudit(c, "channel.status_update", map[string]interface{}{
@@ -1253,15 +1350,20 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 		return
 	}
 	changedCount := 0
+	var disabledIDs []int
 	for _, id := range req.Ids {
 		if model.UpdateChannelStatus(id, "", req.Status, "manual batch operation") {
 			changedCount++
+			if req.Status != common.ChannelStatusEnabled {
+				disabledIDs = append(disabledIDs, id)
+			}
 		}
 	}
 	if changedCount > 0 {
 		model.InitChannelCache()
 		service.ResetProxyClientCache()
 	}
+	closeActiveChannelWebSockets(disabledIDs)
 	recordManageAudit(c, "channel.status_update_batch", map[string]interface{}{
 		"count":  changedCount,
 		"total":  len(req.Ids),
@@ -1306,7 +1408,7 @@ func buildAdvancedCustomModelPreviewChannel(req fetchModelsRequest) (*model.Chan
 		if err != nil {
 			return nil, err
 		}
-		if savedChannel.Type != constant.ChannelTypeAdvancedCustom {
+		if !constant.IsAdvancedCustomChannel(savedChannel.Type) {
 			return nil, fmt.Errorf("channel %d is not an advanced custom channel", req.ChannelID)
 		}
 		channel = savedChannel
@@ -1318,7 +1420,7 @@ func buildAdvancedCustomModelPreviewChannel(req fetchModelsRequest) (*model.Chan
 		channel = &model.Channel{Type: req.Type, Key: key}
 	}
 
-	if channel.Type != constant.ChannelTypeAdvancedCustom {
+	if !constant.IsAdvancedCustomChannel(channel.Type) {
 		return nil, fmt.Errorf("channel type must be advanced custom")
 	}
 	if req.BaseURL != nil {
@@ -1337,7 +1439,7 @@ func buildAdvancedCustomModelPreviewChannel(req fetchModelsRequest) (*model.Chan
 			return nil, err
 		}
 		settings.AdvancedCustom = &config
-	} else if req.ChannelID <= 0 {
+	} else if req.ChannelID <= 0 && settings.AdvancedCustom == nil {
 		return nil, fmt.Errorf("advanced_custom is required")
 	}
 	channel.SetOtherSettings(settings)
@@ -1376,7 +1478,7 @@ func FetchModels(c *gin.Context) {
 	}
 
 	var channel *model.Channel
-	if req.Type == constant.ChannelTypeAdvancedCustom || req.ChannelID > 0 {
+	if constant.IsAdvancedCustomChannel(req.Type) || req.ChannelID > 0 {
 		var err error
 		channel, err = buildAdvancedCustomModelPreviewChannel(req)
 		if err != nil {
@@ -1389,7 +1491,7 @@ func FetchModels(c *gin.Context) {
 			baseURL = strings.TrimSpace(*req.BaseURL)
 		}
 		if baseURL == "" {
-			baseURL = constant.ChannelBaseURLs[req.Type]
+			baseURL = constant.GetChannelBaseURL(req.Type)
 		}
 		key := strings.TrimSpace(req.Key)
 		key = strings.Split(key, "\n")[0]
@@ -1763,6 +1865,7 @@ func ManageMultiKeys(c *gin.Context) {
 
 		channel.ChannelInfo.MultiKeyStatusList[keyIndex] = 2 // disabled
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			common.ApiError(c, err)
@@ -1770,6 +1873,9 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "密钥已禁用",
@@ -1805,6 +1911,7 @@ func ManageMultiKeys(c *gin.Context) {
 			delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
 		}
 
+		restoreMultiKeyChannelIfAvailable(channel)
 		err = channel.Update()
 		if err != nil {
 			common.ApiError(c, err)
@@ -1829,6 +1936,7 @@ func ManageMultiKeys(c *gin.Context) {
 		channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
 		channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
 
+		restoreMultiKeyChannelIfAvailable(channel)
 		err = channel.Update()
 		if err != nil {
 			common.ApiError(c, err)
@@ -1876,6 +1984,7 @@ func ManageMultiKeys(c *gin.Context) {
 			return
 		}
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			common.ApiError(c, err)
@@ -1883,6 +1992,9 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": fmt.Sprintf("已禁用 %d 个密钥", disabledCount),
@@ -1956,6 +2068,7 @@ func ManageMultiKeys(c *gin.Context) {
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			common.ApiError(c, err)
@@ -1963,6 +2076,9 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "密钥已删除",
@@ -2024,6 +2140,7 @@ func ManageMultiKeys(c *gin.Context) {
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
 
+		shouldCloseWebSocket := disableMultiKeyChannelIfUnavailable(channel)
 		err = channel.Update()
 		if err != nil {
 			common.ApiError(c, err)
@@ -2031,6 +2148,9 @@ func ManageMultiKeys(c *gin.Context) {
 		}
 
 		model.InitChannelCache()
+		if shouldCloseWebSocket {
+			closeActiveChannelWebSockets([]int{channel.Id})
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": fmt.Sprintf("已删除 %d 个自动禁用的密钥", deletedCount),
@@ -2093,7 +2213,7 @@ func OllamaPullModel(c *gin.Context) {
 		return
 	}
 
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -2156,7 +2276,7 @@ func OllamaPullModelStream(c *gin.Context) {
 		return
 	}
 
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -2238,7 +2358,7 @@ func OllamaDeleteModel(c *gin.Context) {
 		return
 	}
 
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -2287,7 +2407,7 @@ func OllamaVersion(c *gin.Context) {
 		return
 	}
 
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -2308,4 +2428,14 @@ func OllamaVersion(c *gin.Context) {
 			"version": version,
 		},
 	})
+}
+
+func GetChannelDefaultBaseURLs(c *gin.Context) {
+	baseURLs := make(map[int]string)
+	for channelType, baseURL := range constant.ChannelBaseURLs {
+		if baseURL != "" {
+			baseURLs[channelType] = baseURL
+		}
+	}
+	common.ApiSuccess(c, baseURLs)
 }

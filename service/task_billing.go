@@ -8,10 +8,10 @@ import (
 	"math"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -73,6 +73,12 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
 func taskBillingOther(task *model.Task) *model.LogOther {
 	other := model.NewLogOther()
+	if len(task.PrivateData.RequestPolicy) > 0 {
+		var events []PolicyEvent
+		if err := common.Unmarshal(task.PrivateData.RequestPolicy, &events); err == nil && len(events) > 0 {
+			other.SetAdmin("request_policy", events)
+		}
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {

@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Switch } from '@/components/ui/switch'
+import { handleServerError } from '@/lib/handle-server-error'
 
 import { resetPlanSubscriptions } from '../../api'
 import { useSubscriptions } from '../subscriptions-provider'
@@ -35,9 +36,11 @@ export function ResetSubscriptionsDialog() {
   const plan = currentRow?.plan
   const planLabel = plan?.title || (plan?.id ? `#${plan.id}` : '-')
 
-  useEffect(() => {
+  const [previousOpen, setPreviousOpen] = useState(isOpen)
+  if (previousOpen !== isOpen) {
+    setPreviousOpen(isOpen)
     if (isOpen) setAdvanceResetTime(true)
-  }, [isOpen])
+  }
 
   const handleConfirm = async () => {
     if (!plan?.id) return
@@ -54,9 +57,11 @@ export function ResetSubscriptionsDialog() {
         )
         triggerRefresh()
         setOpen(null)
+      } else {
+        handleServerError(res)
       }
-    } catch {
-      toast.error(t('Operation failed'))
+    } catch (error) {
+      handleServerError(error, t('Operation failed'))
     } finally {
       setResetting(false)
     }

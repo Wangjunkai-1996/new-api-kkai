@@ -36,9 +36,11 @@ type ChannelPin struct {
 type ChannelFilterKind string
 
 const (
-	FilterRequestPath        ChannelFilterKind = "request_path"
-	FilterTaskPluginIdentity ChannelFilterKind = "task_plugin_identity"
-	FilterResponsesWebSocket ChannelFilterKind = "responses_websocket"
+	FilterRequestPath         ChannelFilterKind = "request_path"
+	FilterTaskPluginIdentity  ChannelFilterKind = "task_plugin_identity"
+	FilterResponsesWebSocket  ChannelFilterKind = "responses_websocket"
+	FilterAllowedChannelTypes ChannelFilterKind = "allowed_channel_types"
+	FilterExcludedChannels    ChannelFilterKind = "excluded_channels"
 )
 
 type ChannelFilter struct {
@@ -47,6 +49,8 @@ type ChannelFilter struct {
 	TaskPluginKey          string
 	TaskPluginKeys         []string
 	TaskPluginChannelTypes []int
+	AllowedChannelTypes    []int
+	ExcludedChannelIDs     []int
 }
 
 type ChannelConstraints struct {

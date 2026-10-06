@@ -229,7 +229,7 @@ func UpdateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, task
 		}
 		baseURL := ch.GetBaseURL()
 		if baseURL == "" {
-			baseURL = constant.ChannelBaseURLs[ch.Type]
+			baseURL = constant.GetChannelBaseURL(ch.Type)
 		}
 		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: ch.Type, ChannelId: ch.Id, ChannelBaseUrl: baseURL, ApiKey: ch.Key}}
 		adaptor.Init(info)
@@ -330,7 +330,7 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 	}
 	baseURL := ch.GetBaseURL()
 	if baseURL == "" {
-		baseURL = constant.ChannelBaseURLs[ch.Type]
+		baseURL = constant.GetChannelBaseURL(ch.Type)
 	}
 	resp, err := batchAdaptor.FetchBatchTasks(baseURL, ch.Key, tasks, ch.GetSetting().Proxy)
 	if err != nil {
@@ -544,7 +544,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	baseURL := constant.ChannelBaseURLs[ch.Type]
+	baseURL := constant.GetChannelBaseURL(ch.Type)
 	if ch.GetBaseURL() != "" {
 		baseURL = ch.GetBaseURL()
 	}

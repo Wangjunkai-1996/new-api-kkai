@@ -611,6 +611,18 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 		}
 	}
 
+	if acceptance.Status == model.TaskStatusFailure {
+		service.RequestPolicy(c).AddEvent(service.PolicyEvent{ChannelID: info.ChannelId, Decision: service.PolicyDecision{Action: "stop", Reason: "task_failed", Source: "upstream"}})
+	} else {
+		service.MarkRequestPolicySuccess(c, nil)
+	}
+	policyEvents, policyErr := common.Marshal(service.RequestPolicy(c).Events())
+	if policyErr != nil {
+		// An accepted upstream task must still cross the durable acceptance boundary.
+		logger.LogWarn(c, "failed to encode request policy audit: "+policyErr.Error())
+	}
+	acceptance.RequestPolicy = policyEvents
+
 	acceptedTask, accepted, err := model.PersistTaskSubmissionAcceptance(c, task.ID, acceptance)
 	if acceptedTask != nil {
 		task = acceptedTask
@@ -1126,7 +1138,7 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		return nil
 	}
 
-	baseURL := constant.ChannelBaseURLs[channelModel.Type]
+	baseURL := constant.GetChannelBaseURL(channelModel.Type)
 	if channelModel.GetBaseURL() != "" {
 		baseURL = channelModel.GetBaseURL()
 	}

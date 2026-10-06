@@ -11,9 +11,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 type TaskStatus string
@@ -105,7 +105,7 @@ type Properties struct {
 }
 
 func (m *Properties) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
+	bytesValue := jsonScanBytes(val)
 	if len(bytesValue) == 0 {
 		*m = Properties{}
 		return nil
@@ -117,10 +117,12 @@ func (m Properties) Value() (driver.Value, error) {
 	if m == (Properties{}) {
 		return nil, nil
 	}
-	return common.Marshal(m)
+	b, err := common.Marshal(m)
+	return string(b), err
 }
 
 type TaskPrivateData struct {
+	RequestPolicy       json.RawMessage        `json:"request_policy,omitempty"`
 	Execution           *TaskExecutionSnapshot `json:"execution,omitempty"`
 	Key                 string                 `json:"key,omitempty"`
 	UpstreamTaskID      string                 `json:"upstream_task_id,omitempty"`    // 上游真实 task ID
@@ -207,7 +209,7 @@ func GenerateTaskID() string {
 }
 
 func (p *TaskPrivateData) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
+	bytesValue := jsonScanBytes(val)
 	if len(bytesValue) == 0 {
 		return nil
 	}
@@ -217,14 +219,15 @@ func (p *TaskPrivateData) Scan(val interface{}) error {
 func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" && p.ArchiveSource == "" &&
 		!p.AssetHostedResult && p.Execution == nil && !p.ResponsesBackground && len(p.PluginState) == 0 &&
-		p.PollFailures == 0 && !p.ResultDiscarded && p.BillingSource == "" && p.SubscriptionId == 0 &&
+		p.PollFailures == 0 && len(p.RequestPolicy) == 0 && !p.ResultDiscarded && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil && p.BillingState == "" &&
 		p.TokenQuota == 0 && !p.TokenBilling && p.RecoveryAt == 0 && p.TargetQuota == nil &&
 		p.BillingRevision == 0 && p.AccountingState == "" && p.AccountingQuota == 0 && !p.AccountingRequired &&
 		p.AccountingContext == nil {
 		return nil, nil
 	}
-	return common.Marshal(p)
+	b, err := common.Marshal(p)
+	return string(b), err
 }
 
 // SyncTaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段

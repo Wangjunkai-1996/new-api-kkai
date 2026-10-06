@@ -18,62 +18,80 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
 import i18n from 'i18next'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import {
   getSavedLanguage,
   sanitizeAuthRedirect,
 } from '@/features/auth/lib/auth-redirect'
-import { applyAuthBundle, isAuthBundle } from '@/lib/auth-session'
-import {
-  useAuthStore,
-  type AuthBundle,
-  type LoginChallenge,
-} from '@/stores/auth-store'
+import { applyAuthBundle, isAuthBundle } from '@/lib/api'
+import { AuthOperationError } from '@/lib/secure-verification'
+import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
-function isLoginChallenge(value: unknown): value is LoginChallenge {
-  if (!value || typeof value !== 'object') return false
-  const challenge = value as Partial<LoginChallenge>
-  return (
-    challenge.require_verification === true &&
-    typeof challenge.flow_token === 'string' &&
-    challenge.flow_token.length > 0 &&
-    typeof challenge.expires_at === 'number' &&
-    Number.isFinite(challenge.expires_at) &&
-    Array.isArray(challenge.methods) &&
-    challenge.methods.some(
-      (method) =>
-        (method.method === '2fa' || method.method === 'passkey') &&
-        method.available === true
-    )
-  )
-}
+import { isLoginChallenge } from '../secure-verification/api'
 
+/**
+ * Hook for handling authentication redirects and user data management
+ */
 export function useAuthRedirect() {
   const navigate = useNavigate()
+  const sessionID = useAuthStore((state) => state.auth.session?.sid)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
+  /**
+   * Handle successful login
+   * @param userData - Optional user data from login response
+   * @param redirectTo - Redirect path after login
+   */
   const handleLoginSuccess = useCallback(
     async (bundle: AuthBundle, redirectTo?: string) => {
-      applyAuthBundle(bundle)
-      const savedLanguage = getSavedLanguage(bundle.user)
-      if (savedLanguage && savedLanguage !== i18n.language) {
-        await i18n.changeLanguage(savedLanguage)
+      if (
+        !mounted.current ||
+        useAuthStore.getState().auth.session?.sid !== sessionID
+      ) {
+        return
       }
-      const target =
+      applyAuthBundle(bundle)
+      const savedLang = getSavedLanguage(bundle.user)
+      if (savedLang && savedLang !== i18n.language) {
+        await i18n.changeLanguage(savedLang)
+      }
+
+      const targetPath =
         sanitizeAuthRedirect(redirectTo, window.location.origin) ?? '/dashboard'
-      await navigate({ href: target, replace: true })
+      await navigate({ href: targetPath, replace: true })
     },
-    [navigate]
+    [navigate, sessionID]
   )
 
+  /**
+   * Every primary login transport returns the same bundle-or-challenge contract.
+   */
   const handleLoginResult = useCallback(
     async (result: unknown, redirectTo?: string): Promise<boolean> => {
+      if (
+        !mounted.current ||
+        useAuthStore.getState().auth.session?.sid !== sessionID
+      ) {
+        return false
+      }
       if (isAuthBundle(result)) {
         await handleLoginSuccess(result, redirectTo)
         return true
       }
-      if (!isLoginChallenge(result) || result.expires_at * 1000 <= Date.now()) {
-        throw new Error('Login failed')
+      if (!isLoginChallenge(result)) {
+        throw new AuthOperationError('Login failed')
+      }
+      if (result.expires_at * 1000 <= Date.now()) {
+        throw new AuthOperationError(
+          'Login flow expired. Please sign in again.'
+        )
       }
       useAuthStore.getState().auth.setPendingLoginVerification({
         challenge: result,
@@ -83,13 +101,19 @@ export function useAuthRedirect() {
       await navigate({ to: '/otp', replace: true })
       return false
     },
-    [handleLoginSuccess, navigate]
+    [handleLoginSuccess, navigate, sessionID]
   )
 
+  /**
+   * Redirect to login page
+   */
   const redirectToLogin = useCallback(() => {
     void navigate({ to: '/sign-in', replace: true })
   }, [navigate])
 
+  /**
+   * Redirect to register page
+   */
   const redirectToRegister = useCallback(() => {
     void navigate({ to: '/sign-up', replace: true })
   }, [navigate])

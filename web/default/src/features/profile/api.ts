@@ -26,7 +26,6 @@ import type {
   UserProfile,
   UpdateUserRequest,
   UpdateUserSettingsRequest,
-  DeleteAccountRequest,
   CheckinStatusResponse,
   CheckinResponse,
   AccountSecurityResult,
@@ -51,7 +50,9 @@ export async function getUserProfile(): Promise<ApiResponse<UserProfile>> {
 export async function updateUserProfile(
   data: UpdateUserRequest
 ): Promise<ApiResponse> {
-  const res = await api.put('/api/user/self', data)
+  const res = await api.put('/api/user/self', data, {
+    acceptAuthRotation: Boolean(data.password),
+  })
   return res.data
 }
 
@@ -94,25 +95,7 @@ export async function updateUserLanguage(
 /**
  * Delete user account
  */
-export async function deleteUserAccount(
-  data?: DeleteAccountRequest
-): Promise<ApiResponse>
 export function deleteUserAccount(
-  proof: string,
-  signal: AbortSignal
-): Promise<AccountSecurityResult>
-export async function deleteUserAccount(
-  dataOrProof?: DeleteAccountRequest | string,
-  signal?: AbortSignal
-): Promise<ApiResponse | AccountSecurityResult> {
-  if (typeof dataOrProof === 'string' && signal) {
-    return deleteUserAccountWithProof(dataOrProof, signal)
-  }
-  const res = await api.delete('/api/user/self', { data: dataOrProof })
-  return res.data
-}
-
-export function deleteUserAccountWithProof(
   proof: string,
   signal: AbortSignal
 ): Promise<AccountSecurityResult> {
@@ -122,16 +105,9 @@ export function deleteUserAccountWithProof(
       headers: { 'X-Security-Proof': proof },
       singleUseAuthorization: true,
       signal,
-    })
+    }),
+    'Failed to delete account'
   )
-}
-
-/**
- * Generate/regenerate system access token
- */
-export async function generateAccessToken(): Promise<ApiResponse<string>> {
-  const res = await api.post('/api/user/token')
-  return res.data
 }
 
 // ============================================================================
@@ -156,42 +132,6 @@ export async function sendEmailVerification(
 /**
  * Bind email account
  */
-export async function bindEmail(
-  email: string,
-  code: string
-): Promise<ApiResponse>
-export function bindEmail(
-  flowToken: string,
-  newCode: string,
-  oldCode: string,
-  signal: AbortSignal
-): Promise<AccountSecurityResult>
-export async function bindEmail(
-  emailOrFlow: string,
-  code: string,
-  oldCode?: string,
-  signal?: AbortSignal
-): Promise<ApiResponse | AccountSecurityResult> {
-  if (oldCode !== undefined && signal) {
-    return authResult(
-      api.post(
-        '/api/oauth/email/bind',
-        {
-          flow_token: emailOrFlow,
-          new_code: code,
-          old_code: oldCode,
-        },
-        { ...authRequestOptions, singleUseAuthorization: true, signal }
-      )
-    )
-  }
-  const res = await api.post('/api/oauth/email/bind', {
-    email: emailOrFlow,
-    code,
-  })
-  return res.data
-}
-
 export function startEmailBinding(
   email: string,
   proofToken: string,
@@ -228,48 +168,63 @@ export function resendEmailBinding(
   )
 }
 
+export function bindEmail(
+  flowToken: string,
+  newCode: string,
+  oldCode: string,
+  signal: AbortSignal
+): Promise<AccountSecurityResult> {
+  return authResult(
+    api.post(
+      '/api/oauth/email/bind',
+      { flow_token: flowToken, new_code: newCode, old_code: oldCode },
+      {
+        ...authRequestOptions,
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
+  )
+}
+
 /**
  * Bind WeChat account
  */
-export async function bindWeChat(code: string): Promise<ApiResponse>
 export function bindWeChat(
   code: string,
-  proof: string,
+  proofToken: string,
   signal: AbortSignal
-): Promise<AccountSecurityResult>
-export async function bindWeChat(
-  code: string,
-  proof?: string,
-  signal?: AbortSignal
-): Promise<ApiResponse | AccountSecurityResult> {
-  if (proof && signal) {
-    return authResult(
-      api.post(
-        '/api/oauth/wechat/bind',
-        { code },
-        {
-          ...authRequestOptions,
-          headers: { 'X-Security-Proof': proof },
-          singleUseAuthorization: true,
-          signal,
-        }
-      )
+): Promise<AccountSecurityResult> {
+  return authResult(
+    api.post(
+      '/api/oauth/wechat/bind',
+      { code },
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        singleUseAuthorization: true,
+        signal,
+      }
     )
-  }
-  const res = await api.post(
-    '/api/oauth/wechat/bind',
-    { code },
-    { skipBusinessError: true, skipErrorHandler: true }
   )
-  return res.data
+}
+
+export interface TelegramBindFlow {
+  flow_token: string
+  callback_url: string
+  expires_at: number
 }
 
 export async function startTelegramBind(): Promise<
-  ApiResponse<{ flow_token: string; callback_url: string; expires_at?: number }>
+  ApiResponse<TelegramBindFlow>
 > {
   const res = await api.post('/api/oauth/telegram/bind/start')
   return res.data
 }
+
+// ============================================================================
+// Login Session APIs
+// ============================================================================
 
 export async function getLoginSessions(): Promise<ApiResponse<LoginSession[]>> {
   const res = await api.get('/api/user/sessions')
@@ -277,7 +232,7 @@ export async function getLoginSessions(): Promise<ApiResponse<LoginSession[]>> {
 }
 
 export async function revokeLoginSession(sid: string): Promise<ApiResponse> {
-  const res = await api.delete('/api/user/sessions/' + encodeURIComponent(sid))
+  const res = await api.delete(`/api/user/sessions/${encodeURIComponent(sid)}`)
   return res.data
 }
 
@@ -303,31 +258,19 @@ export async function getSelfOAuthBindings(): Promise<
 /**
  * Unbind a custom OAuth provider for current user
  */
-export async function unbindCustomOAuth(
-  providerId: number
-): Promise<ApiResponse>
 export function unbindCustomOAuth(
   providerId: number,
-  proof: string,
+  proofToken: string,
   signal: AbortSignal
-): Promise<AccountSecurityResult>
-export async function unbindCustomOAuth(
-  providerId: number,
-  proof?: string,
-  signal?: AbortSignal
-): Promise<ApiResponse | AccountSecurityResult> {
-  if (proof && signal) {
-    return authResult(
-      api.delete(`/api/user/oauth/bindings/${providerId}`, {
-        ...authRequestOptions,
-        headers: { 'X-Security-Proof': proof },
-        singleUseAuthorization: true,
-        signal,
-      })
-    )
-  }
-  const res = await api.delete(`/api/user/oauth/bindings/${providerId}`)
-  return res.data
+): Promise<AccountSecurityResult> {
+  return authResult(
+    api.delete(`/api/user/oauth/bindings/${providerId}`, {
+      ...authRequestOptions,
+      headers: { 'X-Security-Proof': proofToken },
+      singleUseAuthorization: true,
+      signal,
+    })
+  )
 }
 
 // ============================================================================

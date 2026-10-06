@@ -5,8 +5,9 @@ import (
 	"fmt"
 
 	rootcommon "github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,7 +20,7 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 	modelMapping := c.GetString("model_mapping")
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
-		err := rootcommon.UnmarshalJsonStr(modelMapping, &modelMap)
+		err := rootcommon.Unmarshal([]byte(modelMapping), &modelMap)
 		if err != nil {
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
@@ -30,17 +31,22 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 			currentModel: true,
 		}
 		for {
-			if mappedModel, exists := modelMap[currentModel]; exists && mappedModel != "" {
+			mappedModel, exists := modelMap[currentModel]
+			baseModel := hostreasoning.BaseModelName(currentModel)
+			if (!exists || mappedModel == "") && baseModel != currentModel {
+				mappedModel, exists = modelMap[baseModel]
+			}
+			if exists && mappedModel != "" {
 				// 模型重定向循环检测，避免无限循环
 				if visitedModels[mappedModel] {
 					if mappedModel == currentModel {
 						if currentModel == info.OriginModelName {
 							info.IsModelMapped = false
 							return nil
-						} else {
-							info.IsModelMapped = true
-							break
 						}
+
+						info.IsModelMapped = true
+						break
 					}
 					return errors.New("model_mapping_contains_cycle")
 				}

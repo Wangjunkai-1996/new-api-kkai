@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -104,15 +105,22 @@ func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
 		}
 	}
 
-	// 创建新供应商
+	// Pricing reads must not create persisted metadata or recursively refresh
+	// the pricing cache. Use stable negative IDs for display-only defaults.
+	names := make([]string, 0, len(defaultVendorIcons))
+	for name := range defaultVendorIcons {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	index, exists := slices.BinarySearch(names, vendorName)
+	if !exists {
+		return 0
+	}
 	newVendor := &Vendor{
+		Id:     -index - 1,
 		Name:   vendorName,
 		Status: 1,
 		Icon:   getDefaultVendorIcon(vendorName),
-	}
-
-	if err := newVendor.Insert(); err != nil {
-		return 0
 	}
 
 	vendorMap[newVendor.Id] = newVendor

@@ -7,7 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/relay"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -93,6 +93,7 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.KKAIPolicyKeyCooldown())
+	relayV1Router.GET("/responses", controller.ResponsesWebSocket)
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
 		// WebSocket 路由（统一到 Relay）
@@ -131,6 +132,8 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/responses/compact", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
+
+		httpRouter.POST("/alpha/search", func(c *gin.Context) { controller.Relay(c, types.RelayFormatOpenAIAlphaSearch) })
 
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {

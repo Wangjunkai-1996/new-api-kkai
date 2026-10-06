@@ -18,6 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { create } from 'zustand'
 
+import type { LoginChallenge } from '@/features/auth/secure-verification/types'
+
+export type { LoginChallenge } from '@/features/auth/secure-verification/types'
+
 import type { AdminCapabilities } from '@/lib/admin-permissions'
 
 export type UserPermissions = {
@@ -78,13 +82,6 @@ export interface AuthBundle {
 }
 
 export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
-
-export interface LoginChallenge {
-  require_verification: true
-  flow_token: string
-  expires_at: number
-  methods: { method: '2fa' | 'passkey'; available: boolean; reason?: string }[]
-}
 
 export interface PendingLoginVerification {
   challenge: LoginChallenge

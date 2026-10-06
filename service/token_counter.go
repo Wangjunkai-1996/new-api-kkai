@@ -10,11 +10,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	constant2 "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -181,7 +181,11 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 	if !constant.CountToken {
 		return 0, nil
 	}
+	return CountRequestToken(c, meta, info)
+}
 
+// CountRequestToken counts requests independently of relay billing estimation.
+func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relaycommon.RelayInfo) (int, error) {
 	if meta == nil {
 		return 0, errors.New("token count meta is nil")
 	}

@@ -11,8 +11,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -63,7 +63,7 @@ func TestProcessKKAIPolicyAPIErrorAuditsWithoutDisablingAfterClientDisconnect(t 
 		types.ErrOptionWithPolicyEvidence("cyber_policy"),
 	)
 
-	detected := processKKAIPolicyAPIError(
+	detected := service.ProcessKKAIPolicyAPIError(
 		c,
 		*types.NewChannelError(channel.Id, 1, channel.Name, false, channel.Key, true),
 		apiErr,

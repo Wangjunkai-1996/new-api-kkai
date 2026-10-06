@@ -156,6 +156,7 @@ describe('CC Switch dialog', () => {
     expect(
       screen.queryByRole('option', { name: 'cached-model' })
     ).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
     expect(
       screen.getByRole('button', { name: 'Open CC Switch' })
     ).toBeDisabled()

@@ -84,9 +84,9 @@ const ratioToPrice = (ratio?: string, denominator?: string) => {
 }
 
 export const getModeLabel = (mode?: string) => {
-  if (mode === 'per-request') return 'Per-request'
+  if (mode === 'per-request') return 'Per-request (deprecated)'
   if (mode === 'tiered_expr') return 'Expression'
-  return 'Per-token'
+  return 'Per-token (deprecated)'
 }
 
 export const getModeVariant = (
@@ -122,18 +122,7 @@ export const getPriceSummary = (
   const inputPrice = ratioToPrice(row.ratio)
   if (!inputPrice) return t('Unset price')
 
-  const extraCount = [
-    row.completionRatio,
-    row.cacheRatio,
-    row.createCacheRatio,
-    row.imageRatio,
-    row.audioRatio,
-    row.audioCompletionRatio,
-  ].filter(hasPricingValue).length
-
-  return extraCount > 0
-    ? `${t('Input')} $${inputPrice} · ${extraCount} ${t('extras')}`
-    : `${t('Input')} $${inputPrice}`
+  return `${t('Input')} $${inputPrice}`
 }
 
 export const getPriceDetail = (
@@ -219,6 +208,7 @@ export const buildModelSnapshots = ({
     fallback: {},
     context: 'billing expression',
   })
+
   const pluginExprMap = safeJsonParse<Record<string, string>>(
     pluginBillingExpr,
     { fallback: {}, context: 'plugin billing expressions' }
@@ -233,8 +223,8 @@ export const buildModelSnapshots = ({
       [plugin]: expression,
     })
   }
-
   const modelNames = new Set([
+    ...pluginExpressionsByModel.keys(),
     ...Object.keys(priceMap),
     ...Object.keys(ratioMap),
     ...Object.keys(cacheMap),
@@ -245,7 +235,6 @@ export const buildModelSnapshots = ({
     ...Object.keys(audioCompletionMap),
     ...Object.keys(billingModeMap),
     ...Object.keys(billingExprMap),
-    ...pluginExpressionsByModel.keys(),
   ])
 
   return [...modelNames].map((name) => {

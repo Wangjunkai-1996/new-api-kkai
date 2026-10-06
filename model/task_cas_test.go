@@ -499,3 +499,23 @@ func TestPersistTaskSubmissionAcceptanceRefusesRecoveredTask(t *testing.T) {
 	assert.Empty(t, reloaded.PrivateData.UpstreamTaskID)
 	assert.EqualValues(t, TaskStatusUnknown, reloaded.Status)
 }
+
+func TestPersistTaskSubmissionAcceptanceKeepsRequestPolicy(t *testing.T) {
+	truncateTables(t)
+	task := &Task{TaskID: "task_policy_acceptance", Status: TaskStatusNotStart, Quota: 100,
+		PrivateData: TaskPrivateData{BillingState: TaskBillingStateDispatching}, Data: json.RawMessage(`{}`)}
+	insertTask(t, task)
+	audit := json.RawMessage(`[{"attempt":1,"channel_id":2,"decision":{"action":"success","reason":"request_completed","source":"upstream"}}]`)
+	updated, accepted, err := PersistTaskSubmissionAcceptance(nil, task.ID, TaskSubmissionAcceptance{
+		UpstreamTaskID: "upstream-policy", TaskData: json.RawMessage(`{"id":"upstream-policy"}`),
+		Status: TaskStatusSubmitted, Progress: "10%", TargetQuota: 100, RequestPolicy: audit,
+	})
+	require.NoError(t, err)
+	require.True(t, accepted)
+	require.NotNil(t, updated)
+	var reloaded Task
+	require.NoError(t, DB.First(&reloaded, task.ID).Error)
+	assert.JSONEq(t, string(audit), string(reloaded.PrivateData.RequestPolicy))
+	assert.Equal(t, 100, reloaded.Quota, "audit persistence does not change the accepted charge")
+	assert.Equal(t, TaskBillingStateAccepted, reloaded.PrivateData.BillingState)
+}

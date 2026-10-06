@@ -86,17 +86,16 @@ describe('privacy settings', () => {
     )
   })
 
-  it('failed network saves preserve the edited toggle and do not refresh', async () => {
+  it('failed requests preserve the edited toggle without refreshing', async () => {
     const put = vi.spyOn(api, 'put').mockRejectedValue(new Error('offline'))
     const user = userEvent.setup()
     const { onUpdate } = renderPrivacy()
     await user.click(screen.getByRole('switch', { name: 'Record IP Address' }))
     await user.click(screen.getByRole('button', { name: 'Save Settings' }))
     expect(await screen.findByText('offline')).toBeVisible()
-    expect(put).toHaveBeenCalledWith(
-      '/api/user/setting',
-      expect.objectContaining({ record_ip_log: false })
-    )
+    expect(put).toHaveBeenCalledWith('/api/user/setting', {
+      record_ip_log: false,
+    })
     expect(onUpdate).not.toHaveBeenCalled()
     expect(
       screen.getByRole('switch', { name: 'Record IP Address' })

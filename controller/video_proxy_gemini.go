@@ -21,7 +21,7 @@ func getGeminiVideoURL(channel *model.Channel, task *model.Task, apiKey string) 
 		return "", false, fmt.Errorf("asset-hosted task video is not available through the provider proxy")
 	}
 
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}
@@ -170,7 +170,7 @@ func getVertexVideoURL(channel *model.Channel, task *model.Task) (string, error)
 		return url, nil
 	}
 
-	baseURL := constant.ChannelBaseURLs[channel.Type]
+	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
 	}

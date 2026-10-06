@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -133,6 +134,7 @@ func InitOptionMap() {
 	common.OptionMap["TopupGroupRatio"] = common.TopupGroupRatio2JSONString()
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
+	common.OptionMap["MaxTokenAutoGroups"] = strconv.Itoa(setting.GetMaxTokenAutoGroups())
 	common.OptionMap["AutoGroupProfiles"] = setting.AutoGroupProfiles2JsonString()
 	common.OptionMap["DefaultUseAutoGroup"] = strconv.FormatBool(setting.DefaultUseAutoGroup)
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
@@ -211,6 +213,8 @@ func loadOptionsFromDatabase() {
 }
 
 func SyncOptionsOnce() error {
+	requestPolicyOptionMutex.Lock()
+	defer requestPolicyOptionMutex.Unlock()
 	passkeyOptionMutex.Lock()
 	defer passkeyOptionMutex.Unlock()
 	options, err := AllOption()
@@ -218,8 +222,21 @@ func SyncOptionsOnce() error {
 		return err
 	}
 	var syncErrors []error
+	policyOptions := make(map[string]string)
+	for _, option := range options {
+		if IsRequestPolicyOption(option.Key) {
+			policyOptions[option.Key] = option.Value
+		}
+	}
+	policySnapshot, policyErr := BuildRequestPolicy(policyOptions)
+	if policyErr != nil {
+		syncErrors = append(syncErrors, fmt.Errorf("request policy: %w", policyErr))
+	}
 	passkeyOptions := make(map[string]string)
 	for _, option := range options {
+		if IsRequestPolicyOption(option.Key) {
+			continue
+		}
 		if IsPasskeyDomainOption(option.Key) {
 			passkeyOptions[option.Key] = option.Value
 			continue
@@ -230,10 +247,21 @@ func SyncOptionsOnce() error {
 		}
 	}
 	applyPasskeyDomainOptions(passkeyOptions)
+	if policyErr == nil {
+		for key, value := range policySnapshot.Options {
+			if err := updateOptionMap(key, value); err != nil {
+				syncErrors = append(syncErrors, fmt.Errorf("option %s: %w", key, err))
+			}
+		}
+		requestPolicySnapshot.Store(policySnapshot)
+	}
 	return errors.Join(syncErrors...)
 }
 
 func UpdateOption(key string, value string) error {
+	if IsRequestPolicyOption(key) {
+		return UpdateRequestPolicyOptions(map[string]string{key: value})
+	}
 	if IsModelPricingOption(key) {
 		return UpdateModelPricingOptions(map[string]string{key: value})
 	}
@@ -293,6 +321,25 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	var policySnapshot *RequestPolicySnapshot
+	for key := range values {
+		if IsRequestPolicyOption(key) {
+			requestPolicyOptionMutex.Lock()
+			defer requestPolicyOptionMutex.Unlock()
+			options := maps.Clone(CurrentRequestPolicy().Options)
+			for key, value := range values {
+				if IsRequestPolicyOption(key) {
+					options[key] = value
+				}
+			}
+			var err error
+			policySnapshot, err = BuildRequestPolicy(options)
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		for k, v := range values {
 			option := Option{Key: k}
@@ -314,10 +361,21 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	if policySnapshot != nil {
+		requestPolicySnapshot.Store(policySnapshot)
+	}
 	return nil
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if key == retiredThemeOptionKey {
+		return nil
+	}
+	if key == "MaxTokenAutoGroups" {
+		if err := setting.ValidateMaxTokenAutoGroups(value); err != nil {
+			return err
+		}
+	}
 	// Validate JSON-backed auto-group settings before publishing the raw value.
 	// Startup synchronization can encounter externally edited database rows; a
 	// malformed value must not replace the last known-good OptionMap entry.
@@ -496,6 +554,8 @@ func updateOptionMap(key string, value string) (err error) {
 		operation_setting.PayAddress = value
 	case "Chats":
 		err = setting.UpdateChatsByJsonString(value)
+	case "MaxTokenAutoGroups":
+		err = setting.UpdateMaxTokenAutoGroups(value)
 	case "AutoGroups":
 		err = setting.UpdateAutoGroupsByJsonString(value)
 	case "AutoGroupProfiles":
@@ -685,6 +745,12 @@ func updateOptionMap(key string, value string) (err error) {
 }
 
 func validateOptionValue(key, value string) error {
+	if err := operation_setting.ValidateQuotaOption(key, value); err != nil {
+		return err
+	}
+	if key == operation_setting.ToolPriceOptionKey {
+		return operation_setting.ValidateToolPricesJSON(value)
+	}
 	if key == common.CreditEpochOption {
 		return errors.New("credit epoch can only be changed by the offline migration")
 	}
@@ -696,6 +762,9 @@ func validateOptionValue(key, value string) error {
 	}
 	if key == "GroupDisplayNames" {
 		return setting.ValidateGroupDisplayNamesJSON(value)
+	}
+	if key == "MaxTokenAutoGroups" {
+		return setting.ValidateMaxTokenAutoGroups(value)
 	}
 	if key == "AutoGroups" {
 		return setting.ValidateAutoGroupsJSON(value)
@@ -754,6 +823,11 @@ func validateAutoGroupProfileReferences(value string) error {
 
 // handleConfigUpdate 处理分层配置更新，返回是否已处理
 func handleConfigUpdate(key, value string) bool {
+	if key == operation_setting.ToolPriceOptionKey {
+		operation_setting.LoadToolPricesFromJSONString(value)
+		return true
+	}
+
 	parts := strings.SplitN(key, ".", 2)
 	if len(parts) != 2 {
 		return false // 不是分层配置

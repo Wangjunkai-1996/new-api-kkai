@@ -83,10 +83,6 @@ export function buildLinuxDOOAuthUrl(clientId: string, state: string): string {
   return `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${clientId}&state=${state}`
 }
 
-// ============================================================================
-// OAuth Helper Functions
-// ============================================================================
-
 export function buildOAuthAuthorizationUrl(
   provider: string,
   state: string,
@@ -119,14 +115,14 @@ export function buildOAuthAuthorizationUrl(
       break
     default: {
       const custom = status.custom_oauth_providers?.find(
-        (item) => item.slug === provider
+        (candidate) => candidate.slug === provider
       )
       if (custom) {
         const url = new URL(custom.authorization_endpoint)
         url.searchParams.set('client_id', custom.client_id)
         url.searchParams.set(
           'redirect_uri',
-          window.location.origin + '/oauth/' + provider
+          `${window.location.origin}/oauth/${provider}`
         )
         url.searchParams.set('response_type', 'code')
         url.searchParams.set('state', state)

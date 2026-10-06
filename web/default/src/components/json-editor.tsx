@@ -286,6 +286,7 @@ export function JsonEditor({
         </div>
       ) : (
         <Textarea
+          aria-label={t('JSON')}
           value={jsonValue}
           onChange={(e) => handleJsonChange(e.target.value)}
           placeholder={
