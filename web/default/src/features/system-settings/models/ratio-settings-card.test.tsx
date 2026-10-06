@@ -34,9 +34,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/features/model-pricing/api', async (importOriginal) => {
-  const original = await importOriginal<
-    typeof import('@/features/model-pricing/api')
-  >()
+  const original =
+    await importOriginal<typeof import('@/features/model-pricing/api')>()
   return {
     ...original,
     useModelPricing: mocks.modelPricing,

@@ -132,18 +132,22 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   }, [watchedGroupRatio, watchedUserUsableGroups, watchedTopupGroupRatio])
 
   return (
-    <div className='space-y-6'>
-      <div className='flex flex-wrap justify-end gap-2'>
-        <Button variant='outline' size='sm' onClick={() => setGuideOpen(true)}>
-          <HelpCircle className='mr-2 h-4 w-4' />
-          {t('Usage guide')}
-        </Button>
-        <Button variant='outline' size='sm' onClick={toggleEditMode}>
+    <Form {...form}>
+      <div className='space-y-6'>
+        <div className='flex flex-wrap justify-end gap-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => setGuideOpen(true)}
+          >
+            <HelpCircle className='mr-2 h-4 w-4' />
+            {t('Usage guide')}
+          </Button>
           <FormField
             control={form.control}
             name='MaxTokenAutoGroups'
             render={({ field }) => (
-              <FormItem>
+              <FormItem className='min-w-48'>
                 <FormLabel>{t('Per-token Auto group limit')}</FormLabel>
                 <FormControl>
                   <Input
@@ -157,23 +161,23 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               </FormItem>
             )}
           />
-          {editMode === 'visual' ? (
-            <>
-              <Code2 className='mr-2 h-4 w-4' />
-              {t('Switch to JSON')}
-            </>
-          ) : (
-            <>
-              <Eye className='mr-2 h-4 w-4' />
-              {t('Switch to Visual')}
-            </>
-          )}
-        </Button>
-      </div>
+          <Button variant='outline' size='sm' onClick={toggleEditMode}>
+            {editMode === 'visual' ? (
+              <>
+                <Code2 className='mr-2 h-4 w-4' />
+                {t('Switch to JSON')}
+              </>
+            ) : (
+              <>
+                <Eye className='mr-2 h-4 w-4' />
+                {t('Switch to Visual')}
+              </>
+            )}
+          </Button>
+        </div>
 
-      <GroupPricingGuide open={guideOpen} onOpenChange={setGuideOpen} />
+        <GroupPricingGuide open={guideOpen} onOpenChange={setGuideOpen} />
 
-      <Form {...form}>
         <SettingsPageActionsPortal>
           <Button
             type='button'
@@ -410,8 +414,8 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             />
           </SettingsForm>
         )}
-      </Form>
-    </div>
+      </div>
+    </Form>
   )
 })
 
