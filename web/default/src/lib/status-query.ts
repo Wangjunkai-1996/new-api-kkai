@@ -20,7 +20,6 @@ import { queryOptions, type QueryClient } from '@tanstack/react-query'
 
 import { getStatus } from '@/lib/api'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
-import { bindPageCreditEpoch } from '@/lib/http-client'
 import {
   useSystemConfigStore,
   type CurrencyConfig,
@@ -136,7 +135,6 @@ async function fetchStatus(): Promise<StatusData | null> {
   const status = (await getStatus()) as StatusData | null
 
   if (status) {
-    bindPageCreditEpoch(status.credit_epoch)
     try {
       useSystemConfigStore.getState().setConfig(mapStatusDataToConfig(status))
     } catch (err) {

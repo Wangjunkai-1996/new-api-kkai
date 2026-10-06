@@ -64,4 +64,30 @@ describe('credit currency attached to an open document', () => {
     await api.post('/api/user/pay', { amount: 10 })
     expect(headers).toEqual([undefined, 'usd_credit_v1:new'])
   })
+
+  it('binds the epoch from the shared status request before wallet writes', async () => {
+    const { api } = await import('./http-client')
+    const { getStatus } = await import('./api')
+    const paymentHeaders: unknown[] = []
+    api.defaults.adapter = async (config) => {
+      if (config.url === '/api/user/pay') {
+        paymentHeaders.push(config.headers.get('X-KKAI-Credit-Epoch'))
+      }
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+        data:
+          config.url === '/api/status'
+            ? { success: true, data: { credit_epoch: 'usd_credit_v1:new' } }
+            : {},
+      }
+    }
+
+    await getStatus()
+    await api.post('/api/user/pay', { amount: 10 })
+
+    expect(paymentHeaders).toEqual(['usd_credit_v1:new'])
+  })
 })

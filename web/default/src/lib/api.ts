@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from './http-client'
+import { api, bindPageCreditEpoch } from './http-client'
 import { authRequestOptions, authResult } from './secure-verification'
 
 export { api }
@@ -79,7 +79,11 @@ export async function getUserGroups(): Promise<{
 // Get system status
 export async function getStatus() {
   const res = await api.get('/api/status')
-  return res.data?.data as Record<string, unknown>
+  const status = res.data?.data as Record<string, unknown> | undefined
+  if (status) {
+    bindPageCreditEpoch(status.credit_epoch)
+  }
+  return status
 }
 
 // Get system notice

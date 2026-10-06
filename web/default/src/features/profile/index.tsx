@@ -21,6 +21,7 @@ import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { ProfileSecurity } from '@/features/security'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -32,7 +33,7 @@ import { SidebarModulesCard } from './components/sidebar-modules-card'
 import { useProfile } from './hooks'
 
 export function Profile() {
-  const { profile, loading, refreshProfile } = useProfile()
+  const { profile, loading, refreshProfile, fetchProfile } = useProfile()
   const { status } = useStatus()
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
 
@@ -49,6 +50,15 @@ export function Profile() {
         <CardStaggerContainer className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-6'>
           <CardStaggerItem>
             <ProfileHeader profile={profile} loading={loading} />
+          </CardStaggerItem>
+
+          <CardStaggerItem>
+            <ProfileSecurity
+              profile={profile}
+              loading={loading}
+              onUpdate={refreshProfile}
+              onRetry={fetchProfile}
+            />
           </CardStaggerItem>
 
           <CardStaggerItem>

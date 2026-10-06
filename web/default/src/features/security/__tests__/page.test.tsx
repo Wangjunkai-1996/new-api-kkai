@@ -34,12 +34,10 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { Profile } from '@/features/profile'
 import type { UserProfile } from '@/features/profile/types'
 import { api } from '@/lib/api'
+import { Route as ProfileRoute } from '@/routes/_authenticated/profile'
 import { useAuthStore } from '@/stores/auth-store'
-
-import { Security } from '../index'
 
 const profile: UserProfile = {
   id: 1,
@@ -97,7 +95,7 @@ beforeEach(() => {
         },
       }
     }
-    if (url === '/api/user/sessions') {
+    if (url === '/api/user/sessions' || url === '/api/user/oauth/bindings') {
       return { data: { success: true, data: [] } }
     }
     throw new Error(`Unexpected GET ${url}`)
@@ -111,7 +109,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function renderPage(path = '/security') {
+async function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -132,19 +130,14 @@ async function renderPage(path = '/security') {
     ],
   })
   const root = createRootRoute()
-  const security = createRoute({
-    getParentRoute: () => root,
-    path: '/security',
-    component: Security,
-  })
   const personal = createRoute({
     getParentRoute: () => root,
     path: '/profile',
-    component: Profile,
+    component: ProfileRoute.options.component,
   })
   const router = createRouter({
-    routeTree: root.addChildren([security, personal]),
-    history: createMemoryHistory({ initialEntries: [path] }),
+    routeTree: root.addChildren([personal]),
+    history: createMemoryHistory({ initialEntries: ['/profile'] }),
   })
   await router.load()
   const rendered = render(
@@ -152,25 +145,23 @@ async function renderPage(path = '/security') {
       <RouterProvider router={router} />
     </QueryClientProvider>
   )
+  await waitFor(() =>
+    expect(
+      screen.getByRole('heading', { name: 'Security & Access' })
+    ).toBeVisible()
+  )
   return { ...rendered, router }
 }
 
-describe('security page migration', () => {
-  it('places account management on the left and verification and privacy on the right', async () => {
+describe('personal settings security integration', () => {
+  it('exposes all account security controls through the real profile route', async () => {
     await renderPage()
     const login = await screen.findByRole('region', {
       name: 'Login & Authentication',
     })
     expect(
-      screen
-        .getAllByRole('region')
-        .map((region) => within(region).getAllByRole('heading')[0].textContent)
-    ).toEqual([
-      'Login & Authentication',
-      'Sessions & Access',
-      'Account Actions',
-      'Privacy',
-    ])
+      screen.getByRole('heading', { name: 'Security & Access' })
+    ).toBeVisible()
     expect(
       within(login).getByRole('button', { name: 'Change Password' })
     ).toBeVisible()
@@ -185,11 +176,6 @@ describe('security page migration', () => {
     expect(
       within(verification).getByRole('switch', { name: 'Record IP Address' })
     ).toBeVisible()
-    expect(verification).toHaveClass('xl:sticky', 'xl:top-0')
-    expect(verification.parentElement).toHaveClass(
-      'grid',
-      'xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.46fr)]'
-    )
     const access = screen.getByRole('region', { name: 'Sessions & Access' })
     expect(within(access).getByText('Access tokens')).toBeVisible()
     expect(
@@ -243,23 +229,30 @@ describe('security page migration', () => {
     )
   })
 
-  it('Profile retains preferences and no longer mounts security controls or requests', async () => {
-    await renderPage('/profile')
+  it('retains preferences alongside security controls and shares one profile load', async () => {
+    await renderPage()
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'Save Settings' })
-      ).toBeVisible()
+        screen.getAllByRole('button', { name: 'Save Settings' })
+      ).toHaveLength(2)
     )
     expect(
-      screen.queryByRole('button', { name: 'Change Password' })
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText('Account Bindings')).not.toBeInTheDocument()
+      screen.getByRole('button', { name: 'Change Password' })
+    ).toBeVisible()
+    expect(screen.getByText('Account Bindings')).toBeVisible()
     expect(
-      screen.queryByRole('switch', { name: 'Record IP Address' })
-    ).not.toBeInTheDocument()
-    expect(api.get).not.toHaveBeenCalledWith('/api/user/passkey')
-    expect(api.get).not.toHaveBeenCalledWith('/api/user/2fa/status')
-    expect(api.get).not.toHaveBeenCalledWith('/api/user/sessions')
+      screen.getByRole('switch', { name: 'Record IP Address' })
+    ).toBeVisible()
+    expect(vi.mocked(api.get).mock.calls.map(([url]) => url)).toEqual(
+      expect.arrayContaining([
+        '/api/user/passkey',
+        '/api/user/2fa/status',
+        '/api/user/sessions',
+      ])
+    )
+    expect(
+      vi.mocked(api.get).mock.calls.filter(([url]) => url === '/api/user/self')
+    ).toHaveLength(1)
   })
 
   it('a failed profile load offers retry before exposing account actions', async () => {
