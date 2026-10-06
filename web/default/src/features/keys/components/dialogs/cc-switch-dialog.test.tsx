@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CCSwitchDialog } from './cc-switch-dialog'
+import { buildCCSwitchURL, CCSwitchDialog } from './cc-switch-dialog'
 
 const apiMocks = vi.hoisted(() => ({
   getTokenModels: vi.fn(),
@@ -196,5 +196,17 @@ describe('CC Switch dialog', () => {
     expect(
       screen.getByRole('button', { name: 'Open CC Switch' })
     ).toBeDisabled()
+  })
+
+  test('includes the balance query configuration without a duplicate usage key', () => {
+    const importedURL = new URL(
+      buildCCSwitchURL('claude', 'KKAI', { model: 'default-model' }, 'sk-test')
+    )
+    const params = importedURL.searchParams
+    expect(params.get('usageEnabled')).toBe('true')
+    expect(params.get('usageBaseUrl')).toBe(window.location.origin)
+    expect(params.get('usageAutoInterval')).toBe('30')
+    expect(params.get('usageApiKey')).toBeNull()
+    expect(atob(params.get('usageScript') ?? '')).toContain('/api/usage/token/')
   })
 })

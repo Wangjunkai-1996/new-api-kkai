@@ -76,6 +76,41 @@ func MaskTokenKey(key string) string {
 	return key[:4] + "**********" + key[len(key)-4:]
 }
 
+const (
+	TokenUsageInvalidReasonStatusUnavailable = "token_status_unavailable"
+	TokenUsageInvalidReasonDisabled          = "token_disabled"
+	TokenUsageInvalidReasonExpired           = "token_expired"
+	TokenUsageInvalidReasonExhausted         = "token_exhausted"
+)
+
+// GetUsageValidity reports whether a token may expose its owner's balance to
+// a read-only usage client. It does not mutate token state.
+func (token *Token) GetUsageValidity(now int64) (bool, string) {
+	if token == nil {
+		return false, TokenUsageInvalidReasonStatusUnavailable
+	}
+
+	switch token.Status {
+	case common.TokenStatusEnabled:
+	case common.TokenStatusDisabled:
+		return false, TokenUsageInvalidReasonDisabled
+	case common.TokenStatusExpired:
+		return false, TokenUsageInvalidReasonExpired
+	case common.TokenStatusExhausted:
+		return false, TokenUsageInvalidReasonExhausted
+	default:
+		return false, TokenUsageInvalidReasonStatusUnavailable
+	}
+
+	if token.ExpiredTime != -1 && token.ExpiredTime < now {
+		return false, TokenUsageInvalidReasonExpired
+	}
+	if !token.UnlimitedQuota && token.RemainQuota <= 0 {
+		return false, TokenUsageInvalidReasonExhausted
+	}
+	return true, ""
+}
+
 func (token *Token) GetFullKey() string {
 	return token.Key
 }

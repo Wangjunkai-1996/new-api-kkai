@@ -52,6 +52,84 @@ const APP_CONFIGS = {
   },
 };
 
+const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
+  request: {
+    url: "{{baseUrl}}/api/usage/token/",
+    method: "GET",
+    headers: {
+      "Authorization": "Bearer {{apiKey}}",
+      "User-Agent": "cc-switch/1.0"
+    }
+  },
+  extractor: function(response) {
+    if (!response || response.code === false || response.success === false) {
+      return {
+        isValid: false,
+        invalidMessage: response?.message || response?.error?.message || "Query failed"
+      };
+    }
+
+    const data = response.data || response;
+    if (data.token_is_valid === false) {
+      return {
+        isValid: false,
+        invalidMessage: data.token_invalid_reason || "Token unavailable"
+      };
+    }
+
+    const quotaPerUnit = Number(data.quota_per_unit || 500000);
+    const displayType = data.quota_display_type || "USD";
+    const usdExchangeRate = Number(data.usd_exchange_rate || 1);
+    const customExchangeRate = Number(data.custom_currency_exchange_rate || 1);
+    const displayUnit = displayType === "CUSTOM"
+      ? (data.custom_currency_symbol || "CUSTOM")
+      : displayType;
+    const convertQuota = function(quota) {
+      const value = Number(quota || 0);
+      if (displayType === "TOKENS") return value;
+      if (displayType === "CNY") return value / quotaPerUnit * usdExchangeRate;
+      if (displayType === "CUSTOM") return value / quotaPerUnit * customExchangeRate;
+      return value / quotaPerUnit;
+    };
+
+    const userUsed = Number(data.user_total_used ?? data.total_used ?? 0);
+    const userAvailable = Number(data.user_total_available ?? data.total_available ?? 0);
+    const userGranted = Number(
+      data.user_total_granted ?? data.total_granted ?? userUsed + userAvailable
+    );
+    const hasTokenAvailable =
+      data.token_total_available != null || data.total_available != null;
+    const tokenAvailable = Number(
+      data.token_total_available ?? data.total_available ?? 0
+    );
+    const isUnlimitedToken =
+      data.unlimited_quota === true || (hasTokenAvailable && tokenAvailable < 0);
+
+    if (userAvailable <= 0) {
+      return {
+        isValid: false,
+        invalidMessage: "User balance exhausted"
+      };
+    }
+
+    if (hasTokenAvailable && !isUnlimitedToken && tokenAvailable <= 0) {
+      return {
+        isValid: false,
+        invalidMessage: data.token_invalid_reason || "Token unavailable"
+      };
+    }
+
+    return {
+      planName: "User Balance",
+      remaining: convertQuota(userAvailable),
+      total: convertQuota(userGranted),
+      used: convertQuota(userUsed),
+      unit: displayUnit,
+      isValid: true
+    };
+  }
+})`;
+
 function getServerAddress() {
   try {
     const raw = localStorage.getItem('status');
