@@ -53,6 +53,7 @@ import {
 import { apiKeySchema, type ApiKey } from '../../types'
 import { ApiKeyQuotaCell } from '../api-key-quota-cell'
 import { useApiKeysColumns } from '../api-keys-columns'
+import { ApiKeysDialogs } from '../api-keys-dialogs'
 import { ApiKeysProvider } from '../api-keys-provider'
 import { ApiKeysTable } from '../api-keys-table'
 
@@ -300,6 +301,7 @@ function KeysPage() {
   return (
     <ApiKeysProvider>
       <ApiKeysTable />
+      <ApiKeysDialogs />
       <Toaster />
     </ApiKeysProvider>
   )
@@ -389,6 +391,44 @@ it('restores dates hidden by the old default and preserves unrelated column pref
     screen.queryByRole('columnheader', { name: 'Models' })
   ).not.toBeInTheDocument()
 })
+
+it.each([false, true])(
+  'keeps CC Switch accessible when the group column is hidden, mobile=%s',
+  async (mobile) => {
+    const matchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: mobile && query.includes('max-width'),
+    }))
+    localStorage.setItem(
+      'api-keys:column-visibility',
+      JSON.stringify({ group: false })
+    )
+    const { post } = await renderKeysPage()
+    const user = userEvent.setup()
+    expect(
+      screen.queryByRole('columnheader', { name: 'Group' })
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Open menu' }))
+    expect(post).not.toHaveBeenCalled()
+    if (mobile) {
+      expect(
+        screen.queryByRole('menuitem', { name: 'CC Switch' })
+      ).not.toBeInTheDocument()
+      await user.keyboard('{Escape}')
+      await user.click(screen.getByRole('button', { name: 'CC Switch' }))
+    } else {
+      expect(
+        screen.queryByRole('button', { name: 'CC Switch' })
+      ).not.toBeInTheDocument()
+      await user.click(screen.getByRole('menuitem', { name: 'CC Switch' }))
+    }
+
+    await screen.findByRole('dialog', { name: 'Import to CC Switch' })
+    expect(post).toHaveBeenCalledExactlyOnceWith('/api/token/7/key')
+  }
+)
 
 it.each([
   [1, 'Disable', 2, 'Disabled'],

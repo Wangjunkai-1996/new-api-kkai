@@ -124,7 +124,8 @@ export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
         accessorKey: 'group',
         header: t('Group'),
         cell: ({ row }) => <ApiKeyGroupCell apiKey={row.original} />,
-        size: 220,
+        size: 300,
+        minSize: 280,
         meta: { mobileHidden: true },
       },
       {

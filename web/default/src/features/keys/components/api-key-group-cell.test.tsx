@@ -32,6 +32,9 @@ const apiMocks = vi.hoisted(() => ({
 const contextMocks = vi.hoisted(() => ({
   setCurrentRow: vi.fn(),
   setOpen: vi.fn(),
+  setResolvedKey: vi.fn(),
+  resolveRealKey: vi.fn(),
+  loadingKeys: {} as Record<number, boolean>,
   triggerRefresh: vi.fn(),
 }))
 
@@ -127,6 +130,8 @@ async function openGroupMenu(user: ReturnType<typeof userEvent.setup>) {
 
 describe('ApiKeyGroupCell', () => {
   beforeEach(() => {
+    contextMocks.loadingKeys = {}
+    contextMocks.resolveRealKey.mockResolvedValue('sk-real-key')
     apiMocks.getUserGroups.mockResolvedValue({
       success: true,
       data: userGroups,
@@ -209,5 +214,55 @@ describe('ApiKeyGroupCell', () => {
     expect(contextMocks.setCurrentRow).toHaveBeenCalledWith(apiKey)
     expect(contextMocks.setOpen).toHaveBeenCalledWith('update')
     expect(apiMocks.updateApiKeyGroup).not.toHaveBeenCalled()
+  })
+
+  test('resolves the real key before opening CC Switch', async () => {
+    const user = userEvent.setup()
+    let resolveKey: ((value: string) => void) | undefined
+    contextMocks.resolveRealKey.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveKey = resolve
+        })
+    )
+    renderCell()
+
+    await user.click(screen.getByRole('button', { name: 'CC Switch' }))
+
+    expect(contextMocks.resolveRealKey).toHaveBeenCalledWith(apiKey.id)
+    expect(contextMocks.setResolvedKey).not.toHaveBeenCalled()
+    expect(contextMocks.setCurrentRow).not.toHaveBeenCalled()
+    expect(contextMocks.setOpen).not.toHaveBeenCalled()
+
+    resolveKey?.('sk-real-key')
+    await waitFor(() =>
+      expect(contextMocks.setOpen).toHaveBeenCalledWith('cc-switch')
+    )
+    expect(contextMocks.setResolvedKey).toHaveBeenCalledWith('sk-real-key')
+    expect(contextMocks.setCurrentRow).toHaveBeenCalledWith(apiKey)
+  })
+
+  test('does not open CC Switch when resolving the real key fails', async () => {
+    contextMocks.resolveRealKey.mockResolvedValueOnce(null)
+    const user = userEvent.setup()
+    renderCell()
+
+    await user.click(screen.getByRole('button', { name: 'CC Switch' }))
+
+    await waitFor(() =>
+      expect(contextMocks.resolveRealKey).toHaveBeenCalledWith(apiKey.id)
+    )
+    expect(contextMocks.setResolvedKey).not.toHaveBeenCalled()
+    expect(contextMocks.setCurrentRow).not.toHaveBeenCalled()
+    expect(contextMocks.setOpen).not.toHaveBeenCalledWith('cc-switch')
+  })
+
+  test('disables CC Switch while the real key is loading', () => {
+    contextMocks.loadingKeys[apiKey.id] = true
+    renderCell()
+
+    const button = screen.getByRole('button', { name: 'CC Switch' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('aria-busy', 'true')
   })
 })

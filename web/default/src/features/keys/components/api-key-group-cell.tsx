@@ -23,7 +23,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import { Edit3, Loader2, RotateCw } from 'lucide-react'
+import { ArrowRightLeft, Edit3, Loader2, RotateCw } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -50,13 +50,21 @@ type ApiKeyGroupCellProps = {
 export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const { setCurrentRow, setOpen, triggerRefresh } = useApiKeys()
+  const {
+    loadingKeys,
+    resolveRealKey,
+    setCurrentRow,
+    setOpen,
+    setResolvedKey,
+    triggerRefresh,
+  } = useApiKeys()
   const { contract } = useConsoleContract()
   const supportsInlineGroup =
     contract?.capabilities.includes('token_group_inline') ?? false
   const group = props.apiKey.group ?? ''
   const pending =
     useIsMutating({ mutationKey: ['token-group', props.apiKey.id] }) > 0
+  const isCCSwitchLoading = Boolean(loadingKeys[props.apiKey.id])
   const groupsQuery = useQuery({
     queryKey: ['user-groups'],
     queryFn: getUserGroups,
@@ -149,6 +157,15 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
     mutation.mutate(nextGroup)
   }
 
+  const handleOpenCCSwitch = async () => {
+    const realKey = await resolveRealKey(props.apiKey.id)
+    if (!realKey) return
+
+    setResolvedKey(realKey)
+    setCurrentRow(props.apiKey)
+    setOpen('cc-switch')
+  }
+
   let groupStatusContent: ReactNode
   if (groupsQuery.isPending) {
     groupStatusContent = (
@@ -185,76 +202,94 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
   }
 
   return (
-    <div className='max-w-full'>
-      {supportsInlineGroup ? (
-        <ApiKeyGroupCombobox
-          options={options}
-          value={group}
-          onValueChange={handleChange}
-          compact
-          pending={pending}
-          disabled={pending}
-          onOpen={() => {
-            if (groupsQuery.isStale && !groupsQuery.isFetching) {
-              void groupsQuery.refetch()
+    <div className='flex max-w-full min-w-0 items-center gap-2'>
+      <div className='min-w-0'>
+        {supportsInlineGroup ? (
+          <ApiKeyGroupCombobox
+            options={options}
+            value={group}
+            onValueChange={handleChange}
+            compact
+            pending={pending}
+            disabled={pending}
+            onOpen={() => {
+              if (groupsQuery.isStale && !groupsQuery.isFetching) {
+                void groupsQuery.refetch()
+              }
+            }}
+            statusContent={groupStatusContent}
+            triggerAriaLabel={`${t('Group')}: ${props.apiKey.name}`}
+            trigger={
+              <span className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden'>
+                <GroupBadge
+                  group={group}
+                  displayName={selectedOption?.label}
+                  isAutoGroup={isAutoGroup}
+                  ratio={ratio}
+                  className='max-w-[10rem]'
+                />
+                {isAutoGroup && props.apiKey.cross_group_retry && (
+                  <StatusBadge
+                    label={t('Cross-group')}
+                    variant='info'
+                    copyable={false}
+                    className='hidden shrink-0 text-[10px] xl:inline-flex'
+                  />
+                )}
+              </span>
             }
-          }}
-          statusContent={groupStatusContent}
-          triggerAriaLabel={`${t('Group')}: ${props.apiKey.name}`}
-          trigger={
-            <span className='flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden'>
-              <GroupBadge
-                group={group}
-                displayName={selectedOption?.label}
-                isAutoGroup={isAutoGroup}
-                ratio={ratio}
-                className='max-w-[10rem]'
-              />
-              {isAutoGroup && props.apiKey.cross_group_retry && (
-                <StatusBadge
-                  label={t('Cross-group')}
-                  variant='info'
-                  copyable={false}
-                  className='hidden shrink-0 text-[10px] xl:inline-flex'
+          />
+        ) : (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='hover:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-2 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none'
+            aria-label={`${t('Group')}: ${props.apiKey.name}`}
+            onClick={() => {
+              setCurrentRow(props.apiKey)
+              setOpen('update')
+            }}
+          >
+            <span className='min-w-0 flex-1 overflow-hidden'>
+              <span className='flex min-w-0 items-center gap-1.5 overflow-hidden'>
+                <GroupBadge
+                  group={group}
+                  displayName={selectedOption?.label}
+                  isAutoGroup={isAutoGroup}
+                  ratio={ratio}
+                  className='max-w-[10rem]'
                 />
-              )}
+                {isAutoGroup && props.apiKey.cross_group_retry && (
+                  <StatusBadge
+                    label={t('Cross-group')}
+                    variant='info'
+                    copyable={false}
+                    className='hidden shrink-0 text-[10px] xl:inline-flex'
+                  />
+                )}
+              </span>
             </span>
-          }
-        />
-      ) : (
-        <Button
-          type='button'
-          variant='outline'
-          size='sm'
-          className='hover:bg-muted/70 h-auto min-h-8 max-w-full min-w-0 justify-between gap-2 rounded-md border-transparent bg-transparent px-1.5 py-1 text-start shadow-none'
-          aria-label={`${t('Group')}: ${props.apiKey.name}`}
-          onClick={() => {
-            setCurrentRow(props.apiKey)
-            setOpen('update')
-          }}
-        >
-          <span className='min-w-0 flex-1 overflow-hidden'>
-            <span className='flex min-w-0 items-center gap-1.5 overflow-hidden'>
-              <GroupBadge
-                group={group}
-                displayName={selectedOption?.label}
-                isAutoGroup={isAutoGroup}
-                ratio={ratio}
-                className='max-w-[10rem]'
-              />
-              {isAutoGroup && props.apiKey.cross_group_retry && (
-                <StatusBadge
-                  label={t('Cross-group')}
-                  variant='info'
-                  copyable={false}
-                  className='hidden shrink-0 text-[10px] xl:inline-flex'
-                />
-              )}
-            </span>
-          </span>
-          <Edit3 className='text-muted-foreground size-3.5 shrink-0' />
-        </Button>
-      )}
+            <Edit3 className='text-muted-foreground size-3.5 shrink-0' />
+          </Button>
+        )}
+      </div>
+      <Button
+        type='button'
+        size='sm'
+        disabled={pending || isCCSwitchLoading}
+        aria-busy={isCCSwitchLoading}
+        aria-label={t('CC Switch')}
+        onClick={handleOpenCCSwitch}
+        className='h-8 shrink-0 gap-1.5 px-2.5 text-xs'
+      >
+        {isCCSwitchLoading ? (
+          <Loader2 aria-hidden='true' className='size-3.5 animate-spin' />
+        ) : (
+          <ArrowRightLeft aria-hidden='true' className='size-3.5' />
+        )}
+        {t('CC Switch')}
+      </Button>
     </div>
   )
 }
