@@ -11,11 +11,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -25,7 +27,7 @@ var (
 	ErrImageModelProfileModelImmutable = errors.New("image model profile model cannot be changed")
 	ErrImageModelProfileConflict       = errors.New("image model profile was changed concurrently")
 	ErrImageModelAbilityUnavailable    = errors.New("image model has no enabled image-generation ability")
-	ErrImageModelBillingUnsupported    = errors.New("image studio first phase does not support tiered-expression billing")
+	ErrImageModelBillingUnsupported    = errors.New("image studio does not support this billing expression")
 	imageModelNamePattern              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
 )
 
@@ -104,17 +106,17 @@ func ListEffectiveImageModelProfiles(
 	if err != nil {
 		return nil, err
 	}
-	models, err := enabledConfiguredImageStudioModelsForGroup(ctx, db, token.Group)
+	models, err := enabledImageStudioCatalogModelsForGroup(ctx, db, token.Group)
 	if err != nil || len(models) == 0 {
 		return []ImageModelProfileView{}, err
 	}
-	var profiles []model.KKAIImageModelProfile
-	if err := db.WithContext(ctx).Where("enabled = ? AND model IN ?", true, models).Find(&profiles).Error; err != nil {
-		return nil, fmt.Errorf("list effective image model profiles: %w", err)
+	profiles, err := ensureImageModelProfiles(ctx, db, models)
+	if err != nil {
+		return nil, err
 	}
 	views := make([]ImageModelProfileView, 0, len(profiles))
 	for _, profile := range profiles {
-		if !imageStudioBillingModeSupported(profile.Model) {
+		if !profile.Enabled || !imageStudioBillingModeSupported(profile.Model) {
 			continue
 		}
 		view, err := imageModelProfileView(profile)
@@ -130,6 +132,46 @@ func ListEffectiveImageModelProfiles(
 		return views[left].Model < views[right].Model
 	})
 	return views, nil
+}
+
+// Discovered models need stable profile IDs for quotes, samples and generation
+// history. Only fill missing profiles; administrator settings remain authoritative.
+func ensureImageModelProfiles(ctx context.Context, db *gorm.DB, models []string) ([]model.KKAIImageModelProfile, error) {
+	var profiles []model.KKAIImageModelProfile
+	if err := db.WithContext(ctx).Where("model IN ?", models).Find(&profiles).Error; err != nil {
+		return nil, fmt.Errorf("list image model profiles: %w", err)
+	}
+	existing := make(map[string]bool, len(profiles))
+	for _, profile := range profiles {
+		existing[profile.Model] = true
+	}
+	var missing []model.KKAIImageModelProfile
+	now := time.Now().Unix()
+	for _, modelName := range models {
+		if existing[modelName] {
+			continue
+		}
+		// Send one image with provider defaults until an administrator supplies
+		// model-specific controls. Do not guess supported sizes or quality levels.
+		missing = append(missing, model.KKAIImageModelProfile{
+			Model: modelName, DisplayName: modelName, SpecificationVersion: 1,
+			Specification: `{"version":1,"parameters":[]}`, DefaultParameters: `{}`,
+			Enabled: true, CreatedAt: now, UpdatedAt: now,
+		})
+	}
+	if len(missing) == 0 {
+		return profiles, nil
+	}
+	if err := db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "model"}}, DoNothing: true,
+	}).CreateInBatches(&missing, 100).Error; err != nil {
+		return nil, fmt.Errorf("create discovered image model profiles: %w", err)
+	}
+	// Read back the winning rows, including concurrent administrator changes.
+	if err := db.WithContext(ctx).Where("model IN ?", models).Find(&profiles).Error; err != nil {
+		return nil, fmt.Errorf("reload image model profiles: %w", err)
+	}
+	return profiles, nil
 }
 
 func effectiveImageModelMaxOutputs(specification ImageModelSpec) int {
@@ -182,8 +224,27 @@ func resolveImageModelProfile(
 		return nil, ImageModelSpec{}, nil, ErrImageModelProfileNotFound
 	}
 	var profile model.KKAIImageModelProfile
-	if err := db.WithContext(ctx).Where("model = ? AND enabled = ?", modelName, true).First(&profile).Error; err != nil {
+	err := db.WithContext(ctx).Where("model = ?", modelName).First(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := ensureImageModelAbility(ctx, db, modelName); err != nil {
+			return nil, ImageModelSpec{}, nil, err
+		}
+		if !imageStudioBillingModeSupported(modelName) {
+			return nil, ImageModelSpec{}, nil, ErrImageModelBillingUnsupported
+		}
+		profiles, err := ensureImageModelProfiles(ctx, db, []string{modelName})
+		if err != nil {
+			return nil, ImageModelSpec{}, nil, err
+		}
+		if len(profiles) != 1 {
+			return nil, ImageModelSpec{}, nil, ErrImageModelProfileNotFound
+		}
+		profile = profiles[0]
+	} else if err != nil {
 		return nil, ImageModelSpec{}, nil, imageModelProfileLookupError(err)
+	}
+	if !profile.Enabled {
+		return nil, ImageModelSpec{}, nil, ErrImageModelProfileNotFound
 	}
 	if !imageStudioBillingModeSupported(profile.Model) {
 		return nil, ImageModelSpec{}, nil, ErrImageModelBillingUnsupported
@@ -276,7 +337,11 @@ func imageStudioBillingModeSupported(modelName string) bool {
 	if _, configured, err := image_pricing_setting.Resolve(modelName, ""); configured {
 		return err == nil
 	}
-	return billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr
+	if billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr {
+		return true
+	}
+	expression, exists := billing_setting.GetBillingExpr(modelName)
+	return exists && billingexpr.SupportsMonotonicTokenEstimate(expression)
 }
 
 func imageStudioModelsWithSupportedBilling(models []string) []string {

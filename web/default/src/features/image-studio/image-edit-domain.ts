@@ -26,13 +26,7 @@ import type {
   ImageStudioApiError,
 } from './types'
 
-export const IMAGE_STUDIO_EDIT_MODEL = 'gpt-image-2'
 export const IMAGE_STUDIO_MAX_REFERENCE_IMAGES = 4
-
-export const findImageEditProfile = (
-  profiles: ImageModelProfile[] | undefined
-): ImageModelProfile | undefined =>
-  profiles?.find((profile) => profile.model === IMAGE_STUDIO_EDIT_MODEL)
 
 export const getImageProfileMaxReferenceImages = (
   profile: ImageModelProfile | undefined

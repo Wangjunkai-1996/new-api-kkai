@@ -35,7 +35,7 @@ func TestImageStudioPrepareExcludesReplicateBeforeMultiReferenceRelay(t *testing
 		{SHA256: strings.Repeat("b", 64), SizeBytes: 200},
 	}
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "edit",
 		Mode: service.ImageStudioModeEdit, References: references,
 	})
 	require.NoError(t, err)

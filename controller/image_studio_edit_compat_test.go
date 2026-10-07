@@ -20,7 +20,7 @@ func TestPrepareImageStudioEditQuoteAcceptsLegacyReferenceMetadata(t *testing.T)
 		SHA256: strings.Repeat("a", 64), SizeBytes: 1234,
 	}
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit a lighthouse",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "edit a lighthouse",
 		Reference: &reference,
 	})
 	require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestParseImageStudioEditSubmissionAcceptsLegacyReferenceAndRejectsAmbiguous
 	settings := image_studio_setting.Get()
 
 	legacyJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: 4, Model: service.ImageStudioEditModel, Prompt: "edit",
+		TokenID: 4, Model: imageStudioEditTestModel, Prompt: "edit",
 		QuoteToken: "quote-token", Reference: &reference,
 	})
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestParseImageStudioEditSubmissionAcceptsLegacyReferenceAndRejectsAmbiguous
 	require.Len(t, archives, 1)
 
 	ambiguousJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: 4, Model: service.ImageStudioEditModel, Prompt: "edit",
+		TokenID: 4, Model: imageStudioEditTestModel, Prompt: "edit",
 		QuoteToken: "quote-token", Reference: &reference,
 		References: []service.ImageStudioReferenceMetadata{reference},
 	})

@@ -22,7 +22,6 @@ import { describe, test } from 'vitest'
 
 import {
   buildImageEditQuoteRequest,
-  findImageEditProfile,
   getImageProfileMaxReferenceImages,
   isImageEditQuoteRequest,
   isImageQuoteStaleError,
@@ -50,21 +49,6 @@ const profile: ImageModelProfile = {
 }
 
 describe('image edit domain', () => {
-  test('enables editing only for the exact gpt-image-2 profile', () => {
-    const editProfile = { ...profile, id: 8, model: 'gpt-image-2' }
-    const suffixProfile = { ...profile, id: 9, model: 'gpt-image-2-2k' }
-
-    assert.equal(
-      findImageEditProfile([suffixProfile, editProfile]),
-      editProfile
-    )
-    assert.equal(findImageEditProfile([suffixProfile]), undefined)
-    assert.equal(
-      findImageEditProfile([{ ...profile, model: 'gpt-image-2k' }]),
-      undefined
-    )
-  })
-
   test('resolves the model reference limit with a fail-safe default', () => {
     assert.equal(getImageProfileMaxReferenceImages(profile), 4)
     for (const configured of [undefined, 0]) {

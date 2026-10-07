@@ -26,6 +26,7 @@ func setupImageStudioTokenTest(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Token{}, &model.Channel{}, &model.Ability{},
+		&model.Model{},
 		&model.KKAIImageModelProfile{}, &model.KKAIImageSample{}, &model.KKAIImageGeneration{}, &model.KKAIImageAsset{},
 	))
 	previousDB := model.DB
@@ -77,9 +78,69 @@ func TestEnabledImageStudioModelsFiltersNonImageEndpoints(t *testing.T) {
 	seedImageStudioModel(t, db, "gpt-image-2-1k", constant.ChannelTypeOpenAI)
 	seedImageStudioModel(t, db, "chat-only-model", constant.ChannelTypeOpenAI)
 
-	models, err := enabledConfiguredImageStudioModelsForGroup(context.Background(), db, ImageStudioTokenGroup)
+	models, err := enabledImageStudioCatalogModelsForGroup(context.Background(), db, ImageStudioTokenGroup)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"gpt-image-2"}, models)
+	assert.Equal(t, []string{"gpt-image-2", "gpt-image-2-1k"}, models)
+}
+
+func TestEnabledImageStudioModelsAcceptsArrayImageMetadata(t *testing.T) {
+	db := setupImageStudioTokenTest(t)
+	channel := model.Channel{
+		Type: constant.ChannelTypeOpenAI, Key: "test-key", Status: common.ChannelStatusEnabled,
+		Name: "custom image channel", Models: "opaque-image-model", Group: ImageStudioTokenGroup,
+		CreatedTime: time.Now().Unix(),
+	}
+	require.NoError(t, db.Create(&channel).Error)
+	priority := int64(0)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: ImageStudioTokenGroup, Model: "opaque-image-model", ChannelId: channel.Id,
+		Enabled: true, Priority: &priority,
+	}).Error)
+	require.NoError(t, db.Create(&model.Model{
+		ModelName: "opaque-image-model", Endpoints: `["image-generation"]`,
+	}).Error)
+
+	models, err := enabledImageStudioCatalogModelsForGroup(context.Background(), db, ImageStudioTokenGroup)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"opaque-image-model"}, models)
+}
+
+func TestImageStudioMetadataMatchingPrefersExactRule(t *testing.T) {
+	metadata := []model.Model{
+		{ModelName: "gpt-image-", NameRule: model.NameRulePrefix, Endpoints: `{"image-generation":"/v1/images/generations"}`},
+		{ModelName: "gpt-image-2.5-flare", NameRule: model.NameRuleExact, Endpoints: `{"openai":"/v1/chat/completions"}`},
+	}
+	match := imageStudioMatchingModelMetadata(metadata, "gpt-image-2.5-flare")
+	require.NotNil(t, match)
+	assert.False(t, imageStudioMetadataSupportsImageEndpoint(match.Endpoints))
+}
+
+func TestEnabledImageStudioModelsRejectsUnsupportedMetadataImageRoutes(t *testing.T) {
+	db := setupImageStudioTokenTest(t)
+	require.NoError(t, db.Create(&model.Model{
+		ModelName: "opaque-image-model", Endpoints: `{"image-generation":"/v1/images/generations"}`,
+	}).Error)
+
+	for _, channelType := range []int{
+		constant.ChannelTypeAnthropic, constant.ChannelTypeGemini,
+		constant.ChannelTypeVertexAi, constant.ChannelTypeMoonshot,
+	} {
+		channel := model.Channel{
+			Type: channelType, Key: "test-key", Status: common.ChannelStatusEnabled,
+			Name: "unsupported image channel", Models: "opaque-image-model", Group: ImageStudioTokenGroup,
+			CreatedTime: time.Now().Unix(),
+		}
+		require.NoError(t, db.Create(&channel).Error)
+		priority := int64(0)
+		require.NoError(t, db.Create(&model.Ability{
+			Group: ImageStudioTokenGroup, Model: "opaque-image-model", ChannelId: channel.Id,
+			Enabled: true, Priority: &priority,
+		}).Error)
+
+		models, err := enabledImageStudioCatalogModelsForGroup(context.Background(), db, ImageStudioTokenGroup)
+		require.NoError(t, err)
+		assert.NotContains(t, models, "opaque-image-model", "channel type %d", channelType)
+	}
 }
 
 func TestGetImageStudioTokenStatusReturnsReferenceLimits(t *testing.T) {

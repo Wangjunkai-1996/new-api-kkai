@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -258,11 +259,73 @@ func ApplyImageStudioMaximumPreconsume(
 	if relayInfo == nil || priceData == nil || meta == nil || promptTokens < 0 || meta.MaxTokens < 0 {
 		return ErrImageStudioQuoteStale
 	}
-	// Arbitrary tiered expressions cannot be proven monotonic over every image,
-	// cache, audio, request, and time variable. First phase therefore fails
-	// closed instead of spending provider cost against an unsafe quote.
-	if relayInfo.TieredBillingSnapshot != nil {
-		return ErrImageModelBillingUnsupported
+	if snapshot := relayInfo.TieredBillingSnapshot; snapshot != nil {
+		if snapshot.BillingMode != "tiered_expr" || snapshot.TaskUsageBilling ||
+			!billingexpr.SupportsMonotonicTokenEstimate(snapshot.ExprString) {
+			return ErrImageModelBillingUnsupported
+		}
+		count := 1.0
+		if requested, exists := meta.BillingRatios["n"]; exists {
+			if math.IsNaN(requested) || requested < 1 || requested > dto.MaxImageN || requested != math.Trunc(requested) {
+				return ErrImageStudioQuoteStale
+			}
+			count = requested
+		}
+		references := c.GetInt(imageStudioReferenceCountContextKey)
+		if references < 0 || references > MaxImageStudioReferenceImages {
+			return ErrImageStudioQuoteStale
+		}
+		// Reserve each allowed dimension independently: upstream usage may put
+		// tokens in any subcategory, or leave them in P/C when not priced separately.
+		// This deliberately overestimates overlapping categories; settlement uses
+		// actual normalized usage and the delivery guard enforces the quote ceiling.
+		inputTokens := max(promptTokens, common.PreConsumedQuota)
+		outputTokens := meta.MaxTokens
+		outputBudget := float64(outputTokens) * count
+		imageBudget := float64(references) * float64(max(meta.MaxTokens, common.PreConsumedQuota)) * count
+		inputBudget := float64(inputTokens)*count + imageBudget
+		maximum := *snapshot
+		maximum.GroupRatio = priceData.GroupRatioInfo.GroupRatio
+		result, err := billingexpr.ComputeTieredQuota(&maximum, billingexpr.TokenParams{
+			P: inputBudget, C: outputBudget, Len: inputBudget,
+			CR: inputBudget, CC: inputBudget, CC1h: inputBudget,
+			Img: imageBudget, ImgCR: imageBudget, ImgO: outputBudget,
+			AI: inputBudget, AO: outputBudget,
+		})
+		if err != nil {
+			return err
+		}
+		if result.Clamp != nil {
+			return result.Clamp
+		}
+		maximum.EstimatedQuotaBeforeGroup = result.ActualQuotaBeforeGroup
+		if result.BillingUnit != billingexpr.BillingUnitRequest && maximum.PreConsumeMultiplier != 0 {
+			maximum.EstimatedQuotaBeforeGroup *= maximum.PreConsumeMultiplier
+		}
+		quota, err := billingexpr.QuotaRoundStrict(maximum.EstimatedQuotaBeforeGroup * maximum.GroupRatio)
+		if err != nil {
+			return err
+		}
+		if quota < 0 || maximum.EstimatedQuotaBeforeGroup < 0 {
+			return ErrImageStudioQuoteStale
+		}
+		estimatedPromptTokens, err := common.QuotaFromFloatStrict(inputBudget)
+		if err != nil {
+			return err
+		}
+		estimatedCompletionTokens, err := common.QuotaFromFloatStrict(outputBudget)
+		if err != nil {
+			return err
+		}
+		maximum.EstimatedPromptTokens = estimatedPromptTokens
+		maximum.EstimatedCompletionTokens = estimatedCompletionTokens
+		maximum.EstimatedQuotaAfterGroup = quota
+		maximum.EstimatedTier = result.MatchedTier
+		maximum.EstimatedBillingUnit = result.BillingUnit
+		relayInfo.TieredBillingSnapshot = &maximum
+		priceData.QuotaToPreConsume = quota
+		relayInfo.PriceData = *priceData
+		return nil
 	}
 	// Fixed-price quotes already represent the complete request price. Only
 	// ratio billing needs its token estimate expanded to maximum completion.

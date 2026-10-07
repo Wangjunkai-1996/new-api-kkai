@@ -40,7 +40,7 @@ func TestImageModelProfileCannotPublishUnboundedTieredBilling(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
 		"billing_setting.billing_mode": `{"gpt-image-1":"tiered_expr"}`,
-		"billing_setting.billing_expr": `{"gpt-image-1":"img_o * 40"}`,
+		"billing_setting.billing_expr": `{"gpt-image-1":"img_o < 100 ? img_o * 40 : img_o * 20"}`,
 	}))
 
 	_, err := CreateImageModelProfile(context.Background(), db, imageModelProfileInput(1))
@@ -139,6 +139,50 @@ func TestListEffectiveImageModelProfilesUsesProfileOutputLimit(t *testing.T) {
 	view, exists := byModel[modelName]
 	require.True(t, exists)
 	assert.Equal(t, 4, view.EffectiveMaxOutputs)
+}
+
+func TestListEffectiveImageModelProfilesDiscoversAllEnabledImageModels(t *testing.T) {
+	db := setupImageStudioTokenTest(t)
+	for _, modelName := range []string{"gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		seedImageStudioAbility(t, modelName)
+	}
+	ensured, err := EnsureImageStudioToken(context.Background(), db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+
+	views, err := ListEffectiveImageModelProfiles(context.Background(), db, 42, ensured.Token.ID, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, views, 3)
+	models := make(map[string]ImageModelProfileView, len(views))
+	for _, view := range views {
+		models[view.Model] = view
+		assert.Positive(t, view.ID)
+		assert.Equal(t, view.Model, view.DisplayName)
+		assert.Equal(t, 1, view.SpecificationVersion)
+	}
+	assert.Contains(t, models, "gpt-image-2")
+	assert.Contains(t, models, "gpt-image-2.5-flare")
+	assert.Contains(t, models, "gpt-image-2.5-sunburst")
+}
+
+func TestListEffectiveImageModelProfilesPreservesConfiguredAndDisabledModels(t *testing.T) {
+	db := setupImageStudioTokenTest(t)
+	seedImageStudioAbility(t, "gpt-image-2.5-flare")
+	seedImageStudioAbility(t, "gpt-image-2.5-sunburst")
+	configured := seedEffectiveImageModelProfile
+	configured(t, db, "gpt-image-2.5-flare", 4)
+	now := time.Now().Unix()
+	require.NoError(t, db.Create(&model.KKAIImageModelProfile{
+		Model: "gpt-image-2.5-sunburst", DisplayName: "Disabled Sunburst", SpecificationVersion: 1,
+		Specification: `{"version":1,"parameters":[]}`, DefaultParameters: `{}`, CreatedAt: now, UpdatedAt: now,
+	}).Error)
+	ensured, err := EnsureImageStudioToken(context.Background(), db, 42, "", "192.0.2.1")
+	require.NoError(t, err)
+
+	views, err := ListEffectiveImageModelProfiles(context.Background(), db, 42, ensured.Token.ID, "192.0.2.1")
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	assert.Equal(t, "gpt-image-2.5-flare", views[0].Model)
+	assert.Equal(t, 4, views[0].EffectiveMaxOutputs)
 }
 
 func TestEffectiveImageModelMaxOutputsDefaultsToOneWithoutCountParameter(t *testing.T) {

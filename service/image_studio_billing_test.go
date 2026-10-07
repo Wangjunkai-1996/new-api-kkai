@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -84,6 +85,74 @@ func TestImageStudioMaximumPreconsumeRejectsUnboundedTieredExpression(t *testing
 	require.ErrorIs(t, ApplyImageStudioMaximumPreconsume(
 		c, relayInfo, &price, 100, &relaytypes.TokenCountMeta{MaxTokens: 1_000},
 	), ErrImageModelBillingUnsupported)
+}
+
+func TestImageStudioMaximumPreconsumeTieredImageExpression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousMinimum := common.PreConsumedQuota
+	common.PreConsumedQuota = 500
+	t.Cleanup(func() { common.PreConsumedQuota = previousMinimum })
+	for _, test := range []struct {
+		name         string
+		expression   string
+		references   int
+		count        float64
+		maxTokens    int
+		quota        int
+		inputBudget  int
+		outputBudget int
+	}{
+		{
+			name: "text and output fallback", expression: `tier("standard", p * 5 + img * 8 + c * 30)`,
+			count: 2, maxTokens: 1_000, quota: 32_500, inputBudget: 1_000, outputBudget: 2_000,
+		},
+		{
+			name: "separate image output", expression: `tier("standard", p * 5 + img_o * 40)`,
+			count: 2, maxTokens: 1_000, quota: 42_500, inputBudget: 1_000, outputBudget: 2_000,
+		},
+		{
+			name: "reference images in prompt fallback", expression: `tier("standard", p * 5 + c * 30)`,
+			references: 1, count: 2, maxTokens: 1_000, quota: 37_500, inputBudget: 3_000, outputBudget: 2_000,
+		},
+		{
+			name: "separate image input", expression: `tier("standard", p * 5 + img * 8 + c * 30)`,
+			references: 1, count: 2, maxTokens: 1_000, quota: 45_500, inputBudget: 3_000, outputBudget: 2_000,
+		},
+		{
+			name: "cache dimensions", expression: `tier("cache", cr + cc * 2 + cc1h * 3 + img_cr * 4)`,
+			references: 1, count: 2, maxTokens: 1_000, quota: 13_000, inputBudget: 3_000, outputBudget: 2_000,
+		},
+		{
+			name: "reference budget minimum", expression: `tier("standard", p * 5 + cr * 1.25 + img * 8 + img_cr * 2 + c * 30)`,
+			references: 1, count: 1, maxTokens: 100, quota: 7_125, inputBudget: 1_000, outputBudget: 100,
+		},
+		{
+			name: "context length and audio dimensions", expression: `tier("all", len + ai * 2 + ao * 3)`,
+			references: 1, count: 2, maxTokens: 1_000, quota: 7_500, inputBudget: 3_000, outputBudget: 2_000,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(nil)
+			common.SetContextKey(c, constant.ContextKeyIsImageStudio, true)
+			SetImageStudioReferenceCount(c, test.references)
+			relayInfo := &relaycommon.RelayInfo{TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+				BillingMode: "tiered_expr",
+				ExprString:  test.expression, ExprHash: billingexpr.ExprHashString(test.expression),
+				GroupRatio: 1, QuotaPerUnit: 500_000, PreConsumeMultiplier: 1,
+			}}
+			price := types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}
+
+			require.NoError(t, ApplyImageStudioMaximumPreconsume(
+				c, relayInfo, &price, 100, &relaytypes.TokenCountMeta{
+					MaxTokens: test.maxTokens, BillingRatios: map[string]float64{"n": test.count},
+				},
+			))
+			assert.Equal(t, test.quota, price.QuotaToPreConsume)
+			assert.Equal(t, test.quota, relayInfo.PriceData.QuotaToPreConsume)
+			assert.Equal(t, test.inputBudget, relayInfo.TieredBillingSnapshot.EstimatedPromptTokens)
+			assert.Equal(t, test.outputBudget, relayInfo.TieredBillingSnapshot.EstimatedCompletionTokens)
+		})
+	}
 }
 
 func TestImagePricingActualCountKeepsSnapshotImmutable(t *testing.T) {

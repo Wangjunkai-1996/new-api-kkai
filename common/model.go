@@ -1,6 +1,9 @@
 package common
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 var (
 	// OpenAIResponseOnlyModels is a list of models that are only available for OpenAI responses.
@@ -12,7 +15,6 @@ var (
 	ImageGenerationModels = []string{
 		"dall-e-3",
 		"dall-e-2",
-		"gpt-image-1",
 		"prefix:imagen-",
 		"flux-",
 		"flux.1-",
@@ -24,6 +26,7 @@ var (
 		"o4",
 		"chatgpt",
 	}
+	gptImageModelPattern = regexp.MustCompile(`^gpt-image-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+(?:[._-][a-z0-9]+)*)?$`)
 )
 
 func IsOpenAIResponseOnlyModel(modelName string) bool {
@@ -37,7 +40,7 @@ func IsOpenAIResponseOnlyModel(modelName string) bool {
 
 func IsImageGenerationModel(modelName string) bool {
 	modelName = strings.ToLower(modelName)
-	if modelName == "gpt-image-2" {
+	if gptImageModelPattern.MatchString(modelName) {
 		return true
 	}
 	for _, m := range ImageGenerationModels {

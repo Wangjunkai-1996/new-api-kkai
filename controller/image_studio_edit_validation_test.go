@@ -67,7 +67,7 @@ func TestParseImageStudioEditSubmissionCleansArchivesOnValidationFailure(t *test
 				test.mutate(references)
 			}
 			requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-				TokenID: 1, Model: service.ImageStudioEditModel, Prompt: "edit", References: references,
+				TokenID: 1, Model: imageStudioEditTestModel, Prompt: "edit", References: references,
 			})
 			require.NoError(t, err)
 			body, contentType := imageStudioEditMultipartBodyWithMIMEs(t, requestJSON, test.images, test.mimes)

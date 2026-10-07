@@ -466,7 +466,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	}
 	references := imageStudioEditTestReferences(referenceImages)
 	quoteRequest, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "Use this reference",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "Use this reference",
 		Parameters: map[string]any{"count": 1, "size": "1024x1024"},
 		References: references,
 	})
@@ -487,7 +487,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	require.NotEmpty(t, quoteEnvelope.Data.QuoteToken)
 
 	submitJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "Use this reference",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "Use this reference",
 		Parameters: map[string]any{"count": 1, "size": "1024x1024"},
 		QuoteToken: quoteEnvelope.Data.QuoteToken, References: references,
 	})
@@ -502,7 +502,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 
 	providerCall := <-observed
 	assert.Equal(t, "/v1/images/edits", providerCall.Path)
-	assert.Equal(t, service.ImageStudioEditModel, providerCall.Model)
+	assert.Equal(t, imageStudioEditTestModel, providerCall.Model)
 	assert.Equal(t, "Use this reference", providerCall.Prompt)
 	assert.Equal(t, "1024x1024", providerCall.Size)
 	assert.Equal(t, "1", providerCall.N)
@@ -512,7 +512,7 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 
 	var generation model.KKAIImageGeneration
 	require.NoError(t, db.First(&generation).Error)
-	assert.Equal(t, service.ImageStudioEditModel, generation.Model)
+	assert.Equal(t, imageStudioEditTestModel, generation.Model)
 	assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
 	assert.Equal(t, 1, generation.RequestedCount)
 	assert.Equal(t, 1, generation.SucceededCount)
@@ -533,14 +533,14 @@ func TestImageStudioEditQuoteAndSubmitUseValidatedMultipartAndResolutionPricing(
 	var consumeLog model.Log
 	require.NoError(t, db.Where("type = ?", model.LogTypeConsume).First(&consumeLog).Error)
 	assert.Equal(t, quoteEnvelope.Data.Quota, consumeLog.Quota)
-	assert.Equal(t, service.ImageStudioEditModel, consumeLog.ModelName)
+	assert.Equal(t, imageStudioEditTestModel, consumeLog.ModelName)
 	var other map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(consumeLog.Other, &other))
 	adminInfo, ok := other["admin_info"].(map[string]any)
 	require.True(t, ok)
 	pricingSnapshot, ok := adminInfo["image_pricing"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, service.ImageStudioEditModel, pricingSnapshot["model"])
+	assert.Equal(t, imageStudioEditTestModel, pricingSnapshot["model"])
 	assert.Equal(t, "1024x1024", pricingSnapshot["size"])
 	assert.Equal(t, 0.67, pricingSnapshot["unit_price"])
 	assert.Equal(t, 1.5, pricingSnapshot["group_ratio"])
@@ -1057,7 +1057,7 @@ func enableImageStudioEditIntegrationModel(t *testing.T, db *gorm.DB) {
 	require.NoError(t, err)
 	now := time.Now().Unix()
 	require.NoError(t, db.Create(&model.KKAIImageModelProfile{
-		Model: service.ImageStudioEditModel, DisplayName: "Image Edit", SpecificationVersion: 1,
+		Model: imageStudioEditTestModel, DisplayName: "Image Edit", SpecificationVersion: 1,
 		Specification: string(specification), DefaultParameters: `{"count":1,"size":"1024x1024"}`,
 		Enabled: true, CreatedAt: now, UpdatedAt: now,
 	}).Error)
@@ -1067,7 +1067,7 @@ func enableImageStudioEditIntegrationModel(t *testing.T, db *gorm.DB) {
 	priority := int64(0)
 	weight := uint(100)
 	require.NoError(t, db.Create(&model.Ability{
-		Group: service.ImageStudioTokenGroup, Model: service.ImageStudioEditModel, ChannelId: channel.Id,
+		Group: service.ImageStudioTokenGroup, Model: imageStudioEditTestModel, ChannelId: channel.Id,
 		Enabled: true, Priority: &priority, Weight: weight,
 	}).Error)
 	model.InitChannelCache()

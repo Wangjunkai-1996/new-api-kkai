@@ -37,6 +37,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const imageStudioEditTestModel = "gpt-image-2"
+
 func TestPrepareImageStudioRequestRewritesOnlyValidatedRelayFields(t *testing.T) {
 	db, token := newImageStudioRelayTestDB(t)
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
@@ -71,6 +73,69 @@ func TestPrepareImageStudioRequestRewritesOnlyValidatedRelayFields(t *testing.T)
 	assert.Zero(t, reservations)
 }
 
+func TestPrepareImageStudioRequestsUseTokenAvailableImageModels(t *testing.T) {
+	for _, modelName := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		t.Run(modelName, func(t *testing.T) {
+			db, token := newImageStudioRelayTestDB(t)
+			require.NoError(t, db.Model(&model.KKAIImageModelProfile{}).Where("model = ?", imageStudioEditTestModel).Update("model", modelName).Error)
+			require.NoError(t, db.Model(&model.Ability{}).Where("model = ?", imageStudioEditTestModel).Update("model", modelName).Error)
+			require.NoError(t, db.Model(&model.Channel{}).Where("name = ?", "image channel").Update("models", "gpt-image-1,"+modelName).Error)
+			images := [][]byte{imageStudioEditTestPNG(t, color.RGBA{R: 255, A: 255})}
+			for _, route := range []string{"/pg/images/quote", "/pg/images/edits/quote", "/pg/images/edits"} {
+				t.Run(route, func(t *testing.T) {
+					request := service.ImageStudioSubmissionRequest{
+						TokenID: token.Id, Model: modelName, Prompt: "a lighthouse", QuoteToken: "quote-token",
+					}
+					if strings.Contains(route, "/edits") {
+						request.References = imageStudioEditTestReferences(images)
+					}
+					body, err := common.Marshal(request)
+					require.NoError(t, err)
+					contentType := "application/json"
+					if route == "/pg/images/edits" {
+						body, contentType = imageStudioEditMultipartBody(t, body, images, false)
+					}
+					ctx, recorder := newImageStudioRelayContext(http.MethodPost, route, body)
+					ctx.Request.Header.Set("Content-Type", contentType)
+					ctx.Request.Header.Set("Idempotency-Key", "selected-model-edit")
+
+					PrepareImageStudioRequest(ctx)
+
+					require.False(t, ctx.IsAborted(), recorder.Body.String())
+					normalized, ok := imageStudioNormalizedSubmission(ctx)
+					require.True(t, ok)
+					assert.Equal(t, modelName, normalized.Model)
+					assert.Equal(t, request.References, normalized.References)
+					rewritten, err := io.ReadAll(ctx.Request.Body)
+					require.NoError(t, err)
+					if route == "/pg/images/edits" {
+						replayed := httptest.NewRequest(http.MethodPost, ctx.Request.URL.Path, bytes.NewReader(rewritten))
+						replayed.Header.Set("Content-Type", ctx.Request.Header.Get("Content-Type"))
+						require.NoError(t, replayed.ParseMultipartForm(1<<20))
+						assert.Equal(t, modelName, replayed.PostForm.Get("model"))
+						require.Len(t, replayed.MultipartForm.File["image"], 1)
+						return
+					}
+					var payload map[string]any
+					require.NoError(t, common.Unmarshal(rewritten, &payload))
+					assert.Equal(t, modelName, payload["model"])
+				})
+			}
+			// A configured profile does not grant access once this key's group loses the route.
+			require.NoError(t, db.Model(&model.Ability{}).Where("model = ?", modelName).Update("enabled", false).Error)
+			body, err := common.Marshal(service.ImageStudioSubmissionRequest{
+				TokenID: token.Id, Model: modelName, Prompt: "edit", References: imageStudioEditTestReferences(images),
+			})
+			require.NoError(t, err)
+			ctx, recorder := newImageStudioRelayContext(http.MethodPost, "/pg/images/edits/quote", body)
+			PrepareImageStudioRequest(ctx)
+			assert.True(t, ctx.IsAborted())
+			assert.Equal(t, http.StatusForbidden, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "image_token_model_forbidden")
+		})
+	}
+}
+
 func TestPrepareImageStudioEditQuoteBindsRouteModeAndReferences(t *testing.T) {
 	_, token := newImageStudioRelayTestDB(t)
 	references := []service.ImageStudioReferenceMetadata{
@@ -78,7 +143,7 @@ func TestPrepareImageStudioEditQuoteBindsRouteModeAndReferences(t *testing.T) {
 		{SHA256: strings.Repeat("b", 64), SizeBytes: 5678},
 	}
 	body, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit a lighthouse",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "edit a lighthouse",
 		References: references,
 	})
 	require.NoError(t, err)
@@ -96,7 +161,7 @@ func TestPrepareImageStudioEditQuoteBindsRouteModeAndReferences(t *testing.T) {
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, common.Unmarshal(rewritten, &payload))
-	assert.Equal(t, service.ImageStudioEditModel, payload["model"])
+	assert.Equal(t, imageStudioEditTestModel, payload["model"])
 	assert.NotContains(t, payload, "references")
 }
 
@@ -110,7 +175,7 @@ func TestPrepareImageStudioEditSubmitValidatesAndRebuildsOrderedMultipart(t *tes
 	}
 	references := imageStudioEditTestReferences(imageBytes)
 	requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit a lighthouse",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "edit a lighthouse",
 		QuoteToken: "quote-token",
 		References: references,
 	})
@@ -133,7 +198,7 @@ func TestPrepareImageStudioEditSubmitValidatesAndRebuildsOrderedMultipart(t *tes
 	replayed := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(rewritten))
 	replayed.Header.Set("Content-Type", ctx.Request.Header.Get("Content-Type"))
 	require.NoError(t, replayed.ParseMultipartForm(1<<20))
-	assert.Equal(t, service.ImageStudioEditModel, replayed.PostForm.Get("model"))
+	assert.Equal(t, imageStudioEditTestModel, replayed.PostForm.Get("model"))
 	assert.Equal(t, "edit a lighthouse", replayed.PostForm.Get("prompt"))
 	assert.Equal(t, "1", replayed.PostForm.Get("n"))
 	assert.Equal(t, "false", replayed.PostForm.Get("stream"))
@@ -158,7 +223,7 @@ func TestPrepareImageStudioEditSubmitRejectsExtraMultipartFields(t *testing.T) {
 	)
 	require.NoError(t, err)
 	requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "edit",
 		QuoteToken: "quote-token",
 		References: imageStudioEditTestReferences([][]byte{imageBytes}),
 	})
@@ -182,7 +247,7 @@ func TestPrepareImageStudioEditSubmitRejectsInvalidMultipartCardinalityAndAliase
 	)
 	require.NoError(t, err)
 	requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
-		TokenID: token.Id, Model: service.ImageStudioEditModel, Prompt: "edit",
+		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "edit",
 		QuoteToken: "quote-token",
 		References: imageStudioEditTestReferences([][]byte{imageBytes}),
 	})
@@ -383,7 +448,7 @@ func resetImageStudioSubmissionCapacity(t *testing.T) {
 func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 	t.Helper()
 	withTieredBillingConfig(t, map[string]string{
-		service.ImageStudioEditModel: billing_setting.BillingModeRatio,
+		imageStudioEditTestModel: billing_setting.BillingModeRatio,
 	}, map[string]string{})
 	gin.SetMode(gin.TestMode)
 	previousDB := model.DB
@@ -429,7 +494,7 @@ func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 	}
 	require.NoError(t, db.Create(&channel).Error)
 	priority := int64(0)
-	for _, modelName := range []string{"gpt-image-1", service.ImageStudioEditModel} {
+	for _, modelName := range []string{"gpt-image-1", imageStudioEditTestModel} {
 		require.NoError(t, db.Create(&model.Ability{
 			Group: service.ImageStudioTokenGroup, Model: modelName, ChannelId: channel.Id,
 			Enabled: true, Priority: &priority,
@@ -441,7 +506,7 @@ func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 		{Key: "count", Label: "Count", Control: service.ImageControlInteger, RequestKey: "n", Min: &minimum, Max: &maximum},
 	}})
 	require.NoError(t, err)
-	for _, modelName := range []string{"gpt-image-1", service.ImageStudioEditModel} {
+	for _, modelName := range []string{"gpt-image-1", imageStudioEditTestModel} {
 		require.NoError(t, db.Create(&model.KKAIImageModelProfile{
 			Model: modelName, DisplayName: "Image Model", Description: "test",
 			SpecificationVersion: 1, Specification: string(specification), DefaultParameters: `{"count":1}`,

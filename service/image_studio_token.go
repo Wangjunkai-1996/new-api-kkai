@@ -93,7 +93,7 @@ func GetImageStudioTokenStatus(
 	if err != nil {
 		return capability, err
 	}
-	models, err := enabledConfiguredImageStudioModelsForGroup(ctx, db, ImageStudioTokenGroup)
+	models, err := enabledImageStudioCatalogModelsForGroup(ctx, db, ImageStudioTokenGroup)
 	if err != nil {
 		return capability, err
 	}
@@ -181,7 +181,7 @@ func ensureImageStudioTokenOnce(
 		if !imageStudioUserCanUseGroup(user) {
 			return ErrImageStudioTokenGroupUnavailable
 		}
-		models, err = enabledConfiguredImageStudioModelsForGroup(ctx, tx, ImageStudioTokenGroup)
+		models, err = enabledImageStudioCatalogModelsForGroup(ctx, tx, ImageStudioTokenGroup)
 		if err != nil {
 			return err
 		}

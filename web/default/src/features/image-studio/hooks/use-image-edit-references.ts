@@ -16,19 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  findImageEditProfile,
-  getImageProfileMaxReferenceImages,
-} from '../image-edit-domain'
+import { getImageProfileMaxReferenceImages } from '../image-edit-domain'
 import { IMAGE_REFERENCE_DEFAULT_MAX_BYTES } from '../image-reference-metadata'
 import type { ImageModelProfile, ImageTokenCapability } from '../types'
 import { useImageReferences } from './use-image-references'
 
 export function useImageEditReferences(
-  profiles: ImageModelProfile[] | undefined,
+  profile: ImageModelProfile | undefined,
   capability: ImageTokenCapability | undefined
 ) {
-  const profile = findImageEditProfile(profiles)
   const maxImages = getImageProfileMaxReferenceImages(profile)
   const maxReferenceBytes =
     capability?.max_reference_bytes ?? IMAGE_REFERENCE_DEFAULT_MAX_BYTES
@@ -47,5 +43,5 @@ export function useImageEditReferences(
     maxReferenceBytes,
     maxReferenceTotalBytes,
   })
-  return { profile, maxImages, references }
+  return { maxImages, references }
 }

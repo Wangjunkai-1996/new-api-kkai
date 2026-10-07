@@ -27,10 +27,12 @@ import { useAuthStore } from '@/stores/auth-store'
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import type {
   CreateImageRequest,
+  ImageComposerValues,
   ImageEditQuoteRequest,
   ImageModelProfile,
   ImageQuoteRequest,
   ImageReferenceMetadata,
+  ImageSample,
 } from '../types'
 import { ImageComposer } from './image-composer'
 
@@ -41,7 +43,6 @@ type GenerationVariables = {
 
 const mocks = vi.hoisted(() => ({
   models: [] as ImageModelProfile[],
-  editProfile: undefined as ImageModelProfile | undefined,
   editQuoteRequest: null as ImageEditQuoteRequest | null,
   generationMutation: {
     isPending: false,
@@ -54,7 +55,7 @@ const mocks = vi.hoisted(() => ({
   },
   draftState: {
     userId: 1,
-    draft: null,
+    draft: null as ImageComposerValues | null,
     hydrate: vi.fn(),
     save: vi.fn(),
     clear: vi.fn(),
@@ -107,12 +108,8 @@ vi.mock('../queries', () => ({
   },
 }))
 
-vi.mock('../hooks/use-image-edit-references', () => ({
-  useImageEditReferences: () => ({
-    profile: mocks.editProfile,
-    maxImages: 1,
-    references: mocks.reference,
-  }),
+vi.mock('../hooks/use-image-references', () => ({
+  useImageReferences: () => mocks.reference,
 }))
 
 vi.mock('@/stores/image-studio-draft-store', () => ({
@@ -128,7 +125,9 @@ vi.mock('./image-token-setup-dialog', () => ({
 }))
 
 vi.mock('./image-reference-field', () => ({
-  ImageReferenceField: () => null,
+  ImageReferenceField: (props: { maxReferenceImages: number }) => (
+    <span aria-label='Reference limit'>{props.maxReferenceImages}</span>
+  ),
 }))
 
 const profile = (): ImageModelProfile => ({
@@ -181,7 +180,7 @@ const tokenGate = {
   createError: null,
 } as unknown as ImageTokenGateState
 
-describe('image composer batch copy', () => {
+describe('image composer', () => {
   beforeAll(async () => {
     i18next.addResourceBundle('en', 'translation', en.translation, true, true)
     await i18next.changeLanguage('en')
@@ -194,7 +193,7 @@ describe('image composer batch copy', () => {
       role: 1,
     })
     mocks.models = [profile()]
-    mocks.editProfile = undefined
+    mocks.draftState.draft = null
     mocks.editQuoteRequest = null
     mocks.generationMutation.isPending = false
     mocks.generationMutation.variables = undefined
@@ -270,7 +269,6 @@ describe('image composer batch copy', () => {
     const editProfile = profile()
     editProfile.default_parameters = { variants: 4 }
     mocks.models = [editProfile]
-    mocks.editProfile = editProfile
     mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
     mocks.reference.files = [
       new File(['reference'], 'reference.png', { type: 'image/png' }),
@@ -293,6 +291,151 @@ describe('image composer batch copy', () => {
     expect(screen.queryByLabelText('Candidates')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(mocks.editQuoteRequest?.parameters.variants).toBe(1)
+    })
+  })
+
+  test('restores and selects every key model in both modes and submits the selected edit model', async () => {
+    const user = userEvent.setup()
+    const flare = {
+      ...profile(),
+      id: 8,
+      model: 'gpt-image-2.5-flare',
+      display_name: 'Flare',
+    }
+    flare.specification.max_reference_images = 2
+    const sunburst = {
+      ...profile(),
+      id: 9,
+      model: 'gpt-image-2.5-sunburst',
+      display_name: 'Sunburst',
+    }
+    sunburst.specification.max_reference_images = 4
+    mocks.models = [profile(), flare, sunburst]
+    mocks.draftState.draft = {
+      model_profile_id: flare.id,
+      prompt: 'A saved composition',
+      parameters: { variants: 4 },
+    }
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
+    mocks.reference.files = [
+      new File(['reference'], 'reference.png', { type: 'image/png' }),
+    ]
+    const generation = { id: 19, status: 'succeeded' }
+    mocks.editMutation.mutateAsync.mockResolvedValue(generation)
+    const onSubmitted = vi.fn()
+
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={onSubmitted} />)
+
+    const modelSelect = await screen.findByRole('combobox', { name: 'Model' })
+    expect(modelSelect).toHaveValue(String(flare.id))
+    expect(screen.getByLabelText('Prompt')).toHaveValue('A saved composition')
+    expect(screen.getByRole('option', { name: 'Flare' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Sunburst' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(modelSelect).toBeEnabled()
+    expect(modelSelect).toHaveValue(String(flare.id))
+    expect(screen.getByLabelText('Reference limit')).toHaveTextContent('2')
+    expect(screen.getAllByRole('option')).toHaveLength(4)
+
+    await user.selectOptions(modelSelect, String(sunburst.id))
+
+    expect(screen.getByLabelText('Reference limit')).toHaveTextContent('4')
+    await waitFor(() => {
+      expect(mocks.editQuoteRequest).toMatchObject({
+        token_id: 11,
+        model: sunburst.model,
+        prompt: 'A saved composition',
+        parameters: { variants: 1 },
+      })
+      expect(screen.getByRole('button', { name: 'Edit image' })).toBeEnabled()
+    })
+    await user.click(screen.getByRole('button', { name: 'Edit image' }))
+
+    await waitFor(() => {
+      expect(mocks.editMutation.mutateAsync).toHaveBeenCalledWith({
+        request: {
+          ...mocks.editQuoteRequest,
+          quote_token: 'edit-quote-1',
+        },
+        images: mocks.reference.files,
+        idempotencyKey: 'submission-key',
+      })
+      expect(onSubmitted).toHaveBeenCalledWith(generation)
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    expect(modelSelect).toHaveValue(String(sunburst.id))
+  })
+
+  test('uses the sample model in edit mode and preserves later manual selection across mode changes', async () => {
+    const user = userEvent.setup()
+    const sunburst = {
+      ...profile(),
+      id: 9,
+      model: 'gpt-image-2.5-sunburst',
+      display_name: 'Sunburst',
+    }
+    mocks.models = [profile(), sunburst]
+    const sample: ImageSample = {
+      id: 21,
+      model_profile_id: sunburst.id,
+      image_asset_id: 1,
+      model: sunburst.model,
+      title: 'A sample composition',
+      prompt: 'A sample composition',
+      model_version: sunburst.specification_version,
+      parameters: { variants: 4 },
+      category: '',
+      status: 'published',
+      sort_order: 0,
+      asset: {
+        id: 1,
+        position: 0,
+        state: 'ready',
+        thumbnail_state: 'ready',
+        mime_type: 'image/png',
+        size_bytes: 9,
+        width: 1024,
+        height: 1024,
+      },
+      created_at: 1,
+      updated_at: 1,
+    }
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
+    const { rerender } = render(
+      <ImageComposer tokenGate={tokenGate} onSubmitted={() => undefined} />
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    rerender(
+      <ImageComposer
+        tokenGate={tokenGate}
+        sample={sample}
+        onSubmitted={() => undefined}
+      />
+    )
+
+    const modelSelect = screen.getByRole('combobox', { name: 'Model' })
+    expect(modelSelect).toHaveValue(String(sunburst.id))
+    await waitFor(() => {
+      expect(mocks.editQuoteRequest).toMatchObject({
+        model: sunburst.model,
+        sample_id: sample.id,
+        parameters: { variants: 1 },
+      })
+    })
+
+    await user.selectOptions(modelSelect, '7')
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(modelSelect).toHaveValue('7')
+    expect(screen.getByLabelText('Prompt')).toHaveValue(sample.prompt)
+    await waitFor(() => {
+      expect(mocks.editQuoteRequest?.model).toBe('gpt-image-2')
+      expect(mocks.editQuoteRequest?.sample_id).toBeUndefined()
     })
   })
 })

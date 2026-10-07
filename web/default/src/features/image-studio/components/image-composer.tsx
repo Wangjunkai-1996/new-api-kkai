@@ -56,7 +56,6 @@ import {
 } from '../image-domain'
 import {
   buildImageEditQuoteRequest,
-  IMAGE_STUDIO_EDIT_MODEL,
   isImageEditQuoteRequest,
   isImageQuoteStaleResponse,
 } from '../image-edit-domain'
@@ -137,16 +136,13 @@ export function ImageComposer(props: {
   const values = useWatch({ control: form.control })
   const [mode, setMode] = useState<ImageStudioComposerMode>('generation')
   const [staleQuoteToken, setStaleQuoteToken] = useState<string | null>(null)
-  const {
-    profile: editProfile,
-    maxImages: maxReferenceImages,
-    references: reference,
-  } = useImageEditReferences(modelsQuery.data, props.tokenGate.capability)
   const initializedRef = useRef(false)
   const appliedSampleRef = useRef<number | undefined>(undefined)
   const selectedProfile = modelsQuery.data?.find(
     (profile) => profile.id === values.model_profile_id
   )
+  const { maxImages: maxReferenceImages, references: reference } =
+    useImageEditReferences(selectedProfile, props.tokenGate.capability)
   const outputParameter = selectedProfile
     ? getImageOutputParameter(selectedProfile)
     : undefined
@@ -213,12 +209,9 @@ export function ImageComposer(props: {
   useEffect(() => {
     if (!props.sample || !modelsQuery.data) return
     if (appliedSampleRef.current === props.sample.id) return
-    const profile =
-      mode === 'edit'
-        ? editProfile
-        : modelsQuery.data.find(
-            (candidate) => candidate.id === props.sample?.model_profile_id
-          )
+    const profile = modelsQuery.data.find(
+      (candidate) => candidate.id === props.sample?.model_profile_id
+    )
     if (!profile) return
     form.reset(
       buildImageComposerValues(
@@ -233,7 +226,7 @@ export function ImageComposer(props: {
     )
     appliedSampleRef.current = props.sample.id
     initializedRef.current = true
-  }, [editProfile, form, mode, modelsQuery.data, props.sample])
+  }, [form, mode, modelsQuery.data, props.sample])
 
   useEffect(() => {
     if (mode !== 'generation' || !initializedRef.current || userId <= 0) return
@@ -270,12 +263,6 @@ export function ImageComposer(props: {
       sample_id: parsed.data.sample_id,
     }
     if (mode === 'generation') return request
-    if (
-      selectedProfile.model !== IMAGE_STUDIO_EDIT_MODEL ||
-      reference.metadata.length === 0
-    ) {
-      return null
-    }
     return buildImageEditQuoteRequest(request, reference.metadata)
   }, [
     mode,
@@ -322,12 +309,7 @@ export function ImageComposer(props: {
     const profile = modelsQuery.data?.find(
       (candidate) => candidate.id === profileId
     )
-    if (
-      !profile ||
-      (mode === 'edit' && profile.model !== IMAGE_STUDIO_EDIT_MODEL)
-    ) {
-      return
-    }
+    if (!profile) return
     form.reset(
       buildImageComposerValues(
         profile,
@@ -335,22 +317,15 @@ export function ImageComposer(props: {
         mode
       )
     )
-    appliedSampleRef.current = undefined
   }
 
   const changeMode = (nextMode: ImageStudioComposerMode): void => {
     if (nextMode === mode || submitPending) return
     setMode(nextMode)
     reference.clear()
-    if (nextMode === 'edit' && editProfile) {
+    if (selectedProfile) {
       form.reset(
-        buildImageComposerValues(
-          editProfile,
-          {
-            prompt: form.getValues('prompt'),
-          },
-          nextMode
-        )
+        buildImageComposerValues(selectedProfile, form.getValues(), nextMode)
       )
     }
   }
@@ -450,9 +425,6 @@ export function ImageComposer(props: {
     gateMessage = t('imageStudio.token.modelsUnavailable')
   }
 
-  let selectableProfiles = modelsQuery.data
-  if (mode === 'edit') selectableProfiles = editProfile ? [editProfile] : []
-
   let submitLabel = t('imageStudio.generateCount', { count: outputCount })
   let submitIcon = <Sparkles aria-hidden='true' />
   if (mode === 'edit') {
@@ -530,11 +502,11 @@ export function ImageComposer(props: {
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
-          {mode === 'edit' && !modelsQuery.isLoading && !editProfile && (
+          {mode === 'edit' && !modelsQuery.isLoading && !selectedProfile && (
             <Alert variant='destructive'>
               <AlertTitle>{t('imageStudio.editUnavailable')}</AlertTitle>
               <AlertDescription>
-                {t('imageStudio.editModelUnavailable')}
+                {t('imageStudio.token.modelsUnavailable')}
               </AlertDescription>
             </Alert>
           )}
@@ -551,7 +523,6 @@ export function ImageComposer(props: {
                     disabled={
                       !props.tokenGate.tokenId ||
                       modelsQuery.isLoading ||
-                      mode === 'edit' ||
                       submitPending
                     }
                     onChange={(event) =>
@@ -561,7 +532,7 @@ export function ImageComposer(props: {
                     <NativeSelectOption value=''>
                       {t('imageStudio.selectModel')}
                     </NativeSelectOption>
-                    {selectableProfiles?.map((profile) => (
+                    {modelsQuery.data?.map((profile) => (
                       <NativeSelectOption
                         key={profile.id}
                         value={String(profile.id)}
@@ -575,7 +546,7 @@ export function ImageComposer(props: {
               </FormItem>
             )}
           />
-          {mode === 'edit' && editProfile && (
+          {mode === 'edit' && selectedProfile && (
             <ImageReferenceField
               controller={reference}
               maxReferenceImages={maxReferenceImages}

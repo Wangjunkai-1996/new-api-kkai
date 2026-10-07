@@ -27,7 +27,6 @@ var (
 const (
 	ImageStudioModeGeneration = "generation"
 	ImageStudioModeEdit       = "edit"
-	ImageStudioEditModel      = "gpt-image-2"
 )
 
 type ImageStudioReferenceMetadata struct {
@@ -141,9 +140,6 @@ func NormalizeImageStudioSubmission(
 		}
 	}
 	if request.Prompt == "" || len(request.Prompt) > 8000 {
-		return nil, ErrInvalidImageStudioSubmission
-	}
-	if request.Mode == ImageStudioModeEdit && request.Model != ImageStudioEditModel {
 		return nil, ErrInvalidImageStudioSubmission
 	}
 	profile, specification, defaults, err := resolveImageModelProfile(ctx, db, request.Model)
