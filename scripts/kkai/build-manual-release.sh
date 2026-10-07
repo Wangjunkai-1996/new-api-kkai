@@ -133,6 +133,8 @@ case "${schema_contract}" in
   feature | bridge) ;;
   *) die "schema contract must be feature or bridge" ;;
 esac
+[[ "${schema_contract}" != bridge ]] ||
+  die "rc.41 binary schema contract is 9/9/9; bridge is unsupported"
 case "${frontend_mode}" in
   embedded | external) ;;
   *) die "frontend mode must be embedded or external" ;;

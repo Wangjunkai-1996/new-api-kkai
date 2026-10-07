@@ -137,7 +137,7 @@ run_build() {
       KKAI_TEST_ENDPOINT_MODE="${mode}" \
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
-        --schema-contract bridge \
+        --schema-contract feature \
         --frontend-mode "${frontend_mode}" \
         --version "${version}" \
         --output-dir "${output_dir}" 2>&1
@@ -196,7 +196,7 @@ expect_invalid_frontend_mode_rejected() {
       KKAI_TEST_ENDPOINT_MODE=direct-unix \
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
-        --schema-contract bridge \
+        --schema-contract feature \
         --frontend-mode remote \
         --version "${version}" \
         --output-dir "${test_root}/out-invalid-frontend" 2>&1
@@ -219,7 +219,7 @@ expect_no_resource_limits() {
       KKAI_TEST_ENDPOINT_MODE=direct-unix \
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
-        --schema-contract bridge \
+        --schema-contract feature \
         --version "${version}" \
         --output-dir "${output_dir}" \
         --no-resource-limits 2>&1
@@ -240,7 +240,7 @@ expect_invalid_parallelism_rejected() {
       KKAI_TEST_ENDPOINT_MODE=direct-unix \
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
-        --schema-contract bridge \
+        --schema-contract feature \
         --version "${version}" \
         --output-dir "${test_root}/out-invalid" \
         --go-build-parallelism 0 2>&1
@@ -263,7 +263,7 @@ expect_build_lock_rejected() {
       KKAI_TEST_ENDPOINT_MODE=direct-unix \
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
-        --schema-contract bridge \
+        --schema-contract feature \
         --version "${version}" \
         --output-dir "${test_root}/out-locked" 2>&1
   )"; then
@@ -285,7 +285,7 @@ expect_remote_rejected() {
       KKAI_TEST_ENDPOINT_MODE=remote \
       TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" \
-        --schema-contract bridge \
+        --schema-contract feature \
         --version "${version}" \
         --output-dir "${test_root}/out-remote" 2>&1
   )"; then
@@ -338,6 +338,23 @@ expect_maintenance_rejected() {
   ! grep -Eq '^docker |^python3 ' "${call_log}" || fail 'invalid maintenance preparation reached build or artifact inspection'
 }
 
+expect_bridge_rejected() {
+  local output
+
+  : >"${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
+      "${BUILD_SCRIPT}" --schema-contract bridge --frontend-mode external \
+      --version "${version}" --output-dir "${test_root}/out-bridge" 2>&1
+  )"; then
+    fail 'rc.41 bridge build unexpectedly succeeded'
+  fi
+  grep -F 'rc.41 binary schema contract is 9/9/9; bridge is unsupported' <<<"${output}" >/dev/null ||
+    fail "rc.41 bridge build failed for the wrong reason\n${output}"
+  [[ ! -s "${call_log}" ]] || fail 'rc.41 bridge build reached an external command'
+}
+
 expect_direct_uri direct-unix
 expect_direct_uri direct-npipe
 expect_context_name
@@ -349,10 +366,11 @@ expect_invalid_parallelism_rejected
 expect_build_lock_rejected
 expect_remote_rejected
 expect_maintenance_preparation
+expect_bridge_rejected
 expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
 expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \
   --planned-infra-sha 3333333333333333333333333333333333333333
-expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --schema-contract bridge
+expect_maintenance_rejected 'rc.41 binary schema contract is 9/9/9; bridge is unsupported' --prepare-maintenance --schema-contract bridge
 expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --frontend-mode embedded
 expect_maintenance_rejected 'require --prepare-maintenance' --planned-infra-sha 3333333333333333333333333333333333333333
 KKAI_TEST_DIRTY=true expect_maintenance_rejected 'production builds require a clean worktree' \
