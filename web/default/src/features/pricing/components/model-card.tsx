@@ -117,16 +117,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   let priceSummary: ReactNode
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
-      priceSummary = (
-        <div className='col-span-full min-w-0'>
-          <span className='text-warning'>
-            {t('Special billing expression')}
-          </span>
-          <code className='text-muted-foreground mt-1 line-clamp-2 block font-mono text-xs break-all'>
-            {dynamicSummary.rawExpression}
-          </code>
-        </div>
-      )
+      priceSummary = null
     } else if (dynamicSummary.primaryEntries.length > 0) {
       priceSummary = (
         <>

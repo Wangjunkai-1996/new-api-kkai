@@ -699,7 +699,7 @@ it('opens the effective expression breakdown from the price without creating met
   expect(write).not.toHaveBeenCalled()
 })
 
-it('shows an unrecognized expression as special and retains its full source in pricing details', async () => {
+it('summarizes an unrecognized expression and retains its full source in pricing details', async () => {
   const expression = 'tier("custom", max(p * 2 + c * 8, 100))'
   await renderList([channel], {
     pricing: [
@@ -717,7 +717,7 @@ it('shows an unrecognized expression as special and retains its full source in p
   const button = screen.getByRole('button', {
     name: 'View pricing for channel-only',
   })
-  expect(button).toHaveTextContent('Special billing expression')
+  expect(button).toHaveTextContent('Dynamic Pricing')
   expect(button).not.toHaveTextContent('$2')
   expect(button).not.toHaveTextContent(expression)
   await userEvent.click(button)

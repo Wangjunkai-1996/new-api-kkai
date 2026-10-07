@@ -402,7 +402,7 @@ describe('model cards', () => {
     expect(screen.getByText(/480p · 5s ≈/)).toBeVisible()
   })
 
-  it('keeps an unrecognized expression visible with the special billing message', () => {
+  it('keeps an unrecognized expression out of the card', () => {
     const expression =
       'u("seconds") > 30 ? tier("long", u("seconds") * 0.3) : tier("short", u("seconds") * 0.4)'
     render(
@@ -415,8 +415,9 @@ describe('model cards', () => {
         onClick={vi.fn()}
       />
     )
-    expect(screen.getByText('Special billing expression')).toBeVisible()
-    expect(screen.getByText(expression)).toBeVisible()
+    expect(screen.getByText('Task billing')).toBeVisible()
+    expect(screen.queryByText(expression)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled()
   })
 
   it('keeps browsing and neutral health placeholders available after the metrics request fails', async () => {

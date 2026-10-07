@@ -199,7 +199,6 @@ export function ModelPricingPanel(props: {
                 <ModelPriceCell
                   model={effectivePricing}
                   options={{ tokenUnit: 'M' }}
-                  showExpression={false}
                 />
               </div>
               {isDynamicPricingModel(effectivePricing) ? (

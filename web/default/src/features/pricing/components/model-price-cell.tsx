@@ -46,7 +46,6 @@ export type ModelPriceCellOptions = {
 export function ModelPriceCell(props: {
   model: PricingModel
   options?: ModelPriceCellOptions
-  showExpression?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const currency = useSystemConfigStore((state) => state.config.currency)
@@ -100,7 +99,7 @@ export function ModelPriceCell(props: {
       return (
         <span className='block max-w-full min-w-0'>
           <span className='text-muted-foreground block truncate text-sm'>
-            {t('Special billing expression')}
+            {t('Dynamic Pricing')}
           </span>
           {providerCaption && (
             <span className='text-muted-foreground block text-xs'>
@@ -108,11 +107,6 @@ export function ModelPriceCell(props: {
                 .filter(Boolean)
                 .join(' · ')}
             </span>
-          )}
-          {props.showExpression !== false && (
-            <code className='text-muted-foreground mt-1 line-clamp-2 block text-xs break-all whitespace-normal'>
-              {dynamic.rawExpression}
-            </code>
           )}
         </span>
       )
