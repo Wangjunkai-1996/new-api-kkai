@@ -22,7 +22,7 @@ import { formatNumber, formatPercent } from '@/lib/format'
 import type { GroupStatusEntry } from './types'
 
 export function formatGroupSuccessRate(group: GroupStatusEntry): string {
-  if (group.request_count <= 0) return '-'
+  if (group.stale || group.request_count <= 0) return '-'
   return formatPercent(group.success_rate)
 }
 

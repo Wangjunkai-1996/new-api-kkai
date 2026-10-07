@@ -78,7 +78,7 @@ func RecordRelayResult(ctx context.Context, info *relaycommon.RelayInfo, apiErr 
 		GenerationMs:      generationMs,
 		CacheTrackedCount: 1,
 	}
-	if info.IsClientStream() && success && info.PerformanceCacheUsageKnown && cacheUsage.PromptTokens > 0 &&
+	if success && info.PerformanceCacheUsageKnown && cacheUsage.PromptTokens > 0 &&
 		cacheUsage.CachedTokens >= 0 && cacheUsage.CachedTokens <= cacheUsage.PromptTokens {
 		sample.CacheSampleCount = 1
 		if cacheUsageCountsAsHit(cacheUsage) {
@@ -110,7 +110,7 @@ func RecordTaskResult(task *model.Task, result *relaycommon.TaskInfo) {
 		Model:   modelName,
 		Group:   task.Group,
 		Success: task.Status == model.TaskStatusSuccess,
-		// Tasks are observed but ineligible for the stream-only cache denominator.
+		// Tasks are observed but ineligible for the text-request cache denominator.
 		CacheTrackedCount: 1,
 	}
 	if task.SubmitTime > 0 && endTs > task.SubmitTime {
@@ -127,14 +127,15 @@ func RecordTaskResult(task *model.Task, result *relaycommon.TaskInfo) {
 	Record(sample)
 }
 
-// cacheUsageCountsAsHit requires at least half of the normalized input to be
-// served from cache. Compare without multiplying to avoid integer overflow.
+// cacheUsageCountsAsHit requires more than 30% of normalized input from cache.
+// Split the product to avoid integer overflow.
 func cacheUsageCountsAsHit(cacheUsage *CacheUsage) bool {
 	if cacheUsage == nil || cacheUsage.PromptTokens <= 0 || cacheUsage.CachedTokens <= 0 ||
 		cacheUsage.CachedTokens > cacheUsage.PromptTokens {
 		return false
 	}
-	return cacheUsage.CachedTokens >= cacheUsage.PromptTokens-cacheUsage.CachedTokens
+	threshold := cacheUsage.PromptTokens/10*3 + cacheUsage.PromptTokens%10*3/10
+	return cacheUsage.CachedTokens > threshold
 }
 
 func Record(sample Sample) {
@@ -165,7 +166,7 @@ func Record(sample Sample) {
 		sample.CachePromptTokens = 0
 		sample.CacheReadTokens = 0
 	} else if sample.CacheHitCount > 0 &&
-		sample.CacheReadTokens < sample.CachePromptTokens-sample.CacheReadTokens {
+		!cacheUsageCountsAsHit(&CacheUsage{PromptTokens: sample.CachePromptTokens, CachedTokens: sample.CacheReadTokens}) {
 		// Keep the threshold invariant even for callers that construct Sample
 		// directly instead of going through RecordRelayResult.
 		sample.CacheHitCount = 0

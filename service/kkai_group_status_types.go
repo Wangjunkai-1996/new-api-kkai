@@ -67,6 +67,7 @@ var (
 )
 
 type KKAIGroupStatusRequest struct {
+	UserGroup         string
 	UsableGroups      map[string]string
 	AutoGroups        []string
 	AutoGroupProfiles map[string][]string
@@ -86,6 +87,7 @@ type KKAIGroupStatusResult struct {
 
 type KKAIGroupStatusEntry struct {
 	Group            string                 `json:"group"`
+	Ratio            *float64               `json:"ratio,omitempty"`
 	Desc             string                 `json:"desc"`
 	DisplayName      string                 `json:"display_name"`
 	Status           string                 `json:"status"`
@@ -109,8 +111,8 @@ type KKAIGroupStatusEntry struct {
 type KKAIGroupCacheStats struct {
 	Status      string `json:"status"`
 	SampleCount int64  `json:"sample_count"`
-	// RequestHitRate counts stream requests whose cached input reaches 50% of
-	// the normalized prompt context.
+	// RequestHitRate counts text requests whose cached input exceeds 30% of
+	// the normalized prompt context in the last 24 hours.
 	RequestHitRate *float64 `json:"request_hit_rate"`
 }
 

@@ -1516,6 +1516,11 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "non-stream chat completions",
+			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI},
+			want:      true,
+		},
+		{
 			name:      "legacy completions",
 			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeCompletions, RelayFormat: types.RelayFormatOpenAI},
 			want:      true,
@@ -1612,7 +1617,6 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 
 func TestGroupStatusCacheUsageMatchesIncidentLogSemantics(t *testing.T) {
 	allowedRelay := &relaycommon.RelayInfo{
-		IsStream:    true,
 		RelayMode:   relayconstant.RelayModeChatCompletions,
 		RelayFormat: types.RelayFormatOpenAI,
 	}

@@ -58,13 +58,21 @@ describe('group status card', () => {
     expect(screen.getByText('Customer plan')).toBeInTheDocument()
     expect(screen.getByText('Low-cost model pool')).toBeInTheDocument()
     expect(screen.queryByText('test-group')).not.toBeInTheDocument()
+    expect(screen.queryByText('Multiplier')).not.toBeInTheDocument()
   })
 
-  test('does not render cache hit rate data', () => {
+  test('preserves a configured zero multiplier', () => {
+    render(<GroupStatusCard group={{ ...BASE_GROUP, ratio: 0 }} />)
+
+    expect(screen.getByText('x0')).toBeInTheDocument()
+  })
+
+  test('shows the group multiplier and recent cache hit rate when available', () => {
     render(
       <GroupStatusCard
         group={{
           ...BASE_GROUP,
+          ratio: 0.75,
           cache_stats: {
             status: 'ok',
             sample_count: 128,
@@ -74,8 +82,58 @@ describe('group status card', () => {
       />
     )
 
-    expect(screen.queryByText('Cache hit rate')).not.toBeInTheDocument()
-    expect(screen.queryByText('92.8%')).not.toBeInTheDocument()
+    expect(screen.getByText('Multiplier')).toBeInTheDocument()
+    expect(screen.getByText('x0.75')).toBeInTheDocument()
+    expect(screen.getByText('Cache hit rate (24h)')).toHaveAttribute(
+      'title',
+      'Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.'
+    )
+    expect(screen.getByText('92.84%')).toBeInTheDocument()
     expect(screen.queryByText('Samples: 128')).not.toBeInTheDocument()
+  })
+
+  test.each([
+    { status: 'empty' as const, request_hit_rate: 87 },
+    { status: 'unavailable' as const, request_hit_rate: 87 },
+    { status: 'ok' as const, request_hit_rate: 0 },
+    { status: 'ok' as const, request_hit_rate: null },
+  ])('hides cache hit rate without a positive valid sample: %o', (cache) => {
+    render(
+      <GroupStatusCard
+        group={{
+          ...BASE_GROUP,
+          cache_stats: { sample_count: 0, ...cache },
+        }}
+      />
+    )
+
+    expect(screen.queryByText(/Cache hit rate/)).not.toBeInTheDocument()
+  })
+
+  test('keeps stale health neutral while retaining valid 24-hour cache stats', () => {
+    render(
+      <GroupStatusCard
+        group={{
+          ...BASE_GROUP,
+          stale: true,
+          display_message: 'Data stale',
+          cache_stats: {
+            status: 'ok',
+            sample_count: 10,
+            request_hit_rate: 90,
+          },
+        }}
+      />
+    )
+
+    expect(screen.getByText('Unknown')).toBeInTheDocument()
+    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
+    expect(screen.queryByText('Data stale')).not.toBeInTheDocument()
+    expect(screen.queryByText('100%')).not.toBeInTheDocument()
+    expect(screen.queryByText('300ms')).not.toBeInTheDocument()
+    expect(screen.getByText('Cache hit rate (24h)')).toBeInTheDocument()
+    expect(screen.getByText('90%')).toBeInTheDocument()
+    expect(screen.getByText('Last 60 requests')).toBeInTheDocument()
+    expect(screen.queryByText(/ago$/)).not.toBeInTheDocument()
   })
 })

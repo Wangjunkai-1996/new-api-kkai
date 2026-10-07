@@ -66,9 +66,9 @@ function overallStatus(groups: GroupStatusEntry[]) {
   if (
     groups.some(
       (group) =>
-        group.stale ||
-        group.confidence_status === 'unstable' ||
-        group.confidence_status === 'unavailable'
+        !group.stale &&
+        (group.confidence_status === 'unstable' ||
+          group.confidence_status === 'unavailable')
     )
   ) {
     return {
@@ -78,7 +78,11 @@ function overallStatus(groups: GroupStatusEntry[]) {
       className: 'bg-warning/10 ring-1 ring-inset ring-warning/20',
     }
   }
-  if (groups.some((group) => group.confidence_status !== 'unknown')) {
+  if (
+    groups.some(
+      (group) => !group.stale && group.confidence_status !== 'unknown'
+    )
+  ) {
     return {
       labelKey: 'Healthy',
       icon: CheckCircle2,

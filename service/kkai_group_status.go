@@ -2,10 +2,59 @@ package service
 
 import (
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"golang.org/x/sync/singleflight"
 )
+
+const kkaiGroupCacheSnapshotTTL = time.Minute
+
+type kkaiGroupCacheSnapshot struct {
+	fetchedAt time.Time
+	result    perfmetrics.KKAIGroupBucketResult
+}
+
+var kkaiGroupCacheSnapshots = struct {
+	sync.Mutex
+	values map[string]kkaiGroupCacheSnapshot
+	flight singleflight.Group
+}{values: make(map[string]kkaiGroupCacheSnapshot)}
+
+func queryKKAIGroupCacheBuckets(now time.Time, groups []string) perfmetrics.KKAIGroupBucketResult {
+	keyBytes, err := common.Marshal(groups)
+	if err != nil {
+		return queryKKAIGroupHistoricalBuckets(now.Add(-24*time.Hour).Unix(), now.Unix(), groups)
+	}
+	key := string(keyBytes)
+	lookup := func() (perfmetrics.KKAIGroupBucketResult, bool) {
+		kkaiGroupCacheSnapshots.Lock()
+		defer kkaiGroupCacheSnapshots.Unlock()
+		snapshot, ok := kkaiGroupCacheSnapshots.values[key]
+		return snapshot.result, ok && now.Sub(snapshot.fetchedAt) >= 0 && now.Sub(snapshot.fetchedAt) < kkaiGroupCacheSnapshotTTL
+	}
+	if result, ok := lookup(); ok {
+		return result
+	}
+	value, _, _ := kkaiGroupCacheSnapshots.flight.Do(key, func() (any, error) {
+		if result, ok := lookup(); ok {
+			return result, nil
+		}
+		result := queryKKAIGroupHistoricalBuckets(now.Add(-24*time.Hour).Unix(), now.Unix(), groups)
+		if result.RedisAvailable {
+			kkaiGroupCacheSnapshots.Lock()
+			if len(kkaiGroupCacheSnapshots.values) >= 64 {
+				clear(kkaiGroupCacheSnapshots.values)
+			}
+			kkaiGroupCacheSnapshots.values[key] = kkaiGroupCacheSnapshot{fetchedAt: now, result: result}
+			kkaiGroupCacheSnapshots.Unlock()
+		}
+		return result, nil
+	})
+	return value.(perfmetrics.KKAIGroupBucketResult)
+}
 
 func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult, error) {
 	now := kkaiGroupStatusNow()
@@ -29,28 +78,40 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 	dataSource := perfmetrics.KKAIGroupDataSourceNone
 	redisAvailable := signals.RedisAvailable
 	cacheRedisAvailable := false
-	cacheWindowCovered := false
+	var historical perfmetrics.KKAIGroupBucketResult
 	if window.minutes <= 60 {
 		buckets := queryKKAIGroupMinuteBuckets(startTs, endTs, groups)
 		mergeKKAIPerfBuckets(metrics, buckets.Buckets)
 		dataSource = buckets.Source
 		redisAvailable = buckets.RedisAvailable && signals.RedisAvailable
 		cacheRedisAvailable = buckets.RedisAvailable
-		cacheStartTs := startTs - startTs%int64(time.Minute/time.Second)
-		cacheWindowCovered = buckets.CacheTrackingStartedAt > 0 && cacheStartTs >= buckets.CacheTrackingStartedAt
 	} else {
 		databaseBuckets, err := loadKKAIPerfMetricBuckets(startTs, endTs, groups)
 		if err != nil {
 			return KKAIGroupStatusResult{}, err
 		}
-		historical := queryKKAIGroupHistoricalBuckets(startTs, endTs, groups)
+		historical = queryKKAIGroupHistoricalBuckets(startTs, endTs, groups)
 		metrics = mergeKKAIDatabaseAndLiveBuckets(databaseBuckets, historical.Buckets)
 		dataSource = combinedKKAIGroupDataSource(len(databaseBuckets) > 0, historical.Source)
 		redisAvailable = historical.RedisAvailable && signals.RedisAvailable
 		cacheRedisAvailable = historical.RedisAvailable
-		cacheStartTs := startTs - startTs%int64(5*time.Minute/time.Second)
-		cacheWindowCovered = historical.CacheTrackingStartedAt > 0 && cacheStartTs >= historical.CacheTrackingStartedAt
 	}
+	cacheStartTs := now.Add(-24 * time.Hour).Unix()
+	if window.minutes != 24*60 {
+		if cacheRedisAvailable {
+			historical = queryKKAIGroupCacheBuckets(now, groups)
+		}
+	}
+	cacheBuckets := make([]perfmetrics.KKAIGroupBucket, 0, len(historical.Buckets))
+	for _, bucket := range historical.Buckets {
+		// Exclude the partial oldest bucket so no samples older than 24 hours
+		// enter the cache rate.
+		if bucket.BucketTs >= cacheStartTs && bucket.BucketTs <= endTs {
+			cacheBuckets = append(cacheBuckets, bucket)
+		}
+	}
+	cacheMetrics := make(map[string]kkaiGroupMetrics, len(groups))
+	mergeKKAIPerfBuckets(cacheMetrics, cacheBuckets)
 
 	profiles := request.AutoGroupProfiles
 	if len(profiles) == 0 && len(request.AutoGroups) > 0 {
@@ -58,6 +119,7 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 	}
 	for profile, candidates := range profiles {
 		applyKKAIAutoGroupMetricsForProfile(metrics, request.UsableGroups, profile, candidates)
+		applyKKAIAutoGroupMetricsForProfile(cacheMetrics, request.UsableGroups, profile, candidates)
 	}
 	eventsByGroup := kkaiGroupRecentEventsByGroup(signals.Events, kkaiGroupRecentEventLimit)
 	for profile, candidates := range profiles {
@@ -69,17 +131,21 @@ func GetKKAIGroupStatuses(request KKAIGroupStatusRequest) (KKAIGroupStatusResult
 		if recentEvents == nil {
 			recentEvents = []KKAIGroupRecentEvent{}
 		}
-		entries = append(entries, buildKKAIGroupStatusEntry(
+		entry := buildKKAIGroupStatusEntry(
 			group,
 			request.UsableGroups[group],
 			metrics[group],
 			now,
 			window,
 			dataSource,
-			cacheRedisAvailable,
-			cacheWindowCovered,
 			recentEvents,
-		))
+		)
+		if _, auto := profiles[group]; !auto && !IsAutoGroup(group) {
+			ratio := GetUserGroupRatio(request.UserGroup, group)
+			entry.Ratio = &ratio
+		}
+		entry.CacheStats = buildKKAIGroupCacheStats(cacheMetrics[group], historical.RedisAvailable)
+		entries = append(entries, entry)
 	}
 	return KKAIGroupStatusResult{
 		GeneratedAt:    now.Unix(),

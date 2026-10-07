@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGroupStatusCacheUsageExcludesNonStreamRequests(t *testing.T) {
+func TestGroupStatusCacheUsageIncludesNonStreamRequests(t *testing.T) {
 	originUsage := &dto.Usage{PromptTokens: 1_000}
 	summary := textQuotaSummary{
 		PromptTokens:  1_000,
@@ -24,17 +24,19 @@ func TestGroupStatusCacheUsageExcludesNonStreamRequests(t *testing.T) {
 		RelayMode:   relayconstant.RelayModeChatCompletions,
 		RelayFormat: types.RelayFormatOpenAI,
 	}
-	assert.Nil(t, groupStatusCacheUsage(nonStream, false, false, originUsage, summary))
+	nonStreamUsage := groupStatusCacheUsage(nonStream, false, false, originUsage, summary)
+	require.NotNil(t, nonStreamUsage)
 
 	stream := *nonStream
 	stream.IsStream = true
 	cacheUsage := groupStatusCacheUsage(&stream, false, false, originUsage, summary)
 	require.NotNil(t, cacheUsage)
+	assert.Equal(t, nonStreamUsage, cacheUsage)
 	assert.Equal(t, int64(1_000), cacheUsage.PromptTokens)
 	assert.Equal(t, int64(930), cacheUsage.CachedTokens)
 }
 
-func TestGroupStatusCacheUsageUsesClientStreamFlag(t *testing.T) {
+func TestGroupStatusCacheUsageDoesNotDependOnClientStreamFlag(t *testing.T) {
 	clientStream := false
 	info := &relaycommon.RelayInfo{
 		IsStream:       true,
@@ -49,5 +51,8 @@ func TestGroupStatusCacheUsageUsesClientStreamFlag(t *testing.T) {
 		UsageSemantic: dto.BillingUsageSemanticOpenAI,
 	}
 
-	assert.Nil(t, groupStatusCacheUsage(info, false, false, originUsage, summary))
+	cacheUsage := groupStatusCacheUsage(info, false, false, originUsage, summary)
+	require.NotNil(t, cacheUsage)
+	assert.Equal(t, int64(1_000), cacheUsage.PromptTokens)
+	assert.Equal(t, int64(930), cacheUsage.CachedTokens)
 }

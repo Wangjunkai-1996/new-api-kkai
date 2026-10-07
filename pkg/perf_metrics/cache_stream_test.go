@@ -2,6 +2,7 @@ package perfmetrics
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"testing"
 	"time"
@@ -11,10 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Non-stream responses do not have a cache event. They still need to count as
-// tracked requests so the status window can distinguish complete tracking from
-// an observability gap, but must not affect the cache sample denominator.
-func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
+func TestRecordRelayResultIncludesNonStreamCacheUsage(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-stream-boundary-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	baseInfo := &relaycommon.RelayInfo{
@@ -51,15 +49,15 @@ func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
 	}
 
 	assert.Equal(t, int64(2), tracked)
-	assert.Equal(t, int64(1), samples)
-	assert.Equal(t, int64(1), hits)
-	assert.Equal(t, int64(100), promptTokens)
-	assert.Equal(t, int64(100), cachedTokens)
+	assert.Equal(t, int64(2), samples)
+	assert.Equal(t, int64(2), hits)
+	assert.Equal(t, int64(200), promptTokens)
+	assert.Equal(t, int64(200), cachedTokens)
 	require.NotZero(t, samples)
 	assert.Equal(t, 100.0, float64(hits)/float64(samples)*100)
 }
 
-func TestRecordRelayResultUsesClientStreamFlag(t *testing.T) {
+func TestRecordRelayResultCacheUsageDoesNotDependOnClientStreamFlag(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-client-stream-flag-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	clientStream := false
@@ -88,10 +86,10 @@ func TestRecordRelayResultUsesClientStreamFlag(t *testing.T) {
 		cachedTokens += bucket.CacheReadTokens
 	}
 
-	assert.Zero(t, samples)
-	assert.Zero(t, hits)
-	assert.Zero(t, promptTokens)
-	assert.Zero(t, cachedTokens)
+	assert.Equal(t, int64(1), samples)
+	assert.Equal(t, int64(1), hits)
+	assert.Equal(t, int64(100), promptTokens)
+	assert.Equal(t, int64(100), cachedTokens)
 }
 
 func TestRecordNormalizesLowCacheHitMarker(t *testing.T) {
@@ -106,7 +104,7 @@ func TestRecordNormalizesLowCacheHitMarker(t *testing.T) {
 		CacheSampleCount:  1,
 		CacheHitCount:     1,
 		CachePromptTokens: 100,
-		CacheReadTokens:   49,
+		CacheReadTokens:   30,
 	})
 
 	result := QueryKKAIGroupMinuteBuckets(
@@ -122,7 +120,7 @@ func TestRecordNormalizesLowCacheHitMarker(t *testing.T) {
 	assert.Zero(t, hits)
 }
 
-func TestRecordRelayResultRequiresHalfContextForCacheHit(t *testing.T) {
+func TestRecordRelayResultRequiresMoreThanThirtyPercentContextForCacheHit(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-half-threshold-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	info := &relaycommon.RelayInfo{
@@ -135,11 +133,11 @@ func TestRecordRelayResultRequiresHalfContextForCacheHit(t *testing.T) {
 	info.PerformanceCacheUsageKnown = true
 	info.PerformanceCachePromptTokens = 100
 
-	info.PerformanceCacheReadTokens = 49
+	info.PerformanceCacheReadTokens = 30
 	RecordRelayResult(context.Background(), info, nil)
 	info.PerformanceCacheUsageKnown = true
 	info.PerformanceCachePromptTokens = 100
-	info.PerformanceCacheReadTokens = 50
+	info.PerformanceCacheReadTokens = 31
 	RecordRelayResult(context.Background(), info, nil)
 	info.PerformanceCacheUsageKnown = true
 	info.PerformanceCachePromptTokens = 20_055
@@ -158,4 +156,23 @@ func TestRecordRelayResultRequiresHalfContextForCacheHit(t *testing.T) {
 	assert.Equal(t, int64(3), samples)
 	assert.Equal(t, int64(1), hits)
 	assert.InDelta(t, 33.333333333333336, float64(hits)/float64(samples)*100, 0.000001)
+}
+
+func TestCacheUsageCountsAsHitThresholdAndOverflowBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		prompt, cached int64
+		want           bool
+	}{
+		{name: "exactly thirty percent", prompt: 100, cached: 30},
+		{name: "above thirty percent", prompt: 100, cached: 31, want: true},
+		{name: "fractional threshold", prompt: 3, cached: 1, want: true},
+		{name: "int64 threshold below", prompt: math.MaxInt64, cached: 2_767_011_611_056_432_742},
+		{name: "int64 threshold above", prompt: math.MaxInt64, cached: 2_767_011_611_056_432_743, want: true},
+		{name: "cached tokens exceed input", prompt: 100, cached: 101},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, cacheUsageCountsAsHit(&CacheUsage{PromptTokens: test.prompt, CachedTokens: test.cached}))
+		})
+	}
 }

@@ -21,11 +21,12 @@ type kkaiGroupStatusAPIResponse struct {
 	} `json:"data"`
 }
 
-func TestKKAIGroupStatusControllerReturnsOnlyVisibleGroups(t *testing.T) {
+func TestKKAIGroupStatusControllerReturnsVisibleGroupsWithEffectiveRatio(t *testing.T) {
 	setupKKAIGroupStatusControllerTest(t)
 	require.NoError(t, ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.UnmarshalJSON([]byte(`{
 		"default": {"-:vip": "hidden"}
 	}`)))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"default":0.75}}`))
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -40,7 +41,9 @@ func TestKKAIGroupStatusControllerReturnsOnlyVisibleGroups(t *testing.T) {
 	require.True(t, response.Success)
 	require.Len(t, response.Data.Groups, 1)
 	assert.Equal(t, "default", response.Data.Groups[0].Group)
-	assert.Contains(t, recorder.Body.String(), `"request_hit_rate":null`)
+	require.NotNil(t, response.Data.Groups[0].Ratio)
+	assert.Equal(t, 0.75, *response.Data.Groups[0].Ratio)
+	assert.NotContains(t, recorder.Body.String(), `"cache_stats"`)
 	assert.NotContains(t, recorder.Body.String(), `"hit_rate"`)
 	assert.NotContains(t, recorder.Body.String(), `"group":"vip"`)
 	assert.NotContains(t, recorder.Body.String(), "channel_id")
@@ -54,6 +57,7 @@ func setupKKAIGroupStatusControllerTest(t *testing.T) {
 	originalRedisClient := common.RDB
 	originalUsableGroups := setting.UserUsableGroups2JSONString()
 	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
+	originalGroupGroupRatios := ratio_setting.GroupGroupRatio2JSONString()
 	originalSpecialGroups := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.MarshalJSONString()
 	originalGetUserGroup := getKKAIUserGroup
 
@@ -63,6 +67,7 @@ func setupKKAIGroupStatusControllerTest(t *testing.T) {
 	getKKAIUserGroup = func(int, bool) (string, error) { return "default", nil }
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
 	require.NoError(t, ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.UnmarshalJSON([]byte(`{}`)))
 
 	t.Cleanup(func() {
@@ -71,6 +76,7 @@ func setupKKAIGroupStatusControllerTest(t *testing.T) {
 		getKKAIUserGroup = originalGetUserGroup
 		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(originalGroupGroupRatios))
 		require.NoError(t, ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.UnmarshalJSON([]byte(originalSpecialGroups)))
 	})
 }

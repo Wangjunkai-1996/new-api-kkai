@@ -22,7 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { formatTimestampRelative } from '@/lib/format'
+import { formatPercent } from '@/lib/format'
 import {
   getUserGroupDescription,
   getUserGroupDisplayName,
@@ -30,7 +30,6 @@ import {
 import { cn } from '@/lib/utils'
 
 import { formatGroupDuration, formatGroupSuccessRate } from '../format'
-import { getGroupLastSignalAt } from '../signal'
 import {
   GROUP_EXPERIENCE_META,
   getGroupStatusLabel,
@@ -79,11 +78,19 @@ const CARD_TONES: Record<
 export function GroupStatusCard(props: { group: GroupStatusEntry }) {
   const { t } = useTranslation()
   const meta = getGroupStatusMeta(props.group)
-  const tone = CARD_TONES[props.group.confidence_status]
+  const tone =
+    CARD_TONES[props.group.stale ? 'unknown' : props.group.confidence_status]
   const ExperienceIcon =
     GROUP_EXPERIENCE_META[props.group.experience_label].icon
-  const lastSignalAt = getGroupLastSignalAt(props.group)
   const statusMessage = t(getGroupStatusMessage(props.group))
+  const showRatio =
+    props.group.ratio != null && Number.isFinite(props.group.ratio)
+  const cacheHitRate = props.group.cache_stats?.request_hit_rate
+  const showCacheHitRate =
+    props.group.cache_stats?.status === 'ok' &&
+    cacheHitRate != null &&
+    Number.isFinite(cacheHitRate) &&
+    cacheHitRate > 0
   const displayName = getUserGroupDisplayName(props.group.group, {
     display_name: props.group.display_name,
     desc: props.group.desc,
@@ -120,59 +127,90 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
             >
               {description}
             </div>
+            {showRatio && (
+              <div className='mt-1 flex flex-wrap items-baseline gap-x-1.5 text-xs'>
+                <span className='text-muted-foreground'>{t('Multiplier')}</span>
+                <span className='font-semibold tabular-nums'>
+                  x{props.group.ratio}
+                </span>
+              </div>
+            )}
           </div>
           <StatusBadge
             copyable={false}
             label={t(getGroupStatusLabel(props.group))}
-            variant={props.group.stale ? 'warning' : meta.variant}
-            title={statusMessage}
-            className={cn(
-              'shrink-0 ring-1 ring-inset',
-              props.group.stale ? 'bg-warning/10 ring-warning/20' : tone.badge
-            )}
+            variant={meta.variant}
+            title={statusMessage || undefined}
+            className={cn('shrink-0 ring-1 ring-inset', tone.badge)}
           />
         </div>
 
         <dl className='grid grid-cols-2 gap-2.5'>
           <MetricPanel
             label={t('TTFT')}
-            value={formatGroupDuration(props.group.avg_ttft_ms)}
+            value={
+              props.group.stale
+                ? '-'
+                : formatGroupDuration(props.group.avg_ttft_ms)
+            }
             icon={ExperienceIcon}
           />
           <MetricPanel
             label={t('Latency')}
-            value={formatGroupDuration(props.group.avg_latency_ms)}
+            value={
+              props.group.stale
+                ? '-'
+                : formatGroupDuration(props.group.avg_latency_ms)
+            }
             icon={Timer}
           />
         </dl>
 
-        <div className='flex min-w-0 items-end justify-between gap-4 border-y py-3.5'>
-          <div className='min-w-0 pb-0.5'>
-            <p className='text-muted-foreground text-xs'>{t('Success rate')}</p>
-            <p
-              className='text-muted-foreground mt-1 truncate text-xs'
-              title={statusMessage}
+        <div className='border-y py-3.5'>
+          <div className='flex min-w-0 items-end justify-between gap-4'>
+            <div className='min-w-0 pb-0.5'>
+              <p className='text-muted-foreground text-xs'>
+                {t('Success rate')}
+              </p>
+              {statusMessage && (
+                <p
+                  className='text-muted-foreground mt-1 truncate text-xs'
+                  title={statusMessage}
+                >
+                  {statusMessage}
+                </p>
+              )}
+            </div>
+            <div
+              className={cn(
+                'shrink-0 text-3xl leading-none font-semibold tabular-nums',
+                meta.toneClass
+              )}
             >
-              {statusMessage}
-            </p>
+              {formatGroupSuccessRate(props.group)}
+            </div>
           </div>
-          <div
-            className={cn(
-              'shrink-0 text-3xl leading-none font-semibold tabular-nums',
-              meta.toneClass
-            )}
-          >
-            {formatGroupSuccessRate(props.group)}
-          </div>
+          {showCacheHitRate && (
+            <div className='mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-xs'>
+              <span
+                className='text-muted-foreground'
+                title={t(
+                  'Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.'
+                )}
+              >
+                {t('Cache hit rate (24h)')}
+              </span>
+              <span className='font-semibold tabular-nums'>
+                {formatPercent(cacheHitRate)}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className='mt-auto space-y-2'>
-          <div className='flex items-center justify-between gap-3 text-xs'>
+          <div className='text-xs'>
             <span className='text-muted-foreground font-medium'>
               {t('Last 60 requests')}
-            </span>
-            <span className='text-muted-foreground shrink-0 tabular-nums'>
-              {formatTimestampRelative(lastSignalAt)}
             </span>
           </div>
           <GroupSignalBars events={props.group.recent_events} />

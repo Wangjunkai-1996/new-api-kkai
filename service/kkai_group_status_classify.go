@@ -14,8 +14,6 @@ func buildKKAIGroupStatusEntry(
 	now time.Time,
 	window kkaiGroupStatusWindow,
 	dataSource string,
-	cacheRedisAvailable bool,
-	cacheWindowCovered bool,
 	recentEvents []KKAIGroupRecentEvent,
 ) KKAIGroupStatusEntry {
 	successRate := roundKKAIPercent(metrics.successRate())
@@ -33,28 +31,17 @@ func buildKKAIGroupStatusEntry(
 		AvgLatencyMs: avgLatency, AvgTtftMs: avgTtft, UpdatedAt: metrics.sampledAt, SampledAt: metrics.sampledAt,
 		Stale: stale, DataSource: dataSource, RecentEvents: recentEvents,
 	}
-	if group == "default" || group == "codex-plus" || group == "plus" {
-		entry.CacheStats = buildKKAIGroupCacheStats(metrics, cacheRedisAvailable, cacheWindowCovered)
-	}
 	return entry
 }
 
-func buildKKAIGroupCacheStats(metrics kkaiGroupMetrics, redisAvailable bool, windowCovered bool) *KKAIGroupCacheStats {
-	stats := &KKAIGroupCacheStats{
-		Status:      KKAIGroupCacheStatusUnavailable,
-		SampleCount: metrics.cacheSampleCount,
-	}
-	if !redisAvailable || !windowCovered || metrics.cacheTrackedCount != metrics.requestCount {
-		return stats
-	}
-	if metrics.cacheSampleCount == 0 {
-		stats.Status = KKAIGroupCacheStatusEmpty
-		return stats
+func buildKKAIGroupCacheStats(metrics kkaiGroupMetrics, redisAvailable bool) *KKAIGroupCacheStats {
+	if !redisAvailable || metrics.cacheSampleCount <= 0 || metrics.cacheHitCount <= 0 {
+		return nil
 	}
 	hitRate := roundKKAIPercent(float64(metrics.cacheHitCount) / float64(metrics.cacheSampleCount) * 100)
-	stats.Status = KKAIGroupCacheStatusOK
-	stats.RequestHitRate = &hitRate
-	return stats
+	return &KKAIGroupCacheStats{
+		Status: KKAIGroupCacheStatusOK, SampleCount: metrics.cacheSampleCount, RequestHitRate: &hitRate,
+	}
 }
 
 func classifyKKAIGroupConfidence(metrics kkaiGroupMetrics, successRate float64, window kkaiGroupStatusWindow, stale bool) (string, string) {

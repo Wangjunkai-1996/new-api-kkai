@@ -490,6 +490,8 @@ func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 	wrongVersionBucket := kkaiGroupBucketFromRedis("wrong-version", 120, map[string]string{
 		"req": "2", "ok": "2", "cache_tracked": "2", "cache_n": "2",
 		"cache_prompt": "200", "cache_read": "200", "last_ts": "450",
+		"cache_v3_tracked": "2", "cache_v3_n": "2", "cache_v3_hit": "2",
+		"cache_v3_prompt": "200", "cache_v3_read": "200",
 	})
 	assert.Equal(t, int64(2), wrongVersionBucket.RequestCount)
 	assert.Zero(t, wrongVersionBucket.CacheTrackedCount)

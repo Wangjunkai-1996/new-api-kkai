@@ -31,6 +31,7 @@ func GetKKAIGroupStatus(c *gin.Context) {
 		autoGroupProfiles[autoGroup] = service.GetUserAutoGroupCandidates(userGroup, autoGroup)
 	}
 	result, err := service.GetKKAIGroupStatuses(service.KKAIGroupStatusRequest{
+		UserGroup:         userGroup,
 		UsableGroups:      usableGroups,
 		AutoGroups:        setting.GetAutoGroups(),
 		AutoGroupProfiles: autoGroupProfiles,

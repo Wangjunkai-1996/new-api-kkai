@@ -55,6 +55,7 @@ export type GroupStatusEntry = {
   group: string
   desc: string
   display_name?: string
+  ratio?: number
   status: GroupHealthStatus
   confidence: GroupHealthConfidence
   message: string

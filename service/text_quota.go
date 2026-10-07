@@ -435,7 +435,7 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func isGroupStatusCacheEligibleRequest(relayInfo *relaycommon.RelayInfo) bool {
-	if relayInfo == nil || !relayInfo.IsClientStream() {
+	if relayInfo == nil {
 		return false
 	}
 

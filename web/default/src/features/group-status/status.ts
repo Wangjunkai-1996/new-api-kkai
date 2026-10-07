@@ -101,15 +101,15 @@ export const GROUP_EXPERIENCE_META: Record<
 }
 
 export function getGroupStatusMeta(group: GroupStatusEntry): StatusMeta {
-  return GROUP_STATUS_META[group.confidence_status]
+  return GROUP_STATUS_META[group.stale ? 'unknown' : group.confidence_status]
 }
 
 export function getGroupStatusLabel(group: GroupStatusEntry): string {
-  if (group.stale) return 'Stale'
   return getGroupStatusMeta(group).labelKey
 }
 
 export function getGroupStatusMessage(group: GroupStatusEntry): string {
+  if (group.stale) return ''
   return group.display_message || group.message
 }
 
