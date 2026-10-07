@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"gorm.io/gorm"
@@ -170,6 +171,15 @@ func NormalizeImageStudioSubmission(
 	relayRequest, err := BuildImageRelayRequest(profile.Model, request.Prompt, specification, parameters)
 	if err != nil {
 		return nil, err
+	}
+	// Resolve pricing defaults before quote and submit validation so both bind
+	// the same concrete size, including profiles without a size control.
+	if relayRequest.Size == "" {
+		if match, configured, err := image_pricing_setting.Resolve(profile.Model, ""); err != nil {
+			return nil, err
+		} else if configured {
+			relayRequest.Size = match.Resolution.Size
+		}
 	}
 	if request.Mode == ImageStudioModeEdit && (relayRequest.N == nil || *relayRequest.N != 1) {
 		return nil, ErrInvalidImageStudioSubmission
