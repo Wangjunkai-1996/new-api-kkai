@@ -1000,18 +1000,22 @@ func deleteUserAuthenticationData(tx *gorm.DB, userId int) error {
 
 // ValidateAndFill check password & user status
 func (user *User) ValidateAndFill() (err error) {
-	// When querying with struct, GORM will only query with non-zero fields,
-	// that means if your field's value is 0, '', false or other zero values,
-	// it won't be used to build query conditions
 	password := user.Password
 	username := strings.TrimSpace(user.Username)
 	if username == "" || password == "" {
 		return ErrUserEmptyCredentials
 	}
-	// find by username or email
-	err = DB.Where("username = ? OR email = ?", username, username).First(user).Error
+	// Prefer usernames so another account's email cannot shadow them.
+	err = DB.Where("username = ?", username).First(user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		var emailUser *User
+		emailUser, err = GetUniqueUserByEmail(username)
+		if err == nil {
+			*user = *emailUser
+		}
+	}
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, ErrEmailNotFound) || errors.Is(err, ErrEmailAmbiguous) {
 			return ErrInvalidCredentials
 		}
 		return fmt.Errorf("%w: %v", ErrDatabase, err)

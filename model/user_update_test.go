@@ -355,6 +355,99 @@ func TestUpdateUserBindColumnRejectsNonWhitelistedColumns(t *testing.T) {
 	assert.Error(t, UpdateUserBindColumn(0, "github_id", "x"))
 }
 
+func TestValidateAndFillUsernameOrEmail(t *testing.T) {
+	const password = "EmailLoginPassword123"
+	hash, err := common.HashAccountPassword(password)
+	require.NoError(t, err)
+
+	for _, test := range []struct {
+		name       string
+		email      string
+		identifier string
+		password   string
+		status     int
+		deleted    bool
+		wantErr    error
+	}{
+		{name: "username", email: "user@example.com", identifier: "email-login-user", password: password},
+		{name: "email", email: "user@example.com", identifier: "user@example.com", password: password},
+		{name: "mixed case email input", email: "user@example.com", identifier: " User@Example.COM ", password: password},
+		{name: "legacy mixed case email", email: "User@Example.COM", identifier: "user@example.com", password: password},
+		{name: "wrong password", email: "user@example.com", identifier: "user@example.com", password: "wrong-password", wantErr: ErrInvalidCredentials},
+		{name: "disabled user", email: "user@example.com", identifier: "user@example.com", password: password, status: common.UserStatusDisabled, wantErr: ErrInvalidCredentials},
+		{name: "deleted user", email: "user@example.com", identifier: "user@example.com", password: password, deleted: true, wantErr: ErrInvalidCredentials},
+		{name: "missing user", email: "user@example.com", identifier: "missing@example.com", password: password, wantErr: ErrInvalidCredentials},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setupUserUpdateTestState(t)
+			stored := User{
+				Username: "email-login-user",
+				Email:    test.email,
+				Password: hash,
+				Status:   common.UserStatusEnabled,
+			}
+			if test.status != 0 {
+				stored.Status = test.status
+			}
+			require.NoError(t, DB.Create(&stored).Error)
+			if test.deleted {
+				require.NoError(t, DB.Delete(&stored).Error)
+			}
+
+			loginUser := User{Username: test.identifier, Password: test.password}
+			err := loginUser.ValidateAndFill()
+			if test.wantErr != nil {
+				require.ErrorIs(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, stored.Id, loginUser.Id)
+			assert.Equal(t, stored.Username, loginUser.Username)
+		})
+	}
+}
+
+func TestValidateAndFillDoesNotConfuseUsernamesAndDuplicateEmails(t *testing.T) {
+	setupUserUpdateTestState(t)
+	const password = "EmailLoginPassword123"
+	hash, err := common.HashAccountPassword(password)
+	require.NoError(t, err)
+	const usernamePassword = "UsernamePassword123"
+	usernameHash, err := common.HashAccountPassword(usernamePassword)
+	require.NoError(t, err)
+	users := []User{
+		{Username: "first-user", Email: "shared@example.com", Password: hash, AffCode: "first", Status: common.UserStatusEnabled},
+		{Username: "second-user", Email: "SHARED@example.com", Password: hash, AffCode: "second", Status: common.UserStatusEnabled},
+		{Username: "email-owner", Email: "name@example.com", Password: hash, AffCode: "email", Status: common.UserStatusEnabled},
+		{Username: "name@example.com", Password: usernameHash, AffCode: "username", Status: common.UserStatusEnabled},
+	}
+	require.NoError(t, DB.Create(&users).Error)
+
+	for _, test := range []struct {
+		name       string
+		identifier string
+		password   string
+		wantID     int
+	}{
+		{name: "ambiguous email", identifier: "shared@example.com", password: password},
+		{name: "first duplicate username", identifier: "first-user", password: password, wantID: users[0].Id},
+		{name: "second duplicate username", identifier: "second-user", password: password, wantID: users[1].Id},
+		{name: "username takes precedence", identifier: "name@example.com", password: usernamePassword, wantID: users[3].Id},
+		{name: "wrong username password does not fall back to email", identifier: "name@example.com", password: password},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			loginUser := User{Username: test.identifier, Password: test.password}
+			err := loginUser.ValidateAndFill()
+			if test.wantID == 0 {
+				require.ErrorIs(t, err, ErrInvalidCredentials)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantID, loginUser.Id)
+		})
+	}
+}
+
 func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {
 	setupUserUpdateTestState(t)
 
