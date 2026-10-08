@@ -77,11 +77,11 @@
 
 服务端在所有登录方式的统一 Session 签发出口执行两级账户限制：
 
-- `USER_SESSION_ACTIVE_LIMIT`（默认 `50`）：单用户未过期且状态为 active 的 Session 上限。达到上限时新登录返回 `409 AUTH_SESSION_LIMIT`。
+- `USER_SESSION_ACTIVE_LIMIT`（默认 `0`）：`0` 关闭单用户活跃 Session 数量上限；配置正整数时启用，统计未过期且状态为 active 的 Session，达到上限时新登录返回 `409 AUTH_SESSION_LIMIT`。关闭活跃数量上限不影响下述签发频率限制。
 - `USER_SESSION_ISSUANCE_LIMIT`（默认 `100`）和 `USER_SESSION_ISSUANCE_WINDOW_SECONDS`（默认 `86400`）：统计窗口内该用户创建的所有 Session，包含已撤销和旧鉴权版本的记录。达到上限时返回 `429 AUTH_SESSION_ISSUANCE_LIMIT`。
-- 这两次计数与插入不加跨数据库锁；极端并发登录可能出现少量超额，但计数失败会拒绝签发，不会降级放行。
+- 启用的限额计数失败会拒绝签发，不会降级放行；直接登录路径的计数与插入不加跨数据库锁，极端并发登录可能出现少量超额。
 
-升级时已经超过活跃上限的账户不会被自动下线或挤掉旧会话；限制只作用于后续的新 Session 签发。
+启用活跃上限时，已经超过上限的账户不会被自动下线或挤掉旧会话；限制只作用于后续的新 Session 签发。
 
 `USER_SESSION_REVOKED_RETENTION_DAYS`（默认 `7`）控制 revoked 行的审计保留期。签发计数依赖窗口内的行仍存在，因此签发窗口不得超过 revoked 保留期。如果配置超出，启动时会记录告警并将实际窗口钳制到保留期，避免提前删除 revoked 行导致限流计数被低估。
 

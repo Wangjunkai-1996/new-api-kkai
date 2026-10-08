@@ -72,12 +72,14 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 		return nil, ErrLoginSessionRevoked
 	}
 	now := time.Now().Unix()
-	activeCount, err := model.CountActiveUserSessions(userID, now)
-	if err != nil {
-		return nil, err
-	}
-	if activeCount >= int64(common.UserSessionActiveLimit) {
-		return nil, model.ErrUserSessionLimit
+	if common.UserSessionActiveLimit > 0 {
+		activeCount, err := model.CountActiveUserSessions(userID, now)
+		if err != nil {
+			return nil, err
+		}
+		if activeCount >= int64(common.UserSessionActiveLimit) {
+			return nil, model.ErrUserSessionLimit
+		}
 	}
 	issuanceCount, err := model.CountUserSessionsCreatedSince(userID, now-common.UserSessionIssuanceWindowSeconds)
 	if err != nil {

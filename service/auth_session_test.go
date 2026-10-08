@@ -169,6 +169,61 @@ func TestCreateLoginSessionEnforcesIssuanceLimitAcrossAllStatuses(t *testing.T) 
 	assert.Equal(t, int64(4), count)
 }
 
+func TestLoginSessionActiveLimitCanBeDisabledWithoutDisablingIssuanceLimit(t *testing.T) {
+	for _, path := range []string{"direct", "verification"} {
+		for _, activeLimit := range []int{0, 50} {
+			t.Run(fmt.Sprintf("%s/active_limit_%d", path, activeLimit), func(t *testing.T) {
+				useTestSessionSecret(t)
+				user := setupAuthSessionTestDB(t)
+				common.UserSessionActiveLimit = activeLimit
+				require.NoError(t, model.DB.AutoMigrate(&model.TwoFA{}, &model.PasskeyCredential{}))
+				now := time.Now().Unix()
+				rows := make([]model.UserSession, 99)
+				for i := range rows {
+					rows[i] = model.UserSession{
+						SID: fmt.Sprintf("existing-session-%d", i), UserID: user.Id,
+						Version: 1, UserAuthVersion: user.AuthVersion,
+						Status: model.UserSessionStatusActive, RefreshHash: fmt.Sprintf("hash-%d", i),
+						LoginMethod: "password", CreatedAt: now - 1, ExpiresAt: now + 3600,
+					}
+				}
+				require.NoError(t, model.DB.Create(&rows).Error)
+
+				issueSession := func() error {
+					if path == "direct" {
+						_, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "test-agent")
+						return err
+					}
+					token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
+						Purpose: model.AuthFlowPurposeLoginVerification, UserId: user.Id,
+						ExpiresAt: time.Now().Add(time.Minute),
+					})
+					require.NoError(t, err)
+					session, _, err := newLoginSession(user.Id, user.AuthVersion, "password", "127.0.0.1", "test-agent")
+					require.NoError(t, err)
+					return model.CreateUserSessionFromLoginFlow(token, session, func(*gorm.DB, *model.AuthFlow, *model.UserVerificationState) error {
+						return nil
+					})
+				}
+
+				if activeLimit > 0 {
+					assert.ErrorIs(t, issueSession(), model.ErrUserSessionLimit)
+				} else {
+					require.NoError(t, issueSession(), "disabled active limit must allow more than 50 sessions")
+					assert.ErrorIs(t, issueSession(), model.ErrUserSessionIssuanceLimit, "the 100-per-day issuance limit remains enforced")
+				}
+				count, err := model.CountActiveUserSessions(user.Id, now)
+				require.NoError(t, err)
+				if activeLimit > 0 {
+					assert.Equal(t, int64(99), count)
+				} else {
+					assert.Equal(t, int64(100), count)
+				}
+			})
+		}
+	}
+}
+
 func TestPasswordResetDoesNotClearSessionIssuanceHistory(t *testing.T) {
 	useTestSessionSecret(t)
 	user := setupAuthSessionTestDB(t)

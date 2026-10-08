@@ -78,7 +78,7 @@ var SessionCookieSecure = false
 var SessionCookieTrustedURLs []string
 
 const (
-	DefaultUserSessionActiveLimit           = 50
+	DefaultUserSessionActiveLimit           = 0 // Zero disables the active session limit.
 	DefaultUserSessionIssuanceLimit         = 100
 	DefaultUserSessionIssuanceWindowSeconds = 24 * 60 * 60
 	DefaultUserSessionRevokedRetentionDays  = 7
