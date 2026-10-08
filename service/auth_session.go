@@ -81,12 +81,14 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 			return nil, model.ErrUserSessionLimit
 		}
 	}
-	issuanceCount, err := model.CountUserSessionsCreatedSince(userID, now-common.UserSessionIssuanceWindowSeconds)
-	if err != nil {
-		return nil, err
-	}
-	if issuanceCount >= int64(common.UserSessionIssuanceLimit) {
-		return nil, model.ErrUserSessionIssuanceLimit
+	if common.UserSessionIssuanceLimit > 0 {
+		issuanceCount, err := model.CountUserSessionsCreatedSince(userID, now-common.UserSessionIssuanceWindowSeconds)
+		if err != nil {
+			return nil, err
+		}
+		if issuanceCount >= int64(common.UserSessionIssuanceLimit) {
+			return nil, model.ErrUserSessionIssuanceLimit
+		}
 	}
 	session, refreshSecret, err := newLoginSession(userID, user.AuthVersion, loginMethod, ip, userAgent)
 	if err != nil {

@@ -77,12 +77,14 @@ func CreateUserSessionFromLoginFlow(token string, session *UserSession, validate
 				return ErrUserSessionLimit
 			}
 		}
-		var issuanceCount int64
-		if err := tx.Model(&UserSession{}).Where("user_id = ? AND created_at > ?", session.UserID, now-common.UserSessionIssuanceWindowSeconds).Count(&issuanceCount).Error; err != nil {
-			return err
-		}
-		if issuanceCount >= int64(common.UserSessionIssuanceLimit) {
-			return ErrUserSessionIssuanceLimit
+		if common.UserSessionIssuanceLimit > 0 {
+			var issuanceCount int64
+			if err := tx.Model(&UserSession{}).Where("user_id = ? AND created_at > ?", session.UserID, now-common.UserSessionIssuanceWindowSeconds).Count(&issuanceCount).Error; err != nil {
+				return err
+			}
+			if issuanceCount >= int64(common.UserSessionIssuanceLimit) {
+				return ErrUserSessionIssuanceLimit
+			}
 		}
 		return createUserSessionWithTx(tx, session)
 	})

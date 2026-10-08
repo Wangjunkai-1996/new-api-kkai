@@ -75,10 +75,10 @@
 
 ## Session 签发限额与保留策略
 
-服务端在所有登录方式的统一 Session 签发出口执行两级账户限制：
+服务端在所有登录方式的统一 Session 签发出口支持两级可选账户限制，默认均关闭：
 
 - `USER_SESSION_ACTIVE_LIMIT`（默认 `0`）：`0` 关闭单用户活跃 Session 数量上限；配置正整数时启用，统计未过期且状态为 active 的 Session，达到上限时新登录返回 `409 AUTH_SESSION_LIMIT`。关闭活跃数量上限不影响下述签发频率限制。
-- `USER_SESSION_ISSUANCE_LIMIT`（默认 `100`）和 `USER_SESSION_ISSUANCE_WINDOW_SECONDS`（默认 `86400`）：统计窗口内该用户创建的所有 Session，包含已撤销和旧鉴权版本的记录。达到上限时返回 `429 AUTH_SESSION_ISSUANCE_LIMIT`。
+- `USER_SESSION_ISSUANCE_LIMIT`（默认 `0`）：`0` 关闭单用户 Session 签发频率限制；配置正整数时启用，统计 `USER_SESSION_ISSUANCE_WINDOW_SECONDS`（默认 `86400`）滚动窗口内该用户创建的所有 Session，包含已撤销和旧鉴权版本的记录。达到上限时返回 `429 AUTH_SESSION_ISSUANCE_LIMIT`。关闭签发频率限制不影响显式启用的活跃数量上限。
 - 启用的限额计数失败会拒绝签发，不会降级放行；直接登录路径的计数与插入不加跨数据库锁，极端并发登录可能出现少量超额。
 
 启用活跃上限时，已经超过上限的账户不会被自动下线或挤掉旧会话；限制只作用于后续的新 Session 签发。
