@@ -137,11 +137,12 @@ return 1`
 }
 
 // cacheInitToken publishes a database snapshot only when no mutation fence is
-// active and the hash is cold. An existing hash only gets its TTL refreshed:
+// active and the hash is cold. An existing hash only gets its TTL refreshed
+// and missing AutoGroups metadata backfilled during the cache format upgrade:
 // its RemainQuota may already be ahead of this snapshot because atomic
 // pre-consume decrements Redis first, so a snapshot must never overwrite any
 // field of a live hash.
-// 返回值：0=被 fence 拦截，1=完成初始化，2=哈希已存在，仅刷新 TTL。
+// 返回值：0=被 fence 拦截，1=完成初始化，2=哈希已存在，保留额度和已有元数据。
 func cacheInitToken(token Token, generation string) (int, error) {
 	if !common.RedisEnabled || generation == "" {
 		return 0, nil
@@ -155,6 +156,9 @@ if redis.call('EXISTS', KEYS[2]) == 1 or redis.call('GET', KEYS[3]) ~= ARGV[17] 
   return 0
 end
 if redis.call('EXISTS', KEYS[1]) == 1 then
+  if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') == tonumber(ARGV[1]) then
+    redis.call('HSETNX', KEYS[1], 'AutoGroups', ARGV[18])
+  end
   redis.call('EXPIRE', KEYS[1], ARGV[16])
   return 2
 end
@@ -163,7 +167,7 @@ redis.call('HSET', KEYS[1],
   'CreatedTime', ARGV[5], 'AccessedTime', ARGV[6], 'ExpiredTime', ARGV[7],
   'UnlimitedQuota', ARGV[8], 'ModelLimitsEnabled', ARGV[9], 'ModelLimits', ARGV[10],
   'AllowIps', ARGV[11], 'Group', ARGV[12], 'CrossGroupRetry', ARGV[13],
-  'RemainQuota', ARGV[14], 'UsedQuota', ARGV[15])
+  'RemainQuota', ARGV[14], 'UsedQuota', ARGV[15], 'AutoGroups', ARGV[18])
 redis.call('EXPIRE', KEYS[1], ARGV[16])
 return 1`
 
@@ -175,7 +179,7 @@ return 1`
 		strconv.FormatBool(token.UnlimitedQuota), strconv.FormatBool(token.ModelLimitsEnabled),
 		token.ModelLimits, allowIps, token.Group, strconv.FormatBool(token.CrossGroupRetry),
 		token.RemainQuota, token.UsedQuota,
-		tokenCacheTTLSeconds(), generation,
+		tokenCacheTTLSeconds(), generation, token.AutoGroups,
 	).Int()
 }
 
@@ -184,11 +188,15 @@ func cacheGetTokenByKey(key string) (*Token, error) {
 	if !common.RedisEnabled {
 		return nil, fmt.Errorf("redis is not enabled")
 	}
-	var token Token
+	// AutoGroups may legitimately be empty. The decoder leaves absent fields
+	// untouched, so this non-JSON sentinel identifies hashes from older builds
+	// without another Redis read or discarding their in-flight quota deltas.
+	const missingAutoGroups = "\x00"
+	token := Token{AutoGroups: missingAutoGroups}
 	if err := common.RedisHGetObj(getTokenCacheKey(key), &token); err != nil {
 		return nil, err
 	}
-	if token.Id <= 0 {
+	if token.Id <= 0 || token.AutoGroups == missingAutoGroups {
 		return nil, fmt.Errorf("token cache is incomplete")
 	}
 	token.Key = key

@@ -268,3 +268,84 @@ func TestTokenCachePostCommitFailureReportsCommittedMutation(t *testing.T) {
 	stored := getTokenFromDB(t, token.Id)
 	assert.Equal(t, common.TokenStatusDisabled, stored.Status)
 }
+
+func TestTokenCacheAutoGroupsColdAndWarm(t *testing.T) {
+	for _, groups := range [][]string{nil, {"vip", "default"}} {
+		name := "inherited"
+		if len(groups) > 0 {
+			name = "explicit"
+		}
+		t.Run(name, func(t *testing.T) {
+			truncateTables(t)
+			useUserCacheMiniRedis(t)
+			token := createReserveTestToken(t, 100)
+			token.Group = "auto"
+			require.NoError(t, token.SetAutoGroups(groups))
+			require.NoError(t, DB.Save(&token).Error)
+
+			cold, err := GetTokenByKey(token.Key, false)
+			require.NoError(t, err)
+			assert.Equal(t, token.AutoGroups, cold.AutoGroups)
+			cached, err := cacheGetTokenByKey(token.Key)
+			require.NoError(t, err, "both explicit and inherited groups must form a complete cache entry")
+			assert.Equal(t, token.AutoGroups, cached.AutoGroups)
+			warm, err := GetTokenByKey(token.Key, false)
+			require.NoError(t, err)
+			actualGroups, err := warm.GetAutoGroups()
+			require.NoError(t, err)
+			assert.Equal(t, groups, actualGroups)
+		})
+	}
+}
+
+func TestTokenCacheAutoGroupsLegacyBackfillPreservesQuotaAndPermissions(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	useUserCacheMiniRedis(t)
+	token := createReserveTestToken(t, 100)
+	token.Group = "auto"
+	token.ModelLimitsEnabled = true
+	token.ModelLimits = "allowed-model"
+	token.AllowIps = common.GetPointer("127.0.0.1")
+	require.NoError(t, token.SetAutoGroups([]string{"vip", "default"}))
+	require.NoError(t, DB.Save(&token).Error)
+	_, err := GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	result, err := cacheApplyTokenQuotaDelta(token.Id, token.Key, -70)
+	require.NoError(t, err)
+	require.Equal(t, cacheQuotaOK, result)
+	require.NoError(t, common.RDB.HDel(context.Background(), getTokenCacheKey(token.Key), "AutoGroups").Err())
+	_, err = cacheGetTokenByKey(token.Key)
+	require.Error(t, err, "a legacy entry must reload its missing routing metadata")
+
+	loaded, err := GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	assert.Equal(t, token.AutoGroups, loaded.AutoGroups)
+	cached, err := cacheGetTokenByKey(token.Key)
+	require.NoError(t, err, "the next warm read must not need another metadata reload")
+	assert.Equal(t, token.AutoGroups, cached.AutoGroups)
+	assert.Equal(t, 30, cached.RemainQuota)
+	assert.Equal(t, 70, cached.UsedQuota)
+	assert.Equal(t, token.Status, cached.Status)
+	assert.Equal(t, token.Group, cached.Group)
+	assert.True(t, cached.ModelLimitsEnabled)
+	assert.Equal(t, token.ModelLimits, cached.ModelLimits)
+	assert.Equal(t, token.AllowIps, cached.AllowIps)
+
+	// A later reader holding older permission fields must not overwrite either
+	// the repaired routing metadata or the already reserved quota.
+	generation, err := beginTokenCacheRead(token.Key)
+	require.NoError(t, err)
+	stale := token
+	stale.Status = common.TokenStatusDisabled
+	stale.Group = "old-group"
+	stale.ModelLimitsEnabled = false
+	stale.ModelLimits = ""
+	stale.AllowIps = nil
+	require.NoError(t, stale.SetAutoGroups([]string{"old-group"}))
+	_, err = cacheInitToken(stale, generation)
+	require.NoError(t, err)
+	warm, err := GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	assert.Equal(t, cached, warm)
+}
