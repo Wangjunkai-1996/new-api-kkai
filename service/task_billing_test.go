@@ -677,12 +677,11 @@ func TestAdjustTaskBillingRejectsInsufficientSubscriptionWithoutPartialTokenChar
 	assert.Equal(t, reservedQuota, persisted.Quota)
 }
 
-func TestAdjustTaskBillingRejectsInsufficientFiniteTokenAndRollsBackWallet(t *testing.T) {
+func TestAdjustTaskBillingBeforeDispatchRequiresAvailableTokenQuota(t *testing.T) {
 	truncate(t)
-
-	const userID, tokenID, channelID = 120, 120, 120
+	const userID, tokenID, channelID = 128, 128, 128
 	const initialUserQuota, initialTokenQuota, reservedQuota, targetQuota = 1_000, 120, 100, 150
-	const tokenKey = "sk-finite-token-settlement-limit"
+	const tokenKey = "sk-before-dispatch-token-limit"
 	seedUser(t, userID, initialUserQuota)
 	seedToken(t, tokenID, userID, tokenKey, initialTokenQuota)
 	seedChannel(t, channelID)
@@ -691,14 +690,133 @@ func TestAdjustTaskBillingRejectsInsufficientFiniteTokenAndRollsBackWallet(t *te
 	ctx, info := newDurableTaskBillingContext(t, task, tokenKey, "wallet_only", false)
 	require.Nil(t, PreConsumeTaskBilling(ctx, task, reservedQuota, info))
 
-	_, err := model.AdjustTaskBilling(context.Background(), task.ID, targetQuota)
+	_, err := model.AdjustTaskBilling(ctx, task.ID, targetQuota)
 	require.ErrorIs(t, err, model.ErrTaskBillingInsufficientToken)
 	assert.EqualValues(t, initialUserQuota-reservedQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota-reservedQuota, getTokenRemainQuota(t, tokenID))
-
 	var persisted model.Task
 	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
 	assert.Equal(t, reservedQuota, persisted.Quota)
+}
+
+func TestAdjustTaskBillingSettlesAcceptedUsageBeyondCurrentTokenLimit(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		initialTokenQuota int
+		lowerLimit        bool
+		wantRemain        int
+	}{
+		{name: "finite token exhausted by actual usage", initialTokenQuota: 120, wantRemain: -30},
+		{name: "owner lowers limit after acceptance", initialTokenQuota: 1_000, lowerLimit: true, wantRemain: -50},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			truncate(t)
+			const userID, tokenID, channelID = 120, 120, 120
+			const initialUserQuota, reservedQuota, targetQuota = 1_000, 100, 150
+			const tokenKey = "sk-finite-token-settlement-limit"
+			seedUser(t, userID, initialUserQuota)
+			seedToken(t, tokenID, userID, tokenKey, test.initialTokenQuota)
+			seedChannel(t, channelID)
+			task := makeTask(userID, channelID, 0, tokenID, "", 0)
+			persistPendingTaskBilling(t, task, common.GetPointer(targetQuota))
+			ctx, info := newDurableTaskBillingContext(t, task, tokenKey, "wallet_only", false)
+			require.Nil(t, PreConsumeTaskBilling(ctx, task, reservedQuota, info))
+			_, claimed, err := model.ClaimTaskSubmission(ctx, task.ID, nil)
+			require.NoError(t, err)
+			require.True(t, claimed)
+			_, accepted, err := model.PersistTaskSubmissionAcceptance(ctx, task.ID, model.TaskSubmissionAcceptance{
+				UpstreamTaskID: "accepted-token-limit", Status: model.TaskStatusSubmitted, TargetQuota: targetQuota,
+			})
+			require.NoError(t, err)
+			require.True(t, accepted)
+			if test.lowerLimit {
+				token, err := model.GetTokenByIds(tokenID, userID)
+				require.NoError(t, err)
+				token.RemainQuota = 0
+				require.NoError(t, token.Update())
+			}
+
+			mutation, err := model.AdjustTaskBilling(ctx, task.ID, targetQuota)
+			require.NoError(t, err)
+			require.True(t, mutation.Applied)
+			replay, err := model.AdjustTaskBilling(ctx, task.ID, targetQuota)
+			require.NoError(t, err)
+			assert.False(t, replay.Applied)
+			assert.EqualValues(t, initialUserQuota-targetQuota, getUserQuota(t, userID))
+			assert.Equal(t, test.wantRemain, getTokenRemainQuota(t, tokenID))
+			assert.Equal(t, targetQuota, getTokenUsedQuota(t, tokenID))
+			assert.Equal(t, targetQuota, mutation.Task.Quota)
+			assert.Equal(t, targetQuota, mutation.Task.PrivateData.TokenQuota)
+			assert.Nil(t, mutation.Task.PrivateData.TargetQuota)
+			deliverTaskBillingAuditEvents(t)
+			var log model.Log
+			require.NoError(t, model.LOG_DB.Where("token_id = ? AND type = ?", tokenID, model.LogTypeConsume).First(&log).Error)
+			assert.Equal(t, targetQuota-reservedQuota, log.Quota)
+			assert.Equal(t, int64(1), countLogs(t))
+		})
+	}
+}
+
+func TestDurableTaskBillingSurvivesDeletedToken(t *testing.T) {
+	for _, hardDelete := range []bool{false, true} {
+		for _, test := range []struct {
+			name        string
+			targetQuota int
+			refund      bool
+		}{
+			{name: "supplement", targetQuota: 150},
+			{name: "partial refund", targetQuota: 50},
+			{name: "failed task refund", refund: true},
+		} {
+			t.Run(fmt.Sprintf("%s/hard_delete=%t", test.name, hardDelete), func(t *testing.T) {
+				truncate(t)
+				const userID, tokenID, channelID = 127, 127, 127
+				const initialQuota, reservedQuota = 1_000, 100
+				const tokenKey = "sk-deleted-durable-billing"
+				seedUser(t, userID, initialQuota)
+				seedToken(t, tokenID, userID, tokenKey, initialQuota)
+				seedChannel(t, channelID)
+				task := makeTask(userID, channelID, 0, tokenID, "", 0)
+				persistPendingTaskBilling(t, task, common.GetPointer(150))
+				ctx, info := newDurableTaskBillingContext(t, task, tokenKey, "wallet_only", false)
+				require.Nil(t, PreConsumeTaskBilling(ctx, task, reservedQuota, info))
+				_, claimed, err := model.ClaimTaskSubmission(ctx, task.ID, nil)
+				require.NoError(t, err)
+				require.True(t, claimed)
+				status := model.TaskStatus(model.TaskStatusSubmitted)
+				if test.refund {
+					status = model.TaskStatusFailure
+				}
+				_, accepted, err := model.PersistTaskSubmissionAcceptance(ctx, task.ID, model.TaskSubmissionAcceptance{
+					UpstreamTaskID: "accepted-deleted-token", Status: status, TargetQuota: test.targetQuota,
+				})
+				require.NoError(t, err)
+				require.True(t, accepted)
+				deleteDB := model.DB
+				if hardDelete {
+					deleteDB = deleteDB.Unscoped()
+				}
+				require.NoError(t, deleteDB.Delete(&model.Token{}, tokenID).Error)
+
+				for attempt := 0; attempt < 2; attempt++ {
+					if test.refund {
+						_, err = model.RefundTaskBilling(ctx, task.ID)
+					} else {
+						_, err = model.AdjustTaskBilling(ctx, task.ID, test.targetQuota)
+					}
+					require.NoError(t, err)
+				}
+				assert.EqualValues(t, initialQuota-test.targetQuota, getUserQuota(t, userID))
+				var persisted model.Task
+				require.NoError(t, model.DB.First(&persisted, task.ID).Error)
+				assert.Equal(t, test.targetQuota, persisted.Quota)
+				assert.Equal(t, test.targetQuota, persisted.PrivateData.TokenQuota)
+				assert.Nil(t, persisted.PrivateData.TargetQuota)
+				deliverTaskBillingAuditEvents(t)
+				assert.Equal(t, int64(1), countLogs(t))
+			})
+		}
+	}
 }
 
 func TestTaskBillingUsesLockedUnlimitedTokenDespiteStaleFiniteSnapshot(t *testing.T) {

@@ -50,8 +50,8 @@ func reconcileTaskBillingCacheAfterCommit(ctx context.Context, taskID int64) {
 	}
 }
 
-// ReconcileTaskBillingQuotaCache sets cache fields from current database values.
-// Reading current state makes old or replayed outbox events converge safely.
+// ReconcileTaskBillingQuotaCache refreshes quota from current database values.
+// Token authorization is hydrated only by authentication's guarded cold read.
 func ReconcileTaskBillingQuotaCache(ctx context.Context, taskID int64) error {
 	if taskID <= 0 {
 		return ErrTaskBillingInvalidRequest
@@ -81,15 +81,25 @@ func ReconcileTaskBillingQuotaCache(ctx context.Context, taskID int64) error {
 	}
 
 	var token Token
-	err := DB.WithContext(ctx).Unscoped().Where("id = ?", task.PrivateData.TokenId).First(&token).Error
+	err := DB.WithContext(ctx).Unscoped().Select("id", commonKeyCol).
+		Where("id = ?", task.PrivateData.TokenId).First(&token).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
 		return err
 	}
+	// Bind the quota snapshot to the generation before reading it. An older
+	// reconciliation must not restore a token limit edited while it was paused.
+	generation, err := beginTokenCacheRead(token.Key)
+	if err != nil {
+		return err
+	}
+	if err := DB.WithContext(ctx).Unscoped().First(&token, token.Id).Error; err != nil {
+		return err
+	}
 	if token.DeletedAt.Valid {
 		return cacheDeleteToken(token.Key)
 	}
-	return cacheSetToken(token)
+	return cacheSetToken(token, generation)
 }

@@ -352,6 +352,12 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		}
 		// Don't return error - fall through to DB
 	}
+	cacheGeneration, cacheErr := beginTokenCacheRead(key)
+	if cacheErr != nil {
+		// A failed generation read must never authorize publishing the snapshot.
+		cacheGeneration = ""
+		common.SysLog("failed to begin token cache read: " + cacheErr.Error())
+	}
 	token = &Token{}
 	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
 		return nil, err
@@ -359,7 +365,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 	if common.RedisEnabled {
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
 		// 避免快照覆盖 Redis 中已被原子预扣的余额。初始化失败不影响本次读取。
-		if _, cacheErr := cacheInitToken(*token); cacheErr != nil {
+		if _, cacheErr := cacheInitToken(*token, cacheGeneration); cacheErr != nil {
 			common.SysLog("failed to init token cache: " + cacheErr.Error())
 		}
 	}
@@ -378,8 +384,8 @@ func (token *Token) Update() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
-	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+	return invalidateTokenCacheAfterMutation(token.Key, DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error)
 }
 
 // UpdateGroup updates only the token's group routing fields. A nil retry
@@ -431,7 +437,7 @@ func (token *Token) UpdateGroup(group string, retryOverride *bool) error {
 	if retryOverride != nil {
 		token.CrossGroupRetry = *retryOverride
 	}
-	return nil
+	return invalidateTokenCacheAfterMutation(token.Key, nil)
 }
 
 func (token *Token) SelectUpdate() (err error) {
@@ -439,14 +445,14 @@ func (token *Token) SelectUpdate() (err error) {
 		common.SysLog("failed to invalidate token cache before status update: " + cacheErr.Error())
 	}
 	// This can update zero values
-	return DB.Model(token).Select("accessed_time", "status").Updates(token).Error
+	return invalidateTokenCacheAfterMutation(token.Key, DB.Model(token).Select("accessed_time", "status").Updates(token).Error)
 }
 
 func (token *Token) Delete() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before delete: " + cacheErr.Error())
 	}
-	return DB.Delete(token).Error
+	return invalidateTokenCacheAfterMutation(token.Key, DB.Delete(token).Error)
 }
 
 func (token *Token) IsModelLimitsEnabled() bool {
@@ -583,6 +589,9 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
+	}
+	if err := invalidateTokensCache(tokens); err != nil {
+		return len(tokens), fmt.Errorf("token database deletion committed but cache invalidation failed: %w", err)
 	}
 
 	return len(tokens), nil

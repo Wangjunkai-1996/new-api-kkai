@@ -2,9 +2,9 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -17,6 +17,10 @@ func getTokenCacheFenceKey(key string) string {
 	return fmt.Sprintf("token:fence:%s", common.GenerateHMAC(key))
 }
 
+func getTokenCacheGenerationKey(key string) string {
+	return fmt.Sprintf("token:generation:%s", common.GenerateHMAC(key))
+}
+
 func tokenCacheTTLSeconds() int {
 	ttl := common.RedisKeyCacheSeconds()
 	if ttl <= 0 {
@@ -25,12 +29,33 @@ func tokenCacheTTLSeconds() int {
 	return ttl
 }
 
-// tokenCacheFenceSeconds must outlive a token mutation's database write plus
-// any in-flight reader's DB-read-to-cache-init gap. The fence is not deleted
-// after commit; it expires naturally so a reader holding a pre-mutation
-// snapshot cannot publish it right after the mutation cleared the cache.
-// While the fence exists readers simply serve the database without caching.
+// The fence covers the metadata database write. Read generations additionally
+// reject snapshots held beyond this window, without retaining permanent keys.
+// While the fence exists readers serve the database without caching.
 const tokenCacheFenceSeconds = 10
+
+var errTokenCacheSnapshotStale = errors.New("token cache snapshot changed; retry reconciliation")
+
+// beginTokenCacheRead must precede the database read. Expiration or invalidation
+// revokes the generation, so even a delayed reader cannot republish old state.
+func beginTokenCacheRead(key string) (string, error) {
+	if !common.RedisEnabled {
+		return "", nil
+	}
+	const script = `
+if redis.call('EXISTS', KEYS[2]) == 1 then
+  return ''
+end
+local generation = redis.call('GET', KEYS[1])
+if generation then
+  return generation
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return ARGV[1]`
+	return common.RDB.Eval(context.Background(), script, []string{
+		getTokenCacheGenerationKey(key), getTokenCacheFenceKey(key),
+	}, common.GetUUID(), tokenCacheFenceSeconds).Text()
+}
 
 // invalidateTokenCacheForMutation is called before a token metadata mutation
 // writes to the database: it raises the fence and drops the cached hash so no
@@ -39,12 +64,13 @@ func invalidateTokenCacheForMutation(key string) error {
 	if !common.RedisEnabled || key == "" {
 		return nil
 	}
-	ctx := context.Background()
-	err := common.RDB.Set(ctx, getTokenCacheFenceKey(key), 1, time.Duration(tokenCacheFenceSeconds)*time.Second).Err()
-	if err != nil {
-		return err
-	}
-	return common.RDB.Del(ctx, getTokenCacheKey(key)).Err()
+	const script = `
+redis.call('SET', KEYS[2], 1, 'EX', ARGV[1])
+redis.call('DEL', KEYS[1], KEYS[3])
+return 1`
+	return common.RDB.Eval(context.Background(), script, []string{
+		getTokenCacheKey(key), getTokenCacheFenceKey(key), getTokenCacheGenerationKey(key),
+	}, tokenCacheFenceSeconds).Err()
 }
 
 func invalidateTokensCache(tokens []Token) error {
@@ -57,20 +83,57 @@ func invalidateTokensCache(tokens []Token) error {
 	return firstErr
 }
 
+// A second invalidation after commit closes the window when a database write
+// outlives the pre-write fence. Do not hide an already committed mutation if
+// Redis fails while revoking snapshots from that window.
+func invalidateTokenCacheAfterMutation(key string, mutationErr error) error {
+	if mutationErr != nil {
+		return mutationErr
+	}
+	if err := invalidateTokenCacheForMutation(key); err != nil {
+		return fmt.Errorf("token database mutation committed but cache invalidation failed: %w", err)
+	}
+	return nil
+}
+
 func cacheDeleteToken(key string) error {
 	return invalidateTokenCacheForMutation(key)
 }
 
-// cacheSetToken publishes an authoritative post-settlement database snapshot.
-// Unlike cold-read initialization, this path must replace a live hash because
-// task settlement has already committed the updated quota.
-func cacheSetToken(token Token) error {
+// cacheSetToken reconciles committed quota only. It must never publish token
+// authorization fields or recreate a revoked/expired hash from a stale snapshot.
+// Invalidating read generations also prevents a concurrent cold reader from
+// publishing quota read before the settlement committed.
+func cacheSetToken(token Token, generation string) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	key := getTokenCacheKey(token.Key)
-	token.Clean()
-	return common.RedisHSetObj(key, &token, time.Duration(tokenCacheTTLSeconds())*time.Second)
+	if generation == "" {
+		return errTokenCacheSnapshotStale
+	}
+	const script = `
+if redis.call('EXISTS', KEYS[2]) == 1 or redis.call('GET', KEYS[3]) ~= ARGV[6] then
+  return -1
+end
+redis.call('DEL', KEYS[3])
+if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[1])
+  or redis.call('HEXISTS', KEYS[1], 'RemainQuota') == 0
+  or redis.call('HEXISTS', KEYS[1], 'UsedQuota') == 0 then
+  return 0
+end
+redis.call('HSET', KEYS[1], 'RemainQuota', ARGV[2], 'UsedQuota', ARGV[3], 'AccessedTime', ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return 1`
+	result, err := common.RDB.Eval(context.Background(), script, []string{
+		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key), getTokenCacheGenerationKey(token.Key),
+	}, token.Id, token.RemainQuota, token.UsedQuota, token.AccessedTime, tokenCacheTTLSeconds(), generation).Int()
+	if err != nil {
+		return err
+	}
+	if result == -1 {
+		return errTokenCacheSnapshotStale
+	}
+	return nil
 }
 
 // cacheInitToken publishes a database snapshot only when no mutation fence is
@@ -79,8 +142,8 @@ func cacheSetToken(token Token) error {
 // pre-consume decrements Redis first, so a snapshot must never overwrite any
 // field of a live hash.
 // 返回值：0=被 fence 拦截，1=完成初始化，2=哈希已存在，仅刷新 TTL。
-func cacheInitToken(token Token) (int, error) {
-	if !common.RedisEnabled {
+func cacheInitToken(token Token, generation string) (int, error) {
+	if !common.RedisEnabled || generation == "" {
 		return 0, nil
 	}
 	allowIps := ""
@@ -88,7 +151,7 @@ func cacheInitToken(token Token) (int, error) {
 		allowIps = *token.AllowIps
 	}
 	const script = `
-if redis.call('EXISTS', KEYS[2]) == 1 then
+if redis.call('EXISTS', KEYS[2]) == 1 or redis.call('GET', KEYS[3]) ~= ARGV[17] then
   return 0
 end
 if redis.call('EXISTS', KEYS[1]) == 1 then
@@ -105,14 +168,14 @@ redis.call('EXPIRE', KEYS[1], ARGV[16])
 return 1`
 
 	return common.RDB.Eval(context.Background(), script, []string{
-		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key),
+		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key), getTokenCacheGenerationKey(token.Key),
 	},
 		token.Id, token.UserId, token.Status, token.Name,
 		token.CreatedTime, token.AccessedTime, token.ExpiredTime,
 		strconv.FormatBool(token.UnlimitedQuota), strconv.FormatBool(token.ModelLimitsEnabled),
 		token.ModelLimits, allowIps, token.Group, strconv.FormatBool(token.CrossGroupRetry),
 		token.RemainQuota, token.UsedQuota,
-		tokenCacheTTLSeconds(),
+		tokenCacheTTLSeconds(), generation,
 	).Int()
 }
 

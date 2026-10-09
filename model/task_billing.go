@@ -869,8 +869,16 @@ func adjustTaskToken(tx *gorm.DB, task *Task, delta int) (string, error) {
 	if query.Error != nil {
 		return "", query.Error
 	}
+	// Before dispatch, extra reservations still require available token quota.
+	// Once dispatched, settlement must account for usage even if the owner
+	// lowered the limit; a negative remainder records the overage.
+	dispatched := task.PrivateData.BillingState == TaskBillingStateDispatching ||
+		task.PrivateData.BillingState == TaskBillingStateAccepted ||
+		task.PrivateData.BillingState == TaskBillingStateAmbiguous ||
+		task.PrivateData.BillingState == TaskBillingStateCompleted
+	checkLimit := !dispatched && delta > 0 && !token.UnlimitedQuota
 	update := tx.Model(&Token{}).Where("id = ?", token.Id)
-	if delta > 0 && !token.UnlimitedQuota {
+	if checkLimit {
 		update = update.Where("remain_quota >= ? AND unlimited_quota = ?", delta, false)
 	}
 	update = update.Updates(map[string]any{
@@ -881,7 +889,7 @@ func adjustTaskToken(tx *gorm.DB, task *Task, delta int) (string, error) {
 	if update.Error != nil {
 		return "", update.Error
 	}
-	if update.RowsAffected == 0 && delta > 0 && !token.UnlimitedQuota {
+	if update.RowsAffected == 0 && checkLimit {
 		return "", ErrTaskBillingInsufficientToken
 	}
 	return token.Key, nil
