@@ -94,6 +94,21 @@ describe('log cost display', () => {
     expect(screen.queryByText('Subscription')).not.toBeInTheDocument()
   })
 
+  test('keeps the recorded charge when cache-read display pricing differs', () => {
+    renderCost({
+      quota: 5000,
+      other: {
+        billing_mode: 'tiered_expr',
+        expr_b64: btoa('tier("standard", cr * 2)'),
+        matched_tier: 'standard',
+        cache_tokens: 1000,
+      },
+    })
+
+    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(screen.queryByText('$0.002')).not.toBeInTheDocument()
+  })
+
   test('hides the wallet icon when subscriptions are unavailable', () => {
     renderCost({
       quota: 5000,

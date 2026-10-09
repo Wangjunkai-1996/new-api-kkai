@@ -41,6 +41,7 @@ export type VisualCondition =
 export type VisualPrice = {
   variable: Exclude<TokenVariable, 'len'>
   value: string
+  displayValue?: string
   origin?: ExpressionNode
 }
 export type VisualPricingNode =
@@ -202,13 +203,52 @@ function readVisualPricing(node: ExpressionNode): VisualPricingNode | null {
 }
 
 export function parseVisualBillingDocument(
-  source: string
+  source: string,
+  displaySource = ''
 ): VisualBillingDocument | null {
   const compiled = compileBillingExpression(source)
   if (compiled.status !== 'ready') return null
   const root = readVisualPricing(compiled.ast)
   if (!root) return null
   const document = { source, root }
+  if (displaySource) {
+    const display = parseVisualBillingDocument(displaySource)
+    if (!display) return null
+    const pending = [{ actual: root, displayed: display.root }]
+    for (const { actual, displayed } of pending) {
+      if (actual.kind === 'branch' && displayed.kind === 'branch') {
+        const condition = (key: string, value: unknown) =>
+          key === 'id' || key === 'origin' ? undefined : value
+        if (
+          JSON.stringify(actual.condition, condition) !==
+          JSON.stringify(displayed.condition, condition)
+        ) {
+          return null
+        }
+        pending.push(
+          { actual: actual.yes, displayed: displayed.yes },
+          { actual: actual.no, displayed: displayed.no }
+        )
+      } else if (actual.kind === 'tier' && displayed.kind === 'tier') {
+        if (
+          actual.label !== displayed.label ||
+          actual.billingUnit !== displayed.billingUnit ||
+          actual.fixedPrice !== displayed.fixedPrice ||
+          actual.prices.length !== displayed.prices.length
+        ) {
+          return null
+        }
+        for (let index = 0; index < actual.prices.length; index++) {
+          const price = actual.prices[index]
+          const displayPrice = displayed.prices[index]
+          if (price.variable !== displayPrice.variable) return null
+          if (price.value === displayPrice.value) continue
+          if (price.variable !== 'cr') return null
+          price.displayValue = displayPrice.value
+        }
+      } else return null
+    }
+  }
   return serializeVisualBillingDocument(document).ok ? document : null
 }
 
@@ -355,12 +395,13 @@ export function visualConditionExpression(
 function writeVisualPricing(
   node: VisualPricingNode,
   source: string,
-  issues: VisualBillingIssue[]
+  issues: VisualBillingIssue[],
+  displayPrices = false
 ): string {
   if (node.kind === 'branch') {
     const condition = writeVisualCondition(node.condition, source, issues)
-    const yes = writeVisualPricing(node.yes, source, issues)
-    const no = writeVisualPricing(node.no, source, issues)
+    const yes = writeVisualPricing(node.yes, source, issues, displayPrices)
+    const no = writeVisualPricing(node.no, source, issues, displayPrices)
     if (node.origin?.kind === 'conditional') {
       return patchSource(source, node.origin, [
         { node: node.origin.condition, text: condition },
@@ -415,7 +456,17 @@ function writeVisualPricing(
   const terms: string[] = []
   const valuePatches: { node: ExpressionNode; text: string }[] = []
   for (const price of node.prices) {
-    const value = parseNonNegativeNumber(price.value)
+    const displayValue =
+      price.variable === 'cr' ? price.displayValue : undefined
+    if (displayValue && parseNonNegativeNumber(displayValue) === null) {
+      issues.push({
+        id: `${node.id}:cr-display`,
+        message: 'Enter a finite, non-negative price.',
+      })
+    }
+    const priceValue =
+      displayPrices && displayValue ? displayValue : price.value
+    const value = parseNonNegativeNumber(priceValue)
     if (value === null) {
       issues.push({
         id: `${node.id}:${price.variable}`,
@@ -429,12 +480,12 @@ function writeVisualPricing(
       const text =
         value === price.origin.right.value
           ? source.slice(price.origin.right.start, price.origin.right.end)
-          : price.value
+          : priceValue
       valuePatches.push({ node: price.origin.right, text })
       terms.push(
         patchSource(source, price.origin, [{ node: price.origin.right, text }])
       )
-    } else terms.push(`${price.variable} * ${price.value}`)
+    } else terms.push(`${price.variable} * ${priceValue}`)
   }
   const origin = node.origin
   if (origin?.kind === 'call' && origin.name === 'tier') {
@@ -462,10 +513,16 @@ function writeVisualPricing(
 }
 
 export function serializeVisualBillingDocument(
-  document: VisualBillingDocument
+  document: VisualBillingDocument,
+  displayPrices = false
 ): VisualBillingSerialization {
   const issues: VisualBillingIssue[] = []
-  const body = writeVisualPricing(document.root, document.source, issues)
+  const body = writeVisualPricing(
+    document.root,
+    document.source,
+    issues,
+    displayPrices
+  )
   if (issues.length > 0) return { ok: false, issues }
   const original = compileBillingExpression(document.source)
   if (original.status !== 'ready') {

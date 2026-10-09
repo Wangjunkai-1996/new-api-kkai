@@ -170,6 +170,9 @@ test('retains all pricing inputs and switches inside an expanded rule', async ()
     />
   )
   const user = userEvent.setup()
+  expect(
+    screen.queryByRole('textbox', { name: 'Cache read display price' })
+  ).not.toBeInTheDocument()
   const tier = within(screen.getByRole('group', { name: 'Pricing tier short' }))
   await user.click(
     tier.getByRole('button', { name: 'Edit pricing rule short' })
@@ -979,4 +982,50 @@ test('preserves legacy numeric drafts when editing an independent time multiplie
   expect(onRequestRuleExprChange.mock.lastCall?.[0]).toContain('>= 0')
   fireEvent.blur(start)
   expect(start).toHaveValue(0)
+})
+
+test('edits cache display prices independently and clears them after a raw edit', async () => {
+  const actual = 'tier("standard", p * 10 + c * 50 + cr * 2)'
+  const displayed = actual.replace('cr * 2', 'cr * 0.5')
+  const onBillingExprChange = vi.fn()
+  const onDisplayBillingExprChange = vi.fn()
+  render(
+    <TieredPricingEditor
+      billingExpr={actual}
+      displayBillingExpr={displayed}
+      requestRuleExpr=''
+      onBillingExprChange={onBillingExprChange}
+      onDisplayBillingExprChange={onDisplayBillingExprChange}
+      onRequestRuleExprChange={vi.fn()}
+    />
+  )
+  expect(
+    screen.getByRole('textbox', { name: 'Cache read billing price' })
+  ).toHaveValue('2')
+  const display = screen.getByRole('textbox', {
+    name: 'Cache read display price',
+  })
+  expect(display).toHaveValue('0.5')
+  fireEvent.change(display, { target: { value: '0' } })
+  expect(onBillingExprChange).toHaveBeenLastCalledWith(actual)
+  expect(onDisplayBillingExprChange).toHaveBeenLastCalledWith(
+    actual.replace('cr * 2', 'cr * 0')
+  )
+  fireEvent.change(screen.getByRole('textbox', { name: 'Tier name' }), {
+    target: { value: 'renamed' },
+  })
+  expect(onDisplayBillingExprChange).toHaveBeenLastCalledWith(
+    actual.replace('standard', 'renamed').replace('cr * 2', 'cr * 0')
+  )
+  fireEvent.change(display, { target: { value: '' } })
+  expect(onDisplayBillingExprChange).toHaveBeenLastCalledWith('')
+  fireEvent.change(display, { target: { value: '0.25' } })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('combobox', { name: 'Editor mode' }))
+  await user.click(screen.getByRole('option', { name: 'Expression editor' }))
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Billing expression' }),
+    { target: { value: actual } }
+  )
+  expect(onDisplayBillingExprChange).toHaveBeenLastCalledWith('')
 })

@@ -1043,6 +1043,8 @@ export type TieredPricingEditorProps = {
   currency?: PricingCurrency
   modelName?: string
   billingExpr: string
+  displayBillingExpr?: string
+  onDisplayBillingExprChange?: (next: string) => void
   requestRuleExpr: string
   onBillingExprChange: (next: string) => void
   onRequestRuleExprChange: (next: string) => void
@@ -1050,9 +1052,13 @@ export type TieredPricingEditorProps = {
 
 type EditorMode = 'visual' | 'raw'
 
-function parseTierEditorDocument(source: string): VisualBillingDocument | null {
+function parseTierEditorDocument(
+  source: string,
+  displaySource = ''
+): VisualBillingDocument | null {
   return parseVisualBillingDocument(
-    source || generateExprFromVisualConfig(createDefaultVisualConfig())
+    source || generateExprFromVisualConfig(createDefaultVisualConfig()),
+    displaySource
   )
 }
 
@@ -1060,6 +1066,8 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   currency = USD_PRICING_CURRENCY,
   modelName,
   billingExpr: currentExpr,
+  displayBillingExpr: currentDisplayExpr = '',
+  onDisplayBillingExprChange,
   requestRuleExpr: currentRequestRuleExpr,
   onBillingExprChange,
   onRequestRuleExprChange,
@@ -1067,12 +1075,13 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   const { t } = useTranslation()
   const [visualDocument, setVisualDocument] =
     useState<VisualBillingDocument | null>(() =>
-      parseTierEditorDocument(currentExpr)
+      parseTierEditorDocument(currentExpr, currentDisplayExpr)
     )
   const [editorMode, setEditorMode] = useState<EditorMode>(() =>
     visualDocument ? 'visual' : 'raw'
   )
   const [baseExpr, setBaseExpr] = useState(currentExpr)
+  const [displayExpr, setDisplayExpr] = useState(currentDisplayExpr)
   const [ruleExpr, setRuleExpr] = useState(currentRequestRuleExpr)
   const [rawExpr, setRawExpr] = useState(() =>
     combineBillingExpr(currentExpr, currentRequestRuleExpr)
@@ -1084,14 +1093,15 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
   useEffect(() => {
     if (loadedModel.current === modelName) return
     loadedModel.current = modelName
-    const document = parseTierEditorDocument(currentExpr)
+    const document = parseTierEditorDocument(currentExpr, currentDisplayExpr)
     setVisualDocument(document)
     setEditorMode(document ? 'visual' : 'raw')
     setBaseExpr(currentExpr)
+    setDisplayExpr(currentDisplayExpr)
     setRuleExpr(currentRequestRuleExpr)
     setRawExpr(combineBillingExpr(currentExpr, currentRequestRuleExpr))
     setRequestRuleGroups(tryParseRequestRuleExpr(currentRequestRuleExpr) || [])
-  }, [modelName, currentExpr, currentRequestRuleExpr])
+  }, [modelName, currentExpr, currentRequestRuleExpr, currentDisplayExpr])
 
   const serialized = useMemo(
     () =>
@@ -1110,21 +1120,30 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       if (result.ok) {
         setBaseExpr(result.source)
         onBillingExprChange(result.source)
+        const displayResult = serializeVisualBillingDocument(next, true)
+        if (displayResult.ok) {
+          const expression =
+            displayResult.source === result.source ? '' : displayResult.source
+          setDisplayExpr(expression)
+          onDisplayBillingExprChange?.(expression)
+        }
       }
     },
-    [onBillingExprChange]
+    [onBillingExprChange, onDisplayBillingExprChange]
   )
 
   const handleRawChange = useCallback(
     (value: string) => {
       setRawExpr(value)
+      setDisplayExpr('')
+      onDisplayBillingExprChange?.('')
       const split = splitBillingExprAndRequestRules(value)
       setBaseExpr(split.billingExpr)
       setRuleExpr(split.requestRuleExpr)
       onBillingExprChange(split.billingExpr)
       onRequestRuleExprChange(split.requestRuleExpr)
     },
-    [onBillingExprChange, onRequestRuleExprChange]
+    [onBillingExprChange, onRequestRuleExprChange, onDisplayBillingExprChange]
   )
 
   const handleModeChange = useCallback(
@@ -1132,7 +1151,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       if (next === editorMode) return
       if (invalidDraft) return
       if (next === 'visual') {
-        const document = parseTierEditorDocument(baseExpr)
+        const document = parseTierEditorDocument(baseExpr, displayExpr)
         if (!document) {
           toast.error(
             t(
@@ -1148,7 +1167,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       }
       setEditorMode(next)
     },
-    [editorMode, invalidDraft, baseExpr, ruleExpr, t]
+    [editorMode, invalidDraft, baseExpr, ruleExpr, displayExpr, t]
   )
 
   const applyPreset = useCallback(
@@ -1158,6 +1177,8 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       const document = parseTierEditorDocument(preset.expr)
       setRawExpr(combineBillingExpr(preset.expr, rules))
       setBaseExpr(preset.expr)
+      setDisplayExpr('')
+      onDisplayBillingExprChange?.('')
       setRuleExpr(rules)
       setVisualDocument(document)
       setEditorMode(document ? 'visual' : 'raw')
@@ -1165,7 +1186,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
       onBillingExprChange(preset.expr)
       onRequestRuleExprChange(rules)
     },
-    [onBillingExprChange, onRequestRuleExprChange]
+    [onBillingExprChange, onRequestRuleExprChange, onDisplayBillingExprChange]
   )
 
   const handleRuleGroupsChange = useCallback(
@@ -1226,13 +1247,23 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
         {editorMode === 'visual' && visualDocument && (
           <VisualBillingDocumentEditor
             document={visualDocument}
+            displayPricesEnabled={Boolean(onDisplayBillingExprChange)}
             currency={currency}
             issues={serialized && !serialized.ok ? serialized.issues : []}
             onChange={handleDocumentChange}
           />
         )}
         {editorMode === 'raw' && (
-          <RawExprEditor exprString={rawExpr} onChange={handleRawChange} />
+          <div className='space-y-2'>
+            {onDisplayBillingExprChange && (
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Editing the raw expression clears cache read display prices.'
+                )}
+              </p>
+            )}
+            <RawExprEditor exprString={rawExpr} onChange={handleRawChange} />
+          </div>
         )}
         {invalidDraft && (
           <p role='alert' className='text-destructive text-sm'>

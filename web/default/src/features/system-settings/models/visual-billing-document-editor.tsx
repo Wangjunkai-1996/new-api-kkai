@@ -54,6 +54,7 @@ type PricingNodeProps = {
   source: string
   currency: PricingCurrency
   issues: VisualBillingIssue[]
+  displayPricesEnabled?: boolean
   onChange: (node: VisualPricingNode) => void
 }
 
@@ -94,9 +95,9 @@ function PricingTierFields(
                 ...node,
                 id: visualNodeId(),
                 origin: undefined,
-                prices: node.prices.map(({ variable, value }) => ({
-                  variable,
-                  value,
+                prices: node.prices.map((price) => ({
+                  ...price,
+                  origin: undefined,
                 })),
               },
               no: node,
@@ -129,6 +130,20 @@ function PricingTierFields(
         prices={Object.fromEntries(
           node.prices.map((price) => [price.variable, price.value])
         )}
+        cacheReadDisplayPrice={
+          node.prices.find((price) => price.variable === 'cr')?.displayValue
+        }
+        onCacheReadDisplayPriceChange={
+          props.displayPricesEnabled
+            ? (displayValue) =>
+                props.onChange({
+                  ...node,
+                  prices: node.prices.map((price) =>
+                    price.variable === 'cr' ? { ...price, displayValue } : price
+                  ),
+                })
+            : undefined
+        }
         invalidVariables={issues.map((issue) =>
           issue.id.slice(node.id.length + 1)
         )}
@@ -374,6 +389,7 @@ export function VisualBillingDocumentEditor(props: {
   document: VisualBillingDocument
   currency: PricingCurrency
   issues: VisualBillingIssue[]
+  displayPricesEnabled?: boolean
   onChange: (document: VisualBillingDocument) => void
 }) {
   const { t } = useTranslation()
@@ -392,6 +408,7 @@ export function VisualBillingDocumentEditor(props: {
         source={props.document.source}
         currency={props.currency}
         issues={props.issues}
+        displayPricesEnabled={props.displayPricesEnabled}
         onChange={(root) => props.onChange({ ...props.document, root })}
       />
     </div>

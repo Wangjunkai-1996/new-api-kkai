@@ -72,6 +72,7 @@ export type ModelRatioData = {
   audioCompletionRatio?: string
   billingMode?: PricingMode
   billingExpr?: string
+  displayBillingExpr?: string
   requestRuleExpr?: string
 }
 

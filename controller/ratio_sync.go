@@ -133,6 +133,10 @@ func normalizeSyncValue(field string, value any) any {
 
 func getLocalPricingSyncData() map[string]any {
 	data := billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
+	// The administrator compares upstream prices with actual local billing,
+	// while the public synchronization endpoint publishes presentation prices.
+	data[billing_setting.BillingExprField] = billing_setting.GetBillingExprCopy()
+	data["cache_ratio"] = ratio_setting.GetCacheRatioCopy()
 	data["image_ratio"] = ratio_setting.GetImageRatioCopy()
 	data["audio_ratio"] = ratio_setting.GetAudioRatioCopy()
 	data["audio_completion_ratio"] = ratio_setting.GetAudioCompletionRatioCopy()

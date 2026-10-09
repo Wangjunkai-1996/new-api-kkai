@@ -18,27 +18,30 @@ import (
 )
 
 const (
-	BillingModeRatio        = "ratio"
-	BillingModeTieredExpr   = "tiered_expr"
-	BillingModeField        = "billing_mode"
-	BillingExprField        = "billing_expr"
-	PluginBillingExprOption = "billing_setting.plugin_billing_expr"
-	maxTaskExprSmokeTests   = 64
+	BillingModeRatio         = "ratio"
+	BillingModeTieredExpr    = "tiered_expr"
+	BillingModeField         = "billing_mode"
+	BillingExprField         = "billing_expr"
+	PluginBillingExprOption  = "billing_setting.plugin_billing_expr"
+	DisplayBillingExprOption = "billing_setting.display_billing_expr"
+	maxTaskExprSmokeTests    = 64
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
-// billing_setting.plugin_billing_expr
+// billing_setting.plugin_billing_expr, billing_setting.display_billing_expr
 type BillingSetting struct {
-	BillingMode       map[string]string `json:"billing_mode"`
-	BillingExpr       map[string]string `json:"billing_expr"`
-	PluginBillingExpr map[string]string `json:"plugin_billing_expr"`
+	BillingMode        map[string]string `json:"billing_mode"`
+	BillingExpr        map[string]string `json:"billing_expr"`
+	PluginBillingExpr  map[string]string `json:"plugin_billing_expr"`
+	DisplayBillingExpr map[string]string `json:"display_billing_expr"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode:       make(map[string]string),
-	BillingExpr:       make(map[string]string),
-	PluginBillingExpr: make(map[string]string),
+	BillingMode:        make(map[string]string),
+	BillingExpr:        make(map[string]string),
+	PluginBillingExpr:  make(map[string]string),
+	DisplayBillingExpr: make(map[string]string),
 }
 
 func init() {
@@ -81,6 +84,24 @@ func GetBillingExpr(model string) (string, bool) {
 func GetBuiltinBillingExpr(model string) (string, bool) {
 	expression, ok := builtinBillingExpr[model]
 	return expression, ok
+}
+
+// GetDisplayBillingExpr keeps presentation overrides out of billing. Validate
+// against the exact expression in use so changed built-in defaults cannot
+// expose a stale price schedule after an application upgrade.
+func GetDisplayBillingExpr(model, actual string) string {
+	display := billingSetting.DisplayBillingExpr[model]
+	if display != "" && ValidateDisplayBillingExpr(actual, display) == nil {
+		return display
+	}
+	return actual
+}
+
+func ValidateDisplayBillingExpr(actual, display string) error {
+	if strings.TrimSpace(display) == "" {
+		return fmt.Errorf("display billing expression is required")
+	}
+	return billingexpr.ValidateDisplayBillingExpr(actual, display)
 }
 
 func PluginBillingExprKey(pluginKey, model string) string {
@@ -177,6 +198,17 @@ func GetPricingSyncData(base map[string]any) map[string]any {
 		extra[BillingModeField] = modes
 	}
 	if exprs := GetBillingExprCopy(); len(exprs) > 0 {
+		cacheRatios, _ := base["cache_ratio"].(map[string]float64)
+		cacheRatios = maps.Clone(cacheRatios)
+		for model, expression := range exprs {
+			exprs[model] = GetDisplayBillingExpr(model, expression)
+			if exprs[model] != expression {
+				delete(cacheRatios, model)
+			}
+		}
+		if cacheRatios != nil {
+			extra["cache_ratio"] = cacheRatios
+		}
 		extra[BillingExprField] = exprs
 	}
 	return lo.Assign(base, extra)

@@ -127,6 +127,7 @@ const createModelSchema = (t: Translate) =>
     ExposeRatioEnabled: z.boolean(),
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
+    DisplayBillingExpr: createJsonStringField(t),
     PluginBillingExpr: createJsonStringField(t),
   })
 
@@ -224,6 +225,8 @@ export function RatioSettingsCard({
               pricingBaseline.options['billing_setting.billing_mode'],
             BillingExpr:
               pricingBaseline.options['billing_setting.billing_expr'],
+            DisplayBillingExpr:
+              pricingBaseline.options['billing_setting.display_billing_expr'],
             PluginBillingExpr:
               pricingBaseline.options['billing_setting.plugin_billing_expr'],
           }
@@ -265,6 +268,9 @@ export function RatioSettingsCard({
     ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
     BillingMode: normalizeJsonString(modelDefaults.BillingMode),
     BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+    DisplayBillingExpr: normalizeJsonString(
+      modelDefaults.DisplayBillingExpr ?? '{}'
+    ),
     PluginBillingExpr: normalizeJsonString(modelDefaults.PluginBillingExpr),
   }
   const modelNormalizedDefaults = useRef(initialModelNormalizedDefaults)
@@ -308,6 +314,9 @@ export function RatioSettingsCard({
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
+      DisplayBillingExpr: formatJsonForTextarea(
+        modelDefaults.DisplayBillingExpr ?? '{}'
+      ),
       PluginBillingExpr: formatJsonForTextarea(modelDefaults.PluginBillingExpr),
     },
   })
@@ -347,6 +356,9 @@ export function RatioSettingsCard({
       ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
       BillingMode: normalizeJsonString(modelDefaults.BillingMode),
       BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
+      DisplayBillingExpr: normalizeJsonString(
+        modelDefaults.DisplayBillingExpr ?? '{}'
+      ),
       PluginBillingExpr: normalizeJsonString(modelDefaults.PluginBillingExpr),
     }
     setSavedModelValues(modelNormalizedDefaults.current)
@@ -365,6 +377,9 @@ export function RatioSettingsCard({
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
+      DisplayBillingExpr: formatJsonForTextarea(
+        modelDefaults.DisplayBillingExpr ?? '{}'
+      ),
       PluginBillingExpr: formatJsonForTextarea(modelDefaults.PluginBillingExpr),
     })
   }, [modelDefaults, modelForm])
@@ -418,6 +433,9 @@ export function RatioSettingsCard({
         ExposeRatioEnabled: values.ExposeRatioEnabled,
         BillingMode: normalizeJsonString(values.BillingMode),
         BillingExpr: normalizeJsonString(values.BillingExpr),
+        DisplayBillingExpr: normalizeJsonString(
+          values.DisplayBillingExpr ?? '{}'
+        ),
         PluginBillingExpr: normalizeJsonString(values.PluginBillingExpr),
       }
 

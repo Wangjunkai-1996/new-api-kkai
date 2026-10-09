@@ -376,7 +376,10 @@ func updatePricing() {
 		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
-				pricing.BillingExpr = expr
+				pricing.BillingExpr = billing_setting.GetDisplayBillingExpr(model, expr)
+				if pricing.BillingExpr != expr {
+					pricing.CacheRatio = nil
+				}
 			}
 		} else if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved && target.Declared != "" {
 			if tailMode := billing_setting.GetBillingMode(target.Declared); tailMode == "tiered_expr" {

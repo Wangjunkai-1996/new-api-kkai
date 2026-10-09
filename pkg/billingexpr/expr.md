@@ -170,6 +170,8 @@ Two option maps stored in the `options` DB table:
 - `ModelBillingMode`: `{ "model-name": "tiered_expr" }` — activates tiered billing for a model
 - `ModelBillingExpr`: `{ "model-name": "tier(\"base\", p * 2.5 + c * 15)" }` — the expression
 
+An optional `billing_setting.display_billing_expr` map stores a separate customer-facing expression for token relay pricing. It may differ from the billing expression only in the finite, non-negative cache-read (`cr`) price coefficients of token-priced tiers. Tier conditions, other prices, and request multipliers must stay identical. Tier names must be unique under the log UI's label normalization so logs select the correct displayed price. Missing display configuration uses the billing expression. This is presentation metadata: it never participates in pre-consumption, settlement, wallet balances, or quota statistics.
+
 On save, the expression is validated:
 1. Compiled via `billingexpr.CompileFromCache()` — syntax check
 2. Smoke-tested with sample token vectors — ensures non-negative results
@@ -207,6 +209,8 @@ After the upstream response returns with actual token usage:
 **Files**: `service/log_info_generate.go`, `web/src/helpers/render.jsx`
 
 Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 expression), `matched_tier`, and the structured `request_rules` trace list to the log's `other` JSON.
+
+When cache-read display prices are configured, the request snapshot freezes both expressions. Public `expr_b64` contains the display expression, while `admin_info.actual_expr_b64` preserves the actual billing expression for administrator audits. The model pricing API also exposes the display expression. Log totals always retain the actual deducted quota; changing display prices later does not rewrite historical logs.
 
 Frontend: Detects `billing_mode === "tiered_expr"`, decodes `expr_b64`, parses tiers via shared `parseTiersFromExpr()`, and renders request multipliers from `request_rules` when present. Without log traces, it falls back to parsing the stored expression.
 

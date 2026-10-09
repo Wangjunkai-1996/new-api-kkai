@@ -75,6 +75,7 @@ const modelDefaults = {
   ExposeRatioEnabled: false,
   BillingMode: '{}',
   BillingExpr: '{}',
+  DisplayBillingExpr: '{}',
   PluginBillingExpr: '{}',
 }
 

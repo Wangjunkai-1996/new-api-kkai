@@ -235,3 +235,54 @@ it('commits source provider edits while preserving target providers during batch
     'beta::target': '2',
   })
 })
+
+it('saves, copies, and clears cache display expressions through the managed pricing contract', () => {
+  const actual = 'tier("standard", p * 10 + cr * 2)'
+  const display = 'tier("standard", p * 10 + cr * 0)'
+  const requestRuleExpr = 'header("fast") == "true" ? 2 : 1'
+  const draft = {
+    name: 'source',
+    billingMode: 'tiered_expr' as const,
+    billingExpr: actual,
+    displayBillingExpr: display,
+    requestRuleExpr,
+  }
+  const values = pricingFromDraft(draft)
+  expect(values['billing_setting.display_billing_expr']).toContain('cr * 0')
+  expect(pricingFromDraft(pricingRow('source', values))).toEqual(values)
+  const before = pricingOptions({})
+  const snapshot: ModelPricingConfig = {
+    options: before,
+    empty_version: 'empty',
+    entries: [],
+  }
+  const after = applyPricingDraft(before, draft, ['source', 'copy'])
+  const changes = buildPricingChanges(snapshot, before, after)
+  expect(changes).toHaveLength(2)
+  for (const change of changes) expect(change.pricing).toEqual(values)
+  const withoutDisplay = applyPricingDraft(after, {
+    ...draft,
+    displayBillingExpr: '',
+  })
+  const configured = {
+    ...snapshot,
+    entries: [
+      {
+        model_name: 'source',
+        version: 'v1',
+        configured: values,
+        effective: values,
+      },
+    ],
+  }
+  expect(buildPricingChanges(configured, after, withoutDisplay)).toEqual([
+    {
+      model_name: 'source',
+      expected_version: 'v1',
+      pricing: {
+        'billing_setting.billing_mode': 'tiered_expr',
+        'billing_setting.billing_expr': values['billing_setting.billing_expr'],
+      },
+    },
+  ])
+})

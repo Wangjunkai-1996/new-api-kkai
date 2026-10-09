@@ -40,6 +40,7 @@ export const PRICING_KEYS = [
   'AudioCompletionRatio',
   'billing_setting.billing_mode',
   'billing_setting.billing_expr',
+  'billing_setting.display_billing_expr',
   'billing_setting.plugin_billing_expr',
 ] as const
 export type PricingKey = (typeof PRICING_KEYS)[number]
@@ -135,6 +136,9 @@ export function pricingOptions(
       let value = values[key]
       if (key === 'billing_setting.billing_mode') value ??= values.BillingMode
       if (key === 'billing_setting.billing_expr') value ??= values.BillingExpr
+      if (key === 'billing_setting.display_billing_expr') {
+        value ??= values.DisplayBillingExpr
+      }
       if (key === 'billing_setting.plugin_billing_expr') {
         value ??= values.PluginBillingExpr
       }
@@ -155,6 +159,7 @@ export function pricingRows(options: PricingOptions): ModelPricingSnapshot[] {
     audioCompletionRatio: options.AudioCompletionRatio,
     billingMode: options['billing_setting.billing_mode'],
     billingExpr: options['billing_setting.billing_expr'],
+    displayBillingExpr: options['billing_setting.display_billing_expr'],
     pluginBillingExpr: options['billing_setting.plugin_billing_expr'],
   })
 }
@@ -227,6 +232,12 @@ export function pricingFromDraft(data: ModelRatioData): PricingValues {
       data.billingExpr || '',
       data.requestRuleExpr || ''
     )
+    if (data.displayBillingExpr) {
+      values['billing_setting.display_billing_expr'] = combineBillingExpr(
+        data.displayBillingExpr,
+        data.requestRuleExpr || ''
+      )
+    }
   }
   return values
 }

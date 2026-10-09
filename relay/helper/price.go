@@ -429,6 +429,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		BillingMode:               billing_setting.BillingModeTieredExpr,
 		ModelName:                 billingModelName,
 		ExprString:                exprStr,
+		DisplayExprString:         billing_setting.GetDisplayBillingExpr(billingModelName, exprStr),
 		ExprHash:                  exprHash,
 		GroupRatio:                groupRatioInfo.GroupRatio,
 		EstimatedPromptTokens:     promptTokens,
@@ -441,6 +442,9 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		EstimatedFixedPrice:       trace.FixedPrice,
 		QuotaPerUnit:              common.QuotaPerUnit,
 		ExprVersion:               billingexpr.ExprVersion(exprStr),
+	}
+	if snapshot.DisplayExprString == snapshot.ExprString {
+		snapshot.DisplayExprString = ""
 	}
 	info.TieredBillingSnapshot = snapshot
 	info.BillingRequestInput = &requestInput

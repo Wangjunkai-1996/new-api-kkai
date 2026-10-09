@@ -86,6 +86,7 @@ type ModelRatioVisualEditorProps = {
   savedAudioCompletionRatio: string
   savedBillingMode: string
   savedBillingExpr: string
+  savedDisplayBillingExpr?: string
   savedPluginBillingExpr?: string
   modelPrice: string
   modelRatio: string
@@ -97,6 +98,7 @@ type ModelRatioVisualEditorProps = {
   audioCompletionRatio: string
   billingMode: string
   billingExpr: string
+  displayBillingExpr?: string
   pluginBillingExpr?: string
   candidateModelNames?: string[]
   candidateModelsLoading?: boolean
@@ -127,6 +129,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedAudioCompletionRatio,
     savedBillingMode,
     savedBillingExpr,
+    savedDisplayBillingExpr = '{}',
     savedPluginBillingExpr = '{}',
     modelPrice,
     modelRatio,
@@ -138,6 +141,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     audioCompletionRatio,
     billingMode,
     billingExpr,
+    displayBillingExpr = '{}',
     pluginBillingExpr = '{}',
     candidateModelNames,
     candidateModelsLoading,
@@ -239,6 +243,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       audioCompletionRatio: savedAudioCompletionRatio,
       billingMode: savedBillingMode,
       billingExpr: savedBillingExpr,
+      displayBillingExpr: savedDisplayBillingExpr,
       pluginBillingExpr: savedPluginBillingExpr,
     })
     const draftRows = buildModelSnapshots({
@@ -252,6 +257,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       audioCompletionRatio,
       billingMode,
       billingExpr,
+      displayBillingExpr,
       pluginBillingExpr,
     })
 
@@ -296,6 +302,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     savedAudioCompletionRatio,
     savedBillingMode,
     savedBillingExpr,
+    savedDisplayBillingExpr,
     savedPluginBillingExpr,
     modelPrice,
     modelRatio,
@@ -307,6 +314,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     audioCompletionRatio,
     billingMode,
     billingExpr,
+    displayBillingExpr,
     pluginBillingExpr,
   ])
 
@@ -356,6 +364,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         audioCompletionRatio: editableModel.audioCompletionRatio,
         billingMode: editBillingMode,
         billingExpr: editableModel.billingExpr,
+        displayBillingExpr: editableModel.displayBillingExpr,
         pluginBillingExpr: editableModel.pluginBillingExpr,
         requestRuleExpr: editableModel.requestRuleExpr,
       })
@@ -439,6 +448,15 @@ const ModelRatioVisualEditorComponent = forwardRef<
       delete audioCompletionMap[name]
       delete billingModeMap[name]
       delete billingExprMap[name]
+      const displayExprMap = safeJsonParse<Record<string, string>>(
+        displayBillingExpr,
+        { fallback: {} }
+      )
+      delete displayExprMap[name]
+      onChange(
+        'billing_setting.display_billing_expr',
+        JSON.stringify(displayExprMap)
+      )
       const pluginExprMap = safeJsonParse<Record<string, string>>(
         pluginBillingExpr,
         { fallback: {} }
@@ -490,6 +508,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       audioCompletionRatio,
       billingMode,
       billingExpr,
+      displayBillingExpr,
       pluginBillingExpr,
       onChange,
     ]
@@ -555,6 +574,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         AudioCompletionRatio: audioCompletionRatio,
         BillingMode: billingMode,
         BillingExpr: billingExpr,
+        DisplayBillingExpr: displayBillingExpr,
         PluginBillingExpr: pluginBillingExpr,
       })
       const updated = applyPricingDraft(options, data, targetNames)
@@ -571,6 +591,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
       audioCompletionRatio,
       billingMode,
       billingExpr,
+      displayBillingExpr,
       pluginBillingExpr,
       onChange,
     ]
@@ -835,6 +856,7 @@ export const ModelRatioVisualEditor = memo(
         nextProps.savedAudioCompletionRatio &&
       prevProps.savedBillingMode === nextProps.savedBillingMode &&
       prevProps.savedBillingExpr === nextProps.savedBillingExpr &&
+      prevProps.savedDisplayBillingExpr === nextProps.savedDisplayBillingExpr &&
       prevProps.savedPluginBillingExpr === nextProps.savedPluginBillingExpr &&
       prevProps.modelPrice === nextProps.modelPrice &&
       prevProps.modelRatio === nextProps.modelRatio &&
@@ -846,6 +868,7 @@ export const ModelRatioVisualEditor = memo(
       prevProps.audioCompletionRatio === nextProps.audioCompletionRatio &&
       prevProps.billingMode === nextProps.billingMode &&
       prevProps.billingExpr === nextProps.billingExpr &&
+      prevProps.displayBillingExpr === nextProps.displayBillingExpr &&
       prevProps.pluginBillingExpr === nextProps.pluginBillingExpr &&
       prevProps.candidateModelNames === nextProps.candidateModelNames &&
       prevProps.candidateModelsLoading === nextProps.candidateModelsLoading &&

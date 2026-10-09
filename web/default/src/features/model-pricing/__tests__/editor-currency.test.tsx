@@ -1035,3 +1035,37 @@ it('preserves time billing on direct save and blocks incomplete local conditions
     requestRuleExpr,
   })
 })
+
+it('commits independent cache display prices in USD and marks display-only edits dirty', async () => {
+  const billingExpr = 'tier("standard", p * 10 + c * 50 + cr * 2)'
+  const editor = renderEditor({
+    billingMode: 'tiered_expr',
+    billingExpr,
+    displayBillingExpr: billingExpr.replace('cr * 2', 'cr * 0.5'),
+  })
+  await selectCurrency('Site currency (CNY)')
+  expect(
+    screen.getByRole('textbox', { name: 'Cache read billing price' })
+  ).toHaveValue('14')
+  const display = screen.getByRole('textbox', {
+    name: 'Cache read display price',
+  })
+  expect(display).toHaveValue('3.5')
+  editor.dirty.mockClear()
+  fireEvent.change(display, { target: { value: '7' } })
+  expect(editor.dirty).toHaveBeenLastCalledWith(true)
+  expect(await commit(editor.ref)).toMatchObject({
+    billingExpr,
+    displayBillingExpr: billingExpr.replace('cr * 2', 'cr * 1'),
+  })
+  fireEvent.change(display, { target: { value: '0' } })
+  expect(await commit(editor.ref)).toMatchObject({
+    billingExpr,
+    displayBillingExpr: billingExpr.replace('cr * 2', 'cr * 0'),
+  })
+  fireEvent.change(display, { target: { value: '' } })
+  expect(await commit(editor.ref)).toMatchObject({
+    billingExpr,
+    displayBillingExpr: '',
+  })
+})

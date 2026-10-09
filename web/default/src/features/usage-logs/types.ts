@@ -116,6 +116,9 @@ export interface ToolSurchargeItem {
 
 export interface LogOtherData {
   admin_info?: {
+    // Settlement expression retained only for administrators when the public
+    // expression uses a separate cache-read display price.
+    actual_expr_b64?: string
     request_policy?: PolicyEvent[]
     is_multi_key?: boolean
     multi_key_index?: number
@@ -209,8 +212,9 @@ export interface LogOtherData {
   frt?: number
   // Tiered (expression-based) billing fields, set by backend when
   // billing_mode === 'tiered_expr'. expr_b64 is the base64-encoded billing
-  // expression; the matched tier and request-rule traces come from the actual
-  // settlement run.
+  // expression for customer-visible unit prices; the matched tier and
+  // request-rule traces come from the actual settlement run. Total cost must
+  // continue to use the recorded quota, not this display expression.
   billing_mode?: string
   billing_unit?: 'token' | 'request'
   fixed_price?: number

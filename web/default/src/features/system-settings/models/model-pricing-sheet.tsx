@@ -225,6 +225,7 @@ export const ModelPricingEditorPanel = forwardRef<
     ...EMPTY_LANE_ENABLED,
   })
   const [billingExpr, setBillingExpr] = useState(DEFAULT_TOKEN_BILLING_EXPR)
+  const [displayBillingExpr, setDisplayBillingExpr] = useState('')
   const [conversionReason, setConversionReason] = useState('')
   const [wasConverted, setWasConverted] = useState(false)
   const conversionGeneration = useRef(0)
@@ -356,6 +357,7 @@ export const ModelPricingEditorPanel = forwardRef<
     // eslint-disable-next-line react/set-state-in-effect
     setConversionReason('')
     setPluginExpressions(editData?.pluginBillingExpr ?? {})
+    setDisplayBillingExpr(editData?.displayBillingExpr ?? '')
     setWasConverted(false)
     setConversionPreview(null)
     const nextLaneState = createInitialLaneState(editData)
@@ -417,6 +419,7 @@ export const ModelPricingEditorPanel = forwardRef<
       form.formState.isDirty ||
         pricingMode !== initialPricingMode ||
         billingExpr !== initialBillingExpr ||
+        displayBillingExpr !== (editData?.displayBillingExpr ?? '') ||
         requestRuleExpr !== (editData?.requestRuleExpr ?? '') ||
         !pluginExpressionsEqual(pluginExpressions, editData?.pluginBillingExpr)
     )
@@ -425,6 +428,7 @@ export const ModelPricingEditorPanel = forwardRef<
     form.formState.isDirty,
     pricingMode,
     billingExpr,
+    displayBillingExpr,
     requestRuleExpr,
     editData,
     initialPricingMode,
@@ -702,6 +706,7 @@ export const ModelPricingEditorPanel = forwardRef<
 
       if (pricingMode === 'tiered_expr') {
         data.billingExpr = resolvedBillingExpr
+        data.displayBillingExpr = displayBillingExpr
         data.requestRuleExpr = requestRuleExpr
       }
 
@@ -711,6 +716,7 @@ export const ModelPricingEditorPanel = forwardRef<
       pricingMode,
       requestRuleExpr,
       resolvedBillingExpr,
+      displayBillingExpr,
       pluginExpressions,
       editData,
       pluginVariants,
@@ -828,6 +834,8 @@ export const ModelPricingEditorPanel = forwardRef<
       key={editorReloadToken}
       modelName={watchedValues.name}
       billingExpr={billingExpr}
+      displayBillingExpr={displayBillingExpr}
+      onDisplayBillingExprChange={setDisplayBillingExpr}
       requestRuleExpr={requestRuleExpr}
       onBillingExprChange={setBillingExpr}
       onRequestRuleExprChange={setRequestRuleExpr}

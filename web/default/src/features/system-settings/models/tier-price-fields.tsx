@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronDown } from 'lucide-react'
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -121,6 +121,8 @@ type TierPriceFieldsProps = {
   cacheMode?: CacheMode
   onCacheModeChange?: (mode: CacheMode) => void
   invalidVariables?: string[]
+  cacheReadDisplayPrice?: string
+  onCacheReadDisplayPriceChange?: (value: string) => void
 }
 export function TierPriceFields(props: TierPriceFieldsProps) {
   const { t } = useTranslation()
@@ -133,28 +135,32 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
   const renderPriceVariable = (variable: {
     key: VisualPrice['variable']
     label: string
-  }) => (
-    <PriceField
-      key={variable.key}
-      currency={props.currency}
-      label={
-        variable.key === 'cc' && props.prices.cc1h !== undefined
-          ? t('Cache Creation (5m)')
-          : t(variable.label)
-      }
-      value={props.prices[variable.key] ?? 0}
-      onChange={(value) => props.onChange(variable.key, value)}
-      included={
-        props.onInclude ? props.prices[variable.key] !== undefined : undefined
-      }
-      onInclude={
-        props.onInclude
-          ? (included) => props.onInclude?.(variable.key, included)
-          : undefined
-      }
-      invalid={props.invalidVariables?.includes(variable.key)}
-    />
-  )
+  }) => {
+    let label = t(variable.label)
+    if (variable.key === 'cr' && props.onCacheReadDisplayPriceChange) {
+      label = t('Cache read billing price')
+    } else if (variable.key === 'cc' && props.prices.cc1h !== undefined) {
+      label = t('Cache Creation (5m)')
+    }
+    return (
+      <PriceField
+        key={variable.key}
+        currency={props.currency}
+        label={label}
+        value={props.prices[variable.key] ?? 0}
+        onChange={(value) => props.onChange(variable.key, value)}
+        included={
+          props.onInclude ? props.prices[variable.key] !== undefined : undefined
+        }
+        onInclude={
+          props.onInclude
+            ? (included) => props.onInclude?.(variable.key, included)
+            : undefined
+        }
+        invalid={props.invalidVariables?.includes(variable.key)}
+      />
+    )
+  }
   const billingControl = props.onBillingUnitChange && (
     <Select
       items={[
@@ -251,9 +257,34 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
                 ) {
                   return null
                 }
-                return renderPriceVariable(variable)
+                return (
+                  <Fragment key={variable.key}>
+                    {renderPriceVariable(variable)}
+                    {variable.key === 'cr' &&
+                      props.onCacheReadDisplayPriceChange &&
+                      props.prices.cr !== undefined && (
+                        <PriceField
+                          currency={props.currency}
+                          label={t('Cache read display price')}
+                          value={props.cacheReadDisplayPrice ?? ''}
+                          onChange={props.onCacheReadDisplayPriceChange}
+                          invalid={props.invalidVariables?.includes(
+                            'cr-display'
+                          )}
+                        />
+                      )}
+                  </Fragment>
+                )
               })}
             </div>
+            {props.onCacheReadDisplayPriceChange &&
+              props.prices.cr !== undefined && (
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Leave empty to use the billing price. Customers see this unit price; totals use actual charges.'
+                  )}
+                </p>
+              )}
           </div>
         </div>
       </div>

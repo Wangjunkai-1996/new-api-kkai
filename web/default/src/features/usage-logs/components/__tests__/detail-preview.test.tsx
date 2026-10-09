@@ -144,6 +144,31 @@ test('keeps log details open when the parent refreshes with unchanged data', asy
   expect(screen.getByRole('dialog')).toBeVisible()
 })
 
+test('shows the cache-read display price while preserving the recorded charge in customer log details', async () => {
+  const actualExpression = 'tier("standard", cr * 10)'
+  const preview = renderPreview(
+    {
+      billing_mode: 'tiered_expr',
+      expr_b64: btoa('tier("standard", cr * 2)'),
+      matched_tier: 'standard',
+      cache_tokens: 1000,
+      admin_info: { actual_expr_b64: btoa(actualExpression) },
+    },
+    false
+  )
+
+  expect(preview).toHaveTextContent('Cache $2')
+  fireEvent.click(preview)
+  const dialog = within(await screen.findByRole('dialog'))
+  expect(dialog.getByText('$2/M')).toBeVisible()
+  expect(dialog.getByText('Total Cost').nextElementSibling).toHaveTextContent(
+    '$0.01'
+  )
+  expect(dialog.queryByText('$0.002')).not.toBeInTheDocument()
+  expect(dialog.queryByText(/\$10(?:\/M|\.0000)/)).not.toBeInTheDocument()
+  expect(dialog.queryByText(actualExpression)).not.toBeInTheDocument()
+})
+
 test.each([
   {
     name: 'fixed expression zero price',

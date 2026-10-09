@@ -110,12 +110,13 @@ func usesRequestProbe(node ast.Node) bool {
 }
 
 type cachedEntry struct {
-	prog          *vm.Program
-	usedVars      map[string]bool
-	usedUsageKeys map[string]bool
-	requestRules  []RequestRuleTrace
-	version       int
-	fixedPricing  bool
+	prog                *vm.Program
+	usedVars            map[string]bool
+	usedUsageKeys       map[string]bool
+	requestRules        []RequestRuleTrace
+	version             int
+	fixedPricing        bool
+	cacheReadPriceShape string
 }
 
 var (
@@ -208,6 +209,7 @@ func compileEntryFromCacheByHash(exprStr, hash string) (*cachedEntry, error) {
 			return nil, fmt.Errorf("expr compile error: %w", err)
 		}
 	}
+	displayShape := cacheReadDisplayShape(tree.Node)
 	patcher := &requestRulePatcher{}
 	prog, err := expr.Compile(body, expr.Env(getCompileEnv(version)), expr.Patch(patcher), expr.AsFloat64())
 	if patcher.restrictedIdentifier != "" {
@@ -218,12 +220,13 @@ func compileEntryFromCacheByHash(exprStr, hash string) (*cachedEntry, error) {
 	}
 
 	entry := &cachedEntry{
-		prog:          prog,
-		usedVars:      extractUsedVars(prog),
-		usedUsageKeys: extractUsedUsageKeys(prog),
-		requestRules:  patcher.requestRules,
-		version:       version,
-		fixedPricing:  fixedPricing,
+		prog:                prog,
+		usedVars:            extractUsedVars(prog),
+		usedUsageKeys:       extractUsedUsageKeys(prog),
+		requestRules:        patcher.requestRules,
+		version:             version,
+		fixedPricing:        fixedPricing,
+		cacheReadPriceShape: displayShape,
 	}
 	cacheMu.Lock()
 	if len(cache) >= maxCacheSize {

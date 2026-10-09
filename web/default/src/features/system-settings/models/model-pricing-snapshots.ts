@@ -33,6 +33,7 @@ export type ModelPricingSnapshotInput = {
   audioCompletionRatio: string
   billingMode: string
   billingExpr: string
+  displayBillingExpr?: string
   pluginBillingExpr?: string
 }
 
@@ -49,6 +50,7 @@ export type ModelPricingSnapshot = {
   audioCompletionRatio?: string
   billingMode?: string
   billingExpr?: string
+  displayBillingExpr?: string
   requestRuleExpr?: string
   hasConflict: boolean
 }
@@ -167,6 +169,7 @@ export const buildModelSnapshots = ({
   billingMode,
   billingExpr,
   pluginBillingExpr = '{}',
+  displayBillingExpr = '{}',
 }: ModelPricingSnapshotInput): ModelPricingSnapshot[] => {
   const priceMap = safeJsonParse<Record<string, number>>(modelPrice, {
     fallback: {},
@@ -209,6 +212,10 @@ export const buildModelSnapshots = ({
     context: 'billing expression',
   })
 
+  const displayExprMap = safeJsonParse<Record<string, string>>(
+    displayBillingExpr,
+    { fallback: {} }
+  )
   const pluginExprMap = safeJsonParse<Record<string, string>>(
     pluginBillingExpr,
     { fallback: {}, context: 'plugin billing expressions' }
@@ -235,6 +242,7 @@ export const buildModelSnapshots = ({
     ...Object.keys(audioCompletionMap),
     ...Object.keys(billingModeMap),
     ...Object.keys(billingExprMap),
+    ...Object.keys(displayExprMap),
   ])
 
   return [...modelNames].map((name) => {
@@ -257,6 +265,9 @@ export const buildModelSnapshots = ({
         pluginBillingExpr: pluginExpressionsByModel.get(name),
         billingMode: 'tiered_expr',
         billingExpr: pureExpr,
+        displayBillingExpr: splitBillingExprAndRequestRules(
+          displayExprMap[name] || ''
+        ).billingExpr,
         requestRuleExpr,
         price,
         ratio,
@@ -308,6 +319,7 @@ export const getSnapshotSignature = (snapshot?: ModelPricingSnapshot) => {
     audioCompletionRatio: snapshot.audioCompletionRatio || '',
     billingMode: snapshot.billingMode || 'per-token',
     billingExpr: snapshot.billingExpr || '',
+    displayBillingExpr: snapshot.displayBillingExpr || '',
     requestRuleExpr: snapshot.requestRuleExpr || '',
     pluginBillingExpr: Object.entries(snapshot.pluginBillingExpr ?? {}).sort(
       ([a], [b]) => a.localeCompare(b)

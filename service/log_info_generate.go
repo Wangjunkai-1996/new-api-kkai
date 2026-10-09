@@ -393,7 +393,16 @@ func InjectTieredBillingInfo(other *model.LogOther, relayInfo *relaycommon.Relay
 		return
 	}
 	other.SetPublic("billing_mode", "tiered_expr")
-	other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
+	display := snap.DisplayExprString
+	if display == "" {
+		display = snap.ExprString
+	}
+	other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(display)))
+	if display != snap.ExprString {
+		other.SetAdmin("actual_expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
+		// Legacy ratio metadata does not describe this presentation expression.
+		other.SetPublic("cache_ratio", nil)
+	}
 	if result != nil {
 		if tokens := result.BillingTokens; tokens != nil && result.BillingUnit == billingexpr.BillingUnitToken {
 			other.SetPublic("image_cache_tokens", tokens.ImgCR)

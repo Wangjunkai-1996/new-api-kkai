@@ -66,7 +66,7 @@ var ErrModelPricingConflict = errors.New("model pricing changed; reload before s
 var modelPricingOptionKeys = []string{
 	"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
 	"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
-	"billing_setting.billing_expr", "billing_setting.billing_mode", billing_setting.PluginBillingExprOption,
+	"billing_setting.billing_expr", "billing_setting.billing_mode", billing_setting.DisplayBillingExprOption, billing_setting.PluginBillingExprOption,
 }
 
 var modelPricingMutationMu sync.Mutex
@@ -397,7 +397,7 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 		}
 	}
 	for key, value := range values {
-		if key == billing_setting.PluginBillingExprOption {
+		if key == billing_setting.PluginBillingExprOption || key == billing_setting.DisplayBillingExprOption {
 			continue
 		}
 		if !IsModelPricingOption(key) {
@@ -466,6 +466,28 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 			if _, builtin := billing_setting.GetBuiltinBillingExpr(name); !builtin {
 				return errors.New("billing expression is required")
 			}
+		}
+	}
+	if value, exists := values[billing_setting.DisplayBillingExprOption]; exists {
+		_, taskAlias := ResolveTaskModelAlias(generation, name)
+		if len(generation.PluginsByModel(name)) > 0 || taskAlias {
+			return errors.New("cache-read display prices are not supported for task models")
+		}
+		display, ok := value.(string)
+		if !ok {
+			return errors.New("display billing expression must be a string")
+		}
+		actual, _ := values["billing_setting.billing_expr"].(string)
+		if actual == "" {
+			actual, _ = billing_setting.GetBuiltinBillingExpr(name)
+		}
+		mode, _ := values["billing_setting.billing_mode"].(string)
+		_, builtin := billing_setting.GetBuiltinBillingExpr(name)
+		if mode != billing_setting.BillingModeTieredExpr && !(mode == "" && builtin && values["ModelPrice"] == nil && values["ModelRatio"] == nil) {
+			return errors.New("cache-read display prices require expression billing")
+		}
+		if err := billing_setting.ValidateDisplayBillingExpr(actual, display); err != nil {
+			return fmt.Errorf("model %s: %w", name, err)
 		}
 	}
 	return nil

@@ -509,3 +509,33 @@ describe('visual billing document', () => {
     ).toBeNull()
   })
 })
+
+test('keeps per-tier display prices attached to their branches while preserving billing source', () => {
+  const source =
+    'len <= 100 ? tier("same", p * 10 + cr * 2) : tier("same", p * 20 + cr * 4)'
+  const displayed = source
+    .replace('cr * 2', 'cr * 0')
+    .replace('cr * 4', 'cr * 0.5')
+  const document = parseVisualBillingDocument(source, displayed)
+  assert(document)
+  expect(serializeVisualBillingDocument(document)).toEqual({ ok: true, source })
+  expect(serializeVisualBillingDocument(document, true)).toEqual({
+    ok: true,
+    source: displayed,
+  })
+  assert(document.root.kind === 'branch')
+  assert(document.root.yes.kind === 'tier')
+  document.root.yes.label = 'renamed'
+  const prompt = document.root.yes.prices.find(
+    (price) => price.variable === 'p'
+  )
+  assert(prompt)
+  prompt.value = '11'
+  expect(serializeVisualBillingDocument(document, true)).toEqual({
+    ok: true,
+    source: displayed.replace('tier("same", p * 10', 'tier("renamed", p * 11'),
+  })
+  expect(
+    parseVisualBillingDocument(source, displayed.replace('p * 20', 'p * 99'))
+  ).toBeNull()
+})

@@ -66,6 +66,7 @@ type BillingSnapshot struct {
 	BillingMode               string         `json:"billing_mode"`
 	ModelName                 string         `json:"model_name"`
 	ExprString                string         `json:"expr_string"`
+	DisplayExprString         string         `json:"display_expr_string,omitempty"`
 	ExprHash                  string         `json:"expr_hash"`
 	GroupRatio                float64        `json:"group_ratio"`
 	EstimatedPromptTokens     int            `json:"estimated_prompt_tokens"`
