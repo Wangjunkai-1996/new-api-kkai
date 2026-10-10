@@ -501,10 +501,13 @@ func normalizeImageSampleInput(
 	input.Category = strings.TrimSpace(strings.ToLower(input.Category))
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	if db == nil || input.ModelProfileID <= 0 || input.ImageAssetID <= 0 || input.Title == "" || len(input.Title) > 191 ||
-		input.Prompt == "" || len(input.Prompt) > 8000 || !imageSampleCategoryPattern.MatchString(input.Category) ||
+		input.Prompt == "" || !imageSampleCategoryPattern.MatchString(input.Category) ||
 		(input.Status != model.ImageSampleStatusDraft && input.Status != model.ImageSampleStatusPublished) ||
 		input.SortOrder < -100000 || input.SortOrder > 100000 {
 		return ImageSampleInput{}, model.KKAIImageModelProfile{}, model.KKAIImageAsset{}, nil, ErrInvalidImageSample
+	}
+	if err := validateImageStudioPrompt(input.Prompt); err != nil {
+		return ImageSampleInput{}, model.KKAIImageModelProfile{}, model.KKAIImageAsset{}, nil, err
 	}
 	var profile model.KKAIImageModelProfile
 	if err := db.WithContext(ctx).First(&profile, "id = ?", input.ModelProfileID).Error; err != nil {

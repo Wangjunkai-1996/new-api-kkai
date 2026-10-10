@@ -23,6 +23,13 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestValidateImageStudioPromptMatchesFrontendCharacterLimit(t *testing.T) {
+	require.NoError(t, validateImageStudioPrompt(strings.Repeat("中", ImageStudioMaxPromptLength)))
+	require.ErrorIs(t, validateImageStudioPrompt(strings.Repeat("中", ImageStudioMaxPromptLength+1)), ErrImageStudioPromptTooLong)
+	require.NoError(t, validateImageStudioPrompt(strings.Repeat("😀", ImageStudioMaxPromptLength/2)))
+	require.ErrorIs(t, validateImageStudioPrompt(strings.Repeat("😀", ImageStudioMaxPromptLength/2+1)), ErrImageStudioPromptTooLong)
+}
+
 func TestNormalizeImageStudioSubmissionMergesDefaultsAndBuildsStrictRelayRequest(t *testing.T) {
 	db, profile := newImageSubmissionTestDB(t)
 	request := ImageStudioSubmissionRequest{

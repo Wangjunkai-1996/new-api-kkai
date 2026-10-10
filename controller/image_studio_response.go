@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/service"
@@ -26,6 +27,9 @@ func imageStudioSuccess(c *gin.Context, status int, data any) {
 func respondImageStudioError(c *gin.Context, err error) {
 	status, code := imageStudioErrorStatus(err)
 	message := err.Error()
+	if errors.Is(err, service.ErrImageStudioPromptTooLong) {
+		message = i18n.T(c, i18n.MsgImageStudioPromptTooLong, map[string]any{"Max": service.ImageStudioMaxPromptLength})
+	}
 	if status == http.StatusInternalServerError {
 		common.SysError("image studio request failed: " + message)
 		message = "image studio request failed"
@@ -35,6 +39,8 @@ func respondImageStudioError(c *gin.Context, err error) {
 
 func imageStudioErrorStatus(err error) (int, string) {
 	switch {
+	case errors.Is(err, service.ErrImageStudioPromptTooLong):
+		return http.StatusBadRequest, "image_prompt_too_long"
 	case errors.Is(err, service.ErrInvalidImageStudioSubmission),
 		errors.Is(err, service.ErrInvalidImageModelSpec),
 		errors.Is(err, service.ErrInvalidImageParameters),

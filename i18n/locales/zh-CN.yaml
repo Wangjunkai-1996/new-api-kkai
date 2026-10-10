@@ -1,6 +1,8 @@
 # Chinese (Simplified) translations
 # 中文（简体）翻译文件
 
+image_studio.prompt_too_long: "提示词不能超过 {{.Max}} 个字符。"
+
 # Common messages
 common.invalid_params: "无效的参数"
 common.database_error: "数据库出错，请联系管理员"

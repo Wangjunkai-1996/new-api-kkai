@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -20,15 +21,28 @@ import (
 
 var (
 	ErrInvalidImageStudioSubmission = errors.New("invalid image studio submission")
+	ErrImageStudioPromptTooLong     = errors.New("image prompt must not exceed 8000 characters")
 	ErrImageStudioQuoteMismatch     = errors.New("image studio quote does not match the normalized request")
 	ErrImageStudioQuoteExpired      = errors.New("image studio quote has expired")
 	ErrImageStudioCapacityExceeded  = errors.New("image studio is at submission capacity")
 )
 
 const (
-	ImageStudioModeGeneration = "generation"
-	ImageStudioModeEdit       = "edit"
+	ImageStudioModeGeneration  = "generation"
+	ImageStudioModeEdit        = "edit"
+	ImageStudioMaxPromptLength = 8000
 )
+
+func validateImageStudioPrompt(prompt string) error {
+	if prompt == "" {
+		return ErrInvalidImageStudioSubmission
+	}
+	// Match JavaScript string.length and the composer's textarea maxLength.
+	if len(utf16.Encode([]rune(prompt))) > ImageStudioMaxPromptLength {
+		return ErrImageStudioPromptTooLong
+	}
+	return nil
+}
 
 type ImageStudioReferenceMetadata struct {
 	SHA256    string `json:"sha256"`
@@ -140,8 +154,8 @@ func NormalizeImageStudioSubmission(
 			}
 		}
 	}
-	if request.Prompt == "" || len(request.Prompt) > 8000 {
-		return nil, ErrInvalidImageStudioSubmission
+	if err := validateImageStudioPrompt(request.Prompt); err != nil {
+		return nil, err
 	}
 	profile, specification, defaults, err := resolveImageModelProfile(ctx, db, request.Model)
 	if err != nil {

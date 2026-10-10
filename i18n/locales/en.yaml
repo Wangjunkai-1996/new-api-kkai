@@ -1,5 +1,7 @@
 # English translations
 
+image_studio.prompt_too_long: "The prompt must not exceed {{.Max}} characters."
+
 # Common messages
 common.invalid_params: "Invalid parameters"
 common.database_error: "Database error, please contact the administrator"

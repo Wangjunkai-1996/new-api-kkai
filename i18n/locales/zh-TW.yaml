@@ -1,6 +1,8 @@
 # Chinese (Traditional) translations
 # 中文（繁體）翻譯檔案
 
+image_studio.prompt_too_long: "提示詞不能超過 {{.Max}} 個字元。"
+
 # Common messages
 common.invalid_params: "無效的參數"
 common.database_error: "資料庫出錯，請聯繫管理員"

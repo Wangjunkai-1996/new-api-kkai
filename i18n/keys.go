@@ -2,6 +2,8 @@ package i18n
 
 const MsgTaskPluginUnknownMetaField = "task_plugin.unknown_meta_field"
 
+const MsgImageStudioPromptTooLong = "image_studio.prompt_too_long"
+
 // Message keys for i18n translations
 // Use these constants instead of hardcoded strings
 

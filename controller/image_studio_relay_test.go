@@ -368,6 +368,7 @@ func TestImageStudioErrorStatusPreservesClientAndConcurrencyFailures(t *testing.
 		{service.ErrImageArchiveTooLarge, http.StatusRequestEntityTooLarge, "image_asset_too_large"},
 		{service.ErrImageArchiveMIMERejected, http.StatusBadRequest, "invalid_image_asset"},
 		{service.ErrImageTemporaryStorageUnavailable, http.StatusServiceUnavailable, "image_temporary_storage_unavailable"},
+		{service.ErrImageStudioPromptTooLong, http.StatusBadRequest, "image_prompt_too_long"},
 	}
 	for _, test := range tests {
 		status, code := imageStudioErrorStatus(test.err)
