@@ -2161,6 +2161,32 @@ export function ChannelMutateDrawer({
     />
   )
 
+  const tlsInsecureFields = (
+    <FormField
+      control={form.control}
+      name='tls_insecure_skip_verify'
+      render={({ field }) => (
+        <FormItem className='flex items-center justify-between'>
+          <div className='space-y-0.5'>
+            <FormLabel>{t('Skip Upstream TLS Verification')}</FormLabel>
+            <FormDescription>
+              {t(
+                'Allow self-signed upstream certificates for this channel only; use only with trusted endpoints.'
+              )}
+            </FormDescription>
+          </div>
+          <FormControl>
+            <Switch
+              disabled={sensitiveLocked}
+              checked={field.value === true}
+              onCheckedChange={field.onChange}
+            />
+          </FormControl>
+        </FormItem>
+      )}
+    />
+  )
+
   const routingFields = (
     <div
       role='group'
@@ -4692,6 +4718,7 @@ export function ChannelMutateDrawer({
                 {proxyFields}
                 {httpProtocolFields}
                 {httpShardsFields}
+                {tlsInsecureFields}
               </fieldset>
             </div>
             {upstreamModelDetectionFields}

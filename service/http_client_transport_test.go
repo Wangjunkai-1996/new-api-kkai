@@ -488,4 +488,22 @@ func TestNormalizeHTTPTransportPolicyClampsWithoutPanic(t *testing.T) {
 	assert.Equal(t, HTTPTransportPolicy{Protocol: dto.HTTPProtocolAuto, Shards: 1}, NormalizeHTTPTransportPolicy(dto.ChannelSettings{HTTPProtocol: "http3"}))
 	assert.Equal(t, HTTPTransportPolicy{Protocol: dto.HTTPProtocolAuto, Shards: 1}, NormalizeHTTPTransportPolicy(dto.ChannelSettings{HTTP2ConnectionShards: -3}))
 	assert.Equal(t, HTTPTransportPolicy{Protocol: dto.HTTPProtocolAuto, Shards: 8}, NormalizeHTTPTransportPolicy(dto.ChannelSettings{HTTP2ConnectionShards: 99}))
+	assert.True(t, NormalizeHTTPTransportPolicy(dto.ChannelSettings{TLSInsecureSkipVerify: true}).TLSInsecureSkipVerify)
+}
+
+func TestHTTPTransportPolicyAllowsChannelScopedSelfSignedTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newHTTPClientWithPolicyAndTLS(HTTPTransportPolicy{
+		Protocol:              dto.HTTPProtocolAuto,
+		Shards:                1,
+		TLSInsecureSkipVerify: true,
+	}, nil)
+	response, err := client.Get(server.URL)
+	require.NoError(t, err)
+	response.Body.Close()
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 }

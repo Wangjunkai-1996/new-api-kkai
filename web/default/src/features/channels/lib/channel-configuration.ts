@@ -84,6 +84,7 @@ const CONFIGURATION_BLOCKS = {
       'proxy',
       'http_protocol',
       'http2_connection_shards',
+      'tls_insecure_skip_verify',
       'disable_task_polling_sleep',
     ],
   },
