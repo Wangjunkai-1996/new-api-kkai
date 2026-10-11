@@ -112,14 +112,15 @@ func normalizeLogCreditEpoch(logs []*Log) error {
 
 // don't use iota, avoid change log type value
 const (
-	LogTypeUnknown = 0
-	LogTypeTopup   = 1
-	LogTypeConsume = 2
-	LogTypeManage  = 3
-	LogTypeSystem  = 4
-	LogTypeError   = 5
-	LogTypeRefund  = 6
-	LogTypeLogin   = 7
+	LogTypeUnknown   = 0
+	LogTypeTopup     = 1
+	LogTypeConsume   = 2
+	LogTypeManage    = 3
+	LogTypeSystem    = 4
+	LogTypeError     = 5
+	LogTypeRefund    = 6
+	LogTypeLogin     = 7
+	LogTypeCancelled = 8
 )
 
 func ensureLogRequestId(log *Log) {
@@ -313,7 +314,17 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other *LogOther) {
-	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
+	recordRelayLog(c, LogTypeError, "error", userId, channelId, modelName, tokenName, content, tokenId, useTimeSeconds, isStream, group, other)
+}
+
+func RecordCancelledLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
+	isStream bool, group string, other *LogOther) {
+	recordRelayLog(c, LogTypeCancelled, "cancelled", userId, channelId, modelName, tokenName, content, tokenId, useTimeSeconds, isStream, group, other)
+}
+
+func recordRelayLog(c *gin.Context, logType int, logTypeName string, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
+	isStream bool, group string, other *LogOther) {
+	logger.LogInfo(c, fmt.Sprintf("record %s log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", logTypeName, userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
@@ -329,7 +340,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		UserId:           userId,
 		Username:         username,
 		CreatedAt:        common.GetTimestamp(),
-		Type:             LogTypeError,
+		Type:             logType,
 		Content:          content,
 		PromptTokens:     0,
 		CompletionTokens: 0,
