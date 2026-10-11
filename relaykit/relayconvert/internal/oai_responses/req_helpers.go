@@ -1,10 +1,12 @@
 package oairesponses
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/internal/convdiag"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
@@ -56,6 +58,27 @@ func responsesInputItems(raw []byte) ([]map[string]any, error) {
 
 func InputItems(raw []byte) ([]map[string]any, error) {
 	return responsesInputItems(raw)
+}
+
+// omitTrailingAssistantText removes assistant text turns at the end of a
+// Responses conversation when the preceding turn is user content. Responses
+// treats that assistant output as history, while Claude and Gemini interpret
+// it as a prefill and newer models reject it. Tool calls remain intact.
+func omitTrailingAssistantText[T any](c context.Context, turns []T, isUser, isAssistantText func(T) bool) []T {
+	end := len(turns)
+	for end > 0 && isAssistantText(turns[end-1]) {
+		end--
+	}
+	if end == len(turns) || end == 0 || !isUser(turns[end-1]) {
+		return turns
+	}
+	convdiag.Add(c, types.ConversionDiagnostic{
+		Code:     "trailing_assistant_omitted",
+		Path:     "input",
+		Message:  "assistant output after the last user message or tool result was omitted; the target protocol would continue it as a prefill",
+		Severity: types.ConversionDiagnosticWarning,
+	})
+	return turns[:end]
 }
 
 func responsesContentParts(content any) ([]map[string]any, error) {
