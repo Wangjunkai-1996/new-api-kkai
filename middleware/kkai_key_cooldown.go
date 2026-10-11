@@ -67,7 +67,11 @@ func abortKKAIPolicyKeyCooldown(c *gin.Context, state service.KKAIPolicyKeyCoold
 		retryAfter = 1
 	}
 	c.Header("Retry-After", strconv.Itoa(retryAfter))
-	c.JSON(http.StatusTooManyRequests, gin.H{
+	// A Cyber policy cooldown is an access-policy refusal, rather than a
+	// transport rate limit. Returning 403 keeps generic clients from treating
+	// their own retry as a rate-limit retry storm while the structured code and
+	// Retry-After header still explain the cooldown to clients that understand it.
+	c.JSON(http.StatusForbidden, gin.H{
 		"error": gin.H{
 			"message": common.MessageWithRequestId(
 				service.KKAIPolicyMessageForKeyCooldown(retryAfter),

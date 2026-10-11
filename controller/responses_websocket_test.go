@@ -1376,7 +1376,7 @@ func TestResponsesWSRequestRunnerChecksKKAICooldownPerTurn(t *testing.T) {
 	require.True(t, state.Blocked)
 	rejection := runner(request, "blocked", handle)
 	require.NotNil(t, rejection)
-	assert.Equal(t, http.StatusTooManyRequests, rejection.StatusCode)
+	assert.Equal(t, http.StatusForbidden, rejection.StatusCode)
 	assert.Equal(t, types.ErrorCodeKeyCooldown, rejection.GetErrorCode())
 	assert.Equal(t, 1, calls, "a connected websocket must recheck cooldown before every generation")
 }

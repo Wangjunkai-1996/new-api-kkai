@@ -56,7 +56,8 @@ incidents so it cannot bypass this rule.
   `upstream_unavailable` and a generic service-unavailable message.
 - Local sensitive-word matches return HTTP 400 with code `prompt_blocked`; only
   the current request is stopped and no cumulative cooldown is recorded.
-- Existing ordinary rate-limit and cooldown behavior is unchanged.
+- Existing ordinary rate-limit behavior is unchanged; Cyber cooldown behavior
+  is defined below.
 - OpenAI, Claude, realtime, and task response paths share the same
   classification and redaction behavior.
 - Policy text, credentials, provider links, advertisements, sensitive params,
@@ -80,9 +81,12 @@ incidents so it cannot bypass this rule.
 - The same incident event is idempotent. Requests made while blocked do not create
   incidents or extend the cooldown.
 - Cooldown checks run after token authentication and before request rate limiting
-  or channel distribution. A blocked request returns HTTP 429, code
+  or channel distribution. A blocked request returns HTTP 403, code
   `key_cooldown`, and an integer `Retry-After` containing the actual remaining
-  seconds. It does not select a channel, reach a provider, or pre-consume quota.
+  seconds. The 403 marks this as a Cyber access-policy refusal, so clients
+  using the usual 429 retry policy do not mistake the cooldown for a transport
+  rate limit and retry it repeatedly. It does not select a channel, reach a
+  provider, or pre-consume quota.
 - Redis Lua performs check and record transitions atomically using Redis time so
   all instances observe one state. Redis unavailability is logged and fails closed
   with a local one-minute emergency cooldown.

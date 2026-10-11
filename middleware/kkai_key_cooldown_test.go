@@ -66,7 +66,7 @@ func TestKKAIPolicyKeyCooldownBlocksBeforeDownstreamWork(t *testing.T) {
 
 	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
 
-	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.False(t, reached)
 	assert.Equal(t, "37", recorder.Header().Get("Retry-After"))
 	require.Len(t, store.checkKeys, 1)
@@ -112,7 +112,7 @@ func TestKKAIPolicyKeyCooldownHonorsEmergencyBlockBeforeRedis(t *testing.T) {
 
 	recorder, reached := runKeyCooldownMiddleware(t, tokenID, store)
 
-	assert.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.False(t, reached)
 	assert.Empty(t, store.checkKeys)
 	assert.NotEmpty(t, recorder.Header().Get("Retry-After"))
