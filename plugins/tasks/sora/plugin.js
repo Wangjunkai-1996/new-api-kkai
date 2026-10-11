@@ -101,28 +101,59 @@ function hasOwn(value, key) {
   return value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function specialSeedanceRequest(req, model) {
+function specialSeedanceDuration(req, model) {
   const metadata = req && req.metadata && typeof req.metadata === "object" && !Array.isArray(req.metadata) ? req.metadata : {};
-  const result = { model: model, prompt: req.prompt };
+  const maximum = trimmed(model).indexOf("sd_2.0_") === 0 ? 15 : 30;
+  let duration;
+  for (const source of [req, metadata]) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) continue;
+    for (const key of ["duration", "seconds"]) {
+      if (!hasOwn(source, key)) continue;
+      const value = source[key];
+      if (value === undefined || value === null || value === "") continue;
+      if (typeof value !== "number" && (typeof value !== "string" || !/^-?\d+$/.test(value)))
+        throw new Error(key + " must be an integer");
+      const seconds = Number(value);
+      if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds > maximum)
+        throw new Error(key + " must be between 4 and " + maximum);
+      if (seconds === 0) continue;
+      const effective = Math.max(4, seconds);
+      if (duration !== undefined && duration !== effective) throw new Error("duration and seconds must match");
+      duration = effective;
+    }
+  }
+  return duration || 4;
+}
+
+function specialSeedanceRequest(req, model, capabilityModel) {
+  const metadata = req && req.metadata && typeof req.metadata === "object" && !Array.isArray(req.metadata) ? req.metadata : {};
+  const result = { model: model, prompt: req.prompt, duration: specialSeedanceDuration(req, capabilityModel) };
   const copyFromRequest = function (key) {
-    if (hasOwn(req, key)) return req[key];
+    if (hasOwn(req, key) && req[key] !== undefined && req[key] !== null && req[key] !== "") return req[key];
     if (hasOwn(metadata, key)) return metadata[key];
     return undefined;
   };
 
-  ["ratio", "resolution", "duration", "seconds", "reference_video", "generate_audio"].forEach(function (key) {
+  ["ratio", "resolution", "reference_video", "generate_audio"].forEach(function (key) {
     const value = copyFromRequest(key);
     if (value !== undefined && value !== null && value !== "") result[key] = value;
   });
 
-  // Video Studio has used several aliases over time. Canonicalize them to the
-  // strict Seedance wire fields while preserving an explicit false audio flag.
-  let referenceImage = copyFromRequest("reference_image");
-  if (referenceImage === undefined || referenceImage === null || referenceImage === "") referenceImage = copyFromRequest("input_reference");
-  if (referenceImage === undefined || referenceImage === null || referenceImage === "") referenceImage = copyFromRequest("image");
-  if ((referenceImage === undefined || referenceImage === null || referenceImage === "") && Array.isArray(req.images) && req.images.length === 1)
-    referenceImage = req.images[0];
-  if (referenceImage !== undefined && referenceImage !== null && referenceImage !== "") result.reference_image = referenceImage;
+  // Studio duplicates one reference under compatibility aliases. Accept those
+  // copies, but never silently discard an additional or conflicting image.
+  let referenceImage = "";
+  for (const source of [req, metadata]) {
+    if (source.images !== undefined && (!Array.isArray(source.images) || source.images.length > 1))
+      throw new Error("Seedance accepts at most one reference image");
+    for (const value of [source.reference_image, source.input_reference, source.image].concat(source.images || [])) {
+      if (value === undefined || value === null || value === "") continue;
+      if (typeof value !== "string") throw new Error("reference image must be a string");
+      const image = value.trim();
+      if (referenceImage && image && referenceImage !== image) throw new Error("reference image fields must match");
+      if (image) referenceImage = image;
+    }
+  }
+  if (referenceImage) result.reference_image = referenceImage;
 
   return result;
 }
@@ -132,14 +163,17 @@ export function buildSubmitRequest(ctx) {
   if (!String(req.prompt || "").trim()) throw new Error("field prompt is required");
   const action = ctx.action === "remix" ? "remix" : ctx.action;
   const headers = { Authorization: "Bearer " + ctx.apiKey };
-  const specialModel = isSpecialSeedanceModel(ctx.upstreamModel) || isSpecialSeedanceModel(ctx.model);
+  const specialModel = [ctx.upstreamModel, ctx.model].find(isSpecialSeedanceModel);
+  if (specialModel) {
+    if (action === "remix") throw new Error("Seedance does not support remix");
+    if ((ctx.files || []).length || /multipart\/form-data/i.test((ctx.requestHeaders || {})["Content-Type"] || ""))
+      throw new Error("Seedance requires a JSON request with reference URLs");
+    headers["Content-Type"] = "application/json";
+    return { url: ctx.baseUrl + "/v1/videos", method: "POST", headers, body: specialSeedanceRequest(req, ctx.upstreamModel || ctx.model, specialModel) };
+  }
   if (action === "remix") {
     headers["Content-Type"] = "application/json";
     return { url: ctx.baseUrl + "/v1/videos/" + ctx.originTaskId + "/remix", method: "POST", headers, body: requestValues(req, ctx.upstreamModel), action };
-  }
-  if (specialModel) {
-    headers["Content-Type"] = "application/json";
-    return { url: ctx.baseUrl + "/v1/videos", method: "POST", headers, body: specialSeedanceRequest(req, ctx.upstreamModel || ctx.model) };
   }
   if ((ctx.files || []).length) {
     const parts = [];
@@ -173,6 +207,8 @@ export function parseSubmitResponse(ctx, resp) {
 export function extractUsage(ctx) {
   if (ctx.action === "remix") return {};
   const req = ctx.requestBody || {};
+  const specialModel = [ctx.upstreamModel, ctx.model].find(isSpecialSeedanceModel);
+  if (specialModel) return { seconds: specialSeedanceDuration(req, specialModel), size: "720x1280" };
   let seconds = Number(req.seconds || req.duration || 4);
   if (!Number.isFinite(seconds) || seconds <= 0) seconds = 4;
   return { seconds: Math.min(seconds, 3600), size: req.size || "720x1280" };

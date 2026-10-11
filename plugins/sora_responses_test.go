@@ -70,7 +70,7 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 				},
 			},
 			want: map[string]any{
-				"model": "sd_2.5_special_720p_with_video_ref", "prompt": "reference motion", "seconds": "8",
+				"model": "sd_2.5_special_720p_with_video_ref", "prompt": "reference motion", "duration": float64(8),
 				"ratio": "9:16", "resolution": "720p", "reference_video": "https://example.invalid/reference.mp4", "generate_audio": true,
 			},
 			forbidden: []string{"metadata"},
@@ -104,6 +104,54 @@ func TestSoraSpecialSeedanceProjection(t *testing.T) {
 			}
 		})
 	}
+
+	for _, test := range []struct {
+		name        string
+		model       string
+		request     map[string]any
+		wantSeconds float64
+	}{
+		{name: "metadata duration is billed", model: "sd_2.5_special_720p", request: map[string]any{"prompt": "x", "metadata": map[string]any{"duration": 30}}, wantSeconds: 30},
+		{name: "zero falls back to four", model: "sd_2.0_special_720p", request: map[string]any{"prompt": "x", "seconds": 0}, wantSeconds: 4},
+		{name: "short duration rounds up", model: "sd_2.0_special_720p", request: map[string]any{"prompt": "x", "duration": 1}, wantSeconds: 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := map[string]any{"model": test.model, "upstreamModel": test.model, "requestBody": test.request}
+			value, callErr := plugin.Engine.Call(t.Context(), "extractUsage", ctx)
+			require.NoError(t, callErr)
+			usage, ok := value.(map[string]any)
+			require.True(t, ok)
+			assert.EqualValues(t, test.wantSeconds, usage["seconds"])
+		})
+	}
+
+	for _, test := range []struct {
+		name    string
+		request map[string]any
+	}{
+		{name: "conflicting duration fields", request: map[string]any{"prompt": "x", "duration": 5, "seconds": 8}},
+		{name: "conflicting top-level and metadata duration", request: map[string]any{"prompt": "x", "duration": 5, "metadata": map[string]any{"seconds": 8}}},
+		{name: "too long for 2.0", request: map[string]any{"prompt": "x", "duration": 16}},
+		{name: "multiple reference images", request: map[string]any{"prompt": "x", "images": []any{"a", "b"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, callErr := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{
+				"model": "sd_2.0_special_720p", "upstreamModel": "sd_2.0_special_720p", "requestBody": test.request,
+				"action": "text_to_video", "files": []any{}, "baseUrl": "https://adapter.invalid",
+			})
+			require.Error(t, callErr)
+		})
+	}
+
+	t.Run("rejects multipart and remix", func(t *testing.T) {
+		for _, ctx := range []map[string]any{
+			{"model": "sd_2.0_special_720p", "upstreamModel": "sd_2.0_special_720p", "requestBody": map[string]any{"prompt": "x"}, "action": "text_to_video", "files": []any{"file"}, "baseUrl": "https://adapter.invalid"},
+			{"model": "sd_2.0_special_720p", "upstreamModel": "sd_2.0_special_720p", "requestBody": map[string]any{"prompt": "x"}, "action": "remix", "files": []any{}, "baseUrl": "https://adapter.invalid"},
+		} {
+			_, callErr := plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx)
+			require.Error(t, callErr)
+		}
+	})
 
 	t.Run("preserves upstream error message", func(t *testing.T) {
 		_, callErr := plugin.Engine.Call(t.Context(), "parseSubmitResponse", map[string]any{}, map[string]any{
