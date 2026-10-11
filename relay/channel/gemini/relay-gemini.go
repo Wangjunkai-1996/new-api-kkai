@@ -581,8 +581,8 @@ type GeminiModelsResponse struct {
 	NextPageToken string            `json:"nextPageToken"`
 }
 
-func FetchGeminiModels(baseURL, apiKey, proxyURL string) ([]string, error) {
-	client, err := service.GetHttpClientWithProxy(proxyURL)
+func FetchGeminiModels(baseURL, apiKey string, setting dto.ChannelSettings) ([]string, error) {
+	client, err := service.GetHttpClientWithProxySettings(setting.Proxy, setting)
 	if err != nil {
 		return nil, fmt.Errorf("创建HTTP客户端失败: %v", err)
 	}

@@ -133,7 +133,8 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 			message: "Artifact channel is unavailable", err: err,
 		}
 	}
-	proxy := strings.TrimSpace(channel.GetSetting().Proxy)
+	setting := channel.GetSetting()
+	proxy := strings.TrimSpace(setting.Proxy)
 	if err := validateTaskMediaURL(rawURL, proxy); err != nil {
 		return &taskMediaProxyError{
 			status: http.StatusBadGateway, code: "artifact_request_rejected",
@@ -143,7 +144,7 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 
 	client := service.GetSSRFProtectedHTTPClient()
 	if proxy != "" {
-		client, err = service.GetHttpClientWithProxy(proxy)
+		client, err = service.GetHttpClientWithProxySettings(proxy, setting)
 		if err != nil {
 			return &taskMediaProxyError{
 				status: http.StatusInternalServerError, code: "artifact_internal_error",

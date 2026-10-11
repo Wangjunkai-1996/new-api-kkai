@@ -671,6 +671,7 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 	assert.True(t, settings.ForceFormat)
 	assert.Empty(t, settings.HTTPProtocol)
 	assert.Zero(t, settings.HTTP2ConnectionShards)
+	assert.False(t, settings.TLSInsecureSkipVerify)
 
 	encoded, err := json.Marshal(settings)
 	require.NoError(t, err)
@@ -681,6 +682,7 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 		Proxy:                 "socks5://127.0.0.1:1080",
 		HTTPProtocol:          HTTPProtocolHTTP1,
 		HTTP2ConnectionShards: 1,
+		TLSInsecureSkipVerify: true,
 	}
 	encoded, err = json.Marshal(explicit)
 	require.NoError(t, err)
@@ -690,6 +692,7 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(encoded, &decoded))
 	assert.Equal(t, explicit.HTTPProtocol, decoded.HTTPProtocol)
 	assert.Equal(t, 1, decoded.HTTP2ConnectionShards)
+	assert.True(t, decoded.TLSInsecureSkipVerify)
 
 	sharded := ChannelSettings{HTTP2ConnectionShards: 4}
 	encoded, err = json.Marshal(sharded)

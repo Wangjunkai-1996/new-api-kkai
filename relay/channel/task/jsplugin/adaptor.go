@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -87,6 +88,9 @@ type TaskAdaptor struct {
 	routeRequest   *pluginruntime.RouteRequestContext
 	requestHeaders map[string]string
 	files          []map[string]any
+	// hookRequestBody is hookRequestSource as hooks receive it.
+	hookRequestSource map[string]any
+	hookRequestBody   any
 }
 
 func New(plugin *pluginruntime.LoadedPlugin) *TaskAdaptor { return &TaskAdaptor{plugin: plugin} }
@@ -227,12 +231,17 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 	return a.submit.URL, pluginruntime.ValidateRequestURL(a.submit.URL, info.ChannelBaseUrl, a.plugin.Meta.AllowedHosts)
 }
 
-func (a *TaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, _ *relaycommon.RelayInfo) error {
+func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, _ *relaycommon.RelayInfo) error {
 	if a.submit == nil {
 		return fmt.Errorf("plugin submit request was not built")
 	}
 	for name, value := range a.submit.Headers {
 		req.Header.Set(name, value)
+	}
+	// BuildRequestBody rebuilt the multipart body with a new boundary and put its
+	// Content-Type on the client request; a plugin's own Content-Type cannot match it.
+	if a.submit.BodyType == "multipart" {
+		req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	}
 	return nil
 }
@@ -1345,9 +1354,19 @@ func (a *TaskAdaptor) submitContext(c *gin.Context, info *relaycommon.RelayInfo)
 		a.files = append(a.files[:0], files...)
 	}
 	ctx := routeRequest.JSValue()
+	// Hooks never write into the request body, so the same object normalizes
+	// to the same value on every hook call of this request.
 	requestBody := routeRequest.RequestBody
-	if !isPlainJSONValue(requestBody, 0) {
-		requestBody = jsonValue(requestBody)
+	source, isObject := requestBody.(map[string]any)
+	if isObject && a.hookRequestSource != nil && reflect.ValueOf(source).UnsafePointer() == reflect.ValueOf(a.hookRequestSource).UnsafePointer() {
+		requestBody = a.hookRequestBody
+	} else {
+		if !isPlainJSONValue(requestBody, 0) {
+			requestBody = jsonValue(requestBody)
+		}
+		if isObject {
+			a.hookRequestSource, a.hookRequestBody = source, requestBody
+		}
 	}
 	ctx["requestBody"] = requestBody
 	ctx["requestHeaders"] = requestHeaders
@@ -1625,8 +1644,10 @@ func usageNumber(value any, allowNumericString bool) (float64, bool) {
 	}
 }
 
+var usageKeySeparators = strings.NewReplacer("_", "", "-", "")
+
 func canonicalUsageLimit(key string) (int, bool) {
-	normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
+	normalized := usageKeySeparators.Replace(strings.ToLower(key))
 	switch normalized {
 	case "duration", "durationseconds", "second", "seconds":
 		return relaycommon.MaxTaskDurationSeconds, true
