@@ -1041,6 +1041,11 @@ type TaskSubmitReq struct {
 	Duration       int                    `json:"duration,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`
+	Ratio          string                 `json:"ratio,omitempty"`
+	Resolution     string                 `json:"resolution,omitempty"`
+	ReferenceImage string                 `json:"reference_image,omitempty"`
+	ReferenceVideo string                 `json:"reference_video,omitempty"`
+	GenerateAudio  *bool                  `json:"generate_audio,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 
 	// These flags preserve the distinction between an omitted field and an

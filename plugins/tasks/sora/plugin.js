@@ -92,14 +92,54 @@ function requestValues(req, model) {
   return values;
 }
 
+function isSpecialSeedanceModel(model) {
+  const name = trimmed(model);
+  return name === "seedance-2.5" || name.indexOf("sd_2.0_") === 0 || name.indexOf("sd_2.5_") === 0;
+}
+
+function hasOwn(value, key) {
+  return value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function specialSeedanceRequest(req, model) {
+  const metadata = req && req.metadata && typeof req.metadata === "object" && !Array.isArray(req.metadata) ? req.metadata : {};
+  const result = { model: model, prompt: req.prompt };
+  const copyFromRequest = function (key) {
+    if (hasOwn(req, key)) return req[key];
+    if (hasOwn(metadata, key)) return metadata[key];
+    return undefined;
+  };
+
+  ["ratio", "resolution", "duration", "seconds", "reference_video", "generate_audio"].forEach(function (key) {
+    const value = copyFromRequest(key);
+    if (value !== undefined && value !== null && value !== "") result[key] = value;
+  });
+
+  // Video Studio has used several aliases over time. Canonicalize them to the
+  // strict Seedance wire fields while preserving an explicit false audio flag.
+  let referenceImage = copyFromRequest("reference_image");
+  if (referenceImage === undefined || referenceImage === null || referenceImage === "") referenceImage = copyFromRequest("input_reference");
+  if (referenceImage === undefined || referenceImage === null || referenceImage === "") referenceImage = copyFromRequest("image");
+  if ((referenceImage === undefined || referenceImage === null || referenceImage === "") && Array.isArray(req.images) && req.images.length === 1)
+    referenceImage = req.images[0];
+  if (referenceImage !== undefined && referenceImage !== null && referenceImage !== "") result.reference_image = referenceImage;
+
+  return result;
+}
+
 export function buildSubmitRequest(ctx) {
   const req = ctx.requestBody || {};
   if (!String(req.prompt || "").trim()) throw new Error("field prompt is required");
   const action = ctx.action === "remix" ? "remix" : ctx.action;
   const headers = { Authorization: "Bearer " + ctx.apiKey };
+  const specialModel = isSpecialSeedanceModel(ctx.upstreamModel) || isSpecialSeedanceModel(ctx.model);
   if (action === "remix") {
     headers["Content-Type"] = "application/json";
     return { url: ctx.baseUrl + "/v1/videos/" + ctx.originTaskId + "/remix", method: "POST", headers, body: requestValues(req, ctx.upstreamModel), action };
+  }
+  if (specialModel) {
+    headers["Content-Type"] = "application/json";
+    return { url: ctx.baseUrl + "/v1/videos", method: "POST", headers, body: specialSeedanceRequest(req, ctx.upstreamModel || ctx.model) };
   }
   if ((ctx.files || []).length) {
     const parts = [];
@@ -120,7 +160,13 @@ export function buildSubmitRequest(ctx) {
 export function parseSubmitResponse(ctx, resp) {
   const body = resp.body || {};
   const taskId = body.id || body.task_id;
-  if (!taskId) throw new Error("task_id is empty");
+  if (!taskId) {
+    const upstreamError = body.error;
+    const message = typeof upstreamError === "string" ? upstreamError : upstreamError && upstreamError.message;
+    if (message) throw new Error(String(message));
+    if (body.message) throw new Error(String(body.message));
+    throw new Error("upstream response did not include a task id");
+  }
   return { taskId, taskData: body };
 }
 
