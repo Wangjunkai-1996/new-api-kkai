@@ -101,6 +101,14 @@ func RecordPolicyFailure(c *gin.Context, channelID int, err *types.NewAPIError, 
 	if c == nil || err == nil {
 		return
 	}
+	if decision.Reason == "request_cancelled" {
+		RequestPolicy(c).AddEvent(PolicyEvent{
+			ChannelID: channelID,
+			Decision:  decision,
+			Health:    "unchanged",
+		})
+		return
+	}
 	source := "upstream"
 	switch {
 	case types.IsChannelError(err):
@@ -177,6 +185,12 @@ func RecordRequestPolicyTermination(c *gin.Context, apiErr *types.NewAPIError) {
 	state.FinalLogged = true
 	events := state.Events()
 	if len(events) == 0 || events[len(events)-1].Decision.Action != "stop" {
-		state.AddEvent(PolicyEvent{ChannelID: c.GetInt("channel_id"), Status: apiErr.StatusCode, ErrorCode: string(apiErr.GetErrorCode()), Decision: PolicyDecision{Action: "stop", Reason: "request_failed", Source: "system"}, Health: "unchanged"})
+		reason := "request_failed"
+		status := apiErr.StatusCode
+		if IsRequestCancelled(c, apiErr) {
+			reason = "request_cancelled"
+			status = 0
+		}
+		state.AddEvent(PolicyEvent{ChannelID: c.GetInt("channel_id"), Status: status, ErrorCode: string(apiErr.GetErrorCode()), Decision: PolicyDecision{Action: "stop", Reason: reason, Source: "system"}, Health: "unchanged"})
 	}
 }

@@ -38,6 +38,8 @@ export function policyLabel(t: TFunction, value: string): string {
       return t('Channel selected')
     case 'request_completed':
       return t('Request completed')
+    case 'request_cancelled':
+      return t('Cancelled')
     case 'stream_not_successful':
       return t('Stream did not complete successfully')
     case 'channel':

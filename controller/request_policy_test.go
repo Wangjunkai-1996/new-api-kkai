@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -112,4 +113,30 @@ func TestRequestPolicyRetryModes(t *testing.T) {
 			assert.Equal(t, decision, events[len(events)-1].Decision)
 		})
 	}
+}
+
+func TestRequestCancellationIsRecordedAsCancelled(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	requestContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(requestContext)
+
+	apiErr := types.NewOpenAIError(context.Canceled, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
+	assert.True(t, service.IsRequestCancelled(ctx, apiErr))
+	decision := decideRelayRetry(ctx, nil, apiErr, 2)
+	require.Equal(t, service.PolicyDecision{Action: "stop", Reason: "request_cancelled", Source: "system"}, decision)
+	assert.Equal(t, decision, service.DecideRelayRetry(ctx, apiErr, 2))
+
+	service.RecordPolicyFailure(ctx, 67, apiErr, decision)
+	events := service.RequestPolicy(ctx).Events()
+	require.Len(t, events, 1)
+	assert.Equal(t, "request_cancelled", events[0].Decision.Reason)
+	assert.Equal(t, "stop", events[0].Decision.Action)
+	assert.Zero(t, events[0].Status)
+
+	deadlineCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	deadlineRequest := httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(context.Background())
+	deadlineCtx.Request = deadlineRequest
+	deadlineErr := types.NewOpenAIError(context.DeadlineExceeded, types.ErrorCodeDoRequestFailed, http.StatusGatewayTimeout)
+	assert.False(t, service.IsRequestCancelled(deadlineCtx, deadlineErr))
 }

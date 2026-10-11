@@ -79,7 +79,12 @@ func respondTaskSubmissionError(c *gin.Context, taskErr *dto.TaskError) {
 	if taskErr == nil {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("task submission failed"), "task_submit_failed", http.StatusInternalServerError)
 	}
-	service.RecordRequestPolicyTermination(c, taskSubmissionAPIError(taskErr))
+	apiErr := taskSubmissionAPIError(taskErr)
+	service.RecordRequestPolicyTermination(c, apiErr)
+	if service.IsRequestCancelled(c, apiErr) {
+		logger.LogInfo(c, "task submission request cancelled")
+		return
+	}
 	if middleware.RespondTaskPluginError(c, taskErr) {
 		return
 	}

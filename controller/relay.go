@@ -86,6 +86,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			service.RecordRequestPolicyTermination(c, newAPIError)
+			if service.IsRequestCancelled(c, newAPIError) {
+				logger.LogInfo(c, "relay request cancelled")
+				return
+			}
 			if !c.Writer.Written() && newAPIError.RetryAfter != "" {
 				c.Header("Retry-After", newAPIError.RetryAfter)
 			}
@@ -321,7 +325,7 @@ func decideRelayRetry(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types
 		stop.Reason = "request_completed"
 		return stop
 	}
-	if c.Request != nil && c.Request.Context().Err() != nil {
+	if service.IsRequestCancelled(c, apiErr) {
 		stop.Reason = "request_cancelled"
 		return stop
 	}
@@ -548,7 +552,7 @@ func decideTaskRetry(c *gin.Context, taskErr *dto.TaskError, retryTimes int) ser
 		stop.Reason = "request_completed"
 	case taskErr.NoRetry:
 		stop.Reason = "task_accepted"
-	case c.Request != nil && c.Request.Context().Err() != nil:
+	case service.IsRequestCancelled(c, nil):
 		stop.Reason = "request_cancelled"
 	case service.ShouldSkipRetryAfterKKAIPolicy(c):
 		stop.Reason = "local_rejection"

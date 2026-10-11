@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,6 +17,15 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )
+
+// IsRequestCancelled identifies a client cancellation at the relay boundary.
+// A context deadline is a server-side timeout and remains a regular failure.
+func IsRequestCancelled(c *gin.Context, err *types.NewAPIError) bool {
+	if c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
+		return true
+	}
+	return errors.Is(err, context.Canceled)
+}
 
 // ProcessKKAIPolicyAPIError applies the same incident and cooldown policy to
 // HTTP and persistent WebSocket requests before any retry or health decision.
@@ -40,7 +51,7 @@ func DecideRelayRetry(c *gin.Context, err *types.NewAPIError, retryTimes int) Po
 	if ShouldSkipRetryAfterKKAIPolicy(c) {
 		return PolicyDecision{Action: "stop", Reason: "local_rejection", Source: "system"}
 	}
-	if c.Request != nil && c.Request.Context().Err() != nil {
+	if IsRequestCancelled(c, err) {
 		return PolicyDecision{Action: "stop", Reason: "request_cancelled", Source: "system"}
 	}
 	if ShouldSkipRetryAfterChannelAffinityFailure(c) {
@@ -95,12 +106,17 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 	if err == nil {
 		return
 	}
+	requestCancelled := IsRequestCancelled(c, err)
 	message := err.MaskSensitiveErrorWithStatusCode()
 	if policyDetected {
 		message = fmt.Sprintf("status_code=%d, policy event detected", err.StatusCode)
 	}
-	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(message)))
-	if !policyDetected && ShouldDisableChannel(err) && channelError.AutoBan {
+	if requestCancelled {
+		logger.LogInfo(c, fmt.Sprintf("request cancelled (channel #%d)", channelError.ChannelId))
+	} else {
+		logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(message)))
+	}
+	if !requestCancelled && !policyDetected && ShouldDisableChannel(err) && channelError.AutoBan {
 		reason := err.MaskSensitiveErrorWithStatusCode()
 		gopool.Go(func() {
 			DisableChannel(channelError, reason)
@@ -117,9 +133,13 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 		if c.Request != nil && c.Request.URL != nil {
 			other.SetPublic("request_path", c.Request.URL.Path)
 		}
-		other.SetPublic("error_type", err.GetErrorType())
-		other.SetPublic("error_code", err.GetErrorCode())
-		other.SetPublic("status_code", err.StatusCode)
+		if requestCancelled {
+			other.SetPublic("status", "cancelled")
+		} else {
+			other.SetPublic("error_type", err.GetErrorType())
+			other.SetPublic("error_code", err.GetErrorCode())
+			other.SetPublic("status_code", err.StatusCode)
+		}
 		other.SetAdmin("channel_id", channelError.ChannelId)
 		other.SetAdmin("channel_name", channelError.ChannelName)
 		other.SetAdmin("channel_type", channelError.ChannelType)
@@ -143,6 +163,10 @@ func ProcessChannelErrorAfterPolicy(c *gin.Context, channelError types.ChannelEr
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, message, tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		if requestCancelled {
+			model.RecordCancelledLog(c, userId, channelError.ChannelId, modelName, tokenName, "request cancelled", tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		} else {
+			model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, message, tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		}
 	}
 }
