@@ -65,7 +65,10 @@ export type LegacyBillingDetails = {
 }
 
 export function modelPricingDisplay(
-  entry: Pick<ModelPricingEntry, 'model_name' | 'effective' | 'usage_schema'> &
+  entry: Pick<
+    ModelPricingEntry,
+    'model_name' | 'effective' | 'usage_schema' | 'billing_unit'
+  > &
     Partial<Pick<ModelPricingEntry, 'configured' | 'cache_write_mode'>>
 ): PricingModel {
   const values = entry.effective
@@ -114,6 +117,7 @@ export function modelPricingDisplay(
         ? values['billing_setting.billing_expr']
         : undefined,
     billing_usage_schema: entry.usage_schema,
+    billing_unit: entry.billing_unit,
   }
 }
 

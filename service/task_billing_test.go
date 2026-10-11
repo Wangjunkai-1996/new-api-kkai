@@ -2393,6 +2393,33 @@ func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	assert.Equal(t, int64(0), countLogs(t))
 }
 
+func TestSettle_PerCallBilling_RequiresSecondsPriceRatio(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 34, 34, 34
+	const initQuota, preConsumed = 10000, 50
+	const tokenRemain = 8000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-percall-no-seconds-ratio", tokenRemain)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.PerCallBilling = true
+	task.PrivateData.BillingContext.ModelPrice = 0.00002
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{
+		Status:     model.TaskStatusSuccess,
+		UsageFacts: map[string]any{"seconds": float64(10)},
+	})
+
+	assert.EqualValues(t, initQuota, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, preConsumed, task.Quota)
+}
+
 func TestSettle_PerCallBilling_SkipsTotalTokens(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
@@ -2418,6 +2445,34 @@ func TestSettle_PerCallBilling_SkipsTotalTokens(t *testing.T) {
 	assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, preConsumed, task.Quota)
 	assert.Equal(t, int64(0), countLogs(t))
+}
+
+func TestSettle_PerCallBilling_UsesCompletionSeconds(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 33, 33, 33
+	const initQuota, preConsumed = 10000, 50
+	const tokenRemain = 8000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-percall-seconds", tokenRemain)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.PerCallBilling = true
+	task.PrivateData.BillingContext.ModelPrice = 0.00002
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"seconds": 5}
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{
+		Status:     model.TaskStatusSuccess,
+		UsageFacts: map[string]any{"seconds": float64(10)},
+	})
+
+	assert.EqualValues(t, initQuota-50, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain-50, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, 100, task.Quota)
 }
 
 func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
@@ -2449,4 +2504,32 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestSettle_NonPerCallBilling_DoesNotMultiplySecondsInTokenSettlement(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 35, 35, 35
+	const initQuota, preConsumed = 10000, 100
+	const tokenRemain = 8000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-token-seconds", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.ModelRatio = 2
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"seconds": 5, "video_input_ratio": 2}
+
+	settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{
+		Status:      model.TaskStatusSuccess,
+		TotalTokens: 10,
+	})
+
+	// 10 tokens × model ratio 2 × input-video ratio 2 = 40;
+	// seconds is only a pre-consume multiplier and must not be applied again.
+	assert.EqualValues(t, initQuota+60, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+60, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, 40, task.Quota)
 }

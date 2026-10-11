@@ -83,6 +83,7 @@ import {
   getDynamicPricingTiers,
   getTaskUsageQuantityUnitLabelKey,
   isDynamicPricingModel,
+  isPerSecondTaskModel,
   isUnconfiguredTaskUsageModel,
   type DynamicPriceEntry,
 } from '../lib/dynamic-price'
@@ -863,12 +864,13 @@ function PriceSection(props: {
   }
 
   if (!isTokenBased) {
+    const fixedUnit = isPerSecondTaskModel(props.model) ? 'second' : 'request'
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
-            {t('Per request')}
+            {t(fixedUnit === 'second' ? 'Per Second' : 'Per request')}
           </span>
           <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
             {formatFixedPrice(
@@ -879,6 +881,9 @@ function PriceSection(props: {
               props.usdExchangeRate,
               baseGroupRatioMap
             )}
+            <span className='text-muted-foreground/60 ml-1 text-xs font-normal'>
+              / {t(fixedUnit)}
+            </span>
           </span>
         </div>
       </section>
@@ -1508,7 +1513,7 @@ function ProviderGroupPricingSection(
             : [
                 {
                   id: 'price',
-                  header: t('Price'),
+                  header: `${t('Price')} / ${t(isPerSecondTaskModel(props.model) ? 'second' : 'request')}`,
                   className: `${thClass} text-right`,
                   cellClassName: 'py-2.5 text-right font-mono',
                   cell: renderFixedGroupPrice,

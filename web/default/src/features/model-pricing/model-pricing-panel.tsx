@@ -164,6 +164,7 @@ export function ModelPricingPanel(props: {
         ref={editor}
         editData={editData}
         usageSchema={entry.usage_schema}
+        billingUnit={entry.billing_unit}
         pluginVariants={entry.plugin_variants}
         onDirtyChange={props.onDirtyChange}
         onSave={() => persist()}

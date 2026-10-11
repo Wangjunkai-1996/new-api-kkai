@@ -122,6 +122,7 @@ type ModelPricingSheetProps = {
   onSave?: () => void | Promise<void>
   isSaving?: boolean
   usageSchema?: BillingUsageSchema
+  billingUnit?: 'second' | 'request'
   pluginVariants?: ModelPricingPluginVariant[]
   onDirtyChange?: (dirty: boolean) => void
 }
@@ -152,6 +153,7 @@ export const ModelPricingSheet = forwardRef<
     onSave,
     isSaving,
     usageSchema,
+    billingUnit,
     pluginVariants,
     onDirtyChange,
   },
@@ -175,6 +177,7 @@ export const ModelPricingSheet = forwardRef<
           ref={ref}
           editData={editData}
           usageSchema={usageSchema}
+          billingUnit={billingUnit}
           pluginVariants={pluginVariants}
           onDirtyChange={onDirtyChange}
           onSave={onSave}
@@ -196,6 +199,7 @@ export const ModelPricingEditorPanel = forwardRef<
     onSave,
     isSaving,
     usageSchema,
+    billingUnit,
     pluginVariants,
     onDirtyChange,
     embedded = false,
@@ -335,6 +339,30 @@ export const ModelPricingEditorPanel = forwardRef<
   const taskUsageExamples =
     usageExamplesByModel.get(watchedValues.name.trim()) ??
     pluginVariants?.find((variant) => !variant.stale)?.usage_examples
+  let taskSecondsField: 'seconds' | 'duration' | null = null
+  if (
+    taskUsageSchema?.seconds?.type === 'number' &&
+    taskUsageSchema.seconds.unit === 'second'
+  ) {
+    taskSecondsField = 'seconds'
+  } else if (
+    taskUsageSchema?.duration?.type === 'number' &&
+    taskUsageSchema.duration.unit === 'second'
+  ) {
+    taskSecondsField = 'duration'
+  }
+  // Legacy reference-video pricing carries a provider-specific modifier
+  // (video_input_ratio) outside the usage facts. A one-line expression cannot
+  // preserve that modifier, so leave those models for manual expression setup.
+  const hasExternalVideoModifier = Boolean(
+    taskUsageSchema?.video_input || taskUsageSchema?.video_input_ratio
+  )
+  const canConvertPerRequestToSeconds =
+    pricingMode === 'per-request' &&
+    billingUnit === 'second' &&
+    taskSecondsField !== null &&
+    !hasExternalVideoModifier &&
+    hasValue(watchedValues.price)
   const defaultTaskBillingExpr = useMemo(
     () =>
       taskUsageSchema
@@ -554,6 +582,18 @@ export const ModelPricingEditorPanel = forwardRef<
     if (nextMode === 'tiered_expr' && !billingExpr) {
       setBillingExpr(defaultTaskBillingExpr || DEFAULT_TOKEN_BILLING_EXPR)
     }
+  }
+
+  const convertPerRequestToSeconds = () => {
+    if (!canConvertPerRequestToSeconds || !taskSecondsField) return
+    const price = toNumberOrNull(watchedValues.price)
+    if (price === null || price < 0) return
+    setBillingExpr(
+      `tier("base", u("${taskSecondsField}") * ${formatPricingNumber(price)})`
+    )
+    setWasConverted(true)
+    setPricingMode('tiered_expr')
+    setEditorReloadToken((token) => token + 1)
   }
 
   const previewRows = useMemo(() => {
@@ -963,19 +1003,32 @@ export const ModelPricingEditorPanel = forwardRef<
                               'Legacy pricing is deprecated. Convert the current prices to an expression draft, then save to apply it.'
                             )}
                           </p>
-                          <Button
-                            type='button'
-                            className='w-full sm:w-auto'
-                            disabled={
-                              conversion.isPending ||
-                              Boolean(billingExpr.trim())
-                            }
-                            onClick={() => void convertPricing()}
-                          >
-                            {conversion.isPending
-                              ? t('Preparing conversion...')
-                              : t('Convert to expression')}
-                          </Button>
+                          {canConvertPerRequestToSeconds && (
+                            <Button
+                              type='button'
+                              variant='outline'
+                              className='w-full sm:w-auto'
+                              onClick={convertPerRequestToSeconds}
+                            >
+                              {t('Convert to expression')} ($/{t('second')})
+                            </Button>
+                          )}
+                          {!canConvertPerRequestToSeconds &&
+                            !taskUsageSchema && (
+                            <Button
+                              type='button'
+                              className='w-full sm:w-auto'
+                              disabled={
+                                conversion.isPending ||
+                                Boolean(billingExpr.trim())
+                              }
+                              onClick={() => void convertPricing()}
+                            >
+                              {conversion.isPending
+                                ? t('Preparing conversion...')
+                                : t('Convert to expression')}
+                            </Button>
+                          )}
                           {billingExpr.trim() && (
                             <p>
                               {t(

@@ -790,8 +790,16 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		RecalculateTaskQuota(ctx, task, result.ActualQuotaAfterGroup, "task usage settlement", result.Clamp)
 		return
 	}
-	// 0. 按次计费的任务不做差额结算
+	// 0. 固定按次任务不做差额结算；视频固定单价任务如果返回完成时长，
+	// 按实际秒数结算。
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
+		secondsRatio, hasSecondsRatio := bc.OtherRatios["seconds"]
+		if hasSecondsRatio && secondsRatio > 0 && bc.ModelPrice > 0 && taskResult != nil && taskResult.UsageFacts != nil {
+			if seconds, ok := taskResult.UsageFacts["seconds"].(float64); ok && seconds > 0 {
+				RecalculateTaskQuotaBySeconds(ctx, task, seconds)
+				return
+			}
+		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return
 	}

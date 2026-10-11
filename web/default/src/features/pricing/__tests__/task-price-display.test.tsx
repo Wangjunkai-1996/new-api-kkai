@@ -100,6 +100,30 @@ const model: PricingModel = {
 }
 const clients: QueryClient[] = []
 
+it('shows legacy video prices per second when the usage schema is available', () => {
+  const video: PricingModel = {
+    ...model,
+    model_name: 'video-model',
+    quota_type: 1,
+    model_ratio: 0,
+    model_price: 0.25,
+    billing_unit: 'second',
+    billing_mode: undefined,
+    billing_expr: undefined,
+    billing_usage_schema: {
+      seconds: { type: 'number', unit: 'second' },
+    },
+  }
+  render(
+    <>
+      <ModelPriceCell model={video} />
+      <ModelCard model={video} onClick={() => {}} />
+    </>
+  )
+  expect(screen.getByText('Per Second')).toBeVisible()
+  expect(screen.getAllByText(/\/ second/)).toHaveLength(2)
+})
+
 it('shows nested task conditions and prices in detail and group tables without ambiguous log matches', () => {
   vi.spyOn(api, 'get').mockResolvedValue({ data: { data: { groups: [] } } })
   const client = new QueryClient({

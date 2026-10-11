@@ -782,6 +782,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
                   (entry) => entry.model_name === editData?.name
                 )?.usage_schema
               }
+              billingUnit={
+                pricingConfig.data?.entries.find(
+                  (entry) => entry.model_name === editData?.name
+                )?.billing_unit
+              }
               onSave={onSave}
               isSaving={isSaving}
               className='h-full min-h-0'
@@ -831,6 +836,11 @@ const ModelRatioVisualEditorComponent = forwardRef<
             pricingConfig.data?.entries.find(
               (entry) => entry.model_name === editData?.name
             )?.usage_schema
+          }
+          billingUnit={
+            pricingConfig.data?.entries.find(
+              (entry) => entry.model_name === editData?.name
+            )?.billing_unit
           }
           onSave={onSave}
           isSaving={isSaving}

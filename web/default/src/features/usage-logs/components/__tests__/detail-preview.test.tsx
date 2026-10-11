@@ -218,6 +218,18 @@ test.each([
   expect(preview.textContent).toBe(expected)
 })
 
+test('shows fixed video prices per second from the explicit billing unit', () => {
+  const preview = renderPreview({
+    model_price: 0.25,
+    billing_unit: 'second',
+  })
+  expect(preview.textContent).toBe('Per Second · $0.25/second')
+  fireEvent.click(preview)
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByText('Per Second')).toBeVisible()
+  expect(dialog.getByText('$0.25/second')).toBeVisible()
+})
+
 test('quota saturation remains first and only billing adds to the counter', () => {
   const preview = renderPreview({
     model_price: 0.25,

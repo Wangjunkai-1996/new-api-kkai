@@ -67,6 +67,7 @@ export type ModelPricingEntry = ModelPricingDescription & {
   version: string
   configured: PricingValues
   usage_schema?: BillingUsageSchema
+  billing_unit?: 'second' | 'request'
 }
 
 export type ModelPricingConfig = {

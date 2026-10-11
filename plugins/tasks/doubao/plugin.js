@@ -223,6 +223,13 @@ function seedanceUsageSchema(profile) {
   const resolutionLabels = {};
   for (const resolution of profile.resolutions) resolutionLabels[resolution] = { en: resolution, zh: resolution };
   const schema = {
+    // Requested or delivered video duration. Legacy model prices multiply this
+    // field directly, while tiered expressions may use it instead of tokens.
+    seconds: {
+      type: "number",
+      unit: "second",
+      description: { en: "Video duration", zh: "视频时长" },
+    },
     // Upstream billing tokens (estimated at submit, actual on completion).
     tokens: {
       type: "number",
@@ -267,7 +274,7 @@ function seedanceUsageExamples(profile) {
   if (profile.videoInput) specs.push({ label: "720p · 5s (+4s 输入视频)", resolution: "720p", seconds: 9, video_input: "video" });
   if (profile.audio) specs.push({ label: "720p · 5s · 无声", resolution: "720p", seconds: 5, generate_audio: false });
   return specs.map((spec) => {
-    const facts = { tokens: Math.round(estimateTokens(spec.seconds, spec.resolution)), resolution: spec.resolution };
+    const facts = { seconds: spec.seconds, tokens: Math.round(estimateTokens(spec.seconds, spec.resolution)), resolution: spec.resolution };
     if (profile.videoInput) facts.video_input = spec.video_input || "none";
     if (profile.audio) facts.generate_audio = spec.generate_audio !== false;
     return { label: spec.label, facts: facts };
@@ -433,6 +440,18 @@ function resolutionMaxPixels(resolution) {
 function estimateTokens(seconds, resolution) {
   const dims = resolutionMaxPixels(resolution);
   return (seconds * dims[0] * dims[1] * 24) / 1024;
+}
+
+function videoSeconds(ctx) {
+  const req = ctx.requestBody || {};
+  const metadata = req.metadata || {};
+  let seconds = Number(req.seconds || req.duration || metadata.duration || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    const frames = Number(metadata.frames);
+    seconds = Number.isFinite(frames) && frames > 0 ? Math.floor(frames / 24) : 15;
+  }
+  if (seconds <= 0) seconds = 5;
+  return Math.min(seconds, 3600);
 }
 
 function videoInputRatio(model, resolution, content) {
@@ -852,20 +871,16 @@ export function extractUsage(ctx) {
   }
   const req = ctx.requestBody || {};
   const metadata = req.metadata || {};
+  const seconds = videoSeconds(ctx);
   if (ctx.usagePurpose === "billing_ratios") {
     const ratio = videoInputRatio(ctx.upstreamModel || ctx.model, metadata.resolution, metadata.content);
-    return ratio === 1 ? null : { video_input_ratio: ratio };
+    const ratios = { seconds: seconds };
+    if (ratio !== 1) ratios.video_input_ratio = ratio;
+    return ratios;
   }
-  let seconds = Number(req.seconds || req.duration || metadata.duration || 0);
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    const frames = Number(metadata.frames);
-    seconds = Number.isFinite(frames) && frames > 0 ? Math.floor(frames / 24) : 15;
-  }
-  if (seconds <= 0) seconds = 5;
-  seconds = Math.min(seconds, 3600);
   const profile = videoProfile(ctx);
   const resolution = videoResolution(ctx);
-  const facts = { tokens: estimateTokens(seconds, resolution), resolution: resolution };
+  const facts = { seconds: seconds, tokens: estimateTokens(seconds, resolution), resolution: resolution };
   // Every model reports video_input, including those whose profile omits it:
   // expressions saved when all Seedance models declared the field then keep
   // matching their no-video tier.
@@ -962,6 +977,8 @@ export function extractUsageOnComplete(task, taskResult, body) {
   if (!Number.isFinite(tokens) || tokens <= 0) tokens = Number(usage.total_tokens);
   if (Number.isFinite(tokens) && tokens > 0) facts.tokens = tokens;
   const content = body.content || {};
+  const completedSeconds = Number(body.seconds || body.duration || content.seconds || content.duration);
+  if (Number.isFinite(completedSeconds) && completedSeconds > 0 && completedSeconds <= 3600) facts.seconds = completedSeconds;
   const resolution = trimmed(content.resolution || body.resolution).toLowerCase();
   if (videoProfile(task).resolutions.includes(resolution)) facts.resolution = resolution;
   return facts;
