@@ -61,7 +61,11 @@ func (TaskAccountingHandler) Handle(ctx context.Context, event model.KKAIOutboxE
 	logContent := fmt.Sprintf("操作 %s", task.Action)
 	billingContext := task.PrivateData.BillingContext
 	if billingContext != nil && billingContext.PerCallBilling {
-		logContent += "，按次计费"
+		if billingContext.OtherRatios["seconds"] > 0 {
+			logContent += "，按秒计费"
+		} else {
+			logContent += "，按次计费"
+		}
 	} else if billingContext != nil {
 		priceData := taskBillingContextPriceData(billingContext)
 		if priceData != nil {

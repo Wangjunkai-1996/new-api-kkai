@@ -28,6 +28,7 @@ import {
   getDynamicDisplayGroupRatio,
   getDynamicPriceUnitLabelKey,
   getDynamicPricingSummary,
+  isPerSecondTaskModel,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
 import { isTokenBasedModel } from '../lib/model-helpers'
@@ -213,7 +214,9 @@ export function ModelPriceCell(props: {
     } else {
       metrics = [
         {
-          label: t('Per-request'),
+          label: t(
+            isPerSecondTaskModel(props.model) ? 'Per Second' : 'Per-request'
+          ),
           value: formatRequestPrice(
             props.model,
             options.showRechargePrice,
@@ -224,7 +227,7 @@ export function ModelPriceCell(props: {
           ),
         },
       ]
-      caption = `${currencyLabel} / ${t('request')}`
+      caption = `${currencyLabel} / ${t(isPerSecondTaskModel(props.model) ? 'second' : 'request')}`
     }
   }
   return (

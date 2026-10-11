@@ -154,6 +154,10 @@ export function hasTaskUsageSchema(model: PricingModel): boolean {
   return Object.keys(model.billing_usage_schema ?? {}).length > 0
 }
 
+export function isPerSecondTaskModel(model: PricingModel): boolean {
+  return model.quota_type === 1 && model.billing_unit === 'second'
+}
+
 export function isTaskUsagePricingModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && hasTaskUsageSchema(model)
 }
@@ -401,15 +405,16 @@ export function getDynamicPricingSummary(
       typeof model.model_price === 'number' &&
       variants.some((variant) => variant.billing_mode === 'ratio')
     ) {
+      const perSecond = isPerSecondTaskModel(model)
       perCallEntries.push({
         key: 'modelPrice',
         field: 'modelPrice',
-        label: 'Price per request',
-        shortLabel: 'Per-call',
+        label: perSecond ? 'Price per second' : 'Price per request',
+        shortLabel: perSecond ? 'Per Second' : 'Per-call',
         labelKind: 'i18n',
         value: model.model_price,
         formatted: formatTaskUsageUnitPrice(model.model_price, options),
-        unit: 'request',
+        unit: perSecond ? 'second' : 'request',
       })
     }
     const ranges = new Map<

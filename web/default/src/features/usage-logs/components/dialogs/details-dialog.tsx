@@ -86,6 +86,7 @@ import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import {
   getLogTypeConfig,
   isPerCallBilling,
+  isPerSecondBilling,
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
@@ -171,6 +172,11 @@ function BillingBreakdown(props: {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
   const isPerCall = isPerCallBilling(other.model_price)
+  const isPerSecond = isPerSecondBilling(
+    other.model_price,
+    other.seconds,
+    other.billing_unit
+  )
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other)
@@ -205,11 +211,14 @@ function BillingBreakdown(props: {
       })
     }
   } else if (isPerCall) {
-    rows.push({ label: t('Billing Mode'), value: t('Per-call') })
+    rows.push({
+      label: t('Billing Mode'),
+      value: t(isPerSecond ? 'Per Second' : 'Per-call'),
+    })
     if (other.model_price != null) {
       rows.push({
         label: t('Model Price'),
-        value: fmtPrice(other.model_price),
+        value: `${fmtPrice(other.model_price)}${isPerSecond ? `/${t('second')}` : ''}`,
       })
     }
   } else {
@@ -1185,7 +1194,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
               compact
               billingExpr={decodeBillingExprB64(other.expr_b64)}
               matchedTierLabel={other.matched_tier}
-              matchedBillingUnit={other.billing_unit}
+              matchedBillingUnit={
+                other.billing_unit === 'second' ? undefined : other.billing_unit
+              }
               matchedFixedPrice={other.fixed_price}
               requestRules={other.request_rules}
               hideCacheColumns={!hasAnyCacheTokens(other)}

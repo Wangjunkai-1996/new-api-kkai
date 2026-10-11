@@ -95,7 +95,8 @@ it('reads preview prices and billing metadata from the common data envelope', as
 
 function renderEditor(
   data: Partial<ModelRatioData> = {},
-  usageSchema?: BillingUsageSchema
+  usageSchema?: BillingUsageSchema,
+  billingUnit?: 'second' | 'request'
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -116,6 +117,7 @@ function renderEditor(
           ...entry,
         }}
         usageSchema={usageSchema}
+        billingUnit={billingUnit}
         onDirtyChange={dirty}
       />
     </QueryClientProvider>
@@ -927,6 +929,25 @@ it('converts task unit prices without enum tiers and updates the monetary previe
     billingExpr: 'tier("base", 1 + u("seconds") * 2)',
   })
   expect(screen.getByText(/= ¥77$/)).toBeVisible()
+})
+
+it('offers a one-click per-second conversion for legacy task prices', async () => {
+  const editor = renderEditor(
+    { billingMode: 'per-request', price: '2' },
+    { seconds: { type: 'number', unit: 'second' } },
+    'second'
+  )
+
+  await userEvent
+    .setup()
+    .click(
+      screen.getByRole('button', { name: 'Convert to expression ($/second)' })
+    )
+
+  expect(await commit(editor.ref)).toMatchObject({
+    billingMode: 'tiered_expr',
+    billingExpr: 'tier("base", u("seconds") * 2)',
+  })
 })
 
 it('switches currency using the keyboard without changing the saved configuration', async () => {

@@ -38,6 +38,7 @@ import {
   getDynamicDisplayGroupRatio,
   getDynamicPriceUnitLabelKey,
   getDynamicPricingSummary,
+  isPerSecondTaskModel,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
@@ -245,7 +246,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
           <span className='text-muted-foreground text-xs font-normal'>
             {' '}
-            / {t('request')}
+            / {t(isPerSecondTaskModel(props.model) ? 'second' : 'request')}
           </span>
         </span>
       </div>

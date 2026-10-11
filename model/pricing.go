@@ -50,7 +50,11 @@ type Pricing struct {
 	BillingExpr            string                               `json:"billing_expr,omitempty"`
 	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
 	BillingUsageExamples   []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
-	PricingVersion         string                               `json:"pricing_version,omitempty"`
+	// BillingUnit is explicit routing evidence for legacy fixed-price task
+	// billing. Usage schemas describe facts, while this field describes the
+	// unit of the configured legacy price shown to customers.
+	BillingUnit    string `json:"billing_unit,omitempty"`
+	PricingVersion string `json:"pricing_version,omitempty"`
 }
 
 type PricingVendor struct {
@@ -328,6 +332,7 @@ func updatePricing() {
 
 	pricingMap = make([]Pricing, 0)
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
+	pricingChannelIndex := buildPricingChannelIndex(enableAbilities)
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
 			ModelName:              model,
@@ -389,18 +394,13 @@ func updatePricing() {
 				}
 			}
 		}
-		usageModel := model
-		plugin, ok := pluginGeneration.GetByModel(model)
-		if !ok {
-			if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved {
-				plugin, ok = pluginGeneration.Get(target.PluginKey)
-				usageModel = target.Declared
-			}
-		}
-		if ok && plugin != nil {
-			usageSchema, usageExamples := plugin.Meta.UsageForModel(usageModel)
+		if metadata, resolved := resolvePricingPluginMetadata(pluginGeneration, model, pricingChannelIndex); resolved {
+			usageSchema, usageExamples := metadata.Plugin.Meta.UsageForModel(metadata.UsageModel)
 			pricing.BillingUsageSchema = jsplugin.CloneUsageSchema(usageSchema)
 			pricing.BillingUsageExamples = jsplugin.CloneUsageExamples(usageExamples)
+			if pricing.QuotaType == 1 {
+				pricing.BillingUnit = metadata.LegacyBillingUnit
+			}
 		}
 		providers := pluginGeneration.PluginsByModel(model)
 		hasProviderOverride := false

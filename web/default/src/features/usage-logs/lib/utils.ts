@@ -74,6 +74,14 @@ export function isPerCallBilling(modelPrice?: number): boolean {
   return (modelPrice ?? 0) > 0
 }
 
+export function isPerSecondBilling(
+  modelPrice?: number,
+  _seconds?: number,
+  billingUnit?: 'token' | 'request' | 'second'
+): boolean {
+  return isPerCallBilling(modelPrice) && billingUnit === 'second'
+}
+
 /**
  * Get default time range (today 00:00:00 to now + 1 hour)
  */

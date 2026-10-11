@@ -39,6 +39,7 @@ type ModelPricingEntry struct {
 	Version        string                               `json:"version"`
 	Configured     PricingValues                        `json:"configured"`
 	UsageSchema    map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
+	BillingUnit    string                               `json:"billing_unit,omitempty"`
 }
 
 type ModelPricingPluginVariant struct {
@@ -265,17 +266,21 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 	sort.Strings(names)
 	result := &ModelPricingSnapshot{Entries: make([]ModelPricingEntry, 0, len(names)), Options: make(map[string]string), EmptyVersion: ModelPricingVersion(PricingValues{})}
 	generation := jsplugin.DefaultRegistry.Generation()
+	var enabledAbilities []AbilityWithChannel
+	if DB != nil {
+		enabledAbilities, _ = GetAllEnableAbilityWithChannels()
+	}
+	pricingChannelIndex := buildPricingChannelIndex(enabledAbilities)
 	for _, name := range names {
 		configured := modelPricingValues(values, name)
 		entry := ModelPricingEntry{ModelName: name, Version: ModelPricingVersion(configured), Configured: configured,
 			ModelPricingDescription: ModelPricingDescription{Effective: effectiveModelPricing(values, name)}}
 		entry.CacheWriteMode = ResolveCacheWriteMode(name, configured)
 		entry.BillingDetails = ResolveLegacyBillingDetails(name, entry.Effective, configured)
-		if plugin, ok := generation.GetByModel(name); ok {
-			entry.UsageSchema, _ = plugin.Meta.UsageForModel(name)
-		} else if target, ok := ResolveTaskModelAlias(generation, name); ok {
-			if plugin, ok := generation.Get(target.PluginKey); ok {
-				entry.UsageSchema, _ = plugin.Meta.UsageForModel(target.Declared)
+		if metadata, ok := resolvePricingPluginMetadata(generation, name, pricingChannelIndex); ok {
+			entry.UsageSchema, _ = metadata.Plugin.Meta.UsageForModel(metadata.UsageModel)
+			if entry.Effective["ModelPrice"] != nil {
+				entry.BillingUnit = metadata.LegacyBillingUnit
 			}
 		}
 		plugins := generation.PluginsByModel(name)
@@ -358,13 +363,56 @@ func ValidateModelPricing(name string, values PricingValues) error {
 	return validateModelPricing(name, values, previous)
 }
 
+type pricingValidationContext struct {
+	generation         *jsplugin.RoutingGeneration
+	pricingMetadata    pricingPluginMetadata
+	hasPricingMetadata bool
+	taskAlias          TaskAliasTarget
+	hasTaskAlias       bool
+}
+
+func buildPricingValidationContexts(names []string) map[string]pricingValidationContext {
+	contexts := make(map[string]pricingValidationContext, len(names))
+	generation := jsplugin.DefaultRegistry.Generation()
+	var enabledAbilities []AbilityWithChannel
+	if DB != nil {
+		enabledAbilities, _ = GetAllEnableAbilityWithChannels()
+	}
+	pricingChannelIndex := buildPricingChannelIndex(enabledAbilities)
+	for _, name := range names {
+		if _, exists := contexts[name]; exists || strings.TrimSpace(name) == "" {
+			continue
+		}
+		taskAlias, hasTaskAlias := ResolveTaskModelAlias(generation, name)
+		metadata, hasMetadata := resolvePricingPluginMetadata(generation, name, pricingChannelIndex)
+		contexts[name] = pricingValidationContext{
+			generation:         generation,
+			pricingMetadata:    metadata,
+			hasPricingMetadata: hasMetadata,
+			taskAlias:          taskAlias,
+			hasTaskAlias:       hasTaskAlias,
+		}
+	}
+	return contexts
+}
+
 // Writes pass the locked database snapshot here, so allowing an unchanged stale
 // override cannot bypass validation through an out-of-date process-local cache.
 func validateModelPricing(name string, values, previous PricingValues) error {
+	contexts := buildPricingValidationContexts([]string{name})
+	return validateModelPricingWithContext(name, values, previous, contexts[name])
+}
+
+func validateModelPricingWithContext(name string, values, previous PricingValues, validationContext pricingValidationContext) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("model name is required")
 	}
-	generation := jsplugin.DefaultRegistry.Generation()
+	generation := validationContext.generation
+	if generation == nil {
+		generation = jsplugin.DefaultRegistry.Generation()
+	}
+	pricingMetadata := validationContext.pricingMetadata
+	hasPricingMetadata := validationContext.hasPricingMetadata
 	previousVariants, _ := previous[billing_setting.PluginBillingExprOption].(map[string]any)
 	variants := map[string]any{}
 	if value, exists := values[billing_setting.PluginBillingExprOption]; exists {
@@ -436,7 +484,8 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 						return fmt.Errorf("model %s: plugin %s: %w", name, plugin.Meta.Key, err)
 					}
 				}
-			} else if target, resolved := ResolveTaskModelAlias(generation, name); resolved {
+			} else if validationContext.hasTaskAlias {
+				target := validationContext.taskAlias
 				if plugin, ok := generation.Get(target.PluginKey); ok {
 					if !unchanged || generation.SharedModel(target.Declared) {
 						schema, _ := plugin.Meta.UsageForModel(target.Declared)
@@ -444,6 +493,11 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 					}
 				} else {
 					err = billing_setting.SmokeTestExpr(expression)
+				}
+			} else if hasPricingMetadata {
+				if !unchanged {
+					schema, _ := pricingMetadata.Plugin.Meta.UsageForModel(pricingMetadata.UsageModel)
+					err = billing_setting.SmokeTestTaskExpr(expression, schema)
 				}
 			} else if !unchanged || len(billingexpr.UsedUsageKeys(expression)) == 0 {
 				err = billing_setting.SmokeTestExpr(expression)
@@ -469,8 +523,7 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 		}
 	}
 	if value, exists := values[billing_setting.DisplayBillingExprOption]; exists {
-		_, taskAlias := ResolveTaskModelAlias(generation, name)
-		if len(generation.PluginsByModel(name)) > 0 || taskAlias {
+		if len(generation.PluginsByModel(name)) > 0 || validationContext.hasTaskAlias || hasPricingMetadata {
 			return errors.New("cache-read display prices are not supported for task models")
 		}
 		display, ok := value.(string)
@@ -507,6 +560,11 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 			return ErrModelPricingConflict
 		}
 	}
+	names := make([]string, 0, len(changes))
+	for _, change := range changes {
+		names = append(names, change.ModelName)
+	}
+	validationContexts := buildPricingValidationContexts(names)
 	return mutateModelPricingOptions(func(_ *gorm.DB, values map[string]map[string]any) error {
 		defaults := defaultPricingMaps()
 		for _, change := range changes {
@@ -518,7 +576,7 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 			if change.Reset {
 				pricing = modelPricingValues(defaults, change.ModelName)
 			}
-			if err := validateModelPricing(change.ModelName, pricing, previous); err != nil {
+			if err := validateModelPricingWithContext(change.ModelName, pricing, previous, validationContexts[change.ModelName]); err != nil {
 				return err
 			}
 			replaceModelPricing(values, change.ModelName, pricing)
@@ -530,6 +588,40 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 // UpdateModelPricingOptions keeps legacy single-option callers on the same
 // locking, validation and transaction path as the model-level API.
 func UpdateModelPricingOptions(updates map[string]string) error {
+	currentValues, _, _, err := readModelPricingMaps(DB)
+	if err != nil {
+		return err
+	}
+	names := make(map[string]bool)
+	for key, raw := range updates {
+		if !IsModelPricingOption(key) {
+			return fmt.Errorf("unsupported pricing field: %s", key)
+		}
+		var entries map[string]any
+		if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
+			return err
+		}
+		if entries == nil {
+			return fmt.Errorf("%s must be a JSON object", key)
+		}
+		for _, entriesForKey := range []map[string]any{currentValues[key], entries} {
+			for name := range entriesForKey {
+				if key == billing_setting.PluginBillingExprOption {
+					_, model, ok := billing_setting.SplitPluginBillingExprKey(name)
+					if !ok {
+						return fmt.Errorf("invalid plugin billing expression key: %s", name)
+					}
+					name = model
+				}
+				names[name] = true
+			}
+		}
+	}
+	validationNames := make([]string, 0, len(names))
+	for name := range names {
+		validationNames = append(validationNames, name)
+	}
+	validationContexts := buildPricingValidationContexts(validationNames)
 	return mutateModelPricingOptions(func(_ *gorm.DB, values map[string]map[string]any) error {
 		previous := maps.Clone(values)
 		names := make(map[string]bool)
@@ -559,7 +651,7 @@ func UpdateModelPricingOptions(updates map[string]string) error {
 			values[key] = entries
 		}
 		for name := range names {
-			if err := validateModelPricing(name, modelPricingValues(values, name), modelPricingValues(previous, name)); err != nil {
+			if err := validateModelPricingWithContext(name, modelPricingValues(values, name), modelPricingValues(previous, name), validationContexts[name]); err != nil {
 				return err
 			}
 		}

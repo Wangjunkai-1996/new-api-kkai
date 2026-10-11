@@ -192,6 +192,7 @@ export interface LogOtherData {
   model_ratio?: number
   completion_ratio?: number
   model_price?: number
+  seconds?: number
   group_ratio?: number
   user_group_ratio?: number
   cache_ratio?: number
@@ -216,7 +217,7 @@ export interface LogOtherData {
   // request-rule traces come from the actual settlement run. Total cost must
   // continue to use the recorded quota, not this display expression.
   billing_mode?: string
-  billing_unit?: 'token' | 'request'
+  billing_unit?: 'token' | 'request' | 'second'
   fixed_price?: number
   image_count?: number
   expr_b64?: string

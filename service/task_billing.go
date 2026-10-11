@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -81,6 +82,11 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 	}
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other.SetPublic("model_price", bc.ModelPrice)
+		if bc.PerCallBilling && bc.OtherRatios["seconds"] > 0 {
+			other.SetPublic("billing_unit", "second")
+		} else if bc.PerCallBilling {
+			other.SetPublic("billing_unit", "request")
+		}
 		if bc.ModelRatio > 0 {
 			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
@@ -374,16 +380,48 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return
 	}
 
-	// 计算 OtherRatios 乘积（视频折扣、时长等）
+	// 计算 OtherRatios 乘积（视频折扣等）。seconds 是视频按秒固定价
+	// 的预扣倍率；按 token 结算时，totalTokens 已包含时长，不能重复相乘。
 	otherMultiplier := 1.0
 	if priceData := taskBillingContextPriceData(billingContext); priceData != nil {
-		otherMultiplier = priceData.OtherRatioMultiplier()
+		for key, ratio := range priceData.OtherRatios() {
+			if key != "seconds" && ratio != 1 {
+				otherMultiplier *= ratio
+			}
+		}
 	}
 
 	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier（饱和转换，防止溢出成负数）
 	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * billingContext.ModelRatio * billingContext.GroupRatio * otherMultiplier)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, billingContext.ModelRatio, billingContext.GroupRatio, otherMultiplier)
+	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+}
+
+// RecalculateTaskQuotaBySeconds settles legacy fixed-price video tasks from
+// the completed duration. The frozen OtherRatios keep the request's pricing
+// modifiers (for example reference-video discounts), while seconds comes
+// from the completion usage facts.
+func RecalculateTaskQuotaBySeconds(ctx context.Context, task *model.Task, seconds float64) {
+	if task == nil || seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds > relaycommon.MaxTaskDurationSeconds {
+		return
+	}
+	billingContext := task.PrivateData.BillingContext
+	if billingContext == nil || billingContext.ModelPrice <= 0 || billingContext.GroupRatio <= 0 {
+		return
+	}
+
+	otherMultiplier := 1.0
+	if priceData := taskBillingContextPriceData(billingContext); priceData != nil {
+		for key, ratio := range priceData.OtherRatios() {
+			if key != "seconds" && ratio != 1 {
+				otherMultiplier *= ratio
+			}
+		}
+	}
+
+	actualQuota, clamp := common.QuotaFromFloatChecked(seconds * billingContext.ModelPrice * billingContext.GroupRatio * otherMultiplier * common.QuotaPerUnit)
+	reason := fmt.Sprintf("视频按秒结算：seconds=%.2f, modelPrice=%.6f, groupRatio=%.4f, otherMultiplier=%.4f", seconds, billingContext.ModelPrice, billingContext.GroupRatio, otherMultiplier)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
 }
 
