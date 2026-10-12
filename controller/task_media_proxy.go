@@ -135,7 +135,16 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 	}
 	setting := channel.GetSetting()
 	proxy := strings.TrimSpace(setting.Proxy)
-	if err := validateTaskMediaURL(rawURL, proxy); err != nil {
+	var trustedOrigin *url.URL
+	if taskHasPluginExecution(task) && !descriptor.Credentialless {
+		channelURL, parseErr := url.Parse(channel.GetBaseURL())
+		if parseErr == nil && sameTaskMediaOrigin(parsedURL, channelURL) {
+			// The administrator-configured channel may be an internal adapter.
+			// Stored result URLs and other origins still require SSRF validation.
+			trustedOrigin = channelURL
+		}
+	}
+	if err := validateTaskMediaURL(rawURL, proxy, trustedOrigin); err != nil {
 		return &taskMediaProxyError{
 			status: http.StatusBadGateway, code: "artifact_request_rejected",
 			message: "Artifact request was rejected", err: err,
@@ -143,7 +152,7 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 	}
 
 	client := service.GetSSRFProtectedHTTPClient()
-	if proxy != "" {
+	if proxy != "" || trustedOrigin != nil {
 		client, err = service.GetHttpClientWithProxySettings(proxy, setting)
 		if err != nil {
 			return &taskMediaProxyError{
@@ -174,7 +183,7 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 		req.Header.Set(name, value)
 	}
 
-	client = taskMediaRedirectClient(client, proxy, c, clientHeaders, descriptor.Credentialless)
+	client = taskMediaRedirectClient(client, proxy, c, clientHeaders, descriptor.Credentialless, trustedOrigin)
 	clientWithoutBodyTimeout := *client
 	clientWithoutBodyTimeout.Timeout = 0
 	resp, err := doTaskMediaRequest(&clientWithoutBodyTimeout, req, taskMediaResponseHeaderTimeout)
@@ -326,7 +335,7 @@ func applyTaskMediaRequestHeaders(destination http.Header, headers map[string]st
 	return nil
 }
 
-func taskMediaRedirectClient(base *http.Client, proxy string, c *gin.Context, clientHeaders map[string]string, credentialless bool) *http.Client {
+func taskMediaRedirectClient(base *http.Client, proxy string, c *gin.Context, clientHeaders map[string]string, credentialless bool, trustedOrigin *url.URL) *http.Client {
 	cloned := *base
 	cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
@@ -336,7 +345,7 @@ func taskMediaRedirectClient(base *http.Client, proxy string, c *gin.Context, cl
 			req.URL.Host == "" || req.URL.User != nil || req.URL.Fragment != "" {
 			return fmt.Errorf("%w: invalid redirect URL", errTaskMediaRequestRejected)
 		}
-		if err := validateTaskMediaURL(req.URL.String(), proxy); err != nil {
+		if err := validateTaskMediaURL(req.URL.String(), proxy, trustedOrigin); err != nil {
 			return fmt.Errorf("%w: %v", errTaskMediaRequestRejected, err)
 		}
 		if isSelfTaskMediaURL(c, req.URL) {
@@ -361,7 +370,13 @@ func taskMediaRedirectClient(base *http.Client, proxy string, c *gin.Context, cl
 	return &cloned
 }
 
-func validateTaskMediaURL(rawURL, proxy string) error {
+func validateTaskMediaURL(rawURL, proxy string, trustedOrigin *url.URL) error {
+	if trustedOrigin != nil {
+		parsedURL, err := url.Parse(rawURL)
+		if err == nil && sameTaskMediaOrigin(parsedURL, trustedOrigin) {
+			return nil
+		}
+	}
 	if proxy == "" {
 		return service.ValidateSSRFProtectedFetchURL(rawURL)
 	}

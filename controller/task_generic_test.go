@@ -407,6 +407,131 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 	assert.Equal(t, "bytes 0-13/14", recorder.Header().Get("Content-Range"))
 }
 
+func TestTaskArtifactContentAllowsConfiguredPrivateChannel(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	originalFetchSetting := *system_setting.GetFetchSetting()
+	originalMemoryCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	system_setting.GetFetchSetting().EnableSSRFProtection = true
+	system_setting.GetFetchSetting().AllowPrivateIp = false
+	system_setting.GetFetchSetting().ApplyIPFilterForDomain = true
+	t.Cleanup(func() {
+		*system_setting.GetFetchSetting() = originalFetchSetting
+		common.MemoryCacheEnabled = originalMemoryCache
+	})
+	service.InitHttpClient()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer provider-key", r.Header.Get("Authorization"))
+		assert.Equal(t, "bytes=0-3", r.Header.Get("Range"))
+		assert.Equal(t, "/v1/videos/provider-video/content", r.URL.Path)
+		if r.URL.Query().Get("raw") == "" {
+			http.Redirect(w, r, r.URL.Path+"?raw=1", http.StatusTemporaryRedirect)
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Range", "bytes 0-3/4")
+		w.WriteHeader(http.StatusPartialContent)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte("data"))
+		}
+	}))
+	defer upstream.Close()
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Updates(map[string]any{
+		"type": constant.ChannelTypeSora, "key": "provider-key", "base_url": upstream.URL,
+	}).Error)
+	task.Platform = constant.TaskPlatform("sora")
+	task.PrivateData.UpstreamTaskID = "provider-video"
+	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
+		Key: "sora", Name: "Sora", Version: "1.1.0", APIVersion: 1,
+	}}
+	require.NoError(t, model.DB.Save(task).Error)
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Set(middleware.TaskArtifactAccessContextKey, true)
+			c.Params = gin.Params{{Key: "key", Value: task.TaskID}, {Key: "artifact_key", Value: "video"}}
+			c.Request = httptest.NewRequest(method, "/v1/tasks/"+task.TaskID+"/artifacts/video/content", nil)
+			c.Request.Header.Set("Range", "bytes=0-3")
+
+			TaskArtifactContent(c)
+
+			assert.Equal(t, http.StatusPartialContent, recorder.Code)
+			assert.Equal(t, "video/mp4", recorder.Header().Get("Content-Type"))
+			assert.Equal(t, "bytes 0-3/4", recorder.Header().Get("Content-Range"))
+			if method == http.MethodHead {
+				assert.Empty(t, recorder.Body.String())
+			} else {
+				assert.Equal(t, "data", recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestProxyTaskMediaPrivateChannelTrustIsOriginBound(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	originalFetchSetting := *system_setting.GetFetchSetting()
+	originalMemoryCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	system_setting.GetFetchSetting().EnableSSRFProtection = true
+	system_setting.GetFetchSetting().AllowPrivateIp = false
+	system_setting.GetFetchSetting().AllowedPorts = []string{"1-65535"}
+	t.Cleanup(func() {
+		*system_setting.GetFetchSetting() = originalFetchSetting
+		common.MemoryCacheEnabled = originalMemoryCache
+	})
+	service.InitHttpClient()
+
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("untrusted private destination must not receive a request")
+	}))
+	defer destination.Close()
+	upstreamRequests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamRequests++
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer upstream.Close()
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", task.ChannelId).Update("base_url", upstream.URL).Error)
+	execution := &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{Key: "sora"}}
+
+	for _, test := range []struct {
+		name           string
+		url            string
+		credentialless bool
+		legacy         bool
+		wantRequests   int
+	}{
+		{name: "credentialless configured origin", url: upstream.URL, credentialless: true},
+		{name: "different port", url: destination.URL},
+		{name: "legacy stored result", url: upstream.URL, legacy: true},
+		{name: "redirect to different origin", url: upstream.URL, wantRequests: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstreamRequests = 0
+			task.PrivateData.Execution = execution
+			if test.legacy {
+				task.PrivateData.Execution = nil
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodGet, "/content", nil)
+			descriptor := &relaychannel.TaskContentRequest{
+				URL: test.url, Method: http.MethodGet, Credentialless: test.credentialless,
+			}
+			if !test.credentialless {
+				descriptor.Headers = map[string]string{"Authorization": "Bearer provider-key"}
+			}
+			err := proxyTaskMedia(c, task, descriptor)
+			var proxyErr *taskMediaProxyError
+			require.ErrorAs(t, err, &proxyErr)
+			assert.Equal(t, "artifact_request_rejected", proxyErr.code)
+			assert.Equal(t, test.wantRequests, upstreamRequests)
+		})
+	}
+}
+
 func TestProjectedTaskArtifactValidationRejectsAmbiguousIdentity(t *testing.T) {
 	validated, err := validateProjectedTaskArtifacts([]relaychannel.TaskArtifact{
 		{Key: "video-main", Type: "video", MimeType: "video/mp4"},
