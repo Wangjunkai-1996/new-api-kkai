@@ -26,26 +26,16 @@ COPY web/classic/package.json ./classic/package.json
 # mount is a builder-local semaphore for the CPU/memory-heavy build steps.
 RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
     --mount=type=cache,id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked \
-    bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1
+    bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default
 
 FROM web-deps AS web-default
 
 ARG APP_VERSION
-ARG KKAI_SCHEMA_CONTRACT
 COPY web/default ./default
 RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
     test -n "${APP_VERSION}" \
     && cd default \
     && DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
-
-FROM web-deps AS web-classic
-
-ARG APP_VERSION
-COPY web/classic ./classic
-RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
-    test -n "${APP_VERSION}" \
-    && cd classic \
-    && VITE_REACT_APP_VERSION="${APP_VERSION}" bun run build
 
 FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS backend
 
@@ -69,7 +59,6 @@ RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locke
     go mod download && go mod verify
 COPY . .
 COPY --from=web-default /build/web/default/dist ./web/default/dist
-COPY --from=web-classic /build/web/classic/dist ./web/classic/dist
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \

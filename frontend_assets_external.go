@@ -9,5 +9,3 @@ import "embed"
 // Keep the same symbols so main.go and the embedded fallback share one path.
 var buildFS embed.FS
 var indexPage []byte
-var classicBuildFS embed.FS
-var classicIndexPage []byte

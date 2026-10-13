@@ -13,33 +13,28 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ThemeAssets holds the embedded frontend assets for both themes.
+// ThemeAssets holds the embedded default frontend assets.
 type ThemeAssets struct {
 	DefaultBuildFS   embed.FS
 	DefaultIndexPage []byte
-	ClassicBuildFS   embed.FS
-	ClassicIndexPage []byte
 }
 
 func (assets ThemeAssets) hasEmbeddedFrontend() bool {
-	if len(assets.DefaultIndexPage) == 0 || len(assets.ClassicIndexPage) == 0 {
+	if len(assets.DefaultIndexPage) == 0 {
 		return false
 	}
 
-	_, defaultErr := assets.DefaultBuildFS.ReadFile("web/default/dist/index.html")
-	_, classicErr := assets.ClassicBuildFS.ReadFile("web/classic/dist/index.html")
-	return defaultErr == nil && classicErr == nil
+	_, err := assets.DefaultBuildFS.ReadFile("web/default/dist/index.html")
+	return err == nil
 }
 
 func SetWebRouter(router *gin.Engine, assets ThemeAssets, pluginDispatcher gin.HandlerFunc) {
 	defaultFS := common.EmbedFolder(assets.DefaultBuildFS, "web/default/dist")
-	classicFS := common.EmbedFolder(assets.ClassicBuildFS, "web/classic/dist")
-	themeFS := common.NewThemeAwareFS(defaultFS, classicFS)
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
-	router.Use(static.Serve("/", themeFS))
+	router.Use(static.Serve("/", defaultFS))
 	router.NoRoute(pluginDispatcher, func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
 		if isAPIStylePath(c.Request.URL.Path) {
@@ -50,11 +45,7 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets, pluginDispatcher gin.H
 			return
 		}
 		c.Header("Cache-Control", "no-cache")
-		if common.GetTheme() == "classic" {
-			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.ClassicIndexPage)
-		} else {
-			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.DefaultIndexPage)
-		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", assets.DefaultIndexPage)
 	})
 }
 

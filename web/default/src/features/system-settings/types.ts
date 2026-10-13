@@ -141,7 +141,6 @@ export type SystemTaskFilters = {
 }
 
 export type SiteSettings = {
-  'theme.frontend': string
   Notice: string
   SystemName: string
   Logo: string

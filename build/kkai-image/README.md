@@ -34,8 +34,8 @@ on this Mac. Override the builder name with `--builder NAME` (or
 endpoint.
 
 The Dockerfile uses a locked BuildKit cache mount as a builder-local semaphore
-around the seven CPU/memory-heavy install and compile steps (the shared web
-install, two web bundles, two backend variants, runtime tools, and media
+around the six CPU/memory-heavy install and compile steps (the default web
+install and bundle, two backend variants, runtime tools, and media
 packaging). BuildKit can
 otherwise start the frontend, Go, and media stages at the same time and
 exhaust the Docker VM even when each individual command has a limit. The gate
@@ -90,7 +90,7 @@ separate from ordinary application delivery.
 release property and must be selected explicitly for an external split:
 
 ```bash
-# Self-contained image; embeds both web/default and web/classic.
+# Self-contained image; embeds web/default only.
 scripts/kkai/build-manual-release.sh \
   --schema-contract bridge \
   --frontend-mode embedded
@@ -102,10 +102,10 @@ scripts/kkai/build-manual-release.sh \
 ```
 
 The embedded path selects the `runtime-embedded`/`backend` targets and copies
-both built web bundles into the image. The external path selects
+the default web bundle into the image. The external path selects
 `runtime-external`/`backend-external`, enables the `external_frontend` Go build
 tag (plus `kkai_bridge` for the bridge schema), and does not depend on
-`web-deps`, `web-default`, or `web-classic`. This keeps a backend-only build
+`web-deps` or `web-default`. This keeps a backend-only build
 from loading or compiling frontend stages.
 
 Every release must carry one consistent mode in all four places: the metadata

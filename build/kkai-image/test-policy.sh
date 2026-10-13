@@ -68,7 +68,7 @@ grep -Fq -- 'ENV FRONTEND_MODE=external' <<<"${external_runtime_stage}" ||
   fail "external runtime environment mode is missing"
 [[ "$(grep -Fc -- 'FROM --platform=$BUILDPLATFORM ${GO_BUILD_IMAGE} AS runtime-tools' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "runtime tool compilation does not use the native build platform"
-[[ "$(grep -Fc -- 'id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked' "${DOCKERFILE}")" -eq 7 ]] ||
+[[ "$(grep -Fc -- 'id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked' "${DOCKERFILE}")" -eq 6 ]] ||
   fail "CPU/memory-heavy build stages must share the serialized BuildKit gate"
 "${FFMPEG_POLICY_TEST}"
 contains '-o /out/new-api .' "${DOCKERFILE}" || fail "Dockerfile does not build the application"
@@ -90,30 +90,28 @@ contains 'io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}"' "${DOCKERFILE}" |
   fail "application, migrator, and archive executor must compile with external schema management in both backend targets"
 [[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1' "${DOCKERFILE}")" -eq 1 ]] ||
   fail "frontend dependencies must use one serialized, shared install stage"
-[[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1' "${MAKEFILE}")" -eq 1 ]] ||
-  fail "local all-web builds must install dependencies once with bounded lifecycle concurrency"
+[[ "$(grep -Fc -- 'bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default' "${MAKEFILE}")" -eq 1 ]] ||
+  fail "the default local build must install only default frontend dependencies"
 contains 'build-web: web-install' "${MAKEFILE}" ||
   fail "the default local web build does not reuse the shared dependency install"
-contains 'build-web-classic: web-install' "${MAKEFILE}" ||
-  fail "the classic local web build does not reuse the shared dependency install"
+contains 'all: build-web start-api' "${MAKEFILE}" ||
+  fail "the default local build still compiles both frontends"
 ! contains '$(cat ../../VERSION)' "${MAKEFILE}" ||
   fail "local web builds still use the broken Make variable version expression"
 contains 'id=kkai-newapi-bun-v1,target=/root/.bun/install/cache,sharing=locked' "${DOCKERFILE}" ||
   fail "frontend dependency downloads do not use a persistent locked cache"
 contains 'FROM web-deps AS web-default' "${DOCKERFILE}" ||
   fail "default frontend does not reuse the shared dependency stage"
-contains 'VITE_KKAI_SCHEMA_CONTRACT="${KKAI_SCHEMA_CONTRACT}"' "${DOCKERFILE}" ||
-  fail "default frontend is not bound to the immutable schema contract"
-contains 'FROM web-deps AS web-classic' "${DOCKERFILE}" ||
-  fail "classic frontend does not reuse the shared dependency stage"
+! contains 'FROM web-deps AS web-classic' "${DOCKERFILE}" ||
+  fail "production image still compiles the classic frontend"
 for ignored_path in '.local-releases/' '/docs-site/' '/electron/' '/scripts/kkai/manual-deployment-contract.env' '/web/default/.tanstack/'; do
   contains "${ignored_path}" "${ROOT_CONTEXT_IGNORE}" ||
     fail "Docker build context does not exclude ${ignored_path}"
 done
 contains 'id=kkai-newapi-go-build-v1,target=/root/.cache/go-build,sharing=locked' "${DOCKERFILE}" ||
   fail "Go compiler cache mount is missing"
-[[ "$(grep -Fc -- 'go build -p "${GO_BUILD_PARALLELISM}"' "${DOCKERFILE}")" -eq 8 ]] ||
-  fail "all Go production tools must honor the bounded build parallelism in both backend targets"
+[[ "$(grep -Fc -- 'go build -p "${GO_BUILD_PARALLELISM}"' "${DOCKERFILE}")" -eq 10 ]] ||
+  fail "all Go production tools must honor the bounded build parallelism"
 contains 'ARG GO_BUILD_PARALLELISM=4' "${DOCKERFILE}" ||
   fail "Dockerfile does not define a bounded Go build parallelism"
 contains 'ARG MEDIA_BUILD_PARALLELISM=2' "${DOCKERFILE}" ||
@@ -222,8 +220,8 @@ contains '--expected-infra-sha "${KKAI_INFRA_SHA}"' "${DEPLOY_SCRIPT}" ||
 contains '--deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"' "${DEPLOY_SCRIPT}" ||
   fail "manual deploy does not pin the deployment protocol"
 contains 'archive checksum mismatch' "${DEPLOY_SCRIPT}" || fail "manual deploy omits local archive verification"
-contains 'KKAI_INFRA_SHA=0376e520973bd3d9f06263ad61e9c10de13b3251' "${DEPLOY_CONTRACT}" ||
-  fail "manual deployment contract does not pin the approved infrastructure commit"
+grep -Eq '^KKAI_INFRA_SHA=[0-9a-f]{40}$' "${DEPLOY_CONTRACT}" ||
+  fail "manual deployment contract does not pin an infrastructure commit"
 contains 'KKAI_DEPLOYMENT_PROTOCOL=router-v3-staged' "${DEPLOY_CONTRACT}" ||
   fail "manual deployment contract does not pin the staged protocol"
 

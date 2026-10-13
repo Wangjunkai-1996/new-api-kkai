@@ -68,13 +68,32 @@ func TestSetRouterRejectsEmbeddedModeWithoutAssets(t *testing.T) {
 		defer func() { recovered = recover() }()
 		SetRouter(gin.New(), ThemeAssets{
 			DefaultIndexPage: []byte("default"),
-			ClassicIndexPage: []byte("classic"),
 		})
 	}()
 
 	panicErr, ok := recovered.(error)
 	require.True(t, ok, "missing embedded assets should panic with a clear error")
 	assert.EqualError(t, panicErr, "embedded frontend assets are unavailable; set FRONTEND_MODE=external or build with frontend assets")
+}
+
+func TestEmbeddedFrontendServesDefaultWithLegacyThemeSetting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FRONTEND_MODE", "embedded")
+	t.Setenv("FRONTEND_BASE_URL", "")
+	previousTheme := common.GetTheme()
+	common.SetTheme("classic")
+	t.Cleanup(func() { common.SetTheme(previousTheme) })
+
+	engine := gin.New()
+	SetRouter(engine, ThemeAssets{
+		DefaultBuildFS:   webRouterTestAssets,
+		DefaultIndexPage: []byte("modern frontend"),
+	})
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "modern frontend", recorder.Body.String())
 }
 
 func TestLegacyFrontendRedirectWorksWithoutEmbeddedAssets(t *testing.T) {

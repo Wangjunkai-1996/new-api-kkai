@@ -14,17 +14,18 @@ DEV_SQLITE_PATH ?= one-api.db
 
 .PHONY: all web-install build-web build-web-classic build-all-web build-backend-only test-backend-only test-frontend-build start-api dev dev-api dev-api-rebuild dev-web dev-web-classic reset-setup test-manual-deploy test-standby-sync
 
-all: build-all-web start-api
+all: build-web start-api
 
 web-install:
 	@echo "Installing web dependencies..."
-	@cd ./web && bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1
+	@cd ./web && bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default
 
 build-web: web-install
 	@echo "Building default web..."
 	@cd $(WEB_DIR) && DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION='$(APP_VERSION)' bun run build
 
-build-web-classic: web-install
+build-web-classic:
+	@cd ./web && bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./classic
 	@echo "Building classic web..."
 	@cd $(WEB_CLASSIC_DIR) && VITE_REACT_APP_VERSION='$(APP_VERSION)' bun run build
 

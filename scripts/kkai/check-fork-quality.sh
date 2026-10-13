@@ -48,7 +48,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[1/9] Checking fork ancestry and changed-file hygiene"
+echo "[1/8] Checking fork ancestry and changed-file hygiene"
 "$ROOT/scripts/kkai/check-fork-source-size_test.sh"
 "$ROOT/scripts/kkai/check-fork-source-size.sh" "$BASE"
 
@@ -70,7 +70,7 @@ while IFS= read -r path; do
 done < <(git diff --name-only --diff-filter=ACMR "$BASE" -- '*.sh')
 "$ROOT/scripts/kkai/check-frt-header-patch.sh"
 
-echo "[2/9] Checking production image policy and runtime tools"
+echo "[2/8] Checking production image policy and runtime tools"
 "$ROOT/build/kkai-image/test-policy.sh"
 "$ROOT/scripts/kkai/deploy-manual-release_test.sh"
 (
@@ -78,7 +78,7 @@ echo "[2/9] Checking production image policy and runtime tools"
   go test ./...
 )
 
-echo "[3/9] Testing and building default frontend"
+echo "[3/8] Testing and building default frontend"
 (
   cd "$ROOT/web/default"
   bun run test
@@ -88,23 +88,17 @@ echo "[3/9] Testing and building default frontend"
   bun run build
 )
 
-echo "[4/9] Building classic frontend"
-(
-  cd "$ROOT/web/classic"
-  bun run build
-)
-
-echo "[5/9] Checking formatting of fork-owned frontend changes"
+echo "[4/8] Checking formatting of fork-owned frontend changes"
 bun "$ROOT/scripts/kkai/check-changed-format.mjs" "$BASE"
 
-echo "[6/9] Preparing detached upstream baseline"
+echo "[5/8] Preparing detached upstream baseline"
 git worktree add --quiet --detach "$BASE_TREE" "$BASE"
 ln -s "$ROOT/web/node_modules" "$BASE_TREE/web/node_modules"
 mkdir -p "$BASE_TREE/web/default/dist" "$BASE_TREE/web/classic/dist"
 printf '%s\n' '<!doctype html><title>quality baseline</title>' >"$BASE_TREE/web/default/dist/index.html"
 printf '%s\n' '<!doctype html><title>quality baseline</title>' >"$BASE_TREE/web/classic/dist/index.html"
 
-echo "[7/9] Comparing default lint diagnostics with upstream"
+echo "[6/8] Comparing default lint diagnostics with upstream"
 OXLINT="$ROOT/web/node_modules/.bin/oxlint"
 set +e
 (
@@ -127,7 +121,7 @@ fi
 bun "$ROOT/scripts/kkai/compare-diagnostics.mjs" \
   oxlint "$TMP_ROOT/oxlint-base.json" "$TMP_ROOT/oxlint-current.json"
 
-echo "[8/9] Comparing Go vet diagnostics with upstream"
+echo "[7/8] Comparing Go vet diagnostics with upstream"
 (cd "$BASE_TREE" && go mod download)
 go mod download
 set +e
@@ -145,7 +139,7 @@ fi
 bun "$ROOT/scripts/kkai/compare-diagnostics.mjs" \
   go-vet "$TMP_ROOT/go-vet-base.txt" "$TMP_ROOT/go-vet-current.txt"
 
-echo "[9/9] Running test suite"
+echo "[8/8] Running test suite"
 if [[ $FULL -eq 1 ]]; then
   go test ./...
   go test -tags kkai_bridge ./...

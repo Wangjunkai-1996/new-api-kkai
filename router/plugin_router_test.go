@@ -27,7 +27,7 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:embed web/default/dist web/classic/dist
+//go:embed web/default/dist
 var webRouterTestAssets embed.FS
 
 func TestPluginDispatcherMissFallsThroughWithoutLeakingInnerResponse(t *testing.T) {
@@ -898,8 +898,6 @@ func TestWebFallbackDoesNotCacheMissingAPIOrAssets(t *testing.T) {
 	SetWebRouter(outer, ThemeAssets{
 		DefaultBuildFS:   webRouterTestAssets,
 		DefaultIndexPage: []byte("dashboard"),
-		ClassicBuildFS:   webRouterTestAssets,
-		ClassicIndexPage: []byte("dashboard"),
 	}, func(c *gin.Context) { c.Next() })
 	for _, path := range []string{"/api/user/token/status", "/api/audit/self?p=1", "/v1/missing", "/assets/missing.js"} {
 		t.Run(path, func(t *testing.T) {

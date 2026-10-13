@@ -263,7 +263,9 @@ PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
   KKAI_TEST_INSTALL_MARKER="${install_marker}" \
   "${BUILD_SCRIPT}" --release-id "${independent_id}" --allow-dirty \
   --output-dir "${test_root}/independent" --lock-dir "${lock_dir}" >/dev/null
-jq -e '.format_version == 2 and .api_contract == 1 and .required_capabilities == [] and
+jq -e --slurpfile contract "${ROOT}/web/default/console-contract.json" \
+  '.format_version == 2 and .api_contract == $contract[0].api_contract and
+  .required_capabilities == $contract[0].required_capabilities and
   (has("backend_release_id") | not) and (has("backend_source_sha") | not) and
   (has("backend_image_digest") | not) and (has("schema_contract") | not)' \
   "${test_root}/independent/${independent_id}.json" >/dev/null || fail 'independent artifact still binds a backend'
