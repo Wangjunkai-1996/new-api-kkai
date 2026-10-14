@@ -16,19 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Receipt } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
-import { KkaiWalletRewardsCard } from '@/features/kkai-wallet/invitation-rewards-card'
-import { useStatus } from '@/hooks/use-status'
+import { Button } from '@/components/ui/button'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
 
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
-import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
@@ -36,27 +35,40 @@ import { DEFAULT_DISCOUNT_RATE, PAYMENT_TYPES } from './constants'
 import {
   useTopupInfo,
   usePayment,
-  useAffiliate,
   useRedemption,
   useCreemPayment,
   useWaffoPayment,
   useWaffoPancakePayment,
 } from './hooks'
-import {
-  getDefaultPaymentType,
-  getMinTopupAmount,
-  dispatchSelectedPayment,
-} from './lib'
+import { getMinTopupAmount, dispatchSelectedPayment } from './lib'
 import type {
   UserWalletData,
   PaymentMethod,
   PresetAmount,
   CreemProduct,
   WaffoPayMethod,
+  TopupInfo,
 } from './types'
 
 interface WalletProps {
   initialShowHistory?: boolean
+}
+
+function paymentMinimum(method: PaymentMethod, topupInfo: TopupInfo): number {
+  if (method.type === PAYMENT_TYPES.STRIPE) {
+    return Math.max(1, method.min_topup || 0, topupInfo.stripe_min_topup || 0)
+  }
+  if (method.type === PAYMENT_TYPES.WAFFO_PANCAKE) {
+    return Math.max(
+      1,
+      method.min_topup || 0,
+      topupInfo.waffo_pancake_min_topup || 0
+    )
+  }
+  if (method.type === PAYMENT_TYPES.WAFFO) {
+    return Math.max(1, topupInfo.waffo_min_topup || 0)
+  }
+  return Math.max(1, method.min_topup || 0, topupInfo.min_topup || 0)
 }
 
 export function Wallet(props: WalletProps) {
@@ -70,17 +82,20 @@ export function Wallet(props: WalletProps) {
   const [selectedWaffoMethodIndex, setSelectedWaffoMethodIndex] = useState<
     number | null
   >(null)
-  const [paymentLoading, setPaymentLoading] = useState<string | null>(null)
+  const [paymentQuote, setPaymentQuote] = useState<{
+    amount: number
+    paymentType: string
+    value: number
+  } | null>(null)
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
-  const [transferDialogOpen, setTransferDialogOpen] = useState(false)
-  const [billingDialogOpen, setBillingDialogOpen] = useState(false)
+  const [billingDialogOpen, setBillingDialogOpen] = useState(
+    !!props.initialShowHistory
+  )
   const [redemptionCode, setRedemptionCode] = useState('')
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
-  const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
 
-  const { status } = useStatus()
   const { currency } = useSystemConfig()
   const { topupInfo, presetAmounts, loading: topupLoading } = useTopupInfo()
 
@@ -90,29 +105,113 @@ export function Wallet(props: WalletProps) {
       ? 1
       : currency?.usdExchangeRate || 1
   }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
-  const {
-    amount: paymentAmount,
-    calculating,
-    processing,
-    calculatePaymentAmount,
-    processPayment,
-  } = usePayment()
-  const {
-    affiliateLink,
-    loading: affiliateLoading,
-    transferQuota,
-    transferring,
-  } = useAffiliate()
+  const { processing, calculatePaymentAmount, processPayment } = usePayment()
   const { redeeming, redeemCode } = useRedemption()
   const { processing: creemProcessing, processCreemPayment } = useCreemPayment()
   const { processing: waffoProcessing, processWaffoPayment } = useWaffoPayment()
   const { processing: pancakeProcessing, processWaffoPancakePayment } =
     useWaffoPancakePayment()
 
+  const paymentMethods = useMemo(() => {
+    if (!topupInfo) return []
+    const methods = topupInfo.pay_methods.filter((method) => {
+      if (method.type === PAYMENT_TYPES.STRIPE) {
+        return topupInfo.enable_stripe_topup
+      }
+      if (method.type === PAYMENT_TYPES.WAFFO_PANCAKE) {
+        return !!topupInfo.enable_waffo_pancake_topup
+      }
+      return topupInfo.enable_online_topup
+    })
+    if (
+      topupInfo.enable_stripe_topup &&
+      !methods.some((method) => method.type === PAYMENT_TYPES.STRIPE)
+    ) {
+      methods.push({
+        name: 'Stripe',
+        type: PAYMENT_TYPES.STRIPE,
+        min_topup: topupInfo.stripe_min_topup,
+      })
+    }
+    if (
+      topupInfo.enable_waffo_pancake_topup &&
+      !methods.some((method) => method.type === PAYMENT_TYPES.WAFFO_PANCAKE)
+    ) {
+      methods.push({
+        name: 'Waffo Pancake',
+        type: PAYMENT_TYPES.WAFFO_PANCAKE,
+        min_topup: topupInfo.waffo_pancake_min_topup,
+      })
+    }
+    return methods
+  }, [topupInfo])
+
+  const availableMethod = useMemo(() => {
+    if (!topupInfo) return undefined
+    const standardMethod = paymentMethods.find(
+      (method) => topupAmount >= paymentMinimum(method, topupInfo)
+    )
+    const waffoMethod = topupInfo.waffo_pay_methods?.[0]
+    const canUseWaffo =
+      topupInfo.enable_waffo_topup &&
+      waffoMethod &&
+      topupAmount >= Math.max(1, topupInfo.waffo_min_topup || 0)
+
+    if (selectedPaymentMethod?.type === PAYMENT_TYPES.WAFFO && canUseWaffo) {
+      const index = selectedWaffoMethodIndex ?? 0
+      if (topupInfo.waffo_pay_methods?.[index]) return selectedPaymentMethod
+    }
+    if (
+      selectedPaymentMethod &&
+      paymentMethods.some(
+        (method) =>
+          method.type === selectedPaymentMethod.type &&
+          topupAmount >= paymentMinimum(method, topupInfo)
+      )
+    ) {
+      return selectedPaymentMethod
+    }
+    if (standardMethod) return standardMethod
+    if (canUseWaffo) {
+      return {
+        name: waffoMethod.name,
+        type: PAYMENT_TYPES.WAFFO,
+        icon: waffoMethod.icon,
+      }
+    }
+    return undefined
+  }, [
+    paymentMethods,
+    selectedPaymentMethod,
+    selectedWaffoMethodIndex,
+    topupAmount,
+    topupInfo,
+  ])
+
+  const activeWaffoMethodIndex =
+    availableMethod?.type === PAYMENT_TYPES.WAFFO
+      ? (selectedWaffoMethodIndex ?? 0)
+      : null
+  const activePaymentType = availableMethod?.type
+  const currentQuote =
+    paymentQuote?.amount === topupAmount &&
+    paymentQuote.paymentType === activePaymentType
+      ? paymentQuote
+      : null
+  const paymentAmount = currentQuote?.value ?? 0
+  const calculating = !!availableMethod && topupAmount > 0 && !currentQuote
+  const paymentQuoteValid =
+    !!availableMethod &&
+    !!currentQuote &&
+    Number.isInteger(topupAmount) &&
+    !!topupInfo &&
+    topupAmount >= paymentMinimum(availableMethod, topupInfo) &&
+    Number.isFinite(paymentAmount) &&
+    paymentAmount > 0
+
   // Fetch and refresh user data
   const fetchUser = useCallback(async () => {
     try {
-      setUserLoading(true)
       const response = await getSelf()
       if (response.success && response.data) {
         setUser(response.data as UserWalletData)
@@ -126,12 +225,12 @@ export function Wallet(props: WalletProps) {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react/set-state-in-effect -- Loading the current user is an external request.
     fetchUser()
   }, [fetchUser])
 
   useEffect(() => {
     if (props.initialShowHistory) {
-      setBillingDialogOpen(true)
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [props.initialShowHistory])
@@ -141,63 +240,90 @@ export function Wallet(props: WalletProps) {
   useEffect(() => {
     if (topupInfo && !topupAmountInitializedRef.current) {
       topupAmountInitializedRef.current = true
-      const minTopup = getMinTopupAmount(topupInfo)
-      setTopupAmount(minTopup)
-
-      // Calculate initial payment amount with default payment type
-      const defaultPaymentType = getDefaultPaymentType(topupInfo)
-      calculatePaymentAmount(minTopup, defaultPaymentType)
+      const minimums = paymentMethods.map((method) =>
+        paymentMinimum(method, topupInfo)
+      )
+      if (topupInfo.enable_waffo_topup && topupInfo.waffo_pay_methods?.length) {
+        minimums.push(Math.max(1, topupInfo.waffo_min_topup || 0))
+      }
+      const minTopup = minimums.length
+        ? Math.min(...minimums)
+        : getMinTopupAmount(topupInfo)
+      const preset =
+        presetAmounts.find(
+          (item) =>
+            item.value >= minTopup &&
+            (paymentMethods.some(
+              (method) => item.value >= paymentMinimum(method, topupInfo)
+            ) ||
+              (topupInfo.enable_waffo_topup &&
+                !!topupInfo.waffo_pay_methods?.length &&
+                item.value >= Math.max(1, topupInfo.waffo_min_topup || 0)))
+        ) ?? presetAmounts.find((item) => item.value >= minTopup)
+      setTopupAmount(preset?.value ?? minTopup)
+      setSelectedPreset(preset?.value ?? null)
     }
-  }, [topupInfo, calculatePaymentAmount])
+  }, [topupInfo, presetAmounts, paymentMethods])
 
-  // Get current payment type (selected or default)
-  const getCurrentPaymentType = useCallback(() => {
-    return selectedPaymentMethod?.type || getDefaultPaymentType(topupInfo)
-  }, [selectedPaymentMethod, topupInfo])
+  useEffect(() => {
+    if (!activePaymentType || topupAmount <= 0) return
+    let cancelled = false
+    calculatePaymentAmount(topupAmount, activePaymentType)
+      .then((value) => {
+        if (!cancelled) {
+          setPaymentQuote({
+            amount: topupAmount,
+            paymentType: activePaymentType,
+            value,
+          })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPaymentQuote({
+            amount: topupAmount,
+            paymentType: activePaymentType,
+            value: 0,
+          })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activePaymentType, topupAmount, calculatePaymentAmount])
 
   // Handle preset selection
   const handleSelectPreset = (preset: PresetAmount) => {
+    if (preset.value !== topupAmount) setPaymentQuote(null)
     setTopupAmount(preset.value)
     setSelectedPreset(preset.value)
-    calculatePaymentAmount(preset.value, getCurrentPaymentType())
   }
 
   // Handle topup amount change
   const handleTopupAmountChange = (amount: number) => {
+    if (amount !== topupAmount) setPaymentQuote(null)
     setTopupAmount(amount)
     setSelectedPreset(null)
-    calculatePaymentAmount(amount, getCurrentPaymentType())
   }
 
-  // Handle payment method selection
-  const handlePaymentMethodSelect = async (method: PaymentMethod) => {
+  const handlePaymentMethodSelect = (method: PaymentMethod) => {
+    if (method.type !== activePaymentType) setPaymentQuote(null)
     setSelectedPaymentMethod(method)
     setSelectedWaffoMethodIndex(null)
-    setPaymentLoading(method.type)
+  }
 
-    try {
-      // Validate minimum topup
-      const minTopup = getMinTopupAmount(topupInfo)
-      if (topupAmount < minTopup) {
-        return
-      }
-
-      // Calculate payment amount and show confirmation dialog
-      await calculatePaymentAmount(topupAmount, method.type)
-      setConfirmDialogOpen(true)
-    } finally {
-      setPaymentLoading(null)
-    }
+  const handlePaymentSubmit = () => {
+    if (paymentQuoteValid) setConfirmDialogOpen(true)
   }
 
   // Handle payment confirmation
   const handlePaymentConfirm = async () => {
-    if (!selectedPaymentMethod) return
+    if (!availableMethod || !paymentQuoteValid) return
 
     const success = await dispatchSelectedPayment(
-      selectedPaymentMethod,
+      availableMethod,
       topupAmount,
-      selectedWaffoMethodIndex,
+      activeWaffoMethodIndex,
       {
         regular: processPayment,
         waffo: processWaffoPayment,
@@ -222,15 +348,6 @@ export function Wallet(props: WalletProps) {
     }
   }
 
-  // Handle transfer
-  const handleTransfer = async (amount: number) => {
-    const success = await transferQuota(amount)
-    if (success) {
-      await fetchUser()
-    }
-    return success
-  }
-
   // Handle Creem product selection
   const handleCreemProductSelect = (product: CreemProduct) => {
     setSelectedCreemProduct(product)
@@ -249,25 +366,14 @@ export function Wallet(props: WalletProps) {
     }
   }
 
-  const handleWaffoMethodSelect = async (
-    method: WaffoPayMethod,
-    index: number
-  ) => {
-    const loadingKey = `waffo-${index}`
+  const handleWaffoMethodSelect = (method: WaffoPayMethod, index: number) => {
+    if (activePaymentType !== PAYMENT_TYPES.WAFFO) setPaymentQuote(null)
     setSelectedPaymentMethod({
       name: method.name,
       type: PAYMENT_TYPES.WAFFO,
       icon: method.icon,
     })
     setSelectedWaffoMethodIndex(index)
-    setPaymentLoading(loadingKey)
-
-    try {
-      await calculatePaymentAmount(topupAmount, PAYMENT_TYPES.WAFFO)
-      setConfirmDialogOpen(true)
-    } finally {
-      setPaymentLoading(null)
-    }
   }
 
   // Get discount rate for current topup amount
@@ -275,78 +381,62 @@ export function Wallet(props: WalletProps) {
     return topupInfo?.discount?.[topupAmount] || DEFAULT_DISCOUNT_RATE
   }, [topupInfo, topupAmount])
 
-  const handleSubscriptionAvailabilityChange = useCallback(
-    (available: boolean) => {
-      setShowSubscriptionPanel(available)
-    },
-    []
-  )
-
   return (
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
+        <SectionPageLayout.Actions>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => setBillingDialogOpen(true)}
+          >
+            <Receipt aria-hidden='true' />
+            {t('Order History')}
+          </Button>
+        </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
+          <div className='mx-auto flex w-full max-w-7xl flex-col gap-5 sm:gap-7'>
             <WalletStatsCard user={user} loading={userLoading} />
 
-            <div
-              className={
-                showSubscriptionPanel
-                  ? 'grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] xl:items-start'
-                  : 'grid gap-4'
-              }
-            >
-              <div id='wallet-add-funds' className='scroll-mt-4'>
-                <RechargeFormCard
-                  topupInfo={topupInfo}
-                  presetAmounts={presetAmounts}
-                  selectedPreset={selectedPreset}
-                  onSelectPreset={handleSelectPreset}
-                  topupAmount={topupAmount}
-                  onTopupAmountChange={handleTopupAmountChange}
-                  paymentAmount={paymentAmount}
-                  calculating={calculating}
-                  onPaymentMethodSelect={handlePaymentMethodSelect}
-                  paymentLoading={paymentLoading}
-                  redemptionCode={redemptionCode}
-                  onRedemptionCodeChange={setRedemptionCode}
-                  onRedeem={handleRedeem}
-                  redeeming={redeeming}
-                  topupLink={topupInfo?.topup_link}
-                  loading={topupLoading}
-                  priceRatio={(status?.price as number) || 1}
-                  usdExchangeRate={effectiveUsdExchangeRate}
-                  onOpenBilling={() => setBillingDialogOpen(true)}
-                  creemProducts={topupInfo?.creem_products}
-                  enableCreemTopup={topupInfo?.enable_creem_topup}
-                  onCreemProductSelect={handleCreemProductSelect}
-                  enableWaffoTopup={topupInfo?.enable_waffo_topup}
-                  waffoPayMethods={topupInfo?.waffo_pay_methods}
-                  waffoMinTopup={topupInfo?.waffo_min_topup}
-                  onWaffoMethodSelect={handleWaffoMethodSelect}
-                  enableWaffoPancakeTopup={
-                    topupInfo?.enable_waffo_pancake_topup
-                  }
-                />
-              </div>
-
-              <SubscriptionPlansCard
+            <div id='wallet-add-funds' className='scroll-mt-4'>
+              <RechargeFormCard
                 topupInfo={topupInfo}
-                onAvailabilityChange={handleSubscriptionAvailabilityChange}
-                userQuota={user?.quota}
-                onPurchaseSuccess={fetchUser}
+                presetAmounts={presetAmounts}
+                selectedPreset={selectedPreset}
+                onSelectPreset={handleSelectPreset}
+                topupAmount={topupAmount}
+                onTopupAmountChange={handleTopupAmountChange}
+                paymentAmount={paymentAmount}
+                calculating={calculating}
+                onPaymentMethodSelect={handlePaymentMethodSelect}
+                selectedPaymentMethod={availableMethod}
+                selectedWaffoMethodIndex={activeWaffoMethodIndex}
+                onPaymentSubmit={handlePaymentSubmit}
+                paymentQuoteValid={paymentQuoteValid}
+                paymentLoading={null}
+                redemptionCode={redemptionCode}
+                onRedemptionCodeChange={setRedemptionCode}
+                onRedeem={handleRedeem}
+                redeeming={redeeming}
+                topupLink={topupInfo?.topup_link}
+                loading={topupLoading}
+                usdExchangeRate={effectiveUsdExchangeRate}
+                creemProducts={topupInfo?.creem_products}
+                enableCreemTopup={topupInfo?.enable_creem_topup}
+                onCreemProductSelect={handleCreemProductSelect}
+                enableWaffoTopup={topupInfo?.enable_waffo_topup}
+                waffoPayMethods={topupInfo?.waffo_pay_methods}
+                waffoMinTopup={topupInfo?.waffo_min_topup}
+                onWaffoMethodSelect={handleWaffoMethodSelect}
+                enableWaffoPancakeTopup={topupInfo?.enable_waffo_pancake_topup}
               />
             </div>
 
-            <KkaiWalletRewardsCard
-              user={user}
-              affiliateLink={affiliateLink}
-              onTransfer={() => setTransferDialogOpen(true)}
-              complianceConfirmed={
-                topupInfo?.payment_compliance_confirmed !== false
-              }
-              loading={affiliateLoading}
+            <SubscriptionPlansCard
+              topupInfo={topupInfo}
+              userQuota={user?.quota}
+              onPurchaseSuccess={fetchUser}
             />
           </div>
         </SectionPageLayout.Content>
@@ -358,19 +448,10 @@ export function Wallet(props: WalletProps) {
         onConfirm={handlePaymentConfirm}
         topupAmount={topupAmount}
         paymentAmount={paymentAmount}
-        paymentMethod={selectedPaymentMethod}
+        paymentMethod={availableMethod}
         calculating={calculating}
         processing={processing || waffoProcessing || pancakeProcessing}
         discountRate={getDiscountRate()}
-        usdExchangeRate={effectiveUsdExchangeRate}
-      />
-
-      <TransferDialog
-        open={transferDialogOpen}
-        onOpenChange={setTransferDialogOpen}
-        onConfirm={handleTransfer}
-        availableQuota={user?.aff_quota ?? 0}
-        transferring={transferring}
       />
 
       <BillingHistoryDialog

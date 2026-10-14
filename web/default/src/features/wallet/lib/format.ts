@@ -1,3 +1,9 @@
+import {
+  formatBillingCurrencyFromUSD,
+  getCurrencyDisplay,
+} from '@/lib/currency'
+import { formatNumber } from '@/lib/format'
+
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -59,6 +65,20 @@ export function formatCurrency(amount: number | string): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: Math.abs(numeric) >= 1 ? 2 : 4,
   }).format(numeric)
+}
+
+export function formatTopupCreditAmount(
+  amount: number,
+  tokenLabel: string
+): string {
+  if (getCurrencyDisplay().config.quotaDisplayType === 'TOKENS') {
+    return `${formatNumber(amount)} ${tokenLabel}`
+  }
+  return formatBillingCurrencyFromUSD(amount, {
+    digitsLarge: 2,
+    digitsSmall: 2,
+    abbreviate: false,
+  })
 }
 
 /**
