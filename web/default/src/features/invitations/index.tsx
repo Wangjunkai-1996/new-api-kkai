@@ -16,8 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { Gift, History, RefreshCw, WalletCards } from 'lucide-react'
+import { Gift, History, RefreshCw, WalletCards, Users } from 'lucide-react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -30,33 +31,37 @@ import { InvitationSummary } from './components/user/invitation-summary'
 import { RebateRecords } from './components/user/rebate-records'
 import { RebateRequests } from './components/user/rebate-requests'
 import { RebateTransfer } from './components/user/rebate-transfer'
+import { SalesCustomers } from './components/user/sales-customers'
 import { useInvitationFeatureStatus } from './hooks/use-invitation-feature-status'
 
-type InvitationTab = 'invite' | 'records' | 'rebate'
+type InvitationTab = 'invite' | 'customers' | 'records' | 'rebate'
 
 export const Invitations = () => {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const search = useSearch({ from: '/_authenticated/invitations/' })
   const feature = useInvitationFeatureStatus()
-  const requestedTab = (search.tab ?? 'invite') as InvitationTab
+  const requestedTab = (search.tab ??
+    (feature.salesVisible ? 'customers' : 'invite')) as InvitationTab
   const activeTab =
+    (requestedTab === 'customers' && !feature.salesVisible) ||
     (requestedTab === 'records' && !feature.rebateRecordsVisible) ||
     (requestedTab === 'rebate' && !feature.rebateManagementVisible)
       ? 'invite'
       : requestedTab
 
   useEffect(() => {
-    if (feature.query.isPending || feature.userVisible) return
+    if (feature.isPending || feature.userVisible) return
     void navigate({ to: '/wallet', replace: true })
-  }, [feature.query.isPending, feature.userVisible, navigate])
+  }, [feature.isPending, feature.userVisible, navigate])
 
   if (!feature.userVisible) return null
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t('Invitation Rebate')}
+        {feature.salesVisible ? t('Sales Invitations') : t('Invitation Rebate')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <Button
@@ -66,7 +71,11 @@ export const Invitations = () => {
           disabled={feature.query.isFetching}
           aria-label={t('Refresh')}
           title={t('Refresh')}
-          onClick={() => void feature.query.refetch()}
+          onClick={() =>
+            void queryClient.invalidateQueries({
+              queryKey: ['kkai', 'invitations'],
+            })
+          }
         >
           <RefreshCw
             className={cn(feature.query.isFetching && 'animate-spin')}
@@ -88,6 +97,12 @@ export const Invitations = () => {
               <Gift aria-hidden='true' />
               {t('My Invitation')}
             </TabsTrigger>
+            {feature.salesVisible && (
+              <TabsTrigger value='customers'>
+                <Users aria-hidden='true' />
+                {t('Invited Customers')}
+              </TabsTrigger>
+            )}
             {feature.rebateRecordsVisible && (
               <TabsTrigger value='records'>
                 <History aria-hidden='true' />
@@ -97,21 +112,35 @@ export const Invitations = () => {
             {feature.rebateManagementVisible && (
               <TabsTrigger value='rebate'>
                 <WalletCards aria-hidden='true' />
-                {t('Transfer to Balance')}
+                {feature.salesVisible
+                  ? t('Rebate Requests')
+                  : t('Transfer to Balance')}
               </TabsTrigger>
             )}
           </TabsList>
           <TabsContent value='invite'>
-            <InvitationSummary showRebates={feature.rebateRecordsVisible} />
+            <InvitationSummary
+              showRebates={
+                !feature.salesVisible && feature.rebateRecordsVisible
+              }
+            />
           </TabsContent>
+          {feature.salesVisible && (
+            <TabsContent value='customers'>
+              <SalesCustomers />
+            </TabsContent>
+          )}
           {feature.rebateRecordsVisible && (
             <TabsContent value='records'>
-              <RebateRecords />
+              <RebateRecords sales={feature.salesVisible} />
             </TabsContent>
           )}
           {feature.rebateManagementVisible && (
             <TabsContent value='rebate' className='space-y-4'>
-              <RebateTransfer />
+              <RebateTransfer
+                sales={feature.salesVisible}
+                disabled={feature.salesVisible && !feature.salesActive}
+              />
               <RebateRequests />
             </TabsContent>
           )}

@@ -153,7 +153,9 @@ export function useSidebarData(): SidebarData {
           ...(invitationFeature.userVisible
             ? [
                 {
-                  title: t('Invitation Rebate'),
+                  title: invitationFeature.salesVisible
+                    ? t('Sales Invitations')
+                    : t('Invitation Rebate'),
                   url: '/invitations',
                   icon: HandCoins,
                 },

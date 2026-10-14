@@ -36,6 +36,7 @@ import { RebateOrderRecords } from './components/admin/rebate-order-records'
 import { RebatePayoutRecords } from './components/admin/rebate-payout-records'
 import { RebateRules } from './components/admin/rebate-rules'
 import { RebateStatistics } from './components/admin/rebate-statistics'
+import { SalesAccounts } from './components/admin/sales-accounts'
 import { SystemConfigForm } from './components/admin/system-config-form'
 import { useInvitationFeatureStatus } from './hooks/use-invitation-feature-status'
 
@@ -44,6 +45,8 @@ type AdminTab =
   | 'records'
   | 'registrations'
   | 'approvals'
+  | 'sales-approvals'
+  | 'sales-accounts'
   | 'statistics'
 
 export const InvitationsAdmin = () => {
@@ -94,7 +97,15 @@ export const InvitationsAdmin = () => {
             </TabsTrigger>
             <TabsTrigger value='approvals'>
               <CheckCircle2 aria-hidden='true' />
-              {t('Approvals')}
+              {t('Ordinary Rebate Approvals')}
+            </TabsTrigger>
+            <TabsTrigger value='sales-approvals'>
+              <CheckCircle2 aria-hidden='true' />
+              {t('Sales Rebate Approvals')}
+            </TabsTrigger>
+            <TabsTrigger value='sales-accounts'>
+              <UserRoundPlus aria-hidden='true' />
+              {t('Sales Accounts')}
             </TabsTrigger>
             <TabsTrigger value='statistics'>
               <BarChart3 aria-hidden='true' />
@@ -113,7 +124,13 @@ export const InvitationsAdmin = () => {
             <InvitationRegistrations />
           </TabsContent>
           <TabsContent value='approvals'>
-            <RebateApprovals />
+            <RebateApprovals key='ordinary' requestKind='ordinary' />
+          </TabsContent>
+          <TabsContent value='sales-approvals'>
+            <RebateApprovals key='sales' requestKind='sales' />
+          </TabsContent>
+          <TabsContent value='sales-accounts'>
+            <SalesAccounts />
           </TabsContent>
           <TabsContent value='statistics'>
             <RebateStatistics />

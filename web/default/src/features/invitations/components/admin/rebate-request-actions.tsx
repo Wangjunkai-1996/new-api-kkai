@@ -34,10 +34,12 @@ import type { RebateRequestAction } from './request-action-dialog'
 
 export const RebateRequestActions = (props: {
   request: RebateRequestAdmin
+  settlementEnabled?: boolean
   onAction: (action: RebateRequestAction) => void
 }) => {
   const { t } = useTranslation()
   const request = props.request
+  if (request.requestKind === 'sales' && request.issuedAt) return null
 
   return (
     <DropdownMenu>
@@ -78,7 +80,7 @@ export const RebateRequestActions = (props: {
             </DropdownMenuItem>
           </>
         )}
-        {isApproveAndPayEligible(request.status) && (
+        {isApproveAndPayEligible(request.status, request.requestKind) && (
           <DropdownMenuItem
             onSelect={() =>
               props.onAction({
@@ -100,7 +102,23 @@ export const RebateRequestActions = (props: {
             {t('Reset Review')}
           </DropdownMenuItem>
         )}
-        {request.status === 'approved' && (
+        {request.requestKind === 'sales' && request.status === 'approved' && (
+          <DropdownMenuItem
+            disabled={!props.settlementEnabled}
+            onSelect={() =>
+              props.onAction({
+                kind: 'confirm-issued',
+                requestId: request.id,
+                amount: request.amount,
+                creditCurrency: request.creditCurrency ?? 'legacy_075',
+                note: '',
+              })
+            }
+          >
+            {t('Confirm Issue')}
+          </DropdownMenuItem>
+        )}
+        {request.requestKind !== 'sales' && request.status === 'approved' && (
           <DropdownMenuItem
             onSelect={() =>
               props.onAction({ kind: 'complete', requestId: request.id })
@@ -109,7 +127,7 @@ export const RebateRequestActions = (props: {
             {t('Mark Completed')}
           </DropdownMenuItem>
         )}
-        {request.status === 'completed' && (
+        {request.requestKind !== 'sales' && request.status === 'completed' && (
           <DropdownMenuItem
             onSelect={() =>
               props.onAction({ kind: 'undo-complete', requestId: request.id })

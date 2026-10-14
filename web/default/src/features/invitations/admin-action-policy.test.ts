@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import {
   derivePayoutActions,
@@ -76,4 +76,10 @@ describe('invitation admin action policy', () => {
     assert.equal(isApproveAndPayEligible('approved'), true)
     assert.equal(isApproveAndPayEligible('completed'), false)
   })
+})
+
+test('sales requests cannot enter balance payout regardless of review state', () => {
+  expect(isApproveAndPayEligible('pending', 'sales')).toBe(false)
+  expect(isApproveAndPayEligible('approved', 'sales')).toBe(false)
+  expect(isApproveAndPayEligible('approved', 'ordinary')).toBe(true)
 })

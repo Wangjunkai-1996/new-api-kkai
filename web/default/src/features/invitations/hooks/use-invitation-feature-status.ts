@@ -18,6 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 
+import { useAuthStore } from '@/stores/auth-store'
+
+import { requireInvitationData } from '../api/result'
+import { getSalesProfile } from '../api/sales'
 import { getInvitationFeatureStatus } from '../api/status'
 import {
   deriveInvitationAccess,
@@ -28,6 +32,7 @@ import {
 export const INVITATION_STATUS_QUERY_KEY = ['kkai', 'invitations', 'status']
 
 export const useInvitationFeatureStatus = () => {
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const query = useQuery({
     queryKey: INVITATION_STATUS_QUERY_KEY,
     queryFn: async () =>
@@ -37,10 +42,23 @@ export const useInvitationFeatureStatus = () => {
     gcTime: 5 * 60_000,
   })
   const status = query.data ?? DISABLED_INVITATION_STATUS
+  const profileEnabled = status.available && Boolean(userId)
+  const profileQuery = useQuery({
+    queryKey: ['kkai', 'invitations', 'sales-profile', userId],
+    queryFn: async () =>
+      requireInvitationData(
+        await getSalesProfile(),
+        'Failed to load sales account'
+      ),
+    enabled: profileEnabled,
+    retry: false,
+    staleTime: 60_000,
+  })
 
   return {
     query,
+    isPending: query.isPending || (profileEnabled && profileQuery.isPending),
     status,
-    ...deriveInvitationAccess(status),
+    ...deriveInvitationAccess(status, profileQuery.data),
   }
 }

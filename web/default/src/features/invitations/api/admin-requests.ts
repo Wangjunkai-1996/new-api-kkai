@@ -27,11 +27,15 @@ import type {
   PaginationParams,
   RebateRequestAdmin,
   RebateRequestStatus,
+  RebateRequestKind,
 } from '../types'
 import { INVITATIONS_ADMIN_PATH } from './paths'
 
 export const getAdminRebateRequests = async (
-  params?: PaginationParams & { status?: RebateRequestStatus }
+  params?: PaginationParams & {
+    status?: RebateRequestStatus
+    requestKind?: RebateRequestKind
+  }
 ): Promise<ApiResponse<PaginatedResponse<RebateRequestAdmin>>> => {
   const response = await api.get(`${INVITATIONS_ADMIN_PATH}/rebate-requests`, {
     params,
@@ -91,6 +95,17 @@ export const rejectRebateRequest = async (
   const response = await api.post(
     `${INVITATIONS_ADMIN_PATH}/rebate-requests/${id}/reject`,
     { reason, note },
+    { skipErrorHandler: true }
+  )
+  return response.data
+}
+
+export const confirmRebateIssued = async (id: number, note: string) => {
+  const response = await api.post<
+    ApiResponse<{ id: number; issuedAt: string }>
+  >(
+    `${INVITATIONS_ADMIN_PATH}/rebate-requests/${id}/confirm-issued`,
+    { note },
     { skipErrorHandler: true }
   )
   return response.data

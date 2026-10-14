@@ -39,14 +39,23 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { getAvailableRebates, requestRebateTransfer } from '../../api'
 import { requireInvitationData } from '../../api/result'
-import { formatRebateAmount, getInvitationErrorMessage } from '../../format'
+import {
+  formatRebateAmount,
+  formatSalesAmount,
+  getInvitationErrorMessage,
+} from '../../format'
 
-export const RebateTransfer = () => {
+export const RebateTransfer = (props: {
+  sales?: boolean
+  disabled?: boolean
+}) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const availableQuery = useQuery({
+    refetchInterval: 30_000,
     queryKey: ['kkai', 'invitations', 'available-rebates'],
+    enabled: !props.disabled,
     queryFn: async () =>
       requireInvitationData(
         await getAvailableRebates(),
@@ -78,12 +87,25 @@ export const RebateTransfer = () => {
     },
   })
   const available = availableQuery.data
+  const availableAmount = props.sales
+    ? formatSalesAmount(
+        available?.amount ?? 0,
+        available?.creditCurrency ?? 'legacy_075'
+      )
+    : formatRebateAmount(available?.amount ?? 0)
   const canTransfer =
     Boolean(available && available.amount > 0 && available.recordIds.length) &&
+    !props.disabled &&
     !transferMutation.isPending
   let content = <Skeleton className='h-24 w-full' />
 
-  if (availableQuery.isError) {
+  if (props.disabled) {
+    content = (
+      <p className='text-muted-foreground text-sm'>
+        {t('Sales access is inactive. Existing requests remain available.')}
+      </p>
+    )
+  } else if (availableQuery.isError) {
     content = (
       <ErrorState
         title={t('Failed to load available rebates')}
@@ -99,7 +121,7 @@ export const RebateTransfer = () => {
             {t('Available Rebate')}
           </div>
           <div className='mt-1 text-3xl font-semibold tabular-nums'>
-            {formatRebateAmount(available?.amount ?? 0)}
+            {availableAmount}
           </div>
           <div className='text-muted-foreground mt-1 text-sm tabular-nums'>
             {t('{{count}} eligible records', {
@@ -109,7 +131,7 @@ export const RebateTransfer = () => {
         </div>
         <Button disabled={!canTransfer} onClick={() => setConfirmOpen(true)}>
           <ArrowRightLeft aria-hidden='true' />
-          {t('Transfer to Balance')}
+          {props.sales ? t('Request Rebate Review') : t('Transfer to Balance')}
         </Button>
       </div>
     )
@@ -118,7 +140,9 @@ export const RebateTransfer = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('Transfer to Balance')}</CardTitle>
+        <CardTitle>
+          {props.sales ? t('Request Rebate Review') : t('Transfer to Balance')}
+        </CardTitle>
       </CardHeader>
       <CardContent>{content}</CardContent>
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -126,9 +150,14 @@ export const RebateTransfer = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Confirm rebate request')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('Submit {{amount}} to your account balance?', {
-                amount: formatRebateAmount(available?.amount ?? 0),
-              })}
+              {t(
+                props.sales
+                  ? 'Submit {{amount}} for manual review?'
+                  : 'Submit {{amount}} to your account balance?',
+                {
+                  amount: availableAmount,
+                }
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

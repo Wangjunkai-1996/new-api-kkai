@@ -18,9 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
-import { rebateStatusLabel, rebateStatusVariant } from '../status-label'
+import {
+  rebateStatusLabel,
+  rebateStatusVariant,
+  rebateRequestStatusLabel,
+  salesRebateStatusLabel,
+} from '../status-label'
 import type { RebateStatus } from '../types'
 
 describe('rebate status labels', () => {
@@ -30,4 +35,23 @@ describe('rebate status labels', () => {
     assert.equal(rebateStatusLabel(status), 'Confirming')
     assert.equal(rebateStatusVariant(status), 'secondary')
   })
+})
+
+test('sales approval is separate from confirmed issue and missing calculation is not zero', () => {
+  expect(
+    rebateRequestStatusLabel('approved', {
+      requestKind: 'sales',
+      issuedAt: null,
+    })
+  ).toBe('Approved, Awaiting Issue')
+  expect(
+    rebateRequestStatusLabel('approved', {
+      requestKind: 'sales',
+      issuedAt: '2026-10-14T00:00:00Z',
+    })
+  ).toBe('Issue Confirmed')
+  expect(salesRebateStatusLabel('not_generated')).toBe(
+    'Awaiting Rebate Calculation'
+  )
+  expect(salesRebateStatusLabel(null)).toBe('Awaiting Rebate Calculation')
 })

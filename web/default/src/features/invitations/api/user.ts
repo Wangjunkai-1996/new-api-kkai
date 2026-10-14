@@ -47,7 +47,11 @@ export const getRebateRecords = async (
 }
 
 export const getAvailableRebates = async (): Promise<
-  ApiResponse<{ amount: number; recordIds: number[] }>
+  ApiResponse<{
+    amount: number
+    recordIds: number[]
+    creditCurrency?: 'legacy_075' | 'usd_credit_v1'
+  }>
 > => {
   const response = await api.get(`${INVITATIONS_PATH}/available-rebates`)
   return response.data

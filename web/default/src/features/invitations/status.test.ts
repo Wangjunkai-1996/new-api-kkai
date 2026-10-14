@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import {
   DISABLED_INVITATION_STATUS,
@@ -51,6 +51,8 @@ describe('invitation feature status', () => {
     })
 
     assert.deepEqual(deriveInvitationAccess(status), {
+      salesVisible: false,
+      salesActive: false,
       adminVisible: true,
       userVisible: false,
       rebateRecordsVisible: false,
@@ -71,10 +73,46 @@ describe('invitation feature status', () => {
     })
 
     assert.deepEqual(deriveInvitationAccess(status), {
+      salesVisible: false,
+      salesActive: false,
       adminVisible: true,
       userVisible: true,
       rebateRecordsVisible: true,
       rebateManagementVisible: true,
     })
+  })
+})
+
+test('sales access stays independent from ordinary transfer settings and preserves inactive history', () => {
+  const status = {
+    ...DISABLED_INVITATION_STATUS,
+    available: true,
+    orderRebateEnabled: true,
+  }
+  expect(
+    deriveInvitationAccess(status, { registered: true, active: true })
+  ).toMatchObject({
+    userVisible: true,
+    salesVisible: true,
+    salesActive: true,
+    rebateManagementVisible: true,
+  })
+  expect(
+    deriveInvitationAccess(status, { registered: true, active: false })
+  ).toMatchObject({
+    userVisible: true,
+    salesVisible: true,
+    salesActive: false,
+    rebateManagementVisible: true,
+  })
+  expect(
+    deriveInvitationAccess(DISABLED_INVITATION_STATUS, {
+      registered: true,
+      active: true,
+    })
+  ).toMatchObject({
+    userVisible: false,
+    salesVisible: false,
+    salesActive: false,
   })
 })

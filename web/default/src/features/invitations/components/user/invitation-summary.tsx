@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { Copy, QrCode, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -51,10 +51,9 @@ export const InvitationSummary = (props: { showRebates: boolean }) => {
         'Failed to load invitation code'
       ),
   })
-  const invitationLink = useMemo(() => {
-    if (!query.data?.invitationCode) return ''
-    return generateAffiliateLink(query.data.invitationCode)
-  }, [query.data?.invitationCode])
+  const invitationLink = query.data?.invitationCode
+    ? generateAffiliateLink(query.data.invitationCode)
+    : ''
 
   const copy = async (value: string, message: string) => {
     try {

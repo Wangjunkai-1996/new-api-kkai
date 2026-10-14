@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 export type InvitationFeatureStatus = {
   available: boolean
+  settlementEnabled?: boolean
   userInvitationRebateEnabled: boolean
   orderRebateEnabled: boolean
   invitationSignupRewardEnabled: boolean
@@ -25,6 +26,8 @@ export type InvitationFeatureStatus = {
 }
 
 export type InvitationStats = {
+  isSales?: boolean
+  hasSalesAccount?: boolean
   invitationCode: string
   invitedCount: number
   totalRebate: number
@@ -58,10 +61,12 @@ export type RebateRecord = {
   orderId?: number | string | null
   orderNo?: string | null
   orderAmount: number
+  creditCurrency?: 'legacy_075' | 'usd_credit_v1'
   rebateAmount: number
   rebateRatio?: number | null
   status: RebateStatus
   displayStatus?: string
+  issuedAt?: string | null
   payoutStatus?: string | null
   payout?: RebatePayoutStatus | null
   payoutId?: number | string | null
@@ -94,6 +99,10 @@ export type RebateRequest = {
   userId: number
   amount: number
   status: RebateRequestStatus
+  requestKind?: RebateRequestKind
+  creditCurrency?: 'legacy_075' | 'usd_credit_v1'
+  issuedAt?: string | null
+  issueNote?: string | null
   rebateRecordIds: number[]
   createdAt: string
   updatedAt: string
@@ -103,6 +112,8 @@ export type RebateRequest = {
   reviewNote?: string
   rejectReason?: string
 }
+
+export type RebateRequestKind = 'ordinary' | 'sales'
 
 export type RebateRequestFormData = {
   amount: number

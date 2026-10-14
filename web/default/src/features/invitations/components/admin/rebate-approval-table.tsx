@@ -30,24 +30,30 @@ import {
 } from '@/components/ui/table'
 
 import { isApproveAndPayEligible } from '../../admin-action-policy'
-import { formatInvitationDate, formatRebateAmount } from '../../format'
+import {
+  formatInvitationDate,
+  formatRebateAmount,
+  formatSalesAmount,
+} from '../../format'
 import {
   rebateRequestStatusLabel,
   rebateStatusVariant,
 } from '../../status-label'
-import type { RebateRequestAdmin } from '../../types'
+import type { RebateRequestAdmin, RebateRequestKind } from '../../types'
 import { RebateRequestActions } from './rebate-request-actions'
 import type { RebateRequestAction } from './request-action-dialog'
 
 export const RebateApprovalTable = (props: {
   requests: RebateRequestAdmin[]
+  requestKind: RebateRequestKind
+  settlementEnabled: boolean
   selectedIds: number[]
   onSelectedIdsChange: (ids: number[]) => void
   onAction: (action: RebateRequestAction) => void
 }) => {
   const { t } = useTranslation()
   const payoutEligibleRequests = props.requests.filter((request) =>
-    isApproveAndPayEligible(request.status)
+    isApproveAndPayEligible(request.status, request.requestKind)
   )
   const allEligibleSelected =
     payoutEligibleRequests.length > 0 &&
@@ -60,54 +66,89 @@ export const RebateApprovalTable = (props: {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className='w-10'>
-              <Checkbox
-                aria-label={t('Select all payout eligible requests')}
-                checked={allEligibleSelected}
-                onCheckedChange={(checked) =>
-                  props.onSelectedIdsChange(
-                    checked === true
-                      ? payoutEligibleRequests.map((request) => request.id)
-                      : []
-                  )
-                }
-              />
-            </TableHead>
+            {props.requestKind === 'ordinary' && (
+              <TableHead className='w-10'>
+                <Checkbox
+                  aria-label={t('Select all payout eligible requests')}
+                  checked={allEligibleSelected}
+                  onCheckedChange={(checked) =>
+                    props.onSelectedIdsChange(
+                      checked === true
+                        ? payoutEligibleRequests.map((request) => request.id)
+                        : []
+                    )
+                  }
+                />
+              </TableHead>
+            )}
             <TableHead>{t('User')}</TableHead>
             <TableHead>{t('Amount')}</TableHead>
             <TableHead>{t('Status')}</TableHead>
             <TableHead>{t('Created At')}</TableHead>
+            {props.requestKind === 'sales' && (
+              <TableHead>{t('Issue Confirmed At')}</TableHead>
+            )}
+            {props.requestKind === 'sales' && (
+              <TableHead>{t('Issue Reference or Note')}</TableHead>
+            )}
             <TableHead className='w-14' />
           </TableRow>
         </TableHeader>
         <TableBody>
           {props.requests.map((request) => (
             <TableRow key={request.id}>
-              <TableCell>
-                <Checkbox
-                  disabled={!isApproveAndPayEligible(request.status)}
-                  aria-label={t('Select request {{id}}', { id: request.id })}
-                  checked={props.selectedIds.includes(request.id)}
-                  onCheckedChange={(checked) =>
-                    props.onSelectedIdsChange(
-                      checked === true
-                        ? [...props.selectedIds, request.id]
-                        : props.selectedIds.filter((id) => id !== request.id)
-                    )
-                  }
-                />
-              </TableCell>
+              {props.requestKind === 'ordinary' && (
+                <TableCell>
+                  <Checkbox
+                    disabled={
+                      !isApproveAndPayEligible(
+                        request.status,
+                        request.requestKind
+                      )
+                    }
+                    aria-label={t('Select request {{id}}', { id: request.id })}
+                    checked={props.selectedIds.includes(request.id)}
+                    onCheckedChange={(checked) =>
+                      props.onSelectedIdsChange(
+                        checked === true
+                          ? [...props.selectedIds, request.id]
+                          : props.selectedIds.filter((id) => id !== request.id)
+                      )
+                    }
+                  />
+                </TableCell>
+              )}
               <TableCell>{request.userName}</TableCell>
-              <TableCell>{formatRebateAmount(request.amount)}</TableCell>
               <TableCell>
-                <Badge variant={rebateStatusVariant(request.status)}>
-                  {t(rebateRequestStatusLabel(request.status))}
+                {request.requestKind === 'sales'
+                  ? formatSalesAmount(
+                      request.amount,
+                      request.creditCurrency ?? 'legacy_075'
+                    )
+                  : formatRebateAmount(request.amount)}
+              </TableCell>
+              <TableCell>
+                <Badge
+                  variant={rebateStatusVariant(
+                    request.issuedAt ? 'completed' : request.status
+                  )}
+                >
+                  {t(rebateRequestStatusLabel(request.status, request))}
                 </Badge>
               </TableCell>
               <TableCell>{formatInvitationDate(request.createdAt)}</TableCell>
+              {props.requestKind === 'sales' && (
+                <TableCell>{formatInvitationDate(request.issuedAt)}</TableCell>
+              )}
+              {props.requestKind === 'sales' && (
+                <TableCell className='max-w-64 whitespace-normal'>
+                  {request.issueNote || request.reviewNote || '—'}
+                </TableCell>
+              )}
               <TableCell>
                 <RebateRequestActions
                   request={request}
+                  settlementEnabled={props.settlementEnabled}
                   onAction={props.onAction}
                 />
               </TableCell>

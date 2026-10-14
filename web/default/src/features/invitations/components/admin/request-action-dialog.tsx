@@ -29,10 +29,18 @@ import {
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
+import { formatSalesAmount } from '../../format'
 import type { ApproveAndPayCommand } from '../../types'
 
 export type RebateRequestAction =
   | { kind: 'approve'; requestId: number }
+  | {
+      kind: 'confirm-issued'
+      requestId: number
+      amount: number
+      creditCurrency: string
+      note: string
+    }
   | {
       kind: 'approve-pay'
       requestId: number
@@ -49,6 +57,7 @@ export type RebateRequestAction =
   | { kind: 'undo-complete'; requestId: number }
 
 const actionTitle = (action: RebateRequestAction): string => {
+  if (action.kind === 'confirm-issued') return 'Confirm external issue?'
   if (action.kind === 'approve') return 'Approve rebate request?'
   if (action.kind === 'approve-pay') return 'Approve and pay rebate request?'
   if (action.kind === 'batch-approve-pay') {
@@ -69,8 +78,11 @@ export const RequestActionDialog = (props: {
   const { t } = useTranslation()
   const rejectAction = props.action?.kind === 'reject' ? props.action : null
   const rejectReason = rejectAction?.reason ?? ''
+  const issueAction =
+    props.action?.kind === 'confirm-issued' ? props.action : null
   const canConfirm =
-    props.action?.kind !== 'reject' || rejectReason.trim().length > 0
+    (props.action?.kind !== 'reject' || rejectReason.trim().length > 0) &&
+    (!issueAction || issueAction.note.trim().length > 0)
 
   return (
     <Dialog
@@ -85,6 +97,35 @@ export const RequestActionDialog = (props: {
             {props.action ? t(actionTitle(props.action)) : ''}
           </DialogTitle>
         </DialogHeader>
+        {issueAction && (
+          <div className='space-y-2'>
+            <p className='text-sm'>
+              {t(
+                'Confirm that {{amount}} has already been issued outside the system. This does not credit the account balance.',
+                {
+                  amount: formatSalesAmount(
+                    issueAction.amount,
+                    issueAction.creditCurrency
+                  ),
+                }
+              )}
+            </p>
+            <Label htmlFor='rebate-issue-note'>
+              {t('Issue Reference or Note')}
+            </Label>
+            <Textarea
+              id='rebate-issue-note'
+              value={issueAction.note}
+              maxLength={500}
+              onChange={(event) =>
+                props.onActionChange({
+                  ...issueAction,
+                  note: event.target.value,
+                })
+              }
+            />
+          </div>
+        )}
         {rejectAction && (
           <div className='space-y-2'>
             <Label htmlFor='rebate-rejection-reason'>{t('Reason')}</Label>

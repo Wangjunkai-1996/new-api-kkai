@@ -25,7 +25,15 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const searchSchema = z.object({
   tab: z
-    .enum(['settings', 'records', 'registrations', 'approvals', 'statistics'])
+    .enum([
+      'settings',
+      'records',
+      'registrations',
+      'approvals',
+      'sales-approvals',
+      'sales-accounts',
+      'statistics',
+    ])
     .optional()
     .catch('settings'),
 })

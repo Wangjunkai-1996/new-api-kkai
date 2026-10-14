@@ -22,7 +22,10 @@ import { z } from 'zod'
 import { Invitations } from '@/features/invitations'
 
 const searchSchema = z.object({
-  tab: z.enum(['invite', 'records', 'rebate']).optional().catch('invite'),
+  tab: z
+    .enum(['invite', 'customers', 'records', 'rebate'])
+    .optional()
+    .catch('invite'),
 })
 
 export const Route = createFileRoute('/_authenticated/invitations/')({

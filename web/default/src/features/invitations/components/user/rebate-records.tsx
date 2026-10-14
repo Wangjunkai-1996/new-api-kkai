@@ -44,14 +44,22 @@ import {
 
 import { getRebateRecords } from '../../api'
 import { requireInvitationData } from '../../api/result'
-import { formatInvitationDate, formatRebateAmount } from '../../format'
-import { rebateStatusLabel, rebateStatusVariant } from '../../status-label'
+import {
+  formatInvitationDate,
+  formatRebateAmount,
+  formatSalesAmount,
+} from '../../format'
+import {
+  rebateStatusLabel,
+  rebateStatusVariant,
+  salesRebateStatusLabel,
+} from '../../status-label'
 import type { PaginatedResponse, RebateRecord, RebateStatus } from '../../types'
 import { PaginationControls } from '../pagination-controls'
 
 const PAGE_SIZE = 10
 
-export const RebateRecords = () => {
+export const RebateRecords = (props: { sales?: boolean }) => {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<RebateStatus | 'all'>('all')
@@ -94,7 +102,15 @@ export const RebateRecords = () => {
         </Select>
       </CardHeader>
       <CardContent>
-        <RebateRecordsContent query={query} />
+        {props.sales &&
+          query.data?.items.some(
+            (record) => record.creditCurrency !== 'usd_credit_v1'
+          ) && (
+            <p className='text-muted-foreground mb-3 text-sm'>
+              {t('Legacy Site Credits')}
+            </p>
+          )}
+        <RebateRecordsContent query={query} sales={props.sales} />
         {query.data && (
           <PaginationControls
             page={page}
@@ -110,6 +126,7 @@ export const RebateRecords = () => {
 
 const RebateRecordsContent = (props: {
   query: UseQueryResult<PaginatedResponse<RebateRecord>, Error>
+  sales?: boolean
 }) => {
   const { t } = useTranslation()
   if (props.query.isPending) return <Skeleton className='h-72 w-full' />
@@ -125,10 +142,15 @@ const RebateRecordsContent = (props: {
   if (!props.query.data?.items.length) {
     return <EmptyState icon={History} title={t('No rebate records')} bordered />
   }
-  return <RebateRecordList records={props.query.data.items} />
+  return (
+    <RebateRecordList records={props.query.data.items} sales={props.sales} />
+  )
 }
 
-const RebateRecordList = (props: { records: RebateRecord[] }) => {
+const RebateRecordList = (props: {
+  records: RebateRecord[]
+  sales?: boolean
+}) => {
   const { t } = useTranslation()
   return (
     <>
@@ -137,7 +159,7 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
           <TableHeader>
             <TableRow>
               <TableHead>{t('Type')}</TableHead>
-              <TableHead>{t('Order Amount')}</TableHead>
+              {!props.sales && <TableHead>{t('Order Amount')}</TableHead>}
               <TableHead>{t('Rebate Amount')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
               <TableHead>{t('Effective At')}</TableHead>
@@ -148,8 +170,19 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
             {props.records.map((record) => (
               <TableRow key={record.id}>
                 <TableCell>{record.orderType}</TableCell>
-                <TableCell>{formatRebateAmount(record.orderAmount)}</TableCell>
-                <TableCell>{formatRebateAmount(record.rebateAmount)}</TableCell>
+                {!props.sales && (
+                  <TableCell>
+                    {formatRebateAmount(record.orderAmount)}
+                  </TableCell>
+                )}
+                <TableCell>
+                  {props.sales
+                    ? formatSalesAmount(
+                        record.rebateAmount,
+                        record.creditCurrency ?? 'legacy_075'
+                      )
+                    : formatRebateAmount(record.rebateAmount)}
+                </TableCell>
                 <TableCell>
                   <RecordStatus record={record} />
                 </TableCell>
@@ -170,13 +203,22 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
               <RecordStatus record={record} />
             </div>
             <dl className='mt-3 grid grid-cols-2 gap-2 text-sm'>
-              <dt className='text-muted-foreground'>{t('Order Amount')}</dt>
-              <dd className='text-right tabular-nums'>
-                {formatRebateAmount(record.orderAmount)}
-              </dd>
+              {!props.sales && (
+                <>
+                  <dt className='text-muted-foreground'>{t('Order Amount')}</dt>
+                  <dd className='text-right tabular-nums'>
+                    {formatRebateAmount(record.orderAmount)}
+                  </dd>
+                </>
+              )}
               <dt className='text-muted-foreground'>{t('Rebate Amount')}</dt>
               <dd className='text-right tabular-nums'>
-                {formatRebateAmount(record.rebateAmount)}
+                {props.sales
+                  ? formatSalesAmount(
+                      record.rebateAmount,
+                      record.creditCurrency ?? 'legacy_075'
+                    )
+                  : formatRebateAmount(record.rebateAmount)}
               </dd>
               <dt className='text-muted-foreground'>{t('Effective At')}</dt>
               <dd className='text-right'>
@@ -196,9 +238,23 @@ const RebateRecordList = (props: { records: RebateRecord[] }) => {
 
 const RecordStatus = (props: { record: RebateRecord }) => {
   const { t } = useTranslation()
+  const status =
+    props.record.displayStatus === 'estimated' &&
+    props.record.rebateRatio == null &&
+    !['invite_inviter', 'invite_invitee'].includes(props.record.orderType)
+      ? 'pending_calculation'
+      : props.record.displayStatus
   return (
-    <Badge variant={rebateStatusVariant(props.record.status)}>
-      {t(rebateStatusLabel(props.record.status))}
+    <Badge
+      variant={rebateStatusVariant(
+        props.record.issuedAt ? 'completed' : props.record.status
+      )}
+    >
+      {t(
+        status
+          ? salesRebateStatusLabel(status)
+          : rebateStatusLabel(props.record.status)
+      )}
     </Badge>
   )
 }

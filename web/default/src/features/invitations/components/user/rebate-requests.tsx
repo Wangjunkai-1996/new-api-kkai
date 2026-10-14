@@ -37,7 +37,11 @@ import {
 
 import { getMyRebateRequests } from '../../api'
 import { requireInvitationData } from '../../api/result'
-import { formatInvitationDate, formatRebateAmount } from '../../format'
+import {
+  formatInvitationDate,
+  formatRebateAmount,
+  formatSalesAmount,
+} from '../../format'
 import {
   rebateRequestStatusLabel,
   rebateStatusVariant,
@@ -50,6 +54,7 @@ export const RebateRequests = () => {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
   const query = useQuery({
+    refetchInterval: 30_000,
     queryKey: ['kkai', 'invitations', 'rebate-requests', page],
     queryFn: async () =>
       requireInvitationData(
@@ -88,24 +93,40 @@ export const RebateRequests = () => {
                   <TableHead>{t('Status')}</TableHead>
                   <TableHead>{t('Created At')}</TableHead>
                   <TableHead>{t('Review Note')}</TableHead>
+                  <TableHead>{t('Issue Confirmed At')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {query.data.items.map((request) => (
                   <TableRow key={request.id}>
                     <TableCell className='tabular-nums'>
-                      {formatRebateAmount(request.amount)}
+                      {request.requestKind === 'sales'
+                        ? formatSalesAmount(
+                            request.amount,
+                            request.creditCurrency ?? 'legacy_075'
+                          )
+                        : formatRebateAmount(request.amount)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={rebateStatusVariant(request.status)}>
-                        {t(rebateRequestStatusLabel(request.status))}
+                      <Badge
+                        variant={rebateStatusVariant(
+                          request.issuedAt ? 'completed' : request.status
+                        )}
+                      >
+                        {t(rebateRequestStatusLabel(request.status, request))}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       {formatInvitationDate(request.createdAt)}
                     </TableCell>
                     <TableCell className='max-w-64 whitespace-normal'>
-                      {request.rejectReason || request.reviewNote || '-'}
+                      {request.issueNote ||
+                        request.rejectReason ||
+                        request.reviewNote ||
+                        '-'}
+                    </TableCell>
+                    <TableCell>
+                      {formatInvitationDate(request.issuedAt)}
                     </TableCell>
                   </TableRow>
                 ))}

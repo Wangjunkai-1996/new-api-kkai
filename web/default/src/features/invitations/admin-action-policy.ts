@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { RebateRequestStatus, RebateRecord } from './types'
+import type {
+  RebateRequestStatus,
+  RebateRecord,
+  RebateRequestKind,
+} from './types'
 
 export type PayoutRecordMode = 'order' | 'signup'
 
@@ -54,5 +58,8 @@ export const registrationRewardAction = (
   return 'revoke'
 }
 
-export const isApproveAndPayEligible = (status: RebateRequestStatus): boolean =>
-  status === 'pending' || status === 'approved'
+export const isApproveAndPayEligible = (
+  status: RebateRequestStatus,
+  requestKind: RebateRequestKind = 'ordinary'
+): boolean =>
+  requestKind === 'ordinary' && (status === 'pending' || status === 'approved')

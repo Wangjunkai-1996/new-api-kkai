@@ -20,6 +20,7 @@ import type { ApiResponse, InvitationFeatureStatus } from './types'
 
 export const DISABLED_INVITATION_STATUS: InvitationFeatureStatus = {
   available: false,
+  settlementEnabled: false,
   userInvitationRebateEnabled: false,
   orderRebateEnabled: false,
   invitationSignupRewardEnabled: false,
@@ -35,6 +36,7 @@ export const normalizeInvitationStatus = (
 
   return {
     available: true,
+    settlementEnabled: response.data.settlementEnabled === true,
     userInvitationRebateEnabled:
       response.data.userInvitationRebateEnabled === true,
     orderRebateEnabled: response.data.orderRebateEnabled === true,
@@ -44,17 +46,25 @@ export const normalizeInvitationStatus = (
   }
 }
 
-export const deriveInvitationAccess = (status: InvitationFeatureStatus) => {
-  const userVisible = status.available && status.userInvitationRebateEnabled
+export const deriveInvitationAccess = (
+  status: InvitationFeatureStatus,
+  sales?: { active: boolean; registered: boolean }
+) => {
+  const salesVisible = status.available && sales?.registered === true
+  const salesActive = salesVisible && sales?.active === true
+  const userVisible =
+    status.available && (status.userInvitationRebateEnabled || salesVisible)
   const rebateRecordsVisible =
     userVisible &&
     (status.orderRebateEnabled || status.invitationSignupRewardEnabled)
 
   return {
+    salesVisible,
+    salesActive,
     adminVisible: status.available,
     userVisible,
     rebateRecordsVisible,
     rebateManagementVisible:
-      rebateRecordsVisible && status.rebateToBalanceEnabled,
+      (rebateRecordsVisible && status.rebateToBalanceEnabled) || salesVisible,
   }
 }

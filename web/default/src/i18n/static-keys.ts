@@ -188,6 +188,17 @@ export const STATIC_I18N_KEYS = [
   '24h',
 
   // Invitation rebates (dynamic labels and settlement results)
+  'Confirm external issue?',
+  'Cooling Down',
+  'Available to Request',
+  'Awaiting Review',
+  'Approved, Awaiting Issue',
+  'Issue Confirmed',
+  'Locked Rebate',
+  'Closed Rebate',
+  'Awaiting Rebate Calculation',
+  'Unknown Rebate Status',
+  'Submit {{amount}} for manual review?',
   'subscription',
   'topup',
   'Pending',

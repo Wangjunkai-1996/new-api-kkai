@@ -38,12 +38,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { getAdminRebateRequests } from '../../api'
 import { requireInvitationData } from '../../api/result'
 import { getInvitationErrorMessage } from '../../format'
+import { useInvitationFeatureStatus } from '../../hooks/use-invitation-feature-status'
 import { createApproveAndPayCommand } from '../../payout-command'
 import {
   summarizeApproveAndPay,
   type ApproveAndPayCounts,
 } from '../../settlement-result'
-import type { RebateRequestStatus } from '../../types'
+import type { RebateRequestStatus, RebateRequestKind } from '../../types'
 import { PaginationControls } from '../pagination-controls'
 import { RebateApprovalTable } from './rebate-approval-table'
 import { runRequestAction } from './request-action'
@@ -56,20 +57,30 @@ import { showSettlementNotice } from './settlement-toast'
 const PAGE_SIZE = 20
 const REQUESTS_QUERY_KEY = ['kkai', 'invitations', 'admin', 'requests']
 
-export const RebateApprovals = () => {
+export const RebateApprovals = (props: { requestKind?: RebateRequestKind }) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const feature = useInvitationFeatureStatus()
+  const requestKind = props.requestKind ?? 'ordinary'
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<RebateRequestStatus | 'all'>('pending')
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [action, setAction] = useState<RebateRequestAction | null>(null)
+  const statusItems = [
+    { value: 'all', label: t('All Status') },
+    { value: 'pending', label: t('Pending') },
+    { value: 'approved', label: t('Approved') },
+    { value: 'rejected', label: t('Rejected') },
+    { value: 'completed', label: t('Completed') },
+  ]
   const query = useQuery({
-    queryKey: [...REQUESTS_QUERY_KEY, page, status],
+    queryKey: [...REQUESTS_QUERY_KEY, requestKind, page, status],
     queryFn: async () =>
       requireInvitationData(
         await getAdminRebateRequests({
           page,
           pageSize: PAGE_SIZE,
+          requestKind,
           ...(status === 'all' ? {} : { status }),
         }),
         'Failed to load rebate requests'
@@ -103,23 +114,30 @@ export const RebateApprovals = () => {
   return (
     <Card>
       <CardHeader className='flex-row flex-wrap items-center justify-between gap-3'>
-        <CardTitle>{t('Rebate Approvals')}</CardTitle>
+        <CardTitle>
+          {requestKind === 'sales'
+            ? t('Sales Rebate Approvals')
+            : t('Ordinary Rebate Approvals')}
+        </CardTitle>
         <div className='flex flex-wrap gap-2'>
-          <Button
-            size='sm'
-            disabled={selectedIds.length === 0 || mutation.isPending}
-            onClick={() =>
-              setAction({
-                kind: 'batch-approve-pay',
-                requestIds: selectedIds,
-                command: createApproveAndPayCommand('batch'),
-              })
-            }
-          >
-            {t('Approve and Pay')}
-            {selectedIds.length > 0 && ` (${selectedIds.length})`}
-          </Button>
+          {requestKind === 'ordinary' && (
+            <Button
+              size='sm'
+              disabled={selectedIds.length === 0 || mutation.isPending}
+              onClick={() =>
+                setAction({
+                  kind: 'batch-approve-pay',
+                  requestIds: selectedIds,
+                  command: createApproveAndPayCommand('batch'),
+                })
+              }
+            >
+              {t('Approve and Pay')}
+              {selectedIds.length > 0 && ` (${selectedIds.length})`}
+            </Button>
+          )}
           <Select
+            items={statusItems}
             value={status}
             onValueChange={(value) => {
               setStatus(value as RebateRequestStatus | 'all')
@@ -131,16 +149,21 @@ export const RebateApprovals = () => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value='all'>{t('All Status')}</SelectItem>
-              <SelectItem value='pending'>{t('Pending')}</SelectItem>
-              <SelectItem value='approved'>{t('Approved')}</SelectItem>
-              <SelectItem value='rejected'>{t('Rejected')}</SelectItem>
-              <SelectItem value='completed'>{t('Completed')}</SelectItem>
+              {statusItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
       </CardHeader>
       <CardContent>
+        {requestKind === 'sales' && !feature.status.settlementEnabled && (
+          <p role='status' className='text-muted-foreground mb-3 text-sm'>
+            {t('Payout is disabled')}
+          </p>
+        )}
         {query.isPending && <Skeleton className='h-72 w-full' />}
         {query.isError && (
           <ErrorState
@@ -159,6 +182,8 @@ export const RebateApprovals = () => {
         {query.data && query.data.items.length > 0 && (
           <RebateApprovalTable
             requests={query.data.items}
+            requestKind={requestKind}
+            settlementEnabled={feature.status.settlementEnabled === true}
             selectedIds={selectedIds}
             onSelectedIdsChange={setSelectedIds}
             onAction={setAction}

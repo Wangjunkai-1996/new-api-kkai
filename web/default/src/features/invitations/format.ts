@@ -54,3 +54,11 @@ export const getInvitationErrorMessage = (
   }
   return fallback
 }
+
+export const formatSalesAmount = (amount: number, currency: string): string =>
+  new Intl.NumberFormat(
+    undefined,
+    currency === 'usd_credit_v1'
+      ? { style: 'currency', currency: 'USD' }
+      : { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+  ).format(amount / 100)

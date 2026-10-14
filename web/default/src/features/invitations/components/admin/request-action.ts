@@ -21,6 +21,7 @@ import {
   approveRebateRequest,
   batchApproveAndPayRebateRequests,
   completeRebateRequest,
+  confirmRebateIssued,
   rejectRebateRequest,
   resetRebateRequestReview,
   undoCompleteRebateRequest,
@@ -29,6 +30,12 @@ import { requireInvitationData } from '../../api/result'
 import type { RebateRequestAction } from './request-action-dialog'
 
 export const runRequestAction = async (action: RebateRequestAction) => {
+  if (action.kind === 'confirm-issued') {
+    return requireInvitationData(
+      await confirmRebateIssued(action.requestId, action.note),
+      'Failed to confirm issue'
+    )
+  }
   if (action.kind === 'approve') {
     return requireInvitationData(
       await approveRebateRequest(action.requestId),
