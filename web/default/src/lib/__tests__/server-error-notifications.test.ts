@@ -30,6 +30,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import { saveModelPricing } from '@/features/model-pricing/api'
 import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
+import { clearAuthentication } from '@/lib/auth-session'
 import { handleServerError } from '@/lib/handle-server-error'
 import { api } from '@/lib/http-client'
 import { createAppQueryClient } from '@/lib/query-client'
@@ -367,6 +368,115 @@ it.each([200, 401])(
     client.clear()
   }
 )
+
+it('ignores an old protected request that fails after explicit sign-out', async () => {
+  useAuthStore.getState().auth.setBundle({
+    access_token: 'old-access',
+    token_type: 'Bearer',
+    access_expires_at: 2_000_000_000,
+    user: { id: 1, username: 'test-user', role: 1 },
+    session: {
+      sid: 'signed-out-session',
+      current: true,
+      login_method: 'password',
+      ip: '',
+      user_agent: '',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2_000_000_000,
+    },
+  })
+  let requestStarted: () => void = () => undefined
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve
+  })
+  let rejectRequest: () => void = () => undefined
+  api.defaults.adapter = (config) =>
+    new Promise((_resolve, reject) => {
+      rejectRequest = () =>
+        reject(
+          new AxiosError('HTTP 401', 'ERR_BAD_REQUEST', config, undefined, {
+            data: { message: 'Access token expired' },
+            status: 401,
+            statusText: 'Unauthorized',
+            headers: {},
+            config,
+          })
+        )
+      requestStarted()
+    })
+  const notify = vi.spyOn(toast, 'error').mockReturnValue('error')
+  const refresh = vi.spyOn(XMLHttpRequest.prototype, 'send')
+  const pending = api.get('/protected').catch(handleServerError)
+  await started
+  clearAuthentication()
+  rejectRequest()
+  await pending
+
+  expect(refresh).not.toHaveBeenCalled()
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it('reports concurrent expiry only once and leaves anonymous login errors to the form', async () => {
+  useAuthStore.getState().auth.setBundle({
+    access_token: 'expired-access',
+    token_type: 'Bearer',
+    access_expires_at: 1,
+    user: { id: 1, username: 'test-user', role: 1 },
+    session: {
+      sid: 'concurrent-expiry-session',
+      current: true,
+      login_method: 'password',
+      ip: '',
+      user_agent: '',
+      created_at: 1,
+      last_active_at: 1,
+      expires_at: 2_000_000_000,
+    },
+  })
+  const refresh = vi.spyOn(XMLHttpRequest.prototype, 'open')
+  vi.spyOn(XMLHttpRequest.prototype, 'send').mockImplementation(
+    function (this: XMLHttpRequest) {
+      Object.defineProperties(this, {
+        status: { value: 401, configurable: true },
+        statusText: { value: 'Unauthorized', configurable: true },
+        responseText: {
+          value: JSON.stringify({ success: false, code: 'AUTH_UNAUTHORIZED' }),
+          configurable: true,
+        },
+        readyState: { value: 4, configurable: true },
+      })
+      this.onloadend?.(new ProgressEvent('loadend'))
+    }
+  )
+  api.defaults.adapter = async (config) => {
+    throw new AxiosError('HTTP 401', 'ERR_BAD_REQUEST', config, undefined, {
+      data: { message: 'Access token expired' },
+      status: 401,
+      statusText: 'Unauthorized',
+      headers: {},
+      config,
+    })
+  }
+  const notify = vi.spyOn(toast, 'error').mockReturnValue('error')
+  await Promise.all([
+    api.get('/protected-a').catch(handleServerError),
+    api.get('/protected-b').catch(handleServerError),
+  ])
+  expect(refresh).toHaveBeenCalledTimes(1)
+  expect(notify.mock.calls.map(([message]) => message)).toEqual([
+    'Session expired!',
+  ])
+
+  await api
+    .post('/api/user/login', {}, { skipAuthRefresh: true })
+    .catch(handleServerError)
+  expect(refresh).toHaveBeenCalledTimes(1)
+  expect(notify.mock.calls.map(([message]) => message)).toEqual([
+    'Session expired!',
+    'Access token expired',
+  ])
+})
 
 it('never refreshes or replays a failed single-use authorization request', async () => {
   useAuthStore.getState().auth.setBundle({

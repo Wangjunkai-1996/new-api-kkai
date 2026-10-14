@@ -25,7 +25,10 @@ import {
   getFreshAuthHeaders,
   refreshAuthentication,
 } from '@/lib/auth-session'
-import { handleServerError } from '@/lib/handle-server-error'
+import {
+  handleServerError,
+  markServerErrorHandled,
+} from '@/lib/handle-server-error'
 import {
   getServerErrorMessage,
   safeServerErrorMessage,
@@ -41,6 +44,7 @@ declare module 'axios' {
     authRetry?: boolean
     acceptAuthRotation?: boolean
     singleUseAuthorization?: boolean
+    authSessionSID?: string
   }
 }
 
@@ -68,6 +72,7 @@ export const api = axios.create({
 })
 
 const inFlightGet = new Map<string, Promise<unknown>>()
+let notifiedExpiredSID: string | undefined
 const originalGet = api.get.bind(api)
 
 api.get = ((url: string, config: ApiRequestConfig = {}) => {
@@ -109,7 +114,16 @@ api.interceptors.response.use(
     const status = error?.response?.status
 
     if (status === 401) {
-      if (config && !config.skipAuthRefresh && !config.authRetry) {
+      const requestSID = config?.authSessionSID
+      const currentSID = useAuthStore.getState().auth.session?.sid
+      if (requestSID && currentSID !== requestSID) {
+        markServerErrorHandled(error)
+      } else if (
+        requestSID &&
+        config &&
+        !config.skipAuthRefresh &&
+        !config.authRetry
+      ) {
         config.authRetry = true
         const outcome = await refreshAuthentication()
         if (outcome.kind === 'authenticated') {
@@ -124,31 +138,42 @@ api.interceptors.response.use(
         }
 
         if (outcome.kind === 'anonymous' || outcome.kind === 'out_of_sync') {
-          if (!skipErrorHandler) {
+          if (!skipErrorHandler && notifiedExpiredSID !== requestSID) {
+            notifiedExpiredSID = requestSID
             handleServerError({
               message: t('Session expired!'),
               [safeServerErrorMessage]: true,
               cause: error,
             })
+          } else {
+            markServerErrorHandled(error)
           }
           redirectToSignIn()
         }
-      } else if (config?.authRetry) {
+      } else if (requestSID && config?.authRetry) {
         clearAuthentication(false)
-        if (!skipErrorHandler) {
+        if (!skipErrorHandler && notifiedExpiredSID !== requestSID) {
+          notifiedExpiredSID = requestSID
           handleServerError({
             message: t('Session expired!'),
             [safeServerErrorMessage]: true,
             cause: error,
           })
+        } else {
+          markServerErrorHandled(error)
         }
         redirectToSignIn()
-      } else if (!skipErrorHandler) {
-        handleServerError({
-          message: t('Session expired!'),
-          [safeServerErrorMessage]: true,
-          cause: error,
-        })
+      } else if (requestSID && !skipErrorHandler) {
+        if (notifiedExpiredSID !== requestSID) {
+          notifiedExpiredSID = requestSID
+          handleServerError({
+            message: t('Session expired!'),
+            [safeServerErrorMessage]: true,
+            cause: error,
+          })
+        } else {
+          markServerErrorHandled(error)
+        }
       }
     }
     if (axios.isAxiosError(error)) error.message = getServerErrorMessage(error)
@@ -157,6 +182,7 @@ api.interceptors.response.use(
 )
 
 api.interceptors.request.use(async (config) => {
+  config.authSessionSID = useAuthStore.getState().auth.session?.sid
   if (pageCreditEpoch !== undefined) {
     config.headers.set('X-KKAI-Credit-Epoch', pageCreditEpoch)
   }
