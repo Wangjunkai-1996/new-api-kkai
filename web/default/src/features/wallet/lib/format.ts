@@ -1,7 +1,4 @@
-import {
-  formatBillingCurrencyFromUSD,
-  getCurrencyDisplay,
-} from '@/lib/currency'
+import { getCurrencyDisplay } from '@/lib/currency'
 import { formatNumber } from '@/lib/format'
 
 /*
@@ -22,7 +19,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { DEFAULT_DISCOUNT_RATE } from '../constants'
+import { DEFAULT_DISCOUNT_RATE, PAYMENT_TYPES } from '../constants'
 
 // ============================================================================
 // Wallet-specific Formatting Functions
@@ -67,6 +64,26 @@ export function formatCurrency(amount: number | string): string {
   }).format(numeric)
 }
 
+export function formatWalletPaymentAmount(
+  amount: number,
+  paymentType?: string
+): string {
+  const formatted = formatCurrency(amount)
+  if (formatted === '-') return formatted
+  if (paymentType === PAYMENT_TYPES.WAFFO_PANCAKE) {
+    return `$${formatted}`
+  }
+  if (
+    !paymentType ||
+    paymentType === PAYMENT_TYPES.STRIPE ||
+    paymentType === PAYMENT_TYPES.WAFFO ||
+    paymentType === PAYMENT_TYPES.CREEM
+  ) {
+    return formatted
+  }
+  return `¥${formatted}`
+}
+
 export function formatTopupCreditAmount(
   amount: number,
   tokenLabel: string
@@ -74,11 +91,7 @@ export function formatTopupCreditAmount(
   if (getCurrencyDisplay().config.quotaDisplayType === 'TOKENS') {
     return `${formatNumber(amount)} ${tokenLabel}`
   }
-  return formatBillingCurrencyFromUSD(amount, {
-    digitsLarge: 2,
-    digitsSmall: 2,
-    abbreviate: false,
-  })
+  return `$${formatNumber(amount)}`
 }
 
 /**

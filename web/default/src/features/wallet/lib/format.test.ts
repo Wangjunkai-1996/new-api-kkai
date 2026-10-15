@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { formatTopupCreditAmount } from './format'
+import { formatTopupCreditAmount, formatWalletPaymentAmount } from './format'
 
 const originalCurrency = useSystemConfigStore.getState().config.currency
 
@@ -22,7 +22,7 @@ describe('formatTopupCreditAmount', () => {
     expect(display).not.toContain('$')
   })
 
-  it('converts USD credit units to the configured display currency', () => {
+  it('shows credited USD separately from the payment currency', () => {
     useSystemConfigStore.getState().setConfig({
       currency: {
         ...originalCurrency,
@@ -31,7 +31,17 @@ describe('formatTopupCreditAmount', () => {
       },
     })
 
-    expect(formatTopupCreditAmount(10, 'Tokens')).toContain('¥')
-    expect(formatTopupCreditAmount(10, 'Tokens')).toContain('70')
+    expect(formatTopupCreditAmount(10, 'Tokens')).toBe('$10')
+  })
+})
+
+describe('formatWalletPaymentAmount', () => {
+  it('uses yuan only for CNY payment methods', () => {
+    expect(formatWalletPaymentAmount(98, 'alipay')).toBe('¥98')
+    expect(formatWalletPaymentAmount(98, 'wxpay')).toBe('¥98')
+    expect(formatWalletPaymentAmount(98, 'custom1')).toBe('¥98')
+    expect(formatWalletPaymentAmount(98, 'waffo_pancake')).toBe('$98')
+    expect(formatWalletPaymentAmount(98, 'stripe')).toBe('98')
+    expect(formatWalletPaymentAmount(98, 'waffo')).toBe('98')
   })
 })

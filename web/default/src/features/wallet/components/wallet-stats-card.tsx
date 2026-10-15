@@ -33,7 +33,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
 
   if (props.loading) {
     return (
-      <div className='grid grid-cols-2 gap-x-4 gap-y-4 border-y py-5 sm:gap-x-5 sm:py-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(120px,0.63fr)_minmax(115px,0.55fr)] lg:items-center'>
+      <div className='bg-muted/25 grid grid-cols-2 gap-x-4 gap-y-3 border-y px-4 py-4 sm:gap-x-5 sm:gap-y-4 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(120px,0.63fr)_minmax(115px,0.55fr)] lg:items-center'>
         <div className='col-span-2 min-w-0 lg:col-span-1'>
           <Skeleton className='h-4 w-24' />
           <Skeleton className='mt-2 h-9 w-64 max-w-full' />
@@ -49,7 +49,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   }
 
   return (
-    <div className='grid grid-cols-2 gap-x-4 gap-y-4 border-y py-5 sm:gap-x-5 sm:py-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(120px,0.63fr)_minmax(115px,0.55fr)] lg:items-center'>
+    <div className='bg-muted/25 grid grid-cols-2 gap-x-4 gap-y-3 border-y px-4 py-4 sm:gap-x-5 sm:gap-y-4 sm:px-5 sm:py-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(120px,0.63fr)_minmax(115px,0.55fr)] lg:items-center'>
       <div className='col-span-2 min-w-0 lg:col-span-1'>
         <div className='text-muted-foreground flex items-center gap-2 text-xs'>
           <span

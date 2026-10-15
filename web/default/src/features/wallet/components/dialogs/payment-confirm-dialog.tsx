@@ -33,8 +33,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import {
-  formatCurrency,
   formatTopupCreditAmount,
+  formatWalletPaymentAmount,
   getPaymentIcon,
 } from '../../lib'
 import type { PaymentMethod } from '../../types'
@@ -98,11 +98,17 @@ export function PaymentConfirmDialog({
             ) : (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {formatCurrency(paymentAmount)}
+                  {formatWalletPaymentAmount(
+                    paymentAmount,
+                    paymentMethod?.type
+                  )}
                 </span>
                 {hasDiscount && (
                   <span className='text-muted-foreground text-sm line-through'>
-                    {formatCurrency(originalAmount)}
+                    {formatWalletPaymentAmount(
+                      originalAmount,
+                      paymentMethod?.type
+                    )}
                   </span>
                 )}
               </div>
@@ -110,11 +116,14 @@ export function PaymentConfirmDialog({
           </div>
 
           {hasDiscount && !calculating && (
-            <div className='bg-muted/50 rounded-lg p-3'>
+            <div className='rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/40'>
               <div className='flex items-center justify-between text-sm'>
                 <span className='text-muted-foreground'>{t('You save')}</span>
-                <span className='font-semibold text-green-600'>
-                  {formatCurrency(discountAmount)}
+                <span className='font-semibold text-emerald-700 dark:text-emerald-300'>
+                  {formatWalletPaymentAmount(
+                    discountAmount,
+                    paymentMethod?.type
+                  )}
                 </span>
               </div>
             </div>

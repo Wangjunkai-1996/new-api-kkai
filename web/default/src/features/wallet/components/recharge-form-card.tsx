@@ -26,6 +26,7 @@ import {
   Receipt,
   Ticket,
 } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -33,17 +34,15 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  formatBillingCurrencyFromUSD,
-  getCurrencyDisplay,
-} from '@/lib/currency'
+import { getCurrencyDisplay } from '@/lib/currency'
 import { formatNumber } from '@/lib/format'
+import { MOTION_TRANSITION } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
 import { PAYMENT_TYPES, resolveTopupLink } from '../constants'
 import {
-  formatCurrency,
   formatTopupCreditAmount,
+  formatWalletPaymentAmount,
   getMinTopupAmount,
   getPaymentIcon,
 } from '../lib'
@@ -77,7 +76,6 @@ interface RechargeFormCardProps {
   redeeming: boolean
   topupLink?: string
   loading?: boolean
-  usdExchangeRate?: number
   creemProducts?: CreemProduct[]
   enableCreemTopup?: boolean
   onCreemProductSelect?: (product: CreemProduct) => void
@@ -92,6 +90,8 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
   const { t } = useTranslation()
   const [customOpen, setCustomOpen] = useState(false)
   const [localAmount, setLocalAmount] = useState('')
+  const [redemptionOpen, setRedemptionOpen] = useState(true)
+  const reduceMotion = useReducedMotion()
   const customActive = customOpen || props.selectedPreset === null
 
   const redemptionEnabled = props.topupInfo?.enable_redemption !== false
@@ -180,7 +180,10 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
     !props.calculating &&
     props.paymentAmount > 0
   const discountRate = props.topupInfo?.discount?.[props.topupAmount] ?? 1
-  const hasDiscount = discountRate > 0 && discountRate < 1
+  const hasDiscount =
+    discountRate > 0 &&
+    discountRate < 1 &&
+    props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
   const originalPrice =
     quoteReady && hasDiscount
       ? props.paymentAmount / discountRate
@@ -229,7 +232,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
 
   return (
     <section className='min-w-0' aria-labelledby='wallet-recharge-heading'>
-      <div className='mb-5 flex items-end gap-5'>
+      <div className='mb-4 flex items-end gap-5 sm:mb-5'>
         <h2
           id='wallet-recharge-heading'
           className='shrink-0 text-lg font-semibold'
@@ -252,12 +255,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                 </p>
               </div>
               <span className='text-muted-foreground text-xs'>
-                {tokenDisplay
-                  ? t('Tokens')
-                  : formatBillingCurrencyFromUSD(1, {
-                      showSymbol: true,
-                      abbreviate: false,
-                    }).replaceAll(/[\d\s.,]/g, '')}
+                {tokenDisplay ? t('Tokens') : 'USD · $'}
               </span>
             </div>
 
@@ -270,6 +268,19 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                     1
                   const selected =
                     props.selectedPreset === preset.value && !customActive
+                  let discountLabel = ''
+                  if (selected && hasDiscount && discount > 0) {
+                    discountLabel = `${t('You save')} ${formatWalletPaymentAmount(
+                      discount,
+                      props.selectedPaymentMethod?.type
+                    )}`
+                  } else if (
+                    presetDiscount > 0 &&
+                    presetDiscount < 1 &&
+                    props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
+                  ) {
+                    discountLabel = `${t('Discount')} ${Math.round((1 - presetDiscount) * 100)}%`
+                  }
                   return (
                     <button
                       key={preset.value}
@@ -280,17 +291,15 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                         props.onSelectPreset(preset)
                       }}
                       className={cn(
-                        'flex h-[74px] min-w-0 flex-col justify-between rounded-md border bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/60',
+                        'group relative flex min-h-[72px] min-w-0 flex-col justify-between gap-2 rounded-md border bg-card px-3 py-2.5 text-left transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none',
                         selected &&
-                          'border-primary bg-primary/[0.07] shadow-[inset_3px_0_0_var(--primary)]'
+                          'border-primary bg-primary/[0.06] shadow-[inset_0_0_0_1px_var(--primary)]'
                       )}
                     >
                       <span className='flex w-full items-start justify-between gap-1'>
-                        <strong className='text-lg leading-none font-semibold tabular-nums'>
-                          {formatNumber(
-                            preset.value *
-                              (tokenDisplay ? 1 : (props.usdExchangeRate ?? 1))
-                          )}
+                        <strong className='min-w-0 text-base leading-none font-semibold break-all tabular-nums sm:text-xl'>
+                          {tokenDisplay ? '' : '$'}
+                          {formatNumber(preset.value)}
                         </strong>
                         {selected && (
                           <Check
@@ -299,11 +308,13 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                           />
                         )}
                       </span>
-                      <span className='text-muted-foreground block h-4 max-w-full truncate text-[11px] tabular-nums'>
-                        {presetDiscount > 0 && presetDiscount < 1
-                          ? `${t('Discount')} ${Math.round((1 - presetDiscount) * 100)}%`
-                          : ''}
-                      </span>
+                      {discountLabel ? (
+                        <span className='inline-flex min-h-5 w-fit max-w-full items-center rounded-sm bg-emerald-600 px-1.5 py-1 text-[11px] leading-tight font-semibold break-words text-white tabular-nums dark:bg-emerald-500 dark:text-emerald-950'>
+                          {discountLabel}
+                        </span>
+                      ) : (
+                        <span className='h-5' aria-hidden='true' />
+                      )}
                     </button>
                   )
                 })}
@@ -357,7 +368,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
               </div>
             )}
 
-            <div className='mt-7 border-t pt-5'>
+            <div className='mt-5 border-t pt-5 sm:mt-7'>
               <h3 className='mb-3 text-sm font-medium'>
                 {t('Payment Method')}
               </h3>
@@ -382,7 +393,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                       aria-pressed={selected}
                       onClick={() => props.onPaymentMethodSelect(method)}
                       className={cn(
-                        'flex h-12 min-w-0 items-center gap-2.5 rounded-md border bg-card px-3 text-left text-sm transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-50',
+                        'flex h-12 min-w-0 items-center gap-2.5 rounded-md border bg-card px-3 text-left text-sm transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:hover:transform-none',
                         selected && 'border-primary bg-primary/[0.07]'
                       )}
                     >
@@ -429,7 +440,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                           props.onWaffoMethodSelect?.(method, index)
                         }
                         className={cn(
-                          'flex h-12 min-w-0 items-center gap-2.5 rounded-md border bg-card px-3 text-left text-sm transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-50',
+                          'flex h-12 min-w-0 items-center gap-2.5 rounded-md border bg-card px-3 text-left text-sm transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:hover:transform-none',
                           selected && 'border-primary bg-primary/[0.07]'
                         )}
                       >
@@ -468,7 +479,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
           </div>
 
           <aside
-            className='bg-card rounded-md border p-5 shadow-sm'
+            className='bg-card border-t-primary rounded-md border border-t-2 p-5 shadow-sm transition-shadow duration-200 hover:shadow-md motion-reduce:transition-none lg:sticky lg:top-5'
             aria-label={t('Payment Summary')}
           >
             <div className='mb-6 flex items-center justify-between text-sm font-medium'>
@@ -487,31 +498,50 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                   {validAmount ? creditAmount(props.topupAmount) : '-'}
                 </strong>
               </div>
-              <div className='flex justify-between gap-3'>
-                <span className='text-muted-foreground'>
-                  {t('Original Price')}
-                </span>
-                <strong className='text-right font-medium tabular-nums'>
-                  {quoteReady ? formatCurrency(originalPrice) : '-'}
-                </strong>
-              </div>
-              {discount > 0 && (
+              {hasDiscount && quoteReady && (
                 <div className='flex justify-between gap-3'>
-                  <span className='text-muted-foreground'>{t('Discount')}</span>
-                  <strong className='text-right font-medium text-emerald-600 tabular-nums dark:text-emerald-400'>
-                    -{formatCurrency(discount)}
+                  <span className='text-muted-foreground'>
+                    {t('Original Price')}
+                  </span>
+                  <strong className='text-muted-foreground text-right font-medium tabular-nums line-through'>
+                    {formatWalletPaymentAmount(
+                      originalPrice,
+                      props.selectedPaymentMethod?.type
+                    )}
                   </strong>
                 </div>
               )}
             </div>
+            {discount > 0 && (
+              <div className='mt-5 flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'>
+                <span className='font-medium'>{t('You save')}</span>
+                <strong className='font-semibold tabular-nums'>
+                  {formatWalletPaymentAmount(
+                    discount,
+                    props.selectedPaymentMethod?.type
+                  )}
+                </strong>
+              </div>
+            )}
             <div className='mt-5 flex items-end justify-between gap-3 border-t pt-5'>
               <span className='shrink-0 text-xs'>{t('You Pay')}</span>
-              <strong className='min-w-0 text-right text-[26px] leading-none font-semibold break-all tabular-nums'>
-                {quoteReady ? formatCurrency(props.paymentAmount) : '-'}
-              </strong>
+              <motion.strong
+                key={`${props.selectedPaymentMethod?.type}-${quoteReady ? props.paymentAmount : 'pending'}`}
+                initial={reduceMotion ? false : { opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={MOTION_TRANSITION.fast}
+                className='min-w-0 text-right text-3xl leading-none font-semibold break-all tabular-nums'
+              >
+                {quoteReady
+                  ? formatWalletPaymentAmount(
+                      props.paymentAmount,
+                      props.selectedPaymentMethod?.type
+                    )
+                  : '-'}
+              </motion.strong>
             </div>
             <Button
-              className='mt-5 h-11 w-full'
+              className='mt-5 h-11 w-full shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:transform-none'
               disabled={
                 !quoteReady ||
                 !props.selectedPaymentMethod ||
@@ -547,19 +577,23 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
         </Alert>
       )}
 
-      <div className='mt-8 border-t'>
+      <div className='bg-muted/25 mt-8 border-y px-4 sm:px-5'>
         {redemptionEnabled ? (
-          <details className='group'>
+          <details
+            className='group'
+            open={redemptionOpen}
+            onToggle={(event) => setRedemptionOpen(event.currentTarget.open)}
+          >
             <summary className='flex cursor-pointer list-none items-center justify-between gap-3 py-4 [&::-webkit-details-marker]:hidden'>
               <span className='flex min-w-0 items-center gap-2.5'>
                 <Ticket
-                  className='text-muted-foreground size-4 shrink-0'
+                  className='text-primary size-4 shrink-0'
                   aria-hidden='true'
                 />
                 <strong className='text-sm font-medium'>
                   {t('Redeem with a code')}
                 </strong>
-                <span className='text-muted-foreground text-xs'>
+                <span className='text-muted-foreground hidden text-xs sm:inline'>
                   {t('Backup option')}
                 </span>
               </span>
@@ -605,10 +639,11 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                 href={resolveTopupLink(props.topupLink)}
                 target='_blank'
                 rel='noopener noreferrer'
-                className='text-primary mt-3 inline-flex items-center gap-1 text-xs font-medium hover:underline'
+                className='border-primary/35 bg-primary/10 text-primary hover:bg-primary/15 focus-visible:ring-ring mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-md border px-4 text-sm font-semibold shadow-sm transition-[transform,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:transform-none'
               >
-                {t('Buy a redemption code')}{' '}
-                <ArrowUpRight className='size-3.5' aria-hidden='true' />
+                <Ticket className='size-4' aria-hidden='true' />
+                {t('Buy a redemption code')}
+                <ArrowUpRight className='size-4' aria-hidden='true' />
               </a>
             </div>
           </details>

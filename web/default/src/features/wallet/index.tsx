@@ -16,14 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Receipt } from 'lucide-react'
+import { ArrowUpRight, Receipt } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
-import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
+import { MOTION_TRANSITION } from '@/lib/motion'
 
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
@@ -96,15 +97,8 @@ export function Wallet(props: WalletProps) {
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
 
-  const { currency } = useSystemConfig()
   const { topupInfo, presetAmounts, loading: topupLoading } = useTopupInfo()
-
-  // Calculate effective exchange rate - when display type is USD, use rate of 1
-  const effectiveUsdExchangeRate = useMemo(() => {
-    return currency?.quotaDisplayType === 'USD'
-      ? 1
-      : currency?.usdExchangeRate || 1
-  }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
+  const reduceMotion = useReducedMotion()
   const { processing, calculatePaymentAmount, processPayment } = usePayment()
   const { redeeming, redeemCode } = useRedemption()
   const { processing: creemProcessing, processCreemPayment } = useCreemPayment()
@@ -387,16 +381,22 @@ export function Wallet(props: WalletProps) {
         <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <Button
-            variant='ghost'
-            size='sm'
+            variant='outline'
+            className='border-border bg-card hover:border-primary/40 h-10 gap-2 px-3 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:transform-none'
             onClick={() => setBillingDialogOpen(true)}
           >
             <Receipt aria-hidden='true' />
             {t('Order History')}
+            <ArrowUpRight className='size-3.5' aria-hidden='true' />
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='mx-auto flex w-full max-w-7xl flex-col gap-5 sm:gap-7'>
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={MOTION_TRANSITION.default}
+            className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-7'
+          >
             <WalletStatsCard user={user} loading={userLoading} />
 
             <div id='wallet-add-funds' className='scroll-mt-4'>
@@ -421,7 +421,6 @@ export function Wallet(props: WalletProps) {
                 redeeming={redeeming}
                 topupLink={topupInfo?.topup_link}
                 loading={topupLoading}
-                usdExchangeRate={effectiveUsdExchangeRate}
                 creemProducts={topupInfo?.creem_products}
                 enableCreemTopup={topupInfo?.enable_creem_topup}
                 onCreemProductSelect={handleCreemProductSelect}
@@ -438,7 +437,7 @@ export function Wallet(props: WalletProps) {
               userQuota={user?.quota}
               onPurchaseSuccess={fetchUser}
             />
-          </div>
+          </motion.div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
 
@@ -451,7 +450,9 @@ export function Wallet(props: WalletProps) {
         paymentMethod={availableMethod}
         calculating={calculating}
         processing={processing || waffoProcessing || pancakeProcessing}
-        discountRate={getDiscountRate()}
+        discountRate={
+          availableMethod?.type === PAYMENT_TYPES.STRIPE ? 1 : getDiscountRate()
+        }
       />
 
       <BillingHistoryDialog
