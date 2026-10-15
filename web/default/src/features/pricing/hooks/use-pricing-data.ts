@@ -26,6 +26,20 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { getPricing } from '../api'
 
+/**
+ * Recharge prices are entered in the configured display currency. The model
+ * square's billing formatter expects a USD amount and applies the currency
+ * conversion itself, so USD and token displays must keep the effective rate
+ * at 1. Only local currency displays need the configured USD exchange rate.
+ */
+export function getEffectiveUsdExchangeRate(
+  displayType: string | undefined,
+  exchangeRate: number
+): number {
+  if (displayType !== 'CNY' && displayType !== 'CUSTOM') return 1
+  return Math.max(exchangeRate, 0.001)
+}
+
 export function usePricingData(enabled = true) {
   const { status } = useStatus()
 
@@ -42,8 +56,12 @@ export function usePricingData(enabled = true) {
     [status?.price]
   )
   const usdExchangeRate = useMemo(
-    () => Math.max((status?.usd_exchange_rate as number) ?? priceRate, 0.001),
-    [status?.usd_exchange_rate, priceRate]
+    () =>
+      getEffectiveUsdExchangeRate(
+        status?.quota_display_type,
+        Math.max((status?.usd_exchange_rate as number) ?? priceRate, 0.001)
+      ),
+    [status?.quota_display_type, status?.usd_exchange_rate, priceRate]
   )
 
   const models = useMemo(() => {
