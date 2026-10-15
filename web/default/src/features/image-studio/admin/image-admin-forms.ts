@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import { IMAGE_STUDIO_MAX_REFERENCE_IMAGES } from '../image-edit-domain'
 import { IMAGE_STUDIO_MAX_OUTPUTS } from '../image-parameters'
 import type {
   ImageModelProfile,
@@ -118,7 +119,10 @@ export const imageModelFormSchema = z
       .number()
       .int()
       .min(1, 'imageStudio.validation.referenceCountRange')
-      .max(4, 'imageStudio.validation.referenceCountRange'),
+      .max(
+        IMAGE_STUDIO_MAX_REFERENCE_IMAGES,
+        'imageStudio.validation.referenceCountRange'
+      ),
     parameters: z
       .array(imageParameterFormSchema)
       .max(9, 'imageStudio.validation.parametersTooMany'),

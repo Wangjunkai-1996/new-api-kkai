@@ -300,6 +300,41 @@ func TestPrepareImageStudioEditSubmitRejectsInvalidMultipartCardinalityAndAliase
 	}
 }
 
+func TestParseImageStudioEditSubmissionEightReferenceBoundary(t *testing.T) {
+	t.Setenv("VIDEO_STUDIO_TEMP_DIR", t.TempDir())
+	images := make([][]byte, 9)
+	for index := range images {
+		images[index] = imageStudioEditTestPNG(t, color.RGBA{R: uint8(index + 1), A: 255})
+	}
+	for _, count := range []int{8, 9} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			references := imageStudioEditTestReferences(images[:count])
+			requestJSON, err := common.Marshal(service.ImageStudioSubmissionRequest{
+				TokenID: 1, Model: imageStudioEditTestModel, Prompt: "edit", References: references,
+			})
+			require.NoError(t, err)
+			body, contentType := imageStudioEditMultipartBody(t, requestJSON, images[:count], false)
+			ctx, _ := newImageStudioRelayContext(http.MethodPost, "/pg/images/edits", body)
+			ctx.Request.Header.Set("Content-Type", contentType)
+
+			request, archives, err := parseImageStudioEditSubmission(ctx, 1<<20, 2<<20, 100)
+			if count == 9 {
+				assert.ErrorIs(t, err, service.ErrInvalidImageStudioSubmission)
+				assert.Empty(t, archives)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, references, request.References)
+				require.Len(t, archives, count)
+				for index, archive := range archives {
+					assert.Equal(t, references[index].SHA256, archive.SHA256)
+					archive.Remove()
+				}
+			}
+			common.CleanupBodyStorage(ctx)
+		})
+	}
+}
+
 func TestPrepareImageStudioEditSubmitRejectsMalformedMultipart(t *testing.T) {
 	ctx, recorder := newImageStudioRelayContext(
 		http.MethodPost, "/pg/images/edits", []byte("not-a-multipart-body"),

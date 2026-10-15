@@ -98,7 +98,11 @@ describe('image model admin form', () => {
       issueMessages(values).includes('imageStudio.validation.rangeInvalid')
     )
 
-    values.max_reference_images = 5
+    values.parameters[0].max = 128
+    values.max_reference_images = 8
+    assert.equal(imageModelFormSchema.safeParse(values).success, true)
+
+    values.max_reference_images = 9
     assert.ok(
       issueMessages(values).includes(
         'imageStudio.validation.referenceCountRange'

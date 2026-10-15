@@ -3282,7 +3282,7 @@
     "imageStudio.validation.promptTooLong": "The prompt must be 8,000 characters or fewer.",
     "imageStudio.validation.providerTooLong": "Provider label must be 128 characters or fewer.",
     "imageStudio.validation.rangeInvalid": "Enter a valid range supported by this request field.",
-    "imageStudio.validation.referenceCountRange": "Enter 1 to 4 reference images.",
+    "imageStudio.validation.referenceCountRange": "Укажите от 1 до 8 референсных изображений.",
     "imageStudio.validation.requestFieldDuplicate": "Provider request fields must be unique.",
     "imageStudio.validation.requiredDefault": "Required parameters must have a default value.",
     "imageStudio.validation.sampleImageRequired": "Upload a sample image.",

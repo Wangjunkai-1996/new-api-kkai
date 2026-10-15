@@ -43,28 +43,35 @@ describe('image edit transport', () => {
     assert.equal(body.getAll('image').length, 1)
   })
 
-  test('sends one request field and ordered repeated image fields', async () => {
+  test('sends eight references as ordered repeated image fields', async () => {
+    const images = Array.from({ length: 8 }, (_, index) => {
+      const format = index === 1 ? 'webp' : 'png'
+      return new File(
+        [`reference-${index + 1}`],
+        `reference-${index + 1}.${format}`,
+        { type: `image/${format}` }
+      )
+    })
     const request: CreateImageEditRequest = {
       token_id: 3,
       model: 'gpt-image-2',
       prompt: 'change the lighting',
       parameters: { size: '1024x1024', count: 1 },
-      references: [
-        { sha256: 'a'.repeat(64), size_bytes: 9 },
-        { sha256: 'b'.repeat(64), size_bytes: 10 },
-      ],
+      references: images.map((image, index) => ({
+        sha256: String(index + 1).repeat(64),
+        size_bytes: image.size,
+      })),
       quote_token: 'opaque.edit.quote',
     }
-    const images = [
-      new File(['reference-1'], 'reference-1.png', { type: 'image/png' }),
-      new File(['reference-2'], 'reference-2.webp', { type: 'image/webp' }),
-    ]
 
     const body = buildImageEditFormData(request, images)
 
-    assert.deepEqual([...body.keys()], ['request', 'image', 'image'])
+    assert.deepEqual(
+      [...body.keys()],
+      ['request', ...images.map(() => 'image')]
+    )
     assert.equal(body.getAll('request').length, 1)
-    assert.equal(body.getAll('image').length, 2)
+    assert.equal(body.getAll('image').length, 8)
     const encodedRequest = body.get('request')
     assert.equal(typeof encodedRequest, 'string')
     assert.deepEqual(JSON.parse(encodedRequest as string), request)

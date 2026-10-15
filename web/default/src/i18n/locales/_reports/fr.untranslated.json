@@ -62,7 +62,6 @@
   "imageStudio.validation.parameterRange": "Enter a value within the supported range.",
   "imageStudio.validation.promptTooLong": "The prompt must be 8,000 characters or fewer.",
   "imageStudio.validation.providerTooLong": "Provider label must be 128 characters or fewer.",
-  "imageStudio.validation.referenceCountRange": "Enter 1 to 4 reference images.",
   "imageStudio.validation.sampleTitleTooLong": "Sample title must be 191 characters or fewer.",
   "imageStudio.validation.sortOutOfRange": "Sort order must be between -100,000 and 100,000.",
   "imageStudio.validation.tokenInvalid": "The server returned an invalid image key.",

@@ -3282,7 +3282,7 @@
     "imageStudio.validation.promptTooLong": "提示词不能超过 8000 个字符。",
     "imageStudio.validation.providerTooLong": "供应商标签不能超过 128 个字符。",
     "imageStudio.validation.rangeInvalid": "请输入该请求字段支持的有效范围。",
-    "imageStudio.validation.referenceCountRange": "参考图数量请输入 1 到 4。",
+    "imageStudio.validation.referenceCountRange": "参考图数量请输入 1 到 8。",
     "imageStudio.validation.requestFieldDuplicate": "供应商请求字段不能重复。",
     "imageStudio.validation.requiredDefault": "必填参数必须设置默认值。",
     "imageStudio.validation.sampleImageRequired": "请上传样品图片。",

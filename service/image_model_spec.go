@@ -18,7 +18,7 @@ const (
 	ImageControlSelect            = "select"
 	ImageControlInteger           = "integer"
 	ImageControlBoolean           = "boolean"
-	MaxImageStudioReferenceImages = 4
+	MaxImageStudioReferenceImages = 8
 	MaxImageStudioOutputs         = image_studio_setting.MaxImagesPerGenerationLimit
 )
 

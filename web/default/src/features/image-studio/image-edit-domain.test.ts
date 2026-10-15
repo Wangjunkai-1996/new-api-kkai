@@ -51,6 +51,13 @@ const profile: ImageModelProfile = {
 describe('image edit domain', () => {
   test('resolves the model reference limit with a fail-safe default', () => {
     assert.equal(getImageProfileMaxReferenceImages(profile), 4)
+    assert.equal(
+      getImageProfileMaxReferenceImages({
+        ...profile,
+        specification: { ...profile.specification, max_reference_images: 8 },
+      }),
+      8
+    )
     for (const configured of [undefined, 0]) {
       assert.equal(
         getImageProfileMaxReferenceImages({
@@ -71,7 +78,7 @@ describe('image edit domain', () => {
           max_reference_images: 99,
         },
       }),
-      4
+      8
     )
   })
 

@@ -3282,7 +3282,7 @@
     "imageStudio.validation.promptTooLong": "The prompt must be 8,000 characters or fewer.",
     "imageStudio.validation.providerTooLong": "Provider label must be 128 characters or fewer.",
     "imageStudio.validation.rangeInvalid": "Enter a valid range supported by this request field.",
-    "imageStudio.validation.referenceCountRange": "Enter 1 to 4 reference images.",
+    "imageStudio.validation.referenceCountRange": "参照画像の枚数は1～8枚で入力してください。",
     "imageStudio.validation.requestFieldDuplicate": "Provider request fields must be unique.",
     "imageStudio.validation.requiredDefault": "Required parameters must have a default value.",
     "imageStudio.validation.sampleImageRequired": "Upload a sample image.",

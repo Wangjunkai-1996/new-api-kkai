@@ -206,6 +206,35 @@ func TestNormalizeImageStudioEditBindsOrderedReferencesAndModelLimit(t *testing.
 	}
 }
 
+func TestNormalizeImageStudioEditAcceptsEightReferencesAndRejectsNine(t *testing.T) {
+	enableImageResolutionPricingForTest(t)
+	db, profile := newImageSubmissionTestDB(t)
+	require.NoError(t, db.Model(&profile).Update("model", "gpt-image-2").Error)
+	specification := imageSubmissionSpec()
+	specification.MaxReferenceImages = 8
+	encodedSpecification, err := common.Marshal(specification)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&profile).Update("specification", string(encodedSpecification)).Error)
+
+	references := make([]ImageStudioReferenceMetadata, 9)
+	for index := range references {
+		references[index] = ImageStudioReferenceMetadata{
+			SHA256: fmt.Sprintf("%064x", index+1), SizeBytes: 100,
+		}
+	}
+	request := ImageStudioSubmissionRequest{
+		TokenID: 4, Model: "gpt-image-2", Prompt: "edit",
+		Mode: ImageStudioModeEdit, References: references[:8],
+	}
+	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, request)
+	require.NoError(t, err)
+	assert.Equal(t, references[:8], normalized.References)
+
+	request.References = references
+	_, err = NormalizeImageStudioSubmission(context.Background(), db, 7, request)
+	assert.ErrorIs(t, err, ErrInvalidImageStudioSubmission)
+}
+
 func TestNormalizeImageStudioEditDefaultsToOneReferenceAndEnforcesByteLimits(t *testing.T) {
 	enableImageResolutionPricingForTest(t)
 	db, profile := newImageSubmissionTestDB(t)

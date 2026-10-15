@@ -119,6 +119,10 @@ func TestImageStudioMaximumPreconsumeTieredImageExpression(t *testing.T) {
 			references: 1, count: 2, maxTokens: 1_000, quota: 45_500, inputBudget: 3_000, outputBudget: 2_000,
 		},
 		{
+			name: "eight reference images", expression: `tier("standard", p * 5 + img * 8 + c * 30)`,
+			references: 8, count: 1, maxTokens: 1_000, quota: 68_250, inputBudget: 8_500, outputBudget: 1_000,
+		},
+		{
 			name: "cache dimensions", expression: `tier("cache", cr + cc * 2 + cc1h * 3 + img_cr * 4)`,
 			references: 1, count: 2, maxTokens: 1_000, quota: 13_000, inputBudget: 3_000, outputBudget: 2_000,
 		},

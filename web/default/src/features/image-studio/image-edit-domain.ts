@@ -26,7 +26,7 @@ import type {
   ImageStudioApiError,
 } from './types'
 
-export const IMAGE_STUDIO_MAX_REFERENCE_IMAGES = 4
+export const IMAGE_STUDIO_MAX_REFERENCE_IMAGES = 8
 
 export const getImageProfileMaxReferenceImages = (
   profile: ImageModelProfile | undefined

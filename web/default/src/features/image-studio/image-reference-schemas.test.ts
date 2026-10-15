@@ -47,7 +47,7 @@ describe('image reference response schemas', () => {
       imageModelProfileSchema.parse(legacyModel).effective_max_outputs,
       1
     )
-    for (const maxReferenceImages of [0, 4]) {
+    for (const maxReferenceImages of [0, 4, 8]) {
       assert.equal(
         imageModelProfileSchema.safeParse({
           ...model,
@@ -62,7 +62,7 @@ describe('image reference response schemas', () => {
     assert.equal(
       imageModelProfileSchema.safeParse({
         ...model,
-        specification: { ...model.specification, max_reference_images: 5 },
+        specification: { ...model.specification, max_reference_images: 9 },
       }).success,
       false
     )

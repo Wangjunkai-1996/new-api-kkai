@@ -30,7 +30,7 @@ test('applies the selected model reference limit and clears files when the model
     description: '',
     provider_label: '',
     specification_version: 1,
-    specification: { version: 1, max_reference_images: 2, parameters: [] },
+    specification: { version: 1, max_reference_images: 8, parameters: [] },
     default_parameters: {},
     effective_max_outputs: 4,
     enabled: true,
@@ -44,10 +44,13 @@ test('applies the selected model reference limit and clears files when the model
     model: 'gpt-image-2.5-sunburst',
     specification: { ...flare.specification, max_reference_images: 1 },
   }
-  const references = [
-    new File(['first'], 'first.png', { type: 'image/png' }),
-    new File(['second'], 'second.png', { type: 'image/png' }),
-  ]
+  const references = Array.from(
+    { length: 8 },
+    (_, index) =>
+      new File([`reference-${index + 1}`], `${index + 1}.png`, {
+        type: 'image/png',
+      })
+  )
   const { result, rerender } = renderHook(
     (profile) => useImageEditReferences(profile, undefined),
     { initialProps: flare }
@@ -56,7 +59,16 @@ test('applies the selected model reference limit and clears files when the model
   await act(() => result.current.references.select(references))
   expect(result.current.references.error).toBeNull()
   expect(result.current.references.files).toEqual(references)
-  expect(result.current.references.metadata).toHaveLength(2)
+  expect(result.current.maxImages).toBe(8)
+  expect(result.current.references.metadata).toHaveLength(8)
+
+  await act(() =>
+    result.current.references.select([
+      new File(['ninth'], 'ninth.png', { type: 'image/png' }),
+    ])
+  )
+  expect(result.current.references.error).not.toBeNull()
+  expect(result.current.references.files).toEqual(references)
 
   rerender(sunburst)
 
