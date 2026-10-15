@@ -36,13 +36,14 @@ func (s *fakeMiddlewareKeyCooldownStore) Record(context.Context, string, string)
 	return service.KKAIPolicyKeyCooldownState{}, nil
 }
 
-func runKeyCooldownMiddleware(t *testing.T, tokenID int, store service.KKAIPolicyKeyCooldownStore) (*httptest.ResponseRecorder, bool) {
+func runKeyCooldownMiddleware(t *testing.T, tokenID int, sessionID string, store service.KKAIPolicyKeyCooldownStore) (*httptest.ResponseRecorder, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	reached := false
 	engine.Use(func(c *gin.Context) {
 		if tokenID > 0 {
+			common.SetContextKey(c, constant.ContextKeyUserId, 7)
 			common.SetContextKey(c, constant.ContextKeyTokenId, tokenID)
 		}
 		c.Set(common.RequestIdKey, "req-key-cooldown")
@@ -55,7 +56,11 @@ func runKeyCooldownMiddleware(t *testing.T, tokenID int, store service.KKAIPolic
 	})
 
 	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	if sessionID != "" {
+		request.Header.Set("X-Session-Id", sessionID)
+	}
+	engine.ServeHTTP(recorder, request)
 	return recorder, reached
 }
 
@@ -64,14 +69,19 @@ func TestKKAIPolicyKeyCooldownBlocksBeforeDownstreamWork(t *testing.T) {
 		Blocked: true, RetryAfter: 37, Strike: 1,
 	}}
 
-	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "conversation-a", store)
 
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.False(t, reached)
 	assert.Equal(t, "37", recorder.Header().Get("Retry-After"))
 	require.Len(t, store.checkKeys, 1)
 	assert.Zero(t, store.recordCalls)
-	expectedKey, ok := service.KKAIPolicyKeyCooldownRedisKey(42)
+	keyContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	keyContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	keyContext.Request.Header.Set("X-Session-Id", "conversation-a")
+	common.SetContextKey(keyContext, constant.ContextKeyUserId, 7)
+	common.SetContextKey(keyContext, constant.ContextKeyTokenId, 42)
+	expectedKey, ok := service.KKAIPolicyKeyCooldownRedisKey(keyContext)
 	require.True(t, ok)
 	assert.Equal(t, expectedKey, store.checkKeys[0])
 
@@ -94,7 +104,7 @@ func TestKKAIPolicyKeyCooldownSwitchBypassesExistingCooldown(t *testing.T) {
 		Blocked: true, RetryAfter: 60, Strike: 1,
 	}}
 
-	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "conversation-a", store)
 
 	assert.Equal(t, http.StatusNoContent, recorder.Code)
 	assert.True(t, reached)
@@ -106,11 +116,13 @@ func TestKKAIPolicyKeyCooldownHonorsEmergencyBlockBeforeRedis(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	seed, _ := gin.CreateTestContext(httptest.NewRecorder())
 	seed.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	seed.Request.Header.Set("X-Session-Id", "conversation-a")
+	common.SetContextKey(seed, constant.ContextKeyUserId, 7)
 	common.SetContextKey(seed, constant.ContextKeyTokenId, tokenID)
 	service.RecordKKAIPolicyEmergencyKeyCooldown(seed, time.Now())
 	store := &fakeMiddlewareKeyCooldownStore{}
 
-	recorder, reached := runKeyCooldownMiddleware(t, tokenID, store)
+	recorder, reached := runKeyCooldownMiddleware(t, tokenID, "conversation-a", store)
 
 	assert.Equal(t, http.StatusForbidden, recorder.Code)
 	assert.False(t, reached)
@@ -121,7 +133,7 @@ func TestKKAIPolicyKeyCooldownHonorsEmergencyBlockBeforeRedis(t *testing.T) {
 func TestKKAIPolicyKeyCooldownWithoutTokenFailsOpen(t *testing.T) {
 	store := &fakeMiddlewareKeyCooldownStore{state: service.KKAIPolicyKeyCooldownState{Blocked: true, RetryAfter: 60}}
 
-	recorder, reached := runKeyCooldownMiddleware(t, 0, store)
+	recorder, reached := runKeyCooldownMiddleware(t, 0, "conversation-a", store)
 
 	assert.Equal(t, http.StatusNoContent, recorder.Code)
 	assert.True(t, reached)
@@ -141,7 +153,7 @@ func TestKKAIPolicyKeyCooldownRedisFailureFailsClosedAndWarns(t *testing.T) {
 		common.LogWriterMu.Unlock()
 	})
 
-	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "conversation-a", store)
 
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	assert.False(t, reached)
@@ -159,7 +171,7 @@ func TestKKAIPolicyKeyCooldownUnavailableStoreFailsClosedWhenRedisEnabled(t *tes
 	previousRedisEnabled := common.RedisEnabled
 	common.RedisEnabled = true
 	t.Cleanup(func() { common.RedisEnabled = previousRedisEnabled })
-	recorder, reached := runKeyCooldownMiddleware(t, 42, nil)
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "conversation-a", nil)
 
 	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	assert.False(t, reached)
@@ -169,7 +181,7 @@ func TestKKAIPolicyKeyCooldownUnavailableStoreSkipsWhenRedisExplicitlyDisabled(t
 	previousRedisEnabled := common.RedisEnabled
 	common.RedisEnabled = false
 	t.Cleanup(func() { common.RedisEnabled = previousRedisEnabled })
-	recorder, reached := runKeyCooldownMiddleware(t, 42, nil)
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "conversation-a", nil)
 
 	assert.Equal(t, http.StatusNoContent, recorder.Code)
 	assert.True(t, reached)
@@ -177,8 +189,17 @@ func TestKKAIPolicyKeyCooldownUnavailableStoreSkipsWhenRedisExplicitlyDisabled(t
 
 func TestKKAIPolicyKeyCooldownRetryAfterHasMinimumOneSecond(t *testing.T) {
 	store := &fakeMiddlewareKeyCooldownStore{state: service.KKAIPolicyKeyCooldownState{Blocked: true}}
-	recorder, reached := runKeyCooldownMiddleware(t, 42, store)
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "conversation-a", store)
 
 	assert.False(t, reached)
 	assert.Equal(t, strconv.Itoa(1), recorder.Header().Get("Retry-After"))
+}
+
+func TestKKAIPolicyKeyCooldownWithoutConversationDoesNotCheckRedis(t *testing.T) {
+	store := &fakeMiddlewareKeyCooldownStore{err: errors.New("redis unavailable")}
+	recorder, reached := runKeyCooldownMiddleware(t, 42, "", store)
+
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
+	assert.True(t, reached)
+	assert.Empty(t, store.checkKeys)
 }

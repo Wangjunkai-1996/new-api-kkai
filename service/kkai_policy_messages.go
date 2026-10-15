@@ -11,18 +11,18 @@ func KKAIPolicyMessageForKeyword() string {
 }
 
 func KKAIPolicyMessageForCyber() string {
-	return "安全警告：本次请求触发了上游安全策略，已停止处理。当前 API Key 将冷却 60 秒。请勿破甲或滥用，否则将封禁账号。"
+	return "本次请求未通过上游安全检查，已停止处理。当前会话将暂停使用 60 秒，请稍后调整请求内容再试。"
 }
 
 func KKAIPolicyMessageForCyberWithoutKey() string {
-	return "安全警告：本次请求触发了上游安全策略，已停止处理。请勿破甲或滥用，否则将封禁账号。"
+	return "本次请求未通过上游安全检查，已停止处理。请调整请求内容后再试。"
 }
 
 func KKAIPolicyMessageForKeyCooldown(retryAfter int) string {
 	if retryAfter < 1 {
 		retryAfter = 1
 	}
-	return fmt.Sprintf("安全警告：当前 API Key 正在冷却，还需等待 %d 秒。请勿破甲或滥用，否则将封禁账号。", retryAfter)
+	return fmt.Sprintf("当前会话暂时无法继续，请在 %d 秒后重试。", retryAfter)
 }
 
 func KKAIPolicyMessageForKeyCooldownUnavailable() string {
@@ -38,7 +38,7 @@ func KKAIPolicyMessageForLocalCode(code types.ErrorCode) string {
 	case types.ErrorCodePolicyAuditUnavailable:
 		return "安全审查服务暂时不可用，本次请求未发送至模型服务。请稍后重试。"
 	case types.ErrorCodeSessionBlockedByCyberPolicy:
-		return "当前会话已因安全策略停止处理，请联系管理员复核。"
+		return "当前会话暂时无法继续，请新建会话后重试。"
 	default:
 		return "本次请求已被安全策略停止处理。"
 	}

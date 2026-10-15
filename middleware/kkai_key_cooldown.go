@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -25,8 +24,7 @@ func kkaiPolicyKeyCooldown(store service.KKAIPolicyKeyCooldownStore) gin.Handler
 			c.Next()
 			return
 		}
-		tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
-		key, ok := service.KKAIPolicyKeyCooldownRedisKey(tokenID)
+		key, ok := service.KKAIPolicyKeyCooldownRedisKey(c)
 		if !ok {
 			c.Next()
 			return

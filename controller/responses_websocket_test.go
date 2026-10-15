@@ -103,7 +103,7 @@ func setupResponsesWSRequestTest(t *testing.T) (*model.User, *model.Token) {
 	return user, token
 }
 
-func newResponsesWSTestRunner(t *testing.T, token *model.Token) (relay.ResponsesWSRequestRunner, *http.Request) {
+func newResponsesWSTestRunner(t *testing.T, token *model.Token, sessionID ...string) (relay.ResponsesWSRequestRunner, *http.Request) {
 	t.Helper()
 	var runner relay.ResponsesWSRequestRunner
 	engine := gin.New()
@@ -114,6 +114,9 @@ func newResponsesWSTestRunner(t *testing.T, token *model.Token) (relay.Responses
 	request := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
 	request.RemoteAddr = "127.0.0.1:12345"
 	request.Header.Set("Authorization", "Bearer sk-"+token.Key)
+	if len(sessionID) != 0 {
+		request.Header.Set("X-Session-Id", sessionID[0])
+	}
 	request.Header.Set("X-Forwarded-For", "203.0.113.8")
 	request.Header.Set("Connection", "Upgrade")
 	request.Header.Set("Upgrade", "websocket")
@@ -1365,11 +1368,14 @@ func TestResponsesWSRequestRunnerChecksKKAICooldownPerTurn(t *testing.T) {
 	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
 	common.RDB, common.RedisEnabled = redisClient, true
 	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
-	runner, request := newResponsesWSTestRunner(t, token)
+	runner, request := newResponsesWSTestRunner(t, token, "conversation-a")
 	calls := 0
 	handle := func(*gin.Context) *types.NewAPIError { calls++; return nil }
 	require.Nil(t, runner(request, "allowed", handle))
 	context := &gin.Context{}
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	context.Request.Header.Set("X-Session-Id", "conversation-a")
+	common.SetContextKey(context, constant.ContextKeyUserId, token.UserId)
 	common.SetContextKey(context, constant.ContextKeyTokenId, token.Id)
 	state, err := service.RecordKKAIPolicyKeyCooldown(context, service.KKAIPolicyDefaultKeyCooldownStore(), "upstream-policy-event")
 	require.NoError(t, err)
@@ -1379,6 +1385,12 @@ func TestResponsesWSRequestRunnerChecksKKAICooldownPerTurn(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rejection.StatusCode)
 	assert.Equal(t, types.ErrorCodeKeyCooldown, rejection.GetErrorCode())
 	assert.Equal(t, 1, calls, "a connected websocket must recheck cooldown before every generation")
+	otherRunner, otherRequest := newResponsesWSTestRunner(t, token, "conversation-b")
+	require.Nil(t, otherRunner(otherRequest, "other-conversation", handle))
+	assert.Equal(t, 2, calls, "the same token can continue in another conversation")
+	noSessionRunner, noSessionRequest := newResponsesWSTestRunner(t, token)
+	require.Nil(t, noSessionRunner(noSessionRequest, "no-conversation-id", handle))
+	assert.Equal(t, 3, calls, "a missing conversation header cannot inherit another session's block")
 }
 
 func TestResponsesWebSocketRedactsUpstreamError(t *testing.T) {

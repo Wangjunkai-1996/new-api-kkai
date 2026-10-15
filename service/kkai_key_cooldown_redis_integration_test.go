@@ -27,7 +27,7 @@ func TestRedis86KKAIPolicyKeyCooldownStateMachine(t *testing.T) {
 	require.NoError(t, client.FlushDB(ctx).Err())
 
 	store := newRedisKKAIPolicyKeyCooldownStore(client)
-	key := "kkai:policy:key-cooldown:v2:integration-scope"
+	key := "kkai:policy:key-cooldown:v3:integration-scope"
 	digest := func(event string) string {
 		value, ok := KKAIPolicyKeyCooldownEventDigest(event)
 		require.True(t, ok)

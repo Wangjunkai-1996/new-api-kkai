@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -13,8 +14,8 @@ import (
 )
 
 const (
-	kkaiPolicyKeyCooldownKeyPrefix   = "kkai:policy:key-cooldown:v2:"
-	kkaiPolicyKeyCooldownScopeDomain = "kkai-key-cooldown-scope-v2"
+	kkaiPolicyKeyCooldownKeyPrefix   = "kkai:policy:key-cooldown:v3:"
+	kkaiPolicyKeyCooldownScopeDomain = "kkai-key-cooldown-scope-v3"
 	kkaiPolicyKeyCooldownEventDomain = "kkai-key-cooldown-event-v1"
 	kkaiPolicyKeyCooldownTimeout     = 150 * time.Millisecond
 	kkaiPolicyKeyCooldownMaxStrike   = 1
@@ -40,11 +41,40 @@ type KKAIPolicyKeyCooldownStore interface {
 	Record(context.Context, string, string) (KKAIPolicyKeyCooldownState, error)
 }
 
-func KKAIPolicyKeyCooldownRedisKey(tokenID int) (string, bool) {
-	if tokenID <= 0 {
+func KKAIPolicyClientSessionID(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	for _, name := range []string{"session-id", "session_id", "conversation_id", "X-Session-Id", "X-OpenCode-Session", "X-Conversation-ID", "X-Claude-Code-Session-Id"} {
+		value := strings.TrimSpace(c.GetHeader(name))
+		if value == "" || len(value) > 255 || !utf8.ValidString(value) {
+			continue
+		}
+		valid := true
+		for _, char := range value {
+			if char < 0x20 || char == 0x7f {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return value
+		}
+	}
+	return ""
+}
+
+func KKAIPolicyKeyCooldownRedisKey(c *gin.Context) (string, bool) {
+	if c == nil {
 		return "", false
 	}
-	material := fmt.Sprintf("%s\x00token_id\x00%d", kkaiPolicyKeyCooldownScopeDomain, tokenID)
+	userID := common.GetContextKeyInt(c, constant.ContextKeyUserId)
+	tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+	sessionID := KKAIPolicyClientSessionID(c)
+	if userID <= 0 || tokenID <= 0 || sessionID == "" {
+		return "", false
+	}
+	material := fmt.Sprintf("%s\x00user_id\x00%d\x00token_id\x00%d\x00session_id\x00%s", kkaiPolicyKeyCooldownScopeDomain, userID, tokenID, sessionID)
 	return kkaiPolicyKeyCooldownKeyPrefix + common.GenerateHMAC(material), true
 }
 
@@ -68,8 +98,7 @@ func recordKKAIPolicyKeyCooldown(parent context.Context, c *gin.Context, store K
 	if c == nil {
 		return KKAIPolicyKeyCooldownState{}, nil
 	}
-	tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
-	key, ok := KKAIPolicyKeyCooldownRedisKey(tokenID)
+	key, ok := KKAIPolicyKeyCooldownRedisKey(c)
 	if !ok {
 		return KKAIPolicyKeyCooldownState{}, nil
 	}
@@ -89,13 +118,12 @@ func recordKKAIPolicyKeyCooldown(parent context.Context, c *gin.Context, store K
 }
 
 // RecordKKAIPolicyEmergencyKeyCooldown applies a one-minute process-local
-// fallback when Redis cannot record the cooldown.
+// fallback for the same conversation when Redis cannot record the cooldown.
 func RecordKKAIPolicyEmergencyKeyCooldown(c *gin.Context, now time.Time) KKAIPolicyKeyCooldownState {
 	if c == nil {
 		return KKAIPolicyKeyCooldownState{}
 	}
-	tokenID := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
-	key, ok := KKAIPolicyKeyCooldownRedisKey(tokenID)
+	key, ok := KKAIPolicyKeyCooldownRedisKey(c)
 	if !ok {
 		return KKAIPolicyKeyCooldownState{}
 	}

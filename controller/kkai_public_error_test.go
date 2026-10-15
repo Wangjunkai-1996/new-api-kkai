@@ -46,7 +46,7 @@ func TestKKAIPublicOpenAIErrorDoesNotClaimKeyCooldownWithoutKey(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, status)
 	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
 	assert.NotContains(t, publicErr.Message, "API Key")
-	assert.Contains(t, publicErr.Message, "请勿破甲或滥用，否则将封禁账号")
+	assert.NotContains(t, publicErr.Message, "封禁账号")
 }
 
 func newControllerUpstreamPolicyError(message string, code types.ErrorCode, statusCode int) *types.NewAPIError {
@@ -70,7 +70,7 @@ func TestKKAIPublicOpenAIErrorRedactsClientPolicyIncident(t *testing.T) {
 	status, publicErr := kkaiPublicOpenAIError(ctx, apiErr)
 	require.Equal(t, http.StatusForbidden, status)
 	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
-	assert.Contains(t, publicErr.Message, "请勿破甲或滥用，否则将封禁账号")
+	assert.NotContains(t, publicErr.Message, "封禁账号")
 	assert.Equal(t, types.ErrorCodeRequestPolicyWarning, publicErr.Code)
 	assert.Empty(t, ctx.Writer.Header().Get("Retry-After"))
 	assert.NotContains(t, publicErr.Message, "cyber_policy")

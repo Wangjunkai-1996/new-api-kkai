@@ -33,22 +33,22 @@ upstream baseline.
 
 | Causality | Default decision | Durable action |
 | --- | --- | --- |
-| `client_token` | `reject` | Record the incident and apply a 60-second key cooldown; never disable the token, user, or channel |
+| `client_token` | `reject` | Record the incident and, when an explicit conversation ID is present, apply a 60-second conversation cooldown; never disable the token, user, or channel |
 | `upstream_key` | `reject` | Record only; shared channel remains enabled |
 | `ambiguous` | `reject` | Record only; token, user, and channel remain enabled |
 
 Every `upstream_policy` event is non-disabling. Durable disable flags are rejected
 at both the decision and transaction-input boundaries. Confirmed bearer-token Cyber
-incidents receive only a fixed 60-second cooldown after token and channel identity
-validation. Official generic channel auto-ban is skipped for classified policy
-incidents so it cannot bypass this rule.
+incidents with a valid explicit conversation ID receive a fixed 60-second
+cooldown after token and channel identity validation. Official generic channel
+auto-ban is skipped for classified policy incidents so it cannot bypass this rule.
 
 ## Public Contract
 
 - A client-attributed Cyber warning is recognized when a concrete upstream HTTP
   status accompanies the exact structured `cyber_policy` code. Before response
   headers are committed, the triggering request returns HTTP 403 with code
-  `request_policy_warning`, warns against jailbreak/abuse, and is not retried.
+  `request_policy_warning`, uses neutral guidance, and is not retried.
   If an SSE response or WebSocket upgrade has already started, HTTP status is
   immutable; the relay terminates the active stream with the equivalent
   `request_policy_warning` error frame instead.
@@ -65,19 +65,22 @@ incidents so it cannot bypass this rule.
 - OpenAI-compatible responses include the incident case ID in safe metadata;
   all protocols retain the normal request ID correlation in server logs.
 
-## API Key Cooldown
+## Conversation Cooldown
 
-- Cooldown scope is derived only from the authenticated positive `token_id`.
-  Redis keys use a versioned, domain-separated HMAC. User ID, channel identity,
-  IP address, request content, message history, and custom conversation headers
-  are never part of the scope.
+- Cooldown scope requires the authenticated positive user and token IDs plus a
+  valid explicit conversation header from the original client request. Redis
+  keys use a versioned, domain-separated HMAC. IP address, request content,
+  message history, and `prompt_cache_key` are never part of the scope. The old
+  token-wide v2 Redis keys are not read.
 - An identity-validated `client_token` Cyber incident records a fixed 60-second
-  cooldown, even if a later audit/outbox write fails. Every later confirmed
-  incident resets the cooldown to 60 seconds; it never escalates automatically
-  and never disables the user or key.
-- `CyberPolicyKeyCooldownEnabled` controls only the 60-second cooldown and is
-  enabled by default. Disabling it immediately bypasses cooldown reads and writes;
-  Cyber requests are still rejected with HTTP 403 and incidents are still audited.
+  cooldown only when that conversation ID is present, even if a later
+  audit/outbox write fails. Without one, only the triggering request is
+  rejected. Every later confirmed incident resets the cooldown to 60 seconds;
+  it never escalates automatically and never disables the user or key.
+- `CyberPolicyKeyCooldownEnabled` controls only the 60-second conversation
+  cooldown and is enabled by default. Disabling it immediately bypasses
+  cooldown reads and writes; Cyber requests are still rejected with HTTP 403
+  and incidents are still audited.
 - The same incident event is idempotent. Requests made while blocked do not create
   incidents or extend the cooldown.
 - Cooldown checks run after token authentication and before request rate limiting
@@ -89,7 +92,7 @@ incidents so it cannot bypass this rule.
   provider, or pre-consume quota.
 - Redis Lua performs check and record transitions atomically using Redis time so
   all instances observe one state. Redis unavailability is logged and fails closed
-  with a local one-minute emergency cooldown.
+  with a local one-minute emergency cooldown for the same conversation.
   No cooldown state is written to business database tables, and Redis stores no
   raw token, provider key, request body, credential, or raw event ID.
 - Signed asynchronous Risk Stream events are audit inputs and do not establish

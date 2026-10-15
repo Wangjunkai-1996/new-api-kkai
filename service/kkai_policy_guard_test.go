@@ -47,6 +47,7 @@ func newKKAIPolicyGuardTestContext(t *testing.T) *gin.Context {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-test"}`))
+	ctx.Request.Header.Set("X-Session-Id", "conversation-42")
 	ctx.Set(common.RequestIdKey, "req-policy-1")
 	ctx.Set("id", 10)
 	ctx.Set("token_id", 11)
@@ -241,7 +242,7 @@ func TestKKAIPolicyGuardRecordsKeyCooldownAfterSuccessfulBearerApply(t *testing.
 	require.Len(t, cooldown.recordKeys, 1)
 	assert.True(t, KKAIPolicyKeyCooldownApplied(ctx))
 	require.Len(t, cooldown.eventDigests, 1)
-	expectedKey, ok := KKAIPolicyKeyCooldownRedisKey(11)
+	expectedKey, ok := KKAIPolicyKeyCooldownRedisKey(ctx)
 	require.True(t, ok)
 	assert.Equal(t, expectedKey, cooldown.recordKeys[0])
 	assert.NotContains(t, cooldown.eventDigests[0], ctx.GetString(KKAIPolicyCaseContextKey))
@@ -360,6 +361,7 @@ func TestKKAIPolicyGuardDoesNotRecordCooldownForOtherAttributionOrMissingToken(t
 		{name: "upstream key", message: "API key has been disabled"},
 		{name: "ambiguous", message: "cyber_policy; API key has been disabled"},
 		{name: "missing token", message: "cyber_policy", mutate: func(c *gin.Context) { c.Set("token_id", 0) }},
+		{name: "missing conversation", message: "cyber_policy", mutate: func(c *gin.Context) { c.Request.Header.Del("X-Session-Id") }},
 		{name: "missing upstream identity", message: "cyber_policy", mutate: func(c *gin.Context) { c.Set("token_id", 11) }},
 	}
 
@@ -457,7 +459,7 @@ func TestKKAIPolicyGuardKeepsEmergencyCooldownWhenRedisFailsAfterApply(t *testin
 	require.True(t, detected)
 	require.NoError(t, err)
 
-	key, ok := KKAIPolicyKeyCooldownRedisKey(887711)
+	key, ok := KKAIPolicyKeyCooldownRedisKey(ctx)
 	require.True(t, ok)
 	state := CheckKKAIPolicyEmergencyKeyCooldown(key, now)
 	require.True(t, state.Blocked)

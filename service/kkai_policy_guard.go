@@ -88,7 +88,8 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 	clientCooldownAllowed := common.CyberPolicyKeyCooldownEnabled &&
 		classification.Causality == KKAIPolicyCausalityClientToken &&
 		clientAuthMode == kkaiPolicyClientAuthBearer && channel.ChannelId > 0 &&
-		tokenID > 0 && tokenFingerprint != "" && upstreamKeyFingerprint != ""
+		userID > 0 && tokenID > 0 && KKAIPolicyClientSessionID(c) != "" &&
+		tokenFingerprint != "" && upstreamKeyFingerprint != ""
 	policyActionCtx := kkaiPolicyContext(c)
 	if clientCooldownAllowed {
 		var cancel context.CancelFunc

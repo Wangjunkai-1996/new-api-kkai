@@ -22,6 +22,9 @@ Origins are matched by normalized scheme, host, and effective port. Paths,
 queries, fragments, and user information are forbidden in allowlist entries.
 `https` and `wss` are distinct schemes. An omitted default port is equivalent
 to its explicit form, such as `https://host` and `https://host:443`.
+WebSocket handshakes first match their `ws`/`wss` origin; when it is not listed,
+they may use the corresponding listed `http`/`https` origin for the signed GET.
+The receiver must configure the same origin used for signing.
 
 When both variables are unset, attribution is disabled and any forged
 attribution headers are still removed. A partial configuration, invalid origin,
@@ -37,6 +40,19 @@ or upstream credential.
 The signature binds the HTTP method, exact origin, escaped path, raw query, and
 all attribution claims. A `Host` override that differs from the allowlisted URL
 origin is rejected.
+
+For an allowlisted relay, NewAPI also forwards a valid client-provided
+conversation header as `X-Session-Id`. This header is a selector within the
+verified user and token identity, not a signed identity claim. Requests without
+an explicit conversation header cannot acquire a persistent Cyber session block.
+`prompt_cache_key` and request text are not conversation identifiers.
+
+NewAPI's 60-second Cyber cooldown uses the same original client conversation
+header, scoped with the authenticated user and token IDs. Requests without a
+valid explicit conversation header have no persistent NewAPI cooldown. Older
+token-wide cooldown keys are not read. WebSocket `response.create` turns reuse
+the handshake's conversation header; a handshake without one cannot acquire a
+persistent cooldown.
 
 ## Receiver Contract
 

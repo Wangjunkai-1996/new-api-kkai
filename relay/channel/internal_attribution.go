@@ -2,11 +2,13 @@ package channel
 
 import (
 	"net/http"
+	"strings"
 
 	commonpkg "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/kkaiattribution"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,7 +29,13 @@ func applyInternalAttributionHeaders(req *http.Request, c *gin.Context, info *re
 	if req == nil {
 		return kkaiattribution.ErrInvalidEnvelope
 	}
-	_, err := internalAttributionSigner.ApplyRequest(req, internalAttributionClaims(c, info))
+	applied, err := internalAttributionSigner.ApplyRequest(req, internalAttributionClaims(c, info))
+	if applied {
+		req.Header.Del("X-Session-Id")
+		if sessionID := service.KKAIPolicyClientSessionID(c); sessionID != "" {
+			req.Header.Set("X-Session-Id", sessionID)
+		}
+	}
 	return err
 }
 
@@ -39,7 +47,18 @@ func applyInternalAttributionHeadersForURL(
 	c *gin.Context,
 	info *relaycommon.RelayInfo,
 ) error {
-	_, err := internalAttributionSigner.Apply(headers, method, upstreamURL, authority, internalAttributionClaims(c, info))
+	applied, err := internalAttributionSigner.Apply(headers, method, upstreamURL, authority, internalAttributionClaims(c, info))
+	if !applied && err == nil && strings.HasPrefix(upstreamURL, "wss://") {
+		applied, err = internalAttributionSigner.Apply(headers, method, "https://"+strings.TrimPrefix(upstreamURL, "wss://"), authority, internalAttributionClaims(c, info))
+	} else if !applied && err == nil && strings.HasPrefix(upstreamURL, "ws://") {
+		applied, err = internalAttributionSigner.Apply(headers, method, "http://"+strings.TrimPrefix(upstreamURL, "ws://"), authority, internalAttributionClaims(c, info))
+	}
+	if applied {
+		headers.Del("X-Session-Id")
+		if sessionID := service.KKAIPolicyClientSessionID(c); sessionID != "" {
+			headers.Set("X-Session-Id", sessionID)
+		}
+	}
 	return err
 }
 
