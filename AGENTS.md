@@ -13,9 +13,11 @@ blue-green slots, rollback, or `api.kkrich.ltd`:
 
 1. Read `/Users/tokk/Documents/Codex/runbooks/newapi-upgrade-and-deployment.md`.
    It defines the normal fast path and when exceptional runbooks are required.
-2. Use the infrastructure checkout explicitly selected by the user and verify
-   that it contains the documented status and manual deployment scripts. Never
-   scan or compare historical clones during a release.
+2. Prefer the infrastructure checkout explicitly selected by the user. If none
+   is specified, check only `../kkai-infra` beside the confirmed application
+   checkout. Use it when it is a Git root with the documented status and manual
+   deployment scripts; ask only if it is absent, invalid, or conflicts with an
+   explicit selection. Never scan or compare historical clones during a release.
 3. From that confirmed checkout, run `make newapi-status` once before treating
    the production version, active slot, or basic health as current. Never reuse
    mutable production state from an old chat.
