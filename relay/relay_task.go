@@ -514,6 +514,11 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 		return result, markTaskSubmissionUnknown(task, fmt.Errorf("read successful upstream response: %w", readErr))
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(responseBody))
+	if taskSubmissionBalanceRejected(responseBody) {
+		taskErr := service.TaskErrorWrapperUpstream(errors.New(string(responseBody)), "upstream_insufficient_balance", resp.StatusCode)
+		taskErr.StatusCode = http.StatusPaymentRequired
+		return result, rejectParsedTaskError(task, result, taskErr)
+	}
 	if policyErr := embeddedTaskPolicyError(resp.StatusCode, responseBody); policyErr != nil {
 		return result, rejectParsedTaskError(task, result, policyErr)
 	}

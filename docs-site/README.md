@@ -26,6 +26,12 @@ The production base path is always `/docs/`. A build writes to
 `bun run recover:production` refreshes mechanically recovered pages and public
 assets from the live site. It deliberately skips these maintained pages:
 
+- `docs/index.md`
+- `docs/apps/index.md`
+- `docs/apps/image2.md`
+- `docs/apps/codex-image.md`
+- `docs/api/index.md`
+- `docs/api/image-generation.md`
 - `docs/apps/seedance.md`
 - `docs/api/video-generation.md`
 - `docs/support/seedance-video.md`
@@ -35,7 +41,7 @@ current production rendering.
 
 ## Production note
 
-The live static `docs/` directory also contains a separately managed subscription
-YAML file. A production candidate must preserve that file byte-for-byte, including
-its owner, mode, and hash. Building this package does not authorize or perform a
-production deployment.
+The live static `docs/` directory may contain a separately managed subscription
+YAML file. When present, a production candidate must preserve that file
+byte-for-byte, including its owner, mode, and hash. Building this package does
+not authorize or perform a production deployment.

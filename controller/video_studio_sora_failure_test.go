@@ -27,6 +27,23 @@ import (
 )
 
 func TestVideoStudioSoraHTTPRejectionRefundsWalletAndFailsGeneration(t *testing.T) {
+	for _, test := range []struct {
+		name, body, code   string
+		status, wantStatus int
+	}{
+		{"invalid request", `{"error":{"message":"strict adapter rejection","type":"invalid_request_error","code":"invalid_request"}}`, "fail_to_fetch_task", 400, 400},
+		{"adapter balance rejection", `{"error":{"code":"upstream_insufficient_balance"}}`, "upstream_insufficient_balance", 402, 402},
+		{"balance error inside success", `{"error":{"message":"用户余额不足","code":"insufficient_balance"}}`, "upstream_insufficient_balance", 200, 402},
+		{"balance error inside server failure", `{"error":{"code":"insufficient_quota"}}`, "upstream_insufficient_balance", 500, 402},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testVideoStudioSoraRejectionRefund(t, test.status, test.body, test.wantStatus, test.code)
+		})
+	}
+}
+
+func testVideoStudioSoraRejectionRefund(t *testing.T, status int, payload string, wantStatus int, wantCode string) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
 
@@ -141,8 +158,8 @@ func TestVideoStudioSoraHTTPRejectionRefundsWalletAndFailsGeneration(t *testing.
 		}
 		observed <- observation
 		writer.Header().Set("Content-Type", "application/json")
-		writer.WriteHeader(http.StatusBadRequest)
-		_, _ = writer.Write([]byte(`{"error":{"message":"strict adapter rejection","type":"invalid_request_error","code":"invalid_request"}}`))
+		writer.WriteHeader(status)
+		_, _ = writer.Write([]byte(payload))
 	}))
 	t.Cleanup(upstream.Close)
 
@@ -196,8 +213,8 @@ func TestVideoStudioSoraHTTPRejectionRefundsWalletAndFailsGeneration(t *testing.
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 
-	assert.Equal(t, http.StatusBadRequest, response.Code)
-	assert.Contains(t, response.Body.String(), "fail_to_fetch_task")
+	assert.Equal(t, wantStatus, response.Code)
+	assert.Contains(t, response.Body.String(), wantCode)
 	observation := <-observed
 	require.NoError(t, observation.decodeErr)
 	assert.Equal(t, http.MethodPost, observation.method)

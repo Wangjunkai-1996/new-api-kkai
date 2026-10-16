@@ -20,6 +20,53 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestSubmitPreparedTaskDistinguishesBalanceRejectionFromUncertainAcceptance(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		reject bool
+	}{
+		{"embedded balance code", 200, `{"error":{"code":"insufficient_balance"}}`, true},
+		{"server status with quota rejection", 500, `{"error":{"code":"insufficient_quota"}}`, true},
+		{"explicit balance message", 500, `{"error":{"message":"用户余额不足"}}`, true},
+		{"adapter balance rejection", 402, `{"error":{"code":"upstream_insufficient_balance"}}`, true},
+		{"observed uncertain adapter response", 504, `{"error":{"message":"upstream submission did not return a valid task","type":"upstream_error","code":"upstream_submit_uncertain"}}`, false},
+		{"balance mentioned in uncertain diagnostic", 500, `{"error":{"message":"timeout checking insufficient balance"}}`, false},
+		{"accepted identity with balance error", 500, `{"id":"accepted-task","error":{"code":"insufficient_balance"}}`, false},
+		{"nested task data with balance error", 500, `{"data":{"id":"accepted-task"},"error":{"code":"insufficient_balance"}}`, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupTaskReliabilityDB(t)
+			_, ctx, info := newTaskReliabilityContext(t)
+			adaptor := &reliabilityTaskAdaptor{
+				doRequest: func(_ *gin.Context, _ *relaycommon.RelayInfo, _ io.Reader) (*http.Response, error) {
+					return &http.Response{StatusCode: test.status, Body: io.NopCloser(strings.NewReader(test.body))}, nil
+				},
+				doResponse: func(_ *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (*channel.TaskSubmitResponse, *dto.TaskError) {
+					t.Fatal("submission classification must precede the plugin parser")
+					return nil, nil
+				},
+			}
+			result, taskErr := submitPreparedTask(ctx, info, adaptor, constant.TaskPlatform("reliability"), nil)
+			require.NotNil(t, taskErr)
+			require.NotNil(t, result)
+			assert.Equal(t, test.reject, result.CanRefund())
+			assert.Equal(t, test.reject, result.CanRetry())
+			var persisted model.Task
+			require.NoError(t, model.DB.Where("task_id = ?", info.PublicTaskID).First(&persisted).Error)
+			if test.reject {
+				assert.Equal(t, TaskSubmitRejected, result.Outcome)
+				assert.Equal(t, model.TaskBillingStateReserved, persisted.PrivateData.BillingState)
+			} else {
+				assert.Equal(t, TaskSubmitUnknown, result.Outcome)
+				assert.Equal(t, model.TaskBillingStateAmbiguous, persisted.PrivateData.BillingState)
+			}
+		})
+	}
+}
+
 func TestSubmitPreparedTaskTreatsAuditUnavailableAsDefinitivePolicyRejection(t *testing.T) {
 	setupTaskReliabilityDB(t)
 	_, ctx, info := newTaskReliabilityContext(t)

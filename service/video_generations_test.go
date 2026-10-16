@@ -19,6 +19,28 @@ func TestVideoGenerationStatusKeepsUnknownTaskPollable(t *testing.T) {
 	require.Equal(t, "processing", videoGenerationStatus(task, nil))
 }
 
+func TestGetVideoGenerationStopsPollingFinishedUnknownSubmission(t *testing.T) {
+	db := newVideoGenerationTestDB(t)
+	now := time.Now().Unix()
+	task := model.Task{
+		TaskID: "unknown-submission", UserId: 7, Status: model.TaskStatusUnknown,
+		Progress: "100%", FinishTime: now, FailReason: "task submission outcome is unknown",
+		CreatedAt: now, UpdatedAt: now, Quota: 321,
+	}
+	require.NoError(t, db.Create(&task).Error)
+	generation := model.KKAIVideoGeneration{
+		UserID: 7, TaskID: task.ID, ModelProfileID: 1, Model: "model", Mode: VideoModeTextToVideo,
+		Prompt: "prompt", Parameters: `{}`, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&generation).Error)
+
+	view, err := GetVideoGeneration(t.Context(), db, 7, generation.ID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", view.Status)
+	require.Equal(t, model.AssetHostedTaskPublicFailureReason, view.FailureReason)
+	require.Equal(t, task.Quota, view.Quota, "displaying a terminal outcome must not alter billing")
+}
+
 func TestDeleteVideoGenerationIsIdempotentForSameOwner(t *testing.T) {
 	db := newVideoPipelineTestDB(t)
 	now := time.Now().Unix()

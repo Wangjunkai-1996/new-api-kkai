@@ -15,6 +15,12 @@ from pathlib import Path
 ORIGIN = "https://api.kkrich.ltd"
 BASE_PATH = "/docs/"
 CURATED_PATHS = {
+    "index.md",
+    "apps/index.md",
+    "apps/image2.md",
+    "apps/codex-image.md",
+    "api/index.md",
+    "api/image-generation.md",
     "apps/seedance.md",
     "api/video-generation.md",
     "support/seedance-video.md",

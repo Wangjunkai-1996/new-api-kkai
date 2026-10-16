@@ -367,6 +367,9 @@ func videoGenerationStatus(task model.Task, output *model.KKAIVideoAsset) string
 	case model.TaskStatusFailure:
 		return "failed"
 	case model.TaskStatusUnknown:
+		if task.FinishTime > 0 {
+			return "failed"
+		}
 		return "processing"
 	case model.TaskStatusSuccess:
 		if output == nil {

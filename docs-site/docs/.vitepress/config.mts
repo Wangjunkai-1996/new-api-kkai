@@ -76,8 +76,9 @@ export default defineConfig({
           text: '生成能力',
           collapsed: false,
           items: [
-            { text: 'Seedance 视频（2.0 / 2.5）', link: '/apps/seedance' },
-            { text: 'image2 生图入门', link: '/apps/image2' }
+            { text: '用 Codex 生图', link: '/apps/codex-image' },
+            { text: 'Cherry Studio 生图', link: '/apps/image2' },
+            { text: 'Seedance 视频（2.0 / 2.5）', link: '/apps/seedance' }
           ]
         },
         {
@@ -144,6 +145,7 @@ export default defineConfig({
           text: '生成接口',
           collapsed: false,
           items: [
+            { text: '图片生成', link: '/api/image-generation' },
             { text: 'Seedance 视频生成', link: '/api/video-generation' }
           ]
         },
