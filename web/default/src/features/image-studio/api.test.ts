@@ -18,10 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
 
-import { buildImageEditFormData } from './api'
+import { api } from '@/lib/api'
+
+import {
+  buildImageEditFormData,
+  createAsyncImageGeneration,
+  lookupImageSubmission,
+  quoteAsyncImageGeneration,
+} from './api'
 import type { CreateImageEditRequest } from './types'
+
+vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 
 describe('image edit transport', () => {
   test('sends the legacy reference field for one image', () => {
@@ -85,5 +94,85 @@ describe('image edit transport', () => {
         new Uint8Array(await images[index].arrayBuffer())
       )
     }
+  })
+})
+
+describe('durable image submissions', () => {
+  test('looks up a receipt without replaying files or creating a request', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: { state: 'not_found' } },
+    })
+    expect(await lookupImageSubmission('receipt-key')).toEqual({
+      state: 'not_found',
+    })
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/image-studio/submissions/lookup',
+      {
+        headers: { 'Idempotency-Key': 'receipt-key' },
+        disableDuplicate: true,
+        skipErrorHandler: true,
+      }
+    )
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  test('quotes ready assets and submits only their ordered IDs with the receipt key', async () => {
+    const quote = {
+      quota: 5,
+      display_amount: '$0.05',
+      quote_token: 'quote',
+      expires_at: 1234,
+    }
+    const generation = {
+      id: 1,
+      model_profile_id: 1,
+      specification_version: 1,
+      model: 'gpt-image-2',
+      prompt: 'edit',
+      parameters: {},
+      request_id: 'request',
+      status: 'submitting',
+      requested_count: 1,
+      succeeded_count: 0,
+      final_quota: 0,
+      started_at: 0,
+      finished_at: 0,
+      created_at: 1,
+      assets: [],
+    }
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({ data: { success: true, data: quote } })
+      .mockResolvedValueOnce({ data: { success: true, data: generation } })
+    const request = {
+      token_id: 11,
+      model: 'gpt-image-2',
+      prompt: 'edit',
+      parameters: {},
+      mode: 'edit' as const,
+      asset_ids: [8, 3],
+    }
+    expect(await quoteAsyncImageGeneration(request)).toEqual(quote)
+    expect(
+      await createAsyncImageGeneration(
+        { ...request, quote_token: quote.quote_token },
+        'receipt-key'
+      )
+    ).toEqual(generation)
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/image-studio/generations',
+      { ...request, quote_token: 'quote' },
+      {
+        headers: { 'Idempotency-Key': 'receipt-key' },
+        skipErrorHandler: true,
+      }
+    )
+  })
+
+  test('rejects a found receipt without its generation instead of allowing resubmission', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: { state: 'found' } },
+    })
+    await expect(lookupImageSubmission('receipt-key')).rejects.toThrow()
+    expect(api.post).not.toHaveBeenCalled()
   })
 })

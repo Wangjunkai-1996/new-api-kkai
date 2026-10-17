@@ -156,6 +156,8 @@ const imageTokenCapabilityFields = {
   has_usable_token: z.boolean(),
   can_create: z.boolean(),
   effective_models: z.array(z.string()),
+  async_submission_enabled: z.boolean().optional(),
+  async_models: z.array(z.string()).optional(),
   max_reference_bytes: z
     .number()
     .int()

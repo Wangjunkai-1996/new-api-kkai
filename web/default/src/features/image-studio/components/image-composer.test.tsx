@@ -49,6 +49,23 @@ const mocks = vi.hoisted(() => ({
     variables: undefined as GenerationVariables | undefined,
     mutateAsync: vi.fn(),
   },
+  asyncMutation: { isPending: false, mutateAsync: vi.fn() },
+  asyncQuoteFailed: false,
+  directReferences: {
+    assetIds: [31],
+    ready: true,
+    processing: false,
+    error: null,
+    progress: { phase: 'uploading', progress: 0 },
+    retry: vi.fn(),
+  },
+  pendingSubmissions: [] as Array<{
+    idempotencyKey: string
+    requestFingerprint: string
+    expiresAt: number
+    submittedAt: number
+  }>,
+  lookup: vi.fn(),
   editMutation: {
     isPending: false,
     mutateAsync: vi.fn(),
@@ -69,6 +86,21 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../queries', () => ({
+  useCreateAsyncImageGeneration: () => mocks.asyncMutation,
+  useAsyncImageQuote: (request: unknown) => ({
+    data:
+      request && !mocks.asyncQuoteFailed
+        ? {
+            quota: 1,
+            display_amount: '$0.01',
+            quote_token: 'async-quote',
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          }
+        : undefined,
+    isFetching: false,
+    isError: Boolean(request) && mocks.asyncQuoteFailed,
+    refetch: vi.fn(),
+  }),
   useImageModels: () => ({ data: mocks.models, isLoading: false }),
   useCreateImageGeneration: () => mocks.generationMutation,
   useCreateImageEdit: () => mocks.editMutation,
@@ -108,12 +140,24 @@ vi.mock('../queries', () => ({
   },
 }))
 
+vi.mock('../api', () => ({
+  lookupImageSubmission: (...args: unknown[]) => mocks.lookup(...args),
+}))
+vi.mock('../hooks/use-image-direct-references', () => ({
+  useImageDirectReferences: () => mocks.directReferences,
+}))
+vi.mock('./image-submission-recovery', () => ({
+  ImageSubmissionRecovery: () => null,
+}))
+
 vi.mock('../hooks/use-image-references', () => ({
   useImageReferences: () => mocks.reference,
 }))
 
 vi.mock('@/stores/image-studio-draft-store', () => ({
   clearImageStudioSubmissionKey: vi.fn(),
+  listPendingImageStudioSubmissions: () => mocks.pendingSubmissions,
+  markImageStudioSubmissionStarted: vi.fn(() => true),
   getOrCreateImageStudioSubmissionKey: vi.fn(() => 'submission-key'),
   useImageStudioDraftStore: (
     selector: (state: typeof mocks.draftState) => unknown
@@ -192,6 +236,14 @@ describe('image composer', () => {
       username: 'image-studio-test',
       role: 1,
     })
+    mocks.pendingSubmissions = []
+    mocks.asyncMutation.mutateAsync.mockReset()
+    mocks.generationMutation.mutateAsync.mockReset()
+    mocks.editMutation.mutateAsync.mockReset()
+    mocks.asyncQuoteFailed = false
+    mocks.lookup.mockReset()
+    mocks.directReferences.ready = true
+    mocks.directReferences.processing = false
     mocks.models = [profile()]
     mocks.draftState.draft = null
     mocks.editQuoteRequest = null
@@ -202,6 +254,141 @@ describe('image composer', () => {
     mocks.reference.files = []
     mocks.reference.processing = false
     mocks.reference.clear.mockClear()
+  })
+
+  test('uses small JSON with ready reference IDs for every enabled user', async () => {
+    const user = userEvent.setup()
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
+    mocks.reference.files = [
+      new File(['reference'], 'reference.png', { type: 'image/png' }),
+    ]
+    const generation = { id: 31, status: 'submitting' }
+    mocks.asyncMutation.mutateAsync.mockResolvedValue(generation)
+    const onSubmitted = vi.fn()
+    if (!tokenGate.capability) throw new Error('Missing test capability')
+    const enabledGate = {
+      ...tokenGate,
+      capability: {
+        ...tokenGate.capability,
+        async_submission_enabled: true,
+        async_models: ['gpt-image-2'],
+      },
+    }
+    render(<ImageComposer tokenGate={enabledGate} onSubmitted={onSubmitted} />)
+    await user.type(
+      await screen.findByLabelText('Prompt'),
+      'Edit asynchronously'
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Edit image' })).toBeEnabled()
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit image' }))
+    await waitFor(() =>
+      expect(mocks.asyncMutation.mutateAsync).toHaveBeenCalledWith({
+        request: {
+          token_id: 11,
+          model: 'gpt-image-2',
+          prompt: 'Edit asynchronously',
+          parameters: { variants: 1 },
+          mode: 'edit',
+          asset_ids: [31],
+          quote_token: 'async-quote',
+        },
+        idempotencyKey: 'submission-key',
+      })
+    )
+    expect(onSubmitted).toHaveBeenCalledWith(generation)
+  })
+
+  test('looks up an uncertain submission without sending another image request', async () => {
+    const user = userEvent.setup()
+    mocks.pendingSubmissions = [
+      {
+        idempotencyKey: 'submission-key',
+        requestFingerprint: 'a'.repeat(64),
+        expiresAt: 1,
+        submittedAt: 1,
+      },
+    ]
+    mocks.lookup.mockResolvedValue({ state: 'not_found' })
+    const priorCalls = mocks.generationMutation.mutateAsync.mock.calls.length
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+    await user.type(
+      await screen.findByLabelText('Prompt'),
+      'Find existing request'
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Generate 1 image' })
+      ).toBeEnabled()
+    )
+    await user.click(screen.getByRole('button', { name: 'Generate 1 image' }))
+    await waitFor(() =>
+      expect(mocks.lookup).toHaveBeenCalledWith('submission-key')
+    )
+    expect(mocks.generationMutation.mutateAsync.mock.calls.length).toBe(
+      priorCalls
+    )
+    expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  test('keeps the legacy edit transport when the selected model does not support async', async () => {
+    const user = userEvent.setup()
+    if (!tokenGate.capability) throw new Error('Missing test capability')
+    const enabledGate = {
+      ...tokenGate,
+      capability: {
+        ...tokenGate.capability,
+        async_submission_enabled: true,
+        async_models: ['another-model'],
+      },
+    }
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
+    mocks.reference.files = [
+      new File(['reference'], 'reference.png', { type: 'image/png' }),
+    ]
+    mocks.editMutation.mutateAsync.mockResolvedValue({
+      id: 9,
+      status: 'submitting',
+    })
+    render(<ImageComposer tokenGate={enabledGate} onSubmitted={vi.fn()} />)
+    await user.type(
+      await screen.findByLabelText('Prompt'),
+      'Keep compatibility'
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Edit image' })).toBeEnabled()
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit image' }))
+    await waitFor(() =>
+      expect(mocks.editMutation.mutateAsync).toHaveBeenCalledOnce()
+    )
+    expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  test('blocks a failed async quote without silently submitting through legacy transport', async () => {
+    const user = userEvent.setup()
+    if (!tokenGate.capability) throw new Error('Missing test capability')
+    const enabledGate = {
+      ...tokenGate,
+      capability: {
+        ...tokenGate.capability,
+        async_submission_enabled: true,
+        async_models: ['gpt-image-2'],
+      },
+    }
+    mocks.asyncQuoteFailed = true
+    render(<ImageComposer tokenGate={enabledGate} onSubmitted={vi.fn()} />)
+    await user.type(await screen.findByLabelText('Prompt'), 'No quote yet')
+    await screen.findByText(/Price unavailable/)
+    expect(
+      screen.getByRole('button', { name: 'Generate 1 image' })
+    ).toBeDisabled()
+    expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(mocks.editMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
   })
 
   test('shows the count for one image and updates button and price for four', async () => {

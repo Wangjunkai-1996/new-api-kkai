@@ -32,9 +32,12 @@ import {
 } from './schemas'
 import type {
   CreateImageEditRequest,
+  CreateAsyncImageRequest,
   CreateImageRequest,
   CursorPage,
   ImageEditQuoteRequest,
+  ImageAsyncQuoteRequest,
+  ImageSubmissionLookup,
   ImageAsset,
   ImageGeneration,
   ImageGenerationStatus,
@@ -54,7 +57,9 @@ type ApiEnvelope<T> = {
   data?: T
 }
 
-const unwrapImageStudioResponse = <T>(payload: T | ApiEnvelope<T>): T => {
+export const unwrapImageStudioResponse = <T>(
+  payload: T | ApiEnvelope<T>
+): T => {
   if (
     payload &&
     typeof payload === 'object' &&
@@ -160,6 +165,41 @@ export const quoteImageEdit = async (
   )
 }
 
+export const quoteAsyncImageGeneration = async (
+  request: ImageAsyncQuoteRequest
+): Promise<ImageQuote> => {
+  const response = await api.post(
+    '/api/image-studio/generations/quote',
+    request,
+    {
+      skipErrorHandler: true,
+    }
+  )
+  return imageQuoteSchema.parse(
+    unwrapImageStudioResponse<unknown>(response.data)
+  )
+}
+
+export const lookupImageSubmission = async (
+  idempotencyKey: string
+): Promise<ImageSubmissionLookup> => {
+  const response = await api.get('/api/image-studio/submissions/lookup', {
+    headers: { 'Idempotency-Key': idempotencyKey },
+    disableDuplicate: true,
+    skipErrorHandler: true,
+  })
+  return z
+    .discriminatedUnion('state', [
+      z.object({ state: z.literal('not_found') }),
+      z.object({ state: z.literal('pending') }),
+      z.object({
+        state: z.literal('found'),
+        generation: imageGenerationSchema,
+      }),
+    ])
+    .parse(unwrapImageStudioResponse<unknown>(response.data))
+}
+
 const submitImageStudioRequest = async (
   path: string,
   body: CreateImageRequest | FormData,
@@ -188,6 +228,16 @@ export const createImageGeneration = async (
   idempotencyKey: string
 ): Promise<ImageGeneration> =>
   submitImageStudioRequest('/pg/images', request, idempotencyKey)
+
+export const createAsyncImageGeneration = async (
+  request: CreateAsyncImageRequest,
+  idempotencyKey: string
+): Promise<ImageGeneration> =>
+  submitImageStudioRequest(
+    '/api/image-studio/generations',
+    request,
+    idempotencyKey
+  )
 
 export const buildImageEditFormData = (
   request: CreateImageEditRequest,

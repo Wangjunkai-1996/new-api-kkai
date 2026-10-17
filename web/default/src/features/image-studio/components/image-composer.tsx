@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { isAxiosError } from 'axios'
 import { Images, LoaderCircle, Pencil, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
@@ -40,10 +41,14 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   clearImageStudioSubmissionKey,
   getOrCreateImageStudioSubmissionKey,
+  listPendingImageStudioSubmissions,
+  markImageStudioSubmissionStarted,
   useImageStudioDraftStore,
 } from '@/stores/image-studio-draft-store'
 
+import { lookupImageSubmission } from '../api'
 import { useImageComposerSchema } from '../hooks/use-image-composer-schema'
+import { useImageDirectReferences } from '../hooks/use-image-direct-references'
 import { useImageEditReferences } from '../hooks/use-image-edit-references'
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import {
@@ -65,6 +70,8 @@ import {
   parseImageParameters,
 } from '../image-parameters'
 import {
+  useCreateAsyncImageGeneration,
+  useAsyncImageQuote,
   useCreateImageEdit,
   useCreateImageGeneration,
   useImageEditQuote,
@@ -73,6 +80,7 @@ import {
 } from '../queries'
 import { imageComposerSchema } from '../schemas'
 import type {
+  ImageAsyncQuoteRequest,
   ImageComposerValues,
   ImageEditQuoteRequest,
   ImageGeneration,
@@ -83,6 +91,7 @@ import type {
 import { ImageOutputQuantityField } from './image-output-quantity-field'
 import { ImageParameterFields } from './image-parameter-fields'
 import { ImageReferenceField } from './image-reference-field'
+import { ImageSubmissionRecovery } from './image-submission-recovery'
 import { ImageTokenSetupDialog } from './image-token-setup-dialog'
 
 const EMPTY_VALUES: ImageComposerValues = {
@@ -126,6 +135,9 @@ export function ImageComposer(props: {
   const clearDraft = useImageStudioDraftStore((state) => state.clear)
   const modelsQuery = useImageModels(props.tokenGate.tokenId)
   const generationMutation = useCreateImageGeneration()
+  const asyncMutation = useCreateAsyncImageGeneration()
+  const [submissionRevision, setSubmissionRevision] = useState(0)
+  const [checkingSubmission, setCheckingSubmission] = useState(false)
   const editMutation = useCreateImageEdit()
   const composerSchema = useImageComposerSchema(modelsQuery.data)
   const form = useForm<ImageComposerValues>({
@@ -143,6 +155,17 @@ export function ImageComposer(props: {
   )
   const { maxImages: maxReferenceImages, references: reference } =
     useImageEditReferences(selectedProfile, props.tokenGate.capability)
+  const asyncEnabled = Boolean(
+    props.tokenGate.capability?.async_submission_enabled &&
+    selectedProfile &&
+    props.tokenGate.capability.async_models?.includes(selectedProfile.model)
+  )
+  const directReferences = useImageDirectReferences({
+    enabled: asyncEnabled && mode === 'edit',
+    userId,
+    files: reference.files,
+    metadata: reference.metadata,
+  })
   const outputParameter = selectedProfile
     ? getImageOutputParameter(selectedProfile)
     : undefined
@@ -241,7 +264,7 @@ export function ImageComposer(props: {
   }, [clearDraft, composerSchema, form, mode, saveDraft, userId, values])
 
   const quoteRequest = useMemo<
-    ImageQuoteRequest | ImageEditQuoteRequest | null
+    ImageQuoteRequest | ImageEditQuoteRequest | ImageAsyncQuoteRequest | null
   >(() => {
     if (!props.tokenGate.tokenId || !selectedProfile) return null
     const parsed = imageComposerSchema.safeParse(values)
@@ -262,9 +285,20 @@ export function ImageComposer(props: {
       parameters: requestParameters,
       sample_id: parsed.data.sample_id,
     }
+    if (asyncEnabled) {
+      if (mode === 'edit' && !directReferences.ready) return null
+      return {
+        ...request,
+        mode,
+        asset_ids: mode === 'edit' ? directReferences.assetIds : [],
+      }
+    }
     if (mode === 'generation') return request
     return buildImageEditQuoteRequest(request, reference.metadata)
   }, [
+    asyncEnabled,
+    directReferences.assetIds,
+    directReferences.ready,
     mode,
     outputParameterKey,
     props.tokenGate.tokenId,
@@ -276,14 +310,22 @@ export function ImageComposer(props: {
   const debouncedIsEdit =
     debouncedRequest !== null && isImageEditQuoteRequest(debouncedRequest)
   const generationQuoteQuery = useImageQuote(
-    mode === 'generation' && !debouncedIsEdit ? debouncedRequest : null
+    !asyncEnabled && mode === 'generation' && !debouncedIsEdit
+      ? debouncedRequest
+      : null
   )
   const editQuoteQuery = useImageEditQuote(
-    mode === 'edit' && debouncedIsEdit
+    !asyncEnabled && mode === 'edit' && debouncedIsEdit
       ? (debouncedRequest as ImageEditQuoteRequest)
       : null
   )
-  const quoteQuery = mode === 'edit' ? editQuoteQuery : generationQuoteQuery
+  const asyncQuoteQuery = useAsyncImageQuote(
+    asyncEnabled && debouncedRequest && 'asset_ids' in debouncedRequest
+      ? debouncedRequest
+      : null
+  )
+  let quoteQuery = mode === 'edit' ? editQuoteQuery : generationQuoteQuery
+  if (asyncEnabled) quoteQuery = asyncQuoteQuery
   const quoteMatchesRequest =
     debouncedRequest !== null &&
     quoteRequest !== null &&
@@ -293,7 +335,12 @@ export function ImageComposer(props: {
     quoteMatchesRequest && quoteQuery.data?.quote_token !== staleQuoteToken
       ? quoteQuery.data
       : undefined
-  const submitPending = editMutation.isPending || generationMutation.isPending
+  const submitPending =
+    editMutation.isPending ||
+    generationMutation.isPending ||
+    asyncMutation.isPending ||
+    checkingSubmission ||
+    form.formState.isSubmitting
   let quoteDisplay = '—'
   let quoteBusy = false
   if (quoteRequest && (!quoteMatchesRequest || quoteQuery.isFetching)) {
@@ -334,19 +381,28 @@ export function ImageComposer(props: {
     if (!quoteRequest || !currentQuote) return
     if (
       mode === 'edit' &&
-      (reference.files.length === 0 || !isImageEditQuoteRequest(quoteRequest))
+      (reference.files.length === 0 ||
+        (!asyncEnabled && !isImageEditQuoteRequest(quoteRequest)))
     ) {
       return
     }
     let quote = currentQuote
-    if (isImageQuoteExpiring(quote.expires_at)) {
-      const refreshed = await quoteQuery.refetch()
-      if (!refreshed.data) return
-      quote = refreshed.data
-    }
     let requestFingerprint: string
     try {
-      requestFingerprint = await imageSubmissionFingerprint(quoteRequest)
+      // Asset IDs can change after upload expiry; image content identifies the user's submission.
+      const identityRequest: ImageQuoteRequest = {
+        token_id: quoteRequest.token_id,
+        model: quoteRequest.model,
+        prompt: quoteRequest.prompt,
+        parameters: quoteRequest.parameters,
+        sample_id: quoteRequest.sample_id,
+      }
+      const identity =
+        mode === 'edit'
+          ? buildImageEditQuoteRequest(identityRequest, reference.metadata)
+          : identityRequest
+      if (!identity) return
+      requestFingerprint = await imageSubmissionFingerprint(identity)
     } catch {
       toast.error(
         mode === 'edit'
@@ -367,21 +423,60 @@ export function ImageComposer(props: {
       )
       return
     }
+    let sentSubmission = false
     try {
       let generation: ImageGeneration
-      if (isImageEditQuoteRequest(quoteRequest)) {
-        generation = await editMutation.mutateAsync({
-          request: buildCreateImageEditRequest(quoteRequest, quote),
-          images: reference.files,
-          idempotencyKey,
-        })
+      const existing = listPendingImageStudioSubmissions(userId).find(
+        (receipt) => receipt.idempotencyKey === idempotencyKey
+      )
+      if (existing) {
+        setCheckingSubmission(true)
+        const result = await lookupImageSubmission(idempotencyKey)
+        if (result.state !== 'found' || !result.generation) {
+          toast.info(
+            t(
+              'Your submission is still being checked. No new image request was sent.'
+            )
+          )
+          return
+        }
+        generation = result.generation
       } else {
-        generation = await generationMutation.mutateAsync({
-          request: buildCreateImageRequest(quoteRequest, quote),
-          idempotencyKey,
-        })
+        if (isImageQuoteExpiring(quote.expires_at)) {
+          const refreshed = await quoteQuery.refetch()
+          if (!refreshed.data) return
+          quote = refreshed.data
+        }
+        if (!markImageStudioSubmissionStarted(userId, requestFingerprint)) {
+          toast.error(
+            t(
+              'Unable to save the submission receipt. Allow browser storage and try again.'
+            )
+          )
+          return
+        }
+        sentSubmission = true
+        if (asyncEnabled && 'asset_ids' in quoteRequest) {
+          generation = await asyncMutation.mutateAsync({
+            request: { ...quoteRequest, quote_token: quote.quote_token },
+            idempotencyKey,
+          })
+        } else if (isImageEditQuoteRequest(quoteRequest)) {
+          generation = await editMutation.mutateAsync({
+            request: buildCreateImageEditRequest(quoteRequest, quote),
+            images: reference.files,
+            idempotencyKey,
+          })
+        } else {
+          generation = await generationMutation.mutateAsync({
+            request: buildCreateImageRequest(quoteRequest, quote),
+            idempotencyKey,
+          })
+        }
       }
-      clearImageStudioSubmissionKey(userId, requestFingerprint)
+      if (generation.status !== 'unknown') {
+        clearImageStudioSubmissionKey(userId, requestFingerprint)
+      }
       const resolution = resolveImageGenerationStatus(generation.status)
       if (resolution.outcome === 'failure') {
         toast.error(
@@ -401,7 +496,19 @@ export function ImageComposer(props: {
       }
       props.onSubmitted(generation)
     } catch (error) {
-      if (isImageQuoteStaleResponse(error)) {
+      const status = isAxiosError(error) ? error.response?.status : undefined
+      if (
+        sentSubmission &&
+        status &&
+        status >= 400 &&
+        status < 500 &&
+        status !== 408 &&
+        status !== 409
+      ) {
+        clearImageStudioSubmissionKey(userId, requestFingerprint)
+      }
+      if (sentSubmission && isImageQuoteStaleResponse(error)) {
+        clearImageStudioSubmissionKey(userId, requestFingerprint)
         setStaleQuoteToken(quote.quote_token)
         toast.error(t('imageStudio.quoteChanged'))
         await quoteQuery.refetch()
@@ -411,6 +518,9 @@ export function ImageComposer(props: {
       if (mode === 'edit') message = t('imageStudio.editSubmitFailed')
       if (error instanceof Error) message = error.message
       toast.error(message)
+    } finally {
+      setCheckingSubmission(false)
+      setSubmissionRevision((value) => value + 1)
     }
   })
 
@@ -446,6 +556,16 @@ export function ImageComposer(props: {
       />
     )
   }
+  if (asyncEnabled && directReferences.processing) {
+    submitLabel =
+      directReferences.progress.phase === 'validating'
+        ? t('Validating reference images...')
+        : t('Uploading reference images: {{progress}}%', {
+            progress: directReferences.progress.progress,
+          })
+  } else if (asyncEnabled && submitPending) {
+    submitLabel = t('Submitting image task...')
+  }
   let displayedQuote = quoteDisplay
   if (mode === 'generation') {
     displayedQuote = t('imageStudio.estimatedPriceForCount', {
@@ -462,6 +582,11 @@ export function ImageComposer(props: {
         noValidate
       >
         <div className='min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5'>
+          <ImageSubmissionRecovery
+            key={`${userId}:${submissionRevision}`}
+            userId={userId}
+            onRecovered={props.onSubmitted}
+          />
           {gateMessage && (
             <Alert variant='destructive'>
               <AlertTitle>{t('imageStudio.token.unavailable')}</AlertTitle>
@@ -553,6 +678,21 @@ export function ImageComposer(props: {
               disabled={submitPending || reference.processing}
             />
           )}
+          {asyncEnabled && mode === 'edit' && directReferences.error && (
+            <Alert variant='destructive'>
+              <AlertDescription>
+                <p>{directReferences.error}</p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={directReferences.retry}
+                >
+                  {t('Retry upload')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           <FormField
             control={form.control}
             name='prompt'
@@ -608,6 +748,7 @@ export function ImageComposer(props: {
               !currentQuote ||
               quoteQuery.isFetching ||
               reference.processing ||
+              directReferences.processing ||
               submitPending
             }
           >

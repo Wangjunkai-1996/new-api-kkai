@@ -24,6 +24,8 @@ import type { ImageComposerValues } from '@/features/image-studio/types'
 import {
   clearImageStudioSubmissionKey,
   getOrCreateImageStudioSubmissionKey,
+  listPendingImageStudioSubmissions,
+  markImageStudioSubmissionStarted,
   useImageStudioDraftStore,
 } from '@/stores/image-studio-draft-store'
 
@@ -133,6 +135,28 @@ describe('Image Studio draft user isolation', () => {
       getOrCreateImageStudioSubmissionKey(22, firstFingerprint),
       firstKey
     )
+  })
+
+  test('retains unresolved submission receipts beyond upload expiry without storing request contents', () => {
+    const fingerprint = 'f'.repeat(64)
+    const key = getOrCreateImageStudioSubmissionKey(11, fingerprint)
+    assert.ok(key)
+    assert.equal(markImageStudioSubmissionStarted(11, fingerprint), true)
+    const storageKey = `image-studio-pending:user:11:request:${fingerprint}`
+    const storedReceipt = storage.getItem(storageKey)
+    assert.ok(storedReceipt)
+    const receipt = JSON.parse(storedReceipt)
+    storage.setItem(storageKey, JSON.stringify({ ...receipt, expiresAt: 1 }))
+    assert.equal(getOrCreateImageStudioSubmissionKey(11, fingerprint), key)
+    assert.deepEqual(listPendingImageStudioSubmissions(11), [
+      { ...receipt, expiresAt: 1, requestFingerprint: fingerprint },
+    ])
+    assert.deepEqual(listPendingImageStudioSubmissions(22), [])
+    assert.deepEqual(Object.keys(receipt).sort(), [
+      'expiresAt',
+      'idempotencyKey',
+      'submittedAt',
+    ])
   })
 
   test('clears only the acknowledged request key and replaces expired records', () => {

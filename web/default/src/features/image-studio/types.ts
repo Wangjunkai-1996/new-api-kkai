@@ -155,6 +155,8 @@ export type ImageTokenCapability = {
   has_usable_token: boolean
   can_create: boolean
   effective_models: string[]
+  async_submission_enabled?: boolean
+  async_models?: string[]
   max_reference_bytes: number
   max_reference_total_bytes: number
   status: ImageTokenStatus
@@ -204,6 +206,20 @@ export type CreateImageRequest = ImageQuoteRequest & {
 
 export type CreateImageEditRequest = ImageEditQuoteRequest & {
   quote_token: string
+}
+
+export type ImageAsyncQuoteRequest = ImageQuoteRequest & {
+  mode: ImageStudioComposerMode
+  asset_ids: number[]
+}
+
+export type CreateAsyncImageRequest = ImageAsyncQuoteRequest & {
+  quote_token: string
+}
+
+export type ImageSubmissionLookup = {
+  state: 'not_found' | 'pending' | 'found'
+  generation?: ImageGeneration
 }
 
 export type ImageComposerValues = {

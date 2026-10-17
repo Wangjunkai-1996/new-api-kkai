@@ -24,6 +24,7 @@ import type { ImageComposerValues } from '@/features/image-studio/types'
 type PendingImageStudioSubmission = {
   idempotencyKey: string
   expiresAt: number
+  submittedAt?: number
 }
 
 const pendingSubmissionTTL = 24 * 60 * 60 * 1000
@@ -56,7 +57,7 @@ const readPendingSubmission = (
       record.idempotencyKey.length > 128 ||
       typeof record.expiresAt !== 'number' ||
       !Number.isSafeInteger(record.expiresAt) ||
-      record.expiresAt <= now
+      (record.expiresAt <= now && typeof record.submittedAt !== 'number')
     ) {
       window.localStorage.removeItem(key)
       return null
@@ -64,6 +65,8 @@ const readPendingSubmission = (
     return {
       idempotencyKey: record.idempotencyKey,
       expiresAt: record.expiresAt,
+      submittedAt:
+        typeof record.submittedAt === 'number' ? record.submittedAt : undefined,
     }
   } catch {
     window.localStorage.removeItem(key)
@@ -130,6 +133,62 @@ export const clearImageStudioSubmissionKey = (
     )
   } catch {
     // A stale receipt is safer than losing recovery for an uncertain request.
+  }
+}
+
+export const listPendingImageStudioSubmissions = (
+  userId: number
+): Array<PendingImageStudioSubmission & { requestFingerprint: string }> => {
+  if (userId <= 0 || typeof window === 'undefined') return []
+  const pending: Array<
+    PendingImageStudioSubmission & { requestFingerprint: string }
+  > = []
+  try {
+    const prefix = pendingSubmissionPrefix(userId)
+    const keys: string[] = []
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index)
+      if (key?.startsWith(prefix)) keys.push(key)
+    }
+    for (const key of keys) {
+      const requestFingerprint = key.slice(prefix.length)
+      if (!requestFingerprintPattern.test(requestFingerprint)) continue
+      const receipt = readPendingSubmission(key, Date.now())
+      if (receipt?.submittedAt) pending.push({ ...receipt, requestFingerprint })
+    }
+  } catch {
+    // A storage failure must not create a new submission key.
+  }
+  return pending.sort(
+    (left, right) => (right.submittedAt ?? 0) - (left.submittedAt ?? 0)
+  )
+}
+
+export const markImageStudioSubmissionStarted = (
+  userId: number,
+  requestFingerprint: string
+): boolean => {
+  if (
+    userId <= 0 ||
+    !requestFingerprintPattern.test(requestFingerprint) ||
+    typeof window === 'undefined'
+  ) {
+    return false
+  }
+  try {
+    const key = pendingSubmissionStorageKey(userId, requestFingerprint)
+    const receipt = readPendingSubmission(key, Date.now())
+    if (!receipt) return false
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        ...receipt,
+        submittedAt: receipt.submittedAt ?? Date.now(),
+      })
+    )
+    return true
+  } catch {
+    return false
   }
 }
 

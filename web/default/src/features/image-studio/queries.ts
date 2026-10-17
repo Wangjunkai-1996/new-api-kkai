@@ -28,6 +28,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createImageEdit,
+  createAsyncImageGeneration,
   createImageGeneration,
   createImageToken,
   deleteAdminImageModel,
@@ -42,6 +43,7 @@ import {
   getImageSamples,
   getImageTokenCapability,
   quoteImageGeneration,
+  quoteAsyncImageGeneration,
   quoteImageEdit,
   saveAdminImageModel,
   saveAdminImageSample,
@@ -50,6 +52,8 @@ import {
 import { getImageGenerationPollInterval } from './image-domain'
 import type {
   CreateImageEditRequest,
+  CreateAsyncImageRequest,
+  ImageAsyncQuoteRequest,
   CreateImageRequest,
   ImageEditQuoteRequest,
   ImageGenerationStatus,
@@ -154,6 +158,38 @@ export const useImageEditQuote = (request: ImageEditQuoteRequest | null) => {
     queryFn: () => quoteImageEdit(request as ImageEditQuoteRequest),
     enabled: userId > 0 && request !== null,
     retry: false,
+  })
+}
+
+export const useAsyncImageQuote = (request: ImageAsyncQuoteRequest | null) => {
+  const userId = useImageStudioUserId()
+  return useQuery({
+    queryKey: privateUserQueryKey(
+      userId,
+      'image-studio',
+      'async-quote',
+      request
+    ),
+    queryFn: () => quoteAsyncImageGeneration(request as ImageAsyncQuoteRequest),
+    enabled: userId > 0 && request !== null,
+    retry: false,
+  })
+}
+
+export const useCreateAsyncImageGeneration = () => {
+  const queryClient = useQueryClient()
+  const userId = useImageStudioUserId()
+  return useMutation({
+    mutationFn: (input: {
+      request: CreateAsyncImageRequest
+      idempotencyKey: string
+    }) => createAsyncImageGeneration(input.request, input.idempotencyKey),
+    retry: false,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: privateUserQueryKey(userId, 'image-studio', 'generations'),
+      })
+    },
   })
 }
 

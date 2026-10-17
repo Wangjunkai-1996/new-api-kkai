@@ -24,6 +24,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { ImageAsyncSubmissionAdmin } from './admin/image-async-submission-admin'
 import { ImageModelAdmin } from './admin/image-model-admin'
 import { ImagePricingAdmin } from './admin/image-pricing-admin'
 import { ImageSampleAdmin } from './admin/image-sample-admin'
@@ -51,6 +52,7 @@ export function ImageAdminPage() {
       </SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
+          {isSuperAdmin && <ImageAsyncSubmissionAdmin />}
           <Tabs
             value={section}
             onValueChange={(value) => setSection(value as ImageAdminSection)}
