@@ -19,6 +19,7 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const keyRequestBodyReadError = "key_request_body_read_error"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 
@@ -34,6 +35,9 @@ func IsRequestBodyTooLargeError(err error) bool {
 }
 
 func GetRequestBody(c *gin.Context) (io.Seeker, error) {
+	if cached, exists := c.Get(keyRequestBodyReadError); exists {
+		return nil, cached.(error)
+	}
 	// 首先检查是否有 BodyStorage 缓存
 	if storage, exists := c.Get(KeyBodyStorage); exists && storage != nil {
 		if bs, ok := storage.(BodyStorage); ok {
@@ -71,8 +75,11 @@ func GetRequestBody(c *gin.Context) (io.Seeker, error) {
 
 	if err != nil {
 		if IsRequestBodyTooLargeError(err) {
-			return nil, errors.Wrap(ErrRequestBodyTooLarge, fmt.Sprintf("request body exceeds %d MB", maxMB))
+			err = errors.Wrap(ErrRequestBodyTooLarge, fmt.Sprintf("request body exceeds %d MB", maxMB))
 		}
+		// A failed read has already consumed and closed the incoming body.
+		// Preserve its error when another middleware asks for the same upload.
+		c.Set(keyRequestBodyReadError, err)
 		return nil, err
 	}
 

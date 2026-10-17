@@ -325,6 +325,10 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 
 		modelRequest, err := getModelFromRequest(c)
 		if err != nil {
+			if common.IsRequestBodyTooLargeError(err) {
+				abortWithOpenAiMessage(c, http.StatusRequestEntityTooLarge, err.Error())
+				return
+			}
 			if _, _, protocolPath := pluginruntime.LookupHostProtocolOperation(c.Request.Method, c.Request.URL.Path); protocolPath {
 				abortWithOpenAiMessage(c, http.StatusBadRequest, "Invalid task protocol request")
 				return

@@ -56,6 +56,8 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 				},
 			})
 			c.Request.Header.Del("Content-Encoding")
+			c.Request.Header.Del("Content-Length")
+			c.Request.ContentLength = -1
 		case "br":
 			reader := brotli.NewReader(origBody)
 			c.Request.Body = wrapMaxBytes(&readCloser{
@@ -65,6 +67,8 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 				},
 			})
 			c.Request.Header.Del("Content-Encoding")
+			c.Request.Header.Del("Content-Length")
+			c.Request.ContentLength = -1
 		default:
 			// Even for uncompressed bodies, enforce a max size to avoid huge request allocations.
 			c.Request.Body = wrapMaxBytes(origBody)
