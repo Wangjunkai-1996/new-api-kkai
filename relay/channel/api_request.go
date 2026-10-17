@@ -104,6 +104,10 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 		cancel()
 		return ctx, cancel
 	}
+	if info != nil && info.DurableImageExecution {
+		return context.WithCancel(parent)
+	}
+
 	drainTimeout := defaultUpstreamPolicyDrainTimeout
 	if isImageRelay(info) {
 		drainTimeout = imageUpstreamPolicyDrainTimeout

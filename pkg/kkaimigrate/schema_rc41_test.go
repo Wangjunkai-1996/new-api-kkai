@@ -109,7 +109,7 @@ func TestRC41ExpandPreservesDataAndProvisionsAuthenticationOnce(t *testing.T) {
 	require.NoError(t, db.First(&restored).Error)
 	require.Equal(t, "password", restored.Other.LoginMethod)
 	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, checkThroughVersion(context.Background(), db, RC41ArchitectureSchemaVersion, RC41ArchitectureSchemaVersion, KnownCatalogVersion))
 }
 
 func TestRC41ExpandPreservesLegacyMidjourneyBilling(t *testing.T) {
@@ -146,7 +146,7 @@ VALUES (1, 'legacy-task', 43, 120, 'SUCCESS')`).Error)
 	require.NoError(t, db.First(&restored, 1).Error)
 	assert.Equal(t, legacy, restored)
 	assert.Equal(t, 51, restored.GetBillingChannelId())
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, checkThroughVersion(context.Background(), db, RC41ArchitectureSchemaVersion, RC41ArchitectureSchemaVersion, KnownCatalogVersion))
 }
 
 func TestRC41AuthenticationWriteFailureDoesNotLogPrivateKey(t *testing.T) {

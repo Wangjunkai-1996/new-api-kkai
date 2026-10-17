@@ -68,6 +68,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	if currentVersion >= RC41ArchitectureSchemaVersion {
 		requirements = append(requirements, rc41ArchitectureRuntimeSchemaRequirements...)
 	}
+	if currentVersion >= ImageAsyncSchemaVersion {
+		requirements = append(requirements, imageAsyncRuntimeSchemaRequirements...)
+	}
 	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
@@ -107,9 +110,26 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		}
 	}
 	if currentVersion >= RC41ArchitectureSchemaVersion {
-		return validateRC41ArchitectureRuntimeSchema(db, dialect)
+		if err := validateRC41ArchitectureRuntimeSchema(db, dialect); err != nil {
+			return err
+		}
+	}
+	if currentVersion >= ImageAsyncSchemaVersion {
+		return validateRuntimeUniqueIndex(db, dialect, runtimeIndexRequirement{
+			Table: "kkai_image_reference_uploads", Name: "ux_image_reference_upload_key", Columns: []string{"owner_user_id", "upload_key"},
+		})
 	}
 	return nil
+}
+
+var imageAsyncRuntimeSchemaRequirements = []runtimeSchemaRequirement{
+	{Table: "kkai_image_reference_uploads", Columns: []string{
+		"asset_id", "owner_user_id", "upload_key", "upload_id", "upload_part_size", "upload_expires_at", "upload_manifest", "cleanup_at", "created_at", "updated_at",
+	}},
+	{Table: "kkai_image_executions", Columns: []string{
+		"generation_id", "state", "fence", "event_id", "payload", "dispatch_channel_id", "dispatch_started_at", "upstream_request_id", "queue_deadline_at", "execution_deadline_at", "recovery_deadline_at", "created_at", "updated_at",
+	}},
+	{Table: "kkai_image_generation_references", Columns: []string{"generation_id", "position", "asset_id", "created_at"}},
 }
 
 var videoStudioRuntimeSchemaRequirements = []runtimeSchemaRequirement{

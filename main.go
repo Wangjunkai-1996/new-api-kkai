@@ -111,6 +111,12 @@ func main() {
 
 	controller.RegisterScheduledSystemTasks()
 	backgroundWorker := backgroundWorkerID()
+	if common.CanRunWriteBackgroundJobs() {
+		if err := service.InitializeImageWorkerDrain(backgroundWorker, service.ImageWorkerStatusPath); err != nil {
+			common.FatalLog("failed to initialize image worker drain status: " + err.Error())
+			return
+		}
+	}
 	backgroundJobs, err := newApplicationBackgroundJobs(backgroundWorker)
 	if err != nil {
 		common.FatalLog("failed to configure background jobs: " + err.Error())
@@ -192,10 +198,44 @@ func main() {
 
 	common.LogStartupSuccess(startTime, port)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
+	quit := make(chan os.Signal, 4)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1, syscall.SIGUSR2)
+	defer signal.Stop(quit)
+shutdownSignals:
+	for sig := range quit {
+		switch sig {
+		case syscall.SIGUSR1:
+			if common.CanRunWriteBackgroundJobs() {
+				if err := service.BeginImageWorkerDrain(); err != nil {
+					common.SysError("image worker drain could not be confirmed: " + err.Error())
+				}
+			}
+		case syscall.SIGUSR2:
+			if common.CanRunWriteBackgroundJobs() {
+				if err := service.ResumeImageWorker(); err != nil {
+					common.SysError("image worker resume failed: " + err.Error())
+				}
+			}
+		default:
+			// Keep the background parent alive while draining: cancelling it here
+			// would stop lease renewal and interrupt already dispatched generation.
+			if common.CanRunWriteBackgroundJobs() {
+				if err := service.BeginImageWorkerDrain(); err != nil {
+					common.SysError("shutdown blocked by image worker drain status: " + err.Error())
+					continue
+				}
+				drainCtx, drainCancel := context.WithTimeout(context.Background(), service.ImageExecutionTimeout+service.ImageArchiveTimeout+2*time.Minute)
+				err := service.WaitForImageWorkerDrain(drainCtx)
+				drainCancel()
+				if err != nil {
+					common.SysError("shutdown blocked by active image work: " + err.Error())
+					continue
+				}
+			}
+			common.SysLog(fmt.Sprintf("received signal: %v, shutting down...", sig))
+			break shutdownSignals
+		}
+	}
 
 	// SSE streams may run for minutes; give them time to finish before forced exit
 	shutdownTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_TIMEOUT_SECONDS", 120)) * time.Second

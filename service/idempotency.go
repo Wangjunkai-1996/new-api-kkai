@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,9 +49,20 @@ func ReserveIdempotencyKey(ctx context.Context, db *gorm.DB, request Idempotency
 	}
 	now := time.Now().Unix()
 	database := db.WithContext(ctx)
-	if err := database.Where(map[string]any{
+	expired := database.Where(map[string]any{
 		"user_id": request.UserID, "operation": request.Operation, "key": request.Key,
-	}).Where("expires_at <= ?", now).Delete(&model.KKAIIdempotencyKey{}).Error; err != nil {
+	}).Where("expires_at <= ?", now)
+	if request.Operation == model.ImageIdempotencyOperationSubmit {
+		var record model.KKAIIdempotencyKey
+		if err := expired.Session(&gorm.Session{}).First(&record).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("load expired image idempotency key: %w", err)
+		} else if err == nil {
+			if _, err := retainImageIdempotencyBinding(ctx, db, record, now); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := expired.Delete(&model.KKAIIdempotencyKey{}).Error; err != nil {
 		return nil, fmt.Errorf("reclaim expired idempotency key: %w", err)
 	}
 
@@ -140,14 +152,24 @@ func cleanupExpiredIdempotencyKeysForOperation(
 		limit = 500
 	}
 	cutoff := expiredBefore.Unix()
-	ids := make([]int64, 0, limit)
+	var records []model.KKAIIdempotencyKey
 	query := db.WithContext(ctx).Model(&model.KKAIIdempotencyKey{}).Where("expires_at <= ?", cutoff)
 	operation = strings.TrimSpace(operation)
 	if operation != "" {
 		query = query.Where("operation = ?", operation)
 	}
-	if err := query.Order("expires_at ASC").Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
+	if err := query.Order("expires_at ASC").Order("id ASC").Limit(limit).Find(&records).Error; err != nil {
 		return 0, fmt.Errorf("list expired idempotency keys: %w", err)
+	}
+	ids := make([]int64, 0, len(records))
+	for _, record := range records {
+		retained, err := retainImageIdempotencyBinding(ctx, db, record, cutoff)
+		if err != nil {
+			return 0, err
+		}
+		if !retained {
+			ids = append(ids, record.ID)
+		}
 	}
 	if len(ids) == 0 {
 		return 0, nil
@@ -161,4 +183,35 @@ func cleanupExpiredIdempotencyKeysForOperation(
 		return 0, fmt.Errorf("delete expired idempotency keys: %w", result.Error)
 	}
 	return int(result.RowsAffected), nil
+}
+
+// retainImageIdempotencyBinding protects an accepted task independently of its
+// original TTL. Renewing retained rows also keeps them from starving cleanup batches.
+func retainImageIdempotencyBinding(ctx context.Context, db *gorm.DB, record model.KKAIIdempotencyKey, now int64) (bool, error) {
+	if record.Operation != model.ImageIdempotencyOperationSubmit || record.ResourceType != model.ImageIdempotencyResourceGeneration {
+		return false, nil
+	}
+	id, err := strconv.ParseInt(record.ResourceID, 10, 64)
+	if err != nil || id <= 0 {
+		return false, nil
+	}
+	var generation model.KKAIImageGeneration
+	err = db.WithContext(ctx).Select("id", "status", "finished_at").Where("id = ? AND user_id = ?", id, record.UserID).First(&generation).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	retainUntil := generation.FinishedAt + int64(DefaultIdempotencyTTL/time.Second)
+	if generation.Status == model.ImageGenerationStatusSubmitting || generation.Status == model.ImageGenerationStatusRecovering {
+		retainUntil = now + int64(DefaultIdempotencyTTL/time.Second)
+	}
+	if retainUntil <= now {
+		return false, nil
+	}
+	err = db.WithContext(ctx).Model(&model.KKAIIdempotencyKey{}).
+		Where("id = ? AND resource_type = ? AND resource_id = ? AND expires_at <= ?", record.ID, record.ResourceType, record.ResourceID, now).
+		Update("expires_at", retainUntil).Error
+	return err == nil, err
 }

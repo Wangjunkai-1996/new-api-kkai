@@ -437,3 +437,18 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
 }
+
+func TestDurableImageRequestPreservesDeadlineAndCancelsWithLease(t *testing.T) {
+	deadline := time.Now().Add(time.Hour)
+	parent, cancelParent := context.WithDeadline(context.Background(), deadline)
+	defer cancelParent()
+	request, cancelRequest := upstreamPolicyRequestContext(parent, &relaycommon.RelayInfo{
+		RelayMode: relayconstant.RelayModeImagesEdits, DurableImageExecution: true,
+	})
+	defer cancelRequest()
+	actual, present := request.Deadline()
+	require.True(t, present)
+	assert.Equal(t, deadline, actual)
+	cancelParent()
+	assert.ErrorIs(t, request.Err(), context.Canceled)
+}

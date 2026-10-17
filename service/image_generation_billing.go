@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -19,13 +20,15 @@ import (
 const imageStudioGenerationIDContextKey = "image_studio_generation_id"
 
 type imageGenerationBillingSession struct {
-	db           *gorm.DB
-	generationID int64
-	relayInfo    *relaycommon.RelayInfo
-	preConsumed  int
-	settled      bool
-	refunded     bool
-	mu           sync.Mutex
+	db             *gorm.DB
+	generationID   int64
+	relayInfo      *relaycommon.RelayInfo
+	preConsumed    int
+	settled        bool
+	refunded       bool
+	mu             sync.Mutex
+	fence          *model.ImageExecutionFence
+	expectedStatus string
 }
 
 func SetImageStudioGenerationID(c *gin.Context, generationID int64) error {
@@ -54,6 +57,35 @@ func MarkImageStudioGenerationDispatching(c *gin.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(base, 10*time.Second)
 	defer cancel()
+	if boundID, fence, ok := ImageExecutionFenceFromContext(base); ok {
+		if boundID != generationID {
+			return model.ErrImageExecutionFenceLost
+		}
+		return model.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			execution, err := model.RequireImageExecutionFenceTx(tx, generationID, fence)
+			if err != nil {
+				return err
+			}
+			if execution.State != model.ImageGenerationExecutionQueued && execution.State != model.ImageGenerationExecutionPreparing {
+				return model.ErrImageExecutionFenceLost
+			}
+			now := time.Now().Unix()
+			if execution.ExecutionDeadlineAt == 0 {
+				execution.ExecutionDeadlineAt = now + int64(image_studio_setting.Get().SubmissionTimeoutSecs)
+			}
+			if execution.ExecutionDeadlineAt <= now || c.GetInt("channel_id") <= 0 {
+				return model.ErrImageBillingStateConflict
+			}
+			execution.State = model.ImageGenerationExecutionDispatching
+			execution.DispatchChannelID = c.GetInt("channel_id")
+			execution.DispatchStartedAt = now
+			execution.UpdatedAt = now
+			if err := tx.Save(execution).Error; err != nil {
+				return err
+			}
+			return model.MarkImageGenerationDispatching(ctx, tx, generationID)
+		})
+	}
 	return model.MarkImageGenerationDispatching(ctx, model.DB, generationID)
 }
 
@@ -71,60 +103,15 @@ func PreConsumeImageGenerationBilling(
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
-	reserve := func(source string) (*model.ImageGenerationBillingMutation, error) {
-		return model.ReserveImageGenerationBilling(
-			context.WithoutCancel(c.Request.Context()),
-			db,
-			generationID,
-			source,
-			preConsumedQuota,
-		)
-	}
-	preference := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
 	var mutation *model.ImageGenerationBillingMutation
-	var err error
-	if relayInfo.PriceData.FreeModel {
-		mutation, err = reserve(model.TaskBillingSourceWallet)
-	} else {
-		switch preference {
-		case "wallet_only":
-			mutation, err = reserve(model.TaskBillingSourceWallet)
-		case "subscription_only":
-			mutation, err = reserve(model.TaskBillingSourceSubscription)
-		case "wallet_first":
-			mutation, err = reserve(model.TaskBillingSourceWallet)
-			if errors.Is(err, model.ErrImageBillingInsufficientWallet) {
-				mutation, err = reserve(model.TaskBillingSourceSubscription)
-			}
-		default:
-			hasSubscription, queryErr := model.HasActiveUserSubscription(relayInfo.UserId)
-			if queryErr != nil {
-				return types.NewError(
-					queryErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry(),
-				)
-			}
-			if hasSubscription {
-				mutation, err = reserve(model.TaskBillingSourceSubscription)
-				if errors.Is(err, model.ErrImageBillingInsufficientSubscription) {
-					allowWallet, allowErr := model.UserActiveSubscriptionsAllowWalletOverflow(
-						relayInfo.UserId,
-					)
-					if allowErr != nil {
-						return types.NewError(
-							allowErr,
-							types.ErrorCodeQueryDataError,
-							types.ErrOptionWithSkipRetry(),
-						)
-					}
-					if allowWallet {
-						mutation, err = reserve(model.TaskBillingSourceWallet)
-					}
-				}
-			} else {
-				mutation, err = reserve(model.TaskBillingSourceWallet)
-			}
-		}
-	}
+	err := db.WithContext(context.WithoutCancel(c.Request.Context())).Transaction(func(tx *gorm.DB) error {
+		var err error
+		mutation, err = ReserveImageGenerationBillingForUserTx(
+			tx.Statement.Context, tx, generationID, preConsumedQuota,
+			relayInfo.UserSetting.BillingPreference, relayInfo.PriceData.FreeModel,
+		)
+		return err
+	})
 	if err != nil {
 		return imageGenerationBillingError(err)
 	}
@@ -134,6 +121,9 @@ func PreConsumeImageGenerationBilling(
 			types.ErrorCodeUpdateDataError,
 			types.ErrOptionWithSkipRetry(),
 		)
+	}
+	if err := model.ReconcileImageGenerationBillingCache(context.WithoutCancel(c.Request.Context()), db, generationID); err != nil {
+		common.SysLog("failed to reconcile image billing cache: " + err.Error())
 	}
 	relayInfo.BillingSource = mutation.Generation.BillingSource
 	relayInfo.FinalPreConsumedQuota = mutation.CurrentQuota
@@ -159,7 +149,20 @@ func (session *imageGenerationBillingSession) Settle(actualQuota int) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	mutation, err := model.SettleImageGenerationBilling(ctx, session.db, session.generationID, actualQuota)
+	var mutation *model.ImageGenerationBillingMutation
+	var err error
+	if session.fence == nil {
+		mutation, err = model.SettleImageGenerationBilling(ctx, session.db, session.generationID, actualQuota)
+	} else {
+		err = session.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if _, err := model.RequireImageExecutionFenceTx(tx, session.generationID, *session.fence); err != nil {
+				return err
+			}
+			var err error
+			mutation, err = model.SettleImageGenerationBillingTx(tx, session.generationID, actualQuota, session.expectedStatus)
+			return err
+		})
+	}
 	if err != nil {
 		return err
 	}
@@ -185,9 +188,20 @@ func (session *imageGenerationBillingSession) Refund(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(base, 10*time.Second)
 	defer cancel()
-	mutation, err := model.RefundImageGenerationBilling(
-		ctx, session.db, session.generationID,
-	)
+	var mutation *model.ImageGenerationBillingMutation
+	var err error
+	if session.fence == nil {
+		mutation, err = model.RefundImageGenerationBilling(ctx, session.db, session.generationID)
+	} else {
+		err = session.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if _, err := model.RequireImageExecutionFenceTx(tx, session.generationID, *session.fence); err != nil {
+				return err
+			}
+			var err error
+			mutation, err = model.RefundImageGenerationBillingTx(tx, session.generationID, session.expectedStatus)
+			return err
+		})
+	}
 	if err != nil {
 		common.SysLog("failed to refund durable image generation billing: " + err.Error())
 		return

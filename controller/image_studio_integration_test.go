@@ -1132,7 +1132,7 @@ func setupImageStudioIntegrationState(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.UserSubscription{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Log{},
-		&model.KKAIIdempotencyKey{}, &model.KKAIOutboxEvent{},
+		&model.KKAIIdempotencyKey{}, &model.KKAIOutboxEvent{}, &model.KKAIJobLease{},
 		&model.KKAIImageModelProfile{}, &model.KKAIImageSample{},
 		&model.KKAIImageGeneration{}, &model.KKAIImageAsset{},
 	))

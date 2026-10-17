@@ -51,6 +51,8 @@ type ImageStudioTokenView struct {
 }
 
 type ImageStudioTokenCapability struct {
+	AsyncSubmissionEnabled bool                   `json:"async_submission_enabled"`
+	AsyncModels            []string               `json:"async_models"`
 	RequiredGroup          string                 `json:"required_group"`
 	HasUsableToken         bool                   `json:"has_usable_token"`
 	CanCreate              bool                   `json:"can_create"`

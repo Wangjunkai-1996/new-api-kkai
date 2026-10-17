@@ -95,8 +95,12 @@ func imageStudioErrorStatus(err error) (int, string) {
 		return http.StatusConflict, "image_token_limit_reached"
 	case errors.Is(err, service.ErrImageStudioTokenModelsUnavailable):
 		return http.StatusServiceUnavailable, "image_token_models_unavailable"
-	case errors.Is(err, service.ErrImageStudioCapacityExceeded):
+	case errors.Is(err, service.ErrImageStudioCapacityExceeded), errors.Is(err, model.ErrImageGenerationCapacityExceeded):
 		return http.StatusTooManyRequests, "image_studio_busy"
+	case errors.Is(err, model.ErrImageBillingInsufficientWallet),
+		errors.Is(err, model.ErrImageBillingInsufficientSubscription),
+		errors.Is(err, model.ErrImageBillingNoActiveSubscription):
+		return http.StatusForbidden, "insufficient_user_quota"
 	case errors.Is(err, service.ErrImageArchiveTooLarge):
 		return http.StatusRequestEntityTooLarge, "image_asset_too_large"
 	case errors.Is(err, service.ErrImageArchiveSourceRejected),

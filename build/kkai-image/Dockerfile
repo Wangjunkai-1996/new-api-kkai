@@ -217,6 +217,7 @@ LABEL org.opencontainers.image.title="KKAI New API" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="AGPL-3.0 AND GPL-3.0-or-later" \
       io.kkrich.schema-contract="${KKAI_SCHEMA_CONTRACT}" \
+      io.kkrich.image-worker-drain="1" \
       io.kkrich.console-contract="${KKAI_CONSOLE_CONTRACT}"
 
 COPY --from=runtime-tools --chown=10007:10007 /out/new-api-entrypoint /new-api-entrypoint

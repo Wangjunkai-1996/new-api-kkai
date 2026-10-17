@@ -50,57 +50,11 @@ func ReserveImageGenerationBilling(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	mutation := &ImageGenerationBillingMutation{}
+	var mutation *ImageGenerationBillingMutation
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		generation, err := lockImageGenerationBillingRow(tx, generationID)
-		if err != nil {
-			return err
-		}
-		mutation.Generation = generation
-		mutation.PreviousQuota = generation.ReservedQuota
-		mutation.CurrentQuota = generation.ReservedQuota
-		if generation.Status != ImageGenerationStatusSubmitting {
-			return ErrImageBillingStateConflict
-		}
-		if generation.BillingState != ImageGenerationBillingStatePending {
-			if generation.BillingState == ImageGenerationBillingStateReserved &&
-				generation.BillingSource == source && generation.ReservedQuota == quota {
-				return loadImageSubscriptionSnapshot(tx, mutation)
-			}
-			return ErrImageBillingStateConflict
-		}
-
-		effectiveQuota := quota
-		if source == TaskBillingSourceSubscription && effectiveQuota <= 0 {
-			effectiveQuota = 1
-		}
-		switch source {
-		case TaskBillingSourceWallet:
-			if err := reserveImageWallet(tx, generation.UserID, effectiveQuota); err != nil {
-				return err
-			}
-		case TaskBillingSourceSubscription:
-			subscriptionID, total, used, err := reserveImageSubscription(
-				tx, generation.UserID, effectiveQuota,
-			)
-			if err != nil {
-				return err
-			}
-			generation.SubscriptionID = subscriptionID
-			mutation.SubscriptionAmountTotal = total
-			mutation.SubscriptionAmountUsed = used
-		}
-		generation.BillingSource = source
-		generation.BillingState = ImageGenerationBillingStateReserved
-		generation.ReservedQuota = effectiveQuota
-		generation.HeartbeatAt = time.Now().Unix()
-		generation.UpdatedAt = generation.HeartbeatAt
-		if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
-			return err
-		}
-		mutation.Applied = true
-		mutation.CurrentQuota = effectiveQuota
-		return nil
+		var err error
+		mutation, err = ReserveImageGenerationBillingTx(tx, generationID, source, quota)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -108,6 +62,67 @@ func ReserveImageGenerationBilling(
 	if mutation.Generation != nil {
 		reconcileImageBillingCacheAfterCommit(ctx, db, mutation.Generation.ID)
 	}
+	return mutation, nil
+}
+
+// ReserveImageGenerationBillingTx mutates only the caller transaction; cache reconciliation remains in the durable outbox.
+func ReserveImageGenerationBillingTx(tx *gorm.DB, generationID int64, source string, quota int) (*ImageGenerationBillingMutation, error) {
+	if tx == nil || generationID <= 0 || quota < 0 ||
+		(source != TaskBillingSourceWallet && source != TaskBillingSourceSubscription) {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	mutation := &ImageGenerationBillingMutation{}
+	generation, err := lockImageGenerationBillingRow(tx, generationID)
+	if err != nil {
+		return nil, err
+	}
+	mutation.Generation = generation
+	mutation.PreviousQuota = generation.ReservedQuota
+	mutation.CurrentQuota = generation.ReservedQuota
+	if generation.Status != ImageGenerationStatusSubmitting {
+		return nil, ErrImageBillingStateConflict
+	}
+	if generation.BillingState != ImageGenerationBillingStatePending {
+		if generation.BillingState == ImageGenerationBillingStateReserved &&
+			generation.BillingSource == source && generation.ReservedQuota == quota {
+			if err := loadImageSubscriptionSnapshot(tx, mutation); err != nil {
+				return nil, err
+			}
+			return mutation, nil
+		}
+		return nil, ErrImageBillingStateConflict
+	}
+
+	effectiveQuota := quota
+	if source == TaskBillingSourceSubscription && effectiveQuota <= 0 {
+		effectiveQuota = 1
+	}
+	switch source {
+	case TaskBillingSourceWallet:
+		if err := reserveImageWallet(tx, generation.UserID, effectiveQuota); err != nil {
+			return nil, err
+		}
+	case TaskBillingSourceSubscription:
+		subscriptionID, total, used, err := reserveImageSubscription(
+			tx, generation.UserID, effectiveQuota,
+		)
+		if err != nil {
+			return nil, err
+		}
+		generation.SubscriptionID = subscriptionID
+		mutation.SubscriptionAmountTotal = total
+		mutation.SubscriptionAmountUsed = used
+	}
+	generation.BillingSource = source
+	generation.BillingState = ImageGenerationBillingStateReserved
+	generation.ReservedQuota = effectiveQuota
+	generation.HeartbeatAt = time.Now().Unix()
+	generation.UpdatedAt = generation.HeartbeatAt
+	if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
+		return nil, err
+	}
+	mutation.Applied = true
+	mutation.CurrentQuota = effectiveQuota
 	return mutation, nil
 }
 
@@ -191,60 +206,81 @@ func settleImageGenerationBilling(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	mutation := &ImageGenerationBillingMutation{}
+	var mutation *ImageGenerationBillingMutation
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		generation, err := lockImageGenerationBillingRow(tx, generationID)
-		if err != nil {
-			return err
-		}
-		mutation.Generation = generation
-		mutation.PreviousQuota = generation.ReservedQuota
-		mutation.CurrentQuota = generation.ReservedQuota
-		if generation.Status != expectedStatus {
-			return ErrImageBillingStateConflict
-		}
-		if generation.BillingState == ImageGenerationBillingStateSettled {
-			if generation.ReservedQuota != targetQuota {
-				return ErrImageBillingStateConflict
-			}
-			return loadImageSubscriptionSnapshot(tx, mutation)
-		}
-		accounting, err := imageGenerationAccountingInTransaction(tx, generationID)
-		if err != nil || accounting.TargetQuota != targetQuota {
-			if err != nil {
-				return err
-			}
-			return ErrImageBillingStateConflict
-		}
-		if generation.BillingState != ImageGenerationBillingStateReserved &&
-			generation.BillingState != ImageGenerationBillingStateProcessing {
-			return ErrImageBillingStateConflict
-		}
-		delta := targetQuota - generation.ReservedQuota
-		if err := adjustImageFunding(tx, generation, delta); err != nil {
-			return err
-		}
-		now := time.Now().Unix()
-		generation.BillingState = ImageGenerationBillingStateSettled
-		generation.ReservedQuota = targetQuota
-		generation.FinalQuota = targetQuota
-		generation.HeartbeatAt = now
-		generation.UpdatedAt = now
-		if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
-			return err
-		}
-		if err := applyImageGenerationAccountingStatistics(tx, generation, accounting); err != nil {
-			return err
-		}
-		mutation.Applied = true
-		mutation.CurrentQuota = targetQuota
-		return loadImageSubscriptionSnapshot(tx, mutation)
+		var err error
+		mutation, err = SettleImageGenerationBillingTx(tx, generationID, targetQuota, expectedStatus)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	if mutation.Generation != nil {
 		reconcileImageBillingCacheAfterCommit(ctx, db, mutation.Generation.ID)
+	}
+	return mutation, nil
+}
+
+// SettleImageGenerationBillingTx mutates only the caller transaction; cache reconciliation remains in the durable outbox.
+func SettleImageGenerationBillingTx(tx *gorm.DB, generationID int64, targetQuota int, expectedStatus string) (*ImageGenerationBillingMutation, error) {
+	if tx == nil || generationID <= 0 || targetQuota < 0 {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	if expectedStatus != ImageGenerationStatusSubmitting &&
+		expectedStatus != ImageGenerationStatusRecovering {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	mutation := &ImageGenerationBillingMutation{}
+	generation, err := lockImageGenerationBillingRow(tx, generationID)
+	if err != nil {
+		return nil, err
+	}
+	mutation.Generation = generation
+	mutation.PreviousQuota = generation.ReservedQuota
+	mutation.CurrentQuota = generation.ReservedQuota
+	if generation.Status != expectedStatus {
+		return nil, ErrImageBillingStateConflict
+	}
+	if generation.BillingState == ImageGenerationBillingStateSettled {
+		if generation.ReservedQuota != targetQuota {
+			return nil, ErrImageBillingStateConflict
+		}
+		if err := loadImageSubscriptionSnapshot(tx, mutation); err != nil {
+			return nil, err
+		}
+		return mutation, nil
+	}
+	accounting, err := imageGenerationAccountingInTransaction(tx, generationID)
+	if err != nil || accounting.TargetQuota != targetQuota {
+		if err != nil {
+			return nil, err
+		}
+		return nil, ErrImageBillingStateConflict
+	}
+	if generation.BillingState != ImageGenerationBillingStateReserved &&
+		generation.BillingState != ImageGenerationBillingStateProcessing {
+		return nil, ErrImageBillingStateConflict
+	}
+	delta := targetQuota - generation.ReservedQuota
+	if err := adjustImageFunding(tx, generation, delta); err != nil {
+		return nil, err
+	}
+	now := time.Now().Unix()
+	generation.BillingState = ImageGenerationBillingStateSettled
+	generation.ReservedQuota = targetQuota
+	generation.FinalQuota = targetQuota
+	generation.HeartbeatAt = now
+	generation.UpdatedAt = now
+	if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
+		return nil, err
+	}
+	if err := applyImageGenerationAccountingStatistics(tx, generation, accounting); err != nil {
+		return nil, err
+	}
+	mutation.Applied = true
+	mutation.CurrentQuota = targetQuota
+	if err := loadImageSubscriptionSnapshot(tx, mutation); err != nil {
+		return nil, err
 	}
 	return mutation, nil
 }
@@ -281,43 +317,11 @@ func refundImageGenerationBilling(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	mutation := &ImageGenerationBillingMutation{}
+	var mutation *ImageGenerationBillingMutation
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		generation, err := lockImageGenerationBillingRow(tx, generationID)
-		if err != nil {
-			return err
-		}
-		mutation.Generation = generation
-		mutation.PreviousQuota = generation.ReservedQuota
-		mutation.CurrentQuota = generation.ReservedQuota
-		if generation.Status != expectedStatus {
-			return ErrImageBillingStateConflict
-		}
-		if generation.BillingState == ImageGenerationBillingStateRefunded {
-			return nil
-		}
-		if generation.BillingState != ImageGenerationBillingStatePending &&
-			generation.BillingState != ImageGenerationBillingStateReserved &&
-			generation.BillingState != ImageGenerationBillingStateProcessing {
-			return ErrImageBillingStateConflict
-		}
-		if generation.BillingState != ImageGenerationBillingStatePending && generation.ReservedQuota > 0 {
-			if err := adjustImageFunding(tx, generation, -generation.ReservedQuota); err != nil {
-				return err
-			}
-		}
-		now := time.Now().Unix()
-		generation.BillingState = ImageGenerationBillingStateRefunded
-		generation.ReservedQuota = 0
-		generation.FinalQuota = 0
-		generation.HeartbeatAt = now
-		generation.UpdatedAt = now
-		if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
-			return err
-		}
-		mutation.Applied = true
-		mutation.CurrentQuota = 0
-		return nil
+		var err error
+		mutation, err = RefundImageGenerationBillingTx(tx, generationID, expectedStatus)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -325,6 +329,53 @@ func refundImageGenerationBilling(
 	if mutation.Generation != nil {
 		reconcileImageBillingCacheAfterCommit(ctx, db, mutation.Generation.ID)
 	}
+	return mutation, nil
+}
+
+// RefundImageGenerationBillingTx mutates only the caller transaction; cache reconciliation remains in the durable outbox.
+func RefundImageGenerationBillingTx(tx *gorm.DB, generationID int64, expectedStatus string) (*ImageGenerationBillingMutation, error) {
+	if tx == nil || generationID <= 0 {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	if expectedStatus != ImageGenerationStatusSubmitting &&
+		expectedStatus != ImageGenerationStatusRecovering {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	mutation := &ImageGenerationBillingMutation{}
+	generation, err := lockImageGenerationBillingRow(tx, generationID)
+	if err != nil {
+		return nil, err
+	}
+	mutation.Generation = generation
+	mutation.PreviousQuota = generation.ReservedQuota
+	mutation.CurrentQuota = generation.ReservedQuota
+	if generation.Status != expectedStatus {
+		return nil, ErrImageBillingStateConflict
+	}
+	if generation.BillingState == ImageGenerationBillingStateRefunded {
+		return mutation, nil
+	}
+	if generation.BillingState != ImageGenerationBillingStatePending &&
+		generation.BillingState != ImageGenerationBillingStateReserved &&
+		generation.BillingState != ImageGenerationBillingStateProcessing {
+		return nil, ErrImageBillingStateConflict
+	}
+	if generation.BillingState != ImageGenerationBillingStatePending && generation.ReservedQuota > 0 {
+		if err := adjustImageFunding(tx, generation, -generation.ReservedQuota); err != nil {
+			return nil, err
+		}
+	}
+	now := time.Now().Unix()
+	generation.BillingState = ImageGenerationBillingStateRefunded
+	generation.ReservedQuota = 0
+	generation.FinalQuota = 0
+	generation.HeartbeatAt = now
+	generation.UpdatedAt = now
+	if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
+		return nil, err
+	}
+	mutation.Applied = true
+	mutation.CurrentQuota = 0
 	return mutation, nil
 }
 

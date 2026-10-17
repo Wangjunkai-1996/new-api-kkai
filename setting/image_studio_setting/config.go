@@ -15,6 +15,8 @@ const (
 type Setting struct {
 	AccessMode                      string `json:"access_mode"`
 	WorkerEnabled                   bool   `json:"worker_enabled"`
+	AsyncSubmissionEnabled          bool   `json:"async_submission_enabled"`
+	MaxQueuedGenerations            int    `json:"max_queued_generations"`
 	MaxReferenceBytes               int64  `json:"max_reference_bytes"`
 	MaxReferenceTotalBytes          int64  `json:"max_reference_total_bytes"`
 	MaxOutputBytes                  int64  `json:"max_output_bytes"`
@@ -31,6 +33,8 @@ type Setting struct {
 var imageStudioSetting = Setting{
 	AccessMode:                      AccessModeOff,
 	WorkerEnabled:                   false,
+	AsyncSubmissionEnabled:          false,
+	MaxQueuedGenerations:            32,
 	MaxReferenceBytes:               32 << 20,
 	MaxReferenceTotalBytes:          64 << 20,
 	MaxOutputBytes:                  32 << 20,
@@ -87,6 +91,9 @@ func Get() Setting {
 	}
 	if setting.MaxConcurrentSubmissions < 1 || setting.MaxConcurrentSubmissions > 16 {
 		setting.MaxConcurrentSubmissions = 2
+	}
+	if setting.MaxQueuedGenerations < 1 || setting.MaxQueuedGenerations > 128 {
+		setting.MaxQueuedGenerations = 32
 	}
 	if setting.MaxConcurrentSubmissionsPerUser < 1 || setting.MaxConcurrentSubmissionsPerUser > 16 {
 		setting.MaxConcurrentSubmissionsPerUser = 1

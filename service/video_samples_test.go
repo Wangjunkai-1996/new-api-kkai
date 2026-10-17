@@ -118,9 +118,6 @@ func TestVideoSamplesRespectEffectiveModelFilter(t *testing.T) {
 }
 
 func TestVideoSamplesCombineModelAndCategoryFilters(t *testing.T) {
-	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("category filtering is enabled only in the v6 feature build")
-	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	now := time.Now().Unix()
 	samples := []model.KKAIVideoSample{
@@ -164,9 +161,6 @@ func TestVideoSamplesCombineModelAndCategoryFilters(t *testing.T) {
 }
 
 func TestVideoSampleOtherCategoryIncludesLegacyMissingValues(t *testing.T) {
-	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("category projection is enabled only in the v6 feature build")
-	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	now := time.Now().Unix()
 	samples := []model.KKAIVideoSample{
@@ -205,9 +199,6 @@ func TestVideoSampleOtherCategoryIncludesLegacyMissingValues(t *testing.T) {
 }
 
 func TestVideoSampleCreateUpdateAndValidationPersistCategory(t *testing.T) {
-	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("category persistence is enabled only in the v6 feature build")
-	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	input := VideoSampleInput{
 		ModelProfileID: profiles[0].ID, Title: "Category", Prompt: "prompt", Mode: VideoModeTextToVideo,
@@ -239,9 +230,6 @@ func TestVideoSampleCreateUpdateAndValidationPersistCategory(t *testing.T) {
 }
 
 func TestVideoSampleListRejectsCorruptStoredCategory(t *testing.T) {
-	if !videoSampleCategoryFeatureEnabled {
-		t.Skip("stored category validation is enabled only in the v6 feature build")
-	}
 	db, profiles, asset := seedVideoSampleCategoryTestCatalog(t)
 	now := time.Now().Unix()
 	sample := model.KKAIVideoSample{

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -107,6 +108,13 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 ) (model.KKAIImageAsset, error) {
 	now := time.Now().Unix()
 	objectKey := fmt.Sprintf("image-studio/users/%d/generations/%d/%03d-original", generation.UserID, generation.ID, position)
+	if boundID, fence, ok := ImageExecutionFenceFromContext(ctx); ok {
+		if boundID != generation.ID {
+			return model.KKAIImageAsset{}, model.ErrImageExecutionFenceLost
+		}
+		claim := sha256.Sum256([]byte(fence.LockedBy))
+		objectKey = fmt.Sprintf("image-studio/users/%d/generations/%d/%x/%03d-original", generation.UserID, generation.ID, claim, position)
+	}
 	asset := model.KKAIImageAsset{
 		GenerationID: &generation.ID, OwnerUserID: generation.UserID,
 		Scope: model.ImageAssetScopeUser, Kind: model.ImageAssetKindOutput,
@@ -114,6 +122,9 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 		ThumbnailState: model.ImageThumbnailStatePending, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := pipeline.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := requireImageExecutionOwnershipTx(ctx, tx, generation.ID); err != nil {
+			return err
+		}
 		if err := requireSubmittingImageGeneration(tx, generation.ID); err != nil {
 			return err
 		}
@@ -147,15 +158,16 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 	compensationAvailableAt := time.Now().Add(
 		time.Duration(image_studio_setting.Get().SubmissionTimeoutSecs)*time.Second + time.Minute,
 	)
-	if err := EnqueueKKAIOutboxEvent(
-		ctx,
-		pipeline.db,
-		putCompensationKey,
-		ImageAssetDeleteTopic,
-		strconv.FormatInt(asset.ID, 10),
-		compensationAvailableAt,
-		imageAssetDeletePayload{AssetID: asset.ID, ObjectKey: objectKey},
-	); err != nil {
+	if err := pipeline.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := requireImageExecutionOwnershipTx(ctx, tx, generation.ID); err != nil {
+			return err
+		}
+		return EnqueueKKAIOutboxEvent(
+			ctx, tx, putCompensationKey, ImageAssetDeleteTopic,
+			strconv.FormatInt(asset.ID, 10), compensationAvailableAt,
+			imageAssetDeletePayload{AssetID: asset.ID, ObjectKey: objectKey},
+		)
+	}); err != nil {
 		_ = file.Close()
 		return model.KKAIImageAsset{}, fmt.Errorf("prepare image object compensation: %w", err)
 	}
@@ -173,6 +185,9 @@ func (pipeline *ImageAssetPipeline) archiveResult(
 	filename := generatedImageAssetFilename(asset.ID, archive.MIMEType)
 
 	err = pipeline.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := requireImageExecutionOwnershipTx(ctx, tx, generation.ID); err != nil {
+			return err
+		}
 		if err := requireSubmittingImageGeneration(tx, generation.ID); err != nil {
 			return err
 		}
@@ -249,6 +264,9 @@ func (pipeline *ImageAssetPipeline) markAssetFailed(ctx context.Context, assetID
 		}
 		if asset.GenerationID == nil {
 			return ErrInvalidImageAssetPipeline
+		}
+		if err := requireImageExecutionOwnershipTx(ctx, tx, *asset.GenerationID); err != nil {
+			return err
 		}
 		if err := requireSubmittingImageGeneration(tx, *asset.GenerationID); err != nil {
 			return err

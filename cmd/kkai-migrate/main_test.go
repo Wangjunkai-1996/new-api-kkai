@@ -28,8 +28,8 @@ func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 }
 
 func TestApplyMigrationTargetRejectsUnknownVersion(t *testing.T) {
-	_, err := applyMigrationTarget(context.Background(), nil, 10, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "expected 4, 5, 6, 7, 8, or 9")
+	_, err := applyMigrationTarget(context.Background(), nil, 11, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "expected 4, 5, 6, 7, 8, 9, or 10")
 }
 
 func TestDescribeContractJSONUsesImmutableExternalSchemaManagement(t *testing.T) {

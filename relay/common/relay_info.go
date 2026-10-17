@@ -198,6 +198,7 @@ type RelayInfo struct {
 	ImageQuotaBeforeGroup float64
 
 	ImagePricingSnapshot          *imagepricing.Snapshot
+	DurableImageExecution         bool // Background image jobs must obey their lease and execution deadline.
 	ImagePricingOutboundValidated bool
 	ImageOutputCount              int
 

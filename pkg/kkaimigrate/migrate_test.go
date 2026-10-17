@@ -55,7 +55,7 @@ func TestApplyCreatesVersionedSchemaAndIsIdempotent(t *testing.T) {
 	require.EqualValues(t, RequiredRuntimeVersion, count)
 }
 
-func TestMaintenanceTargetsExpandSequentiallyThroughV9(t *testing.T) {
+func TestMaintenanceTargetsExpandSequentiallyThroughV10(t *testing.T) {
 	db := newMigrationTestDB(t)
 	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
 	require.NoError(t, err)
@@ -69,6 +69,7 @@ func TestMaintenanceTargetsExpandSequentiallyThroughV9(t *testing.T) {
 		{7, ApplyImageStudioExpand},
 		{8, ApplyAuthenticationExpand},
 		{9, ApplyRC41ArchitectureExpand},
+		{10, ApplyImageAsyncExpand},
 	} {
 		t.Run(fmt.Sprintf("v%d", target.version), func(t *testing.T) {
 			before, err := Observe(context.Background(), db)
@@ -484,6 +485,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  RC41ArchitectureSchemaVersion,
 			Name:     "rc41_scoped_tokens_and_task_plugins",
 			Checksum: "98105b79eb9f712885de2b6858ccb372dda9aece4799e5443d403b014e5c60d4",
+		},
+		{
+			Version:  ImageAsyncSchemaVersion,
+			Name:     "image_studio_async_uploads",
+			Checksum: "9a5250c642640b365c75d40ebf498f8bf97818780a78ac7e1565dcbfb04f39e7",
 		},
 	}, Plan())
 }

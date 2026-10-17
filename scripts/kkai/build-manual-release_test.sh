@@ -338,21 +338,21 @@ expect_maintenance_rejected() {
   ! grep -Eq '^docker |^python3 ' "${call_log}" || fail 'invalid maintenance preparation reached build or artifact inspection'
 }
 
-expect_bridge_rejected() {
-  local output
-
+expect_bridge_build() {
+  local output output_dir="${test_root}/out-bridge"
   : >"${call_log}"
-  if output="$(
+  if ! output="$(
     PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
       KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" --schema-contract bridge --frontend-mode external \
-      --version "${version}" --output-dir "${test_root}/out-bridge" 2>&1
+      --version "${version}" --output-dir "${output_dir}" 2>&1
   )"; then
-    fail 'rc.41 bridge build unexpectedly succeeded'
+    fail "schema9-to10 bridge build failed\n${output}"
   fi
-  grep -F 'rc.41 binary schema contract is 9/9/9; bridge is unsupported' <<<"${output}" >/dev/null ||
-    fail "rc.41 bridge build failed for the wrong reason\n${output}"
-  [[ ! -s "${call_log}" ]] || fail 'rc.41 bridge build reached an external command'
+  jq -e '.schema_contract == "bridge" and .frontend_mode == "external"' \
+    "${output_dir}/${version}.json" >/dev/null || fail 'bridge metadata is not preserved'
+  grep -F -- '--build-arg KKAI_SCHEMA_CONTRACT=bridge' "${call_log}" >/dev/null ||
+    fail 'bridge profile did not reach the backend build'
 }
 
 expect_direct_uri direct-unix
@@ -366,11 +366,11 @@ expect_invalid_parallelism_rejected
 expect_build_lock_rejected
 expect_remote_rejected
 expect_maintenance_preparation
-expect_bridge_rejected
+expect_bridge_build
 expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
 expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \
   --planned-infra-sha 3333333333333333333333333333333333333333
-expect_maintenance_rejected 'rc.41 binary schema contract is 9/9/9; bridge is unsupported' --prepare-maintenance --schema-contract bridge
+expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --schema-contract bridge
 expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --frontend-mode embedded
 expect_maintenance_rejected 'require --prepare-maintenance' --planned-infra-sha 3333333333333333333333333333333333333333
 KKAI_TEST_DIRTY=true expect_maintenance_rejected 'production builds require a clean worktree' \

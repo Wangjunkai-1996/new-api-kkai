@@ -915,7 +915,7 @@ func newImageSubmissionTestDB(t *testing.T) (*gorm.DB, model.KKAIImageModelProfi
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
-		&model.KKAIImageModelProfile{}, &model.KKAIImageSample{}, &model.KKAIImageGeneration{},
+		&model.KKAIJobLease{}, &model.KKAIImageModelProfile{}, &model.KKAIImageSample{}, &model.KKAIImageGeneration{},
 		&model.KKAIImageAsset{}, &model.KKAIIdempotencyKey{}, &model.KKAIOutboxEvent{},
 	))
 	specification, err := common.Marshal(imageSubmissionSpec())

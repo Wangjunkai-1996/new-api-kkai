@@ -93,6 +93,31 @@ func TestImageStudioPhaseOneRoutesAreRegistered(t *testing.T) {
 	require.False(t, methodsByPath["/api/image-studio/tasks"][http.MethodGet])
 }
 
+func TestImageAsyncRoutesRequireAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	registerImageStudioAPIRoutes(engine.Group("/api"))
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/submissions/lookup"},
+		{http.MethodPost, "/uploads"},
+		{http.MethodGet, "/uploads/1"},
+		{http.MethodPost, "/uploads/1/parts/1"},
+		{http.MethodGet, "/uploads/1/parts"},
+		{http.MethodPost, "/uploads/1/complete"},
+		{http.MethodDelete, "/uploads/1"},
+		{http.MethodPost, "/generations/quote"},
+		{http.MethodPost, "/generations"},
+	} {
+		t.Run(route.method+route.path, func(t *testing.T) {
+			request := httptest.NewRequest(route.method, "/api/image-studio"+route.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
+}
+
 func TestImageStudioPlaygroundRegistersGenerationAndEditRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

@@ -23,6 +23,7 @@ func GetImageStudioTokenStatus(c *gin.Context) {
 		respondImageStudioError(c, err)
 		return
 	}
+	service.PopulateImageAsyncCapability(c.Request.Context(), model.DB, &capability)
 	common.ApiSuccess(c, capability)
 }
 
@@ -39,5 +40,6 @@ func EnsureImageStudioToken(c *gin.Context) {
 		respondImageStudioError(c, err)
 		return
 	}
+	service.PopulateImageAsyncCapability(c.Request.Context(), model.DB, &result.ImageStudioTokenCapability)
 	common.ApiSuccess(c, result)
 }

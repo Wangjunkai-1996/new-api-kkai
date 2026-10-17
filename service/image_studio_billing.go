@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 var ErrImageStudioQuoteStale = errors.New("image studio quote is stale")
@@ -196,9 +197,26 @@ func PrepareImageStudioDeliveryBilling(c *gin.Context, providerOutputCount int, 
 
 	prepareContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 10*time.Second)
 	defer cancel()
-	if err := model.PrepareImageGenerationAccounting(
-		prepareContext, model.DB, accounting.GenerationID, accounting,
-	); err != nil {
+	if err := model.DB.WithContext(prepareContext).Transaction(func(tx *gorm.DB) error {
+		if err := requireImageExecutionOwnershipTx(prepareContext, tx, accounting.GenerationID); err != nil {
+			return err
+		}
+		if err := model.PrepareImageGenerationAccounting(prepareContext, tx, accounting.GenerationID, accounting); err != nil {
+			return err
+		}
+		if _, fence, ok := ImageExecutionFenceFromContext(prepareContext); ok {
+			updated := tx.Model(&model.KKAIImageExecution{}).
+				Where("generation_id = ? AND state = ? AND fence = ?", accounting.GenerationID, model.ImageGenerationExecutionDispatching, fence.LockedBy).
+				Updates(map[string]any{"state": model.ImageGenerationExecutionResultReady, "upstream_request_id": truncateImageGenerationField(accounting.UpstreamRequestID, 191), "updated_at": time.Now().Unix()})
+			if updated.Error != nil {
+				return updated.Error
+			}
+			if updated.RowsAffected != 1 {
+				return model.ErrImageExecutionFenceLost
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	guard.accounting = &accounting

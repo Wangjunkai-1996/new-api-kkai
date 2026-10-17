@@ -1,5 +1,3 @@
-//go:build !kkai_bridge
-
 package service
 
 import (
@@ -11,10 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	videoSampleCategoryFeatureEnabled = true
-	videoSampleCategorySelectColumn   = "COALESCE(NULLIF(kkai_video_samples.category, ''), 'other') AS category"
-)
+const videoSampleCategorySelectColumn = "COALESCE(NULLIF(kkai_video_samples.category, ''), 'other') AS category"
 
 func normalizeVideoSampleCategory(value string) (string, error) {
 	category := strings.TrimSpace(value)

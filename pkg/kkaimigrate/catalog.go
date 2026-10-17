@@ -79,6 +79,14 @@ func migrationSet() []migration {
 			Backfill:         backfillAuthenticationSchema,
 		},
 		rc41ArchitectureMigration(),
+		{
+			Version:          ImageAsyncSchemaVersion,
+			Name:             "image_studio_async_uploads",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "image_studio_async_uploads_v1",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       imageAsyncSchemaStatements,
+		},
 	}
 }
 

@@ -502,7 +502,7 @@ func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Token{}, &model.Channel{}, &model.Ability{},
-		&model.KKAIImageModelProfile{}, &model.KKAIImageSample{}, &model.KKAIImageGeneration{},
+		&model.KKAIJobLease{}, &model.KKAIImageModelProfile{}, &model.KKAIImageSample{}, &model.KKAIImageGeneration{},
 		&model.KKAIImageAsset{}, &model.KKAIIdempotencyKey{},
 	))
 	model.DB = db

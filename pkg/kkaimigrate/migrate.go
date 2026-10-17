@@ -32,6 +32,7 @@ const (
 	ImageStudioSchemaVersion         int64 = 7
 	AuthenticationSchemaVersion      int64 = 8
 	RC41ArchitectureSchemaVersion    int64 = 9
+	ImageAsyncSchemaVersion          int64 = 10
 )
 
 var (
@@ -106,6 +107,24 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 		return nil, err
 	}
 	return applyThroughVersion(ctx, db, options, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
+}
+
+// ApplyImageAsyncExpand adds the isolated image upload/execution tables only
+// after the existing v9 schema is independently validated.
+func ApplyImageAsyncExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, RC41ArchitectureSchemaVersion, RC41ArchitectureSchemaVersion, ImageAsyncSchemaVersion); err != nil {
+		return nil, fmt.Errorf("KKAI maintenance target %d requires validated schema %d: %w", ImageAsyncSchemaVersion, RC41ArchitectureSchemaVersion, err)
+	}
+	return applyThroughVersion(ctx, db, options, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion)
+}
+
+// CheckImageAsyncSchema is a read-only enablement gate for the v10 image
+// workflows. Cache a successful startup/explicit-enable check, not partial table probes.
+func CheckImageAsyncSchema(ctx context.Context, db *gorm.DB) error {
+	return checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion)
 }
 
 // ApplyOutboxEventKeyCompatibility applies the cross-dialect v4 maintenance.

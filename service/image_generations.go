@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"gorm.io/gorm"
 )
@@ -76,6 +77,10 @@ func CreateImageGeneration(
 	requestID string,
 	reservationID int64,
 ) (*model.KKAIImageGeneration, error) {
+	return createImageGeneration(ctx, db, normalized, requestID, reservationID, false)
+}
+
+func createImageGeneration(ctx context.Context, db *gorm.DB, normalized *NormalizedImageStudioSubmission, requestID string, reservationID int64, queued bool) (*model.KKAIImageGeneration, error) {
 	requestID = strings.TrimSpace(requestID)
 	if db == nil || normalized == nil || normalized.UserID <= 0 || normalized.TokenID <= 0 ||
 		normalized.ProfileID <= 0 || !validImageStudioHash(normalized.RequestHash) ||
@@ -97,6 +102,15 @@ func CreateImageGeneration(
 		HeartbeatAt:  now, StartedAt: now, CreatedAt: now, UpdatedAt: now,
 	}
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		settings := image_studio_setting.Get()
+		if err := model.CheckImageGenerationCapacityTx(tx, normalized.UserID, settings.MaxQueuedGenerations, settings.MaxConcurrentSubmissionsPerUser); err != nil {
+			return err
+		}
+		if !queued {
+			if err := model.CheckImageExecutionCapacityTx(tx, settings.MaxConcurrentSubmissions, 0); err != nil {
+				return err
+			}
+		}
 		if err := tx.Create(generation).Error; err != nil {
 			return err
 		}
@@ -327,6 +341,9 @@ func discardImageGenerationAssets(
 		return ErrInvalidImageStudioSubmission
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := requireImageExecutionOwnershipTx(ctx, tx, generationID); err != nil {
+			return err
+		}
 		var generation model.KKAIImageGeneration
 		if err := lockRowsForUpdate(tx).First(
 			&generation, "id = ? AND deleted_at = 0", generationID,
@@ -476,6 +493,9 @@ func finishImageGeneration(
 	errorCode = truncateImageGenerationField(errorCode, 64)
 	errorMessage = truncateImageGenerationField(errorMessage, 1024)
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := requireImageExecutionOwnershipTx(ctx, tx, generationID); err != nil {
+			return err
+		}
 		var generation model.KKAIImageGeneration
 		if err := lockRowsForUpdate(tx).First(
 			&generation, "id = ? AND deleted_at = 0", generationID,
@@ -527,12 +547,15 @@ func ReconcileStaleImageGenerations(ctx context.Context, db *gorm.DB, staleBefor
 		return 0, ErrInvalidImageStudioSubmission
 	}
 	var ids []int64
-	if err := db.WithContext(ctx).Model(&model.KKAIImageGeneration{}).
-		Where(
-			"status IN ? AND heartbeat_at < ? AND deleted_at = 0",
-			[]string{model.ImageGenerationStatusSubmitting, model.ImageGenerationStatusRecovering},
-			staleBefore.Unix(),
-		).
+	query := db.WithContext(ctx).Model(&model.KKAIImageGeneration{})
+	if db.Migrator().HasTable(&model.KKAIImageExecution{}) {
+		query = query.Where("id NOT IN (?)", db.Model(&model.KKAIImageExecution{}).Select("generation_id"))
+	}
+	if err := query.Where(
+		"status IN ? AND heartbeat_at < ? AND deleted_at = 0",
+		[]string{model.ImageGenerationStatusSubmitting, model.ImageGenerationStatusRecovering},
+		staleBefore.Unix(),
+	).
 		Order("id ASC").Limit(limit).Pluck("id", &ids).Error; err != nil {
 		return 0, fmt.Errorf("list stale image generations: %w", err)
 	}
@@ -564,7 +587,11 @@ func reconcileStaleImageGeneration(
 	ctx context.Context, db *gorm.DB, generationID int64, staleBefore time.Time,
 ) (bool, error) {
 	now := time.Now().Unix()
-	claimed := db.WithContext(ctx).Model(&model.KKAIImageGeneration{}).Where(
+	query := db.WithContext(ctx).Model(&model.KKAIImageGeneration{})
+	if db.Migrator().HasTable(&model.KKAIImageExecution{}) {
+		query = query.Where("id NOT IN (?)", db.Model(&model.KKAIImageExecution{}).Select("generation_id"))
+	}
+	claimed := query.Where(
 		"id = ? AND status IN ? AND heartbeat_at < ? AND deleted_at = 0",
 		generationID,
 		[]string{model.ImageGenerationStatusSubmitting, model.ImageGenerationStatusRecovering},

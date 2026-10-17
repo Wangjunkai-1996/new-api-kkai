@@ -19,7 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 )
 
-const backgroundLeaderLeaseName = "newapi-background-writer"
+const backgroundLeaderLeaseName = service.ImageWorkerLeaderLeaseName
 
 func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegistry, error) {
 	registry := service.NewBackgroundJobRegistry()
@@ -150,6 +150,12 @@ func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegist
 	}
 
 	if err := service.RegisterKKAIRuntimeBackgroundJobs(registry, workerID); err != nil {
+		return nil, err
+	}
+	if err := service.RegisterImageUploadBackgroundJobs(registry, workerID); err != nil {
+		return nil, err
+	}
+	if err := controller.RegisterImageGenerationBackgroundJobs(registry, workerID); err != nil {
 		return nil, err
 	}
 	return registry, nil

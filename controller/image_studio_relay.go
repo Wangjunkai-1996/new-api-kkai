@@ -234,6 +234,7 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	defer capture.Remove()
 
 	var generation *model.KKAIImageGeneration
+	var admissionErr error
 	var heartbeatCancel context.CancelFunc
 	defer func() {
 		if heartbeatCancel != nil {
@@ -251,6 +252,7 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		)
 		generation = created
 		if err != nil {
+			admissionErr = err
 			return err
 		}
 		if err := service.SetImageStudioGenerationID(c, created.ID); err != nil {
@@ -286,6 +288,10 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	)
 	defer cancel()
 	if generation == nil {
+		if errors.Is(admissionErr, model.ErrImageGenerationCapacityExceeded) {
+			respondImageStudioError(c, admissionErr)
+			return
+		}
 		if capture.Status() == http.StatusConflict {
 			respondImageStudioError(c, service.ErrImageStudioQuoteStale)
 			return
