@@ -14,14 +14,19 @@ export function ConsoleCompatibilityBoundary(props: { children: ReactNode }) {
       {blocked && (
         <div
           className='bg-background/95 fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 p-6'
-          role='alert'
+          role={console.loading ? 'status' : 'alert'}
+          aria-busy={console.loading}
         >
           <p>
-            {t(
-              'The page is temporarily unavailable. Your edits are preserved. Please retry shortly.'
-            )}
+            {console.loading
+              ? t('Loading...')
+              : t(
+                  'The page is temporarily unavailable. Your edits are preserved. Please retry shortly.'
+                )}
           </p>
-          <Button onClick={() => void console.retry()}>{t('Retry')}</Button>
+          {!console.loading && (
+            <Button onClick={() => void console.retry()}>{t('Retry')}</Button>
+          )}
         </div>
       )}
     </>
