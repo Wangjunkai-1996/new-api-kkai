@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useConsoleContract } from './use-console-contract'
 
 const apiGet = vi.hoisted(() => vi.fn())
-const getStatus = vi.hoisted(() => vi.fn())
+const ensureStatus = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/api', () => ({
   api: { get: apiGet },
-  getStatus,
 }))
+vi.mock('@/lib/status-query', () => ({ ensureStatus }))
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -27,7 +27,7 @@ function createWrapper() {
 describe('useConsoleContract', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_KKAI_FRONTEND_DELIVERY', 'legacy')
-    getStatus.mockResolvedValue({
+    ensureStatus.mockResolvedValue({
       console_contract: {
         format_version: 1,
         api_contracts: [2],
@@ -66,8 +66,33 @@ describe('useConsoleContract', () => {
 
     await waitFor(() => expect(result.current.contract).not.toBeNull())
 
-    expect(getStatus).toHaveBeenCalledTimes(1)
+    expect(ensureStatus).toHaveBeenCalledTimes(1)
     expect(apiGet).not.toHaveBeenCalled()
+    expect(result.current.compatible).toBe(true)
+  })
+
+  it('keeps the last valid contract when a refresh fails', async () => {
+    const contract = {
+      format_version: 1,
+      api_contracts: [2],
+      capabilities: [
+        'dashboard_jwt',
+        'scoped_access_tokens',
+        'task_plugins',
+        'studio_media_urls',
+      ],
+    }
+    ensureStatus.mockResolvedValueOnce({ console_contract: contract })
+    ensureStatus.mockRejectedValueOnce(new Error('temporary status failure'))
+
+    const { result } = renderHook(() => useConsoleContract(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.contract).not.toBeNull())
+    await result.current.retry()
+
+    expect(result.current.contract).toEqual(contract)
     expect(result.current.compatible).toBe(true)
   })
 
@@ -83,7 +108,7 @@ describe('useConsoleContract', () => {
     expect(apiGet).toHaveBeenCalledWith('/console-runtime.json', {
       skipErrorHandler: true,
     })
-    expect(getStatus).not.toHaveBeenCalled()
+    expect(ensureStatus).not.toHaveBeenCalled()
     expect(result.current.required).toBe(true)
     expect(result.current.compatible).toBe(true)
   })
