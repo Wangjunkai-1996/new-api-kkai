@@ -53,6 +53,7 @@ const managedPriceSchema = z
 
 export const imagePricingFormSchema = z.object({
   enabled: z.boolean(),
+  allow_custom_size: z.boolean().default(false),
   price1k: managedPriceSchema,
   price2k: managedPriceSchema,
   price4k: managedPriceSchema,
@@ -109,9 +110,10 @@ export function parseImagePricingPolicy(raw: string): ImagePricingPolicy {
 export function getImagePricingFormValues(
   policy: ImagePricingPolicy
 ): ImagePricingFormValues {
-  const { tiers } = getManagedPricing(policy)
+  const { model, tiers } = getManagedPricing(policy)
   return {
     enabled: policy.enabled,
+    allow_custom_size: Boolean(model.allow_custom_size),
     price1k: tiers['1k'].unit_price,
     price2k: tiers['2k'].unit_price,
     price4k: tiers['4k'].unit_price,
@@ -134,6 +136,7 @@ export function updateImagePricingPolicy(
       ...policy.models,
       [MANAGED_MODEL]: {
         ...model,
+        allow_custom_size: validated.allow_custom_size,
         tiers: {
           ...model.tiers,
           '1k': { ...tiers['1k'], unit_price: validated.price1k },

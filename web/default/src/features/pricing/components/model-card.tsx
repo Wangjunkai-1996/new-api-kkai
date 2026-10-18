@@ -42,7 +42,10 @@ import {
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import {
+  isPricingExplicitlyUnconfigured,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskPriceLabel, taskUsageUnitLabel } from '../lib/task-price-display'
 import type { PricingModel, PriceType, TokenUnit } from '../types'
@@ -68,6 +71,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const usdExchangeRate = props.usdExchangeRate ?? 1
   const showRechargePrice = props.showRechargePrice ?? false
   const isTokenBased = isTokenBasedModel(props.model)
+  const isPricingUnconfigured = isPricingExplicitlyUnconfigured(props.model)
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const tags = parseTags(props.model.tags)
   const groups = props.model.enable_groups || []
@@ -116,7 +120,13 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     [props.model, dynamicPriceOptions, currency]
   )
   let priceSummary: ReactNode
-  if (dynamicSummary) {
+  if (isPricingUnconfigured) {
+    priceSummary = (
+      <span className='text-muted-foreground col-span-full'>
+        {t('Unset price')}
+      </span>
+    )
+  } else if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
       priceSummary = null
     } else if (dynamicSummary.primaryEntries.length > 0) {

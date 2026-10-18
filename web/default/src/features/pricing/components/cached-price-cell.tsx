@@ -28,7 +28,10 @@ import {
   getDynamicPricingSummary,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import {
+  isPricingExplicitlyUnconfigured,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatPrice, stripTrailingZeros } from '../lib/price'
 import type { PricingModel } from '../types'
 import type { ModelPriceCellOptions } from './model-price-cell'
@@ -49,6 +52,7 @@ function CachedPriceValue(props: {
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
 
   const model = props.model
+  const isPricingUnconfigured = isPricingExplicitlyUnconfigured(model)
   const currency = useSystemConfigStore((state) => state.config.currency)
   const billingTime = useBillingTime(model.billing_expr)
   const dynamicSummary = useMemo(
@@ -74,6 +78,12 @@ function CachedPriceValue(props: {
       currency,
     ]
   )
+
+  if (isPricingUnconfigured) {
+    return (
+      <span className='text-muted-foreground text-xs'>{t('Unset price')}</span>
+    )
+  }
 
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {

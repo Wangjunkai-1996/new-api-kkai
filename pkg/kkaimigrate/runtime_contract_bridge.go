@@ -2,11 +2,11 @@
 
 package kkaimigrate
 
-// Optional image async (v10) and membership (v11) expands leave the v9 application
-// models unchanged. Each feature stays disabled until its schema is verified.
+// The image async expand leaves the v9 application models unchanged. New image
+// workflows stay disabled until the v10 sidecar tables have been verified.
 const (
 	RuntimeMinVersion      int64 = RC41ArchitectureSchemaVersion
-	RuntimeMaxVersion      int64 = MembershipSchemaVersion
+	RuntimeMaxVersion      int64 = ImageAsyncSchemaVersion
 	MigrationTargetVersion int64 = RC41ArchitectureSchemaVersion
 
 	RequiredRuntimeVersion int64 = RuntimeMinVersion

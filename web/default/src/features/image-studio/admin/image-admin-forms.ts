@@ -20,6 +20,7 @@ import { z } from 'zod'
 
 import { IMAGE_STUDIO_MAX_REFERENCE_IMAGES } from '../image-edit-domain'
 import { IMAGE_STUDIO_MAX_OUTPUTS } from '../image-parameters'
+import { imageSizeConstraintsSchema } from '../schemas'
 import type {
   ImageModelProfile,
   ImageModelProfileInput,
@@ -27,7 +28,16 @@ import type {
   ImageParameterValue,
   ImageSample,
   ImageSampleInput,
+  ImageSizeConstraints,
 } from '../types'
+
+export const IMAGE_CUSTOM_SIZE_DEFAULTS: ImageSizeConstraints = {
+  max_edge: 3840,
+  step: 16,
+  min_pixels: 655360,
+  max_pixels: 8294400,
+  max_aspect_ratio: 3,
+}
 
 export const IMAGE_REQUEST_FIELDS = [
   'n',
@@ -123,6 +133,8 @@ export const imageModelFormSchema = z
         IMAGE_STUDIO_MAX_REFERENCE_IMAGES,
         'imageStudio.validation.referenceCountRange'
       ),
+    custom_size_enabled: z.boolean(),
+    custom_size: imageSizeConstraintsSchema,
     parameters: z
       .array(imageParameterFormSchema)
       .max(9, 'imageStudio.validation.parametersTooMany'),
@@ -295,6 +307,10 @@ export const createImageModelFormValues = (
     profile.specification.max_reference_images > 0
       ? profile.specification.max_reference_images
       : 1,
+  custom_size_enabled: Boolean(profile?.specification.custom_size),
+  custom_size: profile?.specification.custom_size ?? {
+    ...IMAGE_CUSTOM_SIZE_DEFAULTS,
+  },
   parameters:
     profile?.specification.parameters.map((parameter) =>
       parameterFormValues(parameter, profile.default_parameters[parameter.key])
@@ -322,10 +338,12 @@ const parameterFromForm = (
 
 const parameterSpecificationFingerprint = (
   parameters: ImageParameterControl[],
-  maxReferenceImages: number | undefined
+  maxReferenceImages: number | undefined,
+  customSize: ImageSizeConstraints | undefined
 ): string =>
   JSON.stringify({
     max_reference_images: maxReferenceImages,
+    custom_size: customSize,
     parameters: parameters.map((parameter) => {
       const common = {
         key: parameter.key,
@@ -361,11 +379,13 @@ export const parseImageModelForm = (
   })
   const snapshot = parameterSpecificationFingerprint(
     parameters,
-    values.max_reference_images
+    values.max_reference_images,
+    values.custom_size_enabled ? values.custom_size : undefined
   )
   const currentSnapshot = parameterSpecificationFingerprint(
     current?.specification.parameters ?? [],
-    current?.specification.max_reference_images
+    current?.specification.max_reference_images,
+    current?.specification.custom_size
   )
   const version = current
     ? current.specification_version + (snapshot === currentSnapshot ? 0 : 1)
@@ -380,6 +400,7 @@ export const parseImageModelForm = (
     specification: {
       version,
       max_reference_images: values.max_reference_images,
+      custom_size: values.custom_size_enabled ? values.custom_size : undefined,
       parameters,
     },
     default_parameters: defaults,

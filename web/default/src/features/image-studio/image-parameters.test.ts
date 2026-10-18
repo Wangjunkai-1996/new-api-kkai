@@ -24,6 +24,7 @@ import {
   getImageOutputCount,
   getImageOutputParameter,
   getImageProfileMaxOutputs,
+  isValidImageCustomSize,
   normalizeImageParameters,
   parseImageParameters,
 } from './image-parameters'
@@ -83,6 +84,47 @@ const profile: ImageModelProfile = {
 }
 
 describe('image parameters', () => {
+  const customSize = {
+    max_edge: 3840,
+    step: 16,
+    min_pixels: 655360,
+    max_pixels: 8294400,
+    max_aspect_ratio: 3,
+  }
+
+  test('accepts canonical custom sizes within the model constraints', () => {
+    const customProfile: ImageModelProfile = {
+      ...profile,
+      specification: { ...profile.specification, custom_size: customSize },
+    }
+
+    assert.equal(isValidImageCustomSize('2048x1536', customSize), true)
+    assert.deepEqual(
+      parseImageParameters(customProfile, {
+        size: '2048x1536',
+        count: 1,
+      }),
+      {
+        success: true,
+        parameters: { size: '2048x1536', count: 1 },
+      }
+    )
+  })
+
+  test('rejects non-canonical or out-of-constraint custom sizes', () => {
+    const customProfile: ImageModelProfile = {
+      ...profile,
+      specification: { ...profile.specification, custom_size: customSize },
+    }
+
+    for (const size of ['2048x1537', '3840x1232', ' 2048x1536']) {
+      assert.deepEqual(parseImageParameters(customProfile, { size }), {
+        success: false,
+        errors: [{ code: 'invalid_size', parameterKey: 'size' }],
+      })
+    }
+  })
+
   test('keeps only values allowed by the active model specification', () => {
     assert.deepEqual(
       normalizeImageParameters(profile, {

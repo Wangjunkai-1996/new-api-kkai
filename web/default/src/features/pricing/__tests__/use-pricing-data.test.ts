@@ -7,6 +7,6 @@ describe('pricing exchange rate', () => {
     expect(getEffectiveUsdExchangeRate('USD', 7)).toBe(1)
     expect(getEffectiveUsdExchangeRate('TOKENS', 7)).toBe(1)
     expect(getEffectiveUsdExchangeRate('CNY', 7)).toBe(7)
-    expect(getEffectiveUsdExchangeRate('CUSTOM', 7)).toBe(7)
+    expect(getEffectiveUsdExchangeRate('CUSTOM', 7, 4)).toBe(4)
   })
 })

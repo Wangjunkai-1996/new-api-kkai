@@ -37,6 +37,7 @@ type Pricing struct {
 	QuotaType              int                                  `json:"quota_type"`
 	ModelRatio             float64                              `json:"model_ratio"`
 	ModelPrice             float64                              `json:"model_price"`
+	PricingConfigured      bool                                 `json:"pricing_configured"`
 	OwnerBy                string                               `json:"owner_by"`
 	CompletionRatio        float64                              `json:"completion_ratio"`
 	CacheRatio             *float64                             `json:"cache_ratio,omitempty"`
@@ -355,11 +356,13 @@ func updatePricing() {
 		if findPrice {
 			pricing.ModelPrice = modelPrice
 			pricing.QuotaType = 1
+			pricing.PricingConfigured = true
 		} else {
-			modelRatio, _, _ := ratio_setting.GetModelRatio(model)
+			modelRatio, ratioConfigured, _ := ratio_setting.GetModelRatio(model)
 			pricing.ModelRatio = modelRatio
 			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
 			pricing.QuotaType = 0
+			pricing.PricingConfigured = ratioConfigured
 		}
 		if cacheRatio, ok := ratio_setting.GetCacheRatio(model); ok {
 			pricing.CacheRatio = &cacheRatio
@@ -382,6 +385,7 @@ func updatePricing() {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = billing_setting.GetDisplayBillingExpr(model, expr)
+				pricing.PricingConfigured = true
 				if pricing.BillingExpr != expr {
 					pricing.CacheRatio = nil
 				}
@@ -391,6 +395,7 @@ func updatePricing() {
 				if expr, ok := billing_setting.GetBillingExpr(target.Declared); ok && strings.TrimSpace(expr) != "" {
 					pricing.BillingMode = tailMode
 					pricing.BillingExpr = expr
+					pricing.PricingConfigured = true
 				}
 			}
 		}
@@ -417,6 +422,9 @@ func updatePricing() {
 					schema = map[string]jsplugin.UsageFieldSchema{}
 				}
 				expression, hasExpression := billing_setting.ResolveTaskBillingExpr(provider.Meta.Key, model, "")
+				if hasExpression && strings.TrimSpace(expression) != "" {
+					pricing.PricingConfigured = true
+				}
 				mode := billing_setting.BillingModeRatio
 				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr {
 					mode = billing_setting.BillingModeTieredExpr

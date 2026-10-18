@@ -41,7 +41,8 @@ func DefaultConfig() imagepricing.Config {
 		Enabled: false,
 		Models: map[string]imagepricing.ModelConfig{
 			"gpt-image-2": {
-				DefaultSize: "1024x1024",
+				DefaultSize:     "1024x1024",
+				AllowCustomSize: true,
 				Tiers: map[string]imagepricing.TierConfig{
 					"1k": {UnitPrice: 0.67, Sizes: []string{"1024x1024"}},
 					"2k": {UnitPrice: 1, Sizes: []string{"1536x1024", "1024x1536", "2048x2048", "2048x1152", "1152x2048"}},
@@ -86,6 +87,14 @@ func Resolve(model, size string) (Match, bool, error) {
 	return Match{
 		Resolution: resolution, PolicyVersion: loaded.policy.Version(), PolicyHash: loaded.hash,
 	}, true, nil
+}
+
+func AllowsCustomSize(model string) (bool, bool) {
+	loaded := current.Load()
+	if loaded == nil || loaded.policy == nil {
+		return false, false
+	}
+	return loaded.policy.AllowsCustomSize(model)
 }
 
 func PolicyHash() string {

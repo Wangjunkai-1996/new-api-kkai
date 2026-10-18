@@ -94,7 +94,7 @@ func TestPrepareImagePricingRejectsUnpricedSizes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enableImageResolutionPricingForTest(t)
 
-	for _, size := range []string{"auto", "1792x1024"} {
+	for _, size := range []string{"auto", "1792x1025", "4000x2000"} {
 		t.Run(size, func(t *testing.T) {
 			request := &dto.ImageRequest{Model: "gpt-image-2", Size: size}
 			info := &relaycommon.RelayInfo{OriginModelName: "gpt-image-2", Request: request}
@@ -104,6 +104,19 @@ func TestPrepareImagePricingRejectsUnpricedSizes(t *testing.T) {
 			assert.Nil(t, info.ImagePricingSnapshot)
 		})
 	}
+}
+
+func TestPrepareImagePricingResolvesCustomSizePixelTier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enableImageResolutionPricingForTest(t)
+	request := &dto.ImageRequest{Model: "gpt-image-2", Size: "1792x1024"}
+	info := &relaycommon.RelayInfo{OriginModelName: "gpt-image-2", Request: request}
+
+	require.NoError(t, PrepareImagePricing(newImagePricingContext(), info))
+	require.NotNil(t, info.ImagePricingSnapshot)
+	assert.Equal(t, "1792x1024", request.Size)
+	assert.Equal(t, "2k", info.ImagePricingSnapshot.Tier)
+	assert.Equal(t, 1.0, info.ImagePricingSnapshot.UnitPrice)
 }
 
 func TestPrepareImagePricingUsesOnlyMatchingTrustedSnapshot(t *testing.T) {

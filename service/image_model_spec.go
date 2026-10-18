@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
@@ -40,9 +41,10 @@ var (
 )
 
 type ImageModelSpec struct {
-	Version            int                  `json:"version"`
-	MaxReferenceImages int                  `json:"max_reference_images,omitempty"`
-	Parameters         []ImageParameterSpec `json:"parameters"`
+	Version            int                           `json:"version"`
+	MaxReferenceImages int                           `json:"max_reference_images,omitempty"`
+	CustomSize         *imagepricing.SizeConstraints `json:"custom_size,omitempty"`
+	Parameters         []ImageParameterSpec          `json:"parameters"`
 }
 
 type ImageParameterSpec struct {
@@ -73,6 +75,11 @@ func ValidateImageModelSpec(spec ImageModelSpec, defaults map[string]any) error 
 	}
 	if spec.MaxReferenceImages < 0 || spec.MaxReferenceImages > MaxImageStudioReferenceImages {
 		return fmt.Errorf("%w: max_reference_images must be omitted or between 1 and %d", ErrInvalidImageModelSpec, MaxImageStudioReferenceImages)
+	}
+	if spec.CustomSize != nil {
+		if err := validateImageCustomSizeConstraints(*spec.CustomSize); err != nil {
+			return fmt.Errorf("%w: custom_size: %v", ErrInvalidImageModelSpec, err)
+		}
 	}
 	if len(spec.Parameters) > len(imageRequestFieldRules) {
 		return fmt.Errorf("%w: too many parameters", ErrInvalidImageModelSpec)
@@ -105,6 +112,19 @@ func ValidateImageModelSpec(spec ImageModelSpec, defaults map[string]any) error 
 	}
 	if _, err := ValidateImageParameters(spec, defaults, true); err != nil {
 		return fmt.Errorf("%w: defaults: %v", ErrInvalidImageModelSpec, err)
+	}
+	return nil
+}
+
+func validateImageCustomSizeConstraints(constraints imagepricing.SizeConstraints) error {
+	if err := imagepricing.ValidateSizeConstraints(constraints); err != nil {
+		return err
+	}
+	provider := imagepricing.DefaultSizeConstraints
+	if constraints.MaxEdge > provider.MaxEdge || constraints.Step < provider.Step || constraints.Step%provider.Step != 0 ||
+		constraints.MinPixels < provider.MinPixels || constraints.MaxPixels > provider.MaxPixels ||
+		constraints.MaxAspectRatio > provider.MaxAspectRatio {
+		return fmt.Errorf("%w: custom size constraints must stay within GPT Image 2 limits", ErrInvalidImageModelSpec)
 	}
 	return nil
 }
@@ -197,7 +217,7 @@ func ValidateImageParameters(spec ImageModelSpec, values map[string]any, require
 			}
 			continue
 		}
-		normalized, err := normalizeImageParameterValue(parameter, value)
+		normalized, err := normalizeImageParameterValue(parameter, value, spec.CustomSize)
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +226,7 @@ func ValidateImageParameters(spec ImageModelSpec, values map[string]any, require
 	return result, nil
 }
 
-func normalizeImageParameterValue(parameter ImageParameterSpec, value any) (any, error) {
+func normalizeImageParameterValue(parameter ImageParameterSpec, value any, customSize *imagepricing.SizeConstraints) (any, error) {
 	switch parameter.Control {
 	case ImageControlSelect:
 		text, ok := value.(string)
@@ -216,6 +236,14 @@ func normalizeImageParameterValue(parameter ImageParameterSpec, value any) (any,
 		for _, option := range parameter.Options {
 			if option.Value == text {
 				return text, nil
+			}
+		}
+		// Size keeps its existing preset options while allowing a model profile
+		// to opt into validated custom dimensions.
+		if parameter.RequestKey == "size" && customSize != nil {
+			canonical, err := imagepricing.ValidateSize(text, *customSize)
+			if err == nil {
+				return canonical, nil
 			}
 		}
 	case ImageControlInteger:

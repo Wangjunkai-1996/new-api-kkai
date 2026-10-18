@@ -22,9 +22,20 @@ import type {
   ImageParameterControl,
   ImageParameters,
   ImageParameterValue,
+  ImageSizeConstraints,
+  ImageSelectParameter,
 } from './types'
 
 export const IMAGE_STUDIO_MAX_OUTPUTS = 4
+
+export const getImageSizeParameter = (
+  profile: ImageModelProfile
+): ImageSelectParameter | undefined => {
+  const parameter = profile.specification.parameters.find(
+    (candidate) => candidate.request_key === 'size'
+  )
+  return parameter?.control === 'select' ? parameter : undefined
+}
 
 export const getImageOutputParameter = (
   profile: ImageModelProfile
@@ -76,12 +87,47 @@ export type ImageParameterValidationError = {
   code:
     | 'required'
     | 'invalid_option'
+    | 'invalid_size'
     | 'invalid_integer'
     | 'out_of_range'
     | 'invalid_boolean'
   parameterKey: string
   min?: number
   max?: number
+}
+
+const IMAGE_SIZE_PATTERN = /^(\d+)x(\d+)$/
+
+export const isValidImageCustomSize = (
+  value: unknown,
+  constraints: ImageSizeConstraints | undefined
+): value is string => {
+  if (typeof value !== 'string' || !constraints) return false
+  const match = IMAGE_SIZE_PATTERN.exec(value)
+  if (!match) return false
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (`${width}x${height}` !== value) return false
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    width > constraints.max_edge ||
+    height > constraints.max_edge ||
+    width % constraints.step !== 0 ||
+    height % constraints.step !== 0
+  ) {
+    return false
+  }
+  const pixels = width * height
+  const aspectRatio = Math.max(width, height) / Math.min(width, height)
+  return (
+    Number.isSafeInteger(pixels) &&
+    pixels >= constraints.min_pixels &&
+    pixels <= constraints.max_pixels &&
+    aspectRatio <= constraints.max_aspect_ratio
+  )
 }
 
 export type ImageParametersParseResult =
@@ -91,7 +137,8 @@ export type ImageParametersParseResult =
 export const validateImageParameterValue = (
   parameter: ImageParameterControl,
   value: unknown,
-  maxOutputs = IMAGE_STUDIO_MAX_OUTPUTS
+  maxOutputs = IMAGE_STUDIO_MAX_OUTPUTS,
+  customSize?: ImageSizeConstraints
 ): ImageParameterValidationError | undefined => {
   if (value === undefined || value === '') {
     return parameter.required
@@ -100,10 +147,22 @@ export const validateImageParameterValue = (
   }
 
   if (parameter.control === 'select') {
-    return typeof value !== 'string' ||
-      !parameter.options.some((option) => option.value === value)
-      ? { code: 'invalid_option', parameterKey: parameter.key }
-      : undefined
+    if (typeof value !== 'string') {
+      return { code: 'invalid_option', parameterKey: parameter.key }
+    }
+    if (parameter.options.some((option) => option.value === value)) {
+      return undefined
+    }
+    return parameter.request_key === 'size' &&
+      isValidImageCustomSize(value, customSize)
+      ? undefined
+      : {
+          code:
+            customSize && parameter.request_key === 'size'
+              ? 'invalid_size'
+              : 'invalid_option',
+          parameterKey: parameter.key,
+        }
   }
 
   if (parameter.control === 'integer') {
@@ -142,7 +201,8 @@ export const parseImageParameters = (
     const error = validateImageParameterValue(
       parameter,
       value,
-      profile.effective_max_outputs
+      profile.effective_max_outputs,
+      profile.specification.custom_size
     )
     if (error) {
       errors.push(error)
@@ -169,7 +229,8 @@ export const normalizeImageParameters = (
       validateImageParameterValue(
         parameter,
         value,
-        profile.effective_max_outputs
+        profile.effective_max_outputs,
+        profile.specification.custom_size
       ) === undefined &&
       value !== undefined &&
       value !== ''

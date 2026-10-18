@@ -377,6 +377,20 @@ describe('model cards', () => {
     expect(screen.queryByText('Input')).not.toBeInTheDocument()
   })
 
+  it('does not display the self-use fallback for an explicitly unconfigured model', () => {
+    render(
+      <ModelCard
+        model={pricingModel({
+          model_ratio: 37.5,
+          pricing_configured: false,
+        })}
+        onClick={vi.fn()}
+      />
+    )
+    expect(screen.getByText('Unset price')).toBeVisible()
+    expect(screen.queryByText('$75')).not.toBeInTheDocument()
+  })
+
   it('shows a spaced task token range with its unit when an example price is present', () => {
     render(
       <ModelCard

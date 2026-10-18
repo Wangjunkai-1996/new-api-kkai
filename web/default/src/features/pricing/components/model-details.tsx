@@ -88,7 +88,11 @@ import {
   type DynamicPriceEntry,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  isPricingExplicitlyUnconfigured,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { withPluginPricing } from '../lib/plugin-pricing'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import {
@@ -863,6 +867,15 @@ function PriceSection(props: {
     )
   }
 
+  if (isPricingExplicitlyUnconfigured(props.model)) {
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <p className='text-muted-foreground text-sm'>{t('Unset price')}</p>
+      </section>
+    )
+  }
+
   if (!isTokenBased) {
     const fixedUnit = isPerSecondTaskModel(props.model) ? 'second' : 'request'
     return (
@@ -1425,6 +1438,18 @@ function ProviderGroupPricingSection(
         )}
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <UnconfiguredTaskPricingNotice model={props.model} />
+      </section>
+    )
+  }
+
+  if (isPricingExplicitlyUnconfigured(props.model)) {
+    return (
+      <section>
+        {!props.hideTitle && (
+          <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        )}
+        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <p className='text-muted-foreground text-sm'>{t('Unset price')}</p>
       </section>
     )
   }

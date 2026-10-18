@@ -143,6 +143,28 @@ function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
           )}
         />
 
+        <FormField
+          control={form.control}
+          name='allow_custom_size'
+          render={({ field }) => (
+            <FormItem className='flex min-h-10 items-center justify-between gap-4 border-b pb-4'>
+              <div>
+                <FormLabel>{t('imageStudio.admin.customSize')}</FormLabel>
+                <p className='text-muted-foreground text-xs'>
+                  {t('imageStudio.admin.customSizeDescription')}
+                </p>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={updateOption.isPending}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
         <div className='grid gap-4 sm:grid-cols-3'>
           <PriceField
             control={form.control}

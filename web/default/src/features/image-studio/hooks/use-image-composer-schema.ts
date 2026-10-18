@@ -28,6 +28,7 @@ import type { ImageModelProfile } from '../types'
 const VALIDATION_KEYS: Record<ImageParameterValidationError['code'], string> = {
   required: 'imageStudio.validation.parameterRequired',
   invalid_option: 'imageStudio.validation.parameterInvalid',
+  invalid_size: 'imageStudio.validation.customSizeInvalid',
   invalid_integer: 'imageStudio.validation.parameterInteger',
   out_of_range: 'imageStudio.validation.parameterRange',
   invalid_boolean: 'imageStudio.validation.parameterInvalid',

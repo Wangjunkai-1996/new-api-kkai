@@ -20,8 +20,10 @@ import { sha256Hex } from './image-hash'
 import {
   clampImageOutputCount,
   getImageOutputParameter,
+  getImageSizeParameter,
   normalizeImageParameters,
 } from './image-parameters'
+import { parseImagePromptSize } from './image-prompt-size'
 import type {
   CreateImageEditRequest,
   CreateImageRequest,
@@ -132,13 +134,23 @@ export const buildImageComposerValues = (
     }
   }
   const provided = normalizeImageParameters(profile, inputParameters)
+  const parameters = normalizeImageParameters(profile, {
+    ...defaults,
+    ...provided,
+  })
+  const sizeParameter = getImageSizeParameter(profile)
+  const promptSize = parseImagePromptSize(input?.prompt ?? '')
+  if (sizeParameter) {
+    const size =
+      inputParameters[sizeParameter.key] ??
+      (promptSize.kind === 'size' ? promptSize.size : undefined)
+    // Keep an explicit size visible for validation, including after a model change.
+    if (size !== undefined) parameters[sizeParameter.key] = size
+  }
   return {
     model_profile_id: profile.id,
     prompt: input?.prompt ?? '',
-    parameters: normalizeImageParameters(profile, {
-      ...defaults,
-      ...provided,
-    }),
+    parameters,
     sample_id: input?.sample_id,
   }
 }

@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,38 @@ func TestValidateImageModelSpecAllowsDefaultAndBoundedReferenceCounts(t *testing
 	multiple := validImageModelSpec()
 	multiple.MaxReferenceImages = MaxImageStudioReferenceImages
 	require.NoError(t, ValidateImageModelSpec(multiple, defaults))
+}
+
+func TestValidateImageParametersAllowsCustomSizeOnlyWhenProfileEnablesIt(t *testing.T) {
+	withCustom := validImageModelSpec()
+	constraints := imagepricing.DefaultSizeConstraints
+	withCustom.CustomSize = &constraints
+	parameters, err := ValidateImageParameters(withCustom, map[string]any{
+		"size": "1792x1024", "count": 1,
+	}, true)
+	require.NoError(t, err)
+	assert.Equal(t, "1792x1024", parameters["size"])
+
+	for _, size := range []string{"1792x1025", "4000x2000", "512x512"} {
+		_, err = ValidateImageParameters(withCustom, map[string]any{"size": size, "count": 1}, true)
+		assert.ErrorIs(t, err, ErrInvalidImageParameters, size)
+	}
+	withoutCustom := validImageModelSpec()
+	_, err = ValidateImageParameters(withoutCustom, map[string]any{"size": "1792x1024", "count": 1}, true)
+	assert.ErrorIs(t, err, ErrInvalidImageParameters)
+}
+
+func TestValidateImageModelSpecRejectsInvalidCustomSizeConstraints(t *testing.T) {
+	spec := validImageModelSpec()
+	constraints := imagepricing.DefaultSizeConstraints
+	constraints.Step = 0
+	spec.CustomSize = &constraints
+	assert.ErrorIs(t, ValidateImageModelSpec(spec, map[string]any{"size": "1024x1024"}), ErrInvalidImageModelSpec)
+
+	constraints = imagepricing.DefaultSizeConstraints
+	constraints.MaxEdge++
+	spec.CustomSize = &constraints
+	assert.ErrorIs(t, ValidateImageModelSpec(spec, map[string]any{"size": "1024x1024"}), ErrInvalidImageModelSpec)
 }
 
 func TestImageStudioOutputLimitAcceptsLegacyBoundsButRejectsUnsafeMinimumDefaultsAndValues(t *testing.T) {

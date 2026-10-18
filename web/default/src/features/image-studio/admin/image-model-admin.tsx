@@ -305,6 +305,26 @@ export function ImageModelAdmin() {
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name='custom_size_enabled'
+              render={({ field }) => (
+                <FormItem className='flex items-center justify-between rounded-md border px-3 py-2'>
+                  <div>
+                    <FormLabel>{t('imageStudio.admin.customSize')}</FormLabel>
+                    <p className='text-muted-foreground text-xs'>
+                      {t('imageStudio.admin.customSizeDescription')}
+                    </p>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
             <ImageParameterSpecEditor />
           </div>
         </form>

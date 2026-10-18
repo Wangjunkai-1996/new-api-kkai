@@ -53,6 +53,13 @@ export function ImageParameterFields(props: {
           render={({ field, fieldState }) => {
             const id = `image-parameter-${parameter.key}`
             const errorId = `${id}-error`
+            const unsupportedPresetSize =
+              parameter.control === 'select' &&
+              parameter.request_key === 'size' &&
+              !props.profile.specification.custom_size &&
+              typeof field.value === 'string' &&
+              field.value !== '' &&
+              !parameter.options.some((option) => option.value === field.value)
             const errorMessage = fieldState.error?.message
               ? t(String(fieldState.error.message))
               : null
@@ -85,29 +92,84 @@ export function ImageParameterFields(props: {
               <div className='space-y-1.5'>
                 <Label htmlFor={id}>{parameter.label}</Label>
                 {parameter.control === 'select' ? (
-                  <NativeSelect
-                    id={id}
-                    className='w-full'
-                    value={typeof field.value === 'string' ? field.value : ''}
-                    onChange={(event) => field.onChange(event.target.value)}
-                    onBlur={field.onBlur}
-                    name={field.name}
-                    ref={field.ref}
-                    aria-invalid={Boolean(errorMessage)}
-                    aria-describedby={errorMessage ? errorId : undefined}
-                  >
-                    <NativeSelectOption value=''>
-                      {t('imageStudio.parameter.select')}
-                    </NativeSelectOption>
-                    {parameter.options.map((option) => (
-                      <NativeSelectOption
-                        key={option.value}
-                        value={option.value}
-                      >
-                        {option.label}
+                  <>
+                    <NativeSelect
+                      id={id}
+                      className='w-full'
+                      value={
+                        typeof field.value === 'string' &&
+                        (unsupportedPresetSize ||
+                          parameter.options.some(
+                            (option) => option.value === field.value
+                          ))
+                          ? field.value
+                          : ''
+                      }
+                      onChange={(event) => field.onChange(event.target.value)}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                      aria-invalid={Boolean(errorMessage)}
+                      aria-describedby={errorMessage ? errorId : undefined}
+                    >
+                      <NativeSelectOption value=''>
+                        {t('imageStudio.parameter.select')}
                       </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
+                      {unsupportedPresetSize && (
+                        <NativeSelectOption
+                          value={String(field.value)}
+                          disabled
+                        >
+                          {String(field.value)}
+                        </NativeSelectOption>
+                      )}
+                      {parameter.options.map((option) => (
+                        <NativeSelectOption
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                    {parameter.request_key === 'size' &&
+                      props.profile.specification.custom_size && (
+                        <div className='space-y-1'>
+                          <Input
+                            type='text'
+                            value={
+                              typeof field.value === 'string' &&
+                              !parameter.options.some(
+                                (option) => option.value === field.value
+                              )
+                                ? field.value
+                                : ''
+                            }
+                            placeholder={t(
+                              'imageStudio.parameter.customSizePlaceholder'
+                            )}
+                            aria-label={t('imageStudio.parameter.customSize')}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                            onBlur={field.onBlur}
+                            aria-invalid={Boolean(errorMessage)}
+                            aria-describedby={
+                              errorMessage ? errorId : undefined
+                            }
+                          />
+                          <p className='text-muted-foreground text-xs'>
+                            {t('imageStudio.parameter.customSizeHint', {
+                              maxEdge:
+                                props.profile.specification.custom_size
+                                  .max_edge,
+                              step: props.profile.specification.custom_size
+                                .step,
+                            })}
+                          </p>
+                        </div>
+                      )}
+                  </>
                 ) : (
                   <Input
                     id={id}

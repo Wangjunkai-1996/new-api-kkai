@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Controller, type Control } from 'react-hook-form'
+import { useTranslation } from 'react-i18next'
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,6 +31,7 @@ export function ImageSampleParameterFields(props: {
   control: Control<ImageSampleFormValues>
   profile: ImageModelProfile
 }) {
+  const { t } = useTranslation()
   return (
     <div className='grid gap-4 sm:grid-cols-2'>
       {props.profile.specification.parameters.map((parameter) => (
@@ -52,14 +54,22 @@ export function ImageSampleParameterFields(props: {
               )
             }
             if (parameter.control === 'select') {
+              const selectedPreset =
+                typeof field.value === 'string' &&
+                parameter.options.some((option) => option.value === field.value)
+                  ? field.value
+                  : ''
               return (
                 <div className='space-y-1.5'>
                   <Label htmlFor={id}>{parameter.label}</Label>
                   <NativeSelect
                     id={id}
-                    value={typeof field.value === 'string' ? field.value : ''}
+                    value={selectedPreset}
                     onChange={(event) => field.onChange(event.target.value)}
                   >
+                    <NativeSelectOption value=''>
+                      {t('imageStudio.parameter.select')}
+                    </NativeSelectOption>
                     {parameter.options.map((option) => (
                       <NativeSelectOption
                         key={option.value}
@@ -69,6 +79,25 @@ export function ImageSampleParameterFields(props: {
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
+                  {parameter.request_key === 'size' &&
+                    props.profile.specification.custom_size && (
+                      <Input
+                        type='text'
+                        value={
+                          typeof field.value === 'string' &&
+                          !parameter.options.some(
+                            (option) => option.value === field.value
+                          )
+                            ? field.value
+                            : ''
+                        }
+                        placeholder={t(
+                          'imageStudio.parameter.customSizePlaceholder'
+                        )}
+                        aria-label={t('imageStudio.parameter.customSize')}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    )}
                 </div>
               )
             }

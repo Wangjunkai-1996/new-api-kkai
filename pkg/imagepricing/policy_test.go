@@ -15,7 +15,8 @@ func testConfig() Config {
 		Enabled: true,
 		Models: map[string]ModelConfig{
 			"gpt-image-2": {
-				DefaultSize: "1024x1024",
+				DefaultSize:     "1024x1024",
+				AllowCustomSize: true,
 				Tiers: map[string]TierConfig{
 					"1k": {UnitPrice: 0.67, Sizes: []string{"1024x1024"}},
 					"2k": {UnitPrice: 1, Sizes: []string{"1536x1024", "1024x1536", "2048x2048", "2048x1152", "1152x2048"}},
@@ -24,6 +25,58 @@ func testConfig() Config {
 			},
 		},
 	}
+}
+
+func TestValidateSizeEnforcesProviderDimensionConstraints(t *testing.T) {
+	valid, err := ValidateSize("1792x1024", DefaultSizeConstraints)
+	require.NoError(t, err)
+	assert.Equal(t, "1792x1024", valid)
+	valid, err = ValidateSize("3840x1280", DefaultSizeConstraints)
+	require.NoError(t, err)
+	assert.Equal(t, "3840x1280", valid)
+	for _, size := range []string{
+		"1792x1025", // not a multiple of 16
+		"3840x1024", // exceeds the maximum 3:1 ratio
+		"3840x3840", // above the maximum pixel count
+		"4000x2000", // exceeds max edge
+	} {
+		_, err := ValidateSize(size, DefaultSizeConstraints)
+		assert.ErrorIs(t, err, ErrUnsupportedSize, size)
+	}
+}
+
+func TestPolicyResolveUsesPixelTierForCustomSize(t *testing.T) {
+	policy, err := Compile(testConfig())
+	require.NoError(t, err)
+	tests := []struct {
+		size  string
+		tier  string
+		price float64
+	}{
+		{size: "1792x1024", tier: "2k", price: 1},
+		{size: "2048x2048", tier: "2k", price: 1},
+		{size: "3840x1280", tier: "4k", price: 1.34},
+	}
+	for _, test := range tests {
+		resolution, configured, resolveErr := policy.Resolve("gpt-image-2", test.size)
+		require.NoError(t, resolveErr)
+		require.True(t, configured)
+		assert.Equal(t, test.size, resolution.Size)
+		assert.Equal(t, test.tier, resolution.Tier)
+		assert.Equal(t, test.price, resolution.UnitPrice)
+	}
+}
+
+func TestPolicyResolveRejectsCustomSizeForUnconfiguredModel(t *testing.T) {
+	config := testConfig()
+	config.Models["gpt-image-2"] = ModelConfig{
+		DefaultSize: "1024x1024", Tiers: config.Models["gpt-image-2"].Tiers,
+	}
+	policy, err := Compile(config)
+	require.NoError(t, err)
+	_, configured, err := policy.Resolve("gpt-image-2", "1792x1024")
+	require.True(t, configured)
+	assert.ErrorIs(t, err, ErrUnsupportedSize)
 }
 
 func TestPolicyResolveUsesExplicitDefaultAndExactTierPrices(t *testing.T) {
@@ -87,6 +140,11 @@ func TestCompileRejectsAmbiguousOrUnsafePolicies(t *testing.T) {
 			tier := model.Tiers["4k"]
 			tier.Sizes = []string{"auto"}
 			model.Tiers["4k"] = tier
+			config.Models["gpt-image-2"] = model
+		}},
+		{name: "custom size missing area tier", mutate: func(config *Config) {
+			model := config.Models["gpt-image-2"]
+			delete(model.Tiers, "4k")
 			config.Models["gpt-image-2"] = model
 		}},
 		{name: "nan price", mutate: func(config *Config) {

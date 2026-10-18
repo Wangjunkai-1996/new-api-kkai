@@ -38,7 +38,8 @@ export function getAvailableGroups(
 
   return Object.keys(usableGroup)
     .filter(
-      (g) => !EXCLUDED_GROUPS.includes(g) && !isAutoGroupName(g, autoGroupChains)
+      (g) =>
+        !EXCLUDED_GROUPS.includes(g) && !isAutoGroupName(g, autoGroupChains)
     )
     .filter((g) => modelEnableGroups.includes(g))
 }
@@ -110,4 +111,13 @@ export function replaceModelInPath(path: string, modelName: string): string {
  */
 export function isTokenBasedModel(model: PricingModel): boolean {
   return model.quota_type === QUOTA_TYPE_VALUES.TOKEN
+}
+
+/**
+ * Return true only when the backend explicitly marks pricing as unavailable.
+ * Older pricing responses omit this field and remain compatible with the
+ * legacy ratio based display.
+ */
+export function isPricingExplicitlyUnconfigured(model: PricingModel): boolean {
+  return model.pricing_configured === false
 }
