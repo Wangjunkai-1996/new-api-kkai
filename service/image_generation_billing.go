@@ -103,6 +103,27 @@ func PreConsumeImageGenerationBilling(
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+	if relayInfo.MembershipPricing != nil {
+		input, err := PrepareMembershipReservation(relayInfo, relayInfo.MembershipPricing.MaximumBeforeGroup)
+		if err != nil {
+			return membershipBillingError(err)
+		}
+		if guard, ok := imageStudioBillingGuardFromContext(c); ok && input.WalletQuota > int64(guard.maxQuota) {
+			return membershipBillingError(ErrImageStudioQuoteStale)
+		}
+		record, err := model.ReserveMembershipImageGenerationBilling(context.WithoutCancel(c.Request.Context()), db, generationID, input)
+		if err != nil {
+			return membershipBillingError(err)
+		}
+		if err := ApplyMembershipReservation(relayInfo, record); err != nil {
+			return membershipBillingError(err)
+		}
+		if guard, ok := imageStudioBillingGuardFromContext(c); ok {
+			guard.maxQuota = int(record.ReservedQuota)
+		}
+		relayInfo.Billing = &imageGenerationBillingSession{db: db, generationID: generationID, relayInfo: relayInfo, preConsumed: int(record.ReservedQuota)}
+		return nil
+	}
 	var mutation *model.ImageGenerationBillingMutation
 	err := db.WithContext(context.WithoutCancel(c.Request.Context())).Transaction(func(tx *gorm.DB) error {
 		var err error
@@ -149,27 +170,36 @@ func (session *imageGenerationBillingSession) Settle(actualQuota int) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	charge := actualQuota
+	if session.relayInfo.MembershipBillingRequestID != "" {
+		charge = min(actualQuota, session.preConsumed)
+	}
 	var mutation *model.ImageGenerationBillingMutation
 	var err error
 	if session.fence == nil {
-		mutation, err = model.SettleImageGenerationBilling(ctx, session.db, session.generationID, actualQuota)
+		mutation, err = model.SettleImageGenerationBilling(ctx, session.db, session.generationID, charge)
 	} else {
-		err = session.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err = model.MembershipTransactionWithDB(ctx, session.db, func(tx *gorm.DB) error {
 			if _, err := model.RequireImageExecutionFenceTx(tx, session.generationID, *session.fence); err != nil {
 				return err
 			}
 			var err error
-			mutation, err = model.SettleImageGenerationBillingTx(tx, session.generationID, actualQuota, session.expectedStatus)
+			mutation, err = model.SettleImageGenerationBillingTx(tx, session.generationID, charge, session.expectedStatus)
 			return err
 		})
 	}
 	if err != nil {
 		return err
 	}
+	if session.fence != nil {
+		model.MembershipBillingAfterCommit(mutation.MembershipRecord)
+	}
 	session.settled = true
-	session.preConsumed = actualQuota
+	session.preConsumed = mutation.CurrentQuota
 	if mutation != nil && mutation.Generation != nil {
-		session.relayInfo.FinalPreConsumedQuota = mutation.CurrentQuota
+		if session.relayInfo.MembershipBillingRequestID == "" {
+			session.relayInfo.FinalPreConsumedQuota = mutation.CurrentQuota
+		}
 		session.relayInfo.SubscriptionAmountTotal = mutation.SubscriptionAmountTotal
 		session.relayInfo.SubscriptionAmountUsedAfterPreConsume = mutation.SubscriptionAmountUsed
 	}
@@ -193,7 +223,7 @@ func (session *imageGenerationBillingSession) Refund(c *gin.Context) {
 	if session.fence == nil {
 		mutation, err = model.RefundImageGenerationBilling(ctx, session.db, session.generationID)
 	} else {
-		err = session.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err = model.MembershipTransactionWithDB(ctx, session.db, func(tx *gorm.DB) error {
 			if _, err := model.RequireImageExecutionFenceTx(tx, session.generationID, *session.fence); err != nil {
 				return err
 			}
@@ -205,6 +235,9 @@ func (session *imageGenerationBillingSession) Refund(c *gin.Context) {
 	if err != nil {
 		common.SysLog("failed to refund durable image generation billing: " + err.Error())
 		return
+	}
+	if session.fence != nil {
+		model.MembershipBillingAfterCommit(mutation.MembershipRecord)
 	}
 	session.refunded = true
 	session.preConsumed = 0

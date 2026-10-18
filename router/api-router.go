@@ -22,6 +22,7 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	registerKKAIRoutes(apiRouter, anonymousRequestBodyLimit)
+	registerMembershipRoutes(apiRouter, anonymousRequestBodyLimit)
 	{
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)

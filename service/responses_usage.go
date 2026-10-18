@@ -22,6 +22,7 @@ type ResponsesUsageAccumulator struct {
 	imageCommitted bool
 	started        bool
 	finished       bool
+	reportedUsage  bool
 }
 
 func NewResponsesUsageAccumulator(info *relaycommon.RelayInfo) *ResponsesUsageAccumulator {
@@ -40,6 +41,10 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse) 
 	switch event.Type {
 	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 		if event.Response != nil {
+			a.reportedUsage = event.Response.Usage != nil
+			if a.info.MembershipBillingRequestID != "" {
+				a.info.MembershipHasReportedUsage = a.reportedUsage
+			}
 			ApplyResponsesUsage(a.usage, event.Response.Usage)
 			if a.outputText.Len() == 0 {
 				// Some upstreams carry the output only on the terminal event.
@@ -84,6 +89,9 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 		return a.usage
 	}
 	a.finished = true
+	if a.info.MembershipBillingRequestID != "" && !a.reportedUsage && !a.info.PriceData.UsePrice && a.info.ImagePricingSnapshot == nil {
+		a.info.MembershipOutcomeUnknown = true
+	}
 	// A final image item can already have reached the client before the stream
 	// disconnects. Explicit failed/incomplete terminals reset and commit zero in
 	// Observe; otherwise retain completed tool usage even without a terminal.
@@ -91,7 +99,7 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 		a.imageCounter.Commit(a.info)
 		a.imageCommitted = true
 	}
-	if a.usage.CompletionTokens == 0 {
+	if a.usage.CompletionTokens == 0 && !(a.info.MembershipBillingRequestID != "" && a.reportedUsage) {
 		if output := a.outputText.String(); output != "" {
 			a.usage.CompletionTokens = CountTextToken(output, a.info.GetUpstreamModelName())
 		}
@@ -100,7 +108,7 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 	// that produced any event but no usage still owes its input tokens unless
 	// upstream reported an explicit failure.
 	billsPrompt := a.usage.CompletionTokens != 0 || (a.started && !a.info.StreamStatus.ResponseFailed())
-	if a.usage.PromptTokens == 0 && billsPrompt {
+	if a.usage.PromptTokens == 0 && billsPrompt && !(a.info.MembershipBillingRequestID != "" && a.reportedUsage) {
 		a.usage.PromptTokens = a.info.GetEstimatePromptTokens()
 	}
 	a.usage.TotalTokens = a.usage.PromptTokens + a.usage.CompletionTokens
@@ -108,6 +116,12 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 		a.usage.BillingUsage = dto.CloneBillingUsageWithEstimatedCompletion(a.usage.BillingUsage, a.usage.CompletionTokens)
 	}
 	return a.usage
+}
+
+// HasReportedUsage distinguishes terminal provider accounting from local text
+// estimates, which cannot authorize releasing an interrupted request's reserve.
+func (a *ResponsesUsageAccumulator) HasReportedUsage() bool {
+	return a != nil && a.reportedUsage
 }
 
 // HasMeasuredUsage excludes a prompt estimate for a request that never produced output.

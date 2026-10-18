@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	common2 "github.com/QuantumNous/new-api/common"
 	systemconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -655,7 +657,71 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+// ConfirmedMembershipRejection recognizes protocol-level failures before model
+// execution. A status alone, particularly a gateway 5xx, is never zero-cost
+// evidence. Preserve every inspected byte for the normal error/policy parser.
+func ConfirmedMembershipRejection(resp *http.Response) bool {
+	if resp == nil || resp.Body == nil {
+		return false
+	}
+	switch resp.StatusCode {
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity, http.StatusTooManyRequests:
+	default:
+		return false
+	}
+	const maximumErrorBytes = 64 << 10
+	original := resp.Body
+	data, readErr := io.ReadAll(io.LimitReader(original, maximumErrorBytes+1))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{Reader: io.MultiReader(bytes.NewReader(data), original), Closer: original}
+	if readErr != nil || len(data) > maximumErrorBytes {
+		return false
+	}
+	var payload map[string]any
+	if common2.Unmarshal(data, &payload) != nil {
+		return false
+	}
+	// Any usage/output envelope makes even a nominal validation error ambiguous.
+	// Traverse structured fields, never infer acceptance from free-form messages.
+	pending := []any{payload}
+	for len(pending) > 0 {
+		value := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		switch item := value.(type) {
+		case map[string]any:
+			for key, nested := range item {
+				switch strings.ToLower(key) {
+				case "usage", "usage_metadata", "usagemetadata", "input_tokens", "output_tokens", "prompt_tokens", "completion_tokens", "total_tokens", "cost", "charged", "billing", "output", "choices", "response", "results", "images":
+					return false
+				}
+				pending = append(pending, nested)
+			}
+		case []any:
+			pending = append(pending, item...)
+		}
+	}
+	providerError, ok := payload["error"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, field := range []string{"type", "code", "status"} {
+		code, _ := providerError[field].(string)
+		switch strings.ToLower(code) {
+		case "invalid_request_error", "authentication_error", "permission_error", "not_found_error", "rate_limit_error",
+			"invalid_api_key", "context_length_exceeded", "model_not_found", "rate_limit_exceeded", "insufficient_quota",
+			"invalid_argument", "unauthenticated", "permission_denied", "not_found", "resource_exhausted":
+			return true
+		}
+	}
+	return false
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	if err := service.ValidateMembershipOutbound(req, info); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
 	c.Set(common2.UpstreamRequestIdKey, "")
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
@@ -699,13 +765,44 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request canceled before dispatch"))
 		}
 	}
-	resp, err := relayClient.Do(req)
+	dispatchCtx, cancelDispatch, err := service.PrepareMembershipDispatch(req.Context(), info)
 	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+	}
+	var possiblySent atomic.Bool
+	dispatchCtx = httptrace.WithClientTrace(dispatchCtx, &httptrace.ClientTrace{WroteHeaders: func() { possiblySent.Store(true) }, WroteRequest: func(httptrace.WroteRequestInfo) { possiblySent.Store(true) }})
+	req = req.WithContext(dispatchCtx)
+	resp, err := relayClient.Do(req)
+	if info.MembershipBillingRequestID != "" && err != nil {
+		info.MembershipOutcomeUnknown = possiblySent.Load()
+		if !info.MembershipOutcomeUnknown && info.MembershipBillingRequestID == info.RequestId {
+			if clearErr := model.ClearMembershipBillingRejectedAttempt(info.MembershipBillingRequestID, info.ChannelId); clearErr != nil {
+				info.MembershipOutcomeUnknown = true
+				logger.LogError(c, "failed to close rejected membership attempt: "+clearErr.Error())
+			}
+		}
+	}
+	if err != nil {
+		cancelDispatch()
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
+		cancelDispatch()
+		info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
 		return nil, errors.New("resp is nil")
+	}
+	if info.MembershipBillingRequestID == info.RequestId && info.MembershipBillingRequestID != "" && resp.StatusCode >= 300 {
+		if ConfirmedMembershipRejection(resp) {
+			if clearErr := model.ClearMembershipBillingRejectedAttempt(info.MembershipBillingRequestID, info.ChannelId); clearErr != nil {
+				info.MembershipOutcomeUnknown = true
+				cancelDispatch()
+				_ = resp.Body.Close()
+				return nil, types.NewError(clearErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+			}
+		} else {
+			info.MembershipOutcomeUnknown = true
+		}
 	}
 	info.SetUpstreamHeaderTime()
 
@@ -719,7 +816,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	_ = req.Body.Close()
 	_ = c.Request.Body.Close()
-	return resp, nil
+	return bindUpstreamPolicyResponseBody(resp, cancelDispatch), nil
 }
 
 func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {

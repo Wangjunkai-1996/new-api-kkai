@@ -37,6 +37,17 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	if relayInfo == nil {
 		return
 	}
+	if relayInfo.MembershipBillingRequestID != "" && other != nil {
+		other.SetPublic("billing_source", relayInfo.BillingSource)
+		other.SetPublic("membership_account_id", relayInfo.MembershipPricing.AccountID)
+		other.SetAdmin("membership_billing", map[string]any{
+			"request_id":      relayInfo.MembershipBillingRequestID,
+			"authorized":      relayInfo.FinalPreConsumedQuota,
+			"assessed":        relayInfo.MembershipAssessedQuota,
+			"charged":         relayInfo.MembershipChargedQuota,
+			"platform_excess": max(relayInfo.MembershipAssessedQuota-relayInfo.MembershipChargedQuota, 0),
+		})
+	}
 	clamp := relayInfo.QuotaClamp
 	if clamp == nil {
 		return

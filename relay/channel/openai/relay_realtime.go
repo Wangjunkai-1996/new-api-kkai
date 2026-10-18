@@ -23,6 +23,9 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 	if info == nil || info.ClientWs == nil || info.TargetWs == nil {
 		return types.NewError(fmt.Errorf("invalid websocket connection"), types.ErrorCodeBadResponse), nil
 	}
+	if info.MembershipRealtime {
+		return membershipRealtimeHandler(c, info)
+	}
 
 	info.IsStream = true
 	clientConn := info.ClientWs

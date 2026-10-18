@@ -23,6 +23,7 @@ import { useStatus } from '@/hooks/use-status'
 import { normalizeAutoGroupChains } from '@/lib/auto-groups'
 import { resolveGroupDisplayName } from '@/lib/group-display'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getPricing } from '../api'
 
@@ -42,11 +43,12 @@ export function getEffectiveUsdExchangeRate(
 
 export function usePricingData(enabled = true) {
   const { status } = useStatus()
+  const userId = useAuthStore((state) => state.auth.user?.id)
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['pricing'],
+    queryKey: ['pricing', userId],
     queryFn: async () => requireServerSuccess(await getPricing()),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30_000,
     enabled,
   })
 
@@ -80,6 +82,19 @@ export function usePricingData(enabled = true) {
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,
         group_ratio: data.group_ratio,
+        membership_group_ratio: data.membership_group_quotes?.some(
+          (quote) =>
+            quote.enabled && quote.membership_ratio < quote.wallet_ratio
+        )
+          ? {
+              ...data.group_ratio,
+              ...Object.fromEntries(
+                data.membership_group_quotes
+                  .filter((quote) => quote.enabled)
+                  .map((quote) => [quote.group_key, quote.membership_ratio])
+              ),
+            }
+          : undefined,
       }
     })
   }, [data])

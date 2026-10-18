@@ -43,14 +43,17 @@ function isSafariBrowser(): boolean {
  */
 export function submitPaymentForm(
   url: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  target?: '_self' | '_blank'
 ): void {
   const form = document.createElement('form')
   form.action = url
   form.method = 'POST'
 
-  // Don't open in new tab for Safari
-  if (!isSafariBrowser()) {
+  if (target) {
+    form.target = target
+  } else if (!isSafariBrowser()) {
+    // Don't open in new tab for Safari.
     form.target = '_blank'
   }
 

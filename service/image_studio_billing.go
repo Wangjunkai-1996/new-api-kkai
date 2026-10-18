@@ -110,7 +110,7 @@ func PrepareImageStudioBillingCommit(
 		return ErrImageStudioQuoteStale
 	}
 	accounting := model.ImageGenerationAccountingPayload{
-		GenerationID: generationID, TargetQuota: params.Quota, CountStatistics: totalTokens > 0,
+		GenerationID: generationID, TargetQuota: params.Quota, AssessedQuota: relayInfo.MembershipAssessedQuota, CountStatistics: totalTokens > 0,
 		Username: c.GetString("username"), UpstreamRequestID: c.GetString(common.UpstreamRequestIdKey),
 		ClientIP: clientIP, NodeName: common.NodeName, LogParams: params,
 		OutputCount:        outputCount,
@@ -163,7 +163,7 @@ func PrepareImageStudioDeliveryBilling(c *gin.Context, providerOutputCount int, 
 	}
 
 	accounting := *guard.accounting
-	quota := accounting.TargetQuota
+	quota := max(accounting.TargetQuota, accounting.AssessedQuota)
 	if accounting.PricingSnapshot != nil {
 		var err error
 		quota, err = imagepricing.CalculateQuotaStrict(accounting.PricingSnapshot, deliveredOutputCount)
@@ -181,6 +181,10 @@ func PrepareImageStudioDeliveryBilling(c *gin.Context, providerOutputCount int, 
 			return clamp
 		}
 	}
+	if guard.relayInfo.MembershipBillingRequestID != "" {
+		accounting.AssessedQuota = quota
+		quota = MembershipCharge(guard.relayInfo, quota)
+	}
 	if quota < 0 || quota > guard.maxQuota {
 		return ErrImageStudioQuoteStale
 	}
@@ -190,6 +194,7 @@ func PrepareImageStudioDeliveryBilling(c *gin.Context, providerOutputCount int, 
 	if accounting.LogParams.Other == nil {
 		accounting.LogParams.Other = model.NewLogOther()
 	}
+	attachQuotaSaturation(c, guard.relayInfo, accounting.LogParams.Other)
 	accounting.LogParams.Other.SetAdmin("image_outputs", map[string]int{
 		"provider":  providerOutputCount,
 		"delivered": deliveredOutputCount,
@@ -276,6 +281,15 @@ func ApplyImageStudioMaximumPreconsume(
 	}
 	if relayInfo == nil || priceData == nil || meta == nil || promptTokens < 0 || meta.MaxTokens < 0 {
 		return ErrImageStudioQuoteStale
+	}
+	if model.MembershipEnabled() && !relayInfo.IsChannelTest {
+		enabled, err := model.ShouldUseMembershipBilling(relayInfo.UserId)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			return nil
+		}
 	}
 	if snapshot := relayInfo.TieredBillingSnapshot; snapshot != nil {
 		if snapshot.BillingMode != "tiered_expr" || snapshot.TaskUsageBilling ||

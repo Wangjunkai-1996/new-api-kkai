@@ -33,7 +33,7 @@ import { formatPrice, stripTrailingZeros } from '../lib/price'
 import type { PricingModel } from '../types'
 import type { ModelPriceCellOptions } from './model-price-cell'
 
-export function CachedPriceCell(props: {
+function CachedPriceValue(props: {
   model: PricingModel
   options: ModelPriceCellOptions
 }) {
@@ -145,6 +145,36 @@ export function CachedPriceCell(props: {
       <span className='font-mono text-sm tabular-nums'>{cachedPrice}</span>
       <div className='text-muted-foreground/50 text-[10px]'>
         / {tokenUnitLabel}
+      </div>
+    </div>
+  )
+}
+
+export function CachedPriceCell(props: {
+  model: PricingModel
+  options: ModelPriceCellOptions
+}) {
+  const { t } = useTranslation()
+  const ratios = props.model.membership_group_ratio
+  const memberModel = ratios
+    ? { ...props.model, group_ratio: ratios }
+    : props.model
+  const discounted =
+    ratios &&
+    getDynamicDisplayGroupRatio(memberModel, props.options?.selectedGroup) <
+      getDynamicDisplayGroupRatio(props.model, props.options?.selectedGroup)
+  if (!discounted) return <CachedPriceValue {...props} />
+  return (
+    <div className='space-y-2'>
+      <div>
+        <span className='text-primary text-xs font-medium'>
+          {t('Membership quota price')}
+        </span>
+        <CachedPriceValue {...props} model={memberModel} />
+      </div>
+      <div className='text-muted-foreground'>
+        <span className='text-xs'>{t('Wallet price')}</span>
+        <CachedPriceValue {...props} />
       </div>
     </div>
   )

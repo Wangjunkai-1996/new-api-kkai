@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Code2, Eye, ShieldAlert } from 'lucide-react'
 import * as React from 'react'
 import { useForm, useWatch, type Resolver } from 'react-hook-form'
@@ -46,6 +46,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { getMembershipAdminConfig } from '@/features/membership/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
@@ -224,6 +225,12 @@ export function PaymentSettingsSection({
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const membershipPolicy = useQuery({
+    queryKey: ['membership-admin', 'config'],
+    queryFn: getMembershipAdminConfig,
+  })
+  const topupDiscountsDisabled =
+    membershipPolicy.data?.topup_discounts_disabled === true
   const updateOption = useUpdateOption()
   const initialFormValues = React.useMemo<PaymentFormValues>(
     () => ({
@@ -1078,53 +1085,65 @@ export function PaymentSettingsSection({
                     name='AmountDiscount'
                     render={({ field }) => (
                       <FormItem>
-                        <div className='mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                          <FormLabel>{t('Amount discount')}</FormLabel>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            size='sm'
-                            onClick={() =>
-                              setAmountDiscountVisualMode(
-                                !amountDiscountVisualMode
-                              )
-                            }
-                            className='w-full sm:w-auto'
-                          >
-                            {amountDiscountVisualMode ? (
-                              <>
-                                <Code2 className='mr-2 h-3 w-3' />
-                                {t('JSON Editor')}
-                              </>
-                            ) : (
-                              <>
-                                <Eye className='mr-2 h-3 w-3' />
-                                {t('Visual Editor')}
-                              </>
+                        {topupDiscountsDisabled && (
+                          <p className='text-muted-foreground text-sm'>
+                            {t(
+                              'Top-up discounts are disabled after membership sales launch. Historical values are retained for reference.'
                             )}
-                          </Button>
-                        </div>
-                        <FormControl>
-                          {amountDiscountVisualMode ? (
-                            <AmountDiscountVisualEditor
-                              value={field.value}
-                              onChange={field.onChange}
-                            />
-                          ) : (
-                            <Textarea
-                              rows={4}
-                              placeholder='{"100":0.95,"200":0.9}'
-                              {...field}
-                              onChange={(event) =>
-                                field.onChange(event.target.value)
+                          </p>
+                        )}
+                        <fieldset
+                          disabled={topupDiscountsDisabled}
+                          className='contents'
+                        >
+                          <div className='mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                            <FormLabel>{t('Amount discount')}</FormLabel>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              size='sm'
+                              onClick={() =>
+                                setAmountDiscountVisualMode(
+                                  !amountDiscountVisualMode
+                                )
                               }
-                            />
-                          )}
-                        </FormControl>
-                        <FormDescription>
-                          {t('Discount map by recharge amount (JSON object)')}
-                        </FormDescription>
-                        <FormMessage />
+                              className='w-full sm:w-auto'
+                            >
+                              {amountDiscountVisualMode ? (
+                                <>
+                                  <Code2 className='mr-2 h-3 w-3' />
+                                  {t('JSON Editor')}
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className='mr-2 h-3 w-3' />
+                                  {t('Visual Editor')}
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          <FormControl>
+                            {amountDiscountVisualMode ? (
+                              <AmountDiscountVisualEditor
+                                value={field.value}
+                                onChange={field.onChange}
+                              />
+                            ) : (
+                              <Textarea
+                                rows={4}
+                                placeholder='{"100":0.95,"200":0.9}'
+                                {...field}
+                                onChange={(event) =>
+                                  field.onChange(event.target.value)
+                                }
+                              />
+                            )}
+                          </FormControl>
+                          <FormDescription>
+                            {t('Discount map by recharge amount (JSON object)')}
+                          </FormDescription>
+                          <FormMessage />
+                        </fieldset>
                       </FormItem>
                     )}
                   />

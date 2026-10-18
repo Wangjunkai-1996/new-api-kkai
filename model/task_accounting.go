@@ -45,6 +45,30 @@ func RecordTaskAccountingStatistics(ctx context.Context, taskID int64) (*TaskAcc
 		if task.PrivateData.TargetQuota != nil {
 			return ErrTaskAccountingNotReady
 		}
+		if task.PrivateData.MembershipBillingRequestID != "" {
+			var record MembershipBillingRecord
+			if err := tx.First(&record, "request_id = ?", task.PrivateData.MembershipBillingRequestID).Error; err != nil {
+				return err
+			}
+			if record.Scope != MembershipBillingScopeTask || record.UserID != task.UserId {
+				return ErrMembershipConflict
+			}
+			switch record.State {
+			case "reserved":
+				return ErrTaskAccountingNotReady
+			case "released":
+				task.PrivateData.AccountingState = TaskAccountingStateCompleted
+				if err := tx.Save(task).Error; err != nil {
+					return err
+				}
+				mutation.Skipped = true
+				return nil
+			case "settled":
+				task.PrivateData.AccountingQuota = int(record.ChargedQuota)
+			default:
+				return ErrMembershipConflict
+			}
+		}
 		if !taskRequiresAccounting(task) {
 			if !taskAccountingCanBeSkipped(task) {
 				return ErrTaskAccountingNotReady

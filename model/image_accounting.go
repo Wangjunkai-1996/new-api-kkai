@@ -26,6 +26,7 @@ var ErrImageAccountingNotReady = errors.New("image accounting is not ready")
 type ImageGenerationAccountingPayload struct {
 	GenerationID       int64                  `json:"generation_id"`
 	TargetQuota        int                    `json:"target_quota"`
+	AssessedQuota      int                    `json:"assessed_quota,omitempty"`
 	CountStatistics    bool                   `json:"count_statistics"`
 	Username           string                 `json:"username"`
 	UpstreamRequestID  string                 `json:"upstream_request_id,omitempty"`
@@ -60,7 +61,7 @@ func PrepareImageGenerationAccounting(
 		return err
 	}
 	eventKey := imageAccountingEventKey(generationID)
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
 		generation, err := lockImageGenerationBillingRow(tx, generationID)
 		if err != nil {
 			return err
@@ -234,7 +235,7 @@ func validateImageGenerationAccountingSnapshot(payload ImageGenerationAccounting
 		return fmt.Errorf("%w: invalid image accounting pricing snapshot", ErrImageBillingInvalidRequest)
 	}
 	expectedQuota, err := imagepricing.CalculateQuotaStrict(payload.PricingSnapshot, payload.PricingActualCount)
-	if err != nil || expectedQuota != payload.TargetQuota {
+	if err != nil || expectedQuota != max(payload.TargetQuota, payload.AssessedQuota) {
 		return fmt.Errorf("%w: image accounting quota does not match pricing snapshot", ErrImageBillingInvalidRequest)
 	}
 	return nil

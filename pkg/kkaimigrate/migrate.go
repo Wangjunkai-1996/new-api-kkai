@@ -33,6 +33,7 @@ const (
 	AuthenticationSchemaVersion      int64 = 8
 	RC41ArchitectureSchemaVersion    int64 = 9
 	ImageAsyncSchemaVersion          int64 = 10
+	MembershipSchemaVersion          int64 = 11
 )
 
 var (
@@ -115,16 +116,32 @@ func ApplyImageAsyncExpand(ctx context.Context, db *gorm.DB, options Options) (*
 	if db == nil {
 		return nil, ErrSchemaNotReady
 	}
-	if err := checkThroughVersion(ctx, db, RC41ArchitectureSchemaVersion, RC41ArchitectureSchemaVersion, ImageAsyncSchemaVersion); err != nil {
+	if err := checkThroughVersion(ctx, db, RC41ArchitectureSchemaVersion, RC41ArchitectureSchemaVersion, KnownCatalogVersion); err != nil {
 		return nil, fmt.Errorf("KKAI maintenance target %d requires validated schema %d: %w", ImageAsyncSchemaVersion, RC41ArchitectureSchemaVersion, err)
 	}
-	return applyThroughVersion(ctx, db, options, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion)
+	return applyThroughVersion(ctx, db, options, ImageAsyncSchemaVersion, KnownCatalogVersion)
 }
 
 // CheckImageAsyncSchema is a read-only enablement gate for the v10 image
 // workflows. Cache a successful startup/explicit-enable check, not partial table probes.
 func CheckImageAsyncSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion)
+	return checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, KnownCatalogVersion)
+}
+
+// ApplyMembershipExpand is an explicit operator migration. Normal startup and
+// normal Apply retain the schema 9 target; operators must first apply schema 10.
+func ApplyMembershipExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	if db == nil {
+		return nil, ErrSchemaNotReady
+	}
+	if err := checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, MembershipSchemaVersion); err != nil {
+		return nil, fmt.Errorf("KKAI maintenance target %d requires validated schema %d: %w", MembershipSchemaVersion, ImageAsyncSchemaVersion, err)
+	}
+	return applyThroughVersion(ctx, db, options, MembershipSchemaVersion, MembershipSchemaVersion)
+}
+
+func CheckMembershipSchema(ctx context.Context, db *gorm.DB) error {
+	return checkThroughVersion(ctx, db, MembershipSchemaVersion, MembershipSchemaVersion, MembershipSchemaVersion)
 }
 
 // ApplyOutboxEventKeyCompatibility applies the cross-dialect v4 maintenance.

@@ -34,6 +34,7 @@ type ImageGenerationBillingMutation struct {
 	CurrentQuota            int
 	SubscriptionAmountTotal int64
 	SubscriptionAmountUsed  int64
+	MembershipRecord        *MembershipBillingRecord
 }
 
 func ReserveImageGenerationBilling(
@@ -51,7 +52,7 @@ func ReserveImageGenerationBilling(
 		ctx = context.Background()
 	}
 	var mutation *ImageGenerationBillingMutation
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
 		var err error
 		mutation, err = ReserveImageGenerationBillingTx(tx, generationID, source, quota)
 		return err
@@ -59,6 +60,7 @@ func ReserveImageGenerationBilling(
 	if err != nil {
 		return nil, err
 	}
+	MembershipBillingAfterCommit(mutation.MembershipRecord)
 	if mutation.Generation != nil {
 		reconcileImageBillingCacheAfterCommit(ctx, db, mutation.Generation.ID)
 	}
@@ -207,7 +209,7 @@ func settleImageGenerationBilling(
 		ctx = context.Background()
 	}
 	var mutation *ImageGenerationBillingMutation
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
 		var err error
 		mutation, err = SettleImageGenerationBillingTx(tx, generationID, targetQuota, expectedStatus)
 		return err
@@ -215,6 +217,7 @@ func settleImageGenerationBilling(
 	if err != nil {
 		return nil, err
 	}
+	MembershipBillingAfterCommit(mutation.MembershipRecord)
 	if mutation.Generation != nil {
 		reconcileImageBillingCacheAfterCommit(ctx, db, mutation.Generation.ID)
 	}
@@ -261,9 +264,23 @@ func SettleImageGenerationBillingTx(tx *gorm.DB, generationID int64, targetQuota
 		generation.BillingState != ImageGenerationBillingStateProcessing {
 		return nil, ErrImageBillingStateConflict
 	}
-	delta := targetQuota - generation.ReservedQuota
-	if err := adjustImageFunding(tx, generation, delta); err != nil {
-		return nil, err
+	if generation.BillingSource == MembershipSource || generation.BillingSource == ImageMembershipWalletSource {
+		actual := max(targetQuota, accounting.AssessedQuota)
+		record, err := SettleMembershipBillingTx(tx, MembershipImageBillingKey(generationID), int64(actual))
+		if err != nil {
+			return nil, err
+		}
+		if int(record.ChargedQuota) != targetQuota {
+			return nil, ErrImageBillingStateConflict
+		}
+		mutation.MembershipRecord = record
+	} else {
+		if accounting.AssessedQuota != 0 {
+			return nil, ErrImageBillingStateConflict
+		}
+		if err := adjustImageFunding(tx, generation, targetQuota-generation.ReservedQuota); err != nil {
+			return nil, err
+		}
 	}
 	now := time.Now().Unix()
 	generation.BillingState = ImageGenerationBillingStateSettled
@@ -318,7 +335,7 @@ func refundImageGenerationBilling(
 		ctx = context.Background()
 	}
 	var mutation *ImageGenerationBillingMutation
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
 		var err error
 		mutation, err = RefundImageGenerationBillingTx(tx, generationID, expectedStatus)
 		return err
@@ -326,6 +343,7 @@ func refundImageGenerationBilling(
 	if err != nil {
 		return nil, err
 	}
+	MembershipBillingAfterCommit(mutation.MembershipRecord)
 	if mutation.Generation != nil {
 		reconcileImageBillingCacheAfterCommit(ctx, db, mutation.Generation.ID)
 	}
@@ -360,7 +378,13 @@ func RefundImageGenerationBillingTx(tx *gorm.DB, generationID int64, expectedSta
 		generation.BillingState != ImageGenerationBillingStateProcessing {
 		return nil, ErrImageBillingStateConflict
 	}
-	if generation.BillingState != ImageGenerationBillingStatePending && generation.ReservedQuota > 0 {
+	if generation.BillingSource == MembershipSource || generation.BillingSource == ImageMembershipWalletSource {
+		record, err := ReleaseMembershipBillingTx(tx, MembershipImageBillingKey(generationID))
+		if err != nil {
+			return nil, err
+		}
+		mutation.MembershipRecord = record
+	} else if generation.BillingState != ImageGenerationBillingStatePending && generation.ReservedQuota > 0 {
 		if err := adjustImageFunding(tx, generation, -generation.ReservedQuota); err != nil {
 			return nil, err
 		}
@@ -397,7 +421,7 @@ func ReconcileImageGenerationBillingCache(
 	).Error; err != nil {
 		return err
 	}
-	if generation.BillingSource != TaskBillingSourceWallet {
+	if generation.BillingSource != TaskBillingSourceWallet && generation.BillingSource != ImageMembershipWalletSource {
 		return nil
 	}
 	var quota int64
@@ -553,4 +577,71 @@ func reconcileImageBillingCacheAfterCommit(
 			generationID, err.Error(),
 		))
 	}
+}
+
+// ImageMembershipWalletSource distinguishes the new durable wallet authorization
+// from legacy image wallet mutations without changing the existing table schema.
+const ImageMembershipWalletSource = "member_wallet"
+
+func MembershipImageBillingKey(generationID int64) string {
+	return "image:" + strconv.FormatInt(generationID, 10)
+}
+
+func ReserveMembershipImageGenerationBilling(ctx context.Context, db *gorm.DB, generationID int64, input MembershipReservationInput) (*MembershipBillingRecord, error) {
+	if db == nil || generationID <= 0 {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var record *MembershipBillingRecord
+	err := MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
+		var err error
+		record, err = ReserveMembershipImageGenerationBillingTx(tx, generationID, input)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	MembershipBillingAfterCommit(record)
+	return record, nil
+}
+
+// ReserveMembershipImageGenerationBillingTx shares the durable async acceptance
+// transaction. The caller reconciles caches only after that transaction commits.
+func ReserveMembershipImageGenerationBillingTx(tx *gorm.DB, generationID int64, input MembershipReservationInput) (*MembershipBillingRecord, error) {
+	if tx == nil || generationID <= 0 {
+		return nil, ErrImageBillingInvalidRequest
+	}
+	input.RequestID = MembershipImageBillingKey(generationID)
+	input.Scope = MembershipBillingScopeImage
+	generation, err := lockImageGenerationBillingRow(tx, generationID)
+	if err != nil {
+		return nil, err
+	}
+	if generation.UserID != input.UserID || generation.TokenID != input.TokenID || generation.Status != ImageGenerationStatusSubmitting {
+		return nil, ErrImageBillingStateConflict
+	}
+	if generation.BillingState != ImageGenerationBillingStatePending && generation.BillingState != ImageGenerationBillingStateReserved {
+		return nil, ErrImageBillingStateConflict
+	}
+	record, err := ReserveMembershipBillingTx(tx, input)
+	if err != nil {
+		return nil, err
+	}
+	if record.State != "reserved" {
+		return nil, ErrImageBillingStateConflict
+	}
+	generation.BillingSource = MembershipSource
+	if record.Source == MembershipWalletSource {
+		generation.BillingSource = ImageMembershipWalletSource
+	}
+	generation.BillingState = ImageGenerationBillingStateReserved
+	generation.ReservedQuota = int(record.ReservedQuota)
+	generation.HeartbeatAt = common.GetTimestamp()
+	generation.UpdatedAt = generation.HeartbeatAt
+	if err := persistImageGenerationBillingMutation(tx, generation); err != nil {
+		return nil, err
+	}
+	return record, nil
 }

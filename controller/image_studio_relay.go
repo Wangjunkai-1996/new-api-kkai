@@ -47,6 +47,7 @@ type imageStudioQuotePrice struct {
 	Quota                int
 	OtherRatios          map[string]float64
 	ImagePricingSnapshot *imagepricing.Snapshot
+	MembershipPricing    *types.MembershipPricing
 }
 
 func PrepareImageStudioRequest(c *gin.Context) {
@@ -177,7 +178,7 @@ func QuoteImageStudioGeneration(c *gin.Context) {
 		return
 	}
 	quote, err := service.NewImageStudioQuote(
-		normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot,
+		normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot, price.MembershipPricing,
 	)
 	if err != nil {
 		respondImageStudioError(c, err)
@@ -450,6 +451,9 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	}
 	meta := request.GetTokenCountMeta()
 	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
+	if model.MembershipEnabled() {
+		tokens, err = service.CountRequestToken(c, meta, relayInfo)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -463,6 +467,23 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	); err != nil {
 		return nil, err
 	}
+	if err := service.PrepareMembershipBudget(c, relayInfo, &priceData, tokens, meta); err != nil {
+		return nil, err
+	}
+	relayInfo.PriceData = priceData
+	var membershipPricing *types.MembershipPricing
+	if relayInfo.MembershipPricing != nil {
+		budget, err := service.PrepareMembershipReservation(relayInfo, relayInfo.MembershipPricing.MaximumBeforeGroup)
+		if err != nil {
+			return nil, err
+		}
+		// The confirmation promises a maximum covering either whole-request source.
+		priceData.QuotaToPreConsume = int(budget.WalletQuota)
+		membershipPricing = &types.MembershipPricing{}
+		if err := common.UnmarshalJsonStr(budget.WalletSnapshot, membershipPricing); err != nil {
+			return nil, err
+		}
+	}
 	quoteRatios := types.PriceData{}
 	quoteRatios.ReplaceOtherRatios(priceData.OtherRatios())
 	for name, ratio := range meta.BillingRatios {
@@ -473,9 +494,13 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 		cloned := *relayInfo.ImagePricingSnapshot
 		pricingSnapshot = &cloned
 	}
+	if pricingSnapshot == nil {
+		membershipPricing = nil
+	}
 	return &imageStudioQuotePrice{
 		Quota: priceData.QuotaToPreConsume, OtherRatios: quoteRatios.OtherRatios(),
 		ImagePricingSnapshot: pricingSnapshot,
+		MembershipPricing:    membershipPricing,
 	}, nil
 }
 

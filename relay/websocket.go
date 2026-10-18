@@ -53,6 +53,13 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, nil, info)
+	if info.MembershipRealtime {
+		if newAPIError != nil {
+			service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+		}
+		return newAPIError
+	}
+	service.SettleMembershipPartialUsage(c, info, usage, newAPIError)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

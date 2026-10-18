@@ -22,6 +22,7 @@ import {
   Box,
   ClipboardList,
   CreditCard,
+  Crown,
   FileText,
   Film,
   FlaskConical,
@@ -145,6 +146,11 @@ export function useSidebarData(): SidebarData {
         id: 'personal',
         title: t('Personal'),
         items: [
+          {
+            title: t('Membership center'),
+            url: '/membership',
+            icon: Crown,
+          },
           {
             title: t('Wallet'),
             url: '/wallet',

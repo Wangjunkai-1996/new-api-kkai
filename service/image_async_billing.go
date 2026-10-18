@@ -81,6 +81,7 @@ func RestoreImageGenerationBilling(c *gin.Context, db *gorm.DB, generation *mode
 	}
 	var stored model.KKAIImageGeneration
 	var subscription model.UserSubscription
+	var membershipRecord *model.MembershipBillingRecord
 	err := db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		if _, err := model.RequireImageExecutionFenceTx(tx, generation.ID, fence); err != nil {
 			return err
@@ -96,6 +97,20 @@ func RestoreImageGenerationBilling(c *gin.Context, db *gorm.DB, generation *mode
 		if stored.BillingSource == model.TaskBillingSourceSubscription {
 			return tx.First(&subscription, stored.SubscriptionID).Error
 		}
+		if stored.BillingSource == model.MembershipSource || stored.BillingSource == model.ImageMembershipWalletSource {
+			membershipRecord = &model.MembershipBillingRecord{}
+			if err := tx.First(membershipRecord, "request_id = ?", model.MembershipImageBillingKey(stored.ID)).Error; err != nil {
+				return err
+			}
+			if membershipRecord.State != "reserved" || membershipRecord.Scope != model.MembershipBillingScopeImage ||
+				membershipRecord.UserID != stored.UserID || membershipRecord.TokenID != stored.TokenID ||
+				membershipRecord.ReservedQuota != int64(stored.ReservedQuota) ||
+				(stored.BillingSource == model.MembershipSource && membershipRecord.Source != model.MembershipSource) ||
+				(stored.BillingSource == model.ImageMembershipWalletSource && membershipRecord.Source != model.MembershipWalletSource) ||
+				(info.UsingGroup != "" && info.UsingGroup != membershipRecord.GroupKey) {
+				return model.ErrImageBillingStateConflict
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -107,6 +122,14 @@ func RestoreImageGenerationBilling(c *gin.Context, db *gorm.DB, generation *mode
 	info.SubscriptionPreConsumed = int64(stored.ReservedQuota)
 	info.SubscriptionAmountTotal = subscription.AmountTotal
 	info.SubscriptionAmountUsedAfterPreConsume = subscription.AmountUsed
+	if membershipRecord != nil {
+		if err := ApplyMembershipReservation(info, membershipRecord); err != nil {
+			return err
+		}
+	}
+	if guard, ok := imageStudioBillingGuardFromContext(c); ok {
+		guard.maxQuota = stored.ReservedQuota
+	}
 	info.Billing = &imageGenerationBillingSession{
 		db: db, generationID: stored.ID, relayInfo: info, preConsumed: stored.ReservedQuota,
 		fence: &fence, expectedStatus: stored.Status,

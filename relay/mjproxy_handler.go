@@ -118,6 +118,12 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Result:      "",
 		}
 	}
+	memberRecord, lookupErr := model.GetMidjourneyMembershipRecord(midjourneyTask.Id)
+	if lookupErr != nil || memberRecord != nil {
+		// This legacy notification route carries no authenticated provider
+		// proof. New-engine tasks are finalized by our authenticated poller.
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "membership_task_requires_authenticated_poll")
+	}
 	midjourneyTask.Progress = midjRequest.Progress
 	midjourneyTask.PromptEn = midjRequest.PromptEn
 	midjourneyTask.State = midjRequest.State
@@ -203,6 +209,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "sour_base64_and_target_base64_is_required")
 	}
 	modelName := service.CovertMjpActionToModelName(constant.MjActionSwapFace)
+	info.OriginModelName = modelName
 
 	priceData, err := helper.ModelPriceHelperPerCall(c, info)
 	if err != nil {
@@ -210,6 +217,15 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Code:        4,
 			Description: err.Error(),
 		}
+	}
+	useMembership, billingErr := model.ShouldUseMembershipBilling(info.UserId)
+	if billingErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "membership_billing_unavailable")
+	}
+	if useMembership {
+		info.PriceData = priceData
+		requestURL := fmt.Sprintf("%s%s", c.GetString("base_url"), getMjRequestPath(c.Request.URL.String()))
+		return relayMidjourneyMembershipSubmit(c, info, dto.MidjourneyRequest{Action: constant.MjActionSwapFace, Prompt: "InsightFace"}, true, requestURL)
 	}
 
 	userQuota, err := model.GetUserQuota(info.UserId, false)
@@ -492,6 +508,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			}
 			c.Set("base_url", channel.GetBaseURL())
 			c.Set("channel_id", originTask.ChannelId)
+			common.SetContextKey(c, constant.ContextKeyChannelKey, channel.Key)
 			c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
 			logger.LogDebug(c, "Midjourney action uses origin channel: id=%s, base_url=%s", strconv.Itoa(originTask.ChannelId), channel.GetBaseURL())
 		}
@@ -519,6 +536,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
 
 	modelName := service.CovertMjpActionToModelName(midjRequest.Action)
+	relayInfo.InitChannelMeta(c)
+	relayInfo.OriginModelName = modelName
 
 	priceData, err := helper.ModelPriceHelperPerCall(c, relayInfo)
 	if err != nil {
@@ -526,6 +545,14 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Code:        4,
 			Description: err.Error(),
 		}
+	}
+	useMembership, billingErr := model.ShouldUseMembershipBilling(relayInfo.UserId)
+	if billingErr != nil {
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "membership_billing_unavailable")
+	}
+	if useMembership {
+		relayInfo.PriceData = priceData
+		return relayMidjourneyMembershipSubmit(c, relayInfo, midjRequest, consumeQuota, fullRequestURL)
 	}
 
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
@@ -686,6 +713,96 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Description: "close_response_body_failed",
 		}
 	}
+	return nil
+}
+
+// New-engine MJ submissions authorize the complete fixed-price task before
+// dispatch and never retry an ambiguous submission. Polling owns final billing.
+func relayMidjourneyMembershipSubmit(c *gin.Context, info *relaycommon.RelayInfo, request dto.MidjourneyRequest, shouldBill bool, requestURL string) *dto.MidjourneyResponse {
+	task := &model.Midjourney{
+		UserId: info.UserId, ChannelId: info.ChannelId, Action: request.Action,
+		Prompt: request.Prompt, State: request.State, Status: "SUBMITTING", Progress: "0%", SubmitTime: time.Now().UnixMilli(),
+	}
+	record, err := service.PrepareMidjourneyMembershipBilling(info, task, shouldBill)
+	if err != nil {
+		logger.LogError(c, "authorize Midjourney membership task: "+err.Error())
+		return service.MidjourneyErrorWrapper(constant.MjRequestError, "midjourney_authorization_failed")
+	}
+	c.Set("membership_mj_request_id", record.RequestID)
+	c.Header("X-Midjourney-Task-Id", strconv.Itoa(task.Id))
+	service.RequestPolicy(c).BeginAttempt(&model.Channel{Id: task.ChannelId}, info.UsingGroup)
+	response, body, requestErr := service.DoMidjourneyHttpRequest(c, 60*time.Second, requestURL)
+	if requestErr != nil {
+		current, lookupErr := model.GetMidjourneyMembershipRecord(task.Id)
+		if lookupErr == nil && current != nil && current.DispatchedAt == 0 {
+			task.Status, task.FailReason = "FAILURE", "submission_not_dispatched"
+			if _, err := model.UpdateMidjourneyMembershipTask(task); err != nil {
+				logger.LogError(c, "release undispatched Midjourney authorization: "+err.Error())
+			}
+			return service.MidjourneyErrorWrapper(constant.MjRequestError, "submission_not_dispatched")
+		}
+		if err := model.MarkMembershipBillingUncertain(record.RequestID, task.ChannelId, "midjourney_submission_outcome_unknown"); err != nil {
+			logger.LogError(c, "mark Midjourney submission for review: "+err.Error())
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"code": constant.MjErrorUnknown, "description": "submission_outcome_unknown", "task_id": task.Id})
+		return nil
+	}
+	task.Code, task.Description = response.Response.Code, response.Response.Description
+	accepted := response.StatusCode == http.StatusOK && (task.Code == 1 || task.Code == 21 || task.Code == 22)
+	confirmedRejected := false
+	if response.StatusCode >= 200 && response.StatusCode < 500 {
+		switch task.Code {
+		case 2, 3, 4, 23, 24, 30:
+			confirmedRejected = true
+		}
+	}
+	if accepted {
+		task.MjId, task.Status = response.Response.Result, "SUBMITTED"
+		if properties, ok := response.Response.Properties.(map[string]any); ok {
+			if status, ok := properties["status"].(string); ok {
+				task.Status = status
+			}
+			if imageURL, ok := properties["imageUrl"].(string); ok {
+				task.ImageUrl = imageURL
+			}
+		}
+		if request.Action == constant.MjActionUpload || !shouldBill {
+			task.Status = "SUCCESS"
+		}
+		if task.MjId == "" && task.Status != "SUCCESS" {
+			accepted = false
+		}
+	} else if confirmedRejected {
+		task.Status, task.FailReason = "FAILURE", response.Response.Description
+	}
+	if !accepted && !confirmedRejected {
+		if err := model.MarkMembershipBillingUncertain(record.RequestID, task.ChannelId, "midjourney_submission_unconfirmed"); err != nil {
+			logger.LogError(c, "mark Midjourney submission for review: "+err.Error())
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"code": constant.MjErrorUnknown, "description": "submission_outcome_unknown", "task_id": task.Id})
+		return nil
+	}
+	completed, err := model.UpdateMidjourneyMembershipTask(task)
+	if err != nil {
+		logger.LogError(c, "persist Midjourney submission evidence: "+err.Error())
+		_ = model.MarkMembershipBillingUncertain(record.RequestID, task.ChannelId, "midjourney_submission_persistence_failed")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": constant.MjErrorUnknown, "description": "submission_reconciliation_required", "task_id": task.Id})
+		return nil
+	}
+	service.RecordMidjourneyMembershipBilling(task, completed)
+	if accepted {
+		service.MarkRequestPolicySuccess(c, nil)
+		if task.Code == 22 || (task.Code == 21 && shouldBill) {
+			var normalized map[string]any
+			if common.Unmarshal(body, &normalized) == nil {
+				normalized["code"] = 1
+				if encoded, err := common.Marshal(normalized); err == nil {
+					body = encoded
+				}
+			}
+		}
+	}
+	c.Data(response.StatusCode, "application/json", body)
 	return nil
 }
 

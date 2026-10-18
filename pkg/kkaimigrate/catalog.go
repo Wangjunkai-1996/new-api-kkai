@@ -87,6 +87,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       imageAsyncSchemaStatements,
 		},
+		{
+			Version:          MembershipSchemaVersion,
+			Name:             "subscription_membership",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "subscription_membership_v1",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       membershipSchemaStatements,
+		},
 	}
 }
 

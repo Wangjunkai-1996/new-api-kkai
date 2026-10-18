@@ -277,6 +277,9 @@ func UpdateOption(key string, value string) error {
 			return err
 		}
 	}
+	if key == "GroupRatio" {
+		return UpdateOptionsBulk(map[string]string{key: value})
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -341,6 +344,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if value, ok := values["GroupRatio"]; ok {
+			if err := syncMembershipGroupKeysTx(tx, value); err != nil {
+				return err
+			}
+		}
 		for k, v := range values {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {

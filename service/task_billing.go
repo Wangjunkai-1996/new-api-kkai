@@ -74,6 +74,15 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
 func taskBillingOther(task *model.Task) *model.LogOther {
 	other := model.NewLogOther()
+	if task.PrivateData.MembershipBillingRequestID != "" {
+		other.SetPublic("billing_source", task.PrivateData.BillingSource)
+		other.SetAdmin("membership_billing", map[string]any{
+			"request_id":      task.PrivateData.MembershipBillingRequestID,
+			"assessed":        task.PrivateData.MembershipAssessedQuota,
+			"charged":         task.Quota,
+			"platform_excess": task.PrivateData.MembershipExcessQuota,
+		})
+	}
 	if len(task.PrivateData.RequestPolicy) > 0 {
 		var events []PolicyEvent
 		if err := common.Unmarshal(task.PrivateData.RequestPolicy, &events); err == nil && len(events) > 0 {

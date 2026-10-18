@@ -239,10 +239,18 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	started := time.Now()
 	var info *relaycommon.RelayInfo
 	billingPrepared := false
+	var accumulator *service.ResponsesUsageAccumulator
+	var requestDone <-chan struct{}
+	dispatched, rejected := false, false
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			apiErr = types.NewError(fmt.Errorf("responses websocket call panic: %v", recovered), types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 			state.closeAfter = true
+		}
+		if state.closeAfter {
+			// Stop possible generation before any accounting or policy I/O can
+			// block; the client error can still be written by runRequest.
+			s.closeTarget()
 		}
 		if info == nil && modelName != "" {
 			info = &relaycommon.RelayInfo{OriginModelName: modelName, UsingGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), StartTime: started}
@@ -252,6 +260,13 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		// reads a termination decision after this point on the WebSocket path,
 		// so neither policy record belongs here.
 		if info != nil && billingPrepared {
+			if apiErr != nil && info.MembershipBillingRequestID != "" && dispatched && !rejected {
+				if accumulator != nil && accumulator.HasReportedUsage() {
+					service.SettleMembershipPartialUsage(c, info, accumulator.Finish(), apiErr)
+				} else {
+					info.MembershipOutcomeUnknown = true
+				}
+			}
 			if apiErr != nil && state.terminal != nil {
 				service.RecordPolicyFailure(c, info.ChannelId, apiErr, service.PolicyDecision{Action: "stop", Reason: "upstream_failure", Source: "upstream"})
 				service.ProcessChannelError(c, *types.NewChannelError(info.ChannelId, info.ChannelType, c.GetString("channel_name"), info.ChannelIsMultiKey, info.ApiKey, c.GetBool("auto_ban")), apiErr, info)
@@ -288,7 +303,20 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if apiErr != nil {
 			return apiErr
 		}
+		dispatchCtx, cancel, dispatchErr := service.PrepareMembershipDispatch(s.ctx, info)
+		if dispatchErr != nil {
+			return types.NewError(dispatchErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		stopDeadline := s.closeUpstreamOnDeadline(dispatchCtx)
+		defer func() {
+			if !stopDeadline() {
+				state.closeAfter = true
+			}
+			cancel()
+		}()
+		requestDone, dispatched = dispatchCtx.Done(), true
 		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
+			info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
 			state.closeAfter = true
 			return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 		}
@@ -341,7 +369,20 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			if !s.setTarget(target) {
 				return types.NewError(context.Canceled, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 			}
+			dispatchCtx, cancel, dispatchErr := service.PrepareMembershipDispatch(s.ctx, info)
+			if dispatchErr != nil {
+				return types.NewError(dispatchErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+			}
+			stopDeadline := s.closeUpstreamOnDeadline(dispatchCtx)
+			defer func() {
+				if !stopDeadline() {
+					state.closeAfter = true
+				}
+				cancel()
+			}()
+			requestDone, dispatched = dispatchCtx.Done(), true
 			if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
+				info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
 				state.closeAfter = true
 				return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 			}
@@ -372,7 +413,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		}
 	}
 
-	accumulator := service.NewResponsesUsageAccumulator(info)
+	accumulator = service.NewResponsesUsageAccumulator(info)
 	info.StreamStatus = relaycommon.NewStreamStatus()
 	info.StreamStatus.RequireTerminal()
 	common.SetContextKey(c, appconstant.ContextKeyResponseStreamStatus, info.StreamStatus)
@@ -393,7 +434,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			if incoming.err != nil {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, incoming.err)
 				state.closeAfter = true
-				if errors.Is(s.ctx.Err(), context.Canceled) && accumulator.HasMeasuredUsage() {
+				if errors.Is(s.ctx.Err(), context.Canceled) && accumulator.HasMeasuredUsage() && (info.MembershipBillingRequestID == "" || accumulator.HasReportedUsage()) {
 					ConsumeResponsesQuota(c, info, accumulator.Finish())
 					return nil
 				}
@@ -443,6 +484,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 					if upstreamError := service.NewKKAIStructuredRelayError(rejection.Error); upstreamError != nil {
 						service.ProcessKKAIPolicyAPIError(c, *types.NewChannelError(info.ChannelId, info.ChannelType, c.GetString("channel_name"), info.ChannelIsMultiKey, info.ApiKey, c.GetBool("auto_ban")), upstreamError)
 					}
+					confirmedRejection := confirmedResponsesWSRejection(rejection, incoming.body, ambiguous)
 					incoming.body = s.publicMessage(c, incoming.body)
 					if accepted {
 						if rejection.Error != nil {
@@ -458,16 +500,21 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 						state.terminal, state.closeAfter = &incoming, ambiguous
 						return types.WithOpenAIError(*rejection.Error, rejection.Status, types.ErrOptionWithSkipRetry())
 					}
-					rejected := service.NewKKAIStructuredRelayError(rejection.Error)
-					if rejected == nil {
-						rejected = types.WithOpenAIError(*rejection.Error, rejection.Status, types.ErrOptionWithSkipRetry())
-					} else if rejected.GetPolicyEvidence() == "" {
-						rejected.StatusCode = rejection.Status
+					rejected = info.MembershipBillingRequestID == "" || confirmedRejection
+					if !rejected {
+						info.MembershipOutcomeUnknown = true
+						state.closeAfter = true
 					}
-					if rejected.StatusCode < 400 || rejected.StatusCode > 599 {
-						rejected.StatusCode = http.StatusBadRequest
+					rejectionErr := service.NewKKAIStructuredRelayError(rejection.Error)
+					if rejectionErr == nil {
+						rejectionErr = types.WithOpenAIError(*rejection.Error, rejection.Status, types.ErrOptionWithSkipRetry())
+					} else if rejectionErr.GetPolicyEvidence() == "" {
+						rejectionErr.StatusCode = rejection.Status
 					}
-					return rejected
+					if rejectionErr.StatusCode < 400 || rejectionErr.StatusCode > 599 {
+						rejectionErr.StatusCode = http.StatusBadRequest
+					}
+					return rejectionErr
 				}
 				if event.Response != nil {
 					if upstreamError := service.NewKKAIStructuredRelayError(event.Response.GetOpenAIError()); upstreamError != nil {
@@ -538,17 +585,21 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				s.shutdown()
 			}
 			sentControl = control.body
+		case <-requestDone:
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, context.DeadlineExceeded)
+			state.closeAfter = true
+			return types.NewErrorWithStatusCode(context.DeadlineExceeded, types.ErrorCodeBadResponse, http.StatusGatewayTimeout, types.ErrOptionWithSkipRetry())
 		case <-idle.C:
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, context.DeadlineExceeded)
 			state.closeAfter = true
-			if !accumulator.HasMeasuredUsage() {
+			if !accumulator.HasMeasuredUsage() || (info.MembershipBillingRequestID != "" && !accumulator.HasReportedUsage()) {
 				return types.NewErrorWithStatusCode(context.DeadlineExceeded, types.ErrorCodeBadResponse, http.StatusGatewayTimeout, types.ErrOptionWithSkipRetry())
 			}
 			ConsumeResponsesQuota(c, info, accumulator.Finish())
 			return nil
 		case <-s.ctx.Done():
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, s.ctx.Err())
-			if !accumulator.HasMeasuredUsage() {
+			if !accumulator.HasMeasuredUsage() || (info.MembershipBillingRequestID != "" && !accumulator.HasReportedUsage()) {
 				return types.NewErrorWithStatusCode(s.ctx.Err(), types.ErrorCodeBadResponse, http.StatusRequestTimeout, types.ErrOptionWithSkipRetry())
 			}
 			ConsumeResponsesQuota(c, info, accumulator.Finish())
@@ -650,6 +701,17 @@ func responsesWSErrorEndsRequest(event responsesWSErrorEvent, streamID, response
 	return true, len(control) > 0 && event.ResponseID == "", false
 }
 
+func confirmedResponsesWSRejection(event responsesWSErrorEvent, payload []byte, ambiguous bool) bool {
+	if ambiguous {
+		return false
+	}
+	status := event.Status
+	if status == 0 {
+		status = http.StatusBadRequest // Native WS errors may omit an HTTP status.
+	}
+	return relaychannel.ConfirmedMembershipRejection(&http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(payload))})
+}
+
 func (s *responsesWSSession) restoreConnectionContext(c *gin.Context, model string) *types.NewAPIError {
 	// The channel type is not rechecked: a locked channel keeps its type, and
 	// the FilterResponsesWebSocket rules were applied when it was selected.
@@ -725,6 +787,15 @@ func buildResponsesWSCreatePayload(c *gin.Context, info *relaycommon.RelayInfo, 
 	jsonData, err := io.ReadAll(body)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+	}
+	if info.MembershipBillingRequestID != "" {
+		outbound, err := http.NewRequest(http.MethodPost, "http://membership-authorization.invalid", bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+		if err := service.ValidateMembershipOutbound(outbound, info); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
 	}
 	event, err := buildResponsesWSCreateEvent(jsonData, generate, streamID)
 	if err != nil {
@@ -817,6 +888,18 @@ func (s *responsesWSSession) writeTarget(kind int, message []byte) error {
 		return err
 	}
 	return target.WriteMessage(kind, message)
+}
+
+// Close the captured transport at the deadline independently of accounting,
+// middleware, and blocked writers. A completed call stops this callback before
+// cancelling its context, so the connection remains reusable for the next call.
+func (s *responsesWSSession) closeUpstreamOnDeadline(ctx context.Context) func() bool {
+	target := s.getTarget()
+	return context.AfterFunc(ctx, func() {
+		if target != nil {
+			_ = target.Close()
+		}
+	})
 }
 
 func (s *responsesWSSession) writeClient(kind int, message []byte) error {

@@ -12,8 +12,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -105,15 +103,7 @@ func calcViolationFeeQuota(amount, groupRatio float64) int {
 	if groupRatio <= 0 {
 		return 0
 	}
-	quota := decimal.NewFromFloat(amount).
-		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
-		Mul(decimal.NewFromFloat(groupRatio)).
-		Round(0).
-		IntPart()
-	if quota <= 0 {
-		return 0
-	}
-	return int(quota)
+	return common.QuotaRound(amount * common.QuotaPerUnit * groupRatio)
 }
 
 // ChargeViolationFeeIfNeeded charges an additional fee after the normal flow finishes (including refund).
@@ -129,24 +119,42 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		return false
 	}
 
-	settings := model_setting.GetGrokSettings()
-	if settings == nil || !settings.ViolationDeductionEnabled {
-		return false
-	}
-
 	groupRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
-	feeQuota := calcViolationFeeQuota(settings.ViolationDeductionAmount, groupRatio)
+	baseAmount, feeQuota := 0.0, 0
+	member := relayInfo.MembershipBillingRequestID != ""
+	if member {
+		if relayInfo.MembershipPricing == nil {
+			return false
+		}
+		baseAmount = relayInfo.MembershipPricing.ViolationFeeBeforeGroup / relayInfo.MembershipPricing.QuotaPerUnit
+		feeQuota = common.QuotaRound(relayInfo.MembershipPricing.ViolationFeeBeforeGroup * groupRatio)
+	} else {
+		settings := model_setting.GetGrokSettings()
+		if settings == nil || !settings.ViolationDeductionEnabled {
+			return false
+		}
+		baseAmount = settings.ViolationDeductionAmount
+		feeQuota = calcViolationFeeQuota(baseAmount, groupRatio)
+	}
 	if feeQuota <= 0 {
 		return false
 	}
 
-	if err := PostConsumeQuota(relayInfo, feeQuota, 0, true); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("failed to charge violation fee: %s", err.Error()))
-		return false
+	if member {
+		feeQuota = MembershipCharge(relayInfo, feeQuota)
+		relayInfo.MembershipHasBillableUsage = true
+		if err := SettleBilling(ctx, relayInfo, feeQuota); err != nil {
+			logger.LogError(ctx, "membership violation fee settlement pending: "+err.Error())
+			return true // Keep the reservation; a database failure is not a refund.
+		}
+	} else {
+		if err := PostConsumeQuota(relayInfo, feeQuota, 0, true); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("failed to charge violation fee: %s", err.Error()))
+			return false
+		}
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(feeQuota))
+		model.UpdateChannelUsedQuota(relayInfo.ChannelId, feeQuota)
 	}
-
-	model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(feeQuota))
-	model.UpdateChannelUsedQuota(relayInfo.ChannelId, feeQuota)
 
 	frtMs, _ := firstSSELatencyMs(relayInfo)
 	useTimeSeconds := elapsedSeconds(relayInfo.StartTime, time.Now(), frtMs)
@@ -157,12 +165,13 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 	other.SetAdmin("violation_fee", true)
 	other.SetAdmin("violation_fee_code", string(types.ErrorCodeViolationFeeGrokCSAM))
 	other.SetAdmin("fee_quota", feeQuota)
-	other.SetAdmin("base_amount", settings.ViolationDeductionAmount)
+	other.SetAdmin("base_amount", baseAmount)
 	other.SetPublic("group_ratio", groupRatio)
 	other.SetAdmin("status_code", apiErr.StatusCode)
 	other.SetAdmin("upstream_error_type", oai.Type)
 	other.SetAdmin("upstream_error_code", fmt.Sprintf("%v", oai.Code))
 	other.SetAdmin("violation_fee_marker", CSAMViolationMarker)
+	attachQuotaSaturation(ctx, relayInfo, other)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:      relayInfo.ChannelId,

@@ -73,6 +73,13 @@ func sweepTimedOutTasks(ctx context.Context) {
 	timedOutCount := 0
 
 	for _, task := range tasks {
+		if task.PrivateData.MembershipBillingRequestID != "" &&
+			(task.PrivateData.BillingState == model.TaskBillingStateDispatching || task.PrivateData.BillingState == model.TaskBillingStateAccepted || task.PrivateData.BillingState == model.TaskBillingStateAmbiguous) {
+			if err := model.MarkTaskMembershipBillingUncertain(ctx, task.ID, "task_polling_deadline_elapsed"); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("retain timed-out membership task %s: %v", task.TaskID, err))
+			}
+			continue
+		}
 		isLegacy := task.SubmitTime > 0 && task.SubmitTime < legacyTaskCutoff
 
 		snap := task.Snapshot()
@@ -155,6 +162,14 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		nullTasks := make([]*model.Task, 0)
 		for _, task := range tasks {
 			upstreamID := task.GetUpstreamTaskID()
+			if task.PrivateData.MembershipBillingRequestID != "" {
+				upstreamID = task.PrivateData.UpstreamTaskID
+				if upstreamID == "" && (task.PrivateData.BillingState == model.TaskBillingStatePending || task.PrivateData.BillingState == model.TaskBillingStateReserved || task.PrivateData.BillingState == model.TaskBillingStateDispatching) {
+					// Submission owns the active request. A local ID is never an
+					// upstream receipt; recovery handles an abandoned dispatcher.
+					continue
+				}
+			}
 			if upstreamID == "" {
 				nullTasks = append(nullTasks, task)
 				continue
@@ -272,6 +287,10 @@ func UpdateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, task
 				task.Progress = taskcommon.ProgressComplete
 				task.FinishTime = time.Now().Unix()
 			}
+			if err := prepareTaskMembershipCompletion(task, &result.TaskInfo); err != nil {
+				logger.LogWarn(ctx, fmt.Sprintf("membership task completion assessment failed: %v", err))
+				continue
+			}
 			won, updateErr := task.UpdateWithStatusPreservingBilling(snap)
 			if updateErr != nil || !won {
 				continue
@@ -373,7 +392,7 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		task.SubmitTime = lo.If(responseItem.SubmitTime != 0, responseItem.SubmitTime).Else(task.SubmitTime)
 		task.StartTime = lo.If(responseItem.StartTime != 0, responseItem.StartTime).Else(task.StartTime)
 		task.FinishTime = lo.If(responseItem.FinishTime != 0, responseItem.FinishTime).Else(task.FinishTime)
-		if responseItem.TaskInfo.Reason != "" || task.Status == model.TaskStatusFailure {
+		if task.Status == model.TaskStatusFailure || (task.PrivateData.MembershipBillingRequestID == "" && responseItem.TaskInfo.Reason != "") {
 			logger.LogInfo(ctx, task.TaskID+" 构建失败，"+task.FailReason)
 			task.Progress = "100%"
 			shouldRefund = task.Quota != 0
@@ -387,6 +406,10 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		if len(responseItem.TaskInfo.PluginState) > 0 {
 			task.PrivateData.PluginState = responseItem.TaskInfo.PluginState
 		}
+		if err := prepareTaskMembershipCompletion(task, &responseItem.TaskInfo); err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("membership Suno task completion assessment failed: %v", err))
+			continue
+		}
 
 		won, updateErr := task.UpdateWithStatusPreservingBilling(snap)
 		if updateErr != nil {
@@ -399,6 +422,8 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		}
 		if shouldRefund {
 			RefundTaskQuota(ctx, task, task.FailReason)
+		} else if task.Status == model.TaskStatusSuccess && task.PrivateData.MembershipCompletionQuota != nil {
+			RecalculateTaskQuota(ctx, task, *task.PrivateData.MembershipCompletionQuota, "Suno task completion")
 		}
 	}
 	return nil
@@ -517,6 +542,10 @@ func failPollingTask(ctx context.Context, observed *model.Task, reason string) (
 	}
 	if reason == "" {
 		reason = "task polling failed"
+	}
+	if observed.PrivateData.MembershipBillingRequestID != "" &&
+		(observed.PrivateData.BillingState == model.TaskBillingStateDispatching || observed.PrivateData.BillingState == model.TaskBillingStateAccepted || observed.PrivateData.BillingState == model.TaskBillingStateAmbiguous) {
+		return false, model.MarkTaskMembershipBillingUncertain(ctx, observed.ID, "task_polling_result_unavailable")
 	}
 
 	failedTask := *observed
@@ -709,6 +738,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	if err := prepareTaskMembershipCompletion(task, taskResult); err != nil {
+		return err
+	}
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatusPreservingBilling(snap)
 		if err != nil {
@@ -779,6 +811,10 @@ func truncateBase64(s string) string {
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+	if task.PrivateData.MembershipBillingRequestID != "" && task.PrivateData.MembershipCompletionQuota != nil {
+		RecalculateTaskQuota(ctx, task, *task.PrivateData.MembershipCompletionQuota, "task completion")
+		return
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.TieredSnapshot != nil {
 		if len(taskResult.UsageFacts) == 0 {
 			return
@@ -804,6 +840,13 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 			}
 		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
+		if task.PrivateData.MembershipBillingRequestID != "" {
+			quota := task.Quota
+			if task.PrivateData.TargetQuota != nil {
+				quota = *task.PrivateData.TargetQuota
+			}
+			RecalculateTaskQuota(ctx, task, quota, "fixed task completion")
+		}
 		return
 	}
 	// 1. 优先让 adaptor 决定最终额度
@@ -817,4 +860,11 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		return
 	}
 	// 3. 无调整，保持预扣额度
+	if task.PrivateData.MembershipBillingRequestID != "" {
+		quota := task.Quota
+		if task.PrivateData.TargetQuota != nil {
+			quota = *task.PrivateData.TargetQuota
+		}
+		RecalculateTaskQuota(ctx, task, quota, "task completion without additional usage")
+	}
 }

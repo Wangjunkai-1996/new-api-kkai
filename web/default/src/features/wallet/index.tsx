@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+import { MembershipWalletSummary } from '@/features/membership/components/wallet-summary'
 import { getSelf } from '@/lib/api'
 import { MOTION_TRANSITION } from '@/lib/motion'
 
@@ -398,6 +399,8 @@ export function Wallet(props: WalletProps) {
             className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-7'
           >
             <WalletStatsCard user={user} loading={userLoading} />
+
+            <MembershipWalletSummary />
 
             <div id='wallet-add-funds' className='scroll-mt-4'>
               <RechargeFormCard

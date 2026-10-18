@@ -182,7 +182,7 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 		if err := failUnsubmittedTask(ctx, &task, "task submission stopped before billing reservation"); err != nil {
 			return err
 		}
-		return model.CompleteTaskBillingRecovery(ctx, task.ID)
+		return completeTaskBillingRecovery(ctx, task.ID)
 	case model.TaskBillingStateReserved:
 		if err := refundDurableTaskQuota(ctx, &task, "task submission stopped before upstream acceptance"); err != nil {
 			return err
@@ -195,7 +195,7 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 		return finishAmbiguousTask(ctx, &task)
 	case model.TaskBillingStateAmbiguous:
 		if task.PrivateData.UpstreamTaskID == "" {
-			return model.CompleteTaskBillingRecovery(ctx, task.ID)
+			return completeTaskBillingRecovery(ctx, task.ID)
 		}
 		return DeferKKAIOutboxUntil(time.Now().Add(taskBillingRecoveryPollInterval), errors.New("accepted task remains pollable"))
 	case model.TaskBillingStateAccepted:
@@ -203,12 +203,12 @@ func (TaskBillingRecoveryHandler) Handle(ctx context.Context, event model.KKAIOu
 		case model.TaskStatusFailure:
 			return refundDurableTaskQuota(ctx, &task, task.FailReason)
 		case model.TaskStatusSuccess:
-			return model.CompleteTaskBillingRecovery(ctx, task.ID)
+			return completeTaskBillingRecovery(ctx, task.ID)
 		default:
 			return DeferKKAIOutboxUntil(time.Now().Add(taskBillingRecoveryPollInterval), errors.New("accepted task is not terminal"))
 		}
 	case model.TaskBillingStateRefunded:
-		if task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
+		if task.PrivateData.MembershipBillingRequestID != "" || task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure {
 			return nil
 		}
 		return failUnsubmittedTask(ctx, &task, "task billing was refunded before submission completed")
@@ -250,5 +250,13 @@ func finishAmbiguousTask(ctx context.Context, task *model.Task) error {
 	if !marked {
 		return DeferKKAIOutboxUntil(time.Now().Add(taskBillingRecoveryPollInterval), errors.New("task changed during ambiguous recovery"))
 	}
-	return model.CompleteTaskBillingRecovery(ctx, task.ID)
+	return completeTaskBillingRecovery(ctx, task.ID)
+}
+
+func completeTaskBillingRecovery(ctx context.Context, taskID int64) error {
+	err := model.CompleteTaskBillingRecovery(ctx, taskID)
+	if errors.Is(err, model.ErrTaskAccountingNotReady) {
+		return DeferKKAIOutboxUntil(time.Now().Add(taskBillingRecoveryPollInterval), err)
+	}
+	return err
 }

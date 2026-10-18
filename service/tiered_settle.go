@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -165,6 +166,12 @@ func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.B
 // estimate before sending. If the initial group was free and skipped
 // pre-consume, switching to a paid group creates the session at that point.
 func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if relayInfo.MembershipBillingRequestID != "" && relayInfo.MembershipPricing != nil {
+		if relayInfo.UsingGroup != relayInfo.MembershipPricing.GroupKey {
+			return types.NewErrorWithStatusCode(fmt.Errorf("retry cannot change the authorized billing group"), types.ErrorCodeInvalidRequest, http.StatusConflict, types.ErrOptionWithSkipRetry())
+		}
+		return nil
+	}
 	snap, err := refreshTieredBillingGroup(relayInfo)
 	if err != nil {
 		return types.NewErrorWithStatusCode(

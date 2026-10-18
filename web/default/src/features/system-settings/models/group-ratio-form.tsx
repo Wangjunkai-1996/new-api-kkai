@@ -78,6 +78,7 @@ type GroupFormValues = {
 }
 
 type GroupRatioFormProps = {
+  topupDiscountsDisabled?: boolean
   form: UseFormReturn<GroupFormValues>
   onSave: (values: GroupFormValues) => Promise<void>
   isSaving: boolean
@@ -87,6 +88,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   form,
   onSave,
   isSaving,
+  topupDiscountsDisabled,
 }: GroupRatioFormProps) {
   const { t } = useTranslation()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
@@ -162,6 +164,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             )}
           />
           <Button variant='outline' size='sm' onClick={toggleEditMode}>
+            {topupDiscountsDisabled && (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Top-up discounts are disabled after membership sales launch. Historical values are retained for reference.'
+                )}
+              </p>
+            )}
             {editMode === 'visual' ? (
               <>
                 <Code2 className='mr-2 h-4 w-4' />
@@ -191,6 +200,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
         {editMode === 'visual' ? (
           <div className='space-y-6'>
             <GroupRatioVisualEditor
+              topupDiscountsDisabled={topupDiscountsDisabled}
               groupRatio={form.watch('GroupRatio')}
               topupGroupRatio={form.watch('TopupGroupRatio')}
               userUsableGroups={form.watch('UserUsableGroups')}
@@ -263,7 +273,11 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                 <FormItem>
                   <FormLabel>{t('Top-up group ratios')}</FormLabel>
                   <FormControl>
-                    <Textarea rows={6} {...field} />
+                    <Textarea
+                      rows={6}
+                      {...field}
+                      disabled={topupDiscountsDisabled}
+                    />
                   </FormControl>
                   <FormDescription>
                     {t(

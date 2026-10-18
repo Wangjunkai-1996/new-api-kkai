@@ -122,6 +122,21 @@ func GetTopUpInfo(c *gin.Context) {
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
 	}
+	if model.MembershipTopupDiscountsDisabled() {
+		data["discount"] = map[int]float64{}
+		data["topup_discounts_disabled"] = true
+		var products []CreemProduct
+		if err := common.UnmarshalJsonStr(setting.CreemProducts, &products); err == nil {
+			available := make([]CreemProduct, 0, len(products))
+			for _, product := range products {
+				product, err = creemProductWithoutBonus(product)
+				if err == nil {
+					available = append(available, product)
+				}
+			}
+			data["creem_products"] = common.GetJsonString(available)
+		}
+	}
 	common.ApiSuccess(c, data)
 }
 
@@ -157,20 +172,9 @@ func getPayMoney(amount int64, group string) float64 {
 		dAmount = dAmount.Div(dQuotaPerUnit)
 	}
 
-	topupGroupRatio := common.GetTopupGroupRatio(group)
-	if topupGroupRatio == 0 {
-		topupGroupRatio = 1
-	}
-
+	topupGroupRatio, discount := topUpPromotionFactors(group, amount)
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
 	dPrice := decimal.NewFromFloat(operation_setting.Price)
-	// apply optional preset discount by the original request amount (if configured), default 1.0
-	discount := 1.0
-	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(amount)]; ok {
-		if ds > 0 {
-			discount = ds
-		}
-	}
 	dDiscount := decimal.NewFromFloat(discount)
 
 	payMoney := dAmount.Mul(dPrice).Mul(dTopupGroupRatio).Mul(dDiscount)

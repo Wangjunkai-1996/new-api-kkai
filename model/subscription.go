@@ -232,7 +232,12 @@ func (o *SubscriptionOrder) Insert() error {
 	if o.CreateTime == 0 {
 		o.CreateTime = common.GetTimestamp()
 	}
-	return DB.Create(o).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := checkLegacySubscriptionCreationTx(tx, o.UserId); err != nil {
+			return err
+		}
+		return tx.Create(o).Error
+	})
 }
 
 func (o *SubscriptionOrder) Update() error {
@@ -492,6 +497,9 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 	if userId <= 0 {
 		return nil, errors.New("invalid user id")
 	}
+	if err := checkLegacySubscriptionCreationTx(tx, userId); err != nil {
+		return nil, err
+	}
 	if plan.MaxPurchasePerUser > 0 {
 		var count int64
 		if err := tx.Model(&UserSubscription{}).
@@ -588,13 +596,13 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		if expectedPaymentProvider != "" && order.PaymentProvider != expectedPaymentProvider {
 			return ErrPaymentMethodMismatch
 		}
-		if order.Status == common.TopUpStatusSuccess {
+		if order.Status == common.TopUpStatusSuccess || order.Status == MembershipOrderException {
 			return nil
 		}
 		if order.Status != common.TopUpStatusPending {
 			return ErrSubscriptionOrderStatusInvalid
 		}
-		plan, err := GetSubscriptionPlanById(order.PlanId)
+		plan, err := getSubscriptionPlanByIdTx(tx, order.PlanId)
 		if err != nil {
 			return err
 		}
@@ -609,7 +617,17 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		}
 		subscription, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
 		if err != nil {
-			return err
+			if !errors.Is(err, ErrMembershipConflict) {
+				return err
+			}
+			// A verified legacy payment must remain durable if an administrator
+			// introduced a conflicting entitlement after checkout creation.
+			audit, encodeErr := common.Marshal(map[string]any{"provider_payload": providerPayload, "membership_conflict": err.Error()})
+			if encodeErr != nil {
+				return encodeErr
+			}
+			order.Status, order.CompleteTime, order.ProviderPayload = MembershipOrderException, common.GetTimestamp(), string(audit)
+			return tx.Save(&order).Error
 		}
 		if subscription.PrevUserGroup != "" {
 			upgradeGroup = strings.TrimSpace(subscription.UpgradeGroup)

@@ -213,6 +213,28 @@ func GetToolPriceForModel(toolName, modelName string) float64 {
 	return 0
 }
 
+// SnapshotToolPrices resolves all configured tools against one immutable index.
+// A request keeps this map through settlement, even if pricing changes in flight.
+func SnapshotToolPrices(modelName string) map[string]float64 {
+	idx := currentIndex.Load()
+	if idx == nil {
+		return map[string]float64{}
+	}
+	prices := make(map[string]float64, len(idx.defaults)+len(idx.prefixes))
+	for name, price := range idx.defaults {
+		prices[name] = price
+	}
+	for name, entries := range idx.prefixes {
+		for _, entry := range entries {
+			if strings.HasPrefix(modelName, entry.prefix) {
+				prices[name] = entry.price
+				break
+			}
+		}
+	}
+	return prices
+}
+
 // GetToolPrice is a convenience wrapper when no model name is needed.
 func GetToolPrice(toolName string) float64 {
 	return GetToolPriceForModel(toolName, "")

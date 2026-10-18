@@ -163,7 +163,7 @@ func RequestStripePay(c *gin.Context) {
 
 func StripeWebhook(c *gin.Context) {
 	ctx := c.Request.Context()
-	if !isStripeWebhookEnabled() {
+	if !isStripeWebhookEnabled() && !membershipCallbackConfigured(model.PaymentProviderStripe) {
 		logger.LogWarn(ctx, fmt.Sprintf("Stripe webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
 		c.AbortWithStatus(http.StatusForbidden)
 		return
@@ -188,6 +188,15 @@ func StripeWebhook(c *gin.Context) {
 		return
 	}
 
+	if strings.HasPrefix(event.GetObjectValue("client_reference_id"), "MEMBER-") {
+		if err := handleMembershipStripeEvent(event); err != nil {
+			logger.LogError(ctx, "membership Stripe callback failed: "+err.Error())
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusOK)
+		return
+	}
 	callerIp := c.ClientIP()
 	logger.LogInfo(ctx, fmt.Sprintf("Stripe webhook 验签成功 event_type=%s client_ip=%s path=%q", string(event.Type), callerIp, c.Request.RequestURI))
 	var handlingErr error
@@ -388,7 +397,7 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 			},
 		},
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
-		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
+		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled && !model.MembershipTopupDiscountsDisabled()),
 	}
 
 	if "" == customerId {
@@ -410,19 +419,13 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 }
 
 func GetChargedAmount(count float64, user model.User) float64 {
-	topUpGroupRatio := common.GetTopupGroupRatio(user.Group)
-	if topUpGroupRatio == 0 {
-		topUpGroupRatio = 1
-	}
+	topUpGroupRatio, _ := topUpPromotionFactors(user.Group, 0)
 
 	return count * topUpGroupRatio
 }
 
 func getStripeCreditedQuota(amount int64, group string) decimal.Decimal {
-	topUpGroupRatio := common.GetTopupGroupRatio(group)
-	if topUpGroupRatio == 0 {
-		topUpGroupRatio = 1
-	}
+	topUpGroupRatio, _ := topUpPromotionFactors(group, amount)
 	return decimal.NewFromInt(amount).
 		Mul(decimal.NewFromFloat(topUpGroupRatio)).
 		Mul(decimal.NewFromFloat(common.QuotaPerUnit))
@@ -434,17 +437,7 @@ func getStripePayMoney(amount float64, group string) float64 {
 		amount = amount / common.QuotaPerUnit
 	}
 	// Using float64 for monetary calculations is acceptable here due to the small amounts involved
-	topupGroupRatio := common.GetTopupGroupRatio(group)
-	if topupGroupRatio == 0 {
-		topupGroupRatio = 1
-	}
-	// apply optional preset discount by the original request amount (if configured), default 1.0
-	discount := 1.0
-	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(originalAmount)]; ok {
-		if ds > 0 {
-			discount = ds
-		}
-	}
+	topupGroupRatio, discount := topUpPromotionFactors(group, int64(originalAmount))
 	payMoney := amount * setting.StripeUnitPrice * topupGroupRatio * discount
 	return payMoney
 }

@@ -189,6 +189,18 @@ func PreConsumeTaskBilling(c *gin.Context, task *model.Task, preConsumedQuota in
 	if relayInfo.QuotaClamp != nil {
 		return types.NewErrorWithStatusCode(relayInfo.QuotaClamp, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
+	if task.PrivateData.MembershipBillingRequestID != "" {
+		return preConsumeTaskMembership(c, task, relayInfo)
+	}
+	if model.MembershipEnabled() {
+		enabled, err := model.ShouldUseMembershipBilling(relayInfo.UserId)
+		if err != nil {
+			return membershipBillingError(err)
+		}
+		if enabled {
+			return preConsumeTaskMembership(c, task, relayInfo)
+		}
+	}
 
 	reserve := func(source string) (*BillingSession, *types.NewAPIError) {
 		mutation, err := model.ReserveTaskBilling(context.WithoutCancel(c), task.ID, model.TaskBillingReservationRequest{

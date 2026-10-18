@@ -127,7 +127,9 @@ func AcceptAsyncImageSubmission(ctx context.Context, db *gorm.DB, request ImageA
 		return nil, err
 	}
 	var generation *model.KKAIImageGeneration
-	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var membershipRecord *model.MembershipBillingRecord
+	err = model.MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
+		membershipRecord = nil
 		if err := model.LockImageStudioCapacityTx(tx); err != nil {
 			return err
 		}
@@ -165,6 +167,13 @@ func AcceptAsyncImageSubmission(ctx context.Context, db *gorm.DB, request ImageA
 		if quote.ImagePricingSnapshot == nil {
 			return ErrImageModelBillingUnsupported
 		}
+		memberBilling, err := model.ShouldUseMembershipBillingTx(tx, normalized.UserID)
+		if err != nil {
+			return err
+		}
+		if memberBilling != (quote.MembershipPricing != nil) {
+			return ErrImageStudioQuoteStale
+		}
 		settings := image_studio_setting.Get()
 		if err := model.CheckImageGenerationCapacityTx(tx, normalized.UserID, settings.MaxQueuedGenerations, settings.MaxConcurrentSubmissionsPerUser); err != nil {
 			return err
@@ -182,11 +191,25 @@ func AcceptAsyncImageSubmission(ctx context.Context, db *gorm.DB, request ImageA
 		if err := tx.First(&user, normalized.UserID).Error; err != nil {
 			return err
 		}
-		mutation, err := ReserveImageGenerationBillingForUserTx(ctx, tx, generation.ID, quote.Quota, user.GetSetting().BillingPreference, quote.Quota == 0)
-		if err != nil {
-			return err
+		if memberBilling {
+			input, err := imageStudioMembershipReservation(normalized, quote)
+			if err != nil {
+				return err
+			}
+			membershipRecord, err = model.ReserveMembershipImageGenerationBillingTx(tx, generation.ID, input)
+			if err != nil {
+				return err
+			}
+			if err := tx.First(generation, generation.ID).Error; err != nil {
+				return err
+			}
+		} else {
+			mutation, err := ReserveImageGenerationBillingForUserTx(ctx, tx, generation.ID, quote.Quota, user.GetSetting().BillingPreference, quote.Quota == 0)
+			if err != nil {
+				return err
+			}
+			generation = mutation.Generation
 		}
-		generation = mutation.Generation
 		for position, id := range request.AssetIDs {
 			reference := model.KKAIImageGenerationReference{GenerationID: generation.ID, Position: position, AssetID: id, CreatedAt: now.Unix()}
 			if err := tx.Create(&reference).Error; err != nil {
@@ -213,6 +236,7 @@ func AcceptAsyncImageSubmission(ctx context.Context, db *gorm.DB, request ImageA
 	if err != nil {
 		return nil, err
 	}
+	model.MembershipBillingAfterCommit(membershipRecord)
 	// Cache reconciliation also has its own durable outbox event from the debit.
 	cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()

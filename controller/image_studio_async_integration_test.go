@@ -20,9 +20,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +32,30 @@ import (
 )
 
 func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
+	if model.MembershipEnabled() {
+		t.Skip("legacy fixture runs with membership disabled")
+	}
+	testImageAsyncWorkerEditFunding(t, 0, 3_000_000, 1)
+}
+
+func TestMembershipImageAsyncWorkerEditFundingAndPartialDelivery(t *testing.T) {
+	if !model.MembershipEnabled() {
+		t.Skip("requires KKAI_MEMBERSHIP_ENABLED=true")
+	}
+	for _, tc := range []struct {
+		name          string
+		memberQuota   int64
+		wallet, count int
+	}{
+		{"member_zero_wallet_partial", 1_000_000, 0, 2},
+		{"whole_wallet_fallback", 100, 3_000_000, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testImageAsyncWorkerEditFunding(t, tc.memberQuota, tc.wallet, tc.count) })
+	}
+}
+
+func testImageAsyncWorkerEditFunding(t *testing.T, memberQuota int64, startingQuota, requestedCount int) {
+	t.Helper()
 	// The runtime R2 provider caches its client. Isolate its test endpoint from
 	// other tests without adding a production-only cache reset hook.
 	const childEnvironment = "KKAI_IMAGE_ASYNC_INTEGRATION_CHILD"
@@ -45,6 +71,10 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
+	service.InitTokenEncoders()
+	previousGrok := *model_setting.GetGrokSettings()
+	*model_setting.GetGrokSettings() = model_setting.GrokSettings{ViolationDeductionEnabled: true, ViolationDeductionAmount: 0.05}
+	t.Cleanup(func() { *model_setting.GetGrokSettings() = previousGrok })
 	db := setupImageStudioIntegrationState(t)
 	enableImageStudioEditIntegrationModel(t, db)
 	require.NoError(t, db.AutoMigrate(&model.KKAIImageExecution{}, &model.KKAIImageGenerationReference{}))
@@ -55,8 +85,25 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	pricingJSON, err := common.Marshal(pricing)
 	require.NoError(t, err)
 	require.NoError(t, image_pricing_setting.UpdateByJSONString(string(pricingJSON)))
-	const startingQuota = 3_000_000
 	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 407).Update("quota", startingQuota).Error)
+	var account *model.MembershipAccount
+	if memberQuota > 0 {
+		require.NoError(t, db.AutoMigrate(model.MembershipModels()...))
+		catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{
+			SalesEnabled: true,
+			Tiers:        []model.MembershipTier{{ID: "gold", Name: "Gold", Rank: 1, Style: "gold", Currency: "USD", PriceMinor: 1000, Quota: memberQuota, Enabled: true, Discounts: map[string]float64{service.ImageStudioTokenGroup: 0.5}}},
+			Groups:       []model.MembershipGroup{{Key: service.ImageStudioTokenGroup, Enabled: true, Published: true}},
+		}, 0, 407)
+		require.NoError(t, err)
+		order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: 407, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: "image-member", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+		require.NoError(t, err)
+		_, err = model.CompleteMembershipPayment(model.MembershipPaymentInput{TradeNo: order.TradeNo, Provider: order.Provider, ReceiptID: "image-paid", AmountMinor: order.AmountMinor, Currency: order.Currency, OneTime: true, Paid: true})
+		require.NoError(t, err)
+		self, err := model.GetMembershipSelf(407)
+		require.NoError(t, err)
+		account = self.Account
+		require.NotNil(t, account)
+	}
 
 	referenceImages := [][]byte{
 		imageStudioEditTestPNG(t, color.RGBA{R: 0xf0, A: 0xff}),
@@ -132,6 +179,17 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		defer request.Body.Close()
 		providerCalls.Add(1)
+		if request.URL.Path == "/v1/images/generations" {
+			var payload dto.ImageRequest
+			if !assert.NoError(t, common.DecodeJson(request.Body, &payload)) || !assert.NotNil(t, payload.N) {
+				http.Error(writer, "invalid generation", http.StatusBadRequest)
+				return
+			}
+			observed <- providerRequest{Path: request.URL.Path, Model: payload.Model, Prompt: payload.Prompt, Size: payload.Size, Count: strconv.Itoa(int(*payload.N))}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write(providerResponse)
+			return
+		}
 		if !assert.NoError(t, request.ParseMultipartForm(1<<20)) {
 			http.Error(writer, "invalid multipart", http.StatusBadRequest)
 			return
@@ -171,8 +229,11 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	require.NoError(t, db.First(&token).Error)
 	submission := service.ImageAsyncSubmissionRequest{
 		TokenID: token.Id, Model: imageStudioEditTestModel, Prompt: "Combine the two references in this order",
-		Parameters: map[string]any{"count": 1, "size": "1024x1024"}, Mode: service.ImageStudioModeEdit,
+		Parameters: map[string]any{"count": requestedCount, "size": "1024x1024"}, Mode: service.ImageStudioModeEdit,
 		AssetIDs: []int64{assetIDs[1], assetIDs[0]},
+	}
+	if requestedCount > 1 {
+		submission.Mode, submission.AssetIDs = service.ImageStudioModeGeneration, nil
 	}
 	normalized, err := service.NormalizeAsyncImageSubmission(context.Background(), db, 407, submission)
 	require.NoError(t, err)
@@ -185,16 +246,35 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	require.NoError(t, selectAsyncImageChannel(quoteContext, normalized.Model))
 	price, err := calculateImageStudioQuote(quoteContext)
 	require.NoError(t, err)
-	quote, err := service.NewImageStudioQuote(normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot)
+	quote, err := service.NewImageStudioQuote(normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot, price.MembershipPricing)
 	require.NoError(t, err)
-	require.Equal(t, 502_500, quote.Quota)
+	expectedMaximum := 502_500 * requestedCount
+	if memberQuota > 0 {
+		// The authorization includes the fixed violation reserve, but successful
+		// delivery still charges only its delivered images.
+		expectedMaximum += 37_500
+	}
+	require.Equal(t, expectedMaximum, quote.Quota)
 	submission.QuoteToken, normalized.QuoteToken = quote.QuoteToken, quote.QuoteToken
 	generation, err := service.AcceptAsyncImageSubmission(context.Background(), db, submission, normalized, "async-edit-integration", "async-edit-request", "127.0.0.1")
 	require.NoError(t, err)
 	assert.Zero(t, providerCalls.Load(), "acceptance must not call the provider")
 	var user model.User
 	require.NoError(t, db.First(&user, 407).Error)
-	assert.EqualValues(t, startingQuota-quote.Quota, user.Quota)
+	memberFunded := account != nil && memberQuota >= int64(quote.Quota/2)
+	reserved, charged := quote.Quota, 502_500
+	walletAfterReserve, walletAfterDelivery := startingQuota-reserved, startingQuota-charged
+	if memberFunded {
+		reserved, charged = reserved/2, charged/2
+		walletAfterReserve, walletAfterDelivery = startingQuota, startingQuota
+	}
+	assert.EqualValues(t, walletAfterReserve, user.Quota)
+	assert.Equal(t, reserved, generation.ReservedQuota)
+	if account != nil {
+		// Recovery settles this original entitlement even if a later upgrade or
+		// expiry has changed the current account revision.
+		require.NoError(t, db.Model(account).Updates(map[string]any{"expires_at": time.Now().Add(-time.Minute).Unix(), "revision": account.Revision + 1}).Error)
+	}
 
 	// A queued request keeps the quote even when both live price inputs change.
 	tier := pricing.Models[imageStudioEditTestModel].Tiers["1k"]
@@ -213,19 +293,28 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, batch.Delivered, "%+v", batch)
 	require.NoError(t, db.First(generation, generation.ID).Error)
-	require.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status, "%+v", generation)
+	expectedStatus := model.ImageGenerationStatusSucceeded
+	if requestedCount > 1 {
+		expectedStatus = model.ImageGenerationStatusPartial
+	}
+	require.Equal(t, expectedStatus, generation.Status, "%+v", generation)
 	assert.Equal(t, model.ImageGenerationBillingStateSettled, generation.BillingState)
-	assert.Equal(t, quote.Quota, generation.FinalQuota)
+	assert.Equal(t, charged, generation.FinalQuota)
 	assert.Equal(t, 1, generation.SucceededCount)
 	require.EqualValues(t, 1, providerCalls.Load())
 	select {
 	case call := <-observed:
-		assert.Equal(t, "/v1/images/edits", call.Path)
+		if requestedCount > 1 {
+			assert.Equal(t, "/v1/images/generations", call.Path)
+			assert.Empty(t, call.Images)
+		} else {
+			assert.Equal(t, "/v1/images/edits", call.Path)
+			assert.Equal(t, [][]byte{referenceImages[1], referenceImages[0]}, call.Images)
+		}
 		assert.Equal(t, submission.Model, call.Model)
 		assert.Equal(t, submission.Prompt, call.Prompt)
 		assert.Equal(t, "1024x1024", call.Size)
-		assert.Equal(t, "1", call.Count)
-		assert.Equal(t, [][]byte{referenceImages[1], referenceImages[0]}, call.Images)
+		assert.Equal(t, strconv.Itoa(requestedCount), call.Count)
 	default:
 		t.Fatal("worker did not reach the local HTTP image adapter")
 	}
@@ -255,8 +344,24 @@ func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	assert.EqualValues(t, 1, providerCalls.Load())
 	assert.EqualValues(t, 1, storagePuts.Load())
 	require.NoError(t, db.First(&user, 407).Error)
-	assert.EqualValues(t, startingQuota-quote.Quota, user.Quota)
+	assert.EqualValues(t, walletAfterDelivery, user.Quota)
 	var outputCount int64
 	require.NoError(t, db.Model(&model.KKAIImageAsset{}).Where("generation_id = ? AND kind = ?", generation.ID, model.ImageAssetKindOutput).Count(&outputCount).Error)
 	assert.EqualValues(t, 1, outputCount)
+	if account != nil {
+		record, err := model.GetMembershipBillingRecord(model.MembershipImageBillingKey(generation.ID))
+		require.NoError(t, err)
+		assert.Equal(t, "settled", record.State)
+		assert.EqualValues(t, reserved, record.ReservedQuota)
+		assert.EqualValues(t, charged, record.ChargedQuota)
+		require.NoError(t, db.First(account, account.ID).Error)
+		assert.Zero(t, account.AmountReserved)
+		if memberFunded {
+			assert.Equal(t, model.MembershipSource, record.Source)
+			assert.EqualValues(t, charged, account.AmountUsed)
+		} else {
+			assert.Equal(t, model.MembershipWalletSource, record.Source)
+			assert.Zero(t, account.AmountUsed)
+		}
+	}
 }

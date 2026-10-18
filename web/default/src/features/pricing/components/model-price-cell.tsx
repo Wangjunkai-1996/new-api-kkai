@@ -44,7 +44,7 @@ export type ModelPriceCellOptions = {
   selectedGroup?: string
 }
 
-export function ModelPriceCell(props: {
+function ModelPriceValue(props: {
   model: PricingModel
   options?: ModelPriceCellOptions
 }) {
@@ -262,5 +262,35 @@ export function ModelPriceCell(props: {
         {caption}
       </span>
     </span>
+  )
+}
+
+export function ModelPriceCell(props: {
+  model: PricingModel
+  options?: ModelPriceCellOptions
+}) {
+  const { t } = useTranslation()
+  const ratios = props.model.membership_group_ratio
+  const memberModel = ratios
+    ? { ...props.model, group_ratio: ratios }
+    : props.model
+  const discounted =
+    ratios &&
+    getDynamicDisplayGroupRatio(memberModel, props.options?.selectedGroup) <
+      getDynamicDisplayGroupRatio(props.model, props.options?.selectedGroup)
+  if (!discounted) return <ModelPriceValue {...props} />
+  return (
+    <div className='space-y-2'>
+      <div>
+        <span className='text-primary text-xs font-medium'>
+          {t('Membership quota price')}
+        </span>
+        <ModelPriceValue {...props} model={memberModel} />
+      </div>
+      <div className='text-muted-foreground'>
+        <span className='text-xs'>{t('Wallet price')}</span>
+        <ModelPriceValue {...props} />
+      </div>
+    </div>
   )
 }

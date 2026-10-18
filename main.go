@@ -341,6 +341,11 @@ func InitResources() error {
 	if err = kkaimigrate.CheckRequired(context.Background(), model.DB); err != nil {
 		return fmt.Errorf("KKAI schema check failed; run cmd/kkai-migrate before starting NewAPI: %w", err)
 	}
+	if model.MembershipEnabled() {
+		if err = kkaimigrate.CheckMembershipSchema(context.Background(), model.DB); err != nil {
+			return fmt.Errorf("membership enabled without its verified schema: %w", err)
+		}
+	}
 	if !common.CanRunRuntimeAutoMigrate() {
 		if err = model.LoadLegacyAccessTokenRetireAt(); err != nil {
 			return fmt.Errorf("load legacy access token deadline: %w", err)

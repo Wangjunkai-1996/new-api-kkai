@@ -19,6 +19,9 @@ const (
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。
 func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if relayInfo != nil && relayInfo.MembershipBillingRequestID != "" && relayInfo.Billing != nil {
+		return nil
+	}
 	if relayInfo != nil && relayInfo.QuotaClamp != nil {
 		return types.NewErrorWithStatusCode(
 			relayInfo.QuotaClamp,
@@ -40,6 +43,9 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			c, model.DB, generationID, preConsumedQuota, relayInfo,
 		)
 	}
+	if relayInfo.MembershipPricing != nil {
+		return preConsumeMembershipBilling(relayInfo)
+	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)
 	if apiErr != nil {
 		return apiErr
@@ -56,6 +62,17 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
 func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
 	if relayInfo.Billing != nil {
+		if relayInfo.MembershipBillingRequestID != "" {
+			if relayInfo.MembershipOutcomeUnknown || membershipStreamIncomplete(relayInfo) {
+				relayInfo.MembershipOutcomeUnknown = true
+				if err := model.MarkMembershipBillingUncertain(relayInfo.MembershipBillingRequestID, relayInfo.ChannelId, "upstream_final_usage_unknown"); err != nil {
+					return err
+				}
+				return fmt.Errorf("membership authorization retained pending final usage")
+			}
+			assessed := max(actualQuota, relayInfo.MembershipAssessedQuota)
+			return relayInfo.Billing.Settle(assessed)
+		}
 		preConsumed := relayInfo.Billing.GetPreConsumedQuota()
 		delta := actualQuota - preConsumed
 

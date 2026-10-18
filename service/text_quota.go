@@ -103,11 +103,14 @@ func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *d
 	return usage.ClaudeCacheCreation5mTokens > 0 || usage.ClaudeCacheCreation1hTokens > 0
 }
 
-func collectToolSurchargeItem(items []ToolSurchargeItem, name string, count int, modelName string) []ToolSurchargeItem {
+func collectToolSurchargeItem(items []ToolSurchargeItem, name string, count int, modelName string, frozen ...map[string]float64) []ToolSurchargeItem {
 	if count <= 0 {
 		return items
 	}
 	price := operation_setting.GetToolPriceForModel(name, modelName)
+	if len(frozen) > 0 && frozen[0] != nil {
+		price = frozen[0][name]
+	}
 	if price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 		return items
 	}
@@ -157,6 +160,11 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 	}
 
 	var items []ToolSurchargeItem
+	var toolPrices map[string]float64
+	if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+		toolPrices = snapshot.ToolPrices
+		dQuotaPerUnit = decimal.NewFromFloat(snapshot.QuotaPerUnit)
+	}
 
 	if relayInfo.ResponsesUsageInfo != nil {
 		for name, tool := range relayInfo.ResponsesUsageInfo.BuiltInTools {
@@ -169,23 +177,23 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 			if tool == nil {
 				continue
 			}
-			items = collectToolSurchargeItem(items, name, tool.CallCount, summary.ModelName)
+			items = collectToolSurchargeItem(items, name, tool.CallCount, summary.ModelName, toolPrices)
 		}
 	}
 	if relayInfo.RelayMode != relayconstant.RelayModeResponses &&
 		strings.HasSuffix(summary.ModelName, "search-preview") {
-		items = collectToolSurchargeItem(items, dto.BuildInToolWebSearchPreview, 1, summary.ModelName)
+		items = collectToolSurchargeItem(items, dto.BuildInToolWebSearchPreview, 1, summary.ModelName, toolPrices)
 	}
 
 	items = collectToolSurchargeItem(
 		items,
 		dto.BuildInToolWebSearch,
 		ctx.GetInt("claude_web_search_requests"),
-		summary.ModelName,
+		summary.ModelName, toolPrices,
 	)
 
 	if ctx.GetBool("gemini_google_search_call") {
-		items = collectToolSurchargeItem(items, dto.BuildInToolGoogleSearch, 1, summary.ModelName)
+		items = collectToolSurchargeItem(items, dto.BuildInToolGoogleSearch, 1, summary.ModelName, toolPrices)
 	}
 
 	if toolUsage := relayInfo.ResponsesUsageInfo; toolUsage != nil && toolUsage.ImageGenerationCalls != nil {
@@ -273,6 +281,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		UsageSemantic:        usageSemanticFromUsage(relayInfo, usage),
 	}
 	quotaPerUnit := common.QuotaPerUnit
+	if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+		quotaPerUnit = snapshot.QuotaPerUnit
+	}
 	if snapshot := relayInfo.ImagePricingSnapshot; snapshot != nil {
 		summary.ModelPrice = snapshot.UnitPrice
 		summary.GroupRatio = snapshot.GroupRatio
@@ -377,6 +388,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		if !dAudioTokens.IsZero() {
 			summary.AudioInputPrice = operation_setting.GetGeminiInputAudioPricePerMillionTokens(summary.ModelName)
+			if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+				summary.AudioInputPrice = snapshot.GeminiAudioInputPrice
+			}
 			if summary.AudioInputPrice > 0 {
 				baseTokens = baseTokens.Sub(dAudioTokens)
 				audioInputQuota = decimal.NewFromFloat(summary.AudioInputPrice).
@@ -535,6 +549,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		}
 	}
 
+	summary.Quota = MembershipCharge(relayInfo, summary.Quota)
 	_, imageStudioBilling := imageStudioBillingGuardFromContext(ctx)
 	imageStudioQuoteExceeded := false
 	if finalQuota, capped := applyImageStudioFinalQuota(ctx, summary.Quota); capped {
@@ -572,15 +587,22 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", logger.LogQuota(common.QuotaFromDecimal(q))))
 	}
 
+	if relayInfo.MembershipBillingRequestID != "" && !imageStudioBilling {
+		relayInfo.MembershipHasBillableUsage = summary.hasBillableUsage()
+		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
+			logger.LogError(ctx, "membership settlement pending: "+err.Error())
+			return
+		}
+	}
 	if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else if !imageStudioBilling {
+	} else if !imageStudioBilling && relayInfo.MembershipBillingRequestID == "" {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(summary.Quota))
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if !imageStudioBilling {
+	if !imageStudioBilling && relayInfo.MembershipBillingRequestID == "" {
 		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 			logger.LogError(ctx, "error settling billing: "+err.Error())
 		}

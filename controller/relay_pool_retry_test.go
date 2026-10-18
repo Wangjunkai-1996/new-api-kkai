@@ -154,6 +154,28 @@ func TestShouldRetryStopsAfterOutputOrCancellation(t *testing.T) {
 	}
 }
 
+func TestMembershipUnknownOutcomeStopsOtherwiseRetryableChannelFailure(t *testing.T) {
+	for _, unknown := range []bool{false, true} {
+		t.Run(fmt.Sprintf("unknown_%v", unknown), func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			info := &relaycommon.RelayInfo{
+				MembershipBillingRequestID: "reserved-request",
+				MembershipOutcomeUnknown:   unknown,
+			}
+			apiErr := types.NewErrorWithStatusCode(fmt.Errorf("upstream timed out"),
+				types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout)
+			decision := decideRelayRetry(ctx, info, apiErr, 2)
+			if unknown {
+				assert.Equal(t, "stop", decision.Action)
+				assert.Equal(t, "membership_outcome_unknown", decision.Reason)
+			} else {
+				assert.Equal(t, "retry", decision.Action)
+			}
+		})
+	}
+}
+
 func TestResponsesRelayExhaustedBudgetStopsOuterRetry(t *testing.T) {
 	for _, exhausted := range []bool{true, false} {
 		for _, stream := range []bool{false, true} {

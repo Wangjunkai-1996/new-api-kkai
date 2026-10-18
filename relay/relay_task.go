@@ -343,6 +343,9 @@ func prepareTaskSubmission(c *gin.Context, info *relaycommon.RelayInfo) (*prepar
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
+	if info.MembershipBillingRequestID != "" && info.MembershipPricing != nil {
+		return &preparedTaskSubmission{adaptor: adaptor, platform: platform}, nil
+	}
 	var priceData types.PriceData
 	var err error
 	pluginKey := c.GetString("task_plugin_key")
@@ -389,6 +392,21 @@ func prepareTaskSubmission(c *gin.Context, info *relaycommon.RelayInfo) (*prepar
 		noteTaskQuotaClamp(info, clamp)
 		priceData = types.PriceData{Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo}
 		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: billing_setting.BillingModeTieredExpr, ModelName: modelName, ExprString: exprStr, ExprHash: billingexpr.ExprHashString(exprStr), GroupRatio: groupRatioInfo.GroupRatio, EstimatedQuotaBeforeGroup: cost * common.QuotaPerUnit, EstimatedQuotaAfterGroup: quota, EstimatedTier: trace.MatchedTier, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: billingexpr.ExprVersion(exprStr), TaskUsageBilling: true, UsageFacts: facts}
+		var usageSchema map[string]jsplugin.UsageFieldSchema
+		if pinnedPlugin.Plugin != nil {
+			usageSchema, _ = pinnedPlugin.Plugin.Meta.UsageForModels(info.UpstreamModelName, modelName)
+		}
+		if model.MembershipEnabled() {
+			enabled, err := model.ShouldUseMembershipBilling(info.UserId)
+			if err != nil {
+				return nil, service.TaskErrorWrapperLocal(err, "task_membership_state", http.StatusConflict)
+			}
+			if enabled {
+				if err := service.PrepareTaskMembershipExpressionBudget(info, usageSchema); err != nil {
+					return nil, service.TaskErrorWrapperLocal(err, "task_budget_unbounded", http.StatusBadRequest)
+				}
+			}
+		}
 	} else {
 		priceData, err = helper.ModelPriceHelperPerCall(c, info)
 		if err != nil {
@@ -924,6 +942,9 @@ func resetTaskSubmissionClaim(task *model.Task) error {
 }
 
 func authorizedTaskQuota(task *model.Task, quota int) int {
+	if task != nil && task.PrivateData.MembershipBillingRequestID != "" {
+		return quota
+	}
 	if task == nil || task.PrivateData.BillingContext == nil || task.PrivateData.BillingContext.MaxQuota == nil {
 		return quota
 	}

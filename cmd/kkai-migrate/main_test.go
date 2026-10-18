@@ -28,8 +28,8 @@ func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 }
 
 func TestApplyMigrationTargetRejectsUnknownVersion(t *testing.T) {
-	_, err := applyMigrationTarget(context.Background(), nil, 11, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "expected 4, 5, 6, 7, 8, 9, or 10")
+	_, err := applyMigrationTarget(context.Background(), nil, 12, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "expected 4, 5, 6, 7, 8, 9, 10, or 11")
 }
 
 func TestDescribeContractJSONUsesImmutableExternalSchemaManagement(t *testing.T) {
@@ -137,4 +137,27 @@ func TestResolveMigrationDSNRejectsAmbiguousOrUnsafeStdin(t *testing.T) {
 
 	_, err = resolveMigrationDSN("", true, strings.NewReader(strings.Repeat("x", 8193)))
 	require.ErrorContains(t, err, "exceeds 8192 bytes")
+}
+
+func TestApplyMembershipMigrationTargetIsExplicit(t *testing.T) {
+	db, err := openDatabase("file:" + t.TempDir() + "/membership.db")
+	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
+	_, err = applyMigrationTarget(context.Background(), db, 0, kkaimigrate.Options{})
+	require.NoError(t, err)
+	assert.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
+	assert.False(t, db.Migrator().HasTable("kkai_image_executions"))
+	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.MembershipSchemaVersion, kkaimigrate.Options{})
+	require.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
+	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.ImageAsyncSchemaVersion, kkaimigrate.Options{})
+	require.NoError(t, err)
+	require.NoError(t, kkaimigrate.CheckImageAsyncSchema(context.Background(), db))
+	assert.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
+	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.MembershipSchemaVersion, kkaimigrate.Options{DryRun: true})
+	require.NoError(t, err)
+	assert.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
+	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.MembershipSchemaVersion, kkaimigrate.Options{})
+	require.NoError(t, err)
+	require.NoError(t, kkaimigrate.CheckMembershipSchema(context.Background(), db))
+	require.NoError(t, kkaimigrate.CheckImageAsyncSchema(context.Background(), db))
 }

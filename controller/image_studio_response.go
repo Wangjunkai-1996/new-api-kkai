@@ -89,6 +89,7 @@ func imageStudioErrorStatus(err error) (int, string) {
 		return http.StatusForbidden, "image_asset_access_denied"
 	case errors.Is(err, service.ErrImageStudioQuoteMismatch),
 		errors.Is(err, service.ErrImageStudioQuoteExpired),
+		errors.Is(err, model.ErrMembershipQuoteChanged),
 		errors.Is(err, service.ErrImageStudioQuoteStale):
 		return http.StatusConflict, "quote_stale"
 	case errors.Is(err, service.ErrImageStudioTokenLimitReached):
@@ -98,6 +99,8 @@ func imageStudioErrorStatus(err error) (int, string) {
 	case errors.Is(err, service.ErrImageStudioCapacityExceeded), errors.Is(err, model.ErrImageGenerationCapacityExceeded):
 		return http.StatusTooManyRequests, "image_studio_busy"
 	case errors.Is(err, model.ErrImageBillingInsufficientWallet),
+		errors.Is(err, model.ErrMembershipInsufficientQuota),
+		errors.Is(err, model.ErrTaskBillingInsufficientToken),
 		errors.Is(err, model.ErrImageBillingInsufficientSubscription),
 		errors.Is(err, model.ErrImageBillingNoActiveSubscription):
 		return http.StatusForbidden, "insufficient_user_quota"

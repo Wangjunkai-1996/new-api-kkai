@@ -86,6 +86,7 @@ export type PricingModel = {
   supported_endpoint_types?: string[]
   key?: string
   group_ratio?: Record<string, number>
+  membership_group_ratio?: Record<string, number>
   /** Billing mode (e.g. "tiered_expr") used to flag dynamic pricing */
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
@@ -136,6 +137,13 @@ export type PricingData = {
   data: PricingModel[]
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
+  membership_group_quotes?: Array<{
+    group_key: string
+    wallet_ratio: number
+    membership_ratio: number
+    coefficient: number
+    enabled: boolean
+  }>
   usable_group: PricingUsableGroup
   group_display_names?: Record<string, string>
   supported_endpoint: Record<string, string>

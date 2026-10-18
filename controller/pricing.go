@@ -43,6 +43,7 @@ func GetPricing(c *gin.Context) {
 		groupRatio[s] = f
 	}
 	var group string
+	membershipQuotes := []service.MembershipGroupQuote{}
 	if exists {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
@@ -76,17 +77,31 @@ func GetPricing(c *gin.Context) {
 		}
 	}
 
+	if exists && model.MembershipEnabled() {
+		catalog, err := model.GetMembershipCatalog()
+		if err != nil {
+			membershipAPIError(c, err)
+			return
+		}
+		membershipQuotes, err = service.GetMembershipGroupQuotes(userId.(int), catalog)
+		if err != nil {
+			membershipAPIError(c, err)
+			return
+		}
+	}
+
 	c.JSON(200, gin.H{
-		"success":             true,
-		"data":                pricing,
-		"vendors":             model.GetVendors(),
-		"group_ratio":         groupRatio,
-		"usable_group":        usableGroup,
-		"group_display_names": groupDisplayNames,
-		"supported_endpoint":  model.GetSupportedEndpointMap(),
-		"auto_groups":         service.GetUserAutoGroup(group),
-		"auto_group_chains":   autoGroupProfiles,
-		"pricing_version":     "a42d372ccf0b5dd13ecf71203521f9d2",
+		"success":                 true,
+		"data":                    pricing,
+		"vendors":                 model.GetVendors(),
+		"group_ratio":             groupRatio,
+		"membership_group_quotes": membershipQuotes,
+		"usable_group":            usableGroup,
+		"group_display_names":     groupDisplayNames,
+		"supported_endpoint":      model.GetSupportedEndpointMap(),
+		"auto_groups":             service.GetUserAutoGroup(group),
+		"auto_group_chains":       autoGroupProfiles,
+		"pricing_version":         "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
 }
 

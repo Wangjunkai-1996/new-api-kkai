@@ -39,11 +39,12 @@ var (
 )
 
 type TaskBillingReservationRequest struct {
-	Source    string
-	Quota     int
-	TokenID   int
-	TokenKey  string
-	SkipToken bool
+	Source     string
+	Quota      int
+	TokenID    int
+	TokenKey   string
+	SkipToken  bool
+	Membership *MembershipReservationInput
 }
 
 type TaskSubmissionAttempt struct {
@@ -88,10 +89,11 @@ type TaskBillingMutation struct {
 	SubscriptionAmountUsed  int64
 	SubscriptionPlanID      int
 	SubscriptionPlanTitle   string
+	Membership              *MembershipBillingRecord
 }
 
 func ReserveTaskBilling(ctx context.Context, taskID int64, request TaskBillingReservationRequest) (*TaskBillingMutation, error) {
-	if taskID <= 0 || request.Quota < 0 || (request.Source != TaskBillingSourceWallet && request.Source != TaskBillingSourceSubscription) {
+	if taskID <= 0 || request.Quota < 0 || (request.Source != TaskBillingSourceWallet && request.Source != TaskBillingSourceSubscription && request.Source != MembershipSource) {
 		return nil, ErrTaskBillingInvalidRequest
 	}
 	if ctx == nil {
@@ -99,7 +101,8 @@ func ReserveTaskBilling(ctx context.Context, taskID int64, request TaskBillingRe
 	}
 
 	mutation := &TaskBillingMutation{}
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := MembershipTransaction(ctx, func(tx *gorm.DB) error {
+		*mutation = TaskBillingMutation{}
 		task, err := lockTaskBillingRow(tx, taskID)
 		if err != nil {
 			return err
@@ -114,7 +117,18 @@ func ReserveTaskBilling(ctx context.Context, taskID int64, request TaskBillingRe
 			mutation.Task = task
 			mutation.PreviousQuota = task.Quota
 			mutation.CurrentQuota = task.Quota
+			if task.PrivateData.MembershipBillingRequestID != "" {
+				var record MembershipBillingRecord
+				if err := tx.Where("request_id = ?", task.PrivateData.MembershipBillingRequestID).First(&record).Error; err != nil {
+					return err
+				}
+				mutation.Membership = &record
+				return nil
+			}
 			return loadTaskSubscriptionSnapshot(tx, mutation)
+		}
+		if request.Source == MembershipSource {
+			return reserveTaskMembershipTx(tx, task, request, mutation)
 		}
 		effectiveQuota := request.Quota
 		if request.Source == TaskBillingSourceSubscription && effectiveQuota <= 0 {
@@ -162,6 +176,7 @@ func ReserveTaskBilling(ctx context.Context, taskID int64, request TaskBillingRe
 	if mutation.Task != nil {
 		reconcileTaskBillingCacheAfterCommit(ctx, mutation.Task.ID)
 	}
+	MembershipBillingAfterCommit(mutation.Membership)
 	return mutation, nil
 }
 
@@ -282,6 +297,9 @@ func MarkTaskSubmissionAmbiguous(ctx context.Context, taskID int64, ambiguity Ta
 		if err := tx.Save(task).Error; err != nil {
 			return err
 		}
+		if err := markTaskMembershipBillingUncertainTx(tx, task, "task_submission_outcome_unknown"); err != nil {
+			return err
+		}
 		if err := enqueueTaskAccounting(tx, task); err != nil {
 			return err
 		}
@@ -350,6 +368,10 @@ func RecoverTaskSubmissionAcceptance(ctx context.Context, taskID int64, acceptan
 			return err
 		}
 		recoveredTask = task
+		if task.PrivateData.MembershipBillingRequestID != "" &&
+			(task.PrivateData.BillingState == TaskBillingStateCompleted || task.PrivateData.BillingState == TaskBillingStateRefunded) {
+			return nil
+		}
 		if task.PrivateData.UpstreamTaskID != "" {
 			if task.PrivateData.UpstreamTaskID != acceptance.UpstreamTaskID {
 				return ErrTaskBillingStateConflict
@@ -412,6 +434,9 @@ func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptan
 		task.PrivateData.AccountingState = TaskAccountingStatePending
 	}
 	task.PrivateData.TargetQuota = common.GetPointer(acceptance.TargetQuota)
+	if task.PrivateData.MembershipBillingRequestID != "" && acceptance.Status == TaskStatusSuccess {
+		task.PrivateData.MembershipCompletionQuota = common.GetPointer(acceptance.TargetQuota)
+	}
 	if task.PrivateData.AccountingState == TaskAccountingStatePending {
 		task.PrivateData.AccountingQuota = acceptance.TargetQuota
 	}
@@ -442,10 +467,14 @@ func AdjustTaskBillingWithAudit(ctx context.Context, taskID int64, targetQuota i
 	}
 
 	mutation := &TaskBillingMutation{}
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := MembershipTransaction(ctx, func(tx *gorm.DB) error {
+		*mutation = TaskBillingMutation{}
 		task, err := lockTaskBillingRow(tx, taskID)
 		if err != nil {
 			return err
+		}
+		if task.PrivateData.MembershipBillingRequestID != "" {
+			return settleTaskMembershipTx(tx, task, targetQuota, audit, mutation)
 		}
 		if billingContext := task.PrivateData.BillingContext; billingContext != nil && billingContext.MaxQuota != nil && targetQuota > *billingContext.MaxQuota {
 			targetQuota = *billingContext.MaxQuota
@@ -525,6 +554,7 @@ func AdjustTaskBillingWithAudit(ctx context.Context, taskID int64, targetQuota i
 	if mutation.Task != nil {
 		reconcileTaskBillingCacheAfterCommit(ctx, mutation.Task.ID)
 	}
+	MembershipBillingAfterCommit(mutation.Membership)
 	return mutation, nil
 }
 
@@ -543,7 +573,8 @@ func RefundTaskBillingWithAudit(ctx context.Context, taskID int64, audit TaskBil
 	}
 
 	mutation := &TaskBillingMutation{}
-	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := MembershipTransaction(ctx, func(tx *gorm.DB) error {
+		*mutation = TaskBillingMutation{}
 		task, err := lockTaskBillingRow(tx, taskID)
 		if err != nil {
 			return err
@@ -557,6 +588,9 @@ func RefundTaskBillingWithAudit(ctx context.Context, taskID int64, audit TaskBil
 		}
 		if !taskBillingRefundAllowed(task) {
 			return ErrTaskBillingRefundNotAllowed
+		}
+		if task.PrivateData.MembershipBillingRequestID != "" {
+			return releaseTaskMembershipTx(tx, task, mutation)
 		}
 
 		fundingDelta := -task.Quota
@@ -599,6 +633,7 @@ func RefundTaskBillingWithAudit(ctx context.Context, taskID int64, audit TaskBil
 	if mutation.Task != nil {
 		reconcileTaskBillingCacheAfterCommit(ctx, mutation.Task.ID)
 	}
+	MembershipBillingAfterCommit(mutation.Membership)
 	return mutation, nil
 }
 
@@ -616,6 +651,15 @@ func CompleteTaskBillingRecovery(ctx context.Context, taskID int64) error {
 		}
 		if task.PrivateData.BillingState == TaskBillingStateRefunded || task.PrivateData.BillingState == TaskBillingStateCompleted {
 			return nil
+		}
+		if task.PrivateData.MembershipBillingRequestID != "" {
+			var record MembershipBillingRecord
+			if err := tx.Where("request_id = ?", task.PrivateData.MembershipBillingRequestID).First(&record).Error; err != nil {
+				return err
+			}
+			if record.State == "reserved" {
+				return ErrTaskAccountingNotReady
+			}
 		}
 		task.PrivateData.BillingState = TaskBillingStateCompleted
 		return tx.Save(task).Error
@@ -637,10 +681,27 @@ func (task *Task) UpdateWithStatusPreservingBilling(from TaskSnapshot) (bool, er
 		if err != nil {
 			return err
 		}
+		if current.PrivateData.MembershipBillingRequestID != "" &&
+			(current.PrivateData.BillingState == TaskBillingStateCompleted || current.PrivateData.BillingState == TaskBillingStateRefunded) {
+			return nil
+		}
 		if !current.Snapshot().Equal(from) || !from.Allows(task.Snapshot()) {
 			return nil
 		}
+		if current.PrivateData.MembershipBillingRequestID != "" && current.Status == TaskStatusUnknown && task.Status != TaskStatusSuccess && task.Status != TaskStatusFailure {
+			task.Status, task.FailReason = current.Status, current.FailReason
+			if task.Progress == "100%" {
+				task.Progress = current.Progress
+			}
+		}
 		privateData := current.PrivateData
+		if privateData.MembershipBillingRequestID != "" && task.Status == TaskStatusSuccess && task.PrivateData.MembershipCompletionQuota != nil {
+			privateData.MembershipCompletionQuota = common.GetPointer(*task.PrivateData.MembershipCompletionQuota)
+			privateData.TargetQuota = common.GetPointer(*task.PrivateData.MembershipCompletionQuota)
+			if privateData.BillingContext != nil && task.PrivateData.BillingContext != nil {
+				privateData.BillingContext.TieredSnapshot = task.PrivateData.BillingContext.TieredSnapshot
+			}
+		}
 		privateData.ResultURL = task.PrivateData.ResultURL
 		privateData.ArchiveSource = task.PrivateData.ArchiveSource
 		privateData.PluginState = task.PrivateData.PluginState

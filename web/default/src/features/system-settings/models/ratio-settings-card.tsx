@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -29,6 +29,7 @@ import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { getMembershipAdminConfig } from '@/features/membership/api'
 import {
   buildPricingChanges,
   useModelPricing,
@@ -202,6 +203,11 @@ export function RatioSettingsCard({
   visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
+  const membershipPolicy = useQuery({
+    queryKey: ['membership-admin', 'config'],
+    queryFn: getMembershipAdminConfig,
+    enabled: visibleTabs.includes('groups'),
+  })
   const updateOption = useUpdateOption()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -584,6 +590,9 @@ export function RatioSettingsCard({
     if (tab === 'groups') {
       return (
         <GroupRatioForm
+          topupDiscountsDisabled={
+            membershipPolicy.data?.topup_discounts_disabled === true
+          }
           form={groupForm}
           onSave={saveGroupRatios}
           isSaving={updateOption.isPending}

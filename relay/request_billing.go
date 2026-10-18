@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -26,7 +27,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	}
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	meta := &types.TokenCountMeta{TokenType: types.TokenTypeTokenizer}
-	if info.Request != nil && (needSensitiveCheck || constant.CountToken) {
+	if info.Request != nil && (needSensitiveCheck || constant.CountToken || model.MembershipEnabled()) {
 		meta = info.Request.GetTokenCountMeta()
 	} else {
 		// Avoid building CombineText when only the pricing quantities are needed.
@@ -52,6 +53,9 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	}
 
 	tokens, err := service.EstimateRequestToken(c, meta, info)
+	if model.MembershipEnabled() {
+		tokens, err = service.CountRequestToken(c, meta, info)
+	}
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeCountTokenFailed)
 	}
@@ -64,6 +68,9 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	if err := service.ApplyImageStudioMaximumPreconsume(c, info, &priceData, tokens, meta); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest)
 	}
+	if err := service.PrepareMembershipBudget(c, info, &priceData, tokens, meta); err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 	if err := service.EnforceImageStudioPreconsumeLimit(c, priceData.QuotaToPreConsume); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeQuoteStale, http.StatusConflict, types.ErrOptionWithSkipRetry())
 	}
@@ -72,7 +79,10 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
 		}
 	}
-	if priceData.FreeModel {
+	if info.MembershipRealtime {
+		return nil // Each response.create obtains its own complete authorization.
+	}
+	if priceData.FreeModel && info.MembershipPricing == nil {
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", info.OriginModelName))
 		if service.ImageStudioGenerationID(c) > 0 {
 			return service.PreConsumeBilling(c, 0, info)
@@ -88,7 +98,24 @@ func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, api
 	if apiErr == nil {
 		return nil
 	}
+	if info.MembershipRealtime {
+		return apiErr // Each realtime response owns its own authorization.
+	}
 	apiErr = service.NormalizeViolationFeeError(apiErr)
+	if info.MembershipBillingRequestID != "" && service.FinalizeMembershipPartialUsage(c, info, apiErr) {
+		return apiErr
+	}
+	if info.MembershipBillingRequestID != "" && info.MembershipOutcomeUnknown {
+		types.ErrOptionWithSkipRetry()(apiErr)
+		if err := model.MarkMembershipBillingUncertain(info.MembershipBillingRequestID, info.ChannelId, "upstream_outcome_unknown"); err != nil {
+			logger.LogError(c, "failed to flag membership billing for review: "+err.Error())
+		}
+		logger.LogWarn(c, "membership billing outcome unknown; reservation retained for review: "+info.MembershipBillingRequestID)
+		return apiErr
+	}
+	if info.MembershipBillingRequestID != "" && service.ChargeViolationFeeIfNeeded(c, info, apiErr) {
+		return apiErr
+	}
 	if info.Billing != nil {
 		info.Billing.Refund(c)
 	}

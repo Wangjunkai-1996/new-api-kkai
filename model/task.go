@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/types"
 )
 
 type TaskStatus string
@@ -134,21 +135,26 @@ type TaskPrivateData struct {
 	PollFailures        int                    `json:"poll_failures,omitempty"`
 	ResultDiscarded     bool                   `json:"result_discarded,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
-	BillingSource      string                 `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
-	SubscriptionId     int                    `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
-	TokenId            int                    `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
-	NodeName           string                 `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
-	BillingContext     *TaskBillingContext    `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
-	BillingState       string                 `json:"billing_state,omitempty"`
-	TokenQuota         int                    `json:"token_quota,omitempty"`
-	TokenBilling       bool                   `json:"token_billing,omitempty"`
-	RecoveryAt         int64                  `json:"billing_recovery_at,omitempty"`
-	TargetQuota        *int                   `json:"billing_target_quota,omitempty"`
-	BillingRevision    int64                  `json:"billing_revision,omitempty"`
-	AccountingState    string                 `json:"accounting_state,omitempty"`
-	AccountingQuota    int                    `json:"accounting_quota,omitempty"`
-	AccountingRequired bool                   `json:"accounting_required,omitempty"`
-	AccountingContext  *TaskAccountingContext `json:"accounting_context,omitempty"`
+	BillingSource              string                   `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
+	SubscriptionId             int                      `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
+	TokenId                    int                      `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
+	NodeName                   string                   `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
+	BillingContext             *TaskBillingContext      `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	BillingState               string                   `json:"billing_state,omitempty"`
+	TokenQuota                 int                      `json:"token_quota,omitempty"`
+	TokenBilling               bool                     `json:"token_billing,omitempty"`
+	RecoveryAt                 int64                    `json:"billing_recovery_at,omitempty"`
+	TargetQuota                *int                     `json:"billing_target_quota,omitempty"`
+	BillingRevision            int64                    `json:"billing_revision,omitempty"`
+	AccountingState            string                   `json:"accounting_state,omitempty"`
+	AccountingQuota            int                      `json:"accounting_quota,omitempty"`
+	AccountingRequired         bool                     `json:"accounting_required,omitempty"`
+	AccountingContext          *TaskAccountingContext   `json:"accounting_context,omitempty"`
+	MembershipBillingRequestID string                   `json:"membership_billing_request_id,omitempty"`
+	MembershipPricing          *types.MembershipPricing `json:"membership_pricing,omitempty"`
+	MembershipAssessedQuota    int64                    `json:"membership_assessed_quota,omitempty"`
+	MembershipExcessQuota      int64                    `json:"membership_excess_quota,omitempty"`
+	MembershipCompletionQuota  *int                     `json:"membership_completion_quota,omitempty"`
 }
 
 func (t *Task) ResultRetrievable() bool {

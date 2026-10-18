@@ -49,6 +49,15 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil {
+		if info.MembershipBillingRequestID != "" && responsesResponse.Usage != nil {
+			info.MembershipHasReportedUsage = true
+			usage := &dto.Usage{}
+			service.ApplyResponsesUsage(usage, responsesResponse.Usage)
+			var tools responsesToolUsage
+			tools.observeResponse(&responsesResponse)
+			tools.commit(info, false)
+			return usage, service.NewKKAIStructuredRelayError(oaiError)
+		}
 		return nil, service.NewKKAIStructuredRelayError(oaiError)
 	}
 	if responsesResponse.IncompleteDetails != nil &&
@@ -69,6 +78,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// compute usage
 	usage := &dto.Usage{}
+	if info.MembershipBillingRequestID != "" && responsesResponse.Usage == nil && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
+		info.MembershipOutcomeUnknown = true
+	}
 	service.ApplyResponsesUsage(usage, responsesResponse.Usage)
 	var toolUsage responsesToolUsage
 	toolUsage.observeResponse(&responsesResponse)
@@ -124,6 +136,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		accumulator.Observe(&streamResponse)
+		if info.MembershipBillingRequestID != "" && accumulator.HasReportedUsage() {
+			toolUsage.observeResponse(streamResponse.Response)
+		}
 		if streamResponse.Response != nil {
 			service.ApplyResponsesUsage(&reportedUsage, streamResponse.Response.Usage)
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
@@ -190,6 +205,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
 	if streamErr != nil {
+		if info.MembershipBillingRequestID != "" && accumulator.HasReportedUsage() {
+			usage := accumulator.Finish()
+			toolUsage.commit(info, false)
+			committedTools = true
+			return usage, streamErr
+		}
 		return nil, streamErr
 	}
 	usage := accumulator.Finish()

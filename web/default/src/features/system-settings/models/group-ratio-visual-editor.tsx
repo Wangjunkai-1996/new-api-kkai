@@ -81,6 +81,7 @@ import {
 } from './group-ratio-serialization'
 
 type GroupRatioVisualEditorProps = {
+  topupDiscountsDisabled?: boolean
   groupRatio: string
   topupGroupRatio: string
   userUsableGroups: string
@@ -205,6 +206,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   autoGroupProfiles,
   groupSpecialUsableGroup,
   onChange,
+  topupDiscountsDisabled,
 }: GroupRatioVisualEditorProps) {
   const { t } = useTranslation()
   const [detailGroup, setDetailGroup] = useState<string | null>(null)
@@ -350,6 +352,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
   return (
     <div className='space-y-4'>
       <GroupPricingTable
+        topupDiscountsDisabled={topupDiscountsDisabled}
         groupRatio={groupRatio}
         userUsableGroups={userUsableGroups}
         topupGroupRatio={topupGroupRatio}
@@ -566,6 +569,7 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
 })
 
 type GroupPricingTableProps = {
+  topupDiscountsDisabled?: boolean
   groupRatio: string
   userUsableGroups: string
   topupGroupRatio: string
@@ -581,6 +585,7 @@ function GroupPricingTable({
   groupDisplayNames,
   onChange,
   onShowDetail,
+  topupDiscountsDisabled,
 }: GroupPricingTableProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<GroupPricingRow[]>(() =>
@@ -790,6 +795,7 @@ function GroupPricingTable({
                     min={0}
                     step={0.1}
                     value={row.topupRatio}
+                    disabled={topupDiscountsDisabled}
                     placeholder={t('Not set')}
                     onChange={(event) =>
                       updateRow(row._id, 'topupRatio', event.target.value)

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -98,6 +99,12 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		return
 	}
 
+	withoutBonus, err := creemProductWithoutBonus(*selectedProduct)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	selectedProduct = &withoutBonus
 	id := c.GetInt("id")
 	if rejectInvalidCreditedQuota(c, id, decimal.NewFromInt(selectedProduct.Quota)) {
 		return
@@ -236,7 +243,7 @@ type CreemWebhookEvent struct {
 }
 
 func CreemWebhook(c *gin.Context) {
-	if !isCreemWebhookEnabled() {
+	if !isCreemWebhookEnabled() && !membershipCallbackConfigured(model.PaymentProviderCreem) {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
 		c.AbortWithStatus(http.StatusForbidden)
 		return
@@ -308,6 +315,15 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		return
 	}
 
+	if strings.HasPrefix(referenceId, "MEMBER-") {
+		if err := completeMembershipCreem(event); err != nil {
+			logger.LogError(c.Request.Context(), "membership Creem callback failed: "+err.Error())
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusOK)
+		return
+	}
 	// Try complete subscription order first
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)

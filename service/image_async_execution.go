@@ -81,7 +81,9 @@ func MarkImageExecutionUnknown(ctx context.Context, db *gorm.DB, generationID in
 // durable accounting intent and exactly its ready output set are required to pay.
 func CompleteImageExecution(ctx context.Context, db *gorm.DB, generationID int64, fence model.ImageExecutionFence, failureCode string) error {
 	var completed model.KKAIImageGeneration
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var mutation *model.ImageGenerationBillingMutation
+	err := model.MembershipTransactionWithDB(ctx, db, func(tx *gorm.DB) error {
+		mutation = nil
 		if err := model.LockImageStudioCapacityTx(tx); err != nil {
 			return err
 		}
@@ -111,7 +113,8 @@ func CompleteImageExecution(ctx context.Context, db *gorm.DB, generationID int64
 		status, stage, code, message := model.ImageGenerationStatusSucceeded, "", "", ""
 		quota, count := 0, 0
 		if canSettle {
-			if _, err := model.SettleImageGenerationBillingTx(tx, generationID, accounting.TargetQuota, generation.Status); err != nil {
+			mutation, err = model.SettleImageGenerationBillingTx(tx, generationID, accounting.TargetQuota, generation.Status)
+			if err != nil {
 				return err
 			}
 			quota, count = accounting.TargetQuota, int(ready)
@@ -125,7 +128,8 @@ func CompleteImageExecution(ctx context.Context, db *gorm.DB, generationID int64
 			if err := DiscardSubmittingImageGenerationAssets(ctx, tx, generationID); err != nil {
 				return err
 			}
-			if _, err := model.RefundImageGenerationBillingTx(tx, generationID, generation.Status); err != nil {
+			mutation, err = model.RefundImageGenerationBillingTx(tx, generationID, generation.Status)
+			if err != nil {
 				return err
 			}
 			status, stage, code, message = model.ImageGenerationStatusFailed, "prepare", failureCode, "image request could not be completed"
@@ -144,6 +148,7 @@ func CompleteImageExecution(ctx context.Context, db *gorm.DB, generationID int64
 		return tx.Where("generation_id = ?", generationID).Delete(&model.KKAIImageGenerationReference{}).Error
 	})
 	if err == nil {
+		model.MembershipBillingAfterCommit(mutation.MembershipRecord)
 		logger.LogInfo(ctx, fmt.Sprintf("event=image_async_completed generation_id=%d request_id=%q elapsed_ms=%d output_count=%d status=%s code=%s", completed.ID, completed.RequestID, time.Since(time.Unix(completed.CreatedAt, 0)).Milliseconds(), completed.SucceededCount, completed.Status, completed.ErrorCode))
 	}
 	return err

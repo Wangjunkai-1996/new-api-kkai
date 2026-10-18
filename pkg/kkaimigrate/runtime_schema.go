@@ -71,6 +71,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 	if currentVersion >= ImageAsyncSchemaVersion {
 		requirements = append(requirements, imageAsyncRuntimeSchemaRequirements...)
 	}
+	if currentVersion >= MembershipSchemaVersion {
+		requirements = append(requirements, membershipRuntimeSchemaRequirements...)
+	}
 	for _, requirement := range requirements {
 		if !db.Migrator().HasTable(requirement.Table) {
 			return fmt.Errorf("%w: missing runtime table %s", ErrSchemaNotReady, requirement.Table)
@@ -115,9 +118,22 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		}
 	}
 	if currentVersion >= ImageAsyncSchemaVersion {
-		return validateRuntimeUniqueIndex(db, dialect, runtimeIndexRequirement{
+		if err := validateRuntimeUniqueIndex(db, dialect, runtimeIndexRequirement{
 			Table: "kkai_image_reference_uploads", Name: "ux_image_reference_upload_key", Columns: []string{"owner_user_id", "upload_key"},
-		})
+		}); err != nil {
+			return err
+		}
+	}
+	if currentVersion >= MembershipSchemaVersion {
+		for _, index := range []runtimeIndexRequirement{
+			{Table: "kkai_membership_orders", Name: "ux_membership_orders_trade", Columns: []string{"trade_no"}},
+			{Table: "kkai_membership_orders", Name: "ux_membership_orders_receipt", Columns: []string{"receipt_key"}},
+			{Table: "kkai_membership_payments", Name: "ux_membership_payments_receipt", Columns: []string{"receipt_key"}},
+		} {
+			if err := validateRuntimeUniqueIndex(db, dialect, index); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

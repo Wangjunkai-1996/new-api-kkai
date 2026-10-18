@@ -52,7 +52,7 @@ func QuoteAsyncImageStudioGeneration(c *gin.Context) {
 		respondImageStudioError(c, service.ErrImageModelBillingUnsupported)
 		return
 	}
-	quote, err := service.NewImageStudioQuote(normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot)
+	quote, err := service.NewImageStudioQuote(normalized, price.Quota, price.OtherRatios, price.ImagePricingSnapshot, price.MembershipPricing)
 	if err != nil {
 		respondImageStudioError(c, err)
 		return

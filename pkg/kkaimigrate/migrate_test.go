@@ -55,7 +55,7 @@ func TestApplyCreatesVersionedSchemaAndIsIdempotent(t *testing.T) {
 	require.EqualValues(t, RequiredRuntimeVersion, count)
 }
 
-func TestMaintenanceTargetsExpandSequentiallyThroughV10(t *testing.T) {
+func TestMaintenanceTargetsExpandSequentiallyThroughV11(t *testing.T) {
 	db := newMigrationTestDB(t)
 	_, err := applyThroughVersion(context.Background(), db, Options{}, JobLeaseSchemaVersion, MaxCompatibleVersion)
 	require.NoError(t, err)
@@ -70,17 +70,23 @@ func TestMaintenanceTargetsExpandSequentiallyThroughV10(t *testing.T) {
 		{8, ApplyAuthenticationExpand},
 		{9, ApplyRC41ArchitectureExpand},
 		{10, ApplyImageAsyncExpand},
+		{11, ApplyMembershipExpand},
 	} {
 		t.Run(fmt.Sprintf("v%d", target.version), func(t *testing.T) {
 			before, err := Observe(context.Background(), db)
 			require.NoError(t, err)
 			require.Equal(t, target.version-1, before.CurrentVersion)
+			var history []AppliedMigration
+			require.NoError(t, db.Order("version").Find(&history).Error)
 			result, err := target.apply(context.Background(), db, Options{})
 			require.NoError(t, err)
 			assert.Len(t, result.Applied, int(target.version))
 			after, err := Observe(context.Background(), db)
 			require.NoError(t, err)
 			assert.Equal(t, target.version, after.CurrentVersion)
+			var preserved []AppliedMigration
+			require.NoError(t, db.Where("version < ?", target.version).Order("version").Find(&preserved).Error)
+			assert.Equal(t, history, preserved)
 		})
 	}
 	require.NoError(t, CheckRequired(context.Background(), db))
@@ -490,6 +496,11 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Version:  ImageAsyncSchemaVersion,
 			Name:     "image_studio_async_uploads",
 			Checksum: "9a5250c642640b365c75d40ebf498f8bf97818780a78ac7e1565dcbfb04f39e7",
+		},
+		{
+			Version:  MembershipSchemaVersion,
+			Name:     "subscription_membership",
+			Checksum: "33745c777334c5d9f4d4b74d91c594b25bffce49c5ac29bb93f554fa25dba7d1",
 		},
 	}, Plan())
 }

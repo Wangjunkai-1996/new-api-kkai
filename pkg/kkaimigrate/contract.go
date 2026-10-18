@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = ImageAsyncSchemaVersion
+	KnownCatalogVersion     int64 = MembershipSchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"
