@@ -53,6 +53,13 @@ export function ImageParameterFields(props: {
           render={({ field, fieldState }) => {
             const id = `image-parameter-${parameter.key}`
             const errorId = `${id}-error`
+            const unsupportedPresetSize =
+              parameter.control === 'select' &&
+              parameter.request_key === 'size' &&
+              !props.profile.specification.custom_size &&
+              typeof field.value === 'string' &&
+              field.value !== '' &&
+              !parameter.options.some((option) => option.value === field.value)
             const errorMessage = fieldState.error?.message
               ? t(String(fieldState.error.message))
               : null
@@ -91,9 +98,10 @@ export function ImageParameterFields(props: {
                       className='w-full'
                       value={
                         typeof field.value === 'string' &&
-                        parameter.options.some(
-                          (option) => option.value === field.value
-                        )
+                        (unsupportedPresetSize ||
+                          parameter.options.some(
+                            (option) => option.value === field.value
+                          ))
                           ? field.value
                           : ''
                       }
@@ -107,6 +115,14 @@ export function ImageParameterFields(props: {
                       <NativeSelectOption value=''>
                         {t('imageStudio.parameter.select')}
                       </NativeSelectOption>
+                      {unsupportedPresetSize && (
+                        <NativeSelectOption
+                          value={String(field.value)}
+                          disabled
+                        >
+                          {String(field.value)}
+                        </NativeSelectOption>
+                      )}
                       {parameter.options.map((option) => (
                         <NativeSelectOption
                           key={option.value}

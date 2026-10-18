@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -67,8 +68,11 @@ import {
 import {
   getImageOutputCount,
   getImageOutputParameter,
+  getImageSizeParameter,
   parseImageParameters,
+  validateImageParameterValue,
 } from '../image-parameters'
+import { parseImagePromptSize } from '../image-prompt-size'
 import {
   useCreateAsyncImageGeneration,
   useAsyncImageQuote,
@@ -152,6 +156,48 @@ export function ImageComposer(props: {
   const appliedSampleRef = useRef<number | undefined>(undefined)
   const selectedProfile = modelsQuery.data?.find(
     (profile) => profile.id === values.model_profile_id
+  )
+  const sizeParameter = selectedProfile
+    ? getImageSizeParameter(selectedProfile)
+    : undefined
+  const currentSize = sizeParameter
+    ? values.parameters?.[sizeParameter.key]
+    : undefined
+  const promptSize = useMemo(
+    () => parseImagePromptSize(values.prompt ?? ''),
+    [values.prompt]
+  )
+  let promptSizeError: string | undefined
+  if (promptSize.kind === 'invalid') {
+    promptSizeError = t(
+      'Enter an output size as width x height, for example: output size: 2048x1536.'
+    )
+  } else if (promptSize.kind === 'conflict') {
+    promptSizeError = t('Use one output size in the prompt.')
+  } else if (
+    promptSize.kind === 'size' &&
+    selectedProfile &&
+    (!sizeParameter ||
+      validateImageParameterValue(
+        sizeParameter,
+        promptSize.size,
+        selectedProfile.effective_max_outputs,
+        selectedProfile.specification.custom_size
+      ))
+  ) {
+    promptSizeError = t(
+      'This model does not support the output size in your prompt.'
+    )
+  }
+  const currentSizeValid = Boolean(
+    sizeParameter &&
+    currentSize &&
+    !validateImageParameterValue(
+      sizeParameter,
+      currentSize,
+      selectedProfile?.effective_max_outputs,
+      selectedProfile?.specification.custom_size
+    )
   )
   const { maxImages: maxReferenceImages, references: reference } =
     useImageEditReferences(selectedProfile, props.tokenGate.capability)
@@ -266,7 +312,9 @@ export function ImageComposer(props: {
   const quoteRequest = useMemo<
     ImageQuoteRequest | ImageEditQuoteRequest | ImageAsyncQuoteRequest | null
   >(() => {
-    if (!props.tokenGate.tokenId || !selectedProfile) return null
+    if (!props.tokenGate.tokenId || !selectedProfile || promptSizeError) {
+      return null
+    }
     const parsed = imageComposerSchema.safeParse(values)
     if (!parsed.success) return null
     const parsedParameters = parseImageParameters(
@@ -302,6 +350,7 @@ export function ImageComposer(props: {
     mode,
     outputParameterKey,
     props.tokenGate.tokenId,
+    promptSizeError,
     reference.metadata,
     selectedProfile,
     values,
@@ -357,10 +406,15 @@ export function ImageComposer(props: {
       (candidate) => candidate.id === profileId
     )
     if (!profile) return
+    const nextSizeParameter = getImageSizeParameter(profile)
+    const parameters =
+      nextSizeParameter && currentSize !== undefined
+        ? { [nextSizeParameter.key]: currentSize }
+        : undefined
     form.reset(
       buildImageComposerValues(
         profile,
-        { prompt: form.getValues('prompt') },
+        { prompt: form.getValues('prompt'), parameters },
         mode
       )
     )
@@ -696,17 +750,83 @@ export function ImageComposer(props: {
           <FormField
             control={form.control}
             name='prompt'
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem>
                 <FormLabel>{t('imageStudio.prompt')}</FormLabel>
-                <FormControl>
+                <FormControl
+                  aria-invalid={Boolean(promptSizeError || fieldState.error)}
+                >
                   <Textarea
                     {...field}
                     rows={7}
                     maxLength={8000}
                     placeholder={t('imageStudio.promptPlaceholder')}
+                    onChange={(event) => {
+                      const nextSize = parseImagePromptSize(event.target.value)
+                      const previousSize = parseImagePromptSize(field.value)
+                      field.onChange(event)
+                      if (
+                        nextSize.kind !== 'size' ||
+                        !sizeParameter ||
+                        (previousSize.kind === 'size' &&
+                          previousSize.size === nextSize.size)
+                      ) {
+                        return
+                      }
+                      form.setValue(
+                        `parameters.${sizeParameter.key}`,
+                        nextSize.size,
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      )
+                    }}
                   />
                 </FormControl>
+                <FormDescription aria-live='polite'>
+                  {promptSizeError ? (
+                    <span className='text-destructive'>{promptSizeError}</span>
+                  ) : (
+                    t(
+                      'Add "output size: 2048x1536" to apply a size automatically.'
+                    )
+                  )}
+                  {!promptSizeError &&
+                    promptSize.kind === 'size' &&
+                    currentSizeValid &&
+                    currentSize === promptSize.size && (
+                      <span className='mt-1 block'>
+                        {t('Output size from prompt: {{size}}', {
+                          size: promptSize.size.replace('x', ' × '),
+                        })}
+                      </span>
+                    )}
+                  {promptSizeError &&
+                    selectedProfile?.specification.custom_size && (
+                      <span className='mt-1 block'>
+                        {t(
+                          'Size limits: multiples of {{step}} px; each edge up to {{maxEdge}} px; {{minPixels}}–{{maxPixels}} total pixels; aspect ratio up to {{maxRatio}}:1.',
+                          {
+                            step: selectedProfile.specification.custom_size
+                              .step,
+                            maxEdge:
+                              selectedProfile.specification.custom_size
+                                .max_edge,
+                            minPixels:
+                              selectedProfile.specification.custom_size
+                                .min_pixels,
+                            maxPixels:
+                              selectedProfile.specification.custom_size
+                                .max_pixels,
+                            maxRatio:
+                              selectedProfile.specification.custom_size
+                                .max_aspect_ratio,
+                          }
+                        )}
+                      </span>
+                    )}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -727,6 +847,15 @@ export function ImageComposer(props: {
           )}
         </div>
         <div className='bg-background shrink-0 space-y-3 border-t p-4'>
+          {sizeParameter && (
+            <p className='text-muted-foreground text-sm' aria-live='polite'>
+              {currentSizeValid
+                ? t('Current output size: {{size}}', {
+                    size: String(currentSize).replace('x', ' × '),
+                  })
+                : t('Choose a valid output size.')}
+            </p>
+          )}
           <div className='flex items-center justify-between gap-3 text-sm'>
             <span className='text-muted-foreground'>
               {t('imageStudio.estimatedPrice')}

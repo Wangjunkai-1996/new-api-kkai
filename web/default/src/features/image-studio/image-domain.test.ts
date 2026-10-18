@@ -101,7 +101,7 @@ describe('image studio access', () => {
 })
 
 describe('image composer parameters', () => {
-  test('sanitizes profile defaults and stale drafts when building the form', () => {
+  test('preserves explicit sizes for validation while sanitizing stale draft fields', () => {
     assert.deepEqual(
       buildImageComposerValues(profile, {
         prompt: '  retained for editing  ',
@@ -116,7 +116,7 @@ describe('image composer parameters', () => {
         model_profile_id: profile.id,
         prompt: '  retained for editing  ',
         parameters: {
-          size: '1024x1024',
+          size: 'invalid-size',
           count: 2,
           compression: 80,
           watermark: false,

@@ -23,9 +23,19 @@ import type {
   ImageParameters,
   ImageParameterValue,
   ImageSizeConstraints,
+  ImageSelectParameter,
 } from './types'
 
 export const IMAGE_STUDIO_MAX_OUTPUTS = 4
+
+export const getImageSizeParameter = (
+  profile: ImageModelProfile
+): ImageSelectParameter | undefined => {
+  const parameter = profile.specification.parameters.find(
+    (candidate) => candidate.request_key === 'size'
+  )
+  return parameter?.control === 'select' ? parameter : undefined
+}
 
 export const getImageOutputParameter = (
   profile: ImageModelProfile

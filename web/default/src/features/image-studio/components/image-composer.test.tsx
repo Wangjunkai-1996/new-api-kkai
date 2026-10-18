@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -27,6 +27,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import type {
   CreateImageRequest,
+  ImageAsyncQuoteRequest,
   ImageComposerValues,
   ImageEditQuoteRequest,
   ImageModelProfile,
@@ -43,6 +44,8 @@ type GenerationVariables = {
 
 const mocks = vi.hoisted(() => ({
   models: [] as ImageModelProfile[],
+  generationQuoteRequest: null as ImageQuoteRequest | null,
+  asyncQuoteRequest: null as ImageAsyncQuoteRequest | null,
   editQuoteRequest: null as ImageEditQuoteRequest | null,
   generationMutation: {
     isPending: false,
@@ -87,24 +90,28 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../queries', () => ({
   useCreateAsyncImageGeneration: () => mocks.asyncMutation,
-  useAsyncImageQuote: (request: unknown) => ({
-    data:
-      request && !mocks.asyncQuoteFailed
-        ? {
-            quota: 1,
-            display_amount: '$0.01',
-            quote_token: 'async-quote',
-            expires_at: Math.floor(Date.now() / 1000) + 3600,
-          }
-        : undefined,
-    isFetching: false,
-    isError: Boolean(request) && mocks.asyncQuoteFailed,
-    refetch: vi.fn(),
-  }),
+  useAsyncImageQuote: (request: ImageAsyncQuoteRequest | null) => {
+    mocks.asyncQuoteRequest = request
+    return {
+      data:
+        request && !mocks.asyncQuoteFailed
+          ? {
+              quota: 1,
+              display_amount: '$0.01',
+              quote_token: 'async-quote',
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+            }
+          : undefined,
+      isFetching: false,
+      isError: Boolean(request) && mocks.asyncQuoteFailed,
+      refetch: vi.fn(),
+    }
+  },
   useImageModels: () => ({ data: mocks.models, isLoading: false }),
   useCreateImageGeneration: () => mocks.generationMutation,
   useCreateImageEdit: () => mocks.editMutation,
   useImageQuote: (request: ImageQuoteRequest | null) => {
+    mocks.generationQuoteRequest = request
     const count = Number(request?.parameters.variants ?? 1)
     const quote = request
       ? {
@@ -202,6 +209,27 @@ const profile = (): ImageModelProfile => ({
   updated_at: 1,
 })
 
+const sizedProfile = (sizeKey = 'dimensions'): ImageModelProfile => {
+  const result = profile()
+  result.specification.custom_size = {
+    max_edge: 3840,
+    step: 16,
+    min_pixels: 655360,
+    max_pixels: 8294400,
+    max_aspect_ratio: 3,
+  }
+  result.specification.parameters.push({
+    key: sizeKey,
+    label: 'Output size',
+    request_key: 'size',
+    control: 'select',
+    required: true,
+    options: [{ label: 'Square', value: '1024x1024' }],
+  })
+  result.default_parameters[sizeKey] = '1024x1024'
+  return result
+}
+
 const tokenGate = {
   capability: {
     required_group: 'default',
@@ -246,6 +274,8 @@ describe('image composer', () => {
     mocks.directReferences.processing = false
     mocks.models = [profile()]
     mocks.draftState.draft = null
+    mocks.generationQuoteRequest = null
+    mocks.asyncQuoteRequest = null
     mocks.editQuoteRequest = null
     mocks.generationMutation.isPending = false
     mocks.generationMutation.variables = undefined
@@ -258,6 +288,7 @@ describe('image composer', () => {
 
   test('uses small JSON with ready reference IDs for every enabled user', async () => {
     const user = userEvent.setup()
+    mocks.models = [sizedProfile()]
     mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
     mocks.reference.files = [
       new File(['reference'], 'reference.png', { type: 'image/png' }),
@@ -277,20 +308,21 @@ describe('image composer', () => {
     render(<ImageComposer tokenGate={enabledGate} onSubmitted={onSubmitted} />)
     await user.type(
       await screen.findByLabelText('Prompt'),
-      'Edit asynchronously'
+      'Edit asynchronously; output size: 2048x1536'
     )
     await user.click(screen.getByRole('button', { name: 'Edit' }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Edit image' })).toBeEnabled()
     )
+    expect(mocks.asyncQuoteRequest?.parameters.dimensions).toBe('2048x1536')
     await user.click(screen.getByRole('button', { name: 'Edit image' }))
     await waitFor(() =>
       expect(mocks.asyncMutation.mutateAsync).toHaveBeenCalledWith({
         request: {
           token_id: 11,
           model: 'gpt-image-2',
-          prompt: 'Edit asynchronously',
-          parameters: { variants: 1 },
+          prompt: 'Edit asynchronously; output size: 2048x1536',
+          parameters: { variants: 1, dimensions: '2048x1536' },
           mode: 'edit',
           asset_ids: [31],
           quote_token: 'async-quote',
@@ -299,6 +331,281 @@ describe('image composer', () => {
       })
     )
     expect(onSubmitted).toHaveBeenCalledWith(generation)
+  })
+
+  test('applies prompt dimensions before quoting and submitting, and invalidates the previous quote immediately', async () => {
+    const user = userEvent.setup()
+    mocks.models = [sizedProfile()]
+    mocks.generationMutation.mutateAsync.mockResolvedValue({
+      id: 41,
+      status: 'submitting',
+    })
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+    const prompt = await screen.findByLabelText('Prompt')
+    const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+    fireEvent.change(prompt, { target: { value: 'A coffee shop poster' } })
+    await waitFor(() => expect(generate).toBeEnabled())
+    expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
+      '1024x1024'
+    )
+
+    fireEvent.change(prompt, {
+      target: { value: 'A coffee shop poster，输出尺寸：2048×1536' },
+    })
+
+    expect(screen.getByLabelText('Custom size')).toHaveValue('2048x1536')
+    expect(
+      screen.getByText('Output size from prompt: 2048 × 1536')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Current output size: 2048 × 1536')
+    ).toBeInTheDocument()
+    expect(generate).toBeDisabled()
+    await waitFor(() => expect(generate).toBeEnabled())
+    expect(mocks.generationQuoteRequest).toMatchObject({
+      prompt: 'A coffee shop poster，输出尺寸：2048×1536',
+      parameters: { dimensions: '2048x1536' },
+    })
+    await user.click(generate)
+    await waitFor(() => {
+      expect(mocks.generationMutation.mutateAsync).toHaveBeenCalledWith({
+        request: {
+          token_id: 11,
+          model: 'gpt-image-2',
+          prompt: 'A coffee shop poster，输出尺寸：2048×1536',
+          parameters: { variants: 1, dimensions: '2048x1536' },
+          quote_token: 'quote-1',
+        },
+        idempotencyKey: 'submission-key',
+      })
+    })
+  })
+
+  test('keeps a manual size through unrelated prompt edits and deletion, then applies a changed directive', async () => {
+    mocks.models = [sizedProfile()]
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+    const prompt = await screen.findByLabelText('Prompt')
+    const customSize = screen.getByLabelText('Custom size')
+    fireEvent.change(prompt, {
+      target: { value: 'A poster; output size: 2048x1536' },
+    })
+    expect(customSize).toHaveValue('2048x1536')
+
+    fireEvent.change(customSize, { target: { value: '1536x2048' } })
+    fireEvent.change(prompt, {
+      target: { value: 'A colorful poster; output size: 2048x1536' },
+    })
+    expect(customSize).toHaveValue('1536x2048')
+    await waitFor(() => {
+      expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
+        '1536x2048'
+      )
+    })
+
+    fireEvent.change(prompt, { target: { value: 'A colorful poster' } })
+    expect(customSize).toHaveValue('1536x2048')
+    fireEvent.change(prompt, {
+      target: { value: 'A colorful poster; output size: 2048x1024' },
+    })
+    expect(customSize).toHaveValue('2048x1024')
+    await waitFor(() => {
+      expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
+        '2048x1024'
+      )
+    })
+  })
+
+  test.each([
+    {
+      text: 'A poster; output size: 2049x1536',
+      displayedSize: '2049x1536',
+    },
+    { text: 'A poster; output size: 2048x', displayedSize: '1536x2048' },
+    {
+      text: 'A poster; output size: 2048x1536; 输出尺寸：1536x2048',
+      displayedSize: '1536x2048',
+    },
+  ])(
+    'blocks an invalid or conflicting directive immediately: $text',
+    async ({ text, displayedSize }) => {
+      mocks.models = [sizedProfile()]
+      mocks.draftState.draft = {
+        model_profile_id: 7,
+        prompt: 'A poster',
+        parameters: { variants: 1, dimensions: '1536x2048' },
+      }
+      render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+      const prompt = await screen.findByLabelText('Prompt')
+      const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+      await waitFor(() => expect(generate).toBeEnabled())
+
+      fireEvent.change(prompt, { target: { value: text } })
+
+      expect(generate).toBeDisabled()
+      expect(screen.getByLabelText('Custom size')).toHaveValue(displayedSize)
+      await waitFor(() => expect(mocks.generationQuoteRequest).toBeNull())
+      expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+    }
+  )
+
+  test('restores a saved manual size without replaying the prompt directive', async () => {
+    mocks.models = [sizedProfile()]
+    mocks.draftState.draft = {
+      model_profile_id: 7,
+      prompt: 'A poster; output size: 2048x1536',
+      parameters: { variants: 1, dimensions: '1536x2048' },
+    }
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+    const prompt = await screen.findByLabelText('Prompt')
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    fireEvent.change(prompt, {
+      target: { value: 'A colorful poster; output size: 2048x1536' },
+    })
+    await waitFor(() => {
+      expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
+        '1536x2048'
+      )
+    })
+  })
+
+  test('maps the selected size across model keys and preserves an incompatible size across mode changes', async () => {
+    const user = userEvent.setup()
+    const compatible = sizedProfile('outputSize')
+    compatible.id = 8
+    compatible.model = 'compatible-image-model'
+    compatible.display_name = 'Compatible model'
+    const restricted = sizedProfile('resolution')
+    restricted.id = 9
+    restricted.model = 'restricted-image-model'
+    restricted.display_name = 'Restricted model'
+    restricted.specification.custom_size = {
+      max_edge: 1024,
+      step: 16,
+      min_pixels: 655360,
+      max_pixels: 1048576,
+      max_aspect_ratio: 3,
+    }
+    mocks.models = [sizedProfile(), compatible, restricted]
+    mocks.draftState.draft = {
+      model_profile_id: 7,
+      prompt: 'A poster; output size: 2048x1536',
+      parameters: { variants: 1, dimensions: '1536x2048' },
+    }
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+    const model = await screen.findByRole('combobox', { name: 'Model' })
+
+    await user.selectOptions(model, '8')
+
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    await waitFor(() => {
+      expect(mocks.generationQuoteRequest).toMatchObject({
+        model: compatible.model,
+        parameters: { outputSize: '1536x2048' },
+      })
+    })
+    expect(mocks.generationQuoteRequest?.parameters).not.toHaveProperty(
+      'dimensions'
+    )
+
+    await user.selectOptions(model, '9')
+
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    expect(
+      screen.getByRole('button', { name: 'Generate 1 image' })
+    ).toBeDisabled()
+    await waitFor(() => expect(mocks.generationQuoteRequest).toBeNull())
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    expect(
+      screen.getByRole('button', { name: 'Generate 1 image' })
+    ).toBeDisabled()
+
+    await user.selectOptions(model, '7')
+
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    await waitFor(() => {
+      expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
+        '1536x2048'
+      )
+    })
+  })
+
+  test.each([true, false])(
+    'keeps rejected dimensions visible and enables them after selecting a compatible model (custom sizes: %s)',
+    async (customSizes) => {
+      const user = userEvent.setup()
+      const restricted = sizedProfile()
+      restricted.specification.custom_size = {
+        max_edge: 1024,
+        step: 16,
+        min_pixels: 655360,
+        max_pixels: 1048576,
+        max_aspect_ratio: 3,
+      }
+      if (!customSizes) delete restricted.specification.custom_size
+      const compatible = sizedProfile('outputSize')
+      compatible.id = 8
+      compatible.model = 'compatible-image-model'
+      mocks.models = [restricted, compatible]
+      render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+
+      fireEvent.change(await screen.findByLabelText('Prompt'), {
+        target: { value: 'A poster; output size: 2048x1536' },
+      })
+
+      expect(
+        screen.getByLabelText(customSizes ? 'Custom size' : 'Output size')
+      ).toHaveValue('2048x1536')
+      expect(
+        screen.getByRole('button', { name: 'Generate 1 image' })
+      ).toBeDisabled()
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: 'Model' }),
+        '8'
+      )
+      expect(screen.getByLabelText('Custom size')).toHaveValue('2048x1536')
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Generate 1 image' })
+        ).toBeEnabled()
+        expect(mocks.generationQuoteRequest).toMatchObject({
+          model: compatible.model,
+          parameters: { outputSize: '2048x1536' },
+        })
+      })
+    }
+  )
+
+  test('blocks a prompt output directive after switching to a model without a size parameter', async () => {
+    const user = userEvent.setup()
+    const noSize = { ...profile(), id: 8, model: 'no-size-model' }
+    mocks.models = [sizedProfile(), noSize]
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+    fireEvent.change(await screen.findByLabelText('Prompt'), {
+      target: { value: 'A poster; output size: 2048x1536' },
+    })
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Generate 1 image' })
+      ).toBeEnabled()
+    })
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Model' }),
+      '8'
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Generate 1 image' })
+    ).toBeDisabled()
+    expect(
+      screen.getByText(
+        'This model does not support the output size in your prompt.'
+      )
+    ).toBeInTheDocument()
+    await waitFor(() => expect(mocks.generationQuoteRequest).toBeNull())
   })
 
   test('looks up an uncertain submission without sending another image request', async () => {
