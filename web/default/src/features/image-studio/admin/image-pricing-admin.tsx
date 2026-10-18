@@ -21,6 +21,7 @@ import { CircleAlert, LoaderCircle, RotateCw } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import { useForm, type Control } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import type { z } from 'zod'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -52,8 +53,10 @@ import {
   type ImagePricingPolicy,
 } from './image-pricing-policy'
 
+type ImagePricingFormInput = z.input<typeof imagePricingFormSchema>
+
 type PriceFieldProps = {
-  control: Control<ImagePricingFormValues>
+  control: Control<ImagePricingFormInput, unknown, ImagePricingFormValues>
   name: 'price1k' | 'price2k' | 'price4k'
   label: string
   disabled: boolean
@@ -89,13 +92,15 @@ function PriceField(props: PriceFieldProps) {
 function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const form = useForm<ImagePricingFormValues>({
+  const form = useForm<ImagePricingFormInput, unknown, ImagePricingFormValues>({
     resolver: zodResolver(imagePricingFormSchema),
     defaultValues: getImagePricingFormValues(props.policy),
   })
   const isDirty = form.formState.isDirty
   const isDirtyRef = useRef(isDirty)
-  isDirtyRef.current = isDirty
+  useEffect(() => {
+    isDirtyRef.current = isDirty
+  }, [isDirty])
 
   // A background refetch must not replace edits that have not been saved.
   useEffect(() => {

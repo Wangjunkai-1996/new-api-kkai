@@ -95,7 +95,7 @@ test('root enables and disables only new asynchronous admission using the existi
     },
   }))
   vi.mocked(api.put).mockImplementation(async (_url, request) => {
-    enabled = request.value === 'true'
+    enabled = (request as { value: string }).value === 'true'
     return { data: { success: true, message: '' } }
   })
   const user = userEvent.setup()
