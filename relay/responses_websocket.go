@@ -303,18 +303,20 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if apiErr != nil {
 			return apiErr
 		}
-		dispatchCtx, cancel, dispatchErr := service.PrepareMembershipDispatch(s.ctx, info)
-		if dispatchErr != nil {
-			return types.NewError(dispatchErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
-		}
-		stopDeadline := s.closeUpstreamOnDeadline(dispatchCtx)
-		defer func() {
-			if !stopDeadline() {
-				state.closeAfter = true
+		if info.MembershipBillingRequestID != "" && info.MembershipBillingRequestID == info.RequestId {
+			dispatchCtx, cancel, dispatchErr := service.PrepareMembershipDispatch(s.ctx, info)
+			if dispatchErr != nil {
+				return types.NewError(dispatchErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 			}
-			cancel()
-		}()
-		requestDone, dispatched = dispatchCtx.Done(), true
+			stopDeadline := s.closeUpstreamOnDeadline(dispatchCtx)
+			defer func() {
+				if !stopDeadline() {
+					state.closeAfter = true
+				}
+				cancel()
+			}()
+			requestDone, dispatched = dispatchCtx.Done(), true
+		}
 		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
 			info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
 			state.closeAfter = true
@@ -369,18 +371,20 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			if !s.setTarget(target) {
 				return types.NewError(context.Canceled, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 			}
-			dispatchCtx, cancel, dispatchErr := service.PrepareMembershipDispatch(s.ctx, info)
-			if dispatchErr != nil {
-				return types.NewError(dispatchErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
-			}
-			stopDeadline := s.closeUpstreamOnDeadline(dispatchCtx)
-			defer func() {
-				if !stopDeadline() {
-					state.closeAfter = true
+			if info.MembershipBillingRequestID != "" && info.MembershipBillingRequestID == info.RequestId {
+				dispatchCtx, cancel, dispatchErr := service.PrepareMembershipDispatch(s.ctx, info)
+				if dispatchErr != nil {
+					return types.NewError(dispatchErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 				}
-				cancel()
-			}()
-			requestDone, dispatched = dispatchCtx.Done(), true
+				stopDeadline := s.closeUpstreamOnDeadline(dispatchCtx)
+				defer func() {
+					if !stopDeadline() {
+						state.closeAfter = true
+					}
+					cancel()
+				}()
+				requestDone, dispatched = dispatchCtx.Done(), true
+			}
 			if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
 				info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
 				state.closeAfter = true
@@ -586,6 +590,11 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			}
 			sentControl = control.body
 		case <-requestDone:
+			if s.ctx.Err() != nil {
+				// Parent cancellation keeps the existing partial-usage settlement.
+				requestDone = nil
+				continue
+			}
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, context.DeadlineExceeded)
 			state.closeAfter = true
 			return types.NewErrorWithStatusCode(context.DeadlineExceeded, types.ErrorCodeBadResponse, http.StatusGatewayTimeout, types.ErrOptionWithSkipRetry())
