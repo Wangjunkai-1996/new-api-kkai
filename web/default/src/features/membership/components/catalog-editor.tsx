@@ -149,23 +149,7 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
                   </p>
                 )}
               </div>
-              <div className='space-y-1.5'>
-                <label
-                  className='text-sm'
-                  htmlFor={`tier-id-${field.fieldKey}`}
-                >
-                  {t('Tier identifier')}
-                </label>
-                <Input
-                  id={`tier-id-${field.fieldKey}`}
-                  {...form.register(`tiers.${index}.id`)}
-                  readOnly={existing}
-                  aria-invalid={!!error?.id}
-                />
-                {error?.id && (
-                  <p className='text-destructive text-xs'>{error.id.message}</p>
-                )}
-              </div>
+              <input type='hidden' {...form.register(`tiers.${index}.id`)} />
               <div className='grid grid-cols-2 gap-3'>
                 <div className='space-y-1.5'>
                   <label
@@ -294,32 +278,37 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
                   </p>
                 )}
               </div>
-              <div className='space-y-1.5'>
-                <label
-                  className='text-sm'
-                  htmlFor={`tier-creem-${field.fieldKey}`}
-                >
-                  {t('Creem one-time product ID')}
-                </label>
-                <Input
-                  id={`tier-creem-${field.fieldKey}`}
-                  {...form.register(`tiers.${index}.payment_products.creem`)}
-                />
-              </div>
-              <div className='space-y-1.5'>
-                <label
-                  className='text-sm'
-                  htmlFor={`tier-pancake-${field.fieldKey}`}
-                >
-                  {t('Pancake one-time product ID')}
-                </label>
-                <Input
-                  id={`tier-pancake-${field.fieldKey}`}
-                  {...form.register(
-                    `tiers.${index}.payment_products.waffo_pancake`
-                  )}
-                />
-              </div>
+              <details className='space-y-4'>
+                <summary className='text-muted-foreground cursor-pointer text-sm'>
+                  {t('Advanced Settings')} · Creem / Pancake
+                </summary>
+                <div className='space-y-1.5'>
+                  <label
+                    className='text-sm'
+                    htmlFor={`tier-creem-${field.fieldKey}`}
+                  >
+                    {t('Creem one-time product ID')}
+                  </label>
+                  <Input
+                    id={`tier-creem-${field.fieldKey}`}
+                    {...form.register(`tiers.${index}.payment_products.creem`)}
+                  />
+                </div>
+                <div className='space-y-1.5'>
+                  <label
+                    className='text-sm'
+                    htmlFor={`tier-pancake-${field.fieldKey}`}
+                  >
+                    {t('Pancake one-time product ID')}
+                  </label>
+                  <Input
+                    id={`tier-pancake-${field.fieldKey}`}
+                    {...form.register(
+                      `tiers.${index}.payment_products.waffo_pancake`
+                    )}
+                  />
+                </div>
+              </details>
               {!existing && (
                 <Button
                   variant='ghost'
@@ -338,7 +327,7 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
         variant='outline'
         onClick={() =>
           tierFields.append({
-            id: '',
+            id: crypto.randomUUID(),
             name: '',
             rank: Math.max(0, ...catalog.tiers.map((tier) => tier.rank)) + 1,
             style: 'gold',

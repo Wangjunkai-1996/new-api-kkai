@@ -312,10 +312,13 @@ describe('membership publication validation', () => {
       screen.getByRole('textbox', { name: 'Plan Title' }),
       'Gold'
     )
-    await userEvent.type(
-      screen.getByRole('textbox', { name: 'Tier identifier' }),
-      'gold'
-    )
+    expect(
+      screen.queryByRole('textbox', { name: 'Tier identifier' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Creem one-time product ID')).not.toBeVisible()
+    expect(
+      screen.getByLabelText('Pancake one-time product ID')
+    ).not.toBeVisible()
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Price' }), {
       target: { value: '600' },
     })
@@ -360,10 +363,6 @@ describe('membership publication validation', () => {
       screen.getAllByRole('textbox', { name: 'Plan Title' })[1],
       'Diamond'
     )
-    await userEvent.type(
-      screen.getAllByRole('textbox', { name: 'Tier identifier' })[1],
-      'diamond'
-    )
     fireEvent.change(screen.getAllByRole('spinbutton', { name: 'Price' })[1], {
       target: { value: '2000' },
     })
@@ -396,7 +395,7 @@ describe('membership publication validation', () => {
         sales_enabled: false,
         tiers: [
           expect.objectContaining({
-            id: 'diamond',
+            id: expect.stringMatching(/^[a-zA-Z0-9_-]{1,64}$/),
             name: 'Diamond',
             rank: 2,
             price_minor: 200000,
@@ -406,6 +405,45 @@ describe('membership publication validation', () => {
         ],
       }),
       0
+    )
+  })
+
+  it('preserves existing identifiers and payment products when editing a tier name', async () => {
+    const existingCatalog = {
+      ...catalog,
+      tiers: [{ ...tier, payment_products: { creem: 'prod_existing' } }],
+    }
+    vi.mocked(publishMembershipCatalog).mockResolvedValue(existingCatalog)
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembershipCatalogEditor catalog={existingCatalog} />
+      </QueryClientProvider>
+    )
+    await userEvent.clear(screen.getByRole('textbox', { name: 'Plan Title' }))
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Plan Title' }),
+      'Renamed Gold'
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Publish membership configuration' })
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Confirm publication' })
+    )
+    await waitFor(() => expect(publishMembershipCatalog).toHaveBeenCalledOnce())
+    expect(publishMembershipCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tiers: [
+          expect.objectContaining({
+            id: tier.id,
+            name: 'Renamed Gold',
+            payment_products: expect.objectContaining({
+              creem: 'prod_existing',
+            }),
+          }),
+        ],
+      }),
+      catalog.release_id
     )
   })
 
