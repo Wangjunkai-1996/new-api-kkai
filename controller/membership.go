@@ -283,6 +283,10 @@ func CreateMembershipOrder(c *gin.Context) {
 func AdminGetMembershipConfig(c *gin.Context) {
 	catalog, err := model.GetMembershipCatalog()
 	if err != nil {
+		if !model.MembershipEnabled() && model.DB != nil && errors.Is(err, model.ErrMembershipSchemaNotReady) {
+			common.ApiSuccess(c, gin.H{"runtime_enabled": false, "sales_enabled": false, "topup_discounts_disabled": false, "release_id": 0, "model_limits": map[string]model.MembershipModelLimit{}, "tiers": []model.MembershipTier{}, "groups": []model.MembershipGroup{}})
+			return
+		}
 		membershipAPIError(c, err)
 		return
 	}

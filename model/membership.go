@@ -317,6 +317,11 @@ func CheckMembershipSchema() error {
 	}
 	for _, table := range MembershipModels() {
 		if !DB.Migrator().HasTable(table) {
+			// HasTable discards query errors; distinguish an absent schema from
+			// a failed database connection before reporting it as unprepared.
+			if _, err := DB.Migrator().GetTables(); err != nil {
+				return err
+			}
 			return ErrMembershipSchemaNotReady
 		}
 	}
