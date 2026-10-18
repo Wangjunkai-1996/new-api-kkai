@@ -58,7 +58,7 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
   const catalog = {
     ...useWatch({ control: form.control }),
     ...form.getValues(),
-  }
+  } as MembershipCatalog
   const publish = useMutation({
     mutationFn: (next: MembershipCatalog) =>
       publishMembershipCatalog(next, props.catalog.release_id),
