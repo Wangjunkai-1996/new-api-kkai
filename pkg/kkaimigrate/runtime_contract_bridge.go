@@ -2,12 +2,12 @@
 
 package kkaimigrate
 
-// The image async expand leaves the v9 application models unchanged. New image
-// workflows stay disabled until the v10 sidecar tables have been verified.
+// Membership adds companion tables without changing the v10 application schema.
+// The bridge accepts either version but never implicitly applies the v11 expand.
 const (
-	RuntimeMinVersion      int64 = RC41ArchitectureSchemaVersion
-	RuntimeMaxVersion      int64 = ImageAsyncSchemaVersion
-	MigrationTargetVersion int64 = RC41ArchitectureSchemaVersion
+	RuntimeMinVersion      int64 = ImageAsyncSchemaVersion
+	RuntimeMaxVersion      int64 = MembershipSchemaVersion
+	MigrationTargetVersion int64 = ImageAsyncSchemaVersion
 
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion

@@ -81,15 +81,15 @@ func TestMaintenanceTargetsExpandSequentiallyThroughV11(t *testing.T) {
 			result, err := target.apply(context.Background(), db, Options{})
 			require.NoError(t, err)
 			assert.Len(t, result.Applied, int(target.version))
-			after, err := Observe(context.Background(), db)
-			require.NoError(t, err)
-			assert.Equal(t, target.version, after.CurrentVersion)
+			require.NoError(t, checkThroughVersion(
+				context.Background(), db, target.version, target.version, KnownCatalogVersion,
+			))
 			var preserved []AppliedMigration
 			require.NoError(t, db.Where("version < ?", target.version).Order("version").Find(&preserved).Error)
 			assert.Equal(t, history, preserved)
 		})
 	}
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, CheckMembershipSchema(context.Background(), db))
 }
 
 func TestApplyDryRunDoesNotChangeSchema(t *testing.T) {

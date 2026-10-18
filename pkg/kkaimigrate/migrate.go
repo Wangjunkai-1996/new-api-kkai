@@ -128,8 +128,8 @@ func CheckImageAsyncSchema(ctx context.Context, db *gorm.DB) error {
 	return checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, KnownCatalogVersion)
 }
 
-// ApplyMembershipExpand is an explicit operator migration. Normal startup and
-// normal Apply retain the schema 9 target; operators must first apply schema 10.
+// ApplyMembershipExpand is an explicit operator migration. The bridge's normal
+// Apply retains the schema 10 target; operators must explicitly request schema 11.
 func ApplyMembershipExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if db == nil {
 		return nil, ErrSchemaNotReady

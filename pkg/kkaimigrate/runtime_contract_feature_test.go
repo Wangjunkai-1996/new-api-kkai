@@ -36,4 +36,8 @@ func TestFeatureRuntimeRequiresImageAsyncSchema(t *testing.T) {
 	_, err = ApplyImageAsyncExpand(ctx, db, Options{})
 	require.NoError(t, err)
 	assert.NoError(t, CheckRequired(ctx, db))
+
+	_, err = ApplyMembershipExpand(ctx, db, Options{})
+	require.NoError(t, err)
+	assert.ErrorIs(t, CheckRequired(ctx, db), ErrFutureMigration)
 }
