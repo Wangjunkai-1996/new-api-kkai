@@ -25,7 +25,7 @@ func TestMembershipRealDatabaseTransactions(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			db := newImageAsyncDatabaseFixture(t, dialect)
 			ctx := context.Background()
-			_, err := Apply(ctx, db, Options{})
+			_, err := applyThroughVersion(ctx, db, Options{}, ImageAsyncSchemaVersion, KnownCatalogVersion)
 			require.NoError(t, err)
 			_, err = ApplyImageAsyncExpand(ctx, db, Options{})
 			require.NoError(t, err)

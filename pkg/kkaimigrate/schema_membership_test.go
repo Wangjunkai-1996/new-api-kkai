@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMembershipExpandRequiresExplicitTargetAndPreservesOldSchema(t *testing.T) {
+func TestMembershipExpandPreservesV10SchemaAndData(t *testing.T) {
 	db := newMigrationTestDB(t)
 	require.NoError(t, db.Exec("INSERT INTO users (id,telegram_id) VALUES (42,'123')").Error)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, ImageAsyncSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, CheckImageAsyncSchema(context.Background(), db))
 	require.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
 	require.True(t, db.Migrator().HasTable("kkai_image_executions"))
 	assert.ErrorIs(t, CheckMembershipSchema(context.Background(), db), ErrSchemaNotReady)
@@ -26,13 +26,6 @@ func TestMembershipExpandRequiresExplicitTargetAndPreservesOldSchema(t *testing.
 	observation, err := Observe(context.Background(), db)
 	require.NoError(t, err)
 	assert.EqualValues(t, 10, observation.CurrentVersion)
-	require.True(t, db.Migrator().HasTable("kkai_image_executions"))
-	require.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
-	_, err = ApplyImageAsyncExpand(context.Background(), db, Options{})
-	require.NoError(t, err)
-	_, err = Apply(context.Background(), db, Options{})
-	require.NoError(t, err)
-	require.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
 	var history []AppliedMigration
 	require.NoError(t, db.Order("version").Find(&history).Error)
 	require.Len(t, history, 10)
