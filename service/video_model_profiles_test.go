@@ -74,7 +74,7 @@ func TestResolveVideoModelProfilePrefersPersistedVideoReferenceProfile(t *testin
 	require.ErrorIs(t, err, ErrVideoModelProfileNotFound)
 }
 
-func TestCreateVideoModelProfileRequiresAbilityAndMapsDuplicate(t *testing.T) {
+func TestCreateVideoModelProfileRequiresAbilityAllowsEnableWithoutSampleAndMapsDuplicate(t *testing.T) {
 	db := newVideoModelProfileTestDB(t)
 	input := VideoModelProfileInput{
 		Model: "candidate-model", DisplayName: "Candidate", Specification: VideoModelSpec{
@@ -93,9 +93,11 @@ func TestCreateVideoModelProfileRequiresAbilityAndMapsDuplicate(t *testing.T) {
 	require.ErrorIs(t, err, ErrVideoModelAbilityUnavailable)
 	require.NoError(t, db.Model(&ability).Update("enabled", true).Error)
 
+	input.Enabled = true
 	created, err := CreateVideoModelProfile(context.Background(), db, input)
 	require.NoError(t, err)
 	require.Equal(t, input.Model, created.Model)
+	require.True(t, created.Enabled)
 	require.NotNil(t, created.HasPublishedSample)
 	require.False(t, *created.HasPublishedSample)
 	_, err = CreateVideoModelProfile(context.Background(), db, input)

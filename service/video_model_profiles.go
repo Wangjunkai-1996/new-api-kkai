@@ -206,14 +206,11 @@ func CreateVideoModelProfile(ctx context.Context, db *gorm.DB, input VideoModelP
 	if duplicateCount > 0 {
 		return nil, ErrVideoModelProfileDuplicate
 	}
-	if normalized.Enabled {
-		return nil, ErrVideoModelNeedsSample
-	}
 	now := time.Now().Unix()
 	profile := model.KKAIVideoModelProfile{
 		Model: normalized.Model, DisplayName: normalized.DisplayName, Description: normalized.Description,
 		ProviderLabel: normalized.ProviderLabel, SpecificationVersion: normalized.Specification.Version,
-		Specification: specificationJSON, DefaultParameters: defaultsJSON, Enabled: false,
+		Specification: specificationJSON, DefaultParameters: defaultsJSON, Enabled: normalized.Enabled,
 		SortOrder: normalized.SortOrder, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := db.WithContext(ctx).Create(&profile).Error; err != nil {
@@ -262,17 +259,6 @@ func UpdateVideoModelProfile(ctx context.Context, db *gorm.DB, id int64, input V
 		}
 		if err := validatePublishedSamplesAgainstSpec(tx, id, previousSpecification, normalized.Specification); err != nil {
 			return err
-		}
-		if normalized.Enabled {
-			var published int64
-			if err := tx.Model(&model.KKAIVideoSample{}).
-				Where("model_profile_id = ? AND status = ?", id, model.VideoSampleStatusPublished).
-				Count(&published).Error; err != nil {
-				return err
-			}
-			if published == 0 {
-				return ErrVideoModelNeedsSample
-			}
 		}
 		updates := map[string]any{
 			"model": normalized.Model, "display_name": normalized.DisplayName, "description": normalized.Description,
