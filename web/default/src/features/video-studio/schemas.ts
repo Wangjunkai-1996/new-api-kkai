@@ -960,11 +960,6 @@ export const filterVideoModelCandidates = (
     .sort((left, right) => left.localeCompare(right))
 }
 
-export const canToggleVideoModelEnabled = (
-  profile?: Pick<VideoModelProfile, 'enabled' | 'has_published_sample'> | null
-): boolean =>
-  Boolean(profile && (profile.enabled || profile.has_published_sample))
-
 const parameterControlFromForm = (
   parameter: VideoModelParameterFormValues
 ): VideoParameterControl => {
@@ -1119,7 +1114,7 @@ export const parseVideoModelProfileForm = (
     display_name: values.display_name,
     description: values.description ?? '',
     provider_label: values.provider_label ?? '',
-    enabled: current ? values.enabled : false,
+    enabled: values.enabled,
     sort_order: values.sort_order,
     specification: videoModelSpecSchema.parse({
       version,

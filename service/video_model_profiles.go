@@ -21,7 +21,6 @@ var (
 	ErrVideoModelProfileDuplicate      = errors.New("video model profile already exists")
 	ErrVideoModelProfileModelImmutable = errors.New("video model profile model cannot be changed")
 	ErrVideoModelAbilityUnavailable    = errors.New("video model has no enabled Seedance ability")
-	ErrVideoModelNeedsSample           = errors.New("an enabled video model needs at least one published sample")
 	videoModelNamePattern              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,190}$`)
 )
 

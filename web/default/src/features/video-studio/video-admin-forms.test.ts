@@ -22,7 +22,6 @@ import { describe, test } from 'vitest'
 
 import {
   buildVideoSampleProfileState,
-  canToggleVideoModelEnabled,
   createVideoModelProfileFormValues,
   createVideoSampleFormValues,
   filterVideoModelCandidates,
@@ -682,32 +681,14 @@ describe('video model admin form', () => {
     )
   })
 
-  test('forces a newly created profile to remain disabled', () => {
+  test('preserves the enabled state when creating a profile', () => {
     const values = createVideoModelProfileFormValues(
       undefined,
       'sd_2.0_special_1080p'
     )
     values.enabled = true
 
-    assert.equal(parseVideoModelProfileForm(values).enabled, false)
-  })
-
-  test('only enables the model switch after a sample is published', () => {
-    assert.equal(
-      canToggleVideoModelEnabled({
-        enabled: false,
-        has_published_sample: false,
-      }),
-      false
-    )
-    assert.equal(
-      canToggleVideoModelEnabled({
-        enabled: false,
-        has_published_sample: true,
-      }),
-      true
-    )
-    assert.equal(canToggleVideoModelEnabled({ enabled: true }), true)
+    assert.equal(parseVideoModelProfileForm(values).enabled, true)
   })
 })
 

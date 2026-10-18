@@ -57,7 +57,6 @@ import {
   useSaveAdminVideoModel,
 } from '../queries'
 import {
-  canToggleVideoModelEnabled,
   createVideoModelProfileFormValues,
   filterVideoModelCandidates,
   getVideoModelCandidateLabel,
@@ -87,6 +86,7 @@ export function VideoModelAdmin() {
     resolver: zodResolver(videoModelProfileFormSchema),
     defaultValues: createVideoModelProfileFormValues(),
   })
+  // oxlint-disable-next-line react/incompatible-library -- React Hook Form exposes mutable form state by design.
   const modelName = form.watch('model')
   const candidatePreset = getVideoModelPreset(modelName)
   const candidateQueriesReady =
@@ -107,11 +107,6 @@ export function VideoModelAdmin() {
   const candidateAvailable =
     candidateQueriesReady && candidates.includes(modelName)
   const canSave = selected ? Boolean(candidatePreset) : candidateAvailable
-  const selectedModelState = selected
-    ? (modelsQuery.data?.find((model) => model.id === selected.id) ?? selected)
-    : null
-  const hasPublishedSample = selectedModelState?.has_published_sample === true
-  const canToggleEnabled = canToggleVideoModelEnabled(selectedModelState)
 
   useEffect(() => {
     form.reset(createVideoModelProfileFormValues(selected ?? undefined))
@@ -143,12 +138,6 @@ export function VideoModelAdmin() {
     }
     try {
       const parsed = parseVideoModelProfileForm(values, selected ?? undefined)
-      if (parsed.enabled && !hasPublishedSample) {
-        form.setError('root', {
-          message: t('videoStudio.admin.enableRequiresPublishedSample'),
-        })
-        return
-      }
       const saved = await saveMutation.mutateAsync({
         id: selected?.id,
         values: parsed,
@@ -160,12 +149,10 @@ export function VideoModelAdmin() {
         ? error.response?.data
         : undefined
       const message =
-        responseError?.code === 'video_model_needs_sample'
-          ? t('videoStudio.admin.enableRequiresPublishedSample')
-          : responseError?.message ||
-            (error instanceof Error
-              ? error.message
-              : t('videoStudio.admin.saveFailed'))
+        responseError?.message ||
+        (error instanceof Error
+          ? error.message
+          : t('videoStudio.admin.saveFailed'))
       form.setError('root', { message })
     }
   })
@@ -446,18 +433,11 @@ export function VideoModelAdmin() {
               <FormItem className='flex items-center justify-between gap-3 border-t pt-4'>
                 <div className='space-y-1'>
                   <FormLabel>{t('videoStudio.admin.enabled')}</FormLabel>
-                  <p className='text-muted-foreground text-xs'>
-                    {t(
-                      selected
-                        ? 'videoStudio.admin.enableRequiresPublishedSample'
-                        : 'videoStudio.admin.enableAfterCreate'
-                    )}
-                  </p>
                 </div>
                 <FormControl>
                   <Switch
                     checked={field.value}
-                    disabled={!canToggleEnabled && !field.value}
+                    disabled={!canSave}
                     onCheckedChange={field.onChange}
                   />
                 </FormControl>

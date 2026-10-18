@@ -178,7 +178,7 @@ func TestDeleteVideoSampleQueuesEveryUniqueUnusedAssetOnce(t *testing.T) {
 	}
 }
 
-func TestPublishedVideoSampleInvariantRollsBackAssetLifecycle(t *testing.T) {
+func TestUpdatingLastPublishedVideoSampleReleasesUnusedAssets(t *testing.T) {
 	db, profile, assets := seedVideoCatalogLifecycle(t)
 	created, err := CreateVideoSample(context.Background(), db, 7,
 		videoCatalogLifecycleInput(profile.ID, assets[0].ID, []int64{assets[2].ID, assets[3].ID}, model.VideoSampleStatusPublished))
@@ -186,44 +186,41 @@ func TestPublishedVideoSampleInvariantRollsBackAssetLifecycle(t *testing.T) {
 
 	_, err = UpdateVideoSample(context.Background(), db, created.ID, 7,
 		videoCatalogLifecycleInput(profile.ID, assets[1].ID, []int64{assets[4].ID, assets[5].ID}, model.VideoSampleStatusDraft))
-	require.ErrorIs(t, err, ErrVideoModelNeedsSample)
+	require.NoError(t, err)
 	var persisted model.KKAIVideoSample
 	require.NoError(t, db.First(&persisted, created.ID).Error)
-	require.Equal(t, model.VideoSampleStatusPublished, persisted.Status)
-	require.Equal(t, assets[0].ID, persisted.VideoAssetID)
+	require.Equal(t, model.VideoSampleStatusDraft, persisted.Status)
+	require.Equal(t, assets[1].ID, persisted.VideoAssetID)
 	for _, index := range []int{0, 2, 3} {
 		require.NoError(t, db.First(&assets[index], assets[index].ID).Error)
-		require.Equal(t, model.VideoAssetStateReady, assets[index].State)
-		require.Equal(t, model.VideoAssetScopeCatalog, assets[index].Scope)
+		require.Equal(t, model.VideoAssetStateDeleting, assets[index].State)
 	}
 	for _, index := range []int{1, 4, 5} {
 		require.NoError(t, db.First(&assets[index], assets[index].ID).Error)
-		require.Equal(t, model.VideoAssetScopeUser, assets[index].Scope)
+		require.Equal(t, model.VideoAssetScopeCatalog, assets[index].Scope)
 	}
 	var deleteEvents int64
 	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", VideoOutboxTopicDelete).Count(&deleteEvents).Error)
-	require.Zero(t, deleteEvents)
+	require.EqualValues(t, 3, deleteEvents)
 }
 
-func TestDeleteLastPublishedVideoSampleRollsBackAssetLifecycle(t *testing.T) {
+func TestDeleteLastPublishedVideoSampleReleasesAssets(t *testing.T) {
 	db, profile, assets := seedVideoCatalogLifecycle(t)
 	created, err := CreateVideoSample(context.Background(), db, 7,
 		videoCatalogLifecycleInput(profile.ID, assets[0].ID, []int64{assets[2].ID, assets[3].ID}, model.VideoSampleStatusPublished))
 	require.NoError(t, err)
 
-	err = DeleteVideoSample(context.Background(), db, created.ID)
-	require.ErrorIs(t, err, ErrVideoModelNeedsSample)
-	var persisted model.KKAIVideoSample
-	require.NoError(t, db.First(&persisted, created.ID).Error)
-	require.Equal(t, model.VideoSampleStatusPublished, persisted.Status)
+	require.NoError(t, DeleteVideoSample(context.Background(), db, created.ID))
+	var persisted int64
+	require.NoError(t, db.Model(&model.KKAIVideoSample{}).Where("id = ?", created.ID).Count(&persisted).Error)
+	require.Zero(t, persisted)
 	for _, index := range []int{0, 2, 3} {
 		require.NoError(t, db.First(&assets[index], assets[index].ID).Error)
-		require.Equal(t, model.VideoAssetStateReady, assets[index].State)
-		require.Equal(t, model.VideoAssetScopeCatalog, assets[index].Scope)
+		require.Equal(t, model.VideoAssetStateDeleting, assets[index].State)
 	}
 	var deleteEvents int64
 	require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("topic = ?", VideoOutboxTopicDelete).Count(&deleteEvents).Error)
-	require.Zero(t, deleteEvents)
+	require.EqualValues(t, 3, deleteEvents)
 }
 
 func TestVideoSampleRejectsDeletingAndDeletedAssets(t *testing.T) {

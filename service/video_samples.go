@@ -252,25 +252,6 @@ func UpdateVideoSample(ctx context.Context, db *gorm.DB, id int64, adminUserID i
 		if err != nil {
 			return err
 		}
-		removesPublishedSample := existing.Status == model.VideoSampleStatusPublished &&
-			(prepared.Status != model.VideoSampleStatusPublished || prepared.ModelProfileID != existing.ModelProfileID)
-		if removesPublishedSample {
-			var profile model.KKAIVideoModelProfile
-			if err := tx.First(&profile, "id = ?", existing.ModelProfileID).Error; err != nil {
-				return err
-			}
-			if profile.Enabled {
-				var remaining int64
-				if err := tx.Model(&model.KKAIVideoSample{}).Where(
-					"model_profile_id = ? AND status = ? AND id <> ?", existing.ModelProfileID, model.VideoSampleStatusPublished, id,
-				).Count(&remaining).Error; err != nil {
-					return err
-				}
-				if remaining == 0 {
-					return ErrVideoModelNeedsSample
-				}
-			}
-		}
 		now := time.Now().Unix()
 		updates := map[string]any{
 			"model_profile_id": prepared.ModelProfileID, "title": prepared.Title, "prompt": prepared.Prompt,
@@ -313,27 +294,6 @@ func DeleteVideoSample(ctx context.Context, db *gorm.DB, id int64) error {
 		}
 		if _, err := lockVideoAssetRowsForUpdate(ctx, tx, assetIDs); err != nil {
 			return err
-		}
-		if sample.Status == model.VideoSampleStatusPublished {
-			profiles, err := lockVideoModelProfileRowsForUpdate(ctx, tx, []int64{sample.ModelProfileID})
-			if err != nil {
-				return err
-			}
-			if len(profiles) != 1 {
-				return ErrVideoModelProfileNotFound
-			}
-			profile := profiles[0]
-			if profile.Enabled {
-				var remaining int64
-				if err := tx.Model(&model.KKAIVideoSample{}).Where(
-					"model_profile_id = ? AND status = ? AND id <> ?", sample.ModelProfileID, model.VideoSampleStatusPublished, id,
-				).Count(&remaining).Error; err != nil {
-					return err
-				}
-				if remaining == 0 {
-					return ErrVideoModelNeedsSample
-				}
-			}
 		}
 		if err := tx.Delete(&sample).Error; err != nil {
 			return err

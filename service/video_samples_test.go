@@ -294,16 +294,15 @@ func TestVideoSampleCreateAndUpdateMergeModeScopedProfileDefaults(t *testing.T) 
 	require.Equal(t, map[string]any{"watermark": false}, storedParameters)
 }
 
-func TestUpdateVideoSamplePreservesPublishedSampleForEnabledModel(t *testing.T) {
+func TestUpdateVideoSampleAllowsChangingLastPublishedSample(t *testing.T) {
 	tests := []struct {
 		name          string
 		sourceEnabled bool
 		moveToTarget  bool
 		addRemaining  bool
-		wantErr       bool
 	}{
-		{name: "rejects demoting the last published sample", sourceEnabled: true, wantErr: true},
-		{name: "rejects moving the last published sample", sourceEnabled: true, moveToTarget: true, wantErr: true},
+		{name: "allows demoting the last published sample", sourceEnabled: true},
+		{name: "allows moving the last published sample", sourceEnabled: true, moveToTarget: true},
 		{name: "allows demotion when another published sample remains", sourceEnabled: true, addRemaining: true},
 		{name: "allows demoting the last sample of a disabled model"},
 	}
@@ -364,14 +363,6 @@ func TestUpdateVideoSamplePreservesPublishedSampleForEnabledModel(t *testing.T) 
 				Parameters: map[string]any{}, ReferenceAssetIDs: []int64{}, VideoAssetID: asset.ID,
 				AspectRatio: sample.AspectRatio, Category: sample.Category, Status: status,
 			})
-			if tt.wantErr {
-				require.ErrorIs(t, err, ErrVideoModelNeedsSample)
-				var persisted model.KKAIVideoSample
-				require.NoError(t, db.First(&persisted, sample.ID).Error)
-				require.Equal(t, profiles[0].ID, persisted.ModelProfileID)
-				require.Equal(t, model.VideoSampleStatusPublished, persisted.Status)
-				return
-			}
 			require.NoError(t, err)
 		})
 	}
