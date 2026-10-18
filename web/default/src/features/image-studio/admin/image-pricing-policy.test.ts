@@ -72,6 +72,7 @@ describe('image pricing policy editor', () => {
 
     assert.deepEqual(values, {
       enabled: false,
+      allow_custom_size: false,
       price1k: 0.67,
       price2k: 1,
       price4k: 1.34,
@@ -82,7 +83,13 @@ describe('image pricing policy editor', () => {
     const original = parseImagePricingPolicy(rawPolicy)
     const updated = updateImagePricingPolicy(
       original,
-      { enabled: true, price1k: 0.7, price2k: 1.1, price4k: 1.5 },
+      {
+        enabled: true,
+        allow_custom_size: true,
+        price1k: 0.7,
+        price2k: 1.1,
+        price4k: 1.5,
+      },
       '2026-08-04T12:00:00.000Z'
     )
 
@@ -90,6 +97,7 @@ describe('image pricing policy editor', () => {
     assert.equal(original.models['gpt-image-2'].tiers['1k'].unit_price, 0.67)
     assert.equal(updated.version, '2026-08-04T12:00:00.000Z')
     assert.equal(updated.enabled, true)
+    assert.equal(updated.models['gpt-image-2'].allow_custom_size, true)
     assert.equal(updated.models['gpt-image-2'].tiers['1k'].unit_price, 0.7)
     assert.equal(updated.models['gpt-image-2'].tiers['2k'].unit_price, 1.1)
     assert.equal(updated.models['gpt-image-2'].tiers['4k'].unit_price, 1.5)
