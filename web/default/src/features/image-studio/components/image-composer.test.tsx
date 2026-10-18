@@ -350,7 +350,7 @@ describe('image composer', () => {
     )
 
     fireEvent.change(prompt, {
-      target: { value: 'A coffee shop poster，输出尺寸：2048×1536' },
+      target: { value: '一张2048×1536的咖啡海报' },
     })
 
     expect(screen.getByLabelText('Custom size')).toHaveValue('2048x1536')
@@ -363,7 +363,7 @@ describe('image composer', () => {
     expect(generate).toBeDisabled()
     await waitFor(() => expect(generate).toBeEnabled())
     expect(mocks.generationQuoteRequest).toMatchObject({
-      prompt: 'A coffee shop poster，输出尺寸：2048×1536',
+      prompt: '一张2048×1536的咖啡海报',
       parameters: { dimensions: '2048x1536' },
     })
     await user.click(generate)
@@ -372,7 +372,7 @@ describe('image composer', () => {
         request: {
           token_id: 11,
           model: 'gpt-image-2',
-          prompt: 'A coffee shop poster，输出尺寸：2048×1536',
+          prompt: '一张2048×1536的咖啡海报',
           parameters: { variants: 1, dimensions: '2048x1536' },
           quote_token: 'quote-1',
         },
@@ -381,19 +381,19 @@ describe('image composer', () => {
     })
   })
 
-  test('keeps a manual size through unrelated prompt edits and deletion, then applies a changed directive', async () => {
+  test('keeps a manual size through unrelated prompt edits and deletion, then applies changed dimensions', async () => {
     mocks.models = [sizedProfile()]
     render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
     const prompt = await screen.findByLabelText('Prompt')
     const customSize = screen.getByLabelText('Custom size')
     fireEvent.change(prompt, {
-      target: { value: 'A poster; output size: 2048x1536' },
+      target: { value: 'A 2048x1536 poster' },
     })
     expect(customSize).toHaveValue('2048x1536')
 
     fireEvent.change(customSize, { target: { value: '1536x2048' } })
     fireEvent.change(prompt, {
-      target: { value: 'A colorful poster; output size: 2048x1536' },
+      target: { value: 'A colorful 2048x1536 poster' },
     })
     expect(customSize).toHaveValue('1536x2048')
     await waitFor(() => {
@@ -405,7 +405,7 @@ describe('image composer', () => {
     fireEvent.change(prompt, { target: { value: 'A colorful poster' } })
     expect(customSize).toHaveValue('1536x2048')
     fireEvent.change(prompt, {
-      target: { value: 'A colorful poster; output size: 2048x1024' },
+      target: { value: 'A colorful 2048x1024 poster' },
     })
     expect(customSize).toHaveValue('2048x1024')
     await waitFor(() => {
@@ -417,16 +417,16 @@ describe('image composer', () => {
 
   test.each([
     {
-      text: 'A poster; output size: 2049x1536',
+      text: 'A 2049x1536 poster',
       displayedSize: '2049x1536',
     },
     { text: 'A poster; output size: 2048x', displayedSize: '1536x2048' },
     {
-      text: 'A poster; output size: 2048x1536; 输出尺寸：1536x2048',
+      text: '一张2048x1536或者1536x2048的海报',
       displayedSize: '1536x2048',
     },
   ])(
-    'blocks an invalid or conflicting directive immediately: $text',
+    'blocks invalid or conflicting prompt dimensions immediately: $text',
     async ({ text, displayedSize }) => {
       mocks.models = [sizedProfile()]
       mocks.draftState.draft = {
@@ -448,18 +448,18 @@ describe('image composer', () => {
     }
   )
 
-  test('restores a saved manual size without replaying the prompt directive', async () => {
+  test('restores a saved manual size without reapplying prompt dimensions', async () => {
     mocks.models = [sizedProfile()]
     mocks.draftState.draft = {
       model_profile_id: 7,
-      prompt: 'A poster; output size: 2048x1536',
+      prompt: 'A 2048x1536 poster',
       parameters: { variants: 1, dimensions: '1536x2048' },
     }
     render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
     const prompt = await screen.findByLabelText('Prompt')
     expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
     fireEvent.change(prompt, {
-      target: { value: 'A colorful poster; output size: 2048x1536' },
+      target: { value: 'A colorful 2048x1536 poster' },
     })
     await waitFor(() => {
       expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(

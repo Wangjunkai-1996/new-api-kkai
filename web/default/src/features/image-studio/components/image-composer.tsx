@@ -170,7 +170,7 @@ export function ImageComposer(props: {
   let promptSizeError: string | undefined
   if (promptSize.kind === 'invalid') {
     promptSizeError = t(
-      'Enter an output size as width x height, for example: output size: 2048x1536.'
+      'Enter the size as width x height, for example: 2048x1536.'
     )
   } else if (promptSize.kind === 'conflict') {
     promptSizeError = t('Use one output size in the prompt.')
@@ -789,7 +789,7 @@ export function ImageComposer(props: {
                     <span className='text-destructive'>{promptSizeError}</span>
                   ) : (
                     t(
-                      'Add "output size: 2048x1536" to apply a size automatically.'
+                      'Include a size such as 2048x1536 in your prompt to apply it automatically.'
                     )
                   )}
                   {!promptSizeError &&

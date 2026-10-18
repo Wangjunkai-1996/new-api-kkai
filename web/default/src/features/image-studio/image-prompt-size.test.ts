@@ -20,8 +20,22 @@ import { describe, expect, test } from 'vitest'
 
 import { parseImagePromptSize } from './image-prompt-size'
 
-describe('explicit image prompt sizes', () => {
+describe('image prompt sizes', () => {
   test.each([
+    '2048×1536',
+    '2048x1536',
+    '2048 X 1536',
+    '2048*1536',
+    '02048 × 01536',
+    '画一张2048×1536的咖啡海报',
+    'a 2048x1536 poster',
+    '画一张2048x1536海报，颜色温暖',
+    'a 2048x1536 black and white poster',
+    'a poster without text 2048x1536',
+    '不要文字的2048×1536海报',
+    '输出尺寸：2048x1536的海报',
+    'output size: 2048x1536 black and white poster',
+    '画一张咖啡海报 --size 2048x1536 with warm colors',
     '生成一张咖啡店海报，输出尺寸：2048×1536',
     '输出分辨率 2048x1536',
     '请输出尺寸为 2048 X 1536 像素。暖色调',
@@ -36,6 +50,11 @@ describe('explicit image prompt sizes', () => {
     '--size 2048x1536 --size 2048x1536',
     '输出尺寸：2048x1536 或 2048x1536',
     '写上“输出尺寸：1024x1024”，输出尺寸：2048x1536',
+    '2048x1536 的海报，参考图尺寸：1024x1024',
+    '参考图尺寸：1024x1024，画一张2048×1536的海报',
+    '参考 https://example.com/1024x1024.png，画一张2048x1536海报',
+    '2048x1536 的海报，2048×1536',
+    '2048x1536，不是1024x1024',
   ])('normalizes an unambiguous directive: %s', (prompt) => {
     expect(parseImagePromptSize(prompt)).toEqual({
       kind: 'size',
@@ -45,9 +64,28 @@ describe('explicit image prompt sizes', () => {
 
   test.each([
     '',
-    '画一台分辨率为1920×1080的显示器',
     '参考图尺寸：1024x1024；制作高清海报，16:9，4K',
-    '显示器的输出尺寸：1920x1080',
+    'Reference image: 1024x1024',
+    '参考图：\n1024x1024',
+    '不要使用2048x1536',
+    '不是1024x1024',
+    '并非1024x1024',
+    'Not 2048x1536',
+    '例如 2048x1536',
+    '例如：\n2048x1536',
+    '“2048x1536”',
+    '`2048x1536`',
+    '> 2048x1536',
+    'abc2048x1536',
+    '2048x1536abc',
+    'abc2048 x 1536 x 3',
+    'image_2048x1536',
+    '2048x1536.png',
+    'https://example.com/2048x1536.png',
+    'https://example.com/image?size=2048x1536',
+    'www.example.com/2048x1536',
+    'example.com/image?size=2048x1536',
+    'assets/image.png?size=2048x1536',
     '不要输出尺寸：2048x1536',
     '不要使用 --size 2048x1536',
     'Do not use --size 2048x1536',
@@ -68,15 +106,21 @@ describe('explicit image prompt sizes', () => {
     '例如：\n\n--size 2048x1536\n输出尺寸：1024x1024',
     'Do not use:\noutput size: 2048x1536',
     "Don't use:\n--size 2048x1536",
-    'Use --size-limit 2048x1536',
   ])(
-    'does not interpret subject dimensions, examples or negation: %s',
+    'ignores references, quoted examples, negation and non-size tokens: %s',
     (prompt) => {
       expect(parseImagePromptSize(prompt)).toEqual({ kind: 'none' })
     }
   )
 
   test.each([
+    '2048.5x1536',
+    '2048x1536.5',
+    '2048x1536x3',
+    '2048 x 1536 x 3',
+    '画一张2048.5x1536的海报',
+    '画一张2048x1536x3的海报',
+    '9007199254740992x1536',
     '输出尺寸：',
     '输出尺寸：2048x',
     'output size: 4K',
@@ -88,16 +132,23 @@ describe('explicit image prompt sizes', () => {
     '输出尺寸：2048x1536 1024',
     '输出尺寸：2048x1536，1024',
     '输出尺寸：2048x1536 或 1024',
-    '输出尺寸：2048x1536 1024x1024',
     '输出尺寸：-2048x1536',
     '输出尺寸：2048x1536abc',
     '输出尺寸：9007199254740992x1536',
     '输出尺寸：2048x1536；输出尺寸：',
-  ])('blocks incomplete or malformed explicit directives: %s', (prompt) => {
-    expect(parseImagePromptSize(prompt)).toEqual({ kind: 'invalid' })
-  })
+  ])(
+    'blocks malformed dimensions or incomplete explicit directives: %s',
+    (prompt) => {
+      expect(parseImagePromptSize(prompt)).toEqual({ kind: 'invalid' })
+    }
+  )
 
   test.each([
+    '2048x1536 或 1024x1024',
+    '尺寸分别2048x1536和1024x1024',
+    '画一张2048x1536的海报，另外一张1024x1024',
+    '2048x1536 poster --size 1024x1024',
+    '输出尺寸：2048x1536 1024x1024',
     '输出尺寸：1024x1024；输出尺寸：2048x1536',
     '输出尺寸：1024x1024 或 2048x1536',
     'output size: 1024x1024 or 2048x1536',
@@ -116,6 +167,25 @@ describe('explicit image prompt sizes', () => {
     expect(parseImagePromptSize('输出尺寸：4096x2048')).toEqual({
       kind: 'size',
       size: '4096x2048',
+    })
+    expect(parseImagePromptSize('画一张4096x2048的海报')).toEqual({
+      kind: 'size',
+      size: '4096x2048',
+    })
+    expect(parseImagePromptSize('2049x1536')).toEqual({
+      kind: 'size',
+      size: '2049x1536',
+    })
+  })
+
+  test('recognizes dimensions in ordinary subject descriptions without requiring output terminology', () => {
+    expect(parseImagePromptSize('画一台分辨率为1920×1080的显示器')).toEqual({
+      kind: 'size',
+      size: '1920x1080',
+    })
+    expect(parseImagePromptSize('显示器的输出尺寸：1920x1080')).toEqual({
+      kind: 'size',
+      size: '1920x1080',
     })
   })
 
