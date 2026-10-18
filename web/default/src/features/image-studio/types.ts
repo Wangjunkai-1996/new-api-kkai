@@ -53,9 +53,18 @@ export type ImageParameterControl =
   | ImageIntegerParameter
   | ImageBooleanParameter
 
+export type ImageSizeConstraints = {
+  max_edge: number
+  step: number
+  min_pixels: number
+  max_pixels: number
+  max_aspect_ratio: number
+}
+
 export type ImageModelSpec = {
   version: number
   max_reference_images?: number
+  custom_size?: ImageSizeConstraints
   parameters: ImageParameterControl[]
 }
 

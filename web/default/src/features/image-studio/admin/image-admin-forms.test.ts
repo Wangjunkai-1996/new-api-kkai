@@ -24,6 +24,7 @@ import type { ImageModelProfile } from '../types'
 import {
   createImageParameterFormValues,
   createImageModelFormValues,
+  IMAGE_CUSTOM_SIZE_DEFAULTS,
   imageModelFormSchema,
   parseImageModelForm,
   type ImageModelFormValues,
@@ -246,5 +247,20 @@ describe('image model admin form', () => {
         { label: '4K | 9:16 portrait', value: '2160x3840' },
       ],
     })
+  })
+
+  test('enables custom sizes with the fixed GPT Image 2 constraints', () => {
+    const values = createImageModelFormValues(profile)
+    values.custom_size_enabled = true
+
+    const parsed = parseImageModelForm(values, profile)
+    assert.deepEqual(
+      parsed.specification.custom_size,
+      IMAGE_CUSTOM_SIZE_DEFAULTS
+    )
+    assert.equal(
+      parsed.specification.version,
+      profile.specification_version + 1
+    )
   })
 })

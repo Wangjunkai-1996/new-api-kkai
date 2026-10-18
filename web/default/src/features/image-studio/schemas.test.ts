@@ -22,11 +22,41 @@ import { describe, test } from 'vitest'
 
 import {
   imageAssetSchema,
+  imageModelProfileSchema,
   imageQuoteSchema,
   imageTokenCapabilitySchema,
 } from './schemas'
 
 describe('image API response schemas', () => {
+  test('accepts custom size constraints on model profiles', () => {
+    const parsed = imageModelProfileSchema.parse({
+      id: 3,
+      model: 'gpt-image-2',
+      display_name: 'GPT Image 2',
+      description: '',
+      provider_label: 'OpenAI',
+      specification_version: 1,
+      specification: {
+        version: 1,
+        custom_size: {
+          max_edge: 3840,
+          step: 16,
+          min_pixels: 655360,
+          max_pixels: 8294400,
+          max_aspect_ratio: 3,
+        },
+        parameters: [],
+      },
+      default_parameters: {},
+      effective_max_outputs: 1,
+      enabled: true,
+      sort_order: 0,
+      created_at: 1,
+      updated_at: 1,
+    })
+    assert.equal(parsed.specification.custom_size?.step, 16)
+  })
+
   test('accepts only local or HTTP media URLs', () => {
     const asset = {
       id: 3,

@@ -21,6 +21,31 @@ import { z } from 'zod'
 import { IMAGE_STUDIO_MAX_REFERENCE_IMAGES } from './image-edit-domain'
 import { IMAGE_REFERENCE_DEFAULT_MAX_BYTES } from './image-reference-metadata'
 
+export const imageSizeConstraintsSchema = z
+  .object({
+    max_edge: z.number().int().positive(),
+    step: z.number().int().positive(),
+    min_pixels: z.number().int().positive(),
+    max_pixels: z.number().int().positive(),
+    max_aspect_ratio: z.number().finite().positive(),
+  })
+  .superRefine((value, context) => {
+    if (value.min_pixels > value.max_pixels) {
+      context.addIssue({
+        code: 'custom',
+        path: ['min_pixels'],
+        message: 'imageStudio.validation.customSizeInvalid',
+      })
+    }
+    if (value.step > value.max_edge) {
+      context.addIssue({
+        code: 'custom',
+        path: ['step'],
+        message: 'imageStudio.validation.customSizeInvalid',
+      })
+    }
+  })
+
 const imageMediaUrlSchema = z.string().refine((value) => {
   if (value.startsWith('/') && !value.startsWith('//')) return true
   try {
@@ -79,6 +104,7 @@ export const imageModelProfileSchema = z.object({
       .min(0)
       .max(IMAGE_STUDIO_MAX_REFERENCE_IMAGES)
       .optional(),
+    custom_size: imageSizeConstraintsSchema.optional(),
     parameters: z.array(imageParameterSchema),
   }),
   default_parameters: imageParametersSchema,

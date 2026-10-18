@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -17,6 +19,83 @@ var (
 	ErrOutboundMismatch = errors.New("outbound image request does not match billing snapshot")
 )
 
+// SizeConstraints describes the dimensions accepted by a provider. Values are
+// intentionally explicit in the model profile so the UI and request path use
+// the same contract. A nil profile capability means custom dimensions are not
+// accepted.
+type SizeConstraints struct {
+	MaxEdge        int     `json:"max_edge"`
+	Step           int     `json:"step"`
+	MinPixels      int     `json:"min_pixels"`
+	MaxPixels      int     `json:"max_pixels"`
+	MaxAspectRatio float64 `json:"max_aspect_ratio"`
+}
+
+// DefaultSizeConstraints are the GPT Image 2 custom-dimension limits.
+var DefaultSizeConstraints = SizeConstraints{
+	MaxEdge:        3840,
+	Step:           16,
+	MinPixels:      655360,
+	MaxPixels:      8294400,
+	MaxAspectRatio: 3,
+}
+
+var customSizePattern = regexp.MustCompile(`^(\d+)x(\d+)$`)
+
+// ParseSize returns positive width and height from a canonical WIDTHxHEIGHT
+// value. It rejects whitespace and alternate separators so request hashes and
+// billing snapshots remain stable.
+func ParseSize(size string) (int, int, bool) {
+	matches := customSizePattern.FindStringSubmatch(size)
+	if len(matches) != 3 {
+		return 0, 0, false
+	}
+	width, errWidth := strconv.Atoi(matches[1])
+	height, errHeight := strconv.Atoi(matches[2])
+	if errWidth != nil || errHeight != nil || width <= 0 || height <= 0 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+// ValidateSize checks a custom dimension against provider constraints and
+// returns a canonical lower-case value on success.
+func ValidateSize(size string, constraints SizeConstraints) (string, error) {
+	width, height, ok := ParseSize(size)
+	if !ok {
+		return "", fmt.Errorf("%w: invalid size %q", ErrUnsupportedSize, size)
+	}
+	if err := ValidateSizeConstraints(constraints); err != nil {
+		return "", err
+	}
+	if width > constraints.MaxEdge || height > constraints.MaxEdge || width%constraints.Step != 0 || height%constraints.Step != 0 {
+		return "", fmt.Errorf("%w: size %dx%d exceeds edge or step constraints", ErrUnsupportedSize, width, height)
+	}
+	pixels := int64(width) * int64(height)
+	if pixels < int64(constraints.MinPixels) || pixels > int64(constraints.MaxPixels) {
+		return "", fmt.Errorf("%w: size %dx%d exceeds pixel constraints", ErrUnsupportedSize, width, height)
+	}
+	longEdge, shortEdge := width, height
+	if shortEdge > longEdge {
+		longEdge, shortEdge = shortEdge, longEdge
+	}
+	if float64(longEdge)/float64(shortEdge) > constraints.MaxAspectRatio {
+		return "", fmt.Errorf("%w: size %dx%d exceeds aspect ratio constraints", ErrUnsupportedSize, width, height)
+	}
+	return fmt.Sprintf("%dx%d", width, height), nil
+}
+
+func ValidateSizeConstraints(constraints SizeConstraints) error {
+	if constraints.MaxEdge <= 0 || constraints.MaxEdge > 32768 || constraints.Step <= 0 ||
+		constraints.Step > constraints.MaxEdge || constraints.MinPixels <= 0 ||
+		constraints.MaxPixels < constraints.MinPixels || constraints.MaxPixels > math.MaxInt32 ||
+		constraints.MaxAspectRatio < 1 || math.IsNaN(constraints.MaxAspectRatio) ||
+		math.IsInf(constraints.MaxAspectRatio, 0) {
+		return fmt.Errorf("%w: invalid size constraints", ErrInvalidPolicy)
+	}
+	return nil
+}
+
 type Config struct {
 	Version string                 `json:"version"`
 	Enabled bool                   `json:"enabled"`
@@ -24,8 +103,9 @@ type Config struct {
 }
 
 type ModelConfig struct {
-	DefaultSize string                `json:"default_size"`
-	Tiers       map[string]TierConfig `json:"tiers"`
+	DefaultSize     string                `json:"default_size"`
+	AllowCustomSize bool                  `json:"allow_custom_size,omitempty"`
+	Tiers           map[string]TierConfig `json:"tiers"`
 }
 
 type TierConfig struct {
@@ -62,8 +142,10 @@ type pricedSize struct {
 }
 
 type compiledModel struct {
-	defaultSize string
-	sizes       map[string]pricedSize
+	defaultSize     string
+	allowCustomSize bool
+	sizes           map[string]pricedSize
+	tiers           map[string]pricedSize
 }
 
 type Policy struct {
@@ -94,14 +176,17 @@ func Compile(config Config) (*Policy, error) {
 		}
 
 		compiled := compiledModel{
-			defaultSize: modelConfig.DefaultSize,
-			sizes:       make(map[string]pricedSize),
+			defaultSize:     modelConfig.DefaultSize,
+			allowCustomSize: modelConfig.AllowCustomSize,
+			sizes:           make(map[string]pricedSize),
+			tiers:           make(map[string]pricedSize),
 		}
 		for rawTier, tierConfig := range modelConfig.Tiers {
 			tier := strings.TrimSpace(rawTier)
 			if tier == "" || tierConfig.UnitPrice <= 0 || math.IsNaN(tierConfig.UnitPrice) || math.IsInf(tierConfig.UnitPrice, 0) || len(tierConfig.Sizes) == 0 {
 				return nil, fmt.Errorf("%w: tier %q has an invalid price or no sizes", ErrInvalidPolicy, rawTier)
 			}
+			compiled.tiers[tier] = pricedSize{tier: tier, unitPrice: tierConfig.UnitPrice}
 			for _, rawSize := range tierConfig.Sizes {
 				size := normalizeSize(rawSize)
 				if size == "" || size == "auto" {
@@ -111,6 +196,13 @@ func Compile(config Config) (*Policy, error) {
 					return nil, fmt.Errorf("%w: size %q appears in tiers %q and %q", ErrInvalidPolicy, size, existing.tier, tier)
 				}
 				compiled.sizes[size] = pricedSize{tier: tier, unitPrice: tierConfig.UnitPrice}
+			}
+		}
+		if modelConfig.AllowCustomSize {
+			for _, tier := range []string{"1k", "2k", "4k"} {
+				if _, ok := compiled.tiers[tier]; !ok {
+					return nil, fmt.Errorf("%w: custom-size model %q requires %q, %q, and %q tiers", ErrInvalidPolicy, model, "1k", "2k", "4k")
+				}
 			}
 		}
 		if _, ok := compiled.sizes[compiled.defaultSize]; !ok {
@@ -128,6 +220,17 @@ func (p *Policy) Version() string {
 	return p.version
 }
 
+func (p *Policy) AllowsCustomSize(model string) (bool, bool) {
+	if p == nil || !p.enabled {
+		return false, false
+	}
+	compiled, configured := p.models[strings.TrimSpace(model)]
+	if !configured {
+		return false, false
+	}
+	return compiled.allowCustomSize, true
+}
+
 func (p *Policy) Resolve(model, size string) (Resolution, bool, error) {
 	if p == nil || !p.enabled {
 		return Resolution{}, false, nil
@@ -142,10 +245,42 @@ func (p *Policy) Resolve(model, size string) (Resolution, bool, error) {
 		size = compiled.defaultSize
 	}
 	priced, ok := compiled.sizes[size]
+	if !ok && compiled.allowCustomSize {
+		canonical, err := ValidateSize(size, DefaultSizeConstraints)
+		if err != nil {
+			return Resolution{}, true, err
+		}
+		size = canonical
+		priced, ok = compiled.sizes[size]
+		if !ok {
+			priced, ok = compiled.customSizePrice(size)
+		}
+	}
 	if !ok {
 		return Resolution{}, true, fmt.Errorf("%w: model %q size %q", ErrUnsupportedSize, model, size)
 	}
 	return Resolution{Model: model, Size: size, Tier: priced.tier, UnitPrice: priced.unitPrice}, true, nil
+}
+
+func (compiled compiledModel) customSizePrice(size string) (pricedSize, bool) {
+	width, height, ok := ParseSize(size)
+	if !ok {
+		return pricedSize{}, false
+	}
+	pixels := int64(width) * int64(height)
+	tier := ""
+	switch {
+	case pixels <= 1048576:
+		tier = "1k"
+	case pixels <= 4194304:
+		tier = "2k"
+	case pixels <= 8294400:
+		tier = "4k"
+	default:
+		return pricedSize{}, false
+	}
+	priced, ok := compiled.tiers[tier]
+	return priced, ok
 }
 
 func ValidateSnapshot(snapshot *Snapshot) error {

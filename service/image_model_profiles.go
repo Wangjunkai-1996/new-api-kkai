@@ -397,6 +397,14 @@ func normalizeImageModelProfileInput(input ImageModelProfileInput) (ImageModelPr
 	if err := validateImageModelPricingCoverage(input.Model, input.Specification); err != nil {
 		return ImageModelProfileInput{}, "", "", err
 	}
+	if input.Specification.CustomSize != nil {
+		allowed, configured := image_pricing_setting.AllowsCustomSize(input.Model)
+		if configured && !allowed {
+			return ImageModelProfileInput{}, "", "", fmt.Errorf(
+				"%w: model %q image pricing does not allow custom sizes", ErrInvalidImageModelSpec, input.Model,
+			)
+		}
+	}
 	specification, err := common.Marshal(input.Specification)
 	if err != nil {
 		return ImageModelProfileInput{}, "", "", err

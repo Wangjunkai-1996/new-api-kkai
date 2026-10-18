@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 
@@ -87,6 +88,28 @@ func TestImageModelProfileRejectsUnpricedSizeOptions(t *testing.T) {
 		ImageParameterOption{Label: "Automatic", Value: "auto"},
 	)
 
+	_, _, _, err = normalizeImageModelProfileInput(input)
+	assert.ErrorIs(t, err, ErrInvalidImageModelSpec)
+}
+
+func TestImageModelProfileRejectsCustomSizeWhenPricingDisallowsIt(t *testing.T) {
+	originalPolicy := image_pricing_setting.JSON()
+	t.Cleanup(func() {
+		require.NoError(t, image_pricing_setting.UpdateByJSONString(originalPolicy))
+	})
+	policy := image_pricing_setting.DefaultConfig()
+	policy.Enabled = true
+	modelConfig := policy.Models["gpt-image-2"]
+	modelConfig.AllowCustomSize = false
+	policy.Models["gpt-image-2"] = modelConfig
+	encoded, err := common.Marshal(policy)
+	require.NoError(t, err)
+	require.NoError(t, image_pricing_setting.UpdateByJSONString(string(encoded)))
+
+	input := imageModelProfileInput(1)
+	constraints := imagepricing.DefaultSizeConstraints
+	input.Model = "gpt-image-2"
+	input.Specification.CustomSize = &constraints
 	_, _, _, err = normalizeImageModelProfileInput(input)
 	assert.ErrorIs(t, err, ErrInvalidImageModelSpec)
 }
