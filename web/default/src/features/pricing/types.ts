@@ -73,6 +73,8 @@ export type PricingModel = {
   vendor_icon?: string
   vendor_description?: string
   quota_type: number
+  /** Explicit backend signal that the model has a usable price configuration. */
+  pricing_configured?: boolean
   model_ratio: number
   completion_ratio: number
   model_price?: number

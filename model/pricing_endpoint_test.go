@@ -8,6 +8,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,6 +57,50 @@ func insertPricingEndpointAbility(t *testing.T, channelID int, modelName string)
 		ChannelId: channelID,
 		Enabled:   true,
 	}).Error)
+}
+
+func TestPricingConfiguredTracksExplicitPricingAndSelfUseFallback(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	originalSelfUseMode := operation_setting.SelfUseModeEnabled
+	originalModelPrices := ratio_setting.ModelPrice2JSONString()
+	originalModelRatios := ratio_setting.ModelRatio2JSONString()
+	t.Cleanup(func() {
+		operation_setting.SelfUseModeEnabled = originalSelfUseMode
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(originalModelPrices))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(originalModelRatios))
+		InvalidatePricingCache()
+	})
+
+	operation_setting.SelfUseModeEnabled = false
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"zz-fixed-pricing-model":0.25}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"zz-ratio-pricing-model":2}`))
+
+	insertPricingEndpointChannel(t, 501, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 501, "zz-fixed-pricing-model")
+	insertPricingEndpointAbility(t, 501, "zz-ratio-pricing-model")
+	insertPricingEndpointAbility(t, 501, "zz-unpriced-model")
+
+	byModel := make(map[string]Pricing)
+	for _, pricing := range GetPricing() {
+		byModel[pricing.ModelName] = pricing
+	}
+
+	assert.True(t, byModel["zz-fixed-pricing-model"].PricingConfigured)
+	assert.Equal(t, 1, byModel["zz-fixed-pricing-model"].QuotaType)
+	assert.True(t, byModel["zz-ratio-pricing-model"].PricingConfigured)
+	assert.Equal(t, 2.0, byModel["zz-ratio-pricing-model"].ModelRatio)
+	assert.False(t, byModel["zz-unpriced-model"].PricingConfigured)
+	assert.Equal(t, 37.5, byModel["zz-unpriced-model"].ModelRatio)
+
+	operation_setting.SelfUseModeEnabled = true
+	InvalidatePricingCache()
+	byModel = make(map[string]Pricing)
+	for _, pricing := range GetPricing() {
+		byModel[pricing.ModelName] = pricing
+	}
+	assert.True(t, byModel["zz-unpriced-model"].PricingConfigured)
+	assert.Equal(t, 37.5, byModel["zz-unpriced-model"].ModelRatio)
 }
 
 func pricingEndpointAdvancedCustomConfig(routes ...dto.AdvancedCustomRoute) dto.ChannelOtherSettings {

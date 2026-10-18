@@ -31,7 +31,10 @@ import {
   isPerSecondTaskModel,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import {
+  isPricingExplicitlyUnconfigured,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskUsageUnitLabel } from '../lib/task-price-display'
 import type { PricingModel, TokenUnit } from '../types'
@@ -83,6 +86,11 @@ export function ModelPriceCell(props: {
       currency,
     ]
   )
+  if (isPricingExplicitlyUnconfigured(props.model)) {
+    return (
+      <span className='text-muted-foreground text-sm'>{t('Unset price')}</span>
+    )
+  }
   let metrics: Array<{ label: string; value: string }>
   const providerCaption = dynamic?.providerCount
     ? t('{{count}} providers', { count: dynamic.providerCount })

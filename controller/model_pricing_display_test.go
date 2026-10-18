@@ -52,6 +52,7 @@ func TestModelPricingDisplayExpression(t *testing.T) {
 	}
 	require.NotNil(t, publicPrice)
 	assert.Equal(t, display, publicPrice.BillingExpr)
+	assert.True(t, publicPrice.PricingConfigured)
 	assert.Nil(t, publicPrice.CacheRatio)
 	base := map[string]any(ratio_setting.GetExposedData())
 	sync := billing_setting.GetPricingSyncData(base)
