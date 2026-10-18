@@ -37,11 +37,13 @@ import {
   getMembershipCatalog,
   getMembershipOrders,
   getMembershipSelf,
+  publishMembershipCatalog,
   resolveMembershipBillingReview,
   resolveMembershipOrder,
   resumeMembershipPayment,
 } from './api'
 import { BillingReviewDialog } from './components/billing-reviews'
+import { MembershipCatalogEditor } from './components/catalog-editor'
 import { CurrentMembership } from './components/current-membership'
 import { MembershipDiscounts } from './components/discount-comparison'
 import { MembershipOrders } from './components/orders'
@@ -62,6 +64,7 @@ vi.mock('./api', () => ({
   getMembershipCatalog: vi.fn(),
   getMembershipOrders: vi.fn(),
   getMembershipSelf: vi.fn(),
+  publishMembershipCatalog: vi.fn(),
   resumeMembershipPayment: vi.fn(),
   resolveMembershipOrder: vi.fn(),
   getMembershipBillingReviews: vi.fn(),
@@ -140,6 +143,7 @@ beforeEach(() => {
   vi.mocked(getMembershipCatalog).mockReset()
   vi.mocked(getMembershipOrders).mockReset()
   vi.mocked(getMembershipSelf).mockReset()
+  vi.mocked(publishMembershipCatalog).mockReset()
   vi.mocked(resolveMembershipOrder).mockReset()
   vi.mocked(resumeMembershipPayment).mockReset()
 })
@@ -287,6 +291,124 @@ describe('membership purchase and benefits', () => {
 })
 
 describe('membership publication validation', () => {
+  it('adds tiers to an empty catalog and preserves edited values when either tier is removed', async () => {
+    const emptyCatalog = {
+      ...catalog,
+      release_id: 0,
+      sales_enabled: false,
+      tiers: [],
+    }
+    vi.mocked(publishMembershipCatalog).mockResolvedValue(emptyCatalog)
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembershipCatalogEditor catalog={emptyCatalog} />
+      </QueryClientProvider>
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add membership tier' })
+    )
+    expect(screen.getByRole('spinbutton', { name: 'Price' })).toHaveValue(0)
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Plan Title' }),
+      'Gold'
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Tier identifier' }),
+      'gold'
+    )
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Price' }), {
+      target: { value: '600' },
+    })
+    fireEvent.change(
+      screen.getByRole('spinbutton', { name: /^Included quota/ }),
+      { target: { value: '600' } }
+    )
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Gold' }), {
+      target: { value: '0.95' },
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add membership tier' })
+    )
+    expect(screen.getAllByRole('spinbutton', { name: 'Price' })[1]).toHaveValue(
+      0
+    )
+    await userEvent.type(
+      screen.getAllByRole('textbox', { name: 'Plan Title' })[1],
+      'Discarded'
+    )
+    await userEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1])
+    expect(screen.getByRole('textbox', { name: 'Plan Title' })).toHaveValue(
+      'Gold'
+    )
+    expect(screen.getByRole('spinbutton', { name: 'Price' })).toHaveValue(600)
+    expect(
+      screen.getByRole('spinbutton', { name: /^Included quota/ })
+    ).toHaveValue(600)
+    expect(screen.getByRole('spinbutton', { name: 'Gold' })).toHaveValue(0.95)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Add membership tier' })
+    )
+    expect(
+      screen.getAllByRole('textbox', { name: 'Plan Title' })[1]
+    ).toHaveValue('')
+    expect(
+      screen.getAllByRole('spinbutton', { name: 'Membership rank' })[1]
+    ).toHaveValue(2)
+    await userEvent.type(
+      screen.getAllByRole('textbox', { name: 'Plan Title' })[1],
+      'Diamond'
+    )
+    await userEvent.type(
+      screen.getAllByRole('textbox', { name: 'Tier identifier' })[1],
+      'diamond'
+    )
+    fireEvent.change(screen.getAllByRole('spinbutton', { name: 'Price' })[1], {
+      target: { value: '2000' },
+    })
+    fireEvent.change(
+      screen.getAllByRole('spinbutton', { name: /^Included quota/ })[1],
+      { target: { value: '2000' } }
+    )
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Diamond' }), {
+      target: { value: '0.9' },
+    })
+    await userEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
+    expect(screen.getByRole('textbox', { name: 'Plan Title' })).toHaveValue(
+      'Diamond'
+    )
+    expect(screen.getByRole('spinbutton', { name: 'Price' })).toHaveValue(2000)
+    expect(
+      screen.getByRole('spinbutton', { name: /^Included quota/ })
+    ).toHaveValue(2000)
+    expect(screen.getByRole('spinbutton', { name: 'Diamond' })).toHaveValue(0.9)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Publish membership configuration' })
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Confirm publication' })
+    )
+    await waitFor(() => expect(publishMembershipCatalog).toHaveBeenCalledOnce())
+    expect(publishMembershipCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sales_enabled: false,
+        tiers: [
+          expect.objectContaining({
+            id: 'diamond',
+            name: 'Diamond',
+            rank: 2,
+            price_minor: 200000,
+            quota: 1_000_000_000,
+            discounts: { enterprise: 0.9 },
+          }),
+        ],
+      }),
+      0
+    )
+  })
+
   it('rejects a higher-tier coefficient above the lower-tier coefficient for the same group', () => {
     const invalid = {
       ...catalog,

@@ -54,7 +54,11 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
     name: 'tiers',
     keyName: 'fieldKey',
   })
-  const catalog = useWatch({ control: form.control }) as MembershipCatalog
+  // Field-array changes can render before useWatch receives the updated values.
+  const catalog = {
+    ...useWatch({ control: form.control }),
+    ...form.getValues(),
+  }
   const publish = useMutation({
     mutationFn: (next: MembershipCatalog) =>
       publishMembershipCatalog(next, props.catalog.release_id),
