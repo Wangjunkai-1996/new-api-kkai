@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +25,7 @@ func resellerLotCumulative(total, consumed, credited int64) int64 {
 	return value.Quo(value, big.NewInt(credited)).Int64()
 }
 
-func allocateResellerPaymentLotsTx(tx *gorm.DB, input ResellerSettlementInput, unit decimal.Decimal, now int64) ([]ResellerPaymentAllocation, int64, int64, error) {
+func allocateResellerPaymentLotsTx(tx *gorm.DB, input ResellerSettlementInput, unit *big.Rat, now int64) ([]ResellerPaymentAllocation, int64, int64, error) {
 	var lots []CustomerPaymentLot
 	if err := lockForUpdate(tx).Where("tenant_id = ? AND customer_id = ? AND remaining_quota > 0 AND refund_status = ?", input.TenantID, input.CustomerID, "none").Order("id ASC").Find(&lots).Error; err != nil {
 		return nil, 0, 0, err
@@ -42,7 +41,7 @@ func allocateResellerPaymentLotsTx(tx *gorm.DB, input ResellerSettlementInput, u
 			return nil, 0, 0, ErrResellerWalletInvariant
 		}
 		// Compare products, not rounded per-request fen, to reject genuinely lossy prices.
-		if decimal.NewFromInt(lot.PaidMinor - lot.PaymentFeeMinor).LessThan(unit.Mul(decimal.NewFromInt(lot.CreditedQuota))) {
+		if big.NewRat(lot.PaidMinor-lot.PaymentFeeMinor, 1).Cmp(new(big.Rat).Mul(unit, big.NewRat(lot.CreditedQuota, 1))) < 0 {
 			return nil, 0, 0, ErrResellerPriceBelowCost
 		}
 		consumed := min(remaining, lot.RemainingQuota)
@@ -87,8 +86,8 @@ func SettleResellerConsumptionTx(tx *gorm.DB, input ResellerSettlementInput) (*R
 	if err := lockForUpdate(tx).Where("id = ? AND tenant_id = ? AND customer_id = ? AND request_id = ?", input.QuoteID, input.TenantID, input.CustomerID, input.RequestID).First(&quote).Error; err != nil {
 		return nil, err
 	}
-	unit, err := parseResellerDecimal(quote.SupplierMinorPerQuota)
-	if err != nil || unit.IsNegative() {
+	unit, err := parseResellerExact(quote.SupplierMinorPerQuota)
+	if err != nil || unit.Sign() < 0 {
 		return nil, ErrResellerFinanceInvalidInput
 	}
 	payload := input
@@ -111,11 +110,16 @@ func SettleResellerConsumptionTx(tx *gorm.DB, input ResellerSettlementInput) (*R
 	if err != nil {
 		return nil, err
 	}
-	supply := unit.Mul(decimal.NewFromInt(input.ConsumedQuota))
-	if supply.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
-		return nil, ErrResellerFinanceInvalidInput
+	supply := new(big.Rat).Mul(unit, big.NewRat(input.ConsumedQuota, 1))
+	supplyText, err := resellerExactString(supply, 128)
+	if err != nil {
+		return nil, err
 	}
-	exactProfit := decimal.NewFromInt(sale).Sub(decimal.NewFromInt(fee)).Sub(supply)
+	exactProfit := new(big.Rat).Sub(big.NewRat(sale-fee, 1), supply)
+	profitText, err := resellerExactString(exactProfit, 128)
+	if err != nil {
+		return nil, err
+	}
 	credit, err := accrueResellerPendingProfit(wallet, exactProfit)
 	if err != nil {
 		return nil, err
@@ -128,7 +132,7 @@ func SettleResellerConsumptionTx(tx *gorm.DB, input ResellerSettlementInput) (*R
 	if err != nil {
 		return nil, err
 	}
-	entry := &ResellerLedgerEntry{TenantID: input.TenantID, WalletID: wallet.ID, OperationID: operationID, Kind: ResellerLedgerKindSettlement, AmountMinor: credit, PendingDelta: credit, QuoteID: quote.ID, SourceReference: input.RequestID, AvailableAt: now + ResellerPendingPeriodSec, CreatedAt: now, PayloadHash: hash, SaleMinor: sale, PaymentFeeMinor: fee, SupplierMinorExact: supply.String(), ExactProfitMinor: exactProfit.String(), PaymentAllocations: string(encoded)}
+	entry := &ResellerLedgerEntry{TenantID: input.TenantID, WalletID: wallet.ID, OperationID: operationID, Kind: ResellerLedgerKindSettlement, AmountMinor: credit, PendingDelta: credit, QuoteID: quote.ID, SourceReference: input.RequestID, AvailableAt: now + ResellerPendingPeriodSec, CreatedAt: now, PayloadHash: hash, SaleMinor: sale, PaymentFeeMinor: fee, SupplierMinorExact: supplyText, ExactProfitMinor: profitText, PaymentAllocations: string(encoded)}
 	if err := tx.Create(entry).Error; err != nil {
 		return nil, err
 	}
@@ -249,24 +253,36 @@ func ReverseResellerSettlementTx(tx *gorm.DB, input ResellerChargebackInput) (*R
 	if err := applyResellerWalletDelta(wallet, pendingDelta, availableDelta, 0, debtDelta); err != nil {
 		return nil, err
 	}
-	carry, err := parseResellerDecimal(wallet.ExactProfitCarry)
+	carry, err := parseResellerAggregate(wallet.ExactProfitCarry)
 	if err != nil {
 		return nil, err
 	}
-	exact, err := parseResellerDecimal(original.ExactProfitMinor)
+	exact, err := parseResellerExact(original.ExactProfitMinor)
 	if err != nil {
 		return nil, err
 	}
-	wallet.ExactProfitCarry = carry.Sub(exact).Add(decimal.NewFromInt(original.AmountMinor)).String()
+	carry.Sub(carry, exact).Add(carry, big.NewRat(original.AmountMinor, 1))
+	wallet.ExactProfitCarry, err = resellerAggregateString(carry)
+	if err != nil {
+		return nil, err
+	}
 	wallet.UpdatedAt = now
 	if err := tx.Save(wallet).Error; err != nil {
 		return nil, err
 	}
-	supplier, err := parseResellerDecimal(original.SupplierMinorExact)
+	supplier, err := parseResellerExact(original.SupplierMinorExact)
 	if err != nil {
 		return nil, err
 	}
-	entry := &ResellerLedgerEntry{TenantID: input.TenantID, WalletID: wallet.ID, OperationID: operationID, Kind: ResellerLedgerKindChargeback, AmountMinor: -original.AmountMinor, PendingDelta: pendingDelta, AvailableDelta: availableDelta, DebtDelta: debtDelta, QuoteID: original.QuoteID, SourceReference: original.SourceReference, ReversalOf: original.OperationID, CreatedAt: now, PayloadHash: hash, ActorID: input.ActorID, Reason: input.Reason, SaleMinor: -original.SaleMinor, PaymentFeeMinor: -original.PaymentFeeMinor, SupplierMinorExact: supplier.Neg().String(), ExactProfitMinor: exact.Neg().String()}
+	supplierText, err := resellerExactString(new(big.Rat).Neg(supplier), 128)
+	if err != nil {
+		return nil, err
+	}
+	profitText, err := resellerExactString(new(big.Rat).Neg(exact), 128)
+	if err != nil {
+		return nil, err
+	}
+	entry := &ResellerLedgerEntry{TenantID: input.TenantID, WalletID: wallet.ID, OperationID: operationID, Kind: ResellerLedgerKindChargeback, AmountMinor: -original.AmountMinor, PendingDelta: pendingDelta, AvailableDelta: availableDelta, DebtDelta: debtDelta, QuoteID: original.QuoteID, SourceReference: original.SourceReference, ReversalOf: original.OperationID, CreatedAt: now, PayloadHash: hash, ActorID: input.ActorID, Reason: input.Reason, SaleMinor: -original.SaleMinor, PaymentFeeMinor: -original.PaymentFeeMinor, SupplierMinorExact: supplierText, ExactProfitMinor: profitText}
 	if err := tx.Create(entry).Error; err != nil {
 		return nil, err
 	}

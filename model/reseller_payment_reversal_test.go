@@ -48,7 +48,7 @@ func TestResellerPaymentReversalRetainsOtherLotProfitAndRemovesUnusedQuota(t *te
 		first, err = ReverseCustomerPaymentTx(tx, input)
 		return err
 	}))
-	assert.Equal(t, "88400", first.ReversedProfitMinorExact)
+	assert.EqualValues(t, "88400", first.ReversedProfitMinorExact)
 	assert.Zero(t, first.RemovedQuota)
 	var wallet ResellerWallet
 	require.NoError(t, db.Where("tenant_id = ?", 2).First(&wallet).Error)
@@ -78,7 +78,7 @@ func TestResellerPaymentReversalRetainsOtherLotProfitAndRemovesUnusedQuota(t *te
 	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
 		reversal, err := ReverseCustomerPaymentTx(tx, input)
 		if err == nil {
-			assert.Equal(t, "93400", reversal.ReversedProfitMinorExact)
+			assert.EqualValues(t, "93400", reversal.ReversedProfitMinorExact)
 			assert.Equal(t, int64(5), reversal.RemovedQuota)
 		}
 		return err
@@ -93,7 +93,7 @@ func TestResellerPaymentReversalRetainsOtherLotProfitAndRemovesUnusedQuota(t *te
 	require.NoError(t, db.First(&wallet, wallet.ID).Error)
 	assert.Zero(t, wallet.PendingMinor)
 	assert.Zero(t, wallet.DebtMinor)
-	assert.Equal(t, "0", wallet.ExactProfitCarry)
+	assert.EqualValues(t, "0", wallet.ExactProfitCarry)
 }
 
 func TestResellerPaymentChargebackAfterPayoutCreatesOnlyAttributableDebt(t *testing.T) {
@@ -237,13 +237,13 @@ func TestResellerMixedLotPaymentReversalPreservesSubFenCarry(t *testing.T) {
 		require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
 			reversal, err := ReverseCustomerPaymentTx(tx, CustomerPaymentReversalInput{TenantID: 2, TopUpID: test.topup, IdempotencyKey: fmt.Sprintf("refund-%d", test.topup), Kind: "refunded", ActorID: 99, Reason: "confirmed refund", PaymentReference: "proof", Now: 30})
 			if err == nil {
-				assert.Equal(t, test.profit, reversal.ReversedProfitMinorExact)
+				assert.EqualValues(t, test.profit, reversal.ReversedProfitMinorExact)
 			}
 			return err
 		}))
 		var wallet ResellerWallet
 		require.NoError(t, db.Where("tenant_id = ?", 2).First(&wallet).Error)
 		assert.Zero(t, wallet.PendingMinor)
-		assert.Equal(t, test.carry, wallet.ExactProfitCarry)
+		assert.EqualValues(t, test.carry, wallet.ExactProfitCarry)
 	}
 }

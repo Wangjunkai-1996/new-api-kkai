@@ -4,33 +4,33 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
 // CustomerPaymentReversal records a confirmed, manual full-payment refund or
 // chargeback. It never calls a payment provider or erases the original receipt.
 type CustomerPaymentReversal struct {
-	ID                       int64  `json:"id" gorm:"primaryKey"`
-	TenantID                 int64  `json:"tenant_id" gorm:"not null;index;uniqueIndex:idx_customer_payment_reversal_idempotency,priority:1"`
-	IdempotencyKey           string `json:"idempotency_key" gorm:"type:varchar(128);not null;uniqueIndex:idx_customer_payment_reversal_idempotency,priority:2"`
-	PaymentLotID             int64  `json:"payment_lot_id" gorm:"not null;uniqueIndex"`
-	TopUpID                  int64  `json:"topup_id" gorm:"not null;uniqueIndex"`
-	CustomerID               int    `json:"customer_id" gorm:"not null;index"`
-	Kind                     string `json:"kind" gorm:"type:varchar(16);not null"`
-	PaidMinor                int64  `json:"paid_minor" gorm:"not null"`
-	PaymentFeeMinor          int64  `json:"payment_fee_minor" gorm:"not null"`
-	RemovedQuota             int64  `json:"removed_quota" gorm:"not null"`
-	ReversedProfitMinorExact string `json:"reversed_profit_minor_exact" gorm:"type:varchar(128);not null"`
-	LedgerEntryIDs           string `json:"ledger_entry_ids" gorm:"type:text;not null"`
-	ActorID                  int    `json:"actor_id" gorm:"not null"`
-	Reason                   string `json:"reason" gorm:"type:text;not null"`
-	PaymentReference         string `json:"payment_reference" gorm:"type:varchar(192);not null"`
-	PayloadHash              string `json:"-" gorm:"type:char(64);not null"`
-	CreatedAt                int64  `json:"created_at" gorm:"not null"`
+	ID                       int64                  `json:"id" gorm:"primaryKey"`
+	TenantID                 int64                  `json:"tenant_id" gorm:"not null;index;uniqueIndex:idx_customer_payment_reversal_idempotency,priority:1"`
+	IdempotencyKey           string                 `json:"idempotency_key" gorm:"type:varchar(128);not null;uniqueIndex:idx_customer_payment_reversal_idempotency,priority:2"`
+	PaymentLotID             int64                  `json:"payment_lot_id" gorm:"not null;uniqueIndex"`
+	TopUpID                  int64                  `json:"topup_id" gorm:"not null;uniqueIndex"`
+	CustomerID               int                    `json:"customer_id" gorm:"not null;index"`
+	Kind                     string                 `json:"kind" gorm:"type:varchar(16);not null"`
+	PaidMinor                int64                  `json:"paid_minor" gorm:"not null"`
+	PaymentFeeMinor          int64                  `json:"payment_fee_minor" gorm:"not null"`
+	RemovedQuota             int64                  `json:"removed_quota" gorm:"not null"`
+	ReversedProfitMinorExact ResellerExactAggregate `json:"reversed_profit_minor_exact" gorm:"not null"`
+	LedgerEntryIDs           string                 `json:"ledger_entry_ids" gorm:"type:text;not null"`
+	ActorID                  int                    `json:"actor_id" gorm:"not null"`
+	Reason                   string                 `json:"reason" gorm:"type:text;not null"`
+	PaymentReference         string                 `json:"payment_reference" gorm:"type:varchar(192);not null"`
+	PayloadHash              string                 `json:"-" gorm:"type:char(64);not null"`
+	CreatedAt                int64                  `json:"created_at" gorm:"not null"`
 }
 
 func (CustomerPaymentReversal) TableName() string { return "customer_payment_reversals" }
@@ -101,7 +101,7 @@ func ReverseCustomerPaymentTx(tx *gorm.DB, input CustomerPaymentReversalInput) (
 	if user.Quota < lot.RemainingQuota {
 		return nil, ErrResellerWalletInvariant
 	}
-	reversal := &CustomerPaymentReversal{TenantID: input.TenantID, IdempotencyKey: input.IdempotencyKey, PaymentLotID: lot.ID, TopUpID: input.TopUpID, CustomerID: user.Id, Kind: input.Kind, PaidMinor: lot.PaidMinor, PaymentFeeMinor: lot.PaymentFeeMinor, RemovedQuota: lot.RemainingQuota, ActorID: input.ActorID, Reason: input.Reason, PaymentReference: input.PaymentReference, PayloadHash: hash, CreatedAt: now}
+	reversal := &CustomerPaymentReversal{TenantID: input.TenantID, IdempotencyKey: input.IdempotencyKey, PaymentLotID: lot.ID, TopUpID: input.TopUpID, CustomerID: user.Id, Kind: input.Kind, PaidMinor: lot.PaidMinor, PaymentFeeMinor: lot.PaymentFeeMinor, RemovedQuota: lot.RemainingQuota, ReversedProfitMinorExact: "0", ActorID: input.ActorID, Reason: input.Reason, PaymentReference: input.PaymentReference, PayloadHash: hash, CreatedAt: now}
 	if err := tx.Create(reversal).Error; err != nil {
 		return nil, err
 	}
@@ -113,7 +113,11 @@ func ReverseCustomerPaymentTx(tx *gorm.DB, input CustomerPaymentReversalInput) (
 	if err != nil {
 		return nil, err
 	}
-	reversal.ReversedProfitMinorExact, reversal.LedgerEntryIDs = profit.String(), string(encoded)
+	reversal.ReversedProfitMinorExact, err = resellerAggregateString(profit)
+	if err != nil {
+		return nil, err
+	}
+	reversal.LedgerEntryIDs = string(encoded)
 	if err := tx.Save(reversal).Error; err != nil {
 		return nil, err
 	}
@@ -130,25 +134,25 @@ func ReverseCustomerPaymentTx(tx *gorm.DB, input CustomerPaymentReversalInput) (
 // Reverse a mixed-lot settlement then retain only its unaffected allocations.
 // This uses its frozen supplier tariff and original release time, and preserves
 // exact carry even when one request received a previous request's fractional fen.
-func reversePaymentLotProfitsTx(tx *gorm.DB, wallet *ResellerWallet, lot CustomerPaymentLot, reversal *CustomerPaymentReversal) (decimal.Decimal, []int64, error) {
+func reversePaymentLotProfitsTx(tx *gorm.DB, wallet *ResellerWallet, lot CustomerPaymentLot, reversal *CustomerPaymentReversal) (*big.Rat, []int64, error) {
 	quotes := tx.Model(&PricingQuote{}).Select("id").Where("tenant_id = ? AND customer_id = ?", lot.TenantID, lot.CustomerID)
 	reversed := tx.Model(&ResellerLedgerEntry{}).Select("reversal_of").Where("tenant_id = ? AND kind = ?", lot.TenantID, ResellerLedgerKindChargeback)
 	var settlements []ResellerLedgerEntry
 	if err := tx.Where("tenant_id = ? AND kind = ? AND quote_id IN (?) AND operation_id NOT IN (?)", lot.TenantID, ResellerLedgerKindSettlement, quotes, reversed).Order("id").Find(&settlements).Error; err != nil {
-		return decimal.Zero, nil, err
+		return nil, nil, err
 	}
-	total, entryIDs := decimal.Zero, make([]int64, 0)
+	total, entryIDs := new(big.Rat), make([]int64, 0)
 	for _, original := range settlements {
 		var allocations []ResellerPaymentAllocation
 		if err := common.UnmarshalJsonStr(original.PaymentAllocations, &allocations); err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
 		kept := make([]ResellerPaymentAllocation, 0, len(allocations))
 		var removedQuota, removedSale, removedFee int64
 		var allocatedQuota, allocatedSale, allocatedFee int64
 		for _, allocation := range allocations {
 			if allocation.Quota <= 0 || allocation.Quota > math.MaxInt32 || allocation.SaleMinor < 0 || allocation.FeeMinor < 0 || allocatedQuota > math.MaxInt32-allocation.Quota || allocatedSale > math.MaxInt64-allocation.SaleMinor || allocatedFee > math.MaxInt64-allocation.FeeMinor {
-				return decimal.Zero, nil, ErrResellerWalletInvariant
+				return nil, nil, ErrResellerWalletInvariant
 			}
 			allocatedQuota += allocation.Quota
 			allocatedSale += allocation.SaleMinor
@@ -165,60 +169,69 @@ func reversePaymentLotProfitsTx(tx *gorm.DB, wallet *ResellerWallet, lot Custome
 			continue
 		}
 		if allocatedQuota <= 0 || allocatedSale != original.SaleMinor || allocatedFee != original.PaymentFeeMinor || removedQuota > lot.ConsumedQuota {
-			return decimal.Zero, nil, ErrResellerWalletInvariant
+			return nil, nil, ErrResellerWalletInvariant
 		}
 		var quote PricingQuote
 		if err := tx.First(&quote, original.QuoteID).Error; err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
-		unit, err := parseResellerDecimal(quote.SupplierMinorPerQuota)
+		unit, err := parseResellerExact(quote.SupplierMinorPerQuota)
 		if err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
-		supplier, err := parseResellerDecimal(original.SupplierMinorExact)
-		if err != nil || !supplier.Equal(unit.Mul(decimal.NewFromInt(allocatedQuota))) {
-			return decimal.Zero, nil, ErrResellerWalletInvariant
+		supplier, err := parseResellerExact(original.SupplierMinorExact)
+		if err != nil || supplier.Cmp(new(big.Rat).Mul(unit, big.NewRat(allocatedQuota, 1))) != 0 {
+			return nil, nil, ErrResellerWalletInvariant
 		}
-		originalProfit, err := parseResellerDecimal(original.ExactProfitMinor)
-		if err != nil || !originalProfit.Equal(decimal.NewFromInt(allocatedSale-allocatedFee).Sub(supplier)) {
-			return decimal.Zero, nil, ErrResellerWalletInvariant
+		originalProfit, err := parseResellerExact(original.ExactProfitMinor)
+		if err != nil || originalProfit.Cmp(new(big.Rat).Sub(big.NewRat(allocatedSale-allocatedFee, 1), supplier)) != 0 {
+			return nil, nil, ErrResellerWalletInvariant
 		}
-		removedProfit := decimal.NewFromInt(removedSale - removedFee).Sub(unit.Mul(decimal.NewFromInt(removedQuota)))
-		total = total.Add(removedProfit)
+		removedSupplier := new(big.Rat).Mul(unit, big.NewRat(removedQuota, 1))
+		removedProfit := new(big.Rat).Sub(big.NewRat(removedSale-removedFee, 1), removedSupplier)
+		total.Add(total, removedProfit)
 		entry, err := ReverseResellerSettlementTx(tx, ResellerChargebackInput{TenantID: lot.TenantID, OriginalOperation: original.OperationID, ActorID: reversal.ActorID, Reason: fmt.Sprintf("payment %s %d: %s", reversal.Kind, reversal.TopUpID, reversal.Reason), Now: reversal.CreatedAt})
 		if err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
 		entryIDs = append(entryIDs, entry.ID)
 		if len(kept) == 0 {
 			continue
 		}
 		if err := tx.First(wallet, wallet.ID).Error; err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
-		profit := originalProfit.Sub(removedProfit)
+		profit := new(big.Rat).Sub(originalProfit, removedProfit)
 		credit, err := accrueResellerPendingProfit(wallet, profit)
 		if err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
 		wallet.UpdatedAt = reversal.CreatedAt
 		if err := tx.Save(wallet).Error; err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
 		encoded, err := common.Marshal(kept)
 		if err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
-		retained := &ResellerLedgerEntry{TenantID: lot.TenantID, WalletID: wallet.ID, OperationID: fmt.Sprintf("payment-retained:%d:%d", reversal.ID, original.ID), Kind: ResellerLedgerKindSettlement, AmountMinor: credit, PendingDelta: credit, QuoteID: original.QuoteID, SourceReference: original.SourceReference, ReversalOf: original.OperationID, AvailableAt: original.AvailableAt, CreatedAt: reversal.CreatedAt, SaleMinor: original.SaleMinor - removedSale, PaymentFeeMinor: original.PaymentFeeMinor - removedFee, SupplierMinorExact: supplier.Sub(unit.Mul(decimal.NewFromInt(removedQuota))).String(), ExactProfitMinor: profit.String(), PaymentAllocations: string(encoded), ActorID: reversal.ActorID, Reason: "retained allocations after payment reversal"}
+		supplierText, err := resellerExactString(new(big.Rat).Sub(supplier, removedSupplier), 128)
+		if err != nil {
+			return nil, nil, err
+		}
+		profitText, err := resellerExactString(profit, 128)
+		if err != nil {
+			return nil, nil, err
+		}
+		retained := &ResellerLedgerEntry{TenantID: lot.TenantID, WalletID: wallet.ID, OperationID: fmt.Sprintf("payment-retained:%d:%d", reversal.ID, original.ID), Kind: ResellerLedgerKindSettlement, AmountMinor: credit, PendingDelta: credit, QuoteID: original.QuoteID, SourceReference: original.SourceReference, ReversalOf: original.OperationID, AvailableAt: original.AvailableAt, CreatedAt: reversal.CreatedAt, SaleMinor: original.SaleMinor - removedSale, PaymentFeeMinor: original.PaymentFeeMinor - removedFee, SupplierMinorExact: supplierText, ExactProfitMinor: profitText, PaymentAllocations: string(encoded), ActorID: reversal.ActorID, Reason: "retained allocations after payment reversal"}
 		if _, err := createResellerLedgerEntry(tx, retained, struct{ ReversalID, OriginalID int64 }{reversal.ID, original.ID}); err != nil {
-			return decimal.Zero, nil, err
+			return nil, nil, err
 		}
 		entryIDs = append(entryIDs, retained.ID)
 	}
 	// Due retained profits restore their prior liquidity and repay any debt
 	// caused by the full reversal before this transaction commits.
 	if _, err := ReleaseResellerPendingTx(tx, lot.TenantID, reversal.CreatedAt, 0); err != nil {
-		return decimal.Zero, nil, err
+		return nil, nil, err
 	}
 	return total, entryIDs, nil
 }

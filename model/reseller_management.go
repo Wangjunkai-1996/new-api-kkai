@@ -64,7 +64,7 @@ func ReviewResellerApplicationTx(tx *gorm.DB, applicationID int64, reviewerID in
 		if err := tx.Create(&TenantProfile{TenantID: tenant.ID, SiteName: application.BusinessName, Contact: application.ContactEmail}).Error; err != nil {
 			return nil, err
 		}
-		if err := tx.Create(&ResellerWallet{TenantID: tenant.ID, Version: 1, CreatedAt: now.Unix(), UpdatedAt: now.Unix()}).Error; err != nil {
+		if err := tx.Create(&ResellerWallet{TenantID: tenant.ID, ExactProfitCarry: "0", Version: 1, CreatedAt: now.Unix(), UpdatedAt: now.Unix()}).Error; err != nil {
 			return nil, err
 		}
 	}

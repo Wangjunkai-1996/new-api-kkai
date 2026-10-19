@@ -103,16 +103,16 @@ func (CustomerPaymentLot) TableName() string { return "customer_payment_lots" }
 // ResellerWallet is a materialized summary. Every mutation has a matching
 // append-only ledger entry and is performed under the same database transaction.
 type ResellerWallet struct {
-	ID               int64  `json:"id" gorm:"primaryKey"`
-	TenantID         int64  `json:"tenant_id" gorm:"not null;uniqueIndex"`
-	PendingMinor     int64  `json:"pending_minor" gorm:"not null"`
-	AvailableMinor   int64  `json:"available_minor" gorm:"not null"`
-	FrozenMinor      int64  `json:"frozen_minor" gorm:"not null"`
-	DebtMinor        int64  `json:"debt_minor" gorm:"not null"`
-	ExactProfitCarry string `json:"exact_profit_carry" gorm:"type:varchar(128);not null;default:'0'"`
-	Version          int64  `json:"version" gorm:"not null"`
-	CreatedAt        int64  `json:"created_at" gorm:"not null"`
-	UpdatedAt        int64  `json:"updated_at" gorm:"not null"`
+	ID               int64                  `json:"id" gorm:"primaryKey"`
+	TenantID         int64                  `json:"tenant_id" gorm:"not null;uniqueIndex"`
+	PendingMinor     int64                  `json:"pending_minor" gorm:"not null"`
+	AvailableMinor   int64                  `json:"available_minor" gorm:"not null"`
+	FrozenMinor      int64                  `json:"frozen_minor" gorm:"not null"`
+	DebtMinor        int64                  `json:"debt_minor" gorm:"not null"`
+	ExactProfitCarry ResellerExactAggregate `json:"exact_profit_carry" gorm:"not null"`
+	Version          int64                  `json:"version" gorm:"not null"`
+	CreatedAt        int64                  `json:"created_at" gorm:"not null"`
+	UpdatedAt        int64                  `json:"updated_at" gorm:"not null"`
 }
 
 func (ResellerWallet) TableName() string { return "reseller_wallets" }
@@ -317,21 +317,25 @@ func applyResellerWalletDelta(wallet *ResellerWallet, pending, available, frozen
 
 // accrueResellerPendingProfit preserves sub-fen economics across requests and
 // payment corrections. Signed carry can never be withdrawn as income.
-func accrueResellerPendingProfit(wallet *ResellerWallet, exactProfit decimal.Decimal) (int64, error) {
-	carry, err := parseResellerDecimal(wallet.ExactProfitCarry)
+func accrueResellerPendingProfit(wallet *ResellerWallet, exactProfit *big.Rat) (int64, error) {
+	carry, err := parseResellerAggregate(wallet.ExactProfitCarry)
 	if err != nil {
 		return 0, err
 	}
-	carry = carry.Add(exactProfit)
+	carry.Add(carry, exactProfit)
 	credit := int64(0)
-	if carry.GreaterThanOrEqual(decimal.NewFromInt(1)) {
-		if carry.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+	if carry.Cmp(big.NewRat(1, 1)) >= 0 {
+		integer := new(big.Int).Quo(carry.Num(), carry.Denom())
+		if !integer.IsInt64() {
 			return 0, ErrResellerWalletInvariant
 		}
-		credit = carry.Floor().IntPart()
-		carry = carry.Sub(decimal.NewFromInt(credit))
+		credit = integer.Int64()
+		carry.Sub(carry, big.NewRat(credit, 1))
 	}
-	wallet.ExactProfitCarry = carry.String()
+	wallet.ExactProfitCarry, err = resellerAggregateString(carry)
+	if err != nil {
+		return 0, err
+	}
 	if err := applyResellerWalletDelta(wallet, credit, 0, 0, 0); err != nil {
 		return 0, err
 	}
@@ -366,8 +370,8 @@ func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) 
 	if tx == nil || input.TenantID <= 0 || input.CustomerID <= 0 || strings.TrimSpace(input.RequestID) == "" || len(input.RequestID) > 128 || input.PriceVersionID <= 0 || strings.TrimSpace(input.Model) == "" || len(input.Model) > 128 || strings.TrimSpace(input.Group) == "" || len(input.Group) > 64 || input.SupplierPriceMinor < 0 || input.QuotedQuota <= 0 || len(input.SupplySnapshot) > 65536 || input.SupplierMinorPerQuota == "" {
 		return nil, ErrResellerFinanceInvalidInput
 	}
-	unit, err := parseResellerDecimal(input.SupplierMinorPerQuota)
-	if err != nil || unit.IsNegative() {
+	unit, err := parseResellerExact(input.SupplierMinorPerQuota)
+	if err != nil || unit.Sign() < 0 {
 		return nil, ErrResellerFinanceInvalidInput
 	}
 	if !input.SalesMultiplier.IsPositive() || input.SalesMultiplier.Exponent() < -18 || input.SalesMultiplier.Exponent() > 6 || input.SalesMultiplier.GreaterThan(decimal.NewFromInt(1000000)) || input.SaleMinor < 0 {
@@ -378,19 +382,19 @@ func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) 
 	if err != nil {
 		return nil, err
 	}
-	retailUnit := decimal.NewFromInt(sale).Div(decimal.NewFromInt(input.QuotedQuota))
+	retailUnit := big.NewRat(sale, input.QuotedQuota)
 	if input.SaleMinorPerQuota != "" {
-		retailUnit, err = parseResellerDecimal(input.SaleMinorPerQuota)
-		if err != nil || retailUnit.IsNegative() {
+		retailUnit, err = parseResellerExact(input.SaleMinorPerQuota)
+		if err != nil || retailUnit.Sign() < 0 {
 			return nil, ErrResellerFinanceInvalidInput
 		}
 	}
-	supplyEstimate, err := decimalCeilInt64(unit.Mul(decimal.NewFromInt(input.QuotedQuota)))
+	supplyEstimate, err := resellerExactCeilInt64(new(big.Rat).Mul(unit, big.NewRat(input.QuotedQuota, 1)))
 	if err != nil || supplyEstimate != input.SupplierPriceMinor {
 		return nil, ErrResellerFinanceInvalidInput
 	}
 	if input.SaleMinorPerQuota != "" {
-		saleEstimate, err := decimalCeilInt64(retailUnit.Mul(decimal.NewFromInt(input.QuotedQuota)))
+		saleEstimate, err := resellerExactCeilInt64(new(big.Rat).Mul(retailUnit, big.NewRat(input.QuotedQuota, 1)))
 		if err != nil || saleEstimate != sale {
 			return nil, ErrResellerFinanceInvalidInput
 		}
@@ -398,21 +402,35 @@ func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) 
 	// A tiny request may have independently rounded sale, fee and cost estimates
 	// of one fen each. Eligibility uses the exact tariff; paid-lot allocation
 	// enforces the actual funding ratio before any upstream request or settlement.
-	netUnit := retailUnit.Mul(decimal.NewFromInt(1).Sub(decimal.RequireFromString(ResellerPaymentFeeRate)))
-	if netUnit.LessThan(unit) {
+	netRate := new(big.Rat).Sub(big.NewRat(1, 1), decimal.RequireFromString(ResellerPaymentFeeRate).Rat())
+	netUnit := new(big.Rat).Mul(retailUnit, netRate)
+	if netUnit.Cmp(unit) < 0 {
 		return nil, ErrResellerPriceBelowCost
 	}
-	exactProfit := netUnit.Sub(unit).Mul(decimal.NewFromInt(input.QuotedQuota))
-	if exactProfit.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+	exactProfit := new(big.Rat).Mul(new(big.Rat).Sub(netUnit, unit), big.NewRat(input.QuotedQuota, 1))
+	profitInteger := new(big.Int).Div(exactProfit.Num(), exactProfit.Denom())
+	if !profitInteger.IsInt64() {
 		return nil, ErrResellerFinanceInvalidInput
 	}
-	profit := exactProfit.Floor().IntPart()
+	profit := profitInteger.Int64()
+	profitText, err := resellerExactString(exactProfit, 128)
+	if err != nil {
+		return nil, err
+	}
+	unitText, err := resellerExactString(unit, 64)
+	if err != nil {
+		return nil, err
+	}
+	retailText, err := resellerExactString(retailUnit, 64)
+	if err != nil {
+		return nil, err
+	}
 	now := normalizeFinanceNow(input.Now)
 	// Time is not part of an idempotent request's financial identity.
 	payload := input
 	payload.Now = 0
-	payload.SupplierMinorPerQuota = unit.String()
-	payload.SaleMinorPerQuota = retailUnit.String()
+	payload.SupplierMinorPerQuota = unitText
+	payload.SaleMinorPerQuota = retailText
 	hash, err := financePayloadHash(payload)
 	if err != nil {
 		return nil, err
@@ -426,7 +444,7 @@ func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) 
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	quote := &PricingQuote{TenantID: input.TenantID, CustomerID: input.CustomerID, RequestID: input.RequestID, PriceVersionID: input.PriceVersionID, Model: input.Model, Group: input.Group, SupplierPriceMinor: input.SupplierPriceMinor, SupplierMinorPerQuota: unit.String(), SaleMinorPerQuota: retailUnit.String(), SupplySnapshot: input.SupplySnapshot, SalesMultiplier: input.SalesMultiplier.String(), SaleMinor: sale, PaymentFeeMinor: fee, ProfitMinor: profit, ProfitMinorExact: exactProfit.String(), QuotedQuota: input.QuotedQuota, Currency: ResellerCurrencyCNY, PayloadHash: hash, CreatedAt: now}
+	quote := &PricingQuote{TenantID: input.TenantID, CustomerID: input.CustomerID, RequestID: input.RequestID, PriceVersionID: input.PriceVersionID, Model: input.Model, Group: input.Group, SupplierPriceMinor: input.SupplierPriceMinor, SupplierMinorPerQuota: unitText, SaleMinorPerQuota: retailText, SupplySnapshot: input.SupplySnapshot, SalesMultiplier: input.SalesMultiplier.String(), SaleMinor: sale, PaymentFeeMinor: fee, ProfitMinor: profit, ProfitMinorExact: profitText, QuotedQuota: input.QuotedQuota, Currency: ResellerCurrencyCNY, PayloadHash: hash, CreatedAt: now}
 	if err := tx.Create(quote).Error; err != nil {
 		return nil, err
 	}

@@ -72,7 +72,7 @@ func TestTenantBillingFreezesCashTariffAndSettlesSubFenUsage(t *testing.T) {
 	var wallet model.ResellerWallet
 	require.NoError(t, db.Where("tenant_id = ?", 42).First(&wallet).Error)
 	assert.Zero(t, wallet.PendingMinor)
-	assert.Equal(t, "-0.005", wallet.ExactProfitCarry)
+	assert.EqualValues(t, "-0.005", wallet.ExactProfitCarry)
 	var entries []model.ResellerLedgerEntry
 	require.NoError(t, db.Find(&entries).Error)
 	require.Len(t, entries, 1)

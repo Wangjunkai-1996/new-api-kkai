@@ -3,10 +3,10 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -37,13 +37,13 @@ func RequestResellerWithdrawalTx(tx *gorm.DB, input ResellerWithdrawalInput) (*R
 	if wallet.DebtMinor > 0 {
 		return nil, ErrResellerDebtOutstanding
 	}
-	carry, err := parseResellerDecimal(wallet.ExactProfitCarry)
+	carry, err := parseResellerAggregate(wallet.ExactProfitCarry)
 	if err != nil {
 		return nil, err
 	}
 	reserve := int64(0)
-	if carry.IsNegative() {
-		reserve, err = decimalCeilInt64(carry.Neg())
+	if carry.Sign() < 0 {
+		reserve, err = resellerExactCeilInt64(new(big.Rat).Neg(carry))
 		if err != nil {
 			return nil, err
 		}
@@ -138,12 +138,18 @@ func ReviewResellerWithdrawalTx(tx *gorm.DB, input ResellerWithdrawalReviewInput
 		return nil, ErrResellerDebtOutstanding
 	}
 	if input.Status == ResellerWithdrawalPaid {
-		carry, err := parseResellerDecimal(wallet.ExactProfitCarry)
+		carry, err := parseResellerAggregate(wallet.ExactProfitCarry)
 		if err != nil {
 			return nil, err
 		}
-		if carry.IsNegative() && decimal.NewFromInt(wallet.AvailableMinor).LessThan(carry.Neg().Ceil()) {
-			return nil, ErrResellerInsufficientFunds
+		if carry.Sign() < 0 {
+			reserve, reserveErr := resellerExactCeilInt64(new(big.Rat).Neg(carry))
+			if reserveErr != nil {
+				return nil, reserveErr
+			}
+			if wallet.AvailableMinor < reserve {
+				return nil, ErrResellerInsufficientFunds
+			}
 		}
 	}
 	availableDelta, frozenDelta := int64(0), int64(0)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"math/big"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -85,7 +86,7 @@ func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput Resel
 		if err := tx.Where("tenant_id = ? AND customer_id = ? AND remaining_quota > 0 AND refund_status = ?", user.TenantID, user.Id, "none").Find(&lots).Error; err != nil {
 			return err
 		}
-		unit, err := parseResellerDecimal(quoteInput.SupplierMinorPerQuota)
+		unit, err := parseResellerExact(quoteInput.SupplierMinorPerQuota)
 		if err != nil {
 			return err
 		}
@@ -94,7 +95,7 @@ func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput Resel
 			if lot.CreditedQuota <= 0 {
 				return ErrResellerFinanceInvalidInput
 			}
-			if decimal.NewFromInt(lot.PaidMinor - lot.PaymentFeeMinor).LessThan(unit.Mul(decimal.NewFromInt(lot.CreditedQuota))) {
+			if big.NewRat(lot.PaidMinor-lot.PaymentFeeMinor, 1).Cmp(new(big.Rat).Mul(unit, big.NewRat(lot.CreditedQuota, 1))) < 0 {
 				return ErrResellerPriceBelowCost
 			}
 			remaining = remaining.Add(decimal.NewFromInt(lot.RemainingQuota))

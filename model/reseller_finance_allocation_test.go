@@ -60,7 +60,7 @@ func TestResellerSubFenConsumptionCarriesLossWithoutCreatingMoney(t *testing.T) 
 	a := settleFinanceFixture(t, db, "a", 1, "0.2")
 	var wallet ResellerWallet
 	require.NoError(t, db.First(&wallet, "tenant_id = ?", 2).Error)
-	assert.Equal(t, "-0.2", wallet.ExactProfitCarry)
+	assert.EqualValues(t, "-0.2", wallet.ExactProfitCarry)
 	assert.Zero(t, a.AmountMinor)
 	b := settleFinanceFixture(t, db, "b", 1, "0.2")
 	c := settleFinanceFixture(t, db, "c", 1, "0.2")
@@ -68,7 +68,7 @@ func TestResellerSubFenConsumptionCarriesLossWithoutCreatingMoney(t *testing.T) 
 	assert.Equal(t, int64(2), a.SaleMinor+b.SaleMinor+c.SaleMinor)
 	assert.Equal(t, int64(1), a.PaymentFeeMinor+b.PaymentFeeMinor+c.PaymentFeeMinor)
 	assert.Zero(t, wallet.PendingMinor)
-	assert.Equal(t, "0.4", wallet.ExactProfitCarry)
+	assert.EqualValues(t, "0.4", wallet.ExactProfitCarry)
 }
 
 func TestResellerReversedPendingSettlementIsNeverReleased(t *testing.T) {

@@ -80,8 +80,10 @@ func PrepareTenantPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 	if math.IsNaN(supply) || math.IsInf(supply, 0) || supply < 0 || math.IsNaN(operation_setting.Price) || math.IsInf(operation_setting.Price, 0) || operation_setting.Price <= 0 || common.QuotaPerUnit <= 0 {
 		return model.ErrResellerInvalidPrice
 	}
-	cashUnit := decimal.NewFromFloat(operation_setting.Price).Mul(decimal.NewFromInt(100)).Div(decimal.NewFromFloat(common.QuotaPerUnit))
-	supplierUnit := cashUnit.Mul(decimal.NewFromFloat(supply)).Div(retail)
+	cashUnit, supplierUnit, err := model.ResellerQuotaTariff(decimal.NewFromFloat(operation_setting.Price), decimal.NewFromFloat(common.QuotaPerUnit), decimal.NewFromFloat(supply), retail)
+	if err != nil {
+		return err
+	}
 	snapshot, err := common.Marshal(map[string]any{"supply_group": entry.SalesGroup, "supply_ratio": decimal.NewFromFloat(supply).String(), "retail_ratio": retail.String(), "cny_per_unit": decimal.NewFromFloat(operation_setting.Price).String(), "quota_per_unit": common.QuotaPerUnit, "rounding": "paid_lot_cumulative_fen", "payment_fee_rate": model.ResellerPaymentFeeRate})
 	if err != nil {
 		return err
@@ -89,8 +91,8 @@ func PrepareTenantPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 	info.TenantID, info.TenantPriceVersionID = tenantID, price.ID
 	info.TenantRetailMultiplier, _ = retail.Float64()
 	info.TenantSalesMultiplier = retail.String()
-	info.TenantSaleMinorPerQuota = cashUnit.String()
-	info.TenantSupplierMinorPerQuota = supplierUnit.String()
+	info.TenantSaleMinorPerQuota = cashUnit
+	info.TenantSupplierMinorPerQuota = supplierUnit
 	info.TenantSupplySnapshot = string(snapshot)
 	info.TenantSupplierPriceMinor = price.SupplierPriceMinor
 	info.UsingGroup, info.TokenGroup = entry.SalesGroup, entry.SalesGroup
@@ -110,28 +112,23 @@ func preConsumeTenantBilling(c *gin.Context, info *relaycommon.RelayInfo, quota 
 		return nil
 	}
 	quota = max(quota, 1)
-	cashUnit, err := decimal.NewFromString(info.TenantSaleMinorPerQuota)
-	if err != nil || !cashUnit.IsPositive() {
-		return types.NewError(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
-	}
 	retail, err := decimal.NewFromString(info.TenantSalesMultiplier)
 	if err != nil || !retail.IsPositive() {
 		return types.NewError(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
-	}
-	supplyUnit, err := decimal.NewFromString(info.TenantSupplierMinorPerQuota)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
 	}
 	snapshot, err := common.Marshal(map[string]any{"tariff": info.TenantSupplySnapshot, "price": info.PriceData, "tiered": info.TieredBillingSnapshot})
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
 	}
-	sale := cashUnit.Mul(decimal.NewFromInt(int64(quota))).Ceil()
-	supply := supplyUnit.Mul(decimal.NewFromInt(int64(quota))).Ceil()
-	if sale.GreaterThan(decimal.NewFromInt(math.MaxInt64)) || supply.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+	sale, err := model.ResellerQuotedCharge(info.TenantSaleMinorPerQuota, int64(quota))
+	if err != nil || sale <= 0 {
 		return types.NewError(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
 	}
-	record, err := model.ReserveTenantConsumption(context.WithoutCancel(c.Request.Context()), model.DB, model.ResellerPricingQuoteInput{TenantID: info.TenantID, CustomerID: info.UserId, RequestID: info.RequestId, PriceVersionID: info.TenantPriceVersionID, Model: info.OriginModelName, Group: info.UsingGroup, SaleMinor: sale.IntPart(), SaleMinorPerQuota: cashUnit.String(), SupplierPriceMinor: supply.IntPart(), SupplierMinorPerQuota: info.TenantSupplierMinorPerQuota, SupplySnapshot: string(snapshot), SalesMultiplier: retail, QuotedQuota: int64(quota)}, info.TokenId)
+	supply, err := model.ResellerQuotedCharge(info.TenantSupplierMinorPerQuota, int64(quota))
+	if err != nil {
+		return types.NewError(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
+	}
+	record, err := model.ReserveTenantConsumption(context.WithoutCancel(c.Request.Context()), model.DB, model.ResellerPricingQuoteInput{TenantID: info.TenantID, CustomerID: info.UserId, RequestID: info.RequestId, PriceVersionID: info.TenantPriceVersionID, Model: info.OriginModelName, Group: info.UsingGroup, SaleMinor: sale, SaleMinorPerQuota: info.TenantSaleMinorPerQuota, SupplierPriceMinor: supply, SupplierMinorPerQuota: info.TenantSupplierMinorPerQuota, SupplySnapshot: string(snapshot), SalesMultiplier: retail, QuotedQuota: int64(quota)}, info.TokenId)
 	if err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
