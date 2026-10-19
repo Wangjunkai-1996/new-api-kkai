@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 
 import { findMembershipDiscountConflicts } from '../lib'
@@ -27,9 +26,7 @@ import type { MembershipCatalog } from '../types'
 
 export function MembershipDiscountEditor(props: {
   catalog: MembershipCatalog
-  publishedGroups?: string[]
   onDiscountChange: (tierIndex: number, group: string, value: number) => void
-  onPublishedChange: (groupIndex: number, value: boolean) => void
   disabled?: boolean
 }) {
   const { t } = useTranslation()
@@ -62,18 +59,6 @@ export function MembershipDiscountEditor(props: {
                 <p className='font-medium'>{group.display_name || group.key}</p>
                 <p className='text-muted-foreground text-xs'>{group.key}</p>
               </div>
-              <label className='flex items-center gap-2 text-sm'>
-                <Checkbox
-                  checked={group.published}
-                  onCheckedChange={(checked) =>
-                    props.onPublishedChange(groupIndex, checked === true)
-                  }
-                  disabled={
-                    props.disabled || props.publishedGroups?.includes(group.key)
-                  }
-                />
-                {t('Publish group benefits')}
-              </label>
             </div>
             <div className='grid gap-3 sm:grid-cols-3'>
               {tiers.map(({ tier, index }) => {
@@ -107,7 +92,7 @@ export function MembershipDiscountEditor(props: {
                             : Number(event.target.value)
                         )
                       }
-                      disabled={props.disabled || !group.published}
+                      disabled={props.disabled}
                       aria-invalid={invalid}
                     />
                     {invalid && (
@@ -119,13 +104,6 @@ export function MembershipDiscountEditor(props: {
                 )
               })}
             </div>
-            {!group.published && (
-              <p className='text-muted-foreground mt-3 text-xs'>
-                {t(
-                  'Unpublished groups temporarily have no extra discount. Their first published benefits also apply to eligible existing members.'
-                )}
-              </p>
-            )}
           </div>
         ))}
       </div>

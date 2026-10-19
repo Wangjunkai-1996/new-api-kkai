@@ -67,6 +67,25 @@ export function isMembershipOrderPending(order: MembershipOrder): boolean {
   return order.status === 'pending'
 }
 
+export function normalizeMembershipCatalogForSubmission(
+  catalog: MembershipCatalog
+): MembershipCatalog {
+  return {
+    ...catalog,
+    groups: catalog.groups.map((group) => ({ ...group, published: true })),
+    tiers: catalog.tiers.map((tier) => ({
+      ...tier,
+      discounts: catalog.groups.reduce(
+        (discounts, group) => ({
+          ...discounts,
+          [group.key]: tier.discounts[group.key] ?? 1,
+        }),
+        { ...tier.discounts }
+      ),
+    })),
+  }
+}
+
 export interface MembershipDiscountConflict {
   group: string
   tier: string
@@ -78,7 +97,6 @@ export function findMembershipDiscountConflicts(
   const tiers = [...catalog.tiers].sort((a, b) => a.rank - b.rank)
   const conflicts: MembershipDiscountConflict[] = []
   for (const group of catalog.groups) {
-    if (!group.published) continue
     let previous = 1
     for (const tier of tiers) {
       const coefficient = tier.discounts[group.key] ?? 1

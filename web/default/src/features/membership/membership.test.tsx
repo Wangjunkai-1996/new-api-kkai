@@ -51,7 +51,11 @@ import { MembershipPurchaseDialog } from './components/purchase-dialog'
 import { ResolveMembershipOrderDialog } from './components/resolve-order-dialog'
 import { MembershipTierCard } from './components/tier-card'
 import { membershipCatalogSchema } from './form'
-import { findMembershipDiscountConflicts, formatMembershipPrice } from './lib'
+import {
+  findMembershipDiscountConflicts,
+  formatMembershipPrice,
+  normalizeMembershipCatalogForSubmission,
+} from './lib'
 import type {
   MembershipCatalog,
   MembershipOrder,
@@ -476,6 +480,26 @@ describe('membership publication validation', () => {
         tiers: [tier, { ...catalog.tiers[1], discounts: { enterprise: 0.9 } }],
       })
     ).toEqual([])
+  })
+
+  it('publishes every group and fills missing coefficients when submitting', () => {
+    const unpublishedConflict = {
+      ...catalog,
+      groups: [{ ...catalog.groups[0], published: false }],
+      tiers: [tier, { ...catalog.tiers[1], discounts: { enterprise: 0.96 } }],
+    }
+    expect(findMembershipDiscountConflicts(unpublishedConflict)).toEqual([
+      { group: 'enterprise', tier: 'level-b' },
+    ])
+
+    const normalized = normalizeMembershipCatalogForSubmission({
+      ...catalog,
+      groups: [{ ...catalog.groups[0], published: false }],
+      tiers: catalog.tiers.map((item) => ({ ...item, discounts: {} })),
+    })
+    expect(normalized.groups[0].published).toBe(true)
+    expect(normalized.tiers[0].discounts).toEqual({ enterprise: 1 })
+    expect(normalized.tiers[1].discounts).toEqual({ enterprise: 1 })
   })
 
   it('prevents selling incomplete parameters and duplicate tier identities', () => {

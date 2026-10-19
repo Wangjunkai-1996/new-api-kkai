@@ -34,6 +34,7 @@ import { handleServerError } from '@/lib/handle-server-error'
 
 import { publishMembershipCatalog } from '../api'
 import { membershipCatalogSchema } from '../form'
+import { normalizeMembershipCatalogForSubmission } from '../lib'
 import type { MembershipCatalog } from '../types'
 import { MembershipDiscountEditor } from './discount-editor'
 import { MembershipModelLimitEditor } from './model-limit-editor'
@@ -79,7 +80,12 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
   const errors = form.formState.errors
 
   return (
-    <form onSubmit={form.handleSubmit(setConfirmation)} className='space-y-6'>
+    <form
+      onSubmit={form.handleSubmit((values) =>
+        setConfirmation(normalizeMembershipCatalogForSubmission(values))
+      )}
+      className='space-y-6'
+    >
       <div className='flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4'>
         <label className='flex items-center gap-2 font-medium'>
           <Checkbox
@@ -351,20 +357,12 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
       />
       <MembershipDiscountEditor
         catalog={catalog}
-        publishedGroups={props.catalog.groups
-          .filter((group) => group.published)
-          .map((group) => group.key)}
         onDiscountChange={(index, group, value) =>
           form.setValue(
             `tiers.${index}.discounts`,
             { ...catalog.tiers[index].discounts, [group]: value },
             { shouldDirty: true }
           )
-        }
-        onPublishedChange={(index, value) =>
-          form.setValue(`groups.${index}.published`, value, {
-            shouldDirty: true,
-          })
         }
         disabled={publish.isPending}
       />
