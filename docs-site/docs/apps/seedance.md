@@ -66,7 +66,6 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 | 需求 | 建议模型 | 时长 | 输出与参考 |
 | --- | --- | --- | --- |
-| 2.5 兼容 720p | `seedance-2.5` | 4-30 秒 | 720p；文生或单图参考 |
 | 2.5 720p | `sd_2.5_special_720p` | 4-30 秒 | 720p；文生或单图参考 |
 | 2.5 1080p | `sd_2.5_special_1080p` | 4-30 秒 | 1080p；文生或单图参考 |
 | 2.5 视频参考 720p | `sd_2.5_special_720p_with_video_ref` | 4-30 秒 | 720p；必须单个视频参考 |
@@ -77,12 +76,37 @@ curl "https://api.kkrich.ltd/v1/models" \
 
 完整的 2.0 模型名称和差异见 [模型与能力矩阵](/api/video-generation#模型与能力矩阵)。模型是否可用始终以当前 Token 调用 `/v1/models` 的结果为准。
 
-四个 `sd_2.5_special_*` 名称沿用既有 Seedance 2.0 命名规则，是本站正式客户模型名，分别对应四个计费能力档；原有 `seedance-2.5` 仅作为 720p 兼容别名。所有 2.5 名称都支持以下画幅：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
+四个 `sd_2.5_special_*` 名称沿用既有 Seedance 2.0 命名规则，是本站正式客户模型名，分别对应四个计费能力档。所有 2.5 名称都支持以下画幅：`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`、`adaptive`。
 2.5 的普通名称（不带 `_with_video_ref` 后缀）用于文生或单图参考；带 `_with_video_ref` 后缀的名称
 必须提供一个 `reference_video`，不能只传提示词。四个正式名称都接受 `generate_audio: true`
 或 `false`，建议显式传入。
 
 2.0 也支持以上 7 种画幅；2.0 的视频参考能力仍由模型名末尾的 `_with_video_ref` 决定。
+
+## 用户价格
+
+以下是当前 `Seedance 视频` 分组的用户价格，按余额单位/秒计费。本站当前充值比例为 `1:1`，即人民币 1 元充值到账 1 个余额单位；控制台的 `$` 是余额显示符号，表中价格不再乘汇率。当前分组倍率为 `1`，因此实际扣费为「视频时长（秒）× 表中单价」。价格按生产环境 `/api/pricing` 核对，最后核对时间：2026-10-19（北京时间）。
+
+| 模型 | 单价（余额单位/秒） |
+| --- | ---: |
+| `sd_mini_special_720p` | 0.12 |
+| `sd_mini_special_720p_with_video_ref` | 0.30 |
+| `sd_2.0_fast_special_720p` | 0.25 |
+| `sd_2.0_fast_special_720p_with_video_ref` | 0.55 |
+| `sd_2.0_special_720p` | 0.60 |
+| `sd_2.0_special_720p_with_video_ref` | 1.40 |
+| `sd_2.0_special_1080p` | 0.60 |
+| `sd_2.0_special_1080p_with_video_ref` | 1.45 |
+| `sd_2.0_special_2k` | 0.70 |
+| `sd_2.0_special_2k_with_video_ref` | 1.50 |
+| `sd_2.0_special_4k` | 0.70 |
+| `sd_2.0_special_4k_with_video_ref` | 1.50 |
+| `sd_2.5_special_720p` | 0.80 |
+| `sd_2.5_special_720p_with_video_ref` | 2.90 |
+| `sd_2.5_special_1080p` | 0.85 |
+| `sd_2.5_special_1080p_with_video_ref` | 3.10 |
+
+例如，`sd_mini_special_720p` 生成 5 秒视频扣除 `0.60` 个余额单位。请使用表中的正式模型名；原兼容别名 `seedance-2.5` 当前已不在可用模型列表中。视频参考模型必须同时满足该模型的参考素材要求；同一模型的单价不会因是否传入参考素材而改变。
 
 ### 时长兜底
 
@@ -251,4 +275,4 @@ curl -X POST "https://api.kkrich.ltd/v1/video/generations" \
   <a href="/docs/support/seedance-video"><strong>错误排查</strong><span>参数、认证、任务状态、素材和下载问题。</span></a>
 </div>
 
-本文不维护价格或倍率；相关信息以本站控制台实时配置和实际用量记录为准。
+价格表按生产环境当前配置维护；如控制台价格与本文不一致，以生产环境 `/api/pricing` 和实际用量记录为准。
