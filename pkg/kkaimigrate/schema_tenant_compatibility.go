@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -26,6 +27,7 @@ func (tenantV13User) TableName() string { return "users" }
 func tenantCompatibilitySchemaSpec() string {
 	var b strings.Builder
 	b.WriteString("v13: replaces never-applied v12 only from pristine v11; ledger path 1..11,13; preserve all original usernames, emails, account IDs and balances including deleted users; platform canonical keys NULL and scoped raw username unique under existing database collation; tenant>0 canonical lower(trim) unique; reject applied or partial v12; no cash backfill\n")
+	b.WriteString("global username uniqueness: inspect database metadata by single raw username column, never by fixed name; install scoped unique first, then remove all matching PostgreSQL unique constraints/standalone indexes and MySQL unique indexes; preserve nonunique and composite indexes; SQLite supports standalone indexes and named table constraints through GORM rebuild preserving unrelated indexes/triggers; reject unnamed/unsupported SQLite uniqueness before DDL; runtime rejects remaining global username unique keys\n")
 	// Every unchanged table/snapshot shape stays bound to its frozen v12 spec.
 	b.WriteString(tenantSchemaSpec())
 	typ := reflect.TypeOf(tenantV13User{})
@@ -116,6 +118,9 @@ func PrecheckTenantCompatibilitySchema(ctx context.Context, db *gorm.DB) (*Tenan
 	if err := requirePristineTenantCompatibilitySource(ctx, query); err != nil {
 		return nil, err
 	}
+	if _, err := tenantGlobalUsernameUniqueKeys(query); err != nil {
+		return nil, err
+	}
 	report := &TenantCompatibilityPrecheck{Schema: "kkai_tenant_compatibility_precheck_v1", TargetVersion: TenantCompatibilitySchemaVersion}
 	usernames, emails := map[string]int{}, map[string]int{}
 	var rows []tenantV12User
@@ -159,6 +164,10 @@ func applyTenantCompatibilitySchema(db *gorm.DB) error {
 	if !report.Safe {
 		return fmt.Errorf("%w: incompatible legacy identities; operator repair required", ErrSchemaNotReady)
 	}
+	legacyKeys, err := tenantGlobalUsernameUniqueKeys(db)
+	if err != nil {
+		return err
+	}
 	for _, value := range tenantV12SnapshotModels() {
 		if err := db.Migrator().AddColumn(value, "TenantID"); err != nil {
 			return err
@@ -182,27 +191,35 @@ func applyTenantCompatibilitySchema(db *gorm.DB) error {
 			return err
 		}
 	}
-	// Preserve legacy SQLite indexes and triggers when removing its table-level
-	// global constraint. The new scoped unique index is already installed.
-	if db.Migrator().HasConstraint("users", "uni_users_username") {
-		var schemaDDL []string
-		if db.Dialector.Name() == DialectSQLite {
-			if err := db.Raw("SELECT sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND tbl_name = 'users' AND sql IS NOT NULL").Scan(&schemaDDL).Error; err != nil {
-				return err
-			}
-		}
-		if err := db.Migrator().DropConstraint("users", "uni_users_username"); err != nil {
-			return err
-		}
-		for _, ddl := range schemaDDL {
-			if err := db.Exec(ddl).Error; err != nil {
+	// Drop standalone global indexes before capturing the SQLite schema, so a
+	// subsequent constraint rebuild cannot accidentally recreate their uniqueness.
+	for _, key := range legacyKeys {
+		if !key.Constraint {
+			if err := db.Migrator().DropIndex("users", key.Name); err != nil {
 				return err
 			}
 		}
 	}
-	if db.Migrator().HasIndex("users", "uni_users_username") {
-		if err := db.Migrator().DropIndex("users", "uni_users_username"); err != nil {
+	var schemaDDL []string
+	if db.Dialector.Name() == DialectSQLite {
+		if err := db.Raw("SELECT sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND tbl_name = 'users' AND sql IS NOT NULL").Scan(&schemaDDL).Error; err != nil {
 			return err
+		}
+	}
+	rebuiltSQLite := false
+	for _, key := range legacyKeys {
+		if key.Constraint {
+			if err := db.Migrator().DropConstraint("users", key.Name); err != nil {
+				return err
+			}
+			rebuiltSQLite = db.Dialector.Name() == DialectSQLite
+		}
+	}
+	if rebuiltSQLite {
+		for _, ddl := range schemaDDL {
+			if err := db.Exec(ddl).Error; err != nil {
+				return err
+			}
 		}
 	}
 	for _, value := range tenantV12NewModels() {
@@ -266,7 +283,11 @@ func validateTenantCompatibilityRuntimeSchema(db *gorm.DB) error {
 			return err
 		}
 	}
-	if db.Migrator().HasConstraint("users", "uni_users_username") || db.Migrator().HasIndex("users", "uni_users_username") {
+	legacyKeys, err := tenantGlobalUsernameUniqueKeys(db)
+	if err != nil {
+		return err
+	}
+	if len(legacyKeys) != 0 {
 		return fmt.Errorf("%w: legacy global username uniqueness is still installed", ErrSchemaNotReady)
 	}
 	var rows []tenantV13User
@@ -288,4 +309,105 @@ func validateTenantCompatibilityRuntimeSchema(db *gorm.DB) error {
 		}
 		return nil
 	}).Error
+}
+
+type tenantUsernameUniqueKey struct {
+	Name       string
+	Constraint bool
+}
+
+// The legacy global key may have a PostgreSQL-generated name, a GORM name,
+// or a standalone index name. Its column shape is the migration boundary.
+func tenantGlobalUsernameUniqueKeys(db *gorm.DB) ([]tenantUsernameUniqueKey, error) {
+	var keys []tenantUsernameUniqueKey
+	switch db.Dialector.Name() {
+	case DialectPostgres:
+		var rows []struct {
+			Name           string
+			ConstraintName string
+			Primary        bool
+		}
+		if err := db.Raw(`SELECT idx.relname AS name, COALESCE(c.conname, '') AS constraint_name, i.indisprimary AS primary
+FROM pg_catalog.pg_index i
+JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+LEFT JOIN pg_catalog.pg_constraint c ON c.conindid = i.indexrelid AND c.contype IN ('u', 'p')
+WHERE i.indrelid = pg_catalog.to_regclass('users') AND i.indisunique
+ AND i.indnatts = 1 AND i.indexprs IS NULL AND a.attname = 'username'
+ORDER BY idx.relname`).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if row.Primary {
+				return nil, fmt.Errorf("%w: username primary key requires operator repair", ErrSchemaNotReady)
+			}
+			key := tenantUsernameUniqueKey{Name: row.Name}
+			if row.ConstraintName != "" {
+				key.Name, key.Constraint = row.ConstraintName, true
+			}
+			keys = append(keys, key)
+		}
+	case DialectMySQL:
+		indexes, err := db.Migrator().GetIndexes("users")
+		if err != nil {
+			return nil, err
+		}
+		for _, index := range indexes {
+			unique, known := index.Unique()
+			if !known || !unique || !equalRuntimeIndexColumns(index.Columns(), []string{"username"}) {
+				continue
+			}
+			if primary, _ := index.PrimaryKey(); primary {
+				return nil, fmt.Errorf("%w: username primary key requires operator repair", ErrSchemaNotReady)
+			}
+			keys = append(keys, tenantUsernameUniqueKey{Name: index.Name()})
+		}
+	case DialectSQLite:
+		var indexes []struct{ Name, Origin string }
+		if err := db.Raw(`SELECT name, origin FROM pragma_index_list('users') WHERE "unique" = 1`).Scan(&indexes).Error; err != nil {
+			return nil, err
+		}
+		constraintFound := false
+		for _, index := range indexes {
+			var columns []string
+			if err := db.Raw("SELECT name FROM pragma_index_info(?) ORDER BY seqno", index.Name).Scan(&columns).Error; err != nil {
+				return nil, err
+			}
+			if !equalRuntimeIndexColumns(columns, []string{"username"}) {
+				continue
+			}
+			switch index.Origin {
+			case "c":
+				keys = append(keys, tenantUsernameUniqueKey{Name: index.Name})
+			case "u":
+				constraintFound = true
+			default:
+				return nil, fmt.Errorf("%w: unsupported SQLite username unique key requires operator repair", ErrSchemaNotReady)
+			}
+		}
+		if constraintFound {
+			var ddl string
+			if err := db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").Scan(&ddl).Error; err != nil {
+				return nil, err
+			}
+			// GORM can safely remove named table constraints. Inline or unnamed
+			// UNIQUE needs explicit operator repair instead of a custom DDL rewrite.
+			unnamed := regexp.MustCompile("(?i)(?:^|,)\\s*UNIQUE\\s*\\(\\s*[\"`]?username[\"`]?\\s*\\)")
+			inline := regexp.MustCompile("(?i)(?:^|[,\\(])\\s*[\"`]?username[\"`]?\\s+[^,]*\\bUNIQUE\\b")
+			if unnamed.MatchString(ddl) || inline.MatchString(ddl) {
+				return nil, fmt.Errorf("%w: unnamed SQLite username uniqueness requires operator repair before migration", ErrSchemaNotReady)
+			}
+			pattern := regexp.MustCompile("(?i)CONSTRAINT\\s+[\"`]?([a-zA-Z_][a-zA-Z0-9_]*)[\"`]?\\s+UNIQUE\\s*\\(\\s*[\"`]?username[\"`]?\\s*\\)")
+			matches := pattern.FindAllStringSubmatch(ddl, -1)
+			if len(matches) == 0 {
+				return nil, fmt.Errorf("%w: unnamed SQLite username uniqueness requires operator repair before migration", ErrSchemaNotReady)
+			}
+			for _, match := range matches {
+				keys = append(keys, tenantUsernameUniqueKey{Name: match[1], Constraint: true})
+			}
+		}
+	default:
+		return nil, ErrUnsupportedDialect
+	}
+	return keys, nil
 }

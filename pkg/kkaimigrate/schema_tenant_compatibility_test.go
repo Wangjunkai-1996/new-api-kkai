@@ -14,6 +14,18 @@ func assertTenantCompatibilityMigrationContract(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	ctx := context.Background()
 	prepareTenantMigrationFixture(t, db)
+	if db.Dialector.Name() != DialectSQLite {
+		if db.Dialector.Name() == DialectPostgres {
+			require.NoError(t, db.Migrator().DropConstraint("users", "uni_users_username"))
+		} else {
+			require.NoError(t, db.Migrator().DropIndex("users", "uni_users_username"))
+		}
+		// Production PostgreSQL uses this database-generated constraint name.
+		require.NoError(t, db.Exec("ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE(username)").Error)
+	}
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX legacy_username_unique_index ON users(username)").Error)
+	require.NoError(t, db.Exec("CREATE INDEX idx_users_username ON users(username)").Error)
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX preserved_user_identity ON users(id,username)").Error)
 	for _, column := range []struct{ name, sqlType string }{{"password", "TEXT"}, {"quota", "BIGINT"}, {"deleted_at", "TIMESTAMP"}} {
 		if !db.Migrator().HasColumn("users", column.name) {
 			require.NoError(t, db.Exec("ALTER TABLE users ADD COLUMN "+column.name+" "+column.sqlType).Error)
@@ -42,6 +54,10 @@ func assertTenantCompatibilityMigrationContract(t *testing.T, db *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, CheckTenantCompatibilitySchema(ctx, db))
 	require.NoError(t, CheckRequired(ctx, db))
+	assert.False(t, db.Migrator().HasConstraint("users", "users_username_key"))
+	assert.False(t, db.Migrator().HasIndex("users", "legacy_username_unique_index"))
+	assert.True(t, db.Migrator().HasIndex("users", "idx_users_username"))
+	assert.True(t, db.Migrator().HasIndex("users", "preserved_user_identity"))
 	var users []tenantV13User
 	require.NoError(t, db.Order("id").Find(&users).Error)
 	require.Len(t, users, 2)
@@ -139,13 +155,16 @@ func TestTenantCompatibilityPrecheckBlocksInvalidOrRawDuplicateIdentities(t *tes
 func TestTenantCompatibilityPreservesSQLiteConstraintIndexesAndTriggers(t *testing.T) {
 	db := newMigrationTestDB(t)
 	require.NoError(t, db.Migrator().DropTable("users"))
-	require.NoError(t, db.Exec("CREATE TABLE users(id BIGINT PRIMARY KEY,telegram_id TEXT,username VARCHAR(20),email VARCHAR(50),CONSTRAINT uni_users_username UNIQUE(username))").Error)
+	require.NoError(t, db.Exec("CREATE TABLE users(id BIGINT PRIMARY KEY,telegram_id TEXT,username VARCHAR(20),email VARCHAR(50),CONSTRAINT users_username_key UNIQUE(username))").Error)
 	prepareTenantMigrationFixture(t, db)
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX another_legacy_username_key ON users(username)").Error)
 	require.NoError(t, db.Exec("CREATE INDEX idx_preserved_users_email ON users(email)").Error)
 	require.NoError(t, db.Exec("CREATE TABLE user_audit(user_id BIGINT)").Error)
 	require.NoError(t, db.Exec("CREATE TRIGGER users_audit AFTER INSERT ON users BEGIN INSERT INTO user_audit(user_id) VALUES(NEW.id); END").Error)
 	_, err := ApplyTenantCompatibilitySchema(context.Background(), db, Options{})
 	require.NoError(t, err)
+	assert.False(t, db.Migrator().HasConstraint("users", "users_username_key"))
+	assert.False(t, db.Migrator().HasIndex("users", "another_legacy_username_key"))
 	assert.True(t, db.Migrator().HasIndex("users", "idx_preserved_users_email"))
 	username := "legacy"
 	require.NoError(t, db.Create(&tenantV13User{ID: 201, TenantID: 1, Username: " Legacy ", NormalizedUsername: &username}).Error)
@@ -153,6 +172,26 @@ func TestTenantCompatibilityPreservesSQLiteConstraintIndexesAndTriggers(t *testi
 	require.NoError(t, db.Table("user_audit").Pluck("user_id", &auditID).Error)
 	assert.EqualValues(t, 201, auditID)
 	require.NoError(t, CheckRequired(context.Background(), db))
+}
+
+func TestTenantCompatibilityRejectsUnnamedSQLiteUniquenessBeforeDDL(t *testing.T) {
+	for _, identityDDL := range []string{"username VARCHAR(20) UNIQUE", "username VARCHAR(20), UNIQUE(username)"} {
+		t.Run(identityDDL, func(t *testing.T) {
+			db := newMigrationTestDB(t)
+			require.NoError(t, db.Migrator().DropTable("users"))
+			require.NoError(t, db.Exec("CREATE TABLE users(id BIGINT PRIMARY KEY,telegram_id TEXT,email VARCHAR(50),"+identityDDL+")").Error)
+			prepareTenantMigrationFixture(t, db)
+			var before []AppliedMigration
+			require.NoError(t, db.Order("version").Find(&before).Error)
+			_, err := ApplyTenantCompatibilitySchema(context.Background(), db, Options{})
+			assert.ErrorContains(t, err, "unnamed SQLite username uniqueness")
+			assert.False(t, db.Migrator().HasColumn("users", "tenant_id"))
+			assert.False(t, db.Migrator().HasTable("tenants"))
+			var after []AppliedMigration
+			require.NoError(t, db.Order("version").Find(&after).Error)
+			assert.Equal(t, before, after)
+		})
+	}
 }
 
 func TestTenantCompatibilityFailureDoesNotRecordAppliedVersion(t *testing.T) {
@@ -274,6 +313,9 @@ func TestTenantCompatibilityRuntimeChecksCanonicalScopeAndUniqueIndex(t *testing
 	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
 	require.NoError(t, db.Migrator().DropIndex(&tenantV13User{}, "idx_users_tenant_username"))
 	require.NoError(t, db.Migrator().CreateIndex(&tenantV13User{}, "idx_users_tenant_username"))
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX unexpected_global_username ON users(username)").Error)
+	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
+	require.NoError(t, db.Migrator().DropIndex("users", "unexpected_global_username"))
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	observation, err := Observe(context.Background(), db)
 	require.NoError(t, err)

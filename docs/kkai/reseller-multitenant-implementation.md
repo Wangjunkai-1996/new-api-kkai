@@ -41,6 +41,28 @@ bash scripts/kkai/build-manual-release_test.sh
 产物验证 9 项及构建脚本模拟验证通过。全仓库套件未运行，真实最终产物演练与发布验收需
 使用新后端，不能复用旧 v12 成功记录。
 
+正式镜像的双租户 API 验收发现生产旧约束名为 `users_username_key`，初版 v13 仅识别
+`uni_users_username`，导致第二租户同名注册失败。此时尚未生产停写或执行 DDL；旧产物和
+准备计划保留为失败证据，不能部署。修正后的 v13 按数据库元数据识别仅含原始 username
+一列的全部全局唯一约束/索引；新复合唯一索引先建立，普通索引和其他复合索引保留。运行时
+也拒绝任何残留的全局唯一键。只读预检及首次 DDL 前均检查可处理性。
+
+新的 PostgreSQL v13 前缀为
+`sha256:52720d6f93a65ca4f9e33d504359e789e0267fa310fc389b432414a580543835`；历史11/12
+不变。SQLite 支持独立 UNIQUE 索引和 GORM 可识别的具名表约束；无名/inline UNIQUE
+会在 DDL 前明确拒绝，需要操作者先修复，不自行重写任意表定义。完整正向 API 验收仍需
+修正后的精确新镜像，手工移除临时库旧约束的49项诊断成功不能代替它。
+
+约束修正后，下列 SQLite/CLI 定向验证及真实 PostgreSQL 9.6 / MySQL 5.7 测试均通过；
+实库使用隔离容器 DSN，18.052 秒后清理。夹具包含实际 `users_username_key` 及额外任意
+命名单列 UNIQUE 索引，验证它们被删除、普通/复合索引保留、跨租户同名可插入：
+
+```sh
+go test ./pkg/kkaimigrate ./cmd/kkai-migrate -run '^Test(TenantCompatibility|TenantSchemaImmutableChecksum|ApplyTenantMigrationTargetIsExplicit|TenantCompatibilityPrecheckCLIReportsLegacyCollisions|ContractForDialectRequiresTenantSchema|RuntimeRejectsV11|DescribeContractJSONRequiresTenantSchema)' -count=1 -timeout=120s
+go test ./pkg/kkaimigrate -run '^TestTenantCompatibilityMigrationRealDatabases$' -count=1 -timeout=120s
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/kkai/prepare-maintenance-release_test.py
+```
+
 ## 初始实现快照
 
 日期：2026-10-19
