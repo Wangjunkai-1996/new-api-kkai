@@ -72,6 +72,7 @@ export function normalizeMembershipCatalogForSubmission(
 ): MembershipCatalog {
   return {
     ...catalog,
+    model_limits: catalog.model_limits ?? {},
     groups: catalog.groups.map((group) => ({ ...group, published: true })),
     tiers: catalog.tiers.map((tier) => ({
       ...tier,

@@ -54,7 +54,7 @@ export interface MembershipCatalog {
   release_id: number
   sales_enabled: boolean
   topup_discounts_disabled?: boolean
-  model_limits?: Record<string, MembershipModelLimit>
+  model_limits?: Record<string, MembershipModelLimit> | null
   tiers: MembershipTier[]
   groups: MembershipGroup[]
 }

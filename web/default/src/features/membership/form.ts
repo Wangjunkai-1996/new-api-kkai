@@ -53,7 +53,7 @@ export function membershipCatalogSchema(t: TFunction) {
               t('At least one authorization limit must be positive.')
             )
         )
-        .optional(),
+        .nullish(),
       tiers: z.array(
         z.object({
           id: z

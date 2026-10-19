@@ -502,6 +502,43 @@ describe('membership publication validation', () => {
     expect(normalized.tiers[1].discounts).toEqual({ enterprise: 1 })
   })
 
+  it('submits a single tier with empty server model limits without changing its discount', async () => {
+    const singleTierCatalog = {
+      ...catalog,
+      model_limits: null,
+      tiers: [{ ...tier, discounts: { enterprise: 0.95 } }],
+    }
+    vi.mocked(publishMembershipCatalog).mockResolvedValue(singleTierCatalog)
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MembershipCatalogEditor catalog={singleTierCatalog} />
+      </QueryClientProvider>
+    )
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Plan Title' }),
+      ' membership'
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Publish membership configuration' })
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Confirm publication' })
+    )
+    await waitFor(() => expect(publishMembershipCatalog).toHaveBeenCalledOnce())
+    expect(publishMembershipCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model_limits: {},
+        tiers: [
+          expect.objectContaining({
+            id: tier.id,
+            discounts: { enterprise: 0.95 },
+          }),
+        ],
+      }),
+      catalog.release_id
+    )
+  })
+
   it('prevents selling incomplete parameters and duplicate tier identities', () => {
     const incomplete = {
       ...catalog,
