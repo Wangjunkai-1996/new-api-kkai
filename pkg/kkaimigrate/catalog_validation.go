@@ -75,6 +75,7 @@ func validateMigrationCatalog(migrations []migration) error {
 		if item.ChecksumVersion == migrationChecksumSchemaGORM {
 			knownContract := item.Version == TenantSchemaVersion && item.ImplementationID == "tenant_brand_reseller_gorm_v12" && item.SchemaApply != nil && reflect.ValueOf(item.SchemaApply).Pointer() == reflect.ValueOf(applyTenantSchema).Pointer() && item.SchemaSpec == tenantSchemaSpec()
 			knownContract = knownContract || (item.Version == TenantCompatibilitySchemaVersion && item.Name == "tenant_brand_reseller_legacy_compatibility" && item.ImplementationID == "tenant_brand_reseller_legacy_gorm_v13" && item.SchemaApply != nil && reflect.ValueOf(item.SchemaApply).Pointer() == reflect.ValueOf(applyTenantCompatibilitySchema).Pointer() && item.SchemaSpec == tenantCompatibilitySchemaSpec())
+			knownContract = knownContract || (item.Version == TenantOnlineSchemaVersion && item.Name == "tenant_brand_reseller_online_contract" && item.ImplementationID == "tenant_brand_reseller_online_v14" && item.SchemaApply != nil && reflect.ValueOf(item.SchemaApply).Pointer() == reflect.ValueOf(rejectTenantOnlineAutomaticApply).Pointer() && item.SchemaSpec == tenantOnlineSchemaSpec())
 			if !knownContract || item.Kind != MigrationKindContract || item.Backfill != nil || item.ImportLegacy != nil || len(item.Indexes) != 0 {
 				return unsafeMigrationCatalog("migration %d has an unrecognized GORM schema contract", item.Version)
 			}

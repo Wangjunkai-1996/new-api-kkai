@@ -68,8 +68,10 @@ worker 按现有 writer/leader gate 每分钟处理待结算和到期收益。�
 
 ## 7. 迁移与交付边界
 
-v12 将全局用户名唯一性改为租户内唯一性，属于 contract 迁移。两个构建 profile 均要求 `(12,12,12)`，不能套用旧 v7/v8 发布判断。普通启动/普通 Apply 不会隐式迁移 v12；必须使用显式维护目标，独立 LOG_DB 另有迁移和校验。
+当前路径为分步扩展 11 → tenant-aware bridge → 最终 contract 14，详见[在线兼容改造与验收](./reseller-online-transition.md)。扩展期间保留旧全局用户名约束和 1–11 账本，独立步骤凭据记录进展。新 bridge 只接受完整扩展的 11 或完整 14，feature 只接受 14；历史 v12/v13 保留但不作为当前发布路径。
 
-应用 feature flag 默认关闭，但 Host 允许清单一直生效。上线必须先验证探针 Host、旧实例排空、历史身份冲突、备份恢复、v12 兼容回滚版本，再按现有手工发布 runbook 执行。迁移完成后关闭 feature flag 不足以允许旧二进制回滚。
+PostgreSQL ≥12 才使用本轮在线短锁与并发索引方案。SQLite/MySQL 5.7/旧 PostgreSQL 保留明确的阻塞兼容路径，不将三库兼容等同于三库都能在线迁移。独立 LOG_DB 需要单独完成在线设计与验收。
+
+代理 HTTP 和后台任务在启动时验证最终结构；生产 contract 必须先证明 active、rollback 及全部后台角色已换成租户感知版本。普通启动、普通 Apply 和 CLI 不提供直接执行 contract 14 的能力。迁移完成后关闭 feature flag 不足以允许旧二进制回滚，不能自动进入全站维护代替兼容验证。
 
 本次只交付本地代码、文档和定向测试；wildcard DNS/TLS/Edge、真实支付和 pilot 全链路属于上线验收，未在本次执行。

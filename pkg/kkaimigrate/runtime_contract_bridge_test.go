@@ -15,11 +15,13 @@ func TestContractForDialectRequiresTenantSchema(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
-			assert.EqualValues(t, 13, contract.RuntimeMinVersion)
-			assert.EqualValues(t, 13, contract.RuntimeMaxVersion)
-			assert.EqualValues(t, 13, contract.MigrationTargetVersion)
+			assert.EqualValues(t, 11, contract.RuntimeMinVersion)
+			assert.EqualValues(t, 14, contract.RuntimeMaxVersion)
+			assert.EqualValues(t, 11, contract.MigrationTargetVersion)
 			assert.Equal(t, MigrationKindNone, contract.MigrationKind)
-			assert.Equal(t, map[string]string{"13": contract.MigrationSetDigest}, contract.CompatiblePrefixes)
+			assert.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes["11"])
+			assert.Contains(t, contract.CompatiblePrefixes, "14")
+			assert.Len(t, contract.CompatiblePrefixes, 2)
 		})
 	}
 }
@@ -27,7 +29,10 @@ func TestRuntimeRejectsV11UntilExplicitTenantMigration(t *testing.T) {
 	db := newMigrationTestDB(t)
 	prepareTenantMigrationFixture(t, db)
 	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
-	_, err := ApplyTenantCompatibilitySchema(context.Background(), db, Options{})
+	_, err := ApplyTenantOnlineExpansion(context.Background(), db, Options{})
+	require.NoError(t, err)
+	require.NoError(t, CheckRequired(context.Background(), db))
+	_, err = FinalizeTenantOnlineSchema(context.Background(), db, Options{})
 	require.NoError(t, err)
 	require.NoError(t, CheckRequired(context.Background(), db))
 }

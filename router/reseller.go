@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -12,11 +13,12 @@ import (
 func registerResellerRoutes(api *gin.RouterGroup, bodyLimit gin.HandlerFunc) {
 	api.GET("/site-config", middleware.DisableCache(), controller.GetTenantSiteConfig)
 	api.GET("/site-logo", controller.GetTenantSiteLogo)
-	applications := api.Group("/reseller/applications", middleware.UserAuth(), middleware.DisableCache())
+	schemaGate := middleware.TenantBusinessSchemaGate(model.DB)
+	applications := api.Group("/reseller/applications", middleware.UserAuth(), schemaGate, middleware.DisableCache())
 	applications.POST("", bodyLimit, controller.CreateResellerApplication)
 	applications.GET("", controller.ListResellerApplications)
 
-	owner := api.Group("/reseller", middleware.UserAuth(), middleware.TenantAdminAuth(), middleware.DisableCache())
+	owner := api.Group("/reseller", middleware.UserAuth(), schemaGate, middleware.TenantAdminAuth(), middleware.DisableCache())
 	owner.GET("/me", controller.GetResellerMe)
 	owner.GET("/profile", controller.GetResellerProfile)
 	owner.PATCH("/profile", bodyLimit, controller.UpdateResellerProfile)
@@ -31,7 +33,7 @@ func registerResellerRoutes(api *gin.RouterGroup, bodyLimit gin.HandlerFunc) {
 	owner.GET("/withdrawals", controller.GetResellerWithdrawals)
 	owner.POST("/withdrawals", bodyLimit, middleware.UserCriticalRateLimit("reseller-withdrawal"), controller.RequestResellerWithdrawal)
 
-	platform := api.Group("/admin/resellers", middleware.AdminAuth(), middleware.DisableCache())
+	platform := api.Group("/admin/resellers", middleware.AdminAuth(), schemaGate, middleware.DisableCache())
 	platform.GET("", controller.AdminListResellers)
 	platform.PATCH("/applications/:id", bodyLimit, controller.AdminReviewResellerApplication)
 	platform.PATCH("/:id/status", bodyLimit, controller.AdminUpdateResellerStatus)

@@ -301,20 +301,25 @@ expect_maintenance_preparation() {
   local protocol=$1
   local output_dir="${test_root}/out-${protocol}" output
   local planned_sha=3333333333333333333333333333333333333333
+  local profile=feature flag=--prepare-maintenance purpose=maintenance-preparation
+  if [[ ${protocol} == tenant-online-v1 ]]; then
+    profile=bridge flag=--prepare-online purpose=tenant-online-preparation
+  fi
 
   : >"${call_log}"
   if ! output="$(
     PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
       KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
-      "${BUILD_SCRIPT}" --schema-contract feature --frontend-mode external \
-      --prepare-maintenance --planned-infra-sha "${planned_sha}" \
+      "${BUILD_SCRIPT}" --schema-contract "${profile}" --frontend-mode external \
+      "${flag}" --planned-infra-sha "${planned_sha}" \
       --planned-deployment-protocol "${protocol}" \
       --version "${version}" --output-dir "${output_dir}" 2>&1
   )"; then
     fail "maintenance preparation failed\n${output}"
   fi
   output_dir="$(cd -- "${output_dir}" && pwd)"
-  jq -e '.release_purpose == "maintenance-preparation" and .schema_contract == "feature" and .frontend_mode == "external"' \
+  jq -e --arg purpose "${purpose}" --arg profile "${profile}" \
+    '.release_purpose == $purpose and .schema_contract == $profile and .frontend_mode == "external"' \
     "${output_dir}/${version}.json" >/dev/null || fail 'maintenance metadata is not marked'
   grep -F -- "prepare-maintenance-release.py create --metadata ${output_dir}/${version}.json --planned-infra-sha ${planned_sha} --planned-deployment-protocol ${protocol}" \
     "${call_log}" >/dev/null || fail 'maintenance plan did not receive exact release coordinates'
@@ -369,12 +374,16 @@ expect_remote_rejected
 expect_maintenance_preparation rc41-maintenance-v1
 expect_maintenance_preparation tenant-maintenance-v1
 expect_maintenance_preparation tenant-maintenance-v2
+expect_maintenance_preparation tenant-online-v1
 expect_bridge_build
 expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
 expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \
   --planned-infra-sha 3333333333333333333333333333333333333333
 expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --schema-contract bridge
 expect_maintenance_rejected 'requires feature schema and external frontend' --prepare-maintenance --frontend-mode embedded
+expect_maintenance_rejected 'online preparation requires bridge schema' --prepare-online
+expect_maintenance_rejected 'online preparation requires exact planned infrastructure SHA' --prepare-online --schema-contract bridge
+expect_maintenance_rejected 'online preparation requires bridge schema' --prepare-online --prepare-maintenance --schema-contract bridge
 expect_maintenance_rejected 'require --prepare-maintenance' --planned-infra-sha 3333333333333333333333333333333333333333
 KKAI_TEST_DIRTY=true expect_maintenance_rejected 'production builds require a clean worktree' \
   --prepare-maintenance --planned-infra-sha 3333333333333333333333333333333333333333 \

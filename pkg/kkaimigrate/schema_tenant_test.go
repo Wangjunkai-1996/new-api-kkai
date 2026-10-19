@@ -41,7 +41,7 @@ func assertTenantMigrationContract(t *testing.T, db *gorm.DB) {
 	var history []AppliedMigration
 	require.NoError(t, db.Order("version").Find(&history).Error)
 	_, err := Apply(ctx, db, Options{})
-	require.ErrorContains(t, err, "explicit --target 13")
+	require.ErrorIs(t, err, ErrUnsafeMigration)
 	dry, err := ApplyTenantSchema(ctx, db, Options{DryRun: true})
 	require.NoError(t, err)
 	require.Len(t, dry.Pending, 1)

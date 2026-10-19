@@ -53,7 +53,7 @@ func assertTenantCompatibilityMigrationContract(t *testing.T, db *gorm.DB) {
 	_, err = ApplyTenantCompatibilitySchema(ctx, db, Options{})
 	require.NoError(t, err)
 	require.NoError(t, CheckTenantCompatibilitySchema(ctx, db))
-	require.NoError(t, CheckRequired(ctx, db))
+	require.NoError(t, CheckTenantCompatibilitySchema(ctx, db))
 	assert.False(t, db.Migrator().HasConstraint("users", "users_username_key"))
 	assert.False(t, db.Migrator().HasIndex("users", "legacy_username_unique_index"))
 	assert.True(t, db.Migrator().HasIndex("users", "idx_users_username"))
@@ -95,7 +95,7 @@ func assertTenantCompatibilityMigrationContract(t *testing.T, db *gorm.DB) {
 	_, err = ApplyTenantCompatibilitySchema(ctx, db, Options{})
 	require.NoError(t, err)
 	_, err = Apply(ctx, db, Options{})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrUnsafeMigration, "the current runtime cannot adopt the historical v13 path")
 	assert.Error(t, db.Create(&tenantV13User{ID: 103, Username: "legacy"}).Error, "platform raw usernames retain database uniqueness")
 	username, email := "legacy", "legacy@example.com"
 	for _, id := range []int64{201, 202} {
@@ -104,7 +104,7 @@ func assertTenantCompatibilityMigrationContract(t *testing.T, db *gorm.DB) {
 	assert.Error(t, db.Create(&tenantV13User{ID: 203, TenantID: 201, Username: " Legacy ", NormalizedUsername: &username}).Error)
 	otherUsername := "other"
 	assert.Error(t, db.Create(&tenantV13User{ID: 204, TenantID: 201, Username: "other", NormalizedUsername: &otherUsername, NormalizedEmail: &email}).Error)
-	require.NoError(t, CheckRequired(ctx, db))
+	require.NoError(t, CheckTenantCompatibilitySchema(ctx, db))
 }
 
 func TestTenantCompatibilityMigrationPreservesLegacyAccounts(t *testing.T) {
@@ -171,7 +171,7 @@ func TestTenantCompatibilityPreservesSQLiteConstraintIndexesAndTriggers(t *testi
 	var auditID int64
 	require.NoError(t, db.Table("user_audit").Pluck("user_id", &auditID).Error)
 	assert.EqualValues(t, 201, auditID)
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, CheckTenantCompatibilitySchema(context.Background(), db))
 }
 
 func TestTenantCompatibilityRejectsUnnamedSQLiteUniquenessBeforeDDL(t *testing.T) {
@@ -238,7 +238,7 @@ func TestTenantCompatibilityRequiresPristineV11(t *testing.T) {
 		assert.EqualValues(t, 12, observation.CurrentVersion)
 		_, err = ApplyTenantCompatibilitySchema(context.Background(), db, Options{})
 		assert.ErrorIs(t, err, ErrSchemaNotReady)
-		assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
+		assert.ErrorIs(t, CheckTenantCompatibilitySchema(context.Background(), db), ErrSchemaNotReady)
 	})
 }
 
@@ -269,7 +269,7 @@ func TestTenantCompatibilityLedgerHasOnlyOneReviewedReplacement(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			applied := map[int64]AppliedMigration{}
 			for _, item := range Plan() {
-				if item.Version == test.remove || item.Version == 12 && !test.include12 {
+				if item.Version > TenantCompatibilitySchemaVersion || item.Version == test.remove || item.Version == 12 && !test.include12 {
 					continue
 				}
 				if item.Version == 13 && test.corrupt13 {
@@ -301,27 +301,27 @@ func TestTenantCompatibilityRuntimeChecksCanonicalScopeAndUniqueIndex(t *testing
 	_, err := ApplyTenantCompatibilitySchema(context.Background(), db, Options{})
 	require.NoError(t, err)
 	require.NoError(t, db.Table("users").Where("id=101").Update("normalized_username", "legacy").Error)
-	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
+	assert.ErrorIs(t, CheckTenantCompatibilitySchema(context.Background(), db), ErrSchemaNotReady)
 	require.NoError(t, db.Table("users").Where("id=101").Update("normalized_username", nil).Error)
 	wrongUsername := "wrong"
 	require.NoError(t, db.Create(&tenantV13User{ID: 201, TenantID: 1, Username: "tenant", NormalizedUsername: &wrongUsername}).Error)
-	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
+	assert.ErrorIs(t, CheckTenantCompatibilitySchema(context.Background(), db), ErrSchemaNotReady)
 	require.NoError(t, db.Table("users").Where("id=201").Update("normalized_username", "tenant").Error)
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, CheckTenantCompatibilitySchema(context.Background(), db))
 	require.NoError(t, db.Migrator().DropIndex(&tenantV13User{}, "idx_users_tenant_username"))
 	require.NoError(t, db.Exec("CREATE INDEX idx_users_tenant_username ON users(tenant_id,username)").Error)
-	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
+	assert.ErrorIs(t, CheckTenantCompatibilitySchema(context.Background(), db), ErrSchemaNotReady)
 	require.NoError(t, db.Migrator().DropIndex(&tenantV13User{}, "idx_users_tenant_username"))
 	require.NoError(t, db.Migrator().CreateIndex(&tenantV13User{}, "idx_users_tenant_username"))
 	require.NoError(t, db.Exec("CREATE UNIQUE INDEX unexpected_global_username ON users(username)").Error)
-	assert.ErrorIs(t, CheckRequired(context.Background(), db), ErrSchemaNotReady)
+	assert.ErrorIs(t, CheckTenantCompatibilitySchema(context.Background(), db), ErrSchemaNotReady)
 	require.NoError(t, db.Migrator().DropIndex("users", "unexpected_global_username"))
 	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
 	observation, err := Observe(context.Background(), db)
 	require.NoError(t, err)
 	assert.EqualValues(t, 13, observation.CurrentVersion)
-	contract, err := ContractForDialect(DialectSQLite)
-	require.NoError(t, err)
-	assert.Equal(t, contract.MigrationSetDigest, observation.MigrationSetDigest)
-	require.NoError(t, CheckRequired(context.Background(), db))
+	items, ok := storedPrefixItemsForDialect(DialectSQLite, TenantCompatibilitySchemaVersion)
+	require.True(t, ok)
+	assert.Equal(t, migrationSetDigest(DialectSQLite, items), observation.MigrationSetDigest)
+	require.NoError(t, CheckTenantCompatibilitySchema(context.Background(), db))
 }

@@ -11,7 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 3
+// TenantID extends the existing hash without changing its quota/auth fields.
+// Keep the shared version so schema-11 binaries still apply atomic quota
+// credits and refunds during a rollout. New readers separately require TenantID.
+const userCacheSchemaVersion = 2
 
 // UserBase struct remains the same as it represents the cached data structure
 type UserBase struct {

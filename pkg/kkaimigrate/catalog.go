@@ -115,6 +115,16 @@ func migrationSet() []migration {
 			SchemaSpec:       tenantCompatibilitySchemaSpec(),
 			SchemaApply:      applyTenantCompatibilitySchema,
 		},
+		{
+			Version:          TenantOnlineSchemaVersion,
+			Name:             "tenant_brand_reseller_online_contract",
+			Kind:             MigrationKindContract,
+			ImplementationID: "tenant_brand_reseller_online_v14",
+			ChecksumVersion:  migrationChecksumSchemaGORM,
+			Statements:       map[string][]migrationStatement{DialectSQLite: {}, DialectMySQL: {}, DialectPostgres: {}},
+			SchemaSpec:       tenantOnlineSchemaSpec(),
+			SchemaApply:      rejectTenantOnlineAutomaticApply,
+		},
 	}
 }
 

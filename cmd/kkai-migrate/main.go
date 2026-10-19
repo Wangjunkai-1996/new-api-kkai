@@ -16,24 +16,28 @@ import (
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func main() {
 	var (
-		dsn             string
-		dsnFromStdin    bool
-		dryRun          bool
-		checkOnly       bool
-		currentOnly     bool
-		precheck        bool
-		describe        bool
-		dialect         string
-		minimumVersion  int64
-		targetVersion   int64
-		tenantLogSchema string
-		observe         bool
-		jsonOutput      bool
-		timeout         time.Duration
+		dsn                   string
+		dsnFromStdin          bool
+		dryRun                bool
+		checkOnly             bool
+		currentOnly           bool
+		precheck              bool
+		describe              bool
+		dialect               string
+		minimumVersion        int64
+		targetVersion         int64
+		tenantLogSchema       string
+		tenantExpand          string
+		tenantControllerProof string
+		tenantRuntime         bool
+		observe               bool
+		jsonOutput            bool
+		timeout               time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -49,7 +53,27 @@ func main() {
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
 	flag.StringVar(&tenantLogSchema, "tenant-log-schema", "", "separate LOG_DB tenant schema operation: apply, check, or status")
+	flag.StringVar(&tenantExpand, "tenant-expand", "", "online expansion: plan/status/check are read-only; apply/finalize require the installed root-controller proof")
+	flag.StringVar(&tenantControllerProof, "tenant-controller-proof", "", "fixed root-controller proof mount for apply/finalize")
+	flag.BoolVar(&tenantRuntime, "tenant-runtime", false, "declare compiled tenant runtime capability; requires --dialect and --json, no database access")
 	flag.Parse()
+	if tenantRuntime {
+		if !jsonOutput || dialect == "" || tenantExpand != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
+			log.Fatal("--tenant-runtime requires only --dialect and --json")
+		}
+		if err := writeTenantRuntimeContract(dialect, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if tenantControllerProof != "" && tenantExpand != "apply" && tenantExpand != "finalize" {
+		log.Fatal("--tenant-controller-proof is only valid for apply/finalize")
+	}
+	if tenantExpand != "" {
+		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if tenantLogSchema != "" {
 		if tenantLogSchema != "apply" && tenantLogSchema != "check" && tenantLogSchema != "status" {
 			log.Fatal("--tenant-log-schema expects apply, check, or status")
@@ -77,7 +101,7 @@ func main() {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -89,6 +113,11 @@ func main() {
 	if err != nil {
 		log.Fatal("failed to open migration database")
 	}
+	if jsonOutput {
+		// SQL diagnostics must not corrupt the machine-readable stdout stream.
+		// Operation errors still propagate to the fatal stderr message below.
+		db = db.Session(&gorm.Session{Logger: db.Logger.LogMode(logger.Silent)})
+	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatal("failed to access migration database")
@@ -97,6 +126,18 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if tenantExpand != "" {
+		var err error
+		if tenantExpand == "apply" || tenantExpand == "finalize" {
+			err = runTenantControllerMutation(ctx, db, tenantExpand, tenantControllerProof, os.Stdout)
+		} else {
+			err = runTenantOnlineInspection(ctx, db, tenantExpand, os.Stdout)
+		}
+		if err != nil {
+			log.Fatalf("KKAI tenant expansion inspection failed: %v", err)
+		}
+		return
+	}
 	if tenantLogSchema != "" {
 		if err := runTenantLogSchema(ctx, db, tenantLogSchema, os.Stdout); err != nil {
 			log.Fatalf("KKAI tenant log schema failed: %v", err)
@@ -214,6 +255,8 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		return nil, fmt.Errorf("%w: maintenance target 12 is retired; use explicit --target 13 from pristine schema 11", kkaimigrate.ErrUnsafeMigration)
 	case kkaimigrate.TenantCompatibilitySchemaVersion:
 		return kkaimigrate.ApplyTenantCompatibilitySchema(ctx, db, options)
+	case kkaimigrate.TenantOnlineSchemaVersion:
+		return nil, fmt.Errorf("%w: online contract requires verified tenant-aware active, rollback and background runtimes; it is not an ordinary --target operation", kkaimigrate.ErrUnsafeMigration)
 	default:
 		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 13", targetVersion)
 	}

@@ -23,6 +23,7 @@ version=''
 schema_contract=''
 frontend_mode='embedded'
 prepare_maintenance=false
+prepare_online=false
 planned_infra_sha=''
 planned_deployment_protocol=''
 builder="${BUILDX_BUILDER:-kkai-mirror-builder}"
@@ -96,6 +97,11 @@ while (( $# > 0 )); do
       shift
       continue
       ;;
+    --prepare-online)
+      prepare_online=true
+      shift
+      continue
+      ;;
     --no-resource-limits)
       build_cpu_quota=''
       build_memory_limit=''
@@ -137,7 +143,13 @@ case "${frontend_mode}" in
   embedded | external) ;;
   *) die "frontend mode must be embedded or external" ;;
 esac
-if [[ "${prepare_maintenance}" == true ]]; then
+if [[ "${prepare_online}" == true ]]; then
+  [[ "${prepare_maintenance}" == false && "${schema_contract}" == bridge && "${frontend_mode}" == external ]] ||
+    die "online preparation requires bridge schema, external frontend and no maintenance mode"
+  [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ && "${planned_deployment_protocol}" == tenant-online-v1 ]] ||
+    die "online preparation requires exact planned infrastructure SHA and tenant-online-v1"
+  command -v python3 >/dev/null || die "missing python3"
+elif [[ "${prepare_maintenance}" == true ]]; then
   [[ "${schema_contract}" == feature && "${frontend_mode}" == external ]] ||
     die "maintenance preparation requires feature schema and external frontend"
   [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ ]] || die "maintenance preparation requires planned infrastructure SHA"
@@ -147,7 +159,7 @@ if [[ "${prepare_maintenance}" == true ]]; then
   esac
   command -v python3 >/dev/null || die "missing python3"
 elif [[ -n "${planned_infra_sha}" || -n "${planned_deployment_protocol}" ]]; then
-  die "planned infrastructure arguments require --prepare-maintenance"
+  die "planned infrastructure arguments require --prepare-maintenance or --prepare-online"
 fi
 [[ "${builder}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
   die "invalid Buildx builder name"
@@ -279,6 +291,7 @@ jq --null-input \
   --arg archive "$(basename -- "${archive}")" \
   --arg archive_sha256 "${archive_sha256}" \
   --argjson prepare_maintenance "${prepare_maintenance}" \
+  --argjson prepare_online "${prepare_online}" \
   '{
     version: $version,
     source_sha: $source_sha,
@@ -289,12 +302,13 @@ jq --null-input \
     archive: $archive,
     archive_sha256: $archive_sha256,
     platform: "linux/amd64"
-  } + (if $prepare_maintenance then {release_purpose: "maintenance-preparation"} else {} end)' > "${metadata}"
+  } + (if $prepare_online then {release_purpose: "tenant-online-preparation"}
+       elif $prepare_maintenance then {release_purpose: "maintenance-preparation"} else {} end)' > "${metadata}"
 
-if [[ "${prepare_maintenance}" == true ]]; then
+if [[ "${prepare_maintenance}" == true || "${prepare_online}" == true ]]; then
   [[ "$(git -C "${ROOT}" rev-parse HEAD)" == "${source_sha}" &&
      -z "$(git -C "${ROOT}" status --porcelain=v1 --untracked-files=all)" ]] ||
-    die "checkout changed during maintenance preparation; artifact is not accepted"
+    die "checkout changed during release preparation; artifact is not accepted"
   python3 "${ROOT}/scripts/kkai/prepare-maintenance-release.py" create \
     --metadata "${metadata}" \
     --planned-infra-sha "${planned_infra_sha}" \

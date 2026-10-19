@@ -7,9 +7,22 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 )
 
 func RegisterResellerFinanceBackgroundJobs(registry *BackgroundJobRegistry) error {
+	if registry == nil {
+		return ErrInvalidBackgroundJob
+	}
+	// Freeze readiness at startup, matching the reseller HTTP gate. A bridge
+	// writer must be replaced after contract acceptance before it can settle
+	// tenant requests or release profit, even if the database advances later.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ready := kkaimigrate.CheckTenantOnlineSchema(ctx, model.DB) == nil
+	cancel()
+	if !ready {
+		return nil
+	}
 	if err := RegisterTenantConsumptionBackgroundJob(registry); err != nil {
 		return err
 	}

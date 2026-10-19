@@ -341,6 +341,11 @@ func InitResources() error {
 	if err = kkaimigrate.CheckRequired(context.Background(), model.DB); err != nil {
 		return fmt.Errorf("KKAI schema check failed; run cmd/kkai-migrate before starting NewAPI: %w", err)
 	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TENANT_ROUTING_ENABLED")), "true") {
+		if err = kkaimigrate.CheckTenantOnlineSchema(context.Background(), model.DB); err != nil {
+			return fmt.Errorf("tenant routing requires the completed online schema contract: %w", err)
+		}
+	}
 	if model.MembershipEnabled() {
 		if err = kkaimigrate.CheckMembershipSchema(context.Background(), model.DB); err != nil {
 			return fmt.Errorf("membership enabled without its verified schema: %w", err)

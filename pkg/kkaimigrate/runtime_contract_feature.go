@@ -2,12 +2,11 @@
 
 package kkaimigrate
 
-// This binary queries tenant columns even with tenant routing disabled. Both
-// build profiles require v13; the bridge tag does not promise old-schema rollback.
+// Reseller traffic requires the completed online contract, never a partial expand.
 const (
-	RuntimeMinVersion      int64 = TenantCompatibilitySchemaVersion
-	RuntimeMaxVersion      int64 = TenantCompatibilitySchemaVersion
-	MigrationTargetVersion int64 = TenantCompatibilitySchemaVersion
+	RuntimeMinVersion      int64 = TenantOnlineSchemaVersion
+	RuntimeMaxVersion      int64 = TenantOnlineSchemaVersion
+	MigrationTargetVersion int64 = TenantOnlineSchemaVersion
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion
 )

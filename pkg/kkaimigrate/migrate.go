@@ -66,6 +66,12 @@ type Result struct {
 
 type Options struct {
 	DryRun bool
+	// Offline explicitly allows blocking DDL on MySQL and older PostgreSQL.
+	// No production CLI exposes this mode.
+	Offline bool
+	// AuthorizeMutation is supplied by the controller CLI and rechecked before DDL.
+	// Nil is reserved for isolated library callers, never the production CLI.
+	AuthorizeMutation func(context.Context, *gorm.DB) error
 }
 
 type indexSpec struct {
@@ -103,18 +109,13 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if db == nil {
 		return nil, ErrSchemaNotReady
 	}
-	dialect, err := dialectName(db)
-	if err != nil {
+	if _, err := dialectName(db); err != nil {
 		return nil, err
 	}
-	contract, err := ContractForDialect(dialect)
-	if err != nil {
-		return nil, err
+	if err := CheckTenantOnlineSchema(ctx, db); err != nil {
+		return nil, fmt.Errorf("%w: normal Apply cannot perform tenant expansion or contract; use the separately guarded online workflow: %v", ErrUnsafeMigration, err)
 	}
-	if err := CheckTenantCompatibilitySchema(ctx, db); err != nil {
-		return nil, fmt.Errorf("tenant schema requires explicit --target 13 maintenance before normal Apply: %w", err)
-	}
-	return applyThroughVersion(ctx, db, options, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
+	return &Result{}, nil
 }
 
 // ApplyLegacyBaseline initializes the immutable v1-v3 maintenance baseline for
@@ -313,7 +314,8 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 			if !item.appliesTo(dialect) {
 				continue
 			}
-			if item.Version == TenantSchemaVersion && currentVersion == TenantCompatibilitySchemaVersion {
+			if (item.Version == TenantSchemaVersion && currentVersion == TenantCompatibilitySchemaVersion) ||
+				(currentVersion == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
 				continue // v13 is the sole reviewed replacement for the never-applied v12.
 			}
 			checksum := storedMigrationChecksum(item)
@@ -367,15 +369,17 @@ func CheckRequired(ctx context.Context, db *gorm.DB) error {
 	if db == nil {
 		return ErrSchemaNotReady
 	}
-	dialect, err := dialectName(db)
+	state, err := loadValidatedState(ctx, db, KnownCatalogVersion)
 	if err != nil {
 		return err
 	}
-	contract, err := ContractForDialect(dialect)
-	if err != nil {
-		return err
+	if state.currentVersion == TenantOnlineSchemaVersion {
+		return nil // loadValidatedState already checked the complete v14 shape.
 	}
-	return checkThroughVersion(ctx, db, contract.RuntimeMinVersion, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
+	if RuntimeMinVersion == MembershipSchemaVersion && state.currentVersion == MembershipSchemaVersion {
+		return CheckTenantOnlineExpansion(ctx, db)
+	}
+	return fmt.Errorf("%w: runtime requires complete online-expanded schema 11 or online contract 14", ErrSchemaNotReady)
 }
 
 func checkThroughVersion(ctx context.Context, db *gorm.DB, minimumVersion int64, runtimeMinVersion int64, runtimeMaxVersion int64) error {
@@ -651,7 +655,18 @@ func validateAppliedAgainstMigrationSet(applied map[int64]AppliedMigration, dial
 			maxApplied = version
 		}
 	}
+	if maxApplied == TenantOnlineSchemaVersion {
+		if _, exists := applied[TenantSchemaVersion]; exists {
+			return fmt.Errorf("%w: v14 cannot include historical v12", ErrMigrationHole)
+		}
+		if _, exists := applied[TenantCompatibilitySchemaVersion]; exists {
+			return fmt.Errorf("%w: v14 cannot include historical v13", ErrMigrationHole)
+		}
+	}
 	for _, item := range migrations {
+		if maxApplied == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion) {
+			continue
+		}
 		if item.Version > maxApplied {
 			break
 		}

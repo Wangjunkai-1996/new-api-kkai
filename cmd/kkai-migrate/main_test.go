@@ -146,7 +146,7 @@ func TestApplyTenantMigrationTargetIsExplicit(t *testing.T) {
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)
 	_, err = applyMigrationTarget(context.Background(), db, 0, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "explicit --target 13")
+	require.ErrorIs(t, err, kkaimigrate.ErrUnsafeMigration)
 	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.TenantSchemaVersion, kkaimigrate.Options{})
 	assert.ErrorIs(t, err, kkaimigrate.ErrUnsafeMigration)
 	_, err = applyHistoricalFixture(context.Background(), db)

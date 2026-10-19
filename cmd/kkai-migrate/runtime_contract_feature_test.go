@@ -18,9 +18,9 @@ func TestDescribeContractJSONRequiresTenantSchema(t *testing.T) {
 		SchemaManagement string `json:"schema_management"`
 	}
 	require.NoError(t, common.UnmarshalJsonStr(output, &result))
-	assert.EqualValues(t, 13, result.RuntimeMinVersion)
-	assert.EqualValues(t, 13, result.RuntimeMaxVersion)
-	assert.EqualValues(t, 13, result.MigrationTargetVersion)
-	assert.Equal(t, map[string]string{"13": result.MigrationSetDigest}, result.CompatiblePrefixes)
+	assert.EqualValues(t, 14, result.RuntimeMinVersion)
+	assert.EqualValues(t, 14, result.RuntimeMaxVersion)
+	assert.EqualValues(t, 14, result.MigrationTargetVersion)
+	assert.Equal(t, map[string]string{"14": result.MigrationSetDigest}, result.CompatiblePrefixes)
 	assert.Equal(t, common.SchemaManagementMode, result.SchemaManagement)
 }

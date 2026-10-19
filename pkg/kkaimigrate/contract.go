@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = TenantCompatibilitySchemaVersion
+	KnownCatalogVersion     int64 = TenantOnlineSchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"
@@ -90,7 +90,8 @@ func planItemsForDialectFromSet(dialect string, target int64, migrations []migra
 		if item.Version > target {
 			break
 		}
-		if item.Version == TenantSchemaVersion && target == TenantCompatibilitySchemaVersion {
+		if (item.Version == TenantSchemaVersion && target == TenantCompatibilitySchemaVersion) ||
+			(target == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
 			continue
 		}
 		if item.appliesTo(dialect) {
@@ -124,6 +125,9 @@ func migrationSetDigest(dialect string, items []migration) string {
 func compatiblePrefixDigests(dialect string, minimum int64, maximum int64) (map[string]string, error) {
 	result := make(map[string]string, maximum-minimum+1)
 	for version := minimum; version <= maximum; version++ {
+		if maximum == TenantOnlineSchemaVersion && minimum == MembershipSchemaVersion && version != MembershipSchemaVersion && version != TenantOnlineSchemaVersion {
+			continue
+		}
 		items, ok := storedPrefixItemsForDialect(dialect, version)
 		if !ok {
 			return nil, fmt.Errorf("KKAI migration catalog has no canonical %s prefix at version %d", dialect, version)
@@ -143,7 +147,8 @@ func storedPrefixItemsForDialectFromSet(dialect string, version int64, migration
 		if item.Version > version {
 			break
 		}
-		if item.Version == TenantSchemaVersion && version == TenantCompatibilitySchemaVersion {
+		if (item.Version == TenantSchemaVersion && version == TenantCompatibilitySchemaVersion) ||
+			(version == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
 			continue
 		}
 		if !item.acceptsStoredDialect(dialect) {

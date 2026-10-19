@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind one local release archive for maintenance; never stage or migrate it."""
+"""Bind one local schema-transition artifact; never stage or migrate it."""
 
 import argparse
 import hashlib
@@ -40,12 +40,23 @@ TENANT_COMPATIBILITY_SCHEMA_CONTRACT = {
     "migration_set_digest": PG_V13_DIGEST,
     "compatible_prefixes": {"13": PG_V13_DIGEST},
 }
+PG_V11_DIGEST = "sha256:17961fa198d4280f89459808712cfceda4c313187580032e228c8af25934b71c"
+PG_V14_DIGEST = "sha256:b831116798762d19219db564cac02fd293352f911d8b6b9d25e8c8db0001eccb"
+TENANT_ONLINE_SCHEMA_CONTRACT = {
+    **SCHEMA_CONTRACT,
+    "runtime_min_version": 11,
+    "runtime_max_version": 14,
+    "migration_target_version": 11,
+    "migration_set_digest": PG_V11_DIGEST,
+    "compatible_prefixes": {"11": PG_V11_DIGEST, "14": PG_V14_DIGEST},
+}
 MAINTENANCE_PROFILES = {
     "rc41-maintenance-v1": ("rc41-maintenance-preparation", SCHEMA_CONTRACT),
     "tenant-maintenance-v1": ("tenant-maintenance-preparation", TENANT_SCHEMA_CONTRACT),
     "tenant-maintenance-v2": (
         "tenant-compatibility-maintenance-preparation", TENANT_COMPATIBILITY_SCHEMA_CONTRACT,
     ),
+    "tenant-online-v1": ("tenant-online-preparation", TENANT_ONLINE_SCHEMA_CONTRACT),
 }
 REQUIRED_CAPABILITIES = {
     "dashboard_jwt", "scoped_access_tokens", "task_plugins", "studio_media_urls",
@@ -88,6 +99,9 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
     if planned_protocol not in MAINTENANCE_PROFILES:
         raise ValueError("unsupported planned maintenance protocol")
     purpose, expected_schema = MAINTENANCE_PROFILES[planned_protocol]
+    online = planned_protocol == "tenant-online-v1"
+    build_profile = "bridge" if online else "feature"
+    release_purpose = "tenant-online-preparation" if online else "maintenance-preparation"
     if metadata_path.is_symlink() or not metadata_path.is_file():
         raise ValueError("metadata must be a regular local file")
     metadata = json.loads(metadata_path.read_text())
@@ -98,12 +112,12 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
     ):
         raise ValueError("release version and source do not match")
     tag = f"kkai-newapi-manual:{version}"
-    if (metadata.get("release_purpose") != "maintenance-preparation"
-            or metadata.get("schema_contract") != "feature"
+    if (metadata.get("release_purpose") != release_purpose
+            or metadata.get("schema_contract") != build_profile
             or metadata.get("frontend_mode") != "external"
             or metadata.get("platform") != "linux/amd64"
             or metadata.get("image_tag") != tag):
-        raise ValueError("maintenance preparation requires an external feature release for linux/amd64")
+        raise ValueError("schema transition preparation requires the correct external build profile for linux/amd64")
     archive_name = metadata["archive"]
     if archive_name != f"{version}.tar":
         raise ValueError("archive name does not match the release")
@@ -122,7 +136,7 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
             or [value for value in image.get("Env", []) if value.startswith("FRONTEND_MODE=")] != ["FRONTEND_MODE=external"]
             or labels.get("org.opencontainers.image.revision") != source
             or labels.get("org.opencontainers.image.version") != version
-            or labels.get("io.kkrich.schema-contract") != "feature"
+            or labels.get("io.kkrich.schema-contract") != build_profile
             or labels.get("io.kkrich.frontend-mode") != "external"):
         raise ValueError("archive image identity does not match release metadata")
     console = json.loads(labels["io.kkrich.console-contract"])
@@ -199,7 +213,8 @@ def main():
     parser.add_argument("--planned-deployment-protocol", required=True)
     args = parser.parse_args()
     metadata_path = args.metadata.absolute()
-    plan_path = metadata_path.with_suffix(".maintenance.json")
+    online = args.planned_deployment_protocol == "tenant-online-v1"
+    plan_path = metadata_path.with_suffix(".online.json" if online else ".maintenance.json")
     if args.action == "create" and (plan_path.exists() or plan_path.is_symlink()):
         raise ValueError("maintenance plan already exists; verify or reuse it, never overwrite")
     expected = release_plan(metadata_path, args.planned_infra_sha, args.planned_deployment_protocol)
@@ -209,9 +224,10 @@ def main():
         plan_path.chmod(0o444)
     elif plan_path.is_symlink() or json.loads(plan_path.read_text()) != expected:
         raise ValueError("maintenance plan no longer matches the release or planned infrastructure")
-    print(f"MAINTENANCE_RELEASE_PLAN={plan_path}")
-    print(f"MAINTENANCE_RELEASE_PLAN_SHA256={digest_file(plan_path)}")
-    print("MAINTENANCE_RELEASE_RESULT=prepared-only")
+    prefix = "TENANT_ONLINE" if online else "MAINTENANCE"
+    print(f"{prefix}_RELEASE_PLAN={plan_path}")
+    print(f"{prefix}_RELEASE_PLAN_SHA256={digest_file(plan_path)}")
+    print(f"{prefix}_RELEASE_RESULT=prepared-only")
 
 
 if __name__ == "__main__":

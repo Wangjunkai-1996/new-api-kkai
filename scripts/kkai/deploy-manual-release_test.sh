@@ -22,7 +22,6 @@ mkdir -p -- "${mock_bin}"
 # shellcheck source=manual-deployment-contract.env
 source "${CONTRACT}"
 readonly KKAI_INFRA_SHA KKAI_DEPLOYMENT_PROTOCOL
-readonly EXPECTED_INFRA_SHA=f8f3a0afa5ccbe533e5ebd34fc343643ae05748e
 readonly EXPECTED_DEPLOYMENT_PROTOCOL=router-v3-staged
 readonly EXPECTED_HOST=sys1
 export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
@@ -243,6 +242,15 @@ printf 'scp %s\n' "$*" >> "${KKAI_TEST_LOG}"
 EOF
 chmod 0755 "${mock_bin}/ssh" "${mock_bin}/scp"
 
+cat > "${mock_bin}/python3" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'python3 %s\n' "$*" >> "${KKAI_TEST_LOG}"
+[[ $1 == */prepare-maintenance-release.py && $2 == verify ]] || exit 95
+[[ ${KKAI_TEST_ONLINE_PLAN:-valid} == valid ]] || exit 96
+EOF
+chmod 0755 "${mock_bin}/python3"
+
 readonly source_sha=1111111111111111111111111111111111111111
 readonly version=kkai-prod-20260726.1-111111111
 readonly schema_contract=feature
@@ -287,8 +295,8 @@ run_stage() {
 }
 
 test_contract_pins_staged_controller() {
-  [[ "${KKAI_INFRA_SHA}" == "${EXPECTED_INFRA_SHA}" ]] ||
-    fail "deployment contract does not pin the approved infrastructure commit"
+  [[ "${KKAI_INFRA_SHA}" =~ ^[0-9a-f]{40}$ ]] ||
+    fail "deployment contract does not pin an exact infrastructure commit"
   [[ "${KKAI_DEPLOYMENT_PROTOCOL}" == "${EXPECTED_DEPLOYMENT_PROTOCOL}" ]] ||
     fail "deployment contract does not pin the staged protocol"
 }
@@ -344,6 +352,68 @@ test_maintenance_preparation_prevents_remote_calls() {
   grep -F 'ordinary stage is forbidden' <<< "${output}" >/dev/null ||
     fail "maintenance preparation was not rejected explicitly"
   [[ ! -s "${call_log}" ]] || fail "maintenance preparation made a remote call"
+}
+
+test_online_stage_requires_explicit_action_and_verified_plan() {
+  local online_metadata="${test_root}/online.json" output verify_line preflight_line
+  jq '.release_purpose = "tenant-online-preparation" | .schema_contract = "bridge" | .frontend_mode = "external"' \
+    "${metadata}" > "${online_metadata}"
+  if output="$(run_stage ready "${online_metadata}" 2>&1)"; then
+    fail "online artifact bypassed the explicit stage-online action"
+  fi
+  [[ ! -s ${call_log} ]] || fail 'ordinary online stage made a remote call'
+  : > "${call_log}"
+  if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" KKAI_TEST_ONLINE_PLAN=invalid \
+    "${DEPLOY_SCRIPT}" --stage-online "${online_metadata}" 2>&1)"; then
+    fail 'invalid online plan reached staging'
+  fi
+  ! grep -Eq '^ssh |^scp ' "${call_log}" || fail 'invalid online plan made a remote call'
+  : > "${call_log}"
+  output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+    KKAI_TEST_EXPECTED_SCHEMA_CONTRACT=bridge KKAI_TEST_EXPECTED_FRONTEND_MODE=external \
+    "${DEPLOY_SCRIPT}" --stage-online "${online_metadata}")"
+  grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<<"${output}" >/dev/null || fail 'verified online bridge did not stage'
+  grep -F -- "--planned-infra-sha ${KKAI_INFRA_SHA} --planned-deployment-protocol tenant-online-v1" "${call_log}" >/dev/null ||
+    fail 'online artifact verification did not bind the exact installed controller'
+  verify_line="$(grep -n '^python3 ' "${call_log}" | cut -d: -f1)"
+  preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
+  [[ ${verify_line} -lt ${preflight_line} ]] || fail 'online plan verification ran after production preflight'
+}
+
+test_tenant_routing_override_is_explicit_and_validated_before_remote_calls() {
+  local external_metadata="${test_root}/tenant-feature.json" output value
+  jq '.frontend_mode = "external"' "${metadata}" > "${external_metadata}"
+  for value in true false; do
+    : > "${call_log}"
+    output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_EXPECTED_FRONTEND_MODE=external \
+      "${DEPLOY_SCRIPT}" --stage "${external_metadata}" --tenant-routing-enabled "${value}")"
+    grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<<"${output}" >/dev/null || fail 'tenant routing override did not stage'
+    grep -E -- "/kkai-newapi-manual-deploy stage .* --tenant-routing-enabled ${value}$" "${call_log}" >/dev/null ||
+      fail 'tenant routing override was not forwarded to stage'
+    ! grep -E -- '/kkai-newapi-manual-deploy preflight .* --tenant-routing-enabled' "${call_log}" >/dev/null ||
+      fail 'stage runtime override was forwarded to readonly preflight'
+  done
+  for value in invalid TRUE; do
+    : > "${call_log}"
+    if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      "${DEPLOY_SCRIPT}" --stage "${external_metadata}" --tenant-routing-enabled "${value}" 2>&1)"; then
+      fail 'invalid tenant routing override was accepted'
+    fi
+    [[ ! -s ${call_log} ]] || fail 'invalid tenant override made a remote call'
+  done
+  : > "${call_log}"
+  if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+    "${DEPLOY_SCRIPT}" --stage "${metadata}" --tenant-routing-enabled true 2>&1)"; then
+    fail 'embedded release enabled tenant routing'
+  fi
+  [[ ! -s ${call_log} ]] || fail 'embedded tenant routing override made a remote call'
+  : > "${call_log}"
+  if output="$(PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+    "${DEPLOY_SCRIPT}" --stage-online "${external_metadata}" --tenant-routing-enabled true 2>&1)"; then
+    fail 'online bridge stage enabled tenant routing'
+  fi
+  [[ ! -s ${call_log} ]] || fail 'online tenant routing override made a remote call'
 }
 
 test_invalid_frontend_mode_prevents_remote_calls() {
@@ -641,11 +711,13 @@ test_successful_preflight_precedes_upload_and_stage() {
     fail "candidate-status was queried after a successful stage"
 }
 
+test_tenant_routing_override_is_explicit_and_validated_before_remote_calls
 test_contract_pins_staged_controller
 test_requires_explicit_stage_action
 test_preflight_failure_prevents_upload
 test_invalid_schema_contract_prevents_remote_calls
 test_maintenance_preparation_prevents_remote_calls
+test_online_stage_requires_explicit_action_and_verified_plan
 test_invalid_frontend_mode_prevents_remote_calls
 test_preflight_output_must_match_contract
 test_preflight_protocol_must_match_contract

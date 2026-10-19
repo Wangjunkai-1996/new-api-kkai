@@ -17,9 +17,14 @@ func TestRuntimePlansUseReviewedTenantCompatibilityPath(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			plan, err := PlanForDialect(dialect)
 			require.NoError(t, err)
-			require.Len(t, plan, int(RequiredRuntimeVersion)-1)
+			expectedLength := int(MigrationTargetVersion)
+			if MigrationTargetVersion == TenantOnlineSchemaVersion {
+				expectedLength -= 2 // Historical v12/v13 are separate paths.
+			}
+			require.Len(t, plan, expectedLength)
 			for _, item := range plan {
 				require.NotEqual(t, TenantSchemaVersion, item.Version)
+				require.NotEqual(t, TenantCompatibilitySchemaVersion, item.Version)
 			}
 			require.Equal(t, RequiredRuntimeVersion, plan[len(plan)-1].Version)
 		})

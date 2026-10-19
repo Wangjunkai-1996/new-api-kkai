@@ -113,8 +113,17 @@ sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
 
-[[ $# -eq 2 && $1 == --stage ]] ||
-  die "usage: deploy-manual-release.sh --stage METADATA.json"
+[[ ( $# -eq 2 || $# -eq 4 ) && ( $1 == --stage || $1 == --stage-online ) ]] ||
+  die "usage: deploy-manual-release.sh --stage METADATA.json | --stage-online METADATA.json [--tenant-routing-enabled true|false]"
+stage_online=false
+[[ $1 != --stage-online ]] || stage_online=true
+tenant_routing_enabled=''
+if [[ $# -eq 4 ]]; then
+  [[ $3 == --tenant-routing-enabled && ( $4 == true || $4 == false ) ]] ||
+    die "tenant routing requires --tenant-routing-enabled true|false"
+  [[ ${stage_online} != true || $4 == false ]] || die "online bridge stage cannot enable tenant routing"
+  tenant_routing_enabled=$4
+fi
 METADATA="$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
 readonly METADATA
 [[ -f "${METADATA}" ]] || die "metadata file is missing"
@@ -122,8 +131,13 @@ readonly METADATA
 for command_name in jq scp ssh; do
   command -v "${command_name}" >/dev/null 2>&1 || die "missing ${command_name}"
 done
-jq --exit-status '(.release_purpose // "application") == "application"' "${METADATA}" >/dev/null ||
-  die "maintenance-preparation artifacts require the separately authorized maintenance controller; ordinary stage is forbidden"
+if [[ ${stage_online} == true ]]; then
+  jq --exit-status '.release_purpose == "tenant-online-preparation" and .schema_contract == "bridge" and .frontend_mode == "external"' "${METADATA}" >/dev/null ||
+    die "online stage requires the exact prepared external tenant bridge"
+else
+  jq --exit-status '(.release_purpose // "application") == "application"' "${METADATA}" >/dev/null ||
+    die "prepared artifacts require their explicit transition entry; ordinary stage is forbidden"
+fi
 
 KKAI_INFRA_SHA=''
 KKAI_DEPLOYMENT_PROTOCOL=''
@@ -155,6 +169,10 @@ case "${frontend_mode}" in
   embedded | external) ;;
   *) die "invalid frontend mode" ;;
 esac
+if [[ ${tenant_routing_enabled} == true ]]; then
+  [[ ${schema_contract} == feature && ${frontend_mode} == external ]] ||
+    die "tenant routing requires an external feature release"
+fi
 [[ "${archive_name}" == "$(basename -- "${archive_name}")" ]] || die "invalid archive name"
 [[ "${archive_sha256}" =~ ^[0-9a-f]{64}$ ]] || die "invalid archive checksum"
 [[ "${platform}" == linux/amd64 ]] || die "invalid release platform"
@@ -162,6 +180,13 @@ esac
 archive="$(dirname -- "${METADATA}")/${archive_name}"
 [[ -f "${archive}" ]] || die "release archive is missing"
 [[ "$(sha256_file "${archive}")" == "${archive_sha256}" ]] || die "archive checksum mismatch"
+if [[ ${stage_online} == true ]]; then
+  command -v python3 >/dev/null 2>&1 || die "missing python3"
+  python3 "${ROOT}/scripts/kkai/prepare-maintenance-release.py" verify \
+    --metadata "${METADATA}" --planned-infra-sha "${KKAI_INFRA_SHA}" \
+    --planned-deployment-protocol tenant-online-v1 ||
+    die "online release plan no longer matches the exact installed controller and artifact"
+fi
 if jq --exit-status 'has("console_contract")' "${METADATA}" >/dev/null; then
   python3 "${ROOT}/scripts/kkai/verify-release-console-contract.py" "${METADATA}" ||
     die "release console contract does not match the image archive"
@@ -265,18 +290,22 @@ stage_stderr="$(mktemp "${TMPDIR:-/tmp}/kkai-newapi-stage-stderr.XXXXXX")" || {
 }
 trap 'rm -f -- "${stage_stdout}" "${stage_stderr}"' EXIT
 scp "${SSH_OPTIONS[@]}" -- "${archive}" "${HOST}:${REMOTE_ARCHIVE}"
+stage_arguments=(
+  --archive "${REMOTE_ARCHIVE}"
+  --archive-sha256 "${archive_sha256}"
+  --source-sha "${source_sha}"
+  --version "${version}"
+  --image-tag "${image_tag}"
+  --expected-infra-sha "${KKAI_INFRA_SHA}"
+  --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
+  --schema-contract "${schema_contract}"
+  --frontend-mode "${frontend_mode}"
+)
+[[ -z ${tenant_routing_enabled} ]] || stage_arguments+=(--tenant-routing-enabled "${tenant_routing_enabled}")
 stage_statuses=()
 if ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     sudo -n /usr/local/sbin/kkai-newapi-manual-deploy stage \
-      --archive "${REMOTE_ARCHIVE}" \
-      --archive-sha256 "${archive_sha256}" \
-      --source-sha "${source_sha}" \
-      --version "${version}" \
-      --image-tag "${image_tag}" \
-      --expected-infra-sha "${KKAI_INFRA_SHA}" \
-      --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}" \
-      --schema-contract "${schema_contract}" \
-      --frontend-mode "${frontend_mode}" 2>"${stage_stderr}" |
+      "${stage_arguments[@]}" 2>"${stage_stderr}" |
     tee "${stage_stdout}"; then
   stage_statuses=("${PIPESTATUS[@]}")
 else

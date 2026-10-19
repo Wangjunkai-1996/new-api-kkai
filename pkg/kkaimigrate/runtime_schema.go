@@ -135,6 +135,19 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 			}
 		}
 	}
+	if currentVersion == TenantOnlineSchemaVersion {
+		receipts, err := loadTenantOnlineReceipts(db)
+		if err != nil {
+			return err
+		}
+		if receipt, ok := receipts["contract"]; !ok || receipt.State != "done" {
+			return fmt.Errorf("%w: online contract receipt is incomplete", ErrSchemaNotReady)
+		}
+		if err := validateTenantOnlineCompleted(db); err != nil {
+			return err
+		}
+		return validateTenantCompatibilityRuntimeSchema(db)
+	}
 	if currentVersion == TenantCompatibilitySchemaVersion {
 		return validateTenantCompatibilityRuntimeSchema(db)
 	}

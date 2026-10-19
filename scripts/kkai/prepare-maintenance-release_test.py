@@ -130,6 +130,43 @@ class MaintenanceReleaseTests(unittest.TestCase):
             maintenance.release_plan(self.metadata, "3" * 40, "unreviewed-maintenance-v1")
         self.assertEqual(self.calls, [])
 
+    def test_online_preparation_binds_bridge_and_both_supported_prefixes(self):
+        metadata = json.loads(self.metadata.read_text())
+        metadata.update(release_purpose="tenant-online-preparation", schema_contract="bridge")
+        archive_path = self.root / metadata["archive"]
+        with tarfile.open(archive_path) as archive:
+            config = json.load(archive.extractfile("config.json"))
+        config["config"]["Labels"]["io.kkrich.schema-contract"] = "bridge"
+        with tarfile.open(archive_path, "w") as archive:
+            for name, value in {
+                "manifest.json": [{"Config": "config.json", "RepoTags": [metadata["image_tag"]]}],
+                "config.json": config,
+            }.items():
+                data = json.dumps(value).encode()
+                member = tarfile.TarInfo(name)
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+        metadata["archive_sha256"] = maintenance.digest_file(archive_path)
+        self.metadata.write_text(json.dumps(metadata))
+        self.local_image["Config"] = copy.deepcopy(config["config"])
+        self.schema = maintenance.TENANT_ONLINE_SCHEMA_CONTRACT
+        plan = maintenance.release_plan(self.metadata, "3" * 40, "tenant-online-v1")
+        self.assertEqual(plan["purpose"], "tenant-online-preparation")
+        self.assertEqual(plan["planned_deployment_protocol"], "tenant-online-v1")
+        self.assertEqual(plan["schema_contract"]["compatible_prefixes"], {
+            "11": maintenance.PG_V11_DIGEST, "14": maintenance.PG_V14_DIGEST,
+        })
+        with self.assertRaisesRegex(ValueError, "correct external build profile"):
+            maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v2")
+        self.schema = {**self.schema, "compatible_prefixes": {"11": maintenance.PG_V11_DIGEST}}
+        with self.assertRaisesRegex(ValueError, "PostgreSQL v11"):
+            maintenance.release_plan(self.metadata, "3" * 40, "tenant-online-v1")
+
+    def test_online_preparation_refuses_maintenance_feature_artifact_before_import(self):
+        with self.assertRaisesRegex(ValueError, "correct external build profile"):
+            maintenance.release_plan(self.metadata, "3" * 40, "tenant-online-v1")
+        self.assertEqual(self.calls, [])
+
     def test_tenant_compatibility_requires_its_exact_v13_contract(self):
         self.schema = maintenance.TENANT_COMPATIBILITY_SCHEMA_CONTRACT
         plan = maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v2")
