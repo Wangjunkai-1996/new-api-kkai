@@ -20,7 +20,6 @@ import * as z from 'zod'
 
 export const IMAGE_PRICING_OPTION_KEY = 'ImagePricingPolicy'
 
-const MANAGED_MODEL = 'gpt-image-2'
 const INVALID_POLICY_MESSAGE = 'imageStudio.admin.pricing.invalidPolicy'
 const INVALID_PRICE_MESSAGE = 'imageStudio.validation.pricePositive'
 
@@ -73,8 +72,11 @@ type ManagedPricing = {
   tiers: ManagedTiers
 }
 
-function getManagedPricing(policy: ImagePricingPolicy): ManagedPricing {
-  const model = policy.models[MANAGED_MODEL]
+function getManagedPricing(
+  policy: ImagePricingPolicy,
+  modelName: string
+): ManagedPricing {
+  const model = policy.models[modelName]
   const tiers = model?.tiers
   if (!tiers?.['1k'] || !tiers['2k'] || !tiers['4k']) {
     throw new Error(INVALID_POLICY_MESSAGE)
@@ -103,14 +105,14 @@ export function parseImagePricingPolicy(raw: string): ImagePricingPolicy {
     throw new Error(INVALID_POLICY_MESSAGE)
   }
 
-  getManagedPricing(parsed.data)
   return parsed.data
 }
 
 export function getImagePricingFormValues(
-  policy: ImagePricingPolicy
+  policy: ImagePricingPolicy,
+  modelName: string
 ): ImagePricingFormValues {
-  const { model, tiers } = getManagedPricing(policy)
+  const { model, tiers } = getManagedPricing(policy, modelName)
   return {
     enabled: policy.enabled,
     allow_custom_size: Boolean(model.allow_custom_size),
@@ -122,11 +124,12 @@ export function getImagePricingFormValues(
 
 export function updateImagePricingPolicy(
   policy: ImagePricingPolicy,
+  modelName: string,
   values: ImagePricingFormValues,
   version = new Date().toISOString()
 ): ImagePricingPolicy {
   const validated = imagePricingFormSchema.parse(values)
-  const { model, tiers } = getManagedPricing(policy)
+  const { model, tiers } = getManagedPricing(policy, modelName)
 
   return {
     ...policy,
@@ -134,7 +137,7 @@ export function updateImagePricingPolicy(
     enabled: validated.enabled,
     models: {
       ...policy.models,
-      [MANAGED_MODEL]: {
+      [modelName]: {
         ...model,
         allow_custom_size: validated.allow_custom_size,
         tiers: {

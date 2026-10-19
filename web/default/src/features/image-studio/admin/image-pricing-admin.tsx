@@ -17,12 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQueryClient } from '@tanstack/react-query'
 import { CircleAlert, LoaderCircle, RotateCw } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useForm, type Control } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import type { z } from 'zod'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,9 +40,12 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from '@/components/ui/input-group'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { useSystemOptions } from '@/features/system-settings/hooks/use-system-options'
 import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
+import type { SystemOptionsResponse } from '@/features/system-settings/types'
 import { safeNumberFieldProps } from '@/features/system-settings/utils/numeric-field'
 
 import {
@@ -89,14 +94,49 @@ function PriceField(props: PriceFieldProps) {
   )
 }
 
-function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
+type ModelSelectionProps = {
+  policy: ImagePricingPolicy
+  modelName: string
+  onModelChange: (modelName: string) => void
+  disabled?: boolean
+}
+
+function ImagePricingModelSelect(props: ModelSelectionProps) {
+  const { t } = useTranslation()
+  const id = useId()
+  return (
+    <div className='space-y-2'>
+      <Label htmlFor={id}>{t('Model')}</Label>
+      <NativeSelect
+        id={id}
+        className='w-full'
+        value={props.modelName}
+        disabled={props.disabled}
+        onChange={(event) => props.onModelChange(event.target.value)}
+      >
+        {Object.keys(props.policy.models).map((modelName) => (
+          <NativeSelectOption key={modelName} value={modelName}>
+            {modelName}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </div>
+  )
+}
+
+function ImagePricingForm(
+  props: ModelSelectionProps & { values: ImagePricingFormValues }
+) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const queryClient = useQueryClient()
+  const [pendingModel, setPendingModel] = useState<string | null>(null)
   const form = useForm<ImagePricingFormInput, unknown, ImagePricingFormValues>({
     resolver: zodResolver(imagePricingFormSchema),
-    defaultValues: getImagePricingFormValues(props.policy),
+    defaultValues: props.values,
   })
   const isDirty = form.formState.isDirty
+  const isSaving = updateOption.isPending || form.formState.isSubmitting
   const isDirtyRef = useRef(isDirty)
   useEffect(() => {
     isDirtyRef.current = isDirty
@@ -105,18 +145,37 @@ function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
   // A background refetch must not replace edits that have not been saved.
   useEffect(() => {
     if (!isDirtyRef.current) {
-      form.reset(getImagePricingFormValues(props.policy))
+      form.reset(props.values)
     }
-  }, [form, props.policy])
+  }, [form, props.values])
 
   const submit = form.handleSubmit(async (values) => {
-    const nextPolicy = updateImagePricingPolicy(props.policy, values)
+    const nextPolicy = updateImagePricingPolicy(
+      props.policy,
+      props.modelName,
+      values
+    )
     try {
       const response = await updateOption.mutateAsync({
         key: IMAGE_PRICING_OPTION_KEY,
         value: JSON.stringify(nextPolicy),
       })
       if (response.success) {
+        // Keep the next model's save based on this accepted policy even when
+        // the shared mutation hook's background refetch has not finished.
+        await queryClient.cancelQueries({ queryKey: ['system-options'] })
+        queryClient.setQueryData<SystemOptionsResponse>(
+          ['system-options'],
+          (previous) =>
+            previous && {
+              ...previous,
+              data: previous.data.map((option) =>
+                option.key === IMAGE_PRICING_OPTION_KEY
+                  ? { ...option, value: JSON.stringify(nextPolicy) }
+                  : option
+              ),
+            }
+        )
         form.reset(values)
       }
     } catch {
@@ -131,6 +190,18 @@ function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
         onSubmit={submit}
         noValidate
       >
+        <ImagePricingModelSelect
+          policy={props.policy}
+          modelName={props.modelName}
+          disabled={isSaving}
+          onModelChange={(modelName) => {
+            if (isDirty) {
+              setPendingModel(modelName)
+            } else {
+              props.onModelChange(modelName)
+            }
+          }}
+        />
         <FormField
           control={form.control}
           name='enabled'
@@ -141,7 +212,7 @@ function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  disabled={updateOption.isPending}
+                  disabled={isSaving}
                 />
               </FormControl>
             </FormItem>
@@ -163,7 +234,7 @@ function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}
-                  disabled={updateOption.isPending}
+                  disabled={isSaving}
                 />
               </FormControl>
             </FormItem>
@@ -175,32 +246,87 @@ function ImagePricingForm(props: { policy: ImagePricingPolicy }) {
             control={form.control}
             name='price1k'
             label={t('imageStudio.admin.pricing.price1k')}
-            disabled={updateOption.isPending}
+            disabled={isSaving}
           />
           <PriceField
             control={form.control}
             name='price2k'
             label={t('imageStudio.admin.pricing.price2k')}
-            disabled={updateOption.isPending}
+            disabled={isSaving}
           />
           <PriceField
             control={form.control}
             name='price4k'
             label={t('imageStudio.admin.pricing.price4k')}
-            disabled={updateOption.isPending}
+            disabled={isSaving}
           />
         </div>
 
         <div className='flex justify-end border-t pt-4'>
-          <Button type='submit' disabled={!isDirty || updateOption.isPending}>
-            {updateOption.isPending && (
+          <Button type='submit' disabled={!isDirty || isSaving}>
+            {isSaving && (
               <LoaderCircle className='animate-spin' aria-hidden='true' />
             )}
-            {t(updateOption.isPending ? 'Saving...' : 'Save')}
+            {t(isSaving ? 'Saving...' : 'Save')}
           </Button>
         </div>
       </form>
+      <ConfirmDialog
+        open={pendingModel !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingModel(null)
+        }}
+        title={t('Unsaved changes')}
+        desc={t('Discard unsaved changes?')}
+        confirmText={t('Discard changes')}
+        handleConfirm={() => {
+          if (pendingModel !== null) props.onModelChange(pendingModel)
+        }}
+      />
     </Form>
+  )
+}
+
+function ImagePricingEditor(props: { policy: ImagePricingPolicy }) {
+  const { t } = useTranslation()
+  const [selection, setSelection] = useState('')
+  const modelName = Object.hasOwn(props.policy.models, selection)
+    ? selection
+    : (Object.keys(props.policy.models)[0] ?? '')
+  const values = useMemo(() => {
+    try {
+      return getImagePricingFormValues(props.policy, modelName)
+    } catch {
+      return null
+    }
+  }, [props.policy, modelName])
+
+  if (!values) {
+    return (
+      <div className='max-w-2xl space-y-5 rounded-lg border p-4 sm:p-5'>
+        <ImagePricingModelSelect
+          policy={props.policy}
+          modelName={modelName}
+          onModelChange={setSelection}
+        />
+        <Alert variant='destructive'>
+          <CircleAlert aria-hidden='true' />
+          <AlertDescription>
+            {t('imageStudio.admin.pricing.invalidPolicy')}
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
+  return (
+    <ImagePricingForm
+      key={modelName}
+      policy={props.policy}
+      modelName={modelName}
+      onModelChange={setSelection}
+      values={values}
+    />
   )
 }
 
@@ -251,5 +377,5 @@ export function ImagePricingAdmin() {
     )
   }
 
-  return <ImagePricingForm policy={policy} />
+  return <ImagePricingEditor policy={policy} />
 }

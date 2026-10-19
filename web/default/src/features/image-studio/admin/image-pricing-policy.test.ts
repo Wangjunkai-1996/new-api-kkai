@@ -16,9 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import {
   getImagePricingFormValues,
@@ -34,27 +32,25 @@ const rawPolicy = JSON.stringify({
   models: {
     'gpt-image-2': {
       default_size: '1024x1024',
+      allow_custom_size: true,
+      tiers: {
+        '1k': { unit_price: 0.67, sizes: ['1024x1024'] },
+        '2k': { unit_price: 1, sizes: ['2048x2048'] },
+        '4k': { unit_price: 1.34, sizes: ['3840x2160'] },
+      },
+    },
+    'gpt-image-2.5-flare': {
+      default_size: '1024x1024',
       provider_hint: 'keep-model-field',
       tiers: {
         '1k': {
-          unit_price: 0.67,
+          unit_price: 0.12,
           sizes: ['1024x1024'],
           note: 'keep-tier-field',
         },
-        '2k': {
-          unit_price: 1,
-          sizes: [
-            '1536x1024',
-            '1024x1536',
-            '2048x2048',
-            '2048x1152',
-            '1152x2048',
-          ],
-        },
-        '4k': {
-          unit_price: 1.34,
-          sizes: ['3840x2160', '2160x3840'],
-        },
+        '2k': { unit_price: 0.24, sizes: ['2048x2048'] },
+        '4k': { unit_price: 0.48, sizes: ['3840x2160'] },
+        extra: { unit_price: 0.01, sizes: ['512x512'] },
       },
     },
     'future-image-model': {
@@ -67,90 +63,106 @@ const rawPolicy = JSON.stringify({
 })
 
 describe('image pricing policy editor', () => {
-  test('extracts only the fields exposed by the admin form', () => {
-    const values = getImagePricingFormValues(parseImagePricingPolicy(rawPolicy))
-
-    assert.deepEqual(values, {
+  test('reads each model independently without requiring gpt-image-2', () => {
+    const policy = parseImagePricingPolicy(rawPolicy)
+    expect(getImagePricingFormValues(policy, 'gpt-image-2')).toEqual({
       enabled: false,
-      allow_custom_size: false,
+      allow_custom_size: true,
       price1k: 0.67,
       price2k: 1,
       price4k: 1.34,
     })
+    delete policy.models['gpt-image-2']
+    expect(
+      getImagePricingFormValues(
+        parseImagePricingPolicy(JSON.stringify(policy)),
+        'gpt-image-2.5-flare'
+      )
+    ).toEqual({
+      enabled: false,
+      allow_custom_size: false,
+      price1k: 0.12,
+      price2k: 0.24,
+      price4k: 0.48,
+    })
   })
 
-  test('updates prices immutably without losing sizes or extension fields', () => {
+  test('updates only the selected model without losing sizes or extension fields', () => {
     const original = parseImagePricingPolicy(rawPolicy)
     const updated = updateImagePricingPolicy(
       original,
+      'gpt-image-2.5-flare',
       {
         enabled: true,
         allow_custom_size: true,
-        price1k: 0.7,
-        price2k: 1.1,
-        price4k: 1.5,
+        price1k: 0.15,
+        price2k: 0.3,
+        price4k: 0.6,
       },
       '2026-08-04T12:00:00.000Z'
     )
 
-    assert.equal(original.enabled, false)
-    assert.equal(original.models['gpt-image-2'].tiers['1k'].unit_price, 0.67)
-    assert.equal(updated.version, '2026-08-04T12:00:00.000Z')
-    assert.equal(updated.enabled, true)
-    assert.equal(updated.models['gpt-image-2'].allow_custom_size, true)
-    assert.equal(updated.models['gpt-image-2'].tiers['1k'].unit_price, 0.7)
-    assert.equal(updated.models['gpt-image-2'].tiers['2k'].unit_price, 1.1)
-    assert.equal(updated.models['gpt-image-2'].tiers['4k'].unit_price, 1.5)
-    assert.deepEqual(
-      updated.models['gpt-image-2'].tiers['2k'].sizes,
-      original.models['gpt-image-2'].tiers['2k'].sizes
-    )
-    assert.equal(updated.audit_label, 'keep-top-level')
-    assert.equal(
-      updated.models['gpt-image-2'].provider_hint,
-      'keep-model-field'
-    )
-    assert.equal(
-      updated.models['gpt-image-2'].tiers['1k'].note,
-      'keep-tier-field'
-    )
-    assert.deepEqual(
-      updated.models['future-image-model'],
-      original.models['future-image-model']
-    )
+    expect(original).toEqual(parseImagePricingPolicy(rawPolicy))
+    expect(updated).toEqual({
+      ...original,
+      version: '2026-08-04T12:00:00.000Z',
+      enabled: true,
+      models: {
+        ...original.models,
+        'gpt-image-2.5-flare': {
+          ...original.models['gpt-image-2.5-flare'],
+          allow_custom_size: true,
+          tiers: {
+            ...original.models['gpt-image-2.5-flare'].tiers,
+            '1k': {
+              ...original.models['gpt-image-2.5-flare'].tiers['1k'],
+              unit_price: 0.15,
+            },
+            '2k': {
+              ...original.models['gpt-image-2.5-flare'].tiers['2k'],
+              unit_price: 0.3,
+            },
+            '4k': {
+              ...original.models['gpt-image-2.5-flare'].tiers['4k'],
+              unit_price: 0.6,
+            },
+          },
+        },
+      },
+    })
   })
 
+  test.each(['missing-model', 'future-image-model'])(
+    'rejects reading or updating unsupported tiers for %s',
+    (modelName) => {
+      const policy = parseImagePricingPolicy(rawPolicy)
+      expect(() => getImagePricingFormValues(policy, modelName)).toThrow(
+        'imageStudio.admin.pricing.invalidPolicy'
+      )
+      expect(() =>
+        updateImagePricingPolicy(policy, modelName, {
+          enabled: true,
+          allow_custom_size: true,
+          price1k: 1,
+          price2k: 2,
+          price4k: 4,
+        })
+      ).toThrow('imageStudio.admin.pricing.invalidPolicy')
+      expect(policy).toEqual(parseImagePricingPolicy(rawPolicy))
+    }
+  )
+
   test('rejects invalid policies and non-positive prices', () => {
-    assert.throws(
-      () => parseImagePricingPolicy('{invalid-json'),
-      /imageStudio\.admin\.pricing\.invalidPolicy/
+    expect(() => parseImagePricingPolicy('{invalid-json')).toThrow(
+      'imageStudio.admin.pricing.invalidPolicy'
     )
-    assert.throws(
-      () =>
-        parseImagePricingPolicy(
-          JSON.stringify({
-            version: 'missing-tiers',
-            enabled: true,
-            models: {
-              'gpt-image-2': {
-                default_size: '1024x1024',
-                tiers: {
-                  '1k': { unit_price: 1, sizes: ['1024x1024'] },
-                },
-              },
-            },
-          })
-        ),
-      /imageStudio\.admin\.pricing\.invalidPolicy/
-    )
-    assert.equal(
+    expect(
       imagePricingFormSchema.safeParse({
         enabled: true,
         price1k: 0,
         price2k: 1,
         price4k: 1,
-      }).success,
-      false
-    )
+      }).success
+    ).toBe(false)
   })
 })
