@@ -34,8 +34,23 @@ export function formatMinor(value: number, locale: string): string {
   }).format(value / 100)
 }
 
-/** Preserve decimal precision when showing sub-cent settlement costs. */
+/** Preserve decimals; mark rounded displays of exact rational costs. */
 export function formatExactMinor(value: string, locale: string): string {
+  if (value.length > 128) return '—'
+  let approximate = false
+  const rational = /^(-?)(\d+)\/([1-9]\d*)$/.exec(value)
+  if (rational) {
+    const numerator = BigInt(rational[2])
+    const denominator = BigInt(rational[3])
+    // Eight CNY decimal places; the stored fraction remains exact on the server.
+    const scaled = numerator * 1000000n
+    const quotient = scaled / denominator
+    const remainder = scaled % denominator
+    approximate = remainder !== 0n
+    const rounded = quotient + (remainder * 2n >= denominator ? 1n : 0n)
+    const digits = rounded.toString().padStart(7, '0')
+    value = `${rational[1]}${digits.slice(0, -6)}.${digits.slice(-6)}`
+  }
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value)
   if (!match) return '—'
   const rawFraction = match[3] ?? ''
@@ -51,5 +66,5 @@ export function formatExactMinor(value: string, locale: string): string {
     new Intl.NumberFormat(locale, { style: 'currency', currency: 'CNY' })
       .formatToParts(0)
       .find((part) => part.type === 'currency')?.value ?? 'CNY'
-  return `${match[1]}${currency} ${new Intl.NumberFormat(locale).format(yuan)}${decimalSeparator}${fraction}`
+  return `${approximate ? '≈' : ''}${match[1]}${currency} ${new Intl.NumberFormat(locale).format(yuan)}${decimalSeparator}${fraction}`
 }

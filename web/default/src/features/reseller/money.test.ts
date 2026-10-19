@@ -49,3 +49,11 @@ test('exact settlement costs retain sub-cent precision', () => {
   expect(formatExactMinor('100', 'fr')).toBe('CNY 1,00')
   expect(formatExactMinor('invalid', 'en')).toBe('—')
 })
+
+test('rational costs are rounded for display with an approximation mark', () => {
+  expect(formatExactMinor('20000/3', 'en')).toBe('≈CN¥ 66.66666667')
+  expect(formatExactMinor('-1/3', 'fr')).toBe('≈-CNY 0,00333333')
+  expect(formatExactMinor('300/3', 'en')).toBe('CN¥ 1.00')
+  expect(formatExactMinor('1/0', 'en')).toBe('—')
+  expect(formatExactMinor('1/-3', 'en')).toBe('—')
+})
