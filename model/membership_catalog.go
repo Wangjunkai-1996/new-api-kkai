@@ -309,6 +309,15 @@ func membershipDiscountTx(tx *gorm.DB, account *MembershipAccount, groupKey stri
 	return 0, fmt.Errorf("%w: tier missing from committed pricing release", ErrMembershipConflict)
 }
 
+// ResolveMembershipRatio preserves an existing group price when it is cheaper.
+// A coefficient of one grants no extra benefit and keeps the wallet price.
+func ResolveMembershipRatio(baseRatio, userRatio, coefficient float64) float64 {
+	if coefficient < 1 {
+		return math.Min(userRatio, baseRatio*coefficient)
+	}
+	return userRatio
+}
+
 func GetMembershipQuote(userID int, groupKey string, baseRatio, userRatio float64) (*MembershipQuote, error) {
 	if userID <= 0 || groupKey == "" || math.IsNaN(baseRatio) || math.IsInf(baseRatio, 0) || baseRatio < 0 || math.IsNaN(userRatio) || math.IsInf(userRatio, 0) || userRatio < 0 {
 		return nil, ErrMembershipInvalidInput
@@ -335,9 +344,7 @@ func GetMembershipQuote(userID int, groupKey string, baseRatio, userRatio float6
 	if err != nil {
 		return nil, err
 	}
-	if quote.Discount < 1 {
-		quote.MembershipRatio = math.Min(userRatio, baseRatio*quote.Discount)
-	}
+	quote.MembershipRatio = ResolveMembershipRatio(baseRatio, userRatio, quote.Discount)
 	return quote, nil
 }
 

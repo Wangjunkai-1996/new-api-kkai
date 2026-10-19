@@ -57,6 +57,22 @@ export interface MembershipCatalog {
   model_limits?: Record<string, MembershipModelLimit> | null
   tiers: MembershipTier[]
   groups: MembershipGroup[]
+  group_quotes?: MembershipCatalogGroupQuote[]
+}
+
+export interface MembershipTierQuote {
+  coefficient: number
+  membership_ratio: number
+  savings: number
+}
+
+export interface MembershipCatalogGroupQuote {
+  group_key: string
+  display_name: string
+  description: string
+  base_ratio: number
+  wallet_ratio: number
+  tier_quotes: Record<string, MembershipTierQuote>
 }
 
 export interface MembershipAccount {
@@ -76,6 +92,9 @@ export interface MembershipAccount {
 export interface MembershipGroupQuote {
   group_key: string
   display_name: string
+  description?: string
+  base_ratio?: number
+  savings?: number
   coefficient: number
   wallet_ratio: number
   membership_ratio: number

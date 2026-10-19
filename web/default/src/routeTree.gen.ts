@@ -53,6 +53,7 @@ import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_aut
 import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedMembershipIndexRouteImport } from './routes/_authenticated/membership/index'
+import { Route as AuthenticatedMembershipRatiosRouteImport } from './routes/_authenticated/membership/ratios'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
@@ -324,6 +325,12 @@ const AuthenticatedMembershipIndexRoute =
     path: '/membership/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedMembershipRatiosRoute =
+  AuthenticatedMembershipRatiosRouteImport.update({
+    id: '/membership/ratios',
+    path: '/membership/ratios',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedModelsIndexRoute =
   AuthenticatedModelsIndexRouteImport.update({
     id: '/models/',
@@ -581,6 +588,7 @@ export interface FileRoutesByFullPath {
   '/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
   '/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
+  '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
@@ -658,6 +666,7 @@ export interface FileRoutesByTo {
   '/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
   '/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
+  '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
@@ -742,6 +751,7 @@ export interface FileRoutesById {
   '/_authenticated/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
   '/_authenticated/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/_authenticated/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
+  '/_authenticated/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/_authenticated/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
@@ -825,6 +835,7 @@ export interface FileRouteTypes {
     | '/image-studio/create'
     | '/image-studio/library'
     | '/invitations/admin'
+    | '/membership/ratios'
     | '/models/$section'
     | '/system-settings/image-studio'
     | '/system-settings/video-studio'
@@ -902,6 +913,7 @@ export interface FileRouteTypes {
     | '/image-studio/create'
     | '/image-studio/library'
     | '/invitations/admin'
+    | '/membership/ratios'
     | '/models/$section'
     | '/system-settings/image-studio'
     | '/system-settings/video-studio'
@@ -985,6 +997,7 @@ export interface FileRouteTypes {
     | '/_authenticated/image-studio/create'
     | '/_authenticated/image-studio/library'
     | '/_authenticated/invitations/admin'
+    | '/_authenticated/membership/ratios'
     | '/_authenticated/models/$section'
     | '/_authenticated/system-settings/image-studio'
     | '/_authenticated/system-settings/video-studio'
@@ -1361,6 +1374,13 @@ declare module '@tanstack/react-router' {
       path: '/membership'
       fullPath: '/membership/'
       preLoaderRoute: typeof AuthenticatedMembershipIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/membership/ratios': {
+      id: '/_authenticated/membership/ratios'
+      path: '/membership/ratios'
+      fullPath: '/membership/ratios'
+      preLoaderRoute: typeof AuthenticatedMembershipRatiosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/models/': {
@@ -1783,6 +1803,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
+  AuthenticatedMembershipRatiosRoute: typeof AuthenticatedMembershipRatiosRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedUsageLogsAuditRoute: typeof AuthenticatedUsageLogsAuditRoute
@@ -1815,6 +1836,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
+  AuthenticatedMembershipRatiosRoute: AuthenticatedMembershipRatiosRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedUsageLogsAuditRoute: AuthenticatedUsageLogsAuditRoute,

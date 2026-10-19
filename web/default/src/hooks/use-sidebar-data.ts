@@ -32,6 +32,7 @@ import {
   LayoutDashboard,
   ListTodo,
   MessageSquare,
+  Percent,
   Puzzle,
   Radio,
   ServerCog,
@@ -150,6 +151,11 @@ export function useSidebarData(): SidebarData {
             title: t('Membership center'),
             url: '/membership',
             icon: Crown,
+          },
+          {
+            title: t('Membership ratios'),
+            url: '/membership/ratios',
+            icon: Percent,
           },
           {
             title: t('Wallet'),

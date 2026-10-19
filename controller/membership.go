@@ -65,7 +65,7 @@ func membershipAPIError(c *gin.Context, err error) {
 
 func GetMembershipCatalog(c *gin.Context) {
 	if !model.MembershipEnabled() {
-		common.ApiSuccess(c, gin.H{"runtime_enabled": false, "sales_enabled": false, "release_id": 0, "tiers": []membershipTierView{}, "groups": []model.MembershipGroup{}})
+		common.ApiSuccess(c, gin.H{"runtime_enabled": false, "sales_enabled": false, "release_id": 0, "tiers": []membershipTierView{}, "groups": []model.MembershipGroup{}, "group_quotes": []service.MembershipCatalogGroupQuote{}})
 		return
 	}
 	catalog, err := model.GetMembershipCatalog()
@@ -124,7 +124,12 @@ func GetMembershipCatalog(c *gin.Context) {
 		tier.PaymentProducts = nil
 		tiers = append(tiers, membershipTierView{MembershipTier: tier, Eligibility: eligibility, PaymentMethods: methods})
 	}
-	common.ApiSuccess(c, gin.H{"runtime_enabled": true, "release_id": catalog.ReleaseID, "sales_enabled": catalog.SalesEnabled, "tiers": tiers, "groups": groups})
+	quotes, err := service.GetMembershipCatalogGroupQuotes(user.Id, catalog)
+	if err != nil {
+		membershipAPIError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"runtime_enabled": true, "release_id": catalog.ReleaseID, "sales_enabled": catalog.SalesEnabled, "tiers": tiers, "groups": groups, "group_quotes": quotes})
 }
 
 func GetMembershipSelf(c *gin.Context) {
@@ -167,6 +172,13 @@ func GetMembershipSelf(c *gin.Context) {
 	}
 	if self.Tier != nil {
 		self.Tier.PaymentProducts = nil
+		discounts := make(map[string]float64, len(quotes))
+		for _, quote := range quotes {
+			if coefficient, ok := self.Tier.Discounts[quote.GroupKey]; ok {
+				discounts[quote.GroupKey] = coefficient
+			}
+		}
+		self.Tier.Discounts = discounts
 	}
 	common.ApiSuccess(c, gin.H{"runtime_enabled": true, "server_time": self.ServerTime, "account": self.Account, "tier": self.Tier, "discounts": quotes, "pending_order": pending, "available_quota": available})
 }

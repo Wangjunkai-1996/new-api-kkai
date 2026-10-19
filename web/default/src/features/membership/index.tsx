@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
 import { CurrentMembership } from './components/current-membership'
@@ -55,6 +56,12 @@ export function MembershipCenter() {
         {t('Membership center')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
+        <Link
+          to='/membership/ratios'
+          className={buttonVariants({ variant: 'outline' })}
+        >
+          {t('Membership ratios')}
+        </Link>
         <Button
           variant='outline'
           onClick={() => void membership.refresh()}

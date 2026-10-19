@@ -18,6 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
+import {
   fireEvent,
   render,
   screen,
@@ -775,9 +781,14 @@ describe('membership payment safety', () => {
       defaultOptions: { queries: { retry: false } },
     })
     try {
+      const router = createRouter({
+        routeTree: createRootRoute({ component: MembershipCenter }),
+        history: createMemoryHistory({ initialEntries: ['/'] }),
+      })
+      await router.load()
       render(
         <QueryClientProvider client={client}>
-          <MembershipCenter />
+          <RouterProvider router={router} />
         </QueryClientProvider>
       )
       expect(

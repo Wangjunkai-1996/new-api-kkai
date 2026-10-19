@@ -12,6 +12,7 @@ describe('console API compatibility', () => {
         'scoped_access_tokens',
         'task_plugins',
         'studio_media_urls',
+        'membership_ratio_quotes',
       ],
     })
     expect(supportsConsole(contract)).toBe(true)
@@ -61,6 +62,21 @@ describe('console API compatibility', () => {
           ],
         })
       )
+    ).toBe(false)
+  })
+
+  it('rejects a backend that cannot provide membership ratio quotes', () => {
+    expect(
+      supportsConsole({
+        format_version: 1,
+        api_contracts: [2],
+        capabilities: [
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+        ],
+      })
     ).toBe(false)
   })
 })

@@ -18,6 +18,7 @@ const contract = {
     'scoped_access_tokens',
     'task_plugins',
     'studio_media_urls',
+    'membership_ratio_quotes',
     'token_group_inline',
   ],
 }
