@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -48,9 +49,13 @@ func validateTenantOnlineColumn(db *gorm.DB, table string, field *schema.Field, 
 		}
 	}
 	if field.PrimaryKey {
-		primary, known := column.PrimaryKey()
-		if !known || !primary {
-			return fmt.Errorf("%w: %s.%s must be a primary key", ErrSchemaNotReady, table, field.DBName)
+		// PostgreSQL's GORM constraint lookup hides primary keys from SELECT-only
+		// observers; the complete ordered key is checked through pg_catalog.
+		if db.Dialector.Name() != DialectPostgres {
+			primary, known := column.PrimaryKey()
+			if !known || !primary {
+				return fmt.Errorf("%w: %s.%s must be a primary key", ErrSchemaNotReady, table, field.DBName)
+			}
 		}
 	} else {
 		nullable, known := column.Nullable()
@@ -71,6 +76,25 @@ func validateTenantOnlineColumn(db *gorm.DB, table string, field *schema.Field, 
 	}
 	if !hasDefault || actualDefault != tenantOnlineDefault(field.DefaultValue) {
 		return fmt.Errorf("%w: %s.%s has an invalid default", ErrSchemaNotReady, table, field.DBName)
+	}
+	return nil
+}
+
+func validateTenantOnlinePostgresPrimaryKey(db *gorm.DB, table string, expected []string) error {
+	var actual []string
+	err := db.Raw(`SELECT a.attname
+FROM pg_catalog.pg_index i
+JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum,position) ON true
+JOIN pg_catalog.pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
+WHERE i.indrelid=pg_catalog.to_regclass(?) AND i.indisprimary AND i.indisunique
+ AND i.indisvalid AND i.indisready AND i.indimmediate AND i.indnatts=?
+ AND i.indpred IS NULL AND i.indexprs IS NULL
+ORDER BY k.position`, table, len(expected)).Scan(&actual).Error
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(actual, expected) {
+		return fmt.Errorf("%w: %s has an invalid primary key", ErrSchemaNotReady, table)
 	}
 	return nil
 }

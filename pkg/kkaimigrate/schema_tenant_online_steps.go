@@ -116,6 +116,15 @@ func (step tenantOnlineStep) validate(db *gorm.DB) error {
 	if !db.Migrator().HasTable(step.model) {
 		return fmt.Errorf("%w: missing tenant object %s", ErrSchemaNotReady, step.key)
 	}
+	if step.field == "" && db.Dialector.Name() == DialectPostgres {
+		var primary []string
+		for _, field := range statement.Schema.PrimaryFields {
+			primary = append(primary, field.DBName)
+		}
+		if err := validateTenantOnlinePostgresPrimaryKey(db, step.table, primary); err != nil {
+			return err
+		}
+	}
 	columns, err := db.Migrator().ColumnTypes(step.model)
 	if err != nil {
 		return err

@@ -48,6 +48,8 @@ SQLite 是本地兼容回退，不具有 PostgreSQL 并发 DDL 的语义。生�
 
 冻结协议：plan `dbf0ffa60103902d51e41482d98b106643570b3060625251ade3473cd8a95fc4`；PostgreSQL 14 前缀 `sha256:b831116798762d19219db564cac02fd293352f911d8b6b9d25e8c8db0001eccb`。历史 11/12/13 摘要未改变。仅新 14 的 wallet carry 和支付反向聚合字段使用 TEXT（MySQL LONGTEXT），避免不同价格版本的分母累积超过单笔字段长度；单报价和单笔流水继续有长度边界。
 
+生产只读计划暴露了 PostgreSQL 的权限差异：仅有 SELECT 的 standby 看不到 `information_schema.table_constraints` 的主键，而真实 `pg_catalog` 主键存在。新在线检查通过 `pg_catalog` 核对完整有序主键及 valid/ready/unique/immediate 状态，保留类型、默认值和非空检查，不增加数据库权限。真实 SELECT-only、非 owner、默认只读角色的 expanded/finalized 检查及错误主键拒绝均有回归；此修复不改变冻结的结构或迁移摘要。
+
 ## 4. 隔离验收与覆盖范围
 
 以下第一轮定向检查全部通过。实库验收仅使用本地临时容器，按独立 schema/database 隔离。第一轮三个临时数据库容器已删除；下列端口是该轮执行记录，不是常驻测试环境。后续真实 HTTP 和 Linux/规模演练使用各自受限证据目录及独立本地容器，结果分别记录，不能混同生产环境。全仓库套件未运行。
