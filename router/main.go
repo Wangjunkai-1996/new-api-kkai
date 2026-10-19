@@ -3,11 +3,14 @@ package router
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,6 +51,26 @@ func SetRouter(router *gin.Engine, assets ThemeAssets) {
 	if mode == frontendModeEmbedded && frontendBaseURL == "" && !assets.hasEmbeddedFrontend() {
 		panic(fmt.Errorf("embedded frontend assets are unavailable; set FRONTEND_MODE=external or build with frontend assets"))
 	}
+	platformHosts := make([]string, 0)
+	for _, rawHost := range strings.Split(os.Getenv("TENANT_PLATFORM_HOSTS"), ",") {
+		if host := strings.TrimSpace(rawHost); host != "" {
+			canonical, err := model.NormalizeTenantHost(host)
+			if err != nil {
+				panic(fmt.Errorf("invalid TENANT_PLATFORM_HOSTS entry %q: %w", host, err))
+			}
+			platformHosts = append(platformHosts, canonical)
+		}
+	}
+	if len(platformHosts) == 0 {
+		address, err := url.Parse(system_setting.ServerAddress)
+		if err == nil && (address.Scheme == "https" || address.Scheme == "http") {
+			if host, err := model.NormalizeTenantHost(address.Host); err == nil {
+				platformHosts = append(platformHosts, host)
+			}
+		}
+	}
+	routingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("TENANT_ROUTING_ENABLED")), "true")
+	router.Use(middleware.TenantRouting(model.DB, routingEnabled, platformHosts...), middleware.TenantFeatureGate())
 
 	SetApiRouter(router)
 	SetDashboardRouter(router)

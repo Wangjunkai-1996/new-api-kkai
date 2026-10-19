@@ -18,7 +18,7 @@ const (
 	UserSessionStatusRevoking = "revoking"
 	UserSessionStatusRevoked  = "revoked"
 
-	userSessionCacheSchema      = 1
+	userSessionCacheSchema      = 2
 	userSessionListLimit        = 100
 	userSessionRevokeBatchSize  = 500
 	userSessionCleanupScanLimit = 1000
@@ -41,6 +41,7 @@ var (
 // refresh secrets are never persisted.
 type UserSession struct {
 	SID                 string `json:"sid" gorm:"column:sid;type:varchar(64);primaryKey"`
+	TenantID            int64  `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	UserID              int    `json:"user_id" gorm:"column:user_id;not null;index:idx_user_sessions_user_status_expiry,priority:1;index:idx_user_sessions_user_created,priority:1"`
 	Version             int64  `json:"version" gorm:"type:bigint;not null;default:1"`
 	UserAuthVersion     int64  `json:"user_auth_version" gorm:"type:bigint;not null"`
@@ -69,6 +70,7 @@ func (session *UserSession) AfterFind(_ *gorm.DB) error {
 
 type userSessionCacheEntry struct {
 	SID             string
+	TenantID        int64
 	UserID          int
 	Version         int64
 	UserAuthVersion int64
@@ -87,6 +89,7 @@ type userSessionCacheEntry struct {
 func (session *UserSession) cacheEntry() *userSessionCacheEntry {
 	return &userSessionCacheEntry{
 		SID:             session.SID,
+		TenantID:        session.TenantID,
 		UserID:          session.UserID,
 		Version:         session.Version,
 		UserAuthVersion: session.UserAuthVersion,
@@ -106,6 +109,7 @@ func (session *UserSession) cacheEntry() *userSessionCacheEntry {
 func (entry *userSessionCacheEntry) session() *UserSession {
 	return &UserSession{
 		SID:             entry.SID,
+		TenantID:        entry.TenantID,
 		UserID:          entry.UserID,
 		Version:         entry.Version,
 		UserAuthVersion: entry.UserAuthVersion,
@@ -154,6 +158,13 @@ func createUserSessionWithTx(tx *gorm.DB, session *UserSession) error {
 	}
 	if session.LastActiveAt == 0 {
 		session.LastActiveAt = now
+	}
+	if session.UserID > 0 && session.TenantID == PlatformTenantID {
+		var user User
+		if err := tx.Select("tenant_id").First(&user, session.UserID).Error; err != nil {
+			return err
+		}
+		session.TenantID = user.TenantID
 	}
 	if session.CreatedAt == 0 {
 		session.CreatedAt = now
@@ -262,11 +273,11 @@ func GetUserSessionCached(sid string) (*UserSession, error) {
 }
 
 func getUserSessionCache(sid string) (*userSessionCacheEntry, error) {
-	var entry userSessionCacheEntry
+	entry := userSessionCacheEntry{TenantID: -1}
 	if err := common.RedisHGetObj(userSessionCacheKey(sid), &entry); err != nil {
 		return nil, err
 	}
-	if entry.CacheSchema != userSessionCacheSchema || entry.SID != sid || entry.UserID <= 0 || entry.Version <= 0 || entry.UserAuthVersion <= 0 {
+	if entry.TenantID < 0 || entry.CacheSchema != userSessionCacheSchema || entry.SID != sid || entry.UserID <= 0 || entry.Version <= 0 || entry.UserAuthVersion <= 0 {
 		return nil, fmt.Errorf("user session cache schema is stale")
 	}
 	if entry.Status != UserSessionStatusActive || entry.RevokedAt != 0 || entry.ExpiresAt <= time.Now().Unix() {
@@ -333,7 +344,7 @@ redis.call('HSET', KEYS[1],
   'UserAuthVersion', ARGV[4], 'Status', ARGV[5],
   'LoginMethod', ARGV[6], 'IP', ARGV[7], 'UserAgent', ARGV[8],
   'CreatedAt', ARGV[9], 'LastActiveAt', ARGV[10], 'ExpiresAt', ARGV[11],
-  'RevokedAt', ARGV[12], 'RevokedReason', ARGV[13], 'CacheSchema', ARGV[14])
+  'RevokedAt', ARGV[12], 'RevokedReason', ARGV[13], 'CacheSchema', ARGV[14], 'TenantID', ARGV[16])
 if ARGV[5] == 'active' then
   redis.call('PEXPIREAT', KEYS[1], ARGV[15])
 else
@@ -343,7 +354,7 @@ return 1`
 	result, err := common.RDB.Eval(context.Background(), script, []string{userSessionCacheKey(entry.SID)},
 		entry.SID, entry.UserID, entry.Version, entry.UserAuthVersion, entry.Status,
 		entry.LoginMethod, entry.IP, entry.UserAgent, entry.CreatedAt, entry.LastActiveAt,
-		entry.ExpiresAt, entry.RevokedAt, entry.RevokedReason, entry.CacheSchema, redisExpiration,
+		entry.ExpiresAt, entry.RevokedAt, entry.RevokedReason, entry.CacheSchema, redisExpiration, entry.TenantID,
 	).Int()
 	if err != nil {
 		return err
@@ -400,7 +411,7 @@ func writeUserSessionDenyFence(session *UserSession, status string, now int64, r
 	return writeUserSessionCache(entry, time.Time{})
 }
 
-func ListActiveUserSessions(userID int, currentSID string, now int64) ([]UserSession, error) {
+func ListActiveUserSessions(userID int, currentSID string, now int64, tenantIDs ...int64) ([]UserSession, error) {
 	if userID <= 0 {
 		return nil, ErrUserSessionInvalid
 	}
@@ -415,9 +426,13 @@ func ListActiveUserSessions(userID int, currentSID string, now int64) ([]UserSes
 		return nil, ErrUserSessionInvalid
 	}
 	sessions := make([]UserSession, 0, userSessionListLimit)
+	query := DB
+	if len(tenantIDs) > 0 {
+		query = query.Where("tenant_id = ?", tenantIDs[0])
+	}
 	if currentSID != "" {
 		var current []UserSession
-		if err := DB.Where(
+		if err := query.Session(&gorm.Session{}).Where(
 			"user_id = ? AND user_auth_version = ? AND status = ? AND expires_at > ? AND sid = ?",
 			userID,
 			authVersion,
@@ -433,7 +448,7 @@ func ListActiveUserSessions(userID int, currentSID string, now int64) ([]UserSes
 	}
 	remainingLimit := userSessionListLimit - len(sessions)
 
-	otherQuery := DB.Where(
+	otherQuery := query.Session(&gorm.Session{}).Where(
 		"user_id = ? AND user_auth_version = ? AND status = ? AND expires_at > ?",
 		userID,
 		authVersion,
@@ -709,15 +724,15 @@ func AdvanceUserSessionAuthVersion(userID int, sid string, expectedSessionVersio
 	return &session, nil
 }
 
-func RevokeOtherUserSessions(userID int, currentSID, reason string) (int64, error) {
-	return revokeUserSessions(userID, currentSID, reason)
+func RevokeOtherUserSessions(userID int, currentSID, reason string, tenantIDs ...int64) (int64, error) {
+	return revokeUserSessions(userID, currentSID, reason, tenantIDs...)
 }
 
 func RevokeAllUserSessions(userID int, reason string) (int64, error) {
 	return revokeUserSessions(userID, "", reason)
 }
 
-func revokeUserSessions(userID int, excludedSID, reason string) (int64, error) {
+func revokeUserSessions(userID int, excludedSID, reason string, tenantIDs ...int64) (int64, error) {
 	if userID <= 0 {
 		return 0, ErrUserSessionInvalid
 	}
@@ -725,6 +740,9 @@ func revokeUserSessions(userID int, excludedSID, reason string) (int64, error) {
 	var totalAffected int64
 	for {
 		query := DB.Where("user_id = ? AND status = ? AND expires_at > ?", userID, UserSessionStatusActive, now)
+		if len(tenantIDs) > 0 {
+			query = query.Where("tenant_id = ?", tenantIDs[0])
+		}
 		if excludedSID != "" {
 			query = query.Where("sid <> ?", excludedSID)
 		}

@@ -42,7 +42,7 @@ type LoginVerification struct {
 	payload loginFlowPayload
 }
 
-func StartLoginVerification(user *model.User, loginMethod string, migration *LegacyGitHubMigration) (*LoginChallenge, error) {
+func StartLoginVerification(user *model.User, loginMethod string, migration *LegacyGitHubMigration, tenantIDs ...int64) (*LoginChallenge, error) {
 	if user == nil || user.Id <= 0 || user.AuthVersion <= 0 || loginMethod == "" {
 		return nil, model.ErrAuthFlowInvalid
 	}
@@ -78,8 +78,13 @@ func StartLoginVerification(user *model.User, loginMethod string, migration *Leg
 		return nil, err
 	}
 	expiresAt := time.Now().Add(LoginVerificationTTL)
+	tenantID := user.TenantID
+	if len(tenantIDs) > 0 {
+		tenantID = tenantIDs[0]
+	}
 	token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose: model.AuthFlowPurposeLoginVerification, UserId: user.Id,
+		TenantID: tenantID,
+		Purpose:  model.AuthFlowPurposeLoginVerification, UserId: user.Id,
 		Payload: string(encoded), ExpiresAt: expiresAt,
 	})
 	if err != nil {
@@ -88,10 +93,13 @@ func StartLoginVerification(user *model.User, loginMethod string, migration *Leg
 	return &LoginChallenge{RequireVerification: true, FlowToken: token, ExpiresAt: expiresAt.Unix(), Methods: methods}, nil
 }
 
-func RequireLoginVerification(token, method string) (*LoginVerification, error) {
+func RequireLoginVerification(token, method string, tenantIDs ...int64) (*LoginVerification, error) {
 	flow, err := model.GetAuthFlow(token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeLoginVerification})
 	if err != nil {
 		return nil, err
+	}
+	if len(tenantIDs) > 0 && flow.TenantID != tenantIDs[0] {
+		return nil, model.ErrAuthFlowInvalid
 	}
 	var payload loginFlowPayload
 	if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil || payload.AuthVersion <= 0 || payload.LoginMethod == "" {
@@ -127,8 +135,8 @@ func requireLoginVerificationMethod(state *model.UserVerificationState, method s
 	return ErrProofMethod
 }
 
-func VerifyLoginCode(token, code, ip, userAgent string) (*AuthBundle, *LegacyGitHubMigration, error) {
-	verification, err := RequireLoginVerification(token, VerificationMethodTwoFA)
+func VerifyLoginCode(token, code, ip, userAgent string, tenantIDs ...int64) (*AuthBundle, *LegacyGitHubMigration, error) {
+	verification, err := RequireLoginVerification(token, VerificationMethodTwoFA, tenantIDs...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -155,6 +163,7 @@ func CompleteLoginVerification(token string, verification *LoginVerification, me
 	if err != nil {
 		return nil, nil, err
 	}
+	session.TenantID = verification.Flow.TenantID
 	var migration *LegacyGitHubMigration
 	if err := model.CreateUserSessionFromLoginFlow(token, session, func(tx *gorm.DB, flow *model.AuthFlow, state *model.UserVerificationState) error {
 		var payload loginFlowPayload

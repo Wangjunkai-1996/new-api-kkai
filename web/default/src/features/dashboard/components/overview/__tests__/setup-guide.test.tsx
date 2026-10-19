@@ -36,6 +36,7 @@ import { OverviewDashboard } from '../overview-dashboard'
 const storageKey = 'dashboard_overview_setup_guide_expanded'
 let client: QueryClient
 let keyLookupError: Error | null
+let tenantId: number
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -52,15 +53,38 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false } },
   })
   keyLookupError = null
+  tenantId = 0
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
     switch (url) {
+      case '/api/site-config':
+        return {
+          data: {
+            success: true,
+            data: {
+              tenant_id: tenantId,
+              hostname: window.location.host,
+              status: 'active',
+              site_name: 'Test site',
+            },
+          },
+        }
       case '/api/token/?p=1&size=10':
         if (keyLookupError) throw keyLookupError
         return {
           data: {
             success: true,
             data: {
-              items: [{ id: 1, name: 'App key', key: 'masked', status: 1 }],
+              items: [
+                {
+                  id: 1,
+                  name:
+                    useAuthStore.getState().auth.user?.id === 2
+                      ? 'Second account key'
+                      : 'App key',
+                  key: 'masked',
+                  status: 1,
+                },
+              ],
             },
           },
         }
@@ -76,7 +100,16 @@ beforeEach(() => {
           },
         }
       case '/api/user/models':
-        return { data: { success: true, data: ['gpt-4o-mini'] } }
+        return {
+          data: {
+            success: true,
+            data: [
+              useAuthStore.getState().auth.user?.id === 2
+                ? 'second-account-model'
+                : 'gpt-4o-mini',
+            ],
+          },
+        }
       case '/api/data/self':
         return { data: { success: true, data: [] } }
       default:
@@ -107,6 +140,62 @@ async function renderOverview() {
 }
 
 describe('overview setup guide', () => {
+  it('fetches the new account key and models instead of reusing fresh data from the previous account', async () => {
+    const user = userEvent.setup()
+    await renderOverview()
+    await user.click(await screen.findByRole('button', { name: 'Setup guide' }))
+    expect(await screen.findByText('App key')).toBeVisible()
+    act(() => {
+      useAuthStore
+        .getState()
+        .auth.setUser({
+          id: 2,
+          username: 'second-user',
+          role: 1,
+          quota: 1000000,
+          request_count: 1,
+        })
+    })
+    expect(await screen.findByText('Second account key')).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByText(/-d '\{"model"/).textContent).toContain(
+        'second-account-model'
+      )
+    )
+    expect(screen.queryByText('App key')).not.toBeInTheDocument()
+    expect(
+      vi
+        .mocked(api.get)
+        .mock.calls.filter(([url]) => url === '/api/token/?p=1&size=10')
+    ).toHaveLength(2)
+    expect(
+      vi
+        .mocked(api.get)
+        .mock.calls.filter(([url]) => url === '/api/user/models')
+    ).toHaveLength(2)
+  })
+
+  it('gives tenant customers a bounded generation sample without linking to the disabled Playground', async () => {
+    tenantId = 12
+    const user = userEvent.setup()
+    await renderOverview()
+    await user.click(await screen.findByRole('button', { name: 'Setup guide' }))
+    const sample =
+      screen.getByText(/-d '\{"model".*"messages"/).textContent ?? ''
+    const body = JSON.parse(sample.trim().slice(4, -1))
+    expect(body).toMatchObject({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'Say hello in one sentence.' }],
+      max_tokens: 128,
+    })
+    expect(
+      screen.getByRole('link', { name: /Send a request/ })
+    ).toHaveAttribute('href', '/keys')
+    expect(
+      document.querySelector('a[href="/playground"]')
+    ).not.toBeInTheDocument()
+  })
+
   it('shows usage first and only a header entry when setup is complete', async () => {
     await renderOverview()
 

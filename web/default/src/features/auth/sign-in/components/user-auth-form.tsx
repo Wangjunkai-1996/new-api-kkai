@@ -63,8 +63,9 @@ import { cn } from '@/lib/utils'
 export function UserAuthForm({
   className,
   redirectTo,
+  ownerLogin = false,
   ...props
-}: AuthFormProps) {
+}: AuthFormProps & { ownerLogin?: boolean }) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [wechatCode, setWeChatCode] = useState('')
@@ -84,9 +85,8 @@ export function UserAuthForm({
   const loginFailedMessage = t('Login failed')
 
   const { status } = useStatus()
-  const passkeyLoginEnabled = Boolean(
-    status?.passkey_login ?? status?.data?.passkey_login
-  )
+  const passkeyLoginEnabled =
+    !ownerLogin && Boolean(status?.passkey_login ?? status?.data?.passkey_login)
   const passwordLoginEnabled =
     (status?.password_login_enabled ??
       status?.data?.password_login_enabled ??
@@ -111,15 +111,17 @@ export function UserAuthForm({
     isPasskeyLoading ||
     !passkeySupported ||
     (requiresLegalConsent && !agreedToLegal)
-  const hasWeChatLogin = Boolean(status?.wechat_login)
-  const hasOAuthLogin = Boolean(
-    status?.github_oauth ||
-    status?.discord_oauth ||
-    status?.oidc_enabled ||
-    status?.linuxdo_oauth ||
-    status?.telegram_oauth ||
-    (status?.custom_oauth_providers?.length ?? 0) > 0
-  )
+  const hasWeChatLogin = !ownerLogin && Boolean(status?.wechat_login)
+  const hasOAuthLogin =
+    !ownerLogin &&
+    Boolean(
+      status?.github_oauth ||
+      status?.discord_oauth ||
+      status?.oidc_enabled ||
+      status?.linuxdo_oauth ||
+      status?.telegram_oauth ||
+      (status?.custom_oauth_providers?.length ?? 0) > 0
+    )
   const hasAlternativeLogin =
     passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
 
@@ -179,11 +181,12 @@ export function UserAuthForm({
         password: data.password,
         turnstile: submittedTurnstileToken,
         passwordEncryptionEnabled: passwordLoginEncryptionEnabled,
+        owner_login: ownerLogin,
       })
 
       if (res.success) {
         form.setValue('password', '')
-        if (await handleLoginResult(res.data, redirectTo)) {
+        if (await handleLoginResult(res.data, redirectTo, ownerLogin)) {
           toast.success(t('Welcome back!'))
         }
       } else {
@@ -384,12 +387,14 @@ export function UserAuthForm({
                     />
                   </FormControl>
                   <FormMessage />
-                  <Link
-                    to='/forgot-password'
-                    className='text-muted-foreground absolute end-0 -top-0.5 z-10 text-sm font-medium hover:opacity-75'
-                  >
-                    {t('Forgot password?')}
-                  </Link>
+                  {!ownerLogin && (
+                    <Link
+                      to='/forgot-password'
+                      className='text-muted-foreground absolute end-0 -top-0.5 z-10 text-sm font-medium hover:opacity-75'
+                    >
+                      {t('Forgot password?')}
+                    </Link>
+                  )}
                 </FormItem>
               )}
             />
@@ -425,7 +430,7 @@ export function UserAuthForm({
           className='mt-1'
         />
 
-        {!hasAlternativeLogin && alternativeLoginMethods}
+        {!ownerLogin && !hasAlternativeLogin && alternativeLoginMethods}
       </form>
 
       {hasWeChatLogin && (

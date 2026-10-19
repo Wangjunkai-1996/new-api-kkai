@@ -31,10 +31,12 @@ import { ConsoleCompatibilityBoundary } from '@/components/console-compatibility
 import { NavigationProgress } from '@/components/navigation-progress'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeCustomizationProvider } from '@/context/theme-customization-provider'
+import { getSignInSearch } from '@/features/auth/lib/auth-redirect'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
+import { siteConfigQueryOptions } from '@/features/site-config'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import {
   bootstrapAuthentication,
@@ -60,16 +62,6 @@ function RootComponent() {
 
   useEffect(
     () =>
-      useAuthStore.subscribe((state, previousState) => {
-        if (state.auth.session?.sid !== previousState.auth.session?.sid) {
-          queryClient.clear()
-        }
-      }),
-    [queryClient]
-  )
-
-  useEffect(
-    () =>
       subscribeAuthSessionEvents((event) => {
         const currentSID = useAuthStore.getState().auth.session?.sid
         if (event.kind === 'authenticated') {
@@ -80,7 +72,14 @@ function RootComponent() {
         }
         if (currentSID && event.sid === currentSID) {
           clearAuthenticatedClientState(queryClient, false)
-          void navigate({ to: '/sign-in', replace: true })
+          void navigate({
+            to: '/sign-in',
+            search: getSignInSearch(
+              window.location.href,
+              window.location.origin
+            ),
+            replace: true,
+          })
         }
       }),
     [navigate, queryClient]
@@ -110,7 +109,22 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
 }>()({
   // 应用初始化与路由解析前统一校验会话
-  beforeLoad: async ({ location }) => {
+  beforeLoad: async ({ location, context }) => {
+    // A missing or disabled Host must not render the platform as a fallback.
+    const site = await context.queryClient.fetchQuery(siteConfigQueryOptions())
+    const isResellerOwnerRoute =
+      location.pathname === '/reseller' ||
+      location.pathname.startsWith('/reseller/')
+    const isSignInRoute =
+      location.pathname === '/sign-in' || location.pathname === '/otp'
+    if (
+      (site.status !== 'active' || site.maintenance) &&
+      !isResellerOwnerRoute &&
+      !isSignInRoute &&
+      location.pathname !== '/503'
+    ) {
+      throw redirect({ to: '/503' })
+    }
     const pathname = location?.pathname || ''
     const needsSetupCheck =
       !setupStatusChecked &&

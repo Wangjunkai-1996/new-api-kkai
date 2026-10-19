@@ -389,6 +389,11 @@ func InitResources() error {
 		if err = model.ValidateLogSchemaPrerequisites(model.LOG_DB); err != nil {
 			return fmt.Errorf("log schema check failed; migrate the log database before starting NewAPI: %w", err)
 		}
+		if model.LOG_DB != model.DB {
+			if err = kkaimigrate.CheckTenantLogSchema(context.Background(), model.LOG_DB); err != nil {
+				return fmt.Errorf("tenant log schema check failed; run kkai-migrate --tenant-log-schema apply on LOG_DB: %w", err)
+			}
+		}
 	}
 
 	// Initialize Redis

@@ -7,12 +7,21 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/gin-gonic/gin"
 )
 
 var timeFormat = "2006-01-02T15:04:05.000Z"
 
 var inMemoryRateLimiter common.InMemoryRateLimiter
+
+// tenantRateLimitKey isolates branded traffic while preserving platform keys.
+func tenantRateLimitKey(c *gin.Context, key string) string {
+	if tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID); tenantID > 0 {
+		return fmt.Sprintf("tenant:%d:%s", tenantID, key)
+	}
+	return key
+}
 
 var defNext = func(c *gin.Context) {
 	c.Next()
@@ -21,7 +30,7 @@ var defNext = func(c *gin.Context) {
 func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
 	ctx := context.Background()
 	rdb := common.RDB
-	key := "rateLimit:" + mark + c.ClientIP()
+	key := tenantRateLimitKey(c, "rateLimit:"+mark+c.ClientIP())
 	listLength, err := rdb.LLen(ctx, key).Result()
 	if err != nil {
 		fmt.Println(err.Error())
@@ -65,7 +74,7 @@ func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark st
 }
 
 func memoryRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark string) {
-	key := mark + c.ClientIP()
+	key := tenantRateLimitKey(c, mark+c.ClientIP())
 	if !inMemoryRateLimiter.Request(key, maxRequestNum, duration) {
 		c.Status(http.StatusTooManyRequests)
 		c.Abort()
@@ -139,7 +148,7 @@ func userRateLimitFactory(maxRequestNum int, duration int64, mark string) func(c
 				c.Abort()
 				return
 			}
-			key := fmt.Sprintf("rateLimit:%s:user:%d", mark, userId)
+			key := tenantRateLimitKey(c, fmt.Sprintf("rateLimit:%s:user:%d", mark, userId))
 			userRedisRateLimiter(c, maxRequestNum, duration, key)
 		}
 	}
@@ -152,7 +161,7 @@ func userRateLimitFactory(maxRequestNum int, duration int64, mark string) func(c
 			c.Abort()
 			return
 		}
-		key := fmt.Sprintf("%s:user:%d", mark, userId)
+		key := tenantRateLimitKey(c, fmt.Sprintf("%s:user:%d", mark, userId))
 		if !inMemoryRateLimiter.Request(key, maxRequestNum, duration) {
 			c.Status(http.StatusTooManyRequests)
 			c.Abort()

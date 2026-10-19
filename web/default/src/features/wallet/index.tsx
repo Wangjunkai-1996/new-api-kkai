@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { MembershipWalletSummary } from '@/features/membership/components/wallet-summary'
+import { useSiteConfig } from '@/features/site-config'
 import { getSelf } from '@/lib/api'
 import { MOTION_TRANSITION } from '@/lib/motion'
 
@@ -74,6 +75,8 @@ function paymentMinimum(method: PaymentMethod, topupInfo: TopupInfo): number {
 }
 
 export function Wallet(props: WalletProps) {
+  const { data: site } = useSiteConfig()
+  const showPlatformBenefits = site?.tenant_id === 0
   const { t } = useTranslation()
   const [user, setUser] = useState<UserWalletData | null>(null)
   const [userLoading, setUserLoading] = useState(true)
@@ -400,7 +403,7 @@ export function Wallet(props: WalletProps) {
           >
             <WalletStatsCard user={user} loading={userLoading} />
 
-            <MembershipWalletSummary />
+            {showPlatformBenefits && <MembershipWalletSummary />}
 
             <div id='wallet-add-funds' className='scroll-mt-4'>
               <RechargeFormCard
@@ -435,11 +438,13 @@ export function Wallet(props: WalletProps) {
               />
             </div>
 
-            <SubscriptionPlansCard
-              topupInfo={topupInfo}
-              userQuota={user?.quota}
-              onPurchaseSuccess={fetchUser}
-            />
+            {showPlatformBenefits && (
+              <SubscriptionPlansCard
+                topupInfo={topupInfo}
+                userQuota={user?.quota}
+                onPurchaseSuccess={fetchUser}
+              />
+            )}
           </motion.div>
         </SectionPageLayout.Content>
       </SectionPageLayout>

@@ -34,6 +34,7 @@ const (
 	RC41ArchitectureSchemaVersion    int64 = 9
 	ImageAsyncSchemaVersion          int64 = 10
 	MembershipSchemaVersion          int64 = 11
+	TenantSchemaVersion              int64 = 12
 )
 
 var (
@@ -78,6 +79,8 @@ type migration struct {
 	Kind             string
 	ImplementationID string
 	ChecksumVersion  int
+	SchemaSpec       string
+	SchemaApply      func(*gorm.DB) error
 	Statements       map[string][]migrationStatement
 	Indexes          []indexSpec
 	LegacyImportSpec string
@@ -107,7 +110,16 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := CheckTenantSchema(ctx, db); err != nil {
+		return nil, fmt.Errorf("tenant schema requires explicit --target 12 maintenance before normal Apply: %w", err)
+	}
 	return applyThroughVersion(ctx, db, options, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
+}
+
+// ApplyLegacyBaseline initializes the immutable v1-v3 maintenance baseline for
+// a new database. Later targets remain explicit; it never removes ledger rows.
+func ApplyLegacyBaseline(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
+	return applyThroughVersion(ctx, db, options, JobLeaseSchemaVersion, KnownCatalogVersion)
 }
 
 // ApplyImageAsyncExpand adds the isolated image upload/execution tables only
@@ -128,20 +140,20 @@ func CheckImageAsyncSchema(ctx context.Context, db *gorm.DB) error {
 	return checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, KnownCatalogVersion)
 }
 
-// ApplyMembershipExpand is an explicit operator migration. The bridge's normal
-// Apply retains the schema 10 target; operators must explicitly request schema 11.
+// ApplyMembershipExpand is the explicit historical v11 companion-table target.
+// It remains usable before v12 maintenance and never downgrades a newer ledger.
 func ApplyMembershipExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if db == nil {
 		return nil, ErrSchemaNotReady
 	}
-	if err := checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, MembershipSchemaVersion); err != nil {
+	if err := checkThroughVersion(ctx, db, ImageAsyncSchemaVersion, ImageAsyncSchemaVersion, KnownCatalogVersion); err != nil {
 		return nil, fmt.Errorf("KKAI maintenance target %d requires validated schema %d: %w", MembershipSchemaVersion, ImageAsyncSchemaVersion, err)
 	}
-	return applyThroughVersion(ctx, db, options, MembershipSchemaVersion, MembershipSchemaVersion)
+	return applyThroughVersion(ctx, db, options, MembershipSchemaVersion, KnownCatalogVersion)
 }
 
 func CheckMembershipSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, MembershipSchemaVersion, MembershipSchemaVersion, MembershipSchemaVersion)
+	return checkThroughVersion(ctx, db, MembershipSchemaVersion, MembershipSchemaVersion, KnownCatalogVersion)
 }
 
 // ApplyOutboxEventKeyCompatibility applies the cross-dialect v4 maintenance.
@@ -390,6 +402,20 @@ func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion i
 }
 
 func applyMigration(db *gorm.DB, dialect string, item migration, checksum string, started time.Time) error {
+	if item.SchemaApply != nil {
+		if dialect == DialectMySQL {
+			if err := item.SchemaApply(db); err != nil {
+				return err
+			}
+			return db.Transaction(func(tx *gorm.DB) error { return importLegacyAndRecord(tx, dialect, item, checksum, started) })
+		}
+		return db.Transaction(func(tx *gorm.DB) error {
+			if err := item.SchemaApply(tx); err != nil {
+				return err
+			}
+			return importLegacyAndRecord(tx, dialect, item, checksum, started)
+		})
+	}
 	if dialect == DialectMySQL {
 		if err := executeMigrationSchema(db, dialect, item); err != nil {
 			return err
@@ -700,6 +726,9 @@ func migrationContractChecksum(item migration) string {
 	fmt.Fprintf(hash, "legacy_import_id=%s\nlegacy=%s\n", item.LegacyImportID, item.LegacyImportSpec)
 	if item.ChecksumVersion >= migrationChecksumSchemaBackfill {
 		fmt.Fprintf(hash, "backfill_id=%s\nbackfill=%s\n", item.BackfillID, item.BackfillSpec)
+	}
+	if item.ChecksumVersion >= migrationChecksumSchemaGORM {
+		fmt.Fprintf(hash, "schema_spec=%s\n", item.SchemaSpec)
 	}
 	applyDialects := append([]string(nil), item.ApplyDialects...)
 	legacyDialects := append([]string(nil), item.LegacyDialects...)

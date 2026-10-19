@@ -161,7 +161,7 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 
 	var items []ToolSurchargeItem
 	var toolPrices map[string]float64
-	if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+	if snapshot := relayInfo.RequestBudget(); snapshot != nil {
 		toolPrices = snapshot.ToolPrices
 		dQuotaPerUnit = decimal.NewFromFloat(snapshot.QuotaPerUnit)
 	}
@@ -281,7 +281,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		UsageSemantic:        usageSemanticFromUsage(relayInfo, usage),
 	}
 	quotaPerUnit := common.QuotaPerUnit
-	if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+	if snapshot := relayInfo.RequestBudget(); snapshot != nil {
 		quotaPerUnit = snapshot.QuotaPerUnit
 	}
 	if snapshot := relayInfo.ImagePricingSnapshot; snapshot != nil {
@@ -388,7 +388,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		if !dAudioTokens.IsZero() {
 			summary.AudioInputPrice = operation_setting.GetGeminiInputAudioPricePerMillionTokens(summary.ModelName)
-			if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+			if snapshot := relayInfo.RequestBudget(); snapshot != nil {
 				summary.AudioInputPrice = snapshot.GeminiAudioInputPrice
 			}
 			if summary.AudioInputPrice > 0 {
@@ -587,6 +587,14 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", logger.LogQuota(common.QuotaFromDecimal(q))))
 	}
 
+	if relayInfo.TenantID > 0 {
+		if !summary.hasBillableUsage() {
+			summary.Quota = 0
+		}
+		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
+			logger.LogError(ctx, "tenant settlement pending: "+err.Error())
+		}
+	}
 	if relayInfo.MembershipBillingRequestID != "" && !imageStudioBilling {
 		relayInfo.MembershipHasBillableUsage = summary.hasBillableUsage()
 		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
@@ -597,12 +605,12 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else if !imageStudioBilling && relayInfo.MembershipBillingRequestID == "" {
+	} else if !imageStudioBilling && relayInfo.MembershipBillingRequestID == "" && relayInfo.TenantID == 0 {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(summary.Quota))
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if !imageStudioBilling && relayInfo.MembershipBillingRequestID == "" {
+	if !imageStudioBilling && relayInfo.MembershipBillingRequestID == "" && relayInfo.TenantID == 0 {
 		if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 			logger.LogError(ctx, "error settling billing: "+err.Error())
 		}

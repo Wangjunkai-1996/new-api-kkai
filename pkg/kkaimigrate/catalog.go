@@ -95,6 +95,16 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       membershipSchemaStatements,
 		},
+		{
+			Version:          TenantSchemaVersion,
+			Name:             "tenant_brand_reseller_contract",
+			Kind:             MigrationKindContract,
+			ImplementationID: "tenant_brand_reseller_gorm_v12",
+			ChecksumVersion:  migrationChecksumSchemaGORM,
+			Statements:       map[string][]migrationStatement{DialectSQLite: {}, DialectMySQL: {}, DialectPostgres: {}},
+			SchemaSpec:       tenantSchemaSpec(),
+			SchemaApply:      applyTenantSchema,
+		},
 	}
 }
 

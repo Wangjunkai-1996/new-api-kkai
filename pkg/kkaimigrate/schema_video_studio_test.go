@@ -58,7 +58,7 @@ func TestVideoStudioWorkerIndexesMatchOrderedScanQueries(t *testing.T) {
 
 func TestVideoStudioSQLiteWorkerPlansUseOrderedIndexes(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	_, err = ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
 	require.NoError(t, err)

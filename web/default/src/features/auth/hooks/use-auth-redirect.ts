@@ -64,7 +64,8 @@ export function useAuthRedirect() {
       }
 
       const targetPath =
-        sanitizeAuthRedirect(redirectTo, window.location.origin) ?? '/dashboard'
+        sanitizeAuthRedirect(redirectTo, window.location.origin) ??
+        (bundle.user.tenant_owner ? '/reseller' : '/dashboard')
       await navigate({ href: targetPath, replace: true })
     },
     [navigate, sessionID]
@@ -74,7 +75,11 @@ export function useAuthRedirect() {
    * Every primary login transport returns the same bundle-or-challenge contract.
    */
   const handleLoginResult = useCallback(
-    async (result: unknown, redirectTo?: string): Promise<boolean> => {
+    async (
+      result: unknown,
+      redirectTo?: string,
+      ownerLogin = false
+    ): Promise<boolean> => {
       if (
         !mounted.current ||
         useAuthStore.getState().auth.session?.sid !== sessionID
@@ -93,12 +98,21 @@ export function useAuthRedirect() {
           'Login flow expired. Please sign in again.'
         )
       }
+      const safeRedirect =
+        sanitizeAuthRedirect(redirectTo, window.location.origin) ?? undefined
       useAuthStore.getState().auth.setPendingLoginVerification({
         challenge: result,
-        redirectTo:
-          sanitizeAuthRedirect(redirectTo, window.location.origin) ?? undefined,
+        redirectTo: safeRedirect,
+        ownerLogin,
       })
-      await navigate({ to: '/otp', replace: true })
+      await navigate({
+        to: '/otp',
+        search: {
+          redirect: safeRedirect,
+          owner_login: ownerLogin || undefined,
+        },
+        replace: true,
+      })
       return false
     },
     [handleLoginSuccess, navigate, sessionID]
@@ -107,9 +121,16 @@ export function useAuthRedirect() {
   /**
    * Redirect to login page
    */
-  const redirectToLogin = useCallback(() => {
-    void navigate({ to: '/sign-in', replace: true })
-  }, [navigate])
+  const redirectToLogin = useCallback(
+    (redirectTo?: string, ownerLogin?: boolean) => {
+      void navigate({
+        to: '/sign-in',
+        search: { redirect: redirectTo, owner_login: ownerLogin || undefined },
+        replace: true,
+      })
+    },
+    [navigate]
+  )
 
   /**
    * Redirect to register page

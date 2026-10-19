@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	passkeysvc "github.com/QuantumNous/new-api/service/passkey"
@@ -30,7 +31,11 @@ func VerifyLogin(c *gin.Context) {
 		writeSecurityOperationError(c, service.ErrProofMethod)
 		return
 	}
-	bundle, migration, err := service.VerifyLoginCode(request.FlowToken, request.Code, c.ClientIP(), c.Request.UserAgent())
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	bundle, migration, err := service.VerifyLoginCode(request.FlowToken, request.Code, c.ClientIP(), c.Request.UserAgent(), tenantID)
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return

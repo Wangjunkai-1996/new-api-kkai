@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,12 +18,21 @@ import (
 // relay routes.
 func SessionCookieOriginGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !common.SessionCookieSecure {
+		tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID)
+		if !common.SessionCookieSecure && tenantID == 0 {
 			c.Next()
 			return
 		}
 		origin, ok := requestBrowserOrigin(c.Request)
-		if !ok || !isAllowedSessionOrigin(c.Request, origin) {
+		allowed := false
+		if tenantID > 0 {
+			canonicalHost := common.GetContextKeyString(c, constant.ContextKeyTenantHost)
+			expected, err := common.NormalizeOrigin("https://" + canonicalHost)
+			allowed = err == nil && subtle.ConstantTimeCompare([]byte(origin), []byte(expected)) == 1
+		} else {
+			allowed = isAllowedSessionOrigin(c.Request, origin)
+		}
+		if !ok || !allowed {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"success": false,
 				"code":    "AUTH_ORIGIN_FORBIDDEN",

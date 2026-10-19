@@ -47,6 +47,11 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 		GroupSpecialRatio: -1,
 	}
 
+	if relayInfo.TenantID > 0 && relayInfo.TenantPriceVersionID > 0 {
+		groupRatioInfo.GroupRatio = relayInfo.TenantRetailMultiplier
+		return groupRatioInfo
+	}
+
 	// check auto group
 	autoGroup, exists := ctx.Get("auto_group")
 	if exists {
@@ -73,6 +78,9 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	if info != nil && info.TenantQuoteID > 0 {
+		return info.PriceData, nil // Retries keep the complete tariff accepted at reservation.
+	}
 	if info != nil && info.MembershipBillingRequestID != "" && info.MembershipPricing != nil {
 		return info.PriceData, nil
 	}

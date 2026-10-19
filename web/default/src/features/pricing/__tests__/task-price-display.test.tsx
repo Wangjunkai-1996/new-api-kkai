@@ -124,6 +124,38 @@ it('shows legacy video prices per second when the usage schema is available', ()
   expect(screen.getAllByText(/\/ second/)).toHaveLength(2)
 })
 
+it('shows reseller group pricing instead of unsurcharged base expression prices', () => {
+  vi.spyOn(api, 'get').mockResolvedValue({ data: { data: { groups: [] } } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  clients.push(client)
+  render(
+    <QueryClientProvider client={client}>
+      <ModelDetailsContent
+        model={{
+          ...model,
+          tenant_pricing: true,
+          group_ratio: { default: 2.5 },
+        }}
+        groupRatio={{ default: 1 }}
+        usableGroup={{ default: '' }}
+        endpointMap={{}}
+        autoGroups={[]}
+        priceRate={1}
+        usdExchangeRate={1}
+        tokenUnit='M'
+      />
+    </QueryClientProvider>
+  )
+  expect(screen.getByText('Pricing by Group')).toBeVisible()
+  expect(screen.getByText('2.5x')).toBeVisible()
+  expect(screen.queryByText('Base Price')).not.toBeInTheDocument()
+  expect(
+    screen.queryByText('Special billing expression')
+  ).not.toBeInTheDocument()
+})
+
 it('shows nested task conditions and prices in detail and group tables without ambiguous log matches', () => {
   vi.spyOn(api, 'get').mockResolvedValue({ data: { data: { groups: [] } } })
   const client = new QueryClient({

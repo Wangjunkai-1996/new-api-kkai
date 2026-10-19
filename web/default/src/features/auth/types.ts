@@ -27,6 +27,7 @@ import type { LoginResult } from './secure-verification/types'
 export interface LoginPayload {
   username: string
   password: string
+  owner_login?: boolean
   turnstile?: string
   passwordEncryptionEnabled?: boolean
 }

@@ -21,24 +21,40 @@ import { z } from 'zod'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
 import { SignIn } from '@/features/auth/sign-in'
+import { siteConfigQueryOptions } from '@/features/site-config'
 import { resolveAuthentication } from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
+  owner_login: z.boolean().optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/(auth)/sign-in')({
   component: SignIn,
   validateSearch: searchSchema,
-  beforeLoad: async ({ search }) => {
+  beforeLoad: async ({ search, context }) => {
     await resolveAuthentication()
     const { auth } = useAuthStore.getState()
 
     if (auth.user && auth.accessToken) {
+      const site = await context.queryClient.fetchQuery(
+        siteConfigQueryOptions()
+      )
+      const tenantOwner = site.tenant_id > 0 && auth.user.tenant_owner === true
+      if (
+        site.tenant_id > 0 &&
+        search.owner_login !== undefined &&
+        search.owner_login !== tenantOwner
+      ) {
+        // An explicit mode change keeps the requested form available until
+        // successful login replaces the current account and its session.
+        return
+      }
+      const defaultTarget = tenantOwner ? '/reseller' : '/dashboard'
       const target =
         sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
-        '/dashboard'
+        defaultTarget
       throw redirect({ href: target, replace: true })
     }
   },

@@ -82,8 +82,9 @@ func setupKKAIBalanceAdjustmentTest(t *testing.T) (*gorm.DB, http.Handler) {
 	model.DB = db
 	model.LOG_DB = db
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.PasskeyCredential{}, &model.Option{}, &model.Midjourney{}))
-	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err = kkaimigrate.ApplyLegacyBaseline(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.KKAIInternalBalanceAdjustment{}))
 
 	router := gin.New()
 	router.POST(

@@ -19,10 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { create } from 'zustand'
 
 import type { LoginChallenge } from '@/features/auth/secure-verification/types'
+import type { AdminCapabilities } from '@/lib/admin-permissions'
 
 export type { LoginChallenge } from '@/features/auth/secure-verification/types'
-
-import type { AdminCapabilities } from '@/lib/admin-permissions'
 
 export type UserPermissions = {
   sidebar_settings?: boolean
@@ -31,6 +30,7 @@ export type UserPermissions = {
 }
 
 export interface AuthUser {
+  tenant_owner?: boolean
   has_password?: boolean
   id: number
   username: string
@@ -86,6 +86,7 @@ export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
 export interface PendingLoginVerification {
   challenge: LoginChallenge
   redirectTo?: string
+  ownerLogin?: boolean
 }
 
 interface AuthState {

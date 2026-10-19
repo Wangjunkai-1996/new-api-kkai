@@ -75,6 +75,8 @@ export type PricingModel = {
   quota_type: number
   /** Explicit backend signal that the model has a usable price configuration. */
   pricing_configured?: boolean
+  /** Tenant prices are already scoped to the reseller's single sales group. */
+  tenant_pricing?: boolean
   model_ratio: number
   completion_ratio: number
   model_price?: number

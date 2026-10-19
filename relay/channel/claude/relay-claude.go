@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 func stopReasonClaude2OpenAI(reason string) string {
@@ -245,7 +246,7 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
-	if claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done {
+	if (claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done) && !(info.HasDurableBilling() && info.BillingHasReportedUsage) {
 		if common.DebugEnabled {
 			common.SysLog("claude response usage is not complete, maybe upstream error")
 		}
@@ -303,15 +304,33 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		Usage:        &dto.Usage{},
 	}
 	var err *types.NewAPIError
+	inputReported, outputReported := false, false
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		err = HandleStreamResponseData(c, info, claudeInfo, data)
 		if err != nil {
 			sr.Stop(err)
+			return
+		}
+		if info.HasDurableBilling() {
+			inputPath := "usage.input_tokens"
+			if gjson.Get(data, "type").String() == "message_start" {
+				inputPath = "message.usage.input_tokens"
+			}
+			input := gjson.Get(data, inputPath)
+			inputReported = inputReported || (input.Type == gjson.Number && input.Float() >= 0)
+			if gjson.Get(data, "type").String() == "message_delta" {
+				output := gjson.Get(data, "usage.output_tokens")
+				outputReported = output.Type == gjson.Number && output.Float() >= 0
+			}
+			info.BillingHasReportedUsage = inputReported && outputReported
 		}
 	})
 	info.StreamStatus.RequireTerminal()
 	if err != nil {
 		return nil, err
+	}
+	if info.HasDurableBilling() && !info.BillingHasReportedUsage && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
+		info.BillingOutcomeUnknown = true
 	}
 
 	HandleStreamFinalResponse(c, info, claudeInfo)
@@ -334,6 +353,13 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason)
 	if claudeInfo.Usage == nil {
 		claudeInfo.Usage = &dto.Usage{}
+	}
+	if info.HasDurableBilling() {
+		input, output := gjson.GetBytes(data, "usage.input_tokens"), gjson.GetBytes(data, "usage.output_tokens")
+		info.BillingHasReportedUsage = input.Type == gjson.Number && input.Float() >= 0 && output.Type == gjson.Number && output.Float() >= 0
+		if !info.BillingHasReportedUsage && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
+			info.BillingOutcomeUnknown = true
+		}
 	}
 	if claudeResponse.Usage != nil {
 		claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens

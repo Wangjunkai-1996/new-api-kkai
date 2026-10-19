@@ -15,6 +15,7 @@ import (
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -66,7 +67,12 @@ const (
 	TaskStatusUnknown               = "UNKNOWN"
 )
 
+func (row *Task) BeforeCreate(tx *gorm.DB) error {
+	return snapshotUserTenant(tx, row.UserId, &row.TenantID)
+}
+
 type Task struct {
+	TenantID   int64                 `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
 	CreatedAt  int64                 `json:"created_at" gorm:"index"`
 	UpdatedAt  int64                 `json:"updated_at"`

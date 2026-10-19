@@ -54,6 +54,12 @@ const (
 	ContextKeyUserGroup   ContextKey = "user_group"
 	ContextKeyUsingGroup  ContextKey = "group"
 	ContextKeyUserName    ContextKey = "username"
+	// ContextKeyTenantID is the request Host scope. ContextKeyUserTenantID is
+	// the authenticated account's persisted ownership and must not replace it.
+	ContextKeyTenantID      ContextKey = "tenant_id"
+	ContextKeyTenantHost    ContextKey = "tenant_host"
+	ContextKeyTenantContext ContextKey = "tenant_context"
+	ContextKeyUserTenantID  ContextKey = "user_tenant_id"
 
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 

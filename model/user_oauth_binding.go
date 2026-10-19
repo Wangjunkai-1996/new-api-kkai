@@ -8,7 +8,12 @@ import (
 )
 
 // UserOAuthBinding stores the binding relationship between users and custom OAuth providers
+func (row *UserOAuthBinding) BeforeCreate(tx *gorm.DB) error {
+	return snapshotUserTenant(tx, row.UserId, &row.TenantID)
+}
+
 type UserOAuthBinding struct {
+	TenantID       int64     `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	Id             int       `json:"id" gorm:"primaryKey"`
 	UserId         int       `json:"user_id" gorm:"not null;uniqueIndex:ux_user_provider"`                                    // User ID - one binding per user per provider
 	ProviderId     int       `json:"provider_id" gorm:"not null;uniqueIndex:ux_user_provider;uniqueIndex:ux_provider_userid"` // Custom OAuth provider ID

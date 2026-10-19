@@ -40,7 +40,11 @@ func CreateEmailBinding(identity AuthSessionIdentity, state EmailBindingState) (
 		if err := validateEmailBindingAccountWithTx(tx, identity, &state); err != nil {
 			return err
 		}
-		if err := ensureEmailAvailableWithTx(tx, state.Email, identity.UserID); err != nil {
+		var user User
+		if err := tx.Select("tenant_id").First(&user, identity.UserID).Error; err != nil {
+			return err
+		}
+		if err := ensureEmailAvailableWithTxTenant(tx, state.Email, identity.UserID, user.TenantID); err != nil {
 			return err
 		}
 		payload, err := common.Marshal(state)
@@ -48,7 +52,8 @@ func CreateEmailBinding(identity AuthSessionIdentity, state EmailBindingState) (
 			return err
 		}
 		token, flow, err = createAuthFlowWithTx(tx, AuthFlowCreate{
-			Purpose: AuthFlowPurposeEmailBinding, UserId: identity.UserID, SessionId: identity.SessionID,
+			TenantID: user.TenantID,
+			Purpose:  AuthFlowPurposeEmailBinding, UserId: identity.UserID, SessionId: identity.SessionID,
 			Payload: string(payload), ExpiresAt: time.Now().Add(EmailBindingTTL),
 		})
 		return err
@@ -135,10 +140,10 @@ func CompleteEmailBinding(identity AuthSessionIdentity, token, email, newCode, o
 			}
 			return tx.Model(flow).Update("payload", string(payload)).Error
 		}
-		if err := ensureEmailAvailableWithTx(tx, state.Email, identity.UserID); err != nil {
+		if err := ensureEmailAvailableWithTxTenant(tx, state.Email, identity.UserID, flow.TenantID); err != nil {
 			return err
 		}
-		if err := tx.Model(&User{}).Where("id = ?", identity.UserID).Update("email", state.Email).Error; err != nil {
+		if err := tx.Model(&User{}).Where("id = ?", identity.UserID).Updates(map[string]any{"email": state.Email, "normalized_email": state.Email}).Error; err != nil {
 			return err
 		}
 		return tx.Model(flow).Update("consumed_at", time.Now()).Error

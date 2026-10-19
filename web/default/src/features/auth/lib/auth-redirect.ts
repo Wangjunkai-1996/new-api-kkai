@@ -78,3 +78,14 @@ export function sanitizeAuthRedirect(
 
   return `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`
 }
+
+export function getSignInSearch(
+  destination: string,
+  origin: string
+): { redirect?: string; owner_login?: boolean } {
+  const redirect = sanitizeAuthRedirect(destination, origin) ?? undefined
+  const pathname = redirect?.split(/[?#]/, 1)[0]
+  const ownerLogin =
+    pathname === '/reseller' || pathname?.startsWith('/reseller/')
+  return { redirect, owner_login: ownerLogin || undefined }
+}

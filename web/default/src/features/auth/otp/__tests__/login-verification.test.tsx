@@ -52,12 +52,21 @@ const bundle: AuthBundle = {
   },
 }
 
-function PrimaryLoginHarness(props: { result: LoginResult }) {
+function PrimaryLoginHarness(props: {
+  result: LoginResult
+  ownerLogin?: boolean
+}) {
   const { handleLoginResult } = useAuthRedirect()
   return (
     <button
       type='button'
-      onClick={() => void handleLoginResult(props.result, '/pricing?view=grid')}
+      onClick={() =>
+        void handleLoginResult(
+          props.result,
+          props.ownerLogin ? '/reseller/earnings' : '/pricing?view=grid',
+          props.ownerLogin
+        )
+      }
     >
       Primary authentication succeeded
     </button>
@@ -66,7 +75,8 @@ function PrimaryLoginHarness(props: { result: LoginResult }) {
 
 function renderLoginVerification(
   hasChallenge = true,
-  primaryResult?: LoginResult
+  primaryResult?: LoginResult,
+  ownerLogin = false
 ) {
   useAuthStore.getState().auth.reset('complete')
   if (hasChallenge) {
@@ -77,7 +87,8 @@ function renderLoginVerification(
         expires_at: Math.floor(Date.now() / 1000) + 300,
         methods: [{ method: '2fa', available: true }],
       },
-      redirectTo: '/pricing?view=grid',
+      redirectTo: ownerLogin ? '/reseller/earnings' : '/pricing?view=grid',
+      ownerLogin,
     })
   }
   const root = createRootRoute({ component: Outlet })
@@ -99,9 +110,16 @@ function renderLoginVerification(
     }),
     createRoute({
       getParentRoute: () => root,
+      path: '/reseller/earnings',
+      component: () => <div>Reseller earnings destination</div>,
+    }),
+    createRoute({
+      getParentRoute: () => root,
       path: '/primary-login',
       component: () =>
-        primaryResult ? <PrimaryLoginHarness result={primaryResult} /> : null,
+        primaryResult ? (
+          <PrimaryLoginHarness result={primaryResult} ownerLogin={ownerLogin} />
+        ) : null,
     }),
   ]
   const router = createRouter({
@@ -273,4 +291,52 @@ it('rejects submission after the five-minute challenge deadline without sending 
   )
   expect(post).not.toHaveBeenCalled()
   expect(useAuthStore.getState().auth.user).toBeNull()
+})
+
+it('preserves explicit owner mode when shared verification is cancelled', async () => {
+  const { router } = renderLoginVerification(
+    false,
+    {
+      require_verification: true,
+      flow_token: 'owner-challenge',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+      methods: [{ method: '2fa', available: true }],
+    },
+    true
+  )
+  const user = userEvent.setup()
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'Primary authentication succeeded',
+    })
+  )
+  await screen.findByLabelText('Authenticator code or backup code')
+  expect(router.state.location.search).toEqual({
+    owner_login: true,
+    redirect: '/reseller/earnings',
+  })
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'))
+  expect(router.state.location.search).toEqual({
+    owner_login: true,
+    redirect: '/reseller/earnings',
+  })
+  expect(useAuthStore.getState().auth.user).toBeNull()
+})
+
+it('returns a verified owner to the original reseller section', async () => {
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: bundle },
+  })
+  const { router } = renderLoginVerification(true, undefined, true)
+  const user = userEvent.setup()
+  await user.type(
+    await screen.findByLabelText('Authenticator code or backup code'),
+    '123456'
+  )
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  await waitFor(() =>
+    expect(router.state.location.pathname).toBe('/reseller/earnings')
+  )
+  expect(useAuthStore.getState().auth.user?.id).toBe(42)
 })

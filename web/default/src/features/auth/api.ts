@@ -67,6 +67,7 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
       `/api/user/login?turnstile=${turnstile}`,
       {
         username: payload.username,
+        ...(payload.owner_login === true ? { owner_login: true } : {}),
         ...passwordFields,
       },
       { skipAuthRefresh: true }

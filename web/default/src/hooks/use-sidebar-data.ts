@@ -47,8 +47,18 @@ import { useTranslation } from 'react-i18next'
 import type { SidebarData } from '@/components/layout/types'
 import { useImageStudioAccess } from '@/features/image-studio/hooks/use-image-studio-access'
 import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
+import { useSiteConfig } from '@/features/site-config'
 import { useVideoStudioAccess } from '@/features/video-studio/hooks/use-video-studio-access'
 import { ROLE } from '@/lib/roles'
+
+const TENANT_CONSOLE_ROUTES = new Set([
+  '/dashboard/overview',
+  '/dashboard/models',
+  '/keys',
+  '/usage-logs/common',
+  '/wallet',
+  '/profile',
+])
 
 /**
  * Root navigation groups for the application sidebar.
@@ -58,11 +68,15 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
-  const invitationFeature = useInvitationFeatureStatus()
+  const { data: site } = useSiteConfig()
+  const isTenant = (site?.tenant_id ?? 0) > 0
+  const invitationFeature = useInvitationFeatureStatus(
+    Boolean(site) && !isTenant
+  )
   const imageStudio = useImageStudioAccess()
   const videoStudio = useVideoStudioAccess()
 
-  return {
+  const sidebar: SidebarData = {
     navGroups: [
       {
         id: 'chat',
@@ -241,4 +255,15 @@ export function useSidebarData(): SidebarData {
       },
     ],
   }
+  if (isTenant) {
+    sidebar.navGroups = sidebar.navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => item.url && TENANT_CONSOLE_ROUTES.has(item.url)
+        ),
+      }))
+      .filter((group) => group.items.length > 0)
+  }
+  return sidebar
 }

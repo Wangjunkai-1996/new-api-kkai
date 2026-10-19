@@ -22,18 +22,14 @@ import {
   canAccessImageStudio,
   normalizeImageStudioAccessMode,
 } from '@/features/image-studio/image-domain'
-import { getStatus } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
+import { statusQueryOptions } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/image-studio')({
   beforeLoad: async ({ context }) => {
     const status = await context.queryClient
-      .ensureQueryData({
-        queryKey: ['status'],
-        queryFn: getStatus,
-        staleTime: 5 * 60 * 1000,
-      })
+      .ensureQueryData(statusQueryOptions)
       .catch(() => null)
     const mode = normalizeImageStudioAccessMode(status?.ImageStudioAccessMode)
     const role = useAuthStore.getState().auth.user?.role ?? ROLE.GUEST

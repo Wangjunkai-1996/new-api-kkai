@@ -50,10 +50,13 @@ import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { fetchTokenKey, getApiKeys } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
+import { useSiteConfig } from '@/features/site-config'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getUserModels } from '@/lib/api'
 import { handleServerError } from '@/lib/handle-server-error'
+import { getCurrentHost } from '@/lib/host-scope'
 import { MOTION_TRANSITION } from '@/lib/motion'
+import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -179,7 +182,7 @@ function buildCurlCommand(args: {
     `curl ${args.endpoint} \\`,
     '  -H "Content-Type: application/json" \\',
     `  -H "Authorization: Bearer ${args.apiKey}" \\`,
-    `  -d '{"model":"${args.model}","messages":[{"role":"user","content":"Say hello in one sentence."}]}'`,
+    `  -d '{"model":"${args.model}","messages":[{"role":"user","content":"Say hello in one sentence."}],"max_tokens":128}'`,
   ].join('\n')
 }
 
@@ -462,6 +465,8 @@ function CompactQuickAction(props: { action: QuickAction }) {
 
 export function OverviewDashboard() {
   const { t } = useTranslation()
+  const { data: site } = useSiteConfig()
+  const isTenant = (site?.tenant_id ?? 0) > 0
   const setupGuideId = useId()
   const setupGuideToggleRef = useRef<HTMLButtonElement>(null)
   const user = useAuthStore((state) => state.auth.user)
@@ -479,24 +484,38 @@ export function OverviewDashboard() {
   const requestCount = Number(user?.request_count ?? 0)
   const remainQuota = Number(user?.quota ?? 0)
   const usedQuota = Number(user?.used_quota ?? 0)
-  const isAdmin = Boolean(user?.role && user.role >= ROLE.ADMIN)
+  const isAdmin = !isTenant && Boolean(user?.role && user.role >= ROLE.ADMIN)
 
   const apiKeysQuery = useQuery({
-    queryKey: ['dashboard', 'overview', 'api-keys'],
+    queryKey: privateUserQueryKey(
+      user?.id ?? 0,
+      getCurrentHost(),
+      'dashboard',
+      'overview',
+      'api-keys'
+    ),
     queryFn: async () => {
       const result = requireServerSuccess(await getApiKeys({ p: 1, size: 10 }))
       return result.success ? (result.data?.items ?? []) : []
     },
     staleTime: 60 * 1000,
+    enabled: Boolean(user) && !user?.tenant_owner,
   })
 
   const modelsQuery = useQuery({
-    queryKey: ['dashboard', 'overview', 'user-models'],
+    queryKey: privateUserQueryKey(
+      user?.id ?? 0,
+      getCurrentHost(),
+      'dashboard',
+      'overview',
+      'user-models'
+    ),
     queryFn: async () => {
       const result = requireServerSuccess(await getUserModels())
       return result.success ? (result.data ?? []) : []
     },
     staleTime: 5 * 60 * 1000,
+    enabled: Boolean(user) && !user?.tenant_owner,
   })
 
   const preferredKey = useMemo(
@@ -522,13 +541,15 @@ export function OverviewDashboard() {
       },
       {
         title: t('Send a request'),
-        description: t('Verify routing with Playground or your client'),
-        to: '/playground',
+        description: isTenant
+          ? t('Copy ready-to-run curl')
+          : t('Verify routing with Playground or your client'),
+        to: isTenant ? '/keys' : '/playground',
         icon: TerminalSquare,
         completed: requestCount > 0,
       },
     ],
-    [preferredKey, remainQuota, requestCount, t, usedQuota]
+    [isTenant, preferredKey, remainQuota, requestCount, t, usedQuota]
   )
 
   const quickActions = useMemo<QuickAction[]>(

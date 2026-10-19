@@ -141,7 +141,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
-	service.SettleMembershipPartialUsage(c, info, usage, newAPIError)
+	service.CaptureFailedRequestUsage(c, info, usage, newAPIError)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

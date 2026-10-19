@@ -2,6 +2,7 @@ package kkaimigrate
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -14,6 +15,7 @@ const (
 	migrationChecksumSchemaLegacy   = 1
 	migrationChecksumSchemaCurrent  = 2
 	migrationChecksumSchemaBackfill = 3
+	migrationChecksumSchemaGORM     = 4
 
 	migrationOperationCreateTable       = "create_table"
 	migrationOperationCreateIndex       = "create_index_on_new_table"
@@ -63,10 +65,23 @@ func validateMigrationCatalog(migrations []migration) error {
 			if item.Version > OutboxEventKeySchemaVersion {
 				return unsafeMigrationCatalog("migration %d cannot use the legacy checksum schema", item.Version)
 			}
-		case migrationChecksumSchemaCurrent, migrationChecksumSchemaBackfill:
+		case migrationChecksumSchemaCurrent, migrationChecksumSchemaBackfill, migrationChecksumSchemaGORM:
 		default:
 			return unsafeMigrationCatalog("migration %d has invalid checksum schema", item.Version)
 		}
+		if item.ChecksumVersion == migrationChecksumSchemaGORM {
+			if item.Version != TenantSchemaVersion || item.Kind != MigrationKindContract || item.ImplementationID != "tenant_brand_reseller_gorm_v12" || item.SchemaApply == nil || reflect.ValueOf(item.SchemaApply).Pointer() != reflect.ValueOf(applyTenantSchema).Pointer() || item.SchemaSpec != tenantSchemaSpec() || item.Backfill != nil || item.ImportLegacy != nil || len(item.Indexes) != 0 {
+				return unsafeMigrationCatalog("migration %d has an unrecognized GORM schema contract", item.Version)
+			}
+			for _, statements := range item.Statements {
+				if len(statements) != 0 {
+					return unsafeMigrationCatalog("GORM schema contract cannot mix SQL statements")
+				}
+			}
+		} else if item.SchemaApply != nil || item.SchemaSpec != "" {
+			return unsafeMigrationCatalog("migration %d uses an unversioned GORM schema contract", item.Version)
+		}
+
 		if (item.ImportLegacy == nil) != (item.LegacyImportID == "") ||
 			(item.ImportLegacy == nil) != (item.LegacyImportSpec == "") {
 			return unsafeMigrationCatalog("migration %d has incomplete legacy import identity", item.Version)

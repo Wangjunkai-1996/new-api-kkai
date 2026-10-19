@@ -21,21 +21,23 @@ import { useEffect, useState } from 'react'
 
 import { isHttpUrl } from '@/lib/content-format'
 import { handleServerError } from '@/lib/handle-server-error'
+import { getCurrentHost } from '@/lib/host-scope'
 
 import { getHomePageContent } from '../api'
 import type { HomePageContentResult } from '../types'
 
-const STORAGE_KEY = 'home_page_content'
+const STORAGE_KEY = `home_page_content:${getCurrentHost()}`
 
 /**
  * Hook to load and manage custom home page content
  * Supports both Markdown/HTML content and iframe URLs
  */
-export function useHomePageContent(): HomePageContentResult {
+export function useHomePageContent(enabled = true): HomePageContentResult {
   const [content, setContent] = useState<string>('')
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
+    if (!enabled) return
     let mounted = true
 
     const loadContent = async () => {
@@ -80,7 +82,7 @@ export function useHomePageContent(): HomePageContentResult {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [enabled])
 
   const isUrl = isHttpUrl(content)
 

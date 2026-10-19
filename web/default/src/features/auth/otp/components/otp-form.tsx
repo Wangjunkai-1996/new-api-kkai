@@ -70,7 +70,7 @@ export function OtpForm() {
           return
         }
         if (!bundle) {
-          redirectToLogin()
+          redirectToLogin(pending.redirectTo, pending.ownerLogin)
           return
         }
         completed.current = true
@@ -79,7 +79,7 @@ export function OtpForm() {
       } catch (error) {
         if (!active) return
         handleServerError(AuthOperationError.from(error))
-        redirectToLogin()
+        redirectToLogin(pending.redirectTo, pending.ownerLogin)
       }
     })()
     return () => {

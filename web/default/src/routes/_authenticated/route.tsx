@@ -33,6 +33,9 @@ export const Route = createFileRoute('/_authenticated')({
         search: { redirect: location.href },
       })
     }
+    if (auth.user.tenant_owner) {
+      throw redirect({ to: '/reseller', replace: true })
+    }
   },
   component: AuthenticatedLayout,
 })

@@ -22,6 +22,7 @@ import { toast } from 'sonner'
 
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { getStatusStorageKey } from '@/lib/status-query'
 
 import { updatePasskeyDomains, updateSystemOption } from '../api'
 import type { UpdateOptionRequest, UpdatePasskeyDomainsRequest } from '../types'
@@ -69,7 +70,7 @@ export function useUpdateOption() {
         if (STATUS_RELATED_KEYS.has(variables.key)) {
           queryClient.invalidateQueries({ queryKey: ['status'] })
           try {
-            window.localStorage.removeItem('status')
+            window.localStorage.removeItem(getStatusStorageKey())
           } catch {
             /* empty */
           }
@@ -111,7 +112,7 @@ export function useUpdatePasskeyDomains() {
       queryClient.invalidateQueries({ queryKey: ['system-options'] })
       queryClient.invalidateQueries({ queryKey: ['status'] })
       try {
-        window.localStorage.removeItem('status')
+        window.localStorage.removeItem(getStatusStorageKey())
       } catch {
         /* Storage may be disabled. */
       }

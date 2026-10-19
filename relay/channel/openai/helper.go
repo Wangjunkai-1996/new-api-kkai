@@ -16,9 +16,26 @@ import (
 	"github.com/QuantumNous/new-api/service"
 
 	"github.com/samber/lo"
+	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
 )
+
+// Provider zero usage is an accounting fact; an absent field is not. Keep the
+// distinction before the display path supplies any local token estimates.
+func hasReportedOpenAIUsage(data []byte, mode int) bool {
+	fields := []string{"usage.prompt_tokens", "usage.completion_tokens"}
+	if mode == relayconstant.RelayModeEmbeddings {
+		fields = fields[:1] // Embeddings report input usage and generate no output tokens.
+	}
+	for _, field := range fields {
+		value := gjson.GetBytes(data, field)
+		if value.Type != gjson.Number || value.Float() < 0 {
+			return false
+		}
+	}
+	return true
+}
 
 // 辅助函数
 func HandleStreamFormat(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {

@@ -2,6 +2,7 @@ package relay
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -44,10 +45,32 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu_4v"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
 func GetAdaptor(apiType int) channel.Adaptor {
+	adaptor := getAdaptor(apiType)
+	if adaptor == nil {
+		return nil
+	}
+	return tenantTransportAdaptor{Adaptor: adaptor}
+}
+
+type tenantTransportAdaptor struct {
+	channel.Adaptor
+}
+
+func (a tenantTransportAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if err := service.ValidateTenantChannelTransport(info); err != nil {
+		return nil, relaytypes.NewError(err, relaytypes.ErrorCodeInvalidRequest, relaytypes.ErrOptionWithSkipRetry())
+	}
+	return a.Adaptor.DoRequest(c, info, requestBody)
+}
+
+func getAdaptor(apiType int) channel.Adaptor {
 	switch apiType {
 	case constant.APITypeAli:
 		return &ali.Adaptor{}

@@ -59,7 +59,7 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 		}
 		return newAPIError
 	}
-	service.SettleMembershipPartialUsage(c, info, usage, newAPIError)
+	service.CaptureFailedRequestUsage(c, info, usage, newAPIError)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

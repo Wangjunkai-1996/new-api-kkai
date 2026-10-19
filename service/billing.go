@@ -38,6 +38,9 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+	if relayInfo.TenantID > 0 {
+		return preConsumeTenantBilling(c, relayInfo, preConsumedQuota)
+	}
 	if generationID := ImageStudioGenerationID(c); generationID > 0 {
 		return PreConsumeImageGenerationBilling(
 			c, model.DB, generationID, preConsumedQuota, relayInfo,
@@ -62,9 +65,16 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
 func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
 	if relayInfo.Billing != nil {
+		if relayInfo.TenantQuoteID > 0 && (relayInfo.BillingOutcomeUnknown || membershipStreamIncomplete(relayInfo)) {
+			relayInfo.BillingOutcomeUnknown = true
+			if err := model.MarkTenantConsumptionUncertain(model.DB, relayInfo.RequestId, relayInfo.ChannelId); err != nil {
+				return err
+			}
+			return fmt.Errorf("tenant authorization retained pending final usage")
+		}
 		if relayInfo.MembershipBillingRequestID != "" {
-			if relayInfo.MembershipOutcomeUnknown || membershipStreamIncomplete(relayInfo) {
-				relayInfo.MembershipOutcomeUnknown = true
+			if relayInfo.BillingOutcomeUnknown || membershipStreamIncomplete(relayInfo) {
+				relayInfo.BillingOutcomeUnknown = true
 				if err := model.MarkMembershipBillingUncertain(relayInfo.MembershipBillingRequestID, relayInfo.ChannelId, "upstream_final_usage_unknown"); err != nil {
 					return err
 				}
@@ -99,7 +109,7 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 		}
 
 		// 发送额度通知（订阅计费使用订阅剩余额度）
-		if actualQuota != 0 {
+		if actualQuota != 0 && relayInfo.TenantID == 0 {
 			if relayInfo.BillingSource == BillingSourceSubscription {
 				checkAndSendSubscriptionQuotaNotify(relayInfo)
 			} else {

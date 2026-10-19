@@ -4,16 +4,21 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/shopspring/decimal"
 
 	"gorm.io/gorm"
 )
 
 type TopUp struct {
 	Id              int     `json:"id"`
+	TenantID        int64   `json:"tenant_id" gorm:"not null;default:0;index"`
+	PaidMinor       int64   `json:"paid_minor" gorm:"type:bigint;not null;default:0"`
+	Currency        string  `json:"currency" gorm:"type:varchar(8);not null;default:''"`
 	UserId          int     `json:"user_id" gorm:"index"`
 	Amount          int64   `json:"amount"`
 	Money           float64 `json:"money"`
@@ -32,6 +37,32 @@ const (
 	PaymentMethodWaffoPancake = "waffo_pancake"
 	PaymentMethodBalance      = "balance"
 )
+
+// SetCNYPaymentSnapshot accepts the exact amount sent to Epay. Never derive
+// tenant cash from TopUp.Money, which is a legacy floating-point display field.
+func (topUp *TopUp) SetCNYPaymentSnapshot(amount string) error {
+	minor, err := ParseCNYMinor(amount)
+	if err != nil || minor <= 0 {
+		return ErrResellerFinanceInvalidInput
+	}
+	topUp.PaidMinor, topUp.Currency = minor, ResellerCurrencyCNY
+	return nil
+}
+
+func ParseCNYMinor(amount string) (int64, error) {
+	if len(amount) == 0 || len(amount) > 24 || strings.TrimSpace(amount) != amount {
+		return 0, ErrResellerFinanceInvalidInput
+	}
+	value, err := decimal.NewFromString(amount)
+	if err != nil || value.IsNegative() || value.Exponent() < -2 || value.Exponent() > 18 {
+		return 0, ErrResellerFinanceInvalidInput
+	}
+	value = value.Mul(decimal.NewFromInt(100))
+	if value.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+		return 0, ErrResellerFinanceInvalidInput
+	}
+	return value.IntPart(), nil
+}
 
 const (
 	PaymentProviderEpay         = "epay"
@@ -52,9 +83,14 @@ var (
 )
 
 func (topUp *TopUp) Insert() error {
-	var err error
-	err = DB.Create(topUp).Error
-	return err
+	var user User
+	if err := DB.Select("id", "tenant_id").First(&user, topUp.UserId).Error; err != nil {
+		return err
+	}
+	if topUp.TenantID != user.TenantID || (user.TenantID > 0 && (topUp.PaymentProvider != PaymentProviderEpay || topUp.Currency != ResellerCurrencyCNY || topUp.PaidMinor <= 0)) {
+		return ErrResellerFinanceInvalidInput
+	}
+	return DB.Create(topUp).Error
 }
 
 func topUpQuotaMaxCurrent(creditedQuota int64) (int64, error) {
@@ -418,11 +454,20 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 	return nil
 }
 
-func RechargeEpay(tradeNo string, paymentMethod string) (*FinalizeTopUpResult, error) {
+func RechargeEpay(tradeNo string, paymentMethod string, paidAmount ...string) (*FinalizeTopUpResult, error) {
 	return FinalizeTopUp(FinalizeTopUpInput{
 		TradeNo:          tradeNo,
 		ExpectedProvider: PaymentProviderEpay,
 		Prepare: func(topUp *TopUp, _ *User) (TopUpCompletion, error) {
+			if topUp.TenantID > 0 {
+				if len(paidAmount) != 1 {
+					return TopUpCompletion{}, ErrResellerFinanceInvalidInput
+				}
+				minor, err := ParseCNYMinor(paidAmount[0])
+				if err != nil || minor != topUp.PaidMinor {
+					return TopUpCompletion{}, ErrResellerFinanceInvalidInput
+				}
+			}
 			quotaDelta, err := quotaFromTopUpAmount(topUp.Amount)
 			if err != nil {
 				return TopUpCompletion{}, err

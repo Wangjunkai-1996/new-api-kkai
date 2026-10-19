@@ -120,6 +120,18 @@ type RelayInfo struct {
 	// aliases never participate in channel selection or upstream routing.
 	BillingModelName string
 
+	// Tenant pricing is resolved from the trusted Host scope before billing.
+	// These scalar snapshots avoid a relay/common -> model dependency cycle.
+	TenantID                    int64
+	TenantPriceVersionID        int64
+	TenantRetailMultiplier      float64
+	TenantSalesMultiplier       string
+	TenantSaleMinorPerQuota     string
+	TenantSupplierPriceMinor    int64
+	TenantSupplierMinorPerQuota string
+	TenantSupplySnapshot        string
+	TenantQuoteID               int64
+
 	RequestURLPath     string
 	RequestHeaders     map[string]string
 	ShouldIncludeUsage bool
@@ -180,15 +192,16 @@ type RelayInfo struct {
 	ParamOverrideAudit                    []string
 
 	PriceData                  hosttypes.PriceData
+	TenantBudget               *hosttypes.MembershipPricing
 	MembershipPricing          *hosttypes.MembershipPricing
 	MembershipRealtime         bool
 	MembershipAssessedQuota    int
 	MembershipChargedQuota     int
 	MembershipBillingRequestID string
-	MembershipOutcomeUnknown   bool
+	BillingOutcomeUnknown      bool
 	MembershipHasBillableUsage bool
-	MembershipHasReportedUsage bool
-	MembershipFailureUsage     any
+	BillingHasReportedUsage    bool
+	BillingFailureUsage        any
 	MembershipViolationFee     int
 	MembershipDeadline         time.Time
 
@@ -1487,4 +1500,17 @@ func (info *RelayInfo) ResetAttemptTiming() {
 	info.FirstResponseTime = info.StartTime.Add(-time.Second)
 	atomic.StoreUint64(&info.sub2TTFTMs, 0)
 	info.isFirstResponse = true
+}
+
+// HasDurableBilling identifies requests whose reservation must survive an
+// indeterminate upstream outcome until the usage can be reconciled.
+func (info *RelayInfo) HasDurableBilling() bool {
+	return info != nil && (info.MembershipBillingRequestID != "" || info.TenantQuoteID > 0)
+}
+
+func (info *RelayInfo) RequestBudget() *hosttypes.MembershipPricing {
+	if info.TenantID > 0 {
+		return info.TenantBudget
+	}
+	return info.MembershipPricing
 }

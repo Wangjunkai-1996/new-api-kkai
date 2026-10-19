@@ -77,6 +77,8 @@ func TestSetRouterRejectsEmbeddedModeWithoutAssets(t *testing.T) {
 }
 
 func TestEmbeddedFrontendServesDefaultWithLegacyThemeSetting(t *testing.T) {
+	t.Setenv("TENANT_PLATFORM_HOSTS", "example.com")
+	t.Setenv("TENANT_ROUTING_ENABLED", "false")
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FRONTEND_MODE", "embedded")
 	t.Setenv("FRONTEND_BASE_URL", "")
@@ -97,6 +99,8 @@ func TestEmbeddedFrontendServesDefaultWithLegacyThemeSetting(t *testing.T) {
 }
 
 func TestLegacyFrontendRedirectWorksWithoutEmbeddedAssets(t *testing.T) {
+	t.Setenv("TENANT_PLATFORM_HOSTS", "example.com")
+	t.Setenv("TENANT_ROUTING_ENABLED", "false")
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FRONTEND_MODE", "embedded")
 	t.Setenv("FRONTEND_BASE_URL", "https://frontend.example.test/")
@@ -114,6 +118,8 @@ func TestLegacyFrontendRedirectWorksWithoutEmbeddedAssets(t *testing.T) {
 }
 
 func TestExternalFrontendModeUsesAPI404WithoutRedirectOrSPA(t *testing.T) {
+	t.Setenv("TENANT_PLATFORM_HOSTS", "example.com")
+	t.Setenv("TENANT_ROUTING_ENABLED", "false")
 	gin.SetMode(gin.TestMode)
 	t.Setenv("FRONTEND_MODE", "external")
 	t.Setenv("FRONTEND_BASE_URL", "https://frontend.example.test")

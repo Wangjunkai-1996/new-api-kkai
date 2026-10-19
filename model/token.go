@@ -14,6 +14,7 @@ import (
 type Token struct {
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
+	TenantID           int64          `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
 	Status             int            `json:"status" gorm:"default:1"`
 	Name               string         `json:"name" gorm:"index" `
@@ -30,6 +31,39 @@ type Token struct {
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
+}
+
+// BeforeCreate snapshots the owner's tenant for token-side authorization and
+// reporting. Legacy fixtures without a corresponding user keep tenant 0;
+// production token creation always has an existing owner row.
+func (token *Token) BeforeCreate(tx *gorm.DB) error {
+	if token == nil || token.TenantID != 0 || token.UserId <= 0 || tx == nil {
+		return nil
+	}
+	var user User
+	if err := tx.Select("tenant_id").First(&user, token.UserId).Error; err == nil {
+		token.TenantID = user.TenantID
+	}
+	return nil
+}
+
+// InitializeTokenTenantIDs backfills the tenant snapshot for legacy tokens
+// after the column is added. It intentionally uses GORM updates so the same
+// migration works with SQLite, MySQL, and PostgreSQL.
+func InitializeTokenTenantIDs() error {
+	if DB == nil {
+		return errors.New("database is not initialized")
+	}
+	var owners []User
+	if err := DB.Select("id", "tenant_id").Where("tenant_id <> ?", PlatformTenantID).Find(&owners).Error; err != nil {
+		return err
+	}
+	for _, owner := range owners {
+		if err := DB.Model(&Token{}).Where("user_id = ? AND tenant_id = ?", owner.Id, PlatformTenantID).Update("tenant_id", owner.TenantID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {

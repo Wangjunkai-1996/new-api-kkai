@@ -22,7 +22,11 @@ func RefreshAuth(c *gin.Context) {
 		writeAuthSessionError(c, service.ErrRefreshTokenInvalid)
 		return
 	}
-	bundle, user, err := service.RefreshLoginSession(rawRefreshToken, c.GetHeader("X-Auth-Session"), c.ClientIP(), c.Request.UserAgent())
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	bundle, user, err := service.RefreshLoginSession(rawRefreshToken, c.GetHeader("X-Auth-Session"), c.ClientIP(), c.Request.UserAgent(), tenantID)
 	if err != nil {
 		if errors.Is(err, service.ErrRefreshTokenInvalid) || errors.Is(err, service.ErrLoginSessionRevoked) {
 			service.ClearRefreshCookie(c)
@@ -38,7 +42,7 @@ func RefreshAuth(c *gin.Context) {
 			"access_token":      bundle.AccessToken,
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
-			"user":              buildSelfUserData(user),
+			"user":              buildSelfUserData(user, c),
 			"session":           bundle.Session,
 		},
 	})
@@ -56,6 +60,10 @@ func AuthLogout(c *gin.Context) {
 
 	if rawAccessToken, ok := dashboardBearer(c.GetHeader("Authorization")); ok {
 		if identity, err := service.ParseAccessToken(rawAccessToken); err == nil {
+			if err := validateSessionTenant(c, identity.SessionID); err != nil {
+				writeAuthSessionError(c, err)
+				return
+			}
 			if expectedSID != "" && expectedSID != identity.SessionID {
 				writeAuthSessionError(c, service.ErrLoginSessionMismatch)
 				return
@@ -86,6 +94,12 @@ func AuthLogout(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 		return
 	}
+	if hasCookieSID {
+		if err := validateSessionTenant(c, cookieSID); err != nil {
+			writeAuthSessionError(c, err)
+			return
+		}
+	}
 	if err := service.RevokeByRefreshToken(rawRefreshToken, expectedSID, "logout"); err != nil {
 		writeAuthSessionError(c, err)
 		return
@@ -99,7 +113,11 @@ func GetLoginSessions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sessions, err := service.ListLoginSessions(identity.UserID, identity.SessionID)
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	sessions, err := service.ListLoginSessions(identity.UserID, identity.SessionID, tenantID)
 	if err != nil {
 		writeAuthSessionError(c, err)
 		return
@@ -115,6 +133,10 @@ func DeleteLoginSession(c *gin.Context) {
 	sid := strings.TrimSpace(c.Param("sid"))
 	if sid == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "AUTH_SESSION_ID_REQUIRED", "message": "session id is required"})
+		return
+	}
+	if err := validateSessionTenant(c, sid); err != nil {
+		writeAuthSessionError(c, err)
 		return
 	}
 	revoked, err := model.RevokeUserSession(identity.UserID, sid, "user_revoked")
@@ -140,12 +162,35 @@ func RevokeOtherLoginSessions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	count, err := model.RevokeOtherUserSessions(identity.UserID, identity.SessionID, "user_revoked_others")
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	count, err := model.RevokeOtherUserSessions(identity.UserID, identity.SessionID, "user_revoked_others", tenantID)
 	if err != nil {
 		writeAuthSessionError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"revoked_count": count}})
+}
+
+func validateSessionTenant(c *gin.Context, sid string) error {
+	tenant, enabled := middleware.GetTenantContext(c)
+	if !enabled {
+		return nil
+	}
+	session, err := model.GetUserSessionBySID(sid)
+	if err != nil {
+		return err
+	}
+	if session.TenantID != tenant.TenantID {
+		return service.ErrLoginSessionMismatch
+	}
+	user, err := model.GetUserCache(session.UserID)
+	if err != nil {
+		return err
+	}
+	return service.ValidateUserTenant(user, tenant.TenantID)
 }
 
 func requireBrowserSession(c *gin.Context) (service.AuthIdentity, bool) {

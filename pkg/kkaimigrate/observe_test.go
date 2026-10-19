@@ -9,7 +9,7 @@ import (
 
 func TestObserveIsReadOnlyOnValidRuntimeSchema(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 
 	var beforeLedgerRows int64
@@ -20,7 +20,7 @@ func TestObserveIsReadOnlyOnValidRuntimeSchema(t *testing.T) {
 
 	observation, err := Observe(context.Background(), db)
 	require.NoError(t, err)
-	require.Equal(t, RequiredRuntimeVersion, observation.CurrentVersion)
+	require.Equal(t, MembershipSchemaVersion, observation.CurrentVersion)
 
 	var afterLedgerRows int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&afterLedgerRows).Error)
@@ -32,7 +32,7 @@ func TestObserveIsReadOnlyOnValidRuntimeSchema(t *testing.T) {
 
 func TestObserveRejectsMissingRuntimeTable(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	require.NoError(t, db.Migrator().DropTable("kkai_job_leases"))
 
@@ -42,7 +42,7 @@ func TestObserveRejectsMissingRuntimeTable(t *testing.T) {
 
 func TestObserveRejectsMissingRuntimeColumn(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	require.NoError(t, db.Migrator().DropTable("kkai_outbox"))
 	require.NoError(t, db.Exec("CREATE TABLE kkai_outbox (id INTEGER PRIMARY KEY)").Error)

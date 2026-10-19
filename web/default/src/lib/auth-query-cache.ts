@@ -20,16 +20,22 @@ import type { QueryClient } from '@tanstack/react-query'
 
 import { useAuthStore } from '@/stores/auth-store'
 
-import { createPrivateQueryUserBoundary } from './private-query-cache'
-
 export const installAuthQueryCacheBoundary = (
   queryClient: QueryClient
 ): (() => void) => {
-  const updateUser = createPrivateQueryUserBoundary(
-    queryClient,
-    useAuthStore.getState().auth.user?.id
-  )
-  return useAuthStore.subscribe((state) => {
-    updateUser(state.auth.user?.id)
+  return useAuthStore.subscribe((state, previousState) => {
+    if (
+      state.auth.user?.id === previousState.auth.user?.id &&
+      state.auth.session?.sid === previousState.auth.session?.sid
+    ) {
+      return
+    }
+    // Legacy feature queries also carry private data without a user key.
+    // Keep only Host-scoped public configuration across identity changes.
+    queryClient.removeQueries({
+      predicate: (query) =>
+        query.queryKey[0] !== 'site-config' && query.queryKey[0] !== 'status',
+    })
+    queryClient.getMutationCache().clear()
   })
 }

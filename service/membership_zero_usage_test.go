@@ -43,9 +43,9 @@ func TestMembershipFailedTerminalPreservesExplicitZeroUsage(t *testing.T) {
 				code = relaytypes.ErrorCodeViolationFeeGrokCSAM
 			}
 			apiErr := relaytypes.NewError(errors.New("provider terminal failure"), code)
-			SettleMembershipPartialUsage(c, info, accumulator.Finish(), apiErr)
-			assert.False(t, info.MembershipOutcomeUnknown)
-			require.True(t, FinalizeMembershipPartialUsage(c, info, apiErr))
+			CaptureFailedRequestUsage(c, info, accumulator.Finish(), apiErr)
+			assert.False(t, info.BillingOutcomeUnknown)
+			require.True(t, FinalizeFailedRequestUsage(c, info, apiErr))
 			stored, err := model.GetMembershipBillingRecord(info.RequestId)
 			require.NoError(t, err)
 			assert.Equal(t, "settled", stored.State)
@@ -62,6 +62,6 @@ func TestMembershipFailedTerminalPreservesExplicitZeroUsage(t *testing.T) {
 		})
 	}
 	info := &relaycommon.RelayInfo{MembershipBillingRequestID: "synthetic-zero"}
-	SettleMembershipPartialUsage(nil, info, &dto.Usage{}, relaytypes.NewError(errors.New("missing usage"), relaytypes.ErrorCodeBadResponse))
-	assert.True(t, info.MembershipOutcomeUnknown, "an unreported zero must still retain authorization")
+	CaptureFailedRequestUsage(nil, info, &dto.Usage{}, relaytypes.NewError(errors.New("missing usage"), relaytypes.ErrorCodeBadResponse))
+	assert.True(t, info.BillingOutcomeUnknown, "an unreported zero must still retain authorization")
 }

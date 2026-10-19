@@ -22,10 +22,13 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { checkIsActive } from '@/components/layout/lib/url-utils'
+import { getSiteConfigQueryKey } from '@/features/site-config/api'
 import {
   parseSidebarModulesAdmin,
   serializeSidebarModulesAdmin,
 } from '@/features/system-settings/maintenance/config'
+import { api } from '@/lib/api'
+import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useSidebarConfig } from '../use-sidebar-config'
@@ -42,15 +45,27 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   useAuthStore.getState().auth.reset()
 })
 
-function sidebarFor(admin?: object, user?: object, canConfigure = true) {
+function sidebarFor(
+  admin?: object,
+  user?: object,
+  canConfigure = true,
+  tenantId = 0
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  client.setQueryData(['status'], {
+  client.setQueryData(STATUS_QUERY_KEY, {
     SidebarModulesAdmin: admin ? JSON.stringify(admin) : '',
+  })
+  client.setQueryData(getSiteConfigQueryKey(), {
+    tenant_id: tenantId,
+    hostname: window.location.host,
+    status: 'active',
+    site_name: 'Test site',
   })
   useAuthStore.getState().auth.setUser({
     id: 1,
@@ -74,6 +89,22 @@ function sidebarFor(admin?: object, user?: object, canConfigure = true) {
 }
 
 describe('profile sidebar visibility', () => {
+  it('tenant customers see only the supported console paths even when all sidebar modules default to enabled', () => {
+    const request = vi.spyOn(api, 'get')
+    const { result } = sidebarFor(undefined, undefined, true, 12)
+    expect(
+      result.current.flatMap((group) => group.items.map((item) => item.url))
+    ).toEqual([
+      '/dashboard/overview',
+      '/dashboard/models',
+      '/keys',
+      '/usage-logs/common',
+      '/wallet',
+      '/profile',
+    ])
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('old configurations keep Profile and API Keys without a separate security page', () => {
     const { result } = sidebarFor(
       { personal: { enabled: true, personal: true, topup: true } },
@@ -83,7 +114,12 @@ describe('profile sidebar visibility', () => {
       result.current
         .find((group) => group.id === 'personal')
         ?.items.map((item) => item.title)
-    ).toEqual(['Membership center', 'Wallet', 'Profile'])
+    ).toEqual([
+      'Membership center',
+      'Membership ratios',
+      'Wallet',
+      'Profile',
+    ])
     expect(
       result.current
         .flatMap((group) => group.items)

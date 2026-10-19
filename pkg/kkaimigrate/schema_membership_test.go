@@ -123,7 +123,7 @@ func TestMembershipRuntimeRejectsMissingImageOrPaymentUniqueness(t *testing.T) {
 	} {
 		t.Run(index.name, func(t *testing.T) {
 			db := newMigrationTestDB(t)
-			_, err := Apply(context.Background(), db, Options{})
+			_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 			require.NoError(t, err)
 			_, err = ApplyImageAsyncExpand(context.Background(), db, Options{})
 			require.NoError(t, err)

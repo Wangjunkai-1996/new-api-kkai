@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { privateUserQueryKey } from '@/lib/private-query-cache'
+import { getStatusStorageKey } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getTokenModels } from '../../api'
@@ -137,7 +138,7 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
 
 function getServerAddress(): string {
   try {
-    const raw = localStorage.getItem('status')
+    const raw = localStorage.getItem(getStatusStorageKey())
     if (raw) {
       const status = JSON.parse(raw)
       if (status.server_address) return status.server_address

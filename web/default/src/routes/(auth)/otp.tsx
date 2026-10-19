@@ -17,14 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { Otp } from '@/features/auth/otp'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/(auth)/otp')({
-  beforeLoad: () => {
+  validateSearch: z.object({
+    redirect: z.string().optional(),
+    owner_login: z.boolean().optional().catch(undefined),
+  }),
+  beforeLoad: ({ search }) => {
     if (!useAuthStore.getState().auth.pendingLoginVerification) {
-      throw redirect({ to: '/sign-in', replace: true })
+      throw redirect({ to: '/sign-in', search, replace: true })
     }
   },
   component: Otp,

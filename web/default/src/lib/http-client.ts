@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import axios, { type AxiosRequestConfig } from 'axios'
 import { t } from 'i18next'
 
+import { getSignInSearch } from '@/features/auth/lib/auth-redirect'
 import {
   applyAuthRotation,
   clearAuthentication,
@@ -29,6 +30,7 @@ import {
   handleServerError,
   markServerErrorHandled,
 } from '@/lib/handle-server-error'
+import { getCurrentHost } from '@/lib/host-scope'
 import {
   getServerErrorMessage,
   safeServerErrorMessage,
@@ -80,7 +82,7 @@ api.get = ((url: string, config: ApiRequestConfig = {}) => {
 
   const params = config.params ? JSON.stringify(config.params) : '{}'
   const sessionSID = useAuthStore.getState().auth.session?.sid || 'anonymous'
-  const key = `${sessionSID}:${url}?${params}`
+  const key = `${getCurrentHost()}:${config.baseURL ?? api.defaults.baseURL}:${sessionSID}:${url}?${params}`
   const existingRequest = inFlightGet.get(key)
   if (existingRequest) return existingRequest
 
@@ -96,7 +98,11 @@ function redirectToSignIn(): void {
     typeof window !== 'undefined' &&
     window.location.pathname !== '/sign-in'
   ) {
-    window.location.replace('/sign-in')
+    const search = getSignInSearch(window.location.href, window.location.origin)
+    const params = new URLSearchParams()
+    if (search.redirect) params.set('redirect', search.redirect)
+    if (search.owner_login) params.set('owner_login', 'true')
+    window.location.replace(`/sign-in?${params}`)
   }
 }
 

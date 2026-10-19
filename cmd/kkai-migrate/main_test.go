@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -21,15 +22,15 @@ func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 	db, err := openDatabase(dsn)
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)
-	result, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	result, err := applyHistoricalFixture(context.Background(), db)
 	require.NoError(t, err)
 	require.Empty(t, result.Pending)
-	require.NoError(t, kkaimigrate.CheckRequired(context.Background(), db))
+	require.NoError(t, kkaimigrate.CheckMembershipSchema(context.Background(), db))
 }
 
 func TestApplyMigrationTargetRejectsUnknownVersion(t *testing.T) {
-	_, err := applyMigrationTarget(context.Background(), nil, 12, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "expected 4, 5, 6, 7, 8, 9, 10, or 11")
+	_, err := applyMigrationTarget(context.Background(), nil, 13, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 12")
 }
 
 func TestDescribeContractJSONUsesImmutableExternalSchemaManagement(t *testing.T) {
@@ -47,11 +48,12 @@ func TestObserveCurrentSchemaRejectsMissingApplicationPrerequisite(t *testing.T)
 	db, err := openDatabase(dsn)
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)
-	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err = applyHistoricalFixture(context.Background(), db)
 	require.NoError(t, err)
 
 	_, err = observeCurrentSchema(context.Background(), db)
-	require.ErrorIs(t, err, model.ErrMainSchemaNotReady)
+	require.NoError(t, err)
+	require.ErrorIs(t, model.ValidateMainSchemaPrerequisites(db), model.ErrMainSchemaNotReady)
 }
 
 func TestObserveHistoricalSchemaDoesNotRequireRC41Models(t *testing.T) {
@@ -60,7 +62,7 @@ func TestObserveHistoricalSchemaDoesNotRequireRC41Models(t *testing.T) {
 			db, err := openDatabase("file:" + t.TempDir() + "/historical.db")
 			require.NoError(t, err)
 			prepareLegacyAuthenticationTables(t, db)
-			_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+			_, err = applyHistoricalFixture(context.Background(), db)
 			require.NoError(t, err)
 			// Construct the historical test database with its original ledger
 			// prefix and without the tables and columns introduced later.
@@ -139,25 +141,98 @@ func TestResolveMigrationDSNRejectsAmbiguousOrUnsafeStdin(t *testing.T) {
 	require.ErrorContains(t, err, "exceeds 8192 bytes")
 }
 
-func TestApplyMembershipMigrationTargetIsExplicit(t *testing.T) {
-	db, err := openDatabase("file:" + t.TempDir() + "/membership.db")
+func TestApplyTenantMigrationTargetIsExplicit(t *testing.T) {
+	db, err := openDatabase("file:" + t.TempDir() + "/tenant.db")
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)
 	_, err = applyMigrationTarget(context.Background(), db, 0, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "explicit --target 12")
+	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.TenantSchemaVersion, kkaimigrate.Options{})
+	assert.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
+	_, err = applyHistoricalFixture(context.Background(), db)
 	require.NoError(t, err)
-	assert.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
-	assert.False(t, db.Migrator().HasTable("kkai_image_executions"))
-	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.MembershipSchemaVersion, kkaimigrate.Options{})
-	require.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
-	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.ImageAsyncSchemaVersion, kkaimigrate.Options{})
+	for _, statement := range []string{
+		"ALTER TABLE users ADD COLUMN username VARCHAR(20)",
+		"ALTER TABLE users ADD COLUMN email VARCHAR(50)",
+		"CREATE TABLE top_ups(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE user_oauth_bindings(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE logs(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE quota_data(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE tasks(id BIGINT PRIMARY KEY)",
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+	_, err = applyMigrationTarget(context.Background(), db, 12, kkaimigrate.Options{DryRun: true})
 	require.NoError(t, err)
-	require.NoError(t, kkaimigrate.CheckImageAsyncSchema(context.Background(), db))
-	assert.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
-	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.MembershipSchemaVersion, kkaimigrate.Options{DryRun: true})
+	assert.False(t, db.Migrator().HasTable("tenants"))
+	_, err = applyMigrationTarget(context.Background(), db, 12, kkaimigrate.Options{})
 	require.NoError(t, err)
-	assert.False(t, db.Migrator().HasTable("kkai_membership_accounts"))
-	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.MembershipSchemaVersion, kkaimigrate.Options{})
+	require.NoError(t, kkaimigrate.CheckTenantSchema(context.Background(), db))
+}
+
+func applyHistoricalFixture(ctx context.Context, db *gorm.DB) (*kkaimigrate.Result, error) {
+	var result *kkaimigrate.Result
+	var err error
+	for _, target := range []int64{3, 4, 5, 6, 7, 8, 9, 10, 11} {
+		result, err = applyMigrationTarget(ctx, db, target, kkaimigrate.Options{})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func TestTenantLogSchemaCLIOperations(t *testing.T) {
+	db, err := openDatabase("file:" + t.TempDir() + "/logs.db")
 	require.NoError(t, err)
-	require.NoError(t, kkaimigrate.CheckMembershipSchema(context.Background(), db))
-	require.NoError(t, kkaimigrate.CheckImageAsyncSchema(context.Background(), db))
+	require.NoError(t, db.Exec("CREATE TABLE logs(id BIGINT PRIMARY KEY)").Error)
+	var output bytes.Buffer
+	require.NoError(t, runTenantLogSchema(context.Background(), db, "status", &output))
+	assert.JSONEq(t, `{"schema":"kkai-tenant-log-v12","ready":false}`, output.String())
+	require.ErrorIs(t, runTenantLogSchema(context.Background(), db, "check", &output), kkaimigrate.ErrSchemaNotReady)
+	require.NoError(t, runTenantLogSchema(context.Background(), db, "apply", &output))
+	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+	output.Reset()
+	require.NoError(t, runTenantLogSchema(context.Background(), db, "status", &output))
+	assert.JSONEq(t, `{"schema":"kkai-tenant-log-v12","ready":true}`, output.String())
+	require.NoError(t, runTenantLogSchema(context.Background(), db, "check", &output))
+}
+
+func TestTenantPrecheckCLIBlocksUnsafeIdentities(t *testing.T) {
+	db, err := openDatabase("file:" + t.TempDir() + "/tenant-precheck.db")
+	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
+	_, err = applyHistoricalFixture(context.Background(), db)
+	require.NoError(t, err)
+	for _, statement := range []string{
+		"ALTER TABLE users ADD COLUMN username VARCHAR(20)",
+		"ALTER TABLE users ADD COLUMN email VARCHAR(50)",
+		"CREATE TABLE top_ups(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE user_oauth_bindings(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE logs(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE quota_data(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE tasks(id BIGINT PRIMARY KEY)",
+		"INSERT INTO users(id,username,email) VALUES(1,' Legacy ','private@example.com'),(2,'legacy','other@example.com')",
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+	var output bytes.Buffer
+	err = runMigrationPrecheck(context.Background(), db, 12, &output)
+	assert.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
+	assert.ErrorContains(t, err, "operator repair required")
+	assert.JSONEq(t, `{"schema":"kkai_tenant_schema_precheck_v1","target_version":12,"user_count":2,"invalid_identity_count":0,"duplicate_username_count":1,"duplicate_email_count":0,"safe":false}`, output.String())
+	assert.False(t, db.Migrator().HasColumn("users", "normalized_username"))
+	assert.False(t, db.Migrator().HasTable("tenants"))
+}
+
+func TestAuthenticationPrecheckCLIPreservesTarget8Report(t *testing.T) {
+	db, err := openDatabase("file:" + t.TempDir() + "/authentication-precheck.db")
+	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
+	require.NoError(t, db.Exec("INSERT INTO users(id,telegram_id) VALUES(1,' private-subject '),(2,'private-subject')").Error)
+	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+	var output bytes.Buffer
+	require.NoError(t, runMigrationPrecheck(context.Background(), db, 8, &output))
+	assert.JSONEq(t, `{"schema":"kkai_authentication_expand_precheck_v1","target_version":8,"user_count":2,"legacy_telegram_identity_count":2,"ambiguous_telegram_subject_count":1,"safe":false}`, output.String())
 }

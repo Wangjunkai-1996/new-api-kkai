@@ -182,6 +182,25 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	}
+	if info.HasDurableBilling() {
+		for _, frame := range []string{lastStreamData, secondLastStreamData} {
+			if !hasReportedOpenAIUsage([]byte(frame), info.RelayMode) {
+				continue
+			}
+			var reported struct {
+				Usage *dto.Usage `json:"usage"`
+			}
+			if common.Unmarshal([]byte(frame), &reported) == nil && reported.Usage != nil {
+				usage = reported.Usage
+				containStreamUsage = true
+				info.BillingHasReportedUsage = true
+				break
+			}
+		}
+		if !info.BillingHasReportedUsage && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
+			info.BillingOutcomeUnknown = true
+		}
+	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
@@ -312,7 +331,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	usageModified := false
-	if simpleResponse.Usage.PromptTokens == 0 {
+	if info.HasDurableBilling() {
+		info.BillingHasReportedUsage = hasReportedOpenAIUsage(responseBody, info.RelayMode)
+		if !info.BillingHasReportedUsage && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
+			info.BillingOutcomeUnknown = true
+		}
+	}
+	if simpleResponse.Usage.PromptTokens == 0 && !(info.HasDurableBilling() && info.BillingHasReportedUsage) {
 		completionTokens := simpleResponse.Usage.CompletionTokens
 		if completionTokens == 0 {
 			for _, choice := range simpleResponse.Choices {

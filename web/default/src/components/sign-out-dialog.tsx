@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -36,6 +36,11 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const ownerWorkspace = useLocation({
+    select: (location) =>
+      location.pathname === '/reseller' ||
+      location.pathname.startsWith('/reseller/'),
+  })
   const [isSigningOut, setIsSigningOut] = useState(false)
 
   const handleSignOut = async () => {
@@ -49,7 +54,13 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
 
       clearAuthenticatedClientState(queryClient)
       toast.success(t('Signed out'))
-      void navigate({ to: '/sign-in', replace: true })
+      void navigate({
+        to: '/sign-in',
+        search: ownerWorkspace
+          ? { owner_login: true, redirect: '/reseller' }
+          : undefined,
+        replace: true,
+      })
     } catch (error: unknown) {
       handleServerError(error, t('Failed to sign out session'))
     } finally {

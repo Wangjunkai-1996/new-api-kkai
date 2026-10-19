@@ -22,6 +22,15 @@ func TestUserBaseWriteContextPreservesInt64Quota(t *testing.T) {
 	require.Equal(t, expected, common.GetContextKeyInt64(context, constant.ContextKeyUserQuota))
 }
 
+func TestUserBaseWriteContextPreservesTenantID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	user := User{TenantID: 42}
+	user.ToBaseUser().WriteContext(context)
+
+	require.Equal(t, int64(42), common.GetContextKeyInt64(context, constant.ContextKeyUserTenantID))
+}
+
 func TestSubscriptionBalanceQuotaPreservesInt64Amount(t *testing.T) {
 	quota, err := calcSubscriptionBalanceQuota(5_000)
 

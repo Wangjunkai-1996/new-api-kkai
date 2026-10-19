@@ -35,6 +35,11 @@ const (
 	responsesStreamDiagnosticFieldLimit   = 256
 )
 
+func hasReportedResponsesUsage(usage gjson.Result) bool {
+	input, output := usage.Get("input_tokens"), usage.Get("output_tokens")
+	return input.Type == gjson.Number && input.Float() >= 0 && output.Type == gjson.Number && output.Float() >= 0
+}
+
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
@@ -48,9 +53,15 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	if info.HasDurableBilling() {
+		info.BillingHasReportedUsage = hasReportedResponsesUsage(gjson.GetBytes(responseBody, "usage"))
+		if !info.BillingHasReportedUsage {
+			responsesResponse.Usage = nil // An empty object is not explicit zero usage.
+		}
+	}
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil {
-		if info.MembershipBillingRequestID != "" && responsesResponse.Usage != nil {
-			info.MembershipHasReportedUsage = true
+		if info.HasDurableBilling() && responsesResponse.Usage != nil {
+			info.BillingHasReportedUsage = true
 			usage := &dto.Usage{}
 			service.ApplyResponsesUsage(usage, responsesResponse.Usage)
 			var tools responsesToolUsage
@@ -78,8 +89,8 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// compute usage
 	usage := &dto.Usage{}
-	if info.MembershipBillingRequestID != "" && responsesResponse.Usage == nil && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
-		info.MembershipOutcomeUnknown = true
+	if info.HasDurableBilling() && responsesResponse.Usage == nil && !info.PriceData.UsePrice && info.ImagePricingSnapshot == nil {
+		info.BillingOutcomeUnknown = true
 	}
 	service.ApplyResponsesUsage(usage, responsesResponse.Usage)
 	var toolUsage responsesToolUsage
@@ -135,8 +146,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		if info.HasDurableBilling() && streamResponse.Response != nil && !hasReportedResponsesUsage(gjson.Get(data, "response.usage")) {
+			streamResponse.Response.Usage = nil
+		}
 		accumulator.Observe(&streamResponse)
-		if info.MembershipBillingRequestID != "" && accumulator.HasReportedUsage() {
+		if info.HasDurableBilling() && accumulator.HasReportedUsage() {
 			toolUsage.observeResponse(streamResponse.Response)
 		}
 		if streamResponse.Response != nil {
@@ -205,7 +219,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
 	if streamErr != nil {
-		if info.MembershipBillingRequestID != "" && accumulator.HasReportedUsage() {
+		if info.HasDurableBilling() && accumulator.HasReportedUsage() {
 			usage := accumulator.Finish()
 			toolUsage.commit(info, false)
 			committedTools = true

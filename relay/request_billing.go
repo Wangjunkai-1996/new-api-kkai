@@ -22,12 +22,15 @@ import (
 // provide the current request body through BodyStorage or BillingRequestInput;
 // channel retries retain the resulting billing session and pricing snapshot.
 func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePreConsume func() error) *types.NewAPIError {
+	if err := service.PrepareTenantPricing(c, info); err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
 	if err := service.PrepareImagePricing(c, info); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	meta := &types.TokenCountMeta{TokenType: types.TokenTypeTokenizer}
-	if info.Request != nil && (needSensitiveCheck || constant.CountToken || model.MembershipEnabled()) {
+	if info.Request != nil && (info.TenantID > 0 || needSensitiveCheck || constant.CountToken || model.MembershipEnabled()) {
 		meta = info.Request.GetTokenCountMeta()
 	} else {
 		// Avoid building CombineText when only the pricing quantities are needed.
@@ -42,6 +45,9 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 			meta = request.GetTokenCountMeta()
 		}
 	}
+	if info.TenantID > 0 && (len(meta.Files) > 0 || meta.ImagePriceRatio != 0 || len(meta.BillingRatios) > 0) {
+		return types.NewErrorWithStatusCode(errors.New("multimodal and parameter-priced requests are disabled on reseller sites"), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
 
 	if needSensitiveCheck && meta != nil {
 		if contains, words := service.CheckSensitiveText(meta.CombineText); contains {
@@ -53,7 +59,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	}
 
 	tokens, err := service.EstimateRequestToken(c, meta, info)
-	if model.MembershipEnabled() {
+	if info.TenantID == 0 && model.MembershipEnabled() {
 		tokens, err = service.CountRequestToken(c, meta, info)
 	}
 	if err != nil {
@@ -65,10 +71,17 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 	}
+	if info.TenantID > 0 && priceData.FreeModel {
+		return types.NewErrorWithStatusCode(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
 	if err := service.ApplyImageStudioMaximumPreconsume(c, info, &priceData, tokens, meta); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest)
 	}
-	if err := service.PrepareMembershipBudget(c, info, &priceData, tokens, meta); err != nil {
+	if info.TenantID == 0 {
+		if err := service.PrepareMembershipBudget(c, info, &priceData, tokens, meta); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+	} else if err := service.PrepareTenantBudget(info, &priceData, tokens, meta); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	if err := service.EnforceImageStudioPreconsumeLimit(c, priceData.QuotaToPreConsume); err != nil {
@@ -82,7 +95,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	if info.MembershipRealtime {
 		return nil // Each response.create obtains its own complete authorization.
 	}
-	if priceData.FreeModel && info.MembershipPricing == nil {
+	if priceData.FreeModel && info.MembershipPricing == nil && info.TenantID == 0 {
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", info.OriginModelName))
 		if service.ImageStudioGenerationID(c) > 0 {
 			return service.PreConsumeBilling(c, 0, info)
@@ -102,10 +115,17 @@ func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, api
 		return apiErr // Each realtime response owns its own authorization.
 	}
 	apiErr = service.NormalizeViolationFeeError(apiErr)
-	if info.MembershipBillingRequestID != "" && service.FinalizeMembershipPartialUsage(c, info, apiErr) {
+	if info.HasDurableBilling() && service.FinalizeFailedRequestUsage(c, info, apiErr) {
 		return apiErr
 	}
-	if info.MembershipBillingRequestID != "" && info.MembershipOutcomeUnknown {
+	if info.TenantQuoteID > 0 && info.BillingOutcomeUnknown {
+		types.ErrOptionWithSkipRetry()(apiErr)
+		if err := model.MarkTenantConsumptionUncertain(model.DB, info.RequestId, info.ChannelId); err != nil {
+			logger.LogError(c, "failed to flag tenant billing for review: "+err.Error())
+		}
+		return apiErr
+	}
+	if info.MembershipBillingRequestID != "" && info.BillingOutcomeUnknown {
 		types.ErrOptionWithSkipRetry()(apiErr)
 		if err := model.MarkMembershipBillingUncertain(info.MembershipBillingRequestID, info.ChannelId, "upstream_outcome_unknown"); err != nil {
 			logger.LogError(c, "failed to flag membership billing for review: "+err.Error())
@@ -119,6 +139,8 @@ func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, api
 	if info.Billing != nil {
 		info.Billing.Refund(c)
 	}
-	service.ChargeViolationFeeIfNeeded(c, info, apiErr)
+	if info.TenantID == 0 {
+		service.ChargeViolationFeeIfNeeded(c, info, apiErr)
+	}
 	return apiErr
 }

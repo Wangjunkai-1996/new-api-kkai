@@ -54,6 +54,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { handleServerError } from '@/lib/handle-server-error'
+import { getStatusStorageKey } from '@/lib/status-query'
 
 import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -62,7 +63,7 @@ import { useApiKeys } from './api-keys-provider'
 
 function getServerAddress(): string {
   try {
-    const raw = localStorage.getItem('status')
+    const raw = localStorage.getItem(getStatusStorageKey())
     if (raw) {
       const status = JSON.parse(raw)
       if (status.server_address) return status.server_address as string

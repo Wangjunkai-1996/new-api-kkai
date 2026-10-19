@@ -20,9 +20,13 @@ import (
 func TestKKAIOutboxMySQL57MigrationAndClaim(t *testing.T) {
 	db := mysql57KKAIIntegrationDB(t)
 
-	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err := kkaimigrate.ApplyLegacyBaseline(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
-	require.NoError(t, kkaimigrate.CheckRequired(context.Background(), db))
+	_, err = kkaimigrate.ApplyOutboxEventKeyCompatibility(context.Background(), db, kkaimigrate.Options{})
+	require.NoError(t, err)
+	observation, err := kkaimigrate.Observe(context.Background(), db)
+	require.NoError(t, err)
+	assert.Equal(t, kkaimigrate.OutboxEventKeySchemaVersion, observation.CurrentVersion)
 	require.EqualValues(t, 191, mysql57EventKeyLength(t, db))
 
 	now := time.Unix(1_784_211_072, 0)
@@ -48,17 +52,19 @@ func TestKKAIOutboxMySQL57MigrationAndClaim(t *testing.T) {
 
 func TestKKAIOutboxMySQL57RejectsDriftAfterRecordedMigration(t *testing.T) {
 	db := mysql57KKAIIntegrationDB(t)
-	_, err := kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err := kkaimigrate.ApplyLegacyBaseline(context.Background(), db, kkaimigrate.Options{})
+	require.NoError(t, err)
+	_, err = kkaimigrate.ApplyOutboxEventKeyCompatibility(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.NoError(t, db.Exec(
 		"ALTER TABLE kkai_outbox MODIFY COLUMN event_key VARCHAR(192) NOT NULL",
 	).Error)
 	require.EqualValues(t, 192, mysql57EventKeyLength(t, db))
 
-	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err = kkaimigrate.ApplyLegacyBaseline(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	require.EqualValues(t, 192, mysql57EventKeyLength(t, db))
-	err = kkaimigrate.CheckRequired(context.Background(), db)
+	_, err = kkaimigrate.Observe(context.Background(), db)
 	require.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
 	assert.ErrorContains(t, err, "kkai_outbox.event_key must be VARCHAR(191)")
 

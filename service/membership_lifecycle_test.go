@@ -31,12 +31,12 @@ func TestMembershipFailedUsageAndFeeSettleOneOriginalAuthorization(t *testing.T)
 	require.NoError(t, ApplyMembershipReservation(info, record))
 	info.Billing = &membershipBillingSession{info: info, requestID: record.RequestID, reserved: int(record.ReservedQuota), state: record.State}
 	apiErr := relaytypes.NewError(errors.New("provider rejected the response"), relaytypes.ErrorCodeViolationFeeGrokCSAM)
-	SettleMembershipPartialUsage(c, info, &dto.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120}, apiErr)
+	CaptureFailedRequestUsage(c, info, &dto.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120}, apiErr)
 	before, err := model.GetMembershipBillingRecord(info.RequestId)
 	require.NoError(t, err)
 	assert.Equal(t, "reserved", before.State, "wait for the final policy decision before charging a fee")
-	require.True(t, FinalizeMembershipPartialUsage(c, info, apiErr))
-	assert.False(t, FinalizeMembershipPartialUsage(c, info, apiErr))
+	require.True(t, FinalizeFailedRequestUsage(c, info, apiErr))
+	assert.False(t, FinalizeFailedRequestUsage(c, info, apiErr))
 	stored, err := model.GetMembershipBillingRecord(info.RequestId)
 	require.NoError(t, err)
 	assert.Equal(t, "settled", stored.State)
@@ -57,8 +57,8 @@ func TestMembershipFailedUsageAndFeeSettleOneOriginalAuthorization(t *testing.T)
 func TestMembershipAcceptedResponseWithoutUsageRemainsUncertain(t *testing.T) {
 	info := &relaycommon.RelayInfo{MembershipBillingRequestID: "accepted-request"}
 	apiErr := relaytypes.NewError(errors.New("malformed upstream response"), relaytypes.ErrorCodeBadResponse)
-	SettleMembershipPartialUsage(nil, info, nil, apiErr)
-	assert.True(t, info.MembershipOutcomeUnknown)
+	CaptureFailedRequestUsage(nil, info, nil, apiErr)
+	assert.True(t, info.BillingOutcomeUnknown)
 	assert.True(t, relaytypes.IsSkipRetryError(apiErr))
 }
 
@@ -73,9 +73,9 @@ func TestMembershipTruncatedStreamCannotSettleEstimatedPartialUsage(t *testing.T
 	info.Billing = &membershipBillingSession{info: info, requestID: record.RequestID, reserved: int(record.ReservedQuota), state: record.State}
 	info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, context.DeadlineExceeded)
 	apiErr := relaytypes.NewError(context.DeadlineExceeded, relaytypes.ErrorCodeBadResponse)
-	SettleMembershipPartialUsage(c, info, &dto.Usage{PromptTokens: 100, CompletionTokens: 5, TotalTokens: 105}, apiErr)
-	assert.True(t, info.MembershipOutcomeUnknown)
-	assert.Nil(t, info.MembershipFailureUsage)
+	CaptureFailedRequestUsage(c, info, &dto.Usage{PromptTokens: 100, CompletionTokens: 5, TotalTokens: 105}, apiErr)
+	assert.True(t, info.BillingOutcomeUnknown)
+	assert.Nil(t, info.BillingFailureUsage)
 	require.Error(t, SettleBilling(c, info, 1))
 	stored, err := model.GetMembershipBillingRecord(info.RequestId)
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestMembershipResponsesAccountingDistinguishesReportedZeroFromEstimates(t *
 		accumulator.Observe(&dto.ResponsesStreamResponse{Type: "response.completed", Response: response})
 		usage := accumulator.Finish()
 		assert.Equal(t, reported, accumulator.HasReportedUsage())
-		assert.Equal(t, !reported, info.MembershipOutcomeUnknown)
+		assert.Equal(t, !reported, info.BillingOutcomeUnknown)
 		if reported {
 			assert.Zero(t, usage.TotalTokens, "an explicit zero bill is not replaced by a local prompt estimate")
 		}

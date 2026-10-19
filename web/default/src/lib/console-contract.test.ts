@@ -13,6 +13,7 @@ describe('console API compatibility', () => {
         'task_plugins',
         'studio_media_urls',
         'membership_ratio_quotes',
+        'reseller_sites',
       ],
     })
     expect(supportsConsole(contract)).toBe(true)
@@ -75,8 +76,27 @@ describe('console API compatibility', () => {
           'scoped_access_tokens',
           'task_plugins',
           'studio_media_urls',
+          'reseller_sites',
         ],
       })
     ).toBe(true)
+  })
+
+  it('rejects the previous backend even when its API version and membership capability match', () => {
+    expect(
+      supportsConsole({
+        format_version: 1,
+        api_contracts: [2],
+        capabilities: [
+          'token_group_inline',
+          'video_sample_categories',
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+          'membership_ratio_quotes',
+        ],
+      })
+    ).toBe(false)
   })
 })

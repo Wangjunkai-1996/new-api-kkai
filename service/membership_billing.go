@@ -213,33 +213,33 @@ func membershipBillingError(err error) *relaytypes.NewAPIError {
 	return relaytypes.NewErrorWithStatusCode(err, code, status, relaytypes.ErrOptionWithSkipRetry())
 }
 
-// SettleMembershipPartialUsage keeps billable partial output on the original
+// CaptureFailedRequestUsage keeps billable partial output on the original
 // authorization. An indeterminate response retains its reservation for review;
 // it must not be retried or refunded as a confirmed zero-cost failure.
-func SettleMembershipPartialUsage(c *gin.Context, info *relaycommon.RelayInfo, usage any, apiErr *relaytypes.NewAPIError) {
-	if info == nil || info.MembershipBillingRequestID == "" || apiErr == nil {
+func CaptureFailedRequestUsage(c *gin.Context, info *relaycommon.RelayInfo, usage any, apiErr *relaytypes.NewAPIError) {
+	if !info.HasDurableBilling() || apiErr == nil {
 		return
 	}
 	relaytypes.ErrOptionWithSkipRetry()(apiErr)
 	if membershipStreamIncomplete(info) {
-		info.MembershipOutcomeUnknown = true
+		info.BillingOutcomeUnknown = true
 		return
 	}
 	switch value := usage.(type) {
 	case *dto.Usage:
-		if value != nil && (info.MembershipHasReportedUsage || value.TotalTokens > 0 || value.PromptTokens > 0 || value.CompletionTokens > 0) {
-			info.MembershipFailureUsage = value
+		if value != nil && (info.BillingHasReportedUsage || value.TotalTokens > 0 || value.PromptTokens > 0 || value.CompletionTokens > 0) {
+			info.BillingFailureUsage = value
 			return
 		}
 	case *dto.RealtimeUsage:
 		if value != nil && value.TotalTokens > 0 {
-			info.MembershipFailureUsage = value
+			info.BillingFailureUsage = value
 			return
 		}
 	}
 	// This callback runs only after an accepted upstream response was parsed.
 	// Missing/malformed usage is not evidence that the provider billed nothing.
-	info.MembershipOutcomeUnknown = true
+	info.BillingOutcomeUnknown = true
 }
 
 func membershipStreamIncomplete(info *relaycommon.RelayInfo) bool {
@@ -250,16 +250,16 @@ func membershipStreamIncomplete(info *relaycommon.RelayInfo) bool {
 	return outcome.Response == relaycommon.ResponseOutcomeUnknown && outcome.EndReason != relaycommon.StreamEndReasonDone
 }
 
-// FinalizeMembershipPartialUsage runs after the terminal policy decision, so a
+// FinalizeFailedRequestUsage runs after the terminal policy decision, so a
 // configured violation fee and returned usage settle against one authorization.
-func FinalizeMembershipPartialUsage(c *gin.Context, info *relaycommon.RelayInfo, apiErr *relaytypes.NewAPIError) bool {
-	if info.MembershipFailureUsage == nil {
+func FinalizeFailedRequestUsage(c *gin.Context, info *relaycommon.RelayInfo, apiErr *relaytypes.NewAPIError) bool {
+	if info.BillingFailureUsage == nil {
 		return false
 	}
-	if info.MembershipPricing != nil && shouldChargeViolationFee(c, apiErr) {
+	if info.TenantID == 0 && info.MembershipPricing != nil && shouldChargeViolationFee(c, apiErr) {
 		info.MembershipViolationFee = common.QuotaRound(info.MembershipPricing.ViolationFeeBeforeGroup * info.PriceData.GroupRatioInfo.GroupRatio)
 	}
-	switch value := info.MembershipFailureUsage.(type) {
+	switch value := info.BillingFailureUsage.(type) {
 	case *dto.Usage:
 		if value.PromptTokensDetails.AudioTokens > 0 || value.CompletionTokenDetails.AudioTokens > 0 {
 			PostAudioConsumeQuota(c, info, value, "")
@@ -269,6 +269,6 @@ func FinalizeMembershipPartialUsage(c *gin.Context, info *relaycommon.RelayInfo,
 	case *dto.RealtimeUsage:
 		PostWssConsumeQuota(c, info, info.GetBillingModelName(), value, "")
 	}
-	info.MembershipFailureUsage = nil
+	info.BillingFailureUsage = nil
 	return true
 }
