@@ -298,7 +298,8 @@ expect_remote_rejected() {
 }
 
 expect_maintenance_preparation() {
-  local output_dir="${test_root}/out-maintenance" output
+  local protocol=$1
+  local output_dir="${test_root}/out-${protocol}" output
   local planned_sha=3333333333333333333333333333333333333333
 
   : >"${call_log}"
@@ -307,7 +308,7 @@ expect_maintenance_preparation() {
       KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
       "${BUILD_SCRIPT}" --schema-contract feature --frontend-mode external \
       --prepare-maintenance --planned-infra-sha "${planned_sha}" \
-      --planned-deployment-protocol rc41-maintenance-v1 \
+      --planned-deployment-protocol "${protocol}" \
       --version "${version}" --output-dir "${output_dir}" 2>&1
   )"; then
     fail "maintenance preparation failed\n${output}"
@@ -315,7 +316,7 @@ expect_maintenance_preparation() {
   output_dir="$(cd -- "${output_dir}" && pwd)"
   jq -e '.release_purpose == "maintenance-preparation" and .schema_contract == "feature" and .frontend_mode == "external"' \
     "${output_dir}/${version}.json" >/dev/null || fail 'maintenance metadata is not marked'
-  grep -F -- "prepare-maintenance-release.py create --metadata ${output_dir}/${version}.json --planned-infra-sha ${planned_sha} --planned-deployment-protocol rc41-maintenance-v1" \
+  grep -F -- "prepare-maintenance-release.py create --metadata ${output_dir}/${version}.json --planned-infra-sha ${planned_sha} --planned-deployment-protocol ${protocol}" \
     "${call_log}" >/dev/null || fail 'maintenance plan did not receive exact release coordinates'
   [[ $(grep -c '^docker buildx build --builder ' "${call_log}") == 1 ]] ||
     fail 'maintenance preparation did not build exactly one backend image'
@@ -365,7 +366,9 @@ expect_no_resource_limits
 expect_invalid_parallelism_rejected
 expect_build_lock_rejected
 expect_remote_rejected
-expect_maintenance_preparation
+expect_maintenance_preparation rc41-maintenance-v1
+expect_maintenance_preparation tenant-maintenance-v1
+expect_maintenance_preparation tenant-maintenance-v2
 expect_bridge_build
 expect_maintenance_rejected 'requires planned infrastructure SHA' --prepare-maintenance
 expect_maintenance_rejected 'requires planned deployment protocol' --prepare-maintenance \

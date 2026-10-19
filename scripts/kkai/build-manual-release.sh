@@ -142,8 +142,8 @@ if [[ "${prepare_maintenance}" == true ]]; then
     die "maintenance preparation requires feature schema and external frontend"
   [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ ]] || die "maintenance preparation requires planned infrastructure SHA"
   case "${planned_deployment_protocol}" in
-    rc41-maintenance-v1 | tenant-maintenance-v1) ;;
-    *) die "maintenance preparation requires planned deployment protocol rc41-maintenance-v1 or tenant-maintenance-v1" ;;
+    rc41-maintenance-v1 | tenant-maintenance-v1 | tenant-maintenance-v2) ;;
+    *) die "maintenance preparation requires planned deployment protocol rc41-maintenance-v1, tenant-maintenance-v1 or tenant-maintenance-v2" ;;
   esac
   command -v python3 >/dev/null || die "missing python3"
 elif [[ -n "${planned_infra_sha}" || -n "${planned_deployment_protocol}" ]]; then

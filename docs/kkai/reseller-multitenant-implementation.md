@@ -1,5 +1,48 @@
 # KKAI 代理品牌站实现与验收记录
 
+## 当前发布修正：主站身份兼容（2026-10-20）
+
+应用已合并到本地 `production/kkrich`。首次生产只读预检发现主站存在 54 组规范化用户名
+碰撞及 1 组规范化邮箱碰撞；未进入停写或迁移。用户确认保留主站旧账号登录规则，只有代理
+站采用新的规范化唯一规则。不得通过改名、合并、删除账号或修改余额来解决这些历史碰撞。
+
+本次目标调整为显式 `tenant-maintenance-v2` 的 11→13，运行契约为 `(13,13,13)`。
+不可变 v12 定义和 checksum 保留；新的 canonical13 前缀为 1–11、13，不记录未执行的12。
+只接受 pristine11 到13或完成13后的幂等重试；完整/部分12及其他非 canonical 状态拒绝。
+
+主站保留原始用户名/邮箱，normalized 列为 NULL，用户名查询使用原 `username = ?` 和
+数据库既有比较语义；错误密码不触发邮箱回退，歧义邮箱登录/重置拒绝。先建立
+`(tenant_id, username)` 唯一索引再移除全局用户名索引。代理站使用规范化用户名/邮箱的
+租户内唯一约束，允许不同租户重名。只读预检将主站规范化碰撞作为信息计数，真实原始
+用户名重复及代理身份冲突仍会阻断。
+
+既有 format 2 前端产物无需重建；兼容修正需要新不可变后端产物及最终镜像的11→13→11
+隔离恢复演练。具体执行流程以 infra `docs/runbooks/25-newapi-tenant-schema-v12.md`
+的 v2 小节为准。下文为各阶段历史实现/验证快照，不代表当前生产状态；v12 操作记录不能
+作为 v13 迁移或正式发布验收证据。域名业务入口和 pilot 验收仍须另外完成。
+
+本次兼容修正的定向验证已通过：
+
+```sh
+go test ./pkg/kkaimigrate ./cmd/kkai-migrate -run 'Test(TenantCompatibility|MigrationCatalog|ContractForDialectRequiresTenantSchema|RuntimeRejectsV11|DescribeContractJSONRequiresTenantSchema)' -count=1 -timeout=120s
+go test -tags kkai_bridge ./pkg/kkaimigrate ./cmd/kkai-migrate -run 'Test(ContractForDialectRequiresTenantSchema|RuntimeRejectsV11|DescribeContractJSONRequiresTenantSchema)' -count=1 -timeout=120s
+go test ./pkg/kkaimigrate -run '^TestTenantCompatibilityMigrationRealDatabases$' -count=1 -timeout=120s
+go test ./model -run '^Test(Tenant(Login|OwnerLogin|Username|Identity|Platform|Customer|EmailBinding)|ValidateAndFill|EnsureEmailAvailable|InsertRejectsDuplicateEmail|InsertKeepsBlank|ResetUserPasswordByEmail|UserUpdate)' -count=1 -timeout=120s
+go test ./controller -run '^TestTenantOwnerLoginUsesExplicitNamespaceAndPreservesTwoFA$' -count=1 -timeout=120s
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/kkai/prepare-maintenance-release_test.py
+bash scripts/kkai/build-manual-release_test.sh
+```
+
+真实数据库测试为 PostgreSQL 9.6 / MySQL 5.7，使用本地隔离容器与临时 DSN，20.557 秒
+通过后清理容器。它覆盖原始身份、密码、quota、软删除、精确 ledger、跨租户重名、租户内
+唯一、幂等及运行时检查；不是跳过实库的普通运行。SQLite 另覆盖只读预检、索引/trigger
+保留及失败回滚。依赖回归中 middleware、router、service 通过；controller 首次因旧夹具
+缺少 canonical 字段失败，补齐夹具后上列 owner 登录测试通过，生产查询未放宽。Python
+产物验证 9 项及构建脚本模拟验证通过。全仓库套件未运行，真实最终产物演练与发布验收需
+使用新后端，不能复用旧 v12 成功记录。
+
+## 初始实现快照
+
 日期：2026-10-19
 工作区：`/Users/tokk/.codex/worktrees/tenant-prd-architecture/new-api-kkai`
 交付范围：本地代码、文档和定向测试；未提交、未部署、未迁移生产数据库。
@@ -13,7 +56,7 @@
 - 人民币付费批次、FIFO 累计现金分摊、亚分 carry、原子消费结算及持久补偿。
 - 24 小时 pending 解冻、人工支付宝提现、费用快照、冻结/核销/拒绝和债务限制。
 - 平台整支付批次退款/拒付记录、混合批次恢复、反向流水与人工 usage 核对。
-- 显式 v12 schema contract 及独立 LOG_DB 迁移；SQLite/MySQL/PostgreSQL 兼容。
+- 初始显式 v12 schema contract 及独立 LOG_DB 迁移；当前发布修正见上文。
 
 详细接口、数据/锁边界、操作条件见[详细设计](./reseller-multitenant-detailed-design.md)。
 

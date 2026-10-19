@@ -21,16 +21,19 @@ const UserNameMaxLength = 20
 
 var ErrUsernameAlreadyTaken = errors.New("username already taken")
 
-// InitializeTenantUserIdentities backfills canonical identity keys before a
-// tenant rollout. Duplicate legacy identities require explicit operator repair;
-// they are never merged or reassigned automatically.
+// InitializeTenantUserIdentities keeps platform identities in their historical
+// namespace and backfills canonical keys only for branded tenant customers.
 func InitializeTenantUserIdentities() error {
 	if DB == nil {
 		return errors.New("database is not initialized")
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Model(&User{}).Where("tenant_id = ?", PlatformTenantID).
+			Updates(map[string]any{"normalized_username": nil, "normalized_email": nil}).Error; err != nil {
+			return err
+		}
 		var users []User
-		return tx.Unscoped().Select("id", "username", "email").
+		return tx.Unscoped().Select("id", "username", "email").Where("tenant_id > ?", PlatformTenantID).
 			Where("normalized_username IS NULL OR (email <> '' AND normalized_email IS NULL)").
 			FindInBatches(&users, 1000, func(_ *gorm.DB, _ int) error {
 				for _, user := range users {
@@ -48,8 +51,8 @@ func InitializeTenantUserIdentities() error {
 	}); err != nil {
 		return err
 	}
-	// GORM's old `unique` tag created a named unique constraint. Dropping it
-	// after the composite keys are populated preserves uniqueness throughout.
+	// The composite raw-username index preserves the platform's database
+	// comparison rules while allowing the same name in different tenants.
 	if DB.Migrator().HasConstraint(&User{}, "uni_users_username") {
 		if err := DB.Migrator().DropConstraint(&User{}, "uni_users_username"); err != nil {
 			return err
@@ -116,10 +119,8 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id int `json:"id"`
-	// Username uniqueness is scoped by TenantID at the application layer. Keep
-	// the index non-unique so two branded tenants may use the same name.
-	Username           string  `json:"username" gorm:"index:idx_users_tenant_username,priority:2" validate:"max=20"`
+	Id                 int     `json:"id"`
+	Username           string  `json:"username" gorm:"uniqueIndex:idx_users_tenant_username,priority:2" validate:"max=20"`
 	NormalizedUsername *string `json:"-" gorm:"type:varchar(20);uniqueIndex:idx_users_tenant_normalized_username,priority:2"`
 	Password           string  `json:"password" gorm:"not null;" validate:"min=8,max=128"`
 	HasPassword        bool    `json:"-" gorm:"-:all"`
@@ -130,7 +131,7 @@ type User struct {
 	// TenantID is the user's primary tenant ownership for incremental tenant
 	// rollout. Platform users retain tenant 0; reseller customers are assigned
 	// their tenant when that onboarding flow is enabled.
-	TenantID             int64                      `json:"-" gorm:"type:bigint;not null;default:0;index:idx_users_tenant_username,priority:1;index:idx_users_tenant_email,priority:1;uniqueIndex:idx_users_tenant_normalized_username,priority:1;uniqueIndex:idx_users_tenant_normalized_email,priority:1"`
+	TenantID             int64                      `json:"-" gorm:"type:bigint;not null;default:0;uniqueIndex:idx_users_tenant_username,priority:1;index:idx_users_tenant_email,priority:1;uniqueIndex:idx_users_tenant_normalized_username,priority:1;uniqueIndex:idx_users_tenant_normalized_email,priority:1"`
 	Email                string                     `json:"email" gorm:"index:idx_users_tenant_email,priority:2" validate:"max=50"`
 	NormalizedEmail      *string                    `json:"-" gorm:"type:varchar(50);uniqueIndex:idx_users_tenant_normalized_email,priority:2"`
 	GitHubId             string                     `json:"github_id" gorm:"column:github_id;index"`
@@ -321,16 +322,18 @@ func CheckUserExistOrDeleted(username string, email string) (bool, error) {
 func CheckUserExistOrDeletedForTenant(username string, email string, tenantID int64) (bool, error) {
 	var user User
 
-	// err := DB.Unscoped().First(&user, "username = ? or email = ?", username, email).Error
-	// check email if empty
 	var err error
 	email = NormalizeEmail(email)
-	username = strings.TrimSpace(username)
 	query := DB.Unscoped().Where("tenant_id = ?", tenantID)
+	usernameColumn, emailColumn := "username", "LOWER(email)"
+	if tenantID > PlatformTenantID {
+		username = strings.ToLower(strings.TrimSpace(username))
+		usernameColumn, emailColumn = "normalized_username", "normalized_email"
+	}
 	if email == "" {
-		err = query.Where("LOWER(username) = ?", strings.ToLower(username)).First(&user).Error
+		err = query.Where(usernameColumn+" = ?", username).First(&user).Error
 	} else {
-		err = query.Where("LOWER(username) = ? OR LOWER(email) = ?", strings.ToLower(username), email).First(&user).Error
+		err = query.Where(usernameColumn+" = ? OR "+emailColumn+" = ?", username, email).First(&user).Error
 	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -348,11 +351,15 @@ func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-func emailQuery(tx *gorm.DB, email string) *gorm.DB {
+func emailQuery(tx *gorm.DB, email string, tenantID int64) *gorm.DB {
 	if tx == nil {
 		tx = DB
 	}
-	return tx.Unscoped().Model(&User{}).Where("LOWER(email) = ?", NormalizeEmail(email))
+	query := tx.Model(&User{}).Where("tenant_id = ?", tenantID)
+	if tenantID > PlatformTenantID {
+		return query.Where("normalized_email = ?", NormalizeEmail(email))
+	}
+	return query.Where("LOWER(email) = ?", NormalizeEmail(email))
 }
 
 func CountUsersByEmail(email string) (int64, error) {
@@ -361,7 +368,7 @@ func CountUsersByEmail(email string) (int64, error) {
 		return 0, nil
 	}
 	var count int64
-	err := emailQuery(DB, email).Where("tenant_id = ?", PlatformTenantID).Count(&count).Error
+	err := emailQuery(DB, email, PlatformTenantID).Unscoped().Count(&count).Error
 	return count, err
 }
 
@@ -374,7 +381,7 @@ func IsEmailAvailableForTenant(email string, excludeUserID int, tenantID int64) 
 	if email == "" {
 		return true, nil
 	}
-	query := emailQuery(DB, email).Where("tenant_id = ?", tenantID)
+	query := emailQuery(DB, email, tenantID).Unscoped()
 	if excludeUserID > 0 {
 		query = query.Where("id <> ?", excludeUserID)
 	}
@@ -630,22 +637,27 @@ func inviteUser(inviterId int) error {
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
 	user.Email = NormalizeEmail(user.Email)
-	user.Username = strings.TrimSpace(user.Username)
+	user.NormalizedUsername, user.NormalizedEmail = nil, nil
+	usernameColumn, usernameKey := "username", user.Username
+	if user.TenantID > PlatformTenantID {
+		user.Username = strings.ToLower(strings.TrimSpace(user.Username))
+		usernameColumn, usernameKey = "normalized_username", user.Username
+		user.NormalizedUsername = &usernameKey
+		if user.Email != "" {
+			email := user.Email
+			user.NormalizedEmail = &email
+		}
+	}
 	if user.Username == "" {
 		return ErrUserEmptyCredentials
 	}
 	var count int64
-	normalizedUsername := strings.ToLower(user.Username)
-	if err := tx.Unscoped().Model(&User{}).Where("tenant_id = ? AND LOWER(username) = ?", user.TenantID, normalizedUsername).Count(&count).Error; err != nil {
+	if err := tx.Unscoped().Model(&User{}).Where("tenant_id = ?", user.TenantID).
+		Where(usernameColumn+" = ?", usernameKey).Count(&count).Error; err != nil {
 		return err
 	}
 	if count > 0 {
 		return ErrUsernameAlreadyTaken
-	}
-	user.NormalizedUsername = &normalizedUsername
-	if user.Email != "" {
-		email := user.Email
-		user.NormalizedEmail = &email
 	}
 	if err := ensureEmailAvailableWithTxTenant(tx, user.Email, 0, user.TenantID); err != nil {
 		return err
@@ -674,7 +686,6 @@ func BindEmailToUser(user *User, email string) error {
 			}
 			user.Email = email
 			user.TenantID = current.TenantID
-			user.NormalizedEmail = &email
 			return user.UpdateWithTx(tx, false)
 		})
 	}); err != nil {
@@ -692,7 +703,7 @@ func ensureEmailAvailableWithTxTenant(tx *gorm.DB, email string, excludeUserID i
 	if email == "" {
 		return nil
 	}
-	query := emailQuery(tx, email).Where("tenant_id = ?", tenantID)
+	query := emailQuery(tx, email, tenantID).Unscoped()
 	if excludeUserID > 0 {
 		query = query.Where("id <> ?", excludeUserID)
 	}
@@ -846,17 +857,30 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		return err
 	}
 	newUser.TenantID = current.TenantID
-	if newUser.Username != "" {
+	newUser.NormalizedUsername, newUser.NormalizedEmail = nil, nil
+	if newUser.Username != "" && current.TenantID > PlatformTenantID {
 		normalized := strings.ToLower(strings.TrimSpace(newUser.Username))
+		if normalized == "" {
+			return ErrUserEmptyCredentials
+		}
+		newUser.Username = normalized
 		newUser.NormalizedUsername = &normalized
 	}
 	if newUser.Email != "" {
 		normalized := NormalizeEmail(newUser.Email)
-		if err := ensureEmailAvailableWithTxTenant(tx, normalized, user.Id, current.TenantID); err != nil {
-			return err
+		// A legacy platform address can be shared. Saving an unrelated profile
+		// field must not revalidate or rewrite that unchanged address.
+		if normalized != NormalizeEmail(current.Email) {
+			if err := ensureEmailAvailableWithTxTenant(tx, normalized, user.Id, current.TenantID); err != nil {
+				return err
+			}
 		}
-		newUser.Email = normalized
-		newUser.NormalizedEmail = &normalized
+		if current.TenantID > PlatformTenantID {
+			newUser.Email = normalized
+			if normalized != "" {
+				newUser.NormalizedEmail = &normalized
+			}
+		}
 	}
 	// Updates(struct) ignores zero values. Match that behavior when deciding
 	// whether this request actually changes authentication-sensitive state;
@@ -882,6 +906,11 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		"auth_version",
 	).Updates(newUser).Error; err != nil {
 		return err
+	}
+	if current.TenantID == PlatformTenantID {
+		if err = tx.Model(&current).Updates(map[string]any{"normalized_username": nil, "normalized_email": nil}).Error; err != nil {
+			return err
+		}
 	}
 	return tx.First(user, user.Id).Error
 }
@@ -915,10 +944,22 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		}
 	}
 
+	current := User{}
+	if err = tx.First(&current, user.Id).Error; err != nil {
+		return err
+	}
 	newUser := *user
+	var normalizedUsername *string
+	if current.TenantID > PlatformTenantID {
+		newUser.Username = strings.ToLower(strings.TrimSpace(newUser.Username))
+		if newUser.Username == "" {
+			return ErrUserEmptyCredentials
+		}
+		normalizedUsername = &newUser.Username
+	}
 	updates := map[string]any{
 		"username":            newUser.Username,
-		"normalized_username": strings.ToLower(strings.TrimSpace(newUser.Username)),
+		"normalized_username": normalizedUsername,
 		"display_name":        newUser.DisplayName,
 		"group":               newUser.Group,
 		"remark":              newUser.Remark,
@@ -926,10 +967,8 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	if updatePassword {
 		updates["password"] = newUser.Password
 	}
-
-	current := User{}
-	if err = tx.First(&current, user.Id).Error; err != nil {
-		return err
+	if current.TenantID == PlatformTenantID {
+		updates["normalized_email"] = nil
 	}
 	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group
 	if authChanged {
@@ -1112,7 +1151,11 @@ func (user *User) ValidateAndFillForTenant(tenantID int64) (err error) {
 	}
 	// Prefer usernames so another account's email cannot shadow them.
 	query := DB.Where("tenant_id = ?", tenantID)
-	err = query.Where("LOWER(username) = ?", strings.ToLower(username)).First(user).Error
+	if tenantID > PlatformTenantID {
+		err = query.Where("normalized_username = ?", strings.ToLower(username)).First(user).Error
+	} else {
+		err = query.Where("username = ?", username).First(user).Error
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		var emailUser *User
 		emailUser, err = GetUniqueUserByEmailForTenant(username, tenantID)
@@ -1168,7 +1211,12 @@ func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
 		return errors.New("email 为空！")
 	}
-	return DB.Where("tenant_id = ? AND LOWER(email) = ?", user.TenantID, NormalizeEmail(user.Email)).First(user).Error
+	matched, err := GetUniqueUserByEmailForTenant(user.Email, user.TenantID)
+	if err != nil {
+		return err
+	}
+	*user = *matched
+	return nil
 }
 
 func (user *User) FillUserByGitHubId() error {
@@ -1229,7 +1277,7 @@ func GetUniqueUserByEmailForTenant(email string, tenantID int64) (*User, error) 
 		return nil, ErrEmailNotFound
 	}
 	var users []User
-	if err := DB.Where("tenant_id = ? AND LOWER(email) = ?", tenantID, email).Limit(2).Find(&users).Error; err != nil {
+	if err := emailQuery(DB, email, tenantID).Limit(2).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	switch len(users) {

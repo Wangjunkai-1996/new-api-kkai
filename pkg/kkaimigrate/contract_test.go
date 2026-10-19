@@ -12,12 +12,15 @@ func TestContractRejectsUnsupportedDialect(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnsupportedDialect)
 }
 
-func TestRuntimePlansStopBeforeMySQLOnlyMaintenanceMigration(t *testing.T) {
+func TestRuntimePlansUseReviewedTenantCompatibilityPath(t *testing.T) {
 	for _, dialect := range []string{DialectPostgres, DialectSQLite, DialectMySQL} {
 		t.Run(dialect, func(t *testing.T) {
 			plan, err := PlanForDialect(dialect)
 			require.NoError(t, err)
-			require.Len(t, plan, int(RequiredRuntimeVersion))
+			require.Len(t, plan, int(RequiredRuntimeVersion)-1)
+			for _, item := range plan {
+				require.NotEqual(t, TenantSchemaVersion, item.Version)
+			}
 			require.Equal(t, RequiredRuntimeVersion, plan[len(plan)-1].Version)
 		})
 	}

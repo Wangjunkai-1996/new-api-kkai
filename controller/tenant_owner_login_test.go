@@ -38,6 +38,7 @@ func TestTenantOwnerLoginUsesExplicitNamespaceAndPreservesTwoFA(t *testing.T) {
 	require.NoError(t, err)
 	owner := model.User{Username: "same-name", Email: "same@example.com", TenantID: 0, Password: hash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "owner"}
 	customer := model.User{Username: owner.Username, Email: owner.Email, TenantID: 42, Password: hash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "customer"}
+	customer.NormalizedUsername, customer.NormalizedEmail = &customer.Username, &customer.Email
 	outsider := model.User{Username: "outsider", TenantID: 0, Password: hash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "outsider"}
 	for _, user := range []*model.User{&owner, &customer, &outsider} {
 		user.Role = common.RoleCommonUser

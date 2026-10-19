@@ -39,11 +39,13 @@ func TestTenantLoginScopesCustomerIdentityAndOwnerMembership(t *testing.T) {
 		{Username: "owner", Password: hash, TenantID: PlatformTenantID, Status: common.UserStatusEnabled, AffCode: "owner01"},
 	}
 	for index := range users {
-		username := users[index].Username
-		email := NormalizeEmail(users[index].Email)
-		users[index].NormalizedUsername = &username
-		if email != "" {
-			users[index].NormalizedEmail = &email
+		if users[index].TenantID > PlatformTenantID {
+			username := users[index].Username
+			email := NormalizeEmail(users[index].Email)
+			users[index].NormalizedUsername = &username
+			if email != "" {
+				users[index].NormalizedEmail = &email
+			}
 		}
 		require.NoError(t, DB.Create(&users[index]).Error)
 	}
@@ -132,6 +134,109 @@ func TestTenantIdentityMigrationRemovesLegacyGlobalUsernameConstraint(t *testing
 	require.NoError(t, DB.Create(&newUser).Error)
 	var original User
 	require.NoError(t, DB.First(&original, 1).Error)
-	require.NotNil(t, original.NormalizedUsername)
-	assert.Equal(t, "legacy", *original.NormalizedUsername)
+	assert.Nil(t, original.NormalizedUsername)
+	assert.Nil(t, original.NormalizedEmail)
+	assert.Error(t, DB.Create(&User{Username: "legacy", AffCode: "duplicate-platform"}).Error)
+}
+
+func TestTenantPlatformIdentityPreservesRawUsernameAndNullCanonicalKeys(t *testing.T) {
+	tenantIdentityTestDB(t)
+	for index, username := range []string{"LegacyName", "legacyname", "LegacyName "} {
+		user := User{Username: username, AffCode: fmt.Sprintf("platform-%d", index)}
+		require.NoError(t, user.prepareForInsert(DB))
+		assert.Equal(t, username, user.Username)
+		assert.Nil(t, user.NormalizedUsername)
+		assert.Nil(t, user.NormalizedEmail)
+		require.NoError(t, DB.Create(&user).Error)
+	}
+	for _, username := range []string{"LegacyName", "legacyname", "LegacyName "} {
+		exists, err := CheckUserExistOrDeletedForTenant(username, "", PlatformTenantID)
+		require.NoError(t, err)
+		assert.True(t, exists)
+	}
+	exists, err := CheckUserExistOrDeletedForTenant("LEGACYNAME", "", PlatformTenantID)
+	require.NoError(t, err)
+	assert.False(t, exists)
+	assert.Error(t, DB.Create(&User{Username: "LegacyName", AffCode: "duplicate"}).Error)
+}
+
+func TestTenantIdentityUsesCanonicalKeysForUnicodeCustomerLoginAndAvailability(t *testing.T) {
+	tenantIdentityTestDB(t)
+	const password = "CanonicalCustomerPassword123"
+	user := User{TenantID: 42, Username: " ÄCustomer ", Email: " Üser@Example.COM ", Password: password, Status: common.UserStatusEnabled, AffCode: "canonical"}
+	require.NoError(t, user.prepareForInsert(DB))
+	assert.Equal(t, "äcustomer", user.Username)
+	assert.Equal(t, "üser@example.com", user.Email)
+	require.NoError(t, DB.Create(&user).Error)
+	for _, identity := range []string{" ÄCUSTOMER ", " ÜSER@EXAMPLE.COM "} {
+		login := User{Username: identity, Password: password}
+		require.NoError(t, login.ValidateAndFillForTenant(42))
+		assert.Equal(t, user.Id, login.Id)
+	}
+	exists, err := CheckUserExistOrDeletedForTenant(" ÄCUSTOMER ", "", 42)
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.ErrorIs(t, EnsureEmailAvailableForTenant(" ÜSER@example.com ", 0, 42), ErrEmailAlreadyTaken)
+	lookup := User{TenantID: 42, Email: " ÜSER@example.com "}
+	require.NoError(t, lookup.FillUserByEmail())
+	assert.Equal(t, user.Id, lookup.Id)
+}
+
+func TestTenantOwnerLoginRetainsPlatformUsernameComparison(t *testing.T) {
+	tenantIdentityTestDB(t)
+	const password = "LegacyOwnerPassword123"
+	for index, username := range []string{"OwnerName", "ownername"} {
+		owner := User{Username: username, Password: password, Status: common.UserStatusEnabled, AffCode: fmt.Sprintf("owner-%d", index)}
+		require.NoError(t, owner.prepareForInsert(DB))
+		require.NoError(t, DB.Create(&owner).Error)
+		require.NoError(t, DB.Create(&TenantMembership{TenantID: 42, UserID: owner.Id, Role: TenantMembershipRoleOwner, Status: TenantMembershipStatusActive}).Error)
+		login := User{Username: username, Password: password}
+		require.NoError(t, login.ValidateAndFillTenantOwner(42))
+		assert.Equal(t, owner.Id, login.Id)
+	}
+	wrongCase := User{Username: "OWNERNAME", Password: password}
+	assert.ErrorIs(t, wrongCase.ValidateAndFillTenantOwner(42), ErrInvalidCredentials)
+}
+
+func TestTenantPlatformProfileUpdatesPreserveHistoricalSharedEmail(t *testing.T) {
+	tenantIdentityTestDB(t)
+	users := []User{
+		{Username: "LegacyUser", Email: "Shared@Example.com", AffCode: "legacy-1"},
+		{Username: "legacyuser", Email: "shared@example.com", AffCode: "legacy-2"},
+	}
+	require.NoError(t, DB.Create(&users).Error)
+	users[0].DisplayName = "Updated"
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return users[0].UpdateWithTx(tx, false) }))
+	assert.Equal(t, "Shared@Example.com", users[0].Email)
+	assert.Nil(t, users[0].NormalizedUsername)
+	assert.Nil(t, users[0].NormalizedEmail)
+	users[0].Username = "RenamedUser"
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return users[0].EditWithTx(tx, false) }))
+	assert.Equal(t, "RenamedUser", users[0].Username)
+	assert.Equal(t, "Shared@Example.com", users[0].Email)
+	assert.Nil(t, users[0].NormalizedUsername)
+	assert.Nil(t, users[0].NormalizedEmail)
+	_, err := GetUniqueUserByEmail("shared@example.com")
+	assert.ErrorIs(t, err, ErrEmailAmbiguous)
+	lookup := User{Email: "shared@example.com"}
+	assert.ErrorIs(t, lookup.FillUserByEmail(), ErrEmailAmbiguous)
+}
+
+func TestTenantCustomerProfileUpdatesMaintainCanonicalIdentity(t *testing.T) {
+	tenantIdentityTestDB(t)
+	user := User{TenantID: 42, Username: "before", Email: "before@example.com", AffCode: "customer-update"}
+	require.NoError(t, user.prepareForInsert(DB))
+	require.NoError(t, DB.Create(&user).Error)
+	user.Username, user.Email = " ÄAFTER ", " ÜSER@Example.com "
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return user.UpdateWithTx(tx, false) }))
+	assert.Equal(t, "äafter", user.Username)
+	assert.Equal(t, "üser@example.com", user.Email)
+	require.NotNil(t, user.NormalizedUsername)
+	assert.Equal(t, user.Username, *user.NormalizedUsername)
+	require.NotNil(t, user.NormalizedEmail)
+	assert.Equal(t, user.Email, *user.NormalizedEmail)
+	user.Username = " NextName "
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error { return user.EditWithTx(tx, false) }))
+	assert.Equal(t, "nextname", user.Username)
+	assert.Equal(t, user.Username, *user.NormalizedUsername)
 }

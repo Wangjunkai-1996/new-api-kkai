@@ -29,8 +29,8 @@ func TestOpenDatabaseSupportsExplicitSQLiteDSN(t *testing.T) {
 }
 
 func TestApplyMigrationTargetRejectsUnknownVersion(t *testing.T) {
-	_, err := applyMigrationTarget(context.Background(), nil, 13, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 12")
+	_, err := applyMigrationTarget(context.Background(), nil, 14, kkaimigrate.Options{})
+	require.ErrorContains(t, err, "expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 13")
 }
 
 func TestDescribeContractJSONUsesImmutableExternalSchemaManagement(t *testing.T) {
@@ -146,9 +146,9 @@ func TestApplyTenantMigrationTargetIsExplicit(t *testing.T) {
 	require.NoError(t, err)
 	prepareLegacyAuthenticationTables(t, db)
 	_, err = applyMigrationTarget(context.Background(), db, 0, kkaimigrate.Options{})
-	require.ErrorContains(t, err, "explicit --target 12")
+	require.ErrorContains(t, err, "explicit --target 13")
 	_, err = applyMigrationTarget(context.Background(), db, kkaimigrate.TenantSchemaVersion, kkaimigrate.Options{})
-	assert.ErrorIs(t, err, kkaimigrate.ErrSchemaNotReady)
+	assert.ErrorIs(t, err, kkaimigrate.ErrUnsafeMigration)
 	_, err = applyHistoricalFixture(context.Background(), db)
 	require.NoError(t, err)
 	for _, statement := range []string{
@@ -162,12 +162,12 @@ func TestApplyTenantMigrationTargetIsExplicit(t *testing.T) {
 	} {
 		require.NoError(t, db.Exec(statement).Error)
 	}
-	_, err = applyMigrationTarget(context.Background(), db, 12, kkaimigrate.Options{DryRun: true})
+	_, err = applyMigrationTarget(context.Background(), db, 13, kkaimigrate.Options{DryRun: true})
 	require.NoError(t, err)
 	assert.False(t, db.Migrator().HasTable("tenants"))
-	_, err = applyMigrationTarget(context.Background(), db, 12, kkaimigrate.Options{})
+	_, err = applyMigrationTarget(context.Background(), db, 13, kkaimigrate.Options{})
 	require.NoError(t, err)
-	require.NoError(t, kkaimigrate.CheckTenantSchema(context.Background(), db))
+	require.NoError(t, kkaimigrate.CheckTenantCompatibilitySchema(context.Background(), db))
 }
 
 func applyHistoricalFixture(ctx context.Context, db *gorm.DB) (*kkaimigrate.Result, error) {
@@ -224,6 +224,31 @@ func TestTenantPrecheckCLIBlocksUnsafeIdentities(t *testing.T) {
 	assert.JSONEq(t, `{"schema":"kkai_tenant_schema_precheck_v1","target_version":12,"user_count":2,"invalid_identity_count":0,"duplicate_username_count":1,"duplicate_email_count":0,"safe":false}`, output.String())
 	assert.False(t, db.Migrator().HasColumn("users", "normalized_username"))
 	assert.False(t, db.Migrator().HasTable("tenants"))
+}
+
+func TestTenantCompatibilityPrecheckCLIReportsLegacyCollisions(t *testing.T) {
+	db, err := openDatabase("file:" + t.TempDir() + "/tenant-compatibility.db")
+	require.NoError(t, err)
+	prepareLegacyAuthenticationTables(t, db)
+	_, err = applyHistoricalFixture(context.Background(), db)
+	require.NoError(t, err)
+	for _, statement := range []string{
+		"ALTER TABLE users ADD COLUMN username VARCHAR(20)",
+		"ALTER TABLE users ADD COLUMN email VARCHAR(50)",
+		"CREATE TABLE top_ups(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE user_oauth_bindings(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE logs(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE quota_data(id BIGINT PRIMARY KEY)",
+		"CREATE TABLE tasks(id BIGINT PRIMARY KEY)",
+		"INSERT INTO users(id,username,email) VALUES(1,' Legacy ',' LEGACY@example.com '),(2,'legacy','legacy@example.com')",
+	} {
+		require.NoError(t, db.Exec(statement).Error)
+	}
+	require.NoError(t, db.Exec("PRAGMA query_only=ON").Error)
+	var output bytes.Buffer
+	require.NoError(t, runMigrationPrecheck(context.Background(), db, 13, &output))
+	assert.JSONEq(t, `{"schema":"kkai_tenant_compatibility_precheck_v1","target_version":13,"user_count":2,"invalid_identity_count":0,"duplicate_username_count":0,"duplicate_email_count":0,"legacy_normalized_username_conflict_count":1,"legacy_normalized_email_conflict_count":1,"safe":true}`, output.String())
+	assert.False(t, db.Migrator().HasColumn("users", "tenant_id"))
 }
 
 func TestAuthenticationPrecheckCLIPreservesTarget8Report(t *testing.T) {

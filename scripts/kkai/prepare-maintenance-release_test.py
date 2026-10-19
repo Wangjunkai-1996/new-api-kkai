@@ -130,6 +130,18 @@ class MaintenanceReleaseTests(unittest.TestCase):
             maintenance.release_plan(self.metadata, "3" * 40, "unreviewed-maintenance-v1")
         self.assertEqual(self.calls, [])
 
+    def test_tenant_compatibility_requires_its_exact_v13_contract(self):
+        self.schema = maintenance.TENANT_COMPATIBILITY_SCHEMA_CONTRACT
+        plan = maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v2")
+        self.assertEqual(plan["schema_contract"], self.schema)
+        self.assertEqual(plan["purpose"], "tenant-compatibility-maintenance-preparation")
+        self.assertEqual(plan["planned_deployment_protocol"], "tenant-maintenance-v2")
+        with self.assertRaisesRegex(ValueError, "PostgreSQL v12"):
+            maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v1")
+        self.schema = maintenance.TENANT_SCHEMA_CONTRACT
+        with self.assertRaisesRegex(ValueError, "PostgreSQL v13"):
+            maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v2")
+
     def test_loaded_image_drift_is_rejected_before_binary_execution(self):
         original = copy.deepcopy(self.local_image)
         for field, value in (

@@ -143,7 +143,12 @@ func CompleteEmailBinding(identity AuthSessionIdentity, token, email, newCode, o
 		if err := ensureEmailAvailableWithTxTenant(tx, state.Email, identity.UserID, flow.TenantID); err != nil {
 			return err
 		}
-		if err := tx.Model(&User{}).Where("id = ?", identity.UserID).Updates(map[string]any{"email": state.Email, "normalized_email": state.Email}).Error; err != nil {
+		var canonicalEmail *string
+		if flow.TenantID > PlatformTenantID {
+			canonicalEmail = &state.Email
+		}
+		if err := tx.Model(&User{}).Where("id = ? AND tenant_id = ?", identity.UserID, flow.TenantID).
+			Updates(map[string]any{"email": state.Email, "normalized_email": canonicalEmail}).Error; err != nil {
 			return err
 		}
 		return tx.Model(flow).Update("consumed_at", time.Now()).Error

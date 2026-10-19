@@ -135,6 +135,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 			}
 		}
 	}
+	if currentVersion == TenantCompatibilitySchemaVersion {
+		return validateTenantCompatibilityRuntimeSchema(db)
+	}
 	if currentVersion >= TenantSchemaVersion {
 		return validateTenantRuntimeSchema(db)
 	}

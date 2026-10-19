@@ -31,9 +31,21 @@ TENANT_SCHEMA_CONTRACT = {
     "migration_set_digest": PG_V12_DIGEST,
     "compatible_prefixes": {"12": PG_V12_DIGEST},
 }
+PG_V13_DIGEST = "sha256:12497bcd3a148873f5d8c294945971693498717798a6313b395d30c60e917769"
+TENANT_COMPATIBILITY_SCHEMA_CONTRACT = {
+    **SCHEMA_CONTRACT,
+    "runtime_min_version": 13,
+    "runtime_max_version": 13,
+    "migration_target_version": 13,
+    "migration_set_digest": PG_V13_DIGEST,
+    "compatible_prefixes": {"13": PG_V13_DIGEST},
+}
 MAINTENANCE_PROFILES = {
     "rc41-maintenance-v1": ("rc41-maintenance-preparation", SCHEMA_CONTRACT),
     "tenant-maintenance-v1": ("tenant-maintenance-preparation", TENANT_SCHEMA_CONTRACT),
+    "tenant-maintenance-v2": (
+        "tenant-compatibility-maintenance-preparation", TENANT_COMPATIBILITY_SCHEMA_CONTRACT,
+    ),
 }
 REQUIRED_CAPABILITIES = {
     "dashboard_jwt", "scoped_access_tokens", "task_plugins", "studio_media_urls",

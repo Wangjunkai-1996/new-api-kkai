@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = TenantSchemaVersion
+	KnownCatalogVersion     int64 = TenantCompatibilitySchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"
@@ -90,6 +90,9 @@ func planItemsForDialectFromSet(dialect string, target int64, migrations []migra
 		if item.Version > target {
 			break
 		}
+		if item.Version == TenantSchemaVersion && target == TenantCompatibilitySchemaVersion {
+			continue
+		}
 		if item.appliesTo(dialect) {
 			items = append(items, item)
 		}
@@ -139,6 +142,9 @@ func storedPrefixItemsForDialectFromSet(dialect string, version int64, migration
 	for _, item := range migrations {
 		if item.Version > version {
 			break
+		}
+		if item.Version == TenantSchemaVersion && version == TenantCompatibilitySchemaVersion {
+			continue
 		}
 		if !item.acceptsStoredDialect(dialect) {
 			return nil, false

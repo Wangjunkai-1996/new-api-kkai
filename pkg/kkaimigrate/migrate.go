@@ -35,6 +35,7 @@ const (
 	ImageAsyncSchemaVersion          int64 = 10
 	MembershipSchemaVersion          int64 = 11
 	TenantSchemaVersion              int64 = 12
+	TenantCompatibilitySchemaVersion int64 = 13
 )
 
 var (
@@ -110,8 +111,8 @@ func Apply(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := CheckTenantSchema(ctx, db); err != nil {
-		return nil, fmt.Errorf("tenant schema requires explicit --target 12 maintenance before normal Apply: %w", err)
+	if err := CheckTenantCompatibilitySchema(ctx, db); err != nil {
+		return nil, fmt.Errorf("tenant schema requires explicit --target 13 maintenance before normal Apply: %w", err)
 	}
 	return applyThroughVersion(ctx, db, options, contract.MigrationTargetVersion, contract.RuntimeMaxVersion)
 }
@@ -311,6 +312,9 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 			}
 			if !item.appliesTo(dialect) {
 				continue
+			}
+			if item.Version == TenantSchemaVersion && currentVersion == TenantCompatibilitySchemaVersion {
+				continue // v13 is the sole reviewed replacement for the never-applied v12.
 			}
 			checksum := storedMigrationChecksum(item)
 			if stored, ok := applied[item.Version]; ok {
@@ -652,6 +656,12 @@ func validateAppliedAgainstMigrationSet(applied map[int64]AppliedMigration, dial
 			break
 		}
 		if !item.appliesTo(dialect) {
+			continue
+		}
+		if item.Version == TenantSchemaVersion && maxApplied == TenantCompatibilitySchemaVersion {
+			if _, exists := applied[TenantSchemaVersion]; exists {
+				return fmt.Errorf("%w: v13 replaces unapplied v12; both cannot be recorded", ErrMigrationHole)
+			}
 			continue
 		}
 		if _, ok := applied[item.Version]; !ok {

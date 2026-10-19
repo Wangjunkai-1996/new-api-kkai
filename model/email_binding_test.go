@@ -29,9 +29,12 @@ func TestTenantEmailBindingPreservesScopedIdentity(t *testing.T) {
 			require.NoError(t, DB.AutoMigrate(&UserSession{}, &AuthFlow{}))
 			username, oldEmail, newEmail := "binder", "old@example.com", "new@example.com"
 			user := User{
-				TenantID: tc.tenantID, Username: username, NormalizedUsername: &username,
-				Email: oldEmail, NormalizedEmail: &oldEmail, AffCode: "binder",
+				TenantID: tc.tenantID, Username: username,
+				Email: oldEmail, AffCode: "binder",
 				Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1,
+			}
+			if tc.tenantID > PlatformTenantID {
+				user.NormalizedUsername, user.NormalizedEmail = &username, &oldEmail
 			}
 			require.NoError(t, DB.Create(&user).Error)
 			session := UserSession{
@@ -51,8 +54,11 @@ func TestTenantEmailBindingPreservesScopedIdentity(t *testing.T) {
 			}
 			otherUsername := "other"
 			other := User{
-				TenantID: tc.otherTenantID, Username: otherUsername, NormalizedUsername: &otherUsername,
-				Email: newEmail, NormalizedEmail: &newEmail, AffCode: "other",
+				TenantID: tc.otherTenantID, Username: otherUsername,
+				Email: newEmail, AffCode: "other",
+			}
+			if tc.otherTenantID > PlatformTenantID {
+				other.NormalizedUsername, other.NormalizedEmail = &otherUsername, &newEmail
 			}
 			if !tc.claimBeforeFinish {
 				require.NoError(t, DB.Create(&other).Error)
@@ -73,8 +79,12 @@ func TestTenantEmailBindingPreservesScopedIdentity(t *testing.T) {
 				require.ErrorIs(t, err, ErrEmailAlreadyTaken)
 				require.NoError(t, DB.First(&updated, user.Id).Error)
 				assert.Equal(t, oldEmail, updated.Email)
-				require.NotNil(t, updated.NormalizedEmail)
-				assert.Equal(t, oldEmail, *updated.NormalizedEmail)
+				if tc.tenantID > PlatformTenantID {
+					require.NotNil(t, updated.NormalizedEmail)
+					assert.Equal(t, oldEmail, *updated.NormalizedEmail)
+				} else {
+					assert.Nil(t, updated.NormalizedEmail)
+				}
 				require.NoError(t, DB.First(flow, flow.Id).Error)
 				assert.Nil(t, flow.ConsumedAt)
 				return
@@ -82,8 +92,12 @@ func TestTenantEmailBindingPreservesScopedIdentity(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, DB.First(&updated, user.Id).Error)
 			assert.Equal(t, newEmail, updated.Email)
-			require.NotNil(t, updated.NormalizedEmail)
-			assert.Equal(t, newEmail, *updated.NormalizedEmail)
+			if tc.tenantID > PlatformTenantID {
+				require.NotNil(t, updated.NormalizedEmail)
+				assert.Equal(t, newEmail, *updated.NormalizedEmail)
+			} else {
+				assert.Nil(t, updated.NormalizedEmail)
+			}
 			login, err := GetUniqueUserByEmailForTenant(newEmail, tc.tenantID)
 			require.NoError(t, err)
 			assert.Equal(t, user.Id, login.Id)
@@ -93,7 +107,10 @@ func TestTenantEmailBindingPreservesScopedIdentity(t *testing.T) {
 			assert.ErrorIs(t, err, ErrAuthFlowConsumed)
 			// Releasing the old address must release its canonical UNIQUE key too.
 			releasedUsername := "released"
-			released := User{TenantID: tc.tenantID, Username: releasedUsername, NormalizedUsername: &releasedUsername, Email: oldEmail, NormalizedEmail: &oldEmail, AffCode: "released"}
+			released := User{TenantID: tc.tenantID, Username: releasedUsername, Email: oldEmail, AffCode: "released"}
+			if tc.tenantID > PlatformTenantID {
+				released.NormalizedUsername, released.NormalizedEmail = &releasedUsername, &oldEmail
+			}
 			assert.NoError(t, DB.Create(&released).Error)
 		})
 	}

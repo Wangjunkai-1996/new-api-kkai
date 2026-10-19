@@ -44,7 +44,7 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
-	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 12; omitted keeps the runtime target")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; target 12 is retired; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
@@ -70,8 +70,8 @@ func main() {
 		return
 	}
 	if precheck {
-		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
-			log.Fatal("--precheck requires --target 8 or 12 and --json and cannot be combined with other operations")
+		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8, 12, or 13 and --json and cannot be combined with other operations")
 		}
 	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
@@ -164,8 +164,13 @@ func runMigrationPrecheck(ctx context.Context, db *gorm.DB, target int64, output
 		report, err = kkaimigrate.PrecheckTenantSchema(ctx, db)
 		result = report
 		unsafeTenant = report != nil && !report.Safe
+	case kkaimigrate.TenantCompatibilitySchemaVersion:
+		var report *kkaimigrate.TenantCompatibilityPrecheck
+		report, err = kkaimigrate.PrecheckTenantCompatibilitySchema(ctx, db)
+		result = report
+		unsafeTenant = report != nil && !report.Safe
 	default:
-		return fmt.Errorf("unsupported precheck target %d; expected 8 or 12", target)
+		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, or 13", target)
 	}
 	if err != nil {
 		return err
@@ -206,9 +211,11 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 	case kkaimigrate.MembershipSchemaVersion:
 		return kkaimigrate.ApplyMembershipExpand(ctx, db, options)
 	case kkaimigrate.TenantSchemaVersion:
-		return kkaimigrate.ApplyTenantSchema(ctx, db, options)
+		return nil, fmt.Errorf("%w: maintenance target 12 is retired; use explicit --target 13 from pristine schema 11", kkaimigrate.ErrUnsafeMigration)
+	case kkaimigrate.TenantCompatibilitySchemaVersion:
+		return kkaimigrate.ApplyTenantCompatibilitySchema(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 12", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 13", targetVersion)
 	}
 }
 

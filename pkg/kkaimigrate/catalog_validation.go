@@ -60,6 +60,9 @@ func validateMigrationCatalog(migrations []migration) error {
 			return unsafeMigrationCatalog("migration implementation ID %q is duplicated", item.ImplementationID)
 		}
 		implementationIDs[item.ImplementationID] = struct{}{}
+		if item.Version == TenantCompatibilitySchemaVersion && item.ChecksumVersion != migrationChecksumSchemaGORM {
+			return unsafeMigrationCatalog("migration 13 is reserved for the reviewed v11 tenant compatibility replacement")
+		}
 		switch item.ChecksumVersion {
 		case migrationChecksumSchemaLegacy:
 			if item.Version > OutboxEventKeySchemaVersion {
@@ -70,7 +73,9 @@ func validateMigrationCatalog(migrations []migration) error {
 			return unsafeMigrationCatalog("migration %d has invalid checksum schema", item.Version)
 		}
 		if item.ChecksumVersion == migrationChecksumSchemaGORM {
-			if item.Version != TenantSchemaVersion || item.Kind != MigrationKindContract || item.ImplementationID != "tenant_brand_reseller_gorm_v12" || item.SchemaApply == nil || reflect.ValueOf(item.SchemaApply).Pointer() != reflect.ValueOf(applyTenantSchema).Pointer() || item.SchemaSpec != tenantSchemaSpec() || item.Backfill != nil || item.ImportLegacy != nil || len(item.Indexes) != 0 {
+			knownContract := item.Version == TenantSchemaVersion && item.ImplementationID == "tenant_brand_reseller_gorm_v12" && item.SchemaApply != nil && reflect.ValueOf(item.SchemaApply).Pointer() == reflect.ValueOf(applyTenantSchema).Pointer() && item.SchemaSpec == tenantSchemaSpec()
+			knownContract = knownContract || (item.Version == TenantCompatibilitySchemaVersion && item.Name == "tenant_brand_reseller_legacy_compatibility" && item.ImplementationID == "tenant_brand_reseller_legacy_gorm_v13" && item.SchemaApply != nil && reflect.ValueOf(item.SchemaApply).Pointer() == reflect.ValueOf(applyTenantCompatibilitySchema).Pointer() && item.SchemaSpec == tenantCompatibilitySchemaSpec())
+			if !knownContract || item.Kind != MigrationKindContract || item.Backfill != nil || item.ImportLegacy != nil || len(item.Indexes) != 0 {
 				return unsafeMigrationCatalog("migration %d has an unrecognized GORM schema contract", item.Version)
 			}
 			for _, statements := range item.Statements {
