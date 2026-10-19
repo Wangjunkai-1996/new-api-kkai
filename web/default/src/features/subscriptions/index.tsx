@@ -88,10 +88,10 @@ export function Subscriptions() {
         </TabsTrigger>
         <TabsTrigger value='legacy'>{t('Legacy subscriptions')}</TabsTrigger>
       </TabsList>
-      <TabsContent value='membership' className='min-h-0'>
+      <TabsContent value='membership' className='min-h-0 flex-1'>
         <MembershipAdmin />
       </TabsContent>
-      <TabsContent value='legacy' className='min-h-0'>
+      <TabsContent value='legacy' className='min-h-0 flex-1'>
         <SubscriptionsProvider>
           <SubscriptionsContent />
         </SubscriptionsProvider>
