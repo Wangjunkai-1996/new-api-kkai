@@ -262,9 +262,9 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if info != nil && billingPrepared {
 			if apiErr != nil && info.MembershipBillingRequestID != "" && dispatched && !rejected {
 				if accumulator != nil && accumulator.HasReportedUsage() {
-					service.SettleMembershipPartialUsage(c, info, accumulator.Finish(), apiErr)
+					service.CaptureFailedRequestUsage(c, info, accumulator.Finish(), apiErr)
 				} else {
-					info.MembershipOutcomeUnknown = true
+					info.BillingOutcomeUnknown = true
 				}
 			}
 			if apiErr != nil && state.terminal != nil {
@@ -318,7 +318,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			requestDone, dispatched = dispatchCtx.Done(), true
 		}
 		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
-			info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
+			info.BillingOutcomeUnknown = info.MembershipBillingRequestID != ""
 			state.closeAfter = true
 			return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 		}
@@ -386,7 +386,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				requestDone, dispatched = dispatchCtx.Done(), true
 			}
 			if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
-				info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
+				info.BillingOutcomeUnknown = info.MembershipBillingRequestID != ""
 				state.closeAfter = true
 				return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 			}
@@ -506,7 +506,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 					}
 					rejected = info.MembershipBillingRequestID == "" || confirmedRejection
 					if !rejected {
-						info.MembershipOutcomeUnknown = true
+						info.BillingOutcomeUnknown = true
 						state.closeAfter = true
 					}
 					rejectionErr := service.NewKKAIStructuredRelayError(rejection.Error)

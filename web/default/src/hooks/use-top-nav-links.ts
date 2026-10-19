@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { useSiteConfig } from '@/features/site-config'
 import { useStatus } from '@/hooks/use-status'
 import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
@@ -46,6 +47,7 @@ export type TopNavLink = {
 export function useTopNavLinks(): TopNavLink[] {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const { data: site } = useSiteConfig()
   const { auth } = useAuthStore()
 
   // Parse HeaderNavModules
@@ -59,6 +61,14 @@ export function useTopNavLinks(): TopNavLink[] {
   const docsLink: string | undefined = status?.docs_link as string | undefined
 
   const isAuthed = !!auth?.user
+
+  if ((site?.tenant_id ?? 0) > 0) {
+    return [
+      { title: t('Home'), href: '/' },
+      { title: t('Console'), href: '/dashboard' },
+      { title: t('Model Square'), href: '/pricing' },
+    ]
+  }
 
   const links: TopNavLink[] = []
 

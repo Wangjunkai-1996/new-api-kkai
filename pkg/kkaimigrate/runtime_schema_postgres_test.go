@@ -51,7 +51,7 @@ func TestObserveAcceptsPostgresSingleColumnUniqueAsSelectOnlyRole(t *testing.T) 
 	} {
 		require.NoError(t, adminDB.Exec(statement).Error)
 	}
-	_, err = Apply(context.Background(), adminDB, Options{})
+	_, err = applyThroughVersion(context.Background(), adminDB, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	require.NoError(t, adminDB.Exec(fmt.Sprintf("ALTER ROLE %s SET default_transaction_read_only = on", roleName)).Error)
 	require.NoError(t, adminDB.Exec(fmt.Sprintf("GRANT USAGE ON SCHEMA %s TO %s", schemaName, roleName)).Error)
@@ -84,7 +84,7 @@ func TestObserveAcceptsPostgresSingleColumnUniqueAsSelectOnlyRole(t *testing.T) 
 
 	observation, err := Observe(context.Background(), observerDB)
 	require.NoError(t, err)
-	require.Equal(t, RequiredRuntimeVersion, observation.CurrentVersion)
+	require.Equal(t, MembershipSchemaVersion, observation.CurrentVersion)
 }
 
 func postgresDSNForRole(t *testing.T, rawDSN string, username string, password string, schemaName string) string {

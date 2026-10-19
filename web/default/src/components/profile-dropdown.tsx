@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { User, Wallet, LogOut, Settings } from 'lucide-react'
 import { useMemo } from 'react'
@@ -31,6 +32,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { getResellerMe, resellerQueryKey } from '@/features/reseller/api'
+import { useSiteConfig } from '@/features/site-config'
 import useDialogState from '@/hooks/use-dialog'
 import { useIsSidebarModuleVisible } from '@/hooks/use-sidebar-config'
 import { useUserDisplay } from '@/hooks/use-user-display'
@@ -42,9 +45,18 @@ const avatarFallbackClassName = 'font-semibold text-white'
 
 export function ProfileDropdown() {
   const { t } = useTranslation()
+  const site = useSiteConfig()
   const navigate = useNavigate()
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
+  const reseller = useQuery({
+    queryKey: resellerQueryKey(user?.id, 'me'),
+    queryFn: getResellerMe,
+    enabled: Boolean(user) && (site.data?.tenant_id ?? 0) > 0,
+    retry: false,
+    staleTime: 30_000,
+    meta: { errorToast: false },
+  })
   const { displayName, roleLabel } = useUserDisplay(user)
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
   const isWalletVisible = useIsSidebarModuleVisible('/wallet')
@@ -113,6 +125,34 @@ export function ProfileDropdown() {
               {t('Wallet')}
             </DropdownMenuItem>
           )}
+
+          {reseller.data && (
+            <DropdownMenuItem onClick={() => navigate({ to: '/reseller' })}>
+              <Settings className='size-4' />
+              {t('Reseller Workspace')}
+            </DropdownMenuItem>
+          )}
+
+          {site.data?.tenant_id === 0 &&
+            site.data.enabled_modules?.reseller &&
+            !reseller.data && (
+              <DropdownMenuItem
+                onClick={() => navigate({ to: '/reseller-application' })}
+              >
+                <Settings className='size-4' />
+                {t('Apply to Become a Reseller')}
+              </DropdownMenuItem>
+            )}
+          {site.data?.tenant_id === 0 &&
+            site.data.enabled_modules?.reseller &&
+            (user?.role ?? 0) >= ROLE.ADMIN && (
+              <DropdownMenuItem
+                onClick={() => navigate({ to: '/reseller-admin' })}
+              >
+                <Settings className='size-4' />
+                {t('Reseller Management')}
+              </DropdownMenuItem>
+            )}
 
           {isSuperAdmin && (
             <DropdownMenuItem

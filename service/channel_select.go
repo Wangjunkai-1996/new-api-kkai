@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -21,11 +22,20 @@ func GetChannelConstraints(c *gin.Context) *dto.ChannelConstraints {
 	if c == nil {
 		return &dto.ChannelConstraints{}
 	}
-	if existing, ok := common.GetContextKeyType[*dto.ChannelConstraints](c, constant.ContextKeyChannelConstraints); ok && existing != nil {
-		return existing
+	constraints, _ := common.GetContextKeyType[*dto.ChannelConstraints](c, constant.ContextKeyChannelConstraints)
+	if constraints == nil {
+		constraints = &dto.ChannelConstraints{}
+		common.SetContextKey(c, constant.ContextKeyChannelConstraints, constraints)
 	}
-	constraints := &dto.ChannelConstraints{}
-	common.SetContextKey(c, constant.ContextKeyChannelConstraints, constraints)
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
+		allowed := constant.TenantTextChannelTypes()
+		for _, filter := range constraints.Filters {
+			if filter.Kind == dto.FilterAllowedChannelTypes && slices.Equal(filter.AllowedChannelTypes, allowed) {
+				return constraints
+			}
+		}
+		constraints.AddFilter(dto.ChannelFilter{Kind: dto.FilterAllowedChannelTypes, AllowedChannelTypes: allowed})
+	}
 	return constraints
 }
 
@@ -172,6 +182,16 @@ func (p *RetryParam) ResetRetryNextTry() {
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
+	if tenantID := common.GetContextKeyInt64(param.Ctx, constant.ContextKeyTenantID); tenantID > 0 {
+		entry, err := ResolveTenantRequestCatalog(param.Ctx.Request.Context(), tenantID, param.ModelName)
+		if err != nil {
+			return nil, param.TokenGroup, err
+		}
+		// An accepted quote cannot move to a newly configured supply group.
+		if entry.SalesGroup != param.TokenGroup {
+			return nil, param.TokenGroup, model.ErrResellerInvalidCatalog
+		}
+	}
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
@@ -307,6 +327,16 @@ type ChannelSelectError struct {
 // filters. The group the channel was chosen from is returned for auto-group
 // callers. The caller still applies SetupContextForSelectedChannel.
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {
+	tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID)
+	if tenantID > 0 {
+		entry, err := ResolveTenantRequestCatalog(c.Request.Context(), tenantID, modelName)
+		if err != nil {
+			return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Code: types.ErrorCodeModelNotFound, Message: "tenant model is unavailable"}
+		}
+		retry.TokenGroup = entry.SalesGroup
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, entry.SalesGroup)
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, entry.SalesGroup)
+	}
 	constraints := GetChannelConstraints(c)
 	if pin, found, overridden := constraints.ResolvedPin(); found {
 		for _, lost := range overridden {
@@ -314,6 +344,9 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 				"channel pin overridden: winning_source=%s winning_channel_id=%d overridden_source=%s overridden_channel_id=%d",
 				pin.Source, pin.ChannelId, lost.Source, lost.ChannelId,
 			))
+		}
+		if tenantID > 0 && !model.IsChannelEnabledForGroupModel(retry.TokenGroup, modelName, pin.ChannelId) {
+			return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Code: types.ErrorCodeModelNotFound, Message: "tenant channel is unavailable"}
 		}
 		channel, err := model.CacheGetChannel(pin.ChannelId)
 		if err != nil {

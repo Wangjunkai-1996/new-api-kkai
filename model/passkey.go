@@ -20,7 +20,12 @@ var (
 	ErrFriendlyPasskeyNotFound = errors.New("Passkey 验证失败，请重试或联系管理员")
 )
 
+func (row *PasskeyCredential) BeforeCreate(tx *gorm.DB) error {
+	return snapshotUserTenant(tx, row.UserID, &row.TenantID)
+}
+
 type PasskeyCredential struct {
+	TenantID        int64          `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	ID              int            `json:"id" gorm:"primaryKey"`
 	UserID          int            `json:"user_id" gorm:"uniqueIndex;not null"`
 	RPID            *string        `json:"rp_id,omitempty" gorm:"column:rp_id;type:varchar(253)"`

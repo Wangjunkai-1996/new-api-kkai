@@ -31,17 +31,18 @@ import {
 
 export const INVITATION_STATUS_QUERY_KEY = ['kkai', 'invitations', 'status']
 
-export const useInvitationFeatureStatus = () => {
+export const useInvitationFeatureStatus = (enabled = true) => {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const query = useQuery({
     queryKey: INVITATION_STATUS_QUERY_KEY,
     queryFn: async () =>
       normalizeInvitationStatus(await getInvitationFeatureStatus()),
+    enabled,
     retry: false,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
   })
-  const status = query.data ?? DISABLED_INVITATION_STATUS
+  const status = (enabled && query.data) || DISABLED_INVITATION_STATUS
   const profileEnabled = status.available && Boolean(userId)
   const profileQuery = useQuery({
     queryKey: ['kkai', 'invitations', 'sales-profile', userId],

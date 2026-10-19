@@ -58,6 +58,7 @@ func sanitizeClickHouseLikePattern(input string) (string, error) {
 }
 
 type Log struct {
+	TenantID          int64  `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
 	UserId            int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
 	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
@@ -131,6 +132,9 @@ func ensureLogRequestId(log *Log) {
 
 func createLog(log *Log) error {
 	ensureLogRequestId(log)
+	if err := snapshotUserTenant(DB, log.UserId, &log.TenantID); err != nil {
+		return err
+	}
 	return LOG_DB.Create(log).Error
 }
 
@@ -664,7 +668,7 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, userIDs ...int) (stat Stat, err error) {
 	quotaExpr, err := creditEpochQuotaExpression(LOG_DB, "logs")
 	if err != nil {
 		return stat, err
@@ -703,6 +707,13 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if group != "" {
 		tx = tx.Where(logGroupCol+" = ?", group)
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
+	}
+	if len(userIDs) > 0 {
+		if userIDs[0] <= 0 {
+			return stat, errors.New("invalid user scope")
+		}
+		tx = tx.Where("user_id = ?", userIDs[0])
+		rpmTpmQuery = rpmTpmQuery.Where("user_id = ?", userIDs[0])
 	}
 
 	tx = tx.Where("type = ?", LogTypeConsume)

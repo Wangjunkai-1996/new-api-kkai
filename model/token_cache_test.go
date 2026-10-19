@@ -349,3 +349,29 @@ func TestTokenCacheAutoGroupsLegacyBackfillPreservesQuotaAndPermissions(t *testi
 	require.NoError(t, err)
 	assert.Equal(t, cached, warm)
 }
+
+func TestTokenCacheTenantBackfillPreservesReservedQuota(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	useUserCacheMiniRedis(t)
+	token := createReserveTestToken(t, 100)
+	token.TenantID = 42
+	require.NoError(t, DB.Model(&token).Update("tenant_id", 42).Error)
+	loaded, err := GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), loaded.TenantID)
+	result, err := cacheApplyTokenQuotaDelta(token.Id, token.Key, -70)
+	require.NoError(t, err)
+	require.Equal(t, cacheQuotaOK, result)
+	require.NoError(t, common.RDB.HDel(context.Background(), getTokenCacheKey(token.Key), "TenantID").Err())
+	_, err = cacheGetTokenByKey(token.Key)
+	require.Error(t, err)
+	loaded, err = GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), loaded.TenantID)
+	warm, err := cacheGetTokenByKey(token.Key)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), warm.TenantID)
+	assert.Equal(t, 30, warm.RemainQuota)
+	assert.Equal(t, 70, warm.UsedQuota)
+}

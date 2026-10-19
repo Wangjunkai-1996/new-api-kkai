@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -22,7 +23,9 @@ import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
+import { Button } from '@/components/ui/button'
 import { useTheme } from '@/context/theme-provider'
+import { useSiteConfig } from '@/features/site-config'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -35,7 +38,11 @@ export function Home() {
   const { resolvedTheme } = useTheme()
   const { auth } = useAuthStore()
   const isAuthenticated = !!auth.user
-  const { content, isLoaded, isUrl } = useHomePageContent()
+  const { data: site } = useSiteConfig()
+  const isTenant = (site?.tenant_id ?? 0) > 0
+  const { content, isLoaded, isUrl } = useHomePageContent(
+    Boolean(site) && !isTenant
+  )
 
   const syncIframePreferences = useCallback(() => {
     try {
@@ -57,6 +64,34 @@ export function Home() {
       syncIframePreferences()
     }
   }, [isUrl, syncIframePreferences])
+
+  if (isTenant && site) {
+    return (
+      <PublicLayout>
+        <section className='mx-auto flex min-h-[60vh] max-w-3xl flex-col justify-center gap-6 py-12'>
+          <h1 className='text-4xl font-semibold'>{site.site_name}</h1>
+          {site.homepage_content && (
+            <p className='text-muted-foreground leading-relaxed whitespace-pre-wrap'>
+              {site.homepage_content}
+            </p>
+          )}
+          {site.announcement && (
+            <aside className='bg-muted rounded-lg p-5'>
+              <h2 className='mb-2 font-medium'>{t('Announcement')}</h2>
+              <p className='whitespace-pre-wrap'>{site.announcement}</p>
+            </aside>
+          )}
+          {site.contact && (
+            <p className='text-sm whitespace-pre-wrap'>{site.contact}</p>
+          )}
+          <div>
+            <Button render={<Link to='/pricing' />}>{t('Model Square')}</Button>
+          </div>
+        </section>
+        <Footer />
+      </PublicLayout>
+    )
+  }
 
   if (!isLoaded) {
     return (

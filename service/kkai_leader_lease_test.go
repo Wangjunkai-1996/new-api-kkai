@@ -20,7 +20,7 @@ func newLeaderLeaseTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open("file:kkai-leader-lease-"+time.Now().Format("150405.000000000")+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.PasskeyCredential{}, &model.Option{}, &model.Midjourney{}))
-	_, err = kkaimigrate.Apply(context.Background(), db, kkaimigrate.Options{})
+	_, err = kkaimigrate.ApplyLegacyBaseline(context.Background(), db, kkaimigrate.Options{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)

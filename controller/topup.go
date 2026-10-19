@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -137,6 +138,20 @@ func GetTopUpInfo(c *gin.Context) {
 			data["creem_products"] = common.GetJsonString(available)
 		}
 	}
+	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > 0 {
+		data["enable_stripe_topup"], data["enable_creem_topup"] = false, false
+		data["enable_waffo_topup"], data["enable_waffo_pancake_topup"] = false, false
+		data["enable_redemption"] = false
+		data["creem_products"], data["waffo_pay_methods"] = "[]", nil
+		data["discount"], data["topup_discounts_disabled"] = map[int]float64{}, true
+		methods := make([]map[string]string, 0)
+		for _, method := range payMethods {
+			if method["type"] == "alipay" || method["type"] == "wxpay" {
+				methods = append(methods, method)
+			}
+		}
+		data["pay_methods"] = methods
+	}
 	common.ApiSuccess(c, data)
 }
 
@@ -164,6 +179,10 @@ func GetEpayClient() *epay.Client {
 }
 
 func getPayMoney(amount int64, group string) float64 {
+	return getPayMoneyDecimal(amount, group, false).InexactFloat64()
+}
+
+func getPayMoneyDecimal(amount int64, group string, tenant bool) decimal.Decimal {
 	dAmount := decimal.NewFromInt(amount)
 	// 充值金额以“展示类型”为准：
 	// - USD/CNY: 前端传 amount 为金额单位；TOKENS: 前端传 tokens，需要换成 USD 金额
@@ -173,13 +192,16 @@ func getPayMoney(amount int64, group string) float64 {
 	}
 
 	topupGroupRatio, discount := topUpPromotionFactors(group, amount)
+	if tenant {
+		topupGroupRatio, discount = 1, 1
+	}
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
 	dPrice := decimal.NewFromFloat(operation_setting.Price)
 	dDiscount := decimal.NewFromFloat(discount)
 
 	payMoney := dAmount.Mul(dPrice).Mul(dTopupGroupRatio).Mul(dDiscount)
 
-	return payMoney.InexactFloat64()
+	return payMoney
 }
 
 func getMinTopup() int64 {
@@ -313,7 +335,13 @@ func RequestEpay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney := getPayMoney(req.Amount, group)
+	tenant, _ := middleware.GetTenantContext(c)
+	payAmount := getPayMoneyDecimal(req.Amount, group, tenant.TenantID > 0).Round(2)
+	payMoney := payAmount.InexactFloat64() // legacy display only; the ledger uses payAmount.
+	if _, err := model.ParseCNYMinor(payAmount.StringFixed(2)); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if payMoney < 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
@@ -326,6 +354,9 @@ func RequestEpay(c *gin.Context) {
 
 	callBackAddress := service.GetCallbackAddress()
 	returnUrl, _ := url.Parse(paymentReturnPath("/console/log"))
+	if tenant.TenantID > 0 {
+		returnUrl = &url.URL{Scheme: "https", Host: tenant.Hostname, Path: "/wallet", RawQuery: "show_history=true"}
+	}
 	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
 	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
 	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
@@ -338,7 +369,7 @@ func RequestEpay(c *gin.Context) {
 		Type:           req.PaymentMethod,
 		ServiceTradeNo: tradeNo,
 		Name:           fmt.Sprintf("TUC%d", req.Amount),
-		Money:          strconv.FormatFloat(payMoney, 'f', 2, 64),
+		Money:          payAmount.StringFixed(2),
 		Device:         epay.PC,
 		NotifyUrl:      notifyUrl,
 		ReturnUrl:      returnUrl,
@@ -355,6 +386,7 @@ func RequestEpay(c *gin.Context) {
 		amount = dAmount.Div(dQuotaPerUnit).IntPart()
 	}
 	topUp := &model.TopUp{
+		TenantID:        tenant.TenantID,
 		UserId:          id,
 		Amount:          amount,
 		Money:           payMoney,
@@ -363,6 +395,10 @@ func RequestEpay(c *gin.Context) {
 		PaymentProvider: model.PaymentProviderEpay,
 		CreateTime:      time.Now().Unix(),
 		Status:          common.TopUpStatusPending,
+	}
+	if err := topUp.SetCNYPaymentSnapshot(payAmount.StringFixed(2)); err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	err = topUp.Insert()
 	if err != nil {
@@ -483,7 +519,7 @@ func EpayNotify(c *gin.Context) {
 	// and transaction remain the cross-instance correctness boundary.
 	LockOrder(verifyInfo.ServiceTradeNo)
 	defer UnlockOrder(verifyInfo.ServiceTradeNo)
-	result, err := model.RechargeEpay(verifyInfo.ServiceTradeNo, verifyInfo.Type)
+	result, err := model.RechargeEpay(verifyInfo.ServiceTradeNo, verifyInfo.Type, params["money"])
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrTopUpNotFound):
@@ -530,7 +566,8 @@ func RequestAmount(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney := getPayMoney(req.Amount, group)
+	tenant, _ := middleware.GetTenantContext(c)
+	payMoney := getPayMoneyDecimal(req.Amount, group, tenant.TenantID > 0).InexactFloat64()
 	if payMoney <= 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return

@@ -72,6 +72,9 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 	if err := RegisterImageStudioBackgroundJobs(registry, workerID); err != nil {
 		return err
 	}
+	if err := RegisterResellerFinanceBackgroundJobs(registry); err != nil {
+		return err
+	}
 
 	consumer, err := newKKAIRiskStreamConsumerFromEnvironment(workerID)
 	if err != nil {

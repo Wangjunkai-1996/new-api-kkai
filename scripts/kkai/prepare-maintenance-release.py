@@ -22,6 +22,19 @@ SCHEMA_CONTRACT = {
     "compatible_prefixes": {"9": PG_V9_DIGEST},
     "schema_management": "external",
 }
+PG_V12_DIGEST = "sha256:ab50914ae132abdb57d3604e7aa0936f83b96299f2b70501a8615242ddeec1dd"
+TENANT_SCHEMA_CONTRACT = {
+    **SCHEMA_CONTRACT,
+    "runtime_min_version": 12,
+    "runtime_max_version": 12,
+    "migration_target_version": 12,
+    "migration_set_digest": PG_V12_DIGEST,
+    "compatible_prefixes": {"12": PG_V12_DIGEST},
+}
+MAINTENANCE_PROFILES = {
+    "rc41-maintenance-v1": ("rc41-maintenance-preparation", SCHEMA_CONTRACT),
+    "tenant-maintenance-v1": ("tenant-maintenance-preparation", TENANT_SCHEMA_CONTRACT),
+}
 REQUIRED_CAPABILITIES = {
     "dashboard_jwt", "scoped_access_tokens", "task_plugins", "studio_media_urls",
 }
@@ -60,8 +73,9 @@ def archive_config(path, tag):
 def release_plan(metadata_path, planned_infra_sha, planned_protocol):
     if not re.fullmatch(r"[0-9a-f]{40}", planned_infra_sha):
         raise ValueError("invalid planned infrastructure SHA")
-    if not re.fullmatch(r"[a-z][a-z0-9-]{2,63}", planned_protocol):
-        raise ValueError("invalid planned deployment protocol")
+    if planned_protocol not in MAINTENANCE_PROFILES:
+        raise ValueError("unsupported planned maintenance protocol")
+    purpose, expected_schema = MAINTENANCE_PROFILES[planned_protocol]
     if metadata_path.is_symlink() or not metadata_path.is_file():
         raise ValueError("metadata must be a regular local file")
     metadata = json.loads(metadata_path.read_text())
@@ -135,8 +149,9 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
         "--entrypoint", "/kkai-migrate", local_id,
         "--describe-contract", "--dialect", "postgres", "--json",
     ))
-    if schema != SCHEMA_CONTRACT:
-        raise ValueError("binary schema contract does not match the reviewed PostgreSQL v9 contract")
+    if schema != expected_schema:
+        target = expected_schema["migration_target_version"]
+        raise ValueError(f"binary schema contract does not match the reviewed PostgreSQL v{target} contract")
     binary_console = json.loads(run(
         "docker", "run", "--rm", "--pull", "never", "--network", "none",
         "--entrypoint", "/new-api", local_id, "--describe-console-contract",
@@ -145,7 +160,7 @@ def release_plan(metadata_path, planned_infra_sha, planned_protocol):
         raise ValueError("binary console contract differs from the archive label")
     return {
         "format_version": 1,
-        "purpose": "rc41-maintenance-preparation",
+        "purpose": purpose,
         "metadata": metadata_path.name,
         "metadata_sha256": digest_file(metadata_path),
         "archive": archive_name,

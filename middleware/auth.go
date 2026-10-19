@@ -61,6 +61,10 @@ func authHelper(c *gin.Context, minRole int) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
 		return
 	}
+	if err := authorizeDashboardTenant(c, user, minRole); err != nil {
+		writeDashboardAuthError(c, err)
+		return
+	}
 	if user.Role < minRole {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
 		return
@@ -109,6 +113,12 @@ func TryUserAuth() func(c *gin.Context) {
 			writeDashboardAuthError(c, err)
 			return
 		}
+		if credentialKind != dashboardCredentialUnmatched {
+			if err := authorizeDashboardTenant(c, user, common.RoleCommonUser); err != nil {
+				writeDashboardAuthError(c, err)
+				return
+			}
+		}
 		// Optional authentication never elevates a token beyond its grant: a
 		// token the route would reject leaves the request anonymous.
 		var lookup *accessTokenLookup
@@ -126,6 +136,31 @@ func TryUserAuth() func(c *gin.Context) {
 		}
 		c.Next()
 	}
+}
+
+// authorizeDashboardTenant is shared by required and optional authentication;
+// an optional credential must never expose data from another site's account.
+func authorizeDashboardTenant(c *gin.Context, user *model.UserBase, minRole int) error {
+	tenant, enabled := GetTenantContext(c)
+	if !enabled {
+		return nil
+	}
+	if tenant.TenantID > model.PlatformTenantID && minRole >= common.RoleAdminUser {
+		return service.ErrLoginSessionMismatch
+	}
+	if err := service.ValidateUserTenant(user, tenant.TenantID); err != nil {
+		return err
+	}
+	if tenant.TenantID > model.PlatformTenantID && user.TenantID == model.PlatformTenantID {
+		path := c.Request.URL.Path
+		ownerRoute := strings.HasPrefix(path, "/api/reseller/") ||
+			((path == "/api/user/self" || path == "/api/pricing" || path == "/api/models") && c.Request.Method == http.MethodGet) ||
+			strings.HasPrefix(path, "/api/user/sessions/") || path == "/api/user/sessions"
+		if !ownerRoute {
+			return service.ErrLoginSessionMismatch
+		}
+	}
+	return nil
 }
 
 func UserAuth() func(c *gin.Context) {
@@ -229,9 +264,12 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthI
 		if err != nil {
 			return nil, service.AuthIdentity{}, dashboardCredentialInternal, err
 		}
-		_, user, err := service.ValidateLoginSession(identity)
+		session, user, err := service.ValidateLoginSession(identity)
 		if err != nil {
 			return nil, service.AuthIdentity{}, dashboardCredentialInternal, err
+		}
+		if tenant, ok := GetTenantContext(c); ok && session.TenantID != tenant.TenantID {
+			return nil, service.AuthIdentity{}, dashboardCredentialInternal, service.ErrLoginSessionMismatch
 		}
 		return user, identity, dashboardCredentialInternal, nil
 	}
@@ -375,7 +413,11 @@ func authorizationToken(header string) (string, bool) {
 func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity service.AuthIdentity, useAccessToken bool) {
 	c.Header("Auth-Version", "864b7076dbcd0a3c01b5520316720ebf")
 	c.Set("username", user.Username)
-	c.Set("role", user.Role)
+	role := user.Role
+	if tenant, ok := GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID && user.TenantID == model.PlatformTenantID {
+		role = common.RoleCommonUser
+	}
+	c.Set("role", role)
 	c.Set("id", user.Id)
 	c.Set("group", user.Group)
 	c.Set("user_group", user.Group)
@@ -402,6 +444,10 @@ func writeDashboardAuthError(c *gin.Context, err error) {
 	}
 	if errors.Is(err, service.ErrLoginSessionRevoked) || errors.Is(err, gorm.ErrRecordNotFound) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_SESSION_REVOKED", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
+		return
+	}
+	if errors.Is(err, service.ErrLoginSessionMismatch) || errors.Is(err, model.ErrTenantMembershipMissing) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_TENANT_MISMATCH", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
 		return
 	}
 	if errors.Is(err, service.ErrAuthTokenInvalid) {
@@ -530,6 +576,14 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 			c.Abort()
 			return
 		}
+		if tenant, ok := GetTenantContext(c); ok && userCache.TenantID != tenant.TenantID {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": "token tenant does not match request host",
+			})
+			c.Abort()
+			return
+		}
 
 		c.Set("id", token.UserId)
 		c.Set("token_id", token.Id)
@@ -627,6 +681,10 @@ func TokenAuth() func(c *gin.Context) {
 		userEnabled := userCache.Status == common.UserStatusEnabled
 		if !userEnabled {
 			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
+			return
+		}
+		if tenant, ok := GetTenantContext(c); ok && (token.TenantID != tenant.TenantID || userCache.TenantID != tenant.TenantID) {
+			abortWithOpenAiMessage(c, http.StatusForbidden, "令牌所属租户与当前站点不匹配", types.ErrorCodeAccessDenied)
 			return
 		}
 

@@ -1586,6 +1586,7 @@ export interface ModelDetailsContentProps {
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const { t } = useTranslation()
   const showRechargePrice = props.showRechargePrice ?? false
+  const groupRatio = props.model.group_ratio ?? props.groupRatio
 
   const isDynamic =
     props.model.billing_mode === 'tiered_expr' &&
@@ -1597,9 +1598,10 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
     props.model.billing_usage_schema
   )
   const showBasePrices =
-    !props.model.billing_usage_schema ||
-    simpleTaskPricing ||
-    taskTiers.length === 0
+    !props.model.tenant_pricing &&
+    (!props.model.billing_usage_schema ||
+      simpleTaskPricing ||
+      taskTiers.length === 0)
 
   return (
     <div className='@container/details space-y-4'>
@@ -1636,7 +1638,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
                 showRechargePrice={showRechargePrice}
               />
             )}
-            {isDynamic && !simpleTaskPricing && (
+            {isDynamic && !simpleTaskPricing && !props.model.tenant_pricing && (
               <DynamicPricingBreakdown
                 billingExpr={props.model.billing_expr}
                 usageSchema={props.model.billing_usage_schema}
@@ -1649,7 +1651,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             )}
             <GroupPricingSection
               model={props.model}
-              groupRatio={props.groupRatio}
+              groupRatio={groupRatio}
               usableGroup={props.usableGroup}
               groupDisplayNames={props.groupDisplayNames}
               autoGroups={props.autoGroups}

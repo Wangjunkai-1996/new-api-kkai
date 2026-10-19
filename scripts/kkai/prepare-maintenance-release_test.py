@@ -113,6 +113,23 @@ class MaintenanceReleaseTests(unittest.TestCase):
         self.local_image["Id"] = self.image_id
         self.assertEqual(self.plan()["image_id"], self.image_id)
 
+    def test_tenant_maintenance_binds_exact_v12_and_its_own_protocol(self):
+        self.schema = maintenance.TENANT_SCHEMA_CONTRACT
+        plan = maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v1")
+        self.assertEqual(plan["schema_contract"], maintenance.TENANT_SCHEMA_CONTRACT)
+        self.assertEqual(plan["purpose"], "tenant-maintenance-preparation")
+        self.assertEqual(plan["planned_deployment_protocol"], "tenant-maintenance-v1")
+        with self.assertRaisesRegex(ValueError, "PostgreSQL v9"):
+            self.plan()
+        self.schema = maintenance.SCHEMA_CONTRACT
+        with self.assertRaisesRegex(ValueError, "PostgreSQL v12"):
+            maintenance.release_plan(self.metadata, "3" * 40, "tenant-maintenance-v1")
+
+    def test_unreviewed_protocol_is_rejected_before_loading_image(self):
+        with self.assertRaisesRegex(ValueError, "unsupported planned maintenance protocol"):
+            maintenance.release_plan(self.metadata, "3" * 40, "unreviewed-maintenance-v1")
+        self.assertEqual(self.calls, [])
+
     def test_loaded_image_drift_is_rejected_before_binary_execution(self):
         original = copy.deepcopy(self.local_image)
         for field, value in (

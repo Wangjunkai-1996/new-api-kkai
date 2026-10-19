@@ -1,10 +1,10 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -195,6 +195,32 @@ func GetStatus(c *gin.Context) {
 		}
 		data["custom_oauth_providers"] = providersInfo
 	}
+	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID {
+		config, configErr := service.ResolveTenantSiteConfig(model.DB, tenant)
+		if configErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "tenant site is unavailable"})
+			return
+		}
+		data["system_name"], data["logo"], data["server_address"] = config.SiteName, config.Logo, "https://"+tenant.Hostname
+		data["tenant_id"], data["enabled_modules"] = tenant.TenantID, config.EnabledModules
+		for _, key := range []string{"github_oauth", "discord_oauth", "linuxdo_oauth", "telegram_oauth", "telegram_oauth_configured", "wechat_login", "oidc_enabled", "passkey_login", "enable_drawing", "enable_task", "subscription_enabled", "redemption_enabled", "invitation_enabled", "checkin_enabled", "default_use_auto_group", "uptime_kuma_enabled", "api_info_enabled", "faq_enabled"} {
+			data[key] = false
+		}
+		for _, key := range []string{"github_client_id", "discord_client_id", "linuxdo_client_id", "telegram_bot_name", "wechat_qrcode", "oidc_client_id", "oidc_authorization_endpoint", "passkey_rp_id", "SidebarModulesAdmin"} {
+			data[key] = ""
+		}
+		for _, key := range []string{"api_info", "faq", "announcements", "custom_oauth_providers", "passkey_rp_ids"} {
+			delete(data, key)
+		}
+		data["maintenance"] = config.Maintenance
+		if config.Maintenance {
+			data["register_enabled"], data["password_register_enabled"] = false, false
+		}
+		data["announcements_enabled"] = config.Announcement != ""
+		data["VideoStudioAccessMode"], data["ImageStudioAccessMode"] = "disabled", "disabled"
+		data["video_studio"] = gin.H{"access_mode": "disabled", "processing_available": false}
+		c.Header("Cache-Control", "no-store")
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -205,6 +231,16 @@ func GetStatus(c *gin.Context) {
 }
 
 func GetNotice(c *gin.Context) {
+	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID {
+		config, err := service.ResolveTenantSiteConfig(model.DB, tenant)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		common.ApiSuccess(c, config.Announcement)
+		return
+	}
 	common.OptionMapRWMutex.RLock()
 	notice := common.OptionMap["Notice"]
 	common.OptionMapRWMutex.RUnlock()
@@ -238,6 +274,16 @@ func GetMidjourney(c *gin.Context) {
 }
 
 func GetHomePageContent(c *gin.Context) {
+	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID {
+		config, err := service.ResolveTenantSiteConfig(model.DB, tenant)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		common.ApiSuccess(c, config.HomepageContent)
+		return
+	}
 	common.OptionMapRWMutex.RLock()
 	homePageContent := common.OptionMap["HomePageContent"]
 	common.OptionMapRWMutex.RUnlock()
@@ -251,12 +297,20 @@ func SendEmailVerification(c *gin.Context) {
 		return
 	}
 
-	if model.IsEmailAlreadyTaken(email) {
-		common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	if err := model.EnsureEmailAvailableForTenant(email, 0, tenantID); err != nil {
+		if errors.Is(err, model.ErrEmailAlreadyTaken) {
+			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+		} else {
+			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		}
 		return
 	}
 	code := common.GenerateVerificationCode(6)
-	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
+	common.RegisterVerificationCodeWithKey(tenantEmailVerificationKey(c, email), code, common.EmailVerificationPurpose)
 	subject := fmt.Sprintf("%s邮箱验证邮件", common.SystemName)
 	content := fmt.Sprintf("<p>您好，你正在进行%s邮箱验证。</p>"+
 		"<p>您的验证码为: <strong>%s</strong></p>"+
@@ -279,10 +333,18 @@ func SendPasswordResetEmail(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if _, err := model.GetUniqueUserByEmail(email); err == nil {
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	if _, err := model.GetUniqueUserByEmailForTenant(email, tenantID); err == nil {
 		code := common.GenerateVerificationCode(0)
-		common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
-		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
+		common.RegisterVerificationCodeWithKey(tenantEmailVerificationKey(c, email), code, common.PasswordResetPurpose)
+		serverAddress := system_setting.ServerAddress
+		if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID {
+			serverAddress = "https://" + tenant.Hostname
+		}
+		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", serverAddress, url.QueryEscape(email), url.QueryEscape(code))
 		subject := fmt.Sprintf("%s密码重置", common.SystemName)
 		content := fmt.Sprintf("<p>您好，你正在进行%s密码重置。</p>"+
 			"<p>点击 <a href='%s'>此处</a> 进行密码重置。</p>"+
@@ -308,7 +370,7 @@ type PasswordResetRequest struct {
 
 func ResetPassword(c *gin.Context) {
 	var req PasswordResetRequest
-	err := json.NewDecoder(c.Request.Body).Decode(&req)
+	err := common.DecodeJson(c.Request.Body, &req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -318,12 +380,16 @@ func ResetPassword(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !common.VerifyCodeWithKey(req.Email, req.Token, common.PasswordResetPurpose) {
+	if !common.VerifyCodeWithKey(tenantEmailVerificationKey(c, req.Email), req.Token, common.PasswordResetPurpose) {
 		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
 		return
 	}
 	password := common.GenerateVerificationCode(12)
-	err = model.ResetUserPasswordByEmail(req.Email, password)
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	err = model.ResetUserPasswordByEmailForTenant(req.Email, password, tenantID)
 	if err != nil {
 		if errors.Is(err, model.ErrEmailNotFound) || errors.Is(err, model.ErrEmailAmbiguous) {
 			common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
@@ -332,11 +398,18 @@ func ResetPassword(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.DeleteKey(req.Email, common.PasswordResetPurpose)
+	common.DeleteKey(tenantEmailVerificationKey(c, req.Email), common.PasswordResetPurpose)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data":    password,
 	})
 	return
+}
+
+func tenantEmailVerificationKey(c *gin.Context, email string) string {
+	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID {
+		return fmt.Sprintf("tenant:%d:%s", tenant.TenantID, model.NormalizeEmail(email))
+	}
+	return model.NormalizeEmail(email)
 }

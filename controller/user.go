@@ -32,6 +32,7 @@ type LoginRequest struct {
 	Password          string `json:"password"`
 	PasswordEncrypted string `json:"password_encrypted"`
 	EncryptionKeyID   string `json:"encryption_key_id"`
+	OwnerLogin        bool   `json:"owner_login"`
 }
 
 func GetPasswordEncryptionKey(c *gin.Context) {
@@ -62,6 +63,14 @@ func Login(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	if loginRequest.OwnerLogin && tenantID <= model.PlatformTenantID {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
 	username := loginRequest.Username
 	password := loginRequest.Password
 	if common.PasswordLoginEncryptionEnabled {
@@ -83,7 +92,11 @@ func Login(c *gin.Context) {
 		Username: username,
 		Password: password,
 	}
-	err = user.ValidateAndFill()
+	if loginRequest.OwnerLogin {
+		err = user.ValidateAndFillTenantOwner(tenantID)
+	} else {
+		err = user.ValidateAndFillForTenant(tenantID)
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrDatabase):
@@ -149,7 +162,11 @@ func recordLoginAudit(user *model.User, c *gin.Context) {
 // pending legacy GitHub binding rewrite travels inside the challenge and is
 // written only when the verification completes.
 func setupLogin(user *model.User, migration *service.LegacyGitHubMigration, c *gin.Context) {
-	challenge, err := service.StartLoginVerification(user, loginMethodFromContext(c), migration)
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
+	challenge, err := service.StartLoginVerification(user, loginMethodFromContext(c), migration, tenantID)
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -173,6 +190,10 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		return
 	}
 	var bundle *service.AuthBundle
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
 	if expectedAuthVersion > 0 {
 		bundle, err = service.CreateLoginSessionAtAuthVersion(
 			user.Id,
@@ -180,6 +201,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			loginMethodFromContext(c),
 			c.ClientIP(),
 			c.Request.UserAgent(),
+			tenantID,
 		)
 	} else {
 		bundle, err = service.CreateLoginSession(
@@ -187,6 +209,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			loginMethodFromContext(c),
 			c.ClientIP(),
 			c.Request.UserAgent(),
+			tenantID,
 		)
 	}
 	if err != nil {
@@ -210,7 +233,7 @@ func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBu
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
 			"session":           bundle.Session,
-			"user":              buildSelfUserData(user),
+			"user":              buildSelfUserData(user, c),
 		},
 	})
 }
@@ -232,6 +255,10 @@ func Register(c *gin.Context) {
 	}
 	user.Username = strings.TrimSpace(user.Username)
 	user.Email = model.NormalizeEmail(user.Email)
+	tenantID := model.PlatformTenantID
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		tenantID = tenant.TenantID
+	}
 	if user.Username == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -245,11 +272,11 @@ func Register(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailVerificationRequired)
 			return
 		}
-		if !common.VerifyCodeWithKey(user.Email, user.VerificationCode, common.EmailVerificationPurpose) {
+		if !common.VerifyCodeWithKey(tenantEmailVerificationKey(c, user.Email), user.VerificationCode, common.EmailVerificationPurpose) {
 			common.ApiErrorI18n(c, i18n.MsgUserVerificationCodeError)
 			return
 		}
-		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
+		if err := model.EnsureEmailAvailableForTenant(user.Email, 0, tenantID); err != nil {
 			if errors.Is(err, model.ErrEmailAlreadyTaken) {
 				common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
 				return
@@ -262,7 +289,7 @@ func Register(c *gin.Context) {
 	if common.EmailVerificationEnabled {
 		emailForExistCheck = user.Email
 	}
-	exist, err := model.CheckUserExistOrDeleted(user.Username, emailForExistCheck)
+	exist, err := model.CheckUserExistOrDeletedForTenant(user.Username, emailForExistCheck, tenantID)
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
 		common.SysLog(fmt.Sprintf("CheckUserExistOrDeleted error: %v", err))
@@ -274,7 +301,11 @@ func Register(c *gin.Context) {
 	}
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
 	inviterId, _ := model.GetUserIdByAffCode(affCode)
+	if tenantID != model.PlatformTenantID {
+		inviterId = 0
+	}
 	cleanUser := model.User{
+		TenantID:    tenantID,
 		Username:    user.Username,
 		Password:    user.Password,
 		DisplayName: user.Username,
@@ -284,21 +315,7 @@ func Register(c *gin.Context) {
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
-		if errors.Is(err, model.ErrEmailAlreadyTaken) {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-			return
-		}
-		common.ApiError(c, err)
-		return
-	}
-
-	// 获取插入后的用户ID
-	var insertedUser model.User
-	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserRegisterFailed)
-		return
-	}
+	var defaultToken *model.Token
 	// 生成默认令牌
 	if constant.GenerateDefaultToken {
 		key, err := common.GenerateKey()
@@ -309,7 +326,7 @@ func Register(c *gin.Context) {
 		}
 		// 生成默认令牌
 		token := model.Token{
-			UserId:             insertedUser.Id, // 使用插入后的用户ID
+			TenantID:           tenantID,
 			Name:               cleanUser.Username + "的初始令牌",
 			Key:                key,
 			CreatedTime:        common.GetTimestamp(),
@@ -319,15 +336,50 @@ func Register(c *gin.Context) {
 			UnlimitedQuota:     true,
 			ModelLimitsEnabled: false,
 		}
-		if setting.DefaultUseAutoGroup {
+		if tenantID == model.PlatformTenantID && setting.DefaultUseAutoGroup {
 			token.Group = "auto"
 			token.CrossGroupRetry = true
 		}
-		if err := token.Insert(); err != nil {
-			common.ApiErrorI18n(c, i18n.MsgCreateDefaultTokenErr)
-			return
-		}
+		defaultToken = &token
 	}
+	// The account, customer membership and initial token are one unit: a token
+	// failure must not leave an orphan account that cannot retry registration.
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if tenantID != model.PlatformTenantID {
+			var entry model.TenantCatalogEntry
+			if err := tx.Where("tenant_id = ? AND status = ? AND is_default = ?", tenantID, model.TenantCatalogStatusEnabled, true).First(&entry).Error; err != nil {
+				return err
+			}
+			cleanUser.Group = entry.SalesGroup
+		}
+		if err := cleanUser.InsertWithTx(tx, inviterId); err != nil {
+			return err
+		}
+		if tenantID != model.PlatformTenantID {
+			membership := model.TenantMembership{UserID: cleanUser.Id, TenantID: tenantID, Role: model.TenantMembershipRoleCustomer, Status: model.TenantMembershipStatusActive}
+			if err := tx.Create(&membership).Error; err != nil {
+				return err
+			}
+		}
+		if defaultToken != nil {
+			defaultToken.UserId = cleanUser.Id
+			if tenantID != model.PlatformTenantID {
+				defaultToken.Group = cleanUser.Group
+			}
+			return tx.Create(defaultToken).Error
+		}
+		return nil
+	}); err != nil {
+		if errors.Is(err, model.ErrEmailAlreadyTaken) {
+			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+		} else if errors.Is(err, model.ErrUsernameAlreadyTaken) {
+			common.ApiErrorI18n(c, i18n.MsgUserExists)
+		} else {
+			common.ApiError(c, err)
+		}
+		return
+	}
+	cleanUser.FinishInsert(inviterId)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -471,7 +523,7 @@ func GetSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	responseData := buildSelfUserData(user)
+	responseData := buildSelfUserData(user, c)
 	responseData["auth_method"] = "access_token"
 	if _, ok := middleware.GetSessionAuthIdentity(c); ok {
 		responseData["auth_method"] = "session"
@@ -481,6 +533,9 @@ func GetSelf(c *gin.Context) {
 	// consistent with the authorization decision made for this request.
 	permissions := calculateUserPermissions(userRole)
 	permissions["admin_permissions"] = authz.Capabilities(id, userRole)
+	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > model.PlatformTenantID && user.TenantID == model.PlatformTenantID {
+		permissions["admin_permissions"] = map[string]any{}
+	}
 	responseData["permissions"] = permissions
 
 	c.JSON(http.StatusOK, gin.H{
@@ -494,11 +549,18 @@ func GetSelf(c *gin.Context) {
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
-func buildSelfUserData(user *model.User) map[string]any {
+func buildSelfUserData(user *model.User, contexts ...*gin.Context) map[string]any {
+	if len(contexts) > 0 {
+		if tenant, ok := middleware.GetTenantContext(contexts[0]); ok && tenant.TenantID > model.PlatformTenantID {
+			copy := *user
+			copy.Role = common.RoleCommonUser
+			user = &copy
+		}
+	}
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
-	return map[string]any{
+	data := map[string]any{
 		"id":                 user.Id,
 		"username":           user.Username,
 		"display_name":       user.DisplayName,
@@ -527,6 +589,21 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"sidebar_modules":    userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":        permissions,
 	}
+	if len(contexts) > 0 && user.TenantID == model.PlatformTenantID {
+		if tenant, ok := middleware.GetTenantContext(contexts[0]); ok && tenant.TenantID > model.PlatformTenantID {
+			for _, key := range []string{
+				"github_id", "discord_id", "oidc_id", "wechat_id", "telegram_id",
+				"group", "group_display_name", "quota", "used_quota", "request_count",
+				"aff_code", "aff_count", "aff_quota", "aff_history_quota", "inviter_id",
+				"linux_do_id", "setting", "stripe_customer", "sidebar_modules",
+			} {
+				delete(data, key)
+			}
+			data["tenant_owner"] = true
+			data["permissions"] = map[string]any{"admin_permissions": map[string]any{}}
+		}
+	}
+	return data
 }
 
 // 计算用户权限的辅助函数
@@ -620,6 +697,15 @@ func generateDefaultSidebarConfig(userRole int) string {
 }
 
 func GetUserModels(c *gin.Context) {
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
+		names, err := tenantModelNames(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": names})
+		return
+	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		id = c.GetInt("id")

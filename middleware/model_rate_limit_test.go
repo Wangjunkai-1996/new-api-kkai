@@ -50,6 +50,11 @@ func TestResolveModelRequestRateLimitPrecedence(t *testing.T) {
 	assert.Equal(t, 60, total)
 	assert.Equal(t, 50, success)
 
+	tenantContext := newContext(7, "alice", "vip")
+	common.SetContextKey(tenantContext, constant.ContextKeyTenantID, int64(42))
+	total, success = resolveModelRequestRateLimit(tenantContext)
+	assert.Equal(t, 80, total)
+	assert.Equal(t, 70, success)
 	total, success = resolveModelRequestRateLimit(newContext(7, "bob", "vip"))
 	assert.Equal(t, 80, total)
 	assert.Equal(t, 70, success)

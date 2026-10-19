@@ -293,6 +293,12 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := InitializeTenantUserIdentities(); err != nil {
+		return err
+	}
+	if err := InitializeTokenTenantIDs(); err != nil {
+		return err
+	}
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}

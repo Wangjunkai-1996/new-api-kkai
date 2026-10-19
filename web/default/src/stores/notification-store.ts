@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import { getCurrentHost } from '@/lib/host-scope'
+
 interface NotificationState {
   // Last read Notice content signature (full trimmed message)
   lastReadNotice: string
@@ -77,7 +79,7 @@ export const useNotificationStore = create<NotificationState>()(
       },
     }),
     {
-      name: 'notification-storage',
+      name: `notification-storage:${getCurrentHost()}`,
       partialize: (state) => ({
         lastReadNotice: state.lastReadNotice,
         readAnnouncementKeys: state.readAnnouncementKeys,

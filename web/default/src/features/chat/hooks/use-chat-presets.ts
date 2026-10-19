@@ -20,6 +20,7 @@ import { useMemo } from 'react'
 
 import type { SystemStatus } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
+import { getStatusStorageKey } from '@/lib/status-query'
 
 import {
   type ChatPreset,
@@ -30,7 +31,7 @@ import {
 function getStoredStatusChats(): RawChatConfig {
   if (typeof window === 'undefined') return undefined
   try {
-    const raw = window.localStorage.getItem('status')
+    const raw = window.localStorage.getItem(getStatusStorageKey())
     if (!raw) return undefined
     const parsed = JSON.parse(raw)
     return parsed?.chats ?? parsed?.Chats

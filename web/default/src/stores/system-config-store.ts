@@ -65,6 +65,11 @@ interface SystemConfigState {
   setLoading: (loading: boolean) => void
 }
 
+function getSystemConfigStorageKey(): string {
+  if (typeof window === 'undefined') return 'system-config-storage:server'
+  return `system-config-storage:${window.location.host.toLowerCase()}`
+}
+
 /**
  * System configuration store with automatic persistence
  * Manages system name, logo, footer HTML and loading states
@@ -94,7 +99,7 @@ export const useSystemConfigStore = create<SystemConfigState>()(
       setLoading: (loading) => set({ loading }),
     }),
     {
-      name: 'system-config-storage',
+      name: getSystemConfigStorageKey(),
       partialize: (state) => ({
         config: state.config,
         loadedLogoUrl: state.loadedLogoUrl,

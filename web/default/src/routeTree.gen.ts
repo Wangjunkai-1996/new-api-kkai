@@ -14,6 +14,8 @@ import { Route as authRouteRouteImport } from './routes/(auth)/route'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as CnRestrictedRouteImport } from './routes/cn-restricted'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as ResellerRouteImport } from './routes/reseller'
+import { Route as ResellerApplicationRouteImport } from './routes/reseller-application'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
@@ -30,6 +32,7 @@ import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedImageStudioRouteRouteImport } from './routes/_authenticated/image-studio/route'
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
+import { Route as AuthenticatedResellerAdminRouteImport } from './routes/_authenticated/reseller-admin'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
@@ -38,6 +41,8 @@ import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
 import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as PricingIndexRouteImport } from './routes/pricing/index'
 import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
+import { Route as ResellerIndexRouteImport } from './routes/reseller.index'
+import { Route as ResellerSectionRouteImport } from './routes/reseller.$section'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
@@ -113,6 +118,16 @@ const CnRestrictedRoute = CnRestrictedRouteImport.update({
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   id: '/privacy-policy',
   path: '/privacy-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResellerRoute = ResellerRouteImport.update({
+  id: '/reseller',
+  path: '/reseller',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResellerApplicationRoute = ResellerApplicationRouteImport.update({
+  id: '/reseller-application',
+  path: '/reseller-application',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UserAgreementRoute = UserAgreementRouteImport.update({
@@ -197,6 +212,12 @@ const AuthenticatedInvitationsRoute =
     path: '/invitations',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedResellerAdminRoute =
+  AuthenticatedResellerAdminRouteImport.update({
+    id: '/reseller-admin',
+    path: '/reseller-admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsRouteRoute =
   AuthenticatedSystemSettingsRouteRouteImport.update({
     id: '/system-settings',
@@ -238,6 +259,16 @@ const RankingsIndexRoute = RankingsIndexRouteImport.update({
   id: '/rankings/',
   path: '/rankings/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ResellerIndexRoute = ResellerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ResellerRoute,
+} as any)
+const ResellerSectionRoute = ResellerSectionRouteImport.update({
+  id: '/$section',
+  path: '/$section',
+  getParentRoute: () => ResellerRoute,
 } as any)
 const SetupIndexRoute = SetupIndexRouteImport.update({
   id: '/setup/',
@@ -556,6 +587,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/reseller': typeof ResellerRouteWithChildren
+  '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
@@ -574,12 +607,15 @@ export interface FileRoutesByFullPath {
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/invitations': typeof AuthenticatedInvitationsRouteWithChildren
+  '/reseller-admin': typeof AuthenticatedResellerAdminRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/reseller/$section': typeof ResellerSectionRoute
   '/about/': typeof AboutIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
+  '/reseller/': typeof ResellerIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
@@ -638,6 +674,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
@@ -652,12 +689,15 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/reseller-admin': typeof AuthenticatedResellerAdminRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/reseller/$section': typeof ResellerSectionRoute
   '/about': typeof AboutIndexRoute
   '/pricing': typeof PricingIndexRoute
   '/rankings': typeof RankingsIndexRoute
+  '/reseller': typeof ResellerIndexRoute
   '/setup': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
@@ -719,6 +759,8 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/reseller': typeof ResellerRouteWithChildren
+  '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
@@ -737,12 +779,15 @@ export interface FileRoutesById {
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/_authenticated/invitations': typeof AuthenticatedInvitationsRouteWithChildren
+  '/_authenticated/reseller-admin': typeof AuthenticatedResellerAdminRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
   '/oauth/$provider': typeof OauthProviderRoute
+  '/reseller/$section': typeof ResellerSectionRoute
   '/about/': typeof AboutIndexRoute
   '/pricing/': typeof PricingIndexRoute
   '/rankings/': typeof RankingsIndexRoute
+  '/reseller/': typeof ResellerIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
@@ -803,6 +848,8 @@ export interface FileRouteTypes {
     | '/'
     | '/cn-restricted'
     | '/privacy-policy'
+    | '/reseller'
+    | '/reseller-application'
     | '/user-agreement'
     | '/image-studio'
     | '/system-settings'
@@ -821,12 +868,15 @@ export interface FileRouteTypes {
     | '/503'
     | '/chat2link'
     | '/invitations'
+    | '/reseller-admin'
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
+    | '/reseller/$section'
     | '/about/'
     | '/pricing/'
     | '/rankings/'
+    | '/reseller/'
     | '/setup/'
     | '/user/reset'
     | '/chat/$chatId'
@@ -885,6 +935,7 @@ export interface FileRouteTypes {
     | '/'
     | '/cn-restricted'
     | '/privacy-policy'
+    | '/reseller-application'
     | '/user-agreement'
     | '/forgot-password'
     | '/oauth'
@@ -899,12 +950,15 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/reseller-admin'
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
+    | '/reseller/$section'
     | '/about'
     | '/pricing'
     | '/rankings'
+    | '/reseller'
     | '/setup'
     | '/user/reset'
     | '/chat/$chatId'
@@ -965,6 +1019,8 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/cn-restricted'
     | '/privacy-policy'
+    | '/reseller'
+    | '/reseller-application'
     | '/user-agreement'
     | '/_authenticated/image-studio'
     | '/_authenticated/system-settings'
@@ -983,12 +1039,15 @@ export interface FileRouteTypes {
     | '/(errors)/503'
     | '/_authenticated/chat2link'
     | '/_authenticated/invitations'
+    | '/_authenticated/reseller-admin'
     | '/console/log'
     | '/console/topup'
     | '/oauth/$provider'
+    | '/reseller/$section'
     | '/about/'
     | '/pricing/'
     | '/rankings/'
+    | '/reseller/'
     | '/setup/'
     | '/(auth)/user/reset'
     | '/_authenticated/chat/$chatId'
@@ -1050,6 +1109,8 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   CnRestrictedRoute: typeof CnRestrictedRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
+  ResellerRoute: typeof ResellerRouteWithChildren
+  ResellerApplicationRoute: typeof ResellerApplicationRoute
   UserAgreementRoute: typeof UserAgreementRoute
   errors401Route: typeof errors401Route
   errors403Route: typeof errors403Route
@@ -1101,6 +1162,20 @@ declare module '@tanstack/react-router' {
       path: '/privacy-policy'
       fullPath: '/privacy-policy'
       preLoaderRoute: typeof PrivacyPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reseller': {
+      id: '/reseller'
+      path: '/reseller'
+      fullPath: '/reseller'
+      preLoaderRoute: typeof ResellerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reseller-application': {
+      id: '/reseller-application'
+      path: '/reseller-application'
+      fullPath: '/reseller-application'
+      preLoaderRoute: typeof ResellerApplicationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/user-agreement': {
@@ -1215,6 +1290,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/reseller-admin': {
+      id: '/_authenticated/reseller-admin'
+      path: '/reseller-admin'
+      fullPath: '/reseller-admin'
+      preLoaderRoute: typeof AuthenticatedResellerAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/system-settings': {
       id: '/_authenticated/system-settings'
       path: '/system-settings'
@@ -1270,6 +1352,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/rankings/'
       preLoaderRoute: typeof RankingsIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/reseller/': {
+      id: '/reseller/'
+      path: '/'
+      fullPath: '/reseller/'
+      preLoaderRoute: typeof ResellerIndexRouteImport
+      parentRoute: typeof ResellerRoute
+    }
+    '/reseller/$section': {
+      id: '/reseller/$section'
+      path: '/$section'
+      fullPath: '/reseller/$section'
+      preLoaderRoute: typeof ResellerSectionRouteImport
+      parentRoute: typeof ResellerRoute
     }
     '/setup/': {
       id: '/setup/'
@@ -1800,6 +1896,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedVideoStudioRouteRoute: typeof AuthenticatedVideoStudioRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRouteWithChildren
+  AuthenticatedResellerAdminRoute: typeof AuthenticatedResellerAdminRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
@@ -1833,6 +1930,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedVideoStudioRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRouteWithChildren,
+  AuthenticatedResellerAdminRoute: AuthenticatedResellerAdminRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
@@ -1861,12 +1959,28 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface ResellerRouteChildren {
+  ResellerSectionRoute: typeof ResellerSectionRoute
+  ResellerIndexRoute: typeof ResellerIndexRoute
+}
+
+const ResellerRouteChildren: ResellerRouteChildren = {
+  ResellerSectionRoute: ResellerSectionRoute,
+  ResellerIndexRoute: ResellerIndexRoute,
+}
+
+const ResellerRouteWithChildren = ResellerRoute._addFileChildren(
+  ResellerRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   CnRestrictedRoute: CnRestrictedRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
+  ResellerRoute: ResellerRouteWithChildren,
+  ResellerApplicationRoute: ResellerApplicationRoute,
   UserAgreementRoute: UserAgreementRoute,
   errors401Route: errors401Route,
   errors403Route: errors403Route,

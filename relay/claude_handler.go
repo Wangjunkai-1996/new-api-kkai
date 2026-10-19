@@ -77,7 +77,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		!info.ChannelSetting.PassThroughBodyEnabled &&
 		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
 		usage, newApiErr := textRequestViaResponses(c, info, adaptor, request)
-		service.SettleMembershipPartialUsage(c, info, usage, newApiErr)
+		service.CaptureFailedRequestUsage(c, info, usage, newApiErr)
 		if newApiErr != nil {
 			return newApiErr
 		}
@@ -147,7 +147,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
-	service.SettleMembershipPartialUsage(c, info, usage, newAPIError)
+	service.CaptureFailedRequestUsage(c, info, usage, newAPIError)
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)

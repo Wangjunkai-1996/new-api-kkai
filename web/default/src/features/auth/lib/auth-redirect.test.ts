@@ -20,7 +20,11 @@ import { describe, expect, test } from 'vitest'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import { getSavedLanguage, sanitizeAuthRedirect } from './auth-redirect'
+import {
+  getSavedLanguage,
+  getSignInSearch,
+  sanitizeAuthRedirect,
+} from './auth-redirect'
 
 const origin = 'https://dashboard.example.com'
 
@@ -57,6 +61,41 @@ describe('authentication redirect validation', () => {
   test('rejects invalid or non-HTTP application origins', () => {
     expect(sanitizeAuthRedirect('/dashboard', 'not-an-origin')).toBe(null)
     expect(sanitizeAuthRedirect('/dashboard', 'file:///tmp/app')).toBe(null)
+  })
+})
+
+describe('sign-in destination and identity mode', () => {
+  test('preserves a deep owner destination and explicit owner mode', () => {
+    expect(
+      getSignInSearch(
+        `${origin}/reseller/earnings?period=week#withdraw`,
+        origin
+      )
+    ).toEqual({
+      redirect: '/reseller/earnings?period=week#withdraw',
+      owner_login: true,
+    })
+    expect(getSignInSearch('/reseller', origin)).toEqual({
+      redirect: '/reseller',
+      owner_login: true,
+    })
+  })
+
+  test('preserves customer destinations without treating similar path names as owner routes', () => {
+    expect(getSignInSearch('/keys?page=2', origin)).toEqual({
+      redirect: '/keys?page=2',
+      owner_login: undefined,
+    })
+    expect(
+      getSignInSearch('/reseller-other', origin).owner_login
+    ).toBeUndefined()
+  })
+
+  test('drops an external destination and its purported owner mode', () => {
+    expect(getSignInSearch('https://evil.example/reseller', origin)).toEqual({
+      redirect: undefined,
+      owner_login: undefined,
+    })
   })
 })
 

@@ -1,12 +1,27 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestTokenCreateSnapshotsOwnerTenant(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:token-tenant-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&User{}, &Token{}))
+
+	owner := User{Username: "tenant-token-owner", TenantID: 42, AuthVersion: 1}
+	require.NoError(t, db.Create(&owner).Error)
+	token := Token{UserId: owner.Id, Key: "tenant-token-key", Status: 1, ExpiredTime: -1}
+	require.NoError(t, db.Create(&token).Error)
+	assert.Equal(t, int64(42), token.TenantID)
+}
 
 func TestUpdateGroupInvalidatesTokenCache(t *testing.T) {
 	truncateTables(t)

@@ -42,8 +42,8 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse) 
 	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 		if event.Response != nil {
 			a.reportedUsage = event.Response.Usage != nil
-			if a.info.MembershipBillingRequestID != "" {
-				a.info.MembershipHasReportedUsage = a.reportedUsage
+			if a.info.HasDurableBilling() {
+				a.info.BillingHasReportedUsage = a.reportedUsage
 			}
 			ApplyResponsesUsage(a.usage, event.Response.Usage)
 			if a.outputText.Len() == 0 {
@@ -89,8 +89,8 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 		return a.usage
 	}
 	a.finished = true
-	if a.info.MembershipBillingRequestID != "" && !a.reportedUsage && !a.info.PriceData.UsePrice && a.info.ImagePricingSnapshot == nil {
-		a.info.MembershipOutcomeUnknown = true
+	if a.info.HasDurableBilling() && !a.reportedUsage && !a.info.PriceData.UsePrice && a.info.ImagePricingSnapshot == nil {
+		a.info.BillingOutcomeUnknown = true
 	}
 	// A final image item can already have reached the client before the stream
 	// disconnects. Explicit failed/incomplete terminals reset and commit zero in
@@ -99,7 +99,7 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 		a.imageCounter.Commit(a.info)
 		a.imageCommitted = true
 	}
-	if a.usage.CompletionTokens == 0 && !(a.info.MembershipBillingRequestID != "" && a.reportedUsage) {
+	if a.usage.CompletionTokens == 0 && !(a.info.HasDurableBilling() && a.reportedUsage) {
 		if output := a.outputText.String(); output != "" {
 			a.usage.CompletionTokens = CountTextToken(output, a.info.GetUpstreamModelName())
 		}
@@ -108,7 +108,7 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 	// that produced any event but no usage still owes its input tokens unless
 	// upstream reported an explicit failure.
 	billsPrompt := a.usage.CompletionTokens != 0 || (a.started && !a.info.StreamStatus.ResponseFailed())
-	if a.usage.PromptTokens == 0 && billsPrompt && !(a.info.MembershipBillingRequestID != "" && a.reportedUsage) {
+	if a.usage.PromptTokens == 0 && billsPrompt && !(a.info.HasDurableBilling() && a.reportedUsage) {
 		a.usage.PromptTokens = a.info.GetEstimatePromptTokens()
 	}
 	a.usage.TotalTokens = a.usage.PromptTokens + a.usage.CompletionTokens

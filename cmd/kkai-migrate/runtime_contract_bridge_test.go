@@ -3,13 +3,24 @@
 package main
 
 import (
-	"testing"
-
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-func TestDescribeContractJSONUsesBridgeRuntime(t *testing.T) {
+func TestDescribeContractJSONRequiresTenantSchema(t *testing.T) {
 	output, err := describeContractJSON("postgres")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"compatible_prefixes":{"9":"sha256:4e65c4c6c49ad3ce1d87e3a144df3b0a57a3f408f3323226dd81b6b7a16972c1","10":"sha256:89b77ac581db5794572c596f8e37dd341de8864a71446a1cbf6a61f73a2d3779"},"migration_kind":"none","migration_set_digest":"sha256:4e65c4c6c49ad3ce1d87e3a144df3b0a57a3f408f3323226dd81b6b7a16972c1","migration_target_version":9,"runtime_max_version":10,"runtime_min_version":9,"schema_management":"runtime"}`, output)
+	var result struct {
+		kkaimigrate.SchemaContract
+		SchemaManagement string `json:"schema_management"`
+	}
+	require.NoError(t, common.UnmarshalJsonStr(output, &result))
+	assert.EqualValues(t, 12, result.RuntimeMinVersion)
+	assert.EqualValues(t, 12, result.RuntimeMaxVersion)
+	assert.EqualValues(t, 12, result.MigrationTargetVersion)
+	assert.Equal(t, map[string]string{"12": result.MigrationSetDigest}, result.CompatiblePrefixes)
+	assert.Equal(t, common.SchemaManagementMode, result.SchemaManagement)
 }

@@ -141,8 +141,10 @@ if [[ "${prepare_maintenance}" == true ]]; then
   [[ "${schema_contract}" == feature && "${frontend_mode}" == external ]] ||
     die "maintenance preparation requires feature schema and external frontend"
   [[ "${planned_infra_sha}" =~ ^[0-9a-f]{40}$ ]] || die "maintenance preparation requires planned infrastructure SHA"
-  [[ "${planned_deployment_protocol}" =~ ^[a-z][a-z0-9-]{2,63}$ ]] ||
-    die "maintenance preparation requires planned deployment protocol"
+  case "${planned_deployment_protocol}" in
+    rc41-maintenance-v1 | tenant-maintenance-v1) ;;
+    *) die "maintenance preparation requires planned deployment protocol rc41-maintenance-v1 or tenant-maintenance-v1" ;;
+  esac
   command -v python3 >/dev/null || die "missing python3"
 elif [[ -n "${planned_infra_sha}" || -n "${planned_deployment_protocol}" ]]; then
   die "planned infrastructure arguments require --prepare-maintenance"

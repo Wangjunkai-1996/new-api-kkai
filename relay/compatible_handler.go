@@ -80,7 +80,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
 		applySystemPromptIfNeeded(c, info, request)
 		usage, newApiErr := textRequestViaResponses(c, info, adaptor, request)
-		service.SettleMembershipPartialUsage(c, info, usage, newApiErr)
+		service.CaptureFailedRequestUsage(c, info, usage, newApiErr)
 		if newApiErr != nil {
 			return newApiErr
 		}
@@ -177,7 +177,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
-	service.SettleMembershipPartialUsage(c, info, usage, newApiErr)
+	service.CaptureFailedRequestUsage(c, info, usage, newApiErr)
 	if newApiErr != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)

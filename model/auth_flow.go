@@ -44,6 +44,7 @@ var (
 // TokenHash is an HMAC of the opaque token; the token itself is never persisted.
 type AuthFlow struct {
 	Id         int64      `json:"id" gorm:"primaryKey"`
+	TenantID   int64      `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	TokenHash  string     `json:"-" gorm:"type:char(64);not null;uniqueIndex"`
 	Purpose    string     `json:"purpose" gorm:"type:varchar(32);not null;index:idx_auth_flow_purpose_expiry"`
 	Provider   string     `json:"provider,omitempty" gorm:"type:varchar(64)"`
@@ -61,6 +62,7 @@ func (AuthFlow) TableName() string {
 }
 
 type AuthFlowCreate struct {
+	TenantID  int64
 	Purpose   string
 	Provider  string
 	Intent    string
@@ -158,6 +160,7 @@ func createAuthFlowWithTx(tx *gorm.DB, input AuthFlowCreate) (string, *AuthFlow,
 	}
 	token := base64.RawURLEncoding.EncodeToString(random)
 	flow := &AuthFlow{
+		TenantID:  input.TenantID,
 		TokenHash: authFlowTokenHash(token),
 		Purpose:   input.Purpose,
 		Provider:  input.Provider,
@@ -166,6 +169,17 @@ func createAuthFlowWithTx(tx *gorm.DB, input AuthFlowCreate) (string, *AuthFlow,
 		SessionId: input.SessionId,
 		Payload:   input.Payload,
 		ExpiresAt: input.ExpiresAt,
+	}
+	if input.SessionId != "" {
+		var session UserSession
+		if err := tx.Where("sid = ?", input.SessionId).First(&session).Error; err == nil {
+			flow.TenantID = session.TenantID
+		}
+	} else if flow.TenantID == PlatformTenantID && input.UserId > 0 {
+		var user User
+		if err := tx.Select("tenant_id").First(&user, input.UserId).Error; err == nil {
+			flow.TenantID = user.TenantID
+		}
 	}
 	if err := tx.Create(flow).Error; err != nil {
 		return "", nil, err

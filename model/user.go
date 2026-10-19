@@ -19,6 +19,45 @@ import (
 
 const UserNameMaxLength = 20
 
+var ErrUsernameAlreadyTaken = errors.New("username already taken")
+
+// InitializeTenantUserIdentities backfills canonical identity keys before a
+// tenant rollout. Duplicate legacy identities require explicit operator repair;
+// they are never merged or reassigned automatically.
+func InitializeTenantUserIdentities() error {
+	if DB == nil {
+		return errors.New("database is not initialized")
+	}
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		var users []User
+		return tx.Unscoped().Select("id", "username", "email").
+			Where("normalized_username IS NULL OR (email <> '' AND normalized_email IS NULL)").
+			FindInBatches(&users, 1000, func(_ *gorm.DB, _ int) error {
+				for _, user := range users {
+					username := strings.ToLower(strings.TrimSpace(user.Username))
+					var email *string
+					if normalized := NormalizeEmail(user.Email); normalized != "" {
+						email = &normalized
+					}
+					if err := tx.Unscoped().Model(&User{}).Where("id = ?", user.Id).Updates(map[string]any{"normalized_username": username, "normalized_email": email}).Error; err != nil {
+						return fmt.Errorf("canonicalize tenant identity user %d: %w", user.Id, err)
+					}
+				}
+				return nil
+			}).Error
+	}); err != nil {
+		return err
+	}
+	// GORM's old `unique` tag created a named unique constraint. Dropping it
+	// after the composite keys are populated preserves uniqueness throughout.
+	if DB.Migrator().HasConstraint(&User{}, "uni_users_username") {
+		if err := DB.Migrator().DropConstraint(&User{}, "uni_users_username"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var userSortColumns = map[string]string{
 	"id":            "id",
 	"username":      "username",
@@ -77,15 +116,23 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id                   int                        `json:"id"`
-	Username             string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password             string                     `json:"password" gorm:"not null;" validate:"min=8,max=128"`
-	HasPassword          bool                       `json:"-" gorm:"-:all"`
-	OriginalPassword     string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName          string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role                 int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status               int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email                string                     `json:"email" gorm:"index" validate:"max=50"`
+	Id int `json:"id"`
+	// Username uniqueness is scoped by TenantID at the application layer. Keep
+	// the index non-unique so two branded tenants may use the same name.
+	Username           string  `json:"username" gorm:"index:idx_users_tenant_username,priority:2" validate:"max=20"`
+	NormalizedUsername *string `json:"-" gorm:"type:varchar(20);uniqueIndex:idx_users_tenant_normalized_username,priority:2"`
+	Password           string  `json:"password" gorm:"not null;" validate:"min=8,max=128"`
+	HasPassword        bool    `json:"-" gorm:"-:all"`
+	OriginalPassword   string  `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName        string  `json:"display_name" gorm:"index" validate:"max=20"`
+	Role               int     `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status             int     `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	// TenantID is the user's primary tenant ownership for incremental tenant
+	// rollout. Platform users retain tenant 0; reseller customers are assigned
+	// their tenant when that onboarding flow is enabled.
+	TenantID             int64                      `json:"-" gorm:"type:bigint;not null;default:0;index:idx_users_tenant_username,priority:1;index:idx_users_tenant_email,priority:1;uniqueIndex:idx_users_tenant_normalized_username,priority:1;uniqueIndex:idx_users_tenant_normalized_email,priority:1"`
+	Email                string                     `json:"email" gorm:"index:idx_users_tenant_email,priority:2" validate:"max=50"`
+	NormalizedEmail      *string                    `json:"-" gorm:"type:varchar(50);uniqueIndex:idx_users_tenant_normalized_email,priority:2"`
 	GitHubId             string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId            string                     `json:"discord_id" gorm:"column:discord_id;index"`
 	OidcId               string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
@@ -117,6 +164,7 @@ type User struct {
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
 		Id:          user.Id,
+		TenantID:    user.TenantID,
 		Group:       user.Group,
 		Quota:       user.Quota,
 		Status:      user.Status,
@@ -266,16 +314,23 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 
 // CheckUserExistOrDeleted check if user exist or deleted, if not exist, return false, nil, if deleted or exist, return true, nil
 func CheckUserExistOrDeleted(username string, email string) (bool, error) {
+	return CheckUserExistOrDeletedForTenant(username, email, PlatformTenantID)
+}
+
+// CheckUserExistOrDeletedForTenant checks identity uniqueness within a tenant.
+func CheckUserExistOrDeletedForTenant(username string, email string, tenantID int64) (bool, error) {
 	var user User
 
 	// err := DB.Unscoped().First(&user, "username = ? or email = ?", username, email).Error
 	// check email if empty
 	var err error
 	email = NormalizeEmail(email)
+	username = strings.TrimSpace(username)
+	query := DB.Unscoped().Where("tenant_id = ?", tenantID)
 	if email == "" {
-		err = DB.Unscoped().First(&user, "username = ?", username).Error
+		err = query.Where("LOWER(username) = ?", strings.ToLower(username)).First(&user).Error
 	} else {
-		err = DB.Unscoped().First(&user, "username = ? or LOWER(email) = ?", username, email).Error
+		err = query.Where("LOWER(username) = ? OR LOWER(email) = ?", strings.ToLower(username), email).First(&user).Error
 	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -306,16 +361,20 @@ func CountUsersByEmail(email string) (int64, error) {
 		return 0, nil
 	}
 	var count int64
-	err := emailQuery(DB, email).Count(&count).Error
+	err := emailQuery(DB, email).Where("tenant_id = ?", PlatformTenantID).Count(&count).Error
 	return count, err
 }
 
 func IsEmailAvailable(email string, excludeUserID int) (bool, error) {
+	return IsEmailAvailableForTenant(email, excludeUserID, PlatformTenantID)
+}
+
+func IsEmailAvailableForTenant(email string, excludeUserID int, tenantID int64) (bool, error) {
 	email = NormalizeEmail(email)
 	if email == "" {
 		return true, nil
 	}
-	query := emailQuery(DB, email)
+	query := emailQuery(DB, email).Where("tenant_id = ?", tenantID)
 	if excludeUserID > 0 {
 		query = query.Where("id <> ?", excludeUserID)
 	}
@@ -327,7 +386,11 @@ func IsEmailAvailable(email string, excludeUserID int) (bool, error) {
 }
 
 func EnsureEmailAvailable(email string, excludeUserID int) error {
-	available, err := IsEmailAvailable(email, excludeUserID)
+	return EnsureEmailAvailableForTenant(email, excludeUserID, PlatformTenantID)
+}
+
+func EnsureEmailAvailableForTenant(email string, excludeUserID int, tenantID int64) error {
+	available, err := IsEmailAvailableForTenant(email, excludeUserID, tenantID)
 	if err != nil {
 		return err
 	}
@@ -510,7 +573,7 @@ func GetSelfUserById(id int) (*User, error) {
 		HasPassword bool `gorm:"column:has_password"`
 	}
 	err := DB.Model(&User{}).Select([]string{
-		"id", "username", "display_name", "role", "status", "email",
+		"id", "tenant_id", "username", "display_name", "role", "status", "email",
 		"github_id", "discord_id", "oidc_id", "wechat_id", "telegram_id",
 		"group", "quota", "used_quota", "request_count", "aff_code", "aff_count",
 		"aff_quota", "aff_history", "inviter_id", "linux_do_id", "setting",
@@ -567,7 +630,24 @@ func inviteUser(inviterId int) error {
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
 	user.Email = NormalizeEmail(user.Email)
-	if err := ensureEmailAvailableWithTx(tx, user.Email, 0); err != nil {
+	user.Username = strings.TrimSpace(user.Username)
+	if user.Username == "" {
+		return ErrUserEmptyCredentials
+	}
+	var count int64
+	normalizedUsername := strings.ToLower(user.Username)
+	if err := tx.Unscoped().Model(&User{}).Where("tenant_id = ? AND LOWER(username) = ?", user.TenantID, normalizedUsername).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrUsernameAlreadyTaken
+	}
+	user.NormalizedUsername = &normalizedUsername
+	if user.Email != "" {
+		email := user.Email
+		user.NormalizedEmail = &email
+	}
+	if err := ensureEmailAvailableWithTxTenant(tx, user.Email, 0, user.TenantID); err != nil {
 		return err
 	}
 	if user.Password == "" {
@@ -585,10 +665,16 @@ func BindEmailToUser(user *User, email string) error {
 	email = NormalizeEmail(email)
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		return withNormalizedEmailLock(tx, email, func(tx *gorm.DB) error {
-			if err := ensureEmailAvailableWithTx(tx, email, user.Id); err != nil {
+			var current User
+			if err := tx.First(&current, user.Id).Error; err != nil {
+				return err
+			}
+			if err := ensureEmailAvailableWithTxTenant(tx, email, user.Id, current.TenantID); err != nil {
 				return err
 			}
 			user.Email = email
+			user.TenantID = current.TenantID
+			user.NormalizedEmail = &email
 			return user.UpdateWithTx(tx, false)
 		})
 	}); err != nil {
@@ -598,11 +684,15 @@ func BindEmailToUser(user *User, email string) error {
 }
 
 func ensureEmailAvailableWithTx(tx *gorm.DB, email string, excludeUserID int) error {
+	return ensureEmailAvailableWithTxTenant(tx, email, excludeUserID, PlatformTenantID)
+}
+
+func ensureEmailAvailableWithTxTenant(tx *gorm.DB, email string, excludeUserID int, tenantID int64) error {
 	email = NormalizeEmail(email)
 	if email == "" {
 		return nil
 	}
-	query := emailQuery(tx, email)
+	query := emailQuery(tx, email).Where("tenant_id = ?", tenantID)
 	if excludeUserID > 0 {
 		query = query.Where("id <> ?", excludeUserID)
 	}
@@ -618,22 +708,7 @@ func ensureEmailAvailableWithTx(tx *gorm.DB, email string, excludeUserID int) er
 
 func (user *User) Insert(inviterId int) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
-		return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
-			if err := user.prepareForInsert(tx); err != nil {
-				return err
-			}
-			user.Quota = int64(common.QuotaForNewUser)
-			user.AffCode = common.GetRandomString(4)
-
-			// 初始化用户设置，包括默认的边栏配置
-			if user.Setting == "" {
-				defaultSetting := dto.UserSetting{}
-				// 这里暂时不设置SidebarModules，因为需要在用户创建后根据角色设置
-				user.SetSetting(defaultSetting)
-			}
-
-			return tx.Create(user).Error
-		})
+		return user.InsertWithTx(tx, inviterId)
 	}); err != nil {
 		return err
 	}
@@ -646,7 +721,7 @@ func (user *User) finishInsert(inviterId int) {
 	// 用户创建成功后，根据角色初始化边栏配置
 	// 需要重新获取用户以确保有正确的ID和Role
 	var createdUser User
-	if err := DB.Where("username = ?", user.Username).First(&createdUser).Error; err == nil {
+	if err := DB.First(&createdUser, user.Id).Error; err == nil {
 		// 生成基于角色的默认边栏配置
 		defaultSidebarConfig := generateDefaultSidebarConfigForRole(createdUser.Role)
 		if defaultSidebarConfig != "" {
@@ -656,6 +731,9 @@ func (user *User) finishInsert(inviterId int) {
 			createdUser.Update(false)
 			common.SysLog(fmt.Sprintf("为新用户 %s (角色: %d) 初始化边栏配置", createdUser.Username, createdUser.Role))
 		}
+	}
+	if user.TenantID != PlatformTenantID {
+		return // Reseller customers receive only paid quota; no gifts or rewards.
 	}
 
 	if common.QuotaForNewUser > 0 {
@@ -687,6 +765,10 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			return err
 		}
 		user.Quota = int64(common.QuotaForNewUser)
+		if user.TenantID != PlatformTenantID {
+			user.Quota = 0
+			user.InviterId = 0
+		}
 		user.AffCode = common.GetRandomString(4)
 
 		// 初始化用户设置
@@ -763,6 +845,19 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.First(&current, user.Id).Error; err != nil {
 		return err
 	}
+	newUser.TenantID = current.TenantID
+	if newUser.Username != "" {
+		normalized := strings.ToLower(strings.TrimSpace(newUser.Username))
+		newUser.NormalizedUsername = &normalized
+	}
+	if newUser.Email != "" {
+		normalized := NormalizeEmail(newUser.Email)
+		if err := ensureEmailAvailableWithTxTenant(tx, normalized, user.Id, current.TenantID); err != nil {
+			return err
+		}
+		newUser.Email = normalized
+		newUser.NormalizedEmail = &normalized
+	}
 	// Updates(struct) ignores zero values. Match that behavior when deciding
 	// whether this request actually changes authentication-sensitive state;
 	// partial self-profile updates intentionally leave role/status/group empty.
@@ -822,10 +917,11 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]any{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"remark":       newUser.Remark,
+		"username":            newUser.Username,
+		"normalized_username": strings.ToLower(strings.TrimSpace(newUser.Username)),
+		"display_name":        newUser.DisplayName,
+		"group":               newUser.Group,
+		"remark":              newUser.Remark,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
@@ -871,6 +967,9 @@ func (user *User) ClearBinding(bindingType string) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&User{}).Where("id = ?", user.Id).Update(column, "").Error; err != nil {
 			return err
+		}
+		if bindingType == "email" {
+			return tx.Model(&User{}).Where("id = ?", user.Id).Update("normalized_email", nil).Error
 		}
 		if bindingType == ExternalIdentityProviderTelegram {
 			return ReleaseExternalIdentityWithTx(tx, ExternalIdentityProviderTelegram, user.Id)
@@ -1000,22 +1099,29 @@ func deleteUserAuthenticationData(tx *gorm.DB, userId int) error {
 
 // ValidateAndFill check password & user status
 func (user *User) ValidateAndFill() (err error) {
+	return user.ValidateAndFillForTenant(PlatformTenantID)
+}
+
+// ValidateAndFillForTenant authenticates only the Host-selected customer
+// namespace. It never falls back to a platform account, even after a mismatch.
+func (user *User) ValidateAndFillForTenant(tenantID int64) (err error) {
 	password := user.Password
 	username := strings.TrimSpace(user.Username)
 	if username == "" || password == "" {
 		return ErrUserEmptyCredentials
 	}
 	// Prefer usernames so another account's email cannot shadow them.
-	err = DB.Where("username = ?", username).First(user).Error
+	query := DB.Where("tenant_id = ?", tenantID)
+	err = query.Where("LOWER(username) = ?", strings.ToLower(username)).First(user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		var emailUser *User
-		emailUser, err = GetUniqueUserByEmail(username)
+		emailUser, err = GetUniqueUserByEmailForTenant(username, tenantID)
 		if err == nil {
 			*user = *emailUser
 		}
 	}
 	if err != nil {
-		if errors.Is(err, ErrEmailNotFound) || errors.Is(err, ErrEmailAmbiguous) {
+		if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, ErrEmailNotFound) || errors.Is(err, ErrEmailAmbiguous) {
 			return ErrInvalidCredentials
 		}
 		return fmt.Errorf("%w: %v", ErrDatabase, err)
@@ -1027,6 +1133,26 @@ func (user *User) ValidateAndFill() (err error) {
 	if !okay || user.Status != common.UserStatusEnabled {
 		return ErrInvalidCredentials
 	}
+	return nil
+}
+
+// ValidateAndFillTenantOwner selects the platform namespace explicitly. Tenant
+// customers may reuse an owner's username or email without shadowing its login.
+func (user *User) ValidateAndFillTenantOwner(tenantID int64) error {
+	if tenantID <= PlatformTenantID {
+		return ErrInvalidCredentials
+	}
+	owner := User{Username: user.Username, Password: user.Password}
+	if err := owner.ValidateAndFillForTenant(PlatformTenantID); err != nil {
+		return err
+	}
+	if _, err := (TenantScope{TenantID: tenantID}).Membership(DB, owner.Id, TenantMembershipRoleOwner); err != nil {
+		if errors.Is(err, ErrTenantMembershipMissing) {
+			return ErrInvalidCredentials
+		}
+		return fmt.Errorf("%w: %v", ErrDatabase, err)
+	}
+	*user = owner
 	return nil
 }
 
@@ -1042,8 +1168,7 @@ func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
 		return errors.New("email 为空！")
 	}
-	DB.Where(User{Email: user.Email}).First(user)
-	return nil
+	return DB.Where("tenant_id = ? AND LOWER(email) = ?", user.TenantID, NormalizeEmail(user.Email)).First(user).Error
 }
 
 func (user *User) FillUserByGitHubId() error {
@@ -1095,12 +1220,16 @@ func IsEmailAlreadyTaken(email string) bool {
 }
 
 func GetUniqueUserByEmail(email string) (*User, error) {
+	return GetUniqueUserByEmailForTenant(email, PlatformTenantID)
+}
+
+func GetUniqueUserByEmailForTenant(email string, tenantID int64) (*User, error) {
 	email = NormalizeEmail(email)
 	if email == "" {
 		return nil, ErrEmailNotFound
 	}
 	var users []User
-	if err := DB.Where("LOWER(email) = ?", email).Limit(2).Find(&users).Error; err != nil {
+	if err := DB.Where("tenant_id = ? AND LOWER(email) = ?", tenantID, email).Limit(2).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	switch len(users) {
@@ -1134,10 +1263,14 @@ func IsTelegramIdAlreadyTaken(telegramId string) bool {
 }
 
 func ResetUserPasswordByEmail(email string, password string) error {
+	return ResetUserPasswordByEmailForTenant(email, password, PlatformTenantID)
+}
+
+func ResetUserPasswordByEmailForTenant(email string, password string, tenantID int64) error {
 	if email == "" || password == "" {
 		return errors.New("邮箱地址或密码为空！")
 	}
-	user, err := GetUniqueUserByEmail(email)
+	user, err := GetUniqueUserByEmailForTenant(email, tenantID)
 	if err != nil {
 		return err
 	}

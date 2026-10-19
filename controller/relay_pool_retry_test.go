@@ -161,14 +161,14 @@ func TestMembershipUnknownOutcomeStopsOtherwiseRetryableChannelFailure(t *testin
 			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			info := &relaycommon.RelayInfo{
 				MembershipBillingRequestID: "reserved-request",
-				MembershipOutcomeUnknown:   unknown,
+				BillingOutcomeUnknown:      unknown,
 			}
 			apiErr := types.NewErrorWithStatusCode(fmt.Errorf("upstream timed out"),
 				types.ErrorCodeChannelResponseTimeExceeded, http.StatusGatewayTimeout)
 			decision := decideRelayRetry(ctx, info, apiErr, 2)
 			if unknown {
 				assert.Equal(t, "stop", decision.Action)
-				assert.Equal(t, "membership_outcome_unknown", decision.Reason)
+				assert.Equal(t, "billing_outcome_unknown", decision.Reason)
 			} else {
 				assert.Equal(t, "retry", decision.Action)
 			}

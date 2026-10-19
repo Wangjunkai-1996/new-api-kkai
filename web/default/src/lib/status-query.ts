@@ -20,6 +20,7 @@ import { queryOptions, type QueryClient } from '@tanstack/react-query'
 
 import { getStatus } from '@/lib/api'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
+import { getCurrentHost } from '@/lib/host-scope'
 import {
   useSystemConfigStore,
   type CurrencyConfig,
@@ -31,18 +32,21 @@ import {
 /**
  * Single source of truth for `/api/status`.
  *
- * `/api/status` is entirely global on the backend: every field is read from
- * in-memory option maps under a read lock, with no user context and no auth
- * middleware on the route. That makes it safe to share one cache entry across
- * every consumer — branding, nav module gates, and the setup guard.
+ * Consumers on the same Host share one cache entry. Host must stay in the
+ * query key because the server can filter feature flags for tenant sites.
  *
  * Anything that needs status must go through `statusQueryOptions` so React
  * Query can dedupe. Calling `getStatus()` directly re-introduces the duplicate
  * requests this module exists to collapse.
  */
-export const STATUS_QUERY_KEY = ['status'] as const
+export const STATUS_QUERY_KEY = ['status', getCurrentHost()] as const
 
-export const STATUS_STORAGE_KEY = 'status'
+/** Persist status per Host so branding and feature flags cannot cross sites. */
+export function getStatusStorageKey(host = getCurrentHost()): string {
+  return `status:${host}`
+}
+
+export const STATUS_STORAGE_KEY = getStatusStorageKey()
 
 /** Status payload shape — loose on purpose; the backend map is open-ended. */
 export type StatusData = Record<string, unknown>

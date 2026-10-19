@@ -188,6 +188,22 @@ func GetTokenModels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+
+	if tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID); tenantID > 0 {
+		if token.TenantID != tenantID {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+		common.SetContextKey(c, constant.ContextKeyTokenModelLimitEnabled, token.ModelLimitsEnabled)
+		common.SetContextKey(c, constant.ContextKeyTokenModelLimit, token.GetModelLimitsMap())
+		names, err := tenantModelNames(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, names)
+		return
+	}
 	user, err := model.GetUserCache(userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -695,6 +711,10 @@ func GetTokenKeysBatch(c *gin.Context) {
 }
 
 func GetTokenAutoGroups(c *gin.Context) {
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
+		common.ApiSuccess(c, gin.H{"groups": []string{}, "max_count": 0})
+		return
+	}
 	profile := c.DefaultQuery("group", "auto")
 	userGroup, err := getTokenRequestUserGroup(c)
 	if err != nil {

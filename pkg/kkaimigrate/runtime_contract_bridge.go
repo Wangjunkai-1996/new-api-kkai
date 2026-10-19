@@ -2,13 +2,12 @@
 
 package kkaimigrate
 
-// Membership adds companion tables without changing the v10 application schema.
-// The bridge accepts either version but never implicitly applies the v11 expand.
+// This binary queries tenant columns even with tenant routing disabled. Both
+// build profiles require v12; the bridge tag does not promise old-schema rollback.
 const (
-	RuntimeMinVersion      int64 = ImageAsyncSchemaVersion
-	RuntimeMaxVersion      int64 = MembershipSchemaVersion
-	MigrationTargetVersion int64 = ImageAsyncSchemaVersion
-
+	RuntimeMinVersion      int64 = TenantSchemaVersion
+	RuntimeMaxVersion      int64 = TenantSchemaVersion
+	MigrationTargetVersion int64 = TenantSchemaVersion
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion
 )

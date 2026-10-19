@@ -158,12 +158,13 @@ end
 if redis.call('EXISTS', KEYS[1]) == 1 then
   if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') == tonumber(ARGV[1]) then
     redis.call('HSETNX', KEYS[1], 'AutoGroups', ARGV[18])
+    redis.call('HSETNX', KEYS[1], 'TenantID', ARGV[19])
   end
   redis.call('EXPIRE', KEYS[1], ARGV[16])
   return 2
 end
 redis.call('HSET', KEYS[1],
-  'Id', ARGV[1], 'UserId', ARGV[2], 'Status', ARGV[3], 'Name', ARGV[4],
+  'Id', ARGV[1], 'UserId', ARGV[2], 'TenantID', ARGV[19], 'Status', ARGV[3], 'Name', ARGV[4],
   'CreatedTime', ARGV[5], 'AccessedTime', ARGV[6], 'ExpiredTime', ARGV[7],
   'UnlimitedQuota', ARGV[8], 'ModelLimitsEnabled', ARGV[9], 'ModelLimits', ARGV[10],
   'AllowIps', ARGV[11], 'Group', ARGV[12], 'CrossGroupRetry', ARGV[13],
@@ -179,7 +180,7 @@ return 1`
 		strconv.FormatBool(token.UnlimitedQuota), strconv.FormatBool(token.ModelLimitsEnabled),
 		token.ModelLimits, allowIps, token.Group, strconv.FormatBool(token.CrossGroupRetry),
 		token.RemainQuota, token.UsedQuota,
-		tokenCacheTTLSeconds(), generation, token.AutoGroups,
+		tokenCacheTTLSeconds(), generation, token.AutoGroups, token.TenantID,
 	).Int()
 }
 
@@ -192,11 +193,11 @@ func cacheGetTokenByKey(key string) (*Token, error) {
 	// untouched, so this non-JSON sentinel identifies hashes from older builds
 	// without another Redis read or discarding their in-flight quota deltas.
 	const missingAutoGroups = "\x00"
-	token := Token{AutoGroups: missingAutoGroups}
+	token := Token{AutoGroups: missingAutoGroups, TenantID: -1}
 	if err := common.RedisHGetObj(getTokenCacheKey(key), &token); err != nil {
 		return nil, err
 	}
-	if token.Id <= 0 || token.AutoGroups == missingAutoGroups {
+	if token.Id <= 0 || token.AutoGroups == missingAutoGroups || token.TenantID < 0 {
 		return nil, fmt.Errorf("token cache is incomplete")
 	}
 	token.Key = key

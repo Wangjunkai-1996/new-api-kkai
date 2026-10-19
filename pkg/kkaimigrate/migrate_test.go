@@ -35,24 +35,24 @@ id INTEGER PRIMARY KEY
 
 func TestApplyCreatesVersionedSchemaAndIsIdempotent(t *testing.T) {
 	db := newMigrationTestDB(t)
-	result, err := Apply(context.Background(), db, Options{})
+	result, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
-	require.Len(t, result.Applied, int(RequiredRuntimeVersion))
+	require.Len(t, result.Applied, int(MembershipSchemaVersion))
 	require.Empty(t, result.Pending)
-	require.NoError(t, CheckRequired(context.Background(), db))
+	require.NoError(t, CheckMembershipSchema(context.Background(), db))
 	require.True(t, db.Migrator().HasTable("kkai_policy_incidents"))
 	require.True(t, db.Migrator().HasTable("kkai_outbox"))
 	require.True(t, db.Migrator().HasTable("kkai_internal_balance_adjustments"))
 	require.True(t, db.Migrator().HasTable("kkai_job_leases"))
 
-	second, err := Apply(context.Background(), db, Options{})
+	second, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
-	require.Len(t, second.Applied, int(RequiredRuntimeVersion))
+	require.Len(t, second.Applied, int(MembershipSchemaVersion))
 	require.Empty(t, second.Pending)
 
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&count).Error)
-	require.EqualValues(t, RequiredRuntimeVersion, count)
+	require.EqualValues(t, MembershipSchemaVersion, count)
 }
 
 func TestMaintenanceTargetsExpandSequentiallyThroughV11(t *testing.T) {
@@ -94,9 +94,9 @@ func TestMaintenanceTargetsExpandSequentiallyThroughV11(t *testing.T) {
 
 func TestApplyDryRunDoesNotChangeSchema(t *testing.T) {
 	db := newMigrationTestDB(t)
-	result, err := Apply(context.Background(), db, Options{DryRun: true})
+	result, err := applyThroughVersion(context.Background(), db, Options{DryRun: true}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
-	require.Len(t, result.Pending, int(RequiredRuntimeVersion))
+	require.Len(t, result.Pending, int(MembershipSchemaVersion))
 	require.False(t, db.Migrator().HasTable("kkai_schema_migrations"))
 	require.False(t, db.Migrator().HasTable("kkai_policy_incidents"))
 	require.False(t, db.Migrator().HasTable("kkai_outbox"))
@@ -106,7 +106,7 @@ func TestApplyDryRunDoesNotChangeSchema(t *testing.T) {
 
 func TestApplyVideoStudioExpandCreatesV5Schema(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	_, err = ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestVideoStudioRuntimeSchemaRequiresMultipartAssetColumns(t *testing.T) {
 	for _, column := range []string{"upload_mode", "multipart_upload_id", "upload_part_size"} {
 		t.Run(column, func(t *testing.T) {
 			db := newMigrationTestDB(t)
-			_, err := Apply(context.Background(), db, Options{})
+			_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 			require.NoError(t, err)
 			_, err = ApplyOutboxEventKeyCompatibility(context.Background(), db, Options{})
 			require.NoError(t, err)
@@ -265,16 +265,16 @@ func TestApplyResumesFromValidAppliedPrefix(t *testing.T) {
 
 	var before AppliedMigration
 	require.NoError(t, db.First(&before, "version = ?", RiskSchemaVersion).Error)
-	result, err := Apply(context.Background(), db, Options{})
+	result, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
-	require.Len(t, result.Applied, int(RequiredRuntimeVersion))
+	require.Len(t, result.Applied, int(MembershipSchemaVersion))
 
 	var after AppliedMigration
 	require.NoError(t, db.First(&after, "version = ?", RiskSchemaVersion).Error)
 	require.Equal(t, before, after)
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&count).Error)
-	require.EqualValues(t, RequiredRuntimeVersion, count)
+	require.EqualValues(t, MembershipSchemaVersion, count)
 }
 
 func TestApplyRejectsNonContiguousAppliedPrefix(t *testing.T) {
@@ -286,14 +286,14 @@ func TestApplyRejectsNonContiguousAppliedPrefix(t *testing.T) {
 		Version: jobLease.Version, Name: jobLease.Name, Checksum: storedMigrationChecksum(jobLease),
 	}).Error)
 
-	_, err = Apply(context.Background(), db, Options{})
+	_, err = applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.ErrorIs(t, err, ErrMigrationHole)
 }
 
 func TestCheckRejectsMissingAndTamperedMigrations(t *testing.T) {
 	db := newMigrationTestDB(t)
 	require.ErrorIs(t, Check(context.Background(), db, RiskSchemaVersion), ErrSchemaNotReady)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", RiskSchemaVersion).
 		Update("checksum", "tampered").Error)
@@ -302,7 +302,7 @@ func TestCheckRejectsMissingAndTamperedMigrations(t *testing.T) {
 
 func TestCheckRejectsUnknownFutureMigration(t *testing.T) {
 	db := newMigrationTestDB(t)
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&AppliedMigration{
 		Version:     CompatibleVersion + 1,
@@ -427,7 +427,7 @@ func TestApplyImportsLegacyAuditRowsWithoutReplayingActions(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&legacyBalance).Error)
 
-	_, err := Apply(context.Background(), db, Options{})
+	_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 	require.NoError(t, err)
 
 	var incident model.KKAIPolicyIncident
@@ -502,7 +502,7 @@ func TestPlanHasImmutableChecksums(t *testing.T) {
 			Name:     "subscription_membership",
 			Checksum: "33745c777334c5d9f4d4b74d91c594b25bffce49c5ac29bb93f554fa25dba7d1",
 		},
-	}, Plan())
+	}, Plan()[:MembershipSchemaVersion])
 }
 
 func TestApplySerializesConcurrentCallers(t *testing.T) {
@@ -514,7 +514,7 @@ func TestApplySerializesConcurrentCallers(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := Apply(context.Background(), db, Options{})
+			_, err := applyThroughVersion(context.Background(), db, Options{}, MembershipSchemaVersion, KnownCatalogVersion)
 			errorsByWorker <- err
 		}()
 	}
@@ -526,5 +526,5 @@ func TestApplySerializesConcurrentCallers(t *testing.T) {
 
 	var count int64
 	require.NoError(t, db.Model(&AppliedMigration{}).Count(&count).Error)
-	require.EqualValues(t, RequiredRuntimeVersion, count)
+	require.EqualValues(t, MembershipSchemaVersion, count)
 }

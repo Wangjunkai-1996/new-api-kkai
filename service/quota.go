@@ -193,7 +193,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	member := relayInfo.MembershipBillingRequestID != ""
 	if usage == nil {
 		if member {
-			relayInfo.MembershipOutcomeUnknown = true
+			relayInfo.BillingOutcomeUnknown = true
 			if err := SettleBilling(ctx, relayInfo, 0); err != nil {
 				logger.LogError(ctx, "membership settlement pending: "+err.Error())
 			}
@@ -361,7 +361,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	member := relayInfo.MembershipBillingRequestID != ""
 	if usage == nil {
 		if member {
-			relayInfo.MembershipOutcomeUnknown = true
+			relayInfo.BillingOutcomeUnknown = true
 			if err := SettleBilling(ctx, relayInfo, 0); err != nil {
 				logger.LogError(ctx, "membership settlement pending: "+err.Error())
 			}

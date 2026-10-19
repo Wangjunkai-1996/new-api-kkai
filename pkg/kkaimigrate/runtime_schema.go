@@ -135,6 +135,9 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 			}
 		}
 	}
+	if currentVersion >= TenantSchemaVersion {
+		return validateTenantRuntimeSchema(db)
+	}
 	return nil
 }
 
@@ -289,6 +292,37 @@ func validateRuntimeUniqueIndex(db *gorm.DB, dialect string, requirement runtime
 	if dialect == DialectSQLite {
 		return validateSQLiteRuntimeUniqueIndex(db, requirement)
 	}
+	if dialect == DialectPostgres {
+		var columns []struct {
+			Name   string
+			Unique bool
+		}
+		// pg_get_indexdef renders reserved identifiers with quotes. Read attname
+		// directly so a legitimate column such as "group" has its canonical name.
+		err := db.Raw(`SELECT a.attname AS name, i.indisunique AS unique
+FROM pg_catalog.pg_index i
+JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+JOIN LATERAL unnest(i.indkey) WITH ORDINALITY key(attnum, position) ON true
+JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = key.attnum
+WHERE i.indrelid = pg_catalog.to_regclass(?) AND idx.relname = ?
+ AND i.indisvalid AND i.indpred IS NULL AND i.indexprs IS NULL
+ORDER BY key.position`, requirement.Table, requirement.Name).Scan(&columns).Error
+		if err != nil {
+			return fmt.Errorf("inspect PostgreSQL index %s: %w", requirement.Name, err)
+		}
+		actual := make([]string, 0, len(columns))
+		for _, column := range columns {
+			if !column.Unique {
+				return fmt.Errorf("%w: index %s is not unique", ErrSchemaNotReady, requirement.Name)
+			}
+			actual = append(actual, column.Name)
+		}
+		if !equalRuntimeIndexColumns(actual, requirement.Columns) {
+			return fmt.Errorf("%w: runtime index %s has invalid columns", ErrSchemaNotReady, requirement.Name)
+		}
+		return nil
+	}
+
 	indexes, err := db.Migrator().GetIndexes(requirement.Table)
 	if err != nil {
 		return fmt.Errorf("inspect runtime indexes on %s: %w", requirement.Table, err)

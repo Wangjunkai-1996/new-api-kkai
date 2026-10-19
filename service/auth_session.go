@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -49,20 +50,27 @@ type AuthBundle struct {
 	RefreshToken    string           `json:"-"`
 }
 
-func CreateLoginSession(userID int, loginMethod, ip, userAgent string) (*AuthBundle, error) {
-	return createLoginSession(userID, 0, loginMethod, ip, userAgent)
+func CreateLoginSession(userID int, loginMethod, ip, userAgent string, tenantIDs ...int64) (*AuthBundle, error) {
+	return createLoginSession(userID, 0, loginMethod, ip, userAgent, tenantIDs...)
 }
 
-func CreateLoginSessionAtAuthVersion(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string) (*AuthBundle, error) {
+func CreateLoginSessionAtAuthVersion(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string, tenantIDs ...int64) (*AuthBundle, error) {
 	if expectedAuthVersion <= 0 {
 		return nil, ErrLoginSessionInvalid
 	}
-	return createLoginSession(userID, expectedAuthVersion, loginMethod, ip, userAgent)
+	return createLoginSession(userID, expectedAuthVersion, loginMethod, ip, userAgent, tenantIDs...)
 }
 
-func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string) (*AuthBundle, error) {
+func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, userAgent string, tenantIDs ...int64) (*AuthBundle, error) {
 	user, err := model.GetUserCache(userID)
 	if err != nil {
+		return nil, err
+	}
+	tenantID := user.TenantID
+	if len(tenantIDs) > 0 {
+		tenantID = tenantIDs[0]
+	}
+	if err := ValidateUserTenant(user, tenantID); err != nil {
 		return nil, err
 	}
 	if user.Status != common.UserStatusEnabled || user.AuthVersion <= 0 {
@@ -94,6 +102,7 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 	if err != nil {
 		return nil, err
 	}
+	session.TenantID = tenantID
 	if err := model.CreateUserSession(session); err != nil {
 		return nil, err
 	}
@@ -103,6 +112,35 @@ func createLoginSession(userID int, expectedAuthVersion int64, loginMethod, ip, 
 		return nil, err
 	}
 	return bundle, nil
+}
+
+// ValidateUserTenant accepts a tenant customer or a platform account with an
+// active owner membership. Route-level authorization still limits the owner
+// to the reseller console on that Host.
+func ValidateUserTenant(user *model.UserBase, tenantID int64) error {
+	if user == nil || tenantID < model.PlatformTenantID {
+		return ErrLoginSessionMismatch
+	}
+	if user.TenantID == tenantID {
+		if tenantID == model.PlatformTenantID {
+			return nil
+		}
+		_, err := (model.TenantScope{TenantID: tenantID}).Membership(model.DB, user.Id, model.TenantMembershipRoleCustomer)
+		if errors.Is(err, model.ErrTenantMembershipMissing) {
+			return ErrLoginSessionMismatch
+		}
+		return err
+	}
+	if user.TenantID != model.PlatformTenantID || tenantID == model.PlatformTenantID {
+		return ErrLoginSessionMismatch
+	}
+	if _, err := (model.TenantScope{TenantID: tenantID}).Membership(model.DB, user.Id, model.TenantMembershipRoleOwner); err != nil {
+		if errors.Is(err, model.ErrTenantMembershipMissing) {
+			return ErrLoginSessionMismatch
+		}
+		return err
+	}
+	return nil
 }
 
 func newLoginSession(userID int, authVersion int64, loginMethod, ip, userAgent string) (*model.UserSession, string, error) {
@@ -148,6 +186,9 @@ func ValidateLoginSession(identity AuthIdentity) (*model.UserSession, *model.Use
 		return nil, nil, err
 	}
 	if user.Status != common.UserStatusEnabled || user.AuthVersion != identity.UserAuthVersion {
+		return nil, nil, ErrLoginSessionRevoked
+	}
+	if err := ValidateUserTenant(user, session.TenantID); err != nil {
 		return nil, nil, ErrLoginSessionRevoked
 	}
 	return session, user, nil
@@ -235,7 +276,7 @@ func advanceCurrentSessionToVersion(identity AuthIdentity, nextUserAuthVersion i
 	return issueAuthBundle(session, "", true)
 }
 
-func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*AuthBundle, *model.User, error) {
+func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string, tenantIDs ...int64) (*AuthBundle, *model.User, error) {
 	sid, secret, ok := splitRefreshToken(rawRefreshToken)
 	if !ok {
 		return nil, nil, ErrRefreshTokenInvalid
@@ -255,6 +296,16 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*A
 	}
 	userCache, err := model.GetUserCache(session.UserID)
 	if err != nil {
+		return nil, nil, err
+	}
+	tenantID := model.PlatformTenantID
+	if len(tenantIDs) > 0 {
+		tenantID = tenantIDs[0]
+	}
+	if session.TenantID != tenantID {
+		return nil, nil, ErrLoginSessionMismatch
+	}
+	if err := ValidateUserTenant(userCache, tenantID); err != nil {
 		return nil, nil, err
 	}
 	currentUser, err := model.GetSelfUserById(session.UserID)
@@ -314,8 +365,8 @@ func RefreshTokenSID(rawRefreshToken string) (string, bool) {
 	return sid, ok
 }
 
-func ListLoginSessions(userID int, currentSID string) ([]LoginSessionView, error) {
-	sessions, err := model.ListActiveUserSessions(userID, currentSID, time.Now().Unix())
+func ListLoginSessions(userID int, currentSID string, tenantIDs ...int64) ([]LoginSessionView, error) {
+	sessions, err := model.ListActiveUserSessions(userID, currentSID, time.Now().Unix(), tenantIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +392,7 @@ func WriteRefreshCookie(c *gin.Context, rawToken string) {
 		MaxAge:   maxAge,
 		Expires:  expiresAt,
 		HttpOnly: true,
-		Secure:   common.SessionCookieSecure,
+		Secure:   common.SessionCookieSecure || common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0,
 		SameSite: http.SameSiteStrictMode,
 	})
 	writeSessionHintCookie(c, maxAge, expiresAt)
@@ -355,7 +406,7 @@ func ClearRefreshCookie(c *gin.Context) {
 		MaxAge:   -1,
 		Expires:  time.Unix(1, 0),
 		HttpOnly: true,
-		Secure:   common.SessionCookieSecure,
+		Secure:   common.SessionCookieSecure || common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0,
 		SameSite: http.SameSiteStrictMode,
 	})
 	clearSessionHintCookie(c)
@@ -386,7 +437,7 @@ func writeSessionHintCookie(c *gin.Context, maxAge int, expiresAt time.Time) {
 		MaxAge:   maxAge,
 		Expires:  expiresAt,
 		HttpOnly: false,
-		Secure:   common.SessionCookieSecure,
+		Secure:   common.SessionCookieSecure || common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0,
 		SameSite: http.SameSiteStrictMode,
 	})
 }
@@ -399,7 +450,7 @@ func clearSessionHintCookie(c *gin.Context) {
 		MaxAge:   -1,
 		Expires:  time.Unix(1, 0),
 		HttpOnly: false,
-		Secure:   common.SessionCookieSecure,
+		Secure:   common.SessionCookieSecure || common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

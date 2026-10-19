@@ -21,13 +21,14 @@ import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 
+import { siteConfigQueryOptions } from '@/features/site-config'
 import { installAuthQueryCacheBoundary } from '@/lib/auth-query-cache'
-import { installBuildMetadata } from '@/lib/build-metadata'
 import '@/lib/dayjs'
+import { installBuildMetadata } from '@/lib/build-metadata'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { createAppQueryClient } from '@/lib/query-client'
-import { readCachedStatus, statusQueryOptions } from '@/lib/status-query'
+import { statusQueryOptions } from '@/lib/status-query'
 
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
@@ -81,20 +82,14 @@ if (!rootElement) {
       ) as HTMLMetaElement | null
       if (metaTitle) metaTitle.setAttribute('content', name)
     }
-    // Cache-first
-    const cached = readCachedStatus()
-    if (cached?.system_name) apply(cached.system_name as string)
-    if (cached?.logo) applyFaviconToDom(cached.logo as string)
-
-    // Background refresh through the shared cache. This primes ['status']
-    // before React mounts, so the root guard and every status consumer reuse
-    // this one request instead of firing their own. `fetchStatus` owns the
-    // localStorage write and the system-config store sync.
+    // The Host-derived response owns branding. Platform status remains the
+    // source for common feature flags and cannot overwrite a tenant's title.
+    void queryClient.ensureQueryData(statusQueryOptions).catch(() => {})
     queryClient
-      .ensureQueryData(statusQueryOptions)
-      .then((s) => {
-        if (s?.system_name) apply(s.system_name as string)
-        if (s?.logo) applyFaviconToDom(s.logo as string)
+      .ensureQueryData(siteConfigQueryOptions())
+      .then((site) => {
+        if (site.site_name) apply(site.site_name)
+        if (site.logo) applyFaviconToDom(site.logo)
       })
       .catch(() => {
         /* empty */

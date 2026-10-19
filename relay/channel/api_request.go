@@ -722,6 +722,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if err := service.ValidateMembershipOutbound(req, info); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	if err := service.ValidateTenantOutbound(req, info); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
 	c.Set(common2.UpstreamRequestIdKey, "")
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
@@ -773,11 +776,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	dispatchCtx = httptrace.WithClientTrace(dispatchCtx, &httptrace.ClientTrace{WroteHeaders: func() { possiblySent.Store(true) }, WroteRequest: func(httptrace.WroteRequestInfo) { possiblySent.Store(true) }})
 	req = req.WithContext(dispatchCtx)
 	resp, err := relayClient.Do(req)
-	if info.MembershipBillingRequestID != "" && err != nil {
-		info.MembershipOutcomeUnknown = possiblySent.Load()
-		if !info.MembershipOutcomeUnknown && info.MembershipBillingRequestID == info.RequestId {
+	if info.HasDurableBilling() && err != nil {
+		info.BillingOutcomeUnknown = possiblySent.Load()
+		if !info.BillingOutcomeUnknown && info.MembershipBillingRequestID != "" && info.MembershipBillingRequestID == info.RequestId {
 			if clearErr := model.ClearMembershipBillingRejectedAttempt(info.MembershipBillingRequestID, info.ChannelId); clearErr != nil {
-				info.MembershipOutcomeUnknown = true
+				info.BillingOutcomeUnknown = true
 				logger.LogError(c, "failed to close rejected membership attempt: "+clearErr.Error())
 			}
 		}
@@ -789,20 +792,23 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	if resp == nil {
 		cancelDispatch()
-		info.MembershipOutcomeUnknown = info.MembershipBillingRequestID != ""
+		info.BillingOutcomeUnknown = info.HasDurableBilling()
 		return nil, errors.New("resp is nil")
 	}
 	if info.MembershipBillingRequestID == info.RequestId && info.MembershipBillingRequestID != "" && resp.StatusCode >= 300 {
 		if ConfirmedMembershipRejection(resp) {
 			if clearErr := model.ClearMembershipBillingRejectedAttempt(info.MembershipBillingRequestID, info.ChannelId); clearErr != nil {
-				info.MembershipOutcomeUnknown = true
+				info.BillingOutcomeUnknown = true
 				cancelDispatch()
 				_ = resp.Body.Close()
 				return nil, types.NewError(clearErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 			}
 		} else {
-			info.MembershipOutcomeUnknown = true
+			info.BillingOutcomeUnknown = true
 		}
+	}
+	if info.TenantQuoteID > 0 && resp.StatusCode >= 300 && !ConfirmedMembershipRejection(resp) {
+		info.BillingOutcomeUnknown = true
 	}
 	info.SetUpstreamHeaderTime()
 

@@ -11,6 +11,7 @@ import (
 
 // QuotaData 柱状图数据
 type QuotaData struct {
+	TenantID  int64  `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	Id        int    `json:"id"`
 	UserID    int    `json:"user_id" gorm:"index"`
 	Username  string `json:"username" gorm:"index:idx_qdt_model_user_name,priority:2;size:64;default:''"`
@@ -26,6 +27,7 @@ type QuotaData struct {
 }
 
 type QuotaDataLogParams struct {
+	TenantID  int64
 	UserID    int
 	Username  string
 	ModelName string
@@ -42,7 +44,8 @@ var CacheQuotaData = make(map[string]*QuotaData)
 var CacheQuotaDataLock = sync.Mutex{}
 
 func logQuotaDataCache(quotaData *QuotaData) {
-	key := fmt.Sprintf("%d\x00%s\x00%s\x00%d\x00%s\x00%d\x00%d\x00%s",
+	key := fmt.Sprintf("%d\x00%d\x00%s\x00%s\x00%d\x00%s\x00%d\x00%d\x00%s",
+		quotaData.TenantID,
 		quotaData.UserID,
 		quotaData.Username,
 		quotaData.ModelName,
@@ -69,6 +72,7 @@ func LogQuotaData(params QuotaDataLogParams) {
 	// 只精确到小时
 	createdAt := params.CreatedAt - (params.CreatedAt % 3600)
 	quotaData := &QuotaData{
+		TenantID:  params.TenantID,
 		UserID:    params.UserID,
 		Username:  params.Username,
 		ModelName: params.ModelName,
@@ -120,14 +124,17 @@ func SaveQuotaDataCache() error {
 }
 
 func persistQuotaData(quotaData *QuotaData) error {
+	if err := snapshotUserTenant(DB, quotaData.UserID, &quotaData.TenantID); err != nil {
+		return err // Keep the cached bucket for the next flush instead of losing usage.
+	}
 	query, err := currentQuotaDataBuckets()
 	if err != nil {
 		return err
 	}
 	quotaDataDB := &QuotaData{}
 	err = query.
-		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
-			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
+		Where("tenant_id = ? and user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
+			quotaData.TenantID, quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 		First(quotaDataDB).Error
 	if err == nil {
 		return increaseQuotaData(quotaData)
@@ -160,8 +167,8 @@ func increaseQuotaData(quotaData *QuotaData) error {
 		return err
 	}
 	return query.
-		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
-			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
+		Where("tenant_id = ? and user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
+			quotaData.TenantID, quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 		Updates(map[string]interface{}{
 			"count":      gorm.Expr("count + ?", quotaData.Count),
 			"quota":      gorm.Expr("quota + ?", quotaData.Quota),

@@ -207,6 +207,10 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 }
 
 func ListModels(c *gin.Context, modelType int) {
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
+		listTenantModels(c, modelType)
+		return
+	}
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
 		userId := c.GetInt("id")
@@ -281,6 +285,10 @@ func ListModels(c *gin.Context, modelType int) {
 		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
 	}
 
+	respondModelList(c, modelType, userOpenAiModels)
+}
+
+func respondModelList(c *gin.Context, modelType int, userOpenAiModels []dto.OpenAIModels) {
 	switch modelType {
 	case constant.ChannelTypeAnthropic:
 		useranthropicModels := make([]dto.AnthropicModel, len(userOpenAiModels))
@@ -292,11 +300,16 @@ func ListModels(c *gin.Context, modelType int) {
 				Type:        "model",
 			}
 		}
+		firstID, lastID := "", ""
+		if len(useranthropicModels) > 0 {
+			firstID = useranthropicModels[0].ID
+			lastID = useranthropicModels[len(useranthropicModels)-1].ID
+		}
 		c.JSON(200, gin.H{
 			"data":     useranthropicModels,
-			"first_id": useranthropicModels[0].ID,
+			"first_id": firstID,
 			"has_more": false,
-			"last_id":  useranthropicModels[len(useranthropicModels)-1].ID,
+			"last_id":  lastID,
 		})
 	case constant.ChannelTypeGemini:
 		userGeminiModels := make([]dto.GeminiModel, len(userOpenAiModels))
@@ -327,6 +340,16 @@ func ChannelListModels(c *gin.Context) {
 }
 
 func DashboardListModels(c *gin.Context) {
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
+		names, err := tenantModelNames(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": map[int][]string{constant.ChannelTypeOpenAI: names}})
+		return
+	}
 	c.JSON(200, gin.H{
 		"success": true,
 		"data":    channelId2Models,
@@ -334,6 +357,15 @@ func DashboardListModels(c *gin.Context) {
 }
 
 func EnabledListModels(c *gin.Context) {
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
+		names, err := tenantModelNames(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": names})
+		return
+	}
 	c.JSON(200, gin.H{
 		"success": true,
 		"data":    model.GetEnabledModels(),
@@ -342,6 +374,24 @@ func EnabledListModels(c *gin.Context) {
 
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
+		names, err := tenantModelNames(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if !common.StringsContains(names, modelId) {
+			c.JSON(http.StatusNotFound, gin.H{"error": types.OpenAIError{Message: "model is unavailable", Type: "invalid_request_error", Code: "model_not_found"}})
+			return
+		}
+		aiModel := buildOpenAIModel(modelId, nil)
+		if modelType == constant.ChannelTypeAnthropic {
+			c.JSON(http.StatusOK, dto.AnthropicModel{ID: aiModel.Id, CreatedAt: time.Unix(int64(aiModel.Created), 0).UTC().Format(time.RFC3339), DisplayName: aiModel.Id, Type: "model"})
+		} else {
+			c.JSON(http.StatusOK, aiModel)
+		}
+		return
+	}
 	if aiModel, ok := openAIModelsMap[modelId]; ok {
 		switch modelType {
 		case constant.ChannelTypeAnthropic:

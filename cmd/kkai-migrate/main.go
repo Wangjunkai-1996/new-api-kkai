@@ -20,19 +20,20 @@ import (
 
 func main() {
 	var (
-		dsn            string
-		dsnFromStdin   bool
-		dryRun         bool
-		checkOnly      bool
-		currentOnly    bool
-		precheck       bool
-		describe       bool
-		dialect        string
-		minimumVersion int64
-		targetVersion  int64
-		observe        bool
-		jsonOutput     bool
-		timeout        time.Duration
+		dsn             string
+		dsnFromStdin    bool
+		dryRun          bool
+		checkOnly       bool
+		currentOnly     bool
+		precheck        bool
+		describe        bool
+		dialect         string
+		minimumVersion  int64
+		targetVersion   int64
+		tenantLogSchema string
+		observe         bool
+		jsonOutput      bool
+		timeout         time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -43,11 +44,20 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
-	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 4, 5, 6, 7, 8, 9, 10, or 11; omitted keeps the runtime target")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit maintenance target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 12; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
+	flag.StringVar(&tenantLogSchema, "tenant-log-schema", "", "separate LOG_DB tenant schema operation: apply, check, or status")
 	flag.Parse()
+	if tenantLogSchema != "" {
+		if tenantLogSchema != "apply" && tenantLogSchema != "check" && tenantLogSchema != "status" {
+			log.Fatal("--tenant-log-schema expects apply, check, or status")
+		}
+		if describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || jsonOutput {
+			log.Fatal("--tenant-log-schema cannot be combined with other operations")
+		}
+	}
 	if describe {
 		if strings.TrimSpace(dialect) == "" || !jsonOutput || observe || checkOnly || dryRun || currentOnly || precheck || minimumVersion != 0 || targetVersion != 0 || dsnFromStdin {
 			log.Fatal("--describe-contract requires --dialect and --json and cannot be combined with database operations")
@@ -60,8 +70,8 @@ func main() {
 		return
 	}
 	if precheck {
-		if !jsonOutput || targetVersion != kkaimigrate.AuthenticationSchemaVersion || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
-			log.Fatal("--precheck requires --target 8 and --json and cannot be combined with other operations")
+		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8 or 12 and --json and cannot be combined with other operations")
 		}
 	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
@@ -87,16 +97,16 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if tenantLogSchema != "" {
+		if err := runTenantLogSchema(ctx, db, tenantLogSchema, os.Stdout); err != nil {
+			log.Fatalf("KKAI tenant log schema failed: %v", err)
+		}
+		return
+	}
 	if precheck {
-		result, err := kkaimigrate.PrecheckAuthenticationExpand(ctx, db)
-		if err != nil {
-			log.Fatalf("KKAI authentication precheck failed: %v", err)
+		if err := runMigrationPrecheck(ctx, db, targetVersion, os.Stdout); err != nil {
+			log.Fatalf("KKAI migration precheck failed: %v", err)
 		}
-		encoded, err := common.Marshal(result)
-		if err != nil {
-			log.Fatal("failed to encode KKAI authentication precheck")
-		}
-		fmt.Println(string(encoded))
 		return
 	}
 	if observe {
@@ -142,10 +152,43 @@ func main() {
 	}
 }
 
+func runMigrationPrecheck(ctx context.Context, db *gorm.DB, target int64, output io.Writer) error {
+	var result any
+	var err error
+	var unsafeTenant bool
+	switch target {
+	case kkaimigrate.AuthenticationSchemaVersion:
+		result, err = kkaimigrate.PrecheckAuthenticationExpand(ctx, db)
+	case kkaimigrate.TenantSchemaVersion:
+		var report *kkaimigrate.TenantSchemaPrecheck
+		report, err = kkaimigrate.PrecheckTenantSchema(ctx, db)
+		result = report
+		unsafeTenant = report != nil && !report.Safe
+	default:
+		return fmt.Errorf("unsupported precheck target %d; expected 8 or 12", target)
+	}
+	if err != nil {
+		return err
+	}
+	encoded, err := common.Marshal(result)
+	if err != nil {
+		return err
+	}
+	if _, err = fmt.Fprintln(output, string(encoded)); err != nil {
+		return err
+	}
+	if unsafeTenant {
+		return fmt.Errorf("%w: tenant identities are invalid or ambiguous; operator repair required", kkaimigrate.ErrSchemaNotReady)
+	}
+	return nil
+}
+
 func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64, options kkaimigrate.Options) (*kkaimigrate.Result, error) {
 	switch targetVersion {
 	case 0:
 		return kkaimigrate.Apply(ctx, db, options)
+	case kkaimigrate.JobLeaseSchemaVersion:
+		return kkaimigrate.ApplyLegacyBaseline(ctx, db, options)
 	case kkaimigrate.OutboxEventKeySchemaVersion:
 		return kkaimigrate.ApplyOutboxEventKeyCompatibility(ctx, db, options)
 	case kkaimigrate.VideoStudioSchemaVersion:
@@ -162,8 +205,10 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		return kkaimigrate.ApplyImageAsyncExpand(ctx, db, options)
 	case kkaimigrate.MembershipSchemaVersion:
 		return kkaimigrate.ApplyMembershipExpand(ctx, db, options)
+	case kkaimigrate.TenantSchemaVersion:
+		return kkaimigrate.ApplyTenantSchema(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 4, 5, 6, 7, 8, 9, 10, or 11", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, or 12", targetVersion)
 	}
 }
 
@@ -216,4 +261,33 @@ func openDatabase(dsn string) (*gorm.DB, error) {
 
 func firstNonEmpty(values ...string) string {
 	return kkaischemacli.FirstNonEmpty(values...)
+}
+
+func runTenantLogSchema(ctx context.Context, db *gorm.DB, operation string, output io.Writer) error {
+	switch operation {
+	case "apply":
+		if err := kkaimigrate.ApplyTenantLogSchema(ctx, db, kkaimigrate.Options{}); err != nil {
+			return err
+		}
+	case "check":
+		if err := kkaimigrate.CheckTenantLogSchema(ctx, db); err != nil {
+			return err
+		}
+	case "status":
+		err := kkaimigrate.CheckTenantLogSchema(ctx, db)
+		result := struct {
+			Schema string `json:"schema"`
+			Ready  bool   `json:"ready"`
+		}{"kkai-tenant-log-v12", err == nil}
+		encoded, encodeErr := common.Marshal(result)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		_, writeErr := fmt.Fprintln(output, string(encoded))
+		return writeErr
+	default:
+		return fmt.Errorf("unsupported tenant log schema operation %q", operation)
+	}
+	_, err := fmt.Fprintln(output, "KKAI tenant log schema is ready")
+	return err
 }

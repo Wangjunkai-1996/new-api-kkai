@@ -19,6 +19,7 @@ const contract = {
     'task_plugins',
     'studio_media_urls',
     'token_group_inline',
+    'reseller_sites',
   ],
 }
 let queryClient: QueryClient
@@ -106,6 +107,25 @@ describe('useConsoleContract', () => {
       skipErrorHandler: true,
     })
     expect(result.current.required).toBe(true)
+  })
+
+  it('blocks independent delivery against a backend without reseller-site support', async () => {
+    vi.stubEnv('VITE_KKAI_FRONTEND_DELIVERY', 'independent')
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        ...contract,
+        capabilities: contract.capabilities.filter(
+          (name) => name !== 'reseller_sites'
+        ),
+      },
+    })
+    const { result } = renderHook(() => useConsoleContract(), {
+      wrapper: Wrapper,
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.required).toBe(true)
+    expect(result.current.contract?.api_contracts).toEqual([2])
+    expect(result.current.compatible).toBe(false)
   })
 
   it.each(['legacy', 'independent'])(

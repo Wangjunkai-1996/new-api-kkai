@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useCallback } from 'react'
 
+import { useSiteConfig } from '@/features/site-config'
 import { DEFAULT_LOGO } from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import { ensureStatus } from '@/lib/status-query'
@@ -62,6 +63,15 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   const queryClient = useQueryClient()
   const { config, loading, loadedLogoUrl, setLoadedLogoUrl, setLoading } =
     useSystemConfigStore()
+  const siteConfigQuery = useSiteConfig()
+  const site = siteConfigQuery.data
+  const logo =
+    site?.logo || ((site?.tenant_id ?? 0) > 0 ? DEFAULT_LOGO : config.logo)
+  const systemName = site?.site_name || config.systemName
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') document.title = systemName
+  }, [systemName])
 
   // Load config from backend via the shared `/api/status` cache.
   // `ensureStatus` writes the mapped config into this store itself, so there is
@@ -84,8 +94,6 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
 
   // Preload logo image when URL changes
   useEffect(() => {
-    const { logo } = config
-
     // Skip if logo is already loaded
     if (!logo || logo === loadedLogoUrl) return
 
@@ -106,11 +114,14 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.logo, loadedLogoUrl, setLoadedLogoUrl])
+  }, [logo, loadedLogoUrl, setLoadedLogoUrl])
 
   return {
     ...config,
-    loading,
-    logoLoaded: config.logo === loadedLogoUrl && !!loadedLogoUrl,
+    footerHtml: (site?.tenant_id ?? 0) > 0 ? undefined : config.footerHtml,
+    systemName,
+    logo,
+    loading: loading || siteConfigQuery.isLoading,
+    logoLoaded: logo === loadedLogoUrl && !!loadedLogoUrl,
   }
 }

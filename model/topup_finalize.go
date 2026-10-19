@@ -173,6 +173,9 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 		if err := lockForUpdate(tx).Where("id = ?", topUp.UserId).First(user).Error; err != nil {
 			return err
 		}
+		if topUp.TenantID != user.TenantID || (user.TenantID > 0 && (topUp.PaymentProvider != PaymentProviderEpay || topUp.Currency != ResellerCurrencyCNY || topUp.PaidMinor <= 0)) {
+			return ErrResellerFinanceInvalidInput
+		}
 		completion, err := input.Prepare(topUp, user)
 		if err != nil {
 			return err
@@ -208,13 +211,28 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 			return ErrTopUpQuotaInvalid
 		}
 
-		activeFromID, err := topUpRebateActiveFromID()
-		if err != nil {
-			return err
-		}
-		if int64(topUp.Id) >= activeFromID {
-			if err := enqueueTopUpCompletedEvent(tx, topUp, user, completion.QuotaDelta, completedAt); err != nil {
+		if topUp.TenantID > 0 {
+			fee, err := decimalCeilInt64(decimal.NewFromInt(topUp.PaidMinor).Mul(decimal.RequireFromString(ResellerPaymentFeeRate)))
+			if err != nil {
 				return err
+			}
+			_, err = CreateCustomerPaymentLotTx(tx, ResellerPaymentLotInput{
+				TenantID: topUp.TenantID, CustomerID: user.Id, TopUpID: int64(topUp.Id),
+				OperationID: fmt.Sprintf("topup:%d", topUp.Id), PaidMinor: topUp.PaidMinor,
+				PaymentFeeMinor: fee, CreditedQuota: completion.QuotaDelta, Now: completedAt,
+			})
+			if err != nil {
+				return err
+			}
+		} else {
+			activeFromID, err := topUpRebateActiveFromID()
+			if err != nil {
+				return err
+			}
+			if int64(topUp.Id) >= activeFromID {
+				if err := enqueueTopUpCompletedEvent(tx, topUp, user, completion.QuotaDelta, completedAt); err != nil {
+					return err
+				}
 			}
 		}
 

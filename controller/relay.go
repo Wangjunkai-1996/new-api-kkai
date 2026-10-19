@@ -325,8 +325,8 @@ func decideRelayRetry(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types
 		stop.Reason = "request_completed"
 		return stop
 	}
-	if info != nil && info.MembershipBillingRequestID != "" && info.MembershipOutcomeUnknown {
-		stop.Reason = "membership_outcome_unknown"
+	if info.HasDurableBilling() && info.BillingOutcomeUnknown {
+		stop.Reason = "billing_outcome_unknown"
 		return stop
 	}
 	if service.IsRequestCancelled(c, apiErr) {

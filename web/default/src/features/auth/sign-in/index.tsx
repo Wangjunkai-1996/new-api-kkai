@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { useSiteConfig } from '@/features/site-config'
 import { useStatus } from '@/hooks/use-status'
 
 import { AuthLayout } from '../auth-layout'
@@ -27,17 +28,28 @@ import { UserAuthForm } from './components/user-auth-form'
 
 export function SignIn() {
   const { t } = useTranslation()
-  const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const { redirect, owner_login } = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
+  const site = useSiteConfig()
+  const isTenant = (site.data?.tenant_id ?? 0) > 0
+  const ownerLogin = isTenant && owner_login === true
 
   return (
     <AuthLayout>
       <div className='w-full space-y-8'>
         <div className='space-y-2'>
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>
-            {t('Sign in')}
+            {ownerLogin ? t('Reseller management sign in') : t('Sign in')}
           </h2>
-          {!status?.self_use_mode_enabled &&
+          {ownerLogin && (
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Use your KKAI main-site account to manage this reseller site.'
+              )}
+            </p>
+          )}
+          {!ownerLogin &&
+            !status?.self_use_mode_enabled &&
             status?.register_enabled !== false && (
               <p className='text-muted-foreground text-left text-sm sm:text-base'>
                 {t("Don't have an account?")}{' '}
@@ -50,9 +62,28 @@ export function SignIn() {
                 .
               </p>
             )}
+          {isTenant && (
+            <Link
+              to='/sign-in'
+              search={
+                ownerLogin
+                  ? { owner_login: false, redirect: undefined }
+                  : { owner_login: true, redirect: '/reseller' }
+              }
+              className='text-primary inline-block text-sm font-medium underline underline-offset-4'
+            >
+              {ownerLogin
+                ? t('Customer sign in')
+                : t('Reseller management sign in')}
+            </Link>
+          )}
         </div>
 
-        <UserAuthForm redirectTo={redirect} />
+        <UserAuthForm
+          key={ownerLogin ? 'owner' : 'customer'}
+          ownerLogin={ownerLogin}
+          redirectTo={ownerLogin ? redirect || '/reseller' : redirect}
+        />
 
         <TermsFooter
           variant='sign-in'

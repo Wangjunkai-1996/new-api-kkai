@@ -2,12 +2,12 @@
 
 package kkaimigrate
 
-// The feature runtime requires the complete, verified membership schema.
+// This binary queries tenant columns even with tenant routing disabled. Both
+// build profiles require v12; the bridge tag does not promise old-schema rollback.
 const (
-	RuntimeMinVersion      int64 = MembershipSchemaVersion
-	RuntimeMaxVersion      int64 = MembershipSchemaVersion
-	MigrationTargetVersion int64 = MembershipSchemaVersion
-
+	RuntimeMinVersion      int64 = TenantSchemaVersion
+	RuntimeMaxVersion      int64 = TenantSchemaVersion
+	MigrationTargetVersion int64 = TenantSchemaVersion
 	RequiredRuntimeVersion int64 = RuntimeMinVersion
 	MaxCompatibleVersion   int64 = RuntimeMaxVersion
 )

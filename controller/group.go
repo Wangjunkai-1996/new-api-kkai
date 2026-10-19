@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -33,6 +35,27 @@ func GetGroups(c *gin.Context) {
 }
 
 func GetUserGroups(c *gin.Context) {
+	if tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID); tenantID > model.PlatformTenantID {
+		entries, err := service.NewTenantPricingService(model.DB).ResolveCatalog(c.Request.Context(), tenantID)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, entry := range entries {
+			if !entry.IsDefault {
+				continue
+			}
+			desc := setting.GetUsableGroupDescription(entry.SalesGroup)
+			common.ApiSuccess(c, map[string]map[string]interface{}{entry.SalesGroup: {
+				"ratio":        1,
+				"desc":         desc,
+				"display_name": setting.GetGroupDisplayNameWithFallback(entry.SalesGroup, desc),
+			}})
+			return
+		}
+		common.ApiSuccess(c, map[string]map[string]interface{}{})
+		return
+	}
 	usableGroups := make(map[string]map[string]interface{})
 	userGroup := ""
 	userId := c.GetInt("id")

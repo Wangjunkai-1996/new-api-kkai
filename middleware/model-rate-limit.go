@@ -85,7 +85,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 		rdb := common.RDB
 
 		// 1. 检查成功请求数限制
-		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
+		successKey := tenantRateLimitKey(c, fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId))
 		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
 		if err != nil {
 			fmt.Println("检查成功请求数限制失败:", err.Error())
@@ -99,7 +99,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
 		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s", userId)
+			totalKey := tenantRateLimitKey(c, fmt.Sprintf("rateLimit:%s", userId))
 			// 初始化
 			tb := limiter.New(ctx, rdb)
 			allowed, err = tb.Allow(
@@ -138,8 +138,8 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 
 	return func(c *gin.Context) {
 		userId := strconv.Itoa(c.GetInt("id"))
-		totalKey := ModelRequestRateLimitCountMark + userId
-		successKey := ModelRequestRateLimitSuccessCountMark + userId
+		totalKey := tenantRateLimitKey(c, ModelRequestRateLimitCountMark+userId)
+		successKey := tenantRateLimitKey(c, ModelRequestRateLimitSuccessCountMark+userId)
 
 		// 1. 检查总请求数限制（当totalMaxCount为0时跳过）
 		if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
@@ -185,6 +185,9 @@ func resolveModelRequestRateLimit(c *gin.Context) (totalMaxCount, successMaxCoun
 	}
 
 	username := common.GetContextKeyString(c, constant.ContextKeyUserName)
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
+		username = ""
+	} // Tenant usernames are not platform identities.
 	if userTotalCount, userSuccessCount, found := setting.GetUserRateLimit(c.GetInt("id"), username); found {
 		totalMaxCount = userTotalCount
 		successMaxCount = userSuccessCount

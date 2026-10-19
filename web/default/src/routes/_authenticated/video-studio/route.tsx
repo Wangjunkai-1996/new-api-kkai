@@ -22,18 +22,14 @@ import {
   canAccessVideoStudio,
   normalizeVideoStudioAccessMode,
 } from '@/features/video-studio/video-domain'
-import { getStatus } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
+import { statusQueryOptions } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/video-studio')({
   beforeLoad: async ({ context }) => {
     const status = await context.queryClient
-      .ensureQueryData({
-        queryKey: ['status'],
-        queryFn: getStatus,
-        staleTime: 5 * 60 * 1000,
-      })
+      .ensureQueryData(statusQueryOptions)
       .catch(() => null)
     const mode = normalizeVideoStudioAccessMode(status?.VideoStudioAccessMode)
     const role = useAuthStore.getState().auth.user?.role ?? ROLE.GUEST
