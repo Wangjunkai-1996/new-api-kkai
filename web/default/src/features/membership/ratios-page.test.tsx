@@ -248,6 +248,48 @@ describe('membership ratio comparison', () => {
     ).toBeVisible()
   })
 
+  it('fails clearly when an older backend omits group quotes instead of showing zero groups or savings', async () => {
+    const oldCatalog = { ...catalog }
+    delete oldCatalog.group_quotes
+    setMembership(oldCatalog)
+    await renderRatios()
+
+    expect(
+      screen.getByText(
+        'Membership information could not be loaded. Please refresh before purchasing.'
+      )
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('region', { name: 'Membership benefits summary' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('No matching groups')).not.toBeInTheDocument()
+    expect(screen.queryByText('0.18')).not.toBeInTheDocument()
+    expect(screen.queryByText('Save 10% vs wallet')).not.toBeInTheDocument()
+  })
+
+  it('does not present old locked benefit responses as current prices during a mixed backend rollout', async () => {
+    setMembership(catalog, {
+      ...membership,
+      discounts: membership.discounts.map((quote) => {
+        const legacyQuote = { ...quote }
+        delete legacyQuote.base_ratio
+        delete legacyQuote.savings
+        return legacyQuote
+      }),
+    })
+    await renderRatios()
+
+    expect(
+      screen.getByText(
+        'Membership information could not be loaded. Please refresh before purchasing.'
+      )
+    ).toBeVisible()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText('0.19')).not.toBeInTheDocument()
+    expect(screen.queryByText('Save 5% vs wallet')).not.toBeInTheDocument()
+  })
+
   it('separates latest offers from locked benefits even when the tier name is the same', async () => {
     await renderRatios()
     expect(screen.getByText('0.18')).toBeVisible()

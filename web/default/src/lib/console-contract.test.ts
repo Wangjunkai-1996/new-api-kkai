@@ -65,7 +65,7 @@ describe('console API compatibility', () => {
     ).toBe(false)
   })
 
-  it('rejects a backend that cannot provide membership ratio quotes', () => {
+  it('keeps the console compatible without optional membership quotes', () => {
     expect(
       supportsConsole({
         format_version: 1,
@@ -77,6 +77,6 @@ describe('console API compatibility', () => {
           'studio_media_urls',
         ],
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 })
