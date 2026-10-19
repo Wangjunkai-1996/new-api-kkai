@@ -168,6 +168,7 @@ export function VideoComposer(props: VideoComposerProps) {
     if (!restored) return
     initializedRef.current = true
     referenceSyncBlockedRef.current = restored.reference_asset_ids.length > 0
+    // oxlint-disable-next-line react/set-state-in-effect -- Restore reference hydration alongside the persisted form draft.
     setReferenceHydrationIds(restored.reference_asset_ids)
     form.reset(restored)
   }, [draft, form, props.models])
@@ -179,6 +180,7 @@ export function VideoComposer(props: VideoComposerProps) {
     )
     if (!profile) return
     referenceSyncBlockedRef.current = false
+    // oxlint-disable-next-line react/set-state-in-effect -- Synchronize the form and reference state with the selected catalog sample.
     setReferenceHydrationIds([])
     form.reset(buildVideoComposerValues(profile, props.sample))
     setReferenceAssets(getSampleReferenceAssets(props.sample, profile))
@@ -209,13 +211,16 @@ export function VideoComposer(props: VideoComposerProps) {
       referenceHydrationQueries
     )
     if (!hydratedReferences) return
+    // oxlint-disable-next-line react/set-state-in-effect -- Apply reference assets returned by the hydration queries.
     setReferenceAssets(hydratedReferences)
     referenceSyncBlockedRef.current = false
     setReferenceHydrationIds([])
   }, [referenceHydrationIds, referenceHydrationQueries])
 
+  const composerValuesAreDebounced =
+    JSON.stringify(values) === JSON.stringify(debouncedValues)
   const quoteRequest = useMemo(() => {
-    if (!videoTokenId) return null
+    if (!videoTokenId || !composerValuesAreDebounced) return null
     const parsed = videoComposerSchema.safeParse(debouncedValues)
     if (!parsed.success) return null
     const profile = props.models.find(
@@ -230,7 +235,13 @@ export function VideoComposer(props: VideoComposerProps) {
       videoTokenId,
       appliedSampleId
     )
-  }, [appliedSampleId, debouncedValues, props.models, videoTokenId])
+  }, [
+    appliedSampleId,
+    composerValuesAreDebounced,
+    debouncedValues,
+    props.models,
+    videoTokenId,
+  ])
 
   const quoteQuery = useVideoQuote(quoteRequest, quoteRequest !== null)
   const refetchQuote = quoteQuery.refetch
@@ -241,12 +252,11 @@ export function VideoComposer(props: VideoComposerProps) {
   const quoteRequestKey = quoteRequest
     ? getVideoSubmissionRequestKey(quoteRequest)
     : null
-  const composerValuesAreDebounced =
-    JSON.stringify(values) === JSON.stringify(debouncedValues)
   const quoteReady =
     quote !== undefined &&
     quoteKey !== invalidQuoteKey &&
     composerValuesAreDebounced &&
+    // oxlint-disable-next-line react/purity -- Recheck expiry on render in case the refresh timer was suspended in a background tab.
     !videoQuoteHasExpired(quote.expires_at, Math.floor(Date.now() / 1000))
   const quoteDisplay =
     quote?.display_amount || (quote ? formatQuota(quote.quota) : '')
@@ -254,6 +264,7 @@ export function VideoComposer(props: VideoComposerProps) {
   useEffect(() => {
     if (!quote || !quoteKey) return
 
+    // oxlint-disable-next-line react/set-state-in-effect -- Clear the expired quote marker when the query returns a replacement.
     setInvalidQuoteKey((current) =>
       current !== null && current !== quoteKey ? null : current
     )
@@ -367,6 +378,7 @@ export function VideoComposer(props: VideoComposerProps) {
     focusReferenceUploader()
   }
 
+  // oxlint-disable-next-line react/refs -- React Hook Form invokes this callback on submission, not during render.
   const handleSubmit = form.handleSubmit(async (submittedValues) => {
     if (!selectedProfile || !videoTokenId) return
     const validationError = validateComposerForProfile(
