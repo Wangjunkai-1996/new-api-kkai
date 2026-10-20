@@ -37,6 +37,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toIntlLocale } from '@/i18n/languages'
+import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { ImageGeneration } from '../types'
 
@@ -50,6 +55,11 @@ export function ImageGenerationDetails(props: {
 }) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.language)
+  const currency = useSystemConfigStore((state) => state.config.currency)
+  const quotaPerUnit =
+    currency.quotaPerUnit > 0
+      ? currency.quotaPerUnit
+      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const generation = props.generation
   const readyAssets =
     generation?.assets
@@ -186,7 +196,16 @@ export function ImageGenerationDetails(props: {
                   </div>
                   <div className='flex justify-between gap-4'>
                     <dt className='text-muted-foreground'>{t('Quota used')}</dt>
-                    <dd>{generation.final_quota.toLocaleString(locale)}</dd>
+                    <dd>
+                      {formatBillingCurrencyFromUSD(
+                        generation.final_quota / quotaPerUnit,
+                        {
+                          digitsLarge: 2,
+                          digitsSmall: 4,
+                          abbreviate: false,
+                        }
+                      )}
+                    </dd>
                   </div>
                   {Object.entries(generation.parameters).map(([key, value]) => (
                     <div key={key} className='flex justify-between gap-4'>

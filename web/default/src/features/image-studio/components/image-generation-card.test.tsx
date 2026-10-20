@@ -21,6 +21,8 @@ import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { describe, expect, test, vi } from 'vitest'
 
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
 import type {
   ImageAsset,
   ImageGeneration,
@@ -56,7 +58,7 @@ const generation = (
   status,
   requested_count: 3,
   succeeded_count: 3,
-  final_quota: 100,
+  final_quota: 20_000,
   started_at: 1,
   finished_at: 2,
   created_at: 1,
@@ -140,6 +142,15 @@ describe('image generation batch details', () => {
   test.each(['zhCN', 'zhTW'])(
     'renders dates and quota without crashing in %s',
     async (language) => {
+      const originalCurrency = useSystemConfigStore.getState().config.currency
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...originalCurrency,
+          quotaDisplayType: 'USD',
+          quotaPerUnit: 500_000,
+          usdExchangeRate: 1,
+        },
+      })
       await i18next.changeLanguage(language)
       try {
         render(
@@ -155,12 +166,53 @@ describe('image generation batch details', () => {
         expect(
           screen.getByRole('dialog', { name: 'Image details' })
         ).toBeVisible()
-        expect(screen.getByText('100')).toBeVisible()
+        expect(screen.getByText('$0.04')).toBeVisible()
       } finally {
         await i18next.changeLanguage('en')
+        useSystemConfigStore.getState().setConfig({
+          currency: originalCurrency,
+        })
       }
     }
   )
+
+  test('formats quota units as the configured billing currency', async () => {
+    const originalCurrency = useSystemConfigStore.getState().config.currency
+    try {
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...originalCurrency,
+          quotaDisplayType: 'CNY',
+          quotaPerUnit: 500_000,
+          usdExchangeRate: 7,
+        },
+      })
+      render(
+        <ImageGenerationDetails
+          generation={generation()}
+          refreshing={false}
+          onClose={vi.fn()}
+          onRegenerate={vi.fn()}
+          onDelete={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      )
+      expect(screen.getByText(/0\.28/)).toBeVisible()
+
+      useSystemConfigStore.getState().setConfig({
+        currency: {
+          ...originalCurrency,
+          quotaDisplayType: 'TOKENS',
+          quotaPerUnit: 500_000,
+        },
+      })
+      await waitFor(() => expect(screen.getByText('$0.04')).toBeVisible())
+    } finally {
+      useSystemConfigStore.getState().setConfig({
+        currency: originalCurrency,
+      })
+    }
+  })
 
   test('preserves every preview and download in asset order and clearly deletes a whole batch', async () => {
     const item = generation()
@@ -187,7 +239,7 @@ describe('image generation batch details', () => {
         .map((link) => link.getAttribute('href'))
     ).toEqual(['/download-0.png', '/download-1.png', '/download-2.png'])
     expect(screen.getByText('Quota used')).toBeVisible()
-    expect(screen.getByText('100')).toBeVisible()
+    expect(screen.getByText('$0.04')).toBeVisible()
     await userEvent.click(
       screen.getByRole('button', { name: 'Delete this batch' })
     )
