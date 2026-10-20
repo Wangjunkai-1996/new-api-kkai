@@ -41,6 +41,7 @@ func tenantRouteEnabled(method, route, path string) bool {
 	switch method + " " + route {
 	case "GET /api/status", "GET /api/site-config", "GET /api/site-logo", "GET /api/notice",
 		"GET /api/home_page_content", "GET /api/pricing", "GET /api/models",
+		"GET /api/perf-metrics", "GET /api/perf-metrics/summary", "GET /api/audit/self",
 		"GET /api/user-agreement", "GET /api/privacy-policy", "GET /api/about",
 		"GET /api/verification", "GET /api/reset_password", "POST /api/user/reset",
 		"GET /api/user/login/encryption-key", "POST /api/user/register", "POST /api/user/login",

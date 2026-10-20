@@ -30,6 +30,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { TitledCard } from '@/components/ui/titled-card'
 import type { UserProfile } from '@/features/profile/types'
+import { useSiteConfig } from '@/features/site-config'
 
 import { AccessTokensCard } from './components/access-tokens-card'
 import { AccountActionCard } from './components/account-action-card'
@@ -48,6 +49,7 @@ type ProfileSecurityProps = {
 
 export function ProfileSecurity(props: ProfileSecurityProps) {
   const { t } = useTranslation()
+  const { data: site } = useSiteConfig()
   const profile = props.profile
 
   let content: ReactNode
@@ -107,7 +109,7 @@ export function ProfileSecurity(props: ProfileSecurityProps) {
               {t('Sessions & Access')}
             </h3>
             <LoginSessionsCard />
-            <AccessTokensCard />
+            {site?.tenant_id === 0 && <AccessTokensCard />}
           </section>
           <section aria-labelledby='security-account' className='space-y-4'>
             <h3 id='security-account' className='text-sm font-semibold'>

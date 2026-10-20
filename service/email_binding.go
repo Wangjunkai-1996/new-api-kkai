@@ -53,7 +53,7 @@ func ValidateAccountEmail(email string) (string, error) {
 	return email, nil
 }
 
-func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAuthorization, email string) (*EmailBindingData, error) {
+func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAuthorization, email, siteName string) (*EmailBindingData, error) {
 	email, err := ValidateAccountEmail(email)
 	if err != nil {
 		return nil, err
@@ -80,19 +80,19 @@ func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAutho
 	if err != nil {
 		return nil, err
 	}
-	if err := sendEmailBindingCodes(state, codes); err != nil {
+	if err := sendEmailBindingCodes(state, codes, siteName); err != nil {
 		// A partially delivered pair must not leave a usable change request.
 		_, _ = model.ConsumeAuthFlow(token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeEmailBinding, UserId: identity.UserID, SessionId: identity.SessionID})
 		return nil, ErrEmailBindingDelivery
 	}
 	data := emailBindingData(token, flow, &state)
 	if state.CurrentEmail != "" && !requireOld {
-		data.NotificationWarning = NotifyAccountSecurityChange(state.CurrentEmail, "A change of your email address was requested") != nil
+		data.NotificationWarning = NotifyAccountSecurityChangeForSite(state.CurrentEmail, "A change of your email address was requested", siteName) != nil
 	}
 	return data, nil
 }
 
-func ResendAccountEmailBinding(identity AuthIdentity, token string) (*EmailBindingData, error) {
+func ResendAccountEmailBinding(identity AuthIdentity, token, siteName string) (*EmailBindingData, error) {
 	_, state, err := model.GetEmailBinding(identity, token)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func ResendAccountEmailBinding(identity AuthIdentity, token string) (*EmailBindi
 	if err != nil {
 		return nil, err
 	}
-	if err := sendEmailBindingCodes(*state, codes); err != nil {
+	if err := sendEmailBindingCodes(*state, codes, siteName); err != nil {
 		_, _ = model.ConsumeAuthFlow(token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeEmailBinding, UserId: identity.UserID, SessionId: identity.SessionID})
 		return nil, ErrEmailBindingDelivery
 	}
@@ -177,15 +177,15 @@ func generateEmailBindingCodes(requireOld bool) (emailBindingCodes, error) {
 	return codes, nil
 }
 
-func sendEmailBindingCodes(state model.EmailBindingState, codes emailBindingCodes) error {
-	subject := common.SystemName + " — Confirm your email address"
+func sendEmailBindingCodes(state model.EmailBindingState, codes emailBindingCodes, siteName string) error {
+	subject := siteName + " — Confirm your email address"
 	content := fmt.Sprintf("<p>Confirm linking this email address to your account.</p><p>Verification code: <strong>%s</strong></p><p>This code expires in 10 minutes. If you did not request this change, do not share this code.</p>", html.EscapeString(codes.New))
-	if err := common.SendEmail(subject, state.Email, content); err != nil {
+	if err := common.SendEmailWithSenderName(subject, state.Email, content, siteName); err != nil {
 		return err
 	}
 	if codes.Old != "" {
 		content = fmt.Sprintf("<p>A change to your account email address was requested. Confirm replacing your current address.</p><p>Verification code: <strong>%s</strong></p><p>This code expires in 10 minutes. If you did not request this change, do not share this code and contact your administrator.</p>", html.EscapeString(codes.Old))
-		return common.SendEmail(subject, state.CurrentEmail, content)
+		return common.SendEmailWithSenderName(subject, state.CurrentEmail, content, siteName)
 	}
 	return nil
 }

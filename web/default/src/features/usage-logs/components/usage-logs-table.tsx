@@ -27,6 +27,7 @@ import {
   DataTableRow,
   useDataTable,
 } from '@/components/data-table'
+import { useSiteConfig } from '@/features/site-config'
 import {
   getAdminPlans,
   getSelfSubscriptionFull,
@@ -98,9 +99,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
   const userId = useAuthStore((state) => state.auth.user?.id)
-  const { data: showBillingSource = false } = useQuery({
-    queryKey: ['usage-log-billing-source', isAdmin, userId],
-    enabled: logCategory === 'common' && userId != null,
+  const { data: site } = useSiteConfig()
+  const platformSite = site?.tenant_id === 0
+  const { data: billingSourceAvailable = false } = useQuery({
+    queryKey: ['usage-log-billing-source', site?.tenant_id, isAdmin, userId],
+    enabled: platformSite && logCategory === 'common' && userId != null,
     queryFn: async () => {
       if (isAdmin) {
         const plansResult = await getAdminPlans()
@@ -121,6 +124,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       })
     },
   })
+  const showBillingSource = platformSite && billingSourceAvailable
 
   const {
     columnFilters,

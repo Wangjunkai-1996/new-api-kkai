@@ -26,7 +26,7 @@ import {
 } from '@tanstack/react-router'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
@@ -36,6 +36,15 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 import { usageLogSchema } from '../../data/schema'
 import { UsageLogsProvider, useUsageLogsContext } from '../usage-logs-provider'
 import { UsageLogsTable } from '../usage-logs-table'
+
+const site = vi.hoisted(() => ({ tenant_id: 0 }))
+vi.mock('@/features/site-config', () => ({
+  useSiteConfig: () => ({ data: site }),
+}))
+
+beforeEach(() => {
+  site.tenant_id = 0
+})
 
 function LogsFixture() {
   const { viewScope, setViewScope } = useUsageLogsContext()
@@ -193,4 +202,23 @@ test('uses personal subscriptions when an admin switches to only-self view', asy
 
   await user.click(screen.getByRole('button', { name: 'Switch scope' }))
   expect(await screen.findByRole('img', { name: 'Wallet' })).toBeVisible()
+})
+
+test('loads reseller usage logs without requesting platform subscriptions', async () => {
+  site.tenant_id = 42
+  await renderLogs({
+    role: ROLE.USER,
+    enabledPlans: [true],
+    activeSubscription: true,
+  })
+
+  expect(api.get).toHaveBeenCalledWith(
+    expect.stringMatching(/^\/api\/log\/self\?/)
+  )
+  expect(
+    vi
+      .mocked(api.get)
+      .mock.calls.some(([url]) => url.startsWith('/api/subscription/'))
+  ).toBe(false)
+  expect(screen.queryByRole('img', { name: 'Wallet' })).not.toBeInTheDocument()
 })

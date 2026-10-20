@@ -46,7 +46,12 @@ func EmailBindStart(c *gin.Context) {
 	if authorization == nil {
 		return
 	}
-	data, err := service.StartEmailBinding(identity, authorization, email)
+	siteName, err := accountEmailSiteName(c)
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	data, err := service.StartEmailBinding(identity, authorization, email, siteName)
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -70,7 +75,12 @@ func EmailBindResend(c *gin.Context) {
 		writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
 		return
 	}
-	data, err := service.ResendAccountEmailBinding(identity, request.FlowToken)
+	siteName, err := accountEmailSiteName(c)
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
+	data, err := service.ResendAccountEmailBinding(identity, request.FlowToken, siteName)
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
@@ -94,14 +104,19 @@ func EmailBind(c *gin.Context) {
 		writeSecurityOperationError(c, model.ErrAuthFlowInvalid)
 		return
 	}
+	siteName, err := accountEmailSiteName(c)
+	if err != nil {
+		writeSecurityOperationError(c, err)
+		return
+	}
 	state, err := service.FinishEmailBinding(identity, request.FlowToken, request.NewCode, request.OldCode)
 	if err != nil {
 		writeSecurityOperationError(c, err)
 		return
 	}
 	succeeded = true
-	notificationFailed = service.NotifyAccountSecurityChange(state.CurrentEmail, "Email address changed") != nil
-	if err := service.NotifyAccountSecurityChange(state.Email, "Email address confirmed"); err != nil {
+	notificationFailed = service.NotifyAccountSecurityChangeForSite(state.CurrentEmail, "Email address changed", siteName) != nil
+	if err := service.NotifyAccountSecurityChangeForSite(state.Email, "Email address confirmed", siteName); err != nil {
 		notificationFailed = true
 	}
 	if err := model.PublishUserAuthCache(identity.UserID); err != nil {

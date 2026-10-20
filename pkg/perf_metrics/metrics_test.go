@@ -260,6 +260,29 @@ func TestPerformanceAggregationAndFlush(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 98.04, combined.Summary.SuccessRate)
 			assert.Equal(t, 99.01, combined.Models[0].SuccessRate)
+
+			// The catalog authorizes model/group pairs, not their independent
+			// unions. Neither persisted nor unflushed private samples may leak.
+			public := &atomicBucket{}
+			public.add(Sample{Success: true, LatencyMs: 2000})
+			hotBuckets.Store(bucketKey{model: "second-model", group: "b", bucketTs: hour}, public)
+			private := &atomicBucket{}
+			private.add(Sample{LatencyMs: 900000})
+			hotBuckets.Store(bucketKey{model: "hidden-model", group: "a", bucketTs: hour}, private)
+			hotBuckets.Store(bucketKey{model: "test-model", group: "b", bucketTs: hour}, private)
+			scoped, err := QuerySummaryForModels(24, map[string][]string{"test-model": {"a"}, "second-model": {"b"}})
+			require.NoError(t, err)
+			require.NotNil(t, scoped.Summary)
+			assert.Equal(t, Summary{AvgLatencyMs: 1009, SuccessRate: 100, AvgTps: 5}, *scoped.Summary)
+			require.Len(t, scoped.Models, 2)
+			assert.Equal(t, "test-model", scoped.Models[0].ModelName)
+			assert.Equal(t, 100.0, scoped.Models[0].RecentSuccessSeries[0].SuccessRate)
+			assert.Equal(t, "second-model", scoped.Models[1].ModelName)
+			assert.Equal(t, 100.0, scoped.Models[1].SuccessRate)
+			emptyCatalog, err := QuerySummaryForModels(24, nil)
+			require.NoError(t, err)
+			assert.Nil(t, emptyCatalog.Summary)
+			assert.Empty(t, emptyCatalog.Models)
 		})
 	}
 }

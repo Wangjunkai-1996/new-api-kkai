@@ -988,13 +988,18 @@ func UpdateSelf(c *gin.Context) {
 		if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: scope}) == nil {
 			return
 		}
+		siteName, err := accountEmailSiteName(c)
+		if err != nil {
+			writeSecurityOperationError(c, err)
+			return
+		}
 		cleanUser.OriginalPassword = user.OriginalPassword
 		if err := model.ChangeUserPassword(identity, &cleanUser, firstPassword); err != nil {
 			writeSecurityOperationError(c, err)
 			return
 		}
 		succeeded = true
-		notificationFailed = service.NotifyAccountSecurityChange(current.Email, "Password updated") != nil
+		notificationFailed = service.NotifyAccountSecurityChangeForSite(current.Email, "Password updated", siteName) != nil
 		if err := model.PublishUserAuthCache(cleanUser.Id); err != nil {
 			writeSecurityOperationError(c, err)
 			return

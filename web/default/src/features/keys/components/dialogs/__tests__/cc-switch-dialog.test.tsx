@@ -21,6 +21,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { getSiteConfigQueryKey } from '@/features/site-config'
 import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -33,6 +34,12 @@ beforeEach(() => {
   useAuthStore.getState().auth.setUser({ id: 42, username: 'cc-test', role: 1 })
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  })
+  queryClient.setQueryData(getSiteConfigQueryKey(), {
+    tenant_id: 0,
+    hostname: window.location.host,
+    status: 'active',
+    site_name: 'KKAI',
   })
 })
 

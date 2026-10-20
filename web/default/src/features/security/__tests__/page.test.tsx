@@ -36,8 +36,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { UserProfile } from '@/features/profile/types'
 import { api } from '@/lib/api'
+import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import { Route as ProfileRoute } from '@/routes/_authenticated/profile'
 import { useAuthStore } from '@/stores/auth-store'
+
+const site = vi.hoisted(() => ({ tenant_id: 0 }))
+vi.mock('@/features/site-config', () => ({
+  useSiteConfig: () => ({ data: site }),
+}))
 
 const profile: UserProfile = {
   id: 1,
@@ -60,6 +66,7 @@ const profile: UserProfile = {
 }
 
 beforeEach(() => {
+  site.tenant_id = 0
   vi.stubGlobal('localStorage', {
     getItem: () => null,
     setItem: () => undefined,
@@ -113,7 +120,7 @@ async function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  client.setQueryData(['status'], {
+  client.setQueryData(STATUS_QUERY_KEY, {
     checkin_enabled: false,
     wechat_login: true,
     github_oauth: true,
@@ -154,6 +161,18 @@ async function renderPage() {
 }
 
 describe('personal settings security integration', () => {
+  it('keeps reseller account security usable without platform access-token requests', async () => {
+    site.tenant_id = 42
+    await renderPage()
+    expect(await screen.findByText('No active login sessions')).toBeVisible()
+    expect(screen.queryByText('Access tokens')).not.toBeInTheDocument()
+    expect(
+      vi
+        .mocked(api.get)
+        .mock.calls.some(([url]) => url.startsWith('/api/user/access_tokens'))
+    ).toBe(false)
+  })
+
   it('exposes all account security controls through the real profile route', async () => {
     await renderPage()
     const login = await screen.findByRole('region', {

@@ -248,6 +248,29 @@ func Query(params QueryParams) (QueryResult, error) {
 }
 
 func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
+	return querySummary(hours, groups, nil)
+}
+
+// QuerySummaryForModels limits every aggregate to the supplied model/group
+// pairs. An empty catalog returns no data, including the overall summary.
+func QuerySummaryForModels(hours int, modelGroups map[string][]string) (SummaryAllResult, error) {
+	allowed := make(map[string]map[string]struct{}, len(modelGroups))
+	groups := make(map[string]struct{})
+	for name, names := range modelGroups {
+		allowed[name] = make(map[string]struct{}, len(names))
+		for _, group := range names {
+			allowed[name][group] = struct{}{}
+			groups[group] = struct{}{}
+		}
+	}
+	groupNames := make([]string, 0, len(groups))
+	for group := range groups {
+		groupNames = append(groupNames, group)
+	}
+	return querySummary(hours, groupNames, allowed)
+}
+
+func querySummary(hours int, groups []string, modelGroups map[string]map[string]struct{}) (SummaryAllResult, error) {
 	startTs, endTs := queryWindow(time.Now(), hours)
 	allowedGroups := allowedGroupSet(groups)
 
@@ -259,6 +282,11 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	totals := map[string]counters{}
 	modelBuckets := map[string]map[int64]counters{}
 	for _, row := range rows {
+		if modelGroups != nil {
+			if _, ok := modelGroups[row.ModelName][row.Group]; !ok {
+				continue
+			}
+		}
 		value := counters{
 			requestCount:   row.RequestCount,
 			successCount:   row.SuccessCount,
@@ -274,6 +302,11 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		k := key.(bucketKey)
 		if k.bucketTs < startTs || k.bucketTs > endTs {
 			return true
+		}
+		if modelGroups != nil {
+			if _, ok := modelGroups[k.model][k.group]; !ok {
+				return true
+			}
 		}
 		if allowedGroups != nil {
 			if _, ok := allowedGroups[k.group]; !ok {

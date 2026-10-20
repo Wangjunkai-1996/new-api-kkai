@@ -11,12 +11,14 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -293,6 +295,30 @@ func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")
 	}
+}
+
+func TestSendEmailUsesSiteSenderNameWithoutChangingPlatform(t *testing.T) {
+	withSMTPSettings(t)
+	SystemName = "Platform Mail"
+	SMTPAccount, SMTPFrom, SMTPToken = "", "sender@example.com", ""
+	SMTPSSLEnabled, SMTPStartTLSEnabled = false, false
+	for _, siteName := range []string{"Tenant Mail", "代理站 & Company"} {
+		t.Run(siteName, func(t *testing.T) {
+			server := newFakeSMTPServerWithSTARTTLSAdvertisement(t, false)
+			t.Cleanup(server.close)
+			SMTPServer, SMTPPort = server.host, server.port
+			require.NoError(t, SendEmailWithSenderName("Verification", "receiver@example.com", "<p>123456</p>", siteName))
+			message, err := mail.ReadMessage(strings.NewReader(<-server.messages))
+			require.NoError(t, err)
+			from, err := message.Header.AddressList("From")
+			require.NoError(t, err)
+			require.Len(t, from, 1)
+			assert.Equal(t, siteName, from[0].Name)
+			assert.Equal(t, SMTPFrom, from[0].Address)
+			assert.Equal(t, "Platform Mail", SystemName)
+		})
+	}
+	assert.ErrorContains(t, SendEmailWithSenderName("Verification", "receiver@example.com", "", "Tenant\r\nBcc: other@example.com"), "invalid email sender name")
 }
 
 func TestSendEmailExplicitStartTLSRequiresServerSupport(t *testing.T) {

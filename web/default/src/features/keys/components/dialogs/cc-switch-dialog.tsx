@@ -27,6 +27,7 @@ import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { useSystemConfig } from '@/hooks/use-system-config'
 import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { getStatusStorageKey } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
@@ -36,7 +37,6 @@ import { getTokenModels } from '../../api'
 const APP_CONFIGS = {
   claude: {
     label: 'Claude',
-    defaultName: 'KKAI',
     modelFields: [
       { key: 'model', labelKey: 'Primary Model', required: true },
       { key: 'haikuModel', labelKey: 'Haiku Model', required: false },
@@ -46,12 +46,10 @@ const APP_CONFIGS = {
   },
   codex: {
     label: 'Codex',
-    defaultName: 'KKAI',
     modelFields: [{ key: 'model', labelKey: 'Primary Model', required: true }],
   },
   gemini: {
     label: 'Gemini',
-    defaultName: 'KKAI',
     modelFields: [{ key: 'model', labelKey: 'Primary Model', required: true }],
   },
 } as const
@@ -186,9 +184,11 @@ interface Props {
 
 export function CCSwitchDialog(props: Props) {
   const { t } = useTranslation()
+  const { systemName } = useSystemConfig()
   const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const [app, setApp] = useState<AppType>('claude')
-  const [name, setName] = useState<string>(APP_CONFIGS.claude.defaultName)
+  const [customName, setCustomName] = useState<string | null>(null)
+  const name = customName ?? systemName
   const [models, setModels] = useState<Record<string, string>>({})
 
   const modelsQuery = useQuery({
@@ -226,7 +226,7 @@ export function CCSwitchDialog(props: Props) {
 
       setApp('claude')
 
-      setName(APP_CONFIGS.claude.defaultName)
+      setCustomName(null)
     }
   }, [props.open, props.tokenId])
 
@@ -235,7 +235,7 @@ export function CCSwitchDialog(props: Props) {
   const handleAppChange = (val: string) => {
     const appVal = val as AppType
     setApp(appVal)
-    setName(APP_CONFIGS[appVal].defaultName)
+    setCustomName(null)
     setModels({})
   }
 
@@ -300,8 +300,8 @@ export function CCSwitchDialog(props: Props) {
           <Input
             id='cc-switch-name'
             value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={currentConfig.defaultName}
+            onChange={(event) => setCustomName(event.target.value)}
+            placeholder={systemName}
           />
         </div>
 

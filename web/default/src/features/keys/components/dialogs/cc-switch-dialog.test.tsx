@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { getSiteConfigQueryKey } from '@/features/site-config'
 import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { buildCCSwitchURL, CCSwitchDialog } from './cc-switch-dialog'
 
@@ -48,17 +50,24 @@ function dialogTree(queryClient: QueryClient, tokenId: number, open = true) {
   )
 }
 
-function renderDialog(tokenId = 1) {
+function renderDialog(tokenId = 1, siteName = 'KKAI', tenantId = 0) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   queryClients.push(queryClient)
+  queryClient.setQueryData(getSiteConfigQueryKey(), {
+    tenant_id: tenantId,
+    hostname: window.location.host,
+    status: 'active',
+    site_name: siteName,
+  })
 
   return { queryClient, ...render(dialogTree(queryClient, tokenId)) }
 }
 
 describe('CC Switch dialog', () => {
   beforeEach(() => {
+    useSystemConfigStore.getState().setConfig({ systemName: 'KKAI' })
     useAuthStore.getState().auth.setUser({
       id: 42,
       username: 'cc-switch-user',
@@ -197,6 +206,70 @@ describe('CC Switch dialog', () => {
     expect(
       screen.getByRole('button', { name: 'Open CC Switch' })
     ).toBeDisabled()
+  })
+
+  test('imports the current reseller site name for every application', async () => {
+    apiMocks.getTokenModels.mockResolvedValue({
+      success: true,
+      data: ['tenant-model'],
+    })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const user = userEvent.setup()
+    renderDialog(1, 'KKTest', 7)
+
+    for (const app of ['Claude', 'Gemini', 'Codex']) {
+      await user.click(screen.getByRole('radio', { name: app }))
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
+        'KKTest'
+      )
+    }
+    await user.click(screen.getByRole('combobox', { name: 'Primary Model' }))
+    await user.click(
+      await screen.findByRole('option', { name: 'tenant-model' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Open CC Switch' }))
+
+    expect(open).toHaveBeenCalledTimes(1)
+    const importedURL = new URL(String(open.mock.calls[0][0]))
+    expect(importedURL.searchParams.get('name')).toBe('KKTest')
+    expect(importedURL.searchParams.get('app')).toBe('codex')
+    expect(importedURL.searchParams.get('endpoint')).toBe(
+      `${window.location.origin}/v1`
+    )
+  })
+
+  test('refreshes the default site name without replacing a user-entered name', async () => {
+    apiMocks.getTokenModels.mockResolvedValue({ success: true, data: [] })
+    const user = userEvent.setup()
+    const rendered = renderDialog(1, '', 7)
+    const input = screen.getByRole('textbox', { name: 'Name' })
+    const key = getSiteConfigQueryKey()
+    await act(async () => {
+      rendered.queryClient.setQueryData(key, {
+        tenant_id: 7,
+        site_name: 'KKTest',
+      })
+    })
+    await waitFor(() => expect(input).toHaveValue('KKTest'))
+
+    await user.clear(input)
+    await user.type(input, 'Development')
+    await act(async () => {
+      rendered.queryClient.setQueryData(key, {
+        tenant_id: 7,
+        site_name: 'KKTest renamed',
+      })
+    })
+    await waitFor(() =>
+      expect(input).toHaveAttribute('placeholder', 'KKTest renamed')
+    )
+    expect(input).toHaveValue('Development')
+
+    rendered.rerender(dialogTree(rendered.queryClient, 1, false))
+    rendered.rerender(dialogTree(rendered.queryClient, 1, true))
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
+      'KKTest renamed'
+    )
   })
 
   test('includes the balance query configuration without a duplicate usage key', () => {
