@@ -265,6 +265,7 @@ export const createImageEdit = async (
 export const getImageGenerations = async (input: {
   cursor?: string
   model?: string
+  q?: string
   status?: ImageGenerationStatus
 }): Promise<CursorPage<ImageGeneration>> => {
   const response = await api.get('/api/image-studio/generations', {

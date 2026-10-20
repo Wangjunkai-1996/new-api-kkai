@@ -18,7 +18,7 @@ func ListImageStudioGenerations(c *gin.Context) {
 		return
 	}
 	page, err := service.ListImageGenerations(c.Request.Context(), model.DB, c.GetInt("id"), service.ImageGenerationFilter{
-		Model: c.Query("model"), Status: c.Query("status"), Cursor: c.Query("cursor"), Limit: limit,
+		Model: c.Query("model"), Query: c.Query("q"), Status: c.Query("status"), Cursor: c.Query("cursor"), Limit: limit,
 	})
 	if err != nil {
 		respondImageStudioError(c, err)

@@ -43,6 +43,39 @@ func TestListImageGenerationsIsUserScopedAndReturnsMediaURLs(t *testing.T) {
 	assert.Equal(t, first.ID, next.Items[0].ID)
 }
 
+func TestListImageGenerationsFiltersByPromptModelAndRequestID(t *testing.T) {
+	db := newImageLibraryTestDB(t)
+	promptMatch := createImageLibraryGeneration(t, db, 7, "A neon city at dusk")
+	modelMatch := createImageLibraryGeneration(t, db, 7, "A quiet forest")
+	requestMatch := createImageLibraryGeneration(t, db, 7, "A paper boat")
+	_ = createImageLibraryGeneration(t, db, 8, "A neon city at dusk")
+
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).
+		Where("id = ?", modelMatch.ID).
+		Updates(map[string]any{"model": "aurora-image"}).Error)
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).
+		Where("id = ?", requestMatch.ID).
+		Updates(map[string]any{"request_id": "receipt-needle"}).Error)
+
+	tests := []struct {
+		name  string
+		query string
+		want  int64
+	}{
+		{name: "prompt", query: "NEON CITY", want: promptMatch.ID},
+		{name: "model", query: "AURORA-IMAGE", want: modelMatch.ID},
+		{name: "request id", query: "RECEIPT-NEEDLE", want: requestMatch.ID},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			page, err := ListImageGenerations(context.Background(), db, 7, ImageGenerationFilter{Query: tt.query})
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			assert.Equal(t, tt.want, page.Items[0].ID)
+		})
+	}
+}
+
 func TestDeleteImageGenerationSoftDeletesAndEnqueuesPhysicalDeletion(t *testing.T) {
 	db := newImageLibraryTestDB(t)
 	generation := createImageLibraryGeneration(t, db, 7, "delete")

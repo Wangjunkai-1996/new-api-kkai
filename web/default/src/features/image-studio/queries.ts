@@ -77,7 +77,7 @@ export const imageStudioQueryKeys = {
     privateUserQueryKey(userId, 'image-studio', 'edit-quote', request),
   generations: (
     userId: number,
-    filters: { model?: string; status?: ImageGenerationStatus }
+    filters: { model?: string; q?: string; status?: ImageGenerationStatus }
   ) => privateUserQueryKey(userId, 'image-studio', 'generations', filters),
   adminModels: (userId: number) =>
     privateUserQueryKey(userId, 'image-studio', 'admin-models'),
@@ -228,7 +228,7 @@ export const useCreateImageEdit = () => {
 }
 
 export const useImageGenerations = (
-  filters: { model?: string; status?: ImageGenerationStatus } = {}
+  filters: { model?: string; q?: string; status?: ImageGenerationStatus } = {}
 ) => {
   const userId = useImageStudioUserId()
   return useInfiniteQuery({

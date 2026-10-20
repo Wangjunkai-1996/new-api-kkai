@@ -3,6 +3,98 @@
   isolation: isolate;
 }
 
+.image-library-hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.image-library-hero::before,
+.image-library-hero::after {
+  position: absolute;
+  z-index: -1;
+  width: 16rem;
+  height: 16rem;
+  border-radius: 999px;
+  content: '';
+  pointer-events: none;
+  filter: blur(32px);
+  opacity: 0.28;
+}
+
+.image-library-hero::before {
+  top: -11rem;
+  right: 8%;
+  background: color-mix(in oklch, var(--primary) 34%, transparent);
+}
+
+.image-library-hero::after {
+  bottom: -13rem;
+  left: 16%;
+  background: color-mix(
+    in oklch,
+    var(--chart-2, var(--primary)) 28%,
+    transparent
+  );
+}
+
+.image-library-date-group {
+  position: relative;
+}
+
+.image-library-date-heading {
+  position: relative;
+  min-height: 1.5rem;
+}
+
+.image-library-date-heading::before {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  z-index: -1;
+  height: 1px;
+  content: '';
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--primary) 34%, transparent),
+    transparent 76%
+  );
+}
+
+.image-library-date-heading h3,
+.image-library-date-heading span {
+  background: var(--background);
+}
+
+.image-library-date-dot {
+  position: relative;
+  display: inline-flex;
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: 0 0 auto;
+  border: 2px solid var(--background);
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow:
+    0 0 0 3px color-mix(in oklch, var(--primary) 20%, transparent),
+    0 0 18px color-mix(in oklch, var(--primary) 48%, transparent);
+}
+
+.image-library-date-group + .image-library-date-group::before {
+  position: absolute;
+  top: -2.5rem;
+  bottom: calc(100% - 0.7rem);
+  left: 0.32rem;
+  width: 1px;
+  content: '';
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--primary) 30%, transparent),
+    transparent
+  );
+}
+
 .image-work-card-pending::after {
   position: absolute;
   z-index: -1;
@@ -25,6 +117,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .image-library-hero::before,
+  .image-library-hero::after {
+    filter: none;
+  }
+
   .image-work-card-pending::after {
     animation: none;
   }

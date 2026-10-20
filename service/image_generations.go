@@ -22,6 +22,7 @@ var (
 
 type ImageGenerationFilter struct {
 	Model  string
+	Query  string
 	Status string
 	Cursor string
 	Limit  int
@@ -164,8 +165,10 @@ func ListImageGenerations(
 	filter ImageGenerationFilter,
 ) (*ImageGenerationPage, error) {
 	filter.Model = strings.TrimSpace(filter.Model)
+	filter.Query = strings.TrimSpace(filter.Query)
 	filter.Status = strings.TrimSpace(filter.Status)
 	if db == nil || userID <= 0 || len(filter.Model) > 191 || len(filter.Status) > 24 ||
+		len(filter.Query) > 191 ||
 		(filter.Status != "" && !validImageGenerationListStatus(filter.Status)) {
 		return nil, ErrInvalidImageGenerationFilter
 	}
@@ -186,6 +189,13 @@ func ListImageGenerations(
 	query := db.WithContext(ctx).Where("user_id = ? AND deleted_at = 0", userID)
 	if filter.Model != "" {
 		query = query.Where("model = ?", filter.Model)
+	}
+	if filter.Query != "" {
+		pattern := "%" + strings.ToLower(filter.Query) + "%"
+		query = query.Where(
+			"LOWER(prompt) LIKE ? OR LOWER(model) LIKE ? OR LOWER(request_id) LIKE ?",
+			pattern, pattern, pattern,
+		)
 	}
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)

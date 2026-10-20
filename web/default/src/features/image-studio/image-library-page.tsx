@@ -20,11 +20,13 @@ import {
   ArrowUp,
   FolderOpen,
   LoaderCircle,
+  Search,
+  X,
   RotateCw,
   Sparkles,
 } from 'lucide-react'
-import { useReducedMotion } from 'motion/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -47,6 +49,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
+import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
@@ -66,6 +69,60 @@ import type { ImageGeneration, ImageGenerationStatus } from './types'
 
 import './image-library.css'
 
+type ImageGenerationGroup = {
+  key: string
+  label: string
+  items: ImageGeneration[]
+}
+
+const calendarKey = (timestamp: number): string => {
+  const date = new Date(timestamp * 1000)
+  return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+    .map((part, index) =>
+      index === 0 ? String(part) : String(part).padStart(2, '0')
+    )
+    .join('-')
+}
+
+const isToday = (timestamp: number): boolean => {
+  const now = new Date()
+  return (
+    calendarKey(timestamp) === calendarKey(Math.floor(now.getTime() / 1000))
+  )
+}
+
+const matchesSearch = (generation: ImageGeneration, query: string): boolean => {
+  if (!query) return true
+  const normalized = query.toLocaleLowerCase()
+  return [generation.prompt, generation.model, generation.request_id].some(
+    (value) => value.toLocaleLowerCase().includes(normalized)
+  )
+}
+
+const groupGenerationsByDate = (
+  generations: ImageGeneration[],
+  locale: string
+): ImageGenerationGroup[] => {
+  const groups = new Map<string, ImageGeneration[]>()
+  for (const generation of generations) {
+    const key = calendarKey(generation.created_at)
+    const items = groups.get(key)
+    if (items) items.push(generation)
+    else groups.set(key, [generation])
+  }
+  return [...groups.entries()].map(([key, items]) => ({
+    key,
+    label: isToday(items[0]?.created_at ?? 0)
+      ? 'Today'
+      : new Intl.DateTimeFormat(locale, {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }).format(new Date((items[0]?.created_at ?? 0) * 1000)),
+    items,
+  }))
+}
+
 export function ImageLibraryPage(props: {
   targetGenerationId?: number
   onClearTarget?: () => void
@@ -78,10 +135,15 @@ function ImageLibraryContent(props: {
   targetGenerationId?: number
   onClearTarget?: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const reduceMotion = useReducedMotion()
   const [status, setStatus] = useState<ImageGenerationStatus | undefined>()
-  const query = useImageGenerations(status ? { status } : {})
+  const [searchDraft, setSearchDraft] = useState('')
+  const search = useDeferredValue(searchDraft.trim())
+  const query = useImageGenerations({
+    q: search || undefined,
+    status,
+  })
   const deleteMutation = useDeleteImageGeneration()
   const [deleteTarget, setDeleteTarget] = useState<ImageGeneration | null>(null)
   const [detailsTarget, setDetailsTarget] = useState<ImageGeneration | null>(
@@ -102,7 +164,8 @@ function ImageLibraryContent(props: {
     const byId = new Map<number, ImageGeneration>()
     if (
       submittedGeneration &&
-      (!status || submittedGeneration.status === status)
+      (!status || submittedGeneration.status === status) &&
+      matchesSearch(submittedGeneration, search)
     ) {
       byId.set(submittedGeneration.id, submittedGeneration)
     }
@@ -112,7 +175,7 @@ function ImageLibraryContent(props: {
     return [...byId.values()].sort(
       (left, right) => right.created_at - left.created_at || right.id - left.id
     )
-  }, [query.data, status, submittedGeneration])
+  }, [query.data, search, status, submittedGeneration])
   const details = detailsTarget
     ? (detailsQuery.data ??
       generations.find((generation) => generation.id === detailsTarget.id) ??
@@ -170,17 +233,20 @@ function ImageLibraryContent(props: {
   const [wallSnapshot, setWallSnapshot] = useState({
     source: generations,
     filter: status,
+    search,
     target: targetId,
     ids: generations.map((generation) => generation.id),
   })
   if (
     wallSnapshot.source !== generations ||
     wallSnapshot.filter !== status ||
+    wallSnapshot.search !== search ||
     wallSnapshot.target !== targetId
   ) {
     const ids = generations.map((generation) => generation.id)
     const mayInsert =
       wallSnapshot.filter !== status ||
+      wallSnapshot.search !== search ||
       nearTop ||
       wallSnapshot.target !== targetId
     const previousSet = new Set(wallSnapshot.ids)
@@ -196,6 +262,7 @@ function ImageLibraryContent(props: {
     setWallSnapshot({
       source: generations,
       filter: status,
+      search,
       target: targetId,
       ids: next,
     })
@@ -206,6 +273,10 @@ function ImageLibraryContent(props: {
     visibleSet.has(generation.id)
   )
   const deferredCount = signedGenerations.length - visibleGenerations.length
+  const dateGroups = useMemo(
+    () => groupGenerationsByDate(visibleGenerations, i18n.language),
+    [i18n.language, visibleGenerations]
+  )
   useEffect(() => {
     if (
       !targetId ||
@@ -289,48 +360,83 @@ function ImageLibraryContent(props: {
         onScroll={(event) => setNearTop(event.currentTarget.scrollTop < 160)}
         className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-5 pb-6 sm:px-5 sm:pt-6'
       >
-        <div className='mb-5 flex flex-wrap items-end justify-between gap-4'>
-          <div className='space-y-1.5'>
-            <div className='flex items-center gap-2'>
-              <Sparkles className='text-primary size-4' aria-hidden='true' />
-              <h2 className='text-lg font-semibold tracking-tight'>
-                {t('Your creations')}
-              </h2>
-              <span className='text-muted-foreground rounded-full border px-2 py-0.5 text-[10px]'>
-                {generations.length}
-              </span>
+        <motion.div
+          className='image-library-hero border-primary/10 from-primary/[0.08] via-card to-card mb-6 flex flex-col gap-5 rounded-3xl border bg-gradient-to-br p-4 shadow-sm sm:p-5'
+          initial={reduceMotion ? false : { opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            duration: reduceMotion ? 0 : 0.45,
+            ease: [0.22, 1, 0.36, 1],
+          }}
+        >
+          <div className='flex flex-wrap items-end justify-between gap-4'>
+            <div className='space-y-1.5'>
+              <div className='flex items-center gap-2'>
+                <Sparkles className='text-primary size-4' aria-hidden='true' />
+                <h2 className='text-lg font-semibold tracking-tight'>
+                  {t('Your creations')}
+                </h2>
+                <span className='text-muted-foreground bg-background/70 rounded-full border px-2 py-0.5 text-[10px]'>
+                  {generations.length}
+                </span>
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t('Explore your images. Keep creating.')}
+              </p>
             </div>
-            <p className='text-muted-foreground text-xs'>
-              {t('Explore your images. Keep creating.')}
-            </p>
-          </div>
-          <NativeSelect
-            className='w-40'
-            value={status ?? ''}
-            aria-label={t('imageStudio.filterStatus')}
-            onChange={(event) =>
-              setStatus(
-                (event.target.value as ImageGenerationStatus) || undefined
-              )
-            }
-          >
-            <NativeSelectOption value=''>
-              {t('imageStudio.allStatuses')}
-            </NativeSelectOption>
-            {[
-              'submitting',
-              'succeeded',
-              'partial',
-              'failed',
-              'archive_failed',
-              'unknown',
-            ].map((value) => (
-              <NativeSelectOption key={value} value={value}>
-                {t(`imageStudio.status.${value}`)}
+            <NativeSelect
+              className='w-40'
+              value={status ?? ''}
+              aria-label={t('imageStudio.filterStatus')}
+              onChange={(event) =>
+                setStatus(
+                  (event.target.value as ImageGenerationStatus) || undefined
+                )
+              }
+            >
+              <NativeSelectOption value=''>
+                {t('imageStudio.allStatuses')}
               </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </div>
+              {[
+                'submitting',
+                'succeeded',
+                'partial',
+                'failed',
+                'archive_failed',
+                'unknown',
+              ].map((value) => (
+                <NativeSelectOption key={value} value={value}>
+                  {t(`imageStudio.status.${value}`)}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+          <div className='relative max-w-2xl'>
+            <Search
+              className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2'
+              aria-hidden='true'
+            />
+            <Input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t('Search...')}
+              aria-label={t('Search')}
+              className='bg-background/80 h-10 rounded-xl pr-10 pl-9 shadow-sm'
+            />
+            {searchDraft && (
+              <Button
+                type='button'
+                variant='ghost'
+                size='icon-sm'
+                className='absolute top-1/2 right-1.5 -translate-y-1/2'
+                aria-label={t('Clear search')}
+                onClick={() => setSearchDraft('')}
+              >
+                <X aria-hidden='true' />
+              </Button>
+            )}
+          </div>
+        </motion.div>
         {deferredCount > 0 && visibleGenerations.length > 0 && (
           <div
             className='sticky top-2 z-10 mb-4 flex justify-center'
@@ -397,27 +503,68 @@ function ImageLibraryContent(props: {
               <EmptyMedia variant='icon'>
                 <FolderOpen aria-hidden='true' />
               </EmptyMedia>
-              <EmptyTitle>{t('imageStudio.libraryEmpty')}</EmptyTitle>
+              <EmptyTitle>
+                {search
+                  ? t(
+                      'No results for "{{query}}". Try adjusting your search or filters.',
+                      {
+                        query: search,
+                      }
+                    )
+                  : t('imageStudio.libraryEmpty')}
+              </EmptyTitle>
               <EmptyDescription>
-                {t('imageStudio.libraryEmptyDescription')}
+                {search
+                  ? t('No results found')
+                  : t('imageStudio.libraryEmptyDescription')}
               </EmptyDescription>
             </EmptyHeader>
+            {search && (
+              <Button variant='outline' onClick={() => setSearchDraft('')}>
+                {t('Clear search')}
+              </Button>
+            )}
           </Empty>
         )}
-        <div ref={galleryRef}>
-          {visibleGenerations.length > 0 && (
-            <ImageMasonry
-              items={visibleGenerations}
-              renderItem={(generation) => (
-                <ImageGenerationCard
-                  generation={generation}
-                  highlighted={generation.id === targetId}
-                  onDetails={setDetailsTarget}
-                  onRegenerate={regenerate}
-                />
-              )}
-            />
-          )}
+        <div ref={galleryRef} className='image-library-timeline space-y-10'>
+          {dateGroups.map((group, index) => (
+            <motion.section
+              key={group.key}
+              aria-labelledby={`image-group-${group.key}`}
+              className='image-library-date-group'
+              initial={reduceMotion ? false : { opacity: 0, y: 22 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: reduceMotion ? 0 : 0.42,
+                delay: reduceMotion ? 0 : Math.min(index, 8) * 0.08,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+            >
+              <div className='image-library-date-heading mb-3 flex items-center gap-3'>
+                <span className='image-library-date-dot' aria-hidden='true' />
+                <h3
+                  id={`image-group-${group.key}`}
+                  className='text-sm font-semibold tracking-tight'
+                >
+                  {group.label === 'Today' ? t('Today') : group.label}
+                </h3>
+                <span className='text-muted-foreground bg-background/70 rounded-full border px-2 py-0.5 text-[10px]'>
+                  {group.items.length}
+                </span>
+              </div>
+              <ImageMasonry
+                items={group.items}
+                renderItem={(generation) => (
+                  <ImageGenerationCard
+                    generation={generation}
+                    highlighted={generation.id === targetId}
+                    onDetails={setDetailsTarget}
+                    onRegenerate={regenerate}
+                  />
+                )}
+              />
+            </motion.section>
+          ))}
         </div>
         {query.hasNextPage && (
           <div className='flex justify-center py-6'>
