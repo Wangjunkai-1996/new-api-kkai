@@ -4,7 +4,22 @@
 
 本记录取代此前将代理站上线绑定到全站停写的发布建议。产品仍采用一套 NewAPI、一套主数据库和受限代理后台；本次只调整数据库与旧程序共存的交付路径。历史 v12/v13 定义、checksum 和原发布/恢复证据保留，不能将它们的验收结果算作 v14 的验收结果。
 
-兼容应用发布前，已安装精确控制器 `3bde016bd98c1231a361b3367617edfe66bbd04d`；安装自检、真实安装目录的 tenant preflight 入口及安装后主站 status 通过，对应 `make policy` 完整通过。生产在线增量扩展已完成 44/44 步，主账本仍为 11，旧用户名约束保留；尚未进行 contract、应用切流或代理业务开放。前一份产物的 stage 在创建候选前被 Python 安装路径缺陷拒绝；修复已有安装布局及兄弟延迟入口回归，发布须使用匹配最终控制器的新产物。扩展后的公网单次探测仅证明该时刻正常，不能声称覆盖扩展全程。全程未进入维护，`appdata` 固定 16 GiB，严禁扩容。生产状态必须另行通过已确认 infra 的 `make newapi-status` 现场观察，本文不以历史结果声明当前线上状态。
+兼容应用发布前，已安装精确控制器 `3bde016bd98c1231a361b3367617edfe66bbd04d`；安装自检、真实安装目录的 tenant preflight 入口及安装后主站 status 通过，对应 `make policy` 完整通过。生产在线增量扩展已完成 44/44 步，主账本仍为 11，旧用户名约束保留。首个 bridge A4 完成候选检查、完整 10/50/100 灰度及 promotion，但发布后错误窗未通过，已通过官方控制器回滚原版本；不能计为已验收的第一次 bridge 发布。尚未进行 contract 或代理业务开放。本轮在线扩展和蓝绿回滚未进入维护，`appdata` 固定 16 GiB，严禁扩容。生产状态必须另行通过已确认 infra 的 `make newapi-status` 现场观察，本文不以历史结果声明当前线上状态。
+
+2026-10-20 发布阻断记录（本段窗口均为 2026-10-19 UTC）：原版 baseline `23:17:50–23:22:50` 为 124 个 Relay 事件、0 错误；A4 `23:40:59–23:45:59` 为 161 个事件、19 个 502，分布于五分钟中的四分钟。官方 rollback 返回 `rolled-back`，恢复原版 `kkai-prod-20261019.1792407452-55744a4ed`；即时和后续 status 均为 HEALTHY、rollback ready，两公网入口返回精确原版本。回滚后 `23:51:00–23:56:00` 为 157 个事件、1 个 404、0 个 502。19 是含重试的错误事件数，不能当作用户失败数，时间关联也不能替代根因。后续资金 bridge、contract14、新前端激活及业务 Edge 均停止推进，保留已构建产物与原窗口。
+
+后续上下文也保留独立窗口：10% 灰度的 120 秒为 29 个事件、1 个 502 和 1 个 404，50% 为 48 个事件、1 个 502，100% 为 62 个事件、1 个 413；混流聚合不能分辨产生事件的版本。2026-10-20 UTC `01:40:00–01:45:00`，旧版仍被选中时出现 1057 个事件、66 个 502，亦为 `openai_error` / 未知代码。因此不能直接宣布 A4 引入或未引入回归，也不能把状态页健康当作模型业务无故障；必须继续限定范围调查。
+
+本地诊断采集器独立增加固定 `error_code` / `error_type` 白名单聚合，未知值在 SQL 边界内归为 `unknown`，不输出任意错误值、内容或身份；真实隔离 PostgreSQL 18.4 验证、9 项定向测试、独立审查及完整 `make policy` 通过。该本地工具不属于已安装控制器，无需重装、修改应用 pin 或重建应用。A4 的 19 个错误均为 `openai_error`，其中 18 个为字面代码 `unknown_error`、1 个代码不在白名单；旧版后续 66 个中分别为 19 和 47 个。`unknown_error` 既可能是本地缺码归一化，也可能来自供货方同名字面值；这些分类尚未证明故障来源。证据保存在 `/Users/tokk/.codex/tmp/kkai-reseller-online-release-20261020/`。
+
+精确签名诊断对照已完成：仍使用原 A4 五分钟窗口与旧版 `2026-10-20T01:40:00Z–01:45:00Z` 窗口。A4 的 19 个错误中，18 个在旧版窗口存在相同 `(channel, model, request_path, raw error_type, raw error_code, status)`，1 个未匹配，0 个不可比较；旧版对应为 13 个重现、53 个未匹配。重复事件使用 `EXISTS`，不会相互连接放大；签名仅在数据库内比较，只输出固定分类和计数。这里采集器的 baseline/candidate 名称仅表示诊断时间先后，分别对应 A4/旧版，不能替换原发布 baseline。该结果既不能证明同一根因，也不能排除发生频率回归；发布继续阻断。证据为 `error-signature-A4-vs-old-diagnostic.txt`。
+
+本次新增诊断验证命令及结果：
+
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v scripts.tests.test_newapi_error_window`：11 项通过。
+- `PYTHONDONTWRITEBYTECODE=1 python3 /Users/tokk/.codex/tmp/kkai-reseller-online-release-20261020/check-error-signature-local-pg.py`：本地隔离 PostgreSQL 18.4 的 27 行夹具通过，临时数据库和容器均已清理。
+- infra `make policy`：完整通过，记录为 `policy-error-signature-diagnostics.log`；独立审查无 P1/P2。
+- `git diff --check`：通过；本轮未运行应用全仓库测试，也未重新构建或发布应用。
 
 ## 1. 数据库与程序的过渡顺序
 
