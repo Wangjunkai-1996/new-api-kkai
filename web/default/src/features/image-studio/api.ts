@@ -24,6 +24,7 @@ import { api } from '@/lib/api'
 import {
   imageAssetSchema,
   imageGenerationSchema,
+  imageGenerationInputSchema,
   imageModelProfileSchema,
   imageQuoteSchema,
   imageSampleSchema,
@@ -40,6 +41,7 @@ import type {
   ImageSubmissionLookup,
   ImageAsset,
   ImageGeneration,
+  ImageGenerationInput,
   ImageGenerationStatus,
   ImageModelProfile,
   ImageModelProfileInput,
@@ -276,6 +278,29 @@ export const getImageGenerations = async (input: {
 
 export const deleteImageGeneration = async (id: number): Promise<void> => {
   await api.delete(`/api/image-studio/generations/${id}`)
+}
+
+export const getImageGeneration = async (
+  id: number
+): Promise<ImageGeneration> => {
+  const response = await api.get(`/api/image-studio/generations/${id}`, {
+    disableDuplicate: true,
+  })
+  return imageGenerationSchema
+    .refine((generation) => generation.id === id)
+    .parse(unwrapImageStudioResponse<unknown>(response.data))
+}
+
+export const getImageGenerationInput = async (
+  id: number
+): Promise<ImageGenerationInput> => {
+  const response = await api.get(`/api/image-studio/generations/${id}/input`, {
+    disableDuplicate: true,
+    skipErrorHandler: true,
+  })
+  return imageGenerationInputSchema
+    .refine((input) => input.generation_id === id)
+    .parse(unwrapImageStudioResponse<unknown>(response.data))
 }
 
 export const getAdminImageModels = async (): Promise<ImageModelProfile[]> => {

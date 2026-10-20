@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -16,8 +17,10 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func setupTenantBudgetTest(t *testing.T) *model.User {
@@ -143,4 +146,43 @@ func TestTenantOutboundCannotRemoveOrIncreaseAuthorization(t *testing.T) {
 		})
 	}
 	assert.Error(t, ValidateTenantOutbound(nil, &relaycommon.RelayInfo{TenantID: 7}))
+}
+
+func TestTenantBudgetFreeGroupIsDurableAndCannotBecomePositiveCharge(t *testing.T) {
+	user := setupTenantBudgetTest(t)
+	db := model.DB
+	require.NoError(t, db.AutoMigrate(&model.Token{}, &model.TenantConsumption{}, &model.ResellerWallet{}, &model.ResellerLedgerEntry{}))
+	require.NoError(t, db.Model(user).Updates(map[string]any{"tenant_id": 7, "quota": 0}).Error)
+	token := model.Token{UserId: user.Id, TenantID: 7, Key: "free-tenant", Status: common.TokenStatusEnabled, ExpiredTime: -1}
+	require.NoError(t, db.Create(&token).Error)
+	info := &relaycommon.RelayInfo{TenantID: 7, UserId: user.Id, TokenId: token.Id, RequestId: "free-tenant-request", ChannelMeta: &relaycommon.ChannelMeta{}, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}}
+	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0}}
+	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 20}))
+	assert.Zero(t, price.QuotaToPreConsume)
+	assert.True(t, price.FreeModel)
+	assert.NotNil(t, info.TenantBudget, "free requests retain provider output bounds")
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	require.Nil(t, preConsumeTenantBilling(c, info, 0))
+	assert.ErrorIs(t, info.Billing.Reserve(1), model.ErrResellerInvalidPrice)
+	assert.ErrorIs(t, info.Billing.Settle(1), model.ErrResellerInvalidPrice)
+	assert.ErrorIs(t, model.RecordTenantConsumptionResult(db, info.RequestId, 1, 0, false), model.ErrResellerFinanceInvalidInput)
+	assert.ErrorIs(t, model.IncreaseTenantConsumptionReservation(db, info.RequestId, 1), model.ErrResellerFinanceInvalidInput)
+	assert.ErrorIs(t, db.Transaction(func(tx *gorm.DB) error {
+		_, err := model.ReconcileTenantConsumptionTx(tx, model.TenantConsumptionReconciliationInput{TenantID: 7, RequestID: info.RequestId, ActualQuota: 1, IdempotencyKey: "free-review", ConfirmedExecutionStopped: true, ActorID: 99, Reason: "reviewed", Evidence: "receipt"})
+		return err
+	}), model.ErrResellerFinanceInvalidInput)
+	require.NoError(t, info.Billing.Settle(0))
+	require.NoError(t, info.Billing.Settle(0))
+	info.Billing.Refund(c)
+	require.NoError(t, db.First(user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+	assert.Zero(t, user.UsedQuota)
+	assert.EqualValues(t, 1, user.RequestCount)
+	var record model.TenantConsumption
+	require.NoError(t, db.Where("request_id = ?", info.RequestId).First(&record).Error)
+	assert.Equal(t, "settled", record.Status)
+	assert.Zero(t, record.ActualQuota)
+	_, err := model.ReserveTenantFreeConsumption(context.Background(), db, 7, user.Id, token.Id, info.RequestId)
+	assert.ErrorIs(t, err, model.ErrTenantConsumptionConflict)
 }

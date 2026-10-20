@@ -38,6 +38,7 @@ import {
 import { CachedPriceCell } from '../components/cached-price-cell'
 import { ModelCard } from '../components/model-card'
 import { ModelCardGrid } from '../components/model-card-grid'
+import { ModelPriceCell } from '../components/model-price-cell'
 import type { PricingModel } from '../types'
 
 function pricingModel(overrides: Partial<PricingModel> = {}): PricingModel {
@@ -104,6 +105,42 @@ describe('model cards', () => {
     )
     expect(screen.getByText('Image Cache').parentElement).toHaveTextContent(
       '$0'
+    )
+  })
+  it('uses resolution policy prices instead of a stale fixed price in the table and card', () => {
+    const model = pricingModel({
+      quota_type: 1,
+      model_price: 0.2,
+      image_pricing_policy: {
+        default_size: '1024x1024',
+        tiers: {
+          '1k': { unit_price: 0.02, sizes: ['1024x1024'] },
+          '2k': { unit_price: 0.02, sizes: ['2048x2048'] },
+          '4k': { unit_price: 0.04, sizes: ['4096x4096'] },
+        },
+      },
+    })
+    const { rerender } = render(
+      <ModelPriceCell model={model} options={{ selectedGroup: 'default' }} />
+    )
+    expect(screen.getByText('1k').parentElement).toHaveTextContent(
+      '$0.02 / image'
+    )
+    expect(screen.getByText('2k').parentElement).toHaveTextContent(
+      '$0.02 / image'
+    )
+    expect(screen.getByText('4k').parentElement).toHaveTextContent(
+      '$0.04 / image'
+    )
+    expect(screen.queryByText('$0.2')).not.toBeInTheDocument()
+    rerender(
+      <ModelCard model={model} onClick={vi.fn()} selectedGroup='premium' />
+    )
+    expect(screen.getByText('1k').parentElement).toHaveTextContent(
+      '$0.06 / image'
+    )
+    expect(screen.getByText('4k').parentElement).toHaveTextContent(
+      '$0.12 / image'
     )
   })
   it('shows fixed prices per request in both token display units', () => {

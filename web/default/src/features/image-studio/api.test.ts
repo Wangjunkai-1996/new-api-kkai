@@ -25,6 +25,7 @@ import { api } from '@/lib/api'
 import {
   buildImageEditFormData,
   createAsyncImageGeneration,
+  getImageGenerationInput,
   lookupImageSubmission,
   quoteAsyncImageGeneration,
 } from './api'
@@ -94,6 +95,45 @@ describe('image edit transport', () => {
         new Uint8Array(await images[index].arrayBuffer())
       )
     }
+  })
+})
+
+describe('generation input recovery', () => {
+  test('preserves reference order without submitting another generation', async () => {
+    const input = {
+      generation_id: 5,
+      mode: 'edit',
+      references_available: true,
+      references: [8, 3].map((id) => ({
+        id,
+        sha256: 'a'.repeat(64),
+        size_bytes: 128,
+        mime_type: 'image/png',
+        width: 1024,
+        height: 1536,
+      })),
+    }
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: input },
+    })
+
+    expect(await getImageGenerationInput(5)).toEqual(input)
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/image-studio/generations/5/input',
+      { disableDuplicate: true, skipErrorHandler: true }
+    )
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    { generation_id: 6, mode: 'unknown', references_available: false },
+    { generation_id: 5, mode: 'edit', references_available: true },
+  ])('rejects mismatched or incomplete reusable inputs', async (input) => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { success: true, data: { ...input, references: [] } },
+    })
+    await expect(getImageGenerationInput(5)).rejects.toThrow()
+    expect(api.post).not.toHaveBeenCalled()
   })
 })
 

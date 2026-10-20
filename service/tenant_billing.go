@@ -23,23 +23,36 @@ import (
 
 // ResolveTenantRequestCatalog runs on every channel selection, including
 // retries. Revoked models and disabled tenants cannot survive a cached route.
-func ResolveTenantRequestCatalog(ctx context.Context, tenantID int64, modelName string) (*model.TenantCatalogEntry, error) {
+func ResolveTenantRequestCatalog(ctx context.Context, tenantID int64, modelName string, requestedGroups ...string) (*model.TenantCatalogEntry, error) {
 	var tenant model.Tenant
 	if err := model.DB.WithContext(ctx).Where("id = ? AND status = ?", tenantID, model.TenantStatusActive).First(&tenant).Error; err != nil {
 		return nil, err
 	}
-	var entry model.TenantCatalogEntry
-	if err := model.DB.WithContext(ctx).Where("tenant_id = ? AND model = ? AND status = ?", tenantID, modelName, model.TenantCatalogStatusEnabled).First(&entry).Error; err != nil {
+	entries, err := NewTenantPricingService(model.DB).ResolveCatalog(ctx, tenantID)
+	if err != nil {
 		return nil, err
 	}
-	var defaults int64
-	if err := model.DB.WithContext(ctx).Model(&model.TenantCatalogEntry{}).Where("tenant_id = ? AND sales_group = ? AND is_default = ? AND status = ?", tenantID, entry.SalesGroup, true, model.TenantCatalogStatusEnabled).Count(&defaults).Error; err != nil {
-		return nil, err
+	group := ""
+	if len(requestedGroups) > 0 {
+		group = requestedGroups[0]
 	}
-	if defaults != 1 || entry.SalesGroup == "auto" {
+	if IsAutoGroup(group) {
 		return nil, model.ErrResellerInvalidCatalog
 	}
-	return &entry, nil
+	if group == "" {
+		for _, entry := range entries {
+			if entry.IsDefault {
+				group = entry.SalesGroup
+				break
+			}
+		}
+	}
+	for _, entry := range entries {
+		if entry.Model == modelName && entry.SalesGroup == group {
+			return &entry, nil
+		}
+	}
+	return nil, model.ErrResellerInvalidCatalog
 }
 
 func PrepareTenantPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
@@ -57,10 +70,10 @@ func PrepareTenantPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 	if err := ValidateTenantTextPayload(requestData, info.OriginModelName); err != nil {
 		return err
 	}
-	if info.TenantPriceVersionID > 0 {
+	if info.TenantSupplySnapshot != "" {
 		return nil
 	}
-	entry, err := ResolveTenantRequestCatalog(c.Request.Context(), tenantID, info.OriginModelName)
+	entry, err := ResolveTenantRequestCatalog(c.Request.Context(), tenantID, info.OriginModelName, info.UsingGroup)
 	if err != nil {
 		return err
 	}
@@ -105,10 +118,19 @@ type tenantBillingSession struct {
 	requestID string
 	reserved  int
 	finalized bool
+	free      bool
 }
 
 func preConsumeTenantBilling(c *gin.Context, info *relaycommon.RelayInfo, quota int) *types.NewAPIError {
 	if info.Billing != nil {
+		return nil
+	}
+	if quota == 0 && info.TenantBudget != nil && info.PriceData.FreeModel {
+		record, err := model.ReserveTenantFreeConsumption(context.WithoutCancel(c.Request.Context()), model.DB, info.TenantID, info.UserId, info.TokenId, info.RequestId)
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+		info.Billing = &tenantBillingSession{info: info, requestID: record.RequestID, free: true}
 		return nil
 	}
 	quota = max(quota, 1)
@@ -142,6 +164,9 @@ func preConsumeTenantBilling(c *gin.Context, info *relaycommon.RelayInfo, quota 
 func (s *tenantBillingSession) Settle(actualQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.free && actualQuota != 0 {
+		return model.ErrResellerInvalidPrice
+	}
 	if err := model.RecordTenantConsumptionResult(model.DB, s.requestID, int64(actualQuota), s.info.ChannelId, false); err != nil {
 		return err
 	}
@@ -187,6 +212,9 @@ func (s *tenantBillingSession) Reserve(targetQuota int) error {
 	}
 	if s.finalized {
 		return model.ErrTenantConsumptionConflict
+	}
+	if s.free {
+		return model.ErrResellerInvalidPrice
 	}
 	if err := model.IncreaseTenantConsumptionReservation(model.DB, s.requestID, int64(targetQuota)); err != nil {
 		return err

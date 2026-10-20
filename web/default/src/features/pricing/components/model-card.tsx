@@ -49,6 +49,7 @@ import {
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskPriceLabel, taskUsageUnitLabel } from '../lib/task-price-display'
 import type { PricingModel, PriceType, TokenUnit } from '../types'
+import { ImageResolutionPrices } from './image-resolution-prices'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
@@ -120,7 +121,14 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     [props.model, dynamicPriceOptions, currency]
   )
   let priceSummary: ReactNode
-  if (isPricingUnconfigured) {
+  if (props.model.image_pricing_policy) {
+    priceSummary = (
+      <ImageResolutionPrices
+        {...props}
+        className='col-span-full grid grid-cols-3 gap-3'
+      />
+    )
+  } else if (isPricingUnconfigured) {
     priceSummary = (
       <span className='text-muted-foreground col-span-full'>
         {t('Unset price')}

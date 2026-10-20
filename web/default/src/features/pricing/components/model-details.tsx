@@ -116,6 +116,7 @@ import type {
   TokenUnit,
 } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
+import { ImageResolutionPrices } from './image-resolution-prices'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
@@ -740,6 +741,23 @@ function PriceSection(props: {
     },
   ]
 
+  if (props.model.image_pricing_policy) {
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <ImageResolutionPrices
+          {...props}
+          model={{
+            ...props.model,
+            group_ratio: baseGroupRatioMap,
+            enable_groups: [baseGroupKey],
+          }}
+          selectedGroup={baseGroupKey}
+        />
+      </section>
+    )
+  }
+
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
       return (
@@ -1181,6 +1199,32 @@ function ProviderGroupPricingSection(
     'text-muted-foreground py-2 text-xs font-medium whitespace-normal break-words',
     !props.model.billing_usage_schema && 'tracking-wider uppercase'
   )
+
+  if (props.model.image_pricing_policy) {
+    return (
+      <section>
+        {!props.hideTitle && (
+          <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        )}
+        <div className='space-y-4'>
+          {availableGroups.map((group) => (
+            <div key={group} className='space-y-2 rounded-lg border p-3'>
+              <GroupBadge
+                group={group}
+                label={resolveGroupDisplayName(group, props.groupDisplayNames)}
+                size='sm'
+              />
+              <ImageResolutionPrices
+                {...props}
+                model={{ ...props.model, group_ratio: props.groupRatio }}
+                selectedGroup={group}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    )
+  }
 
   if (isDynamicPricingModel(props.model)) {
     const dynamicTiers = props.model.billing_usage_schema

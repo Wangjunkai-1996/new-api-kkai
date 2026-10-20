@@ -216,6 +216,35 @@ describe('local billing expression evaluation', () => {
     expect(readTokenTierChain(compiled.ast)).toBeNull()
   })
 
+  test('keeps all converted input prices in the clamped token summary', () => {
+    const compiled = compileBillingExpression(
+      'tier("base", max(len - cr - cc - cc1h - img, 0) * 5 + c * 30 + cr * 0.5 + cc * 6.25 + cc1h * 10 + img * 5)'
+    )
+    assert(compiled.status === 'ready')
+    expect(readTokenTierChain(compiled.ast)).toEqual([
+      {
+        label: 'base',
+        conditions: [],
+        prices: { p: 5, c: 30, cr: 0.5, cc: 6.25, cc1h: 10, img: 5 },
+      },
+    ])
+  })
+
+  test.each([
+    'len - cr - cc - cc1h - img - cr',
+    'len - cr - (cc - cc1h) - img',
+    'len - cr - ai',
+  ])(
+    'does not misstate prices for an unrelated input remainder: %s',
+    (input) => {
+      const compiled = compileBillingExpression(
+        `tier("base", max(${input}, 0) * 5 + c * 30)`
+      )
+      assert(compiled.status === 'ready')
+      expect(readTokenTierChain(compiled.ast)).toBeNull()
+    }
+  )
+
   test('distinguishes unknown requests from explicitly empty requests', () => {
     const expression = 'param("priority") == nil ? 2 : 3'
     expect(evaluateBillingExpression(expression).status).toBe('missing_context')

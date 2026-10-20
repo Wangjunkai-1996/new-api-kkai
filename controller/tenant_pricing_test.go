@@ -9,79 +9,104 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTenantPricingAndModelsRespectCatalogRetailAndTokenLimits(t *testing.T) {
+func TestTenantPricingAndModelsInheritPublicGroupsAndRespectTokenLimits(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
-	oldRatios := ratio_setting.ModelRatio2JSONString()
-	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"tenant-text-a":1,"tenant-text-b":2,"platform-only":3}`))
+	oldModels, oldGroups, oldOpen := ratio_setting.ModelRatio2JSONString(), ratio_setting.GroupRatio2JSONString(), setting.UserUsableGroups2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"tenant-text-a":1,"tenant-text-b":2,"private-only":3}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"premium":2,"private":0.5,"auto":1}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","premium":"Premium","auto":"Automatic"}`))
 	t.Cleanup(func() {
-		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldRatios))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldModels))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldOpen))
 		model.InvalidatePricingCache()
 	})
-	require.NoError(t, db.AutoMigrate(&model.TenantCatalogEntry{}, &model.TenantPriceVersion{}))
-	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "tenant-test", Group: "default", Models: "tenant-text-a,tenant-text-b,platform-only"}).Error)
-	for _, name := range []string{"tenant-text-a", "tenant-text-b", "platform-only"} {
-		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 1, Enabled: true}).Error)
-	}
-	require.NoError(t, db.Create(&[]model.TenantCatalogEntry{
-		{TenantID: 42, Model: "tenant-text-a", SalesGroup: "default", Status: model.TenantCatalogStatusEnabled, IsDefault: true},
-		{TenantID: 42, Model: "tenant-text-b", SalesGroup: "default", Status: model.TenantCatalogStatusEnabled},
+	require.NoError(t, db.AutoMigrate(&model.TenantPriceVersion{}))
+	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "public-supply", Group: "default,premium,private,auto", Models: "tenant-text-a,tenant-text-b,private-only"}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "tenant-text-a", ChannelId: 1, Enabled: true},
+		{Group: "premium", Model: "tenant-text-a", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "tenant-text-b", ChannelId: 1, Enabled: true},
+		{Group: "private", Model: "private-only", ChannelId: 1, Enabled: true},
+		{Group: "auto", Model: "private-only", ChannelId: 1, Enabled: true},
 	}).Error)
+	// Legacy model-specific rows and another tenant's overrides do not replace
+	// inherited public-group pricing. No tenant catalog rows are required.
 	require.NoError(t, db.Create(&[]model.TenantPriceVersion{
-		{TenantID: 42, Model: "tenant-text-a", Group: "default", SalesMultiplier: "2", Version: 1},
-		{TenantID: 42, Model: "tenant-text-a", Group: "default", SalesMultiplier: "3", Version: 2},
-		{TenantID: 43, Model: "tenant-text-b", Group: "default", SalesMultiplier: "9", Version: 1},
+		{TenantID: 42, Model: "tenant-text-a", Group: "default", SalesMultiplier: "9", Version: 1},
+		{TenantID: 43, Group: "premium", SalesMultiplier: "9", Version: 1},
 	}).Error)
 	model.InvalidatePricingCache()
-	response := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(response)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
-	common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
-	GetPricing(c)
-	var pricing struct {
-		Success    bool                    `json:"success"`
-		Data       []tenantCustomerPricing `json:"data"`
-		GroupRatio map[string]float64      `json:"group_ratio"`
+	for _, overridden := range []bool{false, true} {
+		if overridden {
+			require.NoError(t, db.Create(&model.TenantPriceVersion{TenantID: 42, Group: "default", SalesMultiplier: "3", Version: 1}).Error)
+		}
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
+		common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
+		GetPricing(c)
+		var pricing struct {
+			Success    bool                    `json:"success"`
+			Data       []tenantCustomerPricing `json:"data"`
+			GroupRatio map[string]float64      `json:"group_ratio"`
+		}
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &pricing))
+		require.True(t, pricing.Success, response.Body.String())
+		require.Len(t, pricing.Data, 2, "one model must have one row even when available in several groups")
+		byName := make(map[string]tenantCustomerPricing)
+		for _, entry := range pricing.Data {
+			byName[entry.ModelName] = entry
+		}
+		defaultRatio := 1.0
+		if overridden {
+			defaultRatio = 3
+		}
+		assert.Equal(t, map[string]float64{"default": defaultRatio, "premium": 2}, byName["tenant-text-a"].GroupRatio)
+		assert.Equal(t, map[string]float64{"default": defaultRatio}, byName["tenant-text-b"].GroupRatio)
+		assert.ElementsMatch(t, []string{"default", "premium"}, byName["tenant-text-a"].EnableGroup)
+		assert.Equal(t, map[string]float64{"default": defaultRatio, "premium": 2}, pricing.GroupRatio)
+		assert.Equal(t, 1.0, byName["tenant-text-a"].ModelRatio)
+		assert.NotContains(t, response.Body.String(), "supplier")
+		assert.NotContains(t, response.Body.String(), "private-only")
+		assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	}
-	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &pricing))
-	require.True(t, pricing.Success, response.Body.String())
-	require.Len(t, pricing.Data, 1)
-	assert.Equal(t, "tenant-text-a", pricing.Data[0].ModelName)
-	assert.Equal(t, 3.0, pricing.Data[0].GroupRatio["default"])
-	assert.Equal(t, 1.0, pricing.GroupRatio["default"])
-	assert.Equal(t, 1.0, pricing.Data[0].ModelRatio)
-	assert.NotContains(t, response.Body.String(), "supplier")
-	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 
 	for _, allowed := range []bool{true, false} {
-		response = httptest.NewRecorder()
-		c, _ = gin.CreateTestContext(response)
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
 		c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 		common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
 		common.SetContextKey(c, constant.ContextKeyTokenModelLimitEnabled, true)
-		common.SetContextKey(c, constant.ContextKeyTokenModelLimit, map[string]bool{"tenant-text-a": allowed, "platform-only": true})
+		common.SetContextKey(c, constant.ContextKeyTokenModelLimit, map[string]bool{"tenant-text-a": allowed, "private-only": true})
 		ListModels(c, constant.ChannelTypeOpenAI)
 		names := decodeListModelsResponse(t, response)
 		if allowed {
 			assert.Contains(t, names, "tenant-text-a")
+			var listing listModelsResponse
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &listing))
+			require.Len(t, listing.Data, 1, "multi-group supply must not duplicate model IDs")
+			assert.Equal(t, "tenant-text-a", listing.Data[0].Id)
 		} else {
 			assert.Empty(t, names)
 		}
-		assert.NotContains(t, names, "platform-only")
+		assert.NotContains(t, names, "private-only")
 	}
 
 	require.NoError(t, db.AutoMigrate(&model.Token{}))
 	user := model.User{TenantID: 42, Username: "tenant-token-user", Status: common.UserStatusEnabled, AffCode: "tenant-token-user"}
 	require.NoError(t, db.Create(&user).Error)
-	token := model.Token{UserId: user.Id, TenantID: 42, Key: "tenant-test-key", Group: "default", ModelLimitsEnabled: true, ModelLimits: "tenant-text-a,platform-only"}
+	token := model.Token{UserId: user.Id, TenantID: 42, Key: "tenant-test-key", Group: "default", ModelLimitsEnabled: true, ModelLimits: "tenant-text-a,private-only"}
 	require.NoError(t, db.Create(&token).Error)
-	response = httptest.NewRecorder()
-	c, _ = gin.CreateTestContext(response)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/token/1/models", nil)
 	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
 	c.Set("id", user.Id)
@@ -100,7 +125,7 @@ func TestTenantPricingAndModelsRespectCatalogRetailAndTokenLimits(t *testing.T) 
 	}
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &dashboard))
 	require.True(t, dashboard.Success)
-	assert.Equal(t, map[int][]string{constant.ChannelTypeOpenAI: {"tenant-text-a"}}, dashboard.Data)
+	assert.Equal(t, map[int][]string{constant.ChannelTypeOpenAI: {"tenant-text-a", "tenant-text-b"}}, dashboard.Data)
 	response = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(response)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/groups", nil)
@@ -112,8 +137,9 @@ func TestTenantPricingAndModelsRespectCatalogRetailAndTokenLimits(t *testing.T) 
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &groups))
-	require.Len(t, groups.Data, 1)
-	assert.Equal(t, 1.0, groups.Data["default"].Ratio)
+	require.Len(t, groups.Data, 2)
+	assert.Equal(t, 3.0, groups.Data["default"].Ratio)
+	assert.Equal(t, 2.0, groups.Data["premium"].Ratio)
 	response = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(response)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/token/auto-groups", nil)
@@ -121,8 +147,8 @@ func TestTenantPricingAndModelsRespectCatalogRetailAndTokenLimits(t *testing.T) 
 	GetTokenAutoGroups(c)
 	assert.Contains(t, response.Body.String(), `"groups":[]`)
 	assert.Contains(t, response.Body.String(), `"max_count":0`)
-	// Retiring the tenant model takes effect without invalidating platform caches.
-	require.NoError(t, db.Model(&model.TenantCatalogEntry{}).Where("tenant_id = ?", 42).Update("status", model.TenantCatalogStatusDisabled).Error)
+	// Revoking platform supply takes effect even while pricing metadata is cached.
+	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 1).Update("enabled", false).Error)
 	response = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(response)
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)

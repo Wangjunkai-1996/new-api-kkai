@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { FolderOpen, LoaderCircle, RotateCw } from 'lucide-react'
+import {
+  ArrowUp,
+  FolderOpen,
+  LoaderCircle,
+  RotateCw,
+  Sparkles,
+} from 'lucide-react'
+import { useReducedMotion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -43,56 +50,194 @@ import {
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ImageGenerationCard } from './components/image-generation-card'
+import { ImageGenerationDetails } from './components/image-generation-details'
+import { ImageMasonry } from './components/image-masonry'
+import { ImageRegenerationSheet } from './components/image-regeneration-sheet'
 import { ImageStudioNav } from './components/image-studio-nav'
-import { useDeleteImageGeneration, useImageGenerations } from './queries'
+import {
+  useDeleteImageGeneration,
+  useImageGeneration,
+  useImageGenerations,
+} from './queries'
 import type { ImageGeneration, ImageGenerationStatus } from './types'
+
+import './image-library.css'
 
 export function ImageLibraryPage(props: {
   targetGenerationId?: number
   onClearTarget?: () => void
 }) {
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+  return <ImageLibraryContent key={userId} {...props} />
+}
+
+function ImageLibraryContent(props: {
+  targetGenerationId?: number
+  onClearTarget?: () => void
+}) {
   const { t } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const [status, setStatus] = useState<ImageGenerationStatus | undefined>()
   const query = useImageGenerations(status ? { status } : {})
   const deleteMutation = useDeleteImageGeneration()
   const [deleteTarget, setDeleteTarget] = useState<ImageGeneration | null>(null)
-  const targetRef = useRef<HTMLDivElement>(null)
-  const scrolledRef = useRef<number | undefined>(undefined)
-  const generations = useMemo(
-    () => query.data?.pages.flatMap((page) => page.items) ?? [],
-    [query.data]
+  const [detailsTarget, setDetailsTarget] = useState<ImageGeneration | null>(
+    null
   )
+  const detailsQuery = useImageGeneration(detailsTarget?.id)
+  const [regenerationTarget, setRegenerationTarget] =
+    useState<ImageGeneration | null>(null)
+  const [submittedGeneration, setSubmittedGeneration] =
+    useState<ImageGeneration | null>(null)
+  const [submittedTargetId, setSubmittedTargetId] = useState<number>()
+  const [nearTop, setNearTop] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const galleryRef = useRef<HTMLDivElement>(null)
+  const scrolledRef = useRef<number | undefined>(undefined)
+  const targetId = submittedTargetId ?? props.targetGenerationId
+  const generations = useMemo(() => {
+    const byId = new Map<number, ImageGeneration>()
+    if (
+      submittedGeneration &&
+      (!status || submittedGeneration.status === status)
+    ) {
+      byId.set(submittedGeneration.id, submittedGeneration)
+    }
+    for (const page of query.data?.pages ?? []) {
+      for (const generation of page.items) byId.set(generation.id, generation)
+    }
+    return [...byId.values()].sort(
+      (left, right) => right.created_at - left.created_at || right.id - left.id
+    )
+  }, [query.data, status, submittedGeneration])
+  const details = detailsTarget
+    ? (detailsQuery.data ??
+      generations.find((generation) => generation.id === detailsTarget.id) ??
+      detailsTarget)
+    : null
   const mediaPaths = useMemo(
     () =>
-      generations.flatMap((generation) =>
+      [...generations, ...(details ? [details] : [])].flatMap((generation) =>
         generation.assets.flatMap((asset) => [
           asset.content_url,
           asset.thumbnail_url,
           asset.download_url,
         ])
       ),
-    [generations]
+    [details, generations]
   )
   const mediaQuery = useStudioMediaUrls(mediaPaths)
-  const target = generations.find(
-    (generation) => generation.id === props.targetGenerationId
+  const [mediaSnapshot, setMediaSnapshot] = useState({
+    source: mediaQuery.data?.urls,
+    urls: mediaQuery.data?.urls ?? {},
+  })
+  if (mediaSnapshot.source !== mediaQuery.data?.urls) {
+    setMediaSnapshot({
+      source: mediaQuery.data?.urls,
+      urls: { ...mediaSnapshot.urls, ...mediaQuery.data?.urls },
+    })
+  }
+  const mediaUrls = mediaSnapshot.urls
+  const signedGenerations = useMemo(
+    () =>
+      generations.map((generation) => ({
+        ...generation,
+        assets: generation.assets.map((asset) => ({
+          ...asset,
+          content_url: signedStudioMediaUrl(asset.content_url, mediaUrls),
+          thumbnail_url: signedStudioMediaUrl(asset.thumbnail_url, mediaUrls),
+          download_url: signedStudioMediaUrl(asset.download_url, mediaUrls),
+        })),
+      })),
+    [generations, mediaUrls]
   )
-
+  const detailsGeneration = useMemo(
+    () =>
+      details && {
+        ...details,
+        assets: details.assets.map((asset) => ({
+          ...asset,
+          content_url: signedStudioMediaUrl(asset.content_url, mediaUrls),
+          thumbnail_url: signedStudioMediaUrl(asset.thumbnail_url, mediaUrls),
+          download_url: signedStudioMediaUrl(asset.download_url, mediaUrls),
+        })),
+      },
+    [details, mediaUrls]
+  )
+  const [wallSnapshot, setWallSnapshot] = useState({
+    source: generations,
+    filter: status,
+    target: targetId,
+    ids: generations.map((generation) => generation.id),
+  })
+  if (
+    wallSnapshot.source !== generations ||
+    wallSnapshot.filter !== status ||
+    wallSnapshot.target !== targetId
+  ) {
+    const ids = generations.map((generation) => generation.id)
+    const mayInsert =
+      wallSnapshot.filter !== status ||
+      nearTop ||
+      wallSnapshot.target !== targetId
+    const previousSet = new Set(wallSnapshot.ids)
+    const firstVisibleIndex = ids.findIndex((id) => previousSet.has(id))
+    const next =
+      mayInsert || wallSnapshot.ids.length === 0
+        ? ids
+        : ids.filter(
+            (id, index) =>
+              previousSet.has(id) ||
+              (firstVisibleIndex >= 0 && index > firstVisibleIndex)
+          )
+    setWallSnapshot({
+      source: generations,
+      filter: status,
+      target: targetId,
+      ids: next,
+    })
+  }
+  const visibleIds = wallSnapshot.ids
+  const visibleSet = useMemo(() => new Set(visibleIds), [visibleIds])
+  const visibleGenerations = signedGenerations.filter((generation) =>
+    visibleSet.has(generation.id)
+  )
+  const deferredCount = signedGenerations.length - visibleGenerations.length
   useEffect(() => {
-    if (!target || scrolledRef.current === target.id || !targetRef.current) {
+    if (
+      !targetId ||
+      scrolledRef.current === targetId ||
+      !visibleSet.has(targetId)
+    ) {
       return
     }
-    scrolledRef.current = target.id
-    targetRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [target])
+    const card = galleryRef.current?.querySelector<HTMLElement>(
+      `[data-generation-id="${String(targetId)}"]`
+    )
+    if (!card) return
+    const frame = window.requestAnimationFrame(() => {
+      card.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'nearest',
+      })
+      scrolledRef.current = targetId
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [targetId, visibleSet, reduceMotion])
 
   const confirmDelete = async (): Promise<void> => {
     if (!deleteTarget) return
     try {
       await deleteMutation.mutateAsync(deleteTarget.id)
       if (deleteTarget.id === props.targetGenerationId) props.onClearTarget?.()
+      if (deleteTarget.id === submittedGeneration?.id) {
+        setSubmittedGeneration(null)
+      }
+      if (deleteTarget.id === submittedTargetId) setSubmittedTargetId(undefined)
+      if (deleteTarget.id === detailsTarget?.id) setDetailsTarget(null)
       toast.success(t('imageStudio.deleted'))
       setDeleteTarget(null)
     } catch (error) {
@@ -100,6 +245,18 @@ export function ImageLibraryPage(props: {
         error instanceof Error ? error.message : t('imageStudio.deleteFailed')
       )
     }
+  }
+
+  const regenerate = (generation: ImageGeneration): void => {
+    setDetailsTarget(null)
+    setRegenerationTarget(generation)
+  }
+
+  const submitted = (generation: ImageGeneration): void => {
+    setRegenerationTarget(null)
+    setStatus(undefined)
+    setSubmittedGeneration(generation)
+    setSubmittedTargetId(generation.id)
   }
 
   return (
@@ -114,29 +271,54 @@ export function ImageLibraryPage(props: {
             variant='ghost'
             onClick={() => void query.refetch()}
             aria-label={t('Refresh')}
+            className='min-h-11 min-w-11'
           >
             <RotateCw
-              className={query.isFetching ? 'animate-spin' : undefined}
+              className={
+                query.isFetching
+                  ? 'animate-spin motion-reduce:animate-none'
+                  : undefined
+              }
               aria-hidden='true'
             />
           </Button>
         }
       />
-      <div className='min-h-0 flex-1 overflow-y-auto p-3 sm:p-4'>
-        <div className='mb-4 flex justify-end'>
+      <div
+        ref={scrollRef}
+        onScroll={(event) => setNearTop(event.currentTarget.scrollTop < 160)}
+        className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-5 pb-6 sm:px-5 sm:pt-6'
+      >
+        <div className='mb-5 flex flex-wrap items-end justify-between gap-4'>
+          <div className='space-y-1.5'>
+            <div className='flex items-center gap-2'>
+              <Sparkles className='text-primary size-4' aria-hidden='true' />
+              <h2 className='text-lg font-semibold tracking-tight'>
+                {t('Your creations')}
+              </h2>
+              <span className='text-muted-foreground rounded-full border px-2 py-0.5 text-[10px]'>
+                {generations.length}
+              </span>
+            </div>
+            <p className='text-muted-foreground text-xs'>
+              {t('Explore your images. Keep creating.')}
+            </p>
+          </div>
           <NativeSelect
-            className='w-44'
+            className='w-40'
             value={status ?? ''}
             aria-label={t('imageStudio.filterStatus')}
-            onChange={(event) => {
-              const next = event.target.value as ImageGenerationStatus | ''
-              setStatus(next || undefined)
-            }}
+            onChange={(event) =>
+              setStatus(
+                (event.target.value as ImageGenerationStatus) || undefined
+              )
+            }
           >
             <NativeSelectOption value=''>
               {t('imageStudio.allStatuses')}
             </NativeSelectOption>
             {[
+              'submitting',
               'succeeded',
               'partial',
               'failed',
@@ -149,22 +331,56 @@ export function ImageLibraryPage(props: {
             ))}
           </NativeSelect>
         </div>
-        {query.isLoading && (
-          <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
-            {Array.from({ length: 8 }, (_, index) => (
+        {deferredCount > 0 && visibleGenerations.length > 0 && (
+          <div
+            className='sticky top-2 z-10 mb-4 flex justify-center'
+            aria-live='polite'
+          >
+            <Button
+              variant='secondary'
+              className='min-h-11 rounded-full border shadow-lg'
+              onClick={() => {
+                setWallSnapshot((previous) => ({
+                  ...previous,
+                  ids: generations.map((generation) => generation.id),
+                }))
+                scrollRef.current?.scrollTo({
+                  top: 0,
+                  behavior: reduceMotion ? 'auto' : 'smooth',
+                })
+              }}
+            >
+              <ArrowUp aria-hidden='true' />
+              {t('Show {{count}} new batches', { count: deferredCount })}
+            </Button>
+          </div>
+        )}
+        {query.isLoading && generations.length === 0 && (
+          <div className='grid grid-cols-2 items-start gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'>
+            {Array.from({ length: 10 }, (_, index) => (
               <Skeleton
-                key={`image-library-skeleton-${index}`}
-                className='aspect-[4/5] rounded-xl'
+                key={index}
+                className={
+                  index % 3 === 0
+                    ? 'aspect-[3/4] rounded-2xl motion-reduce:animate-none'
+                    : 'aspect-[4/3] rounded-2xl motion-reduce:animate-none'
+                }
               />
             ))}
           </div>
         )}
         {query.isError && (
-          <Empty className='min-h-64'>
+          <Empty
+            className={
+              generations.length > 0 ? 'mb-4 min-h-0 border py-4' : 'min-h-64'
+            }
+          >
             <EmptyHeader>
-              <EmptyMedia variant='icon'>
-                <FolderOpen aria-hidden='true' />
-              </EmptyMedia>
+              {generations.length === 0 && (
+                <EmptyMedia variant='icon'>
+                  <FolderOpen aria-hidden='true' />
+                </EmptyMedia>
+              )}
               <EmptyTitle>{t('imageStudio.libraryFailed')}</EmptyTitle>
               <EmptyDescription>
                 {t('imageStudio.libraryFailedDescription')}
@@ -188,54 +404,56 @@ export function ImageLibraryPage(props: {
             </EmptyHeader>
           </Empty>
         )}
-        {generations.length > 0 && (
-          <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
-            {generations.map((generation) => (
-              <div
-                key={generation.id}
-                ref={generation.id === target?.id ? targetRef : undefined}
-              >
+        <div ref={galleryRef}>
+          {visibleGenerations.length > 0 && (
+            <ImageMasonry
+              items={visibleGenerations}
+              renderItem={(generation) => (
                 <ImageGenerationCard
-                  generation={{
-                    ...generation,
-                    assets: generation.assets.map((asset) => ({
-                      ...asset,
-                      content_url: signedStudioMediaUrl(
-                        asset.content_url,
-                        mediaQuery.data?.urls
-                      ),
-                      thumbnail_url: signedStudioMediaUrl(
-                        asset.thumbnail_url,
-                        mediaQuery.data?.urls
-                      ),
-                      download_url: signedStudioMediaUrl(
-                        asset.download_url,
-                        mediaQuery.data?.urls
-                      ),
-                    })),
-                  }}
-                  highlighted={generation.id === target?.id}
-                  onDelete={setDeleteTarget}
+                  generation={generation}
+                  highlighted={generation.id === targetId}
+                  onDetails={setDetailsTarget}
+                  onRegenerate={regenerate}
                 />
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+            />
+          )}
+        </div>
         {query.hasNextPage && (
           <div className='flex justify-center py-6'>
             <Button
               variant='outline'
+              className='min-h-11 rounded-full px-5'
               disabled={query.isFetchingNextPage}
               onClick={() => void query.fetchNextPage()}
             >
               {query.isFetchingNextPage && (
-                <LoaderCircle className='animate-spin' aria-hidden='true' />
+                <LoaderCircle
+                  className='animate-spin motion-reduce:animate-none'
+                  aria-hidden='true'
+                />
               )}
               {t('imageStudio.loadMore')}
             </Button>
           </div>
         )}
       </div>
+      <ImageGenerationDetails
+        generation={detailsGeneration}
+        refreshing={detailsQuery.isFetching}
+        onClose={() => setDetailsTarget(null)}
+        onRegenerate={regenerate}
+        onDelete={(generation) => {
+          setDetailsTarget(null)
+          setDeleteTarget(generation)
+        }}
+        onRefresh={() => void detailsQuery.refetch()}
+      />
+      <ImageRegenerationSheet
+        generation={regenerationTarget}
+        onClose={() => setRegenerationTarget(null)}
+        onSubmitted={submitted}
+      />
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
@@ -245,9 +463,11 @@ export function ImageLibraryPage(props: {
             <AlertDialogMedia>
               <FolderOpen aria-hidden='true' />
             </AlertDialogMedia>
-            <AlertDialogTitle>{t('imageStudio.deleteTitle')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('Delete this batch')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('imageStudio.deleteDescription')}
+              {t(
+                'This deletes every image in this batch. This cannot be undone.'
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -260,6 +480,12 @@ export function ImageLibraryPage(props: {
                 void confirmDelete()
               }}
             >
+              {deleteMutation.isPending && (
+                <LoaderCircle
+                  className='animate-spin motion-reduce:animate-none'
+                  aria-hidden='true'
+                />
+              )}
               {t('Delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

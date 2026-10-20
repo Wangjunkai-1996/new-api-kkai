@@ -71,9 +71,6 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 	}
-	if info.TenantID > 0 && priceData.FreeModel {
-		return types.NewErrorWithStatusCode(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, http.StatusForbidden, types.ErrOptionWithSkipRetry())
-	}
 	if err := service.ApplyImageStudioMaximumPreconsume(c, info, &priceData, tokens, meta); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest)
 	}
@@ -118,7 +115,7 @@ func RefundFailedRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, api
 	if info.HasDurableBilling() && service.FinalizeFailedRequestUsage(c, info, apiErr) {
 		return apiErr
 	}
-	if info.TenantQuoteID > 0 && info.BillingOutcomeUnknown {
+	if info.TenantID > 0 && info.HasDurableBilling() && info.BillingOutcomeUnknown {
 		types.ErrOptionWithSkipRetry()(apiErr)
 		if err := model.MarkTenantConsumptionUncertain(model.DB, info.RequestId, info.ChannelId); err != nil {
 			logger.LogError(c, "failed to flag tenant billing for review: "+err.Error())

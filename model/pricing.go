@@ -10,9 +10,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -51,6 +53,7 @@ type Pricing struct {
 	BillingExpr            string                               `json:"billing_expr,omitempty"`
 	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
 	BillingUsageExamples   []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
+	ImagePricingPolicy     *imagepricing.ModelConfig            `json:"image_pricing_policy,omitempty"`
 	// BillingUnit is explicit routing evidence for legacy fixed-price task
 	// billing. Usage schemas describe facts, while this field describes the
 	// unit of the configured legacy price shown to customers.
@@ -332,6 +335,14 @@ func updatePricing() {
 	}
 
 	pricingMap = make([]Pricing, 0)
+	var imagePricingPolicy imagepricing.Config
+	if err := common.UnmarshalJsonStr(image_pricing_setting.JSON(), &imagePricingPolicy); err != nil {
+		common.SysError("decode public image pricing policy: " + err.Error())
+	}
+	compiledImagePolicy, err := imagepricing.Compile(imagePricingPolicy)
+	if err != nil {
+		common.SysError("compile public image pricing policy: " + err.Error())
+	}
 	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	pricingChannelIndex := buildPricingChannelIndex(enableAbilities)
 	for model, groups := range modelGroupsMap {
@@ -437,6 +448,21 @@ func updatePricing() {
 					BillingExpr: expression, BillingMode: mode,
 					BillingUsageSchema: jsplugin.CloneUsageSchema(schema), BillingUsageExamples: jsplugin.CloneUsageExamples(examples),
 				})
+			}
+		}
+		if match, configured, err := compiledImagePolicy.Resolve(model, ""); configured && err == nil {
+			if policy, exists := imagePricingPolicy.Models[model]; exists {
+				// Resolution policy is the image tariff. Preserve its complete tiers,
+				// and keep the default-size price useful to older catalog clients.
+				pricing.ImagePricingPolicy = &policy
+				pricing.ModelPrice = match.UnitPrice
+				pricing.QuotaType = 1
+				pricing.PricingConfigured = true
+				pricing.ModelRatio, pricing.CompletionRatio = 0, 0
+				pricing.CacheRatio, pricing.CreateCacheRatio, pricing.ImageRatio = nil, nil, nil
+				pricing.AudioRatio, pricing.AudioCompletionRatio = nil, nil
+				pricing.BillingMode, pricing.BillingExpr, pricing.BillingUnit = "", "", ""
+				pricing.BillingUsageSchema, pricing.BillingUsageExamples, pricing.BillingPluginVariants = nil, nil, nil
 			}
 		}
 		pricingMap = append(pricingMap, pricing)

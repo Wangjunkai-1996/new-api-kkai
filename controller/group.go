@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -36,24 +37,26 @@ func GetGroups(c *gin.Context) {
 
 func GetUserGroups(c *gin.Context) {
 	if tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID); tenantID > model.PlatformTenantID {
-		entries, err := service.NewTenantPricingService(model.DB).ResolveCatalog(c.Request.Context(), tenantID)
+		groups, err := service.NewTenantPricingService(model.DB).ListGroupPrices(c.Request.Context(), tenantID)
 		if err != nil {
 			common.ApiError(c, err)
 			return
 		}
-		for _, entry := range entries {
-			if !entry.IsDefault {
-				continue
+		usableGroups := make(map[string]map[string]interface{})
+		for _, group := range groups {
+			ratio, err := strconv.ParseFloat(group.SalesMultiplier, 64)
+			if err != nil {
+				common.ApiError(c, err)
+				return
 			}
-			desc := setting.GetUsableGroupDescription(entry.SalesGroup)
-			common.ApiSuccess(c, map[string]map[string]interface{}{entry.SalesGroup: {
-				"ratio":        1,
+			desc := setting.GetUsableGroupDescription(group.Group)
+			usableGroups[group.Group] = map[string]interface{}{
+				"ratio":        ratio,
 				"desc":         desc,
-				"display_name": setting.GetGroupDisplayNameWithFallback(entry.SalesGroup, desc),
-			}})
-			return
+				"display_name": setting.GetGroupDisplayNameWithFallback(group.Group, desc),
+			}
 		}
-		common.ApiSuccess(c, map[string]map[string]interface{}{})
+		common.ApiSuccess(c, usableGroups)
 		return
 	}
 	usableGroups := make(map[string]map[string]interface{})

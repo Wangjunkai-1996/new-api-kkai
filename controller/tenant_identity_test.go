@@ -10,6 +10,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -21,20 +23,33 @@ func TestTenantRegistrationCreatesAtomicCustomerIdentity(t *testing.T) {
 	previousDB, previousRedis := model.DB, common.RedisEnabled
 	previousRegister, previousPasswordRegister, previousVerify := common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled
 	previousToken, previousGift := constant.GenerateDefaultToken, common.QuotaForNewUser
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	previousOpen, previousGroups, previousModels := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString(), ratio_setting.ModelRatio2JSONString()
+	db, err := gorm.Open(sqlite.Open("file:tenant-registration-identity?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.TenantMembership{}, &model.TenantCatalogEntry{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.TenantMembership{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
 	model.DB, common.RedisEnabled = db, false
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-test":1}`))
+	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "public-supply", Group: "default", Models: "gpt-test"}).Error)
+	require.NoError(t, db.Create(&model.Ability{ChannelId: 1, Group: "default", Model: "gpt-test", Enabled: true}).Error)
+	model.InvalidatePricingCache()
 	common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled = true, true, true
 	constant.GenerateDefaultToken, common.QuotaForNewUser = true, 500
 	t.Cleanup(func() {
 		model.DB, common.RedisEnabled = previousDB, previousRedis
 		common.RegisterEnabled, common.PasswordRegisterEnabled, common.EmailVerificationEnabled = previousRegister, previousPasswordRegister, previousVerify
 		constant.GenerateDefaultToken, common.QuotaForNewUser = previousToken, previousGift
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousOpen))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroups))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousModels))
+		model.InvalidatePricingCache()
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
 	})
 
 	for _, tenantID := range []int64{41, 42} {
-		require.NoError(t, db.Create(&model.TenantCatalogEntry{TenantID: tenantID, Model: "gpt-test", SalesGroup: "default", Status: model.TenantCatalogStatusEnabled, IsDefault: true}).Error)
 		body := []byte(`{"username":"same-user","email":"same@example.com","password":"Password12345","verification_code":"123456"}`)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)

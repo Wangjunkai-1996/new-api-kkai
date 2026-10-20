@@ -40,7 +40,7 @@ func TestResellerQuoteFreezesIndependentRetailAndSupplyPrices(t *testing.T) {
 	_, err = CreateResellerPricingQuoteTx(db, input)
 	assert.ErrorIs(t, err, ErrResellerQuoteConflict)
 	input.RequestID = "below-cost"
-	input.SaleMinor = 405
+	input.SaleMinor = 399
 	_, err = CreateResellerPricingQuoteTx(db, input)
 	assert.ErrorIs(t, err, ErrResellerPriceBelowCost)
 }

@@ -62,7 +62,14 @@ export type BillingPluginVariant = {
  */
 export type PricingUsableGroup = Record<string, string>
 
+export type ImageResolutionPricing = {
+  default_size: string
+  allow_custom_size?: boolean
+  tiers: Record<string, { unit_price: number; sizes: string[] }>
+}
+
 export type PricingModel = {
+  image_pricing_policy?: ImageResolutionPricing
   billing_plugin_variants?: BillingPluginVariant[]
   id: number
   model_name: string

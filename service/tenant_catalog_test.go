@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,9 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	setupAuthSessionTestDB(t)
 	db := model.DB
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Tenant{}, &model.TenantCatalogEntry{}, &model.TenantPriceVersion{}))
+	oldOpen := setting.UserUsableGroups2JSONString()
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	t.Cleanup(func() { require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldOpen)) })
 	oldRatios, oldGroups, oldPrice := ratio_setting.ModelRatio2JSONString(), ratio_setting.GroupRatio2JSONString(), operation_setting.Price
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"plain-model":1,"opaque-media":1,"opaque-video":1,"embedding-model":1,"sdk-only":1,"socket-only":1}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
@@ -67,6 +71,8 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"plain-model", "embedding-model"}, names)
 	pricing := NewTenantPricingService(db)
+	_, err = pricing.SaveGroupPrices(context.Background(), 7, []TenantPriceUpdate{{Group: "default", Multiplier: "2"}})
+	require.NoError(t, err)
 	assert.ErrorIs(t, pricing.SaveCatalog(context.Background(), 7, []model.TenantCatalogEntry{{TenantID: 7, Model: "opaque-media", SalesGroup: "default", Status: model.TenantCatalogStatusEnabled, IsDefault: true}}), model.ErrResellerInvalidCatalog)
 	_, err = pricing.ResolveCurrentPrice(context.Background(), 7, "opaque-media", "default")
 	assert.ErrorIs(t, err, model.ErrResellerInvalidCatalog)
@@ -86,8 +92,7 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":3}`))
 	effective, err := EffectiveTenantMultiplier("2", "default")
 	require.NoError(t, err)
-	assert.True(t, effective.Mul(decimal.RequireFromString("0.984")).GreaterThanOrEqual(decimal.NewFromInt(3)))
-	assert.True(t, effective.Sub(decimal.New(1, -18)).Mul(decimal.RequireFromString("0.984")).LessThan(decimal.NewFromInt(3)), "the supply floor rounds upwards to the nearest 18th decimal")
+	assert.True(t, effective.Equal(decimal.NewFromInt(3)), "the supply floor does not add the payment fee to customer prices")
 	current, err := pricing.ResolveCurrentPrice(context.Background(), 7, "plain-model", "default")
 	require.NoError(t, err)
 	assert.Equal(t, effective.String(), current.SalesMultiplier)
@@ -110,4 +115,83 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	model.InvalidatePricingCache()
 	assert.ErrorIs(t, PrepareTenantPricing(c, &relaycommon.RelayInfo{OriginModelName: "plain-model", Request: &dto.GeneralOpenAIRequest{}, ChannelMeta: &relaycommon.ChannelMeta{}}), model.ErrResellerInvalidCatalog)
 	assert.NoError(t, PrepareTenantPricing(c, quoted), "retiring a model cannot rewrite an accepted pricing quote")
+}
+
+func TestTenantGroupPricesInheritOverrideAndResetWithoutCatalogRows(t *testing.T) {
+	setupAuthSessionTestDB(t)
+	db := model.DB
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.Tenant{}, &model.TenantCatalogEntry{}, &model.TenantPriceVersion{}))
+	oldOpen, oldGroups, oldModels, oldPrice := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString(), ratio_setting.ModelRatio2JSONString(), operation_setting.Price
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldOpen))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldModels))
+		operation_setting.Price = oldPrice
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","premium":"Premium"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"premium":2,"private":0.5}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"shared-text":1,"future-text":1}`))
+	operation_setting.Price = 1
+	require.NoError(t, db.Create(&model.Tenant{ID: 42, Status: model.TenantStatusActive}).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "open-text", Models: "shared-text", Group: "default,premium,private"}).Error)
+	for _, group := range []string{"default", "premium", "private"} {
+		require.NoError(t, db.Create(&model.Ability{ChannelId: 1, Model: "shared-text", Group: group, Enabled: true}).Error)
+	}
+	model.InvalidatePricingCache()
+	pricing := NewTenantPricingService(db)
+	ctx := context.Background()
+	catalog, err := pricing.ResolveCatalog(ctx, 42)
+	require.NoError(t, err)
+	require.Len(t, catalog, 2, "private supply must not become public on reseller sites")
+	assert.True(t, catalog[0].IsDefault)
+	groups, err := pricing.ListGroupPrices(ctx, 42)
+	require.NoError(t, err)
+	require.Len(t, groups, 2)
+	assert.Equal(t, "1", groups[0].SalesMultiplier)
+	assert.True(t, groups[0].Inherited)
+	assert.Equal(t, "2", groups[1].SalesMultiplier)
+	assert.True(t, groups[1].Inherited)
+	var count int64
+	require.NoError(t, db.Model(&model.TenantPriceVersion{}).Count(&count).Error)
+	assert.Zero(t, count, "reading inherited prices must not save guessed overrides")
+	_, err = pricing.SaveGroupPrices(ctx, 42, []TenantPriceUpdate{{Group: "premium", Multiplier: "1.99"}})
+	assert.ErrorIs(t, err, model.ErrResellerPriceBelowCost)
+	_, err = pricing.SaveGroupPrices(ctx, 42, []TenantPriceUpdate{{Group: "premium", Multiplier: "3"}})
+	require.NoError(t, err)
+	price, err := pricing.ResolveCurrentPrice(ctx, 42, "shared-text", "default")
+	require.NoError(t, err)
+	assert.Equal(t, "1", price.SalesMultiplier)
+	price, err = pricing.ResolveCurrentPrice(ctx, 42, "shared-text", "premium")
+	require.NoError(t, err)
+	assert.Equal(t, "3", price.SalesMultiplier)
+	assert.Positive(t, price.ID)
+	// A new platform model automatically receives the existing group override.
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 1).Update("models", "shared-text,future-text").Error)
+	require.NoError(t, db.Create(&model.Ability{ChannelId: 1, Model: "future-text", Group: "premium", Enabled: true}).Error)
+	model.InvalidatePricingCache()
+	price, err = pricing.ResolveCurrentPrice(ctx, 42, "future-text", "premium")
+	require.NoError(t, err)
+	assert.Equal(t, "3", price.SalesMultiplier)
+	_, err = pricing.SaveGroupPrices(ctx, 42, []TenantPriceUpdate{{Group: "premium", Multiplier: "4"}})
+	assert.ErrorIs(t, err, ErrTenantPriceVersionConflict)
+	_, err = pricing.SaveGroupPrices(ctx, 42, []TenantPriceUpdate{{Group: "premium", ExpectedVersion: 1}})
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":0,"premium":2.5,"private":0.5}`))
+	groups, err = pricing.ListGroupPrices(ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, "0", groups[0].SalesMultiplier)
+	assert.Equal(t, "2.5", groups[1].SalesMultiplier)
+	assert.True(t, groups[1].Inherited)
+	assert.EqualValues(t, 2, groups[1].Version)
+	customer, err := pricing.ResolveCustomerPrices(ctx, 42)
+	require.NoError(t, err)
+	require.Len(t, customer, 3)
+	for _, price := range customer {
+		if price.Group == "premium" {
+			assert.Equal(t, 2.5, price.SalesRatio)
+		}
+	}
+	require.NoError(t, db.Model(&model.TenantCatalogEntry{}).Count(&count).Error)
+	assert.Zero(t, count)
 }

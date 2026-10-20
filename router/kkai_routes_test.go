@@ -74,6 +74,7 @@ func TestImageStudioPhaseOneRoutesAreRegistered(t *testing.T) {
 		"/api/image-studio/samples/:id":              {http.MethodGet},
 		"/api/image-studio/generations":              {http.MethodGet},
 		"/api/image-studio/generations/:id":          {http.MethodGet, http.MethodDelete},
+		"/api/image-studio/generations/:id/input":    {http.MethodGet},
 		"/api/image-studio/assets/:id":               {http.MethodGet},
 		"/api/image-studio/assets/:id/content":       {http.MethodGet},
 		"/api/image-studio/assets/:id/download":      {http.MethodGet},

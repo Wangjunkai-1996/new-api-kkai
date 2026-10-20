@@ -26,6 +26,7 @@ import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import {
   buildPricingChanges,
+  prepareExpressionPricingChanges,
   getModelPricing,
   saveModelPricing,
   invalidateModelPricing,
@@ -109,15 +110,28 @@ export function UpstreamRatioSync() {
       ),
     [channels, endpointOverrides]
   )
+  const managedPrices = useMemo(() => {
+    const policyModels = new Set(
+      pricingBaseline?.entries
+        .filter((entry) => entry.image_pricing_policy)
+        .map((entry) => entry.model_name)
+    )
+    const channelModels = new Set(pricingBaseline?.channel_models ?? [])
+    return Object.fromEntries(
+      Object.entries(prices).filter(
+        ([name]) => channelModels.has(name) && !policyModels.has(name)
+      )
+    )
+  }, [prices, pricingBaseline])
   const resolutions = useMemo(
     () =>
       Object.fromEntries(
         Object.entries(selectedSources).flatMap(([name, source]) => {
-          const values = prices[name]?.upstreams[source]
+          const values = managedPrices[name]?.upstreams[source]
           return values ? [[name, { ...values }]] : []
         })
       ) as Record<string, Record<string, number | string>>,
-    [selectedSources, prices]
+    [selectedSources, managedPrices]
   )
   const fetchMutation = useMutation({
     mutationFn: async (request: Parameters<typeof fetchUpstreamRatios>[0]) => {
@@ -173,15 +187,24 @@ export function UpstreamRatioSync() {
   })
   const syncMutation = useMutation({
     mutationFn: async () => {
-      if (!pricingBaseline) throw new Error(t('Reload pricing'))
+      if (!pricingBaseline?.channel_models) throw new Error(t('Reload pricing'))
       const after = applyPriceSyncSelections(
         pricingBaseline.options,
         resolutions
       )
-      await saveModelPricing(
+      const changes = await prepareExpressionPricingChanges(
         buildPricingChanges(pricingBaseline, pricingBaseline.options, after)
       )
-      return resolutions
+      await saveModelPricing(changes)
+      return Object.fromEntries(
+        changes.map((change) => [
+          change.model_name,
+          {
+            billing_mode: change.pricing['billing_setting.billing_mode'],
+            billing_expr: change.pricing['billing_setting.billing_expr'],
+          } satisfies PricingSyncValues,
+        ])
+      )
     },
     onSuccess: async (saved) => {
       setPrices((previous) =>
@@ -245,13 +268,13 @@ export function UpstreamRatioSync() {
           ...selections
             .filter(
               (selection) =>
-                prices[selection.model]?.upstreams[selection.source]
+                managedPrices[selection.model]?.upstreams[selection.source]
             )
             .map((selection) => [selection.model, selection.source]),
         ])
       )
     },
-    [prices]
+    [managedPrices]
   )
   const handleUnselectPrices = useCallback((models: string[]) => {
     setSelectedSources((previous) => {
@@ -263,7 +286,7 @@ export function UpstreamRatioSync() {
   const handleApplySync = () => {
     const previews: ConflictItem[] = Object.entries(selectedSources).flatMap(
       ([model, source]) => {
-        const row = prices[model]
+        const row = managedPrices[model]
         const selected: PricingSyncValues | undefined = row?.upstreams[source]
         if (!row || !selected) return []
         return [
@@ -310,7 +333,7 @@ export function UpstreamRatioSync() {
                 {t('Select price sources')}
               </Button>
             }
-            prices={prices}
+            prices={managedPrices}
             differences={differences}
             selectedSources={selectedSources}
             isDisabled={isLoading}

@@ -13,8 +13,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"gorm.io/gorm"
@@ -34,12 +36,13 @@ type ModelPricingChange struct {
 
 type ModelPricingEntry struct {
 	ModelPricingDescription
-	PluginVariants []ModelPricingPluginVariant          `json:"plugin_variants,omitempty"`
-	ModelName      string                               `json:"model_name"`
-	Version        string                               `json:"version"`
-	Configured     PricingValues                        `json:"configured"`
-	UsageSchema    map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
-	BillingUnit    string                               `json:"billing_unit,omitempty"`
+	PluginVariants     []ModelPricingPluginVariant          `json:"plugin_variants,omitempty"`
+	ModelName          string                               `json:"model_name"`
+	Version            string                               `json:"version"`
+	Configured         PricingValues                        `json:"configured"`
+	ImagePricingPolicy *imagepricing.ModelConfig            `json:"image_pricing_policy,omitempty"`
+	UsageSchema        map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
+	BillingUnit        string                               `json:"billing_unit,omitempty"`
 }
 
 type ModelPricingPluginVariant struct {
@@ -55,9 +58,10 @@ type ModelPricingPluginVariant struct {
 }
 
 type ModelPricingSnapshot struct {
-	Entries      []ModelPricingEntry `json:"entries"`
-	Options      map[string]string   `json:"options"`
-	EmptyVersion string              `json:"empty_version"`
+	Entries       []ModelPricingEntry `json:"entries"`
+	ChannelModels []string            `json:"channel_models"`
+	Options       map[string]string   `json:"options"`
+	EmptyVersion  string              `json:"empty_version"`
 }
 
 var ErrModelPricingConflict = errors.New("model pricing changed; reload before saving")
@@ -92,6 +96,11 @@ func defaultPricingMaps() map[string]map[string]any {
 		}
 	}
 	return result
+}
+
+// GetDefaultModelPricing returns the complete draft used by per-model reset.
+func GetDefaultModelPricing(name string) PricingValues {
+	return modelPricingValues(defaultPricingMaps(), name)
 }
 
 func readModelPricingMaps(db *gorm.DB) (map[string]map[string]any, map[string]bool, []string, error) {
@@ -242,8 +251,29 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	var imagePricingPolicy imagepricing.Config
+	if err := common.UnmarshalJsonStr(image_pricing_setting.JSON(), &imagePricingPolicy); err != nil {
+		return nil, err
+	}
+	var channelModelLists []string
+	if err := DB.Model(&Channel{}).Pluck("models", &channelModelLists).Error; err != nil {
+		return nil, err
+	}
+	channelModelSet := make(map[string]bool)
+	for _, list := range channelModelLists {
+		for _, name := range strings.Split(list, ",") {
+			if name = strings.TrimSpace(name); name != "" {
+				channelModelSet[name] = true
+			}
+		}
+	}
+	channelModels := make([]string, 0, len(channelModelSet))
+	for name := range channelModelSet {
+		channelModels = append(channelModels, name)
+	}
+	sort.Strings(channelModels)
 	if len(names) == 0 {
-		nameSet := make(map[string]bool)
+		nameSet := maps.Clone(channelModelSet)
 		for key, entries := range values {
 			for name := range entries {
 				if key == billing_setting.PluginBillingExprOption {
@@ -264,7 +294,7 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		}
 	}
 	sort.Strings(names)
-	result := &ModelPricingSnapshot{Entries: make([]ModelPricingEntry, 0, len(names)), Options: make(map[string]string), EmptyVersion: ModelPricingVersion(PricingValues{})}
+	result := &ModelPricingSnapshot{Entries: make([]ModelPricingEntry, 0, len(names)), ChannelModels: channelModels, Options: make(map[string]string), EmptyVersion: ModelPricingVersion(PricingValues{})}
 	generation := jsplugin.DefaultRegistry.Generation()
 	var enabledAbilities []AbilityWithChannel
 	if DB != nil {
@@ -275,6 +305,9 @@ func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 		configured := modelPricingValues(values, name)
 		entry := ModelPricingEntry{ModelName: name, Version: ModelPricingVersion(configured), Configured: configured,
 			ModelPricingDescription: ModelPricingDescription{Effective: effectiveModelPricing(values, name)}}
+		if policy, exists := imagePricingPolicy.Models[strings.TrimSpace(name)]; imagePricingPolicy.Enabled && exists {
+			entry.ImagePricingPolicy = &policy
+		}
 		entry.CacheWriteMode = ResolveCacheWriteMode(name, configured)
 		entry.BillingDetails = ResolveLegacyBillingDetails(name, entry.Effective, configured)
 		if metadata, ok := resolvePricingPluginMetadata(generation, name, pricingChannelIndex); ok {

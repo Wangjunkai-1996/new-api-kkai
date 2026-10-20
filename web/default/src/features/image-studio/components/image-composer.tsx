@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { isAxiosError } from 'axios'
-import { Images, LoaderCircle, Pencil, Sparkles } from 'lucide-react'
+import { Images, LoaderCircle, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -73,6 +73,7 @@ import {
   validateImageParameterValue,
 } from '../image-parameters'
 import { parseImagePromptSize } from '../image-prompt-size'
+import { IMAGE_REFERENCE_DEFAULT_MAX_BYTES } from '../image-reference-metadata'
 import {
   useCreateAsyncImageGeneration,
   useAsyncImageQuote,
@@ -88,6 +89,7 @@ import type {
   ImageComposerValues,
   ImageEditQuoteRequest,
   ImageGeneration,
+  ImageGenerationInput,
   ImageQuoteRequest,
   ImageSample,
   ImageStudioComposerMode,
@@ -127,6 +129,9 @@ function useDebouncedRequest<T>(request: T | null, delay: number): T | null {
 
 export function ImageComposer(props: {
   sample?: ImageSample
+  reuseGeneration?: ImageGeneration
+  reuseInput?: ImageGenerationInput
+  persistDraft?: boolean
   tokenGate: ImageTokenGateState
   onSubmitted: (generation: ImageGeneration) => void
 }) {
@@ -137,6 +142,7 @@ export function ImageComposer(props: {
   const hydrateDraft = useImageStudioDraftStore((state) => state.hydrate)
   const saveDraft = useImageStudioDraftStore((state) => state.save)
   const clearDraft = useImageStudioDraftStore((state) => state.clear)
+  const persistDraft = props.persistDraft ?? !props.reuseGeneration
   const modelsQuery = useImageModels(props.tokenGate.tokenId)
   const generationMutation = useCreateImageGeneration()
   const asyncMutation = useCreateAsyncImageGeneration()
@@ -150,12 +156,30 @@ export function ImageComposer(props: {
     mode: 'onChange',
   })
   const values = useWatch({ control: form.control })
-  const [mode, setMode] = useState<ImageStudioComposerMode>('generation')
+  const [mode, setMode] = useState<ImageStudioComposerMode>(() =>
+    props.reuseInput?.mode === 'edit' ? 'edit' : 'generation'
+  )
+  const [reuseModeConfirmed, setReuseModeConfirmed] = useState(
+    props.reuseInput?.mode !== 'unknown'
+  )
+  const [usingSavedReferences, setUsingSavedReferences] = useState(
+    props.reuseInput?.mode === 'edit'
+  )
+  const [savedReferenceIds, setSavedReferenceIds] = useState(
+    () => props.reuseInput?.references.map((reference) => reference.id) ?? []
+  )
+  const [settingsReviewed, setSettingsReviewed] = useState(false)
   const [staleQuoteToken, setStaleQuoteToken] = useState<string | null>(null)
   const initializedRef = useRef(false)
   const appliedSampleRef = useRef<number | undefined>(undefined)
+  const appliedReuseRef = useRef<number | undefined>(undefined)
   const selectedProfile = modelsQuery.data?.find(
-    (profile) => profile.id === values.model_profile_id
+    (profile) =>
+      profile.id === values.model_profile_id &&
+      profile.enabled &&
+      (!props.reuseGeneration ||
+        settingsReviewed ||
+        profile.model === props.reuseGeneration.model)
   )
   const sizeParameter = selectedProfile
     ? getImageSizeParameter(selectedProfile)
@@ -206,8 +230,45 @@ export function ImageComposer(props: {
     selectedProfile &&
     props.tokenGate.capability.async_models?.includes(selectedProfile.model)
   )
+  const savedReferences = useMemo(
+    () =>
+      props.reuseInput?.references.filter((reference) =>
+        savedReferenceIds.includes(reference.id)
+      ) ?? [],
+    [props.reuseInput?.references, savedReferenceIds]
+  )
+  const savedReferenceMetadata = useMemo(
+    () =>
+      savedReferences.map((reference) => ({
+        sha256: reference.sha256,
+        size_bytes: reference.size_bytes,
+      })),
+    [savedReferences]
+  )
+  const maxReferenceBytes =
+    props.tokenGate.capability?.max_reference_bytes ??
+    IMAGE_REFERENCE_DEFAULT_MAX_BYTES
+  const maxReferenceTotalBytes =
+    props.tokenGate.capability?.max_reference_total_bytes ??
+    IMAGE_REFERENCE_DEFAULT_MAX_BYTES
+  const savedReferencesUsable = Boolean(
+    props.reuseInput?.references_available &&
+    asyncEnabled &&
+    savedReferences.length > 0 &&
+    savedReferences.length <= maxReferenceImages &&
+    savedReferences.every(
+      (reference) => reference.size_bytes <= maxReferenceBytes
+    ) &&
+    savedReferences.reduce(
+      (total, reference) => total + reference.size_bytes,
+      0
+    ) <= maxReferenceTotalBytes
+  )
+  const activeReferenceMetadata = usingSavedReferences
+    ? savedReferenceMetadata
+    : reference.metadata
   const directReferences = useImageDirectReferences({
-    enabled: asyncEnabled && mode === 'edit',
+    enabled: asyncEnabled && mode === 'edit' && !usingSavedReferences,
     userId,
     files: reference.files,
     metadata: reference.metadata,
@@ -222,6 +283,23 @@ export function ImageComposer(props: {
   const outputCount = selectedProfile
     ? getImageOutputCount(selectedProfile, values.parameters ?? {})
     : 1
+  const reuseSettingsChanged = Boolean(
+    props.reuseGeneration &&
+    selectedProfile &&
+    !settingsReviewed &&
+    selectedProfile.specification_version !==
+      props.reuseGeneration.specification_version
+  )
+  const unsupportedParameterKeys = selectedProfile
+    ? Object.keys(values.parameters ?? {}).filter(
+        (key) =>
+          !selectedProfile.specification.parameters.some(
+            (parameter) => parameter.key === key
+          )
+      )
+    : []
+  const reuseSettingsBlocked =
+    reuseSettingsChanged || unsupportedParameterKeys.length > 0
 
   const submittedRequest = generationMutation.variables?.request
   const submittedProfile = submittedRequest
@@ -250,21 +328,23 @@ export function ImageComposer(props: {
   }, [currentOutputValue, form, mode, outputCount, outputParameterKey])
 
   useEffect(() => {
+    if (!persistDraft) return
     hydrateDraft(userId)
     initializedRef.current = false
-  }, [hydrateDraft, userId])
+  }, [hydrateDraft, persistDraft, userId])
 
   useEffect(() => {
     const models = modelsQuery.data
     if (
       !models ||
       models.length === 0 ||
+      props.reuseGeneration ||
       initializedRef.current ||
-      draftUserId !== userId
+      (persistDraft && draftUserId !== userId)
     ) {
       return
     }
-    const scopedDraft = draftUserId === userId ? draft : null
+    const scopedDraft = persistDraft && draftUserId === userId ? draft : null
     const draftProfile = models.find(
       (profile) => profile.id === scopedDraft?.model_profile_id
     )
@@ -273,7 +353,38 @@ export function ImageComposer(props: {
       buildImageComposerValues(profile, scopedDraft ?? undefined, mode)
     )
     initializedRef.current = true
-  }, [draft, draftUserId, form, mode, modelsQuery.data, userId])
+  }, [
+    draft,
+    draftUserId,
+    form,
+    mode,
+    modelsQuery.data,
+    persistDraft,
+    props.reuseGeneration,
+    userId,
+  ])
+
+  useEffect(() => {
+    const generation = props.reuseGeneration
+    if (!generation || !props.reuseInput || !modelsQuery.data) return
+    if (appliedReuseRef.current === generation.id) return
+    const profile = modelsQuery.data.find(
+      (candidate) =>
+        candidate.id === generation.model_profile_id &&
+        candidate.model === generation.model &&
+        candidate.enabled
+    )
+    const parameters = { ...generation.parameters }
+    const outputParameter = profile && getImageOutputParameter(profile)
+    if (outputParameter) parameters[outputParameter.key] = 1
+    form.reset({
+      model_profile_id: generation.model_profile_id,
+      prompt: generation.prompt,
+      parameters,
+    })
+    appliedReuseRef.current = generation.id
+    initializedRef.current = true
+  }, [form, modelsQuery.data, props.reuseGeneration, props.reuseInput])
 
   useEffect(() => {
     if (!props.sample || !modelsQuery.data) return
@@ -298,7 +409,14 @@ export function ImageComposer(props: {
   }, [form, mode, modelsQuery.data, props.sample])
 
   useEffect(() => {
-    if (mode !== 'generation' || !initializedRef.current || userId <= 0) return
+    if (
+      !persistDraft ||
+      mode !== 'generation' ||
+      !initializedRef.current ||
+      userId <= 0
+    ) {
+      return
+    }
     if (form.getValues('prompt').trim() === '') {
       clearDraft(userId)
       return
@@ -307,12 +425,27 @@ export function ImageComposer(props: {
     if (!parsed.success) return
     const timer = window.setTimeout(() => saveDraft(userId, parsed.data), 300)
     return () => window.clearTimeout(timer)
-  }, [clearDraft, composerSchema, form, mode, saveDraft, userId, values])
+  }, [
+    clearDraft,
+    composerSchema,
+    form,
+    mode,
+    persistDraft,
+    saveDraft,
+    userId,
+    values,
+  ])
 
   const quoteRequest = useMemo<
     ImageQuoteRequest | ImageEditQuoteRequest | ImageAsyncQuoteRequest | null
   >(() => {
-    if (!props.tokenGate.tokenId || !selectedProfile || promptSizeError) {
+    if (
+      !props.tokenGate.tokenId ||
+      !selectedProfile ||
+      promptSizeError ||
+      !reuseModeConfirmed ||
+      reuseSettingsBlocked
+    ) {
       return null
     }
     const parsed = imageComposerSchema.safeParse(values)
@@ -334,14 +467,28 @@ export function ImageComposer(props: {
       sample_id: parsed.data.sample_id,
     }
     if (asyncEnabled) {
-      if (mode === 'edit' && !directReferences.ready) return null
+      if (
+        mode === 'edit' &&
+        (usingSavedReferences
+          ? !savedReferencesUsable
+          : !directReferences.ready)
+      ) {
+        return null
+      }
+      let assetIds: number[] = []
+      if (mode === 'edit') {
+        assetIds = usingSavedReferences
+          ? savedReferenceIds
+          : directReferences.assetIds
+      }
       return {
         ...request,
         mode,
-        asset_ids: mode === 'edit' ? directReferences.assetIds : [],
+        asset_ids: assetIds,
       }
     }
     if (mode === 'generation') return request
+    if (usingSavedReferences) return null
     return buildImageEditQuoteRequest(request, reference.metadata)
   }, [
     asyncEnabled,
@@ -352,7 +499,12 @@ export function ImageComposer(props: {
     props.tokenGate.tokenId,
     promptSizeError,
     reference.metadata,
+    reuseModeConfirmed,
+    reuseSettingsBlocked,
+    savedReferenceIds,
+    savedReferencesUsable,
     selectedProfile,
+    usingSavedReferences,
     values,
   ])
   const debouncedRequest = useDebouncedRequest(quoteRequest, 400)
@@ -406,6 +558,7 @@ export function ImageComposer(props: {
       (candidate) => candidate.id === profileId
     )
     if (!profile) return
+    setSettingsReviewed(true)
     const nextSizeParameter = getImageSizeParameter(profile)
     const parameters =
       nextSizeParameter && currentSize !== undefined
@@ -421,10 +574,22 @@ export function ImageComposer(props: {
   }
 
   const changeMode = (nextMode: ImageStudioComposerMode): void => {
-    if (nextMode === mode || submitPending) return
+    if (submitPending) return
+    setReuseModeConfirmed(true)
+    if (nextMode === mode) return
     setMode(nextMode)
+    setUsingSavedReferences(false)
     reference.clear()
     if (selectedProfile) {
+      if (props.reuseGeneration) {
+        const currentValues = form.getValues()
+        const parameters = { ...currentValues.parameters }
+        if (nextMode === 'edit' && outputParameterKey) {
+          parameters[outputParameterKey] = 1
+        }
+        form.reset({ ...currentValues, parameters })
+        return
+      }
       form.reset(
         buildImageComposerValues(selectedProfile, form.getValues(), nextMode)
       )
@@ -435,7 +600,9 @@ export function ImageComposer(props: {
     if (!quoteRequest || !currentQuote) return
     if (
       mode === 'edit' &&
-      (reference.files.length === 0 ||
+      ((usingSavedReferences
+        ? !savedReferencesUsable
+        : reference.files.length === 0) ||
         (!asyncEnabled && !isImageEditQuoteRequest(quoteRequest)))
     ) {
       return
@@ -453,7 +620,7 @@ export function ImageComposer(props: {
       }
       const identity =
         mode === 'edit'
-          ? buildImageEditQuoteRequest(identityRequest, reference.metadata)
+          ? buildImageEditQuoteRequest(identityRequest, activeReferenceMetadata)
           : identityRequest
       if (!identity) return
       requestFingerprint = await imageSubmissionFingerprint(identity)
@@ -499,6 +666,13 @@ export function ImageComposer(props: {
         if (isImageQuoteExpiring(quote.expires_at)) {
           const refreshed = await quoteQuery.refetch()
           if (!refreshed.data) return
+          if (
+            refreshed.data.quota !== quote.quota ||
+            refreshed.data.display_amount !== quote.display_amount
+          ) {
+            toast.info(t('imageStudio.quoteChanged'))
+            return
+          }
           quote = refreshed.data
         }
         if (!markImageStudioSubmissionStarted(userId, requestFingerprint)) {
@@ -541,7 +715,9 @@ export function ImageComposer(props: {
       } else if (resolution.outcome === 'pending') {
         toast.info(t('imageStudio.submissionProcessing'))
       } else {
-        if (mode === 'generation' && resolution.clearDraft) clearDraft(userId)
+        if (persistDraft && mode === 'generation' && resolution.clearDraft) {
+          clearDraft(userId)
+        }
         toast.success(
           mode === 'edit'
             ? t('imageStudio.editSubmitted')
@@ -647,10 +823,63 @@ export function ImageComposer(props: {
               <AlertDescription>{gateMessage}</AlertDescription>
             </Alert>
           )}
+          {!reuseModeConfirmed && (
+            <Alert>
+              <AlertDescription>
+                {t(
+                  'Choose a generation mode to continue. The original mode is unavailable for this older task.'
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+          {props.reuseGeneration &&
+            !modelsQuery.isLoading &&
+            !selectedProfile && (
+              <Alert variant='destructive'>
+                <AlertDescription>
+                  {t(
+                    'The original model is unavailable. Choose a model to continue.'
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+          {reuseSettingsBlocked && selectedProfile && (
+            <Alert variant='destructive'>
+              <AlertDescription>
+                <p>
+                  {t(
+                    'The model settings have changed or contain unsupported parameters. Reset to the current defaults before generating.'
+                  )}
+                </p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={submitPending}
+                  onClick={() => {
+                    const defaults = buildImageComposerValues(
+                      selectedProfile,
+                      {
+                        prompt: form.getValues('prompt'),
+                      },
+                      mode
+                    )
+                    if (outputParameterKey) {
+                      defaults.parameters[outputParameterKey] = 1
+                    }
+                    form.reset(defaults)
+                    setSettingsReviewed(true)
+                  }}
+                >
+                  {t('Reset to current model defaults')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           <div className='space-y-2'>
             <span className='text-sm font-medium'>{t('imageStudio.mode')}</span>
             <ToggleGroup
-              value={[mode]}
+              value={reuseModeConfirmed ? [mode] : []}
               onValueChange={(next) => {
                 const nextMode = next.at(0) as
                   | ImageStudioComposerMode
@@ -711,42 +940,134 @@ export function ImageComposer(props: {
                     <NativeSelectOption value=''>
                       {t('imageStudio.selectModel')}
                     </NativeSelectOption>
-                    {modelsQuery.data?.map((profile) => (
-                      <NativeSelectOption
-                        key={profile.id}
-                        value={String(profile.id)}
-                      >
-                        {profile.display_name}
-                      </NativeSelectOption>
-                    ))}
+                    {props.reuseGeneration &&
+                      !selectedProfile &&
+                      field.value ===
+                        props.reuseGeneration.model_profile_id && (
+                        <NativeSelectOption
+                          value={String(field.value)}
+                          disabled
+                        >
+                          {props.reuseGeneration.model}
+                        </NativeSelectOption>
+                      )}
+                    {modelsQuery.data
+                      ?.filter((profile) => profile.enabled)
+                      .map((profile) => (
+                        <NativeSelectOption
+                          key={profile.id}
+                          value={String(profile.id)}
+                        >
+                          {profile.display_name}
+                        </NativeSelectOption>
+                      ))}
                   </NativeSelect>
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          {mode === 'edit' && selectedProfile && (
+          {mode === 'edit' && usingSavedReferences && (
+            <div className='space-y-3'>
+              <p className='text-sm font-medium'>
+                {t('Original reference images')}
+              </p>
+              <ul className='space-y-2'>
+                {savedReferences.map((savedReference, index) => (
+                  <li
+                    key={savedReference.id}
+                    className='flex items-center gap-3 rounded-md border p-3'
+                  >
+                    <Images
+                      className='text-muted-foreground size-5 shrink-0'
+                      aria-hidden='true'
+                    />
+                    <span className='min-w-0 flex-1 text-xs'>
+                      {t(
+                        'Reference {{position}} · {{width}} × {{height}} · {{size}} KB',
+                        {
+                          position: index + 1,
+                          width: savedReference.width,
+                          height: savedReference.height,
+                          size: Math.ceil(savedReference.size_bytes / 1024),
+                        }
+                      )}
+                    </span>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon-sm'
+                      disabled={submitPending}
+                      aria-label={t('imageStudio.removeReferenceImage', {
+                        position: index + 1,
+                      })}
+                      onClick={() =>
+                        setSavedReferenceIds((ids) =>
+                          ids.filter((id) => id !== savedReference.id)
+                        )
+                      }
+                    >
+                      <Trash2 aria-hidden='true' />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <p
+                className={
+                  savedReferencesUsable
+                    ? 'text-muted-foreground text-xs'
+                    : 'text-destructive text-xs'
+                }
+                role={savedReferencesUsable ? undefined : 'alert'}
+              >
+                {savedReferencesUsable
+                  ? t(
+                      'Original reference images are reused in their original order.'
+                    )
+                  : t(
+                      'Original references are unavailable or incompatible with the current model. Upload the complete reference set to continue.'
+                    )}
+              </p>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                disabled={submitPending}
+                onClick={() => {
+                  setUsingSavedReferences(false)
+                  setSavedReferenceIds([])
+                  reference.clear()
+                }}
+              >
+                {t('Use new reference images')}
+              </Button>
+            </div>
+          )}
+          {mode === 'edit' && selectedProfile && !usingSavedReferences && (
             <ImageReferenceField
               controller={reference}
               maxReferenceImages={maxReferenceImages}
               disabled={submitPending || reference.processing}
             />
           )}
-          {asyncEnabled && mode === 'edit' && directReferences.error && (
-            <Alert variant='destructive'>
-              <AlertDescription>
-                <p>{directReferences.error}</p>
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  onClick={directReferences.retry}
-                >
-                  {t('Retry upload')}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
+          {asyncEnabled &&
+            mode === 'edit' &&
+            !usingSavedReferences &&
+            directReferences.error && (
+              <Alert variant='destructive'>
+                <AlertDescription>
+                  <p>{directReferences.error}</p>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={directReferences.retry}
+                  >
+                    {t('Retry upload')}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
           <FormField
             control={form.control}
             name='prompt'

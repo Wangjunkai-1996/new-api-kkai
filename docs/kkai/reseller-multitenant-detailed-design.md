@@ -51,12 +51,12 @@ Cookie 为 host-only、Secure、HttpOnly、SameSite；Origin 按当前站点校�
 | 表 | 主要约束与用途 |
 | --- | --- |
 | tenants | 负责人、状态；主站为固定 tenant=0 |
-| tenant_domains | 规范化 hostname 唯一；域名状态不由代理修改 |
+| tenant_domains | 规范化 hostname 唯一；每站一个域名，域名状态不由代理修改 |
 | tenant_memberships | tenant/user/role 关系；owner 与 customer 不混用 |
 | tenant_profiles | 每租户唯一品牌；Logo 二进制与受控文案 |
 | reseller_applications | 申请、审核人、审核原因与时间 |
-| tenant_catalog_entries | tenant/group/model 唯一；首期单一默认组白名单 |
-| tenant_price_versions | tenant/model/group/version 唯一；历史只追加 |
+| tenant_catalog_entries | tenant/group/model 唯一；保留历史显式目录，有效目录实时继承平台开放模型/分组 |
+| tenant_price_versions | tenant/model/group/version 唯一；组覆盖使用空 model，恢复继承写空倍率版本，历史只追加 |
 | pricing_quotes | request_id 唯一；供货/销售倍率、单位、费率及 payload hash |
 | tenant_consumptions | request_id 唯一；预扣、实际 quota、状态、channel 与错误 |
 | customer_payment_lots | topup 与 operation 唯一；实付、费用、到账/消费/退款/剩余 quota |
@@ -72,11 +72,13 @@ users、tokens、top_ups、user_sessions、auth_flows、external_identity_claims
 `TenantPricingService` 集中处理目录、当前价、最低价和保存版本，不向全局 ratio_setting 写代理配置。
 
 - 供货清单从现有启用能力及 pricing endpoint 元数据生成，排除媒体、task、plugin 和不明端点。
-- 首期只使用一个默认销售组及模型白名单；客户不能切组，auto group、重试及 Token 路由也受相同限制。
+- 新站默认继承平台开放且通过代理计费安全校验的模型/分组，无需预先写入目录或价格。有效域名是启用站点的准备条件，目录和倍率配置不作为启用门禁。
+- 开放分组分别继承平台现行价格，代理按组独立覆盖或恢复继承；后续新增模型自动使用所在分组的规则，不将唯一默认分组作为客户全局白名单。
+- 实际销售分组由可信用户/Token 权限及平台开放范围约束；auto group、选路和重试必须保留对应的租户权限与报价约束。
 - 每次选渠道（含重试）重新检查租户/目录，目录撤销后旧 Token 不能绕过。
-- 销售倍率相对基础价；供货组倍率只用于 KKAI 供货成本。
-- 保存使用 `expected_version`，过期版本冲突不会覆盖新配置。
-- 保存倍率低于成本时拒绝；供货上涨后统一使用 `max(saved, supply/0.984)`，向上保留足够精度。客户模型广场和新请求使用相同有效倍率，历史版本不改。
+- 销售倍率相对基础价；供货组倍率只用于 KKAI 供货成本。未覆盖时沿用平台实际价格，不写入默认 `1.1`，也不因继承额外加收 1.6%。
+- 组覆盖使用 `TenantPriceVersion.Model=""`；未设置时实时继承。保存覆盖及恢复继承都追加版本，恢复使用 `SalesMultiplier=""` 的版本标记，不能删除历史。`expected_version` 包含恢复历史，过期版本冲突不会覆盖新配置。
+- 手工保存倍率低于平台当前供货组倍率时拒绝；覆盖生效使用 `max(saved, platform_group_multiplier)`，继承则等于平台当前倍率，不加支付手续费。客户模型广场和新请求使用相同有效倍率，历史版本不改。
 
 整数分的预估规则：
 
@@ -84,12 +86,14 @@ users、tokens、top_ups、user_sessions、auth_flows、external_identity_claims
 sale = ceil(base_sale × retail_multiplier)
 fee  = ceil(sale × 0.016)
 profit = sale - fee - supply
-minimum_sale = ceil(supply × 125 / 123)
+minimum_multiplier = platform_group_multiplier
 ```
 
-这适用于整数分报价/最低价展示。实际消费往往小于一分钱，现金分摊采用下一节的批次累计规则，不能逐条把报价向上取整后当现金收入。
+这适用于整数分报价展示。平价继承的精确收益可因手续费为零或负，须保留在 `ExactProfitCarry` 中抵扣后续收益，不能把负值截零后虚增钱包或提现额度。客户费用仍为非负。实际消费往往小于一分钱，现金分摊采用下一节的批次累计规则，不能逐条把报价向上取整后当现金收入。
 
 报价在第一次预扣时持久化，保存 tenant/customer、原始模型/销售组、价格版本、实际倍率、供货来源快照、现金单位、预算、费率和请求 ID。重试复用原 PriceData/quote；不得读取调价后的全局配置重新结算。
+
+平台免费模型或零倍率分组仍执行预算、权限和请求身份校验，保留零额消费记录并幂等更新请求统计；无需虚构付费批次或利润报价。免费请求不能在结算、补预扣或人工核对时转为正额扣费，重试仍复用已授权的免费预算。
 
 ## 5. 完整预算与纯文本边界
 
@@ -186,8 +190,8 @@ paid 核销 frozen；approved 付款结果未明时保持冻结，先人工查�
 | 申请 | GET/POST /api/reseller/applications | 主站 UserAuth | 只看自己；状态检查；no-store |
 | 代理身份 | GET /api/reseller/me | UserAuth + TenantAdminAuth | membership capability；no-store |
 | 品牌 | GET/PATCH /api/reseller/profile；POST /brand/logo | 同上，membership tenant | 受控内容替换；同内容等效；no-store |
-| 目录 | GET/PATCH /api/reseller/catalog；GET /supply | 同上 | 事务替换；目录校验；no-store |
-| 价格 | GET/PATCH /api/reseller/prices | 同上 | expected_version 防覆盖；no-store |
+| 目录 | GET /api/reseller/catalog；GET /supply | 同上 | 读取实时继承目录；旧 PATCH 明确拒绝；no-store |
+| 价格 | GET/PATCH /api/reseller/prices | 同上 | 每组继承/覆盖与版本；expected_version 防覆盖；no-store |
 | 客户/收益 | GET /api/reseller/customers、/earnings | 同上 | 租户范围脱敏；no-store |
 | 提现 | GET/POST /api/reseller/withdrawals | 同上，关键操作限流 | tenant+幂等键/hash；no-store |
 | 平台 | GET /api/admin/resellers | 主站 AdminAuth | no-store |
@@ -197,9 +201,15 @@ paid 核销 frozen；approved 付款结果未明时保持冻结，先人工查�
 
 平台表格中的相对路径均以 `/api/admin/resellers` 为前缀；Logo 路径以 `/api/reseller` 为前缀。代理接口没有任意 tenant ID 参数。
 
+`GET /api/reseller/prices?scope=group` 按开放组返回 `group`、`sales_multiplier`、`platform_multiplier`、`minimum_multiplier`、`version`、`id` 和 `inherited`；倍率为实际生效的绝对倍率。未指定 `scope` 的 GET 保留 `TenantPriceVersion` 逐模型 JSON 形状，将实时继承目录与组倍率投影为实际生效价格，不返回内部空 `model` 记录，以兼容独立部署的旧前端。
+
+`PATCH /api/reseller/prices` 继续接受 `prices[]`，组操作的 `model` 留空，`sale_multiplier` 为空表示恢复平台继承；保存与恢复均携带最新 `expected_version`。非空 `model` 的逐模型请求、混合请求以及旧 `PATCH /api/reseller/catalog` 均返回 HTTP 400、`TENANT_GROUP_PRICING_REQUIRED` 和 `Set prices by group instead of model.`，不写入废弃配置。空价格更新也返回 400。配置只作用于当前租户和指定分组，平台新增模型不需要复制逐模型价格记录。
+
 ## 9. 前端与品牌
 
 路由：申请 `/reseller-application`，平台审核 `/reseller-admin`，代理 `/reseller` 和 `/reseller/{brand,catalog,pricing,customers,earnings,withdrawals}`。客户沿用现有首页、登录、模型广场和认证页面。
+
+审核仅创建 provisioning 站点及 owner 关系。平台分配唯一有效域名后即可确认启用，代理无需先登录选择模型或保存倍率。已有域名只展示域名和状态，不提供追加域名入口；首次分配成功反馈具体 hostname，失败保留输入。
 
 启动读取 `/api/site-config`，提供站名、Logo、contact、announcement、homepage_content、status、maintenance 和 enabled_modules。客户价格继续用 `/api/pricing`，不在公开 config 返回供货信息。
 

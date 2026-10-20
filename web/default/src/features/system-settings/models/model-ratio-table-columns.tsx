@@ -22,6 +22,7 @@ import { DataTableColumnHeader } from '@/components/data-table/core/column-heade
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { StatusBadge } from '@/components/status-badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import type { ModelPricingEntry } from '@/features/model-pricing/api'
 
 import {
   getModeLabel,
@@ -30,6 +31,7 @@ import {
   getPriceSummary,
   type ModelRow,
 } from './model-pricing-snapshots'
+import { formatPricingNumber } from './pricing-format'
 
 export const TASK_PRICING_MODE_FILTER = 'tiered_expr_task'
 
@@ -46,6 +48,10 @@ type BuildModelRatioColumnsOptions = {
   onEdit: (model: ModelRow) => void
   deleteDisabled?: boolean
   taskModelNames?: Set<string>
+  imagePricingPolicies?: Map<
+    string,
+    NonNullable<ModelPricingEntry['image_pricing_policy']>
+  >
   t: (key: string) => string
 }
 
@@ -54,6 +60,7 @@ export function buildModelRatioColumns({
   onEdit,
   deleteDisabled,
   taskModelNames,
+  imagePricingPolicies,
   t,
 }: BuildModelRatioColumnsOptions): ColumnDef<ModelRow>[] {
   return [
@@ -143,7 +150,11 @@ export function buildModelRatioColumns({
       ),
       cell: ({ row }) => (
         <StatusBadge
-          label={t(getModeLabel(row.original.billingMode))}
+          label={
+            imagePricingPolicies?.has(row.original.name)
+              ? t('imageStudio.admin.pricing')
+              : t(getModeLabel(row.original.billingMode))
+          }
           variant={getModeVariant(row.original.billingMode)}
           copyable={false}
           showDot={false}
@@ -174,10 +185,20 @@ export function buildModelRatioColumns({
       cell: ({ row }) => (
         <div className='flex min-w-0 flex-col gap-1'>
           <span className='truncate font-medium'>
-            {getPriceSummary(row.original, t)}
+            {imagePricingPolicies?.has(row.original.name)
+              ? Object.entries(
+                  imagePricingPolicies.get(row.original.name)?.tiers ?? {}
+                )
+                  .map(
+                    ([tier, pricing]) =>
+                      `${tier.toUpperCase()} $${formatPricingNumber(pricing.unit_price)} / ${t('image')}`
+                  )
+                  .join(' · ')
+              : getPriceSummary(row.original, t)}
           </span>
           <span className='text-muted-foreground truncate text-xs'>
-            {getPriceDetail(row.original, t)}
+            {!imagePricingPolicies?.has(row.original.name) &&
+              getPriceDetail(row.original, t)}
           </span>
         </div>
       ),

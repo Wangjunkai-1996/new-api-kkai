@@ -216,6 +216,7 @@ export function pricingFromDraft(data: ModelRatioData): PricingValues {
       data.billingMode === 'tiered_expr' ? 'tiered_expr' : 'ratio',
   }
   for (const [field, key] of Object.entries(pricingFieldMap)) {
+    if (data.billingMode === 'tiered_expr') continue
     const value = data[field as keyof typeof pricingFieldMap]
     if (value === undefined || value === '') continue
     const number = Number(value)
@@ -223,10 +224,9 @@ export function pricingFromDraft(data: ModelRatioData): PricingValues {
       throw new Error(t('Enter a finite, non-negative price'))
     }
     if (
-      data.billingMode === 'tiered_expr' ||
-      (data.billingMode === 'per-request'
+      data.billingMode === 'per-request'
         ? key === 'ModelPrice'
-        : key !== 'ModelPrice')
+        : key !== 'ModelPrice'
     ) {
       values[key] = number
     }

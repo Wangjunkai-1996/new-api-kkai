@@ -25,9 +25,11 @@ import {
   waitFor,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
 
 import * as adminApi from './admin-api'
 import { AdminApplications } from './admin-applications'
@@ -265,5 +267,208 @@ test.each(['zhCN', 'zhTW'])(
     await waitFor(() =>
       expect(provision).toHaveBeenCalledExactlyOnceWith(47, 'kimi.kkai.win')
     )
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        'Domain assigned successfully',
+        {
+          description: 'kimi.kkai.win',
+        }
+      )
+    )
+    expect(screen.getByLabelText('Hostname')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Assign Domain' })).toBeDisabled()
   }
 )
+
+test('a site with an assigned domain shows its hostname and status without another assignment form', () => {
+  renderPage(
+    <AdminTenants
+      tenants={[
+        {
+          id: 47,
+          display_name: 'KimiAI',
+          status: 'active',
+          domains: [{ hostname: 'kimi.kkai.win', status: 'disabled' }],
+        },
+      ]}
+      applications={[application]}
+      rootDomain='kkai.win'
+    />
+  )
+  expect(screen.getByText('Assigned Domain')).toBeVisible()
+  expect(screen.getByText(/kimi\.kkai\.win/)).toBeVisible()
+  expect(screen.getByText(/Disabled/)).toBeVisible()
+  expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Assign Domain' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Add another domain' })
+  ).not.toBeInTheDocument()
+})
+
+test('a failed domain assignment keeps the form and hostname available for retry', async () => {
+  const error = new Error('Domain assignment failed')
+  vi.spyOn(adminApi, 'provisionDomain').mockRejectedValue(error)
+  renderPage(
+    <AdminTenants
+      tenants={[
+        {
+          id: 47,
+          display_name: 'KimiAI',
+          status: 'provisioning',
+          domains: [],
+        },
+      ]}
+      applications={[application]}
+      rootDomain='kkai.win'
+    />
+  )
+  const user = userEvent.setup()
+  expect(screen.getByLabelText('Hostname')).toHaveValue('kimi.kkai.win')
+  await user.click(screen.getByRole('button', { name: 'Assign Domain' }))
+  await waitFor(() => expect(handleServerError).toHaveBeenCalledWith(error))
+  expect(screen.getByLabelText('Hostname')).toHaveValue('kimi.kkai.win')
+  expect(screen.getByRole('button', { name: 'Assign Domain' })).toBeEnabled()
+  expect(toast.success).not.toHaveBeenCalled()
+})
+
+test('a site without an active assigned domain cannot be enabled', async () => {
+  const update = vi.spyOn(adminApi, 'updateTenantStatus').mockResolvedValue()
+  renderPage(
+    <AdminTenants
+      tenants={[
+        {
+          id: 47,
+          display_name: 'KimiAI',
+          status: 'provisioning',
+          domains: [{ hostname: 'kimi.kkai.win', status: 'disabled' }],
+          activation: {
+            domain_ready: false,
+            ready: false,
+          },
+        },
+      ]}
+      rootDomain='kkai.win'
+    />
+  )
+  expect(
+    screen.getByText('Assign a domain before activating this site.')
+  ).toBeVisible()
+  const enable = screen.getByRole('button', { name: 'Enable Site' })
+  expect(enable).toBeDisabled()
+  await userEvent.setup().click(enable)
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(update).not.toHaveBeenCalled()
+})
+
+test.each([
+  {
+    status: 'provisioning' as const,
+    ready: true,
+    action: 'Enable Site',
+    target: 'active',
+  },
+  {
+    status: 'active' as const,
+    ready: false,
+    action: 'Disable Site',
+    target: 'disabled',
+  },
+])(
+  '$action requires confirmation when status=$status and ready=$ready',
+  async ({ status, ready, action, target }) => {
+    const update = vi.spyOn(adminApi, 'updateTenantStatus').mockResolvedValue()
+    const activation = {
+      domain_ready: ready,
+      catalog_ready: false,
+      prices_ready: false,
+      ready,
+    }
+    renderPage(
+      <AdminTenants
+        tenants={[
+          {
+            id: 47,
+            display_name: 'KimiAI',
+            status,
+            domains: [{ hostname: 'kimi.kkai.win', status: 'active' }],
+            activation,
+          },
+        ]}
+        rootDomain='kkai.win'
+      />
+    )
+    const user = userEvent.setup()
+    const actionButton = screen.getByRole('button', { name: action })
+    expect(actionButton).toBeEnabled()
+    await user.click(actionButton)
+    expect(
+      await screen.findByRole('alertdialog', { name: action })
+    ).toBeVisible()
+    expect(update).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledExactlyOnceWith(47, target)
+    )
+  }
+)
+
+test.each(['active', 'disabled'])(
+  'older backends retain activation based on a %s domain',
+  (domainStatus) => {
+    renderPage(
+      <AdminTenants
+        tenants={[
+          {
+            id: 47,
+            display_name: 'KimiAI',
+            status: 'provisioning',
+            domains: [{ hostname: 'kimi.kkai.win', status: domainStatus }],
+          },
+        ]}
+        rootDomain='kkai.win'
+      />
+    )
+    const enable = screen.getByRole('button', { name: 'Enable Site' })
+    if (domainStatus === 'active') {
+      expect(enable).toBeEnabled()
+    } else {
+      expect(enable).toBeDisabled()
+    }
+  }
+)
+
+test('stale domain readiness closes the activation confirmation after a server rejection', async () => {
+  const error = {
+    response: { data: { code: 'RESELLER_ACTIVATION_INCOMPLETE' } },
+  }
+  vi.spyOn(adminApi, 'updateTenantStatus').mockRejectedValue(error)
+  renderPage(
+    <AdminTenants
+      tenants={[
+        {
+          id: 47,
+          display_name: 'KimiAI',
+          status: 'provisioning',
+          domains: [{ hostname: 'kimi.kkai.win', status: 'active' }],
+          activation: {
+            domain_ready: true,
+            ready: true,
+          },
+        },
+      ]}
+      rootDomain='kkai.win'
+    />
+  )
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Enable Site' }))
+  expect(
+    await screen.findByRole('alertdialog', { name: 'Enable Site' })
+  ).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await waitFor(() => expect(handleServerError).toHaveBeenCalledWith(error))
+  await waitFor(() =>
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  )
+})

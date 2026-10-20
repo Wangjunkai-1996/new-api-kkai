@@ -37,6 +37,7 @@ import {
   getAdminImageModelCandidates,
   getAdminImageModels,
   getAdminImageSamples,
+  getImageGeneration,
   getImageGenerations,
   getImageModels,
   getImageSample,
@@ -249,6 +250,25 @@ export const useImageGenerations = (
         visible
       )
     },
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  })
+}
+
+export const useImageGeneration = (id: number | undefined) => {
+  const userId = useImageStudioUserId()
+  return useQuery({
+    queryKey: privateUserQueryKey(userId, 'image-studio', 'generation', id),
+    queryFn: () => getImageGeneration(id ?? 0),
+    enabled: userId > 0 && Boolean(id),
+    staleTime: 0,
+    refetchInterval: (query) =>
+      getImageGenerationPollInterval(
+        query.state.data ? [query.state.data] : [],
+        Math.floor(Date.now() / 1000),
+        typeof document === 'undefined' ||
+          document.visibilityState === 'visible'
+      ),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   })

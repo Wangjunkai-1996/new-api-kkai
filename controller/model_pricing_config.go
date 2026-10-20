@@ -39,20 +39,30 @@ func PreviewModelPricing(c *gin.Context) {
 	var request struct {
 		ModelName string              `json:"model_name"`
 		Pricing   model.PricingValues `json:"pricing"`
+		Reset     bool                `json:"reset"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
+	}
+	if request.Reset {
+		request.Pricing = model.GetDefaultModelPricing(request.ModelName)
 	}
 	preview, err := model.PreviewModelPricing(request.ModelName, request.Pricing)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, model.ModelPricingDescription{
-		Effective:      preview,
-		CacheWriteMode: model.ResolveCacheWriteMode(request.ModelName, request.Pricing),
-		BillingDetails: model.ResolveLegacyBillingDetails(request.ModelName, preview, request.Pricing),
+	common.ApiSuccess(c, struct {
+		model.ModelPricingDescription
+		Configured model.PricingValues `json:"configured"`
+	}{
+		ModelPricingDescription: model.ModelPricingDescription{
+			Effective:      preview,
+			CacheWriteMode: model.ResolveCacheWriteMode(request.ModelName, request.Pricing),
+			BillingDetails: model.ResolveLegacyBillingDetails(request.ModelName, preview, request.Pricing),
+		},
+		Configured: request.Pricing,
 	})
 }
 

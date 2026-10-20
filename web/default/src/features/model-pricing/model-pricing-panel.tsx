@@ -40,6 +40,7 @@ import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
+  prepareExpressionPricingChanges,
   useCanEditModelPricing,
   useModelPricing,
   useSaveModelPricing,
@@ -50,6 +51,7 @@ import {
   isValidPricingCurrency,
   USD_PRICING_CURRENCY,
 } from './currency'
+import { ImagePolicyPricing } from './image-policy-pricing'
 import { modelPricingDisplay, pricingFromDraft, pricingRow } from './pricing'
 
 export function ModelPricingPanel(props: {
@@ -92,14 +94,16 @@ export function ModelPricingPanel(props: {
     try {
       const draft = reset ? null : await editor.current?.commitDraft()
       if (!reset && !draft) return
-      await save.mutateAsync([
-        {
-          model_name: entry.model_name,
-          expected_version: entry.version,
-          pricing: draft ? pricingFromDraft(draft) : {},
-          reset,
-        },
-      ])
+      await save.mutateAsync(
+        await prepareExpressionPricingChanges([
+          {
+            model_name: entry.model_name,
+            expected_version: entry.version,
+            pricing: draft ? pricingFromDraft(draft) : {},
+            reset,
+          },
+        ])
+      )
       const refreshed = await query.refetch()
       setEntry(
         refreshed.data?.entries.find(
@@ -135,6 +139,14 @@ export function ModelPricingPanel(props: {
     currencyPreference === 'site' && isValidPricingCurrency(siteCurrency)
       ? siteCurrency
       : USD_PRICING_CURRENCY
+  if (entry.image_pricing_policy) {
+    return (
+      <ImagePolicyPricing
+        model={entry.image_pricing_policy}
+        currency={currency}
+      />
+    )
+  }
   const current = pricingRow(entry.model_name, entry.effective)
   const currentLanes = createInitialLaneState(current)
   const details = buildPreviewRows(

@@ -14,6 +14,7 @@ describe('console API compatibility', () => {
         'studio_media_urls',
         'membership_ratio_quotes',
         'reseller_sites',
+        'reseller_group_pricing',
       ],
     })
     expect(supportsConsole(contract)).toBe(true)
@@ -77,6 +78,7 @@ describe('console API compatibility', () => {
           'task_plugins',
           'studio_media_urls',
           'reseller_sites',
+          'reseller_group_pricing',
         ],
       })
     ).toBe(true)
@@ -95,6 +97,22 @@ describe('console API compatibility', () => {
           'task_plugins',
           'studio_media_urls',
           'membership_ratio_quotes',
+        ],
+      })
+    ).toBe(false)
+  })
+
+  it('rejects reseller-site support without the required group-pricing contract', () => {
+    expect(
+      supportsConsole({
+        format_version: 1,
+        api_contracts: [2],
+        capabilities: [
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+          'reseller_sites',
         ],
       })
     ).toBe(false)

@@ -60,16 +60,27 @@ func GetResellerEarnings(c *gin.Context) {
 		}
 	}
 	estimate := decimal.Zero
-	var defaultEntry model.TenantCatalogEntry
-	if db.Where("tenant_id = ? AND is_default = ? AND status = ?", tenant.TenantID, true, model.TenantCatalogStatusEnabled).First(&defaultEntry).Error == nil {
-		price, err := service.NewTenantPricingService(db).ResolveCurrentPrice(c.Request.Context(), tenant.TenantID, defaultEntry.Model, defaultEntry.SalesGroup)
-		if err == nil {
-			multiplier, err := decimal.NewFromString(price.SalesMultiplier)
-			supply := ratio_setting.GetGroupRatio(price.Group)
-			if err == nil && multiplier.IsPositive() && !math.IsNaN(supply) && !math.IsInf(supply, 0) && supply >= 0 {
-				estimate = remaining.Sub(remainingFees).Sub(remaining.Mul(decimal.NewFromFloat(supply).Div(multiplier)))
-			}
+	pricing := service.NewTenantPricingService(db)
+	catalog, err := pricing.ResolveCatalog(c.Request.Context(), tenant.TenantID)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	for _, defaultEntry := range catalog {
+		if !defaultEntry.IsDefault {
+			continue
 		}
+		price, err := pricing.ResolveCurrentPrice(c.Request.Context(), tenant.TenantID, defaultEntry.Model, defaultEntry.SalesGroup)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		multiplier, err := decimal.NewFromString(price.SalesMultiplier)
+		supply := ratio_setting.GetGroupRatio(price.Group)
+		if err == nil && multiplier.IsPositive() && !math.IsNaN(supply) && !math.IsInf(supply, 0) && supply >= 0 {
+			estimate = remaining.Sub(remainingFees).Sub(remaining.Mul(decimal.NewFromFloat(supply).Div(multiplier)))
+		}
+		break
 	}
 	if estimate.GreaterThan(decimal.NewFromInt(math.MaxInt64)) || estimate.LessThan(decimal.NewFromInt(math.MinInt64)) {
 		common.ApiError(c, model.ErrResellerWalletInvariant)

@@ -40,8 +40,8 @@ func allocateResellerPaymentLotsTx(tx *gorm.DB, input ResellerSettlementInput, u
 		if lot.CreditedQuota <= 0 || lot.PaidMinor <= 0 || lot.PaymentFeeMinor < 0 || lot.PaymentFeeMinor > lot.PaidMinor || lot.ConsumedQuota < 0 || lot.ConsumedQuota > lot.CreditedQuota || lot.RemainingQuota != lot.CreditedQuota-lot.ConsumedQuota {
 			return nil, 0, 0, ErrResellerWalletInvariant
 		}
-		// Compare products, not rounded per-request fen, to reject genuinely lossy prices.
-		if big.NewRat(lot.PaidMinor-lot.PaymentFeeMinor, 1).Cmp(new(big.Rat).Mul(unit, big.NewRat(lot.CreditedQuota, 1))) < 0 {
+		// Compare gross paid funds with supply; payment fees flow into signed profit.
+		if big.NewRat(lot.PaidMinor, 1).Cmp(new(big.Rat).Mul(unit, big.NewRat(lot.CreditedQuota, 1))) < 0 {
 			return nil, 0, 0, ErrResellerPriceBelowCost
 		}
 		consumed := min(remaining, lot.RemainingQuota)

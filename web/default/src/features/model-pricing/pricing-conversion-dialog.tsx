@@ -21,12 +21,14 @@ import { useTranslation } from 'react-i18next'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CopyButton } from '@/components/copy-button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import {
   parseTiersFromExpr,
   splitBillingExprAndRequestRules,
 } from '@/features/pricing/lib/billing-expr'
 import { compileBillingExpression } from '@/features/pricing/lib/billing-expression/parser'
 import { getDynamicPriceEntries } from '@/features/pricing/lib/dynamic-price'
+import type { BillingUsageSchema } from '@/features/pricing/types'
 import {
   buildPreviewRows,
   createInitialLaneState,
@@ -48,6 +50,8 @@ export type PricingConversionPreview = {
   draftFingerprint: string
   cacheWriteMode?: CacheWriteMode
   billingDetails?: LegacyBillingDetails
+  billingUnit?: 'second' | 'request'
+  usageSchema?: BillingUsageSchema
 }
 
 export function PricingConversionDialog(props: {
@@ -125,7 +129,11 @@ export function PricingConversionDialog(props: {
             {beforeRows.map((row) => {
               let unitLabel =
                 before.billingMode === 'per-request'
-                  ? t('request')
+                  ? t(
+                      props.preview.billingUnit === 'second'
+                        ? 'second'
+                        : 'request'
+                    )
                   : t('1M token')
               if (row.unit === 'image') unitLabel = t('image')
               return (
@@ -148,37 +156,48 @@ export function PricingConversionDialog(props: {
           className='border-primary/30 bg-primary/5 min-w-0 space-y-4 rounded-lg border p-4'
         >
           <h3 className='font-semibold'>{t('After conversion')}</h3>
-          <dl className='space-y-3'>
-            {afterRows.map((row) => {
-              let unitLabel =
-                row.unit === 'request' ? t('request') : t('1M token')
-              if (row.imageCount) unitLabel = t('image')
-              return (
+          {props.preview.usageSchema &&
+          Object.keys(props.preview.usageSchema).length > 0 ? (
+            <DynamicPricingBreakdown
+              compact
+              billingExpr={props.preview.expression}
+              usageSchema={props.preview.usageSchema}
+            />
+          ) : (
+            <dl className='space-y-3'>
+              {afterRows.map((row) => {
+                let unitLabel =
+                  row.unit === 'request' ? t('request') : t('1M token')
+                if (row.imageCount) unitLabel = t('image')
+                return (
+                  <div
+                    key={row.key}
+                    className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1'
+                  >
+                    <dt className='text-muted-foreground text-sm'>
+                      {row.tierLabel && `${row.tierLabel} · `}
+                      {t(row.label)}
+                    </dt>
+                    <dd className='font-mono text-sm tabular-nums'>
+                      {formatPricingAmount(row.value, props.currency)} /{' '}
+                      {unitLabel}
+                    </dd>
+                  </div>
+                )
+              })}
+              {afterAdjustments.map((row) => (
                 <div
                   key={row.key}
                   className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1'
                 >
-                  <dt className='text-muted-foreground text-sm'>
-                    {row.tierLabel && `${row.tierLabel} · `}
-                    {t(row.label)}
-                  </dt>
+                  <dt className='text-muted-foreground text-sm'>{row.label}</dt>
                   <dd className='font-mono text-sm tabular-nums'>
-                    {formatPricingAmount(row.value, props.currency)} /{' '}
-                    {unitLabel}
+                    {row.value}
                   </dd>
                 </div>
-              )
-            })}
-            {afterAdjustments.map((row) => (
-              <div
-                key={row.key}
-                className='flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1'
-              >
-                <dt className='text-muted-foreground text-sm'>{row.label}</dt>
-                <dd className='font-mono text-sm tabular-nums'>{row.value}</dd>
-              </div>
-            ))}
-          </dl>
+              ))}
+            </dl>
+          )}
           <div className='space-y-2 border-t pt-3'>
             <div className='flex items-center justify-between gap-2'>
               <h4 className='text-sm font-medium'>

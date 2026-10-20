@@ -33,12 +33,20 @@ func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
 	limited := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	limits, _ := common.GetContextKeyType[map[string]bool](c, constant.ContextKeyTokenModelLimit)
 	result := make([]tenantCustomerPricing, 0, len(prices))
+	indices := make(map[string]int, len(prices))
 	for _, price := range prices {
 		row, ok := byName[price.Model]
 		if !ok || !row.PricingConfigured {
 			continue
 		}
 		if limited && limits[ratio_setting.RoutingMatchModelName(price.Model)] != true {
+			continue
+		}
+		if index, exists := indices[price.Model]; exists {
+			result[index].EnableGroup = append(result[index].EnableGroup, price.Group)
+			result[index].GroupRatio[price.Group] = price.SalesRatio
+			version, _ := strconv.ParseInt(result[index].PricingVersion, 10, 64)
+			result[index].PricingVersion = strconv.FormatInt(max(version, price.VersionID), 10)
 			continue
 		}
 		endpoints := make([]relaytypes.EndpointType, 0, len(row.SupportedEndpointTypes))
@@ -55,6 +63,7 @@ func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
 		row.EnableGroup = []string{price.Group}
 		row.BillingPluginVariants = nil
 		row.PricingVersion = strconv.FormatInt(price.VersionID, 10)
+		indices[price.Model] = len(result)
 		result = append(result, tenantCustomerPricing{Pricing: row, TenantPricing: true, GroupRatio: map[string]float64{price.Group: price.SalesRatio}})
 	}
 	c.Header("Cache-Control", "no-store")
@@ -70,9 +79,9 @@ func getTenantPricing(c *gin.Context) {
 	groups := map[string]string{}
 	ratios := map[string]float64{}
 	for _, price := range prices {
-		for group := range price.GroupRatio {
+		for group, ratio := range price.GroupRatio {
 			groups[group] = setting.GetUsableGroupDescription(group)
-			ratios[group] = 1
+			ratios[group] = ratio
 		}
 	}
 	vendors := make([]model.PricingVendor, 0)

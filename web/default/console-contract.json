@@ -5,6 +5,7 @@
     "scoped_access_tokens",
     "task_plugins",
     "studio_media_urls",
-    "reseller_sites"
+    "reseller_sites",
+    "reseller_group_pricing"
   ]
 }

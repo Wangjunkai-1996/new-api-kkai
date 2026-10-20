@@ -21,6 +21,21 @@ import { describe, expect, test } from 'vitest'
 import { getServerErrorMessageKey } from './server-error-message'
 
 describe('server error message mapping', () => {
+  test.each([
+    [
+      'RESELLER_DOMAIN_ALREADY_ASSIGNED',
+      'This site already has a domain. Each site can have only one domain.',
+    ],
+    [
+      'RESELLER_ACTIVATION_INCOMPLETE',
+      'Assign a domain before activating this site.',
+    ],
+    ['TENANT_GROUP_PRICING_REQUIRED', 'Set prices by group instead of model.'],
+  ])('maps %s to actionable reseller instructions', (code, message) => {
+    expect(getServerErrorMessageKey({ response: { data: { code } } })).toBe(
+      message
+    )
+  })
   test('maps the active-session limit to recovery instructions', () => {
     const message = getServerErrorMessageKey({ code: 'AUTH_SESSION_LIMIT' })
 

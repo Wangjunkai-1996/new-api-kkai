@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	commonpkg "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -42,6 +44,70 @@ func membershipTransportFixture(t *testing.T) (*gin.Context, *relaycommon.RelayI
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", http.NoBody)
 	info := &relaycommon.RelayInfo{RequestId: "transport-call", MembershipBillingRequestID: "transport-call", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 11}}
 	return ctx, info
+}
+
+func TestTenantFreeTransportPreservesUnknownExecutionOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		status        int
+		body          string
+		transportFail bool
+		beforeWrite   bool
+		unknown       bool
+	}{
+		{name: "failure before write", transportFail: true, beforeWrite: true},
+		{name: "failure after write", transportFail: true, unknown: true},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, body: `{"error":{"type":"server_error"}}`, unknown: true},
+		{name: "confirmed rejection", status: http.StatusTooManyRequests, body: `{"error":{"type":"rate_limit_error"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, info := membershipTransportFixture(t)
+			require.NoError(t, model.DB.AutoMigrate(&model.Token{}, &model.TenantConsumption{}))
+			require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", 7).Updates(map[string]any{"tenant_id": 7, "quota": 0, "status": commonpkg.UserStatusEnabled}).Error)
+			token := model.Token{UserId: 7, TenantID: 7, Key: "free-transport", Status: commonpkg.TokenStatusEnabled, ExpiredTime: -1}
+			require.NoError(t, model.DB.Create(&token).Error)
+			info.MembershipBillingRequestID = ""
+			info.TenantID, info.UserId, info.TokenId = 7, 7, token.Id
+			info.OriginModelName = "test"
+			info.ChannelType = constant.ChannelTypeOpenAI
+			info.ApiType, _ = commonpkg.ChannelType2APIType(info.ChannelType)
+			info.TenantBudget = &hosttypes.MembershipPricing{OutputCopies: 1}
+			info.PriceData.FreeModel = true
+			require.Nil(t, service.PreConsumeBilling(ctx, 0, info))
+			assert.Zero(t, info.TenantQuoteID)
+			require.True(t, info.HasDurableBilling())
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.transportFail {
+					connection, _, err := w.(http.Hijacker).Hijack()
+					if assert.NoError(t, err) {
+						assert.NoError(t, connection.Close())
+					}
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			t.Cleanup(upstream.Close)
+			if tc.beforeWrite {
+				upstream.Close()
+			}
+			request, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"test"}`))
+			require.NoError(t, err)
+			response, err := doRequest(ctx, request, info)
+			if tc.transportFail {
+				require.Error(t, err)
+				assert.Nil(t, response)
+			} else {
+				require.NoError(t, err)
+				body, readErr := io.ReadAll(response.Body)
+				require.NoError(t, readErr)
+				require.NoError(t, response.Body.Close())
+				assert.Equal(t, tc.body, string(body))
+			}
+			assert.Equal(t, tc.unknown, info.BillingOutcomeUnknown)
+		})
+	}
 }
 
 func TestMembershipTransportRequiresStructuredZeroUsageRejection(t *testing.T) {

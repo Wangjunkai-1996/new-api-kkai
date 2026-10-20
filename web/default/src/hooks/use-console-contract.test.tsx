@@ -20,6 +20,7 @@ const contract = {
     'studio_media_urls',
     'token_group_inline',
     'reseller_sites',
+    'reseller_group_pricing',
   ],
 }
 let queryClient: QueryClient
@@ -109,24 +110,30 @@ describe('useConsoleContract', () => {
     expect(result.current.required).toBe(true)
   })
 
-  it('blocks independent delivery against a backend without reseller-site support', async () => {
-    vi.stubEnv('VITE_KKAI_FRONTEND_DELIVERY', 'independent')
-    vi.spyOn(api, 'get').mockResolvedValue({
-      data: {
-        ...contract,
-        capabilities: contract.capabilities.filter(
-          (name) => name !== 'reseller_sites'
-        ),
-      },
-    })
-    const { result } = renderHook(() => useConsoleContract(), {
-      wrapper: Wrapper,
-    })
-    await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.required).toBe(true)
-    expect(result.current.contract?.api_contracts).toEqual([2])
-    expect(result.current.compatible).toBe(false)
-  })
+  it.each(['reseller_sites', 'reseller_group_pricing'])(
+    'blocks independent delivery against a backend without %s',
+    async (missingCapability) => {
+      vi.stubEnv('VITE_KKAI_FRONTEND_DELIVERY', 'independent')
+      vi.spyOn(api, 'get').mockResolvedValue({
+        data: {
+          ...contract,
+          capabilities: contract.capabilities.filter(
+            (name) => name !== missingCapability
+          ),
+        },
+      })
+      const { result } = renderHook(() => useConsoleContract(), {
+        wrapper: Wrapper,
+      })
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(result.current.required).toBe(true)
+      expect(result.current.contract?.api_contracts).toEqual([2])
+      expect(result.current.contract?.capabilities).not.toContain(
+        missingCapability
+      )
+      expect(result.current.compatible).toBe(false)
+    }
+  )
 
   it.each(['legacy', 'independent'])(
     'does not trust persisted status after a cold %s request fails',

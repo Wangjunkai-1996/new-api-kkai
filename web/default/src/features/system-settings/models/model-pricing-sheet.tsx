@@ -24,7 +24,6 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -36,12 +35,7 @@ import { useTranslation } from 'react-i18next'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
+import { FieldGroup } from '@/components/ui/field'
 import {
   Form,
   FormControl,
@@ -52,7 +46,6 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import {
   Sheet,
   SheetContent,
@@ -60,19 +53,20 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   previewModelPricing,
   previewModelPricingConversion,
   type ModelPricingPluginVariant,
+  type ModelPricingConversion,
+  type ModelPricingEntry,
 } from '@/features/model-pricing/api'
 import {
   getSitePricingCurrency,
   isValidPricingCurrency,
   USD_PRICING_CURRENCY,
 } from '@/features/model-pricing/currency'
+import { ImagePolicyPricing } from '@/features/model-pricing/image-policy-pricing'
 import { pricingFromDraft, pricingRow } from '@/features/model-pricing/pricing'
-import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
 import {
   PricingConversionDialog,
   type PricingConversionPreview,
@@ -93,21 +87,16 @@ import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
-  EMPTY_LANE_ENABLED,
-  EMPTY_LANE_PRICES,
   buildPreviewRows,
   createInitialLaneState,
   createModelPricingSchema,
   hasValue,
   laneConfigs,
-  ratioFieldByLane,
   toNumberOrNull,
-  type LaneKey,
   type ModelPricingFormValues,
   type ModelRatioData,
   type PricingMode,
 } from './model-pricing-core'
-import { PriceInput, PriceLane } from './model-pricing-inputs'
 import { formatPricingNumber } from './pricing-format'
 import { TaskPluginPricingEditor } from './task-plugin-pricing-editor'
 import { TaskUsagePricingEditor } from './task-usage-pricing-editor'
@@ -122,6 +111,7 @@ type ModelPricingSheetProps = {
   onSave?: () => void | Promise<void>
   isSaving?: boolean
   usageSchema?: BillingUsageSchema
+  imagePricingPolicy?: ModelPricingEntry['image_pricing_policy']
   billingUnit?: 'second' | 'request'
   pluginVariants?: ModelPricingPluginVariant[]
   onDirtyChange?: (dirty: boolean) => void
@@ -154,6 +144,7 @@ export const ModelPricingSheet = forwardRef<
     isSaving,
     usageSchema,
     billingUnit,
+    imagePricingPolicy,
     pluginVariants,
     onDirtyChange,
   },
@@ -178,6 +169,7 @@ export const ModelPricingSheet = forwardRef<
           editData={editData}
           usageSchema={usageSchema}
           billingUnit={billingUnit}
+          imagePricingPolicy={imagePricingPolicy}
           pluginVariants={pluginVariants}
           onDirtyChange={onDirtyChange}
           onSave={onSave}
@@ -200,6 +192,7 @@ export const ModelPricingEditorPanel = forwardRef<
     isSaving,
     usageSchema,
     billingUnit,
+    imagePricingPolicy,
     pluginVariants,
     onDirtyChange,
     embedded = false,
@@ -208,7 +201,6 @@ export const ModelPricingEditorPanel = forwardRef<
   ref
 ) {
   const { t } = useTranslation()
-  const promptPriceId = useId()
   const formElementRef = useRef<HTMLFormElement>(null)
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
   const preference = usePricingPreferencesStore((state) => state.currency)
@@ -221,16 +213,16 @@ export const ModelPricingEditorPanel = forwardRef<
       ? siteCurrency
       : USD_PRICING_CURRENCY
   const [pricingMode, setPricingMode] = useState<PricingMode>('tiered_expr')
-  const [promptPrice, setPromptPrice] = useState('')
-  const [lanePrices, setLanePrices] = useState<Record<LaneKey, string>>({
-    ...EMPTY_LANE_PRICES,
-  })
-  const [laneEnabled, setLaneEnabled] = useState<Record<LaneKey, boolean>>({
-    ...EMPTY_LANE_ENABLED,
-  })
+  const {
+    promptPrice,
+    prices: lanePrices,
+    enabled: laneEnabled,
+  } = createInitialLaneState(editData)
   const [billingExpr, setBillingExpr] = useState(DEFAULT_TOKEN_BILLING_EXPR)
+  const [expressionEdited, setExpressionEdited] = useState(false)
   const [displayBillingExpr, setDisplayBillingExpr] = useState('')
   const [conversionReason, setConversionReason] = useState('')
+  const [manualConversion, setManualConversion] = useState(false)
   const [wasConverted, setWasConverted] = useState(false)
   const conversionGeneration = useRef(0)
   const [conversionPreview, setConversionPreview] =
@@ -384,11 +376,12 @@ export const ModelPricingEditorPanel = forwardRef<
     // Reset the pricing draft together with React Hook Form's external form state.
     // eslint-disable-next-line react/set-state-in-effect
     setConversionReason('')
+    setManualConversion(false)
+    setExpressionEdited(false)
     setPluginExpressions(editData?.pluginBillingExpr ?? {})
     setDisplayBillingExpr(editData?.displayBillingExpr ?? '')
     setWasConverted(false)
     setConversionPreview(null)
-    const nextLaneState = createInitialLaneState(editData)
 
     if (editData) {
       form.reset({
@@ -422,9 +415,6 @@ export const ModelPricingEditorPanel = forwardRef<
       setRequestRuleExpr('')
     }
 
-    setPromptPrice(nextLaneState.promptPrice)
-    setLanePrices(nextLaneState.prices)
-    setLaneEnabled(nextLaneState.enabled)
     setEditorReloadToken((token) => token + 1)
     autoSwitchedForRef.current = null
   }, [editData, form, initialPricingMode, initialBillingExpr])
@@ -463,138 +453,6 @@ export const ModelPricingEditorPanel = forwardRef<
     initialBillingExpr,
     pluginExpressions,
   ])
-
-  const setFormValue = (field: keyof ModelPricingFormValues, value: string) => {
-    form.setValue(field, value, {
-      shouldDirty: true,
-      shouldValidate: true,
-    })
-  }
-
-  const deriveLaneRatio = (
-    lane: LaneKey,
-    price: string,
-    nextPromptPrice = promptPrice,
-    nextLanePrices = lanePrices
-  ) => {
-    const priceNumber = toNumberOrNull(price)
-    if (priceNumber === null) return ''
-
-    if (lane === 'audioOutput') {
-      const audioInputPrice = toNumberOrNull(nextLanePrices.audioInput)
-      if (audioInputPrice === null || audioInputPrice === 0) return ''
-      return formatPricingNumber(priceNumber / audioInputPrice)
-    }
-
-    const inputPrice = toNumberOrNull(nextPromptPrice)
-    if (inputPrice === null || inputPrice === 0) return ''
-    return formatPricingNumber(priceNumber / inputPrice)
-  }
-
-  const syncLaneRatios = (
-    nextPromptPrice = promptPrice,
-    nextLanePrices = lanePrices,
-    nextLaneEnabled = laneEnabled
-  ) => {
-    const inputPrice = toNumberOrNull(nextPromptPrice)
-    setFormValue(
-      'ratio',
-      inputPrice !== null ? formatPricingNumber(inputPrice / 2) : ''
-    )
-
-    laneConfigs.forEach(({ key }) => {
-      const ratioField = ratioFieldByLane[key]
-      if (!nextLaneEnabled[key]) {
-        setFormValue(ratioField, '')
-        return
-      }
-      setFormValue(
-        ratioField,
-        deriveLaneRatio(
-          key,
-          nextLanePrices[key],
-          nextPromptPrice,
-          nextLanePrices
-        )
-      )
-    })
-  }
-
-  const handlePromptPriceChange = (value: string) => {
-    setPromptPrice(value)
-    syncLaneRatios(value, lanePrices, laneEnabled)
-  }
-
-  const handleLanePriceChange = (lane: LaneKey, value: string) => {
-    const nextLanePrices = { ...lanePrices, [lane]: value }
-    setLanePrices(nextLanePrices)
-
-    if (laneEnabled[lane]) {
-      setFormValue(
-        ratioFieldByLane[lane],
-        deriveLaneRatio(lane, value, promptPrice, nextLanePrices)
-      )
-    }
-
-    if (lane === 'audioInput' && laneEnabled.audioOutput) {
-      setFormValue(
-        'audioCompletionRatio',
-        deriveLaneRatio(
-          'audioOutput',
-          nextLanePrices.audioOutput,
-          promptPrice,
-          nextLanePrices
-        )
-      )
-    }
-  }
-
-  const handleLaneToggle = (lane: LaneKey, checked: boolean) => {
-    const nextEnabled = { ...laneEnabled, [lane]: checked }
-    let nextPrices = lanePrices
-
-    if (!checked) {
-      nextPrices = { ...nextPrices, [lane]: '' }
-      setFormValue(ratioFieldByLane[lane], '')
-      if (lane === 'audioInput') {
-        nextEnabled.audioOutput = false
-        nextPrices.audioOutput = ''
-        setFormValue('audioCompletionRatio', '')
-      }
-    }
-
-    setLaneEnabled(nextEnabled)
-    setLanePrices(nextPrices)
-
-    if (checked) {
-      setFormValue(
-        ratioFieldByLane[lane],
-        deriveLaneRatio(lane, nextPrices[lane], promptPrice, nextPrices)
-      )
-    }
-  }
-
-  const handleModeChange = (value: string) => {
-    conversionGeneration.current += 1
-    setConversionReason('')
-    const nextMode = value as PricingMode
-    setPricingMode(nextMode)
-    if (nextMode === 'tiered_expr' && !billingExpr) {
-      setBillingExpr(defaultTaskBillingExpr || DEFAULT_TOKEN_BILLING_EXPR)
-    }
-  }
-
-  const convertPerRequestToSeconds = () => {
-    if (!canConvertPerRequestToSeconds || !taskSecondsField) return
-    const price = toNumberOrNull(watchedValues.price)
-    if (price === null || price < 0) return
-    setBillingExpr(
-      `tier("base", u("${taskSecondsField}") * ${formatPricingNumber(price)})`
-    )
-    setWasConverted(true)
-    setPricingMode('tiered_expr')
-    setEditorReloadToken((token) => token + 1)
-  }
 
   const previewRows = useMemo(() => {
     let previewLanes = {
@@ -678,52 +536,6 @@ export const ModelPricingEditorPanel = forwardRef<
     return nextWarnings
   }, [editData, laneEnabled, lanePrices, pricingMode, promptPrice, t])
 
-  const validatePricingValues = useCallback(() => {
-    if (
-      pricingMode === 'per-token' &&
-      ((toNumberOrNull(promptPrice) === 0 &&
-        laneConfigs.some(
-          ({ key }) =>
-            laneEnabled[key] && (toNumberOrNull(lanePrices[key]) ?? 0) > 0
-        )) ||
-        (toNumberOrNull(lanePrices.audioInput) === 0 &&
-          laneEnabled.audioOutput &&
-          (toNumberOrNull(lanePrices.audioOutput) ?? 0) > 0))
-    ) {
-      form.setError('ratio', {
-        message: t(
-          'Use expression pricing when a dependent price is non-zero and its base price is zero.'
-        ),
-      })
-      return false
-    }
-    if (
-      pricingMode === 'per-token' &&
-      toNumberOrNull(promptPrice) === null &&
-      laneConfigs.some(
-        ({ key }) => laneEnabled[key] && hasValue(lanePrices[key])
-      )
-    ) {
-      form.setError('ratio', {
-        message: t('Input price is required before saving dependent prices.'),
-      })
-      return false
-    }
-
-    if (
-      pricingMode === 'per-token' &&
-      laneEnabled.audioOutput &&
-      !hasValue(lanePrices.audioInput)
-    ) {
-      form.setError('audioRatio', {
-        message: t('Audio output price requires an audio input price.'),
-      })
-      return false
-    }
-
-    return true
-  }, [form, laneEnabled, lanePrices, pricingMode, promptPrice, t])
-
   const buildSubmitData = useCallback(
     (values: ModelPricingFormValues) => {
       const data: ModelRatioData = {
@@ -767,26 +579,48 @@ export const ModelPricingEditorPanel = forwardRef<
     if (
       conversion.isPending ||
       conversionPreview ||
-      billingExpr.trim() ||
       pricingMode === 'tiered_expr'
     ) {
       return
     }
-    if (!(await form.trigger()) || !validatePricingValues()) return
+    if (!(await form.trigger())) return
     const draft = buildSubmitData(form.getValues())
     const generation = ++conversionGeneration.current
+    const manualExpression = manualConversion ? billingExpr.trim() : ''
     setConversionReason('')
     try {
       const pricing = pricingFromDraft(draft)
-      const result = await conversion.mutateAsync({
-        model_name: draft.name,
-        pricing,
-      })
+      let result: ModelPricingConversion
+      if (manualExpression || canConvertPerRequestToSeconds) {
+        const expression = manualExpression
+          ? combineBillingExpr(resolvedBillingExpr, requestRuleExpr)
+          : `tier("base", u("${taskSecondsField}") * ${formatPricingNumber(watchedValues.price ?? '')})`
+        const [before] = await Promise.all([
+          previewModelPricing({ model_name: draft.name, pricing }),
+          previewModelPricing({
+            model_name: draft.name,
+            pricing: {
+              'billing_setting.billing_mode': 'tiered_expr',
+              'billing_setting.billing_expr': expression,
+            },
+          }),
+        ])
+        result = {
+          expression,
+          effective: before.effective,
+          cache_write_mode: before.cacheWriteMode,
+          billing_details: before.billingDetails,
+        }
+      } else {
+        result = await conversion.mutateAsync({
+          model_name: draft.name,
+          pricing,
+        })
+      }
       if (generation !== conversionGeneration.current) return
-      const current = buildSubmitData(form.getValues())
       if (
-        current.name !== draft.name ||
-        JSON.stringify(pricingFromDraft(current)) !== JSON.stringify(pricing)
+        JSON.stringify(buildSubmitData(form.getValues())) !==
+        JSON.stringify(draft)
       ) {
         setConversionReason(
           'Prices changed while preparing the conversion. Try again.'
@@ -795,6 +629,7 @@ export const ModelPricingEditorPanel = forwardRef<
       }
       if (result.unsupported_reason) {
         setConversionReason(result.unsupported_reason)
+        setManualConversion(true)
         return
       }
       if (!result.expression || !result.effective) {
@@ -807,6 +642,8 @@ export const ModelPricingEditorPanel = forwardRef<
         draftFingerprint: JSON.stringify(draft),
         cacheWriteMode: result.cache_write_mode,
         billingDetails: result.billing_details,
+        billingUnit,
+        usageSchema: taskUsageSchema,
       })
     } catch (error) {
       handleServerError(error, t('Failed to prepare pricing conversion'))
@@ -817,7 +654,6 @@ export const ModelPricingEditorPanel = forwardRef<
     if (!conversionPreview) return
     setConversionPreview(null)
     if (
-      billingExpr.trim() ||
       pricingMode === 'tiered_expr' ||
       JSON.stringify(buildSubmitData(form.getValues())) !==
         conversionPreview.draftFingerprint
@@ -828,7 +664,9 @@ export const ModelPricingEditorPanel = forwardRef<
       return
     }
     setBillingExpr(conversionPreview.expression)
+    setRequestRuleExpr('')
     setWasConverted(true)
+    setManualConversion(false)
     setPricingMode('tiered_expr')
     setEditorReloadToken((token) => token + 1)
   }
@@ -837,6 +675,15 @@ export const ModelPricingEditorPanel = forwardRef<
     ref,
     () => ({
       commitDraft: async () => {
+        if (pricingMode !== 'tiered_expr' || imagePricingPolicy) return null
+        if (
+          !hasLegacyPricing &&
+          !editData?.billingExpr &&
+          !expressionEdited &&
+          pluginExpressionsEqual(pluginExpressions, editData?.pluginBillingExpr)
+        ) {
+          return null
+        }
         if (
           formElementRef.current?.querySelector('[data-billing-invalid="true"]')
         ) {
@@ -850,11 +697,20 @@ export const ModelPricingEditorPanel = forwardRef<
           return null
         }
         const isValid = await form.trigger()
-        if (!isValid || !validatePricingValues()) return null
+        if (!isValid) return null
         return buildSubmitData(form.getValues())
       },
     }),
-    [form, validatePricingValues, buildSubmitData]
+    [
+      form,
+      pricingMode,
+      buildSubmitData,
+      imagePricingPolicy,
+      hasLegacyPricing,
+      editData,
+      expressionEdited,
+      pluginExpressions,
+    ]
   )
 
   const expressionEditor = taskUsageSchema ? (
@@ -865,8 +721,15 @@ export const ModelPricingEditorPanel = forwardRef<
       requestRuleExpr={requestRuleExpr}
       usageSchema={taskUsageSchema}
       usageExamples={taskUsageExamples}
-      onBillingExprChange={setBillingExpr}
-      onRequestRuleExprChange={setRequestRuleExpr}
+      onBillingExprChange={(expression) => {
+        conversionGeneration.current += 1
+        setBillingExpr(expression)
+        setExpressionEdited(true)
+      }}
+      onRequestRuleExprChange={(expression) => {
+        conversionGeneration.current += 1
+        setRequestRuleExpr(expression)
+      }}
     />
   ) : (
     <TieredPricingEditor
@@ -877,12 +740,29 @@ export const ModelPricingEditorPanel = forwardRef<
       displayBillingExpr={displayBillingExpr}
       onDisplayBillingExprChange={setDisplayBillingExpr}
       requestRuleExpr={requestRuleExpr}
-      onBillingExprChange={setBillingExpr}
-      onRequestRuleExprChange={setRequestRuleExpr}
+      onBillingExprChange={(expression) => {
+        conversionGeneration.current += 1
+        setBillingExpr(expression)
+        setExpressionEdited(true)
+      }}
+      onRequestRuleExprChange={(expression) => {
+        conversionGeneration.current += 1
+        setRequestRuleExpr(expression)
+      }}
     />
   )
 
+  let conversionButtonLabel = t('Convert to expression')
+  if (conversion.isPending) {
+    conversionButtonLabel = t('Preparing conversion...')
+  } else if (manualConversion && billingExpr.trim()) {
+    conversionButtonLabel = t('Preview pricing conversion')
+  }
+
   const showActions = Boolean(onSave)
+  if (imagePricingPolicy) {
+    return <ImagePolicyPricing model={imagePricingPolicy} currency={currency} />
+  }
 
   return (
     <div
@@ -976,237 +856,42 @@ export const ModelPricingEditorPanel = forwardRef<
                   }
                   currency={currency}
                 >
-                  <Tabs
-                    key={editorReloadToken}
-                    value={pricingMode}
-                    onValueChange={handleModeChange}
-                    className='gap-4'
-                  >
-                    <TabsList className='grid w-full grid-cols-3'>
-                      <TabsTrigger value='tiered_expr'>
-                        {t('Expression')}
-                      </TabsTrigger>
-                      <TabsTrigger value='per-token'>
-                        {t('Per-token (deprecated)')}
-                      </TabsTrigger>
-                      <TabsTrigger value='per-request'>
-                        {t('Per-request (deprecated)')}
-                      </TabsTrigger>
-                    </TabsList>
-
-                    {pricingMode !== 'tiered_expr' && (
+                  {pricingMode === 'tiered_expr' ? (
+                    <FieldGroup className='gap-5'>
+                      {expressionEditor}
+                    </FieldGroup>
+                  ) : (
+                    <div className='space-y-4'>
                       <Alert className='border-amber-500/40 bg-amber-500/10 p-4 text-amber-900 dark:text-amber-100'>
                         <AlertTriangle aria-hidden='true' className='size-5' />
                         <AlertDescription className='space-y-3 text-sm text-inherit'>
                           <p className='font-medium'>
                             {t(
-                              'Legacy pricing is deprecated. Convert the current prices to an expression draft, then save to apply it.'
+                              'Legacy prices are read-only. Preview their conversion to an expression before editing or saving.'
                             )}
                           </p>
-                          {canConvertPerRequestToSeconds && (
-                            <Button
-                              type='button'
-                              variant='outline'
-                              className='w-full sm:w-auto'
-                              onClick={convertPerRequestToSeconds}
-                            >
-                              {t('Convert to expression')} ($/{t('second')})
-                            </Button>
-                          )}
-                          {!canConvertPerRequestToSeconds &&
-                            !taskUsageSchema && (
-                            <Button
-                              type='button'
-                              className='w-full sm:w-auto'
-                              disabled={
-                                conversion.isPending ||
-                                Boolean(billingExpr.trim())
-                              }
-                              onClick={() => void convertPricing()}
-                            >
-                              {conversion.isPending
-                                ? t('Preparing conversion...')
-                                : t('Convert to expression')}
-                            </Button>
-                          )}
-                          {billingExpr.trim() && (
-                            <p>
-                              {t(
-                                'An expression draft already exists. Open the Expression tab to keep editing it.'
-                              )}
-                            </p>
-                          )}
+                          <Button
+                            type='button'
+                            disabled={conversion.isPending}
+                            onClick={() => void convertPricing()}
+                          >
+                            {conversionButtonLabel}
+                          </Button>
                           {conversionReason && (
                             <p role='status'>{t(conversionReason)}</p>
                           )}
                         </AlertDescription>
                       </Alert>
-                    )}
-                    {(pricingMode !== 'tiered_expr' || wasConverted) && (
-                      <p className='text-muted-foreground text-xs'>
-                        {t(
-                          'After conversion, expression reservation and rounding rules apply. Effective unit prices are preserved; individual rounded charges may differ.'
-                        )}
-                      </p>
-                    )}
-
-                    <TabsContent
-                      value='per-token'
-                      className='@container/pricing-fields min-w-0 pt-0'
-                    >
-                      {taskUsageSchema &&
-                        Object.keys(taskUsageSchema).length > 0 && (
-                          <Alert className='mb-4'>
-                            <AlertDescription className='flex flex-col gap-3 text-xs'>
-                              <p>
-                                {t(
-                                  'This is a task model billed by usage (e.g. seconds, resolution). Prices entered here act as a per-call base rate, not per-token prices.'
-                                )}
-                              </p>
-                              <p>
-                                {t(
-                                  'Tip: after configuring one model, select others in the table and use bulk copy.'
-                                )}
-                              </p>
-                              <Button
-                                type='button'
-                                variant='outline'
-                                size='sm'
-                                className='w-fit'
-                                onClick={() => handleModeChange('tiered_expr')}
-                              >
-                                {t('Configure task pricing')}
-                              </Button>
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                      <p className='text-muted-foreground mb-3 text-xs'>
-                        {embedded && (
-                          <>
-                            {t('{{currency}} price per 1M tokens.', {
-                              currency: currency.label,
-                            })}{' '}
-                          </>
-                        )}
-                        {t(
-                          'Unset legacy prices use the billing engine defaults.'
-                        )}
-                      </p>
-                      <div
-                        className={cn(
-                          'grid min-w-0 gap-3',
-                          embedded && '@min-[560px]/pricing-fields:grid-cols-2'
-                        )}
-                      >
-                        <Field
-                          className={cn(
-                            'min-w-0',
-                            embedded && 'rounded-lg border p-3'
-                          )}
-                        >
-                          <FieldLabel htmlFor={promptPriceId}>
-                            {t('Input price')}
-                          </FieldLabel>
-                          <FieldDescription
-                            id={`${promptPriceId}-description`}
-                            className={embedded ? 'text-xs' : undefined}
-                          >
-                            {t('{{currency}} price per 1M input tokens.', {
-                              currency: currency.label,
-                            })}
-                          </FieldDescription>
-                          <PriceInput
-                            currency={currency}
-                            id={promptPriceId}
-                            aria-describedby={`${promptPriceId}-description`}
-                            value={promptPrice}
-                            placeholder='3'
-                            onChange={handlePromptPriceChange}
-                          />
-                        </Field>
-
-                        {laneConfigs.map((lane) => {
-                          const disabled =
-                            lane.key === 'audioOutput' &&
-                            (!laneEnabled.audioInput ||
-                              !hasValue(lanePrices.audioInput))
-                          return (
-                            <PriceLane
-                              currency={currency}
-                              key={lane.key}
-                              compact={embedded}
-                              title={t(lane.titleKey)}
-                              description={t(lane.descriptionKey)}
-                              placeholder={lane.placeholder}
-                              value={lanePrices[lane.key]}
-                              enabled={laneEnabled[lane.key]}
-                              disabled={disabled}
-                              disabledReason={
-                                disabled
-                                  ? t(
-                                      'Audio output price requires an audio input price.'
-                                    )
-                                  : undefined
-                              }
-                              onEnabledChange={(checked) =>
-                                handleLaneToggle(lane.key, checked)
-                              }
-                              onChange={(value) =>
-                                handleLanePriceChange(lane.key, value)
-                              }
-                            />
-                          )
-                        })}
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value='per-request' className='pt-0'>
-                      <FieldGroup className='gap-5'>
-                        <FormField
-                          control={form.control}
-                          name='price'
-                          render={({ field }) => (
-                            <FormItem className='contents'>
-                              <Field>
-                                <FormLabel>{t('Fixed price')}</FormLabel>
-                                <InputGroup className='has-[[data-pricing-error]]:h-auto has-[[data-pricing-error]]:flex-wrap'>
-                                  <InputGroupAddon>
-                                    {currency.symbol}
-                                  </InputGroupAddon>
-                                  <FormControl>
-                                    <PricingAmountInput
-                                      {...field}
-                                      value={field.value ?? ''}
-                                      currency={currency}
-                                      grouped
-                                      placeholder='0.01'
-                                      onChange={field.onChange}
-                                    />
-                                  </FormControl>
-                                  <InputGroupAddon align='inline-end'>
-                                    {t('per request')}
-                                  </InputGroupAddon>
-                                </InputGroup>
-                                <FormDescription>
-                                  {t(
-                                    'Cost in {{currency}} per request, regardless of tokens used.',
-                                    { currency: currency.label }
-                                  )}
-                                </FormDescription>
-                                <FormMessage />
-                              </Field>
-                            </FormItem>
-                          )}
-                        />
-                      </FieldGroup>
-                    </TabsContent>
-
-                    <TabsContent value='tiered_expr' className='pt-0'>
-                      <FieldGroup className='gap-5'>
-                        {expressionEditor}
-                      </FieldGroup>
-                    </TabsContent>
-                  </Tabs>
+                      {manualConversion && expressionEditor}
+                    </div>
+                  )}
+                  {wasConverted && (
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'After conversion, expression reservation and rounding rules apply. Effective unit prices are preserved; individual rounded charges may differ.'
+                      )}
+                    </p>
+                  )}
                 </TaskPluginPricingEditor>
               </FieldGroup>
 
@@ -1257,7 +942,7 @@ export const ModelPricingEditorPanel = forwardRef<
                   <Button
                     type='button'
                     onClick={onSave}
-                    disabled={isSaving}
+                    disabled={isSaving || pricingMode !== 'tiered_expr'}
                     className='w-full sm:w-auto'
                   >
                     <Save data-icon='inline-start' />

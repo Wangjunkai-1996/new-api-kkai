@@ -346,11 +346,19 @@ func Register(c *gin.Context) {
 	// failure must not leave an orphan account that cannot retry registration.
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if tenantID != model.PlatformTenantID {
-			var entry model.TenantCatalogEntry
-			if err := tx.Where("tenant_id = ? AND status = ? AND is_default = ?", tenantID, model.TenantCatalogStatusEnabled, true).First(&entry).Error; err != nil {
+			entries, err := service.NewTenantPricingService(tx).ResolveCatalog(c.Request.Context(), tenantID)
+			if err != nil {
 				return err
 			}
-			cleanUser.Group = entry.SalesGroup
+			for _, entry := range entries {
+				if entry.IsDefault {
+					cleanUser.Group = entry.SalesGroup
+					break
+				}
+			}
+			if cleanUser.Group == "" {
+				return model.ErrResellerInvalidCatalog
+			}
 		}
 		if err := cleanUser.InsertWithTx(tx, inviterId); err != nil {
 			return err

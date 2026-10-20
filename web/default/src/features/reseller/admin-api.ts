@@ -47,6 +47,10 @@ export interface ManagedTenant {
   display_name: string
   status: 'active' | 'disabled' | 'provisioning'
   domains: Array<{ hostname: string; status: string }>
+  activation?: {
+    domain_ready: boolean
+    ready: boolean
+  }
 }
 export interface ManagedWithdrawal extends ResellerWithdrawal {
   tenant_id: number

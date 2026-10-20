@@ -47,7 +47,10 @@ import {
   useDataTable,
 } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
-import { useModelPricing } from '@/features/model-pricing/api'
+import {
+  useModelPricing,
+  type ModelPricingEntry,
+} from '@/features/model-pricing/api'
 import {
   applyPricingDraft,
   pricingOptions,
@@ -101,6 +104,7 @@ type ModelRatioVisualEditorProps = {
   displayBillingExpr?: string
   pluginBillingExpr?: string
   candidateModelNames?: string[]
+  pricingEntries?: ModelPricingEntry[]
   candidateModelsLoading?: boolean
   filterMode?: 'all' | 'unset'
   onChange: (field: string, value: string) => void
@@ -144,6 +148,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     displayBillingExpr = '{}',
     pluginBillingExpr = '{}',
     candidateModelNames,
+    pricingEntries,
     candidateModelsLoading,
     filterMode = 'all',
     onChange,
@@ -167,6 +172,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
   const [globalFilter, setGlobalFilter] = useState('')
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const editorPanelRef = useRef<ModelPricingEditorPanelHandle>(null)
+  const editorDirty = useRef(false)
   // Read through a ref so the table column definitions (and therefore every
   // rendered cell) do not need to be rebuilt each time a row is opened for
   // editing; rebuilding them remounts cells and drops the user's text selection.
@@ -263,10 +269,12 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
     const savedByName = new Map(savedRows.map((row) => [row.name, row]))
     const draftByName = new Map(draftRows.map((row) => [row.name, row]))
-    const modelNames =
-      filterMode === 'unset'
-        ? new Set(candidateModelNames ?? [])
-        : new Set([...savedByName.keys(), ...draftByName.keys()])
+    const modelNames = candidateModelNames
+      ? new Set([
+          ...candidateModelNames,
+          ...[...draftByName.keys()].filter((name) => !savedByName.has(name)),
+        ])
+      : new Set([...savedByName.keys(), ...draftByName.keys()])
 
     return [...modelNames]
       .map((name) => {
@@ -345,6 +353,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
 
   const handleEdit = useCallback(
     (model: ModelRow) => {
+      editorDirty.current = false
       const editableModel = model.draft ?? model.saved ?? model
       let editBillingMode: PricingMode = 'per-token'
       if (editableModel.billingMode === 'tiered_expr') {
@@ -375,6 +384,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
   )
 
   const handleAdd = useCallback(() => {
+    editorDirty.current = false
     setEditData(null)
     setEditorOpen(true)
     if (isMobile) setSheetOpen(true)
@@ -514,6 +524,18 @@ const ModelRatioVisualEditorComponent = forwardRef<
     ]
   )
 
+  const imagePricingPolicies = useMemo(
+    () =>
+      new Map(
+        (pricingEntries ?? []).flatMap((entry) =>
+          entry.image_pricing_policy
+            ? [[entry.model_name, entry.image_pricing_policy] as const]
+            : []
+        )
+      ),
+    [pricingEntries]
+  )
+
   const columns = useMemo(
     () =>
       // The stable callbacks read the ref only when invoked by a user action.
@@ -523,9 +545,17 @@ const ModelRatioVisualEditorComponent = forwardRef<
         onEdit: handleEdit,
         deleteDisabled: filterMode === 'unset',
         taskModelNames,
+        imagePricingPolicies,
         t,
       }),
-    [handleEdit, handleDelete, filterMode, t, taskModelNames]
+    [
+      handleEdit,
+      handleDelete,
+      filterMode,
+      t,
+      taskModelNames,
+      imagePricingPolicies,
+    ]
   )
 
   const ensurePageInRange = useCallback((pageCount: number) => {
@@ -638,6 +668,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
     ref,
     () => ({
       commitOpenEditor: async () => {
+        if (!editorDirty.current) return true
         if (!editorOpen || !editorPanelRef.current) return true
         const data = await editorPanelRef.current.commitDraft()
         if (!data) return false
@@ -782,11 +813,19 @@ const ModelRatioVisualEditorComponent = forwardRef<
                   (entry) => entry.model_name === editData?.name
                 )?.usage_schema
               }
+              imagePricingPolicy={
+                pricingConfig.data?.entries.find(
+                  (entry) => entry.model_name === editData?.name
+                )?.image_pricing_policy
+              }
               billingUnit={
                 pricingConfig.data?.entries.find(
                   (entry) => entry.model_name === editData?.name
                 )?.billing_unit
               }
+              onDirtyChange={(dirty) => {
+                editorDirty.current = dirty
+              }}
               onSave={onSave}
               isSaving={isSaving}
               className='h-full min-h-0'
@@ -837,11 +876,19 @@ const ModelRatioVisualEditorComponent = forwardRef<
               (entry) => entry.model_name === editData?.name
             )?.usage_schema
           }
+          imagePricingPolicy={
+            pricingConfig.data?.entries.find(
+              (entry) => entry.model_name === editData?.name
+            )?.image_pricing_policy
+          }
           billingUnit={
             pricingConfig.data?.entries.find(
               (entry) => entry.model_name === editData?.name
             )?.billing_unit
           }
+          onDirtyChange={(dirty) => {
+            editorDirty.current = dirty
+          }}
           onSave={onSave}
           isSaving={isSaving}
         />
@@ -880,6 +927,7 @@ export const ModelRatioVisualEditor = memo(
       prevProps.billingExpr === nextProps.billingExpr &&
       prevProps.displayBillingExpr === nextProps.displayBillingExpr &&
       prevProps.pluginBillingExpr === nextProps.pluginBillingExpr &&
+      prevProps.pricingEntries === nextProps.pricingEntries &&
       prevProps.candidateModelNames === nextProps.candidateModelNames &&
       prevProps.candidateModelsLoading === nextProps.candidateModelsLoading &&
       prevProps.filterMode === nextProps.filterMode &&

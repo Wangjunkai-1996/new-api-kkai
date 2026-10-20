@@ -97,3 +97,126 @@ func TestResellerApplicationReviewConcurrentApprovalsCannotCreateSecondTenant(t 
 	require.NoError(t, db.Model(&ResellerApplication{}).Where("status = ?", ResellerApplicationStatusApproved).Count(&approved).Error)
 	assert.EqualValues(t, 1, approved)
 }
+
+func TestResellerDomainProvisioningPreservesOneDomainPerTenant(t *testing.T) {
+	tenantIdentityTestDB(t)
+	db := DB
+	require.NoError(t, db.AutoMigrate(&TenantDomain{}))
+	require.NoError(t, db.Create(&[]Tenant{{ID: 42, Status: TenantStatusProvisioning}, {ID: 43, Status: TenantStatusProvisioning}}).Error)
+	var assigned *TenantDomain
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		var err error
+		assigned, err = ProvisionTenantDomainTx(tx, 42, " KIMI.EXAMPLE.COM ")
+		return err
+	}))
+	assert.Equal(t, "kimi.example.com", assigned.Hostname)
+	for _, status := range []string{TenantDomainStatusActive, TenantDomainStatusDisabled} {
+		require.NoError(t, db.Model(assigned).Update("status", status).Error)
+		err := db.Transaction(func(tx *gorm.DB) error {
+			_, err := ProvisionTenantDomainTx(tx, 42, "other.example.com")
+			return err
+		})
+		assert.ErrorIs(t, err, ErrResellerDomainAlreadyAssigned)
+		require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+			replayed, err := ProvisionTenantDomainTx(tx, 42, "kimi.example.com")
+			if err == nil {
+				assert.Equal(t, assigned.ID, replayed.ID)
+				assert.Equal(t, TenantDomainStatusActive, replayed.Status)
+			}
+			return err
+		}))
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, err := ProvisionTenantDomainTx(tx, 43, "kimi.example.com")
+		return err
+	})
+	assert.ErrorIs(t, err, ErrTenantMembershipConflict)
+	// Historical aliases are retained, but cannot become a second active domain.
+	legacy := TenantDomain{TenantID: 42, Hostname: "legacy.example.com", Status: TenantDomainStatusDisabled}
+	require.NoError(t, db.Create(&legacy).Error)
+	err = db.Transaction(func(tx *gorm.DB) error {
+		_, err := ProvisionTenantDomainTx(tx, 42, legacy.Hostname)
+		return err
+	})
+	assert.ErrorIs(t, err, ErrResellerDomainAlreadyAssigned)
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		replayed, err := ProvisionTenantDomainTx(tx, 42, assigned.Hostname)
+		if err == nil {
+			assert.Equal(t, assigned.ID, replayed.ID)
+		}
+		return err
+	}))
+	err = db.Transaction(func(tx *gorm.DB) error {
+		_, err := ProvisionTenantDomainTx(tx, 42, "third.example.com")
+		return err
+	})
+	assert.ErrorIs(t, err, ErrResellerDomainAlreadyAssigned)
+	var domains []TenantDomain
+	require.NoError(t, db.Order("id").Find(&domains).Error)
+	require.Len(t, domains, 2)
+	assert.Equal(t, []string{"kimi.example.com", "legacy.example.com"}, []string{domains[0].Hostname, domains[1].Hostname})
+	assert.Equal(t, TenantDomainStatusDisabled, domains[1].Status)
+}
+
+func TestResellerDomainConcurrentProvisioningCannotAddSecondDomain(t *testing.T) {
+	tenantIdentityTestDB(t)
+	db := DB
+	require.NoError(t, db.AutoMigrate(&TenantDomain{}))
+	require.NoError(t, db.Create(&Tenant{ID: 42, Status: TenantStatusProvisioning}).Error)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	// SQLite serializes writers. Exercise concurrent callers without timing assumptions.
+	sqlDB.SetMaxOpenConns(1)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, hostname := range []string{"first.example.com", "second.example.com"} {
+		go func(host string) {
+			<-start
+			results <- db.Transaction(func(tx *gorm.DB) error {
+				_, err := ProvisionTenantDomainTx(tx, 42, host)
+				return err
+			})
+		}(hostname)
+	}
+	close(start)
+	a, b := <-results, <-results
+	assert.True(t, (a == nil && errors.Is(b, ErrResellerDomainAlreadyAssigned)) || (b == nil && errors.Is(a, ErrResellerDomainAlreadyAssigned)), "provisioning results: %v, %v", a, b)
+	var domains []TenantDomain
+	require.NoError(t, db.Where("tenant_id = ?", 42).Find(&domains).Error)
+	assert.Len(t, domains, 1)
+}
+
+func TestResellerActivationRequiresOneActiveDomainOnly(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		statuses []string
+		ready    bool
+	}{
+		{"no domain", nil, false},
+		{"disabled domain", []string{TenantDomainStatusDisabled}, false},
+		{"one active domain", []string{TenantDomainStatusActive}, true},
+		{"one active historical alias", []string{TenantDomainStatusActive, TenantDomainStatusDisabled}, true},
+		{"multiple active historical aliases", []string{TenantDomainStatusActive, TenantDomainStatusActive}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tenantIdentityTestDB(t)
+			db := DB
+			require.NoError(t, db.AutoMigrate(&TenantDomain{}))
+			for index, status := range test.statuses {
+				host := []string{"first.example.com", "second.example.com"}[index]
+				require.NoError(t, db.Create(&TenantDomain{TenantID: 42, Hostname: host, Status: status}).Error)
+			}
+			// Another tenant's domain cannot satisfy this site's activation.
+			require.NoError(t, db.Create(&TenantDomain{TenantID: 43, Hostname: "other.example.com", Status: TenantDomainStatusActive}).Error)
+			states, err := GetResellerActivations(db, []int64{42, 44})
+			require.NoError(t, err)
+			assert.Equal(t, map[int64]ResellerActivation{42: {DomainReady: test.ready, Ready: test.ready}, 44: {}}, states)
+		})
+	}
+}
+
+func TestResellerActivationPropagatesDatabaseFailures(t *testing.T) {
+	tenantIdentityTestDB(t)
+	_, err := GetResellerActivations(DB, []int64{42})
+	assert.Error(t, err)
+}

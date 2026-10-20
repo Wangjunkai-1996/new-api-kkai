@@ -18,17 +18,22 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { ModelRatioVisualEditor } from '../model-ratio-visual-editor'
+import {
+  ModelRatioVisualEditor,
+  type ModelRatioVisualEditorHandle,
+} from '../model-ratio-visual-editor'
 
 let client: QueryClient | undefined
 
@@ -49,14 +54,18 @@ async function renderEditor() {
   const modelRatio = JSON.stringify({
     'gpt-4.1-mini': 0.2,
     'claude-sonnet': 1.5,
+    'historical-model': 9,
   })
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   client = queryClient
+  const ref = createRef<ModelRatioVisualEditorHandle>()
   const view = render(
     <QueryClientProvider client={client}>
       <ModelRatioVisualEditor
+        ref={ref}
+        candidateModelNames={['gpt-4.1-mini', 'claude-sonnet']}
         savedModelPrice='{}'
         savedModelRatio={modelRatio}
         savedCacheRatio='{}'
@@ -86,7 +95,7 @@ async function renderEditor() {
   // The real page has pricing metadata loaded long before the user drags over
   // a model name, so settle the pricing query before interacting.
   await waitFor(() => expect(queryClient.isFetching()).toBe(0))
-  return view
+  return { ...view, ref }
 }
 
 // A drag-select ends with mousedown/mouseup inside the row and the browser
@@ -122,4 +131,25 @@ it('keeps other rows mounted when a different model is opened for editing', asyn
     await screen.findByRole('region', { name: 'Edit model pricing' })
   ).toBeInTheDocument()
   expect(otherName).toBeInTheDocument()
+})
+
+it('excludes stored historical prices that are absent from configured channels', async () => {
+  await renderEditor()
+  expect(screen.getByRole('row', { name: /gpt-4\.1-mini/ })).toBeInTheDocument()
+  expect(
+    screen.queryByRole('row', { name: /historical-model/ })
+  ).not.toBeInTheDocument()
+})
+
+it('allows a global save while a pristine legacy pricing panel is open', async () => {
+  const editor = await renderEditor()
+  fireEvent.click(screen.getByText('gpt-4.1-mini'))
+  expect(
+    await screen.findByRole('button', { name: 'Convert to expression' })
+  ).toBeVisible()
+  let canSave = false
+  await act(async () => {
+    canSave = (await editor.ref.current?.commitOpenEditor()) ?? false
+  })
+  expect(canSave).toBe(true)
 })

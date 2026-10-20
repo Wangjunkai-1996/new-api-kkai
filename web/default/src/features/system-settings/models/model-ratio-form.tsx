@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
 import { Code2, Eye, RotateCcw, Save } from 'lucide-react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useRef, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -35,9 +34,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
-import { getEnabledModels } from '@/features/channels/api'
-import { handleServerError } from '@/lib/handle-server-error'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import type { ModelPricingEntry } from '@/features/model-pricing/api'
 
 import {
   SettingsForm,
@@ -74,74 +71,28 @@ type ModelRatioFormProps = {
   isSaving: boolean
   isResetting: boolean
   variant?: 'default' | 'unset'
+  channelModelNames?: string[]
+  pricingEntries?: ModelPricingEntry[]
 }
 
 type ModelJsonFieldName =
-  | 'ModelPrice'
-  | 'ModelRatio'
-  | 'CacheRatio'
-  | 'CreateCacheRatio'
-  | 'CompletionRatio'
-  | 'ImageRatio'
-  | 'AudioRatio'
-  | 'AudioCompletionRatio'
+  | 'BillingExpr'
+  | 'DisplayBillingExpr'
+  | 'PluginBillingExpr'
 
 const modelJsonFields: Array<{
   name: ModelJsonFieldName
   labelKey: string
-  descriptionKey: string
 }> = [
-  {
-    name: 'ModelPrice',
-    labelKey: 'Model fixed pricing',
-    descriptionKey:
-      'JSON map of model → USD cost per request. Takes precedence over ratio based billing.',
-  },
-  {
-    name: 'ModelRatio',
-    labelKey: 'Model ratio',
-    descriptionKey: 'JSON map of model → multiplier applied to quota billing.',
-  },
-  {
-    name: 'CacheRatio',
-    labelKey: 'Prompt cache ratio',
-    descriptionKey: 'Optional ratio used when upstream cache hits occur.',
-  },
-  {
-    name: 'CreateCacheRatio',
-    labelKey: 'Create cache ratio',
-    descriptionKey:
-      'Ratio applied when creating cache entries for supported models.',
-  },
-  {
-    name: 'CompletionRatio',
-    labelKey: 'Completion ratio',
-    descriptionKey:
-      'Applies to custom completion endpoints. JSON map of model → ratio.',
-  },
-  {
-    name: 'ImageRatio',
-    labelKey: 'Image ratio',
-    descriptionKey: 'Configure per-model ratio for image inputs or outputs.',
-  },
-  {
-    name: 'AudioRatio',
-    labelKey: 'Audio ratio',
-    descriptionKey:
-      'Ratio applied to audio inputs where supported by the upstream model.',
-  },
-  {
-    name: 'AudioCompletionRatio',
-    labelKey: 'Audio completion ratio',
-    descriptionKey: 'Ratio applied to audio completions for streaming models.',
-  },
+  { name: 'BillingExpr', labelKey: 'Billing expression' },
+  { name: 'DisplayBillingExpr', labelKey: 'Display billing expression' },
+  { name: 'PluginBillingExpr', labelKey: 'Provider pricing' },
 ]
 
 function ModelJsonTextareaField(props: {
   form: UseFormReturn<ModelFormValues>
   name: ModelJsonFieldName
   label: string
-  description: string
 }) {
   return (
     <FormField
@@ -156,9 +107,6 @@ function ModelJsonTextareaField(props: {
               onChange={(value) => field.onChange(value)}
             />
           </FormControl>
-          <FormDescription className='text-xs leading-5'>
-            {props.description}
-          </FormDescription>
           <FormMessage />
         </FormItem>
       )}
@@ -174,38 +122,13 @@ export const ModelRatioForm = memo(function ModelRatioForm({
   isSaving,
   isResetting,
   variant = 'default',
+  channelModelNames,
+  pricingEntries,
 }: ModelRatioFormProps) {
   const { t } = useTranslation()
   const isUnsetVariant = variant === 'unset'
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const visualEditorRef = useRef<ModelRatioVisualEditorHandle>(null)
-
-  const enabledModelsQuery = useQuery({
-    queryKey: ['enabled-models'],
-    queryFn: async () => requireServerSuccess(await getEnabledModels()),
-    enabled: isUnsetVariant,
-  })
-
-  const enabledModelsError = isUnsetVariant
-    ? enabledModelsQuery.isError ||
-      (enabledModelsQuery.data !== undefined &&
-        !enabledModelsQuery.data.success)
-    : false
-  const enabledModelsErrorMessage = enabledModelsQuery.data?.message
-
-  useEffect(() => {
-    if (!enabledModelsError) return
-    handleServerError(
-      enabledModelsQuery.error ?? enabledModelsQuery.data,
-      t('Failed to load enabled models')
-    )
-  }, [
-    enabledModelsError,
-    enabledModelsErrorMessage,
-    enabledModelsQuery.error,
-    enabledModelsQuery.data,
-    t,
-  ])
 
   const handleFieldChange = useCallback(
     (field: keyof ModelFormValues, value: string) => {
@@ -227,8 +150,23 @@ export const ModelRatioForm = memo(function ModelRatioForm({
       if (committed === false) return
     }
 
-    await form.handleSubmit(onSave)()
-  }, [editMode, form, onSave])
+    await form.handleSubmit(async (values) => {
+      if (editMode !== 'json') return onSave(values)
+      const previous = JSON.parse(savedValues.BillingExpr) as Record<
+        string,
+        string
+      >
+      const expressions = JSON.parse(values.BillingExpr) as Record<
+        string,
+        string
+      >
+      const modes = JSON.parse(values.BillingMode) as Record<string, string>
+      for (const [name, expression] of Object.entries(expressions)) {
+        if (expression !== previous[name]) modes[name] = 'tiered_expr'
+      }
+      await onSave({ ...values, BillingMode: JSON.stringify(modes) })
+    })()
+  }, [editMode, form, onSave, savedValues.BillingExpr])
 
   return (
     <Form {...form}>
@@ -329,12 +267,8 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               billingExpr={form.watch('BillingExpr')}
               displayBillingExpr={form.watch('DisplayBillingExpr')}
               pluginBillingExpr={form.watch('PluginBillingExpr')}
-              candidateModelNames={
-                isUnsetVariant ? enabledModelsQuery.data?.data : undefined
-              }
-              candidateModelsLoading={
-                isUnsetVariant && enabledModelsQuery.isLoading
-              }
+              candidateModelNames={channelModelNames}
+              pricingEntries={pricingEntries}
               filterMode={isUnsetVariant ? 'unset' : 'all'}
               onSave={handleSave}
               isSaving={isSaving}
@@ -352,7 +286,12 @@ export const ModelRatioForm = memo(function ModelRatioForm({
             />
           </div>
         ) : (
-          <SettingsForm onSubmit={form.handleSubmit(onSave)}>
+          <SettingsForm
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleSave()
+            }}
+          >
             <div className='grid min-w-0 gap-x-5 gap-y-8 lg:grid-cols-2 2xl:grid-cols-3'>
               {modelJsonFields.map((config) => (
                 <ModelJsonTextareaField
@@ -360,7 +299,6 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                   form={form}
                   name={config.name}
                   label={t(config.labelKey)}
-                  description={t(config.descriptionKey)}
                 />
               ))}
             </div>

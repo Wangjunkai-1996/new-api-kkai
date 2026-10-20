@@ -32,11 +32,14 @@ func ResellerQuotaTariff(priceCNY, quotaPerUnit, supplyRatio, saleRatio decimal.
 			return "", "", ErrResellerFinanceInvalidInput
 		}
 	}
-	if !priceCNY.IsPositive() || !quotaPerUnit.IsPositive() || supplyRatio.IsNegative() || !saleRatio.IsPositive() {
+	if !priceCNY.IsPositive() || !quotaPerUnit.IsPositive() || supplyRatio.IsNegative() || saleRatio.IsNegative() || (saleRatio.IsZero() && !supplyRatio.IsZero()) {
 		return "", "", ErrResellerFinanceInvalidInput
 	}
 	sale := new(big.Rat).Quo(priceCNY.Mul(decimal.NewFromInt(100)).Rat(), quotaPerUnit.Rat())
-	supply := new(big.Rat).Quo(new(big.Rat).Mul(sale, supplyRatio.Rat()), saleRatio.Rat())
+	supply := new(big.Rat)
+	if !saleRatio.IsZero() {
+		supply.Quo(new(big.Rat).Mul(sale, supplyRatio.Rat()), saleRatio.Rat())
+	}
 	saleText, err := resellerExactString(sale, 64)
 	if err != nil {
 		return "", "", err

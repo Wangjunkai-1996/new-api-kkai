@@ -57,7 +57,7 @@ func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput Resel
 			return ErrResellerInsufficientFunds
 		}
 		var pending int64
-		if err := tx.Model(&TenantConsumption{}).Where("customer_id = ? AND tenant_id = ? AND (status = ? OR (status = ? AND last_error <> ''))", user.Id, user.TenantID, "settlement_pending", "reserved").Count(&pending).Error; err != nil {
+		if err := tx.Model(&TenantConsumption{}).Where("customer_id = ? AND tenant_id = ? AND (quote_id > 0 OR reserved_quota > 0) AND (status = ? OR (status = ? AND last_error <> ''))", user.Id, user.TenantID, "settlement_pending", "reserved").Count(&pending).Error; err != nil {
 			return err
 		}
 		if pending > 0 {
@@ -80,8 +80,8 @@ func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput Resel
 		if wallet.DebtMinor > 0 {
 			return ErrResellerDebtOutstanding
 		}
-		// Every remaining paid lot must cover the immutable supply tariff. This
-		// also rejects discounted/gift funding before calling an upstream.
+		// Gross paid funds must cover the immutable supply tariff. Payment fees
+		// are accounted as an expense, not an implicit customer price increase.
 		var lots []CustomerPaymentLot
 		if err := tx.Where("tenant_id = ? AND customer_id = ? AND remaining_quota > 0 AND refund_status = ?", user.TenantID, user.Id, "none").Find(&lots).Error; err != nil {
 			return err
@@ -95,7 +95,7 @@ func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput Resel
 			if lot.CreditedQuota <= 0 {
 				return ErrResellerFinanceInvalidInput
 			}
-			if big.NewRat(lot.PaidMinor-lot.PaymentFeeMinor, 1).Cmp(new(big.Rat).Mul(unit, big.NewRat(lot.CreditedQuota, 1))) < 0 {
+			if big.NewRat(lot.PaidMinor, 1).Cmp(new(big.Rat).Mul(unit, big.NewRat(lot.CreditedQuota, 1))) < 0 {
 				return ErrResellerPriceBelowCost
 			}
 			remaining = remaining.Add(decimal.NewFromInt(lot.RemainingQuota))
@@ -132,6 +132,37 @@ func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput Resel
 	return &record, err
 }
 
+// ReserveTenantFreeConsumption retains the same durable request identity and
+// statistics as paid requests without inventing a charge, payment lot or profit.
+func ReserveTenantFreeConsumption(ctx context.Context, db *gorm.DB, tenantID int64, customerID, tokenID int, requestID string) (*TenantConsumption, error) {
+	if db == nil || tenantID <= 0 || customerID <= 0 || tokenID <= 0 || requestID == "" || len(requestID) > 128 {
+		return nil, ErrResellerFinanceInvalidInput
+	}
+	var record TenantConsumption
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Where("id = ? AND tenant_id = ? AND status = ?", customerID, tenantID, common.UserStatusEnabled).First(&user).Error; err != nil {
+			return err
+		}
+		var token Token
+		if err := lockForUpdate(tx).Where("id = ? AND tenant_id = ? AND user_id = ? AND status = ?", tokenID, tenantID, customerID, common.TokenStatusEnabled).First(&token).Error; err != nil {
+			return err
+		}
+		if token.ExpiredTime != -1 && token.ExpiredTime < time.Now().Unix() {
+			return ErrTenantMembershipMissing
+		}
+		var existing TenantConsumption
+		if err := tx.Where("request_id = ?", requestID).First(&existing).Error; err == nil {
+			return ErrTenantConsumptionConflict
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		record = TenantConsumption{RequestID: requestID, TenantID: tenantID, CustomerID: customerID, TokenID: tokenID, Status: "reserved", CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix()}
+		return tx.Create(&record).Error
+	})
+	return &record, err
+}
+
 // RecordTenantConsumptionResult commits usage before attempting settlement.
 // Retrying this method cannot turn a successful request into a refund.
 func RecordTenantConsumptionResult(db *gorm.DB, requestID string, actualQuota int64, channelID int, refund bool) error {
@@ -146,6 +177,9 @@ func RecordTenantConsumptionResult(db *gorm.DB, requestID string, actualQuota in
 		var row TenantConsumption
 		if err := lockForUpdate(tx).Where("request_id = ?", requestID).First(&row).Error; err != nil {
 			return err
+		}
+		if row.QuoteID == 0 && actualQuota > 0 {
+			return ErrResellerFinanceInvalidInput
 		}
 		if row.Status != "reserved" {
 			if row.ActualQuota == actualQuota && ((refund && (row.Status == "refunded" || row.Status == status)) || (!refund && (row.Status == "settled" || row.Status == status))) {
@@ -171,6 +205,9 @@ func SettleTenantConsumption(ctx context.Context, db *gorm.DB, requestID string)
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockForUpdate(tx).Where("request_id = ?", requestID).First(&row).Error; err != nil {
 			return err
+		}
+		if row.QuoteID == 0 && (row.ActualQuota != 0 || row.ReservedQuota != 0) {
+			return ErrResellerFinanceInvalidInput
 		}
 		if row.Status == "settled" || row.Status == "refunded" {
 			return nil
@@ -257,6 +294,9 @@ func IncreaseTenantConsumptionReservation(db *gorm.DB, requestID string, target 
 		}
 		if row.Status != "reserved" {
 			return ErrTenantConsumptionConflict
+		}
+		if row.QuoteID == 0 && target > 0 {
+			return ErrResellerFinanceInvalidInput
 		}
 		delta := target - row.ReservedQuota
 		if delta <= 0 {

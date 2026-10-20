@@ -65,7 +65,7 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
 func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
 	if relayInfo.Billing != nil {
-		if relayInfo.TenantQuoteID > 0 && (relayInfo.BillingOutcomeUnknown || membershipStreamIncomplete(relayInfo)) {
+		if relayInfo.TenantID > 0 && relayInfo.HasDurableBilling() && (relayInfo.BillingOutcomeUnknown || membershipStreamIncomplete(relayInfo)) {
 			relayInfo.BillingOutcomeUnknown = true
 			if err := model.MarkTenantConsumptionUncertain(model.DB, relayInfo.RequestId, relayInfo.ChannelId); err != nil {
 				return err

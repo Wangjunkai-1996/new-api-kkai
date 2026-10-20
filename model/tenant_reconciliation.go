@@ -38,6 +38,9 @@ func ReconcileTenantConsumptionTx(tx *gorm.DB, input TenantConsumptionReconcilia
 	if err := lockForUpdate(tx).Where("tenant_id = ? AND request_id = ?", input.TenantID, input.RequestID).First(&consumption).Error; err != nil {
 		return nil, err
 	}
+	if consumption.QuoteID == 0 && input.ActualQuota > 0 {
+		return nil, ErrResellerFinanceInvalidInput
+	}
 	var user User
 	if err := lockForUpdate(tx).Where("tenant_id = ? AND id = ?", input.TenantID, consumption.CustomerID).First(&user).Error; err != nil {
 		return nil, err
@@ -62,7 +65,7 @@ func ReconcileTenantConsumptionTx(tx *gorm.DB, input TenantConsumptionReconcilia
 	}
 	uncertain := consumption.LastError == "upstream_final_usage_unknown"
 	confirmedStopped := consumption.LastError == "" && input.ConfirmedExecutionStopped
-	if consumption.Status != "reserved" || (!uncertain && !confirmedStopped) || consumption.QuoteID <= 0 {
+	if consumption.Status != "reserved" || (!uncertain && !confirmedStopped) || consumption.QuoteID < 0 {
 		return nil, ErrTenantConsumptionConflict
 	}
 	evidence, err := common.Marshal(input)

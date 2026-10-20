@@ -147,6 +147,21 @@ export type ImageGeneration = {
   assets: ImageAsset[]
 }
 
+export type ImageGenerationInput = {
+  generation_id: number
+  mode: ImageStudioComposerMode | 'unknown'
+  references_available: boolean
+  references: Array<{
+    id: number
+    sha256: string
+    size_bytes: number
+    mime_type: string
+    width: number
+    height: number
+    content_url?: string
+  }>
+}
+
 export type CursorPage<T> = {
   items: T[]
   next_cursor?: string

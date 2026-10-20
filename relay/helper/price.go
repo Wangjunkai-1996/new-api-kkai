@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
@@ -47,7 +48,7 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 		GroupSpecialRatio: -1,
 	}
 
-	if relayInfo.TenantID > 0 && relayInfo.TenantPriceVersionID > 0 {
+	if relayInfo.TenantID > 0 && relayInfo.TenantSupplySnapshot != "" {
 		groupRatioInfo.GroupRatio = relayInfo.TenantRetailMultiplier
 		return groupRatioInfo
 	}
@@ -78,6 +79,9 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hostty
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (hosttypes.PriceData, error) {
+	if info != nil && info.TenantID > 0 && info.TenantBudget != nil && info.Billing != nil {
+		return info.TenantBudget.Price, nil
+	}
 	if info != nil && info.TenantQuoteID > 0 {
 		return info.PriceData, nil // Retries keep the complete tariff accepted at reservation.
 	}
@@ -329,6 +333,9 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 }
 
 func HasModelBillingConfig(modelName string) bool {
+	if _, configured, err := image_pricing_setting.Resolve(modelName, ""); configured && err == nil {
+		return true
+	}
 	if _, ok := ratio_setting.GetModelPrice(modelName, false); ok {
 		return true
 	}

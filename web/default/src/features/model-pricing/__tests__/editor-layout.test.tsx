@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -153,11 +154,14 @@ it.each(['none', 'standard', 'claude_ttl'] as const)(
       }
     }
     expect(
-      screen.getByRole('textbox', { name: 'Completion price' })
-    ).toBeDisabled()
+      screen.queryByRole('textbox', { name: 'Completion price' })
+    ).not.toBeInTheDocument()
     expect(
-      screen.getByRole('textbox', { name: 'Cache read price' })
-    ).toBeDisabled()
+      screen.queryByRole('textbox', { name: 'Cache read price' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Convert to expression' })
+    ).toBeVisible()
   }
 )
 
@@ -192,10 +196,8 @@ function renderEditor(embedded = false) {
         embedded={embedded}
         editData={{
           name: 'example-model',
-          billingMode: 'per-token',
-          ratio: '3.25',
-          completionRatio: '2',
-          cacheRatio: '0.2',
+          billingMode: 'tiered_expr',
+          billingExpr: 'tier("base", p * 6.5 + c * 13 + cr * 1.3)',
         }}
         onSave={() => {}}
       />
@@ -228,7 +230,9 @@ it('keeps the preview expanded and the save action outside the scrolling embedde
   expect(
     screen.queryByRole('textbox', { name: 'Model name' })
   ).not.toBeInTheDocument()
-  expect(screen.getAllByText(/USD price per 1M tokens\./)).toHaveLength(1)
+  expect(
+    screen.getByRole('combobox', { name: 'Tier billing mode' })
+  ).toBeVisible()
 })
 
 it('retains the model identity and heading when the editor is used standalone', () => {
@@ -242,33 +246,24 @@ it('retains the model identity and heading when the editor is used standalone', 
   expect(screen.getByRole('textbox', { name: 'Model name' })).toBeDisabled()
 })
 
-it('updates the preview for explicit zero and disabled prices and explains dependent audio controls', async () => {
+it('updates expression preview for explicit free cache and removes an excluded cache price', () => {
   renderEditor(true)
-  const user = userEvent.setup()
   const preview = screen.getByRole('complementary', { name: 'Preview' })
-  const cache = screen.getByRole('textbox', { name: 'Cache read price' })
-  await user.clear(cache)
-  await user.type(cache, '0')
-  expect(await within(preview).findByText('$0')).toBeVisible()
-  await user.click(screen.getByRole('switch', { name: 'Cache read price' }))
+  const cache = screen.getByRole('textbox', {
+    name: 'Cache read billing price',
+  })
+  fireEvent.change(cache, { target: { value: '0' } })
+  expect(cache).toHaveValue('0')
+  expect(
+    within(preview).getByText('tier("base", p * 6.5 + c * 13 + cr * 0)')
+  ).toBeVisible()
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: 'Include Cache read billing price' })
+  )
   expect(cache).toBeDisabled()
-  expect(within(preview).queryByText('$0')).not.toBeInTheDocument()
-  await waitFor(() =>
-    expect(
-      within(preview).queryByText('Cache read price')
-    ).not.toBeInTheDocument()
-  )
-  const audio = screen.getByRole('switch', { name: 'Audio output price' })
-  expect(audio).toHaveAttribute('aria-disabled', 'true')
-  expect(audio).toHaveAccessibleDescription(
-    'Audio output price requires an audio input price.'
-  )
-  await user.click(screen.getByRole('switch', { name: 'Audio input price' }))
-  await user.type(
-    screen.getByRole('textbox', { name: 'Audio input price' }),
-    '1'
-  )
-  expect(audio).not.toHaveAttribute('aria-disabled', 'true')
+  expect(
+    within(preview).getByText('tier("base", p * 6.5 + c * 13)')
+  ).toBeVisible()
 })
 
 function PricingFormFixture(props: {
@@ -284,8 +279,12 @@ function PricingFormFixture(props: {
     ImageRatio: '{}',
     AudioRatio: '{}',
     AudioCompletionRatio: '{}',
-    BillingMode: '{}',
-    BillingExpr: '{}',
+    BillingMode:
+      props.variant === 'default' ? '{"example-model":"tiered_expr"}' : '{}',
+    BillingExpr:
+      props.variant === 'default'
+        ? JSON.stringify({ 'example-model': 'tier("request", fixed(0.1))' })
+        : '{}',
     DisplayBillingExpr: '{}',
     PluginBillingExpr: '{}',
     ExposeRatioEnabled: false,
@@ -302,6 +301,7 @@ function PricingFormFixture(props: {
         <ModelRatioForm
           form={form}
           savedValues={values}
+          channelModelNames={['example-model']}
           variant={props.variant}
           onSave={props.onSave}
           onReset={() => undefined}
@@ -377,10 +377,13 @@ it.each(['default', 'unset'] as const)(
       ).not.toBeInTheDocument()
     }
     await user.click(await screen.findByRole('button', { name: 'Edit' }))
-    await user.click(
-      screen.getByRole('tab', { name: 'Per-request (deprecated)' })
-    )
-    const price = screen.getByRole('textbox', { name: 'Fixed price' })
+    if (variant === 'unset') {
+      await user.click(
+        screen.getByRole('combobox', { name: 'Tier billing mode' })
+      )
+      await user.click(await screen.findByRole('option', { name: 'Per-call' }))
+    }
+    const price = screen.getByRole('textbox', { name: 'Price per request' })
     await user.clear(price)
     await user.type(price, '0.25')
     const region = screen.getByRole('region', { name: 'Edit model pricing' })
@@ -390,8 +393,7 @@ it.each(['default', 'unset'] as const)(
     await user.click(button)
     await waitFor(() => expect(save).toHaveBeenCalledOnce())
     expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ ExposeRatioEnabled: variant === 'default' }),
-      undefined
+      expect.objectContaining({ ExposeRatioEnabled: variant === 'default' })
     )
   }
 )

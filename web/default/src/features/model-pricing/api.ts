@@ -24,6 +24,7 @@ import {
 } from '@tanstack/react-query'
 import { t } from 'i18next'
 
+import type { ImagePricingPolicy } from '@/features/image-studio/admin/image-pricing-policy'
 import { pluginExpressionsEqual } from '@/features/pricing/lib/plugin-pricing'
 import type {
   BillingUsageSchema,
@@ -36,6 +37,9 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   PRICING_KEYS,
+  pricingFieldMap,
+  pricingFromDraft,
+  pricingRow,
   pricingValuesByModel,
   type PricingOptions,
   type PricingValues,
@@ -63,6 +67,7 @@ export type ModelPricingPluginVariant = {
 
 export type ModelPricingEntry = ModelPricingDescription & {
   plugin_variants?: ModelPricingPluginVariant[]
+  image_pricing_policy?: ImagePricingPolicy['models'][string]
   model_name: string
   version: string
   configured: PricingValues
@@ -74,6 +79,7 @@ export type ModelPricingConfig = {
   entries: ModelPricingEntry[]
   options: PricingOptions
   empty_version: string
+  channel_models?: string[]
 }
 export type ModelPricingChange = {
   model_name: string
@@ -103,8 +109,10 @@ export async function previewModelPricingConversion(request: {
 
 export async function previewModelPricing(request: {
   model_name: string
-  pricing: PricingValues
+  pricing?: PricingValues
+  reset?: boolean
 }): Promise<{
+  configured: PricingValues
   effective: PricingValues
   cacheWriteMode?: CacheWriteMode
   billingDetails?: LegacyBillingDetails
@@ -114,10 +122,26 @@ export async function previewModelPricing(request: {
     throw createServerError(response.data, t('Failed to load model pricing'))
   }
   return {
+    configured: response.data.data.configured,
     effective: response.data.data.effective,
     cacheWriteMode: response.data.data.cache_write_mode,
     billingDetails: response.data.data.billing_details,
   }
+}
+
+// Legacy prices retain their billing path unless explicitly converted. Resolve
+// resets in the backend transaction so built-in defaults remain inherited.
+export async function prepareExpressionPricingChanges(
+  changes: ModelPricingChange[]
+): Promise<ModelPricingChange[]> {
+  return changes.map((change) => {
+    if (change.reset) return change
+    let pricing = change.pricing
+    if (pricing['billing_setting.billing_mode'] === 'tiered_expr') {
+      pricing = pricingFromDraft(pricingRow(change.model_name, pricing))
+    }
+    return { ...change, reset: false, pricing }
+  })
 }
 
 export function useCanEditModelPricing() {
@@ -203,6 +227,7 @@ export function buildPricingChanges(
       }
     }
     if (newValues['billing_setting.billing_mode'] === 'tiered_expr') {
+      for (const key of Object.values(pricingFieldMap)) delete pricing[key]
       pricing['billing_setting.billing_mode'] = 'tiered_expr'
       pricing['billing_setting.billing_expr'] =
         newValues['billing_setting.billing_expr']

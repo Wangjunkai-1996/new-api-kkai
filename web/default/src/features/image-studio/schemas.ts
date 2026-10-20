@@ -177,6 +177,40 @@ export const imageGenerationSchema = z.object({
   assets: z.array(imageAssetSchema),
 })
 
+export const imageGenerationInputSchema = z
+  .object({
+    generation_id: z.number().int().positive(),
+    mode: z.enum(['generation', 'edit', 'unknown']),
+    references_available: z.boolean(),
+    references: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          size_bytes: z.number().int().positive(),
+          mime_type: z.string(),
+          width: z.number().int().nonnegative(),
+          height: z.number().int().nonnegative(),
+          content_url: imageMediaUrlSchema.optional(),
+        })
+      )
+      .max(IMAGE_STUDIO_MAX_REFERENCE_IMAGES),
+  })
+  .superRefine((input, context) => {
+    const ids = input.references.map((reference) => reference.id)
+    if (
+      new Set(ids).size !== ids.length ||
+      (input.mode === 'generation' && ids.length > 0) ||
+      (input.mode === 'edit' && input.references_available && ids.length === 0)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['references'],
+        message: 'Invalid generation references',
+      })
+    }
+  })
+
 const imageTokenCapabilityFields = {
   required_group: z.string().min(1),
   has_usable_token: z.boolean(),

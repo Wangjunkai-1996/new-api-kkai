@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"strconv"
@@ -30,7 +31,17 @@ func AdminListResellers(c *gin.Context) {
 	}
 	type tenantView struct {
 		model.Tenant
-		Domains []model.TenantDomain `json:"domains"`
+		Domains    []model.TenantDomain     `json:"domains"`
+		Activation model.ResellerActivation `json:"activation"`
+	}
+	tenantIDs := make([]int64, 0, len(tenants))
+	for _, tenant := range tenants {
+		tenantIDs = append(tenantIDs, tenant.ID)
+	}
+	activations, err := model.GetResellerActivations(model.DB, tenantIDs)
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	views := make([]tenantView, 0, len(tenants))
 	byTenant := make(map[int64][]model.TenantDomain)
@@ -38,7 +49,11 @@ func AdminListResellers(c *gin.Context) {
 		byTenant[domain.TenantID] = append(byTenant[domain.TenantID], domain)
 	}
 	for _, tenant := range tenants {
-		views = append(views, tenantView{Tenant: tenant, Domains: byTenant[tenant.ID]})
+		tenantDomains := byTenant[tenant.ID]
+		if tenantDomains == nil {
+			tenantDomains = []model.TenantDomain{}
+		}
+		views = append(views, tenantView{Tenant: tenant, Domains: tenantDomains, Activation: activations[tenant.ID]})
 	}
 	root, _ := model.NormalizeTenantHost(os.Getenv("TENANT_ROOT_DOMAIN"))
 	common.ApiSuccess(c, gin.H{"applications": applications, "tenants": views, "root_domain": root})
@@ -76,34 +91,30 @@ func AdminUpdateResellerStatus(c *gin.Context) {
 		resellerBadRequest(c, "invalid tenant status")
 		return
 	}
+	var activation model.ResellerActivation
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		tenant, err := model.LockTenantTx(tx, id)
 		if err != nil {
 			return err
 		}
 		if request.Status == model.TenantStatusActive {
-			var domains int64
-			if err := tx.Model(&model.TenantDomain{}).Where("tenant_id = ? AND status = ?", id, model.TenantDomainStatusActive).Count(&domains).Error; err != nil {
+			activations, err := model.GetResellerActivations(tx, []int64{id})
+			if err != nil {
 				return err
 			}
-			var entries []model.TenantCatalogEntry
-			if err := tx.Where("tenant_id = ? AND status = ?", id, model.TenantCatalogStatusEnabled).Find(&entries).Error; err != nil {
-				return err
-			}
-			if domains == 0 || len(entries) == 0 {
-				return model.ErrResellerInvalidCatalog
-			}
-			for _, entry := range entries {
-				var price model.TenantPriceVersion
-				if err := tx.Where(map[string]any{"tenant_id": id, "model": entry.Model, "group": entry.SalesGroup}).Order("version DESC").First(&price).Error; err != nil {
-					return err
-				}
+			activation = activations[id]
+			if !activation.Ready {
+				return model.ErrResellerActivationIncomplete
 			}
 		}
 		return tx.Model(tenant).Update("status", request.Status).Error
 	})
 	if err != nil {
-		resellerBadRequest(c, "active tenants require a provisioned domain, catalog and prices")
+		if errors.Is(err, model.ErrResellerActivationIncomplete) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "RESELLER_ACTIVATION_INCOMPLETE", "message": err.Error(), "activation": activation})
+			return
+		}
+		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"status": request.Status})
@@ -135,6 +146,10 @@ func AdminProvisionResellerDomain(c *gin.Context) {
 		return err
 	})
 	if err != nil {
+		if errors.Is(err, model.ErrResellerDomainAlreadyAssigned) {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "code": "RESELLER_DOMAIN_ALREADY_ASSIGNED", "message": err.Error()})
+			return
+		}
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "domain is unavailable"})
 		return
 	}

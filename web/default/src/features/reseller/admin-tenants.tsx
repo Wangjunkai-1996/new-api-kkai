@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -27,9 +27,10 @@ import { z } from 'zod'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { handleServerError } from '@/lib/handle-server-error'
+import { getServerErrorSources } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -62,13 +63,16 @@ function TenantCard(props: {
     resolver: zodResolver(domainSchema),
     defaultValues: { hostname: props.requestedHostname },
   })
+  const hostname = useWatch({ control: form.control, name: 'hostname' })
   const domain = useMutation({
     mutationFn: (data: z.infer<typeof domainSchema>) =>
       provisionDomain(props.tenant.id, data.hostname.toLowerCase()),
-    onSuccess: () => {
-      form.reset()
-      toast.success(t('Saved successfully'))
-      void client.invalidateQueries({
+    onSuccess: async (_result, data) => {
+      form.reset({ hostname: '' })
+      toast.success(t('Domain assigned successfully'), {
+        description: data.hostname.toLowerCase(),
+      })
+      await client.invalidateQueries({
         queryKey: resellerQueryKey(userId, 'admin'),
       })
     },
@@ -82,12 +86,34 @@ function TenantCard(props: {
       ),
     onSuccess: () => {
       setConfirmStatus(false)
+      toast.success(
+        props.tenant.status === 'active'
+          ? t('Site disabled successfully')
+          : t('Site enabled successfully')
+      )
       void client.invalidateQueries({
         queryKey: resellerQueryKey(userId, 'admin'),
       })
     },
-    onError: (error) => handleServerError(error),
+    onError: (error) => {
+      if (
+        getServerErrorSources(error).some(
+          (source) => source.code === 'RESELLER_ACTIVATION_INCOMPLETE'
+        )
+      ) {
+        setConfirmStatus(false)
+      }
+      handleServerError(error)
+      void client.invalidateQueries({
+        queryKey: resellerQueryKey(userId, 'admin'),
+      })
+    },
   })
+  const activeDomain = props.tenant.domains.find(
+    (domain) => domain.status === 'active'
+  )
+  const activation = props.tenant.activation
+  const canActivate = activation?.ready ?? Boolean(activeDomain)
   let statusLabel = t('Disabled')
   if (props.tenant.status === 'active') statusLabel = t('Active')
   if (props.tenant.status === 'provisioning') statusLabel = t('Provisioning')
@@ -108,8 +134,7 @@ function TenantCard(props: {
             variant='outline'
             disabled={
               status.isPending ||
-              (props.tenant.status === 'provisioning' &&
-                props.tenant.domains.length === 0)
+              (props.tenant.status !== 'active' && !canActivate)
             }
             onClick={() => setConfirmStatus(true)}
           >
@@ -117,46 +142,68 @@ function TenantCard(props: {
               ? t('Disable Site')
               : t('Enable Site')}
           </Button>
-          {props.tenant.status === 'provisioning' &&
-            props.tenant.domains.length === 0 && (
-              <p className='text-muted-foreground text-sm'>
-                {t('Assign a domain before activating this site.')}
-              </p>
-            )}
+          {props.tenant.status !== 'active' && !activeDomain && (
+            <p className='text-muted-foreground text-sm'>
+              {t('Assign a domain before activating this site.')}
+            </p>
+          )}
         </div>
-        <ul className='space-y-1 text-sm break-all'>
-          {props.tenant.domains.map((domain) => (
-            <li key={domain.hostname}>
-              {domain.hostname} ·{' '}
-              {domain.status === 'active' ? t('Active') : t('Disabled')}
-            </li>
-          ))}
-        </ul>
-        <form
-          onSubmit={form.handleSubmit((data) => domain.mutate(data))}
-          className='flex flex-wrap items-end gap-2'
-        >
-          <div className='min-w-48 flex-1 space-y-2'>
-            <Label htmlFor={`domain-${props.tenant.id}`}>{t('Hostname')}</Label>
-            <Input
-              id={`domain-${props.tenant.id}`}
-              autoComplete='off'
-              placeholder={
-                props.rootDomain ? `kimi.${props.rootDomain}` : undefined
-              }
-              {...form.register('hostname')}
-              aria-invalid={Boolean(form.formState.errors.hostname)}
-            />
-            {form.formState.errors.hostname && (
-              <p className='text-destructive text-sm'>
-                {t('Please enter a valid value.')}
-              </p>
-            )}
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'This site inherits platform models and prices. Group ratios can be changed at any time.'
+          )}
+        </p>
+        {props.tenant.domains.length > 0 && (
+          <div className='space-y-2'>
+            <p className='text-sm font-medium'>{t('Assigned Domain')}</p>
+            <ul className='space-y-1 text-sm break-all'>
+              {props.tenant.domains.map((domain) => (
+                <li key={domain.hostname}>
+                  {domain.hostname} ·{' '}
+                  {domain.status === 'active' ? t('Active') : t('Disabled')}
+                </li>
+              ))}
+            </ul>
           </div>
-          <Button type='submit' disabled={domain.isPending}>
-            {t('Assign Domain')}
-          </Button>
-        </form>
+        )}
+        {props.tenant.domains.length === 0 && (
+          <form
+            onSubmit={form.handleSubmit((data) => domain.mutate(data))}
+            className='flex flex-wrap items-end gap-2'
+          >
+            <FieldGroup className='min-w-48 flex-1'>
+              <Field
+                data-invalid={Boolean(form.formState.errors.hostname)}
+                data-disabled={domain.isPending}
+              >
+                <FieldLabel htmlFor={`domain-${props.tenant.id}`}>
+                  {t('Hostname')}
+                </FieldLabel>
+                <Input
+                  id={`domain-${props.tenant.id}`}
+                  autoComplete='off'
+                  disabled={domain.isPending}
+                  placeholder={
+                    props.rootDomain ? `kimi.${props.rootDomain}` : undefined
+                  }
+                  {...form.register('hostname')}
+                  aria-invalid={Boolean(form.formState.errors.hostname)}
+                />
+                {form.formState.errors.hostname && (
+                  <p className='text-destructive text-sm'>
+                    {t('Please enter a valid value.')}
+                  </p>
+                )}
+              </Field>
+            </FieldGroup>
+            <Button
+              type='submit'
+              disabled={domain.isPending || !hostname.trim()}
+            >
+              {t('Assign Domain')}
+            </Button>
+          </form>
+        )}
       </CardContent>
       <ConfirmDialog
         open={confirmStatus}

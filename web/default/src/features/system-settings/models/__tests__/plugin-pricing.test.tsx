@@ -328,11 +328,12 @@ function renderEditor(
 
 it('shows and removes a single provider override while retaining the per-call default', async () => {
   const expression = 'tier("base", u("seconds") * 0.4)'
+  const modelExpression = 'tier("base", fixed(0.25))'
   const { ref } = renderEditor(
     {
       name: 'shared',
-      billingMode: 'per-request',
-      price: '0.25',
+      billingMode: 'tiered_expr',
+      billingExpr: modelExpression,
       pluginBillingExpr: { alpha: expression },
     },
     [
@@ -347,17 +348,17 @@ it('shows and removes a single provider override while retaining the per-call de
     ]
   )
   expect(
-    screen.getByRole('tab', { name: 'Per-request (deprecated)' })
-  ).toHaveAttribute('aria-selected', 'true')
+    screen.queryByRole('tab', { name: 'Per-request (deprecated)' })
+  ).not.toBeInTheDocument()
   const user = userEvent.setup()
   await user.click(screen.getByRole('tab', { name: 'Alpha' }))
   await user.click(
     screen.getByRole('switch', { name: 'Set separately for this provider' })
   )
-  expect(screen.getByText('Use model-level pricing')).toBeVisible()
+  expect(screen.getByText('Use model-level expression')).toBeVisible()
   expect(await ref.current?.commitDraft()).toMatchObject({
-    billingMode: 'per-request',
-    price: '0.25',
+    billingMode: 'tiered_expr',
+    billingExpr: modelExpression,
     pluginBillingExpr: {},
   })
 })
@@ -392,7 +393,7 @@ it('clears dirty state after restoring an override in a different key order', as
 })
 
 it('opens task expression pricing when only provider metadata supplies a schema', async () => {
-  renderEditor(
+  const { ref } = renderEditor(
     { name: 'shared', billingMode: 'per-token' },
     ['alpha', 'beta'].map((key) => ({
       plugin_key: key,
@@ -403,11 +404,9 @@ it('opens task expression pricing when only provider metadata supplies a schema'
       compatible: false,
     }))
   )
-  await waitFor(() =>
-    expect(screen.getByRole('tab', { name: 'Expression' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    )
-  )
+  expect(
+    screen.queryByRole('tab', { name: 'Expression' })
+  ).not.toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: 'seconds' })).toBeVisible()
+  expect(await ref.current?.commitDraft()).toBeNull()
 })

@@ -7,9 +7,53 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestTenantModelAllowedInheritsOnlyPublicSupportedSupply(t *testing.T) {
+	db := newTenantMiddlewareTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	oldDB, oldPrice := model.DB, operation_setting.Price
+	oldOpen, oldGroups, oldModels := setting.UserUsableGroups2JSONString(), ratio_setting.GroupRatio2JSONString(), ratio_setting.ModelRatio2JSONString()
+	model.DB, operation_setting.Price = db, 1
+	t.Cleanup(func() {
+		model.DB, operation_setting.Price = oldDB, oldPrice
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldOpen))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldModels))
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"private":1}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"public-text":1,"private-text":1,"public-image":1}`))
+	for i, name := range []string{"public-text", "private-text", "public-image"} {
+		group := "default"
+		if name == "private-text" {
+			group = "private"
+		}
+		require.NoError(t, db.Create(&model.Channel{Id: i + 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: name, Models: name, Group: group}).Error)
+		require.NoError(t, db.Create(&model.Ability{ChannelId: i + 1, Model: name, Group: group, Enabled: true}).Error)
+	}
+	require.NoError(t, db.Create(&model.Model{ModelName: "public-image", Status: 1, Endpoints: `{"image-generation":"/v1/images/generations"}`}).Error)
+	model.InvalidatePricingCache()
+	for _, test := range []struct {
+		name    string
+		allowed bool
+	}{{"public-text", true}, {"private-text", false}, {"public-image", false}, {"unknown", false}} {
+		allowed, err := TenantModelAllowed(42, test.name)
+		require.NoError(t, err)
+		assert.Equal(t, test.allowed, allowed, test.name)
+	}
+	allowed, err := TenantModelAllowed(model.PlatformTenantID, "private-text")
+	require.NoError(t, err)
+	assert.True(t, allowed)
+}
 
 func TestTenantFeatureGateDefaultsToDenyUnsupportedAPIs(t *testing.T) {
 	for _, test := range []struct {

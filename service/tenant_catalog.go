@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/shopspring/decimal"
@@ -37,9 +40,10 @@ func ListTenantSupply(db *gorm.DB) ([]TenantSupplyEntry, error) {
 		return nil, err
 	}
 	seen := make(map[string]bool)
+	openGroups := setting.GetUserUsableGroupsCopy()
 	for _, ability := range abilities {
 		key := ability.Group + "\x00" + ability.Model
-		if seen[key] || ability.Group == "auto" || !supported[key] {
+		if _, open := openGroups[ability.Group]; seen[key] || !open || IsAutoGroup(ability.Group) || !ratio_setting.ContainsGroupRatio(ability.Group) || !supported[key] {
 			continue
 		}
 		seen[key] = true
@@ -47,12 +51,24 @@ func ListTenantSupply(db *gorm.DB) ([]TenantSupplyEntry, error) {
 		if err != nil {
 			continue
 		}
-		minimum, err := EffectiveTenantMultiplier("0.000000000000000001", ability.Group)
+		minimum, err := EffectiveTenantMultiplier("0", ability.Group)
 		if err != nil {
 			continue
 		}
 		entries = append(entries, TenantSupplyEntry{Model: ability.Model, SalesGroup: ability.Group, SupplierPriceMinor: price, MinimumMultiplier: minimum.String(), PriceUnit: unit})
 	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].SalesGroup == entries[j].SalesGroup {
+			return entries[i].Model < entries[j].Model
+		}
+		if entries[i].SalesGroup == "default" {
+			return true
+		}
+		if entries[j].SalesGroup == "default" {
+			return false
+		}
+		return entries[i].SalesGroup < entries[j].SalesGroup
+	})
 	return entries, nil
 }
 
@@ -102,6 +118,11 @@ func tenantTextSupplyModels(db *gorm.DB) (map[string]bool, error) {
 // TenantSupplierUnitPrice projects platform pricing for display. Cash income
 // is always allocated from paid lots; this projection never funds a wallet.
 func TenantSupplierUnitPrice(modelName, group string) (int64, string, error) {
+	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr {
+		// Expressions have no single unit price. Runtime quotas still use the
+		// complete frozen platform expression and the selected group ratio.
+		return 0, "expression", nil
+	}
 	price, perCall := ratio_setting.GetModelPrice(modelName, false)
 	unit := "per_call"
 	if !perCall {
@@ -122,62 +143,68 @@ func TenantSupplierUnitPrice(modelName, group string) (int64, string, error) {
 	return value.IntPart(), unit, nil
 }
 
+// ResolveCatalog inherits the current public, supported platform supply. Legacy
+// selections remain stored but do not prevent newly opened models from appearing.
 func (s *TenantPricingService) ResolveCatalog(ctx context.Context, tenantID int64) ([]model.TenantCatalogEntry, error) {
 	if s == nil || s.db == nil || tenantID <= 0 {
 		return nil, model.ErrResellerInvalidCatalog
 	}
-	var entries []model.TenantCatalogEntry
-	err := s.db.WithContext(ctx).Where("tenant_id = ? AND status = ?", tenantID, model.TenantCatalogStatusEnabled).Order("sort_order, id").Find(&entries).Error
-	return entries, err
+	supply, err := ListTenantSupply(s.db.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]model.TenantCatalogEntry, 0, len(supply))
+	for i, entry := range supply {
+		entries = append(entries, model.TenantCatalogEntry{TenantID: tenantID, Model: entry.Model, SalesGroup: entry.SalesGroup, Status: model.TenantCatalogStatusEnabled, IsDefault: i == 0, SortOrder: i})
+	}
+	return entries, nil
 }
 
 func (s *TenantPricingService) ResolveCurrentPrice(ctx context.Context, tenantID int64, modelName, group string) (*model.TenantPriceVersion, error) {
-	if s == nil || s.db == nil || tenantID <= 0 {
-		return nil, model.ErrResellerInvalidPrice
-	}
-	supported, err := tenantTextSupplyModels(s.db.WithContext(ctx))
+	entries, err := s.ResolveCatalog(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	if !supported[group+"\x00"+modelName] {
+	available := false
+	for _, entry := range entries {
+		available = available || (entry.Model == modelName && entry.SalesGroup == group)
+	}
+	if !available {
 		return nil, model.ErrResellerInvalidCatalog
 	}
-	var entry model.TenantCatalogEntry
-	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND model = ? AND sales_group = ? AND status = ?", tenantID, modelName, group, model.TenantCatalogStatusEnabled).First(&entry).Error; err != nil {
-		return nil, err
-	}
-	var price model.TenantPriceVersion
-	if err := s.db.WithContext(ctx).Where(map[string]any{"tenant_id": tenantID, "model": modelName, "group": group}).Order("version DESC, id DESC").First(&price).Error; err != nil {
-		return nil, err
-	}
-	effective, err := EffectiveTenantMultiplier(price.SalesMultiplier, group)
+	groups, err := s.ListGroupPrices(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	price.SalesMultiplier = effective.String()
-	return &price, nil
+	for _, price := range groups {
+		if price.Group != group {
+			continue
+		}
+		cost, _, err := TenantSupplierUnitPrice(modelName, group)
+		if err != nil {
+			return nil, err
+		}
+		return &model.TenantPriceVersion{ID: price.ID, TenantID: tenantID, Model: modelName, Group: group, Version: price.Version, SalesMultiplier: price.SalesMultiplier, SupplierPriceMinor: cost}, nil
+	}
+	return nil, model.ErrResellerInvalidPrice
 }
 
-// EffectiveTenantMultiplier raises new quotes to the current fee-inclusive
-// supply floor. Stored price versions and already authorized quotes stay intact.
+// EffectiveTenantMultiplier keeps new quotes at the current platform supply
+// floor. Payment fees affect real profit, never an implicit customer markup.
 func EffectiveTenantMultiplier(multiplier string, group string) (decimal.Decimal, error) {
 	ratio, err := decimal.NewFromString(multiplier)
-	if len(multiplier) > 64 || err != nil || ratio.Exponent() < -18 || ratio.Exponent() > 6 || !ratio.IsPositive() || ratio.GreaterThan(decimal.NewFromInt(1000000)) {
+	if len(multiplier) > 64 || err != nil || ratio.Exponent() < -18 || ratio.Exponent() > 6 || ratio.IsNegative() || ratio.GreaterThan(decimal.NewFromInt(1000000)) {
 		return decimal.Zero, model.ErrResellerInvalidPrice
 	}
 	supply := ratio_setting.GetGroupRatio(group)
 	if math.IsNaN(supply) || math.IsInf(supply, 0) || supply < 0 {
 		return decimal.Zero, model.ErrResellerInvalidPrice
 	}
-	net := decimal.RequireFromString("0.984")
 	cost := decimal.NewFromFloat(supply)
-	if ratio.Mul(net).GreaterThanOrEqual(cost) {
+	if ratio.GreaterThanOrEqual(cost) {
 		return ratio, nil
 	}
-	minimum := cost.DivRound(net, 18)
-	if minimum.Mul(net).LessThan(cost) {
-		minimum = minimum.Add(decimal.New(1, -18))
-	}
+	minimum := cost
 	if minimum.GreaterThan(decimal.NewFromInt(1000000)) {
 		return decimal.Zero, model.ErrResellerInvalidPrice
 	}
@@ -278,4 +305,107 @@ func (s *TenantPricingService) SavePrices(ctx context.Context, tenantID int64, u
 		return nil
 	})
 	return prices, err
+}
+
+// TenantGroupPrice applies to every current and future model in an open group.
+// Empty stored multipliers are immutable reset events, not a zero sale price.
+type TenantGroupPrice struct {
+	ID                 int64  `json:"id"`
+	Group              string `json:"group"`
+	SalesMultiplier    string `json:"sales_multiplier"`
+	PlatformMultiplier string `json:"platform_multiplier"`
+	MinimumMultiplier  string `json:"minimum_multiplier"`
+	Version            int64  `json:"version"`
+	Inherited          bool   `json:"inherited"`
+}
+
+func (s *TenantPricingService) ListGroupPrices(ctx context.Context, tenantID int64) ([]TenantGroupPrice, error) {
+	if s == nil || s.db == nil || tenantID <= 0 {
+		return nil, model.ErrResellerInvalidPrice
+	}
+	supply, err := ListTenantSupply(s.db.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	latest := s.db.WithContext(ctx).Model(&model.TenantPriceVersion{}).Select("MAX(id)").Where("tenant_id = ? AND model = ?", tenantID, "").Group("group")
+	var versions []model.TenantPriceVersion
+	if err := s.db.WithContext(ctx).Where("id IN (?)", latest).Find(&versions).Error; err != nil {
+		return nil, err
+	}
+	byGroup := make(map[string]model.TenantPriceVersion, len(versions))
+	for _, version := range versions {
+		byGroup[version.Group] = version
+	}
+	prices := make([]TenantGroupPrice, 0)
+	seen := make(map[string]bool)
+	for _, entry := range supply {
+		if seen[entry.SalesGroup] {
+			continue
+		}
+		seen[entry.SalesGroup] = true
+		platform := decimal.NewFromFloat(ratio_setting.GetGroupRatio(entry.SalesGroup)).String()
+		version := byGroup[entry.SalesGroup]
+		multiplier := version.SalesMultiplier
+		inherited := multiplier == ""
+		if inherited {
+			multiplier = platform
+		}
+		effective, err := EffectiveTenantMultiplier(multiplier, entry.SalesGroup)
+		if err != nil {
+			return nil, err
+		}
+		prices = append(prices, TenantGroupPrice{ID: version.ID, Group: entry.SalesGroup, SalesMultiplier: effective.String(), PlatformMultiplier: platform, MinimumMultiplier: platform, Version: version.Version, Inherited: inherited})
+	}
+	return prices, nil
+}
+
+func (s *TenantPricingService) SaveGroupPrices(ctx context.Context, tenantID int64, updates []TenantPriceUpdate) ([]TenantGroupPrice, error) {
+	if s == nil || s.db == nil || tenantID <= 0 || len(updates) == 0 || len(updates) > 100 {
+		return nil, model.ErrResellerInvalidPrice
+	}
+	available, err := s.ListGroupPrices(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	open := make(map[string]bool, len(available))
+	for _, price := range available {
+		open[price.Group] = true
+	}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := model.LockTenantTx(tx, tenantID); err != nil {
+			return err
+		}
+		seen := make(map[string]bool, len(updates))
+		for _, update := range updates {
+			if update.Model != "" || !open[update.Group] || seen[update.Group] || update.ExpectedVersion < 0 {
+				return model.ErrResellerInvalidPrice
+			}
+			seen[update.Group] = true
+			if update.Multiplier != "" {
+				if err := s.ValidateMinimumPrice(update.Multiplier, update.Group); err != nil {
+					return err
+				}
+			}
+			var previous model.TenantPriceVersion
+			err := tx.Where(map[string]any{"tenant_id": tenantID, "model": "", "group": update.Group}).Order("version DESC, id DESC").First(&previous).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if previous.Version != update.ExpectedVersion {
+				return ErrTenantPriceVersionConflict
+			}
+			if previous.Version == math.MaxInt64 {
+				return model.ErrResellerInvalidPrice
+			}
+			price := model.TenantPriceVersion{TenantID: tenantID, Group: update.Group, Version: previous.Version + 1, SalesMultiplier: update.Multiplier, EffectiveAt: time.Now().Unix(), CreatedAt: time.Now().Unix()}
+			if err := tx.Create(&price).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.ListGroupPrices(ctx, tenantID)
 }

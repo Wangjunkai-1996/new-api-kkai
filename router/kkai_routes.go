@@ -37,6 +37,7 @@ func registerImageStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 		imageStudio.POST("/generations", controller.SubmitAsyncImageStudioGeneration)
 		imageStudio.GET("/generations", controller.ListImageStudioGenerations)
 		imageStudio.GET("/generations/:id", controller.GetImageStudioGeneration)
+		imageStudio.GET("/generations/:id/input", controller.GetImageStudioGenerationInput)
 		imageStudio.DELETE("/generations/:id", controller.DeleteImageStudioGeneration)
 		imageStudio.GET("/assets/:id", controller.GetImageStudioAsset)
 	}

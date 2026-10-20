@@ -162,13 +162,24 @@ function tokenTier(
       ) {
         return null
       }
+      const excluded = new Set<string>()
+      while (remainder.kind === 'binary' && remainder.operator === '-') {
+        const category = remainder.right
+        if (
+          category.kind !== 'variable' ||
+          !['cr', 'cc', 'cc1h', 'img', 'ai'].includes(category.name) ||
+          excluded.has(category.name)
+        ) {
+          return null
+        }
+        excluded.add(category.name)
+        remainder = remainder.left
+      }
       if (
-        remainder.kind !== 'binary' ||
-        remainder.operator !== '-' ||
-        remainder.left.kind !== 'variable' ||
-        remainder.left.name !== 'len' ||
-        remainder.right.kind !== 'variable' ||
-        remainder.right.name !== 'ai'
+        remainder.kind !== 'variable' ||
+        remainder.name !== 'len' ||
+        (!(excluded.size === 1 && excluded.has('ai')) &&
+          !['cr', 'cc', 'cc1h', 'img'].every((name) => excluded.has(name)))
       ) {
         return null
       }

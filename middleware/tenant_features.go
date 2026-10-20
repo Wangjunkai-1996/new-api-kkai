@@ -1,12 +1,14 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -90,14 +92,14 @@ func TenantModelAllowed(tenantID int64, modelName string) (bool, error) {
 	if tenantID <= model.PlatformTenantID {
 		return true, nil
 	}
-	var entry model.TenantCatalogEntry
-	err := model.DB.Where("tenant_id = ? AND model = ? AND status = ?", tenantID, modelName, model.TenantCatalogStatusEnabled).First(&entry).Error
+	entries, err := service.NewTenantPricingService(model.DB).ResolveCatalog(context.Background(), tenantID)
 	if err != nil {
 		return false, err
 	}
-	var defaults int64
-	if err := model.DB.Model(&model.TenantCatalogEntry{}).Where("tenant_id = ? AND is_default = ? AND status = ? AND sales_group = ?", tenantID, true, model.TenantCatalogStatusEnabled, entry.SalesGroup).Count(&defaults).Error; err != nil {
-		return false, err
+	for _, entry := range entries {
+		if entry.Model == modelName {
+			return true, nil
+		}
 	}
-	return defaults == 1, nil
+	return false, nil
 }

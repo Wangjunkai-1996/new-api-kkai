@@ -112,7 +112,7 @@ func TestTenantConsumptionRejectsCrossTenantAndUnbackedCredit(t *testing.T) {
 	_, err = ReserveTenantConsumption(context.Background(), db, input, token.Id)
 	require.ErrorIs(t, err, ErrTenantMembershipMissing)
 	input.TenantID = 42
-	input.SupplierMinorPerQuota = "9.85"
+	input.SupplierMinorPerQuota = "10.01"
 	_, err = ReserveTenantConsumption(context.Background(), db, input, token.Id)
 	require.ErrorIs(t, err, ErrResellerPriceBelowCost)
 	input.SupplierMinorPerQuota = "5"
@@ -166,4 +166,25 @@ func TestTenantConsumptionReservationsCannotHideUnbackedCredit(t *testing.T) {
 	require.NoError(t, db.Model(&user).Update("quota", 900).Error)
 	_, err = ReserveTenantConsumption(context.Background(), db, input, token.Id)
 	require.NoError(t, err)
+}
+
+func TestTenantConsumptionFreeUnknownDoesNotBlockPaidReservation(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:tenant-consumption-free-unknown?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	user, token, input := tenantConsumptionFixture(t, db)
+	free, err := ReserveTenantFreeConsumption(context.Background(), db, user.TenantID, user.Id, token.Id, "free-unknown")
+	require.NoError(t, err)
+	require.NoError(t, MarkTenantConsumptionUncertain(db, free.RequestID, 1))
+	_, err = ReserveTenantFreeConsumption(context.Background(), db, user.TenantID, user.Id, token.Id, free.RequestID)
+	require.ErrorIs(t, err, ErrTenantConsumptionConflict)
+	paid, err := ReserveTenantConsumption(context.Background(), db, input, token.Id)
+	require.NoError(t, err, "a free unknown request reserves no customer funds")
+	require.NoError(t, db.First(free, free.ID).Error)
+	assert.Equal(t, "reserved", free.Status)
+	assert.Equal(t, "upstream_final_usage_unknown", free.LastError)
+	assert.Zero(t, free.ReservedQuota)
+	require.NoError(t, MarkTenantConsumptionUncertain(db, paid.RequestID, 1))
+	input.RequestID = "after-paid-unknown"
+	_, err = ReserveTenantConsumption(context.Background(), db, input, token.Id)
+	require.ErrorIs(t, err, ErrTenantConsumptionConflict, "an unknown paid request retains its fund reservation")
 }

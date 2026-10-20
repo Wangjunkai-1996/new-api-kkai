@@ -40,6 +40,7 @@ import {
   type ModelRatioData,
 } from '@/features/system-settings/models/model-pricing-sheet'
 import { api } from '@/lib/api'
+import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -82,6 +83,7 @@ it('reads preview prices and billing metadata from the common data envelope', as
     data: {
       success: true,
       data: {
+        configured: effective,
         effective,
         cache_write_mode: 'none',
         billing_details: billingDetails,
@@ -90,7 +92,12 @@ it('reads preview prices and billing metadata from the common data envelope', as
   })
   await expect(
     previewModelPricing({ model_name: 'gemini-2.5-flash', pricing: effective })
-  ).resolves.toEqual({ effective, cacheWriteMode: 'none', billingDetails })
+  ).resolves.toEqual({
+    configured: effective,
+    effective,
+    cacheWriteMode: 'none',
+    billingDetails,
+  })
 })
 
 function renderEditor(
@@ -101,7 +108,7 @@ function renderEditor(
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  client.setQueryData(['status'], null)
+  client.setQueryData(STATUS_QUERY_KEY, null)
   clients.push(client)
   const ref = createRef<ModelPricingEditorPanelHandle>()
   const dirty = vi.fn()
@@ -111,10 +118,14 @@ function renderEditor(
         ref={ref}
         editData={{
           name: 'currency-model',
-          billingMode: 'per-token',
+          billingMode: 'tiered_expr',
+          billingExpr: 'tier("base", p * 2 + c * 4)',
           ratio: '1',
           completionRatio: '2',
           ...entry,
+          ...(entry.billingMode && entry.billingMode !== 'tiered_expr'
+            ? { billingExpr: entry.billingExpr }
+            : {}),
         }}
         usageSchema={usageSchema}
         billingUnit={billingUnit}
@@ -165,7 +176,7 @@ it('previews legacy conversion in the selected currency and applies only after c
     },
   }))
   const save = vi.spyOn(api, 'patch')
-  const editor = renderEditor({ cacheRatio: '0' })
+  const editor = renderEditor({ billingMode: 'per-token', cacheRatio: '0' })
   await selectCurrency('Site currency (CNY)')
   await userEvent
     .setup()
@@ -199,11 +210,7 @@ it('previews legacy conversion in the selected currency and applies only after c
     within(dialog).queryByText('Cache create (1h) price')
   ).not.toBeInTheDocument()
   const original = await commit(editor.ref)
-  expect(original).toMatchObject({
-    billingMode: 'per-token',
-    ratio: '1',
-    cacheRatio: '0',
-  })
+  expect(original).toBeNull()
   expect(editor.dirty).toHaveBeenLastCalledWith(false)
   await userEvent
     .setup()
@@ -220,10 +227,7 @@ it('previews legacy conversion in the selected currency and applies only after c
     .setup()
     .click(within(dialog).getByRole('button', { name: 'Apply to draft' }))
   await waitFor(() =>
-    expect(screen.getByRole('tab', { name: 'Expression' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    )
+    expect(screen.getByRole('textbox', { name: 'Input price' })).toBeVisible()
   )
   expect(preview).toHaveBeenCalledWith('/api/option/model_pricing/convert', {
     model_name: 'currency-model',
@@ -241,12 +245,9 @@ it('previews legacy conversion in the selected currency and applies only after c
     ratio: '1',
     cacheRatio: '0',
   })
-  await userEvent
-    .setup()
-    .click(screen.getByRole('tab', { name: 'Per-token (deprecated)' }))
   expect(
-    screen.getByRole('button', { name: 'Convert to expression' })
-  ).toBeDisabled()
+    screen.queryByRole('tab', { name: 'Per-token (deprecated)' })
+  ).not.toBeInTheDocument()
 })
 
 it.each([
@@ -286,6 +287,7 @@ it.each([
     }))
     const editor = renderEditor({
       name: fixture.name,
+      billingMode: 'per-token',
       createCacheRatio: String(fixture.ratio),
     })
     await userEvent
@@ -373,6 +375,7 @@ it.each([
     }))
     const editor = renderEditor({
       name: fixture.name,
+      billingMode: 'per-token',
       ratio: String(fixture.inputRatio),
       cacheRatio: String(fixture.cacheRatio),
       createCacheRatio: fixture.createCacheRatio?.toString(),
@@ -424,16 +427,11 @@ it('discards a conversion preview when the model being edited changes', async ()
     name: 'Preview pricing conversion',
   })
   expect(within(dialog).getAllByText(/^\$0 \/ request$/)).toHaveLength(2)
-  editor.reload({ name: 'another-model', ratio: '3' })
+  editor.reload({ name: 'another-model', billingMode: 'per-token', ratio: '3' })
   await waitFor(() =>
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   )
-  expect(await commit(editor.ref)).toMatchObject({
-    name: 'another-model',
-    billingMode: 'per-token',
-    ratio: '3',
-  })
-  expect((await commit(editor.ref))?.billingExpr).toBeUndefined()
+  expect(await commit(editor.ref)).toBeNull()
 })
 
 it('previews and retains image quantity and nested quality rules when applying a conversion', async () => {
@@ -474,7 +472,7 @@ it('previews and retains image quantity and nested quality rules when applying a
     ).toHaveTextContent('Reserve requested images; settle returned images.')
     expect(within(panel).getByText('× 3')).toBeInTheDocument()
   }
-  expect((await commit(editor.ref))?.billingMode).toBe('per-request')
+  expect(await commit(editor.ref)).toBeNull()
   await userEvent
     .setup()
     .click(within(dialog).getByRole('button', { name: 'Apply to draft' }))
@@ -504,7 +502,11 @@ it('shows Gemini audio pricing when the legacy text price is zero without creati
         : { effective, billing_details: { audio_input_price: 1 } },
     },
   }))
-  const editor = renderEditor({ name: 'gemini-2.5-flash', ratio: '0' })
+  const editor = renderEditor({
+    name: 'gemini-2.5-flash',
+    billingMode: 'per-token',
+    ratio: '0',
+  })
   await userEvent
     .setup()
     .click(screen.getByRole('button', { name: 'Convert to expression' }))
@@ -542,7 +544,7 @@ it.each([0, 2])(
         },
       },
     })
-    renderEditor({ imageRatio: String(imageRatio) })
+    renderEditor({ billingMode: 'per-token', imageRatio: String(imageRatio) })
     await userEvent
       .setup()
       .click(screen.getByRole('button', { name: 'Convert to expression' }))
@@ -559,17 +561,25 @@ it.each([0, 2])(
   }
 )
 
-it('opens expression pricing by default when an existing model has no configured prices', () => {
+it('opens expression pricing for an unpriced model but requires an explicit price edit before saving', async () => {
   const editor = renderEditor({
     ratio: '',
     completionRatio: '',
     billingMode: 'per-token',
   })
-  expect(screen.getByRole('tab', { name: 'Expression' })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  )
+  expect(screen.getByRole('textbox', { name: 'Input price' })).toBeVisible()
+  expect(
+    screen.queryByRole('tab', { name: 'Per-token (deprecated)' })
+  ).not.toBeInTheDocument()
   expect(editor.dirty).toHaveBeenLastCalledWith(false)
+  expect(await commit(editor.ref)).toBeNull()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Input price' }), {
+    target: { value: '1' },
+  })
+  expect(await commit(editor.ref)).toMatchObject({
+    billingMode: 'tiered_expr',
+    billingExpr: 'tier("base", p * 1 + c * 0)',
+  })
 })
 
 it('preserves a legacy per-request draft when conversion is unsupported', async () => {
@@ -594,8 +604,8 @@ it('preserves a legacy per-request draft when conversion is unsupported', async 
     'Image prices with count, size or quality adjustments must be converted manually.'
   )
   const draft = await commit(editor.ref)
-  expect(draft).toMatchObject({ billingMode: 'per-request', price: '0' })
-  expect(draft?.billingExpr).toBeUndefined()
+  expect(draft).toBeNull()
+  expect(screen.getByRole('textbox', { name: 'Input price' })).toBeVisible()
 })
 
 it('defaults to USD, remembers a currency choice and restores it when reopened', async () => {
@@ -639,7 +649,9 @@ it('opens currency help by keyboard and restores focus after Escape', async () =
 })
 
 it('switches currencies and refreshes exchange rates without changing stored prices or dirty state', async () => {
-  const editor = renderEditor({ ratio: '0.123456789123', cacheRatio: '0' })
+  const editor = renderEditor({
+    billingExpr: 'tier("base", p * 0.246913578246 + c * 4 + cr * 0)',
+  })
   const before = await commit(editor.ref)
   editor.dirty.mockClear()
   await selectCurrency('Site currency (CNY)')
@@ -656,42 +668,48 @@ it('switches currencies and refreshes exchange rates without changing stored pri
   )
   expect(await commit(editor.ref)).toEqual(before)
   expect(editor.dirty).not.toHaveBeenCalledWith(true)
-  expect(screen.getByRole('textbox', { name: 'Cache read price' })).toHaveValue(
-    '0'
-  )
+  expect(
+    screen.getByRole('textbox', { name: 'Cache read billing price' })
+  ).toHaveValue('0')
 })
 
-it('converts edited token prices to USD ratios while preserving unfinished decimals and disabled lanes', async () => {
+it('edits token prices directly in the expression while preserving unfinished decimals and disabled lanes', async () => {
   const editor = renderEditor()
   await selectCurrency('Site currency (CNY)')
   const input = screen.getByRole('textbox', { name: 'Input price' })
   fireEvent.change(input, { target: { value: '21.' } })
   expect(input).toHaveValue('21.')
-  fireEvent.change(screen.getByRole('textbox', { name: 'Completion price' }), {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Output price' }), {
     target: { value: '42' },
   })
   expect(await commit(editor.ref)).toMatchObject({
-    ratio: '1.5',
-    completionRatio: '2',
-    cacheRatio: '',
+    billingMode: 'tiered_expr',
+    billingExpr: 'tier("base", p * 3 + c * 6)',
   })
   await selectCurrency('US dollar (USD)')
   expect(input).toHaveValue('3')
   expect(await commit(editor.ref)).toMatchObject({
-    ratio: '1.5',
-    completionRatio: '2',
+    billingExpr: 'tier("base", p * 3 + c * 6)',
   })
 })
 
 it.each(['0', '0.0000007', '14'])(
   'saves the CNY per-request price %s as USD without display rounding',
   async (price) => {
-    const editor = renderEditor({ billingMode: 'per-request', price: '1' })
+    const editor = renderEditor({ billingExpr: 'tier("request", fixed(1))' })
     await selectCurrency('Site currency (CNY)')
-    const fixed = screen.getByRole('textbox', { name: 'Fixed price' })
+    const fixed = screen.getByRole('textbox', { name: 'Price per request' })
     fireEvent.change(fixed, { target: { value: price } })
     const expected = { '0': '0', '0.0000007': '0.0000001', '14': '2' }[price]
-    expect(Number((await commit(editor.ref))?.price)).toBe(Number(expected))
+    expect(
+      evaluateBillingExpression(
+        (await commit(editor.ref))?.billingExpr ?? '',
+        {}
+      )
+    ).toMatchObject({
+      status: 'success',
+      cost: Number(expected) * 1_000_000,
+    })
     await selectCurrency('US dollar (USD)')
     expect(fixed).toHaveValue(expected)
   }
@@ -707,12 +725,14 @@ it('uses the custom currency exchange rate instead of the CNY exchange rate', as
       customCurrencyExchangeRate: 0.5,
     },
   })
-  const editor = renderEditor({ price: '2', billingMode: 'per-request' })
+  const editor = renderEditor({ billingExpr: 'tier("request", fixed(2))' })
   await selectCurrency('Site currency (€)')
-  const fixed = screen.getByRole('textbox', { name: 'Fixed price' })
+  const fixed = screen.getByRole('textbox', { name: 'Price per request' })
   expect(fixed).toHaveValue('1')
   fireEvent.change(fixed, { target: { value: '7' } })
-  expect(await commit(editor.ref)).toMatchObject({ price: '14' })
+  expect(await commit(editor.ref)).toMatchObject({
+    billingExpr: 'tier("request", fixed(14))',
+  })
 })
 
 it.each([0, -1, Infinity, Number.NaN, undefined])(
@@ -770,9 +790,9 @@ it('blocks a non-finite conversion and allows saving after the amount is correct
       usdExchangeRate: 1e-308,
     },
   })
-  const editor = renderEditor({ price: '1', billingMode: 'per-request' })
+  const editor = renderEditor({ billingExpr: 'tier("request", fixed(1))' })
   await selectCurrency('Site currency (CNY)')
-  const fixed = screen.getByRole('textbox', { name: 'Fixed price' })
+  const fixed = screen.getByRole('textbox', { name: 'Price per request' })
   fireEvent.change(fixed, { target: { value: '14' } })
   expect(fixed).toHaveAttribute('aria-invalid', 'true')
   expect(await commit(editor.ref)).toBeNull()
@@ -782,7 +802,9 @@ it('blocks a non-finite conversion and allows saving after the amount is correct
     )
   ).toBeVisible()
   fireEvent.change(fixed, { target: { value: '0' } })
-  expect(await commit(editor.ref)).toMatchObject({ price: '0' })
+  expect(await commit(editor.ref)).toMatchObject({
+    billingExpr: 'tier("request", fixed(0))',
+  })
 })
 
 it('converts tier price coefficients but leaves token thresholds and rule multipliers unchanged', async () => {
@@ -931,7 +953,10 @@ it('converts task unit prices without enum tiers and updates the monetary previe
   expect(screen.getByText(/= ¥77$/)).toBeVisible()
 })
 
-it('offers a one-click per-second conversion for legacy task prices', async () => {
+it('previews per-second task prices before applying their expression', async () => {
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: { effective: { ModelPrice: 2 } } },
+  })
   const editor = renderEditor(
     { billingMode: 'per-request', price: '2' },
     { seconds: { type: 'number', unit: 'second' } },
@@ -940,10 +965,15 @@ it('offers a one-click per-second conversion for legacy task prices', async () =
 
   await userEvent
     .setup()
-    .click(
-      screen.getByRole('button', { name: 'Convert to expression ($/second)' })
-    )
+    .click(screen.getByRole('button', { name: 'Convert to expression' }))
 
+  const conversionDialog = await screen.findByRole('alertdialog', {
+    name: 'Preview pricing conversion',
+  })
+  expect(await commit(editor.ref)).toBeNull()
+  await userEvent.click(
+    within(conversionDialog).getByRole('button', { name: 'Apply to draft' })
+  )
   expect(await commit(editor.ref)).toMatchObject({
     billingMode: 'tiered_expr',
     billingExpr: 'tier("base", u("seconds") * 2)',
@@ -975,18 +1005,16 @@ it('shows the estimated token cost in the selected currency while token quantiti
   expect(screen.getByText('Estimated cost: ¥14')).toBeVisible()
 })
 
-it('keeps an empty per-request amount empty when currencies change', async () => {
+it('keeps an empty expression fixed price invalid when currencies change', async () => {
   const editor = renderEditor({
-    billingMode: 'per-request',
-    price: '1',
-    ratio: '',
-    completionRatio: '',
+    billingMode: 'tiered_expr',
+    billingExpr: 'tier("request", fixed(1))',
   })
-  const fixed = screen.getByRole('textbox', { name: 'Fixed price' })
+  const fixed = screen.getByRole('textbox', { name: 'Price per request' })
   fireEvent.change(fixed, { target: { value: '' } })
   await selectCurrency('Site currency (CNY)')
   expect(fixed).toHaveValue('')
-  expect(await commit(editor.ref)).toMatchObject({ price: '' })
+  expect(await commit(editor.ref)).toBeNull()
 })
 
 it('does not block saving valid prices when a preview quantity has a fractional step', async () => {
@@ -1010,20 +1038,22 @@ it('does not block saving valid prices when a preview quantity has a fractional 
 
 it('clears an invalid amount draft when pricing is reloaded with the same saved value', async () => {
   const saved: Partial<ModelRatioData> = {
-    billingMode: 'per-request',
-    price: '1',
-    ratio: '',
-    completionRatio: '',
+    billingMode: 'tiered_expr',
+    billingExpr: 'tier("request", fixed(1))',
   }
   const editor = renderEditor(saved)
   await selectCurrency('Site currency (CNY)')
-  fireEvent.change(screen.getByRole('textbox', { name: 'Fixed price' }), {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Price per request' }), {
     target: { value: '9'.repeat(309) },
   })
   expect(await commit(editor.ref)).toBeNull()
   editor.reload({ ...saved })
-  expect(screen.getByRole('textbox', { name: 'Fixed price' })).toHaveValue('7')
-  expect(await commit(editor.ref)).toMatchObject({ price: '1' })
+  expect(
+    screen.getByRole('textbox', { name: 'Price per request' })
+  ).toHaveValue('7')
+  expect(await commit(editor.ref)).toMatchObject({
+    billingExpr: 'tier("request", fixed(1))',
+  })
 })
 
 it('preserves time billing on direct save and blocks incomplete local conditions', async () => {

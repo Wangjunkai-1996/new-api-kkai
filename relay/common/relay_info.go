@@ -1505,7 +1505,7 @@ func (info *RelayInfo) ResetAttemptTiming() {
 // HasDurableBilling identifies requests whose reservation must survive an
 // indeterminate upstream outcome until the usage can be reconciled.
 func (info *RelayInfo) HasDurableBilling() bool {
-	return info != nil && (info.MembershipBillingRequestID != "" || info.TenantQuoteID > 0)
+	return info != nil && (info.MembershipBillingRequestID != "" || info.TenantQuoteID > 0 || (info.TenantID > 0 && info.TenantBudget != nil && info.Billing != nil))
 }
 
 func (info *RelayInfo) RequestBudget() *hosttypes.MembershipPricing {

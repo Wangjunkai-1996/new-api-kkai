@@ -8,6 +8,45 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	ErrResellerDomainAlreadyAssigned = errors.New("a domain is already assigned to this tenant")
+	ErrResellerActivationIncomplete  = errors.New("active tenants require exactly one active domain")
+)
+
+type ResellerActivation struct {
+	DomainReady bool `json:"domain_ready"`
+	Ready       bool `json:"ready"`
+}
+
+// GetResellerActivations uses the same prerequisites for administration and activation.
+// Callers that change tenant status must hold LockTenantTx for that tenant.
+func GetResellerActivations(db *gorm.DB, tenantIDs []int64) (map[int64]ResellerActivation, error) {
+	states := make(map[int64]ResellerActivation, len(tenantIDs))
+	for _, id := range tenantIDs {
+		states[id] = ResellerActivation{}
+	}
+	if len(tenantIDs) == 0 {
+		return states, nil
+	}
+	if db == nil {
+		return nil, ErrTenantStoreUnavailable
+	}
+	var domains []TenantDomain
+	if err := db.Where("tenant_id IN ? AND status = ?", tenantIDs, TenantDomainStatusActive).Find(&domains).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[int64]int, len(tenantIDs))
+	for _, domain := range domains {
+		counts[domain.TenantID]++
+	}
+	for id, state := range states {
+		state.DomainReady = counts[id] == 1
+		state.Ready = state.DomainReady
+		states[id] = state
+	}
+	return states, nil
+}
+
 // LockTenantTx serializes all owner configuration changes for one tenant.
 func LockTenantTx(tx *gorm.DB, tenantID int64) (*Tenant, error) {
 	var tenant Tenant
@@ -83,6 +122,30 @@ func ProvisionTenantDomainTx(tx *gorm.DB, tenantID int64, hostname string) (*Ten
 	canonical, err := NormalizeTenantHost(hostname)
 	if err != nil {
 		return nil, err
+	}
+	var assigned []TenantDomain
+	// The tenant lock serializes provisioning; a locking read also sees the latest
+	// committed domains when the caller already has a repeatable-read snapshot.
+	if err := lockForUpdate(tx).Where("tenant_id = ?", tenantID).Find(&assigned).Error; err != nil {
+		return nil, err
+	}
+	for _, existing := range assigned {
+		if existing.Hostname != canonical {
+			continue
+		}
+		if existing.Status == TenantDomainStatusActive {
+			return &existing, nil
+		}
+		for _, other := range assigned {
+			if other.ID != existing.ID && other.Status == TenantDomainStatusActive {
+				return nil, ErrResellerDomainAlreadyAssigned
+			}
+		}
+		existing.Status = TenantDomainStatusActive
+		return &existing, tx.Save(&existing).Error
+	}
+	if len(assigned) > 0 {
+		return nil, ErrResellerDomainAlreadyAssigned
 	}
 	var domain TenantDomain
 	err = tx.Where("hostname = ?", canonical).First(&domain).Error

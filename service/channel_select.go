@@ -183,7 +183,7 @@ func (p *RetryParam) ResetRetryNextTry() {
 //	         分组B, 优先级1
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
 	if tenantID := common.GetContextKeyInt64(param.Ctx, constant.ContextKeyTenantID); tenantID > 0 {
-		entry, err := ResolveTenantRequestCatalog(param.Ctx.Request.Context(), tenantID, param.ModelName)
+		entry, err := ResolveTenantRequestCatalog(param.Ctx.Request.Context(), tenantID, param.ModelName, param.TokenGroup)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
@@ -329,7 +329,7 @@ type ChannelSelectError struct {
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {
 	tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID)
 	if tenantID > 0 {
-		entry, err := ResolveTenantRequestCatalog(c.Request.Context(), tenantID, modelName)
+		entry, err := ResolveTenantRequestCatalog(c.Request.Context(), tenantID, modelName, retry.TokenGroup)
 		if err != nil {
 			return nil, "", &ChannelSelectError{StatusCode: http.StatusForbidden, Code: types.ErrorCodeModelNotFound, Message: "tenant model is unavailable"}
 		}

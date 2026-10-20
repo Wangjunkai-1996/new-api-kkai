@@ -237,3 +237,12 @@ func TestResellerWithdrawalReservesNegativeFraction(t *testing.T) {
 		Status: ResellerWithdrawalPaid, PaymentRef: "confirmed-local", Now: 102})
 	assert.ErrorIs(t, err, ErrResellerInsufficientFunds)
 }
+
+func TestResellerQuotaTariffKeepsFreeGroupAtZeroSupply(t *testing.T) {
+	sale, supply, err := ResellerQuotaTariff(decimal.NewFromInt(1), decimal.NewFromInt(100), decimal.Zero, decimal.Zero)
+	require.NoError(t, err)
+	assert.Equal(t, "1", sale)
+	assert.Equal(t, "0", supply)
+	_, _, err = ResellerQuotaTariff(decimal.NewFromInt(1), decimal.NewFromInt(100), decimal.NewFromInt(1), decimal.Zero)
+	assert.ErrorIs(t, err, ErrResellerFinanceInvalidInput, "a free sale cannot hide positive platform supply")
+}

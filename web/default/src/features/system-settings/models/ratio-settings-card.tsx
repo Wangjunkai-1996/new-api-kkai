@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getMembershipAdminConfig } from '@/features/membership/api'
 import {
   buildPricingChanges,
+  prepareExpressionPricingChanges,
   useModelPricing,
   useSaveModelPricing,
   type ModelPricingConfig,
@@ -241,14 +242,23 @@ export function RatioSettingsCard({
   )
   const resetMutation = useMutation({
     mutationFn: async () => {
-      if (!pricingBaseline) return
+      if (!pricingBaseline?.channel_models) throw new Error(t('Reload pricing'))
+      const channelModels = new Set(pricingBaseline.channel_models)
       await savePricing.mutateAsync(
-        pricingBaseline.entries.map((entry) => ({
-          model_name: entry.model_name,
-          expected_version: entry.version,
-          pricing: {},
-          reset: true,
-        }))
+        await prepareExpressionPricingChanges(
+          pricingBaseline.entries
+            .filter(
+              (entry) =>
+                channelModels.has(entry.model_name) &&
+                !entry.image_pricing_policy
+            )
+            .map((entry) => ({
+              model_name: entry.model_name,
+              expected_version: entry.version,
+              pricing: {},
+              reset: true,
+            }))
+        )
       )
       const refreshed = await pricingQuery.refetch()
       setPricingBaseline(refreshed.data ?? null)
@@ -583,6 +593,8 @@ export function RatioSettingsCard({
             isSaving={updateOption.isPending || savePricing.isPending}
             isResetting={resetMutation.isPending}
             variant={tab === 'unset-models' ? 'unset' : 'default'}
+            channelModelNames={pricingBaseline.channel_models}
+            pricingEntries={pricingBaseline.entries}
           />
         </>
       )

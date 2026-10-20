@@ -154,6 +154,11 @@ func TestResellerQuoteAcceptsProfitableSubFenTariff(t *testing.T) {
 	assert.Zero(t, quote.ProfitMinor)
 	input.RequestID = "below-cost-sub-fen"
 	input.SaleMinorPerQuota = "0.0001"
+	quote, err = CreateResellerPricingQuoteTx(db, input)
+	require.NoError(t, err)
+	assert.Equal(t, "-0.000016", quote.ProfitMinorExact, "platform-price inheritance preserves the payment fee loss")
+	input.RequestID = "below-gross-cost"
+	input.SupplierMinorPerQuota = "0.00011"
 	_, err = CreateResellerPricingQuoteTx(db, input)
 	assert.ErrorIs(t, err, ErrResellerPriceBelowCost)
 }
@@ -244,4 +249,37 @@ func TestResellerConcurrentWithdrawalsCannotOverspendWallet(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&ResellerWithdrawal{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
+}
+
+func TestResellerInheritedPricePaymentRefundReversesNegativeCarry(t *testing.T) {
+	db := newResellerFinanceTestDB(t)
+	require.NoError(t, db.AutoMigrate(&User{}, &TopUp{}, &TenantConsumption{}, &CustomerPaymentReversal{}))
+	require.NoError(t, db.Create(&User{Id: 3, TenantID: 2, Username: "loss-refund", AffCode: "loss-refund"}).Error)
+	require.NoError(t, db.Create(&TopUp{Id: 1, TenantID: 2, UserId: 3, TradeNo: "loss-payment", PaidMinor: 100, Currency: ResellerCurrencyCNY, Status: common.TopUpStatusSuccess}).Error)
+	_, err := CreateCustomerPaymentLotTx(db, ResellerPaymentLotInput{TenantID: 2, CustomerID: 3, TopUpID: 1, OperationID: "loss-payment", PaidMinor: 100, PaymentFeeMinor: 2, CreditedQuota: 100})
+	require.NoError(t, err)
+	quote, err := CreateResellerPricingQuoteTx(db, ResellerPricingQuoteInput{TenantID: 2, CustomerID: 3, RequestID: "inherited-loss", Model: "text", Group: "default", SupplierMinorPerQuota: "1", SupplierPriceMinor: 100, SaleMinorPerQuota: "1", SaleMinor: 100, SalesMultiplier: decimal.NewFromInt(1), QuotedQuota: 100})
+	require.NoError(t, err)
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		_, err := SettleResellerConsumptionTx(tx, ResellerSettlementInput{TenantID: 2, CustomerID: 3, RequestID: quote.RequestID, QuoteID: quote.ID, ConsumedQuota: 100, Now: 20})
+		return err
+	}))
+	var wallet ResellerWallet
+	require.NoError(t, db.Where("tenant_id = ?", 2).First(&wallet).Error)
+	assert.EqualValues(t, "-2", wallet.ExactProfitCarry)
+	input := CustomerPaymentReversalInput{TenantID: 2, TopUpID: 1, IdempotencyKey: "loss-refund", Kind: "refunded", ActorID: 99, Reason: "confirmed refund", PaymentReference: "loss-proof", Now: 30}
+	for range 2 {
+		require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+			reversal, err := ReverseCustomerPaymentTx(tx, input)
+			if err == nil {
+				assert.EqualValues(t, "-2", reversal.ReversedProfitMinorExact)
+			}
+			return err
+		}))
+	}
+	require.NoError(t, db.Where("tenant_id = ?", 2).First(&wallet).Error)
+	assert.EqualValues(t, "0", wallet.ExactProfitCarry)
+	assert.Zero(t, wallet.PendingMinor)
+	assert.Zero(t, wallet.AvailableMinor)
+	assert.Zero(t, wallet.DebtMinor)
 }

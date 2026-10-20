@@ -38,6 +38,7 @@ import {
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskUsageUnitLabel } from '../lib/task-price-display'
 import type { PricingModel, TokenUnit } from '../types'
+import { ImageResolutionPrices } from './image-resolution-prices'
 
 export type ModelPriceCellOptions = {
   tokenUnit?: TokenUnit
@@ -86,6 +87,9 @@ function ModelPriceValue(props: {
       currency,
     ]
   )
+  if (props.model.image_pricing_policy) {
+    return <ImageResolutionPrices model={props.model} {...options} />
+  }
   if (isPricingExplicitlyUnconfigured(props.model)) {
     return (
       <span className='text-muted-foreground text-sm'>{t('Unset price')}</span>

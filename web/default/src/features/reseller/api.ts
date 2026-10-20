@@ -46,13 +46,14 @@ export interface SupplierEntry {
   minimum_multiplier?: string
   price_unit?: string
 }
-export interface PriceVersion {
+export interface GroupPrice {
   id: number
-  model: string
   group: string
-  supplier_price_minor: number
   sales_multiplier: string
+  platform_multiplier: string
+  minimum_multiplier: string
   version: number
+  inherited: boolean
 }
 export interface ResellerCustomer {
   id: number
@@ -150,24 +151,21 @@ export async function updateResellerCatalog(
     (requireServerSuccess(response.data).data as CatalogEntry[] | null) ?? []
   )
 }
-export async function getResellerPrices(): Promise<PriceVersion[]> {
-  const response = await api.get('/api/reseller/prices')
-  return (
-    (requireServerSuccess(response.data).data as PriceVersion[] | null) ?? []
-  )
+export async function getResellerPrices(): Promise<GroupPrice[]> {
+  const response = await api.get('/api/reseller/prices', {
+    params: { scope: 'group' },
+  })
+  return (requireServerSuccess(response.data).data as GroupPrice[] | null) ?? []
 }
 export async function updateResellerPrices(
   prices: Array<{
     sales_group: string
-    model: string
     sale_multiplier: string
     expected_version: number
   }>
-): Promise<PriceVersion[]> {
+): Promise<GroupPrice[]> {
   const response = await api.patch('/api/reseller/prices', { prices })
-  return (
-    (requireServerSuccess(response.data).data as PriceVersion[] | null) ?? []
-  )
+  return (requireServerSuccess(response.data).data as GroupPrice[] | null) ?? []
 }
 export async function getResellerCustomers(): Promise<ResellerCustomer[]> {
   const response = await api.get('/api/reseller/customers')

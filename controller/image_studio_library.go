@@ -41,6 +41,21 @@ func GetImageStudioGeneration(c *gin.Context) {
 	common.ApiSuccess(c, view)
 }
 
+func GetImageStudioGenerationInput(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	id, err := imageStudioID(c)
+	if err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
+	input, err := service.GetImageGenerationInput(c.Request.Context(), model.DB, c.GetInt("id"), id)
+	if err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
+	common.ApiSuccess(c, input)
+}
+
 func DeleteImageStudioGeneration(c *gin.Context) {
 	id, err := imageStudioID(c)
 	if err != nil {

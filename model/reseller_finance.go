@@ -41,7 +41,7 @@ const (
 var (
 	ErrResellerFinanceInvalidInput = errors.New("invalid reseller finance input")
 	ErrResellerQuoteConflict       = errors.New("reseller pricing quote conflicts with existing request")
-	ErrResellerPriceBelowCost      = errors.New("reseller sale price is below supplier cost after payment fee")
+	ErrResellerPriceBelowCost      = errors.New("reseller sale price is below supplier cost")
 	ErrResellerWalletNotFound      = errors.New("reseller wallet not found")
 	ErrResellerInsufficientFunds   = errors.New("insufficient reseller available funds")
 	ErrResellerDebtOutstanding     = errors.New("reseller debt must be cleared before withdrawal")
@@ -367,7 +367,7 @@ func createResellerLedgerEntry(tx *gorm.DB, entry *ResellerLedgerEntry, payload 
 }
 
 func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) (*PricingQuote, error) {
-	if tx == nil || input.TenantID <= 0 || input.CustomerID <= 0 || strings.TrimSpace(input.RequestID) == "" || len(input.RequestID) > 128 || input.PriceVersionID <= 0 || strings.TrimSpace(input.Model) == "" || len(input.Model) > 128 || strings.TrimSpace(input.Group) == "" || len(input.Group) > 64 || input.SupplierPriceMinor < 0 || input.QuotedQuota <= 0 || len(input.SupplySnapshot) > 65536 || input.SupplierMinorPerQuota == "" {
+	if tx == nil || input.TenantID <= 0 || input.CustomerID <= 0 || strings.TrimSpace(input.RequestID) == "" || len(input.RequestID) > 128 || input.PriceVersionID < 0 || strings.TrimSpace(input.Model) == "" || len(input.Model) > 128 || strings.TrimSpace(input.Group) == "" || len(input.Group) > 64 || input.SupplierPriceMinor < 0 || input.QuotedQuota <= 0 || len(input.SupplySnapshot) > 65536 || input.SupplierMinorPerQuota == "" {
 		return nil, ErrResellerFinanceInvalidInput
 	}
 	unit, err := parseResellerExact(input.SupplierMinorPerQuota)
@@ -399,12 +399,11 @@ func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) 
 			return nil, ErrResellerFinanceInvalidInput
 		}
 	}
-	// A tiny request may have independently rounded sale, fee and cost estimates
-	// of one fen each. Eligibility uses the exact tariff; paid-lot allocation
-	// enforces the actual funding ratio before any upstream request or settlement.
+	// Gross customer funds cover supply. Payment fees remain an actual expense
+	// and may produce a negative profit when inheriting the platform price.
 	netRate := new(big.Rat).Sub(big.NewRat(1, 1), decimal.RequireFromString(ResellerPaymentFeeRate).Rat())
 	netUnit := new(big.Rat).Mul(retailUnit, netRate)
-	if netUnit.Cmp(unit) < 0 {
+	if retailUnit.Cmp(unit) < 0 {
 		return nil, ErrResellerPriceBelowCost
 	}
 	exactProfit := new(big.Rat).Mul(new(big.Rat).Sub(netUnit, unit), big.NewRat(input.QuotedQuota, 1))

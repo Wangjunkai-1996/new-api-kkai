@@ -16,9 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { buildPricingChanges, type ModelPricingConfig } from '../api'
+import { api } from '@/lib/api'
+
+import {
+  buildPricingChanges,
+  prepareExpressionPricingChanges,
+  previewModelPricingConversion,
+  saveModelPricing,
+  type ModelPricingConfig,
+} from '../api'
 import {
   applyPriceSyncSelections,
   applyPricingDraft,
@@ -71,7 +79,10 @@ describe('shared model pricing', () => {
         'billing_setting.billing_expr': expression,
         ModelRatio: 1,
       }
-      expect(pricingFromDraft(pricingRow('example', values))).toEqual(values)
+      expect(pricingFromDraft(pricingRow('example', values))).toEqual({
+        'billing_setting.billing_mode': 'tiered_expr',
+        'billing_setting.billing_expr': expression,
+      })
     }
   })
 
@@ -285,4 +296,178 @@ it('saves, copies, and clears cache display expressions through the managed pric
       },
     },
   ])
+})
+
+describe('model pricing save contract', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('removes legacy prices from an expression save and keeps provider/display prices', async () => {
+    const values = {
+      'billing_setting.billing_mode': 'tiered_expr',
+      'billing_setting.billing_expr': 'tier("base", p * 8 + c * 28 + cr * 2)',
+      'billing_setting.display_billing_expr':
+        'tier("base", p * 8 + c * 28 + cr * 1)',
+      'billing_setting.plugin_billing_expr': {
+        provider: 'tier("base", u("seconds") * 0.2)',
+      },
+      ModelPrice: 3,
+      ModelRatio: 4,
+      CompletionRatio: 3.5,
+      CacheRatio: 0.25,
+      CreateCacheRatio: 1.25,
+      ImageRatio: 1,
+      AudioRatio: 2,
+      AudioCompletionRatio: 3,
+    }
+    const post = vi.spyOn(api, 'post')
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({
+      data: { success: true },
+    })
+    await saveModelPricing(
+      await prepareExpressionPricingChanges([
+        { model_name: 'expression', expected_version: 'v1', pricing: values },
+      ])
+    )
+    expect(patch).toHaveBeenCalledExactlyOnceWith('/api/option/model_pricing', {
+      changes: [
+        {
+          model_name: 'expression',
+          expected_version: 'v1',
+          reset: false,
+          pricing: Object.fromEntries(
+            Object.entries(values).filter(([key]) =>
+              key.startsWith('billing_setting.')
+            )
+          ),
+        },
+      ],
+    })
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('saves legacy token, fixed and zero prices without converting their billing path', async () => {
+    const changes = [
+      {
+        model_name: 'token',
+        expected_version: 'v1',
+        pricing: {
+          ModelRatio: 4,
+          CompletionRatio: 3.5,
+          CacheRatio: 0.25,
+          CreateCacheRatio: 1.25,
+        },
+      },
+      {
+        model_name: 'video',
+        expected_version: 'v2',
+        pricing: {
+          ModelPrice: 0.6,
+          'billing_setting.plugin_billing_expr': { provider: 'u("seconds")' },
+        },
+      },
+      {
+        model_name: 'free',
+        expected_version: 'v3',
+        pricing: { ModelPrice: 0, 'billing_setting.billing_mode': 'ratio' },
+      },
+    ]
+    const post = vi.spyOn(api, 'post')
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({
+      data: { success: true },
+    })
+    await saveModelPricing(await prepareExpressionPricingChanges(changes))
+    expect(patch).toHaveBeenCalledExactlyOnceWith('/api/option/model_pricing', {
+      changes: changes.map((change) => ({ ...change, reset: false })),
+    })
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('sends mixed resets unchanged so defaults and built-in expressions remain inherited', async () => {
+    const resetChanges = [
+      'gpt-4o',
+      'gpt-4o-realtime-preview',
+      'builtin',
+      'unpriced',
+    ].map((model_name) => ({
+      model_name,
+      expected_version: 'version',
+      pricing: {},
+      reset: true,
+    }))
+    const legacyChange = {
+      model_name: 'edited',
+      expected_version: 'v2',
+      pricing: { ModelPrice: 0.25 },
+    }
+    const post = vi.spyOn(api, 'post')
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({
+      data: { success: true },
+    })
+    await saveModelPricing(
+      await prepareExpressionPricingChanges([...resetChanges, legacyChange])
+    )
+    expect(patch).toHaveBeenCalledExactlyOnceWith('/api/option/model_pricing', {
+      changes: [...resetChanges, { ...legacyChange, reset: false }],
+    })
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { failure: 'business error', message: 'Pricing changed; reload and retry' },
+    { failure: 'transport error', message: 'Connection failed' },
+  ])(
+    'preserves a PATCH $failure for the complete batch',
+    async ({ failure, message }) => {
+      const post = vi.spyOn(api, 'post')
+      const patch = vi.spyOn(api, 'patch')
+      if (failure === 'transport error') {
+        patch.mockRejectedValue(new Error(message))
+      } else {
+        patch.mockResolvedValue({ data: { success: false, message } })
+      }
+      const changes = [
+        {
+          model_name: 'token',
+          expected_version: 'v1',
+          pricing: { ModelRatio: 4 },
+        },
+        {
+          model_name: 'reset',
+          expected_version: 'v2',
+          pricing: {},
+          reset: true,
+        },
+      ]
+      await expect(
+        prepareExpressionPricingChanges(changes).then(saveModelPricing)
+      ).rejects.toThrow(message)
+      expect(patch).toHaveBeenCalledExactlyOnceWith(
+        '/api/option/model_pricing',
+        {
+          changes: [{ ...changes[0], reset: false }, changes[1]],
+        }
+      )
+      expect(post).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps explicit conversion previews available without saving them', async () => {
+    const expression = 'tier("base", p * 8 + c * 28 + cr * 2)'
+    const post = vi.spyOn(api, 'post').mockResolvedValue({
+      data: { success: true, data: { expression } },
+    })
+    const patch = vi.spyOn(api, 'patch')
+    const request = {
+      model_name: 'token',
+      pricing: { ModelRatio: 4, CompletionRatio: 3.5, CacheRatio: 0.25 },
+    }
+    await expect(previewModelPricingConversion(request)).resolves.toEqual({
+      expression,
+    })
+    expect(post).toHaveBeenCalledExactlyOnceWith(
+      '/api/option/model_pricing/convert',
+      request
+    )
+    expect(patch).not.toHaveBeenCalled()
+  })
 })

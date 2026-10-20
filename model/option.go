@@ -404,6 +404,7 @@ func updateOptionMap(key string, value string) (err error) {
 		if err := image_pricing_setting.UpdateByJSONString(value); err != nil {
 			return err
 		}
+		InvalidatePricingCache()
 	}
 	// Activate validated runtime settings before publishing their raw options.
 	// This keeps OptionMap and runtime resolvers in sync when an old or

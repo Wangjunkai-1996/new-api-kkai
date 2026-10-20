@@ -34,8 +34,8 @@ func PrepareTenantBudget(info *relaycommon.RelayInfo, price *types.PriceData, pr
 		return err
 	}
 	maximum := snapshot.MaximumBeforeGroup * price.GroupRatioInfo.GroupRatio
-	if maximum <= 0 || math.IsNaN(maximum) || math.IsInf(maximum, 0) {
-		return fmt.Errorf("tenant request needs a finite positive maximum charge")
+	if maximum < 0 || math.IsNaN(maximum) || math.IsInf(maximum, 0) {
+		return fmt.Errorf("tenant request needs a finite non-negative maximum charge")
 	}
 	quota, err := common.QuotaFromFloatStrict(math.Ceil(maximum))
 	if err != nil {
@@ -43,7 +43,7 @@ func PrepareTenantBudget(info *relaycommon.RelayInfo, price *types.PriceData, pr
 	}
 	price.QuotaToPreConsume = quota
 	price.Quota = quota
-	price.FreeModel = false
+	price.FreeModel = maximum == 0
 	snapshot.Price = *price
 	snapshot.OtherRatios = price.OtherRatios()
 	snapshot.Tiered = info.TieredBillingSnapshot

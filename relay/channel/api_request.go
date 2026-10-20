@@ -807,7 +807,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			info.BillingOutcomeUnknown = true
 		}
 	}
-	if info.TenantQuoteID > 0 && resp.StatusCode >= 300 && !ConfirmedMembershipRejection(resp) {
+	if info.TenantID > 0 && info.HasDurableBilling() && resp.StatusCode >= 300 && !ConfirmedMembershipRejection(resp) {
 		info.BillingOutcomeUnknown = true
 	}
 	info.SetUpstreamHeaderTime()

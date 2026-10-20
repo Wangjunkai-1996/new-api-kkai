@@ -30,7 +30,10 @@ import type {
   ImageAsyncQuoteRequest,
   ImageComposerValues,
   ImageEditQuoteRequest,
+  ImageGeneration,
+  ImageGenerationInput,
   ImageModelProfile,
+  ImageQuote,
   ImageQuoteRequest,
   ImageReferenceMetadata,
   ImageSample,
@@ -47,6 +50,9 @@ const mocks = vi.hoisted(() => ({
   generationQuoteRequest: null as ImageQuoteRequest | null,
   asyncQuoteRequest: null as ImageAsyncQuoteRequest | null,
   editQuoteRequest: null as ImageEditQuoteRequest | null,
+  quoteExpiresIn: 3600,
+  refreshedQuote: null as Partial<ImageQuote> | null,
+  generationQuoteRefetch: vi.fn(),
   generationMutation: {
     isPending: false,
     variables: undefined as GenerationVariables | undefined,
@@ -118,14 +124,19 @@ vi.mock('../queries', () => ({
           quota: count,
           display_amount: `$0.0${String(count)}`,
           quote_token: `quote-${String(count)}`,
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          expires_at: Math.floor(Date.now() / 1000) + mocks.quoteExpiresIn,
         }
       : undefined
     return {
       data: quote,
       isFetching: false,
       isError: false,
-      refetch: vi.fn().mockResolvedValue({ data: quote }),
+      refetch: () => {
+        mocks.generationQuoteRefetch()
+        return Promise.resolve({
+          data: quote && { ...quote, ...mocks.refreshedQuote },
+        })
+      },
     }
   },
   useImageEditQuote: (request: ImageEditQuoteRequest | null) => {
@@ -252,6 +263,57 @@ const tokenGate = {
   createError: null,
 } as unknown as ImageTokenGateState
 
+const previousGeneration = (): ImageGeneration => ({
+  id: 91,
+  model_profile_id: 7,
+  specification_version: 2,
+  model: 'gpt-image-2',
+  prompt: 'A previous composition',
+  parameters: { variants: 4 },
+  request_id: 'previous-request',
+  status: 'succeeded',
+  requested_count: 4,
+  succeeded_count: 4,
+  final_quota: 4,
+  started_at: 1,
+  finished_at: 1,
+  created_at: 1,
+  assets: [],
+})
+
+const previousInput = (
+  mode: ImageGenerationInput['mode'] = 'generation'
+): ImageGenerationInput => ({
+  generation_id: 91,
+  mode,
+  references_available: true,
+  references: [],
+})
+
+const previousEditInput = (): ImageGenerationInput => ({
+  ...previousInput('edit'),
+  references: [81, 82].map((id) => ({
+    id,
+    sha256: String(id).repeat(32),
+    size_bytes: 9,
+    mime_type: 'image/png',
+    width: 1024,
+    height: 1024,
+  })),
+})
+
+const asyncGate = (): ImageTokenGateState => {
+  if (!tokenGate.capability) throw new Error('Missing test capability')
+  return {
+    ...tokenGate,
+    capability: {
+      ...tokenGate.capability,
+      async_submission_enabled: true,
+      async_models: ['gpt-image-2'],
+    },
+  }
+}
+
 describe('image composer', () => {
   beforeAll(async () => {
     i18next.addResourceBundle('en', 'translation', en.translation, true, true)
@@ -265,6 +327,9 @@ describe('image composer', () => {
       role: 1,
     })
     mocks.pendingSubmissions = []
+    mocks.quoteExpiresIn = 3600
+    mocks.refreshedQuote = null
+    mocks.generationQuoteRefetch.mockClear()
     mocks.asyncMutation.mutateAsync.mockReset()
     mocks.generationMutation.mutateAsync.mockReset()
     mocks.editMutation.mutateAsync.mockReset()
@@ -284,7 +349,255 @@ describe('image composer', () => {
     mocks.reference.files = []
     mocks.reference.processing = false
     mocks.reference.clear.mockClear()
+    mocks.draftState.hydrate.mockClear()
+    mocks.draftState.save.mockClear()
+    mocks.draftState.clear.mockClear()
   })
+
+  test('reuses inputs with one output and preserves the existing creation draft after success', async () => {
+    const user = userEvent.setup()
+    mocks.models = [sizedProfile()]
+    mocks.draftState.draft = {
+      model_profile_id: 7,
+      prompt: 'An unrelated unsaved idea',
+      parameters: { variants: 3, dimensions: '1024x1024' },
+    }
+    const generation = previousGeneration()
+    generation.sample_id = 404
+    generation.parameters.dimensions = '1536x2048'
+    mocks.generationMutation.mutateAsync.mockResolvedValue({
+      id: 92,
+      status: 'succeeded',
+    })
+    const onSubmitted = vi.fn()
+    render(
+      <ImageComposer
+        reuseGeneration={generation}
+        reuseInput={previousInput()}
+        tokenGate={tokenGate}
+        onSubmitted={onSubmitted}
+      />
+    )
+
+    expect(await screen.findByLabelText('Prompt')).toHaveValue(
+      generation.prompt
+    )
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
+    const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+    await waitFor(() => expect(generate).toBeEnabled())
+    expect(mocks.generationQuoteRequest?.parameters).toEqual({
+      variants: 1,
+      dimensions: '1536x2048',
+    })
+    expect(mocks.generationQuoteRequest?.sample_id).toBeUndefined()
+    await user.click(generate)
+    await waitFor(() =>
+      expect(onSubmitted).toHaveBeenCalledWith({ id: 92, status: 'succeeded' })
+    )
+    expect(mocks.draftState.hydrate).not.toHaveBeenCalled()
+    expect(mocks.draftState.save).not.toHaveBeenCalled()
+    expect(mocks.draftState.clear).not.toHaveBeenCalled()
+  })
+
+  test('requires an explicit mode choice for legacy tasks before obtaining a quote', async () => {
+    const user = userEvent.setup()
+    render(
+      <ImageComposer
+        reuseGeneration={previousGeneration()}
+        reuseInput={previousInput('unknown')}
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    expect(await screen.findByLabelText('Prompt')).toHaveValue(
+      'A previous composition'
+    )
+    expect(
+      screen.getByRole('button', { name: 'Generate 1 image' })
+    ).toBeDisabled()
+    expect(mocks.generationQuoteRequest).toBeNull()
+    await user.click(
+      screen.getByRole('button', { name: 'Generate' })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Generate 1 image' })
+      ).toBeEnabled()
+    )
+  })
+
+  test('requires a new confirmation when refreshing an expired quote changes the price', async () => {
+    const user = userEvent.setup()
+    mocks.quoteExpiresIn = 1
+    mocks.refreshedQuote = {
+      quota: 2,
+      display_amount: '$0.02',
+      quote_token: 'new-price',
+    }
+    render(
+      <ImageComposer
+        reuseGeneration={previousGeneration()}
+        reuseInput={previousInput()}
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const generate = await screen.findByRole('button', {
+      name: 'Generate 1 image',
+    })
+    await waitFor(() => expect(generate).toBeEnabled())
+    await user.click(generate)
+    await waitFor(() =>
+      expect(mocks.generationQuoteRefetch).toHaveBeenCalledOnce()
+    )
+    expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  test('reuses available reference IDs without reuploading files, and keeps edit mode after removing the last reference', async () => {
+    const user = userEvent.setup()
+    const editProfile = profile()
+    editProfile.specification.max_reference_images = 2
+    mocks.models = [editProfile]
+    mocks.asyncMutation.mutateAsync.mockResolvedValue({
+      id: 92,
+      status: 'submitting',
+    })
+    render(
+      <ImageComposer
+        reuseGeneration={previousGeneration()}
+        reuseInput={previousEditInput()}
+        tokenGate={asyncGate()}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const edit = await screen.findByRole('button', { name: 'Edit image' })
+    await waitFor(() => expect(edit).toBeEnabled())
+    expect(mocks.asyncQuoteRequest).toMatchObject({
+      mode: 'edit',
+      asset_ids: [81, 82],
+    })
+    await user.click(edit)
+    await waitFor(() =>
+      expect(mocks.asyncMutation.mutateAsync).toHaveBeenCalledWith({
+        request: expect.objectContaining({ mode: 'edit', asset_ids: [81, 82] }),
+        idempotencyKey: 'submission-key',
+      })
+    )
+    expect(mocks.reference.files).toHaveLength(0)
+    expect(mocks.editMutation.mutateAsync).not.toHaveBeenCalled()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Remove reference image 1' })
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest?.asset_ids).toEqual([82])
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Remove reference image 1' })
+    )
+    expect(screen.getByRole('button', { name: 'Edit image' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Edit' })
+    ).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(mocks.asyncQuoteRequest).toBeNull())
+  })
+
+  test.each(['missing', 'sync'] as const)(
+    'requires replacing all saved references when inputs are %s',
+    async (reason) => {
+      const user = userEvent.setup()
+      const input = previousEditInput()
+      input.references_available = reason !== 'missing'
+      render(
+        <ImageComposer
+          reuseGeneration={previousGeneration()}
+          reuseInput={input}
+          tokenGate={reason === 'sync' ? tokenGate : asyncGate()}
+          onSubmitted={vi.fn()}
+        />
+      )
+      const edit = await screen.findByRole('button', { name: 'Edit image' })
+      expect(edit).toBeDisabled()
+      expect(mocks.asyncQuoteRequest).toBeNull()
+      expect(mocks.editQuoteRequest).toBeNull()
+      expect(
+        screen.getByText(
+          'Original references are unavailable or incompatible with the current model. Upload the complete reference set to continue.'
+        )
+      ).toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: 'Use new reference images' })
+      )
+      expect(screen.getByLabelText('Reference limit')).toBeInTheDocument()
+      expect(edit).toBeDisabled()
+      expect(
+        screen.getByRole('button', { name: 'Edit' })
+      ).toHaveAttribute('aria-pressed', 'true')
+    }
+  )
+
+  test('does not silently substitute an unavailable original model', async () => {
+    const user = userEvent.setup()
+    const anotherModel = {
+      ...profile(),
+      id: 8,
+      model: 'another-model',
+      display_name: 'Another model',
+    }
+    mocks.models = [anotherModel]
+    render(
+      <ImageComposer
+        reuseGeneration={previousGeneration()}
+        reuseInput={previousInput()}
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    expect(await screen.findByLabelText('Prompt')).toHaveValue(
+      'A previous composition'
+    )
+    expect(
+      screen.getByText(
+        'The original model is unavailable. Choose a model to continue.'
+      )
+    ).toBeInTheDocument()
+    expect(mocks.generationQuoteRequest).toBeNull()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Model' }),
+      '8'
+    )
+    await waitFor(() =>
+      expect(mocks.generationQuoteRequest?.model).toBe('another-model')
+    )
+  })
+
+  test.each(['version', 'unsupported'] as const)(
+    'blocks changed %s settings until explicitly reset',
+    async (change) => {
+      const user = userEvent.setup()
+      const generation = previousGeneration()
+      if (change === 'version') generation.specification_version = 1
+      else generation.parameters.removed_quality = 'high'
+      render(
+        <ImageComposer
+          reuseGeneration={generation}
+          reuseInput={previousInput()}
+          tokenGate={tokenGate}
+          onSubmitted={vi.fn()}
+        />
+      )
+      const generate = await screen.findByRole('button', {
+        name: 'Generate 1 image',
+      })
+      expect(generate).toBeDisabled()
+      expect(mocks.generationQuoteRequest).toBeNull()
+      await user.click(
+        screen.getByRole('button', { name: 'Reset to current model defaults' })
+      )
+      await waitFor(() => expect(generate).toBeEnabled())
+      expect(mocks.generationQuoteRequest?.parameters).toEqual({ variants: 1 })
+    }
+  )
 
   test('uses small JSON with ready reference IDs for every enabled user', async () => {
     const user = userEvent.setup()

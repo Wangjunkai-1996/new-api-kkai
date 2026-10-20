@@ -23,6 +23,11 @@ import i18next from 'i18next'
 export const safeServerErrorMessage = Symbol('safeServerErrorMessage')
 
 const serverErrorMessageKeys = {
+  RESELLER_DOMAIN_ALREADY_ASSIGNED:
+    'This site already has a domain. Each site can have only one domain.',
+  RESELLER_ACTIVATION_INCOMPLETE:
+    'Assign a domain before activating this site.',
+  TENANT_GROUP_PRICING_REQUIRED: 'Set prices by group instead of model.',
   TELEGRAM_OAUTH_NOT_CONFIGURED:
     'Telegram OAuth is not configured or enabled. Please contact your administrator.',
   TELEGRAM_OAUTH_CONFLICT:

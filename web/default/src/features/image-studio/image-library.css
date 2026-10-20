@@ -1,0 +1,31 @@
+.image-work-card-pending {
+  position: relative;
+  isolation: isolate;
+}
+
+.image-work-card-pending::after {
+  position: absolute;
+  z-index: -1;
+  inset: -60%;
+  content: '';
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 65%,
+    color-mix(in oklch, var(--primary) 20%, transparent),
+    transparent 90%
+  );
+  animation: image-work-glow 4s linear infinite;
+}
+
+@keyframes image-work-glow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-work-card-pending::after {
+    animation: none;
+  }
+}
