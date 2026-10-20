@@ -35,6 +35,7 @@ func main() {
 		tenantExpand          string
 		tenantControllerProof string
 		tenantRuntime         bool
+		resellerPrefix        string
 		observe               bool
 		jsonOutput            bool
 		timeout               time.Duration
@@ -56,9 +57,10 @@ func main() {
 	flag.StringVar(&tenantExpand, "tenant-expand", "", "online expansion: plan/status/check are read-only; apply/finalize require the installed root-controller proof")
 	flag.StringVar(&tenantControllerProof, "tenant-controller-proof", "", "fixed root-controller proof mount for apply/finalize")
 	flag.BoolVar(&tenantRuntime, "tenant-runtime", false, "declare compiled tenant runtime capability; requires --dialect and --json, no database access")
+	flag.StringVar(&resellerPrefix, "reseller-prefix", "", "independent v15 prefix operation: plan/status are read-only; mutation is unavailable")
 	flag.Parse()
 	if tenantRuntime {
-		if !jsonOutput || dialect == "" || tenantExpand != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
+		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
 			log.Fatal("--tenant-runtime requires only --dialect and --json")
 		}
 		if err := writeTenantRuntimeContract(dialect, os.Stdout); err != nil {
@@ -67,10 +69,15 @@ func main() {
 		return
 	}
 	if tenantControllerProof != "" && tenantExpand != "apply" && tenantExpand != "finalize" {
-		log.Fatal("--tenant-controller-proof is only valid for apply/finalize")
+		log.Fatal("--tenant-controller-proof is only valid for a controlled apply/finalize operation")
+	}
+	if resellerPrefix != "" {
+		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if tenantExpand != "" {
-		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || flag.NArg() != 0); err != nil {
+		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -101,7 +108,7 @@ func main() {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -126,6 +133,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if resellerPrefix != "" {
+		if err := runResellerPrefix(ctx, db, resellerPrefix, tenantControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI reseller prefix operation failed: %v", err)
+		}
+		return
+	}
 	if tenantExpand != "" {
 		var err error
 		if tenantExpand == "apply" || tenantExpand == "finalize" {
@@ -261,7 +274,7 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		return nil, fmt.Errorf("%w: online contract requires verified tenant-aware active, rollback and background runtimes; it is not an ordinary --target operation", kkaimigrate.ErrUnsafeMigration)
 	case kkaimigrate.ResellerApplicationSchemaVersion:
 		if !options.DryRun {
-			return nil, fmt.Errorf("%w: target 15 mutation requires installed controller verification of v15-compatible serving and rollback runtimes; only precheck/dry-run is available", kkaimigrate.ErrUnsafeMigration)
+			return nil, fmt.Errorf("%w: target 15 mutation is unavailable in this read-only compatibility release", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyResellerApplicationExpand(ctx, db, options)
 	default:

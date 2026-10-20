@@ -42,7 +42,7 @@ func PrecheckResellerApplicationExpand(ctx context.Context, db *gorm.DB) (*Resel
 	if db == nil {
 		return nil, ErrSchemaNotReady
 	}
-	state, err := loadValidatedState(ctx, db, TenantOnlineSchemaVersion)
+	state, err := loadValidatedState(ctx, db, ResellerApplicationSchemaVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +62,12 @@ func PrecheckResellerApplicationExpand(ctx context.Context, db *gorm.DB) (*Resel
 		Schema: "kkai_reseller_application_expand_v1", CurrentVersion: state.currentVersion,
 		TargetVersion: ResellerApplicationSchemaVersion, ColumnPresent: present, Safe: true,
 	}, nil
+}
+
+// ResellerApplicationPlanChecksum binds the independent controller proof to the
+// frozen v15 DDL, without changing the historical tenant-online-v1 plan.
+func ResellerApplicationPlanChecksum() string {
+	return migrationChecksum(migrationSet()[ResellerApplicationSchemaVersion-1])
 }
 
 func validateResellerApplicationPrefixSchema(db *gorm.DB) error {
@@ -89,9 +95,9 @@ func CheckResellerApplicationSchema(ctx context.Context, db *gorm.DB) error {
 
 // ApplyResellerApplicationExpand adds only the v15 nullable column and receipt
 // after validating the complete canonical v14 contract under the shared lock.
-// It is a library operation for isolated rehearsals; production CLI mutation is
-// intentionally unavailable until the installed controller proves that every
-// serving and rollback runtime accepts v15. Offline enables only isolated MySQL
+// Isolated rehearsals may invoke it directly. Production CLI mutation is
+// unavailable in this read-only compatibility release.
+// Offline enables only isolated MySQL
 // and older PostgreSQL compatibility exercises, never a serving-process fallback.
 func ApplyResellerApplicationExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	result := &Result{}

@@ -16,12 +16,12 @@ func TestContractForDialectRequiresTenantSchema(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
 			assert.EqualValues(t, 14, contract.RuntimeMinVersion)
-			assert.EqualValues(t, 14, contract.RuntimeMaxVersion)
+			assert.EqualValues(t, 15, contract.RuntimeMaxVersion)
 			assert.EqualValues(t, 14, contract.MigrationTargetVersion)
 			assert.Equal(t, MigrationKindNone, contract.MigrationKind)
 			assert.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes["14"])
-			assert.NotContains(t, contract.CompatiblePrefixes, "15")
-			assert.Len(t, contract.CompatiblePrefixes, 1)
+			assert.Contains(t, contract.CompatiblePrefixes, "15")
+			assert.Len(t, contract.CompatiblePrefixes, 2)
 		})
 	}
 }
@@ -35,4 +35,7 @@ func TestRuntimeRejectsV11UntilExplicitTenantMigration(t *testing.T) {
 	_, err = FinalizeTenantOnlineSchema(context.Background(), db, Options{})
 	require.NoError(t, err)
 	require.NoError(t, CheckRequired(context.Background(), db))
+	_, err = ApplyResellerApplicationExpand(context.Background(), db, Options{})
+	require.NoError(t, err)
+	require.NoError(t, CheckRequired(context.Background(), db), "the compatibility runtime must still start after the additive v15 receipt")
 }

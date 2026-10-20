@@ -72,6 +72,9 @@ func TestResellerFinanceWorkersFreezeUntilFinalSchemaAtStartup(t *testing.T) {
 	finalRuntime := CaptureTenantRuntime(db)
 	assert.Equal(t, "finalized", finalRuntime.SchemaAtStartup)
 	assert.True(t, finalRuntime.ResellerReadyAtStartup)
+	expectedContract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectSQLite)
+	require.NoError(t, err)
+	assert.Equal(t, expectedContract, finalRuntime.SchemaContract, "live startup evidence must expose the compiled schema compatibility")
 	assert.Empty(t, bridge.Descriptors(), "the running bridge must remain frozen after the database advances")
 	for _, routing := range []string{"false", "true"} {
 		t.Setenv("TENANT_ROUTING_ENABLED", routing)
