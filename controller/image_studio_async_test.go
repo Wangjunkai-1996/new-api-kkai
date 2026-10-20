@@ -74,6 +74,50 @@ func TestImageAsyncAcceptanceRollbackLeavesNoReservationOrDebit(t *testing.T) {
 	assert.EqualValues(t, 700, user.Quota)
 }
 
+func TestImageAsyncAcceptanceAndAdoptionHaveNoTaskCountLimit(t *testing.T) {
+	db, request, normalized := newImageAsyncAcceptanceFixture(t)
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", normalized.UserID).Update("quota", 20_000).Error)
+	generations := make([]model.KKAIImageGeneration, 0, 33)
+	for index := 0; index < 33; index++ {
+		key := "unlimited-image-" + strconv.Itoa(index)
+		generation, err := service.AcceptAsyncImageSubmission(context.Background(), db, request, normalized, key, key, "127.0.0.1")
+		require.NoError(t, err)
+		generations = append(generations, *generation)
+	}
+	// Retrying an accepted request must still reuse its reservation and task.
+	replay, err := service.AcceptAsyncImageSubmission(context.Background(), db, request, normalized, "unlimited-image-32", "retry", "127.0.0.1")
+	require.NoError(t, err)
+	assert.Equal(t, generations[32].ID, replay.ID)
+	var count int64
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("user_id = ?", normalized.UserID).Count(&count).Error)
+	assert.EqualValues(t, 33, count)
+	var user model.User
+	require.NoError(t, db.First(&user, normalized.UserID).Error)
+	assert.EqualValues(t, 20_000-33*300, user.Quota)
+
+	now := time.Now().Unix()
+	for index, state := range []string{model.ImageGenerationExecutionUnknown, model.ImageGenerationExecutionDispatching, model.ImageGenerationExecutionPreparing} {
+		require.NoError(t, db.Model(&model.KKAIImageExecution{}).Where("generation_id = ?", generations[index].ID).Updates(map[string]any{
+			"state": state, "execution_deadline_at": now + 1200, "recovery_deadline_at": now + 1440,
+		}).Error)
+	}
+	leader := model.KKAIJobLease{LeaseName: "unlimited-image-worker", Holder: "writer", Fence: 1, LeaseUntil: now + 300}
+	require.NoError(t, db.Create(&leader).Error)
+	var event model.KKAIOutboxEvent
+	require.NoError(t, db.Where("topic = ? AND aggregate_id = ?", service.ImageGenerateTopic, strconv.FormatInt(generations[3].ID, 10)).Take(&event).Error)
+	require.NoError(t, db.Model(&event).Updates(map[string]any{"locked_by": "unlimited-image-claim", "locked_at": now}).Error)
+	fence := model.ImageExecutionFence{EventID: event.ID, LockedBy: "unlimited-image-claim", LockTimeout: 2 * time.Minute, LeaderName: leader.LeaseName, LeaderHolder: leader.Holder, LeaderFence: leader.Fence}
+	execution, generation, err := service.AdoptImageExecution(context.Background(), db, generations[3].ID, fence)
+	require.NoError(t, err)
+	assert.Equal(t, generations[3].ID, generation.ID)
+	assert.Equal(t, model.ImageGenerationExecutionPreparing, execution.State)
+	assert.Greater(t, execution.ExecutionDeadlineAt, now)
+	assert.Greater(t, execution.RecoveryDeadlineAt, execution.ExecutionDeadlineAt)
+	var unknown model.KKAIImageExecution
+	require.NoError(t, db.First(&unknown, "generation_id = ?", generations[0].ID).Error)
+	assert.Equal(t, model.ImageGenerationExecutionUnknown, unknown.State)
+}
+
 func TestImageAsyncReplayPrecedesQuoteTokenAssetAndFeatureValidation(t *testing.T) {
 	db, request, normalized := newImageAsyncAcceptanceFixture(t)
 	asset := model.KKAIImageAsset{OwnerUserID: normalized.UserID, Kind: model.ImageAssetKindReference, State: model.ImageAssetStateReady, SHA256: strings.Repeat("b", 64), SizeBytes: 120, ObjectKey: "reference-replay"}

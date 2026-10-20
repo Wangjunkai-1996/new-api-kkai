@@ -8,7 +8,6 @@ import (
 
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"gorm.io/gorm"
 )
 
@@ -45,12 +44,6 @@ func AdoptImageExecution(ctx context.Context, db *gorm.DB, generationID int64, f
 			return nil
 		}
 		if execution.ExecutionDeadlineAt == 0 {
-			if err := model.CheckImageExecutionCapacityTx(tx, image_studio_setting.Get().MaxConcurrentSubmissions, generationID); err != nil {
-				if errors.Is(err, model.ErrImageGenerationCapacityExceeded) {
-					return DeferKKAIOutboxUntil(now.Add(2*time.Second), ErrImageStudioCapacityExceeded)
-				}
-				return err
-			}
 			execution.ExecutionDeadlineAt = now.Add(ImageExecutionTimeout).Unix()
 			execution.RecoveryDeadlineAt = now.Add(ImageExecutionTimeout + ImageArchiveTimeout + ImageRecoveryGrace).Unix()
 		}

@@ -219,14 +219,6 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		return
 	}
 	settings := image_studio_setting.Get()
-	userID := c.GetInt("id")
-	if !imageStudioCapacity.acquire(
-		userID, settings.MaxConcurrentSubmissions, settings.MaxConcurrentSubmissionsPerUser,
-	) {
-		respondImageStudioError(c, service.ErrImageStudioCapacityExceeded)
-		return
-	}
-	defer imageStudioCapacity.release(userID)
 	capture, err := newImageRelayCaptureWriter(c.Writer, service.ImageStudioTempDirectory(), settings.MaxResponseBytes)
 	if err != nil {
 		respondImageStudioError(c, err)
@@ -235,7 +227,6 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	defer capture.Remove()
 
 	var generation *model.KKAIImageGeneration
-	var admissionErr error
 	var heartbeatCancel context.CancelFunc
 	defer func() {
 		if heartbeatCancel != nil {
@@ -253,7 +244,6 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 		)
 		generation = created
 		if err != nil {
-			admissionErr = err
 			return err
 		}
 		if err := service.SetImageStudioGenerationID(c, created.ID); err != nil {
@@ -289,10 +279,6 @@ func SubmitImageStudioGeneration(c *gin.Context) {
 	)
 	defer cancel()
 	if generation == nil {
-		if errors.Is(admissionErr, model.ErrImageGenerationCapacityExceeded) {
-			respondImageStudioError(c, admissionErr)
-			return
-		}
 		if capture.Status() == http.StatusConflict {
 			respondImageStudioError(c, service.ErrImageStudioQuoteStale)
 			return

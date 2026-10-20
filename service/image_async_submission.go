@@ -174,16 +174,12 @@ func AcceptAsyncImageSubmission(ctx context.Context, db *gorm.DB, request ImageA
 		if memberBilling != (quote.MembershipPricing != nil) {
 			return ErrImageStudioQuoteStale
 		}
-		settings := image_studio_setting.Get()
-		if err := model.CheckImageGenerationCapacityTx(tx, normalized.UserID, settings.MaxQueuedGenerations, settings.MaxConcurrentSubmissionsPerUser); err != nil {
-			return err
-		}
 		now := time.Now()
 		binding := model.KKAIIdempotencyKey{UserID: normalized.UserID, Operation: model.ImageIdempotencyOperationSubmit, Key: strings.TrimSpace(key), RequestHash: hash, CreatedAt: now.Unix(), ExpiresAt: now.Add(DefaultIdempotencyTTL).Unix()}
 		if err := tx.Create(&binding).Error; err != nil {
 			return err
 		}
-		generation, err = createImageGeneration(ctx, tx, normalized, requestID, binding.ID, true)
+		generation, err = CreateImageGeneration(ctx, tx, normalized, requestID, binding.ID)
 		if err != nil {
 			return err
 		}

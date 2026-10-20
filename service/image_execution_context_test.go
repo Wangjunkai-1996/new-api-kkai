@@ -99,17 +99,22 @@ func TestImageAsyncQueuedTaskIsNotRefundedByLegacyReconciler(t *testing.T) {
 	assert.Equal(t, model.ImageGenerationBillingStatePending, generation.BillingState)
 }
 
-func TestImageAsyncQueueAdmissionDoesNotConsumeExecutionSlot(t *testing.T) {
+func TestImageGenerationAdmissionHasNoGlobalOrPerUserTaskLimit(t *testing.T) {
 	db, profile := newImageSubmissionTestDB(t)
-	seedRecoverableImageGeneration(t, db, 78, 1)
-	seedRecoverableImageGeneration(t, db, 79, 1)
+	for index := 0; index < 32; index++ {
+		generation := seedRecoverableImageGeneration(t, db, 80, 1)
+		if index%2 == 0 {
+			require.NoError(t, db.Model(&generation).Update("status", model.ImageGenerationStatusRecovering).Error)
+		}
+	}
 	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 80, ImageStudioSubmissionRequest{TokenID: 4, Model: profile.Model, Prompt: "queued image"})
 	require.NoError(t, err)
-	reservation, err := ReserveIdempotencyKey(context.Background(), db, IdempotencyReservationRequest{UserID: 80, Operation: model.ImageIdempotencyOperationSubmit, Key: "queue-capacity", RequestHash: normalized.RequestHash})
+	reservation, err := ReserveIdempotencyKey(context.Background(), db, IdempotencyReservationRequest{UserID: 80, Operation: model.ImageIdempotencyOperationSubmit, Key: "unlimited-task-admission", RequestHash: normalized.RequestHash})
 	require.NoError(t, err)
-	_, err = CreateImageGeneration(context.Background(), db, normalized, "legacy-capacity", reservation.Record.ID)
-	require.ErrorIs(t, err, model.ErrImageGenerationCapacityExceeded)
-	generation, err := createImageGeneration(context.Background(), db, normalized, "async-queued", reservation.Record.ID, true)
+	generation, err := CreateImageGeneration(context.Background(), db, normalized, "unlimited-task-admission", reservation.Record.ID)
 	require.NoError(t, err)
 	assert.Equal(t, model.ImageGenerationStatusSubmitting, generation.Status)
+	var count int64
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("user_id = ?", 80).Count(&count).Error)
+	assert.EqualValues(t, 33, count)
 }

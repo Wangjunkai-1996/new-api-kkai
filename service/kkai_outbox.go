@@ -185,9 +185,7 @@ func (p *KKAIOutboxProcessor) registerDeadLetter(topic string, handler kkaiOutbo
 }
 
 func (p *KKAIOutboxProcessor) ProcessBatch(ctx context.Context, limit int) (*KKAIOutboxBatchResult, error) {
-	if p == nil || p.db == nil || p.workerID == "" || limit <= 0 || p.maxAttempts <= 0 ||
-		p.lockTimeout <= 0 || p.heartbeatInterval <= 0 || p.heartbeatInterval > 10*time.Second ||
-		p.heartbeatInterval >= p.lockTimeout || p.baseRetry <= 0 || p.maxRetry < p.baseRetry {
+	if !p.valid() || limit <= 0 {
 		return nil, ErrKKAIOutboxInvalidConfiguration
 	}
 	topics := p.registeredTopics()
@@ -218,6 +216,12 @@ func (p *KKAIOutboxProcessor) ProcessBatch(ctx context.Context, limit int) (*KKA
 		}
 	}
 	return result, nil
+}
+
+func (p *KKAIOutboxProcessor) valid() bool {
+	return p != nil && p.db != nil && p.workerID != "" && p.maxAttempts > 0 &&
+		p.lockTimeout > 0 && p.heartbeatInterval > 0 && p.heartbeatInterval <= 10*time.Second &&
+		p.heartbeatInterval < p.lockTimeout && p.baseRetry > 0 && p.maxRetry >= p.baseRetry
 }
 
 func (p *KKAIOutboxProcessor) processClaimedEvent(

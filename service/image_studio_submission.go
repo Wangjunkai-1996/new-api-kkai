@@ -24,7 +24,6 @@ var (
 	ErrImageStudioPromptTooLong     = errors.New("image prompt must not exceed 8000 characters")
 	ErrImageStudioQuoteMismatch     = errors.New("image studio quote does not match the normalized request")
 	ErrImageStudioQuoteExpired      = errors.New("image studio quote has expired")
-	ErrImageStudioCapacityExceeded  = errors.New("image studio is at submission capacity")
 )
 
 const (

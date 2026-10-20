@@ -13,39 +13,33 @@ const (
 )
 
 type Setting struct {
-	AccessMode                      string `json:"access_mode"`
-	WorkerEnabled                   bool   `json:"worker_enabled"`
-	AsyncSubmissionEnabled          bool   `json:"async_submission_enabled"`
-	MaxQueuedGenerations            int    `json:"max_queued_generations"`
-	MaxReferenceBytes               int64  `json:"max_reference_bytes"`
-	MaxReferenceTotalBytes          int64  `json:"max_reference_total_bytes"`
-	MaxOutputBytes                  int64  `json:"max_output_bytes"`
-	MaxResponseBytes                int64  `json:"max_response_bytes"`
-	MaxPixels                       int64  `json:"max_pixels"`
-	ThumbnailMaxPixels              int64  `json:"thumbnail_max_pixels"`
-	MaxImagesPerGeneration          int    `json:"max_images_per_generation"`
-	SignedURLSeconds                int    `json:"signed_url_seconds"`
-	SubmissionTimeoutSecs           int    `json:"submission_timeout_seconds"`
-	MaxConcurrentSubmissions        int    `json:"max_concurrent_submissions"`
-	MaxConcurrentSubmissionsPerUser int    `json:"max_concurrent_submissions_per_user"`
+	AccessMode             string `json:"access_mode"`
+	WorkerEnabled          bool   `json:"worker_enabled"`
+	AsyncSubmissionEnabled bool   `json:"async_submission_enabled"`
+	MaxReferenceBytes      int64  `json:"max_reference_bytes"`
+	MaxReferenceTotalBytes int64  `json:"max_reference_total_bytes"`
+	MaxOutputBytes         int64  `json:"max_output_bytes"`
+	MaxResponseBytes       int64  `json:"max_response_bytes"`
+	MaxPixels              int64  `json:"max_pixels"`
+	ThumbnailMaxPixels     int64  `json:"thumbnail_max_pixels"`
+	MaxImagesPerGeneration int    `json:"max_images_per_generation"`
+	SignedURLSeconds       int    `json:"signed_url_seconds"`
+	SubmissionTimeoutSecs  int    `json:"submission_timeout_seconds"`
 }
 
 var imageStudioSetting = Setting{
-	AccessMode:                      AccessModeOff,
-	WorkerEnabled:                   false,
-	AsyncSubmissionEnabled:          false,
-	MaxQueuedGenerations:            32,
-	MaxReferenceBytes:               32 << 20,
-	MaxReferenceTotalBytes:          64 << 20,
-	MaxOutputBytes:                  32 << 20,
-	MaxResponseBytes:                128 << 20,
-	MaxPixels:                       64_000_000,
-	ThumbnailMaxPixels:              20_000_000,
-	MaxImagesPerGeneration:          MaxImagesPerGenerationLimit,
-	SignedURLSeconds:                600,
-	SubmissionTimeoutSecs:           300,
-	MaxConcurrentSubmissions:        2,
-	MaxConcurrentSubmissionsPerUser: 1,
+	AccessMode:             AccessModeOff,
+	WorkerEnabled:          false,
+	AsyncSubmissionEnabled: false,
+	MaxReferenceBytes:      32 << 20,
+	MaxReferenceTotalBytes: 64 << 20,
+	MaxOutputBytes:         32 << 20,
+	MaxResponseBytes:       128 << 20,
+	MaxPixels:              64_000_000,
+	ThumbnailMaxPixels:     20_000_000,
+	MaxImagesPerGeneration: MaxImagesPerGenerationLimit,
+	SignedURLSeconds:       600,
+	SubmissionTimeoutSecs:  300,
 }
 
 func init() {
@@ -88,18 +82,6 @@ func Get() Setting {
 	}
 	if setting.SubmissionTimeoutSecs < 30 || setting.SubmissionTimeoutSecs > 900 {
 		setting.SubmissionTimeoutSecs = 300
-	}
-	if setting.MaxConcurrentSubmissions < 1 || setting.MaxConcurrentSubmissions > 16 {
-		setting.MaxConcurrentSubmissions = 2
-	}
-	if setting.MaxQueuedGenerations < 1 || setting.MaxQueuedGenerations > 128 {
-		setting.MaxQueuedGenerations = 32
-	}
-	if setting.MaxConcurrentSubmissionsPerUser < 1 || setting.MaxConcurrentSubmissionsPerUser > 16 {
-		setting.MaxConcurrentSubmissionsPerUser = 1
-	}
-	if setting.MaxConcurrentSubmissionsPerUser > setting.MaxConcurrentSubmissions {
-		setting.MaxConcurrentSubmissionsPerUser = setting.MaxConcurrentSubmissions
 	}
 	return setting
 }

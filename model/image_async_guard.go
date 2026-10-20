@@ -8,10 +8,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var (
-	ErrImageExecutionFenceLost         = errors.New("image execution ownership lost")
-	ErrImageGenerationCapacityExceeded = errors.New("image generation capacity exceeded")
-)
+var ErrImageExecutionFenceLost = errors.New("image execution ownership lost")
 
 type ImageExecutionFence struct {
 	EventID      int64
@@ -22,8 +19,8 @@ type ImageExecutionFence struct {
 	LeaderFence  int64
 }
 
-// LockImageStudioCapacityTx serializes admission through an existing v3 table.
-// The caller must keep its checks and inserts in this same transaction.
+// LockImageStudioCapacityTx serializes idempotency and input ownership changes
+// with acceptance and GC through an existing v3 table.
 func LockImageStudioCapacityTx(tx *gorm.DB) error {
 	if tx == nil {
 		return ErrImageBillingInvalidRequest
@@ -37,60 +34,6 @@ func LockImageStudioCapacityTx(tx *gorm.DB) error {
 	// SELECT FOR UPDATE is unavailable. No lease expiry releases this DB lock.
 	return tx.Model(&KKAIJobLease{}).Where("lease_name = ?", name).
 		Update("updated_at", time.Now().Unix()).Error
-}
-
-// CheckImageGenerationCapacityTx must precede generation creation in the same
-// transaction. Both legacy synchronous and asynchronous admissions use this gate.
-func CheckImageGenerationCapacityTx(tx *gorm.DB, userID, maxTotal, maxPerUser int) error {
-	if userID <= 0 || maxTotal <= 0 || maxPerUser <= 0 {
-		return ErrImageBillingInvalidRequest
-	}
-	if err := LockImageStudioCapacityTx(tx); err != nil {
-		return err
-	}
-	active := []string{ImageGenerationStatusSubmitting, ImageGenerationStatusRecovering}
-	var total, owned int64
-	if err := tx.Model(&KKAIImageGeneration{}).Where("status IN ?", active).Count(&total).Error; err != nil {
-		return err
-	}
-	if total >= int64(maxTotal) {
-		return ErrImageGenerationCapacityExceeded
-	}
-	if err := tx.Model(&KKAIImageGeneration{}).Where("status IN ? AND user_id = ?", active, userID).
-		Count(&owned).Error; err != nil {
-		return err
-	}
-	if owned >= int64(maxPerUser) {
-		return ErrImageGenerationCapacityExceeded
-	}
-	return nil
-}
-
-// CheckImageExecutionCapacityTx shares execution slots with legacy requests.
-// Queued async work consumes admission capacity but not an execution slot.
-func CheckImageExecutionCapacityTx(tx *gorm.DB, maxConcurrent int, excludeGenerationID int64) error {
-	if maxConcurrent <= 0 || excludeGenerationID < 0 {
-		return ErrImageBillingInvalidRequest
-	}
-	if err := LockImageStudioCapacityTx(tx); err != nil {
-		return err
-	}
-	legacy := tx.Model(&KKAIImageGeneration{}).Where("status IN ? AND id <> ?", []string{ImageGenerationStatusSubmitting, ImageGenerationStatusRecovering}, excludeGenerationID)
-	var running, synchronous int64
-	if tx.Migrator().HasTable(&KKAIImageExecution{}) {
-		legacy = legacy.Where("id NOT IN (?)", tx.Model(&KKAIImageExecution{}).Select("generation_id"))
-		if err := tx.Model(&KKAIImageExecution{}).Where("generation_id <> ? AND state IN ? AND recovery_deadline_at > ?", excludeGenerationID,
-			[]string{ImageGenerationExecutionPreparing, ImageGenerationExecutionDispatching, ImageGenerationExecutionUnknown}, time.Now().Unix()).Count(&running).Error; err != nil {
-			return err
-		}
-	}
-	if err := legacy.Count(&synchronous).Error; err != nil {
-		return err
-	}
-	if running+synchronous >= int64(maxConcurrent) {
-		return ErrImageGenerationCapacityExceeded
-	}
-	return nil
 }
 
 // RequireImageWorkerFenceTx holds the leader and event rows until the caller's

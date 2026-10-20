@@ -22,35 +22,30 @@ import (
 )
 
 func RegisterImageGenerationBackgroundJobs(registry *service.BackgroundJobRegistry, workerID string) error {
-	// Each lane claims one job; the transaction also enforces the live global cap.
-	for lane := 0; lane < image_studio_setting.Get().MaxConcurrentSubmissions; lane++ {
-		processor := service.NewKKAIOutboxProcessor(model.DB, fmt.Sprintf("%s-image-generation-%d", workerID, lane))
-		if err := processor.Register(service.ImageGenerateTopic, runImageGenerationEvent); err != nil {
-			return err
-		}
-		if err := registry.Register(service.BackgroundJob{
-			Name: fmt.Sprintf("image-studio-generation-%d", lane), Interval: 2 * time.Second, RunOnStart: true, WritesData: true, RequiresLeaderLease: true,
-			Run: func(ctx context.Context) error {
+	processor := service.NewKKAIOutboxProcessor(model.DB, workerID+"-image-generation")
+	if err := processor.Register(service.ImageGenerateTopic, runImageGenerationEvent); err != nil {
+		return err
+	}
+	return registry.Register(service.BackgroundJob{
+		Name: "image-studio-generation", Interval: 2 * time.Second, RunOnStart: true, WritesData: true, RequiresLeaderLease: true,
+		Run: func(ctx context.Context) error {
+			return processor.RunConcurrent(ctx, 2*time.Second, func(ctx context.Context) (context.Context, func(), error) {
 				if !image_studio_setting.Get().WorkerEnabled || !service.ImageAsyncSchemaReady(ctx, model.DB) {
-					return nil
+					return ctx, nil, nil
 				}
 				finish, ok := service.BeginImageWorkerOperation()
 				if !ok {
-					return nil
+					return ctx, nil, nil
 				}
-				defer finish()
 				ctx, err := service.WithCurrentImageWorkerLease(ctx, workerID)
 				if err != nil {
-					return err
+					finish()
+					return ctx, nil, err
 				}
-				_, err = processor.ProcessBatch(ctx, 1)
-				return err
-			},
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
+				return ctx, finish, nil
+			})
+		},
+	})
 }
 
 func runImageGenerationEvent(ctx context.Context, event model.KKAIOutboxEvent) (handlerErr error) {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 
 	"gorm.io/gorm"
 )
@@ -77,10 +76,6 @@ func CreateImageGeneration(
 	requestID string,
 	reservationID int64,
 ) (*model.KKAIImageGeneration, error) {
-	return createImageGeneration(ctx, db, normalized, requestID, reservationID, false)
-}
-
-func createImageGeneration(ctx context.Context, db *gorm.DB, normalized *NormalizedImageStudioSubmission, requestID string, reservationID int64, queued bool) (*model.KKAIImageGeneration, error) {
 	requestID = strings.TrimSpace(requestID)
 	if db == nil || normalized == nil || normalized.UserID <= 0 || normalized.TokenID <= 0 ||
 		normalized.ProfileID <= 0 || !validImageStudioHash(normalized.RequestHash) ||
@@ -102,14 +97,8 @@ func createImageGeneration(ctx context.Context, db *gorm.DB, normalized *Normali
 		HeartbeatAt:  now, StartedAt: now, CreatedAt: now, UpdatedAt: now,
 	}
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		settings := image_studio_setting.Get()
-		if err := model.CheckImageGenerationCapacityTx(tx, normalized.UserID, settings.MaxQueuedGenerations, settings.MaxConcurrentSubmissionsPerUser); err != nil {
+		if err := model.LockImageStudioCapacityTx(tx); err != nil {
 			return err
-		}
-		if !queued {
-			if err := model.CheckImageExecutionCapacityTx(tx, settings.MaxConcurrentSubmissions, 0); err != nil {
-				return err
-			}
 		}
 		if err := tx.Create(generation).Error; err != nil {
 			return err

@@ -44,7 +44,7 @@ func TestImageAsyncRealDatabaseContract(t *testing.T) {
 			require.NoError(t, db.Table("users").Create(map[string]any{"id": 1, "quota": 1000}).Error)
 			abort := errors.New("acceptance insert aborted")
 			err = db.Transaction(func(tx *gorm.DB) error {
-				if err := model.CheckImageGenerationCapacityTx(tx, 1, 32, 1); err != nil {
+				if err := model.LockImageStudioCapacityTx(tx); err != nil {
 					return err
 				}
 				generation := model.KKAIImageGeneration{UserID: 1, TokenID: 1, ModelProfileID: 1, Model: "image-test", Prompt: "test", Parameters: "{}", RequestHash: "hash", RequestID: "atomic-db-test", Status: model.ImageGenerationStatusSubmitting, BillingState: model.ImageGenerationBillingStatePending, RequestedCount: 1}

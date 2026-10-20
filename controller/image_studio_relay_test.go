@@ -412,27 +412,6 @@ func TestImageStudioErrorStatusPreservesClientAndConcurrencyFailures(t *testing.
 	}
 }
 
-func TestImageStudioSubmissionCapacityEnforcesGlobalAndPerUserBounds(t *testing.T) {
-	resetImageStudioSubmissionCapacity(t)
-	require.True(t, imageStudioCapacity.acquire(7, 2, 1))
-	require.False(t, imageStudioCapacity.acquire(7, 2, 1))
-	require.True(t, imageStudioCapacity.acquire(8, 2, 1))
-	require.False(t, imageStudioCapacity.acquire(9, 2, 1))
-
-	imageStudioCapacity.release(7)
-	require.True(t, imageStudioCapacity.acquire(9, 2, 1))
-	imageStudioCapacity.release(8)
-	imageStudioCapacity.release(9)
-	imageStudioCapacity.mu.Lock()
-	require.Zero(t, imageStudioCapacity.total)
-	require.Empty(t, imageStudioCapacity.byUser)
-	imageStudioCapacity.mu.Unlock()
-
-	status, code := imageStudioErrorStatus(service.ErrImageStudioCapacityExceeded)
-	require.Equal(t, http.StatusTooManyRequests, status)
-	require.Equal(t, "image_studio_busy", code)
-}
-
 func TestImageStudioIdempotentReplayStatusContract(t *testing.T) {
 	db, token := newImageStudioRelayTestDB(t)
 	now := time.Now().Unix()
@@ -467,18 +446,6 @@ func TestImageStudioIdempotentReplayStatusContract(t *testing.T) {
 		assert.Equal(t, test.retryAfter, recorder.Header().Get("Retry-After"))
 		assert.Contains(t, recorder.Body.String(), `"status":"`+test.viewStatus+`"`)
 	}
-}
-
-func resetImageStudioSubmissionCapacity(t *testing.T) {
-	t.Helper()
-	reset := func() {
-		imageStudioCapacity.mu.Lock()
-		imageStudioCapacity.total = 0
-		clear(imageStudioCapacity.byUser)
-		imageStudioCapacity.mu.Unlock()
-	}
-	reset()
-	t.Cleanup(reset)
 }
 
 func newImageStudioRelayTestDB(t *testing.T) (*gorm.DB, model.Token) {
