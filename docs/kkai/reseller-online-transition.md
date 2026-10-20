@@ -1,12 +1,12 @@
 # 代理站在线兼容改造与验收
 
-日期：2026-10-20。状态：本地实现与隔离验收，不是生产发布指令。
+日期：2026-10-20。状态：平台后端、最终 schema 和前端已发布验收；首个代理账号、前缀和域名业务开放待分配。本文是执行记录，不是可直接重放的生产发布指令。
 
 本记录取代此前将代理站上线绑定到全站停写的发布建议。产品仍采用一套 NewAPI、一套主数据库和受限代理后台；本次只调整数据库与旧程序共存的交付路径。历史 v12/v13 定义、checksum 和原发布/恢复证据保留，不能将它们的验收结果算作 v14 的验收结果。
 
-兼容应用发布前，已安装精确控制器 `3bde016bd98c1231a361b3367617edfe66bbd04d`；安装自检、真实安装目录的 tenant preflight 入口及安装后主站 status 通过，对应 `make policy` 完整通过。生产在线增量扩展已完成 44/44 步，主账本仍为 11，旧用户名约束保留。首个 bridge A4 完成候选检查、完整 10/50/100 灰度及 promotion，但发布后错误窗未通过，已通过官方控制器回滚原版本；不能计为已验收的第一次 bridge 发布。尚未进行 contract 或代理业务开放。本轮在线扩展和蓝绿回滚未进入维护，`appdata` 固定 16 GiB，严禁扩容。生产状态必须另行通过已确认 infra 的 `make newapi-status` 现场观察，本文不以历史结果声明当前线上状态。
+已安装控制器和应用 pin 均为 `3bde016bd98c1231a361b3367617edfe66bbd04d`。在线扩展、两次重新验收的 bridge 发布、contract14、最终 feature 发布及独立前端激活均已完成。下面保留第一次 A4 回滚和诊断的历史，最终坐标与验收见「平台发布完成记录」。本轮在线交付未进入维护或停写，未扩容 `appdata`；其固定 16 GiB 合同保持不变。生产状态仍必须通过已确认 infra 的 `make newapi-status` 现场观察，本文不代替实时状态。
 
-2026-10-20 发布阻断记录（本段窗口均为 2026-10-19 UTC）：原版 baseline `23:17:50–23:22:50` 为 124 个 Relay 事件、0 错误；A4 `23:40:59–23:45:59` 为 161 个事件、19 个 502，分布于五分钟中的四分钟。官方 rollback 返回 `rolled-back`，恢复原版 `kkai-prod-20261019.1792407452-55744a4ed`；即时和后续 status 均为 HEALTHY、rollback ready，两公网入口返回精确原版本。回滚后 `23:51:00–23:56:00` 为 157 个事件、1 个 404、0 个 502。19 是含重试的错误事件数，不能当作用户失败数，时间关联也不能替代根因。后续资金 bridge、contract14、新前端激活及业务 Edge 均停止推进，保留已构建产物与原窗口。
+2026-10-20 首次发布阻断历史（本段窗口均为 2026-10-19 UTC）：原版 baseline `23:17:50–23:22:50` 为 124 个 Relay 事件、0 错误；A4 `23:40:59–23:45:59` 为 161 个事件、19 个 502，分布于五分钟中的四分钟。官方 rollback 返回 `rolled-back`，恢复原版 `kkai-prod-20261019.1792407452-55744a4ed`；即时和后续 status 均为 HEALTHY、rollback ready，两公网入口返回精确原版本。回滚后 `23:51:00–23:56:00` 为 157 个事件、1 个 404、0 个 502。19 是含重试的错误事件数，不能当作用户失败数，时间关联也不能替代根因。当时暂停后续资金 bridge、contract14、新前端激活及业务 Edge，保留已构建产物与原窗口；这个暂停状态已被后续重新验收取代。
 
 后续上下文也保留独立窗口：10% 灰度的 120 秒为 29 个事件、1 个 502 和 1 个 404，50% 为 48 个事件、1 个 502，100% 为 62 个事件、1 个 413；混流聚合不能分辨产生事件的版本。2026-10-20 UTC `01:40:00–01:45:00`，旧版仍被选中时出现 1057 个事件、66 个 502，亦为 `openai_error` / 未知代码。因此不能直接宣布 A4 引入或未引入回归，也不能把状态页健康当作模型业务无故障；必须继续限定范围调查。
 
@@ -21,7 +21,61 @@
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v scripts.tests.test_newapi_error_window`：11 项通过。
 - `PYTHONDONTWRITEBYTECODE=1 python3 /Users/tokk/.codex/tmp/kkai-reseller-online-release-20261020/check-error-signature-local-pg.py`：本地隔离 PostgreSQL 18.4 的 27 行夹具通过，临时数据库和容器均已清理。
 - infra `make policy`：完整通过，记录为 `policy-error-signature-diagnostics.log`；独立审查无 P1/P2。
-- `git diff --check`：通过；本轮未运行应用全仓库测试，也未重新构建或发布应用。
+- `git diff --check`：通过；该诊断修改未运行应用全仓库测试，也未要求重建或发布应用。
+
+## 2026-10-20 平台发布完成记录
+
+用户选择「先完成平台上线，代理账号和前缀以后再定」。本次没有创建虚构 owner、租户或子域名，没有转换现有客户。`kkai.win` 的业务 Edge 未 apply，保留既有 reject-only 接入；后续明确 owner 和前缀后，再登记域名并完成真实代理试点验收。
+
+| 已验收对象 | 精确版本或状态 |
+| --- | --- |
+| 第一次重新验收的 bridge A4 | `kkai-prod-20261019.1792452025-4a8165d34`，rollout `841f049e38cb40c08502d08cbd94fecf` |
+| 第二次 bridge B | `kkai-prod-20261019.1792452394-7da8ea7d9`，rollout `6aa3bb10e8944be781f0b7b3d27b99ea` |
+| 最终数据库 | canonical 1–11、14，`finalized`，44/44；contract 和独立只读 status 均 verified |
+| 最终后端 C | `kkai-prod-20261020.1792466895-dad8a4792`，feature/external，rollout `619fce2400bb48e483801d4d9bf3b284` |
+| 最终回滚 | B，源码 `7da8ea7d91c4a473840a9a569343226036abf6a3`，保留精确有理数资金修复 |
+| 最终前端 | `kkai-frontend-20261019.1792452856-d9d82eccf`，format2/API2 |
+| 前端 previous | `kkai-frontend-20261019.1792407847-a58fb93c2`；官方 rollback-plan 为 `backend-only` |
+
+A4/B 均复用原不可变产物，重新完成私有候选检查、10%/50%/100% 每档至少 120 秒、promotion、即时和五分钟后 status，以及等长错误窗复核。A4 发布后为 38/1355 个错误事件，基线 201/1400；B 发布后为 39/1545，基线 43/1396。它们是真实的两次已接受 bridge 发布，不将首次回滚或指针修复算作成功发布。
+
+contract 通过新鲜 plan 确认值 `3b7fd5f6b7f07b5f0f03049b651d1c35620be04b276824acad9b0b28c818fd64` 执行，独立 `status --operation contract` 确认 version14、finalized、44/44。随后只构建一次正式 feature/external 后端；C 相对 B 的 Go、迁移和发布脚本没有变化，仅前端金额显示及文档变化，因此没有重跑已通过的 195 项隔离业务演练。候选实际 HTTP 启动快照为 finalized、ready=true、serving、routing=true、后台任务关闭；15 项主站 Host、鉴权、私有接口及未知域名检查通过。
+
+C 正式晋级后，即时和实际五分钟后的 `make newapi-status` 均为精确目标版本、HEALTHY、snapshot stable、rollback ready。writer 的真实 HTTP 快照为 finalized、ready=true、routing=true、leader、后台任务开启。最终 manifest 核对 active C、rollback B，以及无 candidate/switch 事务；未手动重启进程。后端发布保留原前端，事务结束后才 prepare/activate 新前端。
+
+C 的错误窗口均为 2026-10-20 UTC，含重试的日志事件比例不代表客户失败率：
+
+| 窗口 | 总事件 / 错误事件 | 状态 |
+| --- | --- | --- |
+| 固定 120 秒基线 | 592 / 17 | 17×502 |
+| C 10% | 512 / 12 | 10×502、400/404 各一条 |
+| C 50% | 673 / 5 | 4×502、一条 500/claude_error |
+| C 100% | 576 / 7 | 7×502 |
+| 发布前 `03:24:04–03:29:04` | 1557 / 44 | 42×502、2×404 |
+| 发布后 `03:44:48–03:49:48` | 1391 / 3 | 1×502、2×未知路由 404 |
+
+50% 的孤立 Claude 500 在 100% 和五分钟发布后窗口未复现，仍保留为未归因事件。剩余 502 和未知路由 404 同样不宣称已定位根因；未发现与候选相关的新故障证据。操作者与独立复核接受发布，不以零错误为条件，也不宣称全体线上请求零失败。
+
+前端实测入口、登录/注册、模型广场和代理路径返回精确新资源；JS/CSS 为版本化 immutable 地址，metadata 不公开。完整同名 `Cache-Control` 响应头包含 no-store；`expires -1` 另生成的第一条 no-cache 不是缓存策略回归。浏览器显示 KKAI 首页、登录和注册表单，未登录进入代理后台跳至 403；API 权限拒绝通过。没有注册生产测试账号或调用真实收费模型/支付来凑验收。
+
+首页原始 SHA 校验保留一个明确的限定例外：`/assets/kikai-home.html` 公网 200/no-store，但 Cloudflare 自动注入一段固定统计脚本并调整结束标签缩进。原始公网 SHA 为 `655b1ffd2402c8d839a6431626fc94e11f0825e2827b775e030a57038d09ae8d`，产物 SHA 为 `ab442b86decb6c129ac25c5b2ce8824ee37498ac6f6f15ff34de390751a7cfc8`，不能标记原始 SHA 一致。仅替换那段完整固定字节、要求恰好一次后，其余内容与当前文件逐字节一致，归一后 SHA 等于产物；操作者在用户自主继续、不得影响主站的授权内限定接受该已识别转换。未改 Cloudflare 统计或 Edge，也未使用任意 script/空白过滤。固定比较段从行首两空格的 `<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/…"` 开始，包含完整 SRI、data-cf-beacon 和下一行 `</body>`，不含末尾换行，SHA 为 `d7c31959ec265a7ca72cd1bf7ce50f86363ebc7c1c0fea93dbcb357242cb43a0`。
+
+执行命令与结果（SSH 均使用 sys1 的既定私网选项，以下省略重复选项；这些是执行记录）：
+
+```sh
+sudo -n /usr/local/sbin/kkai-newapi-schema-migrate tenant-online contract --artifact-receipt /srv/kkai/newapi-tenant-online/artifacts/kkai-prod-20261019.1792452394-7da8ea7d9/receipt.json --confirm-plan-sha256 3b7fd5f6b7f07b5f0f03049b651d1c35620be04b276824acad9b0b28c818fd64
+sudo -n /usr/local/sbin/kkai-newapi-schema-migrate tenant-online status --operation contract --artifact-receipt /srv/kkai/newapi-tenant-online/artifacts/kkai-prod-20261019.1792452394-7da8ea7d9/receipt.json
+scripts/kkai/build-manual-release.sh --schema-contract feature --frontend-mode external
+scripts/kkai/deploy-manual-release.sh --stage /Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261020.1792466895-dad8a4792.json --tenant-routing-enabled true
+python3 /Users/tokk/.codex/tmp/kkai-reseller-online-release-20261020/check-candidate.py --version kkai-prod-20261020.1792466895-dad8a4792 --routing true
+make newapi-status
+BASELINE_START=2026-10-20T03:24:04Z BASELINE_END=2026-10-20T03:29:04Z CANDIDATE_START=2026-10-20T03:44:48Z CANDIDATE_END=2026-10-20T03:49:48Z make newapi-error-window
+sudo -n /usr/local/sbin/kkai-frontend-manual-deploy prepare --metadata /tmp/kkai-frontend-20261019.1792452856-d9d82eccf.json --backend-manifest /srv/kkai/newapi-releases/kkai-prod-20261020.1792466895-dad8a4792/release-manifest.yml
+sudo -n /usr/local/sbin/kkai-frontend-manual-deploy activate --release-id kkai-frontend-20261019.1792452856-d9d82eccf --expected-current-release kkai-frontend-20261019.1792407847-a58fb93c2 --backend-manifest /srv/kkai/newapi-releases/kkai-prod-20261020.1792466895-dad8a4792/release-manifest.yml
+sudo -n /usr/local/sbin/kkai-frontend-manual-deploy rollback-plan --backend-manifest /srv/kkai/newapi-rollback/release-manifest.yml
+```
+
+以上命令均退出 0；完整 stage、三档 rollout、handoff/promote、前端和只读 HTTP 证据保存在 `/Users/tokk/.codex/tmp/kkai-reseller-online-release-20261020/resume/`。`C-status-pre-delay.txt` 是提前取得的附加状态，不冒充五分钟延迟证据；正确延迟证据为 `C-status-delayed.txt`。旧 v10 schema snapshot 使自动 release/image 清理延期，warning 已记录，不是 promotion 失败；保留生产回滚资产、schema receipt/archive。全仓库测试未运行；此前的定向财务、跨数据库和真实 HTTP 检查没有因纯文档或本次重复确认而重跑。
 
 ## 1. 数据库与程序的过渡顺序
 
@@ -151,12 +205,12 @@ git diff --check
 
 只读复审提出的 Currency 默认值、SQLite 部分唯一索引和 MySQL 新 schema 可达性问题均已修正。迁移/控制器独立复审未发现新的可复现 P1/P2；该结论不覆盖真实资金演练随后发现的精度缺陷，也不替代实际发布与业务验收。
 
-## 5. 接下来必须完成的发布准备
+## 5. 发布约束与后续代理分配
 
 1. 控制器在不停主站的前提下执行扩展，并明确记录 exact plan、每步结果、停止条件和恢复方式；不能进入全站维护来替代在线兼容设计。
 2. 控制器证明 active、rollback、后台 writer/leader/worker 的实际二进制、schema 能力与代理关闭状态。contract 后禁止选回原 schema 11 二进制；回滚指针必须已经指向新 bridge。
 3. 在生产等规模副本上验证耗时、长事务和锁预算；任何不满足条件的检查应退出并保持原站服务，而非自动切为维护。独立 `LOG_DB` 若启用，必须补专用在线扩展与验证，不能沿用旧的普通建索引入口冒充在线迁移。
-4. 用精确构建的旧/新产物完成 HTTP、支付、模型、Redis 与后台并存演练，并验证原用户余额、Token 和 session；本轮的 GORM/模型测试不能替代它。
-5. 用户已要求自主继续，但主站不得停机。先完成两次独立 bridge 的完整蓝绿验收，使 active/rollback/writer 都有兼容版本，再做 contract；最后通过正式发布启动最终 schema 进程并仅开放一个代理子域试点。DNS/TLS/Edge 及停租户行为单独验收，不把历史 reject-only 接入当作业务开放。
+4. 用精确构建的旧/新产物完成 HTTP、支付、模型、Redis 与后台并存演练，并验证原用户余额、Token 和 session；GORM/模型测试不能替代真实 HTTP。本次两种层面的验收均已完成，证据见前文。
+5. 本次两次 bridge、contract 和最终功能发布已完成。按用户最后选择，首个代理 owner 和前缀以后确定；明确分配后再登记 tenant/domain、审查增量业务 Edge，并完成真实 DNS/TLS/Host、代理及停租户验收。不能把平台路由开关或历史 reject-only 接入当作代理域名已开放，也不能隐式将现有客户转成 owner。
 
 原维护控制器的恢复顺序已在本地修复并有独立回归：内部 router 在辅助服务探针前可用，公网恢复在所有必要服务之后。它随精确控制器版本验证安装，不是本次进入维护的授权；本次交付不执行维护路径。
