@@ -31,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getResellerEarnings, resellerQueryKey } from './api'
@@ -38,6 +39,7 @@ import { formatMinor, formatExactMinor } from './money'
 
 export function EarningsPanel() {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const userId = useAuthStore((state) => state.auth.user?.id)
   const query = useQuery({
     queryKey: resellerQueryKey(userId, 'earnings'),
@@ -109,9 +111,7 @@ export function EarningsPanel() {
           {earnings.ledger.map((entry) => (
             <TableRow key={entry.id}>
               <TableCell>
-                {new Date(entry.created_at * 1000).toLocaleString(
-                  i18n.language
-                )}
+                {new Date(entry.created_at * 1000).toLocaleString(locale)}
               </TableCell>
               <TableCell className='max-w-48 truncate'>
                 {entry.source_reference}
@@ -136,9 +136,7 @@ export function EarningsPanel() {
               </TableCell>
               <TableCell>
                 {entry.available_at > 0
-                  ? new Date(entry.available_at * 1000).toLocaleString(
-                      i18n.language
-                    )
+                  ? new Date(entry.available_at * 1000).toLocaleString(locale)
                   : '—'}
               </TableCell>
             </TableRow>

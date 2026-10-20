@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { toIntlLocale } from '@/i18n/languages'
+
 /** Convert a user-entered CNY amount without floating-point rounding. */
 export function parseCnyMinor(value: string): number | null {
   const match = /^(0|[1-9]\d{0,10})(?:\.(\d{1,2}))?$/.exec(value.trim())
@@ -28,7 +30,7 @@ export function parseCnyMinor(value: string): number | null {
 
 /** Floating point is only used for display; ledger values remain integer cents. */
 export function formatMinor(value: number, locale: string): string {
-  return new Intl.NumberFormat(locale, {
+  return new Intl.NumberFormat(toIntlLocale(locale), {
     style: 'currency',
     currency: 'CNY',
   }).format(value / 100)
@@ -58,13 +60,14 @@ export function formatExactMinor(value: string, locale: string): string {
   const cents = `${match[2]}${rawFraction}`.padStart(scale + 1, '0')
   const yuan = BigInt(cents.slice(0, -scale))
   const fraction = cents.slice(-scale).replace(/0+$/, '').padEnd(2, '0')
+  const intlLocale = toIntlLocale(locale)
   const decimalSeparator =
-    new Intl.NumberFormat(locale)
+    new Intl.NumberFormat(intlLocale)
       .formatToParts(1.1)
       .find((part) => part.type === 'decimal')?.value ?? '.'
   const currency =
-    new Intl.NumberFormat(locale, { style: 'currency', currency: 'CNY' })
+    new Intl.NumberFormat(intlLocale, { style: 'currency', currency: 'CNY' })
       .formatToParts(0)
       .find((part) => part.type === 'currency')?.value ?? 'CNY'
-  return `${approximate ? '≈' : ''}${match[1]}${currency} ${new Intl.NumberFormat(locale).format(yuan)}${decimalSeparator}${fraction}`
+  return `${approximate ? '≈' : ''}${match[1]}${currency} ${new Intl.NumberFormat(intlLocale).format(yuan)}${decimalSeparator}${fraction}`
 }

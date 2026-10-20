@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 
+import { toIntlLocale } from '@/i18n/languages'
+
 import type { ResellerWithdrawal } from './api'
 import { withdrawalStatusLabel } from './withdrawal-status'
 
@@ -34,6 +36,7 @@ const timelineSchema = z.array(
 
 export function WithdrawalTimeline(props: { withdrawal: ResellerWithdrawal }) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   let timeline: z.infer<typeof timelineSchema> = []
   try {
     const result = timelineSchema.safeParse(
@@ -52,7 +55,7 @@ export function WithdrawalTimeline(props: { withdrawal: ResellerWithdrawal }) {
           <li key={`${event.status}:${event.at}:${event.actor_id ?? 0}`}>
             <p>
               {withdrawalStatusLabel(event.status, t)} ·{' '}
-              {new Date(event.at * 1000).toLocaleString(i18n.language)}
+              {new Date(event.at * 1000).toLocaleString(locale)}
             </p>
             {Boolean(event.actor_id) && (
               <p>
@@ -69,7 +72,7 @@ export function WithdrawalTimeline(props: { withdrawal: ResellerWithdrawal }) {
           <li>
             {withdrawalStatusLabel(props.withdrawal.status, t)} ·{' '}
             {new Date(props.withdrawal.updated_at * 1000).toLocaleString(
-              i18n.language
+              locale
             )}
           </li>
         )}

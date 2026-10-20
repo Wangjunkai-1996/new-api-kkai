@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
-import { formatExactMinor, parseCnyMinor } from './money'
+import { formatExactMinor, formatMinor, parseCnyMinor } from './money'
 
 describe('withdrawal input', () => {
   test.each([
@@ -42,6 +42,17 @@ describe('withdrawal input', () => {
     expect(parseCnyMinor(value)).toBeNull()
   })
 })
+
+test.each([
+  ['zhCN', '¥100.01', '¥ 1.234567'],
+  ['zhTW', 'CN¥100.01', 'CN¥ 1.234567'],
+])(
+  'Chinese interface amounts render without losing sub-cent precision (%s)',
+  (language, amount, exactAmount) => {
+    expect(formatMinor(10001, language)).toBe(amount)
+    expect(formatExactMinor('123.4567', language)).toBe(exactAmount)
+  }
+)
 
 test('exact settlement costs retain sub-cent precision', () => {
   expect(formatExactMinor('123.4567', 'en')).toBe('CN¥ 1.234567')

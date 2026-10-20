@@ -44,6 +44,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useSiteConfig } from '@/features/site-config'
+import { toIntlLocale } from '@/i18n/languages'
 import {
   handleServerError,
   markServerErrorHandled,
@@ -72,6 +73,7 @@ const schema = z.object({
 
 export function ResellerApplicationPage() {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const client = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
   const userId = user?.id
@@ -173,7 +175,7 @@ export function ResellerApplicationPage() {
             <CardContent className='space-y-2 text-sm'>
               <p>
                 {applicationStatusLabel(application.status, t)} ·{' '}
-                {new Date(application.created_at).toLocaleString(i18n.language)}
+                {new Date(application.created_at).toLocaleString(locale)}
               </p>
               {application.desired_domain_prefix && (
                 <p>

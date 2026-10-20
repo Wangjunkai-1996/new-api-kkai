@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  getDefaultNormalizer,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -33,12 +39,13 @@ const site = vi.hoisted(() => ({
   },
   isPending: false,
 }))
+const i18n = vi.hoisted(() => ({ language: 'en' }))
 vi.mock('@/features/site-config', () => ({ useSiteConfig: () => site }))
 vi.mock('@/components/layout', () => ({
   PublicLayout: (props: { children: React.ReactNode }) => props.children,
 }))
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
+  useTranslation: () => ({ t: (key: string) => key, i18n }),
 }))
 vi.mock('@/lib/handle-server-error', () => ({
   handleServerError: vi.fn(),
@@ -52,6 +59,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 beforeEach(() => {
+  i18n.language = 'en'
   site.data.reseller_domain_prefix_enabled = true
   vi.spyOn(adminApi, 'getApplications').mockResolvedValue([])
 })
@@ -78,33 +86,60 @@ const application: adminApi.ResellerApplication = {
   created_at: '2026-10-20T00:00:00Z',
 }
 
-test('applicants preview and submit a preferred prefix without entering optional contact details', async () => {
-  const submit = vi
-    .spyOn(adminApi, 'submitApplication')
-    .mockResolvedValue(application)
-  renderPage()
-  const user = userEvent.setup()
-  await user.type(await screen.findByLabelText('Site Name'), 'KimiAI')
-  await user.type(
-    screen.getByLabelText('Preferred Domain Prefix (optional)'),
-    'KiMi'
-  )
-  expect(screen.getByText('https://kimi.kkai.win')).toBeVisible()
-  await user.type(screen.getByLabelText('Contact Email'), 'owner@example.com')
-  await user.click(screen.getByRole('button', { name: 'Submit Application' }))
-  await waitFor(() =>
-    expect(submit).toHaveBeenCalledWith(
-      {
-        business_name: 'KimiAI',
-        desired_domain_prefix: 'kimi',
-        contact_name: '',
-        contact_email: 'owner@example.com',
-        notes: '',
-      },
-      expect.anything()
+test.each([
+  { language: 'zhCN', locale: 'zh-CN' },
+  { language: 'zhTW', locale: 'zh-TW' },
+])(
+  'applicants see their pending application after submitting a preferred prefix ($language)',
+  async ({ language, locale }) => {
+    i18n.language = language
+    const pendingApplication: adminApi.ResellerApplication = {
+      ...application,
+      tenant_id: 0,
+      status: 'pending',
+    }
+    vi.mocked(adminApi.getApplications)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([pendingApplication])
+    const submit = vi
+      .spyOn(adminApi, 'submitApplication')
+      .mockResolvedValue(pendingApplication)
+    renderPage()
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Site Name'), 'KimiAI')
+    await user.type(
+      screen.getByLabelText('Preferred Domain Prefix (optional)'),
+      'KiMi'
     )
-  )
-})
+    expect(screen.getByText('https://kimi.kkai.win')).toBeVisible()
+    await user.type(screen.getByLabelText('Contact Email'), 'owner@example.com')
+    await user.click(screen.getByRole('button', { name: 'Submit Application' }))
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith(
+        {
+          business_name: 'KimiAI',
+          desired_domain_prefix: 'kimi',
+          contact_name: '',
+          contact_email: 'owner@example.com',
+          notes: '',
+        },
+        expect.anything()
+      )
+    )
+    expect(await screen.findByText('KimiAI')).toBeVisible()
+    expect(
+      screen.getByText(
+        getDefaultNormalizer()(
+          `Pending · ${new Date(pendingApplication.created_at).toLocaleString(locale)}`
+        )
+      )
+    ).toBeVisible()
+    expect(screen.queryByLabelText('Site Name')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Submit Application' })
+    ).not.toBeInTheDocument()
+  }
+)
 
 test('a claimed prefix is shown beside the input while preserving the application for correction', async () => {
   vi.spyOn(adminApi, 'submitApplication').mockRejectedValue({
@@ -162,32 +197,36 @@ test('an older backend keeps blank-prefix applications available without discard
   )
 })
 
-test('administrators see the requested domain and explicitly assign the prefilled hostname', async () => {
-  const provision = vi.spyOn(adminApi, 'provisionDomain').mockResolvedValue()
-  renderPage(
-    <>
-      <AdminApplications applications={[application]} rootDomain='kkai.win' />
-      <AdminTenants
-        tenants={[
-          {
-            id: 47,
-            display_name: 'KimiAI',
-            status: 'provisioning',
-            domains: [],
-          },
-        ]}
-        applications={[application]}
-        rootDomain='kkai.win'
-      />
-    </>
-  )
-  expect(screen.getByText('kimi.kkai.win')).toBeVisible()
-  expect(screen.getByLabelText('Hostname')).toHaveValue('kimi.kkai.win')
-  expect(provision).not.toHaveBeenCalled()
-  await userEvent
-    .setup()
-    .click(screen.getByRole('button', { name: 'Assign Domain' }))
-  await waitFor(() =>
-    expect(provision).toHaveBeenCalledExactlyOnceWith(47, 'kimi.kkai.win')
-  )
-})
+test.each(['zhCN', 'zhTW'])(
+  'administrators see the requested domain and explicitly assign the prefilled hostname (%s)',
+  async (language) => {
+    i18n.language = language
+    const provision = vi.spyOn(adminApi, 'provisionDomain').mockResolvedValue()
+    renderPage(
+      <>
+        <AdminApplications applications={[application]} rootDomain='kkai.win' />
+        <AdminTenants
+          tenants={[
+            {
+              id: 47,
+              display_name: 'KimiAI',
+              status: 'provisioning',
+              domains: [],
+            },
+          ]}
+          applications={[application]}
+          rootDomain='kkai.win'
+        />
+      </>
+    )
+    expect(screen.getByText('kimi.kkai.win')).toBeVisible()
+    expect(screen.getByLabelText('Hostname')).toHaveValue('kimi.kkai.win')
+    expect(provision).not.toHaveBeenCalled()
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Assign Domain' }))
+    await waitFor(() =>
+      expect(provision).toHaveBeenCalledExactlyOnceWith(47, 'kimi.kkai.win')
+    )
+  }
+)

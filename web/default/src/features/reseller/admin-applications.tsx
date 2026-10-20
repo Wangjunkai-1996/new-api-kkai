@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -38,6 +39,7 @@ export function AdminApplications(props: {
   rootDomain?: string
 }) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const client = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const [review, setReview] = useState<{
@@ -102,9 +104,7 @@ export function AdminApplications(props: {
               <div>
                 <dt className='text-muted-foreground'>{t('Created At')}</dt>
                 <dd>
-                  {new Date(application.created_at).toLocaleString(
-                    i18n.language
-                  )}
+                  {new Date(application.created_at).toLocaleString(locale)}
                 </dd>
               </div>
               <div>

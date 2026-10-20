@@ -29,12 +29,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getResellerCustomers, resellerQueryKey } from './api'
 
 export function CustomersPanel() {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const userId = useAuthStore((state) => state.auth.user?.id)
   const query = useQuery({
     queryKey: resellerQueryKey(userId, 'customers'),
@@ -69,9 +71,7 @@ export function CustomersPanel() {
               {customer.status === 1 ? t('Active') : t('Disabled')}
             </TableCell>
             <TableCell>
-              {new Date(customer.created_at * 1000).toLocaleString(
-                i18n.language
-              )}
+              {new Date(customer.created_at * 1000).toLocaleString(locale)}
             </TableCell>
           </TableRow>
         ))}

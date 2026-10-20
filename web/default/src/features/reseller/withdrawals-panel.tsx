@@ -45,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -67,6 +68,7 @@ const withdrawalSchema = z.object({
 
 export function WithdrawalsPanel() {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const client = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const [pendingRequest, setPendingRequest] = useState<WithdrawalInput | null>(
@@ -263,7 +265,7 @@ export function WithdrawalsPanel() {
           {withdrawals.data.map((item) => (
             <TableRow key={item.id}>
               <TableCell>
-                {new Date(item.created_at * 1000).toLocaleString(i18n.language)}
+                {new Date(item.created_at * 1000).toLocaleString(locale)}
               </TableCell>
               <TableCell>
                 {formatMinor(item.amount_minor, i18n.language)}
