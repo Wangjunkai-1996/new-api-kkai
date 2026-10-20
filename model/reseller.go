@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -31,19 +32,21 @@ var (
 // application is intentionally separate from Tenant: a rejected or pending
 // application must not create a routable tenant.
 type ResellerApplication struct {
-	ID              int64      `json:"id" gorm:"primaryKey"`
-	ApplicantUserID int        `json:"applicant_user_id" gorm:"not null;index"`
-	TenantID        int64      `json:"tenant_id" gorm:"not null;default:0;index"`
-	BusinessName    string     `json:"business_name" gorm:"type:varchar(128);not null;default:''"`
-	ContactName     string     `json:"contact_name" gorm:"type:varchar(64);not null;default:''"`
-	ContactEmail    string     `json:"contact_email" gorm:"type:varchar(254);not null;default:''"`
-	Notes           string     `json:"notes" gorm:"type:text;not null"`
-	Status          string     `json:"status" gorm:"type:varchar(16);not null;index"`
-	ReviewedBy      int        `json:"reviewed_by" gorm:"not null;default:0"`
-	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
-	RejectionReason string     `json:"rejection_reason" gorm:"type:text;not null"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID              int64  `json:"id" gorm:"primaryKey"`
+	ApplicantUserID int    `json:"applicant_user_id" gorm:"not null;index"`
+	TenantID        int64  `json:"tenant_id" gorm:"not null;default:0;index"`
+	BusinessName    string `json:"business_name" gorm:"type:varchar(128);not null;default:''"`
+	ContactName     string `json:"contact_name" gorm:"type:varchar(64);not null;default:''"`
+	ContactEmail    string `json:"contact_email" gorm:"type:varchar(254);not null;default:''"`
+	// Added only by the explicit additive schema migration, never AutoMigrate.
+	DesiredDomainPrefix string     `json:"desired_domain_prefix" gorm:"type:varchar(63);-:migration"`
+	Notes               string     `json:"notes" gorm:"type:text;not null"`
+	Status              string     `json:"status" gorm:"type:varchar(16);not null;index"`
+	ReviewedBy          int        `json:"reviewed_by" gorm:"not null;default:0"`
+	ReviewedAt          *time.Time `json:"reviewed_at,omitempty"`
+	RejectionReason     string     `json:"rejection_reason" gorm:"type:text;not null"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 func (ResellerApplication) TableName() string { return "reseller_applications" }
@@ -106,8 +109,10 @@ func (application *ResellerApplication) BeforeCreate(_ *gorm.DB) error {
 	}
 	application.BusinessName = strings.TrimSpace(application.BusinessName)
 	application.ContactName = strings.TrimSpace(application.ContactName)
-	application.ContactEmail = strings.TrimSpace(application.ContactEmail)
-	if application.BusinessName == "" || application.ContactName == "" || application.ContactEmail == "" {
+	application.ContactEmail = NormalizeEmail(application.ContactEmail)
+	application.Notes = strings.TrimSpace(application.Notes)
+	address, emailErr := mail.ParseAddress(application.ContactEmail)
+	if application.BusinessName == "" || len(application.BusinessName) > 128 || len(application.ContactName) > 64 || len(application.ContactEmail) > 254 || len(application.Notes) > 4096 || emailErr != nil || address.Address != application.ContactEmail {
 		return ErrResellerInvalidApplication
 	}
 	if application.Status == "" {

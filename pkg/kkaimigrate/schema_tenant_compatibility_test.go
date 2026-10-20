@@ -244,7 +244,7 @@ func TestTenantCompatibilityRequiresPristineV11(t *testing.T) {
 
 func TestTenantCompatibilityLedgerHasOnlyOneReviewedReplacement(t *testing.T) {
 	catalog := migrationSet()
-	catalog[len(catalog)-1] = migration{
+	catalog[TenantCompatibilitySchemaVersion-1] = migration{
 		Version: 13, Name: "unreviewed-replacement", Kind: MigrationKindExpand,
 		ImplementationID: "unreviewed-v13", ChecksumVersion: migrationChecksumSchemaCurrent,
 		Statements: map[string][]migrationStatement{

@@ -34,6 +34,8 @@ const siteConfigSchema = z.object({
   homepage_content: z.string().optional(),
   enabled_modules: z.record(z.string(), z.boolean()).optional(),
   maintenance: z.boolean().optional(),
+  reseller_root_domain: z.string().optional(),
+  reseller_domain_prefix_enabled: z.boolean().optional(),
 })
 
 export type SiteConfig = z.infer<typeof siteConfigSchema>

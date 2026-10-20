@@ -36,6 +36,7 @@ import {
   provisionDomain,
   updateTenantStatus,
   type ManagedTenant,
+  type ResellerApplication,
 } from './admin-api'
 import { resellerQueryKey } from './api'
 
@@ -48,14 +49,18 @@ const domainSchema = z.object({
     .regex(/^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$/),
 })
 
-function TenantCard(props: { tenant: ManagedTenant }) {
+function TenantCard(props: {
+  tenant: ManagedTenant
+  requestedHostname: string
+  rootDomain?: string
+}) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const [confirmStatus, setConfirmStatus] = useState(false)
   const form = useForm({
     resolver: zodResolver(domainSchema),
-    defaultValues: { hostname: '' },
+    defaultValues: { hostname: props.requestedHostname },
   })
   const domain = useMutation({
     mutationFn: (data: z.infer<typeof domainSchema>) =>
@@ -136,7 +141,9 @@ function TenantCard(props: { tenant: ManagedTenant }) {
             <Input
               id={`domain-${props.tenant.id}`}
               autoComplete='off'
-              placeholder='agent.example.com'
+              placeholder={
+                props.rootDomain ? `kimi.${props.rootDomain}` : undefined
+              }
               {...form.register('hostname')}
               aria-invalid={Boolean(form.formState.errors.hostname)}
             />
@@ -176,16 +183,36 @@ function TenantCard(props: { tenant: ManagedTenant }) {
   )
 }
 
-export function AdminTenants(props: { tenants: ManagedTenant[] }) {
+export function AdminTenants(props: {
+  tenants: ManagedTenant[]
+  applications?: ResellerApplication[]
+  rootDomain?: string
+}) {
   const { t } = useTranslation()
   if (!props.tenants.length) {
     return <p className='text-muted-foreground p-4'>{t('No data available')}</p>
   }
   return (
     <div className='grid gap-4 lg:grid-cols-2'>
-      {props.tenants.map((tenant) => (
-        <TenantCard key={tenant.id} tenant={tenant} />
-      ))}
+      {props.tenants.map((tenant) => {
+        const application = props.applications?.find(
+          (item) => item.tenant_id === tenant.id && item.status === 'approved'
+        )
+        const requestedHostname =
+          props.rootDomain &&
+          application?.desired_domain_prefix &&
+          !tenant.domains.length
+            ? `${application.desired_domain_prefix}.${props.rootDomain}`
+            : ''
+        return (
+          <TenantCard
+            key={`${tenant.id}:${requestedHostname}`}
+            tenant={tenant}
+            requestedHostname={requestedHostname}
+            rootDomain={props.rootDomain}
+          />
+        )
+      })}
     </div>
   )
 }

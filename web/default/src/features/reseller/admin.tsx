@@ -71,10 +71,17 @@ export function ResellerAdmin() {
           {query.data && (
             <>
               <TabsContent value='applications'>
-                <AdminApplications applications={query.data.applications} />
+                <AdminApplications
+                  applications={query.data.applications}
+                  rootDomain={query.data.root_domain}
+                />
               </TabsContent>
               <TabsContent value='sites'>
-                <AdminTenants tenants={query.data.tenants} />
+                <AdminTenants
+                  tenants={query.data.tenants}
+                  applications={query.data.applications}
+                  rootDomain={query.data.root_domain}
+                />
               </TabsContent>
             </>
           )}

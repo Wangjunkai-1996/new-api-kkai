@@ -135,7 +135,7 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 			}
 		}
 	}
-	if currentVersion == TenantOnlineSchemaVersion {
+	if isTenantOnlineLedger(currentVersion) {
 		receipts, err := loadTenantOnlineReceipts(db)
 		if err != nil {
 			return err
@@ -146,7 +146,13 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		if err := validateTenantOnlineCompleted(db); err != nil {
 			return err
 		}
-		return validateTenantCompatibilityRuntimeSchema(db)
+		if err := validateTenantCompatibilityRuntimeSchema(db); err != nil {
+			return err
+		}
+		if currentVersion == ResellerApplicationSchemaVersion {
+			return validateResellerApplicationPrefixSchema(db)
+		}
+		return nil
 	}
 	if currentVersion == TenantCompatibilitySchemaVersion {
 		return validateTenantCompatibilityRuntimeSchema(db)

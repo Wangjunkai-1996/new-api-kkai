@@ -315,7 +315,7 @@ func applyThroughMigrationSet(ctx context.Context, db *gorm.DB, options Options,
 				continue
 			}
 			if (item.Version == TenantSchemaVersion && currentVersion == TenantCompatibilitySchemaVersion) ||
-				(currentVersion == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
+				(isTenantOnlineLedger(currentVersion) && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
 				continue // v13 is the sole reviewed replacement for the never-applied v12.
 			}
 			checksum := storedMigrationChecksum(item)
@@ -373,13 +373,13 @@ func CheckRequired(ctx context.Context, db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	if state.currentVersion == TenantOnlineSchemaVersion {
-		return nil // loadValidatedState already checked the complete v14 shape.
+	if isTenantOnlineLedger(state.currentVersion) && state.currentVersion >= RuntimeMinVersion && state.currentVersion <= RuntimeMaxVersion {
+		return nil // loadValidatedState checked the complete tenant and versioned extra shape.
 	}
 	if RuntimeMinVersion == MembershipSchemaVersion && state.currentVersion == MembershipSchemaVersion {
 		return CheckTenantOnlineExpansion(ctx, db)
 	}
-	return fmt.Errorf("%w: runtime requires complete online-expanded schema 11 or online contract 14", ErrSchemaNotReady)
+	return fmt.Errorf("%w: runtime requires a complete tenant schema within %d..%d", ErrSchemaNotReady, RuntimeMinVersion, RuntimeMaxVersion)
 }
 
 func checkThroughVersion(ctx context.Context, db *gorm.DB, minimumVersion int64, runtimeMinVersion int64, runtimeMaxVersion int64) error {
@@ -655,16 +655,16 @@ func validateAppliedAgainstMigrationSet(applied map[int64]AppliedMigration, dial
 			maxApplied = version
 		}
 	}
-	if maxApplied == TenantOnlineSchemaVersion {
+	if isTenantOnlineLedger(maxApplied) {
 		if _, exists := applied[TenantSchemaVersion]; exists {
-			return fmt.Errorf("%w: v14 cannot include historical v12", ErrMigrationHole)
+			return fmt.Errorf("%w: online tenant ledger cannot include historical v12", ErrMigrationHole)
 		}
 		if _, exists := applied[TenantCompatibilitySchemaVersion]; exists {
-			return fmt.Errorf("%w: v14 cannot include historical v13", ErrMigrationHole)
+			return fmt.Errorf("%w: online tenant ledger cannot include historical v13", ErrMigrationHole)
 		}
 	}
 	for _, item := range migrations {
-		if maxApplied == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion) {
+		if isTenantOnlineLedger(maxApplied) && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion) {
 			continue
 		}
 		if item.Version > maxApplied {

@@ -40,7 +40,8 @@ func AdminListResellers(c *gin.Context) {
 	for _, tenant := range tenants {
 		views = append(views, tenantView{Tenant: tenant, Domains: byTenant[tenant.ID]})
 	}
-	common.ApiSuccess(c, gin.H{"applications": applications, "tenants": views})
+	root, _ := model.NormalizeTenantHost(os.Getenv("TENANT_ROOT_DOMAIN"))
+	common.ApiSuccess(c, gin.H{"applications": applications, "tenants": views, "root_domain": root})
 }
 
 func AdminReviewResellerApplication(c *gin.Context) {
@@ -117,18 +118,13 @@ func AdminProvisionResellerDomain(c *gin.Context) {
 		resellerBadRequest(c, "invalid domain")
 		return
 	}
-	root, rootErr := model.NormalizeTenantHost(os.Getenv("TENANT_ROOT_DOMAIN"))
-	host, hostErr := model.NormalizeTenantHost(request.Hostname)
-	prefix := strings.TrimSuffix(host, "."+root)
+	host, hostErr := model.NormalizeResellerDomain(request.Hostname, os.Getenv("TENANT_ROOT_DOMAIN"))
 	reserved := false
-	for _, name := range []string{"www", "api", "api-origin", "dt-api", "cpa", "monitor", "admin", "mail", "status"} {
-		reserved = reserved || prefix == name
-	}
 	for _, platform := range strings.Split(os.Getenv("TENANT_PLATFORM_HOSTS"), ",") {
 		canonical, _ := model.NormalizeTenantHost(platform)
 		reserved = reserved || canonical == host
 	}
-	if rootErr != nil || hostErr != nil || !strings.HasSuffix(host, "."+root) || prefix == "" || strings.Contains(prefix, ".") || reserved {
+	if hostErr != nil || reserved {
 		resellerBadRequest(c, "a non-reserved subdomain under TENANT_ROOT_DOMAIN is required")
 		return
 	}

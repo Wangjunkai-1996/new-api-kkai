@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = TenantOnlineSchemaVersion
+	KnownCatalogVersion     int64 = ResellerApplicationSchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"
@@ -91,7 +91,7 @@ func planItemsForDialectFromSet(dialect string, target int64, migrations []migra
 			break
 		}
 		if (item.Version == TenantSchemaVersion && target == TenantCompatibilitySchemaVersion) ||
-			(target == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
+			(isTenantOnlineLedger(target) && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
 			continue
 		}
 		if item.appliesTo(dialect) {
@@ -148,7 +148,7 @@ func storedPrefixItemsForDialectFromSet(dialect string, version int64, migration
 			break
 		}
 		if (item.Version == TenantSchemaVersion && version == TenantCompatibilitySchemaVersion) ||
-			(version == TenantOnlineSchemaVersion && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
+			(isTenantOnlineLedger(version) && (item.Version == TenantSchemaVersion || item.Version == TenantCompatibilitySchemaVersion)) {
 			continue
 		}
 		if !item.acceptsStoredDialect(dialect) {

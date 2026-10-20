@@ -26,6 +26,7 @@ export interface ResellerApplication {
   applicant_user_id: number
   tenant_id: number
   business_name: string
+  desired_domain_prefix?: string
   contact_name: string
   contact_email: string
   notes: string
@@ -36,6 +37,7 @@ export interface ResellerApplication {
 }
 export interface ApplicationInput {
   business_name: string
+  desired_domain_prefix: string
   contact_name: string
   contact_email: string
   notes: string
@@ -67,16 +69,23 @@ export async function getApplications(): Promise<ResellerApplication[]> {
 export async function submitApplication(
   input: ApplicationInput
 ): Promise<ResellerApplication> {
-  const response = await api.post('/api/reseller/applications', input)
+  const response = await api.post('/api/reseller/applications', input, {
+    skipErrorHandler: true,
+  })
   return requireServerSuccess(response.data).data
 }
 export async function getManagedResellers(): Promise<{
   applications: ResellerApplication[]
   tenants: ManagedTenant[]
+  root_domain?: string
 }> {
   const response = await api.get('/api/admin/resellers')
   const data = requireServerSuccess(response.data).data
-  return { applications: data.applications ?? [], tenants: data.tenants ?? [] }
+  return {
+    applications: data.applications ?? [],
+    tenants: data.tenants ?? [],
+    root_domain: data.root_domain,
+  }
 }
 export async function reviewApplication(
   id: number,

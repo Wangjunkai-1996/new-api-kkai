@@ -167,13 +167,13 @@ func TestTenantLogSchemaRealDatabases(t *testing.T) {
 }
 func TestTenantGORMContractCannotMixUnreviewedSchema(t *testing.T) {
 	migrations := migrationSet()
-	migrations[len(migrations)-1].SchemaSpec = "different schema"
+	migrations[TenantOnlineSchemaVersion-1].SchemaSpec = "different schema"
 	assert.ErrorIs(t, validateMigrationCatalog(migrations), ErrUnsafeMigration)
 	migrations = migrationSet()
-	migrations[len(migrations)-1].SchemaApply = func(*gorm.DB) error { return nil }
+	migrations[TenantOnlineSchemaVersion-1].SchemaApply = func(*gorm.DB) error { return nil }
 	assert.ErrorIs(t, validateMigrationCatalog(migrations), ErrUnsafeMigration)
 	migrations = migrationSet()
-	migrations[len(migrations)-1].Statements[DialectPostgres] = []migrationStatement{{Operation: migrationOperationContract, SQL: "DROP TABLE users"}}
+	migrations[TenantOnlineSchemaVersion-1].Statements[DialectPostgres] = []migrationStatement{{Operation: migrationOperationContract, SQL: "DROP TABLE users"}}
 	assert.ErrorIs(t, validateMigrationCatalog(migrations), ErrUnsafeMigration)
 }
 

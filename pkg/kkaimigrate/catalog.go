@@ -125,6 +125,14 @@ func migrationSet() []migration {
 			SchemaSpec:       tenantOnlineSchemaSpec(),
 			SchemaApply:      rejectTenantOnlineAutomaticApply,
 		},
+		{
+			Version:          ResellerApplicationSchemaVersion,
+			Name:             "reseller_application_domain_prefix",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "reseller_application_domain_prefix_v15",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       resellerApplicationSchemaStatements,
+		},
 	}
 }
 

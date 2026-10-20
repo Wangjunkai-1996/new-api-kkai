@@ -35,6 +35,7 @@ import { applicationStatusLabel } from './withdrawal-status'
 
 export function AdminApplications(props: {
   applications: ResellerApplication[]
+  rootDomain?: string
 }) {
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
@@ -83,7 +84,19 @@ export function AdminApplications(props: {
               <div>
                 <dt className='text-muted-foreground'>{t('Contact')}</dt>
                 <dd>
-                  {application.contact_name} · {application.contact_email}
+                  {[application.contact_name, application.contact_email]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </dd>
+              </div>
+              <div>
+                <dt className='text-muted-foreground'>
+                  {t('Preferred Domain Prefix')}
+                </dt>
+                <dd className='break-all'>
+                  {application.desired_domain_prefix
+                    ? `${application.desired_domain_prefix}${props.rootDomain ? `.${props.rootDomain}` : ''}`
+                    : t('No preference')}
                 </dd>
               </div>
               <div>

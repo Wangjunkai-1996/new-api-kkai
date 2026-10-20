@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/mail"
+	"os"
 	"strings"
 	"time"
 
@@ -16,10 +18,11 @@ import (
 )
 
 type resellerApplicationRequest struct {
-	BusinessName string `json:"business_name"`
-	ContactName  string `json:"contact_name"`
-	ContactEmail string `json:"contact_email"`
-	Notes        string `json:"notes"`
+	BusinessName        string `json:"business_name"`
+	DesiredDomainPrefix string `json:"desired_domain_prefix"`
+	ContactName         string `json:"contact_name"`
+	ContactEmail        string `json:"contact_email"`
+	Notes               string `json:"notes"`
 }
 
 type resellerProfileRequest struct {
@@ -86,6 +89,47 @@ func CreateResellerApplication(c *gin.Context) {
 		resellerBadRequest(c, "invalid application")
 		return
 	}
+	request.BusinessName = strings.TrimSpace(request.BusinessName)
+	request.ContactName = strings.TrimSpace(request.ContactName)
+	request.ContactEmail = model.NormalizeEmail(request.ContactEmail)
+	request.Notes = strings.TrimSpace(request.Notes)
+	address, emailErr := mail.ParseAddress(request.ContactEmail)
+	if request.BusinessName == "" || len(request.BusinessName) > 128 || len(request.ContactName) > 64 || len(request.ContactEmail) > 254 || len(request.Notes) > 4096 || emailErr != nil || address.Address != request.ContactEmail {
+		resellerBadRequest(c, "a site name and valid contact email are required")
+		return
+	}
+	prefix, err := model.NormalizeResellerDomainPrefix(request.DesiredDomainPrefix)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "RESELLER_DOMAIN_PREFIX_INVALID", "message": "a valid non-reserved domain prefix is required"})
+		return
+	}
+	if prefix != "" {
+		if !model.ResellerApplicationPrefixEnabled(model.DB) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "RESELLER_DOMAIN_PREFIX_UNAVAILABLE", "message": "domain prefix preferences are not available"})
+			return
+		}
+		host, err := model.NormalizeResellerDomain(prefix+"."+strings.TrimSpace(os.Getenv("TENANT_ROOT_DOMAIN")), os.Getenv("TENANT_ROOT_DOMAIN"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "RESELLER_DOMAIN_PREFIX_INVALID", "message": "a valid non-reserved domain prefix is required"})
+			return
+		}
+		for _, platform := range strings.Split(os.Getenv("TENANT_PLATFORM_HOSTS"), ",") {
+			canonical, _ := model.NormalizeTenantHost(platform)
+			if canonical == host {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "RESELLER_DOMAIN_PREFIX_INVALID", "message": "a valid non-reserved domain prefix is required"})
+				return
+			}
+		}
+		var assigned int64
+		if err := model.DB.Model(&model.TenantDomain{}).Where("hostname = ?", host).Count(&assigned).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if assigned > 0 {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "code": "RESELLER_DOMAIN_PREFIX_TAKEN", "message": "the requested domain is already assigned"})
+			return
+		}
+	}
 	var pending int64
 	if err := model.DB.Model(&model.ResellerApplication{}).Where("applicant_user_id = ? AND status = ?", c.GetInt("id"), model.ResellerApplicationStatusPending).Count(&pending).Error; err != nil {
 		common.ApiError(c, err)
@@ -96,16 +140,17 @@ func CreateResellerApplication(c *gin.Context) {
 		return
 	}
 	application := model.ResellerApplication{
-		ApplicantUserID: c.GetInt("id"),
-		BusinessName:    strings.TrimSpace(request.BusinessName),
-		ContactName:     strings.TrimSpace(request.ContactName),
-		ContactEmail:    model.NormalizeEmail(request.ContactEmail),
-		Notes:           strings.TrimSpace(request.Notes),
-		Status:          model.ResellerApplicationStatusPending,
+		ApplicantUserID:     c.GetInt("id"),
+		BusinessName:        request.BusinessName,
+		DesiredDomainPrefix: prefix,
+		ContactName:         request.ContactName,
+		ContactEmail:        request.ContactEmail,
+		Notes:               request.Notes,
+		Status:              model.ResellerApplicationStatusPending,
 	}
-	if err := model.DB.Create(&application).Error; err != nil {
+	if err := model.CreateResellerApplication(&application); err != nil {
 		if errors.Is(err, model.ErrResellerInvalidApplication) {
-			resellerBadRequest(c, "business name, contact name and contact email are required")
+			resellerBadRequest(c, "a site name and valid contact email are required")
 			return
 		}
 		common.ApiError(c, err)

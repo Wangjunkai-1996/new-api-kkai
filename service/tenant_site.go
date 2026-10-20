@@ -21,16 +21,18 @@ import (
 const MaxTenantLogoBytes = 2 << 20
 
 type TenantSiteConfig struct {
-	TenantID        int64           `json:"tenant_id"`
-	Hostname        string          `json:"hostname"`
-	Status          string          `json:"status"`
-	SiteName        string          `json:"site_name"`
-	Logo            string          `json:"logo"`
-	Contact         string          `json:"contact"`
-	Announcement    string          `json:"announcement"`
-	HomepageContent string          `json:"homepage_content"`
-	EnabledModules  map[string]bool `json:"enabled_modules"`
-	Maintenance     bool            `json:"maintenance"`
+	TenantID                    int64           `json:"tenant_id"`
+	Hostname                    string          `json:"hostname"`
+	Status                      string          `json:"status"`
+	SiteName                    string          `json:"site_name"`
+	Logo                        string          `json:"logo"`
+	Contact                     string          `json:"contact"`
+	Announcement                string          `json:"announcement"`
+	HomepageContent             string          `json:"homepage_content"`
+	EnabledModules              map[string]bool `json:"enabled_modules"`
+	Maintenance                 bool            `json:"maintenance"`
+	ResellerRootDomain          string          `json:"reseller_root_domain"`
+	ResellerDomainPrefixEnabled bool            `json:"reseller_domain_prefix_enabled"`
 }
 
 func ResolveTenantSiteConfig(db *gorm.DB, tenant model.TenantContext) (*TenantSiteConfig, error) {
@@ -39,6 +41,8 @@ func ResolveTenantSiteConfig(db *gorm.DB, tenant model.TenantContext) (*TenantSi
 	if tenant.TenantID == model.PlatformTenantID {
 		config.EnabledModules["reseller"] = strings.EqualFold(strings.TrimSpace(os.Getenv("TENANT_ROUTING_ENABLED")), "true")
 		config.SiteName, config.Logo = common.SystemName, common.Logo
+		config.ResellerRootDomain, _ = model.NormalizeTenantHost(os.Getenv("TENANT_ROOT_DOMAIN"))
+		config.ResellerDomainPrefixEnabled = config.EnabledModules["reseller"] && config.ResellerRootDomain != "" && model.ResellerApplicationPrefixEnabled(db)
 		return config, nil
 	}
 	if db == nil {
