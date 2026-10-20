@@ -35,19 +35,47 @@ vi.mock('@/lib/api', () => ({
 afterEach(() => vi.clearAllMocks())
 
 describe('platform reseller administration API contracts', () => {
-  test('lists applications and their provisioned tenants from one response', async () => {
+  test('lists applications and preserves assigned tenant domains from one response', async () => {
+    const domains = [{ hostname: 'kimi.kkai.win', status: 'active' }]
     vi.mocked(api.get).mockResolvedValue({
       data: {
         success: true,
-        data: { applications: [{ id: 3 }], tenants: [{ id: 47, domains: [] }] },
+        data: { applications: [{ id: 3 }], tenants: [{ id: 47, domains }] },
       },
     })
     await expect(getManagedResellers()).resolves.toEqual({
       applications: [{ id: 3 }],
-      tenants: [{ id: 47, domains: [] }],
+      tenants: [{ id: 47, domains }],
     })
     expect(api.get).toHaveBeenCalledExactlyOnceWith('/api/admin/resellers')
   })
+  test.each([null, undefined])(
+    'normalizes %s tenant domains to an empty list',
+    async (domains) => {
+      const tenant = {
+        id: 47,
+        display_name: 'KimiAI',
+        status: 'provisioning',
+      }
+      vi.mocked(api.get).mockResolvedValue({
+        data: {
+          success: true,
+          data: {
+            applications: [],
+            tenants: [
+              { ...tenant, ...(domains === undefined ? {} : { domains }) },
+            ],
+            root_domain: 'kkai.win',
+          },
+        },
+      })
+      await expect(getManagedResellers()).resolves.toEqual({
+        applications: [],
+        tenants: [{ ...tenant, domains: [] }],
+        root_domain: 'kkai.win',
+      })
+    }
+  )
   test('uses application IDs for review and tenant IDs for provisioning', async () => {
     vi.mocked(api.patch).mockResolvedValue({ data: { success: true } })
     vi.mocked(api.post).mockResolvedValue({ data: { success: true } })

@@ -81,9 +81,13 @@ export async function getManagedResellers(): Promise<{
 }> {
   const response = await api.get('/api/admin/resellers')
   const data = requireServerSuccess(response.data).data
+  const tenants: ManagedTenant[] = data.tenants ?? []
   return {
     applications: data.applications ?? [],
-    tenants: data.tenants ?? [],
+    tenants: tenants.map((tenant) => ({
+      ...tenant,
+      domains: tenant.domains ?? [],
+    })),
     root_domain: data.root_domain,
   }
 }

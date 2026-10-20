@@ -27,6 +27,8 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { api } from '@/lib/api'
+
 import * as adminApi from './admin-api'
 import { AdminApplications } from './admin-applications'
 import { AdminTenants } from './admin-tenants'
@@ -196,6 +198,41 @@ test('an older backend keeps blank-prefix applications available without discard
     )
   )
 })
+
+test.each([null, undefined])(
+  'approved tenants with %s domains remain available for domain assignment',
+  async (domains) => {
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          applications: [application],
+          tenants: [
+            {
+              id: 47,
+              display_name: 'KimiAI',
+              status: 'provisioning',
+              ...(domains === undefined ? {} : { domains }),
+            },
+          ],
+          root_domain: 'kkai.win',
+        },
+      },
+    })
+    const managed = await adminApi.getManagedResellers()
+    renderPage(
+      <AdminTenants
+        tenants={managed.tenants}
+        applications={managed.applications}
+        rootDomain={managed.root_domain}
+      />
+    )
+    expect(screen.getByText('Provisioning')).toBeVisible()
+    expect(screen.getByLabelText('Hostname')).toHaveValue('kimi.kkai.win')
+    expect(screen.getByRole('button', { name: 'Enable Site' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Assign Domain' })).toBeEnabled()
+  }
+)
 
 test.each(['zhCN', 'zhTW'])(
   'administrators see the requested domain and explicitly assign the prefilled hostname (%s)',
