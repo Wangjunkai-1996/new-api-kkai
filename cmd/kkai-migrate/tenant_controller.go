@@ -53,6 +53,18 @@ type tenantControllerProof struct {
 var tenantProofHex = regexp.MustCompile(`^[0-9a-f]+$`)
 
 func readTenantControllerProof(path string) (*tenantControllerProof, error) {
+	raw, err := readTenantControllerProofJSON(path)
+	if err != nil {
+		return nil, err
+	}
+	var proof tenantControllerProof
+	if err := common.Unmarshal(raw, &proof); err != nil {
+		return nil, fmt.Errorf("invalid controller proof JSON")
+	}
+	return &proof, nil
+}
+
+func readTenantControllerProofJSON(path string) ([]byte, error) {
 	if path != tenantControllerProofPath || runtime.GOOS != "linux" {
 		return nil, fmt.Errorf("controller proof requires the fixed Linux read-only mount %s", tenantControllerProofPath)
 	}
@@ -89,11 +101,7 @@ func readTenantControllerProof(path string) (*tenantControllerProof, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read controller proof")
 	}
-	var proof tenantControllerProof
-	if err := common.Unmarshal(raw, &proof); err != nil {
-		return nil, fmt.Errorf("invalid controller proof JSON")
-	}
-	return &proof, nil
+	return raw, nil
 }
 
 func validateTenantControllerProof(proof *tenantControllerProof, operation string, status *kkaimigrate.TenantOnlineExpansionStatus, now time.Time) error {

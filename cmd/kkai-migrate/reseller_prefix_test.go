@@ -5,7 +5,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
@@ -13,12 +15,68 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func resellerPrefixProofFixture(t *testing.T) (*resellerPrefixControllerProof, *resellerPrefixStatus, time.Time) {
+	t.Helper()
+	contract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
+	require.NoError(t, err)
+	now := time.Unix(1800000000, 0)
+	status := &resellerPrefixStatus{SourceDigest: contract.CompatiblePrefixes["14"], TargetDigest: contract.CompatiblePrefixes["15"],
+		PlanChecksum: kkaimigrate.ResellerApplicationPlanChecksum(), DatabaseName: "newapi", DatabaseSchema: "public"}
+	proof := &resellerPrefixControllerProof{tenantControllerProof: tenantControllerProof{
+		Schema: "kkai_reseller_prefix_proof_v1", Protocol: "reseller-prefix-v1", Operation: "apply",
+		InstalledInfraSHA: strings.Repeat("a", 40), ImageID: "sha256:" + strings.Repeat("b", 64),
+		SourceVersion: 14, TargetVersion: 15, SourceDigest: status.SourceDigest, PlanChecksum: status.PlanChecksum,
+		DatabaseName: status.DatabaseName, DatabaseSchema: status.DatabaseSchema, IssuedAt: now.Unix() - 1,
+		ExpiresAt: now.Unix() + 119, Nonce: strings.Repeat("c", 32),
+	}, TargetDigest: status.TargetDigest}
+	for i, role := range []string{"active", "rollback", "writer"} {
+		aware, routing, logs := true, true, false
+		evidence := resellerPrefixRuntimeEvidence{tenantRuntimeEvidence: tenantRuntimeEvidence{
+			Name: role, Role: role, ContainerID: strings.Repeat(string(rune('a'+i)), 64), ImageID: proof.ImageID,
+			Version: "release", TenantRoutingEnabled: &routing, TenantAware: &aware, SeparateLogDatabase: &logs,
+		}}
+		evidence.SchemaContract.SchemaContract, evidence.SchemaContract.SchemaManagement = contract, "external"
+		proof.Runtimes = append(proof.Runtimes, evidence)
+	}
+	return proof, status, now
+}
+
+func TestResellerPrefixProofRequiresEveryRuntimeToAcceptExactTarget(t *testing.T) {
+	proof, status, now := resellerPrefixProofFixture(t)
+	require.NoError(t, validateResellerPrefixProof(proof, status, now))
+	for _, test := range []struct {
+		name string
+		edit func(*resellerPrefixControllerProof)
+	}{
+		{"old-runtime", func(p *resellerPrefixControllerProof) { p.Runtimes[1].SchemaContract.RuntimeMaxVersion = 14 }},
+		{"unknown-target-digest", func(p *resellerPrefixControllerProof) {
+			p.Runtimes[1].SchemaContract.CompatiblePrefixes = map[string]string{"14": p.SourceDigest, "15": "other"}
+		}},
+		{"runtime-schema-management", func(p *resellerPrefixControllerProof) { p.Runtimes[1].SchemaContract.SchemaManagement = "runtime" }},
+		{"source-drift", func(p *resellerPrefixControllerProof) { p.SourceDigest = "other" }},
+		{"target-drift", func(p *resellerPrefixControllerProof) { p.TargetDigest = "other" }},
+		{"database-drift", func(p *resellerPrefixControllerProof) { p.DatabaseName = "other" }},
+		{"expired", func(p *resellerPrefixControllerProof) { p.ExpiresAt = now.Unix() }},
+		{"historical-protocol", func(p *resellerPrefixControllerProof) { p.Protocol = "tenant-online-v1" }},
+		{"duplicate-role", func(p *resellerPrefixControllerProof) { p.Runtimes[1].Role = "active" }},
+		{"duplicate-container", func(p *resellerPrefixControllerProof) { p.Runtimes[1].ContainerID = p.Runtimes[0].ContainerID }},
+		{"missing-routing", func(p *resellerPrefixControllerProof) { p.Runtimes[1].TenantRoutingEnabled = nil }},
+		{"separate-log-db", func(p *resellerPrefixControllerProof) { *p.Runtimes[1].SeparateLogDatabase = true }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			proof, status, now := resellerPrefixProofFixture(t)
+			test.edit(proof)
+			assert.Error(t, validateResellerPrefixProof(proof, status, now))
+		})
+	}
+}
+
 func TestResellerPrefixCommandNeverExposesUnguardedMutation(t *testing.T) {
 	for _, operation := range []string{"plan", "status"} {
 		require.NoError(t, validateResellerPrefixCommand(operation, "", true, false))
 		assert.Error(t, validateResellerPrefixCommand(operation, tenantControllerProofPath, true, false))
 	}
-	assert.Error(t, validateResellerPrefixCommand("apply", tenantControllerProofPath, true, false))
+	require.NoError(t, validateResellerPrefixCommand("apply", tenantControllerProofPath, true, false))
 	for _, path := range []string{"", "/tmp/proof.json"} {
 		assert.Error(t, validateResellerPrefixCommand("apply", path, true, false))
 	}

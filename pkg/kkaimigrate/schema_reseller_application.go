@@ -95,9 +95,9 @@ func CheckResellerApplicationSchema(ctx context.Context, db *gorm.DB) error {
 
 // ApplyResellerApplicationExpand adds only the v15 nullable column and receipt
 // after validating the complete canonical v14 contract under the shared lock.
-// Isolated rehearsals may invoke it directly. Production CLI mutation is
-// unavailable in this read-only compatibility release.
-// Offline enables only isolated MySQL
+// Isolated rehearsals may invoke it directly. Production CLI mutation requires
+// the installed controller proof that every serving and rollback runtime accepts
+// v15. Offline enables only isolated MySQL
 // and older PostgreSQL compatibility exercises, never a serving-process fallback.
 func ApplyResellerApplicationExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {
 	result := &Result{}

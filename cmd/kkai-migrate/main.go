@@ -57,7 +57,7 @@ func main() {
 	flag.StringVar(&tenantExpand, "tenant-expand", "", "online expansion: plan/status/check are read-only; apply/finalize require the installed root-controller proof")
 	flag.StringVar(&tenantControllerProof, "tenant-controller-proof", "", "fixed root-controller proof mount for apply/finalize")
 	flag.BoolVar(&tenantRuntime, "tenant-runtime", false, "declare compiled tenant runtime capability; requires --dialect and --json, no database access")
-	flag.StringVar(&resellerPrefix, "reseller-prefix", "", "independent v15 prefix operation: plan/status are read-only; mutation is unavailable")
+	flag.StringVar(&resellerPrefix, "reseller-prefix", "", "independent v15 prefix operation: plan/status are read-only; apply requires the installed root-controller proof")
 	flag.Parse()
 	if tenantRuntime {
 		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
@@ -68,7 +68,7 @@ func main() {
 		}
 		return
 	}
-	if tenantControllerProof != "" && tenantExpand != "apply" && tenantExpand != "finalize" {
+	if tenantControllerProof != "" && tenantExpand != "apply" && tenantExpand != "finalize" && resellerPrefix != "apply" {
 		log.Fatal("--tenant-controller-proof is only valid for a controlled apply/finalize operation")
 	}
 	if resellerPrefix != "" {
@@ -274,7 +274,7 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 		return nil, fmt.Errorf("%w: online contract requires verified tenant-aware active, rollback and background runtimes; it is not an ordinary --target operation", kkaimigrate.ErrUnsafeMigration)
 	case kkaimigrate.ResellerApplicationSchemaVersion:
 		if !options.DryRun {
-			return nil, fmt.Errorf("%w: target 15 mutation is unavailable in this read-only compatibility release", kkaimigrate.ErrUnsafeMigration)
+			return nil, fmt.Errorf("%w: target 15 is read-only; use --reseller-prefix apply with the installed controller proof", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyResellerApplicationExpand(ctx, db, options)
 	default:
