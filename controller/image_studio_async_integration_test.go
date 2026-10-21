@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
@@ -30,6 +31,121 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T) {
+	if model.MembershipEnabled() {
+		t.Skip("legacy fixture runs with membership disabled")
+	}
+	// Isolate the process-cached R2 client without adding a test-only reset API.
+	const childEnvironment = "KKAI_IMAGE_ASYNC_POLICY_CHILD"
+	if os.Getenv(childEnvironment) != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+t.Name()+"$", "-test.timeout=45s")
+		command.Env = append(os.Environ(), childEnvironment+"=1")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, "%s", output)
+		return
+	}
+	service.InitHttpClient()
+	service.InitTokenEncoders()
+	t.Setenv("VIDEO_STUDIO_R2_ENDPOINT", "http://127.0.0.1:1")
+	t.Setenv("VIDEO_STUDIO_R2_REGION", "auto")
+	t.Setenv("VIDEO_STUDIO_R2_BUCKET", "image-test")
+	t.Setenv("VIDEO_STUDIO_R2_ACCESS_KEY_ID", "test-access-key")
+	t.Setenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY", "test-secret-key")
+	t.Setenv("VIDEO_STUDIO_R2_ACCESS_KEY_ID_FILE", "")
+	t.Setenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY_FILE", "")
+	for _, tc := range []struct {
+		name     string
+		status   int
+		body     string
+		rejected bool
+		mapping  string
+	}{
+		{"http_policy", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, ""},
+		{"in_band_policy", http.StatusOK, `{"error":{"type":"invalid_request_error","code":"content_policy_violation","message":"private-provider-diagnostic"}}`, true, ""},
+		{"mapped_in_band_policy_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`},
+		{"gateway_policy_code_is_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, ""},
+		{"mapped_gateway_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"400"}`},
+		{"mapped_gateway_success_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"200"}`},
+		{"message_is_not_evidence", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"upstream_error","message":"content_policy private-provider-diagnostic"}}`, false, ""},
+		{"invalid_success_response", http.StatusOK, `{}`, false, ""},
+		{"code_only_success_error_is_ambiguous", http.StatusOK, `{"error":{"code":"content_policy","message":"private-provider-diagnostic"}}`, false, ""},
+		{"transport_failure_after_dispatch", 0, "", false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, request, normalized := newImageAsyncAcceptanceFixture(t)
+			require.NoError(t, db.AutoMigrate(&model.Log{}))
+			previousLogDB, previousErrorLog := model.LOG_DB, constant.ErrorLogEnabled
+			previousMemoryCache := common.MemoryCacheEnabled
+			model.LOG_DB, constant.ErrorLogEnabled, common.MemoryCacheEnabled = db, true, false
+			t.Cleanup(func() {
+				model.LOG_DB, constant.ErrorLogEnabled, common.MemoryCacheEnabled = previousLogDB, previousErrorLog, previousMemoryCache
+			})
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				calls.Add(1)
+				if tc.status == 0 {
+					_, _ = io.Copy(io.Discard, request.Body)
+					connection, _, err := writer.(http.Hijacker).Hijack()
+					if assert.NoError(t, err) {
+						_ = connection.Close()
+					}
+					return
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(tc.status)
+				_, _ = writer.Write([]byte(tc.body))
+			}))
+			t.Cleanup(upstream.Close)
+			require.NoError(t, db.Model(&model.Channel{}).Where("1 = 1").Updates(map[string]any{"base_url": upstream.URL, "status_code_mapping": tc.mapping}).Error)
+			generation, err := service.AcceptAsyncImageSubmission(context.Background(), db, request, normalized, "policy-test", "policy-request", "127.0.0.1")
+			require.NoError(t, err)
+			leader := model.KKAIJobLease{LeaseName: "image-policy-worker", Holder: "writer", Fence: 1, LeaseUntil: time.Now().Add(time.Minute).Unix()}
+			require.NoError(t, db.Create(&leader).Error)
+			ctx := service.WithImageWorkerLease(context.Background(), leader)
+			processor := service.NewKKAIOutboxProcessor(db, "image-policy-test")
+			require.NoError(t, processor.Register(service.ImageGenerateTopic, runImageGenerationEvent))
+			batch, err := processor.ProcessBatch(ctx, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, calls.Load(), "worker must reach the provider exactly once")
+			require.NoError(t, db.First(generation, generation.ID).Error)
+			var execution model.KKAIImageExecution
+			require.NoError(t, db.First(&execution, "generation_id = ?", generation.ID).Error)
+			var user model.User
+			require.NoError(t, db.First(&user, generation.UserID).Error)
+			if tc.rejected {
+				assert.Equal(t, 1, batch.Delivered)
+				assert.Equal(t, model.ImageGenerationStatusFailed, generation.Status)
+				assert.Equal(t, "upstream", generation.FailureStage)
+				assert.Equal(t, service.ImageExecutionFailureContentPolicy, generation.ErrorCode)
+				assert.NotContains(t, generation.ErrorMessage, "private-provider-diagnostic")
+				assert.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
+				assert.EqualValues(t, 1000, user.Quota)
+				assert.Equal(t, model.ImageGenerationExecutionDone, execution.State)
+			} else {
+				assert.Equal(t, 1, batch.Deferred)
+				assert.Equal(t, model.ImageGenerationStatusSubmitting, generation.Status)
+				assert.Equal(t, model.ImageGenerationBillingStateProcessing, generation.BillingState)
+				assert.EqualValues(t, 700, user.Quota)
+				assert.Equal(t, model.ImageGenerationExecutionUnknown, execution.State)
+			}
+			var logs []model.Log
+			require.NoError(t, db.Where("type = ?", model.LogTypeError).Find(&logs).Error)
+			require.Len(t, logs, 1)
+			assert.NotContains(t, logs[0].Content, "private-provider-diagnostic")
+			replay, err := service.AcceptAsyncImageSubmission(ctx, db, request, normalized, "policy-test", "policy-retry", "127.0.0.1")
+			require.NoError(t, err)
+			assert.Equal(t, generation.ID, replay.ID)
+			// Both terminal redelivery and unknown recovery must preserve the single POST.
+			require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("id = ?", execution.EventID).Updates(map[string]any{"status": model.KKAIOutboxStatusPending, "locked_by": "", "locked_at": 0, "available_at": time.Now().Unix()}).Error)
+			_, err = processor.ProcessBatch(ctx, 1)
+			require.NoError(t, err)
+			assert.EqualValues(t, 1, calls.Load())
+		})
+	}
+}
 
 func TestImageAsyncWorkerEditExecutesAndArchivesExactlyOnce(t *testing.T) {
 	if model.MembershipEnabled() {

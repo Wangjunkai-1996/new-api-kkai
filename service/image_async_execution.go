@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const ImageExecutionFailureContentPolicy = "upstream_content_policy"
+
 // AdoptImageExecution never rewinds a dispatch. A new owner may finish durable
 // output or reconcile an unknown result, but cannot send an already started POST.
 func AdoptImageExecution(ctx context.Context, db *gorm.DB, generationID int64, fence model.ImageExecutionFence) (*model.KKAIImageExecution, *model.KKAIImageGeneration, error) {
@@ -126,7 +128,9 @@ func CompleteImageExecution(ctx context.Context, db *gorm.DB, generationID int64
 				return err
 			}
 			status, stage, code, message = model.ImageGenerationStatusFailed, "prepare", failureCode, "image request could not be completed"
-			if execution.State == model.ImageGenerationExecutionDispatching || execution.State == model.ImageGenerationExecutionUnknown || execution.State == model.ImageGenerationExecutionResultReady {
+			if failureCode == ImageExecutionFailureContentPolicy {
+				stage, message = "upstream", "image request was rejected by the provider content policy; reserved quota was refunded"
+			} else if execution.State == model.ImageGenerationExecutionDispatching || execution.State == model.ImageGenerationExecutionUnknown || execution.State == model.ImageGenerationExecutionResultReady {
 				status, stage, message = model.ImageGenerationStatusUnknown, "reconcile", "image provider outcome could not be recovered; reserved quota was refunded"
 			}
 		}

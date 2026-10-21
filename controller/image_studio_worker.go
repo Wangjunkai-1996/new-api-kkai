@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -236,11 +237,45 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 	relayErr := relay.ImageHelper(c, info)
 	closeErr := capture.Close()
 	upstreamCode := "ok"
+	errorClass, upstreamStatus := "none", 0
+	statusCode := capture.Status()
+	contentPolicyRejected := false
 	if relayErr != nil || capture.err != nil || closeErr != nil || capture.Status() < 200 || capture.Status() >= 300 {
 		upstreamCode = "upstream_failed"
+		errorClass = "response_capture_failed"
 	}
-	logger.LogInfo(c, fmt.Sprintf("event=image_async_upstream_finished generation_id=%d request_id=%q elapsed_ms=%d channel_id=%d code=%s", generation.ID, generation.RequestID, time.Since(upstreamStarted).Milliseconds(), c.GetInt("channel_id"), upstreamCode))
 	if relayErr != nil {
+		statusCode = relayErr.StatusCode
+		upstreamStatus = relayErr.GetOriginalStatusCode()
+		// Only a structured, explicit policy rejection proves this dispatch has
+		// no deliverable result. Free-form messages and gateway 5xx do not.
+		switch strings.ToLower(strings.TrimSpace(string(relayErr.GetOriginalErrorCode()))) {
+		case "content_policy", "content_policy_violation":
+			contentPolicyRejected = upstreamStatus == http.StatusOK || upstreamStatus >= 400 && upstreamStatus < 500
+		}
+		errorClass = "upstream_error"
+		switch relayErr.GetErrorCode() {
+		case relaytypes.ErrorCodeDoRequestFailed:
+			errorClass = "transport_failed"
+		case relaytypes.ErrorCodeReadResponseBodyFailed:
+			errorClass = "response_read_failed"
+		case relaytypes.ErrorCodeBadResponseBody, relaytypes.ErrorCodeEmptyResponse:
+			errorClass = "invalid_response"
+		}
+		if contentPolicyRejected {
+			errorClass = "content_policy"
+		}
+	}
+	logger.LogInfo(c, fmt.Sprintf("event=image_async_upstream_finished generation_id=%d request_id=%q elapsed_ms=%d channel_id=%d code=%s status_code=%d upstream_status=%d error_class=%s", generation.ID, generation.RequestID, time.Since(upstreamStarted).Milliseconds(), c.GetInt("channel_id"), upstreamCode, statusCode, upstreamStatus, errorClass))
+	if relayErr != nil {
+		// Preserve normal channel/policy auditing without copying a provider's
+		// free-form message into the background worker's logs.
+		auditErr := *relayErr
+		auditErr.SetMessage("image provider request failed")
+		service.ProcessChannelErrorAfterPolicy(c, *relaytypes.NewChannelError(info.ChannelId, info.ChannelType, c.GetString("channel_name"), info.ChannelIsMultiKey, info.ApiKey, false), &auditErr, info, false)
+		if contentPolicyRejected {
+			return service.CompleteImageExecution(workerCtx, model.DB, generation.ID, fence, service.ImageExecutionFailureContentPolicy)
+		}
 		return relayErr
 	}
 	if capture.err != nil || closeErr != nil {
