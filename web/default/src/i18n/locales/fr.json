@@ -7620,7 +7620,7 @@
     "videoStudio.failure.inputInvalid": "Les paramètres ou le média ne respectent pas les exigences. Vérifiez la durée, les dimensions et le média de référence, puis réessayez.",
     "videoStudio.failure.mediaUnavailable": "Le média de référence est illisible. Vérifiez le lien ou remplacez le média, puis réessayez.",
     "videoStudio.failure.privacyRestriction": "Le contenu fourni ou généré peut contenir une personne réelle ou des informations privées. Modifiez le prompt ou le média de référence, puis réessayez.",
-    "videoStudio.failure.quotaExceeded": "Votre compte ne dispose pas d’un quota suffisant pour terminer cette génération.",
+    "videoStudio.failure.quotaExceeded": "Le quota disponible est insuffisant pour terminer cette génération. Réessayez plus tard ou contactez le support.",
     "videoStudio.failure.submissionFailure": "La tâche n’a pas pu être soumise. Réessayez plus tard.",
     "videoStudio.failure.taskExpired": "Cette tâche n’est plus disponible. Soumettez-la à nouveau.",
     "videoStudio.failure.temporaryFailure": "La génération ne peut pas être terminée pour le moment. Réessayez plus tard.",

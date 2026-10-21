@@ -7620,7 +7620,7 @@
     "videoStudio.failure.inputInvalid": "Tham số hoặc tư liệu đầu vào không đáp ứng yêu cầu. Hãy kiểm tra thời lượng, kích thước và tư liệu tham chiếu rồi thử lại.",
     "videoStudio.failure.mediaUnavailable": "Không thể đọc tư liệu tham chiếu. Hãy kiểm tra liên kết hoặc thay tư liệu rồi thử lại.",
     "videoStudio.failure.privacyRestriction": "Nội dung đầu vào hoặc được tạo có thể chứa người thật hoặc thông tin riêng tư. Hãy điều chỉnh prompt hoặc tư liệu tham chiếu rồi thử lại.",
-    "videoStudio.failure.quotaExceeded": "Tài khoản không đủ hạn mức để hoàn tất lần tạo này.",
+    "videoStudio.failure.quotaExceeded": "Hạn mức hiện có không đủ để hoàn tất lần tạo này. Vui lòng thử lại sau hoặc liên hệ bộ phận hỗ trợ.",
     "videoStudio.failure.submissionFailure": "Không thể gửi tác vụ. Vui lòng thử lại sau.",
     "videoStudio.failure.taskExpired": "Tác vụ này không còn khả dụng. Hãy gửi lại.",
     "videoStudio.failure.temporaryFailure": "Hiện chưa thể hoàn tất việc tạo. Vui lòng thử lại sau.",

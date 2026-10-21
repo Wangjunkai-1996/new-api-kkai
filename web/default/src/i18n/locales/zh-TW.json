@@ -7620,7 +7620,7 @@
     "videoStudio.failure.inputInvalid": "輸入參數或素材不符合要求，請檢查時長、尺寸和參考素材後再試。",
     "videoStudio.failure.mediaUnavailable": "無法讀取參考素材，請檢查連結或更換素材後再試。",
     "videoStudio.failure.privacyRestriction": "輸入或生成內容可能包含真人或隱私敏感資訊，請調整提示詞或參考素材後再試。",
-    "videoStudio.failure.quotaExceeded": "帳戶額度不足，無法完成本次生成。",
+    "videoStudio.failure.quotaExceeded": "目前可用額度不足，無法完成本次生成，請稍後再試或聯絡客服。",
     "videoStudio.failure.submissionFailure": "任務提交失敗，請稍後再試。",
     "videoStudio.failure.taskExpired": "任務已失效，請重新提交。",
     "videoStudio.failure.temporaryFailure": "目前無法完成生成，請稍後再試。",

@@ -7620,7 +7620,7 @@
     "videoStudio.failure.inputInvalid": "The input parameters or media do not meet the requirements. Check the duration, dimensions, and reference material, then try again.",
     "videoStudio.failure.mediaUnavailable": "The reference material could not be read. Check the link or replace the material and try again.",
     "videoStudio.failure.privacyRestriction": "The input or generated content may include a real person or private information. Please adjust the prompt or reference material and try again.",
-    "videoStudio.failure.quotaExceeded": "Your account does not have enough quota to complete this generation.",
+    "videoStudio.failure.quotaExceeded": "There is not enough quota to complete this generation right now. Please try again later or contact support.",
     "videoStudio.failure.submissionFailure": "The task could not be submitted. Please try again later.",
     "videoStudio.failure.taskExpired": "This task is no longer available. Please submit it again.",
     "videoStudio.failure.temporaryFailure": "The generation could not be completed right now. Please try again later.",

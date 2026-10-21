@@ -7620,7 +7620,7 @@
     "videoStudio.failure.inputInvalid": "入力パラメータまたは素材が要件を満たしていません。長さ、サイズ、参照素材を確認して再試行してください。",
     "videoStudio.failure.mediaUnavailable": "参照素材を読み込めませんでした。リンクを確認するか、素材を変更して再試行してください。",
     "videoStudio.failure.privacyRestriction": "入力または生成されたコンテンツに実在の人物や個人情報が含まれている可能性があります。プロンプトまたは参照素材を変更して再試行してください。",
-    "videoStudio.failure.quotaExceeded": "この生成を完了するためのアカウントのクォータが不足しています。",
+    "videoStudio.failure.quotaExceeded": "現在、生成を完了するためのクォータが不足しています。しばらくしてから再試行するか、サポートにお問い合わせください。",
     "videoStudio.failure.submissionFailure": "タスクを送信できませんでした。しばらくしてから再試行してください。",
     "videoStudio.failure.taskExpired": "このタスクは利用できなくなりました。もう一度送信してください。",
     "videoStudio.failure.temporaryFailure": "現在は生成を完了できません。しばらくしてから再試行してください。",
