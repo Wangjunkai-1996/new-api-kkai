@@ -29,6 +29,11 @@ import { HeroTerminalDemo } from '../hero-terminal-demo'
 interface HeroProps {
   className?: string
   isAuthenticated?: boolean
+  title?: string
+  highlight?: string
+  description?: string
+  announcement?: string
+  contact?: string
 }
 
 // Stylized three-dots indicator representing "More"
@@ -48,6 +53,13 @@ const MoreIcon = () => (
 export function Hero(props: HeroProps) {
   const { t } = useTranslation()
   const { status } = useStatus()
+  const title = props.title?.trim() || t('Unified API Gateway for')
+  const highlight = props.highlight?.trim() || t('Vast Range of AI Models')
+  const description =
+    props.description?.trim() ||
+    t(
+      'Access a vast selection of models via a standard, unified API protocol. Power AI applications, manage digital assets, and connect the Future.'
+    )
   const docsUrl =
     (status?.docs_link as string | undefined) || 'https://docs.newapi.pro'
 
@@ -118,20 +130,32 @@ export function Hero(props: HeroProps) {
             className='landing-animate-fade-up text-[clamp(2.25rem,4.5vw,3.25rem)] leading-[1.15] font-bold tracking-tight'
             style={{ animationDelay: '60ms' }}
           >
-            {t('Unified API Gateway for')}
-            <br />
-            <span className='bg-gradient-to-r from-blue-400 via-violet-400 to-purple-500 bg-clip-text text-transparent'>
-              {t('Vast Range of AI Models')}
-            </span>
+            {title}
+            {highlight && (
+              <>
+                <br />
+                <span className='bg-gradient-to-r from-blue-400 via-violet-400 to-purple-500 bg-clip-text text-transparent'>
+                  {highlight}
+                </span>
+              </>
+            )}
           </h1>
           <p
-            className='landing-animate-fade-up text-muted-foreground/80 mt-5 max-w-xl text-base leading-relaxed opacity-0 md:text-[15px]'
+            className='landing-animate-fade-up text-muted-foreground/80 mt-5 max-w-xl text-base leading-relaxed whitespace-pre-wrap opacity-0 md:text-[15px]'
             style={{ animationDelay: '120ms' }}
           >
-            {t(
-              'Access a vast selection of models via a standard, unified API protocol. Power AI applications, manage digital assets, and connect the Future.'
-            )}
+            {description}
           </p>
+          {props.announcement?.trim() && (
+            <p className='landing-animate-fade-up text-muted-foreground/70 mt-3 max-w-xl text-sm leading-relaxed opacity-0'>
+              {props.announcement.trim()}
+            </p>
+          )}
+          {props.contact?.trim() && (
+            <p className='landing-animate-fade-up text-muted-foreground/60 mt-2 max-w-xl text-xs leading-relaxed whitespace-pre-wrap opacity-0'>
+              {props.contact.trim()}
+            </p>
+          )}
 
           <div
             className='landing-animate-fade-up mt-8 flex flex-wrap items-center gap-3 opacity-0'

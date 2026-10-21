@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -23,7 +22,6 @@ import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
-import { Button } from '@/components/ui/button'
 import { useTheme } from '@/context/theme-provider'
 import { useSiteConfig } from '@/features/site-config'
 import { isLikelyHtml } from '@/lib/content-format'
@@ -67,27 +65,19 @@ export function Home() {
 
   if (isTenant && site) {
     return (
-      <PublicLayout>
-        <section className='mx-auto flex min-h-[60vh] max-w-3xl flex-col justify-center gap-6 py-12'>
-          <h1 className='text-4xl font-semibold'>{site.site_name}</h1>
-          {site.homepage_content && (
-            <p className='text-muted-foreground leading-relaxed whitespace-pre-wrap'>
-              {site.homepage_content}
-            </p>
-          )}
-          {site.announcement && (
-            <aside className='bg-muted rounded-lg p-5'>
-              <h2 className='mb-2 font-medium'>{t('Announcement')}</h2>
-              <p className='whitespace-pre-wrap'>{site.announcement}</p>
-            </aside>
-          )}
-          {site.contact && (
-            <p className='text-sm whitespace-pre-wrap'>{site.contact}</p>
-          )}
-          <div>
-            <Button render={<Link to='/pricing' />}>{t('Model Square')}</Button>
-          </div>
-        </section>
+      <PublicLayout showMainContainer={false}>
+        <Hero
+          isAuthenticated={isAuthenticated}
+          title={site.site_name}
+          highlight=''
+          description={site.homepage_content}
+          announcement={site.announcement}
+          contact={site.contact}
+        />
+        <Stats />
+        <Features />
+        <HowItWorks />
+        <CTA isAuthenticated={isAuthenticated} />
         <Footer />
       </PublicLayout>
     )

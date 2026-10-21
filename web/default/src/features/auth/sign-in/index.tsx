@@ -62,7 +62,7 @@ export function SignIn() {
                 .
               </p>
             )}
-          {isTenant && (
+          {isTenant && ownerLogin && (
             <Link
               to='/sign-in'
               search={

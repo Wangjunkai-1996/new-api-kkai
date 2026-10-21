@@ -80,12 +80,12 @@ beforeEach(() => {
   })
 })
 
-it('offers a discoverable owner entry while customer login and registration remain the default', () => {
+it('keeps reseller management details out of the tenant customer login', () => {
   render(<SignIn />)
   expect(screen.getByRole('link', { name: 'Sign up' })).toBeVisible()
   expect(
-    screen.getByRole('link', { name: 'Reseller management sign in' })
-  ).toHaveAttribute('href', '/sign-in?owner_login=true&redirect=%2Freseller')
+    screen.queryByRole('link', { name: 'Reseller management sign in' })
+  ).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'OAuth sign in' })).toBeVisible()
 })
 
