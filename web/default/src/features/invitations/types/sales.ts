@@ -25,6 +25,7 @@ export type SalesAccount = {
   createdAt: string
   updatedAt: string
   note?: string | null
+  performance?: SalesPerformance
 }
 
 export type SalesRebates = {
@@ -49,15 +50,25 @@ export type SalesCustomer = {
   rebates: SalesRebates
 }
 
+export type SalesCreditCurrency = 'legacy_075' | 'usd_credit_v1'
+
+export type SalesPerformance = {
+  invitedCount: number
+  effectiveInvitedCount: number
+  rechargeAmount: number
+  unverifiedRechargeCount: number
+  rebates: SalesRebates
+}
+
+export type SalesAccountsResponse = PaginatedResponse<SalesAccount> & {
+  // Optional while frontend and Invitations service roll out independently.
+  creditCurrency?: SalesCreditCurrency
+  summary?: SalesPerformance
+}
+
 export type SalesCustomers = PaginatedResponse<SalesCustomer> & {
-  creditCurrency: 'legacy_075' | 'usd_credit_v1'
-  summary: {
-    invitedCount: number
-    effectiveInvitedCount: number
-    rechargeAmount: number
-    unverifiedRechargeCount: number
-    rebates: SalesRebates
-  }
+  creditCurrency: SalesCreditCurrency
+  summary: SalesPerformance
 }
 
 export type SalesRecharge = {

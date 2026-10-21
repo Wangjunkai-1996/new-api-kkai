@@ -22,7 +22,7 @@ import type {
   ApiResponse,
   PaginationParams,
   PaginatedResponse,
-  SalesAccount,
+  SalesAccountsResponse,
   SalesCustomers,
   SalesRecharge,
 } from '../types'
@@ -36,7 +36,7 @@ export const getSalesProfile = async () => {
 }
 
 export const getSalesAccounts = async (params: PaginationParams) => {
-  const response = await api.get<ApiResponse<PaginatedResponse<SalesAccount>>>(
+  const response = await api.get<ApiResponse<SalesAccountsResponse>>(
     `${INVITATIONS_ADMIN_PATH}/sales-accounts`,
     { params }
   )
@@ -48,7 +48,9 @@ export const updateSalesAccount = async (input: {
   active: boolean
   note?: string
 }) => {
-  const response = await api.put<ApiResponse<SalesAccount>>(
+  const response = await api.put<
+    ApiResponse<{ active: boolean; registered: boolean }>
+  >(
     `${INVITATIONS_ADMIN_PATH}/sales-accounts/${input.userId}`,
     { active: input.active, note: input.note },
     { skipErrorHandler: true }

@@ -50,9 +50,15 @@ import { Textarea } from '@/components/ui/textarea'
 
 import { getSalesAccounts, updateSalesAccount } from '../../api'
 import { requireInvitationData } from '../../api/result'
-import { formatInvitationDate, getInvitationErrorMessage } from '../../format'
+import {
+  formatInvitationDate,
+  formatSalesAmount,
+  getInvitationErrorMessage,
+} from '../../format'
 import type { SalesAccount } from '../../types'
 import { PaginationControls } from '../pagination-controls'
+import { SalesRebateAmounts } from '../sales-rebate-amounts'
+import { SalesPerformanceSummary } from './sales-performance-summary'
 
 const PAGE_SIZE = 20
 const accountSchema = z.object({
@@ -77,9 +83,18 @@ export const SalesAccounts = () => {
     <Card>
       <CardHeader className='flex-row flex-wrap items-center justify-between gap-3'>
         <CardTitle>{t('Sales Accounts')}</CardTitle>
-        <Button onClick={() => setEditing('new')}>
-          {t('Add Sales Account')}
-        </Button>
+        <div className='flex gap-2'>
+          <Button
+            variant='outline'
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            {t('Refresh')}
+          </Button>
+          <Button onClick={() => setEditing('new')}>
+            {t('Add Sales Account')}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className='space-y-4'>
         <p className='text-muted-foreground text-sm'>
@@ -97,6 +112,37 @@ export const SalesAccounts = () => {
         )}
         {query.data && (
           <>
+            {(!query.data.summary ||
+              !query.data.creditCurrency ||
+              query.data.items.some((account) => !account.performance)) && (
+              <p role='status' className='rounded-md border p-3 text-sm'>
+                {t(
+                  'Sales performance is unavailable. Update the Invitations service and refresh to load these statistics.'
+                )}
+              </p>
+            )}
+            {query.data.summary && (
+              <SalesPerformanceSummary
+                summary={query.data.summary}
+                currency={query.data.creditCurrency}
+              />
+            )}
+            <div className='flex flex-wrap items-center justify-between gap-2 text-sm'>
+              <p className='font-medium'>
+                {t('Sales accounts: {{count}}', { count: query.data.total })}
+              </p>
+              {query.data.creditCurrency && (
+                <p className='text-muted-foreground'>
+                  {query.data.creditCurrency === 'legacy_075'
+                    ? t('Legacy Site Credits')
+                    : t('USD Site Credits')}
+                  {' · '}
+                  {t(
+                    'Amounts use confirmed credited value, not the original payment amount.'
+                  )}
+                </p>
+              )}
+            </div>
             {!query.data.items.length && (
               <p className='text-muted-foreground py-6 text-center text-sm'>
                 {t('No sales accounts')}
@@ -104,11 +150,21 @@ export const SalesAccounts = () => {
             )}
             {query.data.items.length > 0 && (
               <div className='overflow-x-auto rounded-md border'>
-                <Table>
+                <Table className='min-w-5xl' withContainer={false}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t('User')}</TableHead>
                       <TableHead>{t('Status')}</TableHead>
+                      <TableHead className='text-right'>
+                        {t('Invited Registrations')}
+                      </TableHead>
+                      <TableHead className='text-right'>
+                        {t('Effective Customers')}
+                      </TableHead>
+                      <TableHead className='text-right'>
+                        {t('Confirmed Credited Recharges')}
+                      </TableHead>
+                      <TableHead>{t('Rebate Amounts')}</TableHead>
                       <TableHead>{t('Note')}</TableHead>
                       <TableHead>{t('Updated At')}</TableHead>
                       <TableHead>{t('Actions')}</TableHead>
@@ -118,10 +174,12 @@ export const SalesAccounts = () => {
                     {query.data.items.map((account) => (
                       <TableRow key={account.userId}>
                         <TableCell>
-                          {account.userName}{' '}
-                          <span className='text-muted-foreground'>
-                            #{account.userId}
+                          <span className='font-medium'>
+                            {account.userName}
                           </span>
+                          <div className='text-muted-foreground text-xs'>
+                            #{account.userId}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -129,6 +187,44 @@ export const SalesAccounts = () => {
                           >
                             {account.active ? t('Active') : t('Inactive')}
                           </Badge>
+                        </TableCell>
+                        <TableCell className='text-right font-medium tabular-nums'>
+                          {account.performance?.invitedCount ?? '—'}
+                        </TableCell>
+                        <TableCell className='text-right tabular-nums'>
+                          {account.performance?.effectiveInvitedCount ?? '—'}
+                        </TableCell>
+                        <TableCell className='text-right tabular-nums'>
+                          {account.performance && query.data.creditCurrency
+                            ? formatSalesAmount(
+                                account.performance.rechargeAmount,
+                                query.data.creditCurrency
+                              )
+                            : '—'}
+                          {account.performance &&
+                            account.performance.unverifiedRechargeCount > 0 && (
+                              <p className='text-muted-foreground mt-1 max-w-52 text-xs whitespace-normal'>
+                                {t(
+                                  '{{count}} historical recharge amounts need verification',
+                                  {
+                                    count:
+                                      account.performance
+                                        .unverifiedRechargeCount,
+                                  }
+                                )}
+                              </p>
+                            )}
+                        </TableCell>
+                        <TableCell className='min-w-72'>
+                          {account.performance && query.data.creditCurrency ? (
+                            <SalesRebateAmounts
+                              rebates={account.performance.rebates}
+                              currency={query.data.creditCurrency}
+                              compact
+                            />
+                          ) : (
+                            '—'
+                          )}
                         </TableCell>
                         <TableCell className='max-w-64 whitespace-normal'>
                           {account.note || '—'}
