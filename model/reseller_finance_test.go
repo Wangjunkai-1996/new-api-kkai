@@ -45,6 +45,24 @@ func TestResellerQuoteFreezesIndependentRetailAndSupplyPrices(t *testing.T) {
 	assert.ErrorIs(t, err, ErrResellerPriceBelowCost)
 }
 
+func TestResellerQuoteAcceptsFractionalMarkupPrecision(t *testing.T) {
+	db := newResellerFinanceTestDB(t)
+	salesMultiplier := decimal.RequireFromString("0.0000000000000000012")
+	saleUnit, supplyUnit, err := ResellerQuotaTariff(decimal.NewFromInt(1), decimal.NewFromInt(500000), decimal.RequireFromString("0.000000000000000001"), salesMultiplier)
+	require.NoError(t, err)
+	supplierMinor, err := ResellerQuotedCharge(supplyUnit, 1)
+	require.NoError(t, err)
+	saleMinor, err := ResellerQuotedCharge(saleUnit, 1)
+	require.NoError(t, err)
+	quote, err := CreateResellerPricingQuoteTx(db, ResellerPricingQuoteInput{
+		TenantID: 42, CustomerID: 7, RequestID: "fractional-markup", PriceVersionID: 1,
+		Model: "text", Group: "default", SupplierPriceMinor: supplierMinor, SaleMinor: saleMinor,
+		SupplierMinorPerQuota: supplyUnit, SaleMinorPerQuota: saleUnit, SalesMultiplier: salesMultiplier, QuotedQuota: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "0.0000000000000000012", quote.SalesMultiplier)
+}
+
 func TestResellerSettlementIsIdempotentAndPendingReleaseMovesFunds(t *testing.T) {
 	db := newResellerFinanceTestDB(t)
 	quote, err := CreateResellerPricingQuoteTx(db, ResellerPricingQuoteInput{

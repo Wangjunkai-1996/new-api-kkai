@@ -52,6 +52,8 @@ export interface GroupPrice {
   sales_multiplier: string
   platform_multiplier: string
   minimum_multiplier: string
+  markup_percent: string
+  pricing_mode: 'markup' | 'legacy'
   version: number
   inherited: boolean
 }
@@ -167,11 +169,12 @@ export async function getResellerPrices(): Promise<GroupPrice[]> {
   return (requireServerSuccess(response.data).data as GroupPrice[] | null) ?? []
 }
 export async function updateResellerPrices(
-  prices: Array<{
-    sales_group: string
-    sale_multiplier: string
-    expected_version: number
-  }>
+  prices: Array<
+    { sales_group: string; expected_version: number } & (
+      | { markup_percent: string }
+      | { convert_legacy: true; expected_platform_multiplier: string }
+    )
+  >
 ): Promise<GroupPrice[]> {
   const response = await api.patch('/api/reseller/prices', { prices })
   return (requireServerSuccess(response.data).data as GroupPrice[] | null) ?? []

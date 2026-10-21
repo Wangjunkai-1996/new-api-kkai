@@ -374,7 +374,7 @@ func CreateResellerPricingQuoteTx(tx *gorm.DB, input ResellerPricingQuoteInput) 
 	if err != nil || unit.Sign() < 0 {
 		return nil, ErrResellerFinanceInvalidInput
 	}
-	if !input.SalesMultiplier.IsPositive() || input.SalesMultiplier.Exponent() < -18 || input.SalesMultiplier.Exponent() > 6 || input.SalesMultiplier.GreaterThan(decimal.NewFromInt(1000000)) || input.SaleMinor < 0 {
+	if !input.SalesMultiplier.IsPositive() || input.SalesMultiplier.Exponent() < -32 || input.SalesMultiplier.Exponent() > 6 || input.SalesMultiplier.GreaterThan(decimal.NewFromInt(1000000)) || input.SaleMinor < 0 {
 		return nil, ErrResellerFinanceInvalidInput
 	}
 	sale := input.SaleMinor

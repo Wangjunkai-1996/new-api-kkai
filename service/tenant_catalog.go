@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -193,7 +194,7 @@ func (s *TenantPricingService) ResolveCurrentPrice(ctx context.Context, tenantID
 // floor. Payment fees affect real profit, never an implicit customer markup.
 func EffectiveTenantMultiplier(multiplier string, group string) (decimal.Decimal, error) {
 	ratio, err := decimal.NewFromString(multiplier)
-	if len(multiplier) > 64 || err != nil || ratio.Exponent() < -18 || ratio.Exponent() > 6 || ratio.IsNegative() || ratio.GreaterThan(decimal.NewFromInt(1000000)) {
+	if len(multiplier) > 64 || err != nil || ratio.Exponent() < -32 || ratio.Exponent() > 6 || ratio.IsNegative() || ratio.GreaterThan(decimal.NewFromInt(1000000)) {
 		return decimal.Zero, model.ErrResellerInvalidPrice
 	}
 	supply := ratio_setting.GetGroupRatio(group)
@@ -253,10 +254,13 @@ func (s *TenantPricingService) SaveCatalog(ctx context.Context, tenantID int64, 
 }
 
 type TenantPriceUpdate struct {
-	Model           string
-	Group           string
-	Multiplier      string
-	ExpectedVersion int64
+	Model                      string
+	Group                      string
+	Multiplier                 string
+	MarkupPercent              *string
+	ConvertLegacy              bool
+	ExpectedPlatformMultiplier string
+	ExpectedVersion            int64
 }
 
 var ErrTenantPriceVersionConflict = errors.New("tenant price version conflict")
@@ -315,6 +319,8 @@ type TenantGroupPrice struct {
 	SalesMultiplier    string `json:"sales_multiplier"`
 	PlatformMultiplier string `json:"platform_multiplier"`
 	MinimumMultiplier  string `json:"minimum_multiplier"`
+	MarkupPercent      string `json:"markup_percent"`
+	PricingMode        string `json:"pricing_mode"`
 	Version            int64  `json:"version"`
 	Inherited          bool   `json:"inherited"`
 }
@@ -343,18 +349,17 @@ func (s *TenantPricingService) ListGroupPrices(ctx context.Context, tenantID int
 			continue
 		}
 		seen[entry.SalesGroup] = true
-		platform := decimal.NewFromFloat(ratio_setting.GetGroupRatio(entry.SalesGroup)).String()
 		version := byGroup[entry.SalesGroup]
-		multiplier := version.SalesMultiplier
-		inherited := multiplier == ""
-		if inherited {
-			multiplier = platform
-		}
-		effective, err := EffectiveTenantMultiplier(multiplier, entry.SalesGroup)
+		platformRatio, err := EffectiveTenantMultiplier("0", entry.SalesGroup)
 		if err != nil {
 			return nil, err
 		}
-		prices = append(prices, TenantGroupPrice{ID: version.ID, Group: entry.SalesGroup, SalesMultiplier: effective.String(), PlatformMultiplier: platform, MinimumMultiplier: platform, Version: version.Version, Inherited: inherited})
+		platform := platformRatio.String()
+		effective, markup, mode, err := resolveTenantGroupMarkup(version.SalesMultiplier, platformRatio)
+		if err != nil {
+			return nil, err
+		}
+		prices = append(prices, TenantGroupPrice{ID: version.ID, Group: entry.SalesGroup, SalesMultiplier: effective.String(), PlatformMultiplier: platform, MinimumMultiplier: platform, MarkupPercent: markup, PricingMode: mode, Version: version.Version, Inherited: version.SalesMultiplier == ""})
 	}
 	return prices, nil
 }
@@ -385,14 +390,15 @@ func (s *TenantPricingService) SaveGroupPrices(ctx context.Context, tenantID int
 	if s == nil || s.db == nil || tenantID <= 0 || len(updates) == 0 || len(updates) > 100 {
 		return nil, model.ErrResellerInvalidPrice
 	}
-	available, err := s.ListGroupPrices(ctx, tenantID)
+	available, err := ListTenantSupply(s.db.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
 	open := make(map[string]bool, len(available))
 	for _, price := range available {
-		open[price.Group] = true
+		open[price.SalesGroup] = true
 	}
+	var prices []TenantGroupPrice
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if _, err := model.LockTenantTx(tx, tenantID); err != nil {
 			return err
@@ -403,11 +409,6 @@ func (s *TenantPricingService) SaveGroupPrices(ctx context.Context, tenantID int
 				return model.ErrResellerInvalidPrice
 			}
 			seen[update.Group] = true
-			if update.Multiplier != "" {
-				if err := s.ValidateMinimumPrice(update.Multiplier, update.Group); err != nil {
-					return err
-				}
-			}
 			var previous model.TenantPriceVersion
 			err := tx.Where(map[string]any{"tenant_id": tenantID, "model": "", "group": update.Group}).Order("version DESC, id DESC").First(&previous).Error
 			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -419,15 +420,64 @@ func (s *TenantPricingService) SaveGroupPrices(ctx context.Context, tenantID int
 			if previous.Version == math.MaxInt64 {
 				return model.ErrResellerInvalidPrice
 			}
-			price := model.TenantPriceVersion{TenantID: tenantID, Group: update.Group, Version: previous.Version + 1, SalesMultiplier: update.Multiplier, EffectiveAt: time.Now().Unix(), CreatedAt: time.Now().Unix()}
+			stored := update.Multiplier
+			if update.MarkupPercent != nil || update.ConvertLegacy {
+				if update.Multiplier != "" || (update.MarkupPercent != nil && update.ConvertLegacy) {
+					return model.ErrResellerInvalidPrice
+				}
+				platform, err := EffectiveTenantMultiplier("0", update.Group)
+				if err != nil {
+					return err
+				}
+				if update.ConvertLegacy {
+					if update.ExpectedPlatformMultiplier == "" || len(update.ExpectedPlatformMultiplier) > 512 {
+						return model.ErrResellerInvalidPrice
+					}
+					expected, err := decimal.NewFromString(update.ExpectedPlatformMultiplier)
+					if err != nil || expected.Exponent() < -324 || expected.Exponent() > 6 || expected.IsNegative() || expected.GreaterThan(decimal.NewFromInt(1000000)) {
+						return model.ErrResellerInvalidPrice
+					}
+					if !expected.Equal(platform) {
+						return ErrTenantPriceVersionConflict
+					}
+					effective, _, mode, err := resolveTenantGroupMarkup(previous.SalesMultiplier, platform)
+					if err != nil || mode != "legacy" {
+						return model.ErrResellerInvalidPrice
+					}
+					if platform.IsZero() {
+						if !effective.IsZero() {
+							return model.ErrResellerInvalidPrice
+						}
+						stored = ""
+					} else {
+						stored, err = encodeTenantMarkupFactor(new(big.Rat).Quo(effective.Rat(), platform.Rat()))
+						if err != nil {
+							return err
+						}
+					}
+				} else {
+					stored, err = tenantMarkupFromPercent(*update.MarkupPercent)
+					if err != nil {
+						return err
+					}
+				}
+				if _, _, _, err := resolveTenantGroupMarkup(stored, platform); err != nil {
+					return err
+				}
+			} else if stored != "" {
+				if err := s.ValidateMinimumPrice(stored, update.Group); err != nil {
+					return err
+				}
+			}
+			price := model.TenantPriceVersion{TenantID: tenantID, Group: update.Group, Version: previous.Version + 1, SalesMultiplier: stored, EffectiveAt: time.Now().Unix(), CreatedAt: time.Now().Unix()}
 			if err := tx.Create(&price).Error; err != nil {
 				return err
 			}
 		}
-		return nil
+		// Validate and return the same transaction snapshot. An invalid sibling
+		// group must not turn a committed change into an error response.
+		prices, err = NewTenantPricingService(tx).ListGroupPrices(ctx, tenantID)
+		return err
 	})
-	if err != nil {
-		return nil, err
-	}
-	return s.ListGroupPrices(ctx, tenantID)
+	return prices, err
 }

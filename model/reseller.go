@@ -88,7 +88,10 @@ func (TenantCatalogEntry) TableName() string { return "tenant_catalog_entries" }
 
 // TenantPriceVersion is the tenant-owned sales configuration frozen by
 // PricingQuote at request reservation. Supplier prices remain platform-controlled;
-// owner APIs can only update SalesMultiplier.
+// owner APIs can only update SalesMultiplier. Group versions (empty Model) use
+// an empty value for inheritance, a historical decimal for an absolute price,
+// or markup:p/q for an exact relative factor. Service projections expose the
+// resolved numeric multiplier; immutable request quotes never store this tag.
 type TenantPriceVersion struct {
 	ID                 int64  `json:"id" gorm:"primaryKey"`
 	TenantID           int64  `json:"tenant_id" gorm:"not null;index;uniqueIndex:idx_tenant_price_version,priority:1"`

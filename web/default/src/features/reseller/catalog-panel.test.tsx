@@ -49,15 +49,19 @@ const defaultPrice: GroupPrice = {
   sales_multiplier: '1',
   platform_multiplier: '1',
   minimum_multiplier: '1',
+  markup_percent: '0',
+  pricing_mode: 'markup',
   version: 0,
   inherited: true,
 }
 const proPrice: GroupPrice = {
   id: 4,
   group: 'pro',
-  sales_multiplier: '2',
+  sales_multiplier: '1.8',
   platform_multiplier: '1.5',
   minimum_multiplier: '1.5',
+  markup_percent: '20',
+  pricing_mode: 'markup',
   version: 4,
   inherited: false,
 }
@@ -91,6 +95,7 @@ test.each(['1', '0'])(
             ...proPrice,
             id: 0,
             sales_multiplier: '1.5',
+            markup_percent: '0',
             version: 0,
             inherited: true,
           },
@@ -99,14 +104,14 @@ test.each(['1', '0'])(
     })
     const patch = vi.spyOn(api, 'patch')
     renderCatalog()
-    expect(await screen.findByLabelText('Group ratio for default')).toHaveValue(
-      platformRatio
+    expect(await screen.findByLabelText('Markup for default (%)')).toHaveValue(
+      '0'
     )
-    expect(screen.getByLabelText('Group ratio for default')).toHaveAttribute(
+    expect(screen.getByLabelText('Markup for default (%)')).toHaveAttribute(
       'aria-invalid',
       'false'
     )
-    expect(screen.getByLabelText('Group ratio for pro')).toHaveValue('1.5')
+    expect(screen.getByLabelText('Markup for pro (%)')).toHaveValue('0')
     expect(screen.getAllByText('Inherited')).toHaveLength(2)
     for (const button of screen.getAllByRole('button', { name: /^Save$/ })) {
       expect(button).toBeDisabled()
@@ -128,6 +133,7 @@ test('saving one group refreshes its version while preserving another group draf
     ...defaultPrice,
     id: 1,
     sales_multiplier: '1.5',
+    markup_percent: '50',
     version: 1,
     inherited: false,
   }
@@ -135,6 +141,7 @@ test('saving one group refreshes its version while preserving another group draf
     ...savedDefault,
     id: 2,
     sales_multiplier: '1.7',
+    markup_percent: '70',
     version: 2,
   }
   vi.spyOn(api, 'get')
@@ -152,7 +159,13 @@ test('saving one group refreshes its version while preserving another group draf
         success: true,
         data: [
           savedAgain,
-          { ...proPrice, id: 5, sales_multiplier: '2.4', version: 5 },
+          {
+            ...proPrice,
+            id: 5,
+            sales_multiplier: '2.1',
+            markup_percent: '40',
+            version: 5,
+          },
         ],
       },
     })
@@ -160,12 +173,12 @@ test('saving one group refreshes its version while preserving another group draf
     data: { success: true, data: [] },
   })
   renderCatalog()
-  await screen.findByLabelText('Group ratio for default')
+  await screen.findByLabelText('Markup for default (%)')
   const user = userEvent.setup()
-  await user.clear(screen.getByLabelText('Group ratio for pro'))
-  await user.type(screen.getByLabelText('Group ratio for pro'), '2.4')
-  await user.clear(screen.getByLabelText('Group ratio for default'))
-  await user.type(screen.getByLabelText('Group ratio for default'), '1.5')
+  await user.clear(screen.getByLabelText('Markup for pro (%)'))
+  await user.type(screen.getByLabelText('Markup for pro (%)'), '40')
+  await user.clear(screen.getByLabelText('Markup for default (%)'))
+  await user.type(screen.getByLabelText('Markup for default (%)'), '50')
   await user.click(
     within(screen.getByRole('row', { name: /^default / })).getByRole('button', {
       name: /^Save$/,
@@ -174,15 +187,15 @@ test('saving one group refreshes its version while preserving another group draf
   await waitFor(() =>
     expect(patch).toHaveBeenNthCalledWith(1, '/api/reseller/prices', {
       prices: [
-        { sales_group: 'default', sale_multiplier: '1.5', expected_version: 0 },
+        { sales_group: 'default', markup_percent: '50', expected_version: 0 },
       ],
     })
   )
   await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
-  expect(screen.getByLabelText('Group ratio for pro')).toHaveValue('2.4')
+  expect(screen.getByLabelText('Markup for pro (%)')).toHaveValue('40')
 
-  await user.clear(screen.getByLabelText('Group ratio for default'))
-  await user.type(screen.getByLabelText('Group ratio for default'), '1.7')
+  await user.clear(screen.getByLabelText('Markup for default (%)'))
+  await user.type(screen.getByLabelText('Markup for default (%)'), '70')
   await user.click(
     within(screen.getByRole('row', { name: /^default / })).getByRole('button', {
       name: /^Save$/,
@@ -191,12 +204,12 @@ test('saving one group refreshes its version while preserving another group draf
   await waitFor(() =>
     expect(patch).toHaveBeenNthCalledWith(2, '/api/reseller/prices', {
       prices: [
-        { sales_group: 'default', sale_multiplier: '1.7', expected_version: 1 },
+        { sales_group: 'default', markup_percent: '70', expected_version: 1 },
       ],
     })
   )
   await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(2))
-  expect(screen.getByLabelText('Group ratio for pro')).toHaveValue('2.4')
+  expect(screen.getByLabelText('Markup for pro (%)')).toHaveValue('40')
   await user.click(
     within(screen.getByRole('row', { name: /^pro / })).getByRole('button', {
       name: /^Save$/,
@@ -205,7 +218,7 @@ test('saving one group refreshes its version while preserving another group draf
   await waitFor(() =>
     expect(patch).toHaveBeenNthCalledWith(3, '/api/reseller/prices', {
       prices: [
-        { sales_group: 'pro', sale_multiplier: '2.4', expected_version: 4 },
+        { sales_group: 'pro', markup_percent: '40', expected_version: 4 },
       ],
     })
   )
@@ -216,6 +229,7 @@ test('resetting a group restores inheritance with the observed version', async (
     ...defaultPrice,
     id: 7,
     sales_multiplier: '1.6',
+    markup_percent: '60',
     version: 7,
     inherited: false,
   }
@@ -227,19 +241,19 @@ test('resetting a group restores inheritance with the observed version', async (
     data: { success: true, data: [] },
   })
   renderCatalog()
-  await screen.findByDisplayValue('1.6')
+  await screen.findByDisplayValue('60')
   await userEvent
     .setup()
     .click(screen.getByRole('button', { name: 'Reset to default' }))
   await waitFor(() =>
     expect(patch).toHaveBeenCalledExactlyOnceWith('/api/reseller/prices', {
       prices: [
-        { sales_group: 'default', sale_multiplier: '', expected_version: 7 },
+        { sales_group: 'default', markup_percent: '0', expected_version: 7 },
       ],
     })
   )
   expect(await screen.findByText('Inherited')).toBeVisible()
-  expect(screen.getByLabelText('Group ratio for default')).toHaveValue('1')
+  expect(screen.getByLabelText('Markup for default (%)')).toHaveValue('0')
   expect(screen.getByRole('button', { name: /^Save$/ })).toBeDisabled()
   expect(
     screen.getByRole('button', { name: 'Reset to default' })
@@ -251,6 +265,7 @@ test('a price conflict refreshes the group version before the next save', async 
     ...defaultPrice,
     id: 1,
     sales_multiplier: '1.7',
+    markup_percent: '70',
     version: 1,
     inherited: false,
   }
@@ -258,6 +273,7 @@ test('a price conflict refreshes the group version before the next save', async 
     ...latestDefault,
     id: 2,
     sales_multiplier: '1.8',
+    markup_percent: '80',
     version: 2,
   }
   const conflict = {
@@ -287,12 +303,12 @@ test('a price conflict refreshes the group version before the next save', async 
       data: { success: true, data: [savedDefault, proPrice] },
     })
   renderCatalog()
-  await screen.findByLabelText('Group ratio for default')
+  await screen.findByLabelText('Markup for default (%)')
   const user = userEvent.setup()
-  await user.clear(screen.getByLabelText('Group ratio for pro'))
-  await user.type(screen.getByLabelText('Group ratio for pro'), '2.4')
-  await user.clear(screen.getByLabelText('Group ratio for default'))
-  await user.type(screen.getByLabelText('Group ratio for default'), '1.5')
+  await user.clear(screen.getByLabelText('Markup for pro (%)'))
+  await user.type(screen.getByLabelText('Markup for pro (%)'), '40')
+  await user.clear(screen.getByLabelText('Markup for default (%)'))
+  await user.type(screen.getByLabelText('Markup for default (%)'), '50')
   await user.click(
     within(screen.getByRole('row', { name: /^default / })).getByRole('button', {
       name: /^Save$/,
@@ -301,18 +317,18 @@ test('a price conflict refreshes the group version before the next save', async 
   await waitFor(() =>
     expect(patch).toHaveBeenNthCalledWith(1, '/api/reseller/prices', {
       prices: [
-        { sales_group: 'default', sale_multiplier: '1.5', expected_version: 0 },
+        { sales_group: 'default', markup_percent: '50', expected_version: 0 },
       ],
     })
   )
   await waitFor(() =>
-    expect(screen.getByLabelText('Group ratio for default')).toHaveValue('1.7')
+    expect(screen.getByLabelText('Markup for default (%)')).toHaveValue('70')
   )
   expect(handleServerError).toHaveBeenCalledWith(conflict)
   expect(toast.success).not.toHaveBeenCalled()
-  expect(screen.getByLabelText('Group ratio for pro')).toHaveValue('2.4')
-  await user.clear(screen.getByLabelText('Group ratio for default'))
-  await user.type(screen.getByLabelText('Group ratio for default'), '1.8')
+  expect(screen.getByLabelText('Markup for pro (%)')).toHaveValue('40')
+  await user.clear(screen.getByLabelText('Markup for default (%)'))
+  await user.type(screen.getByLabelText('Markup for default (%)'), '80')
   await user.click(
     within(screen.getByRole('row', { name: /^default / })).getByRole('button', {
       name: /^Save$/,
@@ -321,13 +337,13 @@ test('a price conflict refreshes the group version before the next save', async 
   await waitFor(() =>
     expect(patch).toHaveBeenNthCalledWith(2, '/api/reseller/prices', {
       prices: [
-        { sales_group: 'default', sale_multiplier: '1.8', expected_version: 1 },
+        { sales_group: 'default', markup_percent: '80', expected_version: 1 },
       ],
     })
   )
   await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1))
-  expect(screen.getByLabelText('Group ratio for default')).toHaveValue('1.8')
-  expect(screen.getByLabelText('Group ratio for pro')).toHaveValue('2.4')
+  expect(screen.getByLabelText('Markup for default (%)')).toHaveValue('80')
+  expect(screen.getByLabelText('Markup for pro (%)')).toHaveValue('40')
 })
 
 test('invalid ratios cannot be saved and a failed save preserves the valid draft', async () => {
@@ -337,22 +353,152 @@ test('invalid ratios cannot be saved and a failed save preserves the valid draft
   const error = new Error('Price version conflict')
   const patch = vi.spyOn(api, 'patch').mockRejectedValue(error)
   renderCatalog()
-  const ratio = await screen.findByLabelText('Group ratio for default')
+  const ratio = await screen.findByLabelText('Markup for default (%)')
   const save = screen.getByRole('button', { name: /^Save$/ })
   const user = userEvent.setup()
   await user.clear(ratio)
   expect(save).toBeDisabled()
-  for (const invalid of ['0', '0.5', '1000001', 'Infinity']) {
+  for (const invalid of ['-1', '1000001', 'Infinity']) {
     await user.type(ratio, invalid)
     expect(ratio).toHaveAttribute('aria-invalid', 'true')
     expect(save).toBeDisabled()
     await user.clear(ratio)
   }
   expect(patch).not.toHaveBeenCalled()
-  await user.type(ratio, '1.5')
+  await user.type(ratio, '50')
   await user.click(save)
   await waitFor(() => expect(handleServerError).toHaveBeenCalledWith(error))
-  expect(ratio).toHaveValue('1.5')
+  expect(ratio).toHaveValue('50')
   expect(save).toBeEnabled()
   expect(toast.success).not.toHaveBeenCalled()
+})
+
+test('markup previews the effective ratio before saving a percentage', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: [
+        { ...proPrice, platform_multiplier: '2.5', sales_multiplier: '3' },
+      ],
+    },
+  })
+  const patch = vi
+    .spyOn(api, 'patch')
+    .mockResolvedValue({ data: { success: true, data: [] } })
+  renderCatalog()
+  const input = await screen.findByLabelText('Markup for pro (%)')
+  const row = screen.getByRole('row', { name: /^pro / })
+  expect(within(row).getAllByRole('cell')[3]).toHaveTextContent('3')
+  const user = userEvent.setup()
+  await user.clear(input)
+  await user.type(input, '40')
+  expect(within(row).getAllByRole('cell')[3]).toHaveTextContent('3.5')
+  await user.click(within(row).getByRole('button', { name: /^Save$/ }))
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledExactlyOnceWith('/api/reseller/prices', {
+      prices: [
+        { sales_group: 'pro', markup_percent: '40', expected_version: 4 },
+      ],
+    })
+  )
+})
+
+test('an unchanged legacy ratio is converted without sending its rounded percentage', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: [
+        {
+          ...proPrice,
+          pricing_mode: 'legacy',
+          markup_percent: '33.333333333333333333',
+          sales_multiplier: '2',
+        },
+      ],
+    },
+  })
+  const patch = vi
+    .spyOn(api, 'patch')
+    .mockResolvedValue({ data: { success: true, data: [] } })
+  renderCatalog()
+  await screen.findByText('Legacy fixed ratio')
+  expect(screen.getByRole('button', { name: /^Save$/ })).toBeEnabled()
+  expect(
+    within(screen.getByRole('row', { name: /^pro / })).getAllByRole('cell')[3]
+  ).toHaveTextContent('2')
+  await userEvent.setup().click(screen.getByRole('button', { name: /^Save$/ }))
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledExactlyOnceWith('/api/reseller/prices', {
+      prices: [
+        {
+          sales_group: 'pro',
+          convert_legacy: true,
+          expected_platform_multiplier: '1.5',
+          expected_version: 4,
+        },
+      ],
+    })
+  )
+})
+
+test('a legacy price with a zero platform ratio requires an explicit new markup', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: [
+        {
+          ...proPrice,
+          pricing_mode: 'legacy',
+          markup_percent: '',
+          platform_multiplier: '0',
+          sales_multiplier: '2',
+        },
+      ],
+    },
+  })
+  const patch = vi
+    .spyOn(api, 'patch')
+    .mockResolvedValue({ data: { success: true, data: [] } })
+  renderCatalog()
+  const input = await screen.findByLabelText('Markup for pro (%)')
+  const save = screen.getByRole('button', { name: /^Save$/ })
+  expect(input).toHaveValue('')
+  const cells = within(screen.getByRole('row', { name: /^pro / })).getAllByRole(
+    'cell'
+  )
+  expect(cells[3]).toHaveTextContent('2')
+  expect(save).toBeDisabled()
+  await userEvent.setup().type(input, '0')
+  expect(cells[3]).toHaveTextContent('0')
+  expect(save).toBeEnabled()
+  await userEvent.setup().click(save)
+  await waitFor(() =>
+    expect(patch).toHaveBeenCalledExactlyOnceWith('/api/reseller/prices', {
+      prices: [
+        { sales_group: 'pro', markup_percent: '0', expected_version: 4 },
+      ],
+    })
+  )
+})
+
+test('markup cannot exceed the effective sales ratio limit', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: [
+        {
+          ...defaultPrice,
+          platform_multiplier: '1000000',
+          sales_multiplier: '1000000',
+        },
+      ],
+    },
+  })
+  renderCatalog()
+  const input = await screen.findByLabelText('Markup for default (%)')
+  const user = userEvent.setup()
+  await user.clear(input)
+  await user.type(input, '1')
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  expect(screen.getByRole('button', { name: /^Save$/ })).toBeDisabled()
 })

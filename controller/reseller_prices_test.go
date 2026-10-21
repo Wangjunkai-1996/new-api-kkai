@@ -110,8 +110,8 @@ func TestResellerGroupPricesInheritCatalogAndKeepModelReadCompatibility(t *testi
 	require.NoError(t, common.Unmarshal(groupResponse.Body.Bytes(), &groups))
 	require.True(t, groups.Success, groupResponse.Body.String())
 	require.Len(t, groups.Data, 2)
-	assert.Equal(t, service.TenantGroupPrice{Group: "default", SalesMultiplier: "1", PlatformMultiplier: "1", MinimumMultiplier: "1", Inherited: true}, groups.Data[0])
-	assert.Equal(t, service.TenantGroupPrice{Group: "premium", SalesMultiplier: "2", PlatformMultiplier: "2", MinimumMultiplier: "2", Inherited: true}, groups.Data[1])
+	assert.Equal(t, service.TenantGroupPrice{Group: "default", SalesMultiplier: "1", PlatformMultiplier: "1", MinimumMultiplier: "1", MarkupPercent: "0", PricingMode: "markup", Inherited: true}, groups.Data[0])
+	assert.Equal(t, service.TenantGroupPrice{Group: "premium", SalesMultiplier: "2", PlatformMultiplier: "2", MinimumMultiplier: "2", MarkupPercent: "0", PricingMode: "markup", Inherited: true}, groups.Data[1])
 	legacyResponse := resellerPricesHTTP(t, 42, 7, http.MethodGet, "/prices", "")
 	var prices struct {
 		Success bool                       `json:"success"`

@@ -34,11 +34,14 @@ type resellerProfileRequest struct {
 }
 
 type resellerPriceRequest struct {
-	SalesGroup      string `json:"sales_group"`
-	Model           string `json:"model"`
-	SaleMultiplier  string `json:"sale_multiplier"`
-	Status          string `json:"status"`
-	ExpectedVersion int64  `json:"expected_version"`
+	SalesGroup                 string  `json:"sales_group"`
+	Model                      string  `json:"model"`
+	SaleMultiplier             *string `json:"sale_multiplier"`
+	MarkupPercent              *string `json:"markup_percent"`
+	ConvertLegacy              bool    `json:"convert_legacy"`
+	ExpectedPlatformMultiplier string  `json:"expected_platform_multiplier"`
+	Status                     string  `json:"status"`
+	ExpectedVersion            int64   `json:"expected_version"`
 }
 
 type resellerPricesPatchRequest struct {
@@ -416,7 +419,28 @@ func UpdateResellerPrices(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "TENANT_GROUP_PRICING_REQUIRED", "message": "Set prices by group instead of model."})
 			return
 		}
-		updates = append(updates, service.TenantPriceUpdate{Group: strings.TrimSpace(item.SalesGroup), Multiplier: strings.TrimSpace(item.SaleMultiplier), ExpectedVersion: item.ExpectedVersion})
+		modes := 0
+		update := service.TenantPriceUpdate{
+			Group: strings.TrimSpace(item.SalesGroup), ExpectedVersion: item.ExpectedVersion,
+			ConvertLegacy: item.ConvertLegacy, ExpectedPlatformMultiplier: strings.TrimSpace(item.ExpectedPlatformMultiplier),
+		}
+		if item.SaleMultiplier != nil {
+			modes++
+			update.Multiplier = strings.TrimSpace(*item.SaleMultiplier)
+		}
+		if item.MarkupPercent != nil {
+			modes++
+			value := strings.TrimSpace(*item.MarkupPercent)
+			update.MarkupPercent = &value
+		}
+		if item.ConvertLegacy {
+			modes++
+		}
+		if modes != 1 {
+			resellerBadRequest(c, "exactly one price update mode is required")
+			return
+		}
+		updates = append(updates, update)
 	}
 	prices, err := service.NewTenantPricingService(db).SaveGroupPrices(c.Request.Context(), tenant.TenantID, updates)
 	if errors.Is(err, service.ErrTenantPriceVersionConflict) {

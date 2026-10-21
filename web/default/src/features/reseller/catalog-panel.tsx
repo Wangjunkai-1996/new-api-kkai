@@ -48,23 +48,40 @@ function GroupRatioRow(props: { price: GroupPrice }) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
-  const [ratio, setRatio] = useState(props.price.sales_multiplier)
-  const value = Number(ratio)
+  const [markup, setMarkup] = useState(props.price.markup_percent)
+  const value = Number(markup)
+  const salesRatio = Number(props.price.platform_multiplier) * (1 + value / 100)
+  const unchanged =
+    markup === props.price.markup_percent ||
+    (props.price.markup_percent.trim() !== '' &&
+      value === Number(props.price.markup_percent))
+  const legacy = props.price.pricing_mode === 'legacy'
   const valid =
-    ratio.trim() !== '' &&
+    markup.trim() !== '' &&
     Number.isFinite(value) &&
     value >= 0 &&
-    value >= Number(props.price.minimum_multiplier) &&
-    value <= 1_000_000
+    value <= 1_000_000 &&
+    Number.isFinite(salesRatio) &&
+    salesRatio <= 1_000_000
+  let status = props.price.inherited ? t('Inherited') : t('Custom')
+  if (legacy) status = t('Legacy fixed ratio')
   const mutation = useMutation({
-    mutationFn: (multiplier: string) =>
-      updateResellerPrices([
-        {
-          sales_group: props.price.group,
-          sale_multiplier: multiplier,
-          expected_version: props.price.version,
-        },
-      ]),
+    mutationFn: (percent: string | null) => {
+      const group = {
+        sales_group: props.price.group,
+        expected_version: props.price.version,
+      }
+      if (percent === null) {
+        return updateResellerPrices([
+          {
+            ...group,
+            convert_legacy: true,
+            expected_platform_multiplier: props.price.platform_multiplier,
+          },
+        ])
+      }
+      return updateResellerPrices([{ ...group, markup_percent: percent }])
+    },
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({
@@ -94,43 +111,51 @@ function GroupRatioRow(props: { price: GroupPrice }) {
       <TableCell>
         <Input
           className='max-w-40 min-w-24'
-          aria-label={t('Group ratio for {{group}}', {
+          aria-label={t('Markup for {{group}} (%)', {
             group: props.price.group,
           })}
           inputMode='decimal'
-          value={ratio}
+          value={markup}
           disabled={mutation.isPending}
           aria-invalid={!valid}
-          onChange={(event) => setRatio(event.target.value)}
+          onChange={(event) => setMarkup(event.target.value)}
         />
         {!valid && (
           <p className='text-destructive mt-1 text-sm'>
-            {t('Group ratio must be between {{minimum}} and {{maximum}}.', {
-              minimum: props.price.minimum_multiplier,
-              maximum: '1000000',
-            })}
+            {t(
+              'Markup must be between 0 and {{maximum}}%, and the sales ratio must not exceed {{ratioMaximum}}.',
+              { maximum: '1000000', ratioMaximum: '1000000' }
+            )}
+          </p>
+        )}
+        {legacy && (
+          <p className='text-muted-foreground mt-1 max-w-64 text-sm'>
+            {t(
+              'Save the markup to make this group follow platform price changes.'
+            )}
           </p>
         )}
       </TableCell>
       <TableCell>
-        {props.price.inherited ? t('Inherited') : t('Custom')}
+        {unchanged
+          ? props.price.sales_multiplier
+          : valid && Number(salesRatio.toPrecision(15)).toString()}
       </TableCell>
+      <TableCell>{status}</TableCell>
       <TableCell>
         <div className='flex flex-wrap gap-2'>
           <Button
-            disabled={
-              mutation.isPending ||
-              !valid ||
-              value === Number(props.price.sales_multiplier)
+            disabled={mutation.isPending || !valid || (unchanged && !legacy)}
+            onClick={() =>
+              mutation.mutate(legacy && unchanged ? null : markup.trim())
             }
-            onClick={() => mutation.mutate(ratio.trim())}
           >
             {t('Save')}
           </Button>
           <Button
             variant='outline'
             disabled={mutation.isPending || props.price.inherited}
-            onClick={() => mutation.mutate('')}
+            onClick={() => mutation.mutate('0')}
           >
             {t('Reset to default')}
           </Button>
@@ -161,7 +186,7 @@ export function CatalogPanel() {
     <div className='space-y-4'>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Models and prices follow the platform by default. Adjust each group ratio independently or reset it to follow the platform again.'
+          'Models follow the platform. Set a markup percentage for each group; sales ratios automatically follow platform price changes.'
         )}
       </p>
       <Table>
@@ -169,7 +194,8 @@ export function CatalogPanel() {
           <TableRow>
             <TableHead>{t('Group')}</TableHead>
             <TableHead>{t('Platform group ratio')}</TableHead>
-            <TableHead>{t('Group Ratio')}</TableHead>
+            <TableHead>{t('Markup (%)')}</TableHead>
+            <TableHead>{t('Effective sales ratio')}</TableHead>
             <TableHead>{t('Status')}</TableHead>
             <TableHead>{t('Actions')}</TableHead>
           </TableRow>
@@ -177,13 +203,13 @@ export function CatalogPanel() {
         <TableBody>
           {query.data.map((price) => (
             <GroupRatioRow
-              key={`${price.group}:${price.version}:${price.sales_multiplier}:${price.platform_multiplier}`}
+              key={`${price.group}:${price.version}:${price.markup_percent}:${price.sales_multiplier}:${price.platform_multiplier}`}
               price={price}
             />
           ))}
           {query.data.length === 0 && (
             <TableRow>
-              <TableCell colSpan={5}>{t('No data available')}</TableCell>
+              <TableCell colSpan={6}>{t('No data available')}</TableCell>
             </TableRow>
           )}
         </TableBody>
