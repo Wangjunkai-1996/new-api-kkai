@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { AxiosError } from 'axios'
+import { AxiosError, type AxiosAdapter } from 'axios'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { clearAuthentication, refreshAuthentication } from '@/lib/auth-session'
+import { markServerErrorHandled } from '@/lib/handle-server-error'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 import { api } from './http-client'
@@ -51,6 +52,11 @@ const bundle: AuthBundle = {
     last_active_at: 1,
     expires_at: 1,
   },
+}
+const refreshedBundle: AuthBundle = {
+  ...bundle,
+  access_token: 'fresh-owner-token',
+  session: { ...bundle.session, sid: 'refreshed-owner-session' },
 }
 const replace = vi.fn()
 
@@ -115,3 +121,60 @@ it('retains owner mode if the retried request also reports an expired session', 
     ).searchParams.get('owner_login')
   ).toBe('true')
 })
+
+it('retries with the session adopted by a successful refresh', async () => {
+  const unauthorized = api.defaults.adapter as AxiosAdapter
+  const request = vi.fn<AxiosAdapter>(async (config) => {
+    if (!config.authRetry) return unauthorized(config)
+    expect(config.headers.get('Authorization')).toBe('Bearer fresh-owner-token')
+    expect(config.authSessionSID).toBe(refreshedBundle.session.sid)
+    return {
+      data: { success: true },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }
+  })
+  api.defaults.adapter = request
+  vi.mocked(refreshAuthentication).mockImplementation(async () => {
+    useAuthStore.getState().auth.setBundle(refreshedBundle)
+    return { kind: 'authenticated', bundle: refreshedBundle }
+  })
+
+  const response = await api.get('/api/reseller/earnings')
+
+  expect(response.data).toEqual({ success: true })
+  expect(request).toHaveBeenCalledTimes(2)
+  expect(markServerErrorHandled).not.toHaveBeenCalled()
+  expect(replace).not.toHaveBeenCalled()
+})
+
+it.each(['signed out', 'another session'] as const)(
+  'does not replay a successful refresh after moving to %s',
+  async (nextSession) => {
+    const request = vi.fn(api.defaults.adapter as AxiosAdapter)
+    api.defaults.adapter = request
+    vi.mocked(refreshAuthentication).mockImplementation(async () => {
+      useAuthStore.getState().auth.setBundle(refreshedBundle)
+      if (nextSession === 'signed out') {
+        useAuthStore.getState().auth.reset()
+      } else {
+        useAuthStore.getState().auth.setBundle({
+          ...refreshedBundle,
+          session: { ...refreshedBundle.session, sid: 'replacement-session' },
+        })
+      }
+      return { kind: 'authenticated', bundle: refreshedBundle }
+    })
+
+    const error = await api
+      .get('/api/reseller/earnings')
+      .catch((error: unknown) => error)
+
+    expect(error).toBeInstanceOf(AxiosError)
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(markServerErrorHandled).toHaveBeenCalledExactlyOnceWith(error)
+    expect(replace).not.toHaveBeenCalled()
+  }
+)

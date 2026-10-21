@@ -132,6 +132,19 @@ api.interceptors.response.use(
       ) {
         config.authRetry = true
         const outcome = await refreshAuthentication()
+        const expectedSID =
+          outcome.kind === 'authenticated'
+            ? outcome.bundle.session.sid
+            : requestSID
+        // Sign-out or an account switch can supersede the awaited refresh.
+        if (
+          outcome.kind !== 'anonymous' &&
+          outcome.kind !== 'out_of_sync' &&
+          useAuthStore.getState().auth.session?.sid !== expectedSID
+        ) {
+          markServerErrorHandled(error)
+          throw error
+        }
         if (outcome.kind === 'authenticated') {
           const token = useAuthStore.getState().auth.accessToken
           if (token) {

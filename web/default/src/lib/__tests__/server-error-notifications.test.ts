@@ -417,6 +417,80 @@ it('ignores an old protected request that fails after explicit sign-out', async 
   expect(notify).not.toHaveBeenCalled()
 })
 
+it.each(['signed out', 'replaced session'])(
+  'ignores concurrent authentication failures when an in-flight refresh is superseded by %s',
+  async (change) => {
+    const bundle: AuthBundle = {
+      access_token: 'expired-access',
+      token_type: 'Bearer',
+      access_expires_at: 1,
+      user: { id: 1, username: 'test-user', role: 1 },
+      session: {
+        sid: 'refreshing-session',
+        current: true,
+        login_method: 'password',
+        ip: '',
+        user_agent: '',
+        created_at: 1,
+        last_active_at: 1,
+        expires_at: 2_000_000_000,
+      },
+    }
+    useAuthStore.getState().auth.setBundle(bundle)
+    let acceptRefresh: (request: XMLHttpRequest) => void = () => undefined
+    const refreshStarted = new Promise<XMLHttpRequest>((resolve) => {
+      acceptRefresh = resolve
+    })
+    const send = vi
+      .spyOn(XMLHttpRequest.prototype, 'send')
+      .mockImplementation(function (this: XMLHttpRequest) {
+        acceptRefresh(this)
+      })
+    const adapter = vi.fn<AxiosAdapter>(async (config) => {
+      throw new AxiosError('HTTP 401', 'ERR_BAD_REQUEST', config, undefined, {
+        data: { code: 'AUTH_UNAUTHORIZED', message: 'Access token invalid' },
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: {},
+        config,
+      })
+    })
+    api.defaults.adapter = adapter
+    const notify = vi.spyOn(toast, 'error').mockReturnValue('error')
+    const pending = Promise.all([
+      api.get('/protected-refresh-a').catch(handleServerError),
+      api.get('/protected-refresh-b').catch(handleServerError),
+    ])
+    const request = await refreshStarted
+    clearAuthentication()
+    if (change === 'replaced session') {
+      useAuthStore.getState().auth.setBundle({
+        ...bundle,
+        access_token: 'new-session-access',
+        session: { ...bundle.session, sid: 'new-session' },
+      })
+    }
+    Object.defineProperties(request, {
+      status: { value: 200, configurable: true },
+      statusText: { value: 'OK', configurable: true },
+      responseText: {
+        value: JSON.stringify({ success: true, data: bundle }),
+        configurable: true,
+      },
+      readyState: { value: 4, configurable: true },
+    })
+    request.onloadend?.(new ProgressEvent('loadend'))
+    await pending
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(adapter).toHaveBeenCalledTimes(2)
+    expect(notify).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().auth.accessToken).toBe(
+      change === 'replaced session' ? 'new-session-access' : null
+    )
+  }
+)
+
 it('reports concurrent expiry only once and leaves anonymous login errors to the form', async () => {
   useAuthStore.getState().auth.setBundle({
     access_token: 'expired-access',
