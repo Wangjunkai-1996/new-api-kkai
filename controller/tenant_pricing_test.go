@@ -10,11 +10,54 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTenantPricingPublishesActualExpressionWithoutChangingPlatformDisplay(t *testing.T) {
+	const name = "tenant-cache-price"
+	const actual = `tier("base", p * 10 + cr * 2)`
+	const display = `tier("base", p * 10 + cr * 1)`
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.TenantPriceVersion{}))
+	withTieredBillingConfig(t, map[string]string{name: "tiered_expr"}, map[string]string{name: actual})
+	displays, err := common.Marshal(map[string]string{name: display})
+	require.NoError(t, err)
+	require.NoError(t, config.UpdateConfigFromMap(config.GlobalConfig.Get("billing_setting"), map[string]string{"display_billing_expr": string(displays)}))
+	oldGroups, oldOpen := ratio_setting.GroupRatio2JSONString(), setting.UserUsableGroups2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldOpen))
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: name, Group: "default"}).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 1, Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.TenantPriceVersion{TenantID: 42, Group: "default", SalesMultiplier: "3", Version: 1}).Error)
+	model.InvalidatePricingCache()
+
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
+	common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
+	GetPricing(c)
+	var pricing struct {
+		Success bool                    `json:"success"`
+		Data    []tenantCustomerPricing `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &pricing))
+	require.True(t, pricing.Success, response.Body.String())
+	require.Len(t, pricing.Data, 1)
+	assert.Equal(t, actual, pricing.Data[0].BillingExpr)
+	assert.Equal(t, map[string]float64{"default": 3}, pricing.Data[0].GroupRatio)
+	platform := model.GetPricing()
+	require.Len(t, platform, 1)
+	assert.Equal(t, display, platform[0].BillingExpr, "tenant projection must not mutate the shared pricing cache")
+}
 
 func TestTenantPricingAndModelsInheritPublicGroupsAndRespectTokenLimits(t *testing.T) {
 	db := setupModelListControllerTestDB(t)

@@ -11,6 +11,7 @@ import (
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -65,6 +66,12 @@ func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
 		}
 		row.SupportedEndpointTypes = endpoints
 		row.EnableGroup = []string{price.Group}
+		if row.BillingMode == billing_setting.BillingModeTieredExpr {
+			if actual, configured := billing_setting.GetBillingExpr(price.Model); configured && actual != "" {
+				// Reseller customers must be able to reconcile the published price with their charges.
+				row.BillingExpr = actual
+			}
+		}
 		row.BillingPluginVariants = nil
 		row.PricingVersion = strconv.FormatInt(price.VersionID, 10)
 		indices[price.Model] = len(result)

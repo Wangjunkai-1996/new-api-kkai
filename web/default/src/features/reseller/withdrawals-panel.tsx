@@ -45,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { PaginationControls } from '@/features/invitations/components/pagination-controls'
 import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
@@ -71,6 +72,8 @@ export function WithdrawalsPanel() {
   const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const client = useQueryClient()
   const userId = useAuthStore((state) => state.auth.user?.id)
+  const [page, setPage] = useState(1)
+  const pageSize = 20
   const [pendingRequest, setPendingRequest] = useState<WithdrawalInput | null>(
     null
   )
@@ -79,17 +82,18 @@ export function WithdrawalsPanel() {
     defaultValues: { amount: '', alipay_account: '', alipay_name: '' },
   })
   const earnings = useQuery({
-    queryKey: resellerQueryKey(userId, 'earnings'),
-    queryFn: getResellerEarnings,
+    queryKey: [...resellerQueryKey(userId, 'earnings'), 1, pageSize],
+    queryFn: () => getResellerEarnings(1, pageSize),
   })
   const withdrawals = useQuery({
-    queryKey: resellerQueryKey(userId, 'withdrawals'),
-    queryFn: getResellerWithdrawals,
+    queryKey: [...resellerQueryKey(userId, 'withdrawals'), page, pageSize],
+    queryFn: () => getResellerWithdrawals(page, pageSize),
   })
   const mutation = useMutation({
     mutationFn: requestResellerWithdrawal,
     onSuccess: async () => {
       setPendingRequest(null)
+      setPage(1)
       form.reset()
       await Promise.all([
         client.invalidateQueries({
@@ -262,7 +266,7 @@ export function WithdrawalsPanel() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {withdrawals.data.map((item) => (
+          {withdrawals.data.items.map((item) => (
             <TableRow key={item.id}>
               <TableCell>
                 {new Date(item.created_at * 1000).toLocaleString(locale)}
@@ -286,13 +290,19 @@ export function WithdrawalsPanel() {
               <TableCell>{item.payment_ref || '—'}</TableCell>
             </TableRow>
           ))}
-          {withdrawals.data.length === 0 && (
+          {withdrawals.data.items.length === 0 && (
             <TableRow>
               <TableCell colSpan={7}>{t('No data available')}</TableCell>
             </TableRow>
           )}
         </TableBody>
       </Table>
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        total={withdrawals.data.total}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

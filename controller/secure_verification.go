@@ -64,6 +64,9 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 	case errors.Is(err, model.ErrAccountPasswordState), errors.Is(err, model.ErrAccountBindingChanged):
 		status = http.StatusConflict
 		code, message = "ACCOUNT_SECURITY_STATE_CHANGED", err.Error()
+	case errors.Is(err, model.ErrTenantAccountSettlementPending):
+		status = http.StatusConflict
+		code, message = "ACCOUNT_SETTLEMENT_PENDING", err.Error()
 	case errors.Is(err, model.ErrLastLoginMethod):
 		code, message = "LAST_LOGIN_METHOD", err.Error()
 	case errors.Is(err, oauth.ErrTelegramOAuthNotConfigured):

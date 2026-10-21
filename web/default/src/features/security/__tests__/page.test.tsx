@@ -166,11 +166,15 @@ describe('personal settings security integration', () => {
     await renderPage()
     expect(await screen.findByText('No active login sessions')).toBeVisible()
     expect(screen.queryByText('Access tokens')).not.toBeInTheDocument()
+    expect(screen.queryByText('Passkey Login')).not.toBeInTheDocument()
     expect(
       vi
         .mocked(api.get)
         .mock.calls.some(([url]) => url.startsWith('/api/user/access_tokens'))
     ).toBe(false)
+    expect(vi.mocked(api.get).mock.calls.map(([url]) => url)).not.toContain(
+      '/api/user/passkey'
+    )
   })
 
   it('exposes all account security controls through the real profile route', async () => {

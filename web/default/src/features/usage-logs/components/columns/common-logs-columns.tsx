@@ -786,6 +786,7 @@ export function useCommonLogsColumns(
               quota={quota}
               other={other}
               showBillingSource={showBillingSource}
+              settlement={log.tenant_settlement}
             />
           )
         },

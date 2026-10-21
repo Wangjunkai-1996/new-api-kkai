@@ -136,6 +136,124 @@ func TestPrepareTenantRequestBillingUsesPlatformProtocolWithoutMembershipCatalog
 	assert.False(t, model.DB.Migrator().HasTable(&model.MembershipPricingRelease{}), "ordinary tenant requests need no membership release")
 }
 
+func TestPrepareTenantRequestBillingRejectsUnaffordableResponsesHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		arguments   bool
+	}{
+		{name: "assistant output text", input: `[{"role":"assistant","content":[{"type":"output_text","text":%s}]}]`},
+		{name: "function arguments", input: `[{"type":"function_call","name":"lookup","call_id":"call_1","arguments":%s}]`, arguments: true},
+		{name: "function output string", input: `[{"type":"function_call_output","call_id":"call_1","output":%s}]`},
+		{name: "function output array", input: `[{"type":"function_call_output","call_id":"call_1","output":[{"type":"input_text","text":%s}]}]`},
+		{name: "custom tool input", input: `[{"type":"custom_tool_call","name":"shell","call_id":"call_1","input":%s}]`},
+		{name: "custom tool output string", input: `[{"type":"custom_tool_call_output","call_id":"call_1","output":%s}]`},
+		{name: "custom tool output array", input: `[{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":%s}]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user, token := setupTenantRequestBilling(t)
+			constant.CountToken = true
+			previousMultiplier := operation_setting.GetQuotaSetting().PreConsumeMultiplier
+			operation_setting.GetQuotaSetting().PreConsumeMultiplier = 1
+			t.Cleanup(func() { operation_setting.GetQuotaSetting().PreConsumeMultiplier = previousMultiplier })
+			require.NoError(t, model.DB.First(&user, user.Id).Error)
+			require.NoError(t, model.DB.First(&token, token.Id).Error)
+			var originalLot model.CustomerPaymentLot
+			require.NoError(t, model.DB.Where("customer_id = ?", user.Id).First(&originalLot).Error)
+
+			for _, size := range []struct {
+				name, text   string
+				unaffordable bool
+			}{
+				{name: "unaffordable", text: strings.Repeat("文", 200_000), unaffordable: true},
+				{name: "affordable", text: "hello"},
+			} {
+				t.Run(size.name, func(t *testing.T) {
+					encoded, err := common.Marshal(size.text)
+					require.NoError(t, err)
+					if tc.arguments {
+						encoded, err = common.Marshal(`{"query":` + string(encoded) + `}`)
+						require.NoError(t, err)
+					}
+					body := fmt.Sprintf(`{"model":"tenant-text","input":`+tc.input+`}`, encoded)
+					c, _ := gin.CreateTestContext(httptest.NewRecorder())
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+					c.Request.Header.Set("Content-Type", "application/json")
+					t.Cleanup(func() { common.CleanupBodyStorage(c) })
+					common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
+					common.SetContextKey(c, constant.ContextKeyOriginalModel, "tenant-text")
+					request := &dto.OpenAIResponsesRequest{}
+					require.NoError(t, common.UnmarshalBodyReusable(c, request))
+					original, err := common.Marshal(request)
+					require.NoError(t, err)
+					info := &relaycommon.RelayInfo{UserId: user.Id, UserGroup: "default", TokenId: token.Id, RequestId: "history-" + size.name, Request: request, OriginModelName: "tenant-text", RelayFormat: types.RelayFormatOpenAIResponses, RelayMode: relayconstant.RelayModeResponses, UsingGroup: "default", ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI}}
+					apiErr := PrepareRequestBilling(c, info, nil)
+					assert.Positive(t, info.GetEstimatePromptTokens())
+					if size.unaffordable {
+						require.NotNil(t, apiErr)
+						assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+						assert.Greater(t, int64(info.PriceData.QuotaToPreConsume), user.Quota)
+						assert.Nil(t, info.Billing)
+						assert.Zero(t, info.TenantQuoteID)
+						var consumptions, quotes int64
+						require.NoError(t, model.DB.Model(&model.TenantConsumption{}).Count(&consumptions).Error)
+						require.NoError(t, model.DB.Model(&model.PricingQuote{}).Count(&quotes).Error)
+						assert.Zero(t, consumptions)
+						assert.Zero(t, quotes)
+						var afterUser model.User
+						var afterToken model.Token
+						require.NoError(t, model.DB.First(&afterUser, user.Id).Error)
+						require.NoError(t, model.DB.First(&afterToken, token.Id).Error)
+						assert.Equal(t, user, afterUser)
+						assert.Equal(t, token, afterToken)
+					} else {
+						require.Nil(t, apiErr)
+						require.NotNil(t, info.Billing)
+						assert.True(t, info.HasDurableBilling())
+						reserved := info.Billing.GetPreConsumedQuota()
+						assert.Positive(t, reserved)
+						assert.Less(t, int64(reserved), user.Quota)
+						var record model.TenantConsumption
+						require.NoError(t, model.DB.Where("request_id = ?", info.RequestId).First(&record).Error)
+						assert.Equal(t, "reserved", record.Status)
+						assert.EqualValues(t, reserved, record.ReservedQuota)
+						var quote model.PricingQuote
+						require.NoError(t, model.DB.First(&quote, record.QuoteID).Error)
+						assert.Equal(t, info.TenantQuoteID, quote.ID)
+						assert.EqualValues(t, reserved, quote.QuotedQuota)
+						var afterUser model.User
+						var afterToken model.Token
+						require.NoError(t, model.DB.First(&afterUser, user.Id).Error)
+						require.NoError(t, model.DB.First(&afterToken, token.Id).Error)
+						assert.Equal(t, user.Quota-int64(reserved), afterUser.Quota)
+						assert.Equal(t, token.RemainQuota-reserved, afterToken.RemainQuota)
+						info.Billing.Refund(c)
+						require.NoError(t, model.DB.First(&record, record.ID).Error)
+						assert.Equal(t, "refunded", record.Status)
+						require.NoError(t, model.DB.First(&afterUser, user.Id).Error)
+						require.NoError(t, model.DB.First(&afterToken, token.Id).Error)
+						assert.Equal(t, user.Quota, afterUser.Quota)
+						assert.Equal(t, user.UsedQuota, afterUser.UsedQuota)
+						assert.Equal(t, user.RequestCount, afterUser.RequestCount)
+						assert.Equal(t, token.RemainQuota, afterToken.RemainQuota)
+						assert.Equal(t, token.UsedQuota, afterToken.UsedQuota)
+					}
+					var afterLot model.CustomerPaymentLot
+					require.NoError(t, model.DB.First(&afterLot, originalLot.ID).Error)
+					assert.Equal(t, originalLot, afterLot)
+					after, err := common.Marshal(request)
+					require.NoError(t, err)
+					assert.True(t, string(original) == string(after), "billing must preserve request serialization")
+					storage, err := common.GetBodyStorage(c)
+					require.NoError(t, err)
+					raw, err := storage.Bytes()
+					require.NoError(t, err)
+					assert.True(t, body == string(raw), "billing must preserve the raw request")
+				})
+			}
+		})
+	}
+}
+
 func TestTenantZeroBasePriceFundingIncludesAuxiliaryCharges(t *testing.T) {
 	for _, preConsumeFree := range []bool{false, true} {
 		for _, tc := range []struct {

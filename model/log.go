@@ -83,6 +83,52 @@ type Log struct {
 	QuotaEpoch        string `json:"quota_epoch,omitempty" gorm:"-"`
 	PricingEpoch      string `json:"pricing_epoch,omitempty" gorm:"-"`
 	OriginalQuota     *int   `json:"original_quota,omitempty" gorm:"-"`
+
+	TenantSettlement *TenantLogSettlement `json:"tenant_settlement,omitempty" gorm:"-"`
+}
+
+// TenantLogSettlement is a live read projection, never a persisted log snapshot.
+type TenantLogSettlement struct {
+	Status        string `json:"status"`
+	ReservedQuota int64  `json:"reserved_quota"`
+	ActualQuota   int64  `json:"actual_quota"`
+}
+
+func projectTenantLogSettlements(logs []*Log) error {
+	requestIDs := make([]string, 0, len(logs))
+	tenantIDs := types.NewSet[int64]()
+	for _, entry := range logs {
+		entry.TenantSettlement = nil
+		if entry.TenantID > PlatformTenantID && entry.Type == LogTypeConsume && entry.RequestId != "" {
+			requestIDs = append(requestIDs, entry.RequestId)
+			tenantIDs.Add(entry.TenantID)
+		}
+	}
+	if len(requestIDs) == 0 {
+		return nil
+	}
+	// LOG_DB may be a separate database (including ClickHouse). Read the main
+	// ledger once per page, then match all ownership fields before projecting.
+	var records []TenantConsumption
+	if err := DB.Select("request_id", "tenant_id", "customer_id", "status", "reserved_quota", "actual_quota").
+		Where("tenant_id IN ? AND request_id IN ?", tenantIDs.Items(), requestIDs).Find(&records).Error; err != nil {
+		return err
+	}
+	byRequest := make(map[string]TenantConsumption, len(records))
+	for _, record := range records {
+		byRequest[record.RequestID] = record
+	}
+	for _, entry := range logs {
+		record, exists := byRequest[entry.RequestId]
+		if !exists || entry.Type != LogTypeConsume || record.TenantID != entry.TenantID || record.CustomerID != entry.UserId {
+			continue
+		}
+		switch record.Status {
+		case "reserved", "settlement_pending", "settled", "refund_pending", "refunded":
+			entry.TenantSettlement = &TenantLogSettlement{Status: record.Status, ReservedQuota: record.ReservedQuota, ActualQuota: record.ActualQuota}
+		}
+	}
+	return nil
 }
 
 // Historical pricing snapshots remain untouched. Only the response's quota
@@ -151,7 +197,11 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
-		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityUser)
+		tenantCustomer := logs[i].TenantID > PlatformTenantID
+		if tenantCustomer {
+			logs[i].ChannelId = 0
+		}
+		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityUser, tenantCustomer)
 	}
 	assignDisplayLogIds(logs, startIdx)
 }
@@ -160,7 +210,7 @@ func formatUserLogs(logs []*Log, startIdx int) {
 // admin_info. Root callers must not pass their results through this formatter.
 func FormatAdminLogs(logs []*Log) {
 	for i := range logs {
-		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityAdmin)
+		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityAdmin, false)
 	}
 }
 
@@ -168,7 +218,7 @@ func FormatAdminLogs(logs []*Log) {
 // without removing root-only diagnostics.
 func FormatRootLogs(logs []*Log) {
 	for i := range logs {
-		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityRoot)
+		logs[i].Other = formatLogOtherJSON(logs[i].Other, logOtherVisibilityRoot, false)
 	}
 }
 
@@ -182,6 +232,9 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 		return nil, err
 	}
 	if err = normalizeLogCreditEpoch(logs); err != nil {
+		return nil, err
+	}
+	if err = projectTenantLogSettlements(logs); err != nil {
 		return nil, err
 	}
 	formatUserLogs(logs, 0)
@@ -562,6 +615,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if err = normalizeLogCreditEpoch(logs); err != nil {
 		return nil, 0, err
 	}
+	if err = projectTenantLogSettlements(logs); err != nil {
+		return nil, 0, err
+	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		assignDisplayLogIds(logs, startIdx)
 	}
@@ -656,6 +712,9 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	}
 
 	if err = normalizeLogCreditEpoch(logs); err != nil {
+		return nil, 0, err
+	}
+	if err = projectTenantLogSettlements(logs); err != nil {
 		return nil, 0, err
 	}
 	formatUserLogs(logs, startIdx)

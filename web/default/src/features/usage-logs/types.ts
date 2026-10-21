@@ -116,6 +116,14 @@ export interface ToolSurchargeItem {
 
 export interface LogOtherData {
   admin_info?: {
+    stream_status?: {
+      status?: string
+      end_reason?: string
+      response_status?: string
+      error_count?: number
+      end_error?: string
+      errors?: string[]
+    }
     // Settlement expression retained only for administrators when the public
     // expression uses a separate cache-read display price.
     actual_expr_b64?: string
@@ -248,9 +256,8 @@ export interface LogOtherData {
   stream_status?: {
     status?: string
     end_reason?: string
+    response_status?: string
     error_count?: number
-    end_error?: string
-    errors?: string[]
   }
   // Violation fee fields
   violation_fee?: boolean

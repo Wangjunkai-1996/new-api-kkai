@@ -47,7 +47,10 @@ test('an unconfirmed withdrawal retries the exact input and idempotency key', as
     ledger: [],
     estimated_profit_minor: 0,
   })
-  vi.spyOn(resellerApi, 'getResellerWithdrawals').mockResolvedValue([])
+  vi.spyOn(resellerApi, 'getResellerWithdrawals').mockResolvedValue({
+    items: [],
+    total: 0,
+  })
   const request = vi
     .spyOn(resellerApi, 'requestResellerWithdrawal')
     .mockRejectedValueOnce(new Error('Network interrupted'))

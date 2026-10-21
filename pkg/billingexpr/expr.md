@@ -212,6 +212,8 @@ Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 exp
 
 When cache-read display prices are configured, the request snapshot freezes both expressions. Public `expr_b64` contains the display expression, while `admin_info.actual_expr_b64` preserves the actual billing expression for administrator audits. The model pricing API also exposes the display expression. Log totals always retain the actual deducted quota; changing display prices later does not rewrite historical logs.
 
+Reseller customer pricing and logs expose the actual billing expression with the reseller's sales group ratio so customers can reconcile their charges. Historical reseller logs use the frozen `actual_expr_b64` when available; stored logs and actual charges remain unchanged. Platform display overrides retain the behavior described above.
+
 Frontend: Detects `billing_mode === "tiered_expr"`, decodes `expr_b64`, parses tiers via shared `parseTiersFromExpr()`, and renders request multipliers from `request_rules` when present. Without log traces, it falls back to parsing the stored expression.
 
 ---

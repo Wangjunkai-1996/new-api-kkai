@@ -200,7 +200,14 @@ export function StreamTpsCell(props: StreamTpsCellProps) {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger
-                render={<CircleAlert className='text-destructive size-3' />}
+                render={
+                  <CircleAlert
+                    className='text-destructive size-3'
+                    role='img'
+                    aria-label={`${t('Stream Status')}: ${t('Error')}`}
+                    tabIndex={0}
+                  />
+                }
               />
               <TooltipContent>
                 <div className='space-y-0.5 text-xs'>

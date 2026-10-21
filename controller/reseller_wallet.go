@@ -27,13 +27,26 @@ func GetResellerEarnings(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	var ledger []model.ResellerLedgerEntry
-	if err := db.Where("tenant_id = ? AND kind <> ?", tenant.TenantID, model.ResellerLedgerKindUsageReconciliation).Order("id DESC").Limit(200).Find(&ledger).Error; err != nil {
+	page := resellerPageQuery(c)
+	ledgerQuery := db.Model(&model.ResellerLedgerEntry{}).Where("tenant_id = ? AND kind <> ?", tenant.TenantID, model.ResellerLedgerKindUsageReconciliation)
+	var ledgerTotal int64
+	if err := ledgerQuery.Count(&ledgerTotal).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	var quotes []model.PricingQuote
-	if err := db.Where("tenant_id = ?", tenant.TenantID).Order("id DESC").Limit(200).Find(&quotes).Error; err != nil {
+	ledger := make([]model.ResellerLedgerEntry, 0)
+	if err := ledgerQuery.Order("id DESC").Offset(page.GetStartIdx()).Limit(page.PageSize).Find(&ledger).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	quotesQuery := db.Model(&model.PricingQuote{}).Where("tenant_id = ?", tenant.TenantID)
+	var quotesTotal int64
+	if err := quotesQuery.Count(&quotesTotal).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	quotes := make([]model.PricingQuote, 0)
+	if err := quotesQuery.Order("id DESC").Offset(page.GetStartIdx()).Limit(page.PageSize).Find(&quotes).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -91,7 +104,7 @@ func GetResellerEarnings(c *gin.Context) {
 		common.ApiError(c, model.ErrResellerFinanceInvalidInput)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"withdrawal_fee_minor": fee, "wallet": wallet, "ledger": ledger, "quotes": quotes, "estimated_profit_minor": estimate.Floor().IntPart(), "total_profit_minor": total.Amount, "estimate_is_reference": true})
+	common.ApiSuccess(c, gin.H{"withdrawal_fee_minor": fee, "wallet": wallet, "ledger": ledger, "ledger_total": ledgerTotal, "quotes": quotes, "quotes_total": quotesTotal, "page": page.Page, "page_size": page.PageSize, "estimated_profit_minor": estimate.Floor().IntPart(), "total_profit_minor": total.Amount, "estimate_is_reference": true})
 }
 
 func GetResellerWithdrawals(c *gin.Context) {
@@ -100,12 +113,19 @@ func GetResellerWithdrawals(c *gin.Context) {
 		resellerNotReady(c)
 		return
 	}
-	var withdrawals []model.ResellerWithdrawal
-	if err := db.Where("tenant_id = ?", tenant.TenantID).Order("id DESC").Limit(200).Find(&withdrawals).Error; err != nil {
+	page := resellerPageQuery(c)
+	query := db.Model(&model.ResellerWithdrawal{}).Where("tenant_id = ?", tenant.TenantID)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, withdrawals)
+	withdrawals := make([]model.ResellerWithdrawal, 0)
+	if err := query.Order("id DESC").Offset(page.GetStartIdx()).Limit(page.PageSize).Find(&withdrawals).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": withdrawals, "total": total, "page": page.Page, "page_size": page.PageSize})
 }
 
 func RequestResellerWithdrawal(c *gin.Context) {

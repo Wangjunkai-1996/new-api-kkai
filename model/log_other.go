@@ -294,7 +294,7 @@ func normalizeLegacyRejectReason(values map[string]json.RawMessage) bool {
 // formatLogOtherJSON applies the role projection while keeping untouched JSON
 // values as RawMessage. This preserves integers larger than JavaScript's safe
 // range instead of round-tripping them through float64.
-func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
+func formatLogOtherJSON(value string, visibility logOtherVisibility, useActualPricing bool) string {
 	if value == "" {
 		return ""
 	}
@@ -308,6 +308,35 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 	}
 
 	changed := false
+	var adminInfo map[string]json.RawMessage
+	_ = common.Unmarshal(values[logOtherAdminInfoKey], &adminInfo)
+	if useActualPricing {
+		var actualExpression string
+		if common.Unmarshal(adminInfo["actual_expr_b64"], &actualExpression) == nil && actualExpression != "" {
+			values["expr_b64"] = adminInfo["actual_expr_b64"]
+			changed = true
+		}
+	}
+	streamStatus := values["stream_status"]
+	if raw, exists := adminInfo["stream_status"]; exists {
+		streamStatus = raw
+	} else if len(streamStatus) > 0 && visibility != logOtherVisibilityUser {
+		// Preserve legacy raw diagnostics for operators before sanitizing the
+		// public summary consumed by both customer and admin UIs.
+		if adminInfo == nil {
+			adminInfo = make(map[string]json.RawMessage)
+		}
+		adminInfo["stream_status"] = streamStatus
+		values[logOtherAdminInfoKey], _ = common.Marshal(adminInfo)
+		changed = true
+	}
+	if len(streamStatus) > 0 {
+		delete(values, "stream_status")
+		if summary := publicStreamStatus(streamStatus); summary != nil {
+			values["stream_status"] = summary
+		}
+		changed = true
+	}
 	if visibility == logOtherVisibilityUser {
 		for _, key := range []string{logOtherAdminInfoKey, logOtherRootInfoKey, logOtherAuditInfoKey} {
 			if _, exists := values[key]; exists {
@@ -322,7 +351,7 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 			}
 		}
 	} else {
-		changed = normalizeLegacyRejectReason(values)
+		changed = normalizeLegacyRejectReason(values) || changed
 		if visibility == logOtherVisibilityAdmin {
 			if _, exists := values[logOtherRootInfoKey]; exists {
 				delete(values, logOtherRootInfoKey)
@@ -342,4 +371,38 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 		return "{}"
 	}
 	return string(formatted)
+}
+
+// publicStreamStatus allows only protocol enums and a count. Raw upstream
+// errors can contain request content, endpoints or credentials and stay admin-only.
+func publicStreamStatus(raw json.RawMessage) json.RawMessage {
+	var source map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &source); err != nil {
+		return nil
+	}
+	var status string
+	if common.Unmarshal(source["status"], &status) != nil || (status != "ok" && status != "error") {
+		return nil
+	}
+	summary := map[string]any{"status": status}
+	var endReason string
+	if common.Unmarshal(source["end_reason"], &endReason) == nil {
+		switch endReason {
+		case "done", "timeout", "client_gone", "scanner_error", "handler_stop", "eof", "panic", "ping_fail":
+			summary["end_reason"] = endReason
+		}
+	}
+	var responseStatus string
+	if common.Unmarshal(source["response_status"], &responseStatus) == nil {
+		switch responseStatus {
+		case "completed", "failed", "incomplete", "cancelled":
+			summary["response_status"] = responseStatus
+		}
+	}
+	var errorCount int
+	if common.Unmarshal(source["error_count"], &errorCount) == nil && errorCount >= 0 {
+		summary["error_count"] = errorCount
+	}
+	encoded, _ := common.Marshal(summary)
+	return encoded
 }

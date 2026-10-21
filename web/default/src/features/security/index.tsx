@@ -126,7 +126,7 @@ export function ProfileSecurity(props: ProfileSecurityProps) {
             <h3 id='security-verification' className='text-sm font-semibold'>
               {t('Security verification')}
             </h3>
-            <PasskeyCard loading={props.loading} />
+            {site?.tenant_id === 0 && <PasskeyCard loading={props.loading} />}
             <TwoFACard loading={props.loading} />
           </div>
           <section aria-labelledby='security-privacy' className='space-y-4'>

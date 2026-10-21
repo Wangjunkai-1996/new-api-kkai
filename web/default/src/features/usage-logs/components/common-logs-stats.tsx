@@ -21,6 +21,7 @@ import { getRouteApi } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
+import { useSiteConfig } from '@/features/site-config'
 import { formatLogQuota } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -53,6 +54,8 @@ export function CommonLogsStats() {
   const { isAdminView: isAdmin } = useLogsViewScope()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
+  const { data: site } = useSiteConfig()
+  const isTenant = (site?.tenant_id ?? 0) > 0
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['usage-logs-stats', isAdmin, searchParams],
@@ -103,6 +106,11 @@ export function CommonLogsStats() {
         value={stats?.tpm || 0}
         accent='bg-slate-400/70'
       />
+      {isTenant && (
+        <span className='text-muted-foreground text-xs'>
+          {t('Usage includes charges awaiting settlement.')}
+        </span>
+      )}
     </div>
   )
 }

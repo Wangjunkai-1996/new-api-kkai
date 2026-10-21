@@ -31,7 +31,33 @@ type TenantConsumption struct {
 	UpdatedAt     int64
 }
 
-var ErrTenantConsumptionConflict = errors.New("tenant consumption state conflict")
+var (
+	ErrTenantConsumptionConflict      = errors.New("tenant consumption state conflict")
+	ErrTenantAccountSettlementPending = errors.New("account has requests awaiting settlement or refund; try deleting it again after they complete")
+)
+
+func checkTenantUserDeletionTx(tx *gorm.DB, userID int) error {
+	// ReserveTenantConsumption locks this same user first. Keep that lock until
+	// deletion commits, so a new financial reservation cannot race the check.
+	var user User
+	if err := lockForUpdate(tx.Unscoped()).Select("id", "tenant_id").First(&user, userID).Error; err != nil {
+		return err
+	}
+	if user.TenantID == PlatformTenantID {
+		return nil
+	}
+	var pending int64
+	// Do not lock consumption rows: settlement locks its request before the user.
+	if err := tx.Model(&TenantConsumption{}).
+		Where("customer_id = ? AND tenant_id = ? AND (quote_id > 0 OR reserved_quota > 0) AND status IN ?", user.Id, user.TenantID, []string{"reserved", "settlement_pending", "refund_pending"}).
+		Count(&pending).Error; err != nil {
+		return err
+	}
+	if pending > 0 {
+		return ErrTenantAccountSettlementPending
+	}
+	return nil
+}
 
 func ReserveTenantConsumption(ctx context.Context, db *gorm.DB, quoteInput ResellerPricingQuoteInput, tokenID int) (*TenantConsumption, error) {
 	if db == nil || tokenID <= 0 || quoteInput.QuotedQuota <= 0 || quoteInput.QuotedQuota > math.MaxInt32 {
@@ -224,9 +250,11 @@ func SettleTenantConsumption(ctx context.Context, db *gorm.DB, requestID string)
 			return err
 		}
 		delta := row.ActualQuota - row.ReservedQuota
-		if delta > user.Quota || (!token.UnlimitedQuota && delta > int64(token.RemainQuota)) {
+		if delta > user.Quota {
 			return ErrResellerInsufficientFunds
 		}
+		// The upstream has already incurred this usage. A changed Key limit must
+		// not block accounting; a negative remainder records its overage.
 		if user.UsedQuota > math.MaxInt64-row.ActualQuota || int64(token.UsedQuota) > math.MaxInt64-row.ActualQuota {
 			return ErrResellerFinanceInvalidInput
 		}

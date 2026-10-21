@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ErrorState } from '@/components/error-state'
@@ -31,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { PaginationControls } from '@/features/invitations/components/pagination-controls'
 import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -41,9 +43,11 @@ export function EarningsPanel() {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage ?? i18n.language)
   const userId = useAuthStore((state) => state.auth.user?.id)
+  const [page, setPage] = useState(1)
+  const pageSize = 20
   const query = useQuery({
-    queryKey: resellerQueryKey(userId, 'earnings'),
-    queryFn: getResellerEarnings,
+    queryKey: [...resellerQueryKey(userId, 'earnings'), page, pageSize],
+    queryFn: () => getResellerEarnings(page, pageSize),
   })
   if (query.isPending) return <Skeleton className='h-64 w-full' />
   if (query.isError) {
@@ -148,6 +152,12 @@ export function EarningsPanel() {
           )}
         </TableBody>
       </Table>
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        total={earnings.ledger_total ?? earnings.ledger.length}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

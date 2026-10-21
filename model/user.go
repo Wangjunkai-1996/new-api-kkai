@@ -1053,6 +1053,9 @@ func (user *User) delete(identity *AuthSessionIdentity) (int64, error) {
 				return ErrCannotDeleteRootUser
 			}
 		}
+		if err := checkTenantUserDeletionTx(tx, user.Id); err != nil {
+			return err
+		}
 		var err error
 		nextAuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
 		if err != nil {
@@ -1083,6 +1086,9 @@ func (user *User) HardDelete() (int64, error) {
 	var deletedAuthVersion int64
 	var revokedAccessTokens int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := checkTenantUserDeletionTx(tx, user.Id); err != nil {
+			return err
+		}
 		var err error
 		deletedAuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
 		if err != nil {

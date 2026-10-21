@@ -405,7 +405,7 @@ func InjectTieredBillingInfo(other *model.LogOther, relayInfo *relaycommon.Relay
 	}
 	other.SetPublic("billing_mode", "tiered_expr")
 	display := snap.DisplayExprString
-	if display == "" {
+	if display == "" || relayInfo.TenantID > 0 {
 		display = snap.ExprString
 	}
 	other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(display)))

@@ -127,6 +127,7 @@ export const Route = createRootRouteWithContext<{
     }
     const pathname = location?.pathname || ''
     const needsSetupCheck =
+      site.tenant_id === 0 &&
       !setupStatusChecked &&
       !pathname.startsWith('/setup') &&
       pathname !== '/cn-restricted'

@@ -1172,11 +1172,8 @@ type MediaInput struct {
 	Detail   string `json:"detail,omitempty"` // 仅 input_image 有效
 }
 
-// ParseInput parses the Responses API `input` field into a normalized slice of MediaInput.
-// Reference implementation mirrors Message.ParseContent:
-//   - input can be a string, treated as an input_text item
-//   - input can be an array of objects with a `type` field
-//     supported types: input_text, input_image, input_file
+// ParseInput extracts visible text and media from Responses messages and tool
+// history for token estimation. Opaque context and unsupported items are ignored.
 func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 	if r.Input == nil {
 		return nil
@@ -1184,11 +1181,7 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 
 	var mediaInputs []MediaInput
 
-	// Try string first
-	// if str, ok := kitutil.GetJsonType(r.Input); ok {
-	// 	inputs = append(inputs, MediaInput{Type: "input_text", Text: str})
-	// 	return inputs
-	// }
+	// Try string first.
 	if kitutil.GetJsonType(r.Input) == "string" {
 		var str string
 		_ = kitutil.Unmarshal(r.Input, &str)
@@ -1198,18 +1191,42 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 
 	// Try array of parts
 	if kitutil.GetJsonType(r.Input) == "array" {
-		var inputs []Input
+		var inputs []struct {
+			Input
+			Name      json.RawMessage `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+			ToolInput json.RawMessage `json:"input"`
+			Output    json.RawMessage `json:"output"`
+		}
 		_ = kitutil.Unmarshal(r.Input, &inputs)
 		for _, input := range inputs {
-			if kitutil.GetJsonType(input.Content) == "string" {
+			content := input.Content
+			var toolText []json.RawMessage
+			switch input.Type {
+			case "function_call":
+				toolText = []json.RawMessage{input.Name, input.Arguments}
+			case "custom_tool_call":
+				toolText = []json.RawMessage{input.Name, input.ToolInput}
+			case "function_call_output", "custom_tool_call_output":
+				content = input.Output
+			}
+			for _, raw := range toolText {
+				if kitutil.GetJsonType(raw) == "string" {
+					var text string
+					_ = kitutil.Unmarshal(raw, &text)
+					mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: text})
+				}
+			}
+
+			if kitutil.GetJsonType(content) == "string" {
 				var str string
-				_ = kitutil.Unmarshal(input.Content, &str)
+				_ = kitutil.Unmarshal(content, &str)
 				mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: str})
 			}
 
-			if kitutil.GetJsonType(input.Content) == "array" {
+			if kitutil.GetJsonType(content) == "array" {
 				var array []any
-				_ = kitutil.Unmarshal(input.Content, &array)
+				_ = kitutil.Unmarshal(content, &array)
 				for _, itemAny := range array {
 					// Already parsed MediaContent
 					if media, ok := itemAny.(MediaInput); ok {
@@ -1228,7 +1245,7 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 						continue
 					}
 					switch typeVal {
-					case "input_text":
+					case "input_text", "output_text":
 						text, _ := item["text"].(string)
 						mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: text})
 					case "input_image":

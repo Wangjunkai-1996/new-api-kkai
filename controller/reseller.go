@@ -65,6 +65,21 @@ func resellerNotReady(c *gin.Context) {
 	c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "tenant store is unavailable"})
 }
 
+func resellerPageQuery(c *gin.Context) *common.PageInfo {
+	page := common.GetPageQuery(c)
+	// Preserve the first 200 rows for clients that predate pagination.
+	if c.Query("p") == "" && c.Query("page_size") == "" && c.Query("ps") == "" && c.Query("size") == "" {
+		page.PageSize = 200
+	}
+	if page.PageSize < 1 {
+		page.PageSize = common.ItemsPerPage
+	}
+	if page.Page < 1 || page.Page-1 > int(^uint(0)>>1)/page.PageSize {
+		page.Page = 1
+	}
+	return page
+}
+
 // CreateResellerApplication creates a pending application for the logged-in
 // platform account. Tenant IDs are assigned only by platform review.
 func CreateResellerApplication(c *gin.Context) {
@@ -443,30 +458,56 @@ func GetResellerCustomers(c *gin.Context) {
 		resellerNotReady(c)
 		return
 	}
-	var memberships []model.TenantMembership
-	if err := db.Where("tenant_id = ? AND role = ? AND status = ?", context.TenantID, model.TenantMembershipRoleCustomer, model.TenantMembershipStatusActive).Order("id ASC").Limit(200).Find(&memberships).Error; err != nil {
+	page := resellerPageQuery(c)
+	memberships := db.Model(&model.TenantMembership{}).Select("user_id").Where("tenant_id = ? AND role = ? AND status = ?", context.TenantID, model.TenantMembershipRoleCustomer, model.TenantMembershipStatusActive)
+	query := db.Model(&model.User{}).Where("tenant_id = ? AND id IN (?)", context.TenantID, memberships)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	ids := make([]int, 0, len(memberships))
-	for _, membership := range memberships {
-		ids = append(ids, membership.UserID)
-	}
 	type customerView struct {
-		ID          int    `json:"id"`
-		Username    string `json:"username"`
-		DisplayName string `json:"display_name"`
-		Status      int    `json:"status"`
-		CreatedAt   int64  `json:"created_at"`
+		ID                 int    `json:"id"`
+		Username           string `json:"username"`
+		DisplayName        string `json:"display_name"`
+		Status             int    `json:"status"`
+		CreatedAt          int64  `json:"created_at"`
+		Quota              int64  `json:"quota"`
+		UsedQuota          int64  `json:"used_quota"`
+		TotalCreditedQuota int64  `json:"total_credited_quota"`
+		TotalRefundedQuota int64  `json:"total_refunded_quota"`
 	}
-	customers := make([]customerView, 0, len(ids))
-	if len(ids) > 0 {
-		var users []customerView
-		if err := db.Model(&model.User{}).Where("id IN ? AND tenant_id = ?", ids, context.TenantID).Select("id, username, display_name, status, created_at").Find(&users).Error; err != nil {
+	customers := make([]customerView, 0)
+	if err := query.Select("id, username, display_name, status, created_at, quota, used_quota").Order("id ASC").Offset(page.GetStartIdx()).Limit(page.PageSize).Find(&customers).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if len(customers) > 0 {
+		customerIDs := make([]int, len(customers))
+		byCustomerID := make(map[int]int, len(customers))
+		for index, customer := range customers {
+			customerIDs[index] = customer.ID
+			byCustomerID[customer.ID] = index
+		}
+		var totals []struct {
+			CustomerID         int
+			TotalCreditedQuota int64
+			TotalRefundedQuota int64
+		}
+		// Lots record successfully credited quota, including later refunds.
+		// Payment cash and remaining lot quota have different meanings.
+		if err := db.Model(&model.CustomerPaymentLot{}).
+			Select("customer_id, SUM(credited_quota) AS total_credited_quota, SUM(refunded_quota) AS total_refunded_quota").
+			Where("tenant_id = ? AND customer_id IN (?)", context.TenantID, customerIDs).
+			Group("customer_id").Scan(&totals).Error; err != nil {
 			common.ApiError(c, err)
 			return
 		}
-		customers = users
+		for _, total := range totals {
+			index := byCustomerID[total.CustomerID]
+			customers[index].TotalCreditedQuota = total.TotalCreditedQuota
+			customers[index].TotalRefundedQuota = total.TotalRefundedQuota
+		}
 	}
-	common.ApiSuccess(c, customers)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": customers, "total": total, "page": page.Page, "page_size": page.PageSize})
 }

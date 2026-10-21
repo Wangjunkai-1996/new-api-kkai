@@ -61,6 +61,14 @@ export interface ResellerCustomer {
   display_name: string
   status: number
   created_at: number
+  quota: number
+  used_quota: number
+  total_credited_quota: number
+  total_refunded_quota: number
+}
+export interface ResellerPage<T> {
+  items: T[]
+  total: number
 }
 export interface ResellerWallet {
   pending_minor: number
@@ -82,6 +90,7 @@ export interface ResellerLedgerEntry {
 export interface ResellerEarnings {
   wallet: ResellerWallet
   ledger: ResellerLedgerEntry[]
+  ledger_total?: number
   estimated_profit_minor: number | null
   total_profit_minor?: number
   withdrawal_fee_minor?: number
@@ -167,24 +176,37 @@ export async function updateResellerPrices(
   const response = await api.patch('/api/reseller/prices', { prices })
   return (requireServerSuccess(response.data).data as GroupPrice[] | null) ?? []
 }
-export async function getResellerCustomers(): Promise<ResellerCustomer[]> {
-  const response = await api.get('/api/reseller/customers')
-  return (
-    (requireServerSuccess(response.data).data as ResellerCustomer[] | null) ??
-    []
-  )
+export async function getResellerCustomers(
+  page = 1,
+  pageSize = 20
+): Promise<ResellerPage<ResellerCustomer>> {
+  const response = await api.get('/api/reseller/customers', {
+    params: { p: page, page_size: pageSize },
+  })
+  const result = requireServerSuccess(response.data)
+  const items = (result.data as ResellerCustomer[] | null) ?? []
+  return { items, total: result.total ?? items.length }
 }
-export async function getResellerEarnings(): Promise<ResellerEarnings> {
-  const response = await api.get('/api/reseller/earnings')
+export async function getResellerEarnings(
+  page = 1,
+  pageSize = 20
+): Promise<ResellerEarnings> {
+  const response = await api.get('/api/reseller/earnings', {
+    params: { p: page, page_size: pageSize },
+  })
   const data = requireServerSuccess(response.data).data as ResellerEarnings
   return { ...data, ledger: data.ledger ?? [] }
 }
-export async function getResellerWithdrawals(): Promise<ResellerWithdrawal[]> {
-  const response = await api.get('/api/reseller/withdrawals')
-  return (
-    (requireServerSuccess(response.data).data as ResellerWithdrawal[] | null) ??
-    []
-  )
+export async function getResellerWithdrawals(
+  page = 1,
+  pageSize = 20
+): Promise<ResellerPage<ResellerWithdrawal>> {
+  const response = await api.get('/api/reseller/withdrawals', {
+    params: { p: page, page_size: pageSize },
+  })
+  const result = requireServerSuccess(response.data)
+  const items = (result.data as ResellerWithdrawal[] | null) ?? []
+  return { items, total: result.total ?? items.length }
 }
 export async function requestResellerWithdrawal(
   input: WithdrawalInput

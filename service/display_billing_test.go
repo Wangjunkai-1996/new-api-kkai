@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,6 +19,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTenantBillingLogUsesFrozenActualExpression(t *testing.T) {
+	const actual = `tier("base", p * 10 + cr * 2)`
+	const display = `tier("base", p * 10 + cr * 1)`
+	for _, tenantID := range []int64{0, 42} {
+		t.Run(strconv.FormatInt(tenantID, 10), func(t *testing.T) {
+			other := model.NewLogOther()
+			InjectTieredBillingInfo(other, &relaycommon.RelayInfo{
+				TenantID: tenantID,
+				TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+					ExprString: actual, DisplayExprString: display,
+				},
+			}, nil)
+			var fields map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(other.JSONString(), &fields))
+			expression := display
+			if tenantID > 0 {
+				expression = actual
+				assert.NotContains(t, fields, "admin_info")
+			} else {
+				assert.Contains(t, fields, "admin_info")
+			}
+			assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), fields["expr_b64"])
+		})
+	}
+}
 
 func TestCacheReadDisplayBillingKeepsActualAccounting(t *testing.T) {
 	const actual = `tier("base", p * 10 + cr * 2)`

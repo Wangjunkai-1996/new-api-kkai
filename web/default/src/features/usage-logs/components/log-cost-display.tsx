@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/tooltip'
 import { formatLogQuota } from '@/lib/format'
 
+import type { UsageLog } from '../data/schema'
 import { hasToolSurcharge } from '../lib/format'
 import type { LogOtherData } from '../types'
 
@@ -41,6 +42,29 @@ interface LogCostDisplayProps {
   quota: number
   other: LogOtherData | null
   showBillingSource?: boolean
+  settlement?: UsageLog['tenant_settlement']
+}
+
+export function TenantSettlementBadge(props: {
+  settlement: NonNullable<UsageLog['tenant_settlement']>
+}) {
+  const { t } = useTranslation()
+  const states = {
+    reserved: { label: t('Reservation active'), variant: 'neutral' },
+    settlement_pending: { label: t('Awaiting settlement'), variant: 'warning' },
+    settled: { label: t('Settled'), variant: 'success' },
+    refund_pending: { label: t('Refund pending'), variant: 'warning' },
+    refunded: { label: t('Refunded'), variant: 'neutral' },
+  } as const
+  const state = states[props.settlement.status]
+  return (
+    <StatusBadge
+      label={state.label}
+      variant={state.variant}
+      size='sm'
+      copyable={false}
+    />
+  )
 }
 
 function ToolSurchargeMarker() {
@@ -102,7 +126,7 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
 
   return (
     <TooltipProvider>
-      <div className='inline-flex w-fit items-center gap-1.5'>
+      <div className='inline-flex w-fit flex-wrap items-center gap-1.5'>
         <StatusBadge
           type='badge'
           variant='neutral'
@@ -135,6 +159,9 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
           <span className='whitespace-nowrap'>{formatLogQuota(quota)}</span>
         </StatusBadge>
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
+        {props.settlement ? (
+          <TenantSettlementBadge settlement={props.settlement} />
+        ) : null}
       </div>
     </TooltipProvider>
   )

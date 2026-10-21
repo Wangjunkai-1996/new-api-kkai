@@ -109,6 +109,36 @@ describe('log cost display', () => {
     expect(screen.queryByText('$0.002')).not.toBeInTheDocument()
   })
 
+  test('refreshes settlement status without replacing the incurred cost with its reservation', () => {
+    const rendered = renderCost({
+      quota: 900000,
+      other: null,
+      settlement: {
+        status: 'settlement_pending',
+        reserved_quota: 100000,
+        actual_quota: 900000,
+      },
+    })
+    expect(screen.getByText('$1.8')).toBeVisible()
+    expect(screen.getByText('Awaiting settlement')).toBeVisible()
+    expect(screen.queryByText('$0.2')).not.toBeInTheDocument()
+
+    rendered.rerender(
+      <LogCostDisplay
+        quota={900000}
+        other={null}
+        settlement={{
+          status: 'settled',
+          reserved_quota: 100000,
+          actual_quota: 900000,
+        }}
+      />
+    )
+    expect(screen.getByText('$1.8')).toBeVisible()
+    expect(screen.getByText('Settled')).toBeVisible()
+    expect(screen.queryByText('Awaiting settlement')).not.toBeInTheDocument()
+  })
+
   test('hides the wallet icon when subscriptions are unavailable', () => {
     renderCost({
       quota: 5000,

@@ -90,6 +90,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { TenantSettlementBadge } from '../log-cost-display'
 import { ResponseModelDetails } from '../model-badge'
 import { PluginAuthorLink } from '../plugin-author-link'
 import { DetailRow, DetailSection } from './log-detail-layout'
@@ -514,6 +515,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const showAdminIp =
     !!props.log.ip && (showTiming || (props.isAdmin && isTopup))
   const adminInfo = other?.admin_info
+  const streamDiagnostics = props.isAdmin ? adminInfo?.stream_status : undefined
   const topupAuditFields =
     isTopup && props.isAdmin && adminInfo
       ? ([
@@ -1228,6 +1230,44 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
+        {props.log.tenant_settlement && (
+          <DetailSection label={t('Settlement Status')}>
+            <DetailRow
+              label={t('Status')}
+              value={
+                <TenantSettlementBadge
+                  settlement={props.log.tenant_settlement}
+                />
+              }
+            />
+            <DetailRow
+              label={t('Pre-consumed')}
+              value={formatLogQuota(props.log.tenant_settlement.reserved_quota)}
+              mono
+            />
+            {props.log.tenant_settlement.status === 'settlement_pending' && (
+              <DetailRow
+                label={t('Pending additional charge')}
+                value={formatLogQuota(
+                  Math.max(
+                    0,
+                    props.log.tenant_settlement.actual_quota -
+                      props.log.tenant_settlement.reserved_quota
+                  )
+                )}
+                mono
+              />
+            )}
+            {props.log.tenant_settlement.status === 'settlement_pending' && (
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Incurred cost; the balance updates when settlement completes.'
+                )}
+              </p>
+            )}
+          </DetailSection>
+        )}
+
         {/* Stream status details */}
         {other?.stream_status && other.stream_status.status !== 'ok' && (
           <DetailSection label={t('Stream Status')}>
@@ -1254,16 +1294,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 value={String(other.stream_status.error_count)}
               />
             )}
-            {other.stream_status.end_error && (
+            {streamDiagnostics?.end_error && (
               <DetailRow
                 label={t('End Error')}
-                value={other.stream_status.end_error}
+                value={streamDiagnostics.end_error}
               />
             )}
-            {Array.isArray(other.stream_status.errors) &&
-              other.stream_status.errors.length > 0 && (
+            {Array.isArray(streamDiagnostics?.errors) &&
+              streamDiagnostics.errors.length > 0 && (
                 <pre className='bg-background/60 mt-1 max-h-32 overflow-y-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
-                  {other.stream_status.errors.join('\n')}
+                  {streamDiagnostics.errors.join('\n')}
                 </pre>
               )}
           </DetailSection>
