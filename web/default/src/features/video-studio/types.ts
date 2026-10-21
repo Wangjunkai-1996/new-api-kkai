@@ -171,6 +171,14 @@ export type VideoGenerationFailureCode =
   | 'copyright_restriction'
   | 'privacy_restriction'
   | 'content_policy_violation'
+  | 'input_invalid'
+  | 'unsupported_media'
+  | 'media_unavailable'
+  | 'billing_failure'
+  | 'quota_exceeded'
+  | 'temporary_failure'
+  | 'task_expired'
+  | 'submission_failure'
 
 export type VideoGeneration = {
   id: number

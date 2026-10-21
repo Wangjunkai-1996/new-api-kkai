@@ -24,6 +24,7 @@ import { validateComposerForProfile } from './schemas'
 import type {
   VideoAsset,
   VideoGeneration,
+  VideoGenerationFailureCode,
   VideoModelProfile,
   VideoSample,
 } from './types'
@@ -141,6 +142,26 @@ test('generation failures use safe reason codes with a generic fallback', () => 
     getVideoGenerationFailureMessageKey(generation({ status: 'failed' })),
     'videoStudio.failure.generic'
   )
+  const failureMessages: Array<[VideoGenerationFailureCode, string]> = [
+    ['privacy_restriction', 'videoStudio.failure.privacyRestriction'],
+    ['content_policy_violation', 'videoStudio.failure.contentPolicy'],
+    ['input_invalid', 'videoStudio.failure.inputInvalid'],
+    ['unsupported_media', 'videoStudio.failure.unsupportedMedia'],
+    ['media_unavailable', 'videoStudio.failure.mediaUnavailable'],
+    ['billing_failure', 'videoStudio.failure.billingFailure'],
+    ['quota_exceeded', 'videoStudio.failure.quotaExceeded'],
+    ['temporary_failure', 'videoStudio.failure.temporaryFailure'],
+    ['task_expired', 'videoStudio.failure.taskExpired'],
+    ['submission_failure', 'videoStudio.failure.submissionFailure'],
+  ]
+  for (const [failureCode, messageKey] of failureMessages) {
+    assert.equal(
+      getVideoGenerationFailureMessageKey(
+        generation({ status: 'failed', failure_code: failureCode })
+      ),
+      messageKey
+    )
+  }
   assert.equal(
     getVideoGenerationFailureMessageKey(
       generation({

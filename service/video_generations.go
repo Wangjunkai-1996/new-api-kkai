@@ -327,10 +327,18 @@ const (
 	videoGenerationFailureCodeCopyrightRestriction = "copyright_restriction"
 	videoGenerationFailureCodePrivacyRestriction   = "privacy_restriction"
 	videoGenerationFailureCodeContentPolicy        = "content_policy_violation"
+	videoGenerationFailureCodeInputInvalid         = "input_invalid"
+	videoGenerationFailureCodeUnsupportedMedia     = "unsupported_media"
+	videoGenerationFailureCodeMediaUnavailable     = "media_unavailable"
+	videoGenerationFailureCodeBillingFailure       = "billing_failure"
+	videoGenerationFailureCodeQuotaExceeded        = "quota_exceeded"
+	videoGenerationFailureCodeTemporaryFailure     = "temporary_failure"
+	videoGenerationFailureCodeTaskExpired          = "task_expired"
+	videoGenerationFailureCodeSubmissionFailure    = "submission_failure"
 )
 
 func videoGenerationFailureCode(task model.Task) string {
-	if task.Status != model.TaskStatusFailure || len(task.Data) == 0 {
+	if task.Status != model.TaskStatusFailure {
 		return ""
 	}
 	var payload struct {
@@ -339,23 +347,73 @@ func videoGenerationFailureCode(task model.Task) string {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := common.Unmarshal(task.Data, &payload); err != nil || payload.Error == nil {
-		return ""
+	_ = common.Unmarshal(task.Data, &payload)
+
+	failReason := strings.ToLower(strings.TrimSpace(task.FailReason))
+	diagnostic := failReason
+	if payload.Error != nil {
+		errorCode := strings.ToLower(strings.TrimSpace(payload.Error.Code))
+		if errorCode == "" || errorCode == "video_generation_failed" ||
+			errorCode == "invalid_parameter" || errorCode == "invalidparameter" ||
+			errorCode == "invalid_request_error" {
+			diagnostic += " " + errorCode + " " + strings.ToLower(payload.Error.Message)
+		}
 	}
-	if !strings.EqualFold(strings.TrimSpace(payload.Error.Code), "video_generation_failed") {
-		return ""
-	}
-	diagnostic := strings.ToLower(payload.Error.Code + " " + payload.Error.Message)
-	switch {
-	case strings.Contains(diagnostic, "copyright restrictions"):
+
+	if strings.Contains(diagnostic, "copyright restrictions") {
 		return videoGenerationFailureCodeCopyrightRestriction
-	case strings.Contains(diagnostic, "sensitivecontentdetected.privacyinformation"):
-		return videoGenerationFailureCodePrivacyRestriction
-	case strings.Contains(diagnostic, "sensitivecontentdetected.policyviolation"):
-		return videoGenerationFailureCodeContentPolicy
-	default:
-		return ""
 	}
+	if strings.Contains(diagnostic, "sensitivecontentdetected.privacyinformation") ||
+		strings.Contains(diagnostic, "may contain real person") ||
+		strings.Contains(diagnostic, "sensitive information") {
+		return videoGenerationFailureCodePrivacyRestriction
+	}
+	if strings.Contains(diagnostic, "sensitivecontentdetected.policyviolation") ||
+		strings.Contains(diagnostic, "content policy") {
+		return videoGenerationFailureCodeContentPolicy
+	}
+	if strings.Contains(diagnostic, "扣费失败") {
+		return videoGenerationFailureCodeBillingFailure
+	}
+	if strings.Contains(diagnostic, "insufficient_user_quota") ||
+		strings.Contains(diagnostic, "余额不足") ||
+		strings.Contains(diagnostic, "credit limit is insufficient") {
+		return videoGenerationFailureCodeQuotaExceeded
+	}
+	if strings.Contains(diagnostic, "unsupportedimageformat") ||
+		strings.Contains(diagnostic, "format is not supported") ||
+		strings.Contains(diagnostic, "file type is not supported") ||
+		strings.Contains(diagnostic, "格式不受支持") {
+		return videoGenerationFailureCodeUnsupportedMedia
+	}
+	if strings.Contains(diagnostic, "resource not found") ||
+		strings.Contains(diagnostic, "resource download failed") ||
+		strings.Contains(diagnostic, "invalid video_url") ||
+		strings.Contains(diagnostic, "asset_ref_invalid") ||
+		strings.Contains(diagnostic, "资源同步失败") {
+		return videoGenerationFailureCodeMediaUnavailable
+	}
+	if strings.Contains(diagnostic, "invalidparameter") ||
+		strings.Contains(diagnostic, "invalid_parameter") ||
+		strings.Contains(diagnostic, "invalid parameter") ||
+		strings.Contains(diagnostic, "duration (seconds)") ||
+		strings.Contains(diagnostic, "pixel count") ||
+		strings.Contains(diagnostic, "video height") {
+		return videoGenerationFailureCodeInputInvalid
+	}
+	if strings.Contains(diagnostic, "任务不存在或已过期") {
+		return videoGenerationFailureCodeTaskExpired
+	}
+	if strings.Contains(diagnostic, "timed out") ||
+		strings.Contains(diagnostic, "超时") ||
+		strings.Contains(diagnostic, "upstream request failed") ||
+		strings.Contains(diagnostic, "upstream returned error") {
+		return videoGenerationFailureCodeTemporaryFailure
+	}
+	if strings.Contains(failReason, "task submission failed") {
+		return videoGenerationFailureCodeSubmissionFailure
+	}
+	return ""
 }
 
 func videoGenerationStatus(task model.Task, output *model.KKAIVideoAsset) string {

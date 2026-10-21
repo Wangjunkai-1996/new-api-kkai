@@ -438,6 +438,22 @@ export const getVideoGenerationFailureMessageKey = (
       return 'videoStudio.failure.privacyRestriction'
     case 'content_policy_violation':
       return 'videoStudio.failure.contentPolicy'
+    case 'input_invalid':
+      return 'videoStudio.failure.inputInvalid'
+    case 'unsupported_media':
+      return 'videoStudio.failure.unsupportedMedia'
+    case 'media_unavailable':
+      return 'videoStudio.failure.mediaUnavailable'
+    case 'billing_failure':
+      return 'videoStudio.failure.billingFailure'
+    case 'quota_exceeded':
+      return 'videoStudio.failure.quotaExceeded'
+    case 'temporary_failure':
+      return 'videoStudio.failure.temporaryFailure'
+    case 'task_expired':
+      return 'videoStudio.failure.taskExpired'
+    case 'submission_failure':
+      return 'videoStudio.failure.submissionFailure'
     default:
       return 'videoStudio.failure.generic'
   }

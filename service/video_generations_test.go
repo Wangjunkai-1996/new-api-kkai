@@ -210,6 +210,7 @@ func TestGetVideoGenerationUsesSafePublicFailureDetails(t *testing.T) {
 	tests := []struct {
 		name         string
 		providerData string
+		failReason   string
 		wantCode     string
 	}{
 		{
@@ -223,6 +224,11 @@ func TestGetVideoGenerationUsesSafePublicFailureDetails(t *testing.T) {
 		},
 		{
 			name:         "privacy restriction",
+			providerData: `{"error":{"code":"video_generation_failed","message":"The request failed because the input image 'content[1]' may contain real person."}}`,
+			wantCode:     videoGenerationFailureCodePrivacyRestriction,
+		},
+		{
+			name:         "privacy marker",
 			providerData: `{"error":{"code":"video_generation_failed","message":"InputImageSensitiveContentDetected.PrivacyInformation"}}`,
 			wantCode:     videoGenerationFailureCodePrivacyRestriction,
 		},
@@ -236,6 +242,51 @@ func TestGetVideoGenerationUsesSafePublicFailureDetails(t *testing.T) {
 			providerData: `{"error":{"code":"video_generation_failed","message":"provider failed without a recognized marker"}}`,
 		},
 		{
+			name:         "input parameter failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"The parameter content[1] duration (seconds) must be greater than or equal to 1.8"}}`,
+			wantCode:     videoGenerationFailureCodeInputInvalid,
+		},
+		{
+			name:         "structured input error code",
+			providerData: `{"error":{"code":"invalid_parameter","message":"size is not supported"}}`,
+			wantCode:     videoGenerationFailureCodeInputInvalid,
+		},
+		{
+			name:         "unsupported media failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"The image format is not supported by the API"}}`,
+			wantCode:     videoGenerationFailureCodeUnsupportedMedia,
+		},
+		{
+			name:         "media unavailable failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"resource download failed"}}`,
+			wantCode:     videoGenerationFailureCodeMediaUnavailable,
+		},
+		{
+			name:         "billing failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"扣费失败，请检查账户余额或联系平台客服。"}}`,
+			wantCode:     videoGenerationFailureCodeBillingFailure,
+		},
+		{
+			name:         "quota failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"insufficient_user_quota"}}`,
+			wantCode:     videoGenerationFailureCodeQuotaExceeded,
+		},
+		{
+			name:         "temporary failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"upstream request failed: connect timed out"}}`,
+			wantCode:     videoGenerationFailureCodeTemporaryFailure,
+		},
+		{
+			name:       "expired task",
+			failReason: "任务不存在或已过期。",
+			wantCode:   videoGenerationFailureCodeTaskExpired,
+		},
+		{
+			name:       "submission failure",
+			failReason: "task submission failed",
+			wantCode:   videoGenerationFailureCodeSubmissionFailure,
+		},
+		{
 			name:         "non object provider data",
 			providerData: `[]`,
 		},
@@ -247,8 +298,11 @@ func TestGetVideoGenerationUsesSafePublicFailureDetails(t *testing.T) {
 			now := time.Now().Unix()
 			task := model.Task{
 				TaskID: "hosted-failure", UserId: 7, Status: model.TaskStatusFailure,
-				FailReason: "provider rejected the request", Data: []byte(test.providerData),
+				FailReason: test.failReason, Data: []byte(test.providerData),
 				CreatedAt: now, UpdatedAt: now,
+			}
+			if task.FailReason == "" {
+				task.FailReason = "provider rejected the request"
 			}
 			require.NoError(t, db.Create(&task).Error)
 			generation := model.KKAIVideoGeneration{
