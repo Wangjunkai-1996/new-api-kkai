@@ -185,7 +185,13 @@ export async function getResellerCustomers(
   })
   const result = requireServerSuccess(response.data)
   const items = (result.data as ResellerCustomer[] | null) ?? []
-  return { items, total: result.total ?? items.length }
+  return {
+    items:
+      result.total == null
+        ? items.slice((page - 1) * pageSize, page * pageSize)
+        : items,
+    total: result.total ?? items.length,
+  }
 }
 export async function getResellerEarnings(
   page = 1,
@@ -195,7 +201,15 @@ export async function getResellerEarnings(
     params: { p: page, page_size: pageSize },
   })
   const data = requireServerSuccess(response.data).data as ResellerEarnings
-  return { ...data, ledger: data.ledger ?? [] }
+  const ledger = data.ledger ?? []
+  return {
+    ...data,
+    ledger:
+      data.ledger_total == null
+        ? ledger.slice((page - 1) * pageSize, page * pageSize)
+        : ledger,
+    ledger_total: data.ledger_total ?? ledger.length,
+  }
 }
 export async function getResellerWithdrawals(
   page = 1,
@@ -206,7 +220,13 @@ export async function getResellerWithdrawals(
   })
   const result = requireServerSuccess(response.data)
   const items = (result.data as ResellerWithdrawal[] | null) ?? []
-  return { items, total: result.total ?? items.length }
+  return {
+    items:
+      result.total == null
+        ? items.slice((page - 1) * pageSize, page * pageSize)
+        : items,
+    total: result.total ?? items.length,
+  }
 }
 export async function requestResellerWithdrawal(
   input: WithdrawalInput
