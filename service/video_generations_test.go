@@ -252,6 +252,36 @@ func TestGetVideoGenerationUsesSafePublicFailureDetails(t *testing.T) {
 			wantCode:     videoGenerationFailureCodeInputInvalid,
 		},
 		{
+			name:         "reference image width failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"Width must be between 300px and 6000px"}}`,
+			wantCode:     videoGenerationFailureCodeInputInvalid,
+		},
+		{
+			name:         "unsupported url file type",
+			providerData: `{"error":{"code":"video_generation_failed","message":"URL 文件类型不受支持"}}`,
+			wantCode:     videoGenerationFailureCodeUnsupportedMedia,
+		},
+		{
+			name:         "structured download failure precedes parameter failure",
+			providerData: `{"error":{"code":"video_generation_failed","message":"InvalidParameter.DownloadFailed"}}`,
+			wantCode:     videoGenerationFailureCodeMediaUnavailable,
+		},
+		{
+			name:         "inaccessible media url",
+			providerData: `{"error":{"code":"video_generation_failed","message":"Failed to download media from the provided URL. Please check if the link is accessible."}}`,
+			wantCode:     videoGenerationFailureCodeMediaUnavailable,
+		},
+		{
+			name:         "structured temporary failure",
+			providerData: `{"error":{"code":"upstream_failure","message":"upstream request failed"}}`,
+			wantCode:     videoGenerationFailureCodeTemporaryFailure,
+		},
+		{
+			name:         "service route unavailable",
+			providerData: `{"error":{"code":"video_generation_failed","message":"当前用户未分配该模型可用的厂商"}}`,
+			wantCode:     videoGenerationFailureCodeTemporaryFailure,
+		},
+		{
 			name:         "unsupported media failure",
 			providerData: `{"error":{"code":"video_generation_failed","message":"The image format is not supported by the API"}}`,
 			wantCode:     videoGenerationFailureCodeUnsupportedMedia,

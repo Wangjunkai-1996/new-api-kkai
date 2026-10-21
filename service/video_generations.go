@@ -354,6 +354,7 @@ func videoGenerationFailureCode(task model.Task) string {
 	if payload.Error != nil {
 		errorCode := strings.ToLower(strings.TrimSpace(payload.Error.Code))
 		if errorCode == "" || errorCode == "video_generation_failed" ||
+			errorCode == "upstream_failure" ||
 			errorCode == "invalid_parameter" || errorCode == "invalidparameter" ||
 			errorCode == "invalid_request_error" {
 			diagnostic += " " + errorCode + " " + strings.ToLower(payload.Error.Message)
@@ -383,11 +384,14 @@ func videoGenerationFailureCode(task model.Task) string {
 	if strings.Contains(diagnostic, "unsupportedimageformat") ||
 		strings.Contains(diagnostic, "format is not supported") ||
 		strings.Contains(diagnostic, "file type is not supported") ||
+		strings.Contains(diagnostic, "文件类型不受支持") ||
 		strings.Contains(diagnostic, "格式不受支持") {
 		return videoGenerationFailureCodeUnsupportedMedia
 	}
 	if strings.Contains(diagnostic, "resource not found") ||
 		strings.Contains(diagnostic, "resource download failed") ||
+		strings.Contains(diagnostic, "invalidparameter.downloadfailed") ||
+		strings.Contains(diagnostic, "failed to download media from the provided url") ||
 		strings.Contains(diagnostic, "invalid video_url") ||
 		strings.Contains(diagnostic, "asset_ref_invalid") ||
 		strings.Contains(diagnostic, "资源同步失败") {
@@ -398,6 +402,7 @@ func videoGenerationFailureCode(task model.Task) string {
 		strings.Contains(diagnostic, "invalid parameter") ||
 		strings.Contains(diagnostic, "duration (seconds)") ||
 		strings.Contains(diagnostic, "pixel count") ||
+		strings.Contains(diagnostic, "width must be between") ||
 		strings.Contains(diagnostic, "video height") {
 		return videoGenerationFailureCodeInputInvalid
 	}
@@ -407,6 +412,7 @@ func videoGenerationFailureCode(task model.Task) string {
 	if strings.Contains(diagnostic, "timed out") ||
 		strings.Contains(diagnostic, "超时") ||
 		strings.Contains(diagnostic, "upstream request failed") ||
+		strings.Contains(diagnostic, "当前用户未分配该模型可用的厂商") ||
 		strings.Contains(diagnostic, "upstream returned error") {
 		return videoGenerationFailureCodeTemporaryFailure
 	}
