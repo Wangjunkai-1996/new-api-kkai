@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
@@ -15,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
-	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
@@ -47,10 +45,6 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 			meta = request.GetTokenCountMeta()
 		}
 	}
-	if info.TenantID > 0 && (len(meta.Files) > 0 || meta.ImagePriceRatio != 0 || len(meta.BillingRatios) > 0) {
-		return types.NewErrorWithStatusCode(errors.New("multimodal and parameter-priced requests are disabled on reseller sites"), types.ErrorCodeInvalidRequest, http.StatusForbidden, types.ErrOptionWithSkipRetry())
-	}
-
 	if needSensitiveCheck && meta != nil {
 		if contains, words := service.CheckSensitiveText(meta.CombineText); contains {
 			service.RequestPolicy(c).AddEvent(service.PolicyEvent{ErrorCode: string(types.ErrorCodeSensitiveWordsDetected), ErrorSource: "local", Decision: service.PolicyDecision{Action: "stop", Reason: "local_rejection", Source: "global"}, Health: "unchanged"})
@@ -81,9 +75,6 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 	} else {
-		if err := prepareTenantResponsesOutputLimit(info, &priceData, meta); err != nil {
-			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-		}
 		if err := service.PrepareTenantBudget(info, &priceData, tokens, meta); err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
@@ -107,33 +98,6 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 		return nil
 	}
 	return service.PreConsumeBilling(c, priceData.QuotaToPreConsume, info)
-}
-
-// Responses clients may omit their output limit. Reseller requests use the
-// verified provider ceiling so authorization and the forwarded request agree.
-func prepareTenantResponsesOutputLimit(info *relaycommon.RelayInfo, price *hosttypes.PriceData, meta *types.TokenCountMeta) error {
-	if info == nil || info.TenantID <= 0 || (price.UsePrice && info.TieredBillingSnapshot == nil) {
-		return nil
-	}
-	request, ok := info.Request.(*dto.OpenAIResponsesRequest)
-	if !ok || request.MaxOutputTokens != nil {
-		return nil
-	}
-	catalog, err := model.GetMembershipCatalog()
-	if err != nil {
-		return err
-	}
-	limits := catalog.ModelLimits[info.GetBillingModelName()]
-	if strings.TrimSpace(limits.Evidence) == "" || limits.MaxInputTokens <= 0 || limits.MaxOutputTokens <= 0 {
-		return fmt.Errorf("configure verified aggregate input/output token limits for reseller model %q", info.GetBillingModelName())
-	}
-	output := uint(limits.MaxOutputTokens)
-	if helper.ExceedsMaxTokensLimit(&output) {
-		return fmt.Errorf("verified output token limit exceeds the supported request bound")
-	}
-	request.MaxOutputTokens = &output
-	meta.MaxTokens = int(output)
-	return nil
 }
 
 // RefundFailedRequestBilling applies the common final-failure policy after all

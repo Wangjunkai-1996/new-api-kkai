@@ -94,9 +94,9 @@ func tenantTextSupplyModels(db *gorm.DB) (map[string]bool, error) {
 		text, unsupported := false, false
 		for _, endpoint := range row.SupportedEndpointTypes {
 			switch endpoint {
-			case relaytypes.EndpointTypeOpenAI, relaytypes.EndpointTypeOpenAIResponse, relaytypes.EndpointTypeAnthropic, relaytypes.EndpointTypeEmbeddings:
+			case relaytypes.EndpointTypeOpenAI, relaytypes.EndpointTypeOpenAIResponse, relaytypes.EndpointTypeAnthropic, relaytypes.EndpointTypeEmbeddings, relaytypes.EndpointTypeGemini:
 				text = true
-			case relaytypes.EndpointTypeGemini, relaytypes.EndpointTypeOpenAIResponseCompact, relaytypes.EndpointTypeOpenAIAlphaSearch:
+			case relaytypes.EndpointTypeOpenAIResponseCompact, relaytypes.EndpointTypeOpenAIAlphaSearch:
 				// Native textual provider surfaces may coexist with compatibility.
 			default:
 				unsupported = true
@@ -357,6 +357,28 @@ func (s *TenantPricingService) ListGroupPrices(ctx context.Context, tenantID int
 		prices = append(prices, TenantGroupPrice{ID: version.ID, Group: entry.SalesGroup, SalesMultiplier: effective.String(), PlatformMultiplier: platform, MinimumMultiplier: platform, Version: version.Version, Inherited: inherited})
 	}
 	return prices, nil
+}
+
+// ResolveTokenGroup uses the same public supply as the tenant's group picker.
+// Platform account-specific group grants do not apply to tenant customers.
+func (s *TenantPricingService) ResolveTokenGroup(ctx context.Context, tenantID int64, userGroup, tokenGroup string) (string, error) {
+	group := tokenGroup
+	if group == "" {
+		group = userGroup
+	}
+	if group == "" || IsAutoGroup(group) {
+		return "", model.ErrResellerInvalidCatalog
+	}
+	prices, err := s.ListGroupPrices(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	for _, price := range prices {
+		if price.Group == group {
+			return group, nil
+		}
+	}
+	return "", model.ErrResellerInvalidCatalog
 }
 
 func (s *TenantPricingService) SaveGroupPrices(ctx context.Context, tenantID int64, updates []TenantPriceUpdate) ([]TenantGroupPrice, error) {

@@ -15,8 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // PrepareResponsesRequest applies the same model, conversion and channel rules
@@ -55,31 +53,16 @@ func PrepareResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, req *d
 		if err != nil {
 			return nil, nil, nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
-		if !responsesImageGenerationAllowedGroup(info.UsingGroup) || (info.TenantID > 0 && request.MaxOutputTokens != nil) {
+		if !responsesImageGenerationAllowedGroup(info.UsingGroup) {
 			jsonData, err := storage.Bytes()
 			if err != nil {
 				return nil, nil, nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 			}
-			rewrite := false
-			if info.TenantID > 0 && request.MaxOutputTokens != nil {
-				limit := gjson.GetBytes(jsonData, "max_output_tokens")
-				if !limit.Exists() || limit.Type == gjson.Null {
-					jsonData, err = sjson.SetBytes(jsonData, "max_output_tokens", *request.MaxOutputTokens)
-					if err != nil {
-						return nil, nil, nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-					}
-					rewrite = true
-				}
+			jsonData, filtered, err := enforceResponsesImageGenerationGroupPolicy(jsonData, info.UsingGroup)
+			if err != nil {
+				return nil, nil, nil, newResponsesImageGenerationPolicyError(err)
 			}
-			if !responsesImageGenerationAllowedGroup(info.UsingGroup) {
-				var filtered bool
-				jsonData, filtered, err = enforceResponsesImageGenerationGroupPolicy(jsonData, info.UsingGroup)
-				if err != nil {
-					return nil, nil, nil, newResponsesImageGenerationPolicyError(err)
-				}
-				rewrite = rewrite || filtered
-			}
-			if rewrite {
+			if filtered {
 				body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 				if err != nil {
 					return nil, nil, nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

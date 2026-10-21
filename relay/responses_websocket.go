@@ -260,7 +260,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		// reads a termination decision after this point on the WebSocket path,
 		// so neither policy record belongs here.
 		if info != nil && billingPrepared {
-			if apiErr != nil && info.MembershipBillingRequestID != "" && dispatched && !rejected {
+			if apiErr != nil && info.HasDurableBilling() && dispatched && !rejected {
 				if accumulator != nil && accumulator.HasReportedUsage() {
 					service.CaptureFailedRequestUsage(c, info, accumulator.Finish(), apiErr)
 				} else {
@@ -317,8 +317,9 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			}()
 			requestDone, dispatched = dispatchCtx.Done(), true
 		}
+		dispatched = true
 		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
-			info.BillingOutcomeUnknown = info.MembershipBillingRequestID != ""
+			info.BillingOutcomeUnknown = info.HasDurableBilling()
 			state.closeAfter = true
 			return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 		}
@@ -385,8 +386,9 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				}()
 				requestDone, dispatched = dispatchCtx.Done(), true
 			}
+			dispatched = true
 			if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
-				info.BillingOutcomeUnknown = info.MembershipBillingRequestID != ""
+				info.BillingOutcomeUnknown = info.HasDurableBilling()
 				state.closeAfter = true
 				return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 			}
@@ -438,7 +440,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			if incoming.err != nil {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, incoming.err)
 				state.closeAfter = true
-				if errors.Is(s.ctx.Err(), context.Canceled) && accumulator.HasMeasuredUsage() && (info.MembershipBillingRequestID == "" || accumulator.HasReportedUsage()) {
+				if errors.Is(s.ctx.Err(), context.Canceled) && accumulator.HasMeasuredUsage() && (!info.HasDurableBilling() || accumulator.HasReportedUsage()) {
 					ConsumeResponsesQuota(c, info, accumulator.Finish())
 					return nil
 				}
@@ -504,7 +506,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 						state.terminal, state.closeAfter = &incoming, ambiguous
 						return types.WithOpenAIError(*rejection.Error, rejection.Status, types.ErrOptionWithSkipRetry())
 					}
-					rejected = info.MembershipBillingRequestID == "" || confirmedRejection
+					rejected = !info.HasDurableBilling() || confirmedRejection
 					if !rejected {
 						info.BillingOutcomeUnknown = true
 						state.closeAfter = true
@@ -552,7 +554,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 						return types.NewErrorWithStatusCode(errors.New("responses stream incomplete"), types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 					}
 				}
-				if (event.Type == "response.cancelled" || event.Type == "response.canceled") && (sentControl == nil || !accumulator.HasMeasuredUsage()) {
+				if (event.Type == "response.cancelled" || event.Type == "response.canceled") && (sentControl == nil || !accumulator.HasMeasuredUsage() || (info.HasDurableBilling() && !accumulator.HasReportedUsage())) {
 					return types.NewErrorWithStatusCode(context.Canceled, types.ErrorCodeBadResponse, http.StatusRequestTimeout, types.ErrOptionWithSkipRetry())
 				}
 				if info.StreamStatus.ResponseFailed() {
@@ -601,14 +603,14 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		case <-idle.C:
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, context.DeadlineExceeded)
 			state.closeAfter = true
-			if !accumulator.HasMeasuredUsage() || (info.MembershipBillingRequestID != "" && !accumulator.HasReportedUsage()) {
+			if !accumulator.HasMeasuredUsage() || (info.HasDurableBilling() && !accumulator.HasReportedUsage()) {
 				return types.NewErrorWithStatusCode(context.DeadlineExceeded, types.ErrorCodeBadResponse, http.StatusGatewayTimeout, types.ErrOptionWithSkipRetry())
 			}
 			ConsumeResponsesQuota(c, info, accumulator.Finish())
 			return nil
 		case <-s.ctx.Done():
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, s.ctx.Err())
-			if !accumulator.HasMeasuredUsage() || (info.MembershipBillingRequestID != "" && !accumulator.HasReportedUsage()) {
+			if !accumulator.HasMeasuredUsage() || (info.HasDurableBilling() && !accumulator.HasReportedUsage()) {
 				return types.NewErrorWithStatusCode(s.ctx.Err(), types.ErrorCodeBadResponse, http.StatusRequestTimeout, types.ErrOptionWithSkipRetry())
 			}
 			ConsumeResponsesQuota(c, info, accumulator.Finish())
@@ -722,6 +724,15 @@ func confirmedResponsesWSRejection(event responsesWSErrorEvent, payload []byte, 
 }
 
 func (s *responsesWSSession) restoreConnectionContext(c *gin.Context, model string) *types.NewAPIError {
+	if tenantID := common.GetContextKeyInt64(c, appconstant.ContextKeyTenantID); tenantID > 0 {
+		group := common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup)
+		if group != s.lockedGroup {
+			return types.NewErrorWithStatusCode(errors.New("the connection group changed; reconnect required"), types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+		if _, err := service.ResolveTenantRequestCatalog(c.Request.Context(), tenantID, model, group); err != nil || !appmodel.IsChannelEnabledForGroupModel(group, model, s.lockedChannelID) {
+			return types.NewErrorWithStatusCode(errors.New("the connection model or channel is no longer available on this reseller site"), types.ErrorCodeAccessDenied, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+		}
+	}
 	// The channel type is not rechecked: a locked channel keeps its type, and
 	// the FilterResponsesWebSocket rules were applied when it was selected.
 	channel, err := appmodel.CacheGetChannel(s.lockedChannelID)
@@ -797,12 +808,18 @@ func buildResponsesWSCreatePayload(c *gin.Context, info *relaycommon.RelayInfo, 
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 	}
-	if info.MembershipBillingRequestID != "" {
-		outbound, err := http.NewRequest(http.MethodPost, "http://membership-authorization.invalid", bytes.NewReader(jsonData))
+	if err := service.ValidateRelayJSONQuantities(jsonData); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if info.MembershipBillingRequestID != "" || info.TenantID > 0 {
+		outbound, err := http.NewRequest(http.MethodPost, "http://request-authorization.invalid", bytes.NewReader(jsonData))
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 		}
 		if err := service.ValidateMembershipOutbound(outbound, info); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+		if err := service.ValidateTenantOutbound(outbound, info); err != nil {
 			return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 		}
 	}

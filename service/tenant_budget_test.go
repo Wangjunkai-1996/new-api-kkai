@@ -25,52 +25,47 @@ import (
 
 func setupTenantBudgetTest(t *testing.T) *model.User {
 	t.Helper()
+	// No membership tables or published catalog: ordinary tenant wallets do not
+	// depend on the platform selling membership products.
 	user := setupAuthSessionTestDB(t)
-	require.NoError(t, model.DB.AutoMigrate(model.MembershipModels()...))
-	_, err := model.PublishMembershipCatalog(model.MembershipCatalog{ModelLimits: map[string]model.MembershipModelLimit{
-		"tenant-text": {MaxInputTokens: 100, MaxOutputTokens: 40, Evidence: "provider guarantees aggregate per-request bounds"},
-	}}, 0, 1)
-	require.NoError(t, err)
 	previousUnit := common.QuotaPerUnit
 	common.QuotaPerUnit = 1_000_000
 	t.Cleanup(func() { common.QuotaPerUnit = previousUnit })
 	return user
 }
 
-func TestTenantBudgetReservesCompleteUsageBeforeLowBalanceDispatch(t *testing.T) {
+func TestTenantBudgetUsesSharedEstimateWithoutMembershipConfiguration(t *testing.T) {
 	user := setupTenantBudgetTest(t)
-	copies := 2
-	info := &relaycommon.RelayInfo{TenantID: 7, UserId: user.Id, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{N: &copies}}
-	price := types.PriceData{ModelRatio: 2, CompletionRatio: 3, CacheRatio: .1, CacheCreationRatio: 1, CacheCreation5mRatio: 2, CacheCreation1hRatio: 4, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
-	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 20}))
-	// One locally estimated input token must still cover the verified input
-	// bound, both outputs, and independently reported cache-write categories.
-	assert.GreaterOrEqual(t, price.QuotaToPreConsume, 4200)
-	assert.Equal(t, price.QuotaToPreConsume, info.PriceData.QuotaToPreConsume)
+	info := &relaycommon.RelayInfo{TenantID: 7, UserId: user.Id, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}}
+	price := types.PriceData{ModelRatio: 2, CompletionRatio: 3, QuotaToPreConsume: 42, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
+	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
+	assert.Equal(t, 42, price.QuotaToPreConsume)
+	assert.Equal(t, price, info.PriceData)
+	assert.False(t, info.TenantBudget.RequiresOutputBound)
+	assert.Nil(t, info.Request.(*dto.GeneralOpenAIRequest).MaxTokens)
 	require.NoError(t, model.DB.AutoMigrate(&model.TenantConsumption{}))
-	require.NoError(t, model.DB.Model(user).Updates(map[string]any{"tenant_id": 7, "quota": price.QuotaToPreConsume - 1}).Error)
-	_, err := model.ReserveTenantConsumption(context.Background(), model.DB, model.ResellerPricingQuoteInput{TenantID: 7, CustomerID: user.Id, RequestID: "underfunded-large-output", QuotedQuota: int64(price.QuotaToPreConsume)}, 1)
+	require.NoError(t, model.DB.Model(user).Updates(map[string]any{"tenant_id": 7, "quota": 41}).Error)
+	_, err := model.ReserveTenantConsumption(context.Background(), model.DB, model.ResellerPricingQuoteInput{TenantID: 7, CustomerID: user.Id, RequestID: "underfunded-estimate", QuotedQuota: 42}, 1)
 	assert.ErrorIs(t, err, model.ErrResellerInsufficientFunds)
 	require.NoError(t, model.DB.First(user, user.Id).Error)
-	assert.EqualValues(t, price.QuotaToPreConsume-1, user.Quota)
+	assert.EqualValues(t, 41, user.Quota)
 }
 
-func TestTenantBudgetRejectsUnverifiableBounds(t *testing.T) {
+func TestTenantBudgetRejectsInvalidEstimates(t *testing.T) {
 	setupTenantBudgetTest(t)
 	for _, tc := range []struct {
-		name, model   string
-		input, output int
-		want          string
+		name                 string
+		input, output, quota int
 	}{
-		{"missing output", "tenant-text", 1, 0, "max_tokens"},
-		{"unknown provider bound", "unverified", 1, 20, "verified"},
-		{"input exceeds bound", "tenant-text", 101, 20, "exceeds"},
-		{"output exceeds bound", "tenant-text", 1, 41, "exceeds"},
+		{"negative input", -1, 0, 1},
+		{"negative output", 1, -1, 1},
+		{"negative reservation", 1, 0, -1},
+		{"reservation overflow", 1, 0, math.MaxInt32 + 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: tc.model, RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}}
-			price := types.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}
-			assert.ErrorContains(t, PrepareTenantBudget(info, &price, tc.input, &relaytypes.TokenCountMeta{MaxTokens: tc.output}), tc.want)
+			info := &relaycommon.RelayInfo{TenantID: 7}
+			price := types.PriceData{QuotaToPreConsume: tc.quota}
+			assert.Error(t, PrepareTenantBudget(info, &price, tc.input, &relaytypes.TokenCountMeta{MaxTokens: tc.output}))
 			assert.Nil(t, info.TenantBudget)
 		})
 	}
@@ -78,16 +73,14 @@ func TestTenantBudgetRejectsUnverifiableBounds(t *testing.T) {
 
 func TestTenantBudgetFixedPriceAndRetryStayFrozen(t *testing.T) {
 	setupTenantBudgetTest(t)
-	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "fixed-price", RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}}
-	price := types.PriceData{UsePrice: true, ModelPrice: .0000006, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
+	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "fixed-price", Request: &dto.GeneralOpenAIRequest{}}
+	price := types.PriceData{UsePrice: true, ModelPrice: .0000006, QuotaToPreConsume: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
 	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
-	assert.Equal(t, 2, price.QuotaToPreConsume, "the complete fixed charge rounds up before dispatch")
-	assert.False(t, info.TenantBudget.RequiresOutputBound)
+	assert.Equal(t, 1, price.QuotaToPreConsume)
 	common.QuotaPerUnit *= 100
-	price.ModelPrice = 100
-	price.GroupRatioInfo.GroupRatio = 20
+	price.ModelPrice, price.GroupRatioInfo.GroupRatio, price.QuotaToPreConsume = 100, 20, 200
 	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
-	assert.Equal(t, 2, price.QuotaToPreConsume)
+	assert.Equal(t, 1, price.QuotaToPreConsume)
 	assert.Equal(t, .0000006, price.ModelPrice)
 	assert.Equal(t, float64(1_000_000), info.TenantBudget.QuotaPerUnit)
 }
@@ -95,57 +88,27 @@ func TestTenantBudgetFixedPriceAndRetryStayFrozen(t *testing.T) {
 func TestTenantBudgetFreezesTieredRequestPricing(t *testing.T) {
 	setupTenantBudgetTest(t)
 	expression := `p * 2 + c * 3 + cc * 4 + (param("service_tier") == "priority" ? 10 : 0)`
-	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{}, BillingRequestInput: &billingexpr.RequestInput{Body: []byte(`{"service_tier":"priority"}`)}, TieredBillingSnapshot: &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: expression, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: 1}}
-	price := types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
-	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 20}))
-	assert.Equal(t, 1460, price.QuotaToPreConsume)
+	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{}, BillingRequestInput: &billingexpr.RequestInput{Body: []byte(`{"service_tier":"priority"}`)}, TieredBillingSnapshot: &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: expression, QuotaPerUnit: common.QuotaPerUnit, GroupRatio: 2, ExprVersion: 1}}
+	price := types.PriceData{QuotaToPreConsume: 7, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
+	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
+	assert.Equal(t, 7, price.QuotaToPreConsume, "freeze, rather than replace, the shared estimate")
 	assert.NotContains(t, info.TieredBillingSnapshot.ExprString, "param(")
 	info.BillingRequestInput.Body = []byte(`{"service_tier":"standard"}`)
 	_, quota, _ := TryTieredSettle(info, billingexpr.TokenParams{P: 100, C: 40, CC: 100})
-	assert.Equal(t, price.QuotaToPreConsume, quota)
+	assert.Equal(t, 1460, quota)
 }
 
-func TestTenantBudgetRejectsUnrepresentableReservation(t *testing.T) {
+func TestTenantOutboundRequiresPricingAndIntegratedTransport(t *testing.T) {
 	setupTenantBudgetTest(t)
-	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "fixed-price", Request: &dto.GeneralOpenAIRequest{}}
-	price := types.PriceData{UsePrice: true, ModelPrice: math.MaxInt32, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}
-	assert.Error(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
-	assert.Nil(t, info.TenantBudget)
-}
-
-func TestTenantOutboundCannotRemoveOrIncreaseAuthorization(t *testing.T) {
-	setupTenantBudgetTest(t)
-	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI}}
-	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}
-	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 20}))
-	for _, tc := range []struct {
-		name, body string
-		valid      bool
-	}{
-		{"bounded", `{"max_tokens":20}`, true},
-		{"converted lower limit", `{"max_output_tokens":10}`, true},
-		{"removed limit", `{}`, false},
-		{"increased limit", `{"max_tokens":21}`, false},
-		{"conflicting alternate limit", `{"max_tokens":20,"max_completion_tokens":21}`, false},
-		{"duplicate output limit", `{"max_tokens":20,"max_tokens":1000}`, false},
-		{"duplicate nested output limit", `{"generationConfig":{"maxOutputTokens":20,"maxOutputTokens":1000}}`, false},
-		{"increased copies", `{"max_tokens":20,"n":2}`, false},
-		{"fractional limit", `{"max_tokens":1.5}`, false},
-		{"override adds hosted tool", `{"max_tokens":20,"tools":[{"type":"image_generation"}]}`, false},
-		{"override adds media", `{"max_tokens":20,"messages":[{"content":[{"type":"image_url","image_url":{"url":"https://example.invalid/image.png"}}]}]}`, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			request, err := http.NewRequest(http.MethodPost, "https://upstream.invalid/v1/chat/completions", strings.NewReader(tc.body))
-			require.NoError(t, err)
-			err = ValidateTenantOutbound(request, info)
-			if tc.valid {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-			}
-		})
-	}
-	assert.Error(t, ValidateTenantOutbound(nil, &relaycommon.RelayInfo{TenantID: 7}))
+	request, err := http.NewRequest(http.MethodPost, "https://upstream.invalid/v1/chat/completions", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "tenant-text", ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI}}
+	assert.Error(t, ValidateTenantOutbound(request, info))
+	price := types.PriceData{QuotaToPreConsume: 1}
+	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
+	assert.NoError(t, ValidateTenantOutbound(request, info), "optional provider output caps remain optional")
+	info.ChannelMeta.ChannelType = constant.ChannelTypeAws
+	assert.Error(t, ValidateTenantOutbound(request, info), "an unintegrated SDK transport cannot bypass tenant accounting")
 }
 
 func TestTenantBudgetFreeGroupIsDurableAndCannotBecomePositiveCharge(t *testing.T) {
@@ -156,11 +119,11 @@ func TestTenantBudgetFreeGroupIsDurableAndCannotBecomePositiveCharge(t *testing.
 	token := model.Token{UserId: user.Id, TenantID: 7, Key: "free-tenant", Status: common.TokenStatusEnabled, ExpiredTime: -1}
 	require.NoError(t, db.Create(&token).Error)
 	info := &relaycommon.RelayInfo{TenantID: 7, UserId: user.Id, TokenId: token.Id, RequestId: "free-tenant-request", ChannelMeta: &relaycommon.ChannelMeta{}, OriginModelName: "tenant-text", RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}}
-	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0}}
+	price := types.PriceData{FreeModel: true, ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0}}
 	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 20}))
 	assert.Zero(t, price.QuotaToPreConsume)
 	assert.True(t, price.FreeModel)
-	assert.NotNil(t, info.TenantBudget, "free requests retain provider output bounds")
+	assert.NotNil(t, info.TenantBudget, "free requests retain their frozen pricing")
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	require.Nil(t, preConsumeTenantBilling(c, info, 0))
@@ -185,4 +148,49 @@ func TestTenantBudgetFreeGroupIsDurableAndCannotBecomePositiveCharge(t *testing.
 	assert.Zero(t, record.ActualQuota)
 	_, err := model.ReserveTenantFreeConsumption(context.Background(), db, 7, user.Id, token.Id, info.RequestId)
 	assert.ErrorIs(t, err, model.ErrTenantConsumptionConflict)
+}
+
+func TestTenantBudgetClonesRequestMultipliers(t *testing.T) {
+	setupTenantBudgetTest(t)
+	info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "tenant-text", Request: &dto.GeneralOpenAIRequest{}}
+	price := types.PriceData{ModelRatio: 1, QuotaToPreConsume: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}
+	price.AddOtherRatio("quality", 2)
+	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
+	price.AddOtherRatio("quality", 3)
+	info.PriceData.AddOtherRatio("quality", 4)
+	assert.Equal(t, float64(2), info.TenantBudget.Price.OtherRatios()["quality"])
+	assert.Equal(t, float64(2), info.TenantBudget.OtherRatios["quality"])
+	require.NoError(t, PrepareTenantBudget(info, &price, 1, &relaytypes.TokenCountMeta{}))
+	assert.Equal(t, float64(2), price.OtherRatios()["quality"])
+	price.AddOtherRatio("quality", 5)
+	assert.Equal(t, float64(2), info.TenantBudget.Price.OtherRatios()["quality"], "retry restoration cannot reconnect mutable and frozen price maps")
+}
+
+func TestTenantFreeReservationRejectsPaidFeaturesAddedAtDispatch(t *testing.T) {
+	setupTenantBudgetTest(t)
+	for _, tc := range []struct {
+		name, body string
+		group      float64
+		wantError  bool
+	}{
+		{name: "plain free request", body: `{"input":"hello"}`, group: 1},
+		{name: "hosted tool added by later conversion", body: `{"input":"hello","tools":[{"type":"web_search"}]}`, group: 1, wantError: true},
+		{name: "function schema remains data", body: `{"input":"hello","tools":[{"type":"function","name":"free_lookup","parameters":{"properties":{"tools":{"default":[{"type":"web_search"}]}}}}]}`, group: 1},
+		{name: "zero group remains free", body: `{"input":"hello","tools":[{"type":"web_search"}]}`, group: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "free-text", Request: &dto.OpenAIResponsesRequest{}, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI}}
+			price := types.PriceData{ModelRatio: 0, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: tc.group}}
+			require.NoError(t, PrepareTenantBudget(info, &price, 0, &relaytypes.TokenCountMeta{}))
+			require.True(t, price.FreeModel)
+			outbound, err := http.NewRequest(http.MethodPost, "https://provider.invalid", strings.NewReader(tc.body))
+			require.NoError(t, err)
+			err = ValidateTenantOutbound(outbound, info)
+			if tc.wantError {
+				assert.ErrorContains(t, err, "adds paid features")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

@@ -273,11 +273,6 @@ func validateRequestBudgetOutbound(request *http.Request, info *relaycommon.Rela
 			return fmt.Errorf("upstream JSON contains duplicate keys")
 		}
 	}
-	if info.TenantID > 0 {
-		if err := ValidateTenantTextPayload(data, info.GetBillingModelName()); err != nil {
-			return err
-		}
-	}
 	found := false
 	for _, path := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "max_tokens_to_sample", "max_new_tokens", "maxTokens", "generationConfig.maxOutputTokens", "generation_config.max_output_tokens", "parameters.max_tokens", "parameters.max_new_tokens", "options.num_predict"} {
 		if !snapshot.RequiresOutputBound {

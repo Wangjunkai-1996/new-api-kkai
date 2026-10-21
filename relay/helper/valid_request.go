@@ -3,7 +3,6 @@ package helper
 import (
 	"errors"
 	"fmt"
-	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -119,7 +118,7 @@ func GetAndValidateEmbeddingRequest(c *gin.Context, relayMode int) (*dto.Embeddi
 // maxTokensLimit bounds user-supplied max token fields. These values feed
 // pre-consume quota math (preConsumedTokens * ratio); an unbounded value can
 // overflow the conversion and corrupt billing.
-const maxTokensLimit = math.MaxInt32 / 2
+const maxTokensLimit = dto.MaxTokensLimit
 
 func ExceedsMaxTokensLimit(values ...*uint) bool {
 	for _, v := range values {
@@ -307,6 +306,9 @@ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenA
 	if ExceedsMaxTokensLimit(textRequest.MaxTokens, textRequest.MaxCompletionTokens) {
 		return nil, errors.New("max_tokens is invalid")
 	}
+	if textRequest.N != nil && (*textRequest.N < 0 || *textRequest.N > dto.MaxImageN) {
+		return nil, fmt.Errorf("n must be an integer between 0 and %d", dto.MaxImageN)
+	}
 	if textRequest.Model == "" {
 		return nil, errors.New("model is required")
 	}
@@ -357,8 +359,19 @@ func GetAndValidateGeminiRequest(c *gin.Context) (*dto.GeminiChatRequest, error)
 	if len(request.Contents) == 0 && len(request.Requests) == 0 {
 		return nil, errors.New("contents is required")
 	}
-	if ExceedsMaxTokensLimit(request.GenerationConfig.MaxOutputTokens) {
-		return nil, errors.New("maxOutputTokens is invalid")
+	pending := []*dto.GeminiChatRequest{request}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if ExceedsMaxTokensLimit(current.GenerationConfig.MaxOutputTokens) {
+			return nil, errors.New("maxOutputTokens is invalid")
+		}
+		if count := current.GenerationConfig.CandidateCount; count != nil && (*count < 0 || *count > dto.MaxImageN) {
+			return nil, fmt.Errorf("candidateCount must be an integer between 0 and %d", dto.MaxImageN)
+		}
+		for index := range current.Requests {
+			pending = append(pending, &current.Requests[index])
+		}
 	}
 
 	//if c.Query("alt") == "sse" {

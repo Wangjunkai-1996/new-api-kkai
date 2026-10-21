@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -345,4 +346,31 @@ func TestIsNonBillableResponsesStatus(t *testing.T) {
 	assert.True(t, IsNonBillableResponsesStatus([]byte(`"canceled"`)))
 	assert.False(t, IsNonBillableResponsesStatus([]byte(`"completed"`)))
 	assert.False(t, IsNonBillableResponsesStatus(nil))
+}
+
+func TestCountBillableCallerToolUsesFrozenPrice(t *testing.T) {
+	const name = "frozen_caller_tool"
+	t.Cleanup(func() { operation_setting.DeleteToolPriceForTest(name) })
+	for _, tc := range []struct {
+		label  string
+		frozen map[string]float64
+		live   float64
+		want   int
+	}{
+		{label: "removed after quote", frozen: map[string]float64{name: 5}, live: 0, want: 1},
+		{label: "priced after quote", frozen: map[string]float64{name: 0}, live: 5},
+		{label: "absent from quote", frozen: map[string]float64{}, live: 5},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			operation_setting.SetToolPriceForTest(name, tc.live)
+			info := &RelayInfo{TenantID: 42, OriginModelName: "tenant-text", TenantBudget: &hosttypes.MembershipPricing{ToolPrices: tc.frozen}}
+			info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
+			if tc.want > 0 {
+				require.Contains(t, info.ResponsesUsageInfo.BuiltInTools, name)
+				assert.Equal(t, tc.want, info.ResponsesUsageInfo.BuiltInTools[name].CallCount)
+			} else {
+				assert.NotContains(t, info.ResponsesUsageInfo.BuiltInTools, name)
+			}
+		})
+	}
 }

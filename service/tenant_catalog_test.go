@@ -28,7 +28,7 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
 	t.Cleanup(func() { require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldOpen)) })
 	oldRatios, oldGroups, oldPrice := ratio_setting.ModelRatio2JSONString(), ratio_setting.GroupRatio2JSONString(), operation_setting.Price
-	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"plain-model":1,"opaque-media":1,"opaque-video":1,"embedding-model":1,"sdk-only":1,"socket-only":1}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"plain-model":1,"opaque-media":1,"opaque-video":1,"embedding-model":1,"native-gemini":1,"native-codex":1,"sdk-only":1,"socket-only":1}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
 	operation_setting.Price = 1
 	model.InvalidatePricingCache()
@@ -39,7 +39,7 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 		model.InvalidatePricingCache()
 	})
 	require.NoError(t, db.Create(&model.Tenant{ID: 7, Status: model.TenantStatusActive}).Error)
-	for i, name := range []string{"plain-model", "opaque-media", "opaque-video", "embedding-model", "sdk-only", "socket-only"} {
+	for i, name := range []string{"plain-model", "opaque-media", "opaque-video", "embedding-model", "native-gemini", "native-codex", "sdk-only", "socket-only"} {
 		channelType := constant.ChannelTypeOpenAI
 		switch name {
 		case "opaque-video":
@@ -48,6 +48,10 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 			channelType = constant.ChannelTypeAws
 		case "socket-only":
 			channelType = constant.ChannelTypeXunfei
+		case "native-gemini":
+			channelType = constant.ChannelTypeGemini
+		case "native-codex":
+			channelType = constant.ChannelTypeCodex
 		}
 		require.NoError(t, db.Create(&model.Channel{Id: i + 1, Type: channelType, Status: common.ChannelStatusEnabled, Name: name, Models: name, Group: "default"}).Error)
 		require.NoError(t, db.Create(&model.Ability{ChannelId: i + 1, Model: name, Group: "default", Enabled: true}).Error)
@@ -62,6 +66,8 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	// authoritative even when the channel also advertises OpenAI compatibility.
 	require.NoError(t, db.Create(&model.Model{ModelName: "opaque-media", Status: 1, Endpoints: `{"image-generation":"/v1/images/generations"}`}).Error)
 	require.NoError(t, db.Create(&model.Model{ModelName: "embedding-model", Status: 1, Endpoints: `{"embeddings":"/v1/embeddings"}`}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "native-gemini", Status: 1, Endpoints: `{"gemini":"/v1beta/models/:model"}`}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "native-codex", Status: 1, Endpoints: `{"openai-response":"/v1/responses"}`}).Error)
 	supply, err := ListTenantSupply(db)
 	require.NoError(t, err)
 	names := make([]string, 0, len(supply))
@@ -69,7 +75,7 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 		names = append(names, entry.Model)
 		assert.Equal(t, "default", entry.SalesGroup)
 	}
-	assert.ElementsMatch(t, []string{"plain-model", "embedding-model"}, names)
+	assert.ElementsMatch(t, []string{"plain-model", "embedding-model", "native-gemini", "native-codex"}, names)
 	pricing := NewTenantPricingService(db)
 	_, err = pricing.SaveGroupPrices(context.Background(), 7, []TenantPriceUpdate{{Group: "default", Multiplier: "2"}})
 	require.NoError(t, err)
@@ -82,7 +88,7 @@ func TestTenantCatalogExcludesUnsupportedProviderEndpoints(t *testing.T) {
 	for _, entry := range visible {
 		names = append(names, entry.Model)
 	}
-	assert.ElementsMatch(t, []string{"plain-model", "embedding-model"}, names)
+	assert.ElementsMatch(t, []string{"plain-model", "embedding-model", "native-gemini", "native-codex"}, names)
 
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)

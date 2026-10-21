@@ -62,7 +62,13 @@ func TestTenantFeatureGateDefaultsToDenyUnsupportedAPIs(t *testing.T) {
 	}{
 		{http.MethodPost, "/v1/chat/completions", "/v1/chat/completions", true},
 		{http.MethodPost, "/v1/responses", "/v1/responses", true},
-		{http.MethodGet, "/v1/responses", "/v1/responses", false},
+		{http.MethodPost, "/v1/responses/compact", "/v1/responses/compact", false},
+		{http.MethodGet, "/v1beta/models", "/v1beta/models", true},
+		{http.MethodGet, "/v1beta/openai/models", "/v1beta/openai/models", true},
+		{http.MethodPost, "/v1beta/models/*path", "/v1beta/models/gemini-text:generateContent", true},
+		{http.MethodPost, "/v1/models/*path", "/v1/models/gemini-text:streamGenerateContent", true},
+		{http.MethodPost, "/v1/engines/:model/embeddings", "/v1/engines/gemini-embedding/embeddings", true},
+		{http.MethodGet, "/v1/responses", "/v1/responses", true},
 		{http.MethodPost, "/v1/images/generations", "/v1/images/generations", false},
 		{http.MethodPost, "/pg/chat/completions", "/pg/chat/completions", false},
 		{http.MethodPost, "/suno/submit/:action", "/suno/submit/music", false},
@@ -119,6 +125,32 @@ func TestTenantFeatureGatePreservesMainSiteAndRejectsWebSocketUpgrade(t *testing
 			expected = http.StatusForbidden
 		}
 		assert.Equal(t, expected, response.Code)
+	}
+}
+
+func TestTenantFeatureGateAllowsOnlyResponsesWebSocketWithSameSiteOrigin(t *testing.T) {
+	for _, test := range []struct {
+		upgrade, connection, origin string
+		want                        int
+	}{
+		{"websocket", "Upgrade", "", http.StatusNoContent},
+		{"websocket", "keep-alive, Upgrade", "https://kimi.example.com", http.StatusNoContent},
+		{"websocket", "", "", http.StatusForbidden},
+		{"h2c", "Upgrade", "", http.StatusForbidden},
+		{"websocket", "Upgrade", "https://other.example.com", http.StatusForbidden},
+	} {
+		engine := gin.New()
+		engine.Use(func(c *gin.Context) { common.SetContextKey(c, constant.ContextKeyTenantID, int64(42)) }, TenantFeatureGate())
+		engine.GET("/v1/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+		request := httptest.NewRequest(http.MethodGet, "https://kimi.example.com/v1/responses", nil)
+		request.Header.Set("Upgrade", test.upgrade)
+		request.Header.Set("Connection", test.connection)
+		if test.origin != "" {
+			request.Header.Set("Origin", test.origin)
+		}
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		assert.Equal(t, test.want, response.Code, test)
 	}
 }
 

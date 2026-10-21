@@ -10,9 +10,11 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,6 +58,8 @@ func TestTenantBillingFreezesCashTariffAndSettlesSubFenUsage(t *testing.T) {
 	common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
 	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, RequestId: "sub-fen-request", OriginModelName: "tenant-text", Request: &dto.GeneralOpenAIRequest{Model: "tenant-text"}, ChannelMeta: &relaycommon.ChannelMeta{}}
 	require.NoError(t, PrepareTenantPricing(c, info))
+	priceData := types.PriceData{QuotaToPreConsume: 1, ModelRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}}
+	require.NoError(t, PrepareTenantBudget(info, &priceData, 1, &relaytypes.TokenCountMeta{}))
 	// A concurrent platform reprice must not change the request already quoted.
 	operation_setting.Price = 20
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"tenant-supply":10}`))
@@ -67,6 +71,16 @@ func TestTenantBillingFreezesCashTariffAndSettlesSubFenUsage(t *testing.T) {
 	assert.Equal(t, "0.005", quote.SupplierMinorPerQuota)
 	assert.Equal(t, "2", quote.SalesMultiplier)
 	assert.Equal(t, "0.00484", quote.ProfitMinorExact)
+	var persisted struct {
+		Billing *types.MembershipPricing `json:"billing"`
+	}
+	require.NoError(t, common.UnmarshalJsonStr(quote.SupplySnapshot, &persisted))
+	require.NotNil(t, persisted.Billing)
+	assert.Equal(t, info.TenantBudget.Price, persisted.Billing.Price)
+	assert.Equal(t, info.TenantBudget.QuotaPerUnit, persisted.Billing.QuotaPerUnit)
+	assert.Equal(t, info.TenantBudget.ToolPrices, persisted.Billing.ToolPrices)
+	assert.Equal(t, info.TenantBudget.GeminiAudioInputPrice, persisted.Billing.GeminiAudioInputPrice)
+
 	require.NoError(t, info.Billing.Settle(1))
 	require.NoError(t, info.Billing.Settle(1))
 	info.Billing.Refund(c) // A later transport error cannot refund committed usage.

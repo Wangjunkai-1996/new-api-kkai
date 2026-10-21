@@ -692,7 +692,17 @@ func TokenAuth() func(c *gin.Context) {
 
 		userGroup := userCache.Group
 		tokenGroup := token.Group
-		if tokenGroup != "" {
+		if tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID); tenantID > model.PlatformTenantID {
+			userGroup, err = service.NewTenantPricingService(model.DB).ResolveTokenGroup(c.Request.Context(), tenantID, userGroup, tokenGroup)
+			if err != nil {
+				if errors.Is(err, model.ErrResellerInvalidCatalog) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgTokenGroupInvalid), types.ErrorCodeAccessDenied)
+				} else {
+					abortWithOpenAiMessage(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgDatabaseError))
+				}
+				return
+			}
+		} else if tokenGroup != "" {
 			// Auto-group profiles are virtual groups and therefore do not have
 			// their own pricing ratio. Resolve their configured candidate profile
 			// through the same permission check used by dashboard/token setup.

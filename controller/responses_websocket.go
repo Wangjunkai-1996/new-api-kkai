@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -24,6 +25,7 @@ type responsesWSRequestContextKey struct{}
 
 type responsesWSRequestState struct {
 	requestID string
+	routing   gin.HandlerFunc
 	handle    func(*gin.Context) *types.NewAPIError
 	apiError  *types.NewAPIError
 }
@@ -39,7 +41,12 @@ var responsesWSRequestEngine = sync.OnceValue(func() *gin.Engine {
 		c.Set(common.RequestIdKey, state.requestID)
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		c.Next()
-	}, middleware.BodyStorageCleanup(), middleware.TokenAuth(), func(c *gin.Context) { middleware.KKAIPolicyKeyCooldown()(c) }, middleware.ModelRequestRateLimit(), func(c *gin.Context) {
+	}, func(c *gin.Context) {
+		state := c.Request.Context().Value(responsesWSRequestContextKey{}).(*responsesWSRequestState)
+		if state.routing != nil {
+			state.routing(c)
+		}
+	}, middleware.TenantFeatureGate(), middleware.BodyStorageCleanup(), middleware.TokenAuth(), func(c *gin.Context) { middleware.KKAIPolicyKeyCooldown()(c) }, middleware.ModelRequestRateLimit(), func(c *gin.Context) {
 		state := c.Request.Context().Value(responsesWSRequestContextKey{}).(*responsesWSRequestState)
 		state.apiError = state.handle(c)
 		if state.apiError != nil {
@@ -82,8 +89,20 @@ func newResponsesWSRequestRunner(c *gin.Context) relay.ResponsesWSRequestRunner 
 		headers.Del(name)
 	}
 	remoteAddr := net.JoinHostPort(c.ClientIP(), "0")
+	host := c.Request.Host
+	var routing gin.HandlerFunc
+	if tenant, ok := middleware.GetTenantContext(c); ok {
+		// The public router already verified the schema at process startup.
+		// Resolve the original Host again for every response.create so domain
+		// revocation and tenant disablement also affect existing connections.
+		if tenant.TenantID > model.PlatformTenantID {
+			routing = middleware.TenantRouting(model.DB, true)
+		} else {
+			routing = middleware.TenantRouting(nil, false, tenant.Hostname)
+		}
+	}
 	return func(request *http.Request, requestID string, handle func(*gin.Context) *types.NewAPIError) *types.NewAPIError {
-		state := &responsesWSRequestState{requestID: requestID, handle: handle}
+		state := &responsesWSRequestState{requestID: requestID, routing: routing, handle: handle}
 		ctx := context.WithValue(request.Context(), responsesWSRequestContextKey{}, state)
 		ctx = context.WithValue(ctx, common.RequestIdKey, requestID)
 		request = request.Clone(ctx)
@@ -91,6 +110,7 @@ func newResponsesWSRequestRunner(c *gin.Context) relay.ResponsesWSRequestRunner 
 		request.URL.Path = "/v1/responses"
 		request.URL.RawPath = ""
 		request.Header = headers.Clone()
+		request.Host = host
 		request.Header.Set("Content-Type", "application/json")
 		request.RemoteAddr = remoteAddr
 		response := &responsesWSResponseWriter{header: make(http.Header)}

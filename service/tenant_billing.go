@@ -63,13 +63,6 @@ func PrepareTenantPricing(c *gin.Context, info *relaycommon.RelayInfo) error {
 	if info.Request == nil {
 		return model.ErrResellerInvalidPrice
 	}
-	requestData, err := common.Marshal(info.Request)
-	if err != nil {
-		return err
-	}
-	if err := ValidateTenantTextPayload(requestData, info.OriginModelName); err != nil {
-		return err
-	}
 	if info.TenantSupplySnapshot != "" {
 		return nil
 	}
@@ -138,7 +131,7 @@ func preConsumeTenantBilling(c *gin.Context, info *relaycommon.RelayInfo, quota 
 	if err != nil || !retail.IsPositive() {
 		return types.NewError(model.ErrResellerInvalidPrice, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
 	}
-	snapshot, err := common.Marshal(map[string]any{"tariff": info.TenantSupplySnapshot, "price": info.PriceData, "tiered": info.TieredBillingSnapshot})
+	snapshot, err := common.Marshal(map[string]any{"tariff": info.TenantSupplySnapshot, "price": info.PriceData, "tiered": info.TieredBillingSnapshot, "billing": info.TenantBudget})
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
 	}

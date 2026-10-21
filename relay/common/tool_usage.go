@@ -46,7 +46,11 @@ func (info *RelayInfo) CountBillableToolCall(itemType string, functionName strin
 		if _, reserved := reservedBillableToolNames[functionName]; reserved {
 			return
 		}
-		if operation_setting.GetToolPriceForModel(functionName, info.GetBillingModelName()) <= 0 {
+		price := operation_setting.GetToolPriceForModel(functionName, info.GetBillingModelName())
+		if snapshot := info.RequestBudget(); snapshot != nil {
+			price = snapshot.ToolPrices[functionName]
+		}
+		if price <= 0 {
 			return
 		}
 		info.incrementBillableToolCall(functionName)

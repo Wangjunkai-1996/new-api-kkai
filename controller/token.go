@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -86,6 +87,26 @@ func getTokenRequestUserGroup(c *gin.Context) (string, error) {
 		return userGroup, nil
 	}
 	return model.GetUserGroup(c.GetInt("id"), false)
+}
+
+func validateTenantTokenGroup(c *gin.Context, group string) bool {
+	tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID)
+	if tenantID <= model.PlatformTenantID {
+		return true
+	}
+	userGroup, err := getTokenRequestUserGroup(c)
+	if err == nil {
+		_, err = service.NewTenantPricingService(model.DB).ResolveTokenGroup(c.Request.Context(), tenantID, userGroup, group)
+	}
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, model.ErrResellerInvalidCatalog) {
+		common.ApiErrorI18n(c, i18n.MsgTokenGroupInvalid)
+	} else {
+		common.ApiError(c, err)
+	}
+	return false
 }
 
 func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
@@ -194,6 +215,17 @@ func GetTokenModels(c *gin.Context) {
 			c.AbortWithStatus(http.StatusForbidden)
 			return
 		}
+		user, err := model.GetUserCache(userId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		group, err := service.NewTenantPricingService(model.DB).ResolveTokenGroup(c.Request.Context(), tenantID, user.Group, token.Group)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
 		common.SetContextKey(c, constant.ContextKeyTokenModelLimitEnabled, token.ModelLimitsEnabled)
 		common.SetContextKey(c, constant.ContextKeyTokenModelLimit, token.GetModelLimitsMap())
 		names, err := tenantModelNames(c)
@@ -420,6 +452,9 @@ func AddToken(c *gin.Context) {
 		})
 		return
 	}
+	if !validateTenantTokenGroup(c, token.Group) {
+		return
+	}
 	if service.IsAutoGroup(token.Group) {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
@@ -528,8 +563,14 @@ func UpdateToken(c *gin.Context) {
 		}
 	}
 	if statusOnly != "" {
+		if token.Status == common.TokenStatusEnabled && !validateTenantTokenGroup(c, cleanToken.Group) {
+			return
+		}
 		cleanToken.Status = token.Status
 	} else {
+		if !validateTenantTokenGroup(c, token.Group) {
+			return
+		}
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime
@@ -619,14 +660,20 @@ func UpdateTokenGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	user, err := model.GetUserById(userID, false)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if !service.IsUserTokenGroupUsable(user.Group, group) {
-		common.ApiErrorI18n(c, i18n.MsgTokenGroupInvalid)
-		return
+	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
+		if !validateTenantTokenGroup(c, group) {
+			return
+		}
+	} else {
+		user, err := model.GetUserById(userID, false)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if !service.IsUserTokenGroupUsable(user.Group, group) {
+			common.ApiErrorI18n(c, i18n.MsgTokenGroupInvalid)
+			return
+		}
 	}
 
 	var retryOverride *bool

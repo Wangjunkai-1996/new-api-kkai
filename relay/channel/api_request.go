@@ -719,6 +719,9 @@ func ConfirmedMembershipRejection(resp *http.Response) bool {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	if err := service.ValidateRelayOutboundQuantities(req); err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 	if err := service.ValidateMembershipOutbound(req, info); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}

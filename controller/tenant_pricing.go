@@ -31,10 +31,14 @@ func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
 		byName[row.ModelName] = row
 	}
 	limited := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	limits, _ := common.GetContextKeyType[map[string]bool](c, constant.ContextKeyTokenModelLimit)
 	result := make([]tenantCustomerPricing, 0, len(prices))
 	indices := make(map[string]int, len(prices))
 	for _, price := range prices {
+		if usingGroup != "" && price.Group != usingGroup {
+			continue
+		}
 		row, ok := byName[price.Model]
 		if !ok || !row.PricingConfigured {
 			continue

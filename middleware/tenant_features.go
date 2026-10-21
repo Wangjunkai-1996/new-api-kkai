@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 func TenantFeatureGate() gin.HandlerFunc {
@@ -29,7 +30,8 @@ func TenantFeatureGate() gin.HandlerFunc {
 		// A new platform route is unavailable to tenants until it is explicitly
 		// reviewed here. FullPath uses Gin's server-side route template, never a
 		// user-provided tenant or a broad URL-prefix permission.
-		if c.GetHeader("Upgrade") != "" || !tenantRouteEnabled(method, route, c.Request.URL.Path) {
+		responsesWebSocket := method == http.MethodGet && route == "/v1/responses" && websocket.IsWebSocketUpgrade(c.Request)
+		if (c.GetHeader("Upgrade") != "" && !responsesWebSocket) || !tenantRouteEnabled(method, route, c.Request.URL.Path) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "TENANT_FEATURE_DISABLED", "message": "this feature is unavailable on reseller sites"})
 			return
 		}
@@ -66,7 +68,9 @@ func tenantRouteEnabled(method, route, path string) bool {
 		"GET /api/reseller/catalog", "GET /api/reseller/supply", "PATCH /api/reseller/catalog", "GET /api/reseller/prices", "PATCH /api/reseller/prices",
 		"GET /api/reseller/customers", "GET /api/reseller/earnings", "GET /api/reseller/withdrawals", "POST /api/reseller/withdrawals",
 		"GET /v1/models", "GET /v1/models/:model", "POST /v1/chat/completions", "POST /v1/completions",
-		"POST /v1/responses", "POST /v1/messages", "POST /v1/embeddings":
+		"GET /v1/responses", "POST /v1/responses", "POST /v1/messages", "POST /v1/embeddings",
+		"GET /v1beta/models", "GET /v1beta/openai/models", "POST /v1beta/models/*path",
+		"POST /v1/models/*path", "POST /v1/engines/:model/embeddings":
 		return true
 	}
 	if route != "" || (method != http.MethodGet && method != http.MethodHead) {

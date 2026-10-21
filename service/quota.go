@@ -192,10 +192,10 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	usage *dto.RealtimeUsage, extraContent string) {
 	member := relayInfo.MembershipBillingRequestID != ""
 	if usage == nil {
-		if member {
+		if relayInfo.HasDurableBilling() {
 			relayInfo.BillingOutcomeUnknown = true
 			if err := SettleBilling(ctx, relayInfo, 0); err != nil {
-				logger.LogError(ctx, "membership settlement pending: "+err.Error())
+				logger.LogError(ctx, "durable settlement pending: "+err.Error())
 			}
 			return
 		}
@@ -208,7 +208,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		C:   float64(usage.OutputTokens),
 		Len: float64(usage.InputTokens),
 	}
-	if relayInfo.MembershipPricing != nil {
+	if relayInfo.RequestBudget() != nil {
 		var usedVars map[string]bool
 		if snapshot := relayInfo.TieredBillingSnapshot; snapshot != nil {
 			usedVars = billingexpr.UsedVarsByHash(snapshot.ExprString, snapshot.ExprHash)
@@ -236,8 +236,8 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	audioCompletionRatio := decimal.NewFromFloat(ratio_setting.GetAudioCompletionRatio(modelName))
 
 	price := relayInfo.PriceData
-	if relayInfo.MembershipPricing != nil {
-		price = relayInfo.MembershipPricing.Price
+	if snapshot := relayInfo.RequestBudget(); snapshot != nil {
+		price = snapshot.Price
 	}
 	modelRatio := price.ModelRatio
 	groupRatio := price.GroupRatioInfo.GroupRatio
@@ -259,7 +259,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		ModelRatio: modelRatio,
 		GroupRatio: groupRatio,
 	}
-	if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+	if snapshot := relayInfo.RequestBudget(); snapshot != nil {
 		quotaInfo.FrozenPrice = &snapshot.Price
 		quotaInfo.QuotaPerUnit = snapshot.QuotaPerUnit
 		completionRatio = decimal.NewFromFloat(snapshot.Price.CompletionRatio)
@@ -300,7 +300,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 		return
 	}
-	if !member && (totalTokens != 0 || fixedPriceBilling) {
+	if !member && relayInfo.TenantID == 0 && (totalTokens != 0 || fixedPriceBilling) {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(quota))
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
@@ -360,10 +360,10 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {
 	member := relayInfo.MembershipBillingRequestID != ""
 	if usage == nil {
-		if member {
+		if relayInfo.HasDurableBilling() {
 			relayInfo.BillingOutcomeUnknown = true
 			if err := SettleBilling(ctx, relayInfo, 0); err != nil {
-				logger.LogError(ctx, "membership settlement pending: "+err.Error())
+				logger.LogError(ctx, "durable settlement pending: "+err.Error())
 			}
 			return
 		}
@@ -396,8 +396,8 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	audioCompletionRatio := decimal.NewFromFloat(ratio_setting.GetAudioCompletionRatio(billingModelName))
 
 	price := relayInfo.PriceData
-	if relayInfo.MembershipPricing != nil {
-		price = relayInfo.MembershipPricing.Price
+	if snapshot := relayInfo.RequestBudget(); snapshot != nil {
+		price = snapshot.Price
 	}
 	modelRatio := price.ModelRatio
 	groupRatio := price.GroupRatioInfo.GroupRatio
@@ -419,7 +419,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		ModelRatio: modelRatio,
 		GroupRatio: groupRatio,
 	}
-	if snapshot := relayInfo.MembershipPricing; snapshot != nil {
+	if snapshot := relayInfo.RequestBudget(); snapshot != nil {
 		quotaInfo.FrozenPrice = &snapshot.Price
 		quotaInfo.QuotaPerUnit = snapshot.QuotaPerUnit
 		completionRatio = decimal.NewFromFloat(snapshot.Price.CompletionRatio)
@@ -460,7 +460,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 		return
 	}
-	if !member && (totalTokens != 0 || fixedPriceBilling) {
+	if !member && relayInfo.TenantID == 0 && (totalTokens != 0 || fixedPriceBilling) {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, int64(quota))
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
