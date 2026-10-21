@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,8 @@ func TestImageRelayCaptureWriterDelaysBodyAndEnforcesBound(t *testing.T) {
 	assert.Empty(t, outer.Header().Get("Content-Type"))
 
 	_, err = capture.Write([]byte("!"))
-	require.ErrorIs(t, err, errImageRelayCaptureTooLarge)
+	require.ErrorIs(t, err, service.ErrImageRelayResponseTooLarge)
+	assert.Equal(t, "image_result_unavailable", service.ClassifyImageGenerationError(err))
 	require.NoError(t, capture.Close())
 	body, err := os.ReadFile(capture.Path())
 	require.NoError(t, err)

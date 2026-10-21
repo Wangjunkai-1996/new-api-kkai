@@ -56,7 +56,7 @@ func AdoptImageExecution(ctx context.Context, db *gorm.DB, generationID int64, f
 	return execution, &generation, err
 }
 
-func MarkImageExecutionUnknown(ctx context.Context, db *gorm.DB, generationID int64, fence model.ImageExecutionFence, upstreamID string) error {
+func MarkImageExecutionUnknown(ctx context.Context, db *gorm.DB, generationID int64, fence model.ImageExecutionFence, upstreamID, failureCode string) error {
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		execution, err := model.RequireImageExecutionFenceTx(tx, generationID, fence)
 		if err != nil {
@@ -68,7 +68,20 @@ func MarkImageExecutionUnknown(ctx context.Context, db *gorm.DB, generationID in
 		if len(upstreamID) > 191 {
 			upstreamID = upstreamID[:191]
 		}
-		return tx.Model(execution).Updates(map[string]any{"state": model.ImageGenerationExecutionUnknown, "upstream_request_id": upstreamID, "updated_at": time.Now().Unix()}).Error
+		now := time.Now().Unix()
+		if code := imageGenerationErrorCode(failureCode); code != "" {
+			var generation model.KKAIImageGeneration
+			if err := lockRowsForUpdate(tx).Where("id = ? AND status = ? AND deleted_at = 0", generationID, model.ImageGenerationStatusSubmitting).First(&generation).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrImageGenerationConflict
+				}
+				return err
+			}
+			if err := tx.Model(&generation).Updates(map[string]any{"error_code": code, "error_message": "", "updated_at": now}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(execution).Updates(map[string]any{"state": model.ImageGenerationExecutionUnknown, "upstream_request_id": upstreamID, "updated_at": now}).Error
 	})
 }
 
@@ -132,6 +145,11 @@ func CompleteImageExecution(ctx context.Context, db *gorm.DB, generationID int64
 				stage, message = "upstream", "image request was rejected by the provider content policy; reserved quota was refunded"
 			} else if execution.State == model.ImageGenerationExecutionDispatching || execution.State == model.ImageGenerationExecutionUnknown || execution.State == model.ImageGenerationExecutionResultReady {
 				status, stage, message = model.ImageGenerationStatusUnknown, "reconcile", "image provider outcome could not be recovered; reserved quota was refunded"
+			}
+			if failureCode == "upstream_outcome_unknown" {
+				if storedCode := imageGenerationErrorCode(generation.ErrorCode); storedCode != "" {
+					code = storedCode
+				}
 			}
 		}
 		if err := FinishImageGeneration(ctx, tx, generationID, status, count, quota, stage, code, message); err != nil {

@@ -1,14 +1,12 @@
 package controller
 
 import (
-	"errors"
 	"net/http"
 	"os"
 
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
-
-var errImageRelayCaptureTooLarge = errors.New("image relay response exceeds capture limit")
 
 type imageRelayCaptureWriter struct {
 	gin.ResponseWriter
@@ -28,7 +26,7 @@ func newImageRelayCaptureWriter(
 	maxBytes int64,
 ) (*imageRelayCaptureWriter, error) {
 	if underlying == nil || maxBytes <= 0 {
-		return nil, errImageRelayCaptureTooLarge
+		return nil, service.ErrImageRelayResponseTooLarge
 	}
 	file, err := os.CreateTemp(tempDir, "new-api-image-relay-response-*")
 	if err != nil {
@@ -64,7 +62,7 @@ func (writer *imageRelayCaptureWriter) Write(body []byte) (int, error) {
 		return 0, writer.err
 	}
 	if int64(writer.size)+int64(len(body)) > writer.maxBytes {
-		writer.err = errImageRelayCaptureTooLarge
+		writer.err = service.ErrImageRelayResponseTooLarge
 		return 0, writer.err
 	}
 	written, err := writer.file.Write(body)

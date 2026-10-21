@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"regexp"
@@ -651,6 +652,16 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 
+func imageRequestTransportError(err error, info *common.RelayInfo, message string) *types.NewAPIError {
+	var timeout net.Error
+	isTimeout := errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout()
+	apiErr := types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg(message))
+	if info.RelayFormat == types.RelayFormatOpenAIImage && isTimeout {
+		types.ErrOptionWithOriginalErrorCode("request_timeout")(apiErr)
+	}
+	return apiErr
+}
+
 // keepUpstreamRedirectResponse stops net/http from following redirects while
 // returning the upstream 3xx response to the relay without an extra error.
 func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
@@ -768,7 +779,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	if c != nil && c.Request != nil {
 		if err := c.Request.Context().Err(); err != nil {
-			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request canceled before dispatch"))
+			return nil, imageRequestTransportError(err, info, "upstream error: do request canceled before dispatch")
 		}
 	}
 	dispatchCtx, cancelDispatch, err := service.PrepareMembershipDispatch(req.Context(), info)
@@ -791,7 +802,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if err != nil {
 		cancelDispatch()
 		logger.LogError(c, "do request failed: "+err.Error())
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		return nil, imageRequestTransportError(err, info, "upstream error: do request failed")
 	}
 	if resp == nil {
 		cancelDispatch()

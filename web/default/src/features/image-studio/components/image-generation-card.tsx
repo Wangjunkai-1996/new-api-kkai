@@ -31,6 +31,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import { getImageGenerationErrorKey } from '../image-generation-error'
 import type { ImageGeneration } from '../types'
 
 export function ImageGenerationCard(props: {
@@ -40,6 +41,7 @@ export function ImageGenerationCard(props: {
   onRegenerate: (generation: ImageGeneration) => void
 }) {
   const { t } = useTranslation()
+  const errorKey = getImageGenerationErrorKey(props.generation)
   const reduceMotion = useReducedMotion()
   const readyAssets = props.generation.assets
     .filter((asset) => asset.state === 'ready')
@@ -152,9 +154,9 @@ export function ImageGenerationCard(props: {
                   ? t('Preparing preview')
                   : t(`imageStudio.status.${props.generation.status}`)}
               </span>
-              {props.generation.error_message && (
+              {errorKey && (
                 <span className='text-muted-foreground line-clamp-2 text-xs'>
-                  {props.generation.error_message}
+                  {t(errorKey)}
                 </span>
               )}
             </motion.button>

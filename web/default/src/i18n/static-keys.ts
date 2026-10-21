@@ -19,6 +19,22 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Image Studio public generation error messages
+  'Image generation could not be completed. Please try again later or contact support.',
+  'Image generation is temporarily unavailable. Try another model or try again later.',
+  'Image generation timed out. Please try again later.',
+  'Only some requested images are available. You can view the completed images.',
+  'Some generated images could not be saved. Please contact support.',
+  'The generation result could not be confirmed. Please contact support before submitting again.',
+  'The image request timed out.',
+  'The image results could not be delivered. Please contact support.',
+  'The image service is busy.',
+  'The image service is busy. Please try again later.',
+  'The image service is temporarily unavailable.',
+  'The image settings are not supported. Adjust the settings and try again.',
+  'The prompt or reference image did not pass the content safety check. Adjust the content and try again.',
+  'The reference image could not be processed. Replace it and try again.',
+  'Your account quota is insufficient. Top up and try again.',
   // Reseller management API errors
   'This site already has a domain. Each site can have only one domain.',
   'Set prices by group instead of model.',

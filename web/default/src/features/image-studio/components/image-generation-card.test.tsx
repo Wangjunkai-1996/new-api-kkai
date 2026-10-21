@@ -66,6 +66,31 @@ const generation = (
 })
 
 describe('image generation gallery actions', () => {
+  test('uses a controlled error message instead of upstream account details or advertising', () => {
+    const item = {
+      ...generation('failed'),
+      assets: [],
+      error_code: 'image_service_unavailable',
+      error_message:
+        'Upstream balance exhausted. Buy credits at https://provider.example/advertisement',
+    }
+    render(
+      <ImageGenerationCard
+        generation={item}
+        onDetails={vi.fn()}
+        onRegenerate={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByText(
+        'Image generation is temporarily unavailable. Try another model or try again later.'
+      )
+    ).toBeVisible()
+    expect(
+      screen.queryByText(/Upstream balance|provider\.example/)
+    ).not.toBeInTheDocument()
+  })
+
   test('shows the first original-proportion cover and opens the entire batch in place', async () => {
     const onDetails = vi.fn()
     const item = generation()
@@ -139,6 +164,75 @@ describe('image generation gallery actions', () => {
 })
 
 describe('image generation batch details', () => {
+  test('shows the safe failure reason and support request ID without raw upstream text', () => {
+    render(
+      <ImageGenerationDetails
+        generation={{
+          ...generation('failed'),
+          assets: [],
+          error_code: 'upstream_content_policy',
+          error_message:
+            'Provider policy rejected this request. Visit https://provider.example/advertisement',
+        }}
+        refreshing={false}
+        onClose={vi.fn()}
+        onRegenerate={vi.fn()}
+        onDelete={vi.fn()}
+        onRefresh={vi.fn()}
+      />
+    )
+    expect(screen.getByText('Failure reason')).toBeVisible()
+    expect(
+      screen.getByText(
+        'The prompt or reference image did not pass the content safety check. Adjust the content and try again.'
+      )
+    ).toBeVisible()
+    expect(screen.getByText('Request ID')).toBeVisible()
+    expect(screen.getByText('request-1')).toBeVisible()
+    expect(
+      screen.queryByText(/Provider policy|provider\.example/)
+    ).not.toBeInTheDocument()
+  })
+
+  test.each([
+    [
+      'image_service_unavailable',
+      'The image service is temporarily unavailable.',
+    ],
+    ['image_rate_limited', 'The image service is busy.'],
+    ['image_request_timeout', 'The image request timed out.'],
+  ])(
+    'shows a safe %s cause without encouraging an uncertain request to be resent',
+    (code, reason) => {
+      render(
+        <ImageGenerationDetails
+          generation={{
+            ...generation('unknown'),
+            assets: [],
+            error_code: code,
+          }}
+          refreshing={false}
+          onClose={vi.fn()}
+          onRegenerate={vi.fn()}
+          onDelete={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      )
+      expect(
+        screen.getByText(
+          'The generation result could not be confirmed. Please contact support before submitting again.'
+        )
+      ).toBeVisible()
+      expect(screen.getByText(reason)).toBeVisible()
+      expect(
+        screen.queryByText(/Please try again later|Try another model/)
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Retry generation' })
+      ).not.toBeInTheDocument()
+    }
+  )
+
   test.each(['zhCN', 'zhTW'])(
     'renders dates and quota without crashing in %s',
     async (language) => {

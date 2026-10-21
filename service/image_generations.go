@@ -423,14 +423,15 @@ func buildImageGenerationView(
 		}
 		assetViews = append(assetViews, view)
 	}
+	errorCode, errorMessage := imageGenerationPublicError(generation.Status, generation.ErrorCode)
 	return ImageGenerationView{
 		ID: generation.ID, ModelProfileID: generation.ModelProfileID, SampleID: generation.SampleID,
 		SpecificationVersion: generation.SpecificationVersion, Model: generation.Model,
 		Prompt: generation.Prompt, Parameters: parameters, RequestID: generation.RequestID,
 		Status: status, RequestedCount: generation.RequestedCount,
 		SucceededCount: generation.SucceededCount, FinalQuota: quota,
-		FailureStage: generation.FailureStage, ErrorCode: generation.ErrorCode,
-		ErrorMessage: generation.ErrorMessage, StartedAt: generation.StartedAt,
+		FailureStage: generation.FailureStage, ErrorCode: errorCode,
+		ErrorMessage: errorMessage, StartedAt: generation.StartedAt,
 		FinishedAt: generation.FinishedAt, CreatedAt: generation.CreatedAt, Assets: assetViews,
 	}, nil
 }

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -43,7 +44,21 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
+import { getImageGenerationErrorKey } from '../image-generation-error'
 import type { ImageGeneration } from '../types'
+
+const unknownCauseKeys = new Map([
+  [
+    'image_service_unavailable',
+    'The image service is temporarily unavailable.',
+  ],
+  ['image_rate_limited', 'The image service is busy.'],
+  ['image_request_timeout', 'The image request timed out.'],
+  [
+    'image_result_unavailable',
+    'The image results could not be delivered. Please contact support.',
+  ],
+])
 
 export function ImageGenerationDetails(props: {
   generation: ImageGeneration | null
@@ -61,6 +76,11 @@ export function ImageGenerationDetails(props: {
       ? currency.quotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const generation = props.generation
+  const errorKey = generation ? getImageGenerationErrorKey(generation) : null
+  const unknownCauseKey =
+    generation?.status === 'unknown'
+      ? unknownCauseKeys.get(generation.error_code ?? '')
+      : undefined
   const readyAssets =
     generation?.assets
       .filter((asset) => asset.state === 'ready' && asset.content_url)
@@ -170,10 +190,14 @@ export function ImageGenerationDetails(props: {
                     })}
                   </span>
                 </div>
-                {generation.error_message && (
-                  <p className='text-destructive bg-destructive/5 rounded-lg p-3 text-xs break-words'>
-                    {generation.error_message}
-                  </p>
+                {errorKey && (
+                  <Alert variant='destructive'>
+                    <AlertTitle>{t('Failure reason')}</AlertTitle>
+                    <AlertDescription className='text-xs break-words'>
+                      <p>{t(errorKey)}</p>
+                      {unknownCauseKey && <p>{t(unknownCauseKey)}</p>}
+                    </AlertDescription>
+                  </Alert>
                 )}
                 <section className='space-y-2'>
                   <h3 className='text-xs font-medium'>{t('Prompt')}</h3>
@@ -182,6 +206,16 @@ export function ImageGenerationDetails(props: {
                   </p>
                 </section>
                 <dl className='space-y-3 text-xs'>
+                  {generation.request_id && (
+                    <div className='flex justify-between gap-4'>
+                      <dt className='text-muted-foreground shrink-0'>
+                        {t('Request ID')}
+                      </dt>
+                      <dd className='text-right break-all'>
+                        {generation.request_id}
+                      </dd>
+                    </div>
+                  )}
                   <div className='flex justify-between gap-4'>
                     <dt className='text-muted-foreground'>{t('Model')}</dt>
                     <dd className='text-right break-all'>{generation.model}</dd>

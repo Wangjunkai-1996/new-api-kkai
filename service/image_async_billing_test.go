@@ -124,6 +124,76 @@ func TestImageAsyncPolicyCompletionPreservesResultAndFence(t *testing.T) {
 	}
 }
 
+func TestImageAsyncUnknownErrorClassificationPreservesBillingAndFence(t *testing.T) {
+	if model.MembershipEnabled() {
+		t.Skip("legacy fixture runs with membership disabled")
+	}
+	for _, tc := range []struct {
+		name, failureCode, wantCode string
+		readyResult, staleFence     bool
+	}{
+		{name: "recovery_retains_public_reason", failureCode: "image_service_unavailable", wantCode: "image_service_unavailable"},
+		{name: "unconfirmed_policy_does_not_become_failed", failureCode: ImageExecutionFailureContentPolicy, wantCode: ImageExecutionFailureContentPolicy},
+		{name: "unknown_raw_code_is_not_saved", failureCode: "https://advert.example secret", wantCode: ""},
+		{name: "durable_result_clears_prior_reason", failureCode: "image_service_unavailable", wantCode: "image_service_unavailable", readyResult: true},
+		{name: "stale_worker_cannot_save_reason", failureCode: "image_request_timeout", staleFence: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newImageAccountingRecoveryTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.KKAIImageGenerationReference{}))
+			require.NoError(t, db.Create(&model.User{Id: 78, Username: "async-public-error", Password: "password", Quota: 1000}).Error)
+			generation := seedRecoverableImageGeneration(t, db, 78, 1)
+			_, err := model.ReserveImageGenerationBilling(context.Background(), db, generation.ID, model.TaskBillingSourceWallet, 300)
+			require.NoError(t, err)
+			fence := imageExecutionFenceFixture(t, db, generation)
+			require.NoError(t, db.Model(&model.KKAIImageExecution{}).Where("generation_id = ?", generation.ID).Update("state", model.ImageGenerationExecutionDispatching).Error)
+			if tc.staleFence {
+				require.NoError(t, db.Model(&model.KKAIOutboxEvent{}).Where("id = ?", fence.EventID).Update("locked_by", "new-worker").Error)
+			}
+			err = MarkImageExecutionUnknown(context.Background(), db, generation.ID, fence, "provider-id", tc.failureCode)
+			if tc.staleFence {
+				require.ErrorIs(t, err, model.ErrImageExecutionFenceLost)
+			} else {
+				require.NoError(t, err)
+				// A later recovery observation with no new diagnostic must retain it.
+				require.NoError(t, MarkImageExecutionUnknown(context.Background(), db, generation.ID, fence, "provider-id", ""))
+			}
+			require.NoError(t, db.First(&generation, generation.ID).Error)
+			assert.Equal(t, tc.wantCode, generation.ErrorCode)
+			assert.Equal(t, model.ImageGenerationStatusSubmitting, generation.Status)
+			var user model.User
+			require.NoError(t, db.First(&user, generation.UserID).Error)
+			assert.EqualValues(t, 700, user.Quota, "saving a diagnostic must not refund")
+			if tc.staleFence {
+				return
+			}
+			if tc.readyResult {
+				require.NoError(t, model.PrepareImageGenerationAccounting(context.Background(), db, generation.ID, model.ImageGenerationAccountingPayload{TargetQuota: 200, OutputCount: 1, LogParams: model.RecordConsumeLogParams{ChannelId: 3, ModelName: generation.Model, TokenId: generation.TokenID, Quota: 200}}))
+				require.NoError(t, db.Create(&model.KKAIImageAsset{GenerationID: &generation.ID, OwnerUserID: generation.UserID, Kind: model.ImageAssetKindOutput, State: model.ImageAssetStateReady, ObjectKey: "durable-public-error-result"}).Error)
+			}
+			require.NoError(t, CompleteImageExecution(context.Background(), db, generation.ID, fence, "upstream_outcome_unknown"))
+			require.NoError(t, db.First(&generation, generation.ID).Error)
+			require.NoError(t, db.First(&user, generation.UserID).Error)
+			if tc.readyResult {
+				assert.Equal(t, model.ImageGenerationStatusSucceeded, generation.Status)
+				assert.Empty(t, generation.ErrorCode)
+				assert.Empty(t, generation.ErrorMessage)
+				assert.Equal(t, model.ImageGenerationBillingStateSettled, generation.BillingState)
+				assert.EqualValues(t, 800, user.Quota)
+			} else {
+				wantCode := tc.wantCode
+				if wantCode == "" {
+					wantCode = "upstream_outcome_unknown"
+				}
+				assert.Equal(t, wantCode, generation.ErrorCode)
+				assert.Equal(t, model.ImageGenerationStatusUnknown, generation.Status)
+				assert.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
+				assert.EqualValues(t, 1000, user.Quota)
+			}
+		})
+	}
+}
+
 func TestImageIdempotencyRetainsActiveAndRecentTerminalBindings(t *testing.T) {
 	db, _ := newImageSubmissionTestDB(t)
 	generation := seedRecoverableImageGeneration(t, db, 73, 1)

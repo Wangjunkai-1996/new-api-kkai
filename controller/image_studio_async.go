@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -156,8 +157,11 @@ func selectAsyncImageChannel(c *gin.Context, modelName string) error {
 	service.GetChannelConstraints(c).AddFilter(dto.ChannelFilter{Kind: dto.FilterRequestPath, RequestPath: c.Request.URL.Path})
 	service.AppendTaskPluginIdentityFilter(c, "")
 	channel, _, selectErr := service.SelectChannelForRequest(c, modelName, &service.RetryParam{Ctx: c, TokenGroup: common.GetContextKeyString(c, constant.ContextKeyUsingGroup), ModelName: modelName, RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0)})
-	if selectErr != nil || channel == nil {
-		return errors.New("image channel is unavailable")
+	if selectErr != nil {
+		return relaytypes.NewErrorWithStatusCode(errors.New("image channel is unavailable"), selectErr.Code, selectErr.StatusCode)
+	}
+	if channel == nil {
+		return relaytypes.NewError(errors.New("image channel is unavailable"), relaytypes.ErrorCodeGetChannelFailed)
 	}
 	if err := middleware.SetupContextForSelectedChannel(c, channel, modelName); err != nil {
 		return err

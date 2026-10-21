@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
@@ -31,6 +33,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSelectAsyncImageChannelPreservesUnavailableDiagnostics(t *testing.T) {
+	db, _, normalized := newImageAsyncAcceptanceFixture(t)
+	previousMemoryCache := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemoryCache })
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/internal/image-quote", nil)
+	ctx.Set("id", normalized.UserID)
+	require.NoError(t, prepareAsyncImageContext(ctx, normalized))
+	require.NoError(t, db.Model(&model.Ability{}).Where("1 = 1").Update("enabled", false).Error)
+
+	err := selectAsyncImageChannel(ctx, normalized.Model)
+
+	var apiErr *relaytypes.NewAPIError
+	require.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, relaytypes.ErrorCodeModelNotFound, apiErr.GetErrorCode())
+	assert.Equal(t, http.StatusServiceUnavailable, apiErr.StatusCode)
+	assert.Equal(t, "image_service_unavailable", service.ClassifyImageGenerationError(err))
+}
 
 func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T) {
 	if model.MembershipEnabled() {
@@ -57,22 +79,29 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 	t.Setenv("VIDEO_STUDIO_R2_ACCESS_KEY_ID_FILE", "")
 	t.Setenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY_FILE", "")
 	for _, tc := range []struct {
-		name     string
-		status   int
-		body     string
-		rejected bool
-		mapping  string
+		name      string
+		status    int
+		body      string
+		rejected  bool
+		mapping   string
+		wantCode  string
+		errorLogs int
 	}{
-		{"http_policy", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, ""},
-		{"in_band_policy", http.StatusOK, `{"error":{"type":"invalid_request_error","code":"content_policy_violation","message":"private-provider-diagnostic"}}`, true, ""},
-		{"mapped_in_band_policy_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`},
-		{"gateway_policy_code_is_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, ""},
-		{"mapped_gateway_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"400"}`},
-		{"mapped_gateway_success_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"200"}`},
-		{"message_is_not_evidence", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"upstream_error","message":"content_policy private-provider-diagnostic"}}`, false, ""},
-		{"invalid_success_response", http.StatusOK, `{}`, false, ""},
-		{"code_only_success_error_is_ambiguous", http.StatusOK, `{"error":{"code":"content_policy","message":"private-provider-diagnostic"}}`, false, ""},
-		{"transport_failure_after_dispatch", 0, "", false, ""},
+		{"http_policy", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, "", service.ImageExecutionFailureContentPolicy, 1},
+		{"in_band_policy", http.StatusOK, `{"error":{"type":"invalid_request_error","code":"content_policy_violation","message":"private-provider-diagnostic"}}`, true, "", service.ImageExecutionFailureContentPolicy, 1},
+		{"mapped_in_band_policy_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`, service.ImageExecutionFailureContentPolicy, 1},
+		{"gateway_policy_code_is_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, "", "image_service_unavailable", 1},
+		{"mapped_gateway_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"400"}`, "image_service_unavailable", 1},
+		{"mapped_gateway_success_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"200"}`, "image_service_unavailable", 1},
+		{"message_is_not_evidence", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"upstream_error","message":"content_policy private-provider-diagnostic"}}`, false, "", "image_invalid_request", 1},
+		{"invalid_success_response", http.StatusOK, `{}`, false, "", "image_result_unavailable", 1},
+		{"code_only_success_error_is_ambiguous", http.StatusOK, `{"error":{"code":"content_policy","message":"private-provider-diagnostic"}}`, false, "", "image_result_unavailable", 1},
+		{"transport_failure_after_dispatch", 0, "", false, "", "image_service_unavailable", 1},
+		{"provider_quota_is_not_user_quota", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"insufficient_quota","message":"private-provider-diagnostic https://advert.example top up upstream"}}`, false, "", "image_service_unavailable", 1},
+		{"provider_impersonates_user_quota", http.StatusForbidden, `{"error":{"type":"invalid_request_error","code":"insufficient_user_quota","message":"private-provider-diagnostic"}}`, false, "", "image_service_unavailable", 1},
+		{"provider_rate_limit", http.StatusTooManyRequests, `{"error":{"type":"invalid_request_error","code":"rate_limit_exceeded","message":"private-provider-diagnostic"}}`, false, "", "image_rate_limited", 1},
+		{"provider_reference_rejected", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"invalid_image_format","message":"private-provider-diagnostic"}}`, false, "", "image_reference_invalid", 1},
+		{"archive_all_outputs_failed", http.StatusOK, `{"data":[{"b64_json":"bm90LWFuLWltYWdl"}]}`, false, "", "image_result_unavailable", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, request, normalized := newImageAsyncAcceptanceFixture(t)
@@ -111,6 +140,8 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, calls.Load(), "worker must reach the provider exactly once")
 			require.NoError(t, db.First(generation, generation.ID).Error)
+			assert.Equal(t, tc.wantCode, generation.ErrorCode)
+			assert.NotContains(t, generation.ErrorMessage, "private-provider-diagnostic")
 			var execution model.KKAIImageExecution
 			require.NoError(t, db.First(&execution, "generation_id = ?", generation.ID).Error)
 			var user model.User
@@ -133,8 +164,10 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			}
 			var logs []model.Log
 			require.NoError(t, db.Where("type = ?", model.LogTypeError).Find(&logs).Error)
-			require.Len(t, logs, 1)
-			assert.NotContains(t, logs[0].Content, "private-provider-diagnostic")
+			require.Len(t, logs, tc.errorLogs)
+			for _, log := range logs {
+				assert.NotContains(t, log.Content, "private-provider-diagnostic")
+			}
 			replay, err := service.AcceptAsyncImageSubmission(ctx, db, request, normalized, "policy-test", "policy-retry", "127.0.0.1")
 			require.NoError(t, err)
 			assert.Equal(t, generation.ID, replay.ID)
@@ -143,6 +176,9 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			_, err = processor.ProcessBatch(ctx, 1)
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, calls.Load())
+			quotaAfterFirstExecution := user.Quota
+			require.NoError(t, db.First(&user, generation.UserID).Error)
+			assert.Equal(t, quotaAfterFirstExecution, user.Quota, "redelivery must not debit or refund twice")
 		})
 	}
 }

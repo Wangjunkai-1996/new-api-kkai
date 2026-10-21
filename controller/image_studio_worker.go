@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func RegisterImageGenerationBackgroundJobs(registry *service.BackgroundJobRegistry, workerID string) error {
@@ -113,15 +114,19 @@ func runImageGenerationEvent(ctx context.Context, event model.KKAIOutboxEvent) (
 	if readErr := model.DB.WithContext(ctx).First(&stored, "generation_id = ?", id).Error; readErr != nil {
 		return readErr
 	}
+	failureCode := service.ClassifyImageGenerationError(err)
 	switch stored.State {
 	case model.ImageGenerationExecutionDone:
 		return nil
 	case model.ImageGenerationExecutionQueued, model.ImageGenerationExecutionPreparing:
-		return service.CompleteImageExecution(ctx, model.DB, id, fence, "image_prepare_failed")
+		if failureCode == "" {
+			failureCode = "image_prepare_failed"
+		}
+		return service.CompleteImageExecution(ctx, model.DB, id, fence, failureCode)
 	case model.ImageGenerationExecutionResultReady:
 		return service.CompleteImageExecution(ctx, model.DB, id, fence, "")
 	default:
-		if err := service.MarkImageExecutionUnknown(ctx, model.DB, id, fence, stored.UpstreamRequestID); err != nil {
+		if err := service.MarkImageExecutionUnknown(ctx, model.DB, id, fence, stored.UpstreamRequestID, failureCode); err != nil {
 			return err
 		}
 		logger.LogWarn(ctx, "event=image_async_unknown generation_id=%d request_id=%q channel_id=%d code=upstream_outcome_pending", generation.ID, generation.RequestID, stored.DispatchChannelID)
@@ -162,7 +167,7 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 	}
 	store, err := service.ImageStudioR2AssetStore(runCtx)
 	if err != nil {
-		return err
+		return relaytypes.NewErrorWithStatusCode(err, "service_unavailable", http.StatusInternalServerError)
 	}
 	archives := make([]*service.FetchedImageArchive, 0, len(payload.AssetIDs))
 	defer func() {
@@ -176,11 +181,14 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 		for index, id := range payload.AssetIDs {
 			var asset model.KKAIImageAsset
 			if err := model.DB.WithContext(runCtx).Where("id = ? AND owner_user_id = ? AND kind = ? AND state = ? AND deleted_at = 0", id, generation.UserID, model.ImageAssetKindReference, model.ImageAssetStateReady).Take(&asset).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return relaytypes.NewErrorWithStatusCode(err, "invalid_image", http.StatusBadRequest)
+				}
 				return err
 			}
 			object, err := store.Get(runCtx, asset.ObjectKey)
 			if err != nil {
-				return err
+				return relaytypes.NewErrorWithStatusCode(err, "service_unavailable", http.StatusInternalServerError)
 			}
 			archive, ingestErr := fetcher.Ingest(object.Body, asset.MIMEType, settings.MaxReferenceBytes, settings.MaxPixels)
 			closeErr := object.Body.Close()
@@ -188,10 +196,20 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 				archives = append(archives, archive)
 			}
 			if ingestErr != nil || closeErr != nil {
-				return errors.Join(ingestErr, closeErr)
+				err := errors.Join(ingestErr, closeErr)
+				switch {
+				case errors.Is(ingestErr, service.ErrImageArchiveMIMERejected),
+					errors.Is(ingestErr, service.ErrImageArchiveTooLarge),
+					errors.Is(ingestErr, service.ErrImageArchivePixelsExceeded):
+					return relaytypes.NewErrorWithStatusCode(err, "invalid_image", http.StatusBadRequest)
+				case errors.Is(ingestErr, service.ErrImageTemporaryStorageUnavailable):
+					return relaytypes.NewErrorWithStatusCode(err, "service_unavailable", http.StatusInternalServerError)
+				default:
+					return err
+				}
 			}
 			if index >= len(payload.Submission.References) || archive.SHA256 != payload.Submission.References[index].SHA256 || archive.SizeBytes != payload.Submission.References[index].SizeBytes {
-				return service.ErrImageUploadConflict
+				return relaytypes.NewErrorWithStatusCode(service.ErrImageUploadConflict, "invalid_image", http.StatusBadRequest)
 			}
 		}
 		if err := replaceImageStudioEditRelayBody(c, payload.Submission.RelayRequest, archives); err != nil {
@@ -297,7 +315,7 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 	c.Request = c.Request.WithContext(archiveCtx)
 	pipeline, err := imageStudioAssetPipeline(c)
 	if err != nil {
-		return err
+		return relaytypes.NewError(err, "archive_failed")
 	}
 	archiveStarted := time.Now()
 	archive, archiveErr := pipeline.ArchiveGeneration(archiveCtx, *generation, results)
@@ -310,7 +328,7 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 	}
 	logger.LogInfo(c, fmt.Sprintf("event=image_async_archive_finished generation_id=%d request_id=%q elapsed_ms=%d output_count=%d code=%s", generation.ID, generation.RequestID, time.Since(archiveStarted).Milliseconds(), readyCount, archiveCode))
 	if archive == nil || archive.Ready == 0 {
-		return errors.Join(archiveErr, errors.New("no image result was archived"))
+		return relaytypes.NewError(errors.Join(archiveErr, errors.New("no image result was archived")), "archive_failed")
 	}
 	if archiveErr != nil || archive.Failed > 0 {
 		if err := service.DiscardNonReadySubmittingImageGenerationAssets(archiveCtx, model.DB, generation.ID); err != nil {
