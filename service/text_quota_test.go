@@ -1519,6 +1519,7 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 		{
 			name:      "non-stream chat completions",
 			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI},
+			want:      true,
 		},
 		{
 			name:      "legacy completions",

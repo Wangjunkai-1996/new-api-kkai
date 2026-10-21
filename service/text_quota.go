@@ -449,7 +449,7 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func isGroupStatusCacheEligibleRequest(relayInfo *relaycommon.RelayInfo) bool {
-	if !relayInfo.IsClientStream() {
+	if relayInfo == nil {
 		return false
 	}
 
@@ -480,6 +480,7 @@ func isGroupStatusCacheEligibleRequest(relayInfo *relaycommon.RelayInfo) bool {
 func groupStatusCacheUsage(relayInfo *relaycommon.RelayInfo, rejected bool, localCountTokens bool, originUsage *dto.Usage, summary textQuotaSummary) *perfmetrics.CacheUsage {
 	if rejected ||
 		!isGroupStatusCacheEligibleRequest(relayInfo) ||
+		(!relayInfo.IsClientStream() && summary.CacheTokens == 0) ||
 		originUsage == nil ||
 		summary.PromptTokens < 0 ||
 		summary.CacheTokens < 0 {

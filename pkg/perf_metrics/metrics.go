@@ -78,7 +78,7 @@ func RecordRelayResult(ctx context.Context, info *relaycommon.RelayInfo, apiErr 
 		GenerationMs:      generationMs,
 		CacheTrackedCount: 1,
 	}
-	if success && info.IsClientStream() && info.PerformanceCacheUsageKnown && cacheUsage.PromptTokens > 0 &&
+	if success && (info.IsClientStream() || cacheUsage.CachedTokens > 0) && info.PerformanceCacheUsageKnown && cacheUsage.PromptTokens > 0 &&
 		cacheUsage.CachedTokens >= 0 && cacheUsage.CachedTokens <= cacheUsage.PromptTokens {
 		sample.CacheSampleCount = 1
 		if cacheUsageCountsAsHit(cacheUsage) {

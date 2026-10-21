@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
+func TestRecordRelayResultExcludesOnlyNonStreamZeroCache(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-stream-boundary-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	baseInfo := &relaycommon.RelayInfo{
@@ -29,10 +29,14 @@ func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
 	nonStreamInfo.PerformanceCacheUsageKnown = true
 	nonStreamInfo.PerformanceCachePromptTokens = 100
 
+	RecordRelayResult(context.Background(), &nonStreamInfo, nil)
 	nonStreamInfo.PerformanceCacheReadTokens = 100
+	RecordRelayResult(context.Background(), &nonStreamInfo, nil)
+	nonStreamInfo.PerformanceCacheReadTokens = 1
 	RecordRelayResult(context.Background(), &nonStreamInfo, nil)
 	streamInfo.PerformanceCacheUsageKnown = true
 	streamInfo.PerformanceCachePromptTokens = 100
+	RecordRelayResult(context.Background(), &streamInfo, nil)
 	streamInfo.PerformanceCacheReadTokens = 100
 	RecordRelayResult(context.Background(), &streamInfo, nil)
 
@@ -50,25 +54,30 @@ func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
 		cachedTokens += bucket.CacheReadTokens
 	}
 
-	assert.Equal(t, int64(2), requests)
-	assert.Equal(t, int64(2), successes)
-	assert.Equal(t, int64(2), tracked)
-	assert.Equal(t, int64(1), samples)
-	assert.Equal(t, int64(1), hits)
-	assert.Equal(t, int64(100), promptTokens)
-	assert.Equal(t, int64(100), cachedTokens)
+	assert.Equal(t, int64(5), requests)
+	assert.Equal(t, int64(5), successes)
+	assert.Equal(t, int64(5), tracked)
+	assert.Equal(t, int64(4), samples)
+	assert.Equal(t, int64(2), hits)
+	assert.Equal(t, int64(400), promptTokens)
+	assert.Equal(t, int64(201), cachedTokens)
 	require.NotZero(t, samples)
-	assert.Equal(t, 100.0, float64(hits)/float64(samples)*100)
+	assert.Equal(t, 50.0, float64(hits)/float64(samples)*100)
 }
 
 func TestRecordRelayResultCacheUsageUsesClientStreamFlag(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		clientStream bool
+		cachedTokens int64
 		wantSamples  int64
+		wantHits     int64
 	}{
-		{name: "non-stream client with internal streaming"},
-		{name: "stream client with internal buffering", clientStream: true, wantSamples: 1},
+		{name: "non-stream client internally streamed zero cache"},
+		{name: "non-stream client internally streamed low cache", cachedTokens: 1, wantSamples: 1},
+		{name: "non-stream client internally streamed high cache", cachedTokens: 100, wantSamples: 1, wantHits: 1},
+		{name: "stream client internally buffered zero cache", clientStream: true, wantSamples: 1},
+		{name: "stream client internally buffered high cache", clientStream: true, cachedTokens: 100, wantSamples: 1, wantHits: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			resetKKAIGroupSignalState(t)
@@ -81,7 +90,7 @@ func TestRecordRelayResultCacheUsageUsesClientStreamFlag(t *testing.T) {
 				ClientIsStream:               &test.clientStream,
 				PerformanceCacheUsageKnown:   true,
 				PerformanceCachePromptTokens: 100,
-				PerformanceCacheReadTokens:   100,
+				PerformanceCacheReadTokens:   test.cachedTokens,
 			}
 			RecordRelayResult(context.Background(), info, nil)
 
@@ -101,9 +110,9 @@ func TestRecordRelayResultCacheUsageUsesClientStreamFlag(t *testing.T) {
 			assert.Equal(t, int64(1), requests)
 			assert.Equal(t, int64(1), tracked)
 			assert.Equal(t, test.wantSamples, samples)
-			assert.Equal(t, test.wantSamples, hits)
+			assert.Equal(t, test.wantHits, hits)
 			assert.Equal(t, 100*test.wantSamples, promptTokens)
-			assert.Equal(t, 100*test.wantSamples, cachedTokens)
+			assert.Equal(t, test.cachedTokens*test.wantSamples, cachedTokens)
 		})
 	}
 }

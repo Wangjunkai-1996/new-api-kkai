@@ -24,8 +24,9 @@ const (
 	kkaiGroupMinuteTTL         = 70 * time.Minute
 	kkaiGroupHistoricalTTL     = 26 * time.Hour
 
-	// v5 excludes client non-streaming requests; older aggregates cannot be
-	// filtered after collection and must not enter the new cache rate.
+	// Keep v5's existing streaming samples and also collect non-streaming
+	// requests with positive cached input. v4 includes non-streaming zero-cache
+	// requests that cannot be removed from its aggregates.
 	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v5:started_at"
 	kkaiGroupCacheTrackedField      = "cache_v5_tracked"
 	kkaiGroupCacheSampleField       = "cache_v5_n"

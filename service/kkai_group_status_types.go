@@ -111,8 +111,9 @@ type KKAIGroupStatusEntry struct {
 type KKAIGroupCacheStats struct {
 	Status      string `json:"status"`
 	SampleCount int64  `json:"sample_count"`
-	// RequestHitRate counts streaming text requests whose cached input exceeds 30% of
-	// the normalized prompt context in the last 24 hours.
+	// RequestHitRate counts text requests whose cached input exceeds 30% of the
+	// normalized prompt context in the last 24 hours. Non-streaming requests
+	// with zero cached input are excluded from the denominator.
 	RequestHitRate *float64 `json:"request_hit_rate"`
 }
 

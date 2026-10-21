@@ -36,11 +36,19 @@ The `auto` group is an aggregate of the configured auto-group members that are
 also visible to the user. It never exposes metrics for a hidden group.
 
 Cache hit rate always uses the last 24 hours, independently of the selected
-health window. It is the share of successful streaming text requests with
+health window. It is the share of eligible successful text requests with
 reported, non-estimated usage whose cached input exceeds 30% of the normalized
-prompt context. The original client stream flag determines eligibility, so a
-non-streaming client request remains excluded even when the relay streams
-internally. Non-streaming requests still contribute to health and request counts.
-Redis cache counters use a separate version for this definition; earlier mixed
-streaming/non-streaming counters are ignored and new samples accumulate from
-rollout. Cache hit rate is hidden when Redis is unavailable or there are no hits.
+prompt context. Only non-streaming client requests with zero cache-read tokens
+are excluded from the eligible samples. Streaming requests with zero cache-read
+tokens remain in the denominator; non-streaming requests with positive cache-read
+tokens are included, even when their cached input does not exceed the 30% hit
+threshold. The original client stream flag determines whether a request is
+non-streaming, including when the relay streams internally. All requests still
+contribute to health and request counts.
+
+The existing Redis v5 cache counters are retained without resetting accumulated
+samples. Buckets written before this correction contain streaming samples only,
+so that portion of the 24-hour window lacks eligible non-streaming requests;
+those samples cannot be reconstructed from the aggregates and age out normally.
+Earlier v4 counters remain ignored. Cache hit rate is hidden when Redis is
+unavailable or there are no hits.

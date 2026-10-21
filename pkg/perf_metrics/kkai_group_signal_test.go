@@ -112,9 +112,12 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 	for _, bucket := range buckets {
 		bucketTs := now.Unix() - now.Unix()%bucket.resolution
 		require.NoError(t, client.HSet(ctx, kkaiGroupRedisBucketKey(group, bucket.prefix, bucketTs), map[string]any{
-			"req": 2, "ok": 2,
+			"req": 3, "ok": 3,
 			"cache_v4_tracked": 2, "cache_v4_n": 2, "cache_v4_hit": 2,
 			"cache_v4_prompt": 200, "cache_v4_read": 200,
+			// A previously collected streaming zero-cache sample is still valid.
+			"cache_v5_tracked": 1, "cache_v5_n": 1, "cache_v5_hit": 0,
+			"cache_v5_prompt": 100, "cache_v5_read": 0,
 		}).Err())
 	}
 
@@ -122,7 +125,7 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 		OriginModelName:              "cache-test-model",
 		UsingGroup:                   group,
 		StartTime:                    now.Add(-time.Second),
-		IsStream:                     true,
+		IsStream:                     false,
 		PerformanceCacheUsageKnown:   true,
 		PerformanceCachePromptTokens: 1000,
 		PerformanceCacheReadTokens:   900,
@@ -143,11 +146,11 @@ func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
 			promptTokens += bucket.CachePromptTokens
 			readTokens += bucket.CacheReadTokens
 		}
-		assert.Equal(t, int64(3), requests)
-		assert.Equal(t, int64(3), successes)
-		assert.Equal(t, int64(1), samples)
+		assert.Equal(t, int64(4), requests)
+		assert.Equal(t, int64(4), successes)
+		assert.Equal(t, int64(2), samples)
 		assert.Equal(t, int64(1), hits)
-		assert.Equal(t, int64(1000), promptTokens)
+		assert.Equal(t, int64(1100), promptTokens)
 		assert.Equal(t, int64(900), readTokens)
 	}
 	for _, bucket := range buckets {
