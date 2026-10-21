@@ -33,7 +33,7 @@ export function getImageGenerationErrorKey(
     case 'content_policy':
     case 'content_policy_violation':
     case 'prompt_blocked':
-      return 'The prompt or reference image did not pass the content safety check. Adjust the content and try again.'
+      return 'This generation was blocked by a content safety check. The check may apply to the prompt, reference image, or generated result.'
     case 'image_service_unavailable':
       return 'Image generation is temporarily unavailable. Try another model or try again later.'
     case 'image_rate_limited':

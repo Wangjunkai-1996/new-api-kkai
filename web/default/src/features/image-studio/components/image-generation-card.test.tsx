@@ -184,7 +184,7 @@ describe('image generation batch details', () => {
     expect(screen.getByText('Failure reason')).toBeVisible()
     expect(
       screen.getByText(
-        'The prompt or reference image did not pass the content safety check. Adjust the content and try again.'
+        'This generation was blocked by a content safety check. The check may apply to the prompt, reference image, or generated result.'
       )
     ).toBeVisible()
     expect(screen.getByText('Request ID')).toBeVisible()

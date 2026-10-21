@@ -144,7 +144,7 @@ func imageGenerationPublicError(status, storedCode string) (string, string) {
 	}
 	switch code {
 	case "upstream_content_policy":
-		return code, "The prompt or reference image did not pass the content safety check. Adjust the content and try again."
+		return code, "This generation was blocked by a content safety check. The check may apply to the prompt, reference image, or generated result."
 	case "image_service_unavailable":
 		return code, "Image generation is temporarily unavailable. Try another model or try again later."
 	case "image_rate_limited":

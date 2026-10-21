@@ -24,7 +24,7 @@ describe('image generation user messages', () => {
   test.each([
     [
       'upstream_content_policy',
-      'The prompt or reference image did not pass the content safety check. Adjust the content and try again.',
+      'This generation was blocked by a content safety check. The check may apply to the prompt, reference image, or generated result.',
     ],
     [
       'image_service_unavailable',

@@ -32,7 +32,7 @@ export const STATIC_I18N_KEYS = [
   'The image service is busy. Please try again later.',
   'The image service is temporarily unavailable.',
   'The image settings are not supported. Adjust the settings and try again.',
-  'The prompt or reference image did not pass the content safety check. Adjust the content and try again.',
+  'This generation was blocked by a content safety check. The check may apply to the prompt, reference image, or generated result.',
   'The reference image could not be processed. Replace it and try again.',
   'Your account quota is insufficient. Top up and try again.',
   // Reseller management API errors

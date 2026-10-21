@@ -87,7 +87,7 @@ func TestImageGenerationViewsExposeOnlyPublicErrors(t *testing.T) {
 	}{
 		{"historical_provider_quota", model.ImageGenerationStatusFailed, "insufficient_quota", "image_service_unavailable", "Image generation is temporarily unavailable. Try another model or try again later."},
 		{"local_account_quota", model.ImageGenerationStatusFailed, "insufficient_user_quota", "insufficient_user_quota", "Your account quota is insufficient. Top up and try again."},
-		{"historical_policy", model.ImageGenerationStatusFailed, "content_policy", "upstream_content_policy", "The prompt or reference image did not pass the content safety check. Adjust the content and try again."},
+		{"historical_policy", model.ImageGenerationStatusFailed, "content_policy", "upstream_content_policy", "This generation was blocked by a content safety check. The check may apply to the prompt, reference image, or generated result."},
 		{"unknown_raw_code", model.ImageGenerationStatusFailed, "visit https://advert.example secret-key", "image_generation_failed", "Image generation could not be completed. Please try again later or contact support."},
 		{"unknown_result", model.ImageGenerationStatusUnknown, "", "upstream_outcome_unknown", "The generation result could not be confirmed. Please contact support before submitting again."},
 		{"unknown_timeout_is_not_retry_advice", model.ImageGenerationStatusUnknown, "image_request_timeout", "image_request_timeout", "The generation result could not be confirmed. Please contact support before submitting again."},
