@@ -1,90 +1,80 @@
 # Independent Frontend Artifact
 
 `frontend-build-release.sh` builds the modern `default` Rsbuild bundle as a
-separate, immutable production artifact. It is a packaging command only: it
-does not upload files, change `current` or `previous` pointers, restart a
-service, or call an infrastructure deployment controller.
+separate, immutable production artifact. It does not upload files, change
+`current` or `previous`, restart services, or invoke a deployment controller.
 
-## Independent production format (2)
+## Normal production format (2)
 
-The normal builder reads `web/default/console-contract.json` and emits format 2:
+Run from the clean local `production/kkrich` checkout:
 
 ```bash
 scripts/kkai/frontend-build-release.sh --theme default
 ```
 
-No backend identity, schema profile or API-contract override is required or
-accepted. The frontend owns its source/release/checksums and immutable asset URL.
-Deploy only after infrastructure runbook 21's controller, Edge and backend
-contract migration. Use prepare/activate; compatible backend updates preserve
-this artifact and its current/previous pointers. Installed historical versions
-can be activated without their archive. These are source capabilities until
-that exact controller is installed and the migration accepted.
+The builder exports the exact source commit with `git archive` into an ordinary
+temporary directory; it does not create a Git branch or worktree. Dependencies,
+source, legal notices, lockfile, packaging helper and compatibility metadata
+come from that same commit. Ignored local `.env` files and existing
+`node_modules` are excluded. Later changes in the original checkout do not
+change the archived inputs or block the build; metadata retains the chosen SHA.
+An isolated temporary Git index rejects tracked-file changes and non-ignored
+new files written by install/build hooks, without changing the live Git index.
 
-The remainder describes **legacy format 1** and its first-adoption history.
-Those builds now require `--legacy-pair`; retain them only for explicit migration
-or existing rollback contracts. Never edit old metadata to upgrade formats.
-
-## Production invocation
-
-Run it from the clean local `production/kkrich` checkout. For frontend-only
-changes, take backend release/source/image/schema coordinates from the immutable
-manifest selected by the current backend; no backend build or stage is needed.
-Frontend source SHA may differ from backend source SHA. For backend/combined
-changes, stage the external backend and use that candidate's immutable manifest.
-Local preparation may read exact generated backend metadata and the checksummed
-archive image ID, but installation must recheck them against the selected manifest.
-Production builds require the backend image digest so promotion can verify the
-complete pair:
-
-```bash
-scripts/kkai/frontend-build-release.sh --legacy-pair \
-  --schema-contract bridge \
-  --api-contract 1 \
-  --theme default \
-  --backend-release-id <verified-backend-release-id> \
-  --backend-source-sha <40-character-backend-sha> \
-  --backend-image-digest <exact-sha256-image-id> \
-  --output-dir .local-releases/frontend
-```
-
-The command installs only the selected workspace and builds the modern UI:
+Production requires the Bun version declared by `KKAI_BUN_VERSION` in that
+commit's `docs/kkai/upstream-baseline.env`, which is also used by the fork quality
+gate. Metadata records the real `bun --version`; a metadata-only environment
+override cannot change it. The builder installs only the selected workspace:
 
 ```text
 bun install --frozen-lockfile --network-concurrency=1 --concurrent-scripts=1 --filter ./default
 bun run build -- --dist-path <temporary-directory>
 ```
 
-`--skip-install` is restricted to explicitly local runs (`--allow-dirty` or
-`--allow-non-production`) and should not be used for a production release.
+The normal Bun global package cache remains available between builds; only the
+snapshot's dependency tree is materialized afresh. The script does not borrow
+or copy a potentially mismatched live `node_modules`, clear the package cache,
+or guarantee that an uncached dependency can be installed without network access.
+Real installation/build duration is not measured by the mocked regression test.
 
-Production builds accept only `--theme default`, which is also the default
-when no theme is specified. `classic` source stays available for upstream
-integration; `--theme classic` and `--theme both` require an explicit local
-`--allow-dirty` or `--allow-non-production` run. Existing artifacts remain
-immutable and must retain their original theme metadata for rollback checks.
+Compatibility comes from the same commit's `web/default/console-contract.json`.
+Format 2 accepts no backend identity, schema profile or arbitrary API-contract
+override. Compatible backend updates preserve the frontend artifact and its
+current/previous pointers; a backend-only release does not rebuild this bundle.
+
+## Prepare, activate and verify
+
+Use format 2 only after infrastructure runbook 21's controller, Edge and backend
+contract migration has been installed and accepted. Source capabilities and
+historical records do not prove the installed capability. Confirm the current
+backend with the selected infrastructure checkout's `make newapi-status` and
+its immutable manifest, then follow runbook 21's frontend release procedure:
+
+1. Upload the exact generated metadata and archive over the documented private
+   SSH route. `prepare` verifies and retains the artifact without changing
+   public selection.
+2. Use `activate --release-id ... --expected-current-release ...` with the
+   verified current backend manifest. The controller rechecks actual runtime
+   compatibility, loaded Edge routes and selection identity under its locks.
+   Frontend activation runs outside backend candidate/rollout transactions.
+3. Verify the public entry, versioned JS/CSS, affected pages/APIs, error handling
+   and relevant SSE flows. If present, verify the public `assets/kikai-home.html`
+   checksum and `no-store` caching as required by runbook 21.
+
+Frontend-only delivery does not build, stage, canary or promote a backend. A
+compatible installed historical frontend can be selected through `activate`
+without reuploading its archive. For backend rollback, use `rollback-plan` to
+find a safe order; a previous frontend pointer alone does not establish backend
+rollback readiness. Retain release trees, receipts and referenced metadata until
+the controller's recovery and browser asset support requirements permit cleanup.
 
 The browser artifact always uses relative API URLs. The production edge must
 proxy NewAPI paths and route `/invitations/api/` to the independent KKAI
 Invitations service, rewriting the public prefix to `/api/` upstream. For local
-Rsbuild development, set `VITE_INVITATIONS_API_URL` to that service; it
-defaults to `http://localhost:6212`, applies the same rewrite, and is used only
-by the dev proxy.
+Rsbuild development, `VITE_INVITATIONS_API_URL` defaults to
+`http://localhost:6212` and only configures the dev proxy.
 
-The artifact intentionally does not contain a `frontend_mode` field. It records
-the frontend source and the exact backend release/source/schema/API coordinates;
-`frontend_mode` is a coordinated backend/edge contract. Pair an artifact with a
-backend release whose metadata, image label, and `FRONTEND_MODE` environment
-entry all agree. An `embedded` backend supports either edge mode during the
-transition; an `external` backend requires an installed and verified artifact
-plus an effective external edge configuration. The controller checks
-the backend manifest before installation, so do not install an artifact against
-a release with different source, version, image, schema, or API coordinates.
-
-## Output
-
-The output directory contains an archive, outer metadata, and an extracted
-release directory for local inspection:
+## Output and integrity
 
 ```text
 frontend-releases/<release-id>/
@@ -93,103 +83,72 @@ frontend-releases/<release-id>/
   NOTICE
   THIRD-PARTY-LICENSES.md
   frontend.json
-  release-pair.json
   manifest.sha256
 <release-id>.tar.gz
 <release-id>.json
 ```
 
-The archive and extracted directory are created in a temporary sibling and
-renamed into place only after all builds, metadata, hashes, and archive checks
-pass. A later rename failure is cleaned up by the exit trap. The script never
-creates or changes `current`/`previous`; pointer changes belong to the pinned
-infrastructure controller.
+`frontend.json` records frontend source SHA, API/capability requirements, the
+immutable asset URL, actual Bun version and lockfile SHA-256. It contains no
+backend release, source, image or schema pairing. `manifest.sha256` covers every
+release file except itself, including legal notices. Outer metadata also records
+the archive and manifest digests. Format 2 has no `release-pair.json`.
 
-`frontend.json` records the frontend source SHA, paired backend values, API and
-schema contracts, selected themes, Bun version, lockfile SHA-256, and the
-relative API policy. `release-pair.json` is the promotion-time compatibility
-record; it deliberately does not replace the backend/edge mode contract.
-`manifest.sha256` covers every release file except the manifest itself,
-including the three legal-notice files. The outer JSON additionally records the
-archive and manifest digests.
+The release tree, archive and outer metadata are prepared in a temporary sibling
+and moved into place only after a successful build. Existing release IDs are
+rejected; failure removes incomplete outputs. Only the pinned infrastructure
+controller changes live selection pointers.
 
-## Reproducible/testable interface
+## Local phase record
 
-Pass `--release-id` and `--build-timestamp` to make metadata stable. The
-`--source-sha`, `--source-root`, `--bun-bin`, `--git-bin`, `--jq-bin`,
-`--tar-bin`, and `--lock-dir` options (and their `KKAI_FRONTEND_*` environment
-counterparts) allow deterministic test doubles without changing production
-behavior. `--dry-run` validates the arguments and prints install/build/archive
-paths without running Bun or writing output.
+A real build writes a separate JSON timing/identity record beside its output;
+`RELEASE_RECORD=<absolute-path>` is printed to stderr. Recording starts before
+Bun installation and fails before that work if the record cannot be initialized.
+It covers source export, Bun validation, dependency installation when enabled,
+bundling, source validation, checksums, archive creation and publication. The
+exit trap retains the original build exit status and records a failed phase
+when a command fails.
 
-The script verifies the source commit, branch, and clean worktree before the
-build and checks the worktree again after the build. Local experiments can
-explicitly opt out with `--allow-non-production` and/or `--allow-dirty`.
+The record includes source/release identity, actual Bun and lockfile versions,
+archive checksum and byte count. It is excluded from the immutable artifact and
+deployment metadata; existing controller interfaces and checksums are unchanged.
+`--dry-run` does not create a timing record. Mocked timings validate recording
+behavior only; use records from the next authorized real build to find bottlenecks.
 
-## Mode switch and rollback
+## Local experiments and focused verification
 
-Routine releases after external adoption follow the daily-release sections in
-infrastructure runbook 20. Frontend-only updates build, validate and install this
-artifact against the unchanged current backend; installation is immediately
-public. They do not require backend canary, Edge/ACME adoption or a platform
-rebuild. Backend changes currently still need a new exactly paired frontend
-artifact, even with unchanged UI source; metadata-only rebinding is not implemented.
+`--allow-dirty` builds the live source tree for explicitly local experiments.
+`--allow-non-production` permits another source branch. Both permit an unpinned
+local Bun executable, whose actual version is still recorded. `--skip-install`
+requires one of these explicit local flags and uses that checkout's existing
+dependencies; it is forbidden for a formal production build. `classic` and
+`both` remain local-only legacy compatibility themes.
 
-Use `rollback --installed` for the selected previous artifact with retained
-outer metadata and the correct backend manifest. This is a current/previous
-swap, not arbitrary historical restore. After independent frontend updates,
-the previous frontend may no longer be the backend rollback partner; record
-those two readiness claims separately as required by runbook 20.
-
-The following sequence is only for a first embedded-to-external migration, not
-the default procedure for each iteration.
-
-Use the pinned frontend controller for every artifact install and pointer
-change. For `embedded` to `external`, keep the active backend embedded while
-the external backend remains staged, then:
-
-1. Complete the local infrastructure gates, pin the exact infrastructure commit
-   in the application contract, and build a unique external/bridge backend plus
-   its exact paired frontend artifact. Local builds do not require staging.
-2. After production preparation is authorized, install the matching controller
-   and ACME lock support, then stage the backend. Preserve the previous release's
-   rollback directory/image for the retention window; stage may temporarily
-   replace its running idle-slot container and abort restores it. Retention is
-   not a blanket 24-hour ban on the next authorized release. Stage may defer the
-   live Edge-mode gate and must leave the public router unchanged.
-3. Validate and install the frontend with an explicit `--backend-manifest`
-   pointing at that staged release while Edge is still embedded. Verify the
-   selected release tree, pointer, theme entry page, and offline configuration.
-   An artifact install changes its pointer; once Edge is external that is a
-   public frontend change, not just an upload.
-4. Follow `docs/runbooks/20-newapi-frontend.md` in the pinned infrastructure
-   checkout to prepare the actual Edge plan. Confirm its SHA/diff, the one-time
-   immutable-bind adoption exception, and any existing checksum drift before
-   `apply-edge`. This activates a private static service through graceful HUP
-   while retaining the Edge container and config inode. The ordinary
-   `platform-edge` rebuilding path requires a separate maintenance decision.
-   No backend canary may be active during adoption or restoration. Immediately
-   verify the public static page, API/Invitations prefixes, login, cookies,
-   existing SSE connections, and media paths.
-5. Recheck the staged backend candidate, complete its normal canary, and
-   promote. Promotion rechecks both the live Edge mode and the selected exact
-   frontend/backend pair under the shared platform operation lock. Verify
-   public status before treating the pair as active.
-
-For the reverse switch, complete backend/canary rollback to a verified embedded
-backend first, then use `rollback-edge` with the same accepted plan. Restore a
-frontend pointer only through the controller after exact pair validation.
-Never edit release files or symlinks by hand, or delete recovery evidence to
-bypass the controller's guards.
-
-Run the focused regression test with:
+`--source-root`, `--source-sha`, executable overrides and `--lock-dir` support
+local fixtures. `--release-id` and `--build-timestamp` make metadata stable.
+`--dry-run` validates the plan without installing, building or writing output.
+Run the seconds-scale regression with mocked Bun:
 
 ```bash
 scripts/kkai/frontend-build-release_test.sh
 ```
 
-The test mocks Bun, checks filtered frozen install forwarding, default-only
-production selection, local legacy-theme compatibility, metadata, legal-file
-checksums, archive contents,
-duplicate release rejection, dry-run non-mutation, and cleanup after a failed
-theme build.
+It covers packaging, legal-file checksums, frozen filtered installs, format 2,
+local legacy themes, duplicate rejection, dry-run and failed-build cleanup,
+production Bun pinning, ignored local input isolation, hook mutation rejection,
+and clean HEAD changes during a build. It does not install dependencies, compile a real bundle, contact
+production, or replace release acceptance.
+
+## Legacy format 1 only
+
+Existing format 1 installations and explicit migrations retain exact
+frontend/backend pairing. They require `--legacy-pair`, the verified backend
+release/source/image coordinates, and the matching `--schema-contract` and
+`--api-contract`. Their artifacts include `release-pair.json`; do not edit old
+metadata to convert them to format 2. Legacy `install` changes public selection
+immediately, unlike format 2's normal prepare/activate sequence.
+
+Use `docs/runbooks/20-newapi-frontend.md` in the confirmed infrastructure checkout
+for that legacy procedure and initial Edge adoption. Use runbook 21 for format 2
+daily delivery and controlled format transitions. A routine compatible release
+does not repeat controller installation, ACME setup or first Edge adoption.

@@ -20,7 +20,10 @@ readonly lock_dir="${test_root}/build.lock"
 source_sha="$(git -C "${ROOT}" rev-parse HEAD)"
 readonly source_sha
 readonly release_id="frontend-test-20260901-1"
-readonly backend_image_digest="sha256:$(printf '2%.0s' {1..64})"
+backend_image_digest="sha256:$(printf '2%.0s' {1..64})"
+readonly backend_image_digest
+KKAI_TEST_PINNED_BUN_VERSION="$(awk -F= '$1 == "KKAI_BUN_VERSION" { print $2 }' "${ROOT}/docs/kkai/upstream-baseline.env")"
+export KKAI_TEST_PINNED_BUN_VERSION
 mkdir -p -- "${mock_bin}"
 
 cat >"${mock_bin}/bun" <<'EOF_BUN'
@@ -30,10 +33,23 @@ set -Eeuo pipefail
 printf '%s\n' "$*" >>"${KKAI_TEST_LOG}"
 case "${1:-}" in
   --version)
-    printf '%s\n' '1.3.13'
+    printf '%s\n' "${KKAI_TEST_BUN_VERSION:-${KKAI_TEST_PINNED_BUN_VERSION}}"
     ;;
   install)
     : >"${KKAI_TEST_INSTALL_MARKER}"
+    if [[ -n ${KKAI_TEST_SOURCE_REPO:-} ]]; then
+      [[ ${PWD} != "${KKAI_TEST_SOURCE_REPO}/web" ]] || exit 96
+      [[ ! -e default/.env && ! -e node_modules/injected ]] || exit 97
+      case ${KKAI_TEST_MUTATE_ARCHIVE:-} in
+        tracked) printf 'changed-lock\n' >bun.lock ;;
+        untracked) printf 'unexpected-source\n' >default/injected.ts ;;
+      esac
+      if [[ ${KKAI_TEST_DRIFT_SOURCE:-0} == 1 ]]; then
+        printf 'changed-input\n' >"${KKAI_TEST_SOURCE_REPO}/web/default/input.txt"
+        git -C "${KKAI_TEST_SOURCE_REPO}" add web/default/input.txt
+        git -C "${KKAI_TEST_SOURCE_REPO}" -c user.name=Test -c user.email=test@example.invalid commit --quiet -m concurrent-change
+      fi
+    fi
     ;;
   run)
     [[ ${2:-} == build ]] || {
@@ -59,6 +75,10 @@ case "${1:-}" in
       exit 93
     }
     theme=$(basename -- "${PWD}")
+    if [[ -n ${KKAI_TEST_SOURCE_REPO:-} ]]; then
+      [[ $(cat input.txt) == committed-input ]] || exit 98
+      cat input.txt >"${KKAI_TEST_SOURCE_SEEN}"
+    fi
     mkdir -p -- "${dist}/static"
     printf '<!doctype html><title>%s</title>\n' "${theme}" >"${dist}/index.html"
     printf '%s\n' "${theme}-bundle" >"${dist}/static/${theme}.js"
@@ -99,10 +119,10 @@ run_build() {
 }
 
 out_both="${test_root}/out-both"
-run_build "${out_both}" "${release_id}" \
+build_output="$(run_build "${out_both}" "${release_id}" \
   --theme both \
   --backend-source-sha "${source_sha}" \
-  --backend-release-id backend-test-20260901-1 >/dev/null
+  --backend-release-id backend-test-20260901-1)"
 
 release_root="${out_both}/frontend-releases/${release_id}"
 for required_file in \
@@ -136,6 +156,23 @@ tar -tzf "${out_both}/${release_id}.tar.gz" | grep -F "frontend-releases/${relea
   fail 'classic frontend is absent from archive'
 grep -F 'LICENSE' "${release_root}/manifest.sha256" >/dev/null || fail 'legal files are absent from manifest'
 [[ ! -e ${lock_dir} ]] || fail 'frontend build lock was not removed'
+record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${build_output}")"
+archive_bytes="$(wc -c < "${out_both}/${release_id}.tar.gz" | tr -d '[:space:]')"
+jq -e --arg id "${release_id}" --arg sha "${source_sha}" --arg bytes "${archive_bytes}" \
+  --slurpfile metadata "${out_both}/${release_id}.json" \
+  --slurpfile frontend "${release_root}/frontend.json" \
+  '.kind == "frontend-build" and .release_id == $id and .source_sha == $sha and
+   .result == "passed" and .exit_code == 0 and
+   .identity.theme == "both" and .identity.frontend_format == "1" and
+   .identity.bun_version == $frontend[0].build.bun_version and
+   .identity.lockfile_sha256 == $frontend[0].build.lockfile_sha256 and
+   .identity.archive_sha256 == $metadata[0].archive_sha256 and .identity.archive_bytes == $bytes and
+   ([.phases[].name] == ["source-export", "bun-version", "dependency-install", "bundle", "source-verify", "package-digests", "archive", "package-metadata", "publish"]) and
+   all(.phases[]; .result == "passed" and .duration_seconds >= 0)' \
+  "${record_path}" >/dev/null || fail 'successful build record is incomplete or differs from its artifact'
+if tar -tzf "${out_both}/${release_id}.tar.gz" | grep -F "$(basename -- "${record_path}")" >/dev/null; then
+  fail 'local timing record entered the immutable artifact'
+fi
 
 if duplicate_output="$({
   run_build "${out_both}" "${release_id}"
@@ -165,7 +202,14 @@ if PATH="${mock_bin}:${PATH}" \
     --lock-dir "${lock_dir}" \
     >"${test_root}/failed-build.log" 2>&1; then
   fail 'failed theme build unexpectedly succeeded'
+else
+  failure_status=$?
 fi
+[[ ${failure_status} == 92 ]] || fail 'timing record changed the failed build exit status'
+failed_record="$(sed -n 's/^RELEASE_RECORD=//p' "${test_root}/failed-build.log")"
+jq -e '.result == "failed" and .exit_code == 92 and
+  .phases[-1].name == "bundle" and .phases[-1].result == "failed" and .phases[-1].exit_code == 92' \
+  "${failed_record}" >/dev/null || fail 'failed bundle did not retain its phase evidence'
 [[ ! -e "${failed_output}/frontend-releases/${release_id}-failed" ]] ||
   fail 'failed theme build left a release directory'
 [[ ! -e "${failed_output}/${release_id}-failed.tar.gz" ]] ||
@@ -271,5 +315,107 @@ jq -e --slurpfile contract "${ROOT}/web/default/console-contract.json" \
   "${test_root}/independent/${independent_id}.json" >/dev/null || fail 'independent artifact still binds a backend'
 [[ ! -e "${test_root}/independent/frontend-releases/${independent_id}/release-pair.json" ]] ||
   fail 'independent artifact contains a legacy pair'
+
+# A real, tiny Git fixture exercises immutable inputs without invoking Bun or
+# changing the application's branch, index, source tree, or dependency cache.
+fixture="${test_root}/source"
+mkdir -p "${fixture}/web/default" "${fixture}/docs/kkai" "${fixture}/scripts/kkai"
+cp "${ROOT}/LICENSE" "${ROOT}/NOTICE" "${ROOT}/THIRD-PARTY-LICENSES.md" "${fixture}/"
+cp "${ROOT}/web/default/console-contract.json" "${fixture}/web/default/"
+cp "${ROOT}/docs/kkai/upstream-baseline.env" "${fixture}/docs/kkai/"
+cp "${ROOT}/scripts/kkai/frontend-build-release-package.sh" "${fixture}/scripts/kkai/"
+cp "${ROOT}/scripts/kkai/release-record.sh" "${ROOT}/scripts/kkai/release-record.py" "${fixture}/scripts/kkai/"
+printf 'committed-input\n' >"${fixture}/web/default/input.txt"
+printf 'test-lock\n' >"${fixture}/web/bun.lock"
+printf '.env\nnode_modules/\n' >"${fixture}/.gitignore"
+git init --quiet "${fixture}"
+git -C "${fixture}" symbolic-ref HEAD refs/heads/production/kkrich
+git -C "${fixture}" add .
+git -C "${fixture}" -c user.name=Test -c user.email=test@example.invalid commit --quiet -m fixture
+fixture_sha="$(git -C "${fixture}" rev-parse HEAD)"
+mkdir -p "${fixture}/web/node_modules"
+printf 'must-not-reuse\n' >"${fixture}/web/node_modules/injected"
+printf 'must-not-read\n' >"${fixture}/web/default/.env"
+
+export KKAI_TEST_LOG="${call_log}" KKAI_TEST_INSTALL_MARKER="${install_marker}"
+export KKAI_TEST_SOURCE_REPO="${fixture}" KKAI_TEST_SOURCE_SEEN="${test_root}/source-seen"
+snapshot_output="${test_root}/snapshot"
+PATH="${mock_bin}:${PATH}" "${BUILD_SCRIPT}" \
+  --source-root "${fixture}" --release-id snapshot-test \
+  --output-dir "${snapshot_output}" --lock-dir "${lock_dir}" >/dev/null
+jq -e --arg sha "${fixture_sha}" '.source_sha == $sha and .format_version == 2' \
+  "${snapshot_output}/snapshot-test.json" >/dev/null || fail 'snapshot provenance differs from source commit'
+jq -e --arg version "${KKAI_TEST_PINNED_BUN_VERSION}" '.build.bun_version == $version' \
+  "${snapshot_output}/frontend-releases/snapshot-test/frontend.json" >/dev/null || fail 'actual Bun version was not recorded'
+
+# A spoofed metadata version must not override the actual production toolchain.
+rm -f "${install_marker}"
+if PATH="${mock_bin}:${PATH}" KKAI_TEST_BUN_VERSION=0.0.0 \
+  KKAI_FRONTEND_BUN_VERSION="${KKAI_TEST_PINNED_BUN_VERSION}" \
+  "${BUILD_SCRIPT}" --source-root "${fixture}" --release-id wrong-bun \
+  --output-dir "${test_root}/wrong-bun" --lock-dir "${lock_dir}" \
+  >"${test_root}/wrong-bun.log" 2>&1; then
+  fail 'production build accepted an unpinned Bun version'
+fi
+grep -F 'Bun version mismatch' "${test_root}/wrong-bun.log" >/dev/null || fail 'Bun mismatch was not explicit'
+[[ ! -e ${install_marker} ]] || fail 'Bun mismatch ran dependency installation'
+
+# Install/build hooks may write only ignored outputs, even inside the snapshot.
+for mutation in tracked untracked; do
+  if PATH="${mock_bin}:${PATH}" KKAI_TEST_MUTATE_ARCHIVE="${mutation}" \
+    "${BUILD_SCRIPT}" --source-root "${fixture}" --release-id "mutated-${mutation}" \
+    --output-dir "${test_root}/mutated-${mutation}" --lock-dir "${lock_dir}" \
+    >"${test_root}/mutated-${mutation}.log" 2>&1; then
+    fail "frontend build accepted ${mutation} source mutation from an install hook"
+  fi
+  grep -E 'frontend build (modified|added untracked) archived source' \
+    "${test_root}/mutated-${mutation}.log" >/dev/null || fail 'archive mutation rejection was not explicit'
+  [[ ! -e "${test_root}/mutated-${mutation}/mutated-${mutation}.json" ]] || fail 'archive mutation left metadata'
+done
+[[ $(cat "${fixture}/web/bun.lock") == test-lock ]] || fail 'isolated source check changed the live checkout'
+
+# Local opt-outs retain the existing checkout/dependency workflow, but record
+# the actual executable version instead of a metadata-only override.
+PATH="${mock_bin}:${PATH}" KKAI_TEST_BUN_VERSION=0.0.0 \
+  "${BUILD_SCRIPT}" --source-root "${fixture}" --release-id local-toolchain \
+  --allow-non-production --skip-install \
+  --output-dir "${test_root}/local" --lock-dir "${lock_dir}" >/dev/null
+jq -e '.build.bun_version == "0.0.0" and .build.install == "skipped"' \
+  "${test_root}/local/frontend-releases/local-toolchain/frontend.json" >/dev/null || fail 'local toolchain opt-out did not preserve actual provenance'
+
+# If local recording cannot initialize, stop before invoking Bun at all.
+real_python3="$(command -v python3)"
+cat >"${mock_bin}/python3" <<'EOF_PYTHON'
+#!/usr/bin/env bash
+if [[ ${2:-} == init ]]; then exit 73; fi
+exec "${KKAI_TEST_REAL_PYTHON3}" "$@"
+EOF_PYTHON
+chmod 0755 "${mock_bin}/python3"
+: >"${call_log}"
+rm -f "${install_marker}"
+if PATH="${mock_bin}:${PATH}" KKAI_TEST_REAL_PYTHON3="${real_python3}" \
+  "${BUILD_SCRIPT}" --source-root "${fixture}" --release-id record-unavailable \
+  --allow-dirty --output-dir "${test_root}/record-unavailable" --lock-dir "${lock_dir}" \
+  >"${test_root}/record-unavailable.log" 2>&1; then
+  fail 'frontend build continued after recording initialization failed'
+fi
+rm -f "${mock_bin}/python3"
+[[ ! -s ${call_log} && ! -e ${install_marker} ]] || fail 'recording initialization failure still invoked Bun'
+[[ ! -e ${lock_dir} ]] || fail 'recording initialization failure left the build lock'
+
+# The live checkout can become a different clean commit during installation.
+# Build inputs and metadata must stay at the original SHA without blocking
+# unrelated work in the original checkout.
+rm -f "${KKAI_TEST_SOURCE_SEEN}"
+PATH="${mock_bin}:${PATH}" KKAI_TEST_DRIFT_SOURCE=1 \
+  "${BUILD_SCRIPT}" --source-root "${fixture}" --release-id drift-test \
+  --output-dir "${test_root}/drift" --lock-dir "${lock_dir}" \
+  >"${test_root}/drift.log" 2>&1 || fail 'archived build was blocked by an unrelated source commit'
+[[ $(cat "${KKAI_TEST_SOURCE_SEEN}") == committed-input ]] || fail 'build read the changed checkout instead of archived inputs'
+[[ $(git -C "${fixture}" rev-parse HEAD) != "${fixture_sha}" ]] || fail 'concurrent source change fixture did not run'
+jq -e --arg sha "${fixture_sha}" '.source_sha == $sha' \
+  "${test_root}/drift/drift-test.json" >/dev/null || fail 'metadata followed the changed live HEAD'
+[[ -s "${test_root}/drift/drift-test.tar.gz" ]] || fail 'archived build did not publish its artifact'
+[[ ! -e ${lock_dir} ]] || fail 'source drift left the build lock'
 
 echo 'Frontend artifact build regression tests passed.'

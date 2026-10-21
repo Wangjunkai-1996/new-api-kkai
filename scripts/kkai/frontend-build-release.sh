@@ -30,9 +30,9 @@ Common options:
   --output-dir DIR                 Artifact output directory
   --release-id ID                  Stable release identifier
   --source-sha SHA                 Expected 40-character source commit SHA
-  --backend-source-sha SHA         Backend commit paired with this frontend
-  --backend-release-id ID          Backend release identifier
-  --backend-image-digest DIGEST    Optional sha256:<64 hex> image digest
+  --backend-source-sha SHA         Legacy paired backend commit
+  --backend-release-id ID          Legacy paired backend release
+  --backend-image-digest DIGEST    Legacy paired backend sha256 image ID
   --theme default|classic|both      Default: default; classic/both are local-only
   --build-timestamp RFC3339         Metadata timestamp (UTC, ending in Z)
   --source-root DIR                 Application checkout to build
@@ -232,8 +232,6 @@ else
   [[ -z "${schema_contract}${api_contract}${backend_source_sha}${backend_release_id}${backend_image_digest}" ]] ||
     die "backend pairing arguments require --legacy-pair; independent builds use the source contract"
   [[ "${theme_selection}" == default ]] || die "independent frontend requires default theme"
-  api_contract="$("${jq_bin}" -er '.api_contract | select(type == "number" and . >= 1 and floor == .)' "${source_root}/web/default/console-contract.json")" || die "invalid frontend API contract"
-  required_capabilities="$("${jq_bin}" -ce '.required_capabilities | select(type == "array") | select(all(.[]; type == "string" and test("^[a-z][a-z0-9_]{0,63}$"))) | select(length == (unique | length))' "${source_root}/web/default/console-contract.json")" || die "invalid frontend capabilities"
 fi
 
 # Resolve the source commit before deriving the release ID. A supplied SHA is
@@ -297,7 +295,7 @@ if (( git_available )) && [[ -d "${source_root}" ]]; then
   head_sha="$("${git_bin}" -C "${source_root}" rev-parse HEAD 2>/dev/null)" ||
     die "unable to resolve source HEAD"
   validate_sha "HEAD SHA" "${head_sha}"
-  if [[ -n "${source_sha_arg}" && "${source_sha}" != "${head_sha}" ]]; then
+  if [[ "${source_sha}" != "${head_sha}" ]]; then
     die "source SHA does not match HEAD"
   fi
   if [[ "${allow_nonproduction}" -ne 1 ]]; then
@@ -320,11 +318,23 @@ elif (( ! dry_run )); then
   die "a real build requires an accessible git checkout"
 fi
 
+if (( ! legacy_pair )); then
+  if (( allow_dirty )); then
+    frontend_contract="$(cat "${source_root}/web/default/console-contract.json")" || die "frontend contract is unreadable"
+  else
+    frontend_contract="$("${git_bin}" -C "${source_root}" show "${source_sha}:web/default/console-contract.json")" || die "frontend contract is absent from source commit"
+  fi
+  api_contract="$("${jq_bin}" -er '.api_contract | select(type == "number" and . >= 1 and floor == .)' <<<"${frontend_contract}")" || die "invalid frontend API contract"
+  required_capabilities="$("${jq_bin}" -ce '.required_capabilities | select(type == "array") | select(all(.[]; type == "string" and test("^[a-z][a-z0-9_]{0,63}$"))) | select(length == (unique | length))' <<<"${frontend_contract}")" || die "invalid frontend capabilities"
+fi
+
 if (( ! install_deps && ! allow_dirty && ! allow_nonproduction )); then
   die "--skip-install is restricted to local builds with --allow-dirty or --allow-non-production"
 fi
 
 if (( dry_run )); then
+  planned_source_root="${source_root}"
+  if (( ! allow_dirty && install_deps )); then planned_source_root='<source-archive>'; fi
   printf 'DRY_RUN=1\n'
   printf 'FRONTEND_RELEASE_ID=%s\n' "${release_id}"
   printf 'FRONTEND_SOURCE_SHA=%s\n' "${source_sha}"
@@ -334,7 +344,7 @@ if (( dry_run )); then
   printf 'FRONTEND_THEMES=%s\n' "${theme_selection}"
   if (( install_deps )); then
     printf 'INSTALL cwd=%q %q' \
-      "${source_root}/web" "${bun_bin}"
+      "${planned_source_root}/web" "${bun_bin}"
     printf ' %q' "${install_args[@]}"
     printf '\n'
   else
@@ -342,7 +352,7 @@ if (( dry_run )); then
   fi
   for theme in "${themes[@]}"; do
     printf 'BUILD theme=%s cwd=%q env=KKAI_EXTERNAL_FRONTEND_BUILD=1,VITE_REACT_APP_SERVER_URL="",VITE_REACT_APP_VERSION=%q %q run build -- --dist-path %q\n' \
-      "${theme}" "${source_root}/web/${theme}" "${release_id}" \
+      "${theme}" "${planned_source_root}/web/${theme}" "${release_id}" \
       "${bun_bin}" "<temporary-dir>/${theme}"
   done
   printf 'ARCHIVE=%s/%s.tar.gz\n' "${output_dir}" "${release_id}"
@@ -350,7 +360,7 @@ if (( dry_run )); then
   exit 0
 fi
 
-for command_name in "${bun_bin}" "${git_bin}" "${jq_bin}" "${tar_bin}" mktemp find sort awk tr mv cp; do
+for command_name in "${bun_bin}" "${git_bin}" "${jq_bin}" "${tar_bin}" mktemp find sort awk tr mv cp wc; do
   require_command "${command_name}"
 done
 [[ -d "${source_root}" ]] || die "source root does not exist: ${source_root}"
@@ -400,6 +410,9 @@ moved_metadata=0
 committed=0
 cleanup() {
   local status=$?
+  if declare -F kkai_record_finish >/dev/null; then
+    kkai_record_finish "${status}" || true
+  fi
   if (( ! committed )); then
     (( moved_release )) && rm -rf -- "${final_release}" || true
     (( moved_archive )) && rm -f -- "${archive}" || true
@@ -413,27 +426,65 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=release-record.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/release-record.sh"
+kkai_record_init frontend-build "${release_id}" "${source_sha}" "${output_dir}"
+kkai_record_identity theme "${theme_selection}"
+frontend_format=2
+if (( legacy_pair )); then frontend_format=1; fi
+kkai_record_identity frontend_format "${frontend_format}"
+kkai_record_phase source-export
+
 tmp_root="$(mktemp -d "${output_dir}/.frontend-build-${release_id}.XXXXXX")"
 tmp_release="${tmp_root}/frontend-releases/${release_id}"
 mkdir -p -- "${tmp_release}" "${tmp_root}/build"
 
+build_source_root="${source_root}"
+if (( ! allow_dirty && install_deps )); then
+  # Use one immutable tree even if another terminal changes the live checkout.
+  # Bun keeps its normal global package cache; node_modules is installed for
+  # this exact tree instead of borrowing the checkout's mutable dependencies.
+  build_source_root="${tmp_root}/source"
+  mkdir -p -- "${build_source_root}"
+  "${git_bin}" -C "${source_root}" archive --format=tar "${source_sha}" |
+    "${tar_bin}" -xf - -C "${build_source_root}"
+  source_git_dir="$("${git_bin}" -C "${source_root}" rev-parse --absolute-git-dir)" || die "unable to resolve source Git directory"
+  source_index="${tmp_root}/source.index"
+  GIT_INDEX_FILE="${source_index}" "${git_bin}" --git-dir="${source_git_dir}" --work-tree="${build_source_root}" read-tree "${source_sha}"
+fi
+
+kkai_record_phase bun-version
+bun_version="$("${bun_bin}" --version)" || die "unable to read Bun version"
+[[ -n "${bun_version}" ]] || die "Bun version is empty"
+kkai_record_identity bun_version "${bun_version}"
+if (( ! allow_dirty && ! allow_nonproduction )); then
+  expected_bun_version="$(awk -F= '$1 == "KKAI_BUN_VERSION" { print $2 }' "${build_source_root}/docs/kkai/upstream-baseline.env")" ||
+    die "unable to read pinned Bun version"
+  [[ "${expected_bun_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid pinned Bun version"
+  [[ "${bun_version}" == "${expected_bun_version}" ]] ||
+    die "Bun version mismatch: expected ${expected_bun_version}, got ${bun_version}"
+fi
+
 if (( install_deps )); then
+  kkai_record_phase dependency-install
   (
-    cd -- "${source_root}/web"
+    cd -- "${build_source_root}/web"
     "${bun_bin}" "${install_args[@]}"
   )
 fi
 
+kkai_record_phase bundle
 legal_files=(LICENSE NOTICE THIRD-PARTY-LICENSES.md)
 for legal_file in "${legal_files[@]}"; do
-  legal_source="${source_root}/${legal_file}"
+  legal_source="${build_source_root}/${legal_file}"
   [[ -f "${legal_source}" && ! -L "${legal_source}" ]] ||
     die "required legal notice is missing: ${legal_file}"
   cp -p "${legal_source}" "${tmp_release}/${legal_file}"
 done
 
 for theme in "${themes[@]}"; do
-  theme_source_dir="${source_root}/web/${theme}"
+  theme_source_dir="${build_source_root}/web/${theme}"
   build_dist="${tmp_root}/build/${theme}"
   mkdir -p -- "${build_dist}"
   (
@@ -458,26 +509,34 @@ for theme in "${themes[@]}"; do
   mv -- "${build_dist}" "${tmp_release}/${theme}"
 done
 
-# A build should only write ignored dependency/output paths. Recheck the
-# checkout before packaging so an install hook or build plugin cannot silently
-# enter the release provenance.
-if [[ "${allow_dirty}" -ne 1 ]]; then
+kkai_record_phase source-verify
+# Verify hooks only wrote ignored outputs. The isolated index never reads or
+# changes the operator's live index/HEAD, including during concurrent commits.
+if [[ "${build_source_root}" != "${source_root}" ]]; then
+  GIT_INDEX_FILE="${source_index}" "${git_bin}" --git-dir="${source_git_dir}" --work-tree="${build_source_root}" diff --no-ext-diff --quiet "${source_sha}" -- ||
+    die "frontend build modified archived source"
+  untracked_source="$(GIT_INDEX_FILE="${source_index}" "${git_bin}" --git-dir="${source_git_dir}" --work-tree="${build_source_root}" ls-files --others --exclude-standard)" ||
+    die "unable to inspect archived source after frontend build"
+  [[ -z "${untracked_source}" ]] || die "frontend build added untracked archived source"
+elif [[ "${allow_dirty}" -ne 1 ]]; then
+  post_build_sha="$("${git_bin}" -C "${source_root}" rev-parse HEAD)" || die "unable to resolve source HEAD after frontend build"
+  [[ "${post_build_sha}" == "${source_sha}" ]] || die "source HEAD changed during frontend build"
+  if (( ! allow_nonproduction )); then
+    post_build_branch="$("${git_bin}" -C "${source_root}" branch --show-current)" || die "unable to resolve source branch after frontend build"
+    [[ "${post_build_branch}" == "${branch}" ]] || die "source branch changed during frontend build"
+  fi
   post_build_state="$("${git_bin}" -C "${source_root}" status --porcelain=v1 --untracked-files=all)" ||
     die "unable to inspect source worktree after frontend build"
   [[ -z "${post_build_state}" ]] ||
     die "frontend build changed the source worktree"
 fi
 
-lockfile="${source_root}/web/bun.lock"
+lockfile="${build_source_root}/web/bun.lock"
 [[ -f "${lockfile}" ]] || die "frontend lockfile is missing: ${lockfile}"
 lockfile_sha256="$(sha256_file "${lockfile}")"
-bun_version="${KKAI_FRONTEND_BUN_VERSION:-}"
-if [[ -z "${bun_version}" ]]; then
-  bun_version="$("${bun_bin}" --version 2>/dev/null || true)"
-fi
-[[ -n "${bun_version}" ]] || bun_version="unknown"
+kkai_record_identity lockfile_sha256 "${lockfile_sha256}"
 
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=frontend-build-release-package.sh
-source "$(dirname -- "${BASH_SOURCE[0]}")/frontend-build-release-package.sh"
+source "${build_source_root}/scripts/kkai/frontend-build-release-package.sh"
 package_frontend_release

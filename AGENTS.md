@@ -37,14 +37,17 @@ build, repackage or switch the frontend. Frontend prepare/activate runs outside
 backend candidate/rollout transactions. Local code does not prove installation.
 Routine external releases do not repeat the initial Edge/ACME adoption.
 
-Select `--schema-contract` explicitly from current live-schema evidence before
-building. `make newapi-status` and the deployer's generic preflight do not prove
-database compatibility. An application-only release on schema v7 uses the
-`(7,8,7)` `bridge` profile. Without exact v8 evidence, use `bridge`; use the
-`(8,8,8)` `feature` profile only after v8 has been independently observed.
-Schema migration is a separate authorized operation. These image-selection
-rules apply when building a backend. Format 2 frontend builds have no backend
-schema input; only legacy format 1 copies the selected backend contract.
+Select `--schema-contract` explicitly from the exact target commit's runtime
+contract and fresh read-only live-schema evidence. `bridge` and `feature` are
+profile names, not fixed schema versions. Check the live version, canonical
+digest and required expansion receipts; verify the selected contract using the
+exact built image's `/kkai-migrate --describe-contract --dialect postgres --json`.
+`make newapi-status` and generic preflight do not prove database compatibility.
+Missing or mismatched evidence stops preparation; never default to `bridge` or
+migrate to resolve it. Schema migration is a separate authorized operation.
+These image-selection rules apply when building a backend. Format 2 frontend
+builds have no backend schema input; only legacy format 1 copies the selected
+backend contract.
 
 The deploy script must use `scripts/kkai/manual-deployment-contract.env` and
 complete the controller's read-only preflight before uploading an image. Update

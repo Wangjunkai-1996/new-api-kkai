@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -29,23 +30,39 @@ planned_deployment_protocol=''
 builder="${BUILDX_BUILDER:-kkai-mirror-builder}"
 go_build_parallelism="${KKAI_GO_BUILD_PARALLELISM:-4}"
 media_build_parallelism="${KKAI_MEDIA_BUILD_PARALLELISM:-2}"
+resource_profile=conservative
 build_cpu_quota="${KKAI_BUILDX_CPU_QUOTA:-200000}"
 build_memory_limit="${KKAI_BUILDX_MEMORY:-3g}"
+cpu_quota_explicit=false
+memory_limit_explicit=false
 build_http_proxy="${BUILD_HTTP_PROXY:-${HTTP_PROXY:-}}"
 build_https_proxy="${BUILD_HTTPS_PROXY:-${HTTPS_PROXY:-}}"
 build_no_proxy="${BUILD_NO_PROXY:-${NO_PROXY:-}}"
 build_lock_dir="${TMPDIR:-/tmp}/kkai-newapi-manual-build.lock"
+build_source_dir=''
 
 release_build_lock() {
+  if [[ -n "${build_source_dir}" ]]; then
+    rm -rf -- "${build_source_dir}"
+  fi
   rm -f -- "${build_lock_dir}/pid" 2>/dev/null || true
   rmdir -- "${build_lock_dir}" 2>/dev/null || true
+}
+
+finish_build() {
+  local status=$?
+  if declare -F kkai_record_finish >/dev/null; then
+    kkai_record_finish "${status}" || true
+  fi
+  release_build_lock || true
+  exit "${status}"
 }
 
 acquire_build_lock() {
   local lock_pid=''
 
   if mkdir -m 700 -- "${build_lock_dir}" 2>/dev/null; then
-    trap release_build_lock EXIT
+    trap finish_build EXIT
     if ! printf '%s\n' "$$" > "${build_lock_dir}/pid"; then
       release_build_lock
       die "unable to record local build lock owner"
@@ -69,8 +86,8 @@ set_build_resource() {
   resource_value=${resource#*=}
   [[ -n "${resource_value}" ]] || die "build resource value must not be empty"
   case "${resource%%=*}" in
-    cpu-quota) build_cpu_quota=${resource_value} ;;
-    memory) build_memory_limit=${resource_value} ;;
+    cpu-quota) build_cpu_quota=${resource_value}; cpu_quota_explicit=true ;;
+    memory) build_memory_limit=${resource_value}; memory_limit_explicit=true ;;
     *) die "unsupported build resource: ${resource%%=*}" ;;
   esac
 }
@@ -105,6 +122,8 @@ while (( $# > 0 )); do
     --no-resource-limits)
       build_cpu_quota=''
       build_memory_limit=''
+      cpu_quota_explicit=true
+      memory_limit_explicit=true
       shift
       continue
       ;;
@@ -118,21 +137,35 @@ while (( $# > 0 )); do
     --planned-deployment-protocol) planned_deployment_protocol=$2 ;;
     --version) version=$2 ;;
     --builder) builder=$2 ;;
+    --resource-profile) resource_profile=$2 ;;
     --go-build-parallelism) go_build_parallelism=$2 ;;
     --media-build-parallelism) media_build_parallelism=$2 ;;
     --resource) set_build_resource "$2" ;;
     --cpu-quota)
       [[ -n "$2" ]] || die "cpu quota must not be empty"
       build_cpu_quota=$2
+      cpu_quota_explicit=true
       ;;
     --memory)
       [[ -n "$2" ]] || die "memory limit must not be empty"
       build_memory_limit=$2
+      memory_limit_explicit=true
       ;;
     *) die "unsupported argument: $1" ;;
   esac
   shift 2
 done
+case "${resource_profile}" in
+  conservative) profile_cpu_quota=200000; profile_memory_limit=3g ;;
+  balanced) profile_cpu_quota=400000; profile_memory_limit=4g ;;
+  *) die "resource profile must be conservative or balanced" ;;
+esac
+if [[ "${cpu_quota_explicit}" == false && -z "${KKAI_BUILDX_CPU_QUOTA:-}" ]]; then
+  build_cpu_quota=${profile_cpu_quota}
+fi
+if [[ "${memory_limit_explicit}" == false && -z "${KKAI_BUILDX_MEMORY:-}" ]]; then
+  build_memory_limit=${profile_memory_limit}
+fi
 [[ -n "${schema_contract}" ]] ||
   die "schema contract must be selected explicitly with --schema-contract bridge|feature"
 case "${schema_contract}" in
@@ -176,7 +209,7 @@ if [[ -n "${build_memory_limit}" ]]; then
     die "memory limit must be a positive Docker size such as 4g"
 fi
 
-for command_name in docker git jq; do
+for command_name in docker git jq tar mktemp; do
   command -v "${command_name}" >/dev/null 2>&1 || die "missing ${command_name}"
 done
 [[ "$(git -C "${ROOT}" branch --show-current)" == production/kkrich ]] ||
@@ -188,8 +221,9 @@ source_sha="$(git -C "${ROOT}" rev-parse HEAD)"
 [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || die "invalid source SHA"
 git -C "${ROOT}" cat-file -e "${source_sha}^{commit}" ||
   die "source commit object is unavailable"
-git -C "${ROOT}" archive --format=tar "${source_sha}" >/dev/null ||
-  die "source tree cannot be archived"
+if [[ "${prepare_maintenance}" == true || "${prepare_online}" == true ]]; then
+  source_git_dir="$(git -C "${ROOT}" rev-parse --absolute-git-dir)"
+fi
 if [[ -z "${version}" ]]; then
   version="kkai-prod-$(date -u +%Y%m%d).$(date -u +%s)-${source_sha:0:9}"
 fi
@@ -210,6 +244,26 @@ acquire_build_lock
 [[ ! -e "${archive}" && ! -e "${metadata}" && ! -e "${output_dir}/${version}.maintenance.json" ]] ||
   die "release output already exists"
 
+# shellcheck source=release-record.sh
+source "${ROOT}/scripts/kkai/release-record.sh"
+kkai_record_init backend-build "${version}" "${source_sha}" "${output_dir}"
+kkai_record_identity profile "${resource_profile}"
+kkai_record_identity builder "${builder}"
+kkai_record_identity cpu_quota "${build_cpu_quota:-builder-default}"
+kkai_record_identity memory_limit "${build_memory_limit:-builder-default}"
+kkai_record_identity go_parallelism "${go_build_parallelism}"
+kkai_record_identity media_parallelism "${media_build_parallelism}"
+kkai_record_identity frontend_mode "${frontend_mode}"
+kkai_record_identity schema_contract "${schema_contract}"
+kkai_record_phase source-export
+
+# All build inputs come from the recorded commit, so other terminals can keep
+# editing the checkout without changing the release or its provenance.
+build_source_dir="$(mktemp -d "${TMPDIR:-/tmp}/kkai-newapi-build-source.XXXXXX")"
+git -C "${ROOT}" archive --format=tar "${source_sha}" | tar -xf - -C "${build_source_dir}" ||
+  die "source tree cannot be archived"
+
+kkai_record_phase builder-preflight
 if ! builder_info="$(docker buildx inspect "${builder}" 2>&1)"; then
   die "Buildx builder ${builder} is unavailable"
 fi
@@ -236,6 +290,7 @@ echo "Using Buildx builder: ${builder}"
 echo "Go build parallelism: ${go_build_parallelism}"
 echo "Media build parallelism: ${media_build_parallelism}"
 echo "Frontend mode: ${frontend_mode}"
+echo "Resource profile: ${resource_profile}"
 if [[ -n "${build_cpu_quota}" || -n "${build_memory_limit}" ]]; then
   echo "Build resource limits: cpu-quota=${build_cpu_quota:-default}, memory=${build_memory_limit:-default}"
 else
@@ -262,13 +317,14 @@ if [[ -n "${build_no_proxy}" ]]; then
   build_args+=(--build-arg "no_proxy=${build_no_proxy}")
 fi
 
-console_contract="$(jq -ce --arg profile "${schema_contract}" '.[$profile]' "${ROOT}/common/console_contract.json")"
+console_contract="$(jq -ce --arg profile "${schema_contract}" '.[$profile]' "${build_source_dir}/common/console_contract.json")"
 
+kkai_record_phase buildkit
 docker "${build_args[@]}" \
   --platform linux/amd64 \
   --target "${docker_target}" \
-  --file "${ROOT}/build/kkai-image/Dockerfile" \
-  --build-context "kkai_image=${ROOT}/build/kkai-image" \
+  --file "${build_source_dir}/build/kkai-image/Dockerfile" \
+  --build-context "kkai_image=${build_source_dir}/build/kkai-image" \
   --build-arg "APP_VERSION=${version}" \
   --build-arg "KKAI_SCHEMA_CONTRACT=${schema_contract}" \
   --build-arg "KKAI_CONSOLE_CONTRACT=${console_contract}" \
@@ -278,9 +334,12 @@ docker "${build_args[@]}" \
   --build-arg "MEDIA_BUILD_PARALLELISM=${media_build_parallelism}" \
   --tag "${image_tag}" \
   --output "type=docker,dest=${archive}" \
-  "${ROOT}"
+  "${build_source_dir}"
 
+kkai_record_phase archive-metadata
 archive_sha256="$(sha256_file "${archive}")"
+kkai_record_identity archive_sha256 "${archive_sha256}"
+kkai_record_identity archive_bytes "$(wc -c < "${archive}" | tr -d '[:space:]')"
 jq --null-input \
   --arg version "${version}" \
   --arg source_sha "${source_sha}" \
@@ -306,13 +365,13 @@ jq --null-input \
        elif $prepare_maintenance then {release_purpose: "maintenance-preparation"} else {} end)' > "${metadata}"
 
 if [[ "${prepare_maintenance}" == true || "${prepare_online}" == true ]]; then
-  [[ "$(git -C "${ROOT}" rev-parse HEAD)" == "${source_sha}" &&
-     -z "$(git -C "${ROOT}" status --porcelain=v1 --untracked-files=all)" ]] ||
-    die "checkout changed during release preparation; artifact is not accepted"
-  python3 "${ROOT}/scripts/kkai/prepare-maintenance-release.py" create \
+  kkai_record_phase maintenance
+  GIT_DIR="${source_git_dir}" GIT_WORK_TREE="${build_source_dir}" \
+    python3 "${build_source_dir}/scripts/kkai/prepare-maintenance-release.py" create \
     --metadata "${metadata}" \
     --planned-infra-sha "${planned_infra_sha}" \
     --planned-deployment-protocol "${planned_deployment_protocol}"
 fi
 
+kkai_record_phase_end
 echo "MANUAL_RELEASE_METADATA=${metadata}"

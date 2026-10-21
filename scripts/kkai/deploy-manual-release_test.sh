@@ -28,12 +28,38 @@ export KKAI_TEST_EXPECTED_INFRA_SHA="${KKAI_INFRA_SHA}"
 export KKAI_TEST_EXPECTED_PROTOCOL="${KKAI_DEPLOYMENT_PROTOCOL}"
 export KKAI_TEST_EXPECTED_SCHEMA_CONTRACT=feature
 export KKAI_TEST_EXPECTED_FRONTEND_MODE=embedded
+KKAI_TEST_REAL_PYTHON="$(command -v python3)"
+export KKAI_TEST_REAL_PYTHON
+export KKAI_RELEASE_SSH_MULTIPLEX=0
+export KKAI_RELEASE_SSH_COMPRESSION=0
 
 cat > "${mock_bin}/ssh" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'ssh %s\n' "$*" >> "${KKAI_TEST_LOG}"
+control_path=''
+for argument in "$@"; do
+  [[ ${argument} != ControlPath=* ]] || control_path=${argument#ControlPath=}
+done
+if [[ -n ${control_path} && ${KKAI_TEST_CONTROL_FILE:-none} != none && ! -e ${control_path} ]]; then
+  "${KKAI_TEST_REAL_PYTHON}" -c '
+import os, socket, stat, sys
+path, kind = sys.argv[1:]
+assert path.startswith("/tmp/kkai-release-ssh.") and path.endswith("/control")
+assert stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode) == 0o700
+if kind == "socket":
+    connection = socket.socket(socket.AF_UNIX)
+    connection.bind(path)
+    connection.close()
+else:
+    open(path, "x").close()
+' "${control_path}" "${KKAI_TEST_CONTROL_FILE}"
+fi
 case "$*" in
+  *' -O exit sys1')
+    [[ -S ${control_path} ]] || exit 47
+    exit 0
+    ;;
   *'/kkai-newapi-manual-deploy preflight '*)
     case "${KKAI_TEST_PREFLIGHT_MODE:-ready}" in
       ready)
@@ -239,12 +265,17 @@ cat > "${mock_bin}/scp" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'scp %s\n' "$*" >> "${KKAI_TEST_LOG}"
+exit "${KKAI_TEST_UPLOAD_EXIT:-0}"
 EOF
 chmod 0755 "${mock_bin}/ssh" "${mock_bin}/scp"
 
 cat > "${mock_bin}/python3" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+if [[ ${1:-} == */release-record.py ]]; then
+  if [[ ${2:-} == init && ${KKAI_TEST_RECORD_INIT_FAIL:-false} == true ]]; then exit 98; fi
+  exec "${KKAI_TEST_REAL_PYTHON}" "$@"
+fi
 printf 'python3 %s\n' "$*" >> "${KKAI_TEST_LOG}"
 [[ $1 == */prepare-maintenance-release.py && $2 == verify ]] || exit 95
 [[ ${KKAI_TEST_ONLINE_PLAN:-valid} == valid ]] || exit 96
@@ -318,16 +349,74 @@ test_requires_explicit_stage_action() {
 }
 
 test_preflight_failure_prevents_upload() {
-  local output
+  local output record_path status
 
   if output="$(run_stage fail 2>&1)"; then
     fail "failed preflight unexpectedly allowed staging"
+  else
+    status=$?
   fi
   grep -F 'production preflight failed; archive was not uploaded' <<< "${output}" >/dev/null ||
     fail "failed preflight did not explain the upload boundary"
   ! grep -q '^scp ' "${call_log}" || fail "archive was uploaded after failed preflight"
   ! grep -q '/kkai-newapi-manual-deploy stage ' "${call_log}" ||
     fail "stage was invoked after failed preflight"
+  record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${output}")"
+  jq -e --argjson status "${status}" \
+    '.result == "failed" and .exit_code == $status and .phases[-1].name == "preflight" and .phases[-1].result == "failed"' \
+    "${record_path}" >/dev/null || fail 'failed preflight was not recorded accurately'
+}
+
+test_record_initialization_failure_prevents_remote_calls() {
+  local output status
+  if output="$(KKAI_TEST_RECORD_INIT_FAIL=true run_stage ready 2>&1)"; then
+    fail 'record initialization failure unexpectedly allowed staging'
+  else
+    status=$?
+  fi
+  [[ ${status} == 1 ]] || fail "record initialization failure returned an unexpected status\n${output}"
+  [[ ! -s ${call_log} ]] || fail 'record initialization failure made a remote call'
+}
+
+test_invalid_ssh_options_prevent_remote_calls() {
+  local output
+  if output="$(KKAI_RELEASE_SSH_MULTIPLEX=yes run_stage ready 2>&1)"; then
+    fail 'invalid SSH multiplex setting unexpectedly allowed staging'
+  fi
+  grep -F 'KKAI_RELEASE_SSH_MULTIPLEX must be 0 or 1' <<<"${output}" >/dev/null || fail 'invalid multiplex setting was not rejected explicitly'
+  [[ ! -s ${call_log} ]] || fail 'invalid multiplex setting made a remote call'
+  if output="$(KKAI_RELEASE_SSH_COMPRESSION=on run_stage ready 2>&1)"; then
+    fail 'invalid SSH compression setting unexpectedly allowed staging'
+  fi
+  grep -F 'KKAI_RELEASE_SSH_COMPRESSION must be 0 or 1' <<<"${output}" >/dev/null || fail 'invalid compression setting was not rejected explicitly'
+  [[ ! -s ${call_log} ]] || fail 'invalid compression setting made a remote call'
+}
+
+test_failed_upload_preserves_exit_and_phase() {
+  local output status record_path
+  if output="$(KKAI_TEST_UPLOAD_EXIT=73 run_stage ready 2>&1)"; then
+    fail 'failed archive upload unexpectedly allowed staging'
+  else
+    status=$?
+  fi
+  [[ ${status} == 73 ]] || fail 'record finalization masked the original upload exit code'
+  ! grep -q '/kkai-newapi-manual-deploy stage ' "${call_log}" || fail 'failed upload reached stage'
+  ! grep -q '/kkai-newapi-manual-deploy candidate-status' "${call_log}" || fail 'failed upload queried an unstaged candidate'
+  record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${output}")"
+  jq -e '.result == "failed" and .exit_code == 73 and .phases[-1].name == "upload" and .phases[-1].result == "failed" and .phases[-1].exit_code == 73' \
+    "${record_path}" >/dev/null || fail 'upload failure lost its recorded phase or exit code'
+}
+
+test_checksum_failure_is_recorded_without_remote_calls() {
+  local invalid_metadata="${test_root}/wrong-checksum.json" output record_path
+  jq '.archive_sha256 = ("0" * 64)' "${metadata}" >"${invalid_metadata}"
+  if output="$(run_stage ready "${invalid_metadata}" 2>&1)"; then
+    fail 'archive checksum mismatch unexpectedly allowed staging'
+  fi
+  [[ ! -s ${call_log} ]] || fail 'invalid archive checksum made a remote call'
+  record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${output}")"
+  jq -e '.result == "failed" and .phases[-1].name == "artifact-validation" and .phases[-1].result == "failed"' \
+    "${record_path}" >/dev/null || fail 'archive checksum failure was not recorded'
 }
 
 test_invalid_schema_contract_prevents_remote_calls() {
@@ -375,7 +464,7 @@ test_online_stage_requires_explicit_action_and_verified_plan() {
   grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<<"${output}" >/dev/null || fail 'verified online bridge did not stage'
   grep -F -- "--planned-infra-sha ${KKAI_INFRA_SHA} --planned-deployment-protocol tenant-online-v1" "${call_log}" >/dev/null ||
     fail 'online artifact verification did not bind the exact installed controller'
-  verify_line="$(grep -n '^python3 ' "${call_log}" | cut -d: -f1)"
+  verify_line="$(grep -n '^python3 .*prepare-maintenance-release.py verify ' "${call_log}" | cut -d: -f1)"
   preflight_line="$(grep -n '/kkai-newapi-manual-deploy preflight ' "${call_log}" | cut -d: -f1)"
   [[ ${verify_line} -lt ${preflight_line} ]] || fail 'online plan verification ran after production preflight'
 }
@@ -598,10 +687,12 @@ test_stage_output_rejects_invalid_tunnel_target() {
 }
 
 test_stage_command_failure_preserves_diagnostics() {
-  local output
+  local output status record_path
 
   if output="$(run_stage ready "${metadata}" command-fail 2>&1)"; then
     fail "failed candidate stage command unexpectedly succeeded"
+  else
+    status=$?
   fi
   grep -F 'controller stage failed: candidate image rejected' <<< "${output}" >/dev/null ||
     fail "candidate stage stderr was not preserved"
@@ -611,6 +702,11 @@ test_stage_command_failure_preserves_diagnostics() {
     fail "candidate status was not queried after a stage command failure"
   [[ "$(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}")" -eq 1 ]] ||
     fail "candidate status was not queried exactly once after a stage command failure"
+  [[ $(grep -Fc '/kkai-newapi-manual-deploy stage ' "${call_log}") == 1 ]] || fail 'uncertain stage was retried'
+  [[ ${status} == 1 ]] || fail 'uncertain stage handling changed its failure result'
+  record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${output}")"
+  jq -e '.result == "failed" and .exit_code == 1 and .phases[-1].name == "load-stage" and .phases[-1].result == "failed" and (.identity | has("target_slot") | not)' \
+    "${record_path}" >/dev/null || fail 'uncertain stage record claimed success or a verified slot'
 }
 
 test_candidate_status_failure_stops_without_retry() {
@@ -637,6 +733,7 @@ test_candidate_status_failure_stops_without_retry() {
     fail "candidate-status was retried after its first failure"
   [[ "$(grep -c '^scp ' "${call_log}")" -eq 1 ]] ||
     fail "candidate-status failure changed the single archive upload boundary"
+  [[ $(grep -Fc '/kkai-newapi-manual-deploy stage ' "${call_log}") == 1 ]] || fail 'candidate-status failure retried stage'
 }
 
 test_stage_stderr_is_not_parsed_as_result() {
@@ -664,9 +761,9 @@ test_stage_stdout_is_required() {
 }
 
 test_successful_preflight_precedes_upload_and_stage() {
-  local output preflight_line upload_line stage_line contract_arguments stage_arguments
+  local output preflight_line upload_line stage_line contract_arguments stage_arguments record_path
 
-  output="$(run_stage ready)"
+  output="$(run_stage ready 2>&1)"
   grep -Fx 'KKAI_PREFLIGHT_RESULT=ready' <<< "${output}" >/dev/null ||
     fail "ready preflight output was not preserved"
   grep -Fx 'KKAI_CANDIDATE_STAGE_RESULT=staged' <<< "${output}" >/dev/null ||
@@ -709,12 +806,85 @@ test_successful_preflight_precedes_upload_and_stage() {
     fail "legacy deploy action was invoked"
   [[ "$(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}")" -eq 0 ]] ||
     fail "candidate-status was queried after a successful stage"
+  ! grep -E -- 'ControlMaster=|ControlPersist=|ControlPath=|Compression=| -C | -O exit ' "${call_log}" >/dev/null ||
+    fail 'default deployment unexpectedly enabled SSH experiments'
+  record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${output}")"
+  jq -e --arg source "${source_sha}" --arg version "${version}" --arg digest "${archive_sha256}" --arg infra "${KKAI_INFRA_SHA}" \
+    --arg bytes "$(wc -c <"${archive}" | tr -d '[:space:]')" \
+    '.kind == "stage" and .source_sha == $source and .release_id == $version and .result == "passed" and .exit_code == 0 and
+     .identity.archive_sha256 == $digest and .identity.archive_bytes == $bytes and .identity.infra_sha == $infra and
+     .identity.target_slot == "green" and .identity.compression == "0" and .identity.ssh_multiplex == "0" and
+     [.phases[].name] == ["artifact-validation", "preflight", "upload", "load-stage"] and
+     all(.phases[]; .result == "passed" and .duration_seconds >= 0)' \
+    "${record_path}" >/dev/null || fail 'successful stage record lost its identity, artifact or phase results'
+}
+
+test_ssh_opt_in_options_are_shared() {
+  local multiplex=$1 compression=$2 control_kind=$3
+  local output record_path control_path line remote_calls=0 close_calls=0
+  output="$(KKAI_RELEASE_SSH_MULTIPLEX="${multiplex}" KKAI_RELEASE_SSH_COMPRESSION="${compression}" \
+    KKAI_TEST_CONTROL_FILE="${control_kind}" run_stage ready 2>&1)" || fail "opt-in stage failed\n${output}"
+  record_path="$(sed -n 's/^RELEASE_RECORD=//p' <<<"${output}")"
+  jq -e --arg multiplex "${multiplex}" --arg compression "${compression}" \
+    '.result == "passed" and .identity.ssh_multiplex == $multiplex and .identity.compression == $compression' \
+    "${record_path}" >/dev/null || fail 'SSH experiment identity was not recorded'
+  control_path="$(sed -n 's/.* -o ControlPath=\([^ ]*\).*/\1/p' "${call_log}" | head -1)"
+  while IFS= read -r line; do
+    case "${line}" in ssh\ *|scp\ *) ;; *) continue ;; esac
+    remote_calls=$((remote_calls + 1))
+    if [[ ${multiplex} == 1 ]]; then
+      [[ ${line} == *' -o ControlMaster=auto '* && ${line} == *' -o ControlPersist=60 '* && ${line} == *" -o ControlPath=${control_path} "* ]] ||
+        fail 'SSH and SCP did not share the same multiplex options'
+    else
+      [[ ${line} != *ControlMaster=* && ${line} != *ControlPersist=* && ${line} != *ControlPath=* ]] || fail 'compression enabled multiplexing'
+    fi
+    if [[ ${compression} == 1 ]]; then
+      [[ ${line} == *' -o Compression=yes '* ]] || fail 'SSH and SCP did not share compression options'
+    else
+      [[ ${line} != *Compression=* ]] || fail 'multiplexing enabled compression'
+    fi
+    [[ ${line} != *' -C '* && ${line} != *' -L '* && ${line} != *' -N '* ]] || fail 'stage experiment changed tunnel or SSH option semantics'
+    case "${line}" in
+      scp\ *) [[ ${line} == *" ${EXPECTED_HOST}:/tmp/newapi-manual-${version}.tar" ]] || fail 'opt-in upload changed the sys1 alias or archive' ;;
+      *' -O exit '*)
+        close_calls=$((close_calls + 1))
+        [[ ${line} == *" -O exit ${EXPECTED_HOST}" ]] || fail 'multiplex cleanup changed the sys1 alias'
+        ;;
+      *) [[ ${line} == *" ${EXPECTED_HOST} sudo "* ]] || fail 'opt-in deployment changed the sys1 alias' ;;
+    esac
+  done <"${call_log}"
+  if [[ ${control_kind} == socket ]]; then
+    [[ ${close_calls} == 1 && ${remote_calls} == 4 ]] || fail 'existing control socket was not closed exactly once'
+  else
+    [[ ${close_calls} == 0 && ${remote_calls} == 3 ]] || fail 'cleanup sent control commands without a socket'
+  fi
+  if [[ ${multiplex} == 1 ]]; then
+    [[ ${control_path} == /tmp/kkai-release-ssh.*/control && ! -e ${control_path%/control} ]] || fail 'private control directory was not removed'
+  fi
+}
+
+test_uncertain_stage_uses_opt_in_status_once() {
+  local output
+  if output="$(KKAI_RELEASE_SSH_MULTIPLEX=1 KKAI_RELEASE_SSH_COMPRESSION=1 \
+    KKAI_TEST_CONTROL_FILE=socket run_stage ready "${metadata}" command-fail 2>&1)"; then
+    fail 'uncertain opt-in stage unexpectedly succeeded'
+  fi
+  grep -F 'candidate stage outcome is uncertain' <<<"${output}" >/dev/null || fail 'uncertain opt-in stage did not preserve its recovery boundary'
+  [[ $(grep -Fc '/kkai-newapi-manual-deploy candidate-status' "${call_log}") == 1 &&
+     $(grep -Fc '/kkai-newapi-manual-deploy stage ' "${call_log}") == 1 &&
+     $(grep -c '^scp ' "${call_log}") == 1 ]] || fail 'opt-in uncertainty retried upload, stage or status'
+  [[ $(grep -Fc -- '-o Compression=yes' "${call_log}") == 5 &&
+     $(grep -Fc -- '-o ControlMaster=auto' "${call_log}") == 5 ]] || fail 'uncertain stage status or cleanup lost opt-in SSH settings'
 }
 
 test_tenant_routing_override_is_explicit_and_validated_before_remote_calls
 test_contract_pins_staged_controller
 test_requires_explicit_stage_action
 test_preflight_failure_prevents_upload
+test_record_initialization_failure_prevents_remote_calls
+test_invalid_ssh_options_prevent_remote_calls
+test_failed_upload_preserves_exit_and_phase
+test_checksum_failure_is_recorded_without_remote_calls
 test_invalid_schema_contract_prevents_remote_calls
 test_maintenance_preparation_prevents_remote_calls
 test_online_stage_requires_explicit_action_and_verified_plan
@@ -741,5 +911,9 @@ test_candidate_status_failure_stops_without_retry
 test_stage_stderr_is_not_parsed_as_result
 test_stage_stdout_is_required
 test_successful_preflight_precedes_upload_and_stage
+test_ssh_opt_in_options_are_shared 1 0 socket
+test_ssh_opt_in_options_are_shared 0 1 none
+test_ssh_opt_in_options_are_shared 1 1 regular
+test_uncertain_stage_uses_opt_in_status_once
 
 echo 'New API manual deploy client tests passed'

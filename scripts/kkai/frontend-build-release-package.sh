@@ -3,9 +3,11 @@
 #
 # This file is sourced by the entrypoint after all build and provenance
 # variables have been validated. It deliberately has no deployment behavior.
-# shellcheck disable=SC2154,SC2034
+# jq filters intentionally use literal $variables, supplied through --arg.
+# shellcheck disable=SC2154,SC2034,SC2016
 
 package_frontend_release() {
+  kkai_record_phase package-digests
   local manifest_path
   local file
   local relative_path
@@ -102,11 +104,15 @@ package_frontend_release() {
   [[ -s "${manifest_path}" ]] || die "frontend release contains no files"
   manifest_sha256="$(sha256_file "${manifest_path}")"
 
+  kkai_record_phase archive
   tmp_archive="${tmp_root}/${release_id}.tar.gz"
   "${tar_bin}" -czf "${tmp_archive}" -C "${tmp_root}" "frontend-releases/${release_id}"
   [[ -s "${tmp_archive}" ]] || die "frontend archive is empty"
   archive_sha256="$(sha256_file "${tmp_archive}")"
+  kkai_record_identity archive_sha256 "${archive_sha256}"
+  kkai_record_identity archive_bytes "$(wc -c < "${tmp_archive}" | tr -d '[:space:]')"
 
+  kkai_record_phase package-metadata
   tmp_metadata="${tmp_root}/${release_id}.json"
   # shellcheck disable=SC2016
   "${jq_bin}" --null-input \
@@ -164,6 +170,7 @@ package_frontend_release() {
 
   # Each final move is atomic on the same filesystem. If a later move fails,
   # the EXIT trap removes any earlier move so callers never see a partial release.
+  kkai_record_phase publish
   mv -- "${tmp_release}" "${final_release}"
   moved_release=1
   mv -- "${tmp_archive}" "${archive}"
@@ -176,4 +183,5 @@ package_frontend_release() {
   printf 'FRONTEND_RELEASE_ARCHIVE=%s\n' "${archive}"
   printf 'FRONTEND_RELEASE_ID=%s\n' "${release_id}"
   printf 'FRONTEND_SOURCE_SHA=%s\n' "${source_sha}"
+  kkai_record_phase_end
 }

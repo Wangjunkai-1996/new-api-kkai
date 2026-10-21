@@ -179,6 +179,40 @@ fi
 
 archive="$(dirname -- "${METADATA}")/${archive_name}"
 [[ -f "${archive}" ]] || die "release archive is missing"
+ssh_multiplex="${KKAI_RELEASE_SSH_MULTIPLEX:-0}"
+ssh_compression="${KKAI_RELEASE_SSH_COMPRESSION:-0}"
+[[ ${ssh_multiplex} == 0 || ${ssh_multiplex} == 1 ]] || die 'KKAI_RELEASE_SSH_MULTIPLEX must be 0 or 1'
+[[ ${ssh_compression} == 0 || ${ssh_compression} == 1 ]] || die 'KKAI_RELEASE_SSH_COMPRESSION must be 0 or 1'
+# shellcheck source=release-record.sh
+source "${ROOT}/scripts/kkai/release-record.sh"
+stage_stdout=''
+stage_stderr=''
+ssh_control_dir=''
+cleanup_deploy() {
+  local status=$?
+  trap - EXIT
+  kkai_record_finish "${status}"
+  [[ -z ${stage_stdout} ]] || rm -f -- "${stage_stdout}" || true
+  [[ -z ${stage_stderr} ]] || rm -f -- "${stage_stderr}" || true
+  if [[ -n ${ssh_control_dir} ]]; then
+    if [[ -S ${ssh_control_dir}/control ]]; then
+      ssh "${SSH_OPTIONS[@]}" -O exit "${HOST}" >/dev/null 2>&1 || true
+    fi
+    rm -rf -- "${ssh_control_dir}" || true
+  fi
+  exit "${status}"
+}
+trap cleanup_deploy EXIT
+kkai_record_init stage "${version}" "${source_sha}" "$(dirname -- "${METADATA}")"
+kkai_record_identity archive_sha256 "${archive_sha256}"
+kkai_record_identity archive_bytes "$(wc -c <"${archive}" | tr -d '[:space:]')"
+kkai_record_identity infra_sha "${KKAI_INFRA_SHA}"
+kkai_record_identity deployment_protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
+kkai_record_identity schema_contract "${schema_contract}"
+kkai_record_identity frontend_mode "${frontend_mode}"
+kkai_record_identity compression "${ssh_compression}"
+kkai_record_identity ssh_multiplex "${ssh_multiplex}"
+kkai_record_phase artifact-validation
 [[ "$(sha256_file "${archive}")" == "${archive_sha256}" ]] || die "archive checksum mismatch"
 if [[ ${stage_online} == true ]]; then
   command -v python3 >/dev/null 2>&1 || die "missing python3"
@@ -195,7 +229,7 @@ fi
 readonly HOST=sys1
 readonly KEY="${HOME}/.ssh/ovh_sys1"
 readonly REMOTE_ARCHIVE="/tmp/newapi-manual-${version}.tar"
-readonly -a SSH_OPTIONS=(
+SSH_OPTIONS=(
   -i "${KEY}"
   -o IdentitiesOnly=yes
   -o BatchMode=yes
@@ -206,6 +240,13 @@ readonly -a SSH_OPTIONS=(
   -o ProxyJump=none
   -o KexAlgorithms=curve25519-sha256
 )
+if [[ ${ssh_multiplex} == 1 ]]; then
+  # A short, private path avoids macOS Unix socket limits and unrelated sessions.
+  ssh_control_dir="$(mktemp -d /tmp/kkai-release-ssh.XXXXXX)"
+  SSH_OPTIONS+=(-o ControlMaster=auto -o ControlPersist=60 -o "ControlPath=${ssh_control_dir}/control")
+fi
+[[ ${ssh_compression} != 1 ]] || SSH_OPTIONS+=(-o Compression=yes)
+readonly -a SSH_OPTIONS
 
 query_candidate_status_once() {
   local status_output='' status_rc=1
@@ -240,6 +281,7 @@ handle_uncertain_stage() {
 }
 
 preflight_output=''
+kkai_record_phase preflight
 preflight_arguments=(
   --expected-infra-sha "${KKAI_INFRA_SHA}"
   --deployment-protocol "${KKAI_DEPLOYMENT_PROTOCOL}"
@@ -288,7 +330,7 @@ stage_stderr="$(mktemp "${TMPDIR:-/tmp}/kkai-newapi-stage-stderr.XXXXXX")" || {
   rm -f -- "${stage_stdout}"
   die "unable to create temporary stage diagnostics file"
 }
-trap 'rm -f -- "${stage_stdout}" "${stage_stderr}"' EXIT
+kkai_record_phase upload
 scp "${SSH_OPTIONS[@]}" -- "${archive}" "${HOST}:${REMOTE_ARCHIVE}"
 stage_arguments=(
   --archive "${REMOTE_ARCHIVE}"
@@ -303,6 +345,7 @@ stage_arguments=(
 )
 [[ -z ${tenant_routing_enabled} ]] || stage_arguments+=(--tenant-routing-enabled "${tenant_routing_enabled}")
 stage_statuses=()
+kkai_record_phase load-stage
 if ssh "${SSH_OPTIONS[@]}" "${HOST}" \
     sudo -n /usr/local/sbin/kkai-newapi-manual-deploy stage \
       "${stage_arguments[@]}" 2>"${stage_stderr}" |
@@ -320,3 +363,5 @@ stage_output="$(<"${stage_stdout}")"
 if ! validate_stage_output "${stage_output}" "${version}" "${frontend_mode}"; then
   handle_uncertain_stage "${stage_validation_error}" "${stage_output}"
 fi
+kkai_record_identity target_slot "$(sed -n 's/^KKAI_CANDIDATE_SLOT=//p' <<<"${stage_output}")"
+kkai_record_phase_end
