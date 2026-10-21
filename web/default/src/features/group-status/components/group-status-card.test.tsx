@@ -86,7 +86,7 @@ describe('group status card', () => {
     expect(screen.getByText('x0.75')).toBeInTheDocument()
     expect(screen.getByText('Cache hit rate (24h)')).toHaveAttribute(
       'title',
-      'Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.'
+      'Requests with more than 30% cached input, as a share of successful streaming text requests with reported usage in the last 24 hours.'
     )
     expect(screen.getByText('92.84%')).toBeInTheDocument()
     expect(screen.queryByText('Samples: 128')).not.toBeInTheDocument()

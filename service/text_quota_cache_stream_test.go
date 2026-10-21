@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGroupStatusCacheUsageIncludesNonStreamRequests(t *testing.T) {
+func TestGroupStatusCacheUsageUsesClientStreamFlag(t *testing.T) {
 	originUsage := &dto.Usage{PromptTokens: 1_000}
 	summary := textQuotaSummary{
 		PromptTokens:  1_000,
@@ -19,40 +19,33 @@ func TestGroupStatusCacheUsageIncludesNonStreamRequests(t *testing.T) {
 		UsageSemantic: dto.BillingUsageSemanticOpenAI,
 	}
 
-	nonStream := &relaycommon.RelayInfo{
-		IsStream:    false,
-		RelayMode:   relayconstant.RelayModeChatCompletions,
-		RelayFormat: types.RelayFormatOpenAI,
+	stream, nonStream := true, false
+	for _, test := range []struct {
+		name         string
+		isStream     bool
+		clientStream *bool
+		wantEligible bool
+	}{
+		{name: "non-stream request"},
+		{name: "stream request", isStream: true, wantEligible: true},
+		{name: "non-stream client with internal streaming", isStream: true, clientStream: &nonStream},
+		{name: "stream client with internal buffering", clientStream: &stream, wantEligible: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				IsStream:       test.isStream,
+				ClientIsStream: test.clientStream,
+				RelayMode:      relayconstant.RelayModeChatCompletions,
+				RelayFormat:    types.RelayFormatOpenAI,
+			}
+			cacheUsage := groupStatusCacheUsage(info, false, false, originUsage, summary)
+			if !test.wantEligible {
+				assert.Nil(t, cacheUsage)
+				return
+			}
+			require.NotNil(t, cacheUsage)
+			assert.Equal(t, int64(1_000), cacheUsage.PromptTokens)
+			assert.Equal(t, int64(930), cacheUsage.CachedTokens)
+		})
 	}
-	nonStreamUsage := groupStatusCacheUsage(nonStream, false, false, originUsage, summary)
-	require.NotNil(t, nonStreamUsage)
-
-	stream := *nonStream
-	stream.IsStream = true
-	cacheUsage := groupStatusCacheUsage(&stream, false, false, originUsage, summary)
-	require.NotNil(t, cacheUsage)
-	assert.Equal(t, nonStreamUsage, cacheUsage)
-	assert.Equal(t, int64(1_000), cacheUsage.PromptTokens)
-	assert.Equal(t, int64(930), cacheUsage.CachedTokens)
-}
-
-func TestGroupStatusCacheUsageDoesNotDependOnClientStreamFlag(t *testing.T) {
-	clientStream := false
-	info := &relaycommon.RelayInfo{
-		IsStream:       true,
-		ClientIsStream: &clientStream,
-		RelayMode:      relayconstant.RelayModeChatCompletions,
-		RelayFormat:    types.RelayFormatOpenAI,
-	}
-	originUsage := &dto.Usage{PromptTokens: 1_000}
-	summary := textQuotaSummary{
-		PromptTokens:  1_000,
-		CacheTokens:   930,
-		UsageSemantic: dto.BillingUsageSemanticOpenAI,
-	}
-
-	cacheUsage := groupStatusCacheUsage(info, false, false, originUsage, summary)
-	require.NotNil(t, cacheUsage)
-	assert.Equal(t, int64(1_000), cacheUsage.PromptTokens)
-	assert.Equal(t, int64(930), cacheUsage.CachedTokens)
 }

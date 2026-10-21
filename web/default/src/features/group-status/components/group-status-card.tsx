@@ -195,7 +195,7 @@ export function GroupStatusCard(props: { group: GroupStatusEntry }) {
               <span
                 className='text-muted-foreground'
                 title={t(
-                  'Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.'
+                  'Requests with more than 30% cached input, as a share of successful streaming text requests with reported usage in the last 24 hours.'
                 )}
               >
                 {t('Cache hit rate (24h)')}

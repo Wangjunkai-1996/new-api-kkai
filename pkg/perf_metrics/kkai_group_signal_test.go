@@ -76,6 +76,8 @@ func TestKKAIGroupCacheTrackingIgnoresPreviousGenerationMarkers(t *testing.T) {
 	for _, key := range []string{
 		"kkai:group-status:cache-v1:started_at",
 		"kkai:group-status:cache-v2:started_at",
+		"kkai:group-status:cache-v3:started_at",
+		"kkai:group-status:cache-v4:started_at",
 	} {
 		require.NoError(t, client.Set(
 			context.Background(), key, time.Now().Add(-time.Hour).Unix(), 0,
@@ -88,6 +90,76 @@ func TestKKAIGroupCacheTrackingIgnoresPreviousGenerationMarkers(t *testing.T) {
 
 	assert.True(t, result.RedisAvailable)
 	assert.Zero(t, result.CacheTrackingStartedAt)
+}
+
+func TestKKAIGroupCacheCountersIgnoreMixedStreamLegacySamples(t *testing.T) {
+	resetKKAIGroupSignalState(t)
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	common.RedisEnabled = true
+	common.RDB = client
+	ctx := context.Background()
+	group := "mixed-stream-legacy-cache"
+	now := time.Now()
+	buckets := []struct {
+		prefix     string
+		resolution int64
+	}{
+		{prefix: "minute", resolution: kkaiGroupMinuteSeconds},
+		{prefix: "historical-5m", resolution: kkaiGroupHistoricalSeconds},
+	}
+	for _, bucket := range buckets {
+		bucketTs := now.Unix() - now.Unix()%bucket.resolution
+		require.NoError(t, client.HSet(ctx, kkaiGroupRedisBucketKey(group, bucket.prefix, bucketTs), map[string]any{
+			"req": 2, "ok": 2,
+			"cache_v4_tracked": 2, "cache_v4_n": 2, "cache_v4_hit": 2,
+			"cache_v4_prompt": 200, "cache_v4_read": 200,
+		}).Err())
+	}
+
+	RecordRelayResult(ctx, &relaycommon.RelayInfo{
+		OriginModelName:              "cache-test-model",
+		UsingGroup:                   group,
+		StartTime:                    now.Add(-time.Second),
+		IsStream:                     true,
+		PerformanceCacheUsageKnown:   true,
+		PerformanceCachePromptTokens: 1000,
+		PerformanceCacheReadTokens:   900,
+	}, nil)
+
+	startTs, endTs := now.Add(-time.Minute).Unix(), time.Now().Unix()
+	for _, result := range []KKAIGroupBucketResult{
+		QueryKKAIGroupMinuteBuckets(startTs, endTs, []string{group}),
+		QueryKKAIGroupHistoricalBuckets(startTs, endTs, []string{group}),
+	} {
+		require.True(t, result.RedisAvailable)
+		var requests, successes, samples, hits, promptTokens, readTokens int64
+		for _, bucket := range result.Buckets {
+			requests += bucket.RequestCount
+			successes += bucket.SuccessCount
+			samples += bucket.CacheSampleCount
+			hits += bucket.CacheHitCount
+			promptTokens += bucket.CachePromptTokens
+			readTokens += bucket.CacheReadTokens
+		}
+		assert.Equal(t, int64(3), requests)
+		assert.Equal(t, int64(3), successes)
+		assert.Equal(t, int64(1), samples)
+		assert.Equal(t, int64(1), hits)
+		assert.Equal(t, int64(1000), promptTokens)
+		assert.Equal(t, int64(900), readTokens)
+	}
+	for _, bucket := range buckets {
+		bucketTs := now.Unix() - now.Unix()%bucket.resolution
+		values, err := client.HGetAll(ctx, kkaiGroupRedisBucketKey(group, bucket.prefix, bucketTs)).Result()
+		require.NoError(t, err)
+		assert.Equal(t, "2", values["cache_v4_tracked"])
+		assert.Equal(t, "2", values["cache_v4_n"])
+		assert.Equal(t, "2", values["cache_v4_hit"])
+		assert.Equal(t, "200", values["cache_v4_prompt"])
+		assert.Equal(t, "200", values["cache_v4_read"])
+	}
 }
 
 func TestKKAIGroupCacheTrackingResetsAfterCollectionIsReenabled(t *testing.T) {
@@ -460,6 +532,11 @@ func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 		kkaiGroupCacheHitField:     "4",
 		kkaiGroupCachePromptField:  "1000",
 		kkaiGroupCacheReadField:    "900",
+		"cache_v4_tracked":         "80",
+		"cache_v4_n":               "50",
+		"cache_v4_hit":             "40",
+		"cache_v4_prompt":          "10000",
+		"cache_v4_read":            "9000",
 		"last_ts":                  "456",
 	})
 	assert.Equal(t, KKAIGroupBucket{
@@ -492,6 +569,8 @@ func TestKKAIGroupRedisPayloadParsing(t *testing.T) {
 		"cache_prompt": "200", "cache_read": "200", "last_ts": "450",
 		"cache_v3_tracked": "2", "cache_v3_n": "2", "cache_v3_hit": "2",
 		"cache_v3_prompt": "200", "cache_v3_read": "200",
+		"cache_v4_tracked": "2", "cache_v4_n": "2", "cache_v4_hit": "2",
+		"cache_v4_prompt": "200", "cache_v4_read": "200",
 	})
 	assert.Equal(t, int64(2), wrongVersionBucket.RequestCount)
 	assert.Zero(t, wrongVersionBucket.CacheTrackedCount)

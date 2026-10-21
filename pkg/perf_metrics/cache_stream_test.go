@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecordRelayResultIncludesNonStreamCacheUsage(t *testing.T) {
+func TestRecordRelayResultExcludesNonStreamCacheUsage(t *testing.T) {
 	resetKKAIGroupSignalState(t)
 	group := "cache-stream-boundary-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	baseInfo := &relaycommon.RelayInfo{
@@ -39,8 +39,10 @@ func TestRecordRelayResultIncludesNonStreamCacheUsage(t *testing.T) {
 	result := QueryKKAIGroupMinuteBuckets(
 		time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group},
 	)
-	var tracked, samples, hits, promptTokens, cachedTokens int64
+	var requests, successes, tracked, samples, hits, promptTokens, cachedTokens int64
 	for _, bucket := range result.Buckets {
+		requests += bucket.RequestCount
+		successes += bucket.SuccessCount
 		tracked += bucket.CacheTrackedCount
 		samples += bucket.CacheSampleCount
 		hits += bucket.CacheHitCount
@@ -48,48 +50,62 @@ func TestRecordRelayResultIncludesNonStreamCacheUsage(t *testing.T) {
 		cachedTokens += bucket.CacheReadTokens
 	}
 
+	assert.Equal(t, int64(2), requests)
+	assert.Equal(t, int64(2), successes)
 	assert.Equal(t, int64(2), tracked)
-	assert.Equal(t, int64(2), samples)
-	assert.Equal(t, int64(2), hits)
-	assert.Equal(t, int64(200), promptTokens)
-	assert.Equal(t, int64(200), cachedTokens)
-	require.NotZero(t, samples)
-	assert.Equal(t, 100.0, float64(hits)/float64(samples)*100)
-}
-
-func TestRecordRelayResultCacheUsageDoesNotDependOnClientStreamFlag(t *testing.T) {
-	resetKKAIGroupSignalState(t)
-	group := "cache-client-stream-flag-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	clientStream := false
-	info := &relaycommon.RelayInfo{
-		OriginModelName: "cache-test-model",
-		UsingGroup:      group,
-		StartTime:       time.Now().Add(-time.Second),
-		IsStream:        true,
-		ClientIsStream:  &clientStream,
-	}
-
-	info.PerformanceCacheUsageKnown = true
-	info.PerformanceCachePromptTokens = 100
-
-	info.PerformanceCacheReadTokens = 100
-	RecordRelayResult(context.Background(), info, nil)
-
-	result := QueryKKAIGroupMinuteBuckets(
-		time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group},
-	)
-	var samples, hits, promptTokens, cachedTokens int64
-	for _, bucket := range result.Buckets {
-		samples += bucket.CacheSampleCount
-		hits += bucket.CacheHitCount
-		promptTokens += bucket.CachePromptTokens
-		cachedTokens += bucket.CacheReadTokens
-	}
-
 	assert.Equal(t, int64(1), samples)
 	assert.Equal(t, int64(1), hits)
 	assert.Equal(t, int64(100), promptTokens)
 	assert.Equal(t, int64(100), cachedTokens)
+	require.NotZero(t, samples)
+	assert.Equal(t, 100.0, float64(hits)/float64(samples)*100)
+}
+
+func TestRecordRelayResultCacheUsageUsesClientStreamFlag(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		clientStream bool
+		wantSamples  int64
+	}{
+		{name: "non-stream client with internal streaming"},
+		{name: "stream client with internal buffering", clientStream: true, wantSamples: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetKKAIGroupSignalState(t)
+			group := "cache-client-stream-flag-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+			info := &relaycommon.RelayInfo{
+				OriginModelName:              "cache-test-model",
+				UsingGroup:                   group,
+				StartTime:                    time.Now().Add(-time.Second),
+				IsStream:                     !test.clientStream,
+				ClientIsStream:               &test.clientStream,
+				PerformanceCacheUsageKnown:   true,
+				PerformanceCachePromptTokens: 100,
+				PerformanceCacheReadTokens:   100,
+			}
+			RecordRelayResult(context.Background(), info, nil)
+
+			result := QueryKKAIGroupMinuteBuckets(
+				time.Now().Add(-2*time.Minute).Unix(), time.Now().Add(time.Second).Unix(), []string{group},
+			)
+			var requests, tracked, samples, hits, promptTokens, cachedTokens int64
+			for _, bucket := range result.Buckets {
+				requests += bucket.RequestCount
+				tracked += bucket.CacheTrackedCount
+				samples += bucket.CacheSampleCount
+				hits += bucket.CacheHitCount
+				promptTokens += bucket.CachePromptTokens
+				cachedTokens += bucket.CacheReadTokens
+			}
+
+			assert.Equal(t, int64(1), requests)
+			assert.Equal(t, int64(1), tracked)
+			assert.Equal(t, test.wantSamples, samples)
+			assert.Equal(t, test.wantSamples, hits)
+			assert.Equal(t, 100*test.wantSamples, promptTokens)
+			assert.Equal(t, 100*test.wantSamples, cachedTokens)
+		})
+	}
 }
 
 func TestRecordNormalizesLowCacheHitMarker(t *testing.T) {

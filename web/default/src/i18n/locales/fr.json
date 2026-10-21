@@ -5622,6 +5622,7 @@
     "Requests per minute": "Requêtes par minute",
     "requests served": "requêtes traitées",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "Les requêtes seront transmises à ce worker. Les barres obliques finales sont automatiquement supprimées.",
+    "Requests with more than 30% cached input, as a share of successful streaming text requests with reported usage in the last 24 hours.": "Part des requêtes dont plus de 30 % des jetons d’entrée proviennent du cache, parmi les requêtes texte en streaming réussies avec des données d’utilisation sur les dernières 24 heures.",
     "Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.": "Part des requêtes dont plus de 30 % des jetons d’entrée proviennent du cache, parmi les requêtes texte réussies avec des données d’utilisation sur les dernières 24 heures.",
     "Requests:": "Requêtes :",
     "Require email verification for new accounts": "Exiger la vérification de l'e-mail pour les nouveaux comptes",

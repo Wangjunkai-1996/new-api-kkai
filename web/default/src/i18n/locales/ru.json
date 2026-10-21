@@ -5622,6 +5622,7 @@
     "Requests per minute": "Запросов в минуту",
     "requests served": "обслуженных запросов",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "Запросы будут перенаправлены этому воркеру. Конечные слеши удаляются автоматически.",
+    "Requests with more than 30% cached input, as a share of successful streaming text requests with reported usage in the last 24 hours.": "Доля запросов с более чем 30% входных токенов из кэша среди успешных потоковых текстовых запросов с данными об использовании за последние 24 часа.",
     "Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.": "Доля запросов с более чем 30% входных токенов из кэша среди успешных текстовых запросов с данными об использовании за последние 24 часа.",
     "Requests:": "Запросы:",
     "Require email verification for new accounts": "Требовать подтверждение электронной почты для новых учетных записей",

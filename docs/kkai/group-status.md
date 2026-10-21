@@ -34,3 +34,13 @@ idle or disconnected group from appearing healthy indefinitely.
 
 The `auto` group is an aggregate of the configured auto-group members that are
 also visible to the user. It never exposes metrics for a hidden group.
+
+Cache hit rate always uses the last 24 hours, independently of the selected
+health window. It is the share of successful streaming text requests with
+reported, non-estimated usage whose cached input exceeds 30% of the normalized
+prompt context. The original client stream flag determines eligibility, so a
+non-streaming client request remains excluded even when the relay streams
+internally. Non-streaming requests still contribute to health and request counts.
+Redis cache counters use a separate version for this definition; earlier mixed
+streaming/non-streaming counters are ignored and new samples accumulate from
+rollout. Cache hit rate is hidden when Redis is unavailable or there are no hits.

@@ -1519,7 +1519,6 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 		{
 			name:      "non-stream chat completions",
 			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI},
-			want:      true,
 		},
 		{
 			name:      "legacy completions",
@@ -1564,6 +1563,7 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 		{
 			name: "native Gemini embedding",
 			relayInfo: &relaycommon.RelayInfo{
+				IsStream:       true,
 				RelayMode:      relayconstant.RelayModeGemini,
 				RelayFormat:    types.RelayFormatGemini,
 				RequestURLPath: "/v1beta/models/text-embedding-004:embedContent",
@@ -1572,6 +1572,7 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 		{
 			name: "native Gemini batch embedding",
 			relayInfo: &relaycommon.RelayInfo{
+				IsStream:       true,
 				RelayMode:      relayconstant.RelayModeGemini,
 				RelayFormat:    types.RelayFormatGemini,
 				RequestURLPath: "/v1beta/models/text-embedding-004:batchEmbedContents",
@@ -1579,27 +1580,28 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 		},
 		{
 			name:      "image generation",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeImagesGenerations, RelayFormat: types.RelayFormatOpenAIImage},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeImagesGenerations, RelayFormat: types.RelayFormatOpenAIImage},
 		},
 		{
 			name:      "OpenAI embedding",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeEmbeddings, RelayFormat: types.RelayFormatEmbedding},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeEmbeddings, RelayFormat: types.RelayFormatEmbedding},
 		},
 		{
 			name:      "rerank",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeRerank, RelayFormat: types.RelayFormatRerank},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeRerank, RelayFormat: types.RelayFormatRerank},
 		},
 		{
 			name:      "audio transcription",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeAudioTranscription, RelayFormat: types.RelayFormatOpenAIAudio},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeAudioTranscription, RelayFormat: types.RelayFormatOpenAIAudio},
 		},
 		{
 			name:      "moderation",
-			relayInfo: &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeModerations, RelayFormat: types.RelayFormatOpenAI},
+			relayInfo: &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeModerations, RelayFormat: types.RelayFormatOpenAI},
 		},
 		{
 			name: "malformed Gemini URL",
 			relayInfo: &relaycommon.RelayInfo{
+				IsStream:       true,
 				RelayMode:      relayconstant.RelayModeGemini,
 				RelayFormat:    types.RelayFormatGemini,
 				RequestURLPath: "%zz:generateContent",
@@ -1618,6 +1620,7 @@ func TestIsGroupStatusCacheEligibleRequest(t *testing.T) {
 
 func TestGroupStatusCacheUsageMatchesIncidentLogSemantics(t *testing.T) {
 	allowedRelay := &relaycommon.RelayInfo{
+		IsStream:    true,
 		RelayMode:   relayconstant.RelayModeChatCompletions,
 		RelayFormat: types.RelayFormatOpenAI,
 	}

@@ -5622,6 +5622,7 @@
     "Requests per minute": "每分鐘請求數",
     "requests served": "服務請求數",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "請求將被轉發到此 Worker。最後的斜線會自動移除。",
+    "Requests with more than 30% cached input, as a share of successful streaming text requests with reported usage in the last 24 hours.": "最近 24 小時有用量資料的成功串流文字請求中，快取輸入占比超過 30% 的請求比例。",
     "Requests with more than 30% cached input, as a share of successful text requests with reported usage in the last 24 hours.": "最近 24 小時有用量資料的成功文字請求中，快取輸入占比超過 30% 的請求比例。",
     "Requests:": "請求：",
     "Require email verification for new accounts": "要求新用戶驗證電郵",

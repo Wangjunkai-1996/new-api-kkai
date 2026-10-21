@@ -24,12 +24,14 @@ const (
 	kkaiGroupMinuteTTL         = 70 * time.Minute
 	kkaiGroupHistoricalTTL     = 26 * time.Hour
 
-	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v4:started_at"
-	kkaiGroupCacheTrackedField      = "cache_v4_tracked"
-	kkaiGroupCacheSampleField       = "cache_v4_n"
-	kkaiGroupCacheHitField          = "cache_v4_hit"
-	kkaiGroupCachePromptField       = "cache_v4_prompt"
-	kkaiGroupCacheReadField         = "cache_v4_read"
+	// v5 excludes client non-streaming requests; older aggregates cannot be
+	// filtered after collection and must not enter the new cache rate.
+	kkaiGroupCacheTrackingMarkerKey = "kkai:group-status:cache-v5:started_at"
+	kkaiGroupCacheTrackedField      = "cache_v5_tracked"
+	kkaiGroupCacheSampleField       = "cache_v5_n"
+	kkaiGroupCacheHitField          = "cache_v5_hit"
+	kkaiGroupCachePromptField       = "cache_v5_prompt"
+	kkaiGroupCacheReadField         = "cache_v5_read"
 )
 
 type KKAIGroupBucket struct {
