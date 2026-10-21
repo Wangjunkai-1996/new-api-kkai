@@ -26,7 +26,9 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createInstance } from 'i18next'
 import type { ReactNode } from 'react'
+import { I18nextProvider } from 'react-i18next'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { ImageLibraryPage } from './image-library-page'
@@ -166,6 +168,41 @@ beforeEach(() => {
 afterEach(() => queryClient.clear())
 
 describe('image library continuity and privacy', () => {
+  test.each(['zhCN', 'zhTW'])(
+    'renders historical date groups in the %s interface without crashing',
+    async (language) => {
+      const i18n = createInstance()
+      await i18n.init({
+        lng: language,
+        fallbackLng: 'en',
+        resources: { en: { translation: {} } },
+      })
+      mocks.query.data = {
+        pages: [
+          {
+            items: [
+              {
+                ...generation(2),
+                created_at: new Date(2020, 8, 12, 12).getTime() / 1000,
+              },
+            ],
+          },
+        ],
+      }
+      render(
+        <I18nextProvider i18n={i18n}>
+          <ImageLibraryPage />
+        </I18nextProvider>,
+        { wrapper: TestQueryProvider }
+      )
+
+      expect(
+        screen.getByRole('heading', { name: '2020年9月12日' })
+      ).toBeVisible()
+      expect(screen.getByText('Private image 2')).toBeVisible()
+    }
+  )
+
   test('defers new batches while reading below, but appends older pagination immediately', async () => {
     const { container, rerender } = render(<ImageLibraryPage />, {
       wrapper: TestQueryProvider,

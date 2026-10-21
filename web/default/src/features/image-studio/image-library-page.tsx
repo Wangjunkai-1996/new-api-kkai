@@ -52,6 +52,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toIntlLocale } from '@/i18n/languages'
 import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -114,7 +115,7 @@ const groupGenerationsByDate = (
     key,
     label: isToday(items[0]?.created_at ?? 0)
       ? 'Today'
-      : new Intl.DateTimeFormat(locale, {
+      : new Intl.DateTimeFormat(toIntlLocale(locale), {
           day: 'numeric',
           month: 'long',
           year: 'numeric',
