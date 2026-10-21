@@ -29,6 +29,7 @@ import {
 } from '@/stores/image-studio-draft-store'
 
 import { lookupImageSubmission } from '../api'
+import { isImageSubmissionReceiptExpired } from '../image-domain'
 import type { ImageGeneration } from '../types'
 
 export function ImageSubmissionRecovery(props: {
@@ -64,11 +65,25 @@ export function ImageSubmissionRecovery(props: {
         props.onRecovered(result.generation)
         return
       }
-      toast.info(
-        t(
-          'Your submission is still being checked. No new image request was sent.'
+      if (result.state === 'not_found') {
+        if (isImageSubmissionReceiptExpired(receipt.expiresAt)) {
+          toast.error(
+            t(
+              'This submission receipt has expired. Check your image history or contact support before submitting again.'
+            )
+          )
+        } else {
+          toast.info(
+            t('No submitted task was found. Click Generate to retry safely.')
+          )
+        }
+      } else {
+        toast.info(
+          t(
+            'Your submission is still being checked. No new image request was sent.'
+          )
         )
-      )
+      }
     } catch {
       toast.error(t('Unable to check the submitted task. Please try again.'))
     }

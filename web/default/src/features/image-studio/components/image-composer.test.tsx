@@ -19,10 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
+import { toast } from 'sonner'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import en from '@/i18n/locales/en.json'
 import { useAuthStore } from '@/stores/auth-store'
+import { clearImageStudioSubmissionKey } from '@/stores/image-studio-draft-store'
 
 import type { ImageTokenGateState } from '../hooks/use-image-token-gate'
 import type {
@@ -53,6 +55,7 @@ const mocks = vi.hoisted(() => ({
   quoteExpiresIn: 3600,
   refreshedQuote: null as Partial<ImageQuote> | null,
   generationQuoteRefetch: vi.fn(),
+  asyncQuoteRefetch: vi.fn(),
   generationMutation: {
     isPending: false,
     variables: undefined as GenerationVariables | undefined,
@@ -98,19 +101,25 @@ vi.mock('../queries', () => ({
   useCreateAsyncImageGeneration: () => mocks.asyncMutation,
   useAsyncImageQuote: (request: ImageAsyncQuoteRequest | null) => {
     mocks.asyncQuoteRequest = request
+    const quote =
+      request && !mocks.asyncQuoteFailed
+        ? {
+            quota: 1,
+            display_amount: '$0.01',
+            quote_token: 'async-quote',
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          }
+        : undefined
     return {
-      data:
-        request && !mocks.asyncQuoteFailed
-          ? {
-              quota: 1,
-              display_amount: '$0.01',
-              quote_token: 'async-quote',
-              expires_at: Math.floor(Date.now() / 1000) + 3600,
-            }
-          : undefined,
+      data: quote,
       isFetching: false,
       isError: Boolean(request) && mocks.asyncQuoteFailed,
-      refetch: vi.fn(),
+      refetch: () => {
+        mocks.asyncQuoteRefetch()
+        return Promise.resolve({
+          data: quote && { ...quote, ...mocks.refreshedQuote },
+        })
+      },
     }
   },
   useImageModels: () => ({ data: mocks.models, isLoading: false }),
@@ -330,6 +339,7 @@ describe('image composer', () => {
     mocks.quoteExpiresIn = 3600
     mocks.refreshedQuote = null
     mocks.generationQuoteRefetch.mockClear()
+    mocks.asyncQuoteRefetch.mockClear()
     mocks.asyncMutation.mutateAsync.mockReset()
     mocks.generationMutation.mutateAsync.mockReset()
     mocks.editMutation.mutateAsync.mockReset()
@@ -416,9 +426,7 @@ describe('image composer', () => {
       screen.getByRole('button', { name: 'Generate 1 image' })
     ).toBeDisabled()
     expect(mocks.generationQuoteRequest).toBeNull()
-    await user.click(
-      screen.getByRole('button', { name: 'Generate' })
-    )
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Generate 1 image' })
@@ -496,9 +504,10 @@ describe('image composer', () => {
       screen.getByRole('button', { name: 'Remove reference image 1' })
     )
     expect(screen.getByRole('button', { name: 'Edit image' })).toBeDisabled()
-    expect(
-      screen.getByRole('button', { name: 'Edit' })
-    ).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     await waitFor(() => expect(mocks.asyncQuoteRequest).toBeNull())
   })
 
@@ -530,9 +539,10 @@ describe('image composer', () => {
       )
       expect(screen.getByLabelText('Reference limit')).toBeInTheDocument()
       expect(edit).toBeDisabled()
-      expect(
-        screen.getByRole('button', { name: 'Edit' })
-      ).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      )
     }
   )
 
@@ -921,37 +931,240 @@ describe('image composer', () => {
     await waitFor(() => expect(mocks.generationQuoteRequest).toBeNull())
   })
 
-  test('looks up an uncertain submission without sending another image request', async () => {
+  test.each(['pending', 'found'] as const)(
+    'looks up an uncertain %s submission without sending another image request',
+    async (state) => {
+      const user = userEvent.setup()
+      mocks.pendingSubmissions = [
+        {
+          idempotencyKey: 'submission-key',
+          requestFingerprint: 'a'.repeat(64),
+          expiresAt: 1,
+          submittedAt: 1,
+        },
+      ]
+      const generation = previousGeneration()
+      mocks.lookup.mockResolvedValue({ state, generation })
+      const onSubmitted = vi.fn()
+      render(<ImageComposer tokenGate={tokenGate} onSubmitted={onSubmitted} />)
+      await user.type(
+        await screen.findByLabelText('Prompt'),
+        'Find existing request'
+      )
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Generate 1 image' })
+        ).toBeEnabled()
+      )
+      await user.click(screen.getByRole('button', { name: 'Generate 1 image' }))
+      await waitFor(() =>
+        expect(mocks.lookup).toHaveBeenCalledWith('submission-key')
+      )
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Generate 1 image' })
+        ).toBeEnabled()
+      )
+      expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+      expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
+      expect(mocks.generationQuoteRefetch).not.toHaveBeenCalled()
+      if (state === 'found') {
+        expect(onSubmitted).toHaveBeenCalledWith(generation)
+      } else {
+        expect(onSubmitted).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  test('retries a missing submission with its original key and a refreshed quote', async () => {
     const user = userEvent.setup()
     mocks.pendingSubmissions = [
       {
         idempotencyKey: 'submission-key',
         requestFingerprint: 'a'.repeat(64),
-        expiresAt: 1,
+        expiresAt: Date.now() + 60_000,
+        submittedAt: Date.now(),
+      },
+    ]
+    mocks.lookup.mockResolvedValue({ state: 'not_found' })
+    mocks.refreshedQuote = { quote_token: 'retry-quote' }
+    const generation = previousGeneration()
+    mocks.generationMutation.mutateAsync.mockResolvedValue(generation)
+    const onSubmitted = vi.fn()
+    render(<ImageComposer tokenGate={tokenGate} onSubmitted={onSubmitted} />)
+    fireEvent.change(await screen.findByLabelText('Prompt'), {
+      target: { value: 'Find existing request' },
+    })
+    const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+    await waitFor(() => expect(generate).toBeEnabled())
+    await user.click(generate)
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith(generation))
+    expect(mocks.lookup).toHaveBeenCalledWith('submission-key')
+    expect(mocks.generationQuoteRefetch).toHaveBeenCalledOnce()
+    expect(
+      mocks.generationMutation.mutateAsync
+    ).toHaveBeenCalledExactlyOnceWith({
+      request: {
+        token_id: 11,
+        model: 'gpt-image-2',
+        prompt: 'Find existing request',
+        parameters: { variants: 1 },
+        quote_token: 'retry-quote',
+      },
+      idempotencyKey: 'submission-key',
+    })
+  })
+
+  test('preserves async edit inputs and the original key when retrying a missing submission', async () => {
+    const user = userEvent.setup()
+    const editProfile = profile()
+    editProfile.specification.max_reference_images = 2
+    mocks.models = [editProfile]
+    mocks.pendingSubmissions = [
+      {
+        idempotencyKey: 'submission-key',
+        requestFingerprint: 'a'.repeat(64),
+        expiresAt: Date.now() + 60_000,
+        submittedAt: Date.now(),
+      },
+    ]
+    mocks.lookup.mockResolvedValue({ state: 'not_found' })
+    mocks.refreshedQuote = { quote_token: 'async-retry-quote' }
+    mocks.asyncMutation.mutateAsync.mockResolvedValue({
+      id: 92,
+      status: 'submitting',
+    })
+    render(
+      <ImageComposer
+        reuseGeneration={previousGeneration()}
+        reuseInput={previousEditInput()}
+        tokenGate={asyncGate()}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const edit = await screen.findByRole('button', { name: 'Edit image' })
+    await waitFor(() => expect(edit).toBeEnabled())
+    await user.click(edit)
+    await waitFor(() =>
+      expect(mocks.asyncMutation.mutateAsync).toHaveBeenCalledExactlyOnceWith({
+        request: {
+          token_id: 11,
+          model: 'gpt-image-2',
+          prompt: 'A previous composition',
+          parameters: { variants: 1 },
+          mode: 'edit',
+          asset_ids: [81, 82],
+          quote_token: 'async-retry-quote',
+        },
+        idempotencyKey: 'submission-key',
+      })
+    )
+    expect(mocks.asyncQuoteRefetch).toHaveBeenCalledOnce()
+    expect(mocks.editMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  test('keeps expired missing receipts protected instead of sending a new request', async () => {
+    const user = userEvent.setup()
+    const error = vi.spyOn(toast, 'error')
+    mocks.pendingSubmissions = [
+      {
+        idempotencyKey: 'submission-key',
+        requestFingerprint: 'a'.repeat(64),
+        expiresAt: Date.now() - 1,
         submittedAt: 1,
       },
     ]
     mocks.lookup.mockResolvedValue({ state: 'not_found' })
-    const priorCalls = mocks.generationMutation.mutateAsync.mock.calls.length
     render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
-    await user.type(
-      await screen.findByLabelText('Prompt'),
-      'Find existing request'
-    )
+    fireEvent.change(await screen.findByLabelText('Prompt'), {
+      target: { value: 'Find existing request' },
+    })
+    const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+    await waitFor(() => expect(generate).toBeEnabled())
+    await user.click(generate)
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Generate 1 image' })
-      ).toBeEnabled()
+      expect(error).toHaveBeenCalledWith(
+        'This submission receipt has expired. Check your image history or contact support before submitting again.'
+      )
     )
-    await user.click(screen.getByRole('button', { name: 'Generate 1 image' }))
-    await waitFor(() =>
-      expect(mocks.lookup).toHaveBeenCalledWith('submission-key')
-    )
-    expect(mocks.generationMutation.mutateAsync.mock.calls.length).toBe(
-      priorCalls
-    )
+    expect(clearImageStudioSubmissionKey).not.toHaveBeenCalled()
+    expect(mocks.generationQuoteRefetch).not.toHaveBeenCalled()
+    expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
     expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
   })
+
+  test.each(['price_changed', 'receipt_expired'] as const)(
+    'does not retry when quote refresh reveals %s',
+    async (reason) => {
+      const user = userEvent.setup()
+      mocks.pendingSubmissions = [
+        {
+          idempotencyKey: 'submission-key',
+          requestFingerprint: 'a'.repeat(64),
+          expiresAt: Date.now() + 60_000,
+          submittedAt: Date.now(),
+        },
+      ]
+      mocks.lookup.mockResolvedValue({ state: 'not_found' })
+      if (reason === 'price_changed') {
+        mocks.refreshedQuote = { quota: 2, display_amount: '$0.02' }
+      } else {
+        mocks.generationQuoteRefetch.mockImplementationOnce(() => {
+          mocks.pendingSubmissions[0].expiresAt = Date.now() - 1
+        })
+      }
+      render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+      fireEvent.change(await screen.findByLabelText('Prompt'), {
+        target: { value: 'Find existing request' },
+      })
+      const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+      await waitFor(() => expect(generate).toBeEnabled())
+      await user.click(generate)
+      await waitFor(() =>
+        expect(mocks.generationQuoteRefetch).toHaveBeenCalledOnce()
+      )
+      await waitFor(() => expect(generate).toBeEnabled())
+      expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+      expect(clearImageStudioSubmissionKey).not.toHaveBeenCalled()
+    }
+  )
+
+  test.each([
+    { status: 400, code: 'invalid_request' },
+    { status: 409, code: 'quote_stale' },
+  ])(
+    'keeps the original receipt after a retry receives $status/$code',
+    async ({ status, code }) => {
+      const user = userEvent.setup()
+      const error = vi.spyOn(toast, 'error')
+      mocks.pendingSubmissions = [
+        {
+          idempotencyKey: 'submission-key',
+          requestFingerprint: 'a'.repeat(64),
+          expiresAt: Date.now() + 60_000,
+          submittedAt: Date.now(),
+        },
+      ]
+      mocks.lookup.mockResolvedValue({ state: 'not_found' })
+      mocks.generationMutation.mutateAsync.mockRejectedValue({
+        isAxiosError: true,
+        response: { status, data: { code } },
+      })
+      render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
+      fireEvent.change(await screen.findByLabelText('Prompt'), {
+        target: { value: 'Find existing request' },
+      })
+      const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+      await waitFor(() => expect(generate).toBeEnabled())
+      await user.click(generate)
+      await waitFor(() =>
+        expect(mocks.generationMutation.mutateAsync).toHaveBeenCalledOnce()
+      )
+      await waitFor(() => expect(error).toHaveBeenCalled())
+      expect(clearImageStudioSubmissionKey).not.toHaveBeenCalled()
+    }
+  )
 
   test('keeps the legacy edit transport when the selected model does not support async', async () => {
     const user = userEvent.setup()

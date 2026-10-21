@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'sonner'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import {
@@ -61,6 +62,7 @@ describe('submission recovery after leaving the page', () => {
   test.each(['not_found', 'pending'] as const)(
     'retains an uncertain %s receipt without requiring prompt or reference files',
     async (state) => {
+      const info = vi.spyOn(toast, 'info')
       vi.mocked(lookupImageSubmission).mockResolvedValue({ state })
       const { idempotencyKey, onRecovered } = renderRecovery()
       await userEvent.click(screen.getByRole('button'))
@@ -70,8 +72,29 @@ describe('submission recovery after leaving the page', () => {
       )
       expect(listPendingImageStudioSubmissions(userId)).toHaveLength(1)
       expect(onRecovered).not.toHaveBeenCalled()
+      expect(info).toHaveBeenCalledWith(
+        state === 'not_found'
+          ? 'No submitted task was found. Click Generate to retry safely.'
+          : 'Your submission is still being checked. No new image request was sent.'
+      )
     }
   )
+
+  test('keeps an expired missing receipt and directs the user to history or support', async () => {
+    const error = vi.spyOn(toast, 'error')
+    vi.mocked(lookupImageSubmission).mockResolvedValue({ state: 'not_found' })
+    const { onRecovered } = renderRecovery()
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now + 25 * 60 * 60 * 1000)
+    await userEvent.click(screen.getByRole('button'))
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        'This submission receipt has expired. Check your image history or contact support before submitting again.'
+      )
+    )
+    expect(listPendingImageStudioSubmissions(userId)).toHaveLength(1)
+    expect(onRecovered).not.toHaveBeenCalled()
+  })
 
   test('keeps lookup available after a found task remains unknown', async () => {
     const generation = { id: 9, status: 'unknown' } as ImageGeneration

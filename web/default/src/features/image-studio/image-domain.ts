@@ -72,6 +72,9 @@ export const isImageGenerationActive = (
   status: ImageGenerationStatus
 ): boolean => status === 'submitting'
 
+export const isImageSubmissionReceiptExpired = (expiresAt: number): boolean =>
+  expiresAt <= Date.now()
+
 export const getImageGenerationPollInterval = (
   generations: Array<
     Pick<ImageGeneration, 'status' | 'started_at' | 'created_at'>

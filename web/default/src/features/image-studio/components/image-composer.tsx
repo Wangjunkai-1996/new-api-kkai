@@ -58,6 +58,7 @@ import {
   buildImageComposerValues,
   imageRequestFingerprint,
   imageSubmissionFingerprint,
+  isImageSubmissionReceiptExpired,
   resolveImageGenerationStatus,
 } from '../image-domain'
 import {
@@ -645,15 +646,15 @@ export function ImageComposer(props: {
       return
     }
     let sentSubmission = false
+    const existing = listPendingImageStudioSubmissions(userId).find(
+      (receipt) => receipt.idempotencyKey === idempotencyKey
+    )
     try {
-      let generation: ImageGeneration
-      const existing = listPendingImageStudioSubmissions(userId).find(
-        (receipt) => receipt.idempotencyKey === idempotencyKey
-      )
+      let generation: ImageGeneration | undefined
       if (existing) {
         setCheckingSubmission(true)
         const result = await lookupImageSubmission(idempotencyKey)
-        if (result.state !== 'found' || !result.generation) {
+        if (result.state === 'pending') {
           toast.info(
             t(
               'Your submission is still being checked. No new image request was sent.'
@@ -661,9 +662,18 @@ export function ImageComposer(props: {
           )
           return
         }
-        generation = result.generation
-      } else {
-        if (isImageQuoteExpiring(quote.expires_at)) {
+        if (result.state === 'found') generation = result.generation
+        else if (isImageSubmissionReceiptExpired(existing.expiresAt)) {
+          toast.error(
+            t(
+              'This submission receipt has expired. Check your image history or contact support before submitting again.'
+            )
+          )
+          return
+        }
+      }
+      if (!generation) {
+        if (existing || isImageQuoteExpiring(quote.expires_at)) {
           const refreshed = await quoteQuery.refetch()
           if (!refreshed.data) return
           if (
@@ -674,6 +684,14 @@ export function ImageComposer(props: {
             return
           }
           quote = refreshed.data
+        }
+        if (existing && isImageSubmissionReceiptExpired(existing.expiresAt)) {
+          toast.error(
+            t(
+              'This submission receipt has expired. Check your image history or contact support before submitting again.'
+            )
+          )
+          return
         }
         if (!markImageStudioSubmissionStarted(userId, requestFingerprint)) {
           toast.error(
@@ -729,6 +747,7 @@ export function ImageComposer(props: {
       const status = isAxiosError(error) ? error.response?.status : undefined
       if (
         sentSubmission &&
+        !existing &&
         status &&
         status >= 400 &&
         status < 500 &&
@@ -738,7 +757,9 @@ export function ImageComposer(props: {
         clearImageStudioSubmissionKey(userId, requestFingerprint)
       }
       if (sentSubmission && isImageQuoteStaleResponse(error)) {
-        clearImageStudioSubmissionKey(userId, requestFingerprint)
+        if (!existing) {
+          clearImageStudioSubmissionKey(userId, requestFingerprint)
+        }
         setStaleQuoteToken(quote.quote_token)
         toast.error(t('imageStudio.quoteChanged'))
         await quoteQuery.refetch()
