@@ -96,6 +96,12 @@ func Login(c *gin.Context) {
 		err = user.ValidateAndFillTenantOwner(tenantID)
 	} else {
 		err = user.ValidateAndFillForTenant(tenantID)
+		if tenantID > model.PlatformTenantID && errors.Is(err, model.ErrInvalidCredentials) {
+			// Customer credentials take priority; only this site's active owner may also sign in.
+			// Start with the submitted credentials because the customer lookup can overwrite user.
+			user = model.User{Username: username, Password: password}
+			err = user.ValidateAndFillTenantOwner(tenantID)
+		}
 	}
 	if err != nil {
 		switch {

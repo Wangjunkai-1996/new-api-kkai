@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestTenantOwnerLoginUsesExplicitNamespaceAndPreservesTwoFA(t *testing.T) {
+func TestTenantOwnerLoginRecognizesCredentialsAndPreservesTwoFA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -40,33 +40,49 @@ func TestTenantOwnerLoginUsesExplicitNamespaceAndPreservesTwoFA(t *testing.T) {
 	customer := model.User{Username: owner.Username, Email: owner.Email, TenantID: 42, Password: hash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "customer"}
 	customer.NormalizedUsername, customer.NormalizedEmail = &customer.Username, &customer.Email
 	outsider := model.User{Username: "outsider", TenantID: 0, Password: hash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "outsider"}
-	for _, user := range []*model.User{&owner, &customer, &outsider} {
+	ownerPassword := "DistinctOwnerPassword123"
+	ownerHash, err := common.HashAccountPassword(ownerPassword)
+	require.NoError(t, err)
+	root := model.User{Username: "root", Email: "root@example.com", TenantID: 0, Password: ownerHash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "root-owner"}
+	rootCustomer := model.User{Username: root.Username, Email: "customer@example.com", TenantID: 42, Password: hash, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "root-customer"}
+	rootCustomer.NormalizedUsername, rootCustomer.NormalizedEmail = &rootCustomer.Username, &rootCustomer.Email
+	for _, user := range []*model.User{&owner, &customer, &outsider, &root, &rootCustomer} {
 		user.Role = common.RoleCommonUser
 		require.NoError(t, db.Create(user).Error)
 		require.NoError(t, db.Create(&model.TwoFA{UserId: user.Id, IsEnabled: true, Secret: "enrolled-factor"}).Error)
 	}
 	require.NoError(t, db.Create(&model.TenantMembership{TenantID: 42, UserID: owner.Id, Role: model.TenantMembershipRoleOwner, Status: model.TenantMembershipStatusActive}).Error)
 	require.NoError(t, db.Create(&model.TenantMembership{TenantID: 42, UserID: customer.Id, Role: model.TenantMembershipRoleCustomer, Status: model.TenantMembershipStatusActive}).Error)
+	require.NoError(t, db.Create(&model.TenantMembership{TenantID: 42, UserID: root.Id, Role: model.TenantMembershipRoleOwner, Status: model.TenantMembershipStatusActive}).Error)
+	require.NoError(t, db.Create(&model.TenantMembership{TenantID: 42, UserID: rootCustomer.Id, Role: model.TenantMembershipRoleCustomer, Status: model.TenantMembershipStatusActive}).Error)
 	for _, test := range []struct {
 		name       string
 		tenantID   int64
 		identity   string
 		ownerFlag  any
 		wantUserID int
+		password   string
 	}{
-		{"default_customer_username", 42, owner.Username, nil, customer.Id},
-		{"default_customer_email", 42, owner.Email, nil, customer.Id},
-		{"explicit_customer", 42, owner.Username, false, customer.Id},
-		{"owner_username", 42, owner.Username, true, owner.Id},
-		{"owner_email", 42, owner.Email, true, owner.Id},
-		{"owner_requires_membership", 42, outsider.Username, true, 0},
-		{"customer_never_falls_back", 43, owner.Username, nil, 0},
-		{"other_tenant_owner_rejected", 43, owner.Username, true, 0},
-		{"platform_rejects_owner_mode", 0, owner.Username, true, 0},
-		{"owner_flag_must_be_boolean", 42, owner.Username, "true", 0},
+		{"same_credentials_prefer_customer_username", 42, owner.Username, nil, customer.Id, password},
+		{"same_credentials_prefer_customer_email", 42, owner.Email, nil, customer.Id, password},
+		{"explicit_customer", 42, owner.Username, false, customer.Id, password},
+		{"owner_username", 42, owner.Username, true, owner.Id, password},
+		{"owner_email", 42, owner.Email, true, owner.Id, password},
+		{"owner_requires_membership", 42, outsider.Username, true, 0, password},
+		{"default_owner_requires_membership", 42, outsider.Username, nil, 0, password},
+		{"other_tenant_owner_rejected_by_default", 43, owner.Username, nil, 0, password},
+		{"other_tenant_owner_rejected", 43, owner.Username, true, 0, password},
+		{"platform_rejects_owner_mode", 0, owner.Username, true, 0, password},
+		{"owner_flag_must_be_boolean", 42, owner.Username, "true", 0, password},
+		{"default_owner_despite_matching_customer", 42, root.Username, nil, root.Id, ownerPassword},
+		{"default_owner_without_matching_customer", 42, root.Email, nil, root.Id, ownerPassword},
+		{"owner_with_default_false_flag", 42, root.Username, false, root.Id, ownerPassword},
+		{"matching_customer_keeps_customer_identity", 42, root.Username, nil, rootCustomer.Id, password},
+		{"wrong_password_is_rejected", 42, root.Username, nil, 0, "WrongPassword123"},
+		{"platform_login_is_unchanged", 0, root.Username, nil, root.Id, ownerPassword},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			body := map[string]any{"username": test.identity, "password": password, "tenant_id": 0}
+			body := map[string]any{"username": test.identity, "password": test.password, "tenant_id": 0}
 			if test.ownerFlag != nil {
 				body["owner_login"] = test.ownerFlag
 			}
