@@ -35,16 +35,26 @@ export function ImageParameterFields(props: {
   control: Control<ImageComposerValues>
   profile: ImageModelProfile
   hideOutputCount?: boolean
+  group?: 'all' | 'quality' | 'advanced'
+  disabled?: boolean
 }) {
   const { t } = useTranslation()
-  const parameters = props.hideOutputCount
-    ? props.profile.specification.parameters.filter(
-        (parameter) => parameter.request_key !== 'n'
-      )
-    : props.profile.specification.parameters
+  const parameters = props.profile.specification.parameters.filter(
+    (parameter) => {
+      if (props.hideOutputCount && parameter.request_key === 'n') return false
+      if (props.group === 'quality') return parameter.request_key === 'quality'
+      if (props.group === 'advanced') {
+        return !['size', 'n', 'quality'].includes(parameter.request_key)
+      }
+      return true
+    }
+  )
   if (parameters.length === 0) return null
   return (
-    <div className='grid gap-4'>
+    <fieldset
+      disabled={props.disabled}
+      className='image-create-parameter-grid grid min-w-0 gap-4'
+    >
       {parameters.map((parameter) => (
         <Controller
           key={parameter.key}
@@ -74,6 +84,7 @@ export function ImageParameterFields(props: {
                   <div className='flex min-h-10 items-center justify-between gap-3 rounded-md border px-3'>
                     <Label htmlFor={id}>{parameter.label}</Label>
                     <Switch
+                      disabled={props.disabled}
                       id={id}
                       checked={field.value === true}
                       onCheckedChange={field.onChange}
@@ -202,6 +213,6 @@ export function ImageParameterFields(props: {
           }}
         />
       ))}
-    </div>
+    </fieldset>
   )
 }

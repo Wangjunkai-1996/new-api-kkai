@@ -23,6 +23,7 @@ import {
   LoaderCircle,
   Trash2,
 } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -37,6 +38,7 @@ function ImageReferencePreview(props: { file: File; alt: string }) {
 
   useEffect(() => {
     const url = URL.createObjectURL(props.file)
+    // oxlint-disable-next-line react/set-state-in-effect -- Synchronize a browser object URL and revoke it when the file changes.
     setPreviewUrl(url)
     return () => URL.revokeObjectURL(url)
   }, [props.file])
@@ -53,6 +55,7 @@ export function ImageReferenceField(props: {
   disabled: boolean
 }) {
   const { t } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const inputId = 'image-studio-reference-images'
   const errorId = `${inputId}-error`
   const inputDisabled =
@@ -77,8 +80,12 @@ export function ImageReferenceField(props: {
       {props.controller.files.length > 0 && (
         <ul className='space-y-2'>
           {fileRows.map((row) => (
-            <li
+            <motion.li
               key={row.id}
+              layout={reduceMotion ? false : 'position'}
+              initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.2 }}
               className='flex min-w-0 items-center gap-2 rounded-md border p-2'
             >
               <div className='bg-muted relative size-14 shrink-0 overflow-hidden rounded-sm'>
@@ -148,7 +155,7 @@ export function ImageReferenceField(props: {
                   <Trash2 aria-hidden='true' />
                 </Button>
               </div>
-            </li>
+            </motion.li>
           ))}
         </ul>
       )}

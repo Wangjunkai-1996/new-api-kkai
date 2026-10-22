@@ -30,21 +30,29 @@ func membershipCatalogTx(tx *gorm.DB, releaseID int64) (*MembershipCatalog, erro
 	return &catalog, nil
 }
 
-func GetMembershipCatalog() (*MembershipCatalog, error) {
-	if err := CheckMembershipSchema(); err != nil {
-		return nil, err
-	}
+func currentMembershipCatalogTx(tx *gorm.DB) (*MembershipCatalog, error) {
 	var state MembershipCatalogState
-	err := DB.First(&state, 1).Error
+	err := tx.First(&state, 1).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	catalog, err := membershipCatalogTx(DB, state.ReleaseID)
+	catalog, err := membershipCatalogTx(tx, state.ReleaseID)
 	if err != nil {
 		return nil, err
 	}
 	catalog.SalesEnabled = state.SalesEnabled
 	catalog.TopupDiscountsDisabled = state.TopupDiscountsDisabled
+	return catalog, nil
+}
+
+func GetMembershipCatalog() (*MembershipCatalog, error) {
+	if err := CheckMembershipSchema(); err != nil {
+		return nil, err
+	}
+	catalog, err := currentMembershipCatalogTx(DB)
+	if err != nil {
+		return nil, err
+	}
 	known := make(map[string]bool, len(catalog.Groups))
 	current := ratio_setting.GetGroupRatioCopy()
 	for i := range catalog.Groups {
@@ -272,11 +280,8 @@ func membershipAccountTx(tx *gorm.DB, userID int, now int64) (*MembershipAccount
 	return &account, nil
 }
 
-func membershipDiscountTx(tx *gorm.DB, account *MembershipAccount, groupKey string) (float64, error) {
-	catalog, err := membershipCatalogTx(tx, account.ReleaseID)
-	if err != nil {
-		return 0, err
-	}
+// MembershipDiscount resolves a tier's discount from one published catalog.
+func MembershipDiscount(catalog *MembershipCatalog, tierID, groupKey string) (float64, error) {
 	published := false
 	for _, group := range catalog.Groups {
 		if group.Key == groupKey {
@@ -284,29 +289,15 @@ func membershipDiscountTx(tx *gorm.DB, account *MembershipAccount, groupKey stri
 			break
 		}
 	}
-	if !published {
-		var group MembershipGroupRecord
-		err := tx.First(&group, "group_key = ?", groupKey).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && group.FirstReleaseID == 0) {
-			return 1, nil
-		}
-		if err != nil {
-			return 0, err
-		}
-		catalog, err = membershipCatalogTx(tx, group.FirstReleaseID)
-		if err != nil {
-			return 0, err
-		}
-	}
 	for _, tier := range catalog.Tiers {
-		if tier.ID == account.TierID {
-			if d, ok := tier.Discounts[groupKey]; ok {
+		if tier.ID == tierID {
+			if d, ok := tier.Discounts[groupKey]; ok && published {
 				return d, nil
 			}
 			return 1, nil
 		}
 	}
-	return 0, fmt.Errorf("%w: tier missing from committed pricing release", ErrMembershipConflict)
+	return 0, fmt.Errorf("%w: tier missing from current pricing release", ErrMembershipConflict)
 }
 
 // ResolveMembershipRatio preserves an existing group price when it is cheaper.
@@ -339,8 +330,12 @@ func GetMembershipQuote(userID int, groupKey string, baseRatio, userRatio float6
 	if account == nil || !account.ActiveAt(common.GetTimestamp()) {
 		return quote, nil
 	}
-	quote.AccountID, quote.Revision, quote.ReleaseID, quote.TierID, quote.Active = account.ID, account.Revision, account.ReleaseID, account.TierID, true
-	quote.Discount, err = membershipDiscountTx(DB, account, groupKey)
+	catalog, err := currentMembershipCatalogTx(DB)
+	if err != nil {
+		return nil, err
+	}
+	quote.AccountID, quote.Revision, quote.ReleaseID, quote.TierID, quote.Active = account.ID, account.Revision, catalog.ReleaseID, account.TierID, true
+	quote.Discount, err = MembershipDiscount(catalog, account.TierID, groupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -375,12 +370,24 @@ func GetMembershipSelf(userID int) (*MembershipSelf, error) {
 			break
 		}
 	}
-	for key := range ratio_setting.GetGroupRatioCopy() {
-		d, err := membershipDiscountTx(DB, account, key)
+	if account.ActiveAt(now) {
+		catalog, err = currentMembershipCatalogTx(DB)
 		if err != nil {
 			return nil, err
 		}
+	}
+	for key := range ratio_setting.GetGroupRatioCopy() {
+		d := 1.0
+		if account.ActiveAt(now) {
+			d, err = MembershipDiscount(catalog, account.TierID, key)
+			if err != nil {
+				return nil, err
+			}
+		}
 		result.Discounts[key] = d
+	}
+	if result.Tier != nil {
+		result.Tier.Discounts = result.Discounts
 	}
 	return result, nil
 }

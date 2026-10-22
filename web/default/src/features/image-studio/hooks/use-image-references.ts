@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -40,6 +40,14 @@ export type ImageReferencesController = {
   processing: boolean
   error: string | null
   select: (files: readonly File[]) => Promise<void>
+  replace: (
+    files: readonly File[],
+    options?: {
+      limits?: ImageReferenceLimits
+      onCommit?: () => void
+      canCommit?: () => boolean
+    }
+  ) => Promise<boolean>
   remove: (index: number) => void
   move: (index: number, offset: -1 | 1) => void
   clear: () => void
@@ -51,7 +59,7 @@ type ImageReferenceItem = {
   metadata: ImageReferenceMetadata
 }
 
-type ImageReferenceLimits = {
+export type ImageReferenceLimits = {
   scopeKey: string
   maxReferenceImages: number
   maxReferenceBytes: number
@@ -70,7 +78,9 @@ export function useImageReferences(
   const revisionRef = useRef(0)
   const activeScopeRef = useRef(limits.scopeKey)
   const settledScopeRef = useRef(limits.scopeKey)
-  activeScopeRef.current = limits.scopeKey
+  useLayoutEffect(() => {
+    activeScopeRef.current = limits.scopeKey
+  }, [limits.scopeKey])
 
   const files = useMemo(() => items.map((item) => item.file), [items])
   const fileIds = useMemo(() => items.map((item) => item.id), [items])
@@ -123,6 +133,8 @@ export function useImageReferences(
     ) {
       return
     }
+    revisionRef.current += 1
+    setProcessing(false)
     const nextItems = [...itemsRef.current]
     const current = nextItems[index]
     nextItems[index] = nextItems[target]
@@ -132,20 +144,31 @@ export function useImageReferences(
     setError(null)
   }
 
-  const select = async (nextFiles: readonly File[]): Promise<void> => {
-    if (nextFiles.length === 0) return
+  const updateReferences = async (
+    nextFiles: readonly File[],
+    replacement?: {
+      limits?: ImageReferenceLimits
+      onCommit?: () => void
+      canCommit?: () => boolean
+    }
+  ): Promise<boolean> => {
+    if (!replacement && nextFiles.length === 0) return false
+    const nextLimits = replacement?.limits ?? limits
     if (nextFiles.some((file) => !IMAGE_REFERENCE_MIME_TYPES.has(file.type))) {
       setError(t('imageStudio.referenceTypeInvalid'))
-      return
+      return false
     }
-    const currentItems = itemsRef.current
-    if (currentItems.length + nextFiles.length > limits.maxReferenceImages) {
+    const currentItems = replacement ? [] : itemsRef.current
+    if (
+      currentItems.length + nextFiles.length >
+      nextLimits.maxReferenceImages
+    ) {
       setError(
         t('imageStudio.referenceLimitExceeded', {
-          count: limits.maxReferenceImages,
+          count: nextLimits.maxReferenceImages,
         })
       )
-      return
+      return false
     }
     const selectionScope = activeScopeRef.current
     const revision = revisionRef.current + 1
@@ -159,15 +182,16 @@ export function useImageReferences(
       )
       const nextMetadata = await getImageReferenceBatchMetadata(
         nextFiles,
-        limits.maxReferenceBytes,
-        limits.maxReferenceTotalBytes,
+        nextLimits.maxReferenceBytes,
+        nextLimits.maxReferenceTotalBytes,
         currentSizeBytes
       )
       if (
         revisionRef.current !== revision ||
-        activeScopeRef.current !== selectionScope
+        activeScopeRef.current !== selectionScope ||
+        replacement?.canCommit?.() === false
       ) {
-        return
+        return false
       }
       const nextItems = [
         ...currentItems,
@@ -177,14 +201,21 @@ export function useImageReferences(
           metadata: nextMetadata[index],
         })),
       ]
+      if (replacement) {
+        // Adopt the prepared model scope in the same commit as the form reset.
+        activeScopeRef.current = nextLimits.scopeKey
+        settledScopeRef.current = nextLimits.scopeKey
+        replacement.onCommit?.()
+      }
       itemsRef.current = nextItems
       setItems(nextItems)
+      return true
     } catch (metadataError) {
       if (
         revisionRef.current !== revision ||
         activeScopeRef.current !== selectionScope
       ) {
-        return
+        return false
       }
       let message = t('imageStudio.referenceProcessingFailed')
       if (metadataError instanceof ImageReferenceEmptyError) {
@@ -195,10 +226,12 @@ export function useImageReferences(
         message = t('imageStudio.referenceTotalTooLarge')
       }
       setError(message)
+      return false
     } finally {
       if (
         revisionRef.current === revision &&
-        activeScopeRef.current === selectionScope
+        (activeScopeRef.current === selectionScope ||
+          activeScopeRef.current === replacement?.limits?.scopeKey)
       ) {
         setProcessing(false)
       }
@@ -211,7 +244,10 @@ export function useImageReferences(
     metadata,
     processing,
     error,
-    select,
+    select: async (files) => {
+      await updateReferences(files)
+    },
+    replace: (files, options = {}) => updateReferences(files, options),
     remove,
     move,
     clear,

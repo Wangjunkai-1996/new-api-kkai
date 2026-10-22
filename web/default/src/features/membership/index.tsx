@@ -138,7 +138,7 @@ export function MembershipCenter() {
               </section>
               <MembershipDiscounts
                 catalog={catalog}
-                lockedDiscounts={self.discounts}
+                currentDiscounts={self.discounts}
                 active={active}
               />
               <details className='bg-card rounded-xl border p-5'>

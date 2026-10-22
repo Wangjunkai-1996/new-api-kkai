@@ -59,7 +59,7 @@ func TestMembershipEpayCheckoutKeepsFrozenPriceAndSignedForm(t *testing.T) {
 	db, fixtureOrder := membershipEpayFixture(t)
 	require.NoError(t, db.Delete(fixtureOrder).Error)
 	require.NoError(t, db.AutoMigrate(&model.TopUp{}))
-	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{SalesEnabled: true, Tiers: []model.MembershipTier{{ID: "gold", Name: "黄金 & Gold + 50% = x", Rank: 1, Style: "gold", Currency: "CNY", PriceMinor: 9995, Quota: 1000, Enabled: true}}}, 0, 7)
+	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{SalesEnabled: true, Tiers: []model.MembershipTier{{ID: "gold", Name: "黄金 & Gold + 50% = x", Rank: 1, Style: "gold", Currency: "CNY", PriceMinor: 9995, Quota: 1000, Enabled: true}}}, fixtureOrder.ReleaseID, 7)
 	require.NoError(t, err)
 	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: 7, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: "MEMBER-fixed-price", ExpiresAt: time.Now().Add(time.Hour).Unix()})
 	require.NoError(t, err)

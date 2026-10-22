@@ -17,8 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  queryOptions,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
@@ -38,6 +40,7 @@ import {
   getAdminImageModels,
   getAdminImageSamples,
   getImageGeneration,
+  getImageGenerationInput,
   getImageGenerations,
   getImageModels,
   getImageSample,
@@ -255,11 +258,13 @@ export const useImageGenerations = (
   })
 }
 
-export const useImageGeneration = (id: number | undefined) => {
-  const userId = useImageStudioUserId()
-  return useQuery({
+export const imageGenerationQueryOptions = (
+  userId: number,
+  id: number | undefined
+) =>
+  queryOptions({
     queryKey: privateUserQueryKey(userId, 'image-studio', 'generation', id),
-    queryFn: () => getImageGeneration(id ?? 0),
+    queryFn: ({ signal }) => getImageGeneration(id ?? 0, signal),
     enabled: userId > 0 && Boolean(id),
     staleTime: 0,
     refetchInterval: (query) =>
@@ -272,6 +277,41 @@ export const useImageGeneration = (id: number | undefined) => {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   })
+
+export const useImageGeneration = (id: number | undefined) => {
+  const userId = useImageStudioUserId()
+  return useQuery(imageGenerationQueryOptions(userId, id))
+}
+
+export const useImageSessionGenerations = (ids: readonly number[]) => {
+  const userId = useImageStudioUserId()
+  return useQueries({
+    queries: ids.map((id) => imageGenerationQueryOptions(userId, id)),
+  })
+}
+
+export const imageGenerationInputQueryOptions = (
+  userId: number,
+  id: number | undefined
+) =>
+  queryOptions({
+    queryKey: privateUserQueryKey(
+      userId,
+      'image-studio',
+      'generation-input',
+      id
+    ),
+    queryFn: ({ signal }) => getImageGenerationInput(id ?? 0, signal),
+    enabled: userId > 0 && Boolean(id),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+    meta: { errorToast: false },
+  })
+
+export const useImageGenerationInput = (id: number | undefined) => {
+  const userId = useImageStudioUserId()
+  return useQuery(imageGenerationInputQueryOptions(userId, id))
 }
 
 export const useDeleteImageGeneration = () => {

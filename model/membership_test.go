@@ -65,7 +65,7 @@ func membershipReservation(t *testing.T, userID int, key string, sub, wallet int
 	t.Helper()
 	quote, err := GetMembershipQuote(userID, "gpt", 0.2, 0.2)
 	require.NoError(t, err)
-	return MembershipReservationInput{RequestID: key, UserID: userID, GroupKey: "gpt", SubscriptionQuota: sub, WalletQuota: wallet, ExpectedAccountID: quote.AccountID, ExpectedRevision: quote.Revision, SubscriptionSnapshot: `{"ratio":0.19}`, WalletSnapshot: `{"ratio":0.2}`, SkipToken: true}
+	return MembershipReservationInput{RequestID: key, UserID: userID, GroupKey: "gpt", SubscriptionQuota: sub, WalletQuota: wallet, ExpectedAccountID: quote.AccountID, ExpectedRevision: quote.Revision, ExpectedReleaseID: quote.ReleaseID, SubscriptionSnapshot: `{"ratio":0.19}`, WalletSnapshot: `{"ratio":0.2}`, SkipToken: true}
 }
 
 func TestMembershipSnapshotUpgradeAndOriginalReservation(t *testing.T) {
@@ -162,7 +162,7 @@ func TestMembershipPreauthorizationIsNotExhaustionAndOldRefundIsIsolated(t *test
 	assert.EqualValues(t, 100, current.Available())
 }
 
-func TestMembershipFirstGroupPublicationAndOrderTermsAreImmutable(t *testing.T) {
+func TestMembershipGroupDiscountsFollowLatestReleaseAndOrderTermsStayImmutable(t *testing.T) {
 	user, catalog := setupMembershipTest(t)
 	order, err := CreateMembershipOrder(MembershipOrderInput{UserID: user.Id, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: PaymentProviderEpay, TradeNo: "pending-first", ExpiresAt: common.GetTimestamp() + 600})
 	require.NoError(t, err)
@@ -191,7 +191,8 @@ func TestMembershipFirstGroupPublicationAndOrderTermsAreImmutable(t *testing.T) 
 	require.NoError(t, err)
 	quote, err = GetMembershipQuote(user.Id, "new", 0.5, 0.5)
 	require.NoError(t, err)
-	assert.InDelta(t, 0.9, quote.Discount, 1e-9)
+	assert.InDelta(t, 0.6, quote.Discount, 1e-9)
+	assert.InDelta(t, 0.3, quote.MembershipRatio, 1e-9)
 	quote, err = GetMembershipQuote(user.Id, "gpt", 0.2, 0.15)
 	require.NoError(t, err)
 	assert.Equal(t, 0.15, quote.MembershipRatio)

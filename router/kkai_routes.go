@@ -40,6 +40,7 @@ func registerImageStudioAPIRoutes(apiRouter *gin.RouterGroup) {
 		imageStudio.GET("/generations/:id/input", controller.GetImageStudioGenerationInput)
 		imageStudio.DELETE("/generations/:id", controller.DeleteImageStudioGeneration)
 		imageStudio.GET("/assets/:id", controller.GetImageStudioAsset)
+		imageStudio.GET("/assets/:id/edit-source", controller.GetImageStudioAssetEditSource)
 	}
 	imageStudioMedia := apiRouter.Group("/image-studio")
 	imageStudioMedia.Use(middleware.StudioMediaAuth(), middleware.ImageStudioAccess())

@@ -142,9 +142,7 @@ export function MembershipRatioComparison(props: {
                     {column.name}
                   </span>
                   <span className='text-muted-foreground mt-1 block text-xs font-normal'>
-                    {props.current
-                      ? t('My locked benefits')
-                      : t('New purchase / upgrade')}
+                    {props.current ? t('My benefits') : t('Group discounts')}
                   </span>
                 </th>
               ))}

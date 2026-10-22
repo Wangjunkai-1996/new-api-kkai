@@ -1,5 +1,54 @@
 # 订阅会员实现验证记录
 
+## 当前规则变更与定向验证（2026-10-22）
+
+后台发布折扣后，所有有效新老会员的后续新请求统一采用当前档位最新发布值；不再按
+购买版本或新增组首次发布版本锁定系数。已预扣请求仍按完整原快照结算；订单实付金额、
+额度、有效期和历史账本不重写。
+
+本次在 `/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai` 完成本地代码修改和
+定向验证；未提交、推送、迁移或部署，未连接生产。验证覆盖三档已有/新购会员折扣
+提高、降低及恢复为 1，新增组后续发布、待付订单付款后使用最新折扣、已预扣请求跨发布
+重放和结算、过期报价拒绝，以及目录删除档位后的迟到收款人工开通保护。
+
+后端命令：
+
+```sh
+KKAI_MEMBERSHIP_ENABLED=true go test -json ./model ./service ./controller -run Membership -count=1 -timeout=120s
+KKAI_MEMBERSHIP_ENABLED=true go test ./controller -run '^TestMembershipMidjourneyBillingCheckFailsClosed$' -count=1
+```
+
+组合执行中 model 53、service 72 个测试/子测试通过；controller 63 个通过，
+`TestMembershipMidjourneyBillingCheckFailsClosed` 首次失败。新共用夹具先发布目录，导致
+schema 检查已有缓存，原删表注入不再触发首次检查；仅将该测试改用同连接池的新 GORM
+handle，定向重跑通过，生产代码未为此更改。未重复运行已通过且输入未改变的范围。
+原始结果：`/tmp/kkai-membership-final-results.jsonl`。
+
+MySQL 5.7 / PostgreSQL 9.6 使用本机已有镜像、独立 tmpfs 容器及随机隔离数据库，实际执行：
+
+```sh
+KKAI_MEMBERSHIP_ENABLED=true KKAI_IMAGE_ASYNC_MYSQL_TEST_DSN='root@tcp(127.0.0.1:49948)/?parseTime=true' KKAI_IMAGE_ASYNC_POSTGRES_TEST_DSN='postgres://postgres@127.0.0.1:49947/postgres?sslmode=disable' go test -json ./pkg/kkaimigrate -run '^TestMembershipRealDatabaseTransactions$' -count=1 -timeout=120s
+KKAI_MEMBERSHIP_ENABLED=true KKAI_IMAGE_ASYNC_MYSQL_TEST_DSN='root@tcp(127.0.0.1:49948)/?parseTime=true' go test -json ./pkg/kkaimigrate -run '^TestMembershipRealDatabaseTransactions/mysql$' -count=1 -timeout=120s
+```
+
+PostgreSQL 首次通过；MySQL 首次在基础应用模型 AutoMigrate 阶段因驱动将 `uniqueIndex`
+字符串映射成 LONGTEXT，无法创建 username 唯一索引。仅对本夹具设置 MySQL
+`DefaultStringSize=191` 后，MySQL 定向重跑通过；会员表仍完全使用正式迁移 DDL。
+两种数据库均实际验证并发付款幂等、并发预扣、账本失败回滚、旧账户返还和钱包接续，
+并新增“事务先建立旧读视图，再发布新版本，旧报价预扣必须拒绝”的确定性回归。
+日志为 `/tmp/kkai-membership-real-db-results.jsonl`、
+`/tmp/kkai-membership-mysql-final-results.jsonl`；两个任务容器均已删除。
+
+前端 3 文件、40 项测试及会员范围 TypeScript、lint、格式、i18n 检查通过，精确命令见
+[本次前端记录](subscription-membership-frontend-validation.md)。所有本次 Go 文件
+`gofmt -l` 无输出，变更范围 `git diff --check` 通过；两个新增测试文件另查空白通过。
+全仓测试、全量 lint/类型检查、生产构建均跳过。尚未执行本次真实支付商、收费模型上游、
+浏览器端到端或生产发布验证。
+
+以下 2026-10-18 结果保留为历史；其中“折扣发布与冻结”按当时规则验证，不替代上述新规则验证。
+
+## 历史验证记录（2026-10-18）
+
 日期：2026-10-18。仅代表本地隔离工作区验证，不代表生产可直接启用。
 
 - 工作区：`/Users/tokk/.codex/worktrees/subscription-membership/new-api-kkai`

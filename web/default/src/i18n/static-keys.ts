@@ -19,6 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Image creation workbench errors selected before rendering t(loadError).
+  'Unable to load the original generation settings.',
+  'Unable to prepare this image for editing. Your draft has been kept.',
+  'Loading the original image timed out. Your draft has been kept.',
+  'This image cannot be used as a reference. Check its format and size.',
+  'This image is no longer available for editing.',
   // Image Studio public generation error messages
   'Image generation could not be completed. Please try again later or contact support.',
   'Image generation is temporarily unavailable. Try another model or try again later.',

@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -29,11 +28,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getImageGenerationInput } from '../api'
 import { useImageTokenGate } from '../hooks/use-image-token-gate'
+import { useImageGenerationInput } from '../queries'
 import type { ImageGeneration } from '../types'
 import { ImageComposer } from './image-composer'
 
@@ -42,22 +40,8 @@ function ImageRegenerationForm(props: {
   onSubmitted: (generation: ImageGeneration) => void
 }) {
   const { t } = useTranslation()
-  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
   const tokenGate = useImageTokenGate()
-  const inputQuery = useQuery({
-    queryKey: privateUserQueryKey(
-      userId,
-      'image-studio',
-      'generation-input',
-      props.generation.id
-    ),
-    queryFn: () => getImageGenerationInput(props.generation.id),
-    enabled: userId > 0,
-    retry: false,
-    staleTime: 0,
-    gcTime: 0,
-    meta: { errorToast: false },
-  })
+  const inputQuery = useImageGenerationInput(props.generation.id)
 
   if (inputQuery.isPending) {
     return (

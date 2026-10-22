@@ -138,7 +138,7 @@ const membership: MembershipSelf = {
     {
       group_key: 'enterprise',
       display_name: 'Enterprise',
-      coefficient: 0.95,
+      coefficient: 0.9,
       membership_ratio: 0.15,
       wallet_ratio: 0.15,
       enabled: true,
@@ -231,18 +231,33 @@ describe('membership purchase and benefits', () => {
     expect(screen.queryByText('Active')).not.toBeInTheDocument()
   })
 
-  it('keeps purchased coefficients separate from current offers and displays the server price', () => {
-    render(
+  it('shows current published discounts and the authoritative server price', () => {
+    const { rerender } = render(
       <MembershipDiscounts
         catalog={catalog}
-        lockedDiscounts={membership.discounts}
+        currentDiscounts={membership.discounts}
         active
       />
     )
-    expect(screen.getByText('95%')).toBeVisible()
-    expect(screen.getByText('90%')).toBeVisible()
+    expect(screen.getByText('My current discount')).toBeVisible()
+    expect(screen.getAllByText('90%')).toHaveLength(2)
     expect(screen.getByText('80%')).toBeVisible()
     expect(screen.getByText(/Current billing ratio.*0.15/)).toBeVisible()
+    rerender(
+      <MembershipDiscounts
+        catalog={{
+          ...catalog,
+          tiers: [{ ...tier, discounts: { enterprise: 0.85 } }],
+        }}
+        currentDiscounts={membership.discounts.map((discount) => ({
+          ...discount,
+          coefficient: 0.85,
+        }))}
+        active
+      />
+    )
+    expect(screen.getAllByText('85%')).toHaveLength(2)
+    expect(screen.queryByText('90%')).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: 'Search groups' }), {
       target: { value: 'missing' },
     })

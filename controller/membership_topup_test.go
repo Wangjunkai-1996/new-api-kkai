@@ -29,7 +29,7 @@ func TestMembershipLaunchRemovesOnlyNewTopUpPromotions(t *testing.T) {
 	unchanged, err := creemProductWithoutBonus(product)
 	require.NoError(t, err)
 	assert.EqualValues(t, 6000000, unchanged.Quota)
-	require.NoError(t, db.Create(&model.MembershipCatalogState{ID: 1, TopupDiscountsDisabled: true}).Error)
+	require.NoError(t, db.Model(&model.MembershipCatalogState{}).Where("id = ?", 1).Update("topup_discounts_disabled", true).Error)
 	ratio, discount = topUpPromotionFactors("loyal", 100)
 	assert.Equal(t, 1.0, ratio)
 	assert.Equal(t, 1.0, discount)

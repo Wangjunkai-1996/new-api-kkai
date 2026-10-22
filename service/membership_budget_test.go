@@ -85,9 +85,17 @@ func TestMembershipReservationRestoresFrozenPricesAndCapsSettlement(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, model.MembershipSource, record.Source)
 	require.EqualValues(t, 80, record.ReservedQuota)
+	catalog, err := model.GetMembershipCatalog()
+	require.NoError(t, err)
+	catalog.Tiers[0].Discounts["gpt"] = 0.8
+	catalog, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
+	require.NoError(t, err)
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"gpt":9}`))
 	info.PriceData.ModelRatio = 99
 	require.NoError(t, ApplyMembershipReservation(info, record))
+	assert.Equal(t, input.ExpectedReleaseID, info.MembershipPricing.ReleaseID)
+	assert.NotEqual(t, catalog.ReleaseID, info.MembershipPricing.ReleaseID, "an accepted request keeps its pricing release after publication")
+	assert.Equal(t, 0.5, info.MembershipPricing.Discount)
 	assert.Equal(t, 0.1, info.PriceData.GroupRatioInfo.GroupRatio)
 	assert.Equal(t, 2.0, info.PriceData.ModelRatio)
 	assert.Equal(t, 2.0, info.PriceData.OtherRatioMultiplier())
@@ -110,6 +118,45 @@ func TestMembershipReservationRestoresFrozenPricesAndCapsSettlement(t *testing.T
 	assert.EqualValues(t, 10000, updated.Quota)
 	assert.Equal(t, 1, updated.RequestCount)
 	assert.EqualValues(t, 80, updated.UsedQuota)
+}
+
+func TestMembershipReservationUsesLatestPublishedDiscountForExistingMember(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		coefficient float64
+		quota       int64
+	}{
+		{name: "lower price", coefficient: 0.25, quota: 5},
+		{name: "higher price", coefficient: 0.625, quota: 13},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, user := setupMembershipServiceTest(t)
+			info := &relaycommon.RelayInfo{UserId: user.Id, RequestId: "latest-discount", UsingGroup: "gpt", IsPlayground: true, OriginModelName: "test-model", PriceData: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.2}}}
+			stale, err := PrepareMembershipReservation(info, 100)
+			require.NoError(t, err)
+			catalog, err := model.GetMembershipCatalog()
+			require.NoError(t, err)
+			catalog.Tiers[0].Discounts["gpt"] = tc.coefficient
+			catalog, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
+			require.NoError(t, err)
+
+			_, err = model.ReserveMembershipBilling(stale)
+			require.ErrorIs(t, err, model.ErrMembershipQuoteChanged, "a new request cannot authorize a quote prepared before publication")
+			input, err := PrepareMembershipReservation(info, 100)
+			require.NoError(t, err)
+			assert.Equal(t, catalog.ReleaseID, input.ExpectedReleaseID)
+			assert.NotEqual(t, stale.ExpectedReleaseID, input.ExpectedReleaseID)
+			assert.Equal(t, tc.quota, input.SubscriptionQuota)
+			assert.EqualValues(t, 20, input.WalletQuota, "membership publication does not change the wallet quote")
+			record, err := model.ReserveMembershipBilling(input)
+			require.NoError(t, err)
+			require.Equal(t, model.MembershipSource, record.Source)
+			require.NoError(t, ApplyMembershipReservation(info, record))
+			assert.Equal(t, catalog.ReleaseID, info.MembershipPricing.ReleaseID)
+			assert.Equal(t, tc.coefficient, info.MembershipPricing.Discount)
+			assert.InDelta(t, 0.2*tc.coefficient, info.PriceData.GroupRatioInfo.GroupRatio, 1e-9)
+		})
+	}
 }
 
 func TestMembershipInsufficientReservationUsesWalletPrice(t *testing.T) {

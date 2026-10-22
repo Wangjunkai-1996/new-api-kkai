@@ -80,11 +80,13 @@ func membershipMidjourneyFixture(t *testing.T, response http.HandlerFunc) (*gorm
 
 func activateMidjourneyTestMembership(t *testing.T, quota int64) *model.MembershipAccount {
 	t.Helper()
+	current, err := model.GetMembershipCatalog()
+	require.NoError(t, err)
 	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{
 		SalesEnabled: true,
 		Tiers:        []model.MembershipTier{{ID: "gold", Name: "Gold", Rank: 1, Style: "gold", Currency: "USD", PriceMinor: 1000, Quota: quota, Enabled: true, Discounts: map[string]float64{"default": 0.5}}},
 		Groups:       []model.MembershipGroup{{Key: "default", Enabled: true, Published: true}},
-	}, 0, 7)
+	}, current.ReleaseID, 7)
 	require.NoError(t, err)
 	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: 7, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: "mj-membership", ExpiresAt: time.Now().Add(time.Hour).Unix()})
 	require.NoError(t, err)
@@ -289,6 +291,8 @@ func TestMembershipMidjourneyBillingCheckFailsClosed(t *testing.T) {
 	}
 	db, router, calls := membershipMidjourneyFixture(t, nil)
 	require.NoError(t, db.Migrator().DropTable(&model.MembershipCatalogState{}))
+	// A fresh handle checks the unprepared schema before accepting new billing.
+	model.DB = db.Session(&gorm.Session{NewDB: true})
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mj/submit/imagine", strings.NewReader(`{"prompt":"cat"}`))
 	req.Header.Set("Content-Type", "application/json")

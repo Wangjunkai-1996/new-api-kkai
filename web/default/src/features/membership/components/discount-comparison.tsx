@@ -26,7 +26,7 @@ import type { MembershipCatalog, MembershipGroupQuote } from '../types'
 
 export function MembershipDiscounts(props: {
   catalog: MembershipCatalog
-  lockedDiscounts: MembershipGroupQuote[]
+  currentDiscounts: MembershipGroupQuote[]
   active: boolean
 }) {
   const { t, i18n } = useTranslation()
@@ -39,8 +39,8 @@ export function MembershipDiscounts(props: {
       .toLocaleLowerCase()
       .includes(search.toLocaleLowerCase())
   )
-  const locked = new Map(
-    props.lockedDiscounts.map((quote) => [quote.group_key, quote])
+  const discounts = new Map(
+    props.currentDiscounts.map((quote) => [quote.group_key, quote])
   )
   const formatCoefficient = (coefficient: number) =>
     new Intl.NumberFormat(toIntlLocale(i18n.language), {
@@ -63,7 +63,7 @@ export function MembershipDiscounts(props: {
           </h2>
           <p className='text-muted-foreground mt-1 text-sm'>
             {t(
-              'Your current benefits and new purchase offers are shown separately.'
+              'Compare the latest published discounts for each membership tier.'
             )}
           </p>
         </div>
@@ -82,7 +82,7 @@ export function MembershipDiscounts(props: {
       )}
       <div className='overflow-hidden rounded-2xl border'>
         {visibleGroups.map((group) => {
-          const current = locked.get(group.key)
+          const current = discounts.get(group.key)
           return (
             <div
               key={group.key}
@@ -99,7 +99,7 @@ export function MembershipDiscounts(props: {
               {props.active && (
                 <div className='bg-muted/60 rounded-lg p-3 lg:w-52 lg:shrink-0'>
                   <p className='text-muted-foreground text-xs'>
-                    {t('My locked discount')}
+                    {t('My current discount')}
                   </p>
                   <p className='mt-1 font-semibold'>
                     {current?.published
@@ -118,7 +118,7 @@ export function MembershipDiscounts(props: {
                 {tiers.map((tier) => (
                   <div key={tier.id}>
                     <dt className='text-muted-foreground text-xs'>
-                      {tier.name} · {t('New purchase / upgrade')}
+                      {tier.name} · {t('Group discounts')}
                     </dt>
                     <dd className='mt-1 font-semibold'>
                       {group.published

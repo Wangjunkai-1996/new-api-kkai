@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -43,6 +44,10 @@ func TestMembershipRealDatabaseTransactions(t *testing.T) {
 
 			// Only base application models are completed by the fixture. Membership
 			// tables remain exactly as the explicit production migration created them.
+			if dialector, ok := db.Dialector.(*mysql.Dialector); ok {
+				// This driver otherwise maps strings with only uniqueIndex tags to LONGTEXT.
+				dialector.DefaultStringSize = 191
+			}
 			require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}))
 			previousDB, previousRedis := model.DB, common.RedisEnabled
 			previousGroups := ratio_setting.GroupRatio2JSONString()
@@ -101,9 +106,25 @@ func TestMembershipRealDatabaseTransactions(t *testing.T) {
 			require.NoError(t, err)
 			input := model.MembershipReservationInput{
 				UserID: user.Id, GroupKey: "gpt", SubscriptionQuota: 60, WalletQuota: 80,
-				ExpectedAccountID: quote.AccountID, ExpectedRevision: quote.Revision,
+				ExpectedAccountID: quote.AccountID, ExpectedRevision: quote.Revision, ExpectedReleaseID: quote.ReleaseID,
 				SubscriptionSnapshot: `{"ratio":0.19}`, WalletSnapshot: `{"ratio":0.2}`, TokenID: token.Id, TokenKey: token.Key,
 			}
+			staleTx := db.Begin()
+			require.NoError(t, staleTx.Error)
+			defer staleTx.Rollback()
+			var snapshotAccount model.MembershipAccount
+			// Establish MySQL's repeatable-read snapshot before another connection publishes.
+			require.NoError(t, staleTx.First(&snapshotAccount, account.ID).Error)
+			catalog, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
+			require.NoError(t, err)
+			staleInput := input
+			staleInput.RequestID = "database-stale-pricing"
+			_, err = model.ReserveMembershipBillingTx(staleTx, staleInput)
+			require.NoError(t, staleTx.Rollback().Error)
+			require.ErrorIs(t, err, model.ErrMembershipQuoteChanged, "authorization must see a publication newer than the transaction snapshot")
+			quote, err = model.GetMembershipQuote(user.Id, "gpt", 0.2, 0.2)
+			require.NoError(t, err)
+			input.ExpectedReleaseID = quote.ReleaseID
 			type reservationResult struct {
 				record *model.MembershipBillingRecord
 				err    error

@@ -183,8 +183,8 @@ func validateImageStudioQuoteClaims(
 }
 
 // A signed quote carries a wallet pricing snapshot. Both funding quotes derive
-// from those frozen facts; acceptance only checks the entitlement revision and
-// available funds, and never reloads live price settings.
+// from those frozen facts; acceptance checks the account and pricing revisions
+// and available funds, and never silently reprices a signed quote.
 func imageStudioMembershipReservation(normalized *NormalizedImageStudioSubmission, claims ImageStudioQuoteClaims) (model.MembershipReservationInput, error) {
 	input := model.MembershipReservationInput{}
 	snapshot := claims.MembershipPricing
@@ -198,6 +198,7 @@ func imageStudioMembershipReservation(normalized *NormalizedImageStudioSubmissio
 	}
 	input.UserID, input.TokenID, input.SkipToken = normalized.UserID, normalized.TokenID, true
 	input.GroupKey, input.ExpectedAccountID, input.ExpectedRevision = snapshot.GroupKey, snapshot.AccountID, snapshot.AccountRevision
+	input.ExpectedReleaseID = snapshot.ReleaseID
 	memberRatio := snapshot.WalletRatio
 	if snapshot.Discount < 1 {
 		memberRatio = math.Min(memberRatio, snapshot.BaseRatio*snapshot.Discount)

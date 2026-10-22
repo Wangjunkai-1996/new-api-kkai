@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"mime"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -94,6 +96,35 @@ func GetImageStudioAssetContent(c *gin.Context) {
 
 func DownloadImageStudioAsset(c *gin.Context) {
 	redirectImageStudioAsset(c, true)
+}
+
+func GetImageStudioAssetEditSource(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	id, err := imageStudioID(c)
+	if err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
+	store, err := imageStudioAssetStore(c)
+	if err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
+	archive, filename, err := service.ReadImageOutputEditSource(c.Request.Context(), model.DB, store, c.GetInt("id"), id)
+	if err != nil {
+		respondImageStudioError(c, err)
+		return
+	}
+	defer archive.Remove()
+	file, err := os.Open(archive.Path)
+	if err != nil {
+		respondImageStudioError(c, service.ErrImageOutputEditSourceUnavailable)
+		return
+	}
+	defer file.Close()
+	c.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filename}))
+	c.DataFromReader(http.StatusOK, archive.SizeBytes, archive.MIMEType, file, nil)
 }
 
 func redirectImageStudioAsset(c *gin.Context, attachment bool) {

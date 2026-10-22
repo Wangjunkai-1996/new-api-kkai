@@ -282,10 +282,12 @@ export const deleteImageGeneration = async (id: number): Promise<void> => {
 }
 
 export const getImageGeneration = async (
-  id: number
+  id: number,
+  signal?: AbortSignal
 ): Promise<ImageGeneration> => {
   const response = await api.get(`/api/image-studio/generations/${id}`, {
     disableDuplicate: true,
+    signal,
   })
   return imageGenerationSchema
     .refine((generation) => generation.id === id)
@@ -293,11 +295,13 @@ export const getImageGeneration = async (
 }
 
 export const getImageGenerationInput = async (
-  id: number
+  id: number,
+  signal?: AbortSignal
 ): Promise<ImageGenerationInput> => {
   const response = await api.get(`/api/image-studio/generations/${id}/input`, {
     disableDuplicate: true,
     skipErrorHandler: true,
+    signal,
   })
   return imageGenerationInputSchema
     .refine((input) => input.generation_id === id)

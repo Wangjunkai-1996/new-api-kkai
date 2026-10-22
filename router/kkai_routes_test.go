@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -78,6 +79,7 @@ func TestImageStudioPhaseOneRoutesAreRegistered(t *testing.T) {
 		"/api/image-studio/assets/:id":               {http.MethodGet},
 		"/api/image-studio/assets/:id/content":       {http.MethodGet},
 		"/api/image-studio/assets/:id/download":      {http.MethodGet},
+		"/api/image-studio/assets/:id/edit-source":   {http.MethodGet},
 		"/api/admin/image-studio/model-candidates":   {http.MethodGet},
 		"/api/admin/image-studio/model-profiles":     {http.MethodGet, http.MethodPost},
 		"/api/admin/image-studio/model-profiles/:id": {http.MethodGet, http.MethodPut, http.MethodDelete},
@@ -117,6 +119,27 @@ func TestImageAsyncRoutesRequireAuthentication(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized, recorder.Code)
 		})
 	}
+}
+
+func TestImageOutputEditSourceRequiresLoginAndFeatureAccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	registerImageStudioAPIRoutes(engine.Group("/api"))
+	request := httptest.NewRequest(http.MethodGet, "/api/image-studio/assets/1/edit-source?signature=not-a-dashboard-login", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+
+	fixture := newVideoStudioAccessFixture(t, "off")
+	rawSetting := config.GlobalConfig.Get("image_studio")
+	originalSetting, err := config.ConfigToMap(rawSetting)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, config.UpdateConfigFromMap(rawSetting, originalSetting)) })
+	require.NoError(t, config.UpdateConfigFromMap(rawSetting, map[string]string{"access_mode": "off"}))
+	registerImageStudioAPIRoutes(fixture.engine.Group("/api"))
+	recorder = fixture.request(http.MethodGet, "/api/image-studio/assets/1/edit-source", "")
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "image_studio_access_denied")
 }
 
 func TestImageStudioPlaygroundRegistersGenerationAndEditRoutes(t *testing.T) {

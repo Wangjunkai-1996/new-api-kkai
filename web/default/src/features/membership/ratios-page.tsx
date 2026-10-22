@@ -308,7 +308,7 @@ export function MembershipRatiosPage() {
                       className='h-9 max-w-full self-start sm:self-auto'
                     >
                       <TabsTrigger value='offers' className='px-3'>
-                        {t('New purchase offers')}
+                        {t('Membership plans')}
                       </TabsTrigger>
                       <TabsTrigger value='current' className='px-3'>
                         {t('My benefits')}
@@ -319,10 +319,10 @@ export function MembershipRatiosPage() {
                     <p className='mx-5 mt-5 rounded-lg bg-[#fbf7ed] px-3 py-3 text-xs leading-relaxed text-[#876321] sm:mx-6 dark:bg-[#2d2a24] dark:text-[#dec387]'>
                       {current
                         ? t(
-                            'My benefits use your locked membership rules. New purchase offers may differ, even for the same plan.'
+                            'Your benefits use the latest published discounts for your membership tier.'
                           )
                         : t(
-                            'These are the latest offers for new purchases and upgrades. Your current benefits are shown separately.'
+                            'Compare the latest published discounts for each membership tier.'
                           )}
                     </p>
                     {current && !active ? (
@@ -368,7 +368,7 @@ export function MembershipRatiosPage() {
                     </p>
                     <p>
                       {t(
-                        'Purchased memberships lock their discount coefficients. Final ratios follow current group base prices. New purchase offers and active benefits can differ.'
+                        'Membership discounts follow the latest published configuration. Final ratios follow current group base prices. Already authorized requests keep their original pricing.'
                       )}
                     </p>
                   </div>

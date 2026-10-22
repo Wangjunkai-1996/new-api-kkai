@@ -111,7 +111,7 @@ export function MembershipPurchaseDialog(props: {
         {upgrade && (
           <p className='text-muted-foreground text-sm leading-relaxed'>
             {t(
-              'Upgrade pays the full new price. Remaining quota carries over without conversion; reserved requests stay reserved. A new 30-day period and the purchased tier discounts apply. Final carried quota is calculated when payment is confirmed.'
+              'Upgrade pays the full new price. Remaining quota carries over without conversion; reserved requests keep their original pricing. A new 30-day period starts. Future requests use the latest published tier discounts. Final carried quota is calculated when payment is confirmed.'
             )}
           </p>
         )}

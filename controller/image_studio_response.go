@@ -111,6 +111,10 @@ func imageStudioErrorStatus(err error) (int, string) {
 		return http.StatusBadRequest, "invalid_image_asset"
 	case errors.Is(err, service.ErrImageTemporaryStorageUnavailable):
 		return http.StatusServiceUnavailable, "image_temporary_storage_unavailable"
+	case errors.Is(err, service.ErrImageOutputEditSourceUnavailable):
+		return http.StatusServiceUnavailable, "image_edit_source_unavailable"
+	case errors.Is(err, service.ErrImageOutputEditSourceTimeout):
+		return http.StatusGatewayTimeout, "image_edit_source_timeout"
 	case errors.Is(err, video_studio_setting.ErrR2NotConfigured):
 		return http.StatusServiceUnavailable, "image_storage_unavailable"
 	default:

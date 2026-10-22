@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { toast } from 'sonner'
@@ -40,7 +40,7 @@ import type {
   ImageReferenceMetadata,
   ImageSample,
 } from '../types'
-import { ImageComposer } from './image-composer'
+import { ImageComposer, type ImageComposerLoadRequest } from './image-composer'
 
 type GenerationVariables = {
   request: CreateImageRequest
@@ -94,6 +94,7 @@ const mocks = vi.hoisted(() => ({
     files: [] as File[],
     processing: false,
     clear: vi.fn(),
+    replace: vi.fn(),
   },
 }))
 
@@ -250,6 +251,50 @@ const sizedProfile = (sizeKey = 'dimensions'): ImageModelProfile => {
   return result
 }
 
+const advancedProfile = (count: number): ImageModelProfile => {
+  const result = profile()
+  for (let index = 0; index < count; index += 1) {
+    const key = `extra_${index}`
+    result.specification.parameters.push({
+      key,
+      label: `Extra parameter ${index + 1}`,
+      request_key: key,
+      control: 'integer',
+      min: 0,
+      max: 100,
+    })
+    result.default_parameters[key] = 10
+  }
+  return result
+}
+
+const publishedSample = (overrides: Partial<ImageSample>): ImageSample => ({
+  id: 1,
+  model_profile_id: 7,
+  image_asset_id: 1,
+  model: 'gpt-image-2',
+  title: 'A sample composition',
+  prompt: 'A sample composition',
+  model_version: 2,
+  parameters: { variants: 1 },
+  category: '',
+  status: 'published',
+  sort_order: 0,
+  asset: {
+    id: 1,
+    position: 0,
+    state: 'ready',
+    thumbnail_state: 'ready',
+    mime_type: 'image/png',
+    size_bytes: 9,
+    width: 1024,
+    height: 1024,
+  },
+  created_at: 1,
+  updated_at: 1,
+  ...overrides,
+})
+
 const tokenGate = {
   capability: {
     required_group: 'default',
@@ -359,6 +404,13 @@ describe('image composer', () => {
     mocks.reference.files = []
     mocks.reference.processing = false
     mocks.reference.clear.mockClear()
+    mocks.reference.replace.mockReset()
+    mocks.reference.replace.mockImplementation(
+      async (_files: File[], options?: { onCommit?: () => void }) => {
+        options?.onCommit?.()
+        return true
+      }
+    )
     mocks.draftState.hydrate.mockClear()
     mocks.draftState.save.mockClear()
     mocks.draftState.clear.mockClear()
@@ -654,6 +706,121 @@ describe('image composer', () => {
       })
     )
     expect(onSubmitted).toHaveBeenCalledWith(generation)
+  })
+
+  test.each([2, 3])(
+    'defaults advanced parameters disclosure according to its %i controls',
+    async (count) => {
+      mocks.models = [advancedProfile(count)]
+      render(
+        <ImageComposer
+          presentation='workbench'
+          tokenGate={tokenGate}
+          onSubmitted={vi.fn()}
+        />
+      )
+      const title = await screen.findByText('More model parameters')
+      const disclosure = title.closest('details')
+      if (count <= 2) {
+        expect(disclosure).toHaveAttribute('open')
+      } else {
+        expect(disclosure).not.toHaveAttribute('open')
+      }
+      expect(screen.queryByText('Changed')).not.toBeInTheDocument()
+    }
+  )
+
+  test('preserves advanced parameters disclosure choice and reports changed or invalid settings', async () => {
+    const user = userEvent.setup()
+    mocks.models = [advancedProfile(3)]
+    render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const title = await screen.findByText('More model parameters')
+    const disclosure = title.closest('details')
+    await user.click(title)
+    await waitFor(() => expect(disclosure).toHaveAttribute('open'))
+    fireEvent.change(screen.getByLabelText('Scene description'), {
+      target: { value: 'Keep the advanced parameters open' },
+    })
+    expect(disclosure).toHaveAttribute('open')
+    const setting = screen.getByLabelText('Extra parameter 1')
+    fireEvent.change(setting, { target: { value: '11' } })
+    expect(await screen.findByText('Changed')).toBeInTheDocument()
+    fireEvent.change(setting, { target: { value: '10' } })
+    await waitFor(() =>
+      expect(screen.queryByText('Changed')).not.toBeInTheDocument()
+    )
+    await user.click(title)
+    await waitFor(() => expect(disclosure).not.toHaveAttribute('open'))
+    fireEvent.change(screen.getByLabelText('Scene description'), {
+      target: { value: 'Keep the advanced parameters closed' },
+    })
+    expect(disclosure).not.toHaveAttribute('open')
+    fireEvent.change(setting, { target: { value: '101' } })
+    expect(await screen.findByText('Error')).toBeInTheDocument()
+    expect(disclosure).toHaveAttribute('open')
+    expect(screen.queryByText('Changed')).not.toBeInTheDocument()
+  })
+
+  test('shows one applied prompt dimensions feedback line in the workbench and restores guidance for manual dimensions', async () => {
+    mocks.models = [sizedProfile()]
+    render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const prompt = await screen.findByLabelText('Scene description')
+    const guidance =
+      'Include a size such as 2048x1536 in your prompt to apply it automatically.'
+    expect(screen.getByText(guidance)).toBeInTheDocument()
+    fireEvent.change(prompt, { target: { value: 'A 2048x1536 poster' } })
+    const feedback = await screen.findByText(
+      'Output size from prompt: 2048 × 1536'
+    )
+    expect(feedback.parentElement).toHaveClass('is-applied')
+    expect(screen.queryByText(guidance)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Custom width'), {
+      target: { value: '1536' },
+    })
+    expect(await screen.findByText(guidance)).not.toHaveClass('is-applied')
+    expect(
+      screen.queryByText('Output size from prompt: 2048 × 1536')
+    ).not.toBeInTheDocument()
+  })
+
+  test('replaces a stale workbench estimate while recalculating and keeps submission disabled', async () => {
+    mocks.models = [sizedProfile()]
+    render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const prompt = await screen.findByLabelText('Scene description')
+    const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+    fireEvent.change(prompt, { target: { value: 'A coffee shop poster' } })
+    await waitFor(() => expect(generate).toBeEnabled())
+    expect(screen.getByText('1 image · $0.01')).toBeInTheDocument()
+
+    fireEvent.change(prompt, {
+      target: { value: 'A 2048x1536 coffee shop poster' },
+    })
+    expect(screen.getByText('Calculating estimated cost')).toBeInTheDocument()
+    expect(screen.queryByText('1 image · $0.01')).not.toBeInTheDocument()
+    expect(generate).toBeDisabled()
+    await waitFor(() => expect(generate).toBeEnabled())
+    expect(
+      screen.queryByText('Calculating estimated cost')
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('1 image · $0.01')).toBeInTheDocument()
   })
 
   test('applies prompt dimensions before quoting and submitting, and invalidates the previous quote immediately', async () => {
@@ -1457,5 +1624,425 @@ describe('image composer', () => {
       expect(mocks.editQuoteRequest?.model).toBe('gpt-image-2')
       expect(mocks.editQuoteRequest?.sample_id).toBeUndefined()
     })
+  })
+
+  test('keeps a newer draft when a frozen submission succeeds', async () => {
+    const user = userEvent.setup()
+    let complete: ((generation: ImageGeneration) => void) | undefined
+    mocks.generationMutation.mutateAsync.mockImplementation(
+      () =>
+        new Promise<ImageGeneration>((resolve) => {
+          complete = resolve
+        })
+    )
+    const onSubmitted = vi.fn()
+    render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={onSubmitted}
+      />
+    )
+    const prompt = await screen.findByLabelText('Scene description')
+    await user.type(prompt, 'First composition')
+    const generate = screen.getByRole('button', { name: 'Generate 1 image' })
+    await waitFor(() => expect(generate).toBeEnabled())
+    await user.click(generate)
+    await waitFor(() =>
+      expect(mocks.generationMutation.mutateAsync).toHaveBeenCalledOnce()
+    )
+    mocks.draftState.clear.mockClear()
+    await user.clear(prompt)
+    await user.type(prompt, 'A newer idea')
+    mocks.draftState.clear.mockClear()
+    await act(async () => complete?.(previousGeneration()))
+    expect(prompt).toHaveValue('A newer idea')
+    expect(mocks.draftState.clear).not.toHaveBeenCalled()
+    expect(onSubmitted).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 91 }),
+      expect.objectContaining({
+        mode: 'generation',
+        values: expect.objectContaining({ prompt: 'First composition' }),
+      })
+    )
+  })
+
+  test('loads the complete regeneration context and restores an ordinary draft', async () => {
+    const user = userEvent.setup()
+    const model = profile()
+    model.specification.max_reference_images = 2
+    mocks.models = [model]
+    mocks.draftState.draft = {
+      model_profile_id: 7,
+      prompt: 'Ordinary draft',
+      parameters: { variants: 3 },
+    }
+    const settled = vi.fn()
+    const { rerender } = render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={asyncGate()}
+        onSubmitted={vi.fn()}
+        onLoadRequestSettled={settled}
+      />
+    )
+    expect(await screen.findByLabelText('Scene description')).toHaveValue(
+      'Ordinary draft'
+    )
+    const request: ImageComposerLoadRequest = {
+      revision: 1,
+      kind: 'regenerate',
+      generation: previousGeneration(),
+      input: previousEditInput(),
+    }
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={asyncGate()}
+        onSubmitted={vi.fn()}
+        loadRequest={request}
+        onLoadRequestSettled={settled}
+      />
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Load settings' })
+    )
+    expect(await screen.findByLabelText('Editing instructions')).toHaveValue(
+      'A previous composition'
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest).toMatchObject({
+        mode: 'edit',
+        asset_ids: [81, 82],
+        parameters: { variants: 1 },
+      })
+    )
+    expect(settled).toHaveBeenCalledWith(1, true)
+    expect(mocks.draftState.save).not.toHaveBeenCalled()
+    await user.click(
+      screen.getByRole('button', { name: 'Restore previous draft' })
+    )
+    expect(await screen.findByLabelText('Scene description')).toHaveValue(
+      'Ordinary draft'
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest).toMatchObject({
+        mode: 'generation',
+        asset_ids: [],
+        parameters: { variants: 3 },
+      })
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Restore previous draft' })
+    ).not.toBeInTheDocument()
+  })
+
+  test('rejects an output loaded against an older editor revision', async () => {
+    const user = userEvent.setup()
+    const revisions = vi.fn()
+    const settled = vi.fn()
+    const { rerender } = render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        onEditorRevisionChange={revisions}
+      />
+    )
+    const prompt = await screen.findByLabelText('Scene description')
+    const originalRevision = Number(revisions.mock.lastCall?.[0])
+    await user.type(prompt, 'Do not overwrite this')
+    const request: ImageComposerLoadRequest = {
+      revision: 5,
+      kind: 'edit-output',
+      file: new File(['image'], 'finished.png', { type: 'image/png' }),
+      expectedEditorRevision: originalRevision,
+    }
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        loadRequest={request}
+        onEditorRevisionChange={revisions}
+        onLoadRequestSettled={settled}
+      />
+    )
+    await waitFor(() => expect(settled).toHaveBeenCalledWith(5, false))
+    expect(prompt).toHaveValue('Do not overwrite this')
+    expect(mocks.reference.replace).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  test('preserves mode and inputs when an output cannot replace the references', async () => {
+    const user = userEvent.setup()
+    mocks.reference.replace.mockResolvedValue(false)
+    const settled = vi.fn()
+    const { rerender } = render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const prompt = await screen.findByLabelText('Scene description')
+    await user.type(prompt, 'Keep this composition')
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        loadRequest={{
+          revision: 6,
+          kind: 'edit-output',
+          file: new File(['image'], 'finished.png', { type: 'image/png' }),
+        }}
+        onLoadRequestSettled={settled}
+      />
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Load settings' })
+    )
+    await waitFor(() => expect(settled).toHaveBeenCalledWith(6, false))
+    expect(prompt).toHaveValue('Keep this composition')
+    expect(screen.getByRole('button', { name: 'Generate' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Restore previous draft' })
+    ).not.toBeInTheDocument()
+  })
+
+  test('confirms replacing parameter-only edits even with an empty prompt', async () => {
+    const user = userEvent.setup()
+    mocks.models = [sizedProfile()]
+    const { rerender } = render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    const width = await screen.findByLabelText('Custom width')
+    fireEvent.change(width, { target: { value: '1536' } })
+    expect(screen.getByLabelText('Scene description')).toHaveValue('')
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        loadRequest={{
+          revision: 7,
+          kind: 'regenerate',
+          generation: previousGeneration(),
+          input: previousInput(),
+        }}
+      />
+    )
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    expect(mocks.reference.replace).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Load settings' }))
+    expect(
+      await screen.findByRole('button', { name: 'Restore previous draft' })
+    ).toBeInTheDocument()
+  })
+
+  test('applies a revision sample in edit mode without dropping the reference files', async () => {
+    const user = userEvent.setup()
+    const original = profile()
+    const target = {
+      ...profile(),
+      id: 8,
+      model: 'another-model',
+      display_name: 'Another model',
+    }
+    mocks.models = [original, target]
+    const reference = new File(['reference'], 'reference.png', {
+      type: 'image/png',
+    })
+    mocks.reference.files = [reference]
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 9 }]
+    const { rerender } = render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    const sample = publishedSample({
+      id: 41,
+      model_profile_id: 8,
+      model: 'another-model',
+      prompt: 'A sample edit',
+      parameters: { variants: 4 },
+    })
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        loadRequest={{ revision: 8, kind: 'sample', sample }}
+      />
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Load settings' })
+    )
+    expect(await screen.findByLabelText('Editing instructions')).toHaveValue(
+      'A sample edit'
+    )
+    expect(mocks.reference.replace).toHaveBeenCalledWith(
+      [reference],
+      expect.any(Object)
+    )
+    await waitFor(() =>
+      expect(mocks.editQuoteRequest).toMatchObject({
+        model: 'another-model',
+        sample_id: 41,
+        parameters: { variants: 1 },
+      })
+    )
+  })
+
+  test('invalidates a delayed output when the model specification changes without references', async () => {
+    const revisions = vi.fn()
+    const settled = vi.fn()
+    const { rerender } = render(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        onEditorRevisionChange={revisions}
+      />
+    )
+    await screen.findByLabelText('Scene description')
+    const expectedRevision = Number(revisions.mock.lastCall?.[0])
+    mocks.models = [{ ...profile(), specification_version: 3 }]
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        onEditorRevisionChange={revisions}
+      />
+    )
+    expect(Number(revisions.mock.lastCall?.[0])).toBeGreaterThan(
+      expectedRevision
+    )
+    rerender(
+      <ImageComposer
+        presentation='workbench'
+        tokenGate={tokenGate}
+        onSubmitted={vi.fn()}
+        loadRequest={{
+          revision: 9,
+          kind: 'edit-output',
+          file: new File(['image'], 'finished.png', { type: 'image/png' }),
+          expectedEditorRevision: expectedRevision,
+        }}
+        onLoadRequestSettled={settled}
+      />
+    )
+    await waitFor(() => expect(settled).toHaveBeenCalledWith(9, false))
+    expect(mocks.reference.replace).not.toHaveBeenCalled()
+  })
+
+  test('keeps deleted saved references deleted when applying a sample in edit mode', async () => {
+    const user = userEvent.setup()
+    const model = profile()
+    model.specification.max_reference_images = 2
+    mocks.models = [model]
+    const common = {
+      presentation: 'workbench' as const,
+      tokenGate: asyncGate(),
+      onSubmitted: vi.fn(),
+      reuseGeneration: previousGeneration(),
+      reuseInput: previousEditInput(),
+    }
+    const { rerender } = render(<ImageComposer {...common} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Remove reference image 2' })
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest?.asset_ids).toEqual([81])
+    )
+    const sample = publishedSample({
+      id: 51,
+      model_profile_id: 7,
+      prompt: 'A sample edit',
+      parameters: { variants: 1 },
+    })
+    rerender(
+      <ImageComposer
+        {...common}
+        loadRequest={{ revision: 10, kind: 'sample', sample }}
+      />
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Load settings' })
+    )
+    expect(await screen.findByLabelText('Editing instructions')).toHaveValue(
+      'A sample edit'
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest?.asset_ids).toEqual([81])
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Remove reference image 2' })
+    ).not.toBeInTheDocument()
+  })
+
+  test('keeps local replacement references when applying a sample to a reused edit task', async () => {
+    const user = userEvent.setup()
+    const model = profile()
+    model.specification.max_reference_images = 2
+    mocks.models = [model]
+    mocks.reference.files = [
+      new File(['local'], 'local.png', { type: 'image/png' }),
+    ]
+    mocks.reference.metadata = [{ sha256: 'a'.repeat(64), size_bytes: 5 }]
+    const common = {
+      presentation: 'workbench' as const,
+      tokenGate: asyncGate(),
+      onSubmitted: vi.fn(),
+      reuseGeneration: previousGeneration(),
+      reuseInput: previousEditInput(),
+    }
+    const { rerender } = render(<ImageComposer {...common} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Use new reference images' })
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest?.asset_ids).toEqual([31])
+    )
+    const sample = publishedSample({
+      id: 52,
+      model_profile_id: 7,
+      prompt: 'A different sample',
+      parameters: { variants: 1 },
+    })
+    rerender(
+      <ImageComposer
+        {...common}
+        loadRequest={{ revision: 11, kind: 'sample', sample }}
+      />
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Load settings' })
+    )
+    expect(await screen.findByLabelText('Editing instructions')).toHaveValue(
+      'A different sample'
+    )
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest?.asset_ids).toEqual([31])
+    )
+    expect(
+      screen.queryByText('Original reference images')
+    ).not.toBeInTheDocument()
+    expect(mocks.reference.replace).toHaveBeenCalledWith(
+      mocks.reference.files,
+      expect.any(Object)
+    )
   })
 })

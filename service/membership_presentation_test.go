@@ -80,14 +80,14 @@ func TestMembershipCatalogQuotesUseActualWalletPricesAndLatestTerms(t *testing.T
 		})
 	}
 
-	locked, err := GetMembershipGroupQuotes(user.Id, catalog)
+	current, err := GetMembershipGroupQuotes(user.Id, catalog)
 	require.NoError(t, err)
-	require.Len(t, locked, 5)
-	for _, quote := range locked {
+	require.Len(t, current, 5)
+	for _, quote := range current {
 		if quote.GroupKey == "gpt" {
-			assert.Equal(t, 0.5, quote.Coefficient, "sale changes must not rewrite a bought entitlement")
-			assert.Equal(t, 0.1, quote.MembershipRatio)
-			assert.Equal(t, 0.5, quote.Savings, "closing sales must not deactivate a current member")
+			assert.Equal(t, 0.25, quote.Coefficient, "existing members use the latest published discount")
+			assert.Equal(t, 0.05, quote.MembershipRatio)
+			assert.InDelta(t, 0.75, quote.Savings, 1e-9, "closing sales must not deactivate a current member")
 		}
 	}
 }
@@ -116,5 +116,59 @@ func TestMembershipGroupQuotesStopDiscountAtExpiryOrExhaustion(t *testing.T) {
 			assert.Equal(t, quotes[0].WalletRatio, quotes[0].MembershipRatio)
 			assert.Zero(t, quotes[0].Savings)
 		})
+	}
+}
+
+func TestMembershipGroupQuotesUseOneCatalogAfterAnotherReleaseIsPublished(t *testing.T) {
+	_, user := setupMembershipServiceTest(t)
+	previousUsable, previousSpecial := setting.UserUsableGroups2JSONString(), ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsable))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(previousSpecial))
+	})
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"gpt":0.2,"claude":0.5}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"gpt":"GPT","claude":"Claude"}`))
+	first, err := model.GetMembershipCatalog()
+	require.NoError(t, err)
+	for i := range first.Groups {
+		if first.Groups[i].Key == "claude" {
+			first.Groups[i].Published = true
+		}
+	}
+	first.Tiers[0].Discounts["claude"] = 0.8
+	first, err = model.PublishMembershipCatalog(*first, first.ReleaseID, 1)
+	require.NoError(t, err)
+	latest, err := model.GetMembershipCatalog()
+	require.NoError(t, err)
+	latest.Tiers[0].Discounts = map[string]float64{"gpt": 0.25, "claude": 0.5}
+	latest, err = model.PublishMembershipCatalog(*latest, latest.ReleaseID, 1)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name         string
+		catalog      *model.MembershipCatalog
+		coefficients map[string]float64
+	}{
+		{name: "earlier catalog", catalog: first, coefficients: map[string]float64{"gpt": 0.5, "claude": 0.8}},
+		{name: "latest catalog", catalog: latest, coefficients: map[string]float64{"gpt": 0.25, "claude": 0.5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			quotes, err := GetMembershipGroupQuotes(user.Id, tc.catalog)
+			require.NoError(t, err)
+			require.Len(t, quotes, 2)
+			for _, quote := range quotes {
+				coefficient, exists := tc.coefficients[quote.GroupKey]
+				require.True(t, exists)
+				assert.Equal(t, coefficient, quote.Coefficient, "all rows must use the supplied publication")
+				assert.InDelta(t, quote.BaseRatio*coefficient, quote.MembershipRatio, 1e-9)
+			}
+		})
+	}
+	for group, base := range map[string]float64{"gpt": 0.2, "claude": 0.5} {
+		quote, err := model.GetMembershipQuote(user.Id, group, base, base)
+		require.NoError(t, err)
+		assert.Equal(t, latest.ReleaseID, quote.ReleaseID, "new billing authorizations use the current publication")
+		assert.Equal(t, latest.Tiers[0].Discounts[group], quote.Discount)
 	}
 }

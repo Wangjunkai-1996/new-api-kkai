@@ -99,7 +99,14 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 		if account.ID != input.ExpectedAccountID || account.Revision != input.ExpectedRevision {
 			return nil, ErrMembershipQuoteChanged
 		}
-	} else if input.ExpectedAccountID != 0 || input.ExpectedRevision != 0 {
+		var current MembershipCatalogState
+		if err := lockForShare(tx).First(&current, 1).Error; err != nil {
+			return nil, err
+		}
+		if current.ReleaseID != input.ExpectedReleaseID {
+			return nil, ErrMembershipQuoteChanged
+		}
+	} else if input.ExpectedAccountID != 0 || input.ExpectedRevision != 0 || input.ExpectedReleaseID != 0 {
 		return nil, ErrMembershipQuoteChanged
 	}
 	record := &MembershipBillingRecord{RequestID: input.RequestID, Scope: input.Scope, UserID: input.UserID, TokenID: input.TokenID, Source: MembershipWalletSource, GroupKey: input.GroupKey, Snapshot: input.WalletSnapshot, RequestHash: fingerprint, ReservedQuota: input.WalletQuota, State: "reserved", CreatedAt: now, Applied: true}

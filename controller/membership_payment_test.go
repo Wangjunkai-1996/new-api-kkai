@@ -43,9 +43,13 @@ func membershipControllerFixture(t *testing.T, provider, currency string) (*gorm
 		require.NoError(t, sqlDB.Close())
 	})
 	require.NoError(t, db.Create(&model.User{Id: 7, Username: "member", Group: "default", Status: 1, Quota: 123}).Error)
-	terms, err := common.Marshal(model.MembershipOrderTerms{Tier: model.MembershipTier{ID: "gold", Name: "Gold", Rank: 1, Quota: 1000, PriceMinor: 9900, Currency: currency}, DurationSeconds: model.MembershipDurationSeconds, Action: "purchase"})
+	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{
+		Tiers: []model.MembershipTier{{ID: "gold", Name: "Gold", Rank: 1, Quota: 1000, PriceMinor: 9900, Currency: currency, Enabled: true}},
+	}, 0, 7)
 	require.NoError(t, err)
-	order := &model.MembershipOrder{TradeNo: "MEMBER-test", UserID: 7, TierID: "gold", AmountMinor: 9900, Currency: currency, Provider: provider, PaymentMethod: provider, Terms: string(terms), Status: model.MembershipOrderPending, ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	terms, err := common.Marshal(model.MembershipOrderTerms{Tier: catalog.Tiers[0], ReleaseID: catalog.ReleaseID, DurationSeconds: model.MembershipDurationSeconds, Action: "purchase"})
+	require.NoError(t, err)
+	order := &model.MembershipOrder{TradeNo: "MEMBER-test", UserID: 7, TierID: "gold", ReleaseID: catalog.ReleaseID, AmountMinor: 9900, Currency: currency, Provider: provider, PaymentMethod: provider, Terms: string(terms), Status: model.MembershipOrderPending, ExpiresAt: time.Now().Add(time.Hour).Unix()}
 	require.NoError(t, db.Create(order).Error)
 	return db, order
 }

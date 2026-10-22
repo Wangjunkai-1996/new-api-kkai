@@ -296,6 +296,7 @@ type MembershipReservationInput struct {
 	WalletQuota          int64
 	ExpectedAccountID    int64
 	ExpectedRevision     int64
+	ExpectedReleaseID    int64 `json:",omitempty"`
 	SubscriptionSnapshot string
 	WalletSnapshot       string
 }

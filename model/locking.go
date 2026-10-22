@@ -26,6 +26,15 @@ func lockForUpdate(tx *gorm.DB) *gorm.DB {
 	return tx.Clauses(clause.Locking{Strength: "UPDATE"})
 }
 
+// lockForShare allows concurrent readers while serializing them with a publisher
+// holding FOR UPDATE. The MySQL driver emits LOCK IN SHARE MODE on MySQL 5.7.
+func lockForShare(tx *gorm.DB) *gorm.DB {
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		return tx
+	}
+	return tx.Clauses(clause.Locking{Strength: clause.LockingStrengthShare})
+}
+
 // LockUserForTokenCreation returns the current owner state under the creation lock.
 func LockUserForTokenCreation(ctx context.Context, tx *gorm.DB, userID int) (*User, error) {
 	var user User

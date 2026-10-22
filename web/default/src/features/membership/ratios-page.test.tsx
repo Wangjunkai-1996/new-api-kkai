@@ -140,7 +140,7 @@ const membership: MembershipSelf = {
   runtime_enabled: true,
   server_time: 1000,
   account,
-  tier: { ...tier, discounts: { enterprise: 0.95 } },
+  tier,
   discounts: [
     {
       group_key: 'enterprise',
@@ -148,9 +148,9 @@ const membership: MembershipSelf = {
       description: 'Long-context requests',
       base_ratio: 0.2,
       wallet_ratio: 0.2,
-      coefficient: 0.95,
-      membership_ratio: 0.19,
-      savings: 0.05,
+      coefficient: 0.9,
+      membership_ratio: 0.18,
+      savings: 0.1,
       enabled: true,
       published: true,
     },
@@ -268,7 +268,7 @@ describe('membership ratio comparison', () => {
     expect(screen.queryByText('Save 10% vs wallet')).not.toBeInTheDocument()
   })
 
-  it('does not present old locked benefit responses as current prices during a mixed backend rollout', async () => {
+  it('does not present incomplete benefit responses as current prices during a mixed backend rollout', async () => {
     setMembership(catalog, {
       ...membership,
       discounts: membership.discounts.map((quote) => {
@@ -286,22 +286,21 @@ describe('membership ratio comparison', () => {
       )
     ).toBeVisible()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.queryByText('0.19')).not.toBeInTheDocument()
-    expect(screen.queryByText('Save 5% vs wallet')).not.toBeInTheDocument()
+    expect(screen.queryByText('0.18')).not.toBeInTheDocument()
+    expect(screen.queryByText('Save 10% vs wallet')).not.toBeInTheDocument()
   })
 
-  it('separates latest offers from locked benefits even when the tier name is the same', async () => {
+  it('shows current published discounts for an existing member and preserves authoritative quotes', async () => {
     await renderRatios()
     expect(screen.getByText('0.18')).toBeVisible()
     expect(screen.queryByText('0.19')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
-    expect(screen.getByText('0.19')).toBeVisible()
-    expect(screen.getByText('Save 5% vs wallet')).toBeVisible()
-    expect(screen.queryByText('0.18')).not.toBeInTheDocument()
+    expect(screen.getByText('0.18')).toBeVisible()
+    expect(screen.getByText('Save 10% vs wallet')).toBeVisible()
     expect(
       screen.getByRole('columnheader', {
-        name: /Orbit Club.*My locked benefits/,
+        name: /Orbit Club.*My benefits/,
       })
     ).toBeVisible()
 
@@ -310,11 +309,14 @@ describe('membership ratio comparison', () => {
     })
     await userEvent.click(group)
     expect(group).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText(/Membership coefficient/)).toHaveTextContent('95%')
+    expect(screen.getByText(/Membership coefficient/)).toHaveTextContent('90%')
+    expect(
+      screen.getByText(
+        'Your benefits use the latest published discounts for your membership tier.'
+      )
+    ).toBeVisible()
 
-    await userEvent.click(
-      screen.getByRole('tab', { name: 'New purchase offers' })
-    )
+    await userEvent.click(screen.getByRole('tab', { name: 'Membership plans' }))
     expect(screen.getByText('0.18')).toBeVisible()
     expect(screen.queryByText('0.19')).not.toBeInTheDocument()
   })
@@ -360,7 +362,7 @@ describe('membership ratio comparison', () => {
       await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
 
       expect(screen.getByText('No active membership benefits')).toBeVisible()
-      expect(screen.queryByText('0.19')).not.toBeInTheDocument()
+      expect(screen.queryByText('0.18')).not.toBeInTheDocument()
       expect(
         screen.getByText(
           'No membership discount is active. Requests use your wallet at its existing group price.'
@@ -382,7 +384,7 @@ describe('membership ratio comparison', () => {
         screen.getByText('Memberships are not available yet.')
       ).toBeVisible()
       expect(screen.queryByRole('table')).not.toBeInTheDocument()
-      expect(screen.queryByText('0.19')).not.toBeInTheDocument()
+      expect(screen.queryByText('0.18')).not.toBeInTheDocument()
     }
   )
 
@@ -398,10 +400,10 @@ describe('membership ratio comparison', () => {
     ).toBeVisible()
     expect(
       screen.getByRole('columnheader', {
-        name: /Orbit Club.*My locked benefits/,
+        name: /Orbit Club.*My benefits/,
       })
     ).toBeVisible()
-    expect(screen.getByText('0.19')).toBeVisible()
+    expect(screen.getByText('0.18')).toBeVisible()
   })
 
   it('keeps benefits active when remaining quota is reserved rather than consumed', async () => {
@@ -412,7 +414,7 @@ describe('membership ratio comparison', () => {
     await renderRatios()
     await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
 
-    expect(screen.getByText('0.19')).toBeVisible()
+    expect(screen.getByText('0.18')).toBeVisible()
     expect(
       screen.queryByText('No active membership benefits')
     ).not.toBeInTheDocument()

@@ -410,12 +410,7 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
           <div className='space-y-3 text-sm leading-relaxed'>
             <p>
               {t(
-                'Changes to existing group discounts apply only to new purchases and upgrades. Existing locked discounts remain unchanged.'
-              )}
-            </p>
-            <p>
-              {t(
-                'First publication of a group grants its published benefits to eligible existing members as well.'
+                'Membership discounts follow the latest published configuration for all members. Changes apply to new requests; already authorized requests keep their original pricing.'
               )}
             </p>
             <p>{t('Disabling sales does not cancel existing memberships.')}</p>

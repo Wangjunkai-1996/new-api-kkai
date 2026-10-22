@@ -1,5 +1,35 @@
 # 订阅会员前端验证记录
 
+## 当前折扣展示规则（2026-10-22）
+
+有效新老会员的后续新请求统一采用当前档位最新已发布折扣；页面不再承诺购买时锁定
+系数或新增组首次发布永久锁定。本人权益与在售档位仍可分别展示，但本人报价必须来自
+最新发布值。已预扣请求及其历史账本继续展示原快照，订单金额、额度和有效期不追溯改变。
+
+本次在当前应用 checkout 的 `web/default` 完成定向验证：会员中心、倍率对照与购买/升级
+提示统一采用最新折扣口径，管理员发布说明明确影响所有会员的新请求。测试覆盖已购会员
+接口刷新后展示最新倍率及当前权益，旧“锁定权益”文案已移除。以下命令全部通过：
+
+```sh
+bun run test src/features/membership/membership.test.tsx src/features/membership/ratios-page.test.tsx src/features/membership/api.test.ts
+bunx --no-install tsgo --project node_modules/.tmp/membership-typecheck.json --noEmit --incremental false
+bunx --no-install oxlint -c .oxlintrc.json src/features/membership/index.tsx src/features/membership/components/discount-comparison.tsx src/features/membership/components/ratio-comparison.tsx src/features/membership/ratios-page.tsx src/features/membership/components/catalog-editor.tsx src/features/membership/components/purchase-dialog.tsx src/features/membership/membership.test.tsx src/features/membership/ratios-page.test.tsx
+bunx --no-install oxfmt --check src/features/membership/index.tsx src/features/membership/components/discount-comparison.tsx src/features/membership/components/ratio-comparison.tsx src/features/membership/ratios-page.tsx src/features/membership/components/catalog-editor.tsx src/features/membership/components/purchase-dialog.tsx src/features/membership/membership.test.tsx src/features/membership/ratios-page.test.tsx
+bun run i18n:sync
+```
+
+测试结果为 3 文件、40 项通过；只有既有 jsdom `Window.scrollTo()` 提示。
+TypeScript 临时配置继承 `tsconfig.app.json`，仅包含 `src/features/membership/**/*.ts`、
+`src/features/membership/**/*.tsx` 和 `src/test-setup.ts`。lint、格式与 i18n 同步通过；
+6 个新增键经临时补键脚本写入 7 语言，192 个会员键的各语言完整性检查通过。
+
+刷新边界：同一页面发布成功会失效会员缓存；手动刷新也会重新读取本人权益和套餐报价。
+其他浏览器已打开的页面没有发布推送，需刷新或既有失效事件后更新显示；15/30 秒
+`staleTime` 是缓存有效期，不是轮询。后台新请求的计价直接使用最新目录，不依赖页面缓存。
+
+未运行全仓测试、全量类型检查或构建，没有本次浏览器截图、真实支付或生产部署验证。
+下方测试、截图及临时脚本均为原阶段历史记录。
+
 ## 范围与售卖状态
 
 验证工作区：`/Users/tokk/.codex/worktrees/subscription-membership/new-api-kkai`。没有修改原始 checkout，没有构建生产镜像、连接生产或部署。

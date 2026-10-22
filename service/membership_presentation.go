@@ -24,7 +24,7 @@ type MembershipTierQuote struct {
 	Savings         float64 `json:"savings"`
 }
 
-// MembershipGroupQuote describes locked entitlements at the current group prices.
+// MembershipGroupQuote applies one published catalog's tier discounts to current group prices.
 type MembershipGroupQuote struct {
 	MembershipGroupPrice
 	MembershipTierQuote
@@ -80,14 +80,28 @@ func GetMembershipGroupQuotes(userID int, catalog *model.MembershipCatalog) ([]M
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]MembershipGroupQuote, 0, len(prices))
-	for _, price := range prices {
-		quote, err := model.GetMembershipQuote(userID, price.GroupKey, price.BaseRatio, price.WalletRatio)
+	tierID := ""
+	if model.MembershipEnabled() {
+		self, err := model.GetMembershipSelf(userID)
 		if err != nil {
 			return nil, err
 		}
+		if self.Account != nil && self.Account.ActiveAt(self.ServerTime) {
+			tierID = self.Account.TierID
+		}
+	}
+	rows := make([]MembershipGroupQuote, 0, len(prices))
+	for _, price := range prices {
+		coefficient := 1.0
+		if tierID != "" {
+			coefficient, err = model.MembershipDiscount(catalog, tierID, price.GroupKey)
+			if err != nil {
+				return nil, err
+			}
+		}
+		ratio := model.ResolveMembershipRatio(price.BaseRatio, price.WalletRatio, coefficient)
 		rows = append(rows, MembershipGroupQuote{MembershipGroupPrice: price,
-			MembershipTierQuote: membershipTierQuote(quote.WalletRatio, quote.MembershipRatio, quote.Discount)})
+			MembershipTierQuote: membershipTierQuote(price.WalletRatio, ratio, coefficient)})
 	}
 	return rows, nil
 }

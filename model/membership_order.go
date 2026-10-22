@@ -351,6 +351,24 @@ func activateMembershipOrderTx(tx *gorm.DB, order *MembershipOrder, state *Membe
 	if terms.Tier.Quota <= 0 || terms.DurationSeconds != MembershipDurationSeconds {
 		return ErrMembershipInvalidInput
 	}
+	var current MembershipCatalogState
+	if err := lockForShare(tx).First(&current, 1).Error; err != nil {
+		return err
+	}
+	catalog, err := membershipCatalogTx(lockForShare(tx), current.ReleaseID)
+	if err != nil {
+		return err
+	}
+	retained := false
+	for _, tier := range catalog.Tiers {
+		if tier.ID == terms.Tier.ID {
+			retained = true
+			break
+		}
+	}
+	if !retained {
+		return fmt.Errorf("%w: purchased tier is missing from current pricing release", ErrMembershipConflict)
+	}
 	account, err := membershipAccountTx(tx, order.UserID, now)
 	if err != nil {
 		return err

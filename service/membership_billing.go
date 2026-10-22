@@ -62,7 +62,7 @@ func PrepareMembershipReservation(info *relaycommon.RelayInfo, maximumBeforeGrou
 	input := model.MembershipReservationInput{
 		RequestID: info.RequestId, UserID: info.UserId, TokenID: info.TokenId, TokenKey: info.TokenKey,
 		SkipToken: info.IsPlayground, GroupKey: info.UsingGroup,
-		ExpectedAccountID: quote.AccountID, ExpectedRevision: quote.Revision,
+		ExpectedAccountID: quote.AccountID, ExpectedRevision: quote.Revision, ExpectedReleaseID: quote.ReleaseID,
 	}
 	for _, member := range []bool{false, true} {
 		ratio := quote.WalletRatio

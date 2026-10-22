@@ -174,9 +174,7 @@ func GetMembershipSelf(c *gin.Context) {
 		self.Tier.PaymentProducts = nil
 		discounts := make(map[string]float64, len(quotes))
 		for _, quote := range quotes {
-			if coefficient, ok := self.Tier.Discounts[quote.GroupKey]; ok {
-				discounts[quote.GroupKey] = coefficient
-			}
+			discounts[quote.GroupKey] = quote.Coefficient
 		}
 		self.Tier.Discounts = discounts
 	}
