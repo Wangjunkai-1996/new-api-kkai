@@ -6,7 +6,6 @@
     "task_plugins",
     "studio_media_urls",
     "reseller_sites",
-    "reseller_group_pricing",
-    "image_output_edit_source"
+    "reseller_group_pricing"
   ]
 }

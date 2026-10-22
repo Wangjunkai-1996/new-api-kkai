@@ -32,7 +32,7 @@
 | 新增 `image-output-reference.ts`、`api.ts` | 同源读取成品原图，生成 File，取消/超时/错误处理；不把签名 URL 当持久数据，不直接复用 output ID |
 | 新增 `web/default/src/styles/image-create.css` | 创作页作用域内的视觉变量、容器断点和动效；不修改全局 Button、Select 等默认外观 |
 | `router/kkai_routes.go`、`controller/image_studio_library.go`、`service/image_output_edit_source.go` | 新增第 5 节的受鉴权成品读取端点，复用存储与现有授权规则 |
-| `common/console_contract.json`、`web/default/console-contract.json` | 声明新增能力依赖，防止新前端被判定可与缺少端点的旧后端配对 |
+| `common/console_contract.json`、`web/default/console-contract.json` | 后端声明 `image_output_edit_source`；前端优先使用新接口，旧后端通过已要求的 `studio_media_urls` 授权签名回退，不把新能力列为全局必需 |
 | 六语言 locale 与必要静态 key 声明 | 仅补实际新增产品文案，遵循 i18n 技能脚本流程 |
 
 以上 `components/`、`hooks/`、`queries.ts`、`api.ts` 路径均相对 `web/default/src/features/image-studio/`。不为这次改造另建全局状态库、第二套表单或新的组件库。已有 `motion/react`、Base UI、Lucide、React Query 足够。
@@ -129,12 +129,14 @@ ready 资源按 `position` 再 `id` 排序；同批 2–4 张全部可达。主�
 
 ### 5.2 前端与兼容性
 
-- 接口使用认证 `api`、Blob 响应、`disableDuplicate: true`，按账号和载入 revision 绑定 AbortSignal；页面离开、账号切换或新载入意图时取消。客户端超时略大于服务端读取上限；Blob 错误响应需解析受控 JSON 错误码，再显示翻译后的提示。
+- 优先使用认证 `api` 同源请求新接口、Blob 响应、`disableDuplicate: true`，按账号和载入 revision 绑定 AbortSignal；页面离开、账号切换或新载入意图时取消。整个读取流程共享75秒截止时间；Blob 错误响应解析受控 JSON 错误码，再显示翻译后的提示。
+- 仅新接口返回404/405且没有非空业务错误码时，兼容旧回滚后端：用资产 ID 构造固定 `/api/image-studio/assets/:id/content`，经已鉴权 `POST /api/studio/media-urls` 重新校验资产权限并取得短签名原图。401/403、业务404、超时和服务端失败不触发回退；不读取传入的任意 `content_url`。
+- 签名原图由原生 `fetch` 读取，不使用会附 Bearer 的全局 API 客户端；设置 `credentials: omit`、`referrerPolicy: no-referrer`，拒绝重定向、非 HTTPS 和含用户信息的 URL。沿用 MIME、精确字节数和引用上限校验，并对回退原图解码检查真实宽高；失败或取消保留草稿。回退依赖对象存储 GET CORS，发布前必须在生产 Origin 以真实浏览器 GET 验证；历史 OPTIONS 记录不能替代本次验证。
 - 成品进入编辑前仍通过现有 `getImageReferenceBatchMetadata` 和模型引用限制；output ID 仅记录来源，不作为 reference ID 提交。
 - 验证成功才执行第 3.3 节的完整载入；替换参考组默认是 1 张所选成品。保留随后追加、排序、删除参考的原能力。
 - 成品原始尺寸不强制覆盖用户当前输出尺寸；上传图尺寸和最终输出尺寸是两个概念。
-- 在后端 contract 的实际支持 profile 声明 `image_output_edit_source`，在 default 前端 `required_capabilities` 加入同名能力。旧前端不要求该能力，继续兼容；新前端不能与缺少此能力的旧后端配对。新增能力本身不应无故更改现有 API contract 版本。
-- 后续发布按 backend/combined 范围及维护中的 NewAPI runbook 执行，先验证包含新能力的后端，再激活要求此能力的前端；具体格式、控制器和生产状态必须发布时获取，本文件不宣称当前线上已支持。
+- 后端实际支持的 profile 继续声明 `image_output_edit_source`；前端将它作为优先路径，`required_capabilities` 仍要求已存在的 `studio_media_urls`，不强制新能力。新旧后端都能保留续编流程，新增能力本身不改变现有 API contract 版本。
+- 后续发布按 backend/combined 范围及维护中的 NewAPI runbook 执行，验证当前及回滚后端兼容；format 2 前端激活位于后端 candidate/rollout 事务之外。具体格式、控制器和生产状态必须发布时获取，本文件不宣称当前线上已支持。
 
 ## 6. 功能逐项保留与验收
 
@@ -245,7 +247,7 @@ ready 资源按 `position` 再 `id` 排序；同批 2–4 张全部可达。主�
 | A 冻结与接缝 | 保存基线截图/参数；先完成完整 loadRequest、编辑修订、原子 reference replace、共享查询 | 新旧 Sheet 都保持原语义；同一任务可重复载入；失败不丢稿；已有功能回归无倒退 |
 | B 完整工作台外观 | 单实例双栏/堆叠、全部参数布局、自定义宽高、局部 tokens | 使用固定数据对照桌面/手机/浅深主题；核心尺寸正确，F01–F18 入口均在 |
 | C 真实同页结果 | 所有任务状态、多图、后台查询、媒体、站内消耗、再生成 | 成功不跳库；旧任务不清新稿；unknown 无新请求；多 pending 和切换账号正确 |
-| D 成品续编 | 同源端点、能力契约、File 校验、完整编辑载入 | 本人成品成功续编；跨用户、超限、读取失败、快速切换均保留旧输入；同步/异步路径都可用 |
+| D 成品续编 | 同源新端点优先、旧后端鉴权签名回退、File 校验及完整编辑载入 | 本人成品成功续编；跨用户、超限、读取失败、快速切换均保留旧输入；同步/异步路径都可用；回退需真实GET CORS验证 |
 | E 动效与精修 | 全动效、焦点/触屏、六语言、图片解码和竞态处理 | 录屏与对照图完成，reduced-motion 可用；不留下“后续再补”的关键视觉项 |
 | F 联合验收 | 定向测试结果、视觉差分、真实接口验证记录、遗留项列表 | 第 9 节无 P0/P1；再讨论代码提交/发布，不能用计划文档代替已验收结果 |
 
@@ -274,7 +276,7 @@ ready 资源按 `position` 再 `id` 排序；同批 2–4 张全部可达。主�
 | 扩展 `components/image-composer.test.tsx` | 重复 revision 载入、全上下文复核、报价失效、提交修订保护、隐藏错误展开；既有尺寸/幂等/同步异步回归 |
 | 引用 hook 测试 | replace 原子性、目标 scope 切换不误清、过期结果丢弃、文件顺序及最后一张删除仍编辑 |
 | 新增后端读取契约测试 | 仅本人 ready 已结算 output；拒绝 catalog/reference/他人/未完成/已删除；伪造长度、超限、短读、中途失败、取消/超时、MIME/哈希不符；关闭 reader/删除临时文件、无重定向 |
-| 路由及 console contract | 端点必须鉴权/访问门禁；媒体签名不能替代登录；能力声明与可用实现一致 |
+| 路由及 console contract | 新端点必须鉴权/访问门禁；旧版本回退重新执行媒体签名授权；新能力不作前端全局依赖，GET CORS单独实测 |
 
 不新增只测 className 或组件内部变量的测试。视觉由截图验收；真实API接通后使用可控测试环境验证生成/编辑报价→提交→查询→续创，记录实际结果。浏览器 mock 通过不代表真实服务已通过，生产不是本轮测试场。
 
@@ -324,7 +326,7 @@ git diff --check -- web/default/src/features/image-studio web/default/src/styles
 - 生成/编辑后留在创作页，展示本次全部结果、历史、实际扣费和任务详情；支持下载、再生成、成品续编。
 - 保留预设、自定义像素、提示词尺寸识别、手动优先、动态参数、原参考图、有序多图、真实报价、全部同步/异步传输及幂等回执。
 - 载入先复核完整设置和引用，再原子替换；完整普通草稿可恢复。只改参数也会保护草稿；账户/模型规格变化及迟到响应不能覆盖当前输入。应用样例不会复活已删除引用或切回旧引用。
-- 成品续编通过新受鉴权 `/api/image-studio/assets/:id/edit-source` 端点读取，验证归属、结算状态、MIME、尺寸、字节数和哈希。流和临时文件有关闭/清理；SDK 超时原消息脱敏。两个后端 profile 和前端兼容契约均声明 `image_output_edit_source`。
+- 成品续编通过新受鉴权 `/api/image-studio/assets/:id/edit-source` 端点读取，验证归属、结算状态、MIME、尺寸、字节数和哈希。流和临时文件有关闭/清理；SDK 超时原消息脱敏。首次实现时两个后端 profile 和前端兼容契约均声明 `image_output_edit_source`；发布准备中前端依赖已按第5.2节修正为可选优先路径，验证记录见第10.5节。
 - 控件160ms、引用排序200ms、图片解码后500ms揭示、尺寸识别700ms；等待采用2.4s呼吸与2.8s环绕，隐藏页面暂停循环。
 - 55条新键覆盖 en/zh/fr/ja/ru/vi 和仓库实际存在的 zh-TW；未改写已有译文。
 
@@ -470,3 +472,17 @@ node node_modules/.tmp/check-image-workbench-format.mjs
 - [桌面生成等待](/Users/tokk/.codex/visualizations/2026/10/20/01a158d7-7b0e-70c2-a5a6-6b153f66b990/creation-generating-with-previous.png)
 - [320px生成等待](/Users/tokk/.codex/visualizations/2026/10/20/01a158d7-7b0e-70c2-a5a6-6b153f66b990/creation-generating-mobile.png)
 - [生成等待与成品出现录屏](/Users/tokk/.codex/visualizations/2026/10/20/01a158d7-7b0e-70c2-a5a6-6b153f66b990/creation-generation-flow.mp4)
+
+### 10.5 回滚后端兼容修正（2026-10-22）
+
+发布准备发现旧回滚后端没有新端点。为保留安全回滚和完整续编功能，前端增加第5.2节所述的已鉴权原图签名回退，移除新能力的全局强依赖；后端实现及其能力声明不变。此修正不改写此前夹具或后端验收结果。
+
+最近范围检查（工作目录 `web/default`）：
+
+```sh
+bun run test src/features/image-studio/image-output-reference.test.ts
+bun run tsgo --noEmit --project node_modules/.tmp/tsconfig-image-workbench.json
+bun run oxlint -c .oxlintrc.json src/features/image-studio/image-output-reference.ts src/features/image-studio/image-output-reference.test.ts
+```
+
+结果为19/19、类型检查通过、lint通过。测试覆盖旧路由404/405回退、固定资产路径、存储请求不携带应用凭据、业务/权限/服务错误不回退、取消、共享超时、流式字节上限、尺寸不符及不安全URL拒绝。两文件正文经定向格式化，原版权头逐字保留；未运行全量测试，未新增依赖或文案。真实存储 GET CORS 由发布流程单独验收，此处不宣称已通过。
