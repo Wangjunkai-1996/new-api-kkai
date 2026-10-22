@@ -20,11 +20,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 
 import {
-  getRequestNotifications,
   markAllRequestNotificationsRead,
   markRequestNotificationRead,
   requestQueryKey,
 } from '@/features/requests/api'
+import { useRequestAvailability } from '@/features/requests/use-request-availability'
 import { useSiteConfig } from '@/features/site-config'
 import { useStatus } from '@/hooks/use-status'
 import { getNotice } from '@/lib/api'
@@ -80,21 +80,14 @@ export function useNotifications() {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const { data: site } = useSiteConfig()
   const isTenant = (site?.tenant_id ?? 0) > 0
-  const requestsEnabled = Boolean(userId) && site?.tenant_id === 0
+  const requestAvailability = useRequestAvailability()
+  const requestsEnabled = requestAvailability.available
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [selectedTab, setActiveTab] = useState<NotificationTab>('notice')
   const activeTab =
     selectedTab === 'requests' && !requestsEnabled ? 'notice' : selectedTab
   const notificationsQueryKey = requestQueryKey(userId, 'notifications')
-  const requestNotifications = useQuery({
-    queryKey: notificationsQueryKey,
-    queryFn: () => getRequestNotifications(),
-    enabled: requestsEnabled,
-    staleTime: 30_000,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
-    meta: { errorToast: false },
-  })
+  const requestNotifications = requestAvailability.query
   const readRequestNotification = useMutation({
     mutationFn: markRequestNotificationRead,
     onSuccess: () => {
@@ -198,7 +191,7 @@ export function useNotifications() {
 
     setActiveTab(nextTab)
     setPopoverOpen(true)
-    if (requestsEnabled) void requestNotifications.refetch()
+    if (requestAvailability.eligible) void requestNotifications.refetch()
   }
 
   const handlePopoverOpenChange = (open: boolean) => {

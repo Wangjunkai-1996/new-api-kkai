@@ -101,18 +101,30 @@ func TestTenantOnlinePostgresSharesMigrationLockAndRestoresSession(t *testing.T)
 	require.NoError(t, blocker.Close())
 	// A single pooled connection makes session setting restoration observable.
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.Exec("SET lock_timeout='7s'").Error)
-	require.NoError(t, db.Exec("SET statement_timeout='9s'").Error)
-	require.NoError(t, withTenantOnlineLock(context.Background(), db, false, func(locked *gorm.DB) error {
-		var value string
-		require.NoError(t, locked.Raw("SHOW lock_timeout").Scan(&value).Error)
-		assert.Equal(t, "1s", value)
-		return nil
-	}))
-	for setting, expected := range map[string]string{"lock_timeout": "7s", "statement_timeout": "9s"} {
-		var value string
-		require.NoError(t, db.Raw("SHOW "+setting).Scan(&value).Error)
-		assert.Equal(t, expected, value)
+	for _, test := range []struct {
+		name, lock, statement, expectedLock, expectedStatement string
+		callbackError                                          error
+	}{
+		{name: "disabled", lock: "0", statement: "0", expectedLock: "1s", expectedStatement: "5s"},
+		{name: "longer", lock: "7s", statement: "9s", expectedLock: "1s", expectedStatement: "5s"},
+		{name: "stricter", lock: "100ms", statement: "250ms", expectedLock: "100ms", expectedStatement: "250ms"},
+		{name: "error", lock: "100ms", statement: "250ms", expectedLock: "100ms", expectedStatement: "250ms", callbackError: errors.New("migration stopped")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.NoError(t, db.Exec("SELECT set_config('lock_timeout', ?, false),set_config('statement_timeout', ?, false)", test.lock, test.statement).Error)
+			err := withTenantOnlineLock(context.Background(), db, false, func(locked *gorm.DB) error {
+				var settings struct{ LockTimeout, StatementTimeout string }
+				require.NoError(t, locked.Raw("SELECT current_setting('lock_timeout') AS lock_timeout,current_setting('statement_timeout') AS statement_timeout").Scan(&settings).Error)
+				assert.Equal(t, test.expectedLock, settings.LockTimeout)
+				assert.Equal(t, test.expectedStatement, settings.StatementTimeout)
+				return test.callbackError
+			})
+			assert.ErrorIs(t, err, test.callbackError)
+			var settings struct{ LockTimeout, StatementTimeout string }
+			require.NoError(t, db.Raw("SELECT current_setting('lock_timeout') AS lock_timeout,current_setting('statement_timeout') AS statement_timeout").Scan(&settings).Error)
+			assert.Equal(t, test.lock, settings.LockTimeout)
+			assert.Equal(t, test.statement, settings.StatementTimeout)
+		})
 	}
 }
 

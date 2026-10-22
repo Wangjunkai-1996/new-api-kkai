@@ -156,7 +156,7 @@ SQL_DSN=local LOG_SQL_DSN= SQLITE_PATH="$KKAI_LOCAL_DB_DIR/request-tickets.db" \
 ledger 的旧开发库不能补写假 receipt，可保留旧库并采用上述全新库路径。
 
 本地库入口的 `Options{}` 只用于这种隔离演练；它不是生产操作命令。
-生产仍必须走本文末尾的独立授权和 controller 证明流程。
+生产仍必须走本文末尾的独立授权和已安装 controller 证明流程。
 
 ## 可执行的只读检查
 
@@ -168,11 +168,17 @@ ledger 的旧开发库不能补写假 receipt，可保留旧库并采用上述�
 ./kkai-migrate --precheck --target 16 --json --dsn-stdin
 ./kkai-migrate --target 16 --dry-run --dsn-stdin
 ./kkai-migrate --observe --current --json --dsn-stdin
+./kkai-migrate --request-ticket plan --json --dsn-stdin
+./kkai-migrate --request-ticket status --json --dsn-stdin
 ```
 
 v16 precheck 只接受完整 canonical v15 或 v16；v14 必须先走独立 v15 流程。
 缺少部分 v16 表/索引但已存在对象形状完全正确时，precheck 允许恢复中断的
 MySQL DDL；任何已有字段或同名索引不匹配都会停止，绝不自动删除或重建。
+专用 `--request-ticket plan/status` 比通用 precheck 更严格：canonical v15 时
+两张目标表必须都不存在；canonical v16 时要求完整 receipt 和精确物理结构。
+它们返回 `kkai_request_ticket_v1`，绑定数据库/Schema 身份、source/target digest
+与编译内的 v16 plan checksum，不恢复无 receipt 的部分生产对象。
 
 ## 隔离演练与 mutation 入口
 
@@ -216,7 +222,25 @@ canonical v14/v15/v16 的完整摘要。不能仅检查镜像内迁移二进制�
 迁移期间保持既有路由与服务进程，前端启用独立于后端候选发布事务。
 
 controller 的只读 plan 绑定当前数据库与运行进程身份；获准的 apply 必须
-匹配该 plan 的确认摘要，并生成短效的 `request-ticket-v1` 证明。
+匹配该 plan 的确认摘要，并生成短效的 `request-ticket-v1` 证明：
+
+```sh
+sudo /usr/local/sbin/kkai-newapi-schema-migrate request-ticket plan
+sudo /usr/local/sbin/kkai-newapi-schema-migrate request-ticket status
+# 必须使用刚生成且通过复核的 plan.confirmation_sha256。
+sudo /usr/local/sbin/kkai-newapi-schema-migrate request-ticket apply \
+  --confirm-plan-sha256 EXACT_FRESH_PLAN_CONFIRMATION
+```
+
+- JSON schema 为 `kkai_request_ticket_proof_v1`，operation 为 `apply`。
+- 固定 `/run/tenant-online/proof.json` 必须是独立只读 bind mount 中 root
+  所有、权限 `0400`、不超过 64 KiB 的普通文件，迁移容器以 UID 0 校验。
+- 证明绑定安装的 infra commit、精确迁移镜像 ID、数据库/Schema 身份、
+  source 15 / target 16、两个 canonical digest、编译内 plan checksum、
+  32 位小写十六进制 nonce；有效期不超过 120 秒。
+- active、rollback、writer 三类证据必须来自不同容器，tenant-aware、日志
+  使用主数据库，合同完整且精确匹配；迁移镜像必须等于 active 的镜像。
+
 应用在执行前及共享 advisory lock 内的 DDL 事务中重新读取数据库状态并
 校验证明。DDL 只创建两张新表和四个索引，与 v16 receipt 在同一事务提交；
 遇锁竞争或超时即失败。controller 临时开放迁移身份并在成功或失败后收回

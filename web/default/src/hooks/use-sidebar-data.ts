@@ -47,6 +47,7 @@ import { useTranslation } from 'react-i18next'
 import type { SidebarData } from '@/components/layout/types'
 import { useImageStudioAccess } from '@/features/image-studio/hooks/use-image-studio-access'
 import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-invitation-feature-status'
+import { useRequestAvailability } from '@/features/requests/use-request-availability'
 import { useSiteConfig } from '@/features/site-config'
 import { useVideoStudioAccess } from '@/features/video-studio/hooks/use-video-studio-access'
 import { ROLE } from '@/lib/roles'
@@ -75,6 +76,7 @@ export function useSidebarData(): SidebarData {
   )
   const imageStudio = useImageStudioAccess()
   const videoStudio = useVideoStudioAccess()
+  const requestAvailability = useRequestAvailability()
 
   const sidebar: SidebarData = {
     navGroups: [
@@ -161,11 +163,15 @@ export function useSidebarData(): SidebarData {
         id: 'personal',
         title: t('Personal'),
         items: [
-          {
-            title: t('My requests'),
-            url: '/requests',
-            icon: MessageSquare,
-          },
+          ...(requestAvailability.available
+            ? [
+                {
+                  title: t('My requests'),
+                  url: '/requests',
+                  icon: MessageSquare,
+                },
+              ]
+            : []),
           {
             title: t('Membership center'),
             url: '/membership',
@@ -203,12 +209,16 @@ export function useSidebarData(): SidebarData {
         id: 'admin',
         title: t('Admin'),
         items: [
-          {
-            title: t('Request management'),
-            url: '/request-admin',
-            icon: ClipboardList,
-            requiredRole: ROLE.ADMIN,
-          },
+          ...(requestAvailability.available
+            ? [
+                {
+                  title: t('Request management'),
+                  url: '/request-admin',
+                  icon: ClipboardList,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           {
             title: t('Channels'),
             url: '/channels',

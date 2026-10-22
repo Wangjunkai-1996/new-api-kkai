@@ -81,5 +81,70 @@ go run . --port 50159 \
 测试因未配置隔离 DSN 跳过；外部 SMTP 服务未联调，共享邮件工具现有的网络
 超时行为未作扩大修改。
 
-上述为初版实现时的交付状态快照。后续生产 controller、运行时兼容发布和 schema
-迁移结果应在下方按日期追加，不要将初版快照当作当前生产状态。
+本次没有提交、部署或迁移生产。生产启用仍需单独完成 v16 controller/proof
+流程的实现、评审、安装和授权迁移；普通发布不会自动建表或开启工单接口。
+
+## 2026-10-22 补充：前端 schema 可用性门禁
+
+以上为初版实现时的验证快照，保留其当时的范围和边界。以下是后续 schema
+门禁修改已完成的本地检查；本节不记录生产安装、迁移或上线结果。
+
+共享 `useRequestAvailability` 只为主站登录用户查询工单通知，每 30 秒轮询并在
+窗口聚焦时重取。查询成功后才展示客户/管理员入口和铃铛工单页签；收到
+`REQUEST_TICKET_SCHEMA_NOT_READY` 时隐藏入口、旧缓存内容及未读计数，列表、
+详情和管理页面显示不可用提示并禁止提交，后续查询成功会自动恢复。自动查询
+不触发错误 toast。新增文案已同步到全部维护的 locale（含自动生成的 zh-TW）。
+
+从 `web/default` 执行，以下命令均退出 0：
+
+```sh
+bun run test src/hooks/__tests__/use-notifications.test.tsx src/hooks/__tests__/sidebar-config.test.tsx src/features/requests/detail.test.tsx src/features/requests/admin.test.tsx src/features/requests/admin-detail.test.tsx src/features/requests/compose-dialog.test.tsx
+bun run test src/features/requests/index.test.tsx src/features/requests/admin-detail.test.tsx src/hooks/__tests__/sidebar-config.test.tsx
+bun run test src/lib/__tests__/server-error-notifications.test.ts
+bun run typecheck
+bun run i18n:sync
+bun x oxlint -c .oxlintrc.json \
+  src/features/requests/use-request-availability.ts \
+  src/features/requests/api.ts \
+  src/features/requests/index.tsx \
+  src/features/requests/index.test.tsx \
+  src/features/requests/detail.tsx \
+  src/features/requests/detail.test.tsx \
+  src/features/requests/admin.tsx \
+  src/features/requests/admin.test.tsx \
+  src/features/requests/admin-detail.tsx \
+  src/features/requests/admin-detail.test.tsx \
+  src/hooks/use-notifications.ts \
+  src/hooks/use-sidebar-data.ts \
+  src/hooks/__tests__/use-notifications.test.tsx \
+  src/hooks/__tests__/sidebar-config.test.tsx \
+  src/lib/server-error-message.ts
+bun x oxfmt --check \
+  src/features/requests/use-request-availability.ts \
+  src/features/requests/api.ts \
+  src/features/requests/index.tsx \
+  src/features/requests/index.test.tsx \
+  src/features/requests/detail.tsx \
+  src/features/requests/detail.test.tsx \
+  src/features/requests/admin.tsx \
+  src/features/requests/admin.test.tsx \
+  src/features/requests/admin-detail.tsx \
+  src/features/requests/admin-detail.test.tsx \
+  src/hooks/use-notifications.ts \
+  src/hooks/use-sidebar-data.ts \
+  src/hooks/__tests__/use-notifications.test.tsx \
+  src/hooks/__tests__/sidebar-config.test.tsx \
+  src/lib/server-error-message.ts
+```
+
+第一条测试命令为 6 文件、36 项通过；补充测试和 lint 修正后的第二条为
+3 文件、22 项通过，其中 2 文件与前一条重复。工单直接相关测试去重后为
+7 文件、38 项；服务端错误消息直接依赖另有 1 文件、25 项，合计去重为
+8 文件、63 项通过。错误消息测试中的 jsdom 输出两条
+`Not implemented: navigation to another Document`，测试仍全部通过。
+
+这里的 `bun run typecheck` 为完整前端类型检查，约 5 秒完成，补充了初版仅
+定向类型检查的范围。15 个文件的 oxlint/oxfmt 均通过且无 warning，i18n
+同步通过，仓库根目录 `git diff --check` 通过。未重复运行已通过且输入未变的
+命令；未运行全量测试、全量 lint 或生产构建，真实专用账号的候选 HTTP
+业务验收结果尚未写入此记录。

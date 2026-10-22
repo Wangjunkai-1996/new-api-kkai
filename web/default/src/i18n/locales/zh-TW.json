@@ -5677,6 +5677,7 @@
     "Requests": "請求數",
     "Requests (24h)": "請求數（24 小時）",
     "Requests / 24h": "請求 / 24 小時",
+    "Requests are temporarily unavailable. Please try again later.": "需求工單暫時無法使用，請稍後再試。",
     "Requests per minute": "每分鐘請求數",
     "requests served": "服務請求數",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "請求將被轉發到此 Worker。最後的斜線會自動移除。",

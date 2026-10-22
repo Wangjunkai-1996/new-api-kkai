@@ -34,7 +34,13 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useSidebarConfig } from '../use-sidebar-config'
 import { useSidebarData } from '../use-sidebar-data'
 
+const requestAvailability = vi.hoisted(() => ({ available: false }))
+vi.mock('@/features/requests/use-request-availability', () => ({
+  useRequestAvailability: () => requestAvailability,
+}))
+
 beforeEach(() => {
+  requestAvailability.available = false
   vi.stubGlobal('localStorage', {
     getItem: () => null,
     setItem: () => undefined,
@@ -89,6 +95,32 @@ function sidebarFor(
 }
 
 describe('profile sidebar visibility', () => {
+  it.each([false, true])(
+    'request entries follow server readiness (%s)',
+    (available) => {
+      requestAvailability.available = available
+      const client = new QueryClient()
+      function Wrapper(props: { children: ReactNode }) {
+        return (
+          <QueryClientProvider client={client}>
+            {props.children}
+          </QueryClientProvider>
+        )
+      }
+      const { result } = renderHook(() => useSidebarData(), {
+        wrapper: Wrapper,
+      })
+      const paths = new Set(
+        result.current.navGroups.flatMap((group) =>
+          group.items.map((item) => item.url)
+        )
+      )
+      expect(paths.has('/requests')).toBe(available)
+      expect(paths.has('/request-admin')).toBe(available)
+      client.clear()
+    }
+  )
+
   it('tenant customers see only the supported console paths even when all sidebar modules default to enabled', () => {
     const request = vi.spyOn(api, 'get')
     const { result } = sidebarFor(undefined, undefined, true, 12)
@@ -114,12 +146,7 @@ describe('profile sidebar visibility', () => {
       result.current
         .find((group) => group.id === 'personal')
         ?.items.map((item) => item.title)
-    ).toEqual([
-      'Membership center',
-      'Membership ratios',
-      'Wallet',
-      'Profile',
-    ])
+    ).toEqual(['Membership center', 'Membership ratios', 'Wallet', 'Profile'])
     expect(
       result.current
         .flatMap((group) => group.items)

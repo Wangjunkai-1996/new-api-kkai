@@ -10,6 +10,11 @@ import (
 
 const RequestTicketSchemaVersion int64 = 16
 
+// RequestTicketPlanChecksum binds controller evidence to the frozen v16 DDL.
+func RequestTicketPlanChecksum() string {
+	return migrationChecksum(migrationSet()[RequestTicketSchemaVersion-1])
+}
+
 var requestTicketSchemaStatements = map[string][]migrationStatement{
 	DialectSQLite:   requestTicketStatements("INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER", ""),
 	DialectMySQL:    requestTicketStatements("BIGINT AUTO_INCREMENT PRIMARY KEY", "BIGINT", " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),

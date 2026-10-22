@@ -14,6 +14,30 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+test('schema readiness failures keep the admin list unavailable with a friendly explanation', async () => {
+  vi.spyOn(requestsApi, 'getAdminRequests').mockRejectedValueOnce({
+    response: {
+      status: 503,
+      data: { code: 'REQUEST_TICKET_SCHEMA_NOT_READY' },
+    },
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  clients.push(client)
+  render(
+    <QueryClientProvider client={client}>
+      <RequestAdmin />
+    </QueryClientProvider>
+  )
+  expect(
+    await screen.findByText(
+      'Requests are temporarily unavailable. Please try again later.'
+    )
+  ).toBeVisible()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+})
+
 test('later pages remain reachable and choosing a status resets pagination', async () => {
   const list = vi
     .spyOn(requestsApi, 'getAdminRequests')

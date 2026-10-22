@@ -58,6 +58,24 @@ function renderDetail() {
   )
 }
 
+test('an unavailable request cannot expose a status transition form', async () => {
+  vi.mocked(requestsApi.getAdminRequest).mockRejectedValueOnce({
+    response: {
+      status: 503,
+      data: { code: 'REQUEST_TICKET_SCHEMA_NOT_READY' },
+    },
+  })
+  renderDetail()
+  expect(
+    await screen.findByText(
+      'Requests are temporarily unavailable. Please try again later.'
+    )
+  ).toBeVisible()
+  expect(
+    screen.queryByLabelText('Feedback to customer')
+  ).not.toBeInTheDocument()
+})
+
 test.each(['accepted', 'rejected'] as const)(
   '%s requires feedback and submits the exact reviewed version',
   async (status) => {

@@ -5677,6 +5677,7 @@
     "Requests": "Yêu cầu",
     "Requests (24h)": "Yêu cầu (24h)",
     "Requests / 24h": "Yêu cầu / 24h",
+    "Requests are temporarily unavailable. Please try again later.": "Yêu cầu tạm thời không khả dụng. Vui lòng thử lại sau.",
     "Requests per minute": "Yêu cầu mỗi phút",
     "requests served": "yêu cầu đã phục vụ",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "Các yêu cầu sẽ được chuyển tiếp đến worker này. Dấu gạch chéo ở cuối được tự động loại bỏ.",

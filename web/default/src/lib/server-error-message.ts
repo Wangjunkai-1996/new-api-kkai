@@ -23,6 +23,8 @@ import i18next from 'i18next'
 export const safeServerErrorMessage = Symbol('safeServerErrorMessage')
 
 const serverErrorMessageKeys = {
+  REQUEST_TICKET_SCHEMA_NOT_READY:
+    'Requests are temporarily unavailable. Please try again later.',
   RESELLER_DOMAIN_ALREADY_ASSIGNED:
     'This site already has a domain. Each site can have only one domain.',
   RESELLER_ACTIVATION_INCOMPLETE:

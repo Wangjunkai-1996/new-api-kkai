@@ -5677,6 +5677,7 @@
     "Requests": "Запросы",
     "Requests (24h)": "Запросы (24 ч)",
     "Requests / 24h": "Запросы / 24 ч",
+    "Requests are temporarily unavailable. Please try again later.": "Заявки временно недоступны. Повторите попытку позже.",
     "Requests per minute": "Запросов в минуту",
     "requests served": "обслуженных запросов",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "Запросы будут перенаправлены этому воркеру. Конечные слеши удаляются автоматически.",

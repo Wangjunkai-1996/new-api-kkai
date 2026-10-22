@@ -5677,6 +5677,7 @@
     "Requests": "Requests",
     "Requests (24h)": "Requests (24h)",
     "Requests / 24h": "Requests / 24h",
+    "Requests are temporarily unavailable. Please try again later.": "Requests are temporarily unavailable. Please try again later.",
     "Requests per minute": "Requests per minute",
     "requests served": "requests served",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "Requests will be forwarded to this worker. Trailing slashes are removed automatically.",

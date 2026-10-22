@@ -128,6 +128,25 @@ function renderDetail() {
   return client
 }
 
+test('a request link shows a friendly unavailable state before the feature is enabled', async () => {
+  vi.mocked(requestsApi.getRequest).mockRejectedValueOnce({
+    response: {
+      status: 503,
+      data: { code: 'REQUEST_TICKET_SCHEMA_NOT_READY' },
+    },
+  })
+  renderDetail()
+  expect(
+    await screen.findByText(
+      'Requests are temporarily unavailable. Please try again later.'
+    )
+  ).toBeVisible()
+  expect(
+    screen.queryByRole('list', { name: 'Request timeline' })
+  ).not.toBeInTheDocument()
+  expect(requestsApi.markRequestNotificationRead).not.toHaveBeenCalled()
+})
+
 test('viewing a request acknowledges only its fetched unread events', async () => {
   const client = renderDetail()
   expect(

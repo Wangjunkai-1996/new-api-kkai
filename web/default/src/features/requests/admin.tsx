@@ -21,7 +21,12 @@ import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { AdminRequestDetail } from './admin-detail'
-import { getAdminRequests, requestQueryKey, type RequestStatus } from './api'
+import {
+  getAdminRequests,
+  isRequestTicketUnavailable,
+  requestQueryKey,
+  type RequestStatus,
+} from './api'
 import { REQUEST_STATUSES, requestStatusLabel } from './status'
 import { RequestStatusBadge } from './status-badge'
 
@@ -37,6 +42,8 @@ export function RequestAdmin() {
     queryKey: [...requestQueryKey(userId, 'admin'), page, status],
     queryFn: () =>
       getAdminRequests({ page, pageSize, status: status || undefined }),
+    retry: false,
+    meta: { errorToast: false },
   })
 
   return (
@@ -82,10 +89,17 @@ export function RequestAdmin() {
           {query.isError && (
             <ErrorState
               title={t('Failed to load data')}
+              description={
+                isRequestTicketUnavailable(query.error)
+                  ? t(
+                      'Requests are temporarily unavailable. Please try again later.'
+                    )
+                  : undefined
+              }
               onRetry={() => void query.refetch()}
             />
           )}
-          {query.data && (
+          {query.data && !query.isError && (
             <>
               <Table>
                 <TableHeader>

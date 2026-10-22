@@ -1,6 +1,9 @@
 import { api } from '@/lib/api'
 import { getCurrentHost } from '@/lib/host-scope'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  getServerErrorSources,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 
 export type RequestStatus =
   | 'pending'
@@ -72,6 +75,12 @@ export interface RequestListOptions {
 
 export function requestQueryKey(userId: number | undefined, resource: string) {
   return ['requests', getCurrentHost(), userId, resource] as const
+}
+
+export function isRequestTicketUnavailable(error: unknown): boolean {
+  return getServerErrorSources(error).some(
+    (source) => source.code === 'REQUEST_TICKET_SCHEMA_NOT_READY'
+  )
 }
 
 export async function getRequests(

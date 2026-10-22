@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toIntlLocale } from '@/i18n/languages'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getRequests, requestQueryKey } from './api'
+import { getRequests, isRequestTicketUnavailable, requestQueryKey } from './api'
 import emptyImage from './assets/request-empty.webp'
 import welcomeImage from './assets/request-welcome.webp'
 import { RequestComposeDialog } from './compose-dialog'
@@ -40,6 +40,8 @@ export function RequestsPage() {
     queryKey: [...requestQueryKey(userId, 'list'), filter, page],
     queryFn: () => getRequests({ status: filter, page }),
     enabled: Boolean(userId),
+    retry: false,
+    meta: { errorToast: false },
   })
 
   return (
@@ -66,6 +68,7 @@ export function RequestsPage() {
           </div>
           <Button
             className='col-span-2 h-11 sm:col-span-1 sm:col-start-3 sm:h-9'
+            disabled={isRequestTicketUnavailable(query.error)}
             onClick={() => setComposing(true)}
           >
             <Plus aria-hidden='true' />
@@ -103,13 +106,17 @@ export function RequestsPage() {
             {query.isError && (
               <ErrorState
                 title={t('Unable to load requests')}
-                description={t(
-                  'Please try again. Your requests are still saved.'
-                )}
+                description={
+                  isRequestTicketUnavailable(query.error)
+                    ? t(
+                        'Requests are temporarily unavailable. Please try again later.'
+                      )
+                    : t('Please try again. Your requests are still saved.')
+                }
                 onRetry={() => void query.refetch()}
               />
             )}
-            {query.data?.items.length === 0 && (
+            {!query.isError && query.data?.items.length === 0 && (
               <Empty className='request-results bg-card min-h-80 rounded-2xl border p-6 sm:p-10'>
                 <EmptyHeader>
                   <img
@@ -148,7 +155,7 @@ export function RequestsPage() {
                 </EmptyContent>
               </Empty>
             )}
-            {query.data && query.data.items.length > 0 && (
+            {query.data && !query.isError && query.data.items.length > 0 && (
               <div
                 key={`${filter}-${page}`}
                 className='request-results bg-card divide-y overflow-hidden rounded-2xl border'

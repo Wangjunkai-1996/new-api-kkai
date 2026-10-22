@@ -7,6 +7,7 @@ import {
   getRequestNotifications,
   markAllRequestNotificationsRead,
   markRequestNotificationRead,
+  requestQueryKey,
 } from '@/features/requests/api'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
@@ -24,7 +25,8 @@ vi.mock('@/hooks/use-status', () => ({
 vi.mock('@/lib/api', () => ({
   getNotice: vi.fn().mockResolvedValue({ success: true, data: '' }),
 }))
-vi.mock('@/features/requests/api', () => ({
+vi.mock('@/features/requests/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/requests/api')>()),
   requestQueryKey: (userId: number | undefined, resource: string) => [
     'requests',
     'test-host',
@@ -86,6 +88,50 @@ afterEach(() => {
 })
 
 describe('personal request notifications', () => {
+  it('hides unavailable request updates and enables them after the next successful query', async () => {
+    useAuthStore.getState().auth.setUser({ id: 1, username: 'alice', role: 1 })
+    vi.mocked(getRequestNotifications).mockRejectedValueOnce({
+      response: {
+        status: 503,
+        data: { code: 'REQUEST_TICKET_SCHEMA_NOT_READY' },
+      },
+    })
+    const { result, client } = notifications()
+    expect(result.current.requestUpdates.enabled).toBe(false)
+    await waitFor(() => expect(result.current.requestUpdates.error).toBe(true))
+    expect(result.current.requestUpdates.enabled).toBe(false)
+    expect(result.current.requestUpdates.items).toEqual([])
+
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: requestQueryKey(1, 'notifications'),
+      })
+    })
+    await waitFor(() =>
+      expect(result.current.requestUpdates.enabled).toBe(true)
+    )
+    expect(result.current.requestUpdates.unreadCount).toBe(1)
+    act(() => result.current.setActiveTab('requests'))
+    vi.mocked(getRequestNotifications).mockRejectedValueOnce({
+      response: {
+        status: 503,
+        data: { code: 'REQUEST_TICKET_SCHEMA_NOT_READY' },
+      },
+    })
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: requestQueryKey(1, 'notifications'),
+      })
+    })
+    await waitFor(() =>
+      expect(result.current.requestUpdates.enabled).toBe(false)
+    )
+    expect(result.current.activeTab).toBe('notice')
+    expect(result.current.requestUpdates.items).toEqual([])
+    expect(result.current.requestUpdates.unreadCount).toBe(0)
+    client.clear()
+  })
+
   it.each(['guest', 'tenant'] as const)(
     'does not request private notifications for %s headers',
     async (mode) => {

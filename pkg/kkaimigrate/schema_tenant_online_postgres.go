@@ -113,7 +113,15 @@ func withTenantOnlineLock(ctx context.Context, db *gorm.DB, offline bool, fn fun
 		}
 		result = errors.Join(result, resetErr, unlockErr)
 	}()
-	if err := locked.Exec("SELECT set_config('lock_timeout','1s',false),set_config('statement_timeout','5s',false)").Error; err != nil {
+	// A caller may impose a stricter online DDL budget. Zero disables a
+	// PostgreSQL timeout; cap it and longer values without widening shorter ones.
+	if err := locked.Exec(`SELECT
+set_config('lock_timeout', CASE WHEN current_setting('lock_timeout')::interval > interval '0'
+ AND current_setting('lock_timeout')::interval < interval '1 second'
+ THEN current_setting('lock_timeout') ELSE '1s' END, false),
+set_config('statement_timeout', CASE WHEN current_setting('statement_timeout')::interval > interval '0'
+ AND current_setting('statement_timeout')::interval < interval '5 seconds'
+ THEN current_setting('statement_timeout') ELSE '5s' END, false)`).Error; err != nil {
 		return err
 	}
 	return fn(locked)

@@ -32,6 +32,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   getAdminRequest,
+  isRequestTicketUnavailable,
   requestQueryKey,
   transitionRequest,
   type RequestStatus,
@@ -205,6 +206,8 @@ export function AdminRequestDetail(props: {
   const query = useQuery({
     queryKey: [...requestQueryKey(userId, 'admin-detail'), props.requestId],
     queryFn: () => getAdminRequest(props.requestId),
+    retry: false,
+    meta: { errorToast: false },
   })
 
   return (
@@ -227,10 +230,17 @@ export function AdminRequestDetail(props: {
         {query.isError && (
           <ErrorState
             title={t('Failed to load data')}
+            description={
+              isRequestTicketUnavailable(query.error)
+                ? t(
+                    'Requests are temporarily unavailable. Please try again later.'
+                  )
+                : undefined
+            }
             onRetry={() => void query.refetch()}
           />
         )}
-        {query.data && (
+        {query.data && !query.isError && (
           <div className='flex min-w-0 flex-col gap-6'>
             <div className='flex flex-col gap-2'>
               <div className='flex flex-wrap items-center gap-3'>

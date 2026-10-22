@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   getRequest,
+  isRequestTicketUnavailable,
   markRequestNotificationRead,
   requestQueryKey,
   type RequestDetail,
@@ -40,6 +41,8 @@ export function RequestDetailPage(props: {
     queryKey: detailKey,
     queryFn: () => getRequest(props.requestId),
     enabled: Boolean(userId),
+    retry: false,
+    meta: { errorToast: false },
   })
   const { mutate: markRead } = useMutation({
     mutationFn: async (ids: number[]) => {
@@ -118,9 +121,13 @@ export function RequestDetailPage(props: {
         {query.isError && (
           <ErrorState
             title={t('Unable to load this request')}
-            description={t(
-              'It may be unavailable, or you may not have access.'
-            )}
+            description={
+              isRequestTicketUnavailable(query.error)
+                ? t(
+                    'Requests are temporarily unavailable. Please try again later.'
+                  )
+                : t('It may be unavailable, or you may not have access.')
+            }
             onRetry={() => void query.refetch()}
           />
         )}

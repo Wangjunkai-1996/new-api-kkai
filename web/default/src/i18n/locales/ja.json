@@ -5677,6 +5677,7 @@
     "Requests": "リクエスト",
     "Requests (24h)": "リクエスト (24h)",
     "Requests / 24h": "リクエスト / 24h",
+    "Requests are temporarily unavailable. Please try again later.": "要望チケットは現在ご利用いただけません。しばらくしてからもう一度お試しください。",
     "Requests per minute": "1分あたりのリクエスト数",
     "requests served": "処理されたリクエスト",
     "Requests will be forwarded to this worker. Trailing slashes are removed automatically.": "リクエストはこのワーカーに転送されます。末尾のスラッシュは自動的に削除されます。",
