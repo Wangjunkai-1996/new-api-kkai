@@ -79,9 +79,9 @@ function CreationImage(props: {
   source: string
   prompt: string
   revealed: Set<number>
-  onOpen: () => void
+  onOpen?: () => void
   onRetry: () => void
-  onDecoded: (source: string) => void
+  onDecoded?: (source: string) => void
 }) {
   const { t } = useTranslation()
   const reduceMotion = useReducedMotion()
@@ -89,63 +89,76 @@ function CreationImage(props: {
   const [decoded, setDecoded] = useState(false)
   const [failed, setFailed] = useState(false)
   const [revealing, setRevealing] = useState(false)
+  const [view, setView] = useState<'fit' | 'actual'>('fit')
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 })
-  const width = props.asset.width || naturalSize.width
-  const height = props.asset.height || naturalSize.height
+  const width = naturalSize.width || props.asset.width
+  const height = naturalSize.height || props.asset.height
+  const ImageSurface = props.onOpen ? 'button' : 'div'
 
   return (
     <>
-      <button
-        type='button'
-        className='image-create-image-open'
-        aria-label={t('View image details')}
-        disabled={!decoded || failed}
-        onClick={props.onOpen}
-        aria-busy={!decoded && !failed}
+      <div
+        className='image-create-preview-viewport'
+        data-view={view}
+        role='region'
+        aria-label={t('Image details')}
+        tabIndex={view === 'actual' ? 0 : undefined}
       >
-        <img
-          ref={imageRef}
-          src={props.source}
-          alt={props.prompt}
-          width={width || undefined}
-          height={height || undefined}
-          decoding='async'
-          className={cn('image-create-main-image', revealing && 'is-revealing')}
-          style={{ opacity: decoded && !failed ? 1 : 0 }}
-          onAnimationEnd={() => setRevealing(false)}
-          onLoad={async (event) => {
-            const image = event.currentTarget
-            const source = props.source
-            try {
-              await image.decode?.()
-            } catch {
-              if (
-                imageRef.current === image &&
-                image.getAttribute('src') === source
-              ) {
-                setFailed(true)
+        <ImageSurface
+          type={props.onOpen ? 'button' : undefined}
+          className='image-create-image-open'
+          aria-label={props.onOpen ? t('View image details') : undefined}
+          disabled={props.onOpen ? !decoded || failed : undefined}
+          onClick={props.onOpen}
+          aria-busy={!decoded && !failed}
+        >
+          <img
+            ref={imageRef}
+            src={props.source}
+            alt={props.prompt}
+            width={width || undefined}
+            height={height || undefined}
+            decoding='async'
+            className={cn(
+              'image-create-main-image',
+              revealing && 'is-revealing'
+            )}
+            style={{ opacity: decoded && !failed ? 1 : 0 }}
+            onAnimationEnd={() => setRevealing(false)}
+            onLoad={async (event) => {
+              const image = event.currentTarget
+              const source = props.source
+              try {
+                await image.decode?.()
+              } catch {
+                if (
+                  imageRef.current === image &&
+                  image.getAttribute('src') === source
+                ) {
+                  setFailed(true)
+                }
+                return
               }
-              return
-            }
-            if (
-              imageRef.current !== image ||
-              image.getAttribute('src') !== source
-            ) {
-              return
-            }
-            setNaturalSize({
-              width: image.naturalWidth,
-              height: image.naturalHeight,
-            })
-            setFailed(false)
-            setDecoded(true)
-            setRevealing(!reduceMotion && !props.revealed.has(props.asset.id))
-            props.revealed.add(props.asset.id)
-            props.onDecoded(source)
-          }}
-          onError={() => setFailed(true)}
-        />
-      </button>
+              if (
+                imageRef.current !== image ||
+                image.getAttribute('src') !== source
+              ) {
+                return
+              }
+              setNaturalSize({
+                width: image.naturalWidth,
+                height: image.naturalHeight,
+              })
+              setFailed(false)
+              setDecoded(true)
+              setRevealing(!reduceMotion && !props.revealed.has(props.asset.id))
+              props.revealed.add(props.asset.id)
+              props.onDecoded?.(source)
+            }}
+            onError={() => setFailed(true)}
+          />
+        </ImageSurface>
+      </div>
       {!decoded && !failed && (
         <span className='image-create-preview-loading' role='status'>
           <ImageIcon aria-hidden='true' />
@@ -166,24 +179,48 @@ function CreationImage(props: {
           </Button>
         </div>
       )}
-      {decoded && !failed && (
-        <>
-          {width > 0 && height > 0 && (
-            <span className='image-create-stage-label'>
-              <ImageIcon aria-hidden='true' />
-              {width} × {height}
-            </span>
-          )}
+      <div className='image-create-preview-tools'>
+        {width > 0 && height > 0 && (
+          <span className='image-create-stage-label'>
+            <ImageIcon aria-hidden='true' />
+            {width} × {height}
+          </span>
+        )}
+        <div
+          className='image-create-view-controls'
+          role='group'
+          aria-label={t('Image details')}
+        >
           <button
             type='button'
-            className='image-create-zoom'
-            onClick={props.onOpen}
-            aria-label={t('View image details')}
+            aria-pressed={view === 'fit'}
+            disabled={!decoded || failed}
+            onClick={() => setView('fit')}
           >
-            <Maximize2 aria-hidden='true' />
+            {t('Fit image')}
           </button>
-        </>
-      )}
+          <button
+            type='button'
+            aria-label={t('Actual size')}
+            title={t('Actual size')}
+            aria-pressed={view === 'actual'}
+            disabled={!decoded || failed}
+            onClick={() => setView('actual')}
+          >
+            100%
+          </button>
+          {decoded && !failed && props.onOpen && (
+            <button
+              type='button'
+              className='image-create-zoom'
+              onClick={props.onOpen}
+              aria-label={t('View image details')}
+            >
+              <Maximize2 aria-hidden='true' />
+            </button>
+          )}
+        </div>
+      </div>
     </>
   )
 }
@@ -694,8 +731,22 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
             <DialogTitle>{t('Image details')}</DialogTitle>
             <DialogDescription>{displayGeneration?.prompt}</DialogDescription>
           </DialogHeader>
-          {source && displayGeneration && (
-            <img src={source} alt={displayGeneration.prompt} decoding='async' />
+          {source && displayGeneration && displayAsset && (
+            <div className='image-creation-workbench image-create-detail-preview'>
+              <div className='image-create-stage'>
+                <CreationImage
+                  key={`${userId}:${displayAsset.id}:${previewAttempt}:details`}
+                  asset={displayAsset}
+                  source={source}
+                  prompt={displayGeneration.prompt}
+                  revealed={revealedScope.assets}
+                  onRetry={() => {
+                    setPreviewAttempt((value) => value + 1)
+                    void mediaQuery.refetch()
+                  }}
+                />
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

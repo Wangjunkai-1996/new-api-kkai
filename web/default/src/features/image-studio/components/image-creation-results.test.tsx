@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -161,6 +168,60 @@ describe('creation workbench results', () => {
     fireEvent.load(revisited)
     await waitFor(() => expect(revisited).toBeVisible())
     expect(revisited).not.toHaveClass('is-revealing')
+  })
+
+  test('uses decoded image dimensions and resets actual-size viewing when selecting another image', async () => {
+    const user = userEvent.setup()
+    const props = propsFor()
+    const view = render(<ImageCreationResults {...props} />)
+    const image = screen.getByRole('img', { name: props.generation.prompt })
+    const fit = screen.getByRole('button', { name: 'Fit image' })
+    const actual = screen.getByRole('button', { name: 'Actual size' })
+    expect(fit).toHaveAttribute('aria-pressed', 'true')
+    expect(actual).toHaveAttribute('aria-pressed', 'false')
+    expect(fit).toBeDisabled()
+    expect(actual).toBeDisabled()
+    Object.defineProperties(image, {
+      naturalWidth: { value: 1600 },
+      naturalHeight: { value: 900 },
+    })
+    fireEvent.load(image)
+    await waitFor(() => expect(actual).toBeEnabled())
+    expect(fit).toBeEnabled()
+    expect(screen.getByText('1600 × 900')).toBeVisible()
+    expect(image).toHaveAttribute('width', '1600')
+    expect(image).toHaveAttribute('height', '900')
+    expect(image.closest('[data-view]')).toHaveAttribute('data-view', 'fit')
+
+    await user.click(actual)
+    expect(actual).toHaveAttribute('aria-pressed', 'true')
+    expect(fit).toHaveAttribute('aria-pressed', 'false')
+    expect(image.closest('[data-view]')).toHaveAttribute('data-view', 'actual')
+    await user.click(fit)
+    expect(fit).toHaveAttribute('aria-pressed', 'true')
+    expect(actual).toHaveAttribute('aria-pressed', 'false')
+    expect(image.closest('[data-view]')).toHaveAttribute('data-view', 'fit')
+
+    await user.click(actual)
+    view.rerender(<ImageCreationResults {...props} selectedAssetId={2} />)
+    const nextImage = screen.getByRole('img', {
+      name: props.generation.prompt,
+    })
+    const nextFit = screen.getByRole('button', { name: 'Fit image' })
+    const nextActual = screen.getByRole('button', { name: 'Actual size' })
+    expect(nextFit).toHaveAttribute('aria-pressed', 'true')
+    expect(nextActual).toHaveAttribute('aria-pressed', 'false')
+    expect(nextFit).toBeDisabled()
+    expect(nextActual).toBeDisabled()
+    expect(nextImage.closest('[data-view]')).toHaveAttribute('data-view', 'fit')
+    Object.defineProperties(nextImage, {
+      naturalWidth: { value: 900 },
+      naturalHeight: { value: 1600 },
+    })
+    fireEvent.load(nextImage)
+    await waitFor(() => expect(nextActual).toBeEnabled())
+    expect(screen.getByText('900 × 1600')).toBeVisible()
+    expect(nextFit).toHaveAttribute('aria-pressed', 'true')
   })
 
   test('ignores a stale decode when switching images', async () => {
@@ -365,6 +426,7 @@ describe('creation workbench results', () => {
   })
 
   test('respects reduced motion and opens the decoded image in a large view', async () => {
+    const user = userEvent.setup()
     media.reduced = true
     const props = propsFor()
     render(<ImageCreationResults {...props} />)
@@ -372,9 +434,37 @@ describe('creation workbench results', () => {
     fireEvent.load(image)
     await waitFor(() => expect(image).toBeVisible())
     expect(image).not.toHaveClass('is-revealing')
-    await userEvent.click(
+    await user.click(
       screen.getAllByRole('button', { name: 'View image details' })[0]
     )
-    expect(screen.getByRole('dialog', { name: 'Image details' })).toBeVisible()
+    const dialog = screen.getByRole('dialog', { name: 'Image details' })
+    expect(dialog).toBeVisible()
+    const largeImage = within(dialog).getByRole('img', {
+      name: props.generation.prompt,
+    })
+    Object.defineProperties(largeImage, {
+      naturalWidth: { value: 900 },
+      naturalHeight: { value: 1600 },
+    })
+    fireEvent.load(largeImage)
+    const fit = within(dialog).getByRole('button', { name: 'Fit image' })
+    const actual = within(dialog).getByRole('button', { name: 'Actual size' })
+    await waitFor(() => expect(actual).toBeEnabled())
+    expect(fit).toHaveAttribute('aria-pressed', 'true')
+    expect(actual).toHaveAttribute('aria-pressed', 'false')
+    expect(within(dialog).getByText('900 × 1600')).toBeVisible()
+    await user.click(actual)
+    expect(actual).toHaveAttribute('aria-pressed', 'true')
+    expect(fit).toHaveAttribute('aria-pressed', 'false')
+    expect(largeImage.closest('[data-view]')).toHaveAttribute(
+      'data-view',
+      'actual'
+    )
+    await user.click(fit)
+    expect(fit).toHaveAttribute('aria-pressed', 'true')
+    expect(largeImage.closest('[data-view]')).toHaveAttribute(
+      'data-view',
+      'fit'
+    )
   })
 })

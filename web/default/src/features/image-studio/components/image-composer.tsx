@@ -900,7 +900,12 @@ export function ImageComposer(props: {
       toast.info(t('Your draft changed. Try loading the image again.'))
       return
     }
-    if (hasDraftInputs()) {
+    const needsConfirmation =
+      request.kind === 'edit-output'
+        ? reference.files.length > 0 ||
+          (usingSavedReferences && savedReferenceIds.length > 0)
+        : hasDraftInputs()
+    if (needsConfirmation) {
       setPendingLoad(request)
       return
     }
@@ -1883,12 +1888,18 @@ export function ImageComposer(props: {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t('Load these creation settings?')}
+              {pendingLoad?.kind === 'edit-output'
+                ? t('Replace the current reference images?')
+                : t('Load these creation settings?')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t(
-                'Your current inputs will be replaced. Previous results will be kept.'
-              )}
+              {pendingLoad?.kind === 'edit-output'
+                ? t(
+                    'The selected image will replace your current references. Your prompt and output size will be kept.'
+                  )
+                : t(
+                    'Your current inputs will be replaced. Previous results will be kept.'
+                  )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1900,7 +1911,9 @@ export function ImageComposer(props: {
                 if (pendingLoad) void applyLoadRequest(pendingLoad)
               }}
             >
-              {t('Load settings')}
+              {pendingLoad?.kind === 'edit-output'
+                ? t('Use this image to edit')
+                : t('Load settings')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

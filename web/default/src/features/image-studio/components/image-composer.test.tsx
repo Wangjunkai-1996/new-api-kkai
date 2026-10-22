@@ -1774,6 +1774,215 @@ describe('image composer', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
+  test('opens an output directly for editing without replacing its prompt or size or submitting it', async () => {
+    const user = userEvent.setup()
+    const model = sizedProfile()
+    model.specification.max_reference_images = 2
+    mocks.models = [model]
+    mocks.draftState.draft = {
+      model_profile_id: model.id,
+      prompt: 'Keep this description and size',
+      parameters: { variants: 4, dimensions: '1536x1024' },
+    }
+    const output = new File(['finished image'], 'finished.png', {
+      type: 'image/png',
+    })
+    mocks.reference.replace.mockImplementation(
+      async (files: File[], options?: { onCommit?: () => void }) => {
+        mocks.reference.files = [...files]
+        mocks.reference.metadata = [
+          { sha256: 'b'.repeat(64), size_bytes: output.size },
+        ]
+        options?.onCommit?.()
+        return true
+      }
+    )
+    const generation = { ...previousGeneration(), id: 92, status: 'submitting' }
+    mocks.asyncMutation.mutateAsync.mockResolvedValue(generation)
+    const onSubmitted = vi.fn()
+    const settled = vi.fn()
+    const common = {
+      presentation: 'workbench' as const,
+      tokenGate: asyncGate(),
+      onSubmitted,
+      onLoadRequestSettled: settled,
+    }
+    const { rerender } = render(<ImageComposer {...common} />)
+    expect(await screen.findByLabelText('Scene description')).toHaveValue(
+      'Keep this description and size'
+    )
+    rerender(
+      <ImageComposer
+        {...common}
+        loadRequest={{
+          revision: 21,
+          kind: 'edit-output',
+          file: output,
+          generation: previousGeneration(),
+        }}
+      />
+    )
+    expect(await screen.findByLabelText('Editing instructions')).toHaveValue(
+      'Keep this description and size'
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Custom width')).toHaveValue(1536)
+    expect(screen.getByLabelText('Custom height')).toHaveValue(1024)
+    expect(mocks.reference.replace).toHaveBeenCalledExactlyOnceWith(
+      [output],
+      expect.any(Object)
+    )
+    expect(settled).toHaveBeenCalledWith(21, true)
+    await waitFor(() =>
+      expect(mocks.asyncQuoteRequest).toMatchObject({
+        mode: 'edit',
+        asset_ids: [31],
+        prompt: 'Keep this description and size',
+        parameters: { variants: 1, dimensions: '1536x1024' },
+      })
+    )
+    expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(mocks.editMutation.mutateAsync).not.toHaveBeenCalled()
+    const edit = screen.getByRole('button', { name: 'Edit image' })
+    await waitFor(() => expect(edit).toBeEnabled())
+    await user.click(edit)
+    await waitFor(() =>
+      expect(mocks.asyncMutation.mutateAsync).toHaveBeenCalledExactlyOnceWith({
+        request: {
+          token_id: 11,
+          model: model.model,
+          prompt: 'Keep this description and size',
+          parameters: { variants: 1, dimensions: '1536x1024' },
+          mode: 'edit',
+          asset_ids: [31],
+          quote_token: 'async-quote',
+        },
+        idempotencyKey: 'submission-key',
+      })
+    )
+    expect(onSubmitted).toHaveBeenCalledWith(
+      generation,
+      expect.objectContaining({ mode: 'edit', referenceFiles: [output] })
+    )
+    expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(mocks.editMutation.mutateAsync).not.toHaveBeenCalled()
+  })
+
+  test.each(['local', 'saved'] as const)(
+    'confirms replacing %s references and preserves the edit draft on cancellation',
+    async (source) => {
+      const user = userEvent.setup()
+      const model = sizedProfile()
+      model.specification.max_reference_images = 2
+      mocks.models = [model]
+      const original = new File(['original'], 'original.png', {
+        type: 'image/png',
+      })
+      const output = new File(['finished image'], 'finished.png', {
+        type: 'image/png',
+      })
+      const originalGeneration = previousGeneration()
+      originalGeneration.prompt = 'Keep my editing instructions'
+      originalGeneration.parameters.dimensions = '1536x1024'
+      if (source === 'local') {
+        mocks.draftState.draft = {
+          model_profile_id: model.id,
+          prompt: originalGeneration.prompt,
+          parameters: { ...originalGeneration.parameters },
+        }
+        mocks.reference.files = [original]
+        mocks.reference.metadata = [
+          { sha256: 'a'.repeat(64), size_bytes: original.size },
+        ]
+      }
+      const settled = vi.fn()
+      const common = {
+        presentation: 'workbench' as const,
+        tokenGate: asyncGate(),
+        onSubmitted: vi.fn(),
+        onLoadRequestSettled: settled,
+        reuseGeneration: source === 'saved' ? originalGeneration : undefined,
+        reuseInput: source === 'saved' ? previousEditInput() : undefined,
+      }
+      const { rerender } = render(<ImageComposer {...common} />)
+      if (source === 'local') {
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+      }
+      expect(await screen.findByLabelText('Editing instructions')).toHaveValue(
+        originalGeneration.prompt
+      )
+      const originalAssetIds = source === 'saved' ? [81, 82] : [31]
+      await waitFor(() =>
+        expect(mocks.asyncQuoteRequest?.asset_ids).toEqual(originalAssetIds)
+      )
+      rerender(
+        <ImageComposer
+          {...common}
+          loadRequest={{ revision: 22, kind: 'edit-output', file: output }}
+        />
+      )
+      expect(await screen.findByRole('alertdialog')).toHaveAccessibleName(
+        'Replace the current reference images?'
+      )
+      expect(
+        screen.queryByText('Load these creation settings?')
+      ).not.toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: 'Keep editing current draft' })
+      )
+      expect(settled).toHaveBeenCalledWith(22, false)
+      expect(mocks.reference.replace).not.toHaveBeenCalled()
+      expect(screen.getByLabelText('Editing instructions')).toHaveValue(
+        originalGeneration.prompt
+      )
+      expect(screen.getByLabelText('Custom width')).toHaveValue(1536)
+      expect(screen.getByLabelText('Custom height')).toHaveValue(1024)
+      expect(mocks.asyncQuoteRequest?.asset_ids).toEqual(originalAssetIds)
+      expect(mocks.reference.files).toEqual(
+        source === 'local' ? [original] : []
+      )
+
+      mocks.reference.replace.mockImplementation(
+        async (files: File[], options?: { onCommit?: () => void }) => {
+          mocks.reference.files = [...files]
+          mocks.reference.metadata = [
+            { sha256: 'b'.repeat(64), size_bytes: output.size },
+          ]
+          options?.onCommit?.()
+          return true
+        }
+      )
+      rerender(
+        <ImageComposer
+          {...common}
+          loadRequest={{ revision: 23, kind: 'edit-output', file: output }}
+        />
+      )
+      await user.click(
+        await screen.findByRole('button', { name: 'Use this image to edit' })
+      )
+      await waitFor(() => expect(settled).toHaveBeenCalledWith(23, true))
+      expect(mocks.reference.replace).toHaveBeenCalledExactlyOnceWith(
+        [output],
+        expect.any(Object)
+      )
+      expect(mocks.reference.files).toEqual([output])
+      expect(screen.getByLabelText('Editing instructions')).toHaveValue(
+        originalGeneration.prompt
+      )
+      await waitFor(() =>
+        expect(mocks.asyncQuoteRequest).toMatchObject({
+          mode: 'edit',
+          asset_ids: [31],
+          parameters: { variants: 1, dimensions: '1536x1024' },
+        })
+      )
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      expect(mocks.asyncMutation.mutateAsync).not.toHaveBeenCalled()
+    }
+  )
+
   test('preserves mode and inputs when an output cannot replace the references', async () => {
     const user = userEvent.setup()
     mocks.reference.replace.mockResolvedValue(false)
@@ -1800,10 +2009,8 @@ describe('image composer', () => {
         onLoadRequestSettled={settled}
       />
     )
-    await user.click(
-      await screen.findByRole('button', { name: 'Load settings' })
-    )
     await waitFor(() => expect(settled).toHaveBeenCalledWith(6, false))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(prompt).toHaveValue('Keep this composition')
     expect(screen.getByRole('button', { name: 'Generate' })).toHaveAttribute(
       'aria-pressed',
