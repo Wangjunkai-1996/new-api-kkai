@@ -1,4 +1,12 @@
 import type { TFunction } from 'i18next'
+import {
+  CalendarDays,
+  Check,
+  CircleCheck,
+  Clock3,
+  Code2,
+  X,
+} from 'lucide-react'
 
 import type { RequestStatus } from './api'
 
@@ -10,6 +18,15 @@ export const REQUEST_STATUSES: RequestStatus[] = [
   'completed',
   'rejected',
 ]
+
+export const requestStatusIcons = {
+  pending: Clock3,
+  accepted: Check,
+  scheduling: CalendarDays,
+  developing: Code2,
+  completed: CircleCheck,
+  rejected: X,
+} satisfies Record<RequestStatus, typeof Check>
 
 export function requestStatusLabel(
   status: RequestStatus,

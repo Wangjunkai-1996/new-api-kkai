@@ -15,8 +15,8 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toIntlLocale } from '@/i18n/languages'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getRequests, isRequestTicketUnavailable, requestQueryKey } from './api'
@@ -36,6 +36,12 @@ export function RequestsPage() {
   const [filter, setFilter] = useState<RequestFilter>('')
   const [page, setPage] = useState(1)
   const [composing, setComposing] = useState(false)
+  const filters: { value: RequestFilter; label: string }[] = [
+    { value: '', label: t('All') },
+    { value: 'active', label: t('In progress') },
+    { value: 'completed', label: t('Completed') },
+    { value: 'rejected', label: t('Rejected') },
+  ]
   const query = useQuery({
     queryKey: [...requestQueryKey(userId, 'list'), filter, page],
     queryFn: () => getRequests({ status: filter, page }),
@@ -46,28 +52,29 @@ export function RequestsPage() {
 
   return (
     <Main className='request-workspace overflow-y-auto'>
-      <div className='mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-8 sm:py-9'>
-        <header className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-4 sm:grid-cols-[auto_minmax(0,1fr)_auto]'>
-          <img
-            src={welcomeImage}
-            alt=''
-            width={84}
-            height={76}
-            className='col-start-2 row-start-1 h-[58px] w-[64px] object-contain sm:col-start-1 sm:h-[76px] sm:w-[84px]'
-          />
-          <div className='col-start-1 row-start-1 min-w-0 sm:col-start-2'>
-            <p className='text-primary mb-1 text-xs font-medium'>
+      <div className='mx-auto flex w-full max-w-[1080px] flex-col gap-6 px-4 py-6 sm:px-[30px] sm:py-[30px]'>
+        <header className='grid grid-cols-[minmax(0,1fr)_58px] items-center gap-x-3.5 gap-y-3 sm:min-h-[104px] sm:grid-cols-[minmax(0,1fr)_88px_auto] sm:gap-[18px]'>
+          <div className='min-w-0'>
+            <p className='text-muted-foreground mb-1.5 text-[11px] tracking-wide'>
               {t('Your ideas, our next step')}
             </p>
-            <h1 className='text-2xl font-semibold tracking-tight'>
+            <h1 className='text-[26px] leading-tight font-medium tracking-[-0.045em]'>
               {t('My requests')}
             </h1>
-            <p className='text-muted-foreground mt-1.5 text-sm leading-relaxed'>
+            <p className='text-muted-foreground mt-2 max-w-[220px] text-xs leading-relaxed sm:max-w-none sm:text-[13px]'>
               {t('Share your ideas. Follow every update here.')}
             </p>
           </div>
+          <img
+            src={welcomeImage}
+            alt=''
+            width={88}
+            height={104}
+            className='pointer-events-none h-[68px] w-[58px] object-contain select-none sm:h-[104px] sm:w-[88px]'
+          />
           <Button
-            className='col-span-2 h-11 sm:col-span-1 sm:col-start-3 sm:h-9'
+            size='sm'
+            className='col-span-2 h-11 justify-self-start rounded-lg px-3.5 text-xs sm:col-span-1 sm:h-9'
             disabled={isRequestTicketUnavailable(query.error)}
             onClick={() => setComposing(true)}
           >
@@ -76,26 +83,38 @@ export function RequestsPage() {
           </Button>
         </header>
 
-        <Tabs
-          value={filter || 'all'}
-          onValueChange={(value) => {
-            setFilter(value === 'all' ? '' : (value as RequestFilter))
-            setPage(1)
-          }}
-          className='gap-4'
-        >
+        <div className='flex min-w-0 flex-col gap-4'>
           <div className='flex flex-wrap items-center justify-between gap-3'>
-            <TabsList className='max-w-full' aria-label={t('Filter requests')}>
-              <TabsTrigger value='all'>{t('All')}</TabsTrigger>
-              <TabsTrigger value='active'>{t('In progress')}</TabsTrigger>
-              <TabsTrigger value='completed'>{t('Completed')}</TabsTrigger>
-              <TabsTrigger value='rejected'>{t('Rejected')}</TabsTrigger>
-            </TabsList>
-            <span className='text-muted-foreground text-xs'>
+            <div
+              className='flex max-w-full flex-wrap items-center gap-1'
+              role='group'
+              aria-label={t('Filter requests')}
+            >
+              {filters.map((option) => (
+                <button
+                  key={option.value}
+                  type='button'
+                  aria-pressed={filter === option.value}
+                  className={cn(
+                    'focus-visible:ring-ring rounded-md border border-transparent px-2.5 py-1.5 text-xs transition-colors outline-none focus-visible:ring-2',
+                    filter === option.value
+                      ? 'bg-card text-foreground border-border shadow-xs'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                  onClick={() => {
+                    setFilter(option.value)
+                    setPage(1)
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <span className='text-muted-foreground hidden text-[11px] sm:inline'>
               {t('Most recently updated first')}
             </span>
           </div>
-          <TabsContent value={filter || 'all'} className='min-w-0'>
+          <div className='min-w-0'>
             {query.isPending && (
               <div className='flex flex-col gap-3' aria-label={t('Loading...')}>
                 <Skeleton className='h-28 w-full' />
@@ -117,7 +136,7 @@ export function RequestsPage() {
               />
             )}
             {!query.isError && query.data?.items.length === 0 && (
-              <Empty className='request-results bg-card min-h-80 rounded-2xl border p-6 sm:p-10'>
+              <Empty className='request-results bg-card min-h-80 rounded-[14px] border p-6 sm:p-10'>
                 <EmptyHeader>
                   <img
                     src={emptyImage}
@@ -158,57 +177,74 @@ export function RequestsPage() {
             {query.data && !query.isError && query.data.items.length > 0 && (
               <div
                 key={`${filter}-${page}`}
-                className='request-results bg-card divide-y overflow-hidden rounded-2xl border'
+                className='request-results bg-card divide-y overflow-hidden rounded-[14px] border'
               >
                 {query.data.items.map((ticket) => (
                   <Link
                     key={ticket.id}
                     to='/requests/$requestId'
                     params={{ requestId: String(ticket.id) }}
-                    className='request-row group focus-visible:ring-primary flex items-center gap-3 px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset sm:px-6'
+                    className='request-row group focus-visible:ring-primary grid grid-cols-1 items-center gap-3 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset sm:grid-cols-[minmax(0,1fr)_auto_14px] sm:gap-4 sm:px-5'
                   >
-                    <div className='flex min-w-0 flex-1 flex-col gap-2.5'>
-                      <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
-                        <h2 className='text-sm font-semibold [overflow-wrap:anywhere]'>
-                          {ticket.title}
-                        </h2>
-                        <RequestStatusBadge status={ticket.status} />
-                        {ticket.unread_count > 0 && (
-                          <span
-                            className='bg-primary size-1.5 shrink-0 rounded-full'
-                            role='img'
-                            aria-label={t('Unread updates')}
-                          />
-                        )}
-                      </div>
-                      <p className='text-muted-foreground line-clamp-2 text-sm [overflow-wrap:anywhere]'>
+                    <div className='relative min-w-0 pl-3.5'>
+                      {ticket.unread_count > 0 && (
+                        <span
+                          className='bg-primary absolute top-2 left-0 size-1.5 rounded-full'
+                          role='img'
+                          aria-label={t('Unread updates')}
+                        />
+                      )}
+                      <h2 className='text-[13px] leading-normal font-medium [overflow-wrap:anywhere] sm:text-sm'>
+                        {ticket.title}
+                      </h2>
+                      <p className='text-muted-foreground mt-1 truncate text-xs'>
                         {ticket.latest_feedback || ticket.description}
                       </p>
-                      <div className='text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs'>
-                        <span>#{ticket.id}</span>
+                      <div className='text-muted-foreground mt-1 hidden flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:flex'>
+                        <span>REQ-{ticket.id}</span>
+                        <span aria-hidden='true'>·</span>
                         <time
                           dateTime={new Date(
-                            ticket.updated_at * 1000
+                            ticket.created_at * 1000
                           ).toISOString()}
                         >
-                          {t('Updated {{date}}', {
-                            date: new Date(
-                              ticket.updated_at * 1000
-                            ).toLocaleDateString(locale),
-                          })}
+                          {t('Submitted')}{' '}
+                          {new Date(
+                            ticket.created_at * 1000
+                          ).toLocaleDateString(locale)}
                         </time>
                       </div>
                     </div>
+                    <div className='flex flex-wrap items-center justify-between gap-2 pl-3.5 sm:max-w-64 sm:flex-col sm:items-end sm:gap-2.5 sm:pl-0'>
+                      <RequestStatusBadge status={ticket.status} />
+                      <time
+                        className='text-muted-foreground text-xs'
+                        dateTime={new Date(
+                          ticket.updated_at * 1000
+                        ).toISOString()}
+                      >
+                        {t('Updated {{date}}', {
+                          date: new Date(
+                            ticket.updated_at * 1000
+                          ).toLocaleDateString(locale),
+                        })}
+                      </time>
+                    </div>
                     <ChevronRight
-                      className='request-row-chevron text-muted-foreground size-4 shrink-0'
+                      className='request-row-chevron text-muted-foreground hidden size-3.5 shrink-0 sm:block'
                       aria-hidden='true'
                     />
                   </Link>
                 ))}
               </div>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+          {query.data && !query.isError && (
+            <p className='text-muted-foreground text-center text-xs sm:text-left'>
+              {t('Total {{count}} records', { count: query.data.total })}
+            </p>
+          )}
+        </div>
         {query.data && query.data.total > 20 && (
           <nav
             className='flex flex-wrap items-center justify-between gap-3'

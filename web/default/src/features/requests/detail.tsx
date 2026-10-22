@@ -20,7 +20,7 @@ import {
   type RequestDetail,
 } from './api'
 import successImage from './assets/request-success.webp'
-import { requestStatusDescription } from './status'
+import { requestStatusDescription, requestStatusIcons } from './status'
 import { RequestStatusBadge } from './status-badge'
 import { RequestTimeline } from './timeline'
 
@@ -85,6 +85,7 @@ export function RequestDetailPage(props: {
       if (failure?.status === 'rejected') handleServerError(failure.reason)
     },
   })
+  const StatusIcon = requestStatusIcons[query.data?.ticket.status ?? 'pending']
 
   // Reading a detail acknowledges only the events actually fetched, including
   // when a newer status update arrives while this page remains open.
@@ -100,7 +101,7 @@ export function RequestDetailPage(props: {
 
   return (
     <Main className='request-workspace overflow-y-auto'>
-      <div className='request-detail mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-8 sm:py-9'>
+      <div className='request-detail mx-auto flex w-full max-w-[820px] flex-col gap-7 px-4 py-6 sm:px-[30px] sm:py-[30px]'>
         <Link
           to='/requests'
           className={buttonVariants({
@@ -135,7 +136,7 @@ export function RequestDetailPage(props: {
           <>
             {props.submitted && (
               <div
-                className='request-success bg-primary/5 border-primary/15 flex items-center gap-4 rounded-2xl border p-4 sm:p-5'
+                className='request-success bg-primary/5 border-primary/15 flex items-center gap-4 rounded-[10px] border p-4 sm:p-5'
                 role='status'
               >
                 <img
@@ -157,26 +158,45 @@ export function RequestDetailPage(props: {
                 </div>
               </div>
             )}
-            <header className='bg-card rounded-2xl border p-5 sm:p-6'>
-              <div className='mb-3 flex flex-wrap items-center gap-3'>
-                <span className='text-muted-foreground text-xs'>
-                  #{query.data.ticket.id}
+            <header>
+              <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
+                <span className='text-muted-foreground font-mono text-xs'>
+                  REQ-{query.data.ticket.id}
                 </span>
                 <RequestStatusBadge status={query.data.ticket.status} />
               </div>
-              <h1 className='text-xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-2xl'>
+              <h1 className='text-xl leading-normal font-medium tracking-tight [overflow-wrap:anywhere] sm:text-[22px]'>
                 {query.data.ticket.title}
               </h1>
-              <p className='text-muted-foreground mt-3 text-sm leading-relaxed'>
-                {requestStatusDescription(query.data.ticket.status, t)}
-              </p>
+              <time
+                className='text-muted-foreground mt-2 block text-xs'
+                dateTime={new Date(
+                  query.data.ticket.created_at * 1000
+                ).toISOString()}
+              >
+                {t('Submitted {{date}}', {
+                  date: new Date(
+                    query.data.ticket.created_at * 1000
+                  ).toLocaleString(locale),
+                })}
+              </time>
+              <div
+                data-status={query.data.ticket.status}
+                className='request-status-tone request-status-caption mt-5 flex items-start gap-2 rounded-lg px-3.5 py-3 text-xs leading-relaxed'
+              >
+                <StatusIcon
+                  aria-hidden='true'
+                  className='mt-0.5 size-4 shrink-0'
+                />
+                <p>{requestStatusDescription(query.data.ticket.status, t)}</p>
+              </div>
             </header>
-            <section
-              className='bg-card rounded-2xl border p-5 sm:p-6'
-              aria-labelledby='request-timeline-heading'
-            >
+            <section aria-labelledby='request-timeline-heading'>
               <div className='mb-6 flex flex-wrap items-baseline justify-between gap-2'>
-                <h2 id='request-timeline-heading' className='font-semibold'>
+                <h2
+                  id='request-timeline-heading'
+                  className='text-sm font-medium'
+                >
                   {t('Request timeline')}
                 </h2>
                 <span className='text-muted-foreground text-xs'>
@@ -188,24 +208,14 @@ export function RequestDetailPage(props: {
                 highlightedEventId={props.eventId}
               />
             </section>
-            <section
-              className='bg-card rounded-2xl border p-5 sm:p-6'
-              aria-labelledby='request-original-heading'
-            >
-              <h2 id='request-original-heading' className='font-semibold'>
+            <section aria-labelledby='request-original-heading'>
+              <h2
+                id='request-original-heading'
+                className='mb-3 text-sm font-medium'
+              >
                 {t('Original request')}
               </h2>
-              <time
-                className='text-muted-foreground mt-2 block text-xs'
-                dateTime={new Date(
-                  query.data.ticket.created_at * 1000
-                ).toISOString()}
-              >
-                {new Date(query.data.ticket.created_at * 1000).toLocaleString(
-                  locale
-                )}
-              </time>
-              <p className='mt-4 text-sm leading-7 [overflow-wrap:anywhere] whitespace-pre-wrap'>
+              <p className='bg-card text-muted-foreground rounded-[10px] border px-[18px] py-4 text-[13px] leading-[1.85] [overflow-wrap:anywhere] whitespace-pre-wrap'>
                 {query.data.ticket.description}
               </p>
             </section>

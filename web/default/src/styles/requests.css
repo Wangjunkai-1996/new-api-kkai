@@ -1,3 +1,68 @@
+.request-workspace,
+.request-compose-dialog {
+  --radius: 0.5rem;
+}
+
+.request-status-tone {
+  --request-status-color: #92400e;
+  --request-status-wash: #fff5dc;
+}
+.request-status-tone[data-status='accepted'],
+.request-status-tone[data-status='developing'] {
+  --request-status-color: #1d4ed8;
+  --request-status-wash: #edf3ff;
+}
+.request-status-tone[data-status='scheduling'] {
+  --request-status-color: #6d28d9;
+  --request-status-wash: #f3edff;
+}
+.request-status-tone[data-status='completed'] {
+  --request-status-color: #166534;
+  --request-status-wash: #eaf7ef;
+}
+.request-status-tone[data-status='rejected'] {
+  --request-status-color: #be123c;
+  --request-status-wash: #fff0f3;
+}
+.dark .request-status-tone {
+  --request-status-color: #f5cc80;
+  --request-status-wash: #342b1c;
+}
+.dark .request-status-tone[data-status='accepted'],
+.dark .request-status-tone[data-status='developing'] {
+  --request-status-color: #9bbcff;
+  --request-status-wash: #202e49;
+}
+.dark .request-status-tone[data-status='scheduling'] {
+  --request-status-color: #c5afff;
+  --request-status-wash: #302542;
+}
+.dark .request-status-tone[data-status='completed'] {
+  --request-status-color: #8bd9ae;
+  --request-status-wash: #20362d;
+}
+.dark .request-status-tone[data-status='rejected'] {
+  --request-status-color: #ffabbc;
+  --request-status-wash: #3b2630;
+}
+.request-status-badge,
+.request-status-caption,
+.request-event-node {
+  color: var(--request-status-color);
+  background-color: var(--request-status-wash);
+}
+.request-latest-feedback {
+  border-left: 2px solid var(--request-status-color);
+}
+.request-event:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11.5px;
+  top: 27px;
+  bottom: 3px;
+  width: 1px;
+  background: var(--border);
+}
 .request-row {
   transition: background-color 140ms ease;
 }
