@@ -23,7 +23,9 @@ ledger 延续在线租户路径，排除已退役的 v12/v13。
 `REQUEST_TICKET_SCHEMA_NOT_READY`。缺少 ledger 的空库或 v16 物理结构漂移
 会被应用原有的全局 `CheckRequired` 拒绝启动；不能把缺少 ledger 描述成仅工单
 返回 503。本次未提高启动所需的最低版本。
-gate 在 router 初始化时冻结；完成迁移后需要重启/替换服务进程。
+gate 在收到工单请求时只读核验，失败结果最多缓存 30 秒；完整 v16 校验通过后
+在进程内缓存成功结果。因此在线迁移完成后无需重启或替换正在服务的进程，
+后续工单请求即可启用。每次失败重试有独立的 3 秒超时，不执行 DDL。
 
 ## 本地开发：从全新 SQLite 文件启用
 
@@ -198,16 +200,30 @@ fixture 只创建并清理隔离 schema/database，不得把这些变量指向�
 PostgreSQL 9.6–11 的隔离/停写演练还需 `Options{Offline:true}`；生产 CLI
 不提供 Offline。
 
-## 生产启用尚需独立授权与 controller 支持
+## 生产启用：独立 v16 controller 协议
 
-本次功能实现不执行生产迁移。普通 `--target 16` 明确拒绝 mutation，
-既有 `--reseller-prefix apply` 的 v15 proof 协议也不能授权 v16。
-目前代码提供完整可测试的 library mutation 入口，但没有宣称生产 controller
-已支持或安装 v16；生产启用需要另行实现、评审并安装精确版本的 controller
-流程，然后在单独获准的 schema 操作中调用上述入口。
+普通 `--target 16` 仍明确拒绝 mutation，既有 `--reseller-prefix apply` 的
+v15 proof 协议也不能授权 v16。唯一生产写入口为
+`--request-ticket apply --json --tenant-controller-proof /run/tenant-online/proof.json`，
+只接受 PostgreSQL >=12。该入口必须由已经安装并验证的精确版本 controller
+在专用迁移容器中调用，不能把源码提供协议视作生产已安装的证据。
 
-controller 应在 mutation 前及锁内重新核对：目标数据库身份、canonical v15
-源摘要、精确 v16 plan/target 摘要，以及 active、rollback、writer 三类运行时
-都明确接受该 v16 prefix。验证备份与隔离演练后才能应用，完成后独立检查
-`--check --min-version 16` 和 `--observe --current --json`，再替换进程开启 gate。
-不得用临时脚本直连生产库、GORM AutoMigrate、普通发布或 v15 proof 绕过这些门槛。
+生产流程先安装 controller 支持，再在 canonical v15 上按正常蓝绿发布路径
+完成两个独立版本的全灰度验收，确保 active、rollback、writer 三个实际运行
+进程均具有精确 `(14,16,14)`、`schema_management=external` 合同，且包含
+canonical v14/v15/v16 的完整摘要。不能仅检查镜像内迁移二进制的声明，
+也不能保留最高只支持 v15 的回滚进程再执行迁移。候选/灰度事务须先结束，
+迁移期间保持既有路由与服务进程，前端启用独立于后端候选发布事务。
+
+controller 的只读 plan 绑定当前数据库与运行进程身份；获准的 apply 必须
+匹配该 plan 的确认摘要，并生成短效的 `request-ticket-v1` 证明。
+应用在执行前及共享 advisory lock 内的 DDL 事务中重新读取数据库状态并
+校验证明。DDL 只创建两张新表和四个索引，与 v16 receipt 在同一事务提交；
+遇锁竞争或超时即失败。controller 临时开放迁移身份并在成功或失败后收回
+登录权，随后核对只读 v16 状态、运行进程身份和线上错误窗口。
+
+迁移后用 `--request-ticket status --json`、`--check --min-version 16` 和
+`--observe --current --json` 验证；gate 在下一次允许重试的请求上识别 receipt，
+无需重启现有进程。前端按独立发布流程启用。回滚仅使用已验证的 v16 兼容
+应用，不删除新表、不覆盖业务数据库。不得用临时脚本直连生产库、GORM
+AutoMigrate、普通发布或 v15 proof 绕过这些门槛。
