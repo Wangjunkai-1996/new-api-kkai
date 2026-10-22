@@ -58,6 +58,17 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/verify/methods":             accessTokenAnyRule,
 	"POST /api/verify":                    accessTokenAnyRule,
 
+	// Request tickets and their notification inbox belong to browser sessions.
+	"GET /api/requests":                         accessTokenSessionRule,
+	"POST /api/requests":                        accessTokenSessionRule,
+	"GET /api/requests/:id":                     accessTokenSessionRule,
+	"GET /api/requests/notifications":           accessTokenSessionRule,
+	"POST /api/requests/notifications/:id/read": accessTokenSessionRule,
+	"POST /api/requests/notifications/read-all": accessTokenSessionRule,
+	"GET /api/requests/admin":                   accessTokenSessionRule,
+	"GET /api/requests/admin/:id":               accessTokenSessionRule,
+	"PATCH /api/requests/admin/:id/status":      accessTokenSessionRule,
+
 	// router/api-router.go: /api/user (self)
 	"GET /api/user/sessions":                       accessTokenSessionRule,
 	"DELETE /api/user/sessions/:sid":               accessTokenSessionRule,

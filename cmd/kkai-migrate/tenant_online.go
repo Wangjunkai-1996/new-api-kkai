@@ -45,7 +45,7 @@ func runTenantOnlineInspection(ctx context.Context, db *gorm.DB, operation strin
 	} else {
 		status, err = kkaimigrate.ObserveTenantOnlineExpansion(ctx, db)
 		if err == nil && operation == "check" {
-			if status.CurrentVersion == kkaimigrate.TenantOnlineSchemaVersion || status.CurrentVersion == kkaimigrate.ResellerApplicationSchemaVersion {
+			if status.CurrentVersion == kkaimigrate.TenantOnlineSchemaVersion || status.CurrentVersion == kkaimigrate.ResellerApplicationSchemaVersion || status.CurrentVersion == kkaimigrate.RequestTicketSchemaVersion {
 				err = kkaimigrate.CheckTenantOnlineSchema(ctx, db)
 			} else {
 				err = kkaimigrate.CheckTenantOnlineExpansion(ctx, db)

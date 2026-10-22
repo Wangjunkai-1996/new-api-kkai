@@ -19,6 +19,10 @@ func resellerPrefixProofFixture(t *testing.T) (*resellerPrefixControllerProof, *
 	t.Helper()
 	contract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	require.NoError(t, err)
+	// The historical installed v15 proof protocol remains exact. A future
+	// runtime contract must not silently broaden its mutation authorization.
+	contract.RuntimeMaxVersion = 15
+	delete(contract.CompatiblePrefixes, "16")
 	now := time.Unix(1800000000, 0)
 	status := &resellerPrefixStatus{SourceDigest: contract.CompatiblePrefixes["14"], TargetDigest: contract.CompatiblePrefixes["15"],
 		PlanChecksum: kkaimigrate.ResellerApplicationPlanChecksum(), DatabaseName: "newapi", DatabaseSchema: "public"}

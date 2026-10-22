@@ -32,6 +32,8 @@ import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedImageStudioRouteRouteImport } from './routes/_authenticated/image-studio/route'
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
+import { Route as AuthenticatedRequestAdminRouteImport } from './routes/_authenticated/request-admin'
+import { Route as AuthenticatedRequestsRouteRouteImport } from './routes/_authenticated/requests/route'
 import { Route as AuthenticatedResellerAdminRouteImport } from './routes/_authenticated/reseller-admin'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
@@ -64,6 +66,8 @@ import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authen
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
+import { Route as AuthenticatedRequestsIndexRouteImport } from './routes/_authenticated/requests/index'
+import { Route as AuthenticatedRequestsRequestIdRouteImport } from './routes/_authenticated/requests/$requestId'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
@@ -210,6 +214,18 @@ const AuthenticatedInvitationsRoute =
   AuthenticatedInvitationsRouteImport.update({
     id: '/invitations',
     path: '/invitations',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRequestAdminRoute =
+  AuthenticatedRequestAdminRouteImport.update({
+    id: '/request-admin',
+    path: '/request-admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRequestsRouteRoute =
+  AuthenticatedRequestsRouteRouteImport.update({
+    id: '/requests',
+    path: '/requests',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedResellerAdminRoute =
@@ -391,6 +407,18 @@ const AuthenticatedRedemptionCodesIndexRoute =
     id: '/redemption-codes/',
     path: '/redemption-codes/',
     getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRequestsIndexRoute =
+  AuthenticatedRequestsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedRequestsRouteRoute,
+  } as any)
+const AuthenticatedRequestsRequestIdRoute =
+  AuthenticatedRequestsRequestIdRouteImport.update({
+    id: '/$requestId',
+    path: '/$requestId',
+    getParentRoute: () => AuthenticatedRequestsRouteRoute,
   } as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
@@ -591,6 +619,7 @@ export interface FileRoutesByFullPath {
   '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
+  '/requests': typeof AuthenticatedRequestsRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
@@ -607,6 +636,7 @@ export interface FileRoutesByFullPath {
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/invitations': typeof AuthenticatedInvitationsRouteWithChildren
+  '/request-admin': typeof AuthenticatedRequestAdminRoute
   '/reseller-admin': typeof AuthenticatedResellerAdminRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -626,6 +656,7 @@ export interface FileRoutesByFullPath {
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
   '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
@@ -644,6 +675,7 @@ export interface FileRoutesByFullPath {
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/requests/': typeof AuthenticatedRequestsIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -689,6 +721,7 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/chat2link': typeof AuthenticatedChat2linkRoute
+  '/request-admin': typeof AuthenticatedRequestAdminRoute
   '/reseller-admin': typeof AuthenticatedResellerAdminRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -708,6 +741,7 @@ export interface FileRoutesByTo {
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
   '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
@@ -726,6 +760,7 @@ export interface FileRoutesByTo {
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/requests': typeof AuthenticatedRequestsIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
@@ -763,6 +798,7 @@ export interface FileRoutesById {
   '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
+  '/_authenticated/requests': typeof AuthenticatedRequestsRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/_authenticated/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
@@ -779,6 +815,7 @@ export interface FileRoutesById {
   '/(errors)/503': typeof errors503Route
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/_authenticated/invitations': typeof AuthenticatedInvitationsRouteWithChildren
+  '/_authenticated/request-admin': typeof AuthenticatedRequestAdminRoute
   '/_authenticated/reseller-admin': typeof AuthenticatedResellerAdminRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -798,6 +835,7 @@ export interface FileRoutesById {
   '/_authenticated/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
   '/_authenticated/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
   '/_authenticated/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/_authenticated/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
@@ -816,6 +854,7 @@ export interface FileRoutesById {
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/_authenticated/requests/': typeof AuthenticatedRequestsIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -852,6 +891,7 @@ export interface FileRouteTypes {
     | '/reseller-application'
     | '/user-agreement'
     | '/image-studio'
+    | '/requests'
     | '/system-settings'
     | '/video-studio'
     | '/forgot-password'
@@ -868,6 +908,7 @@ export interface FileRouteTypes {
     | '/503'
     | '/chat2link'
     | '/invitations'
+    | '/request-admin'
     | '/reseller-admin'
     | '/console/log'
     | '/console/topup'
@@ -887,6 +928,7 @@ export interface FileRouteTypes {
     | '/invitations/admin'
     | '/membership/ratios'
     | '/models/$section'
+    | '/requests/$requestId'
     | '/system-settings/image-studio'
     | '/system-settings/video-studio'
     | '/usage-logs/$section'
@@ -905,6 +947,7 @@ export interface FileRouteTypes {
     | '/playground/'
     | '/profile/'
     | '/redemption-codes/'
+    | '/requests/'
     | '/subscriptions/'
     | '/system-info/'
     | '/system-settings/'
@@ -950,6 +993,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/chat2link'
+    | '/request-admin'
     | '/reseller-admin'
     | '/console/log'
     | '/console/topup'
@@ -969,6 +1013,7 @@ export interface FileRouteTypes {
     | '/invitations/admin'
     | '/membership/ratios'
     | '/models/$section'
+    | '/requests/$requestId'
     | '/system-settings/image-studio'
     | '/system-settings/video-studio'
     | '/usage-logs/$section'
@@ -987,6 +1032,7 @@ export interface FileRouteTypes {
     | '/playground'
     | '/profile'
     | '/redemption-codes'
+    | '/requests'
     | '/subscriptions'
     | '/system-info'
     | '/system-settings'
@@ -1023,6 +1069,7 @@ export interface FileRouteTypes {
     | '/reseller-application'
     | '/user-agreement'
     | '/_authenticated/image-studio'
+    | '/_authenticated/requests'
     | '/_authenticated/system-settings'
     | '/_authenticated/video-studio'
     | '/(auth)/forgot-password'
@@ -1039,6 +1086,7 @@ export interface FileRouteTypes {
     | '/(errors)/503'
     | '/_authenticated/chat2link'
     | '/_authenticated/invitations'
+    | '/_authenticated/request-admin'
     | '/_authenticated/reseller-admin'
     | '/console/log'
     | '/console/topup'
@@ -1058,6 +1106,7 @@ export interface FileRouteTypes {
     | '/_authenticated/invitations/admin'
     | '/_authenticated/membership/ratios'
     | '/_authenticated/models/$section'
+    | '/_authenticated/requests/$requestId'
     | '/_authenticated/system-settings/image-studio'
     | '/_authenticated/system-settings/video-studio'
     | '/_authenticated/usage-logs/$section'
@@ -1076,6 +1125,7 @@ export interface FileRouteTypes {
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
     | '/_authenticated/redemption-codes/'
+    | '/_authenticated/requests/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
@@ -1288,6 +1338,20 @@ declare module '@tanstack/react-router' {
       path: '/invitations'
       fullPath: '/invitations'
       preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/request-admin': {
+      id: '/_authenticated/request-admin'
+      path: '/request-admin'
+      fullPath: '/request-admin'
+      preLoaderRoute: typeof AuthenticatedRequestAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/requests': {
+      id: '/_authenticated/requests'
+      path: '/requests'
+      fullPath: '/requests'
+      preLoaderRoute: typeof AuthenticatedRequestsRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/reseller-admin': {
@@ -1513,6 +1577,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/redemption-codes/'
       preLoaderRoute: typeof AuthenticatedRedemptionCodesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/requests/': {
+      id: '/_authenticated/requests/'
+      path: '/'
+      fullPath: '/requests/'
+      preLoaderRoute: typeof AuthenticatedRequestsIndexRouteImport
+      parentRoute: typeof AuthenticatedRequestsRouteRoute
+    }
+    '/_authenticated/requests/$requestId': {
+      id: '/_authenticated/requests/$requestId'
+      path: '/$requestId'
+      fullPath: '/requests/$requestId'
+      preLoaderRoute: typeof AuthenticatedRequestsRequestIdRouteImport
+      parentRoute: typeof AuthenticatedRequestsRouteRoute
     }
     '/_authenticated/subscriptions/': {
       id: '/_authenticated/subscriptions/'
@@ -1785,6 +1863,22 @@ const AuthenticatedImageStudioRouteRouteWithChildren =
     AuthenticatedImageStudioRouteRouteChildren,
   )
 
+interface AuthenticatedRequestsRouteRouteChildren {
+  AuthenticatedRequestsRequestIdRoute: typeof AuthenticatedRequestsRequestIdRoute
+  AuthenticatedRequestsIndexRoute: typeof AuthenticatedRequestsIndexRoute
+}
+
+const AuthenticatedRequestsRouteRouteChildren: AuthenticatedRequestsRouteRouteChildren =
+  {
+    AuthenticatedRequestsRequestIdRoute: AuthenticatedRequestsRequestIdRoute,
+    AuthenticatedRequestsIndexRoute: AuthenticatedRequestsIndexRoute,
+  }
+
+const AuthenticatedRequestsRouteRouteWithChildren =
+  AuthenticatedRequestsRouteRoute._addFileChildren(
+    AuthenticatedRequestsRouteRouteChildren,
+  )
+
 interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsImageStudioRoute: typeof AuthenticatedSystemSettingsImageStudioRoute
   AuthenticatedSystemSettingsVideoStudioRoute: typeof AuthenticatedSystemSettingsVideoStudioRoute
@@ -1892,10 +1986,12 @@ const AuthenticatedInvitationsRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedImageStudioRouteRoute: typeof AuthenticatedImageStudioRouteRouteWithChildren
+  AuthenticatedRequestsRouteRoute: typeof AuthenticatedRequestsRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedVideoStudioRouteRoute: typeof AuthenticatedVideoStudioRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
   AuthenticatedInvitationsRoute: typeof AuthenticatedInvitationsRouteWithChildren
+  AuthenticatedRequestAdminRoute: typeof AuthenticatedRequestAdminRoute
   AuthenticatedResellerAdminRoute: typeof AuthenticatedResellerAdminRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
@@ -1924,12 +2020,14 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedImageStudioRouteRoute:
     AuthenticatedImageStudioRouteRouteWithChildren,
+  AuthenticatedRequestsRouteRoute: AuthenticatedRequestsRouteRouteWithChildren,
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedVideoStudioRouteRoute:
     AuthenticatedVideoStudioRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
   AuthenticatedInvitationsRoute: AuthenticatedInvitationsRouteWithChildren,
+  AuthenticatedRequestAdminRoute: AuthenticatedRequestAdminRoute,
   AuthenticatedResellerAdminRoute: AuthenticatedResellerAdminRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,

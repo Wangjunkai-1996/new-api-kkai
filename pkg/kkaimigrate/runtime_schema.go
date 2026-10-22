@@ -149,8 +149,13 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 		if err := validateTenantCompatibilityRuntimeSchema(db); err != nil {
 			return err
 		}
-		if currentVersion == ResellerApplicationSchemaVersion {
-			return validateResellerApplicationPrefixSchema(db)
+		if currentVersion >= ResellerApplicationSchemaVersion {
+			if err := validateResellerApplicationPrefixSchema(db); err != nil {
+				return err
+			}
+		}
+		if currentVersion == RequestTicketSchemaVersion {
+			return validateRequestTicketSchema(db, true)
 		}
 		return nil
 	}

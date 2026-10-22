@@ -26,6 +26,7 @@ func SetApiRouter(router *gin.Engine) {
 	registerKKAIRoutes(apiRouter, anonymousRequestBodyLimit)
 	registerMembershipRoutes(apiRouter, anonymousRequestBodyLimit)
 	registerResellerRoutes(apiRouter, anonymousRequestBodyLimit)
+	registerRequestTicketRoutes(apiRouter)
 	{
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)

@@ -101,8 +101,8 @@ func main() {
 		return
 	}
 	if precheck {
-		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
-			log.Fatal("--precheck requires --target 8, 12, 13, or 15 and --json and cannot be combined with other operations")
+		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8, 12, 13, 15, or 16 and --json and cannot be combined with other operations")
 		}
 	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
@@ -225,8 +225,10 @@ func runMigrationPrecheck(ctx context.Context, db *gorm.DB, target int64, output
 		unsafeTenant = report != nil && !report.Safe
 	case kkaimigrate.ResellerApplicationSchemaVersion:
 		result, err = kkaimigrate.PrecheckResellerApplicationExpand(ctx, db)
+	case kkaimigrate.RequestTicketSchemaVersion:
+		result, err = kkaimigrate.PrecheckRequestTicketExpand(ctx, db)
 	default:
-		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, or 15", target)
+		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, or 16", target)
 	}
 	if err != nil {
 		return err
@@ -277,8 +279,13 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 			return nil, fmt.Errorf("%w: target 15 is read-only; use --reseller-prefix apply with the installed controller proof", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyResellerApplicationExpand(ctx, db, options)
+	case kkaimigrate.RequestTicketSchemaVersion:
+		if !options.DryRun {
+			return nil, fmt.Errorf("%w: target 16 is read-only; production request ticket expansion requires a separately installed controller with exact runtime compatibility proof", kkaimigrate.ErrUnsafeMigration)
+		}
+		return kkaimigrate.ApplyRequestTicketExpand(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16", targetVersion)
 	}
 }
 

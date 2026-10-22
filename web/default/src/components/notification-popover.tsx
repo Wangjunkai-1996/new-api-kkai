@@ -17,9 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
-import { Bell, Megaphone } from 'lucide-react'
+import { Bell, Inbox, Megaphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  RequestNotificationContent,
+  type RequestUpdates,
+} from '@/components/request-notification-content'
 import { RichContent } from '@/components/rich-content'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,6 +44,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { NotificationTab } from '@/hooks/use-notifications'
 import { getAnnouncementColorClass } from '@/lib/colors'
 import { formatDateTimeObject } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -56,11 +61,12 @@ interface NotificationPopoverProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   unreadCount: number
-  activeTab: 'notice' | 'announcements'
-  onTabChange: (tab: 'notice' | 'announcements') => void
+  activeTab: NotificationTab
+  onTabChange: (tab: NotificationTab) => void
   notice: string
   announcements: AnnouncementItem[]
   loading: boolean
+  requestUpdates: RequestUpdates
   className?: string
 }
 
@@ -299,6 +305,7 @@ export function NotificationPopover({
   notice,
   announcements,
   loading,
+  requestUpdates,
   className,
 }: NotificationPopoverProps) {
   const { t } = useTranslation()
@@ -331,7 +338,7 @@ export function NotificationPopover({
         className='w-[min(26rem,calc(100vw-1rem))] gap-3 p-3'
       >
         <PopoverHeader className='gap-1 px-1'>
-          <PopoverTitle>{t('System Announcements')}</PopoverTitle>
+          <PopoverTitle>{t('Notifications')}</PopoverTitle>
           <p className='text-muted-foreground text-xs'>
             {t('Latest platform updates and notices')}
           </p>
@@ -339,22 +346,55 @@ export function NotificationPopover({
 
         <Tabs
           value={activeTab}
-          onValueChange={onTabChange as (value: string) => void}
+          onValueChange={(value) => {
+            if (
+              value === 'notice' ||
+              value === 'announcements' ||
+              value === 'requests'
+            ) {
+              onTabChange(value)
+            }
+          }}
         >
-          <TabsList className='grid w-full grid-cols-2'>
-            <TabsTrigger value='notice' className='gap-1.5'>
+          <TabsList
+            className={cn(
+              'grid w-full grid-cols-2',
+              requestUpdates.enabled && 'grid-cols-3'
+            )}
+          >
+            <TabsTrigger value='notice' className='gap-1 text-xs'>
               <Bell className='size-3.5' />
               {t('Notice')}
             </TabsTrigger>
-            <TabsTrigger value='announcements' className='gap-1.5'>
+            <TabsTrigger value='announcements' className='gap-1 text-xs'>
               <Megaphone className='size-3.5' />
               {t('Timeline')}
             </TabsTrigger>
+            {requestUpdates.enabled ? (
+              <TabsTrigger value='requests' className='gap-1 text-xs'>
+                <Inbox aria-hidden='true' className='size-3.5' />
+                {t('Request updates')}
+                {requestUpdates.unreadCount > 0 ? (
+                  <span
+                    className='bg-primary size-1.5 shrink-0 rounded-full'
+                    aria-label={t('Unread')}
+                  />
+                ) : null}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
 
           <TabsContent value='notice' className='mt-2'>
             <NoticeContent notice={notice} loading={loading} t={t} />
           </TabsContent>
+          {requestUpdates.enabled ? (
+            <TabsContent value='requests' className='mt-2'>
+              <RequestNotificationContent
+                updates={requestUpdates}
+                onNavigate={() => onOpenChange(false)}
+              />
+            </TabsContent>
+          ) : null}
 
           <TabsContent value='announcements' className='mt-2'>
             <AnnouncementsContent

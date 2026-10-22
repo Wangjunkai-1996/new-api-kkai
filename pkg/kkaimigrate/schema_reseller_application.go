@@ -23,10 +23,10 @@ type resellerApplicationV15Prefix struct {
 
 func (resellerApplicationV15Prefix) TableName() string { return "reseller_applications" }
 
-// The two explicit canonical online prefixes exclude the retired v12/v13 branch.
+// These explicit canonical online prefixes exclude the retired v12/v13 branch.
 // Unknown future versions must never inherit this compatibility implicitly.
 func isTenantOnlineLedger(version int64) bool {
-	return version == TenantOnlineSchemaVersion || version == ResellerApplicationSchemaVersion
+	return version == TenantOnlineSchemaVersion || version == ResellerApplicationSchemaVersion || version == RequestTicketSchemaVersion
 }
 
 type ResellerApplicationExpandPrecheck struct {
@@ -90,7 +90,7 @@ func validateResellerApplicationPrefixSchema(db *gorm.DB) error {
 // CheckResellerApplicationSchema is the read-only enablement gate. A nullable
 // column alone does not enable the feature before its canonical receipt exists.
 func CheckResellerApplicationSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, ResellerApplicationSchemaVersion, ResellerApplicationSchemaVersion, ResellerApplicationSchemaVersion)
+	return checkThroughVersion(ctx, db, ResellerApplicationSchemaVersion, ResellerApplicationSchemaVersion, RequestTicketSchemaVersion)
 }
 
 // ApplyResellerApplicationExpand adds only the v15 nullable column and receipt

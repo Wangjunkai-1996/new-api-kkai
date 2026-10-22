@@ -1,0 +1,98 @@
+.request-row {
+  transition: background-color 140ms ease;
+}
+.request-row-chevron {
+  transition: transform 160ms ease;
+}
+.request-detail {
+  animation: request-detail-in 160ms ease-out both;
+}
+.request-results {
+  animation: request-fade-in 120ms ease-out both;
+}
+.request-success {
+  animation: request-success-in 220ms ease-out both;
+}
+.request-success-mascot {
+  animation: request-mascot-in 360ms ease-out both;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .request-row:hover {
+    background-color: var(--muted);
+  }
+  .request-row:hover .request-row-chevron {
+    transform: translateX(2px);
+  }
+}
+
+.request-compose-dialog[data-open] {
+  animation: request-dialog-in 180ms ease-out both;
+}
+body:has(.request-compose-dialog) [data-slot='dialog-overlay'][data-open] {
+  animation: request-fade-in 150ms ease-out both;
+}
+
+@keyframes request-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes request-detail-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes request-success-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes request-mascot-in {
+  0% {
+    rotate: -3deg;
+  }
+  65% {
+    rotate: 1deg;
+  }
+  100% {
+    rotate: 0deg;
+  }
+}
+@keyframes request-dialog-in {
+  from {
+    opacity: 0;
+    scale: 0.985;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@media (max-width: 639px) {
+  .request-compose-dialog[data-open] {
+    animation-name: request-fade-in;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .request-workspace *,
+  .request-compose-dialog,
+  body:has(.request-compose-dialog) [data-slot='dialog-overlay'] {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -16,15 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 
+import {
+  getRequestNotifications,
+  markAllRequestNotificationsRead,
+  markRequestNotificationRead,
+  requestQueryKey,
+} from '@/features/requests/api'
 import { useSiteConfig } from '@/features/site-config'
 import { useStatus } from '@/hooks/use-status'
 import { getNotice } from '@/lib/api'
+import { handleServerError } from '@/lib/handle-server-error'
 import { getCurrentHost } from '@/lib/host-scope'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
+
+export type NotificationTab = 'notice' | 'announcements' | 'requests'
 
 function hashString(input: string): string {
   let hash = 0
@@ -66,12 +76,48 @@ function getAnnouncementKey(item: Record<string, unknown>): string {
  * Provides unread counts and read status management
  */
 export function useNotifications() {
+  const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const { data: site } = useSiteConfig()
   const isTenant = (site?.tenant_id ?? 0) > 0
+  const requestsEnabled = Boolean(userId) && site?.tenant_id === 0
   const [popoverOpen, setPopoverOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'notice' | 'announcements'>(
-    'notice'
-  )
+  const [selectedTab, setActiveTab] = useState<NotificationTab>('notice')
+  const activeTab =
+    selectedTab === 'requests' && !requestsEnabled ? 'notice' : selectedTab
+  const notificationsQueryKey = requestQueryKey(userId, 'notifications')
+  const requestNotifications = useQuery({
+    queryKey: notificationsQueryKey,
+    queryFn: () => getRequestNotifications(),
+    enabled: requestsEnabled,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    meta: { errorToast: false },
+  })
+  const readRequestNotification = useMutation({
+    mutationFn: markRequestNotificationRead,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: notificationsQueryKey })
+      void queryClient.invalidateQueries({
+        queryKey: requestQueryKey(userId, 'list'),
+      })
+    },
+    onError: (error) => handleServerError(error),
+  })
+  const readAllRequestNotifications = useMutation({
+    mutationFn: markAllRequestNotificationsRead,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: notificationsQueryKey })
+      void queryClient.invalidateQueries({
+        queryKey: requestQueryKey(userId, 'list'),
+      })
+    },
+    onError: (error) => handleServerError(error),
+  })
+  const unreadRequestCount = requestsEnabled
+    ? (requestNotifications.data?.unread_count ?? 0)
+    : 0
 
   // Fetch Notice from API
   const {
@@ -139,7 +185,7 @@ export function useNotifications() {
   }
 
   // Handle popover open
-  const handleOpenPopover = (tab?: 'notice' | 'announcements') => {
+  const handleOpenPopover = (tab?: NotificationTab) => {
     const nextTab = tab || activeTab
 
     // Mark currently visible content as read when opening the notification center
@@ -152,6 +198,7 @@ export function useNotifications() {
 
     setActiveTab(nextTab)
     setPopoverOpen(true)
+    if (requestsEnabled) void requestNotifications.refetch()
   }
 
   const handlePopoverOpenChange = (open: boolean) => {
@@ -164,7 +211,7 @@ export function useNotifications() {
   }
 
   // Handle tab change - mark announcements as read when switching to that tab
-  const handleTabChange = (tab: 'notice' | 'announcements') => {
+  const handleTabChange = (tab: NotificationTab) => {
     setActiveTab(tab)
 
     if (tab === 'announcements') {
@@ -179,7 +226,7 @@ export function useNotifications() {
     loading: noticeLoading || statusLoading,
 
     // Unread counts
-    unreadCount: unreadCounts.total,
+    unreadCount: unreadCounts.total + unreadRequestCount,
     unreadNoticeCount: unreadCounts.notice,
     unreadAnnouncementsCount: unreadCounts.announcements,
 
@@ -193,5 +240,18 @@ export function useNotifications() {
     openPopover: handleOpenPopover,
     closePopover: () => setPopoverOpen(false),
     refetchNotice,
+    requestUpdates: {
+      enabled: requestsEnabled,
+      items: requestsEnabled ? (requestNotifications.data?.items ?? []) : [],
+      unreadCount: unreadRequestCount,
+      loading: requestNotifications.isPending,
+      error: requestNotifications.isError,
+      markingAllRead: readAllRequestNotifications.isPending,
+      onRead: (id: number) => readRequestNotification.mutate(id),
+      onMarkAllRead: () => readAllRequestNotifications.mutate(),
+      onRetry: () => {
+        void requestNotifications.refetch()
+      },
+    },
   }
 }

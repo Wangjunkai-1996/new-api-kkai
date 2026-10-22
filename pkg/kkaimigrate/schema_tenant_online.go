@@ -118,7 +118,7 @@ func ObserveTenantOnlineExpansion(ctx context.Context, db *gorm.DB) (*TenantOnli
 		return nil, err
 	}
 	if state.currentVersion != MembershipSchemaVersion && !isTenantOnlineLedger(state.currentVersion) {
-		return nil, fmt.Errorf("%w: online tenant source must be schema 11, 14 or 15", ErrSchemaNotReady)
+		return nil, fmt.Errorf("%w: online tenant source must be schema 11, 14, 15 or 16", ErrSchemaNotReady)
 	}
 	receipts, err := loadTenantOnlineReceipts(db.WithContext(ctx))
 	if err != nil {
@@ -302,7 +302,7 @@ func checkTenantOnlineExpansion(ctx context.Context, db *gorm.DB, requireLegacy 
 }
 
 func CheckTenantOnlineSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion, ResellerApplicationSchemaVersion)
+	return checkThroughVersion(ctx, db, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion, RequestTicketSchemaVersion)
 }
 
 // FinalizeTenantOnlineSchema is also usable for isolated rehearsal. Production

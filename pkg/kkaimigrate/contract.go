@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = ResellerApplicationSchemaVersion
+	KnownCatalogVersion     int64 = RequestTicketSchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"

@@ -162,6 +162,11 @@ export function useSidebarData(): SidebarData {
         title: t('Personal'),
         items: [
           {
+            title: t('My requests'),
+            url: '/requests',
+            icon: MessageSquare,
+          },
+          {
             title: t('Membership center'),
             url: '/membership',
             icon: Crown,
@@ -198,6 +203,12 @@ export function useSidebarData(): SidebarData {
         id: 'admin',
         title: t('Admin'),
         items: [
+          {
+            title: t('Request management'),
+            url: '/request-admin',
+            icon: ClipboardList,
+            requiredRole: ROLE.ADMIN,
+          },
           {
             title: t('Channels'),
             url: '/channels',

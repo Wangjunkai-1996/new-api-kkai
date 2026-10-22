@@ -133,6 +133,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       resellerApplicationSchemaStatements,
 		},
+		{
+			Version:          RequestTicketSchemaVersion,
+			Name:             "request_tickets_and_notifications",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "request_tickets_and_notifications_v16",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       requestTicketSchemaStatements,
+		},
 	}
 }
 
