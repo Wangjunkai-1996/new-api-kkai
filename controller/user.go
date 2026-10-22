@@ -712,7 +712,7 @@ func generateDefaultSidebarConfig(userRole int) string {
 
 func GetUserModels(c *gin.Context) {
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
-		names, err := tenantModelNames(c)
+		names, err := tenantModelNames(c, false)
 		if err != nil {
 			common.ApiError(c, err)
 			return

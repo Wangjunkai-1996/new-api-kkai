@@ -26,7 +26,7 @@ func GetPerfMetricsSummary(c *gin.Context) {
 	var result perfmetrics.SummaryAllResult
 	var err error
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
-		prices, priceErr := tenantCustomerPrices(c)
+		prices, priceErr := tenantCustomerPrices(c, false)
 		if priceErr != nil {
 			common.ApiError(c, priceErr)
 			return
@@ -73,7 +73,7 @@ func GetPerfMetrics(c *gin.Context) {
 
 	allowedGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), setting.GetAutoGroupNames()...)
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
-		prices, err := tenantCustomerPrices(c)
+		prices, err := tenantCustomerPrices(c, false)
 		if err != nil {
 			common.ApiError(c, err)
 			return

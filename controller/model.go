@@ -341,7 +341,7 @@ func ChannelListModels(c *gin.Context) {
 
 func DashboardListModels(c *gin.Context) {
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > model.PlatformTenantID {
-		names, err := tenantModelNames(c)
+		names, err := tenantModelNames(c, false)
 		if err != nil {
 			common.ApiError(c, err)
 			return
@@ -358,7 +358,7 @@ func DashboardListModels(c *gin.Context) {
 
 func EnabledListModels(c *gin.Context) {
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
-		names, err := tenantModelNames(c)
+		names, err := tenantModelNames(c, false)
 		if err != nil {
 			common.ApiError(c, err)
 			return
@@ -375,7 +375,7 @@ func EnabledListModels(c *gin.Context) {
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")
 	if common.GetContextKeyInt64(c, constant.ContextKeyTenantID) > 0 {
-		names, err := tenantModelNames(c)
+		names, err := tenantModelNames(c, true)
 		if err != nil {
 			common.ApiError(c, err)
 			return

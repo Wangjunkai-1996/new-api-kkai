@@ -8,7 +8,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -16,6 +18,82 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTenantAuthenticatedCatalogPreservesAllPublicGroups(t *testing.T) {
+	setupTenantTokenGroupRouter(t)
+	db := model.DB
+	require.NoError(t, db.AutoMigrate(&model.TenantMembership{}, &model.UserSession{}))
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 1).Updates(map[string]any{"role": common.RoleCommonUser, "auth_version": 1}).Error)
+	require.NoError(t, db.Create(&model.TenantMembership{TenantID: 42, UserID: 1, Role: model.TenantMembershipRoleCustomer, Status: model.TenantMembershipStatusActive}).Error)
+	session, err := service.CreateLoginSession(1, "password", "127.0.0.1", "tenant-catalog-test", 42)
+	require.NoError(t, err)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
+		common.SetContextKey(c, constant.ContextKeyTenantContext, model.TenantContext{TenantID: 42, Hostname: "tenant.example.test"})
+	})
+	router.GET("/api/pricing", middleware.TryUserAuth(), func(c *gin.Context) {
+		c.Header("X-Test-Authenticated-User", strconv.Itoa(c.GetInt("id")))
+		GetPricing(c)
+	})
+	router.GET("/api/models", middleware.UserAuth(), DashboardListModels)
+	router.GET("/api/user/models", middleware.UserAuth(), GetUserModels)
+
+	var anonymousPrices []tenantCustomerPricing
+	var anonymousGroups map[string]float64
+	for _, authenticated := range []bool{false, true} {
+		request := httptest.NewRequest(http.MethodGet, "https://tenant.example.test/api/pricing", nil)
+		if authenticated {
+			request.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		var pricing struct {
+			Success    bool                    `json:"success"`
+			Data       []tenantCustomerPricing `json:"data"`
+			GroupRatio map[string]float64      `json:"group_ratio"`
+		}
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &pricing))
+		require.True(t, pricing.Success, response.Body.String())
+		names := make([]string, 0, len(pricing.Data))
+		for _, row := range pricing.Data {
+			names = append(names, row.ModelName)
+		}
+		assert.ElementsMatch(t, []string{"zz-default-model", "zz-shared-model", "zz-vip-model", "gpt-4-gizmo-demo"}, names)
+		assert.Equal(t, map[string]float64{"default": 1, "vip": 2}, pricing.GroupRatio)
+		if !authenticated {
+			assert.Equal(t, "0", response.Header().Get("X-Test-Authenticated-User"))
+			anonymousPrices, anonymousGroups = pricing.Data, pricing.GroupRatio
+			continue
+		}
+		require.Equal(t, "1", response.Header().Get("X-Test-Authenticated-User"), "optional authentication must not silently fall back to anonymous")
+		assert.ElementsMatch(t, anonymousPrices, pricing.Data, "signing in must preserve every public model and its available groups")
+		assert.Equal(t, anonymousGroups, pricing.GroupRatio)
+	}
+
+	for _, path := range []string{"/api/models", "/api/user/models"} {
+		request := httptest.NewRequest(http.MethodGet, "https://tenant.example.test"+path, nil)
+		request.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		var names []string
+		if path == "/api/models" {
+			var listing struct {
+				Success bool             `json:"success"`
+				Data    map[int][]string `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &listing))
+			require.True(t, listing.Success, response.Body.String())
+			names = listing.Data[constant.ChannelTypeOpenAI]
+		} else {
+			names = decodeUserModelsResponse(t, response)
+		}
+		assert.ElementsMatch(t, []string{"zz-default-model", "zz-shared-model", "zz-vip-model", "gpt-4-gizmo-demo"}, names, path)
+	}
+}
 
 func TestTenantPricingPublishesActualExpressionWithoutChangingPlatformDisplay(t *testing.T) {
 	const name = "tenant-cache-price"

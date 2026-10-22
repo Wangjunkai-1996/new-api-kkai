@@ -22,7 +22,7 @@ type tenantCustomerPricing struct {
 	TenantPricing bool               `json:"tenant_pricing"`
 }
 
-func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
+func tenantCustomerPrices(c *gin.Context, tokenScoped bool) ([]tenantCustomerPricing, error) {
 	prices, err := service.NewTenantPricingService(model.DB).ResolveCustomerPrices(c.Request.Context(), common.GetContextKeyInt64(c, constant.ContextKeyTenantID))
 	if err != nil {
 		return nil, err
@@ -31,13 +31,15 @@ func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
 	for _, row := range model.GetPricing() {
 		byName[row.ModelName] = row
 	}
-	limited := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
+	// Dashboard authentication shares the group key; only key-scoped queries
+	// apply its group and model limits to the public tenant catalog.
+	limited := tokenScoped && common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	limits, _ := common.GetContextKeyType[map[string]bool](c, constant.ContextKeyTokenModelLimit)
 	result := make([]tenantCustomerPricing, 0, len(prices))
 	indices := make(map[string]int, len(prices))
 	for _, price := range prices {
-		if usingGroup != "" && price.Group != usingGroup {
+		if tokenScoped && usingGroup != "" && price.Group != usingGroup {
 			continue
 		}
 		row, ok := byName[price.Model]
@@ -82,7 +84,7 @@ func tenantCustomerPrices(c *gin.Context) ([]tenantCustomerPricing, error) {
 }
 
 func getTenantPricing(c *gin.Context) {
-	prices, err := tenantCustomerPrices(c)
+	prices, err := tenantCustomerPrices(c, false)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -120,8 +122,8 @@ func getTenantPricing(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": prices, "vendors": vendors, "group_ratio": ratios, "usable_group": groups, "group_display_names": displayNames, "supported_endpoint": endpoints, "auto_groups": []string{}, "auto_group_chains": map[string][]string{}, "membership_group_quotes": []service.MembershipGroupQuote{}})
 }
 
-func tenantModelNames(c *gin.Context) ([]string, error) {
-	prices, err := tenantCustomerPrices(c)
+func tenantModelNames(c *gin.Context, tokenScoped bool) ([]string, error) {
+	prices, err := tenantCustomerPrices(c, tokenScoped)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +135,7 @@ func tenantModelNames(c *gin.Context) ([]string, error) {
 }
 
 func listTenantModels(c *gin.Context, modelType int) {
-	prices, err := tenantCustomerPrices(c)
+	prices, err := tenantCustomerPrices(c, true)
 	if err != nil {
 		common.ApiError(c, err)
 		return

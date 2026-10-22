@@ -228,7 +228,7 @@ func GetTokenModels(c *gin.Context) {
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
 		common.SetContextKey(c, constant.ContextKeyTokenModelLimitEnabled, token.ModelLimitsEnabled)
 		common.SetContextKey(c, constant.ContextKeyTokenModelLimit, token.GetModelLimitsMap())
-		names, err := tenantModelNames(c)
+		names, err := tenantModelNames(c, true)
 		if err != nil {
 			common.ApiError(c, err)
 			return

@@ -116,6 +116,7 @@ func TestTenantPerfMetricsFollowSaleableModelGroups(t *testing.T) {
 	c, _ := gin.CreateTestContext(writer)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/perf-metrics/summary", nil)
 	common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
+	c.Set("group", "default") // Dashboard authentication supplies the account group.
 	GetPerfMetricsSummary(c)
 	var summary struct {
 		Success bool                         `json:"success"`
@@ -130,17 +131,19 @@ func TestTenantPerfMetricsFollowSaleableModelGroups(t *testing.T) {
 	assert.Equal(t, "no-store", writer.Header().Get("Cache-Control"))
 
 	for _, test := range []struct {
-		query    string
-		wantData bool
+		query     string
+		wantGroup string
 	}{
-		{"model=perf-tenant-a", true},
-		{"model=perf-tenant-a&group=premium", false},
-		{"model=perf-private", false},
+		{"model=perf-tenant-a", "default"},
+		{"model=perf-tenant-b", "premium"},
+		{"model=perf-tenant-a&group=premium", ""},
+		{"model=perf-private", ""},
 	} {
 		writer = httptest.NewRecorder()
 		c, _ = gin.CreateTestContext(writer)
 		c.Request = httptest.NewRequest(http.MethodGet, "/api/perf-metrics?"+test.query, nil)
 		common.SetContextKey(c, constant.ContextKeyTenantID, int64(42))
+		c.Set("group", "default")
 		GetPerfMetrics(c)
 		var detail struct {
 			Success bool                    `json:"success"`
@@ -148,11 +151,11 @@ func TestTenantPerfMetricsFollowSaleableModelGroups(t *testing.T) {
 		}
 		require.NoError(t, common.Unmarshal(writer.Body.Bytes(), &detail))
 		require.True(t, detail.Success, writer.Body.String())
-		if test.wantData {
+		if test.wantGroup != "" {
 			require.NotNil(t, detail.Data.Summary)
 			assert.Equal(t, 100.0, detail.Data.Summary.SuccessRate)
 			require.Len(t, detail.Data.Groups, 1)
-			assert.Equal(t, "default", detail.Data.Groups[0].Group)
+			assert.Equal(t, test.wantGroup, detail.Data.Groups[0].Group)
 		} else {
 			assert.Nil(t, detail.Data.Summary)
 			assert.Empty(t, detail.Data.Groups)
