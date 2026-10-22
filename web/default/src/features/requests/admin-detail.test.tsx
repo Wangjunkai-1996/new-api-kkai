@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -110,6 +116,55 @@ test.each(['accepted', 'rejected'] as const)(
   }
 )
 
+test.each([
+  { status: 'accepted', options: ['scheduling', 'developing', 'completed'] },
+  { status: 'scheduling', options: ['developing', 'completed'] },
+] as const)(
+  '$status requests allow development or direct completion with feedback',
+  async ({ status, options }) => {
+    vi.mocked(requestsApi.getAdminRequest).mockResolvedValueOnce({
+      ...detail,
+      ticket: { ...detail.ticket, status },
+    })
+    const transition = vi
+      .spyOn(requestsApi, 'transitionRequest')
+      .mockResolvedValue({
+        ...detail,
+        ticket: { ...detail.ticket, status: 'completed', version: 4 },
+      })
+    renderDetail()
+    const user = userEvent.setup()
+    const select = await screen.findByLabelText('Next status')
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => (option as HTMLOptionElement).value)
+    ).toEqual(options)
+    await user.selectOptions(select, 'developing')
+    expect(select).toHaveValue('developing')
+    await user.selectOptions(select, 'completed')
+    const submit = screen.getByRole('button', {
+      name: 'Send feedback and update status',
+    })
+    expect(submit).toBeDisabled()
+    await user.type(
+      screen.getByLabelText('Feedback to customer'),
+      'The requested change has shipped.'
+    )
+    await user.click(submit)
+    await waitFor(() =>
+      expect(transition).toHaveBeenCalledExactlyOnceWith(17, {
+        status: 'completed',
+        feedback: 'The requested change has shipped.',
+        version: 3,
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Next status')).not.toBeInTheDocument()
+    )
+  }
+)
+
 test('a concurrent change keeps feedback and requires reviewing the refreshed status before retry', async () => {
   const transition = vi
     .spyOn(requestsApi, 'transitionRequest')
@@ -155,14 +210,17 @@ test('a concurrent change keeps feedback and requires reviewing the refreshed st
   )
 })
 
-test('completed requests keep the timeline and have no further transition form', async () => {
-  vi.mocked(requestsApi.getAdminRequest).mockResolvedValueOnce({
-    ...detail,
-    ticket: { ...detail.ticket, status: 'completed' },
-  })
-  renderDetail()
-  expect(
-    await screen.findByRole('list', { name: 'Request timeline' })
-  ).toBeVisible()
-  expect(screen.queryByLabelText('Next status')).not.toBeInTheDocument()
-})
+test.each(['completed', 'rejected'] as const)(
+  '%s requests keep the timeline and have no further transition form',
+  async (status) => {
+    vi.mocked(requestsApi.getAdminRequest).mockResolvedValueOnce({
+      ...detail,
+      ticket: { ...detail.ticket, status },
+    })
+    renderDetail()
+    expect(
+      await screen.findByRole('list', { name: 'Request timeline' })
+    ).toBeVisible()
+    expect(screen.queryByLabelText('Next status')).not.toBeInTheDocument()
+  }
+)

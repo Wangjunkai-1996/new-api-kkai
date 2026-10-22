@@ -77,9 +77,9 @@ export function requestStatusActions(status: RequestStatus): RequestStatus[] {
     case 'pending':
       return ['accepted', 'rejected']
     case 'accepted':
-      return ['scheduling']
+      return ['scheduling', 'developing', 'completed']
     case 'scheduling':
-      return ['developing']
+      return ['developing', 'completed']
     case 'developing':
       return ['completed']
     default:

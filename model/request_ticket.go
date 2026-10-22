@@ -98,8 +98,8 @@ func TransitionRequestTicket(db *gorm.DB, tenantID, ticketID int64, actorID int,
 			return ErrRequestTicketConflict
 		}
 		valid := (ticket.Status == RequestTicketPending && (status == RequestTicketAccepted || status == RequestTicketRejected)) ||
-			(ticket.Status == RequestTicketAccepted && status == RequestTicketScheduling) ||
-			(ticket.Status == RequestTicketScheduling && status == RequestTicketDeveloping) ||
+			(ticket.Status == RequestTicketAccepted && (status == RequestTicketScheduling || status == RequestTicketDeveloping || status == RequestTicketCompleted)) ||
+			(ticket.Status == RequestTicketScheduling && (status == RequestTicketDeveloping || status == RequestTicketCompleted)) ||
 			(ticket.Status == RequestTicketDeveloping && status == RequestTicketCompleted)
 		if !valid {
 			return ErrRequestTicketTransition

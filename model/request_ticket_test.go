@@ -114,6 +114,61 @@ func TestRequestTicketIsolationValidationAndConflicts(t *testing.T) {
 	assert.EqualValues(t, 1, detail.Ticket.UnreadCount)
 }
 
+func TestRequestTicketForwardTransitions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		path    []string
+		target  string
+		invalid bool
+	}{
+		{"accepted to developing", []string{RequestTicketAccepted}, RequestTicketDeveloping, false},
+		{"accepted to completed", []string{RequestTicketAccepted}, RequestTicketCompleted, false},
+		{"scheduling to completed", []string{RequestTicketAccepted, RequestTicketScheduling}, RequestTicketCompleted, false},
+		{"same status", []string{RequestTicketAccepted}, RequestTicketAccepted, true},
+		{"back to pending", []string{RequestTicketAccepted}, RequestTicketPending, true},
+		{"back to accepted", []string{RequestTicketAccepted, RequestTicketScheduling}, RequestTicketAccepted, true},
+		{"back to scheduling", []string{RequestTicketAccepted, RequestTicketDeveloping}, RequestTicketScheduling, true},
+		{"reject after acceptance", []string{RequestTicketAccepted}, RequestTicketRejected, true},
+		{"completed is final", []string{RequestTicketAccepted, RequestTicketCompleted}, RequestTicketDeveloping, true},
+		{"rejected is final", []string{RequestTicketRejected}, RequestTicketAccepted, true},
+		{"unknown status", []string{RequestTicketAccepted}, "unknown", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := requestTicketTestDB(t)
+			ticket, err := CreateRequestTicket(db, 0, 7, "标题", "描述")
+			require.NoError(t, err)
+			for _, status := range test.path {
+				ticket, err = TransitionRequestTicket(db, 0, ticket.ID, 1, ticket.Version, status, "此前进展")
+				require.NoError(t, err)
+			}
+			_, err = TransitionRequestTicket(db, 0, ticket.ID, 1, ticket.Version, test.target, "  最新反馈  ")
+			if test.invalid {
+				require.ErrorIs(t, err, ErrRequestTicketTransition)
+			} else {
+				require.NoError(t, err)
+			}
+			detail, err := GetRequestTicketDetail(db, 0, 7, ticket.ID)
+			require.NoError(t, err)
+			if test.invalid {
+				assert.Equal(t, ticket.Status, detail.Ticket.Status)
+				assert.Equal(t, ticket.Version, detail.Ticket.Version)
+				assert.Len(t, detail.Events, len(test.path)+1)
+				assert.EqualValues(t, len(test.path), detail.Ticket.UnreadCount)
+				return
+			}
+			assert.Equal(t, test.target, detail.Ticket.Status)
+			assert.Equal(t, ticket.Version+1, detail.Ticket.Version)
+			require.Len(t, detail.Events, len(test.path)+2, "only actual transitions appear in the timeline")
+			event := detail.Events[len(detail.Events)-1]
+			assert.Equal(t, test.target, event.Status)
+			assert.Equal(t, "最新反馈", event.Feedback)
+			assert.Zero(t, event.ReadAt)
+			assert.EqualValues(t, len(test.path)+1, detail.Ticket.UnreadCount)
+			assert.Equal(t, event.Feedback, detail.Ticket.LatestFeedback)
+		})
+	}
+}
+
 func TestRequestTicketEventFailureRollsBackCreateAndTransition(t *testing.T) {
 	db := requestTicketTestDB(t)
 	ticket, err := CreateRequestTicket(db, 0, 7, "标题", "描述")

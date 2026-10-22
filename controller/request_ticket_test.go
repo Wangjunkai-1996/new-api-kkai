@@ -93,6 +93,17 @@ func TestRequestTicketHTTPDetailConflictAndOwnership(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, otherUserRead.Code)
 	read := requestTicketHTTP(ReadRequestTicketNotification, http.MethodPost, "/api/requests/notifications/2/read", "", 0, 7, result.Data.Events[1].ID)
 	assert.Equal(t, http.StatusOK, read.Code)
+
+	completed := requestTicketHTTP(AdminTransitionRequestTicket, http.MethodPatch, "/api/requests/admin/1/status", `{"status":"completed","feedback":"已经完成，可以使用了。","version":2}`, 0, 1, id)
+	require.Equal(t, http.StatusOK, completed.Code, completed.Body.String())
+	require.NoError(t, common.Unmarshal(completed.Body.Bytes(), &result))
+	assert.Equal(t, model.RequestTicketCompleted, result.Data.Ticket.Status)
+	assert.EqualValues(t, 3, result.Data.Ticket.Version)
+	require.Len(t, result.Data.Events, 3, "skipped statuses must not create artificial events")
+	assert.Equal(t, model.RequestTicketCompleted, result.Data.Events[2].Status)
+	assert.Equal(t, "已经完成，可以使用了。", result.Data.Events[2].Feedback)
+	assert.Zero(t, result.Data.Events[2].ReadAt)
+	assert.EqualValues(t, 1, result.Data.Ticket.UnreadCount)
 }
 
 func TestRequestTicketHTTPListAndValidation(t *testing.T) {
