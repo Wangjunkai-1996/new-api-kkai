@@ -143,6 +143,48 @@ export function useUsersColumns(): ColumnDef<User>[] {
         meta: { mobileTitle: true },
       },
       {
+        accessorKey: 'tenant_name',
+        header: t('User Site'),
+        cell: ({ row }) => {
+          const user = row.original
+          if (user.tenant_id === 0) {
+            return (
+              <span className='text-muted-foreground text-sm'>
+                {t('Main Site')}
+              </span>
+            )
+          }
+          if (user.tenant_id === undefined || user.tenant_id < 0) {
+            return <span className='text-muted-foreground text-sm'>—</span>
+          }
+
+          return (
+            <div className='flex min-w-0 flex-col gap-1'>
+              <div className='flex min-w-0 items-center gap-1.5'>
+                <StatusBadge
+                  label={t('Reseller User')}
+                  variant='info'
+                  copyable={false}
+                  className='shrink-0 font-normal'
+                />
+                <LongText className='max-w-[140px] text-sm'>
+                  {user.tenant_name ||
+                    t('Reseller Site #{{id}}', { id: user.tenant_id })}
+                </LongText>
+              </div>
+              {user.tenant_domain && (
+                <LongText className='text-muted-foreground max-w-[200px] text-xs'>
+                  {user.tenant_domain}
+                </LongText>
+              )}
+            </div>
+          )
+        },
+        enableSorting: false,
+        size: 220,
+        meta: { mobileOrder: 25 },
+      },
+      {
         accessorKey: 'status',
         header: t('Status'),
         cell: ({ row }) => {

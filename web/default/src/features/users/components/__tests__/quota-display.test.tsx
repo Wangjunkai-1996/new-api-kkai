@@ -279,6 +279,7 @@ async function renderUsersList(emptyInvitation = false) {
             id: 2,
             username: 'long-user-name-for-table-layout',
             display_name: 'A display name',
+            tenant_id: 0,
             role: 1,
             status: 1,
             quota: 1900,
