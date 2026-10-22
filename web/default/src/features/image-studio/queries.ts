@@ -258,6 +258,30 @@ export const useImageGenerations = (
   })
 }
 
+export const useRecentImageGenerations = () => {
+  const userId = useImageStudioUserId()
+  return useQuery({
+    queryKey: privateUserQueryKey(
+      userId,
+      'image-studio',
+      'generations',
+      'recent'
+    ),
+    queryFn: () => getImageGenerations({}),
+    enabled: userId > 0,
+    staleTime: 0,
+    refetchInterval: (query) =>
+      getImageGenerationPollInterval(
+        query.state.data?.items ?? [],
+        Math.floor(Date.now() / 1000),
+        typeof document === 'undefined' ||
+          document.visibilityState === 'visible'
+      ),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  })
+}
+
 export const imageGenerationQueryOptions = (
   userId: number,
   id: number | undefined

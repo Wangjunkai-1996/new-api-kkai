@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { ChevronDown, Lightbulb, LoaderCircle } from 'lucide-react'
 import { useReducedMotion } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -25,6 +26,10 @@ import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
+import {
+  readImageStudioSelection,
+  saveImageStudioSelection,
+} from '@/stores/image-studio-selection-store'
 
 import '@/styles/image-create.css'
 
@@ -46,6 +51,7 @@ import {
   imageGenerationQueryOptions,
   useImageSample,
   useImageSessionGenerations,
+  useRecentImageGenerations,
 } from './queries'
 import type { ImageAsset, ImageGeneration, ImageSample } from './types'
 
@@ -65,15 +71,20 @@ function ImageCreationWorkbench(props: {
   const sampleQuery = useImageSample(props.initialSampleId, tokenGate.tokenId)
   const [selectedSampleId, setSelectedSampleId] = useState<number>()
   const [loadRequest, setLoadRequest] = useState<ImageComposerLoadRequest>()
-  const [sessionIds, setSessionIds] = useState<number[]>([])
-  const [selectedId, setSelectedId] = useState<number>()
-  const [selectedAssetId, setSelectedAssetId] = useState<number>()
+  const [selection, setSelection] = useState(() =>
+    readImageStudioSelection(props.userId)
+  )
+  const [sessionIds, setSessionIds] = useState<number[]>(() =>
+    selection.selectedId ? [selection.selectedId] : []
+  )
+  const selectedId = selection.selectedId
+  const selectedAssetId = selection.selectedAssetId
   const [activity, setActivity] = useState<ImageComposerActivity>({
     phase: 'idle',
   })
   const [pendingLoad, setPendingLoad] = useState(false)
   const [loadError, setLoadError] = useState<string>()
-  const [samplesOpen, setSamplesOpen] = useState(true)
+  const [samplesOpen, setSamplesOpen] = useState(!selection.selectedId)
   const revision = useRef(0)
   const editorRevision = useRef(0)
   const lastInitialSampleId = useRef<number | undefined>(undefined)
@@ -82,16 +93,74 @@ function ImageCreationWorkbench(props: {
   const settingsRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const samplesRef = useRef<HTMLElement>(null)
+  const recentQuery = useRecentImageGenerations()
   const queries = useImageSessionGenerations(sessionIds)
-  const history = queries.flatMap((query) => (query.data ? [query.data] : []))
+  const unavailableIds = new Set(
+    queries.flatMap((query, index) =>
+      isAxiosError(query.error) &&
+      [404, 410].includes(query.error.response?.status ?? 0)
+        ? [sessionIds[index]]
+        : []
+    )
+  )
+  const generations = new Map(
+    recentQuery.data?.items.map((item) => [item.id, item]) ?? []
+  )
+  for (const query of queries) {
+    if (!query.data) continue
+    const current = generations.get(query.data.id)
+    // A list request may finish later while carrying an older task snapshot.
+    if (
+      current &&
+      current.status !== 'submitting' &&
+      query.data.status === 'submitting'
+    ) {
+      continue
+    }
+    if (
+      !current ||
+      (current.status === 'submitting' && query.data.status !== 'submitting') ||
+      query.dataUpdatedAt >= recentQuery.dataUpdatedAt
+    ) {
+      generations.set(query.data.id, query.data)
+    }
+  }
+  const history = [...generations.values()]
+    .filter((item) => !unavailableIds.has(item.id))
+    .sort(
+      (left, right) => right.created_at - left.created_at || right.id - left.id
+    )
   const generation = history.find((item) => item.id === selectedId)
   const selectedQuery = queries[sessionIds.indexOf(selectedId ?? 0)]
+  const selectionUnavailable =
+    selectedId !== undefined && unavailableIds.has(selectedId)
+  const latestId = history[0]?.id
+  const restoring =
+    !generation &&
+    activity.phase === 'idle' &&
+    (selectedQuery?.isLoading || recentQuery.isLoading)
   const previousGeneration = history.find(
     (item) =>
       item.id !== selectedId &&
       (item.status === 'succeeded' || item.status === 'partial') &&
       item.assets.some((asset) => asset.state === 'ready')
   )
+
+  if (
+    (!selectedId || (selectionUnavailable && recentQuery.isSuccess)) &&
+    selectedId !== latestId
+  ) {
+    setSelection({ selectedId: latestId })
+    if (latestId) {
+      setSessionIds((ids) =>
+        [latestId, ...ids.filter((id) => id !== latestId)].slice(0, 24)
+      )
+    }
+  }
+
+  useEffect(() => {
+    saveImageStudioSelection(props.userId, selection)
+  }, [props.userId, selection])
 
   useEffect(() => {
     alive.current = true
@@ -124,9 +193,10 @@ function ImageCreationWorkbench(props: {
       imageGenerationQueryOptions(props.userId, result.id).queryKey,
       result
     )
-    setSessionIds((ids) => [result.id, ...ids.filter((id) => id !== result.id)])
-    setSelectedId(result.id)
-    setSelectedAssetId(undefined)
+    setSessionIds((ids) =>
+      [result.id, ...ids.filter((id) => id !== result.id)].slice(0, 24)
+    )
+    setSelection({ selectedId: result.id })
     setSamplesOpen(false)
     resultsRef.current?.scrollIntoView?.({
       block: 'nearest',
@@ -342,7 +412,20 @@ function ImageCreationWorkbench(props: {
                 {t('Preparing your settings...')}
               </p>
             )}
-            {selectedQuery?.isError && (
+            {recentQuery.isError && (
+              <Alert variant='destructive'>
+                <AlertDescription>
+                  {t('imageStudio.libraryFailed')}
+                  <Button
+                    variant='ghost'
+                    onClick={() => void recentQuery.refetch()}
+                  >
+                    {t('Retry')}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            {selectedQuery?.isError && !selectionUnavailable && (
               <Alert variant='destructive'>
                 <AlertDescription>
                   {t(
@@ -357,27 +440,45 @@ function ImageCreationWorkbench(props: {
                 </AlertDescription>
               </Alert>
             )}
-            <ImageCreationResults
-              generation={generation}
-              previousGeneration={previousGeneration}
-              history={history}
-              selectedAssetId={selectedAssetId}
-              activity={activity}
-              pendingEdit={pendingLoad}
-              checkingStatus={selectedQuery?.isFetching}
-              onSelectGeneration={(id) => {
-                setSelectedId(id)
-                setSelectedAssetId(undefined)
-              }}
-              onSelectAsset={setSelectedAssetId}
-              onRegenerate={(source) => void regenerate(source)}
-              onEditAsset={(asset, source) => void editAsset(asset, source)}
-              onCheckStatus={() => void selectedQuery?.refetch()}
-              onExploreSamples={() => {
-                setSamplesOpen(true)
-                samplesRef.current?.scrollIntoView?.({ block: 'nearest' })
-              }}
-            />
+            {restoring ? (
+              <p className='image-create-loading' role='status'>
+                <LoaderCircle aria-hidden='true' className='animate-spin' />
+                {t('Loading...')}
+              </p>
+            ) : (
+              <ImageCreationResults
+                generation={generation}
+                previousGeneration={previousGeneration}
+                history={history}
+                selectedAssetId={selectedAssetId}
+                activity={activity}
+                pendingEdit={pendingLoad}
+                checkingStatus={
+                  selectedQuery?.isFetching || recentQuery.isFetching
+                }
+                onSelectGeneration={(id) => {
+                  setSessionIds((ids) =>
+                    [id, ...ids.filter((item) => item !== id)].slice(0, 24)
+                  )
+                  setSelection({ selectedId: id })
+                }}
+                onSelectAsset={(id) =>
+                  setSelection((current) => ({
+                    ...current,
+                    selectedAssetId: id,
+                  }))
+                }
+                onRegenerate={(source) => void regenerate(source)}
+                onEditAsset={(asset, source) => void editAsset(asset, source)}
+                onCheckStatus={() =>
+                  void (selectedQuery ?? recentQuery).refetch()
+                }
+                onExploreSamples={() => {
+                  setSamplesOpen(true)
+                  samplesRef.current?.scrollIntoView?.({ block: 'nearest' })
+                }}
+              />
+            )}
             <section ref={samplesRef} className='image-create-inspiration'>
               <Button
                 type='button'

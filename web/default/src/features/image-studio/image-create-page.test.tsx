@@ -28,7 +28,9 @@ import type { ImageGeneration, ImageGenerationStatus } from './types'
 const mocks = vi.hoisted(() => ({
   userId: 1,
   submitted: {} as ImageGeneration,
+  submit: vi.fn(),
   getGeneration: vi.fn(),
+  getGenerations: vi.fn(),
   getInput: vi.fn(),
   output: vi.fn(),
 }))
@@ -43,6 +45,7 @@ vi.mock('@/stores/auth-store', () => ({
 vi.mock('./api', async (original) => ({
   ...(await original<typeof import('./api')>()),
   getImageGeneration: (id: number) => mocks.getGeneration(id),
+  getImageGenerations: (...args: unknown[]) => mocks.getGenerations(...args),
   getImageGenerationInput: (id: number) => mocks.getInput(id),
 }))
 vi.mock('./queries', async (original) => ({
@@ -88,7 +91,10 @@ vi.mock('./components/image-composer', () => ({
         />
         <button
           type='button'
-          onClick={() => props.onSubmitted(mocks.submitted)}
+          onClick={() => {
+            mocks.submit()
+            props.onSubmitted(mocks.submitted)
+          }}
         >
           Generate test image
         </button>
@@ -105,7 +111,9 @@ vi.mock('./components/image-creation-results', () => ({
   ImageCreationResults: (props: {
     generation?: ImageGeneration
     history: ImageGeneration[]
+    selectedAssetId?: number
     onSelectGeneration: (id: number) => void
+    onSelectAsset: (id: number) => void
     onRegenerate: (generation: ImageGeneration) => void
     onEditAsset: (
       asset: ImageGeneration['assets'][number],
@@ -129,6 +137,19 @@ vi.mock('./components/image-creation-results', () => ({
       ))}
       {props.generation && (
         <>
+          <p>
+            Selected asset{' '}
+            {props.selectedAssetId ?? props.generation.assets[0]?.id}
+          </p>
+          {props.generation.assets.map((asset) => (
+            <button
+              type='button'
+              key={asset.id}
+              onClick={() => props.onSelectAsset(asset.id)}
+            >
+              View asset {asset.id}
+            </button>
+          ))}
           <button
             type='button'
             onClick={() => {
@@ -195,11 +216,14 @@ function Workbench() {
   )
 }
 beforeEach(() => {
+  window.localStorage.clear()
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
   mocks.userId = 1
   mocks.submitted = generation(1)
+  mocks.submit.mockReset()
+  mocks.getGenerations.mockReset().mockResolvedValue({ items: [] })
   mocks.getGeneration
     .mockReset()
     .mockImplementation(async (id: number) =>
@@ -216,6 +240,249 @@ beforeEach(() => {
 afterEach(() => queryClient.clear())
 
 describe('creation workbench continuity', () => {
+  test('a fresh page restores an acknowledged task and reads its latest status without submitting again', async () => {
+    mocks.submitted = generation(1, 'submitting')
+    const view = render(<Workbench />)
+    fireEvent.click(screen.getByRole('button', { name: 'Generate test image' }))
+    await screen.findByText('Creation 1: submitting')
+    view.unmount()
+    queryClient.clear()
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
+    mocks.getGeneration.mockResolvedValue(generation(1))
+    mocks.submit.mockClear()
+
+    render(<Workbench />)
+
+    expect(await screen.findByText('Creation 1: succeeded')).toBeVisible()
+    expect(mocks.getGeneration).toHaveBeenCalledWith(1)
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Loaded regenerate/)).not.toBeInTheDocument()
+  })
+
+  test('a fresh page keeps the selected task and asset when a newer task exists', async () => {
+    const selected = generation(1)
+    selected.assets.push({ ...selected.assets[0], id: 11, position: 1 })
+    mocks.getGenerations.mockResolvedValue({ items: [generation(2), selected] })
+    mocks.getGeneration.mockImplementation(async (id: number) =>
+      id === 1 ? selected : generation(id)
+    )
+    const view = render(<Workbench />)
+    await screen.findByText('Creation 2: succeeded')
+    fireEvent.click(screen.getByRole('button', { name: 'View 1' }))
+    await screen.findByText('Creation 1: succeeded')
+    fireEvent.click(screen.getByRole('button', { name: 'View asset 11' }))
+    expect(screen.getByText('Selected asset 11')).toBeVisible()
+    view.unmount()
+    queryClient.clear()
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
+    mocks.getGenerations.mockResolvedValue({
+      items: [generation(3), generation(2)],
+    })
+
+    render(<Workbench />)
+
+    expect(await screen.findByText('Creation 1: succeeded')).toBeVisible()
+    expect(screen.getByText('Selected asset 11')).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'View 3' })).toBeVisible()
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
+  test('an existing server task is recovered without a local record and leaves the draft alone', async () => {
+    let resolveHistory:
+      | ((value: { items: ImageGeneration[] }) => void)
+      | undefined
+    mocks.getGenerations.mockImplementation(
+      () =>
+        new Promise<{ items: ImageGeneration[] }>((resolve) => {
+          resolveHistory = resolve
+        })
+    )
+    render(<Workbench />)
+    fireEvent.change(screen.getByLabelText('Next draft'), {
+      target: { value: 'My next untouched idea' },
+    })
+    await waitFor(() => expect(resolveHistory).toBeDefined())
+    await act(async () => resolveHistory?.({ items: [generation(7)] }))
+
+    expect(await screen.findByText('Creation 7: succeeded')).toBeVisible()
+    expect(screen.getByLabelText('Next draft')).toHaveValue(
+      'My next untouched idea'
+    )
+    expect(screen.queryByText(/Loaded regenerate/)).not.toBeInTheDocument()
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
+  test('a failed history read can be retried without changing the draft or submitting a task', async () => {
+    mocks.getGenerations
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ items: [generation(8)] })
+    render(<Workbench />)
+    fireEvent.change(screen.getByLabelText('Next draft'), {
+      target: { value: 'keep this new idea' },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('Creation 8: succeeded')).toBeVisible()
+    expect(screen.getByLabelText('Next draft')).toHaveValue(
+      'keep this new idea'
+    )
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
+  test('a temporary failure to restore the selected task keeps its selection for retry', async () => {
+    const view = render(<Workbench />)
+    fireEvent.click(screen.getByRole('button', { name: 'Generate test image' }))
+    await screen.findByText('Creation 1: succeeded')
+    view.unmount()
+    queryClient.clear()
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
+    mocks.getGenerations.mockResolvedValue({ items: [generation(2)] })
+    mocks.getGeneration
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(generation(1))
+    mocks.submit.mockClear()
+
+    render(<Workbench />)
+
+    const retry = await screen.findByRole('button', { name: 'Retry' })
+    expect(screen.queryByText('Creation 2: succeeded')).not.toBeInTheDocument()
+    fireEvent.click(retry)
+    expect(await screen.findByText('Creation 1: succeeded')).toBeVisible()
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
+  test.each([404, 410])(
+    'an unavailable saved task (%s) falls back to the latest server task',
+    async (status) => {
+      window.localStorage.setItem(
+        'image-studio-selection:user:1',
+        JSON.stringify({ version: 1, selectedId: 1, selectedAssetId: 1 })
+      )
+      mocks.getGeneration.mockImplementation(async (id: number) => {
+        if (id === 1) {
+          throw Object.assign(new Error('Unavailable'), {
+            isAxiosError: true,
+            response: { status },
+          })
+        }
+        return generation(id)
+      })
+      mocks.getGenerations.mockResolvedValue({ items: [generation(2)] })
+
+      render(<Workbench />)
+
+      expect(await screen.findByText('Creation 2: succeeded')).toBeVisible()
+      expect(
+        screen.queryByRole('button', { name: 'View 1' })
+      ).not.toBeInTheDocument()
+      expect(mocks.submit).not.toHaveBeenCalled()
+    }
+  )
+
+  test('a late history response preserves a new submission and supersedes an older task cache', async () => {
+    window.localStorage.setItem(
+      'image-studio-selection:user:1',
+      JSON.stringify({ version: 1, selectedId: 1 })
+    )
+    queryClient.setQueryData(
+      imageGenerationQueryOptions(1, 1).queryKey,
+      generation(1, 'submitting'),
+      { updatedAt: Date.now() - 60_000 }
+    )
+    mocks.getGeneration.mockImplementation(
+      () => new Promise<ImageGeneration>(() => undefined)
+    )
+    let resolveHistory:
+      | ((value: { items: ImageGeneration[] }) => void)
+      | undefined
+    mocks.getGenerations.mockImplementation(
+      () =>
+        new Promise<{ items: ImageGeneration[] }>((resolve) => {
+          resolveHistory = resolve
+        })
+    )
+    render(<Workbench />)
+    await screen.findByText('Creation 1: submitting')
+    mocks.submitted = generation(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Generate test image' }))
+    await screen.findByText('Creation 2: succeeded')
+    await waitFor(() => expect(resolveHistory).toBeDefined())
+
+    await act(async () => resolveHistory?.({ items: [generation(1)] }))
+
+    expect(screen.getByText('Creation 2: succeeded')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'View 1' }))
+    expect(await screen.findByText('Creation 1: succeeded')).toBeVisible()
+    expect(mocks.submit).toHaveBeenCalledTimes(1)
+  })
+
+  test('a late pending history snapshot cannot replace a completed task', async () => {
+    window.localStorage.setItem(
+      'image-studio-selection:user:1',
+      JSON.stringify({ version: 1, selectedId: 1 })
+    )
+    let resolveHistory:
+      | ((value: { items: ImageGeneration[] }) => void)
+      | undefined
+    mocks.getGenerations.mockImplementation(
+      () =>
+        new Promise<{ items: ImageGeneration[] }>((resolve) => {
+          resolveHistory = resolve
+        })
+    )
+    render(<Workbench />)
+    await screen.findByText('Creation 1: succeeded')
+    act(() =>
+      queryClient.setQueryData(
+        imageGenerationQueryOptions(1, 1).queryKey,
+        generation(1),
+        { updatedAt: Date.now() - 60_000 }
+      )
+    )
+
+    await act(async () =>
+      resolveHistory?.({ items: [generation(1, 'submitting')] })
+    )
+
+    expect(screen.getByText('Creation 1: succeeded')).toBeVisible()
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
+  test('corrupted selection storage falls back to the server history', async () => {
+    window.localStorage.setItem('image-studio-selection:user:1', '{broken')
+    mocks.getGenerations.mockResolvedValue({ items: [generation(9)] })
+
+    render(<Workbench />)
+
+    expect(await screen.findByText('Creation 9: succeeded')).toBeVisible()
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
+  test('unavailable local storage still allows server recovery and task selection', async () => {
+    vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage is unavailable', 'SecurityError')
+    })
+    vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage is full', 'QuotaExceededError')
+    })
+    mocks.getGenerations.mockResolvedValue({
+      items: [generation(2), generation(1)],
+    })
+
+    render(<Workbench />)
+
+    await screen.findByText('Creation 2: succeeded')
+    fireEvent.click(screen.getByRole('button', { name: 'View 1' }))
+    expect(await screen.findByText('Creation 1: succeeded')).toBeVisible()
+    expect(mocks.submit).not.toHaveBeenCalled()
+  })
+
   test.each<ImageGenerationStatus>([
     'succeeded',
     'partial',
@@ -293,15 +560,21 @@ describe('creation workbench continuity', () => {
     await screen.findByText('Creation 1: succeeded')
     fireEvent.click(screen.getByRole('button', { name: 'Edit output' }))
     await waitFor(() => expect(mocks.output).toHaveBeenCalledTimes(1))
+    mocks.getGeneration.mockClear()
     mocks.userId = 2
     view.rerender(<Workbench />)
     await act(async () =>
       resolveFile?.(new File(['data'], 'image.png', { type: 'image/png' }))
     )
-    expect(screen.getByText('No current result')).toBeVisible()
+    expect(await screen.findByText('No current result')).toBeVisible()
     expect(
       screen.queryByRole('button', { name: 'View 1' })
     ).not.toBeInTheDocument()
     expect(screen.queryByText(/Loaded edit-output/)).not.toBeInTheDocument()
+    expect(mocks.getGeneration).not.toHaveBeenCalledWith(1)
+
+    mocks.userId = 1
+    view.rerender(<Workbench />)
+    expect(await screen.findByText('Creation 1: succeeded')).toBeVisible()
   })
 })
