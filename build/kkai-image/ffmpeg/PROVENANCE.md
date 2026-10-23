@@ -19,6 +19,11 @@ verification scripts, the pinned Alpine package list, the resolved package
 inventory, the actual `ffmpeg -buildconf` output, and a SHA-256 manifest are
 also retained under `/licenses/ffmpeg/`.
 
+The Alpine 3.24 build dependencies include `c-ares` 1.34.9-r0 and `musl-dev`
+1.2.6-r3. The latter requires exactly `musl` 1.2.6-r3, updating the libc from
+the unchanged pinned build image before static linking. Media binary digests
+are calibrated from this locked toolchain and checked by the image build.
+
 ## Build Scope
 
 The build enables the native demuxers and decoders needed to inspect supported
