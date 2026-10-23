@@ -3218,6 +3218,7 @@
     "Historical Amount Unverified": "Историческая сумма не проверена",
     "Historical capitalization": "Исторический регистр",
     "Historical invoice — cannot be confirmed": "Архивный счёт — подтверждение недоступно",
+    "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.": "Проверка прошлых платежей автоматически возобновится в {{time}}. Проверенные платежи остаются доступны.",
     "Historical tokens": "Предыдущие токены",
     "Historical Usage": "История использования",
     "History of MjProxy-style image tasks.": "История задач генерации изображений в стиле MjProxy.",

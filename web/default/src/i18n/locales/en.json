@@ -3218,6 +3218,7 @@
     "Historical Amount Unverified": "Historical Amount Unverified",
     "Historical capitalization": "Historical capitalization",
     "Historical invoice — cannot be confirmed": "Historical invoice — cannot be confirmed",
+    "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.": "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.",
     "Historical tokens": "Historical tokens",
     "Historical Usage": "Historical Usage",
     "History of MjProxy-style image tasks.": "History of MjProxy-style image tasks.",

@@ -3218,6 +3218,7 @@
     "Historical Amount Unverified": "歷史金額待核對",
     "Historical capitalization": "歷史大小寫",
     "Historical invoice — cannot be confirmed": "Historical invoice — cannot be confirmed",
+    "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.": "歷史付款核驗暫緩至 {{time}}，屆時會自動繼續；已核驗金額可正常使用。",
     "Historical tokens": "歷史權杖",
     "Historical Usage": "歷史使用情況",
     "History of MjProxy-style image tasks.": "MjProxy 風格圖像任務歷史。",

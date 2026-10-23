@@ -122,6 +122,22 @@ function InvoiceWorkspaceContent() {
                 {t('Updating your payment records automatically…')}
               </p>
             )}
+            {paymentSync.deferredUntil && (
+              <p
+                role='status'
+                className='bg-muted/30 text-muted-foreground rounded-lg border p-3 text-sm'
+              >
+                {t(
+                  'Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.',
+                  {
+                    time: new Intl.DateTimeFormat(i18n.language, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }).format(paymentSync.deferredUntil),
+                  }
+                )}
+              </p>
+            )}
             <InvoiceError
               error={paymentSync.error}
               message={
@@ -157,7 +173,9 @@ function InvoiceWorkspaceContent() {
                     variant='outline'
                     size='sm'
                     className='mt-3'
-                    disabled={paymentSync.isPending}
+                    disabled={
+                      paymentSync.isPending || !!paymentSync.deferredUntil
+                    }
                     onClick={() => paymentSync.mutate()}
                   >
                     {t('Retry')}

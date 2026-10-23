@@ -1,3 +1,5 @@
+import { webcrypto } from 'node:crypto'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -72,6 +74,8 @@ const invoice: InvoiceRequest = {
 }
 
 beforeEach(() => {
+  localStorage.clear()
+  vi.stubGlobal('crypto', webcrypto)
   Object.defineProperty(HTMLElement.prototype, 'getAnimations', {
     configurable: true,
     value: () => [],
@@ -110,117 +114,153 @@ test('an explicit batch error message takes precedence over a single-payment err
   )
 })
 
-test('a historical payment failure identifies its order while two verified payments remain available', async () => {
-  useAuthStore
-    .getState()
-    .auth.setUser({ id: 42, username: 'customer', role: 1 })
-  const user = userEvent.setup()
-  vi.spyOn(invoiceApi, 'getInvoicePolicy').mockResolvedValue({
-    enabled: true,
-    policy_version: 'v1',
-    seller_id: 'seller',
-    seller_name: 'Example Seller',
-    currencies: [{ currency: 'CNY', exponent: 2 }],
-    invoice_types: [],
-    timezone: 'Asia/Shanghai',
-    limits: { max_orders: 50, max_file_bytes: 1024 },
-  })
-  let verified = 0
-  vi.spyOn(invoiceApi, 'getInvoiceSummary').mockImplementation(async () => ({
-    eligible_count: verified,
-    totals: [
-      {
-        currency: 'CNY',
-        currency_exponent: 2,
-        amount_minor: String(verified * 100),
-      },
-    ],
-    processing_count: 0,
-    awaiting_confirmation_count: 0,
-    unread_count: 0,
-  }))
-  vi.spyOn(invoiceApi, 'getInvoiceNotifications').mockResolvedValue({
-    items: [],
-    total: 0,
-    p: 1,
-    page_size: 20,
-    unread_count: 0,
-  })
-  const orders: InvoiceOrder[] = [
-    'paid-first',
-    'paid-second',
-    'historical',
-  ].map((id) => ({
-    source_type: 'topup',
-    order_id: id,
-    order_no: `ORDER-${id}`,
-    paid_at: '2026-10-22T00:00:00Z',
-    amount_minor: null,
-    currency: 'CNY',
-    currency_exponent: 2,
-    eligible: false,
-    reason_codes: ['PAYMENT_UNVERIFIED'],
-    merge_group_id: 'seller_cny',
-    allowed_invoice_types: ['ordinary'],
-    allowed_actions: ['verify_payment'],
-    payment_label: 'epay',
-  }))
-  vi.spyOn(invoiceApi, 'getInvoiceOrders').mockImplementation(async () => ({
-    items: verified >= 2 ? orders.slice(2) : orders,
-    total: verified >= 2 ? 1 : 3,
-    p: 1,
-    page_size: 100,
-  }))
-  vi.spyOn(invoiceApi, 'verifyInvoicePayment').mockImplementation(
-    async (order) => {
-      if (order.order_id === 'historical') {
-        throw {
-          response: {
-            status: 409,
-            data: { code: 'PAYMENT_VERIFICATION_FAILED' },
-          },
+test.each(['business', 'rate-limit'] as const)(
+  'a historical %s response preserves two verified payments without a global failure',
+  async (failure) => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 42, username: 'customer', role: 1 })
+    const user = userEvent.setup()
+    vi.spyOn(invoiceApi, 'getInvoicePolicy').mockResolvedValue({
+      enabled: true,
+      policy_version: 'v1',
+      seller_id: 'seller',
+      seller_name: 'Example Seller',
+      currencies: [{ currency: 'CNY', exponent: 2 }],
+      invoice_types: [],
+      timezone: 'Asia/Shanghai',
+      limits: { max_orders: 50, max_file_bytes: 1024 },
+    })
+    let verified = 0
+    vi.spyOn(invoiceApi, 'getInvoiceSummary').mockImplementation(async () => ({
+      eligible_count: verified,
+      totals: [
+        {
+          currency: 'CNY',
+          currency_exponent: 2,
+          amount_minor: String(verified * 100),
+        },
+      ],
+      processing_count: 0,
+      awaiting_confirmation_count: 0,
+      unread_count: 0,
+    }))
+    vi.spyOn(invoiceApi, 'getInvoiceNotifications').mockResolvedValue({
+      items: [],
+      total: 0,
+      p: 1,
+      page_size: 20,
+      unread_count: 0,
+    })
+    const orders: InvoiceOrder[] = [
+      'paid-first',
+      'paid-second',
+      'historical',
+    ].map((id) => ({
+      source_type: 'topup',
+      order_id: id,
+      order_no: `ORDER-${id}`,
+      paid_at: '2026-10-22T00:00:00Z',
+      amount_minor: null,
+      currency: 'CNY',
+      currency_exponent: 2,
+      eligible: false,
+      reason_codes: ['PAYMENT_UNVERIFIED'],
+      merge_group_id: 'seller_cny',
+      allowed_invoice_types: ['ordinary'],
+      allowed_actions: ['verify_payment'],
+      payment_label: 'epay',
+    }))
+    vi.spyOn(invoiceApi, 'getInvoiceOrders').mockImplementation(async () => ({
+      items: verified >= 2 ? orders.slice(2) : orders,
+      total: verified >= 2 ? 1 : 3,
+      p: 1,
+      page_size: 100,
+    }))
+    vi.spyOn(invoiceApi, 'verifyInvoicePayment').mockImplementation(
+      async (order) => {
+        if (order.order_id === 'historical') {
+          if (failure === 'rate-limit') throw { response: { status: 429 } }
+          throw {
+            response: {
+              status: 409,
+              data: { code: 'PAYMENT_VERIFICATION_FAILED' },
+            },
+          }
         }
+        verified++
+        return { verified: true }
       }
-      verified++
-      return { verified: true }
-    }
-  )
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  const view = render(
-    <QueryClientProvider client={client}>
-      <InvoiceWorkspace />
-    </QueryClientProvider>
-  )
-  const partial = await screen.findByText(
-    'Payments still unverified: 1. Verified payments remain available.'
-  )
-  expect(await screen.findByText('CN¥2.00')).toBeVisible()
-  expect(screen.getByText('2 verified payments')).toBeVisible()
-  expect(
-    screen.queryByText(
-      'Some payment records could not be updated. Please try again later.'
     )
-  ).not.toBeInTheDocument()
-  expect(screen.getByText('ORDER-historical')).toBeInTheDocument()
-  expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1)
-  expect(screen.getByRole('alert', { hidden: true }).closest('details')).toBe(
-    partial.closest('details')
-  )
-  await user.click(partial)
-  vi.mocked(invoiceApi.verifyInvoicePayment).mockResolvedValue({
-    verified: true,
-  })
-  await user.click(screen.getByRole('button', { name: 'Retry' }))
-  await screen.findByText('2 verified payments')
-  expect(await screen.findByText('CN¥2.00')).toBeVisible()
-  await vi.waitFor(() =>
-    expect(screen.queryByText('ORDER-historical')).not.toBeInTheDocument()
-  )
-  view.unmount()
-  client.clear()
-})
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const view = render(
+      <QueryClientProvider client={client}>
+        <InvoiceWorkspace />
+      </QueryClientProvider>
+    )
+    if (failure === 'rate-limit') {
+      expect(
+        await screen.findByText(
+          /Historical payment verification is paused until .+ and will resume automatically/
+        )
+      ).toHaveAttribute('role', 'status')
+      expect(await screen.findByText('CN¥2.00')).toBeVisible()
+      expect(screen.getByText('2 verified payments')).toBeVisible()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Retry' })
+      ).not.toBeInTheDocument()
+      view.unmount()
+      const reloaded = render(
+        <QueryClientProvider client={client}>
+          <InvoiceWorkspace />
+        </QueryClientProvider>
+      )
+      expect(
+        await screen.findByText(
+          /Historical payment verification is paused until/
+        )
+      ).toHaveAttribute('role', 'status')
+      expect(invoiceApi.verifyInvoicePayment).toHaveBeenCalledTimes(3)
+      reloaded.unmount()
+      client.clear()
+      return
+    }
+    const partial = await screen.findByText(
+      'Payments still unverified: 1. Verified payments remain available.'
+    )
+    expect(await screen.findByText('CN¥2.00')).toBeVisible()
+    expect(screen.getByText('2 verified payments')).toBeVisible()
+    expect(
+      screen.queryByText(
+        'Some payment records could not be updated. Please try again later.'
+      )
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('ORDER-historical')).toBeInTheDocument()
+    expect(screen.getAllByRole('alert', { hidden: true })).toHaveLength(1)
+    expect(screen.getByRole('alert', { hidden: true }).closest('details')).toBe(
+      partial.closest('details')
+    )
+    await user.click(partial)
+    vi.mocked(invoiceApi.verifyInvoicePayment).mockResolvedValue({
+      verified: true,
+    })
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(invoiceApi.verifyInvoicePayment).toHaveBeenCalledTimes(3)
+    expect(screen.getByText('ORDER-historical')).toBeInTheDocument()
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20 * 60 * 1000 + 1)
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await screen.findByText('2 verified payments')
+    expect(await screen.findByText('CN¥2.00')).toBeVisible()
+    await vi.waitFor(() =>
+      expect(screen.queryByText('ORDER-historical')).not.toBeInTheDocument()
+    )
+    view.unmount()
+    client.clear()
+  }
+)
 
 test('a decoded image failure offers retry and an authorized download in the preview', async () => {
   const fetch = vi
