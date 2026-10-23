@@ -10,6 +10,16 @@ type WalletCreditDisplay struct {
 	Amount string `json:"amount"`
 	Unit   string `json:"unit"`
 }
+type WalletFundingSummary struct {
+	CashPayments          []WalletMoney       `json:"cash_payments"`
+	ConfirmedPaymentCount int64               `json:"confirmed_payment_count"`
+	UnknownPaymentCount   int64               `json:"unknown_payment_count"`
+	RebateCreditedQuota   string              `json:"rebate_credited_quota"`
+	RebateCreditDisplay   WalletCreditDisplay `json:"rebate_credit_display"`
+	QuotaEpoch            string              `json:"quota_epoch"`
+	RefundAdjusted        bool                `json:"refund_adjusted"`
+	ServerTime            int64               `json:"server_time"`
+}
 type WalletReview struct {
 	ReasonCode    string `json:"reason_code"`
 	OwnerLabel    string `json:"owner_label"`

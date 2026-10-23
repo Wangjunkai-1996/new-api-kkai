@@ -336,6 +336,31 @@ func WalletPaymentPlanChecksum() string {
 	return migrationChecksum(migrationSet()[WalletPaymentSchemaVersion-1])
 }
 
+// WalletPaymentSchemaObjectsPresent detects even partial unreceipted expansion.
+// Production controllers reject these objects; isolated offline recovery may
+// still resume the immutable additive plan on databases with nontransactional DDL.
+func WalletPaymentSchemaObjectsPresent(db *gorm.DB) (bool, error) {
+	statement := &gorm.Statement{DB: db}
+	if err := statement.Parse(&walletTopUpV18{}); err != nil {
+		return false, err
+	}
+	columns, err := db.Migrator().ColumnTypes("top_ups")
+	if err != nil {
+		return false, err
+	}
+	for _, column := range columns {
+		if _, exists := statement.Schema.FieldsByDBName[column.Name()]; exists {
+			return true, nil
+		}
+	}
+	for _, table := range []string{"wallet_topup_flows", "wallet_payment_receipts", "wallet_payment_events", "wallet_topup_runs"} {
+		if db.Migrator().HasTable(table) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 type WalletPaymentExpandPrecheck struct {
 	Schema         string `json:"schema"`
 	CurrentVersion int64  `json:"current_version"`

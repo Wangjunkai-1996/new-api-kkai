@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 import { handleServerError } from '@/lib/handle-server-error'
 
@@ -169,12 +169,15 @@ export function useTopupInfo() {
   const [topupInfo, setTopupInfo] = useState<TopupInfo | null>(null)
   const [presetAmounts, setPresetAmounts] = useState<PresetAmount[]>([])
   const [loading, setLoading] = useState(true)
+  const requestIdRef = useRef(0)
 
-  const fetchTopupInfo = useCallback(async () => {
+  const fetchTopupInfo = useCallback(async (background = false) => {
+    const requestId = ++requestIdRef.current
     try {
-      setLoading(true)
+      if (!background) setLoading(true)
 
       const response = await getTopupInfo()
+      if (requestId !== requestIdRef.current) return
 
       if (!response.success || !response.data) {
         handleServerError(response)
@@ -209,9 +212,9 @@ export function useTopupInfo() {
         setPresetAmounts(defaultPresets)
       }
     } catch (err) {
-      handleServerError(err)
+      if (requestId === requestIdRef.current) handleServerError(err)
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [])
 
@@ -224,6 +227,7 @@ export function useTopupInfo() {
 
     return () => {
       cancelled = true
+      requestIdRef.current += 1
     }
   }, [fetchTopupInfo])
 

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/setting"
@@ -36,6 +37,13 @@ func isCreemTopUpEnabled() bool {
 	return strings.TrimSpace(setting.CreemApiKey) != "" &&
 		products != "" &&
 		products != "[]"
+}
+
+// Lifecycle orders freeze their merchant and callback-verification identity.
+// The pre18 purchase path and webhook receiving retain their requirements.
+func isCreemWalletTopUpEnabled() bool {
+	return isCreemTopUpEnabled() && isCreemWebhookConfigured() &&
+		strings.TrimSpace(os.Getenv("WALLET_CREEM_ACCOUNT_REF")) != ""
 }
 
 func isCreemWebhookConfigured() bool {

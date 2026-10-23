@@ -25,7 +25,16 @@ import (
 )
 
 func GetTopUpInfo(c *gin.Context) {
+	lifecycleReady, err := walletLifecycleReady(c.Request.Context(), model.DB)
+	if err != nil {
+		walletError(c, http.StatusServiceUnavailable, "WALLET_STATE_UNAVAILABLE", nil)
+		return
+	}
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
+	enableCreem := isCreemTopUpEnabled()
+	if lifecycleReady {
+		enableCreem = isCreemWalletTopUpEnabled()
+	}
 
 	// 获取支付方式
 	payMethods := operation_setting.PayMethods
@@ -99,9 +108,10 @@ func GetTopUpInfo(c *gin.Context) {
 	}
 
 	data := gin.H{
+		"wallet_lifecycle_ready":           lifecycleReady,
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
-		"enable_creem_topup":               isCreemTopUpEnabled(),
+		"enable_creem_topup":               enableCreem,
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,
 		"enable_redemption":                complianceConfirmed,
@@ -321,6 +331,9 @@ func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
 }
 
 func RequestEpay(c *gin.Context) {
+	if walletLegacyPurchase(c, model.PaymentProviderEpay, requestLegacyEpay) {
+		return
+	}
 	var req EpayRequest
 	if !walletBind(c, &req) {
 		return

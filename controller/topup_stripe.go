@@ -84,6 +84,9 @@ func RequestStripeAmount(c *gin.Context) {
 }
 
 func RequestStripePay(c *gin.Context) {
+	if walletLegacyPurchase(c, model.PaymentProviderStripe, requestLegacyStripe) {
+		return
+	}
 	var req StripePayRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {

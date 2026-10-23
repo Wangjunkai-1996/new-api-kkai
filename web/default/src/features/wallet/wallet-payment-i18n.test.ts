@@ -25,6 +25,9 @@ import { PAYMENT_BLOCK_LABELS, PAYMENT_STATUS_LABELS } from './lib/payment-flow'
 
 const sources = [
   'src/features/wallet/index.tsx',
+  'src/features/wallet/legacy-wallet-page.tsx',
+  'src/features/wallet/lifecycle-wallet-page.tsx',
+  'src/features/wallet/components/dialogs/legacy-billing-history-dialog.tsx',
   'src/features/wallet/components/current-topup-order.tsx',
   'src/features/wallet/components/payment-amounts.tsx',
   'src/features/wallet/components/payment-evidence.tsx',

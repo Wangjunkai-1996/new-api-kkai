@@ -134,6 +134,9 @@ func RequestWaffoAmount(c *gin.Context) {
 
 // RequestWaffoPay 创建 Waffo 支付订单
 func RequestWaffoPay(c *gin.Context) {
+	if walletLegacyPurchase(c, model.PaymentProviderWaffo, requestLegacyWaffo) {
+		return
+	}
 	var req WaffoPayRequest
 	if !walletBind(c, &req) {
 		return

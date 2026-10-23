@@ -369,7 +369,7 @@ export async function listWalletOrders(
     keyword: string
     exactTradeNo: string
     status: PaymentStatusGroup
-    scope: 'wallet' | 'unfinished'
+    scope: 'wallet' | 'unfinished' | 'all'
   },
   signal?: AbortSignal
 ) {

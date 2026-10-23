@@ -75,6 +75,8 @@ func TestTenantFeatureGateDefaultsToDenyUnsupportedAPIs(t *testing.T) {
 		{http.MethodGet, "/:mode/mj/task/:id/fetch", "/proxy/mj/task/1/fetch", false},
 		{http.MethodGet, "/api/task/:task_id/artifacts", "/api/task/1/artifacts", false},
 		{http.MethodPost, "/api/user/topup", "/api/user/topup", false},
+		{http.MethodGet, "/api/user/topup/summary", "/api/user/topup/summary", true},
+		{http.MethodPost, "/api/user/topup/summary", "/api/user/topup/summary", false},
 		{http.MethodPost, "/api/user/checkin", "/api/user/checkin", false},
 		{http.MethodPost, "/api/user/aff_transfer", "/api/user/aff_transfer", false},
 		{http.MethodPost, "/api/user/stripe/pay", "/api/user/stripe/pay", false},

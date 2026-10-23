@@ -29,6 +29,7 @@ import {
   paymentWallet,
 } from '../payment-flow-fixtures'
 import type { WalletState } from '../payment-flow-types'
+import { useWalletFundingSummary } from './use-wallet-funding-summary'
 import { useWalletPaymentFlow } from './use-wallet-payment-flow'
 
 const api = vi.hoisted(() => ({
@@ -39,6 +40,8 @@ const api = vi.hoisted(() => ({
   actOnWalletOrder: vi.fn(),
   acknowledgeWalletPayment: vi.fn(),
 }))
+const fundingApi = vi.hoisted(() => ({ getWalletFundingSummary: vi.fn() }))
+vi.mock('../funding-summary-api', () => fundingApi)
 vi.mock('../payment-flow-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../payment-flow-api')>()),
   ...api,
@@ -71,6 +74,56 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('authoritative wallet flow', () => {
+  it('refreshes mounted funding totals when a current-order refresh confirms payment', async () => {
+    const pending = paymentOrder()
+    api.restoreWalletPayment.mockResolvedValue(paymentWallet(pending))
+    const funding = {
+      cash_payments: [],
+      confirmed_payment_count: 0,
+      unknown_payment_count: 0,
+      rebate_credited_quota: '0',
+      rebate_credit_display: { amount: '0', unit: 'USD' },
+      quota_epoch: 'usd_credit_v1',
+      refund_adjusted: false,
+      server_time: 1_790_000_000,
+    }
+    fundingApi.getWalletFundingSummary.mockResolvedValue(funding)
+    const { result } = renderHook(
+      () => ({
+        flow: useWalletPaymentFlow(),
+        funding: useWalletFundingSummary(),
+      }),
+      { wrapper }
+    )
+    await waitFor(() => {
+      expect(result.current.flow.wallet?.flow.order?.display_status).toBe(
+        'pending'
+      )
+      expect(result.current.funding.data?.cash_payments).toEqual([])
+    })
+    const received = { amount_minor: '1000', currency: 'CNY', exponent: 2 }
+    const paid = paymentOrder({
+      version: '2',
+      display_status: 'success',
+      status_group: 'completed',
+      received_payment: received,
+      allowed_actions: ['acknowledge'],
+    })
+    api.getWalletPayment.mockResolvedValue(
+      paymentWallet(paid, {
+        flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: paid },
+      })
+    )
+    fundingApi.getWalletFundingSummary.mockResolvedValue({
+      ...funding,
+      cash_payments: [received],
+      confirmed_payment_count: 1,
+    })
+    act(() => result.current.flow.refresh())
+    await waitFor(() =>
+      expect(result.current.funding.data?.cash_payments).toEqual([received])
+    )
+  })
   it('keeps the local timeout result until acknowledgement succeeds', async () => {
     const expired = paymentOrder({
       display_status: 'timed_out',

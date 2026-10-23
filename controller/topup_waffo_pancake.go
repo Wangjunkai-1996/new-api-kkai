@@ -337,6 +337,9 @@ func getWaffoPancakeBuyerIdentity(user *model.User) string {
 }
 
 func RequestWaffoPancakePay(c *gin.Context) {
+	if walletLegacyPurchase(c, model.PaymentProviderWaffoPancake, requestLegacyWaffoPancake) {
+		return
+	}
 	var req WaffoPancakePayRequest
 	if !walletBind(c, &req) {
 		return

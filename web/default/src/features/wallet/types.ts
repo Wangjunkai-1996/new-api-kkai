@@ -120,6 +120,8 @@ export interface WaffoPayMethod {
  * Topup configuration information
  */
 export interface TopupInfo {
+  /** Canonical wallet lifecycle schema is available; omitted by old backends. */
+  wallet_lifecycle_ready?: boolean
   /** Whether online topup is enabled */
   enable_online_topup: boolean
   /** Whether Stripe topup is enabled */
@@ -156,6 +158,15 @@ export interface TopupInfo {
   payment_compliance_confirmed?: boolean
   /** Current compliance terms version */
   payment_compliance_terms_version?: string
+}
+
+export interface WalletPageProps {
+  initialShowHistory?: boolean
+  initialTradeNo?: string
+  historyScope?: 'self' | 'admin'
+  topupInfo: TopupInfo | null
+  presetAmounts: PresetAmount[]
+  topupLoading: boolean
 }
 
 /**

@@ -1,12 +1,12 @@
 # 钱包充值生命周期实施记录
 
-日期：2026-10-23。本文件记录实际实现、验证和未完成的外部依赖；产品行为与接口仍分别以 [PRD](./wallet-payment-lifecycle-prd.md)、[UI 规格](./wallet-payment-ui-spec.md) 和 [后端规格](./wallet-payment-backend-dev-spec.md) 为准。
+日期：2026-10-23；发布准备增量更新：2026-10-24。本文件记录实际实现、验证和未完成的外部依赖；产品行为与接口仍分别以 [PRD](./wallet-payment-lifecycle-prd.md)、[UI 规格](./wallet-payment-ui-spec.md) 和 [后端规格](./wallet-payment-backend-dev-spec.md) 为准。
 
 最新用户确认已实施：[本站超时与废单修订规范](./wallet-payment-local-timeout-spec.md)。本站 30 分钟超时和主动结束允许结果确认后返回充值；这独立于渠道关单，取代此前“未确认渠道关闭则一直锁定当前流程”的规则。
 
 ## 本地交付范围
 
-本次在现有工作目录实施，不创建分支或 worktree。没有执行生产构建、部署、真实数据库迁移、历史订单处理、代码提交或推送。
+2026-10-23 本地实现阶段在现有工作目录实施，未创建分支或 worktree，也未执行生产构建、部署、生产数据库迁移、历史订单处理、代码提交或推送。2026-10-24 用户已明确授权安装、提交推送和完整蓝绿上线；下方发布准备记录区分已验证事实与待执行步骤，不能将此前本地阶段结论当作本次交付最终状态。
 
 - 钱包先恢复服务端流程；空闲、创建、当前订单、处理中和结果互斥。订单阶段隐藏独立余额卡、充值、兑换、Creem 和订阅购买模块。
 - 支付在新标签页打开；原订单及原结账入口持久保存。关闭标签页不会取消订单，也不会清除当前流程。
@@ -14,7 +14,7 @@
 - 五个旧支付创建入口统一使用幂等和当前流程门禁。`POST /api/user/topup` 继续是兑换码入口。生命周期安装后，缺少 `Idempotency-Key` 的旧支付客户端返回升级要求；classic 未移植完整钱包 UI。
 - 本人和管理员历史支持同一范围内的六组状态计数、全龄未完成入口和不受 30 天限制的本人精确查号。历史详情不替换当前流程。
 - 历史核实采用只读报告、冻结范围和订单上界、独立授权引用、版本控制、租约及检查点；暂停和续跑只允许平台超级管理员交互式会话。开发和部署授权不包含实际执行历史处理。
-- 运行时 canonical schema 验证共享 30 秒正负缓存、3 秒检查超时和并发合并；更换 DB 对象立即失效，到期重新验证漂移。维护检查保持即时验证，模型物理列检查不缓存。报价输入防抖 300ms，输入变化立即隐藏旧报价并禁止用旧金额确认。
+- 运行时 canonical schema 验证共享并发合并；2026-10-24 已对齐 invoice 的取消隔离：完整检查使用独立 15 秒预算，成功缓存 30 秒，失败只退避 5 秒，关闭一个浏览器请求不会污染其他用户的检查结果。更换 DB 对象立即失效，到期重新验证漂移；只记录固定错误类别和耗时，不记录 driver 细节。维护检查保持即时验证，legacy 最终插单 canonical17 校验与模型物理列检查不缓存。报价输入防抖 300ms，输入变化立即隐藏旧报价并禁止用旧金额确认。
 
 ## 渠道能力边界
 
@@ -42,11 +42,70 @@
 
 新增扩展为独立 v18，旧 v17 和既有迁移校验和保持不变。新接口要求完整物理 schema 及 canonical 迁移记录；手工添加几张表不能启用资金流程。启动不负责安装钱包扩展。
 
-本版本在未安装 v18 时暂停所有在线充值新建，五个旧创建入口同样返回 `503 WALLET_STATE_UNAVAILABLE`；兑换码和旧订单回调仍保留各自流程。启动及旧数据读写兼容不表示旧购入口继续可用，不能作为无需安装扩展的升级直接发布。安装后，旧客户端缺少幂等键返回 `409 CLIENT_UPGRADE_REQUIRED`。CLI target18 当前仅支持只读 precheck／dry-run，通用 apply 拒绝安装；没有交付可直接操作生产的 v18 控制器。
+2026-10-24 兼容增量已取代最初“未安装 v18 就暂停全部新充值”的实现：只有 canonical17 且完全没有 v18 对象时，五个旧支付入口继续原流程；canonical18 使用新流程。未知记录、残缺 DDL、完整记录与实际 schema 不符或数据库错误均返回 `503 WALLET_STATE_UNAVAILABLE`，不能回退到旧创建。`GET /api/user/topup/info` 的 `wallet_lifecycle_ready=false` 仅表示前述可接受的 canonical17 状态；完整 canonical18 返回 true。前端据此选择旧钱包或新生命周期钱包，错误则保持不可用／重试状态。生命周期安装后，缺少幂等键的旧支付客户端仍返回 `409 CLIENT_UPGRADE_REQUIRED`，不增加不可靠的服务端幂等适配。
 
-在受控安装扩展之前，需要另行确认实际数据库版本、摘要、精确运行镜像与回退镜像，以及安装控制器的支持情况。当前只交付应用内扩展源码和本地验证，不能据此声称生产已经支持 v18 或可以直接迁移。
+旧创建在 provider 请求完成后的最终插单处重新验证 canonical17 和无 v18 对象。短数据库事务先读取 `top_ups` 持有表访问锁，再校验并插单；PostgreSQL 的 ALTER 必须等待事务结束，或先完成后令插单复核拒绝。事务不跨外部 provider 网络等待，且保留原租户与精确 CNY 现金校验。新回调、收据和 schema18 业务不因恢复旧分支而回退。
+
+钱包迁移使用独立 `wallet-payment-migration-v1` 生产协议；通用 target18 apply 仍拒绝安装。实际安装能力及 A/B 发布顺序以下节和已确认基础设施 checkout 的 runbook 30 为准，不能从本地源码推断已经安装。
+
+在受控安装扩展之前，必须确认实际数据库版本、摘要、精确运行镜像与回退镜像，以及安装控制器的支持情况。本地应用／控制器实现和隔离验证不能证明生产已经支持 v18 或可以直接迁移；安装、实际运行身份和完整发布证据分别记录。
 
 持久结账数据使用带作用域 AAD 的 AES-GCM。必须设置至少 32 字符的稳定 `WALLET_PAYMENT_SECRET`，或明确设置的 `CRYPTO_SECRET`；不会用随机会话默认值保存支付凭据。轮换时，旧密钥保存在有界 JSON 数组 `WALLET_PAYMENT_PREVIOUS_SECRETS`，直到相关订单和收据处理完毕。原渠道凭据与原商户环境一起加密保存，不能以新配置代替。Creem 需要明确的 `WALLET_CREEM_ACCOUNT_REF`。密钥值和完整支付入口不进入列表、普通详情、日志或浏览器存储。
+
+## 2026-10-24 发布准备与 A/B 顺序
+
+用户的“安装、提交推送代码、蓝绿上线、不要停”已授权正常交付从准备到 promotion 的持续推进；不再重复请求同一授权。控制器行为变更仍必须完成既有强制验证，并先建立独占空闲控制面安装窗口：没有 candidate、rollout、deploy、架构维护或待恢复事务。安装器替换共享 helper 和 Python 环境，不能用随后 schema 命令才获取的锁代替这个窗口。infra `make policy` 已由执行代理确认 exit 0；正在协调另一轮已存在的应用发布完整结束后释放安装窗口。未据此声明控制器已安装或生产迁移已完成。
+
+两个必要的应用版本按下表交付，每个精确提交只构建一个不可变版本，分别完成标准候选验收和 `10% → 50% → 100%`、每档至少 120 秒的灰度及发布后门禁：
+
+| 版本 | 包含的实际能力 | schema 迁移权限 |
+| --- | --- | --- |
+| A | 完整 v17/v18 钱包业务、readiness、新旧页面选择、legacy 最终插单事务锁、新版回调／持久收据 | 专用 CLI 仅 `plan`／`status`；显式拒绝 `apply` |
+| B | 保留 A 全部兼容与资金安全行为 | 新增固定 root proof 验证、锁内复核及原子 `apply`，只授权冻结的 v17→v18 钱包计划 |
+
+B 是真实可执行迁移能力变更，不能以空提交、纯 metadata 或重建未变源码取代。两版均声明并实际支持 max18；不删除已知必要的插单锁来制造第二版。A 不执行 DDL，但可在 additive18 上运行完整新 API、资金回调和收据，即使后续正常回滚重建 A writer 也无需重新迁移。
+
+执行顺序是：强制验证及隔离演练通过 → 独占空闲窗口内安装精确干净 infra 提交并 self-test → 应用 pin 对齐实际安装 SHA → A 完整发布 → B 完整发布 → 验证实际 active／rollback／writer 进程均支持 exact canonical18 → 新鲜可恢复备份与只读 plan → active B 镜像执行独立 apply → schema18、角色关闭、业务和回滚验收。前端实际 format 从现场 manifest 取得，format1 精确配对，format2 遵守已安装的独立兼容协议。不能以 console contract 文档自身的 `format_version` 推断前端 artifact 格式。
+
+基础设施 runbook 30 的最终接口如下，以下是待执行操作说明，不是完成证据：
+
+```sh
+# 精确 root-owned infra checkout，按既有手工安装流程传输及保留 Git 对象。
+sudo /EXACT/ROOT_OWNED/INFRA_CHECKOUT/scripts/production/install-newapi-manual-deployer.sh \
+  --source-dir /EXACT/ROOT_OWNED/INFRA_CHECKOUT
+sudo /usr/local/sbin/kkai-newapi-manual-deploy self-test --installation-only
+sudo /usr/local/sbin/kkai-newapi-schema-migrate wallet-payment --help
+
+# A/B 两次完整发布通过后，走正常私有 sys1 SSH 路径调用。
+sudo /usr/local/sbin/kkai-newapi-schema-migrate wallet-payment plan
+sudo /usr/local/sbin/kkai-newapi-schema-migrate wallet-payment apply \
+  --confirm-plan-sha256 EXACT_FRESH_PLAN_CONFIRMATION
+sudo /usr/local/sbin/kkai-newapi-schema-migrate wallet-payment status
+```
+
+`EXACT_FRESH_PLAN_CONFIRMATION` 使用最新 plan 返回的 `confirmation_sha256`，不能使用演练或旧版本值。安装后及 apply 后通过已确认 infra checkout 的 `make newapi-status` 取得实际健康与 rollback readiness；该命令不能单独证明 schema 兼容或 writer 拓扑。apply 由 active B image 执行，proof 绑定数据库、frozen plan、安装 SHA 和三个实际运行进程，root 0400／只读挂载且有效期至多 120 秒；Go 在 schema 锁内再验。PostgreSQL DDL、索引和 canonical18 receipt 同事务提交，失败不自动重试，旧迁移协议不扩权。
+
+完成判据保留标准即时／延迟 status、公开精确版本、等长脱敏 relay 错误窗口人工归因和兼容 rollback pair。schema 操作另外要求 full18 shape／canonical receipt、迁移角色 NOLOGIN／零会话及进程／routing 未漂移。新鲜 readiness=true 后验收新钱包，不为激活 UI 再造第三个后端版本。真实渠道支付、关闭 tab 后恢复、渠道能力允许的取消、超时保留结果与“返回充值”、老废单无补单入口需要分别记录结果；历史业务数据处理仍不属于 DDL。
+
+### 本轮兼容与协议验证
+
+以下已执行的最小检查通过，未运行全仓测试：
+
+```sh
+go test ./controller -run 'TestWallet(Legacy|Compatibility)' -count=1
+# PASS 5.856s：canonical17 五入口、真实 Epay 签名表单及 CNY snapshot、最终插单复核、异常 schema、18旧客户端与 readiness。
+go test ./controller -run '^TestWalletCompatibilityUnavailableDatabaseCannotSelectLegacy$' -count=1
+# PASS 0.070s：数据库不可用不选择旧钱包。
+go test ./service ./controller -run 'TestWallet(PaymentSchema|Legacy|Compatibility)' -count=1
+# PASS service 1.071s／controller 5.001s：取消前拒绝、检查中取消不污染共享结果、独立完整检查预算、失败短退避、18完整gate复用与17 fresh分类、插单最终复核。
+TEST_RESELLER_POSTGRES_DSN='postgres://postgres@127.0.0.1:58104/kkai_test_online_acceptance?sslmode=disable' \
+  go test ./model -run '^TestTopUpLegacyPostgresInsertSerializesWithWalletDDL$' -count=1
+# PASS 0.569s：受限本地 PostgreSQL18.4 独立 schema／双 session，旧插单事务阻止真实 ALTER，提交后 ALTER 成功，后续旧插单拒绝。
+```
+
+隔离 PostgreSQL 已验证迁移 DDL 和 receipt 原子提交／失败回滚。真实 root controller→proof→Docker→Go→PostgreSQL 演练已验证过期、错误 target digest／数据库／runtime contract、非 0400、非 root owner、可写挂载、缺失 proof、non-UID0 和旧 plan confirmation 均被拒绝；各次拒绝后数据库仍为17、无 v18 列，迁移角色 NOLOGIN／零会话。成功 apply 和只读 replay 已通过，最终 schema18 canonical receipt 完整，legacy pending 未被改写，迁移角色保持 NOLOGIN／零会话。证据位于本机 `/tmp/kkai-wallet-root-rehearsal-YBOVmlrj`，其中 `application-source.sha256` 绑定被演练的 Go 文件；最终 B 文件恢复一致时可以复用，后续若改动该协议逻辑则验证受影响范围。临时容器、独立数据库和角色已清理，未构建正式发布镜像。
+
+演练使用 native ARM64 CLI 和真实 `/new-api` fixture 进程身份；环境／HTTP／topology 由 fixture adapter 提供，只证明相应协议边界，不是完整生产验收。A/B 均携带 `/kkai-migrate`，A 的只读 `status` 可用于租户业务 readiness；external Docker target 无条件编译并复制该二进制。前端检查结果及两次正式发布坐标待执行代理追加。
 
 ## 验证记录
 

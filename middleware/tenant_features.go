@@ -56,7 +56,7 @@ func tenantRouteEnabled(method, route, path string) bool {
 		"POST /api/user/2fa/setup", "POST /api/user/2fa/enable", "POST /api/user/2fa/disable", "POST /api/user/2fa/backup_codes",
 		"POST /api/oauth/email/bind/start", "POST /api/oauth/email/bind/resend", "POST /api/oauth/email/bind",
 		"GET /api/user/topup/info", "GET /api/user/topup/self", "POST /api/user/pay", "POST /api/user/amount",
-		"GET /api/user/topup/current", "POST /api/user/topup/current/restore", "POST /api/user/topup/current/acknowledge",
+		"GET /api/user/topup/current", "GET /api/user/topup/summary", "POST /api/user/topup/current/restore", "POST /api/user/topup/current/acknowledge",
 		"POST /api/user/topup/quote", "POST /api/user/topup/orders", "GET /api/user/topup/orders/:trade_no",
 		"POST /api/user/topup/orders/:trade_no/resume", "POST /api/user/topup/orders/:trade_no/cancel", "POST /api/user/topup/orders/:trade_no/reconcile",
 		"POST /api/user/topup/orders/:trade_no/end",

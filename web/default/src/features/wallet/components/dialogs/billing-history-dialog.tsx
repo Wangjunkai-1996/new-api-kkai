@@ -32,6 +32,8 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
 import { useWalletPaymentIdentity } from '../../hooks/use-wallet-payment-flow'
+import { formatTimestamp, getPaymentMethodName } from '../../lib/billing'
+import { formatWalletCash } from '../../lib/funding-summary'
 import { isLocallyEnded, PAYMENT_STATUS_LABELS } from '../../lib/payment-flow'
 import {
   actOnWalletOrder,
@@ -46,6 +48,7 @@ import type {
 import { PaymentOrderDetails } from '../current-topup-order'
 import { PaymentAmounts } from '../payment-amounts'
 import { PaymentEvidence } from '../payment-evidence'
+import { WalletFundingSummary } from '../wallet-funding-summary'
 
 const GROUPS: Record<PaymentStatusGroup, string> = {
   all: 'All',
@@ -65,6 +68,8 @@ interface BillingHistoryDialogProps {
 }
 export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
   const { t } = useTranslation()
+  const client = useQueryClient()
+  const identity = useWalletPaymentIdentity()
   const user = useAuthStore((state) => state.auth.user)
   const admin = props.scope === 'admin'
   const permitted =
@@ -75,16 +80,18 @@ export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
     scope: props.scope ?? 'self',
     unfinished: props.unfinished,
   })
+  let description = t('Recent 30-day records and all unfinished orders.')
+  if (props.unfinished) description = t('Unfinished orders from all dates.')
+  else if (history.exact) description = t('Exact order number, any date')
+  else if (history.period === 'all') {
+    description = t('All-time top-up records and unfinished orders.')
+  }
   return (
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
       title={admin ? t('All top-up orders') : t('Order History')}
-      description={
-        props.unfinished
-          ? t('Unfinished orders from all dates.')
-          : t('Recent 30-day records and all unfinished orders.')
-      }
+      description={description}
       contentClassName='max-sm:h-dvh max-sm:w-screen max-sm:max-w-none max-sm:rounded-none sm:max-w-[940px]'
       bodyClassName='space-y-4'
     >
@@ -92,6 +99,7 @@ export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
         <p role='alert'>{t('Admin access required')}</p>
       ) : (
         <>
+          {!admin && <WalletFundingSummary enabled={props.open} />}
           <div
             className='flex flex-wrap gap-2'
             role='group'
@@ -124,10 +132,36 @@ export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
               onChange={(event) => history.handleSearch(event.target.value)}
               className='min-w-0 flex-1 basis-48'
             />
+            {!props.unfinished && (
+              <select
+                aria-label={t('Order time range')}
+                className='bg-background min-h-9 rounded-md border px-2 text-sm'
+                value={history.period}
+                onChange={(event) =>
+                  history.handlePeriodChange(
+                    event.target.value as 'recent' | 'all'
+                  )
+                }
+              >
+                <option value='recent'>{t('Last 30 days')}</option>
+                <option value='all'>{t('All time')}</option>
+              </select>
+            )}
             <Button
               variant='outline'
               disabled={history.loading}
-              onClick={() => void history.refresh()}
+              onClick={() => {
+                void history.refresh()
+                if (!admin) {
+                  void client.invalidateQueries({
+                    queryKey: [
+                      'wallet-payment',
+                      ...identity,
+                      'funding-summary',
+                    ],
+                  })
+                }
+              }}
             >
               <RefreshCw aria-hidden='true' />
               {t('Refresh')}
@@ -220,7 +254,7 @@ function HistoryOrder(props: {
   onWalletChange?: (wallet: WalletState) => void
   onRestore?: (tradeNo: string) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const identity = useWalletPaymentIdentity()
   const client = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
@@ -274,6 +308,11 @@ function HistoryOrder(props: {
       void client.invalidateQueries({
         queryKey: ['wallet-payment', ...identity, 'current'],
       })
+      if (!props.admin) {
+        void client.invalidateQueries({
+          queryKey: ['wallet-payment', ...identity, 'funding-summary'],
+        })
+      }
     },
   })
   const canOperate =
@@ -281,101 +320,147 @@ function HistoryOrder(props: {
     order.allowed_actions.includes('reconcile') &&
     props.admin &&
     hasPermission(user, 'billing', 'write')
+  const awaitingPayment =
+    !order.received_payment &&
+    !ended &&
+    ['creating', 'pending', 'payment_processing'].includes(order.display_status)
+  const payment = awaitingPayment
+    ? (order.payable_payment ?? order.expected_payment)
+    : order.received_payment
+  let credited = t('Unconfirmed')
+  if (awaitingPayment || order.display_status === 'credit_review') {
+    credited = t('Not yet credited')
+  } else if (order.display_status === 'success' && order.credit_display) {
+    credited = `${order.credit_display.amount} ${order.credit_display.unit}`
+  }
+  let statusClass = 'bg-muted text-muted-foreground'
+  if (order.status_group === 'completed') {
+    statusClass = 'bg-success/10 text-success'
+  } else if (order.status_group === 'pending') {
+    statusClass = 'bg-warning/10 text-warning'
+  }
   return (
-    <article className='rounded-lg border p-4'>
-      <div className='mb-3 flex flex-wrap items-start justify-between gap-2'>
-        <span className='min-w-0 font-mono text-xs break-all'>
-          {order.trade_no}
-        </span>
-        <span className='text-sm font-medium'>
+    <article className='rounded-lg border px-4 py-3.5'>
+      <div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
+        <span className={`rounded px-2 py-0.5 font-medium ${statusClass}`}>
           {t(
             PAYMENT_STATUS_LABELS[order.display_status] ??
               'Payment status unavailable'
           )}
         </span>
+        <span>
+          {order.created_at > 0
+            ? formatTimestamp(order.created_at)
+            : t('Not available')}
+        </span>
+        <span className='text-muted-foreground'>
+          {getPaymentMethodName(order.payment_method, t)}
+        </span>
       </div>
+      <p className='text-muted-foreground mt-1 min-w-0 font-mono text-[11px] break-all'>
+        {order.trade_no}
+      </p>
       {props.admin && order.user_id !== undefined && (
         <p className='mb-2 text-sm'>
           {t('User ID')}: {order.user_id}
         </p>
       )}
-      <PaymentAmounts pricing={order} />
-      <div className='mt-4 flex flex-wrap gap-2'>
-        <Button
-          variant='outline'
-          size='sm'
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {t('Order details')}
-        </Button>
-        {!props.admin &&
-          !ended &&
-          !received &&
-          order.allowed_actions.includes('resume') &&
-          props.onRestore && (
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => setConfirm('resume')}
-            >
-              {t('Continue payment')}
-            </Button>
-          )}
-        {!props.admin &&
-          !ended &&
-          !received &&
-          order.allowed_actions.includes('end') && (
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={mutation.isPending}
-              onClick={() => setConfirm('end')}
-            >
-              {t('End this top-up')}
-            </Button>
-          )}
-        {!props.admin &&
-          !ended &&
-          order.allowed_actions.includes('reconcile') && (
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={mutation.isPending}
-              onClick={() => mutation.mutate('reconcile')}
-            >
-              {t('Check payment')}
-            </Button>
-          )}
-        {canOperate && (
+      <div className='mt-3 flex flex-wrap items-center gap-x-6 gap-y-3'>
+        <dl className='flex flex-wrap gap-x-6 gap-y-2 text-xs max-[440px]:w-full'>
+          <div className='flex flex-wrap items-baseline gap-2'>
+            <dt className='text-muted-foreground'>
+              {awaitingPayment ? t('Amount due') : t('Actual payment')}
+            </dt>
+            <dd className='text-[15px] font-medium break-all tabular-nums'>
+              {payment
+                ? formatWalletCash(payment, i18n.language)
+                : t('Unverified')}
+            </dd>
+          </div>
+          <div className='flex flex-wrap items-baseline gap-2'>
+            <dt className='text-muted-foreground'>{t('Credited Amount')}</dt>
+            <dd className='text-[15px] font-medium break-all tabular-nums'>
+              {credited}
+            </dd>
+          </div>
+        </dl>
+        <div className='ml-auto flex flex-wrap gap-2 max-[440px]:ml-0 max-[440px]:w-full'>
           <Button
             variant='outline'
             size='sm'
-            disabled={mutation.isPending}
-            onClick={() => {
-              setExpanded(true)
-              setConfirm('admin-reconcile')
-            }}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
           >
-            {t('Verify payment')}
+            {t('Order details')}
           </Button>
-        )}
-        {!props.admin &&
-          site?.tenant_id === 0 &&
-          order.display_status === 'success' && (
+          {!props.admin &&
+            !ended &&
+            !received &&
+            order.allowed_actions.includes('resume') &&
+            props.onRestore && (
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setConfirm('resume')}
+              >
+                {t('Continue payment')}
+              </Button>
+            )}
+          {!props.admin &&
+            !ended &&
+            !received &&
+            order.allowed_actions.includes('end') && (
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={mutation.isPending}
+                onClick={() => setConfirm('end')}
+              >
+                {t('End this top-up')}
+              </Button>
+            )}
+          {!props.admin &&
+            !ended &&
+            order.allowed_actions.includes('reconcile') && (
+              <Button
+                variant='outline'
+                size='sm'
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate('reconcile')}
+              >
+                {t('Check payment')}
+              </Button>
+            )}
+          {canOperate && (
             <Button
               variant='outline'
               size='sm'
-              render={
-                <Link
-                  to='/invoices/new'
-                  search={{ source_type: 'topup', order_id: order.trade_no }}
-                />
-              }
+              disabled={mutation.isPending}
+              onClick={() => {
+                setExpanded(true)
+                setConfirm('admin-reconcile')
+              }}
             >
-              {t('Apply for invoice')}
+              {t('Verify payment')}
             </Button>
           )}
+          {!props.admin &&
+            site?.tenant_id === 0 &&
+            order.display_status === 'success' && (
+              <Button
+                variant='outline'
+                size='sm'
+                render={
+                  <Link
+                    to='/invoices/new'
+                    search={{ source_type: 'topup', order_id: order.trade_no }}
+                  />
+                }
+              >
+                {t('Apply for invoice')}
+              </Button>
+            )}
+        </div>
       </div>
       {feedback && (
         <p role='status' className='mt-3 text-sm'>

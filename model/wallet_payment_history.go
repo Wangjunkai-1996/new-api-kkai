@@ -66,7 +66,7 @@ func QueryWalletTopUps(input WalletTopUpHistoryQuery) (*WalletTopUpHistoryResult
 		}
 	}
 	switch input.QueryScope {
-	case "wallet", "recent", "unfinished", "legacy_admin":
+	case "wallet", "recent", "unfinished", "all", "legacy_admin":
 	default:
 		return nil, ErrResellerFinanceInvalidInput
 	}

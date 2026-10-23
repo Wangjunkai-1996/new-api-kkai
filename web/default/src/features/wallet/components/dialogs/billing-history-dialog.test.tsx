@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
@@ -29,6 +35,16 @@ import { BillingHistoryDialog } from './billing-history-dialog'
 
 const history = vi.hoisted(() => ({
   records: [] as import('../../payment-flow-types').PaymentOrder[],
+  period: 'recent' as 'recent' | 'all',
+  handlePeriodChange: vi.fn(),
+}))
+const site = vi.hoisted(() => ({ tenant_id: 0 }))
+vi.mock('../../hooks/use-wallet-funding-summary', () => ({
+  useWalletFundingSummary: () => ({
+    data: undefined,
+    isPending: false,
+    isError: false,
+  }),
 }))
 vi.mock('../../hooks/use-billing-history', () => ({
   useBillingHistory: () => ({
@@ -39,6 +55,7 @@ vi.mock('../../hooks/use-billing-history', () => ({
     keyword: '',
     status: 'all',
     exact: false,
+    period: history.period,
     loading: false,
     error: false,
     serverTime: 1_790_000_100,
@@ -47,6 +64,7 @@ vi.mock('../../hooks/use-billing-history', () => ({
     handleSearch: vi.fn(),
     handleStatusChange: vi.fn(),
     handleExactChange: vi.fn(),
+    handlePeriodChange: history.handlePeriodChange,
     refresh: vi.fn(),
   }),
 }))
@@ -54,7 +72,7 @@ vi.mock('../../hooks/use-wallet-payment-flow', () => ({
   useWalletPaymentIdentity: () => ['test', 0, 1, 'session'],
 }))
 vi.mock('@/features/site-config', () => ({
-  useSiteConfig: () => ({ data: { tenant_id: 0 } }),
+  useSiteConfig: () => ({ data: site }),
 }))
 vi.mock('../../payment-flow-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../payment-flow-api')>()),
@@ -68,6 +86,8 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
   useAuthStore.getState().auth.setUser({ id: 1, role: 100, username: 'root' })
+  site.tenant_id = 0
+  history.period = 'recent'
 })
 afterEach(() => {
   client.clear()
@@ -118,6 +138,10 @@ it.each([
     ]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
+    expect(
+      screen.queryByRole('region', { name: 'My total payments · All time' }) !==
+        null
+    ).toBe(scope === 'self')
     fireEvent.click(screen.getByRole('button', { name: 'Order details' }))
     await waitFor(() => expect(getWalletOrder).toHaveBeenCalledTimes(1))
     expect(
@@ -217,4 +241,68 @@ it('keeps an order with an unknown creation time read-only for administrators', 
   expect(
     screen.queryByRole('button', { name: 'Verify payment' })
   ).not.toBeInTheDocument()
+})
+
+it('labels pending cash as amount due and does not claim quoted credits have arrived', () => {
+  history.records = [paymentOrder()]
+  render(
+    <QueryClientProvider client={client}>
+      <BillingHistoryDialog open onOpenChange={vi.fn()} />
+    </QueryClientProvider>
+  )
+  const order = within(screen.getByRole('article'))
+  expect(order.getByText('Amount due')).toBeVisible()
+  expect(order.getByText('CN¥10.00')).toBeVisible()
+  expect(order.getByText('Not yet credited')).toBeVisible()
+  expect(order.queryByText('Actual payment')).not.toBeInTheDocument()
+  expect(order.queryByText('10 USD')).not.toBeInTheDocument()
+})
+
+it('uses verified cash instead of the original quoted amount for completed orders', () => {
+  site.tenant_id = 12
+  history.records = [
+    paymentOrder({
+      display_status: 'success',
+      status_group: 'completed',
+      allowed_actions: [],
+      expected_payment: { amount_minor: '1200', currency: 'USD', exponent: 2 },
+      received_payment: { amount_minor: '1000', currency: 'USD', exponent: 2 },
+    }),
+  ]
+  render(
+    <QueryClientProvider client={client}>
+      <BillingHistoryDialog open onOpenChange={vi.fn()} />
+    </QueryClientProvider>
+  )
+  const order = within(screen.getByRole('article'))
+  expect(order.getByText('Actual payment')).toBeVisible()
+  expect(order.getByText('$10.00')).toBeVisible()
+  expect(order.getByText('10 USD')).toBeVisible()
+  expect(order.queryByText('$12.00')).not.toBeInTheDocument()
+})
+
+it('keeps unverified historical cash unknown and offers all-time history in the existing dialog', () => {
+  site.tenant_id = 12
+  history.records = [
+    paymentOrder({
+      display_status: 'success',
+      status_group: 'completed',
+      allowed_actions: [],
+      received_payment: null,
+      credit_display: null,
+    }),
+  ]
+  render(
+    <QueryClientProvider client={client}>
+      <BillingHistoryDialog open onOpenChange={vi.fn()} />
+    </QueryClientProvider>
+  )
+  const order = within(screen.getByRole('article'))
+  expect(order.getByText('Unverified')).toBeVisible()
+  expect(order.getByText('Unconfirmed')).toBeVisible()
+  expect(order.queryByText(/0\.00/)).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Order time range'), {
+    target: { value: 'all' },
+  })
+  expect(history.handlePeriodChange).toHaveBeenCalledWith('all')
 })

@@ -39,9 +39,12 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
   const [keyword, setKeyword] = useState('')
   const [exact, setExact] = useState(false)
   const [status, setStatus] = useState<PaymentStatusGroup>('all')
+  const [period, setPeriod] = useState<'recent' | 'all'>('recent')
   const debouncedKeyword = useDebounce(keyword)
   const admin = options.scope === 'admin'
-  const scope = options.unfinished ? 'unfinished' : 'wallet'
+  let scope: 'wallet' | 'unfinished' | 'all' = 'wallet'
+  if (options.unfinished) scope = 'unfinished'
+  else if (period === 'all') scope = 'all'
   const query = useQuery({
     queryKey: [
       'wallet-payment',
@@ -85,6 +88,7 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     keyword,
     status,
     exact,
+    period,
     isAdmin: admin,
     loading: query.isFetching,
     error: query.isError,
@@ -103,6 +107,10 @@ export function useBillingHistory(options: UseBillingHistoryOptions = {}) {
     },
     handleExactChange: (value: boolean) => {
       setExact(value)
+      setPage(1)
+    },
+    handlePeriodChange: (value: 'recent' | 'all') => {
+      setPeriod(value)
       setPage(1)
     },
     refresh: query.refetch,

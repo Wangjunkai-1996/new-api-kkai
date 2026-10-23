@@ -21,7 +21,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { expect, it, vi } from 'vitest'
 
-import { Wallet } from './index'
+import { LifecycleWalletPage as Wallet } from './lifecycle-wallet-page'
 import { quoteWalletPayment } from './payment-flow-api'
 import {
   paymentOrder,
@@ -116,7 +116,10 @@ vi.mock('./components/recharge-form-card', () => ({
   ),
 }))
 vi.mock('./components/wallet-stats-card', () => ({
-  WalletStatsCard: () => null,
+  WalletStatsCard: (props: { fundingSummaryEnabled?: boolean }) =>
+    props.fundingSummaryEnabled ? (
+      <p>Wallet funding statistics enabled</p>
+    ) : null,
 }))
 vi.mock('./components/dialogs/billing-history-dialog', () => ({
   BillingHistoryDialog: (props: { open: boolean; unfinished?: boolean }) =>
@@ -131,11 +134,6 @@ vi.mock('./components/dialogs/payment-confirm-dialog', () => ({
   PaymentConfirmDialog: () => null,
 }))
 vi.mock('./hooks', () => ({
-  useTopupInfo: () => ({
-    topupInfo: topup.info,
-    presetAmounts: [],
-    loading: false,
-  }),
   usePayment: () => ({
     processing: false,
     calculatePaymentAmount: vi.fn(),
@@ -157,10 +155,15 @@ it.each([0, 12])(
     flow.wallet = paymentWallet()
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <Wallet />
+        <Wallet
+          topupInfo={topup.info}
+          presetAmounts={[]}
+          topupLoading={false}
+        />
       </QueryClientProvider>
     )
     expect(await screen.findByText('Customer topup')).toBeVisible()
+    expect(screen.getByText('Wallet funding statistics enabled')).toBeVisible()
     for (const label of ['Membership benefits', 'Subscription benefits']) {
       if (tenantId === 0) expect(screen.getByText(label)).toBeVisible()
       else expect(screen.queryByText(label)).not.toBeInTheDocument()
@@ -173,7 +176,7 @@ it('hides independent balance and purchase modules during a current order', () =
   flow.wallet = paymentWallet(order)
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <Wallet />
+      <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
     </QueryClientProvider>
   )
   expect(screen.queryByText('Customer topup')).not.toBeInTheDocument()
@@ -191,7 +194,7 @@ it('keeps independent idle capabilities visible when online purchase is disabled
   })
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <Wallet />
+      <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
     </QueryClientProvider>
   )
   expect(screen.getByText('Customer topup')).toBeVisible()
@@ -202,7 +205,7 @@ it('opens the other-unfinished entry separately from the normal wallet history',
   flow.wallet = paymentWallet(paymentOrder(), { other_unfinished_count: 2 })
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <Wallet />
+      <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
     </QueryClientProvider>
   )
   fireEvent.click(
@@ -237,7 +240,7 @@ it('debounces quote inputs and hides a previous amount until the final amount is
   }
   const mounted = render(
     <QueryClientProvider client={client}>
-      <Wallet />
+      <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
     </QueryClientProvider>
   )
   try {

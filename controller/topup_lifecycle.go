@@ -325,7 +325,7 @@ func walletStateDTO(state *model.WalletTopUpState) dto.WalletState {
 		out.CanCreate = false
 		out.CreateBlockReasonCode = walletString("PAYMENT_DISABLED")
 	}
-	if out.CanCreate && (!service.WalletPaymentSecretsReady() || !(isEpayTopUpEnabled() || isStripeTopUpEnabled() || isCreemTopUpEnabled() || isWaffoTopUpEnabled() || isWaffoPancakeTopUpEnabled())) {
+	if out.CanCreate && (!service.WalletPaymentSecretsReady() || !(isEpayTopUpEnabled() || isStripeTopUpEnabled() || isCreemWalletTopUpEnabled() || isWaffoTopUpEnabled() || isWaffoPancakeTopUpEnabled())) {
 		out.CanCreate = false
 		out.CreateBlockReasonCode = walletString("CHANNEL_UNAVAILABLE")
 	}
@@ -478,7 +478,10 @@ func walletQuote(c *gin.Context, input dto.WalletQuoteRequest) (*walletQuoteClai
 			q.PricingMode = "channel_adjusted"
 		}
 	case model.PaymentProviderCreem:
-		if !isCreemTopUpEnabled() || input.PaymentMethod != model.PaymentMethodCreem || input.ProductID == "" {
+		if !isCreemWalletTopUpEnabled() {
+			return nil, nil, errors.New("CREATE_DISABLED")
+		}
+		if input.PaymentMethod != model.PaymentMethodCreem || input.ProductID == "" {
 			return nil, nil, errors.New("VALIDATION_FAILED")
 		}
 		var products []CreemProduct
@@ -514,7 +517,7 @@ func walletQuote(c *gin.Context, input dto.WalletQuoteRequest) (*walletQuoteClai
 			s.Environment = "test"
 			s.APIURL = "https://test-api.creem.io"
 		}
-		q.AccountRef = os.Getenv("WALLET_CREEM_ACCOUNT_REF")
+		q.AccountRef = strings.TrimSpace(os.Getenv("WALLET_CREEM_ACCOUNT_REF"))
 		if q.AccountRef == "" {
 			return nil, nil, errors.New("CREATE_DISABLED")
 		}

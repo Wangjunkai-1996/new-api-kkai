@@ -98,7 +98,18 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
         next = error.wallet
       }
       restored.current = identityKey
-      return mergeWalletState(client.getQueryData<WalletState>(queryKey), next)
+      const previous = client.getQueryData<WalletState>(queryKey)
+      next = mergeWalletState(previous, next)
+      const status = next.flow.order?.display_status
+      if (
+        status !== previous?.flow.order?.display_status &&
+        (status === 'success' || status === 'credit_review')
+      ) {
+        void client.invalidateQueries({
+          queryKey: ['wallet-payment', ...identity, 'funding-summary'],
+        })
+      }
+      return next
     },
     retry: false,
     refetchOnWindowFocus: false,
@@ -141,6 +152,9 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       operationBusy.current = false
       void client.invalidateQueries({
         queryKey: ['wallet-payment', ...identity, 'history'],
+      })
+      void client.invalidateQueries({
+        queryKey: ['wallet-payment', ...identity, 'funding-summary'],
       })
     },
   })

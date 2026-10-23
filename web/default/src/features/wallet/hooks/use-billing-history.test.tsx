@@ -100,6 +100,19 @@ describe('explicit billing history scope', () => {
     renderHook(() => useBillingHistory({ enabled: false }), { wrapper })
     expect(api.request).not.toHaveBeenCalled()
   })
+  it('queries all time without changing the owner or status and resets pagination', async () => {
+    const { result } = renderHook(() => useBillingHistory(), { wrapper })
+    await waitFor(() => expect(result.current.total).toBe(12))
+    act(() => result.current.handlePageChange(2))
+    await waitFor(() => expect(api.request).toHaveBeenCalledTimes(2))
+    act(() => result.current.handlePeriodChange('all'))
+    await waitFor(() => expect(api.request).toHaveBeenCalledTimes(3))
+    expect(api.request.mock.calls[2]?.[0].url).toBe(
+      '/api/user/topup/self?p=1&page_size=10&status_group=all&scope=all'
+    )
+    expect(result.current.page).toBe(1)
+    expect(result.current.period).toBe('all')
+  })
   it('clears stale summary facts on a failed initial request instead of inventing zero', async () => {
     api.request.mockRejectedValue(new Error('unavailable'))
     const { result } = renderHook(() => useBillingHistory(), { wrapper })

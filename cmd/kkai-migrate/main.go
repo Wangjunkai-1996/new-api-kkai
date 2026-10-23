@@ -21,27 +21,29 @@ import (
 
 func main() {
 	var (
-		dsn                    string
-		dsnFromStdin           bool
-		dryRun                 bool
-		checkOnly              bool
-		currentOnly            bool
-		precheck               bool
-		describe               bool
-		dialect                string
-		minimumVersion         int64
-		targetVersion          int64
-		tenantLogSchema        string
-		tenantExpand           string
-		tenantControllerProof  string
-		tenantRuntime          bool
-		resellerPrefix         string
-		requestTicket          string
-		invoiceMigration       string
-		invoiceControllerProof string
-		observe                bool
-		jsonOutput             bool
-		timeout                time.Duration
+		dsn                          string
+		dsnFromStdin                 bool
+		dryRun                       bool
+		checkOnly                    bool
+		currentOnly                  bool
+		precheck                     bool
+		describe                     bool
+		dialect                      string
+		minimumVersion               int64
+		targetVersion                int64
+		tenantLogSchema              string
+		tenantExpand                 string
+		tenantControllerProof        string
+		tenantRuntime                bool
+		resellerPrefix               string
+		requestTicket                string
+		invoiceMigration             string
+		invoiceControllerProof       string
+		walletPaymentMigration       string
+		walletPaymentControllerProof string
+		observe                      bool
+		jsonOutput                   bool
+		timeout                      time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -64,9 +66,11 @@ func main() {
 	flag.StringVar(&requestTicket, "request-ticket", "", "independent v16 request ticket operation: plan/status are read-only; apply requires the installed root-controller proof")
 	flag.StringVar(&invoiceMigration, "invoice-migration", "", "independent v17 invoice operation: plan/status are read-only; apply requires the installed invoice-controller proof")
 	flag.StringVar(&invoiceControllerProof, "invoice-controller-proof", "", "fixed root invoice-controller proof mount for invoice apply")
+	flag.StringVar(&walletPaymentMigration, "wallet-payment-migration", "", "independent v18 wallet payment operation: plan/status are read-only; apply is unavailable in this compatibility release")
+	flag.StringVar(&walletPaymentControllerProof, "wallet-payment-controller-proof", "", "reserved root wallet payment controller proof mount; unavailable in this read-only compatibility release")
 	flag.Parse()
 	if tenantRuntime {
-		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
+		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
 			log.Fatal("--tenant-runtime requires only --dialect and --json")
 		}
 		if err := writeTenantRuntimeContract(dialect, os.Stdout); err != nil {
@@ -80,23 +84,31 @@ func main() {
 	if invoiceControllerProof != "" && invoiceMigration != "apply" {
 		log.Fatal("--invoice-controller-proof is only valid for --invoice-migration apply")
 	}
+	if walletPaymentControllerProof != "" && walletPaymentMigration != "apply" {
+		log.Fatal("--wallet-payment-controller-proof is only valid for --wallet-payment-migration apply")
+	}
 	if invoiceMigration != "" {
-		if err := validateInvoiceMigrationCommand(invoiceMigration, invoiceControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateInvoiceMigrationCommand(invoiceMigration, invoiceControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if walletPaymentMigration != "" {
+		if err := validateWalletPaymentMigrationCommand(walletPaymentMigration, walletPaymentControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if requestTicket != "" {
-		if err := validateRequestTicketCommand(requestTicket, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || invoiceMigration != "" || invoiceControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateRequestTicketCommand(requestTicket, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if resellerPrefix != "" {
-		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if tenantExpand != "" {
-		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -127,7 +139,7 @@ func main() {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -155,6 +167,12 @@ func main() {
 	if invoiceMigration != "" {
 		if err := runInvoiceMigration(ctx, db, invoiceMigration, invoiceControllerProof, os.Stdout); err != nil {
 			log.Fatalf("KKAI invoice migration operation failed: %v", err)
+		}
+		return
+	}
+	if walletPaymentMigration != "" {
+		if err := runWalletPaymentMigration(ctx, db, walletPaymentMigration, walletPaymentControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI wallet payment migration operation failed: %v", err)
 		}
 		return
 	}

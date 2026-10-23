@@ -19,6 +19,7 @@ func TestWalletPaymentAccessScopesAndTenantBoundary(t *testing.T) {
 		tenant              bool
 	}{
 		{"GET", "/api/user/topup/current", "wallet:read", true},
+		{"GET", "/api/user/topup/summary", "wallet:read", true},
 		{"GET", "/api/user/topup/orders/:trade_no", "wallet:read", true},
 		{"POST", "/api/user/topup/current/restore", "wallet:write", true},
 		{"POST", "/api/user/topup/quote", "wallet:read", true},

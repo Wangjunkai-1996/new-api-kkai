@@ -13,6 +13,7 @@ func registerWalletPaymentRoutes(api *gin.RouterGroup) {
 		c.Next()
 	})
 	user.GET("/current", controller.GetWalletTopUpCurrent)
+	user.GET("/summary", controller.GetWalletFundingSummary)
 	user.GET("/orders/:trade_no", controller.GetWalletTopUpOrder)
 	write := user.Group("", middleware.WalletPaymentMutationGuard(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("wallet-payment"))
 	write.POST("/current/restore", controller.RestoreWalletTopUpCurrent)

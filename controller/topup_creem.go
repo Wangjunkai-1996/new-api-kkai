@@ -67,6 +67,9 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 }
 
 func RequestCreemPay(c *gin.Context) {
+	if walletLegacyPurchase(c, model.PaymentProviderCreem, requestLegacyCreem) {
+		return
+	}
 	var req CreemPayRequest
 	if !walletBind(c, &req) {
 		return
