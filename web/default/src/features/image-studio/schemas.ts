@@ -165,6 +165,7 @@ export const imageGenerationSchema = z.object({
     'archive_failed',
     'unknown',
   ]),
+  execution_state: z.string().optional(),
   requested_count: z.number().int().nonnegative(),
   succeeded_count: z.number().int().nonnegative(),
   final_quota: z.number().int().nonnegative(),

@@ -32,6 +32,9 @@ func ClassifyImageGenerationError(err error) string {
 	if !hasAPIError {
 		return ""
 	}
+	if IsDefinitiveImageProviderError(err) {
+		return ImageExecutionFailureProviderError
+	}
 	local := apiErr.GetErrorType() == types.ErrorTypeNewAPIError && apiErr.GetOriginalStatusCode() == 0
 	code := strings.ToLower(strings.TrimSpace(string(apiErr.GetOriginalErrorCode())))
 	if code == "insufficient_user_quota" {
@@ -90,11 +93,32 @@ func ClassifyImageGenerationError(err error) string {
 	return ""
 }
 
+// IsDefinitiveImageProviderError identifies the gateway envelope used when an
+// upstream image provider returned a structured error body. A transport error
+// or an unstructured upstream failure remains unknown because the provider may
+// have accepted the request before the connection failed.
+func IsDefinitiveImageProviderError(err error) bool {
+	var apiErr *types.NewAPIError
+	if !errors.As(err, &apiErr) || apiErr.GetErrorType() != types.ErrorTypeOpenAIError {
+		return false
+	}
+	status := apiErr.GetOriginalStatusCode()
+	if status == 0 {
+		status = apiErr.StatusCode
+	}
+	if status != http.StatusOK && status != http.StatusBadGateway {
+		return false
+	}
+	oaiErr := apiErr.ToOpenAIError()
+	code, ok := oaiErr.Code.(string)
+	return ok && strings.EqualFold(strings.TrimSpace(code), ImageExecutionFailureProviderError) && strings.TrimSpace(oaiErr.Type) != ""
+}
+
 func imageGenerationErrorCode(code string) string {
 	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "upstream_content_policy", "content_policy", "content_policy_violation", "content_filter", "safety", "prompt_blocked", "sensitive_words_detected":
 		return ImageExecutionFailureContentPolicy
-	case "image_service_unavailable", "insufficient_balance", "insufficient_quota", "insufficient_funds", "balance_not_enough", "upstream_insufficient_balance", "billing_hard_limit_reached", "billing_not_active", "quota_exceeded", "pre_consume_token_quota_failed", "invalid_api_key", "api_key_invalid", "api_key_expired", "authentication_error", "invalid_authentication", "permission_denied", "permission_error", "access_denied", "channel:no_available_key", "channel:invalid_key", "get_channel_failed", "model_not_found", "do_request_failed", "server_error", "internal_error", "service_unavailable", "overloaded_error", "policy_audit_unavailable", "request_policy_blocked", "session_blocked_by_cyber_policy", "cyber_policy", "key_cooldown", "account_pool_exhausted", "ali_error", "minimax_image_error", "jimeng_error", "zhipu_image_error":
+	case "image_provider_error", "image_service_unavailable", "insufficient_balance", "insufficient_quota", "insufficient_funds", "balance_not_enough", "upstream_insufficient_balance", "billing_hard_limit_reached", "billing_not_active", "quota_exceeded", "pre_consume_token_quota_failed", "invalid_api_key", "api_key_invalid", "api_key_expired", "authentication_error", "invalid_authentication", "permission_denied", "permission_error", "access_denied", "channel:no_available_key", "channel:invalid_key", "get_channel_failed", "model_not_found", "do_request_failed", "server_error", "internal_error", "service_unavailable", "overloaded_error", "policy_audit_unavailable", "request_policy_blocked", "session_blocked_by_cyber_policy", "cyber_policy", "key_cooldown", "account_pool_exhausted", "ali_error", "minimax_image_error", "jimeng_error", "zhipu_image_error":
 		return "image_service_unavailable"
 	case "image_rate_limited", "rate_limit_exceeded", "rate_limit_error", "resource_exhausted", "egress_capacity_exhausted", "account_pool_rate_limited":
 		return "image_rate_limited"

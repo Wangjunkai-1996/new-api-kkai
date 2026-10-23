@@ -79,17 +79,22 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 	t.Setenv("VIDEO_STUDIO_R2_ACCESS_KEY_ID_FILE", "")
 	t.Setenv("VIDEO_STUDIO_R2_SECRET_ACCESS_KEY_FILE", "")
 	for _, tc := range []struct {
-		name      string
-		status    int
-		body      string
-		rejected  bool
-		mapping   string
-		wantCode  string
-		errorLogs int
+		name             string
+		status           int
+		body             string
+		confirmedFailure bool
+		mapping          string
+		wantCode         string
+		errorLogs        int
 	}{
 		{"http_policy", http.StatusBadRequest, `{"error":{"type":"invalid_request_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, "", service.ImageExecutionFailureContentPolicy, 1},
 		{"in_band_policy", http.StatusOK, `{"error":{"type":"invalid_request_error","code":"content_policy_violation","message":"private-provider-diagnostic"}}`, true, "", service.ImageExecutionFailureContentPolicy, 1},
 		{"mapped_in_band_policy_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"content_policy","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`, service.ImageExecutionFailureContentPolicy, 1},
+		{"provider_error", http.StatusBadGateway, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, "", "image_service_unavailable", 1},
+		{"provider_error_after_keepalive", http.StatusOK, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, "", "image_service_unavailable", 1},
+		{"mapped_provider_error_uses_original_status", http.StatusBadGateway, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, `{"502":"400"}`, "image_service_unavailable", 1},
+		{"mapped_keepalive_provider_error_uses_original_status", http.StatusOK, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, true, `{"200":"502"}`, "image_service_unavailable", 1},
+		{"client_error_marker_is_ambiguous", http.StatusBadRequest, `{"error":{"type":"upstream_error","code":"image_provider_error","message":"private-provider-diagnostic"}}`, false, "", "image_service_unavailable", 1},
 		{"gateway_policy_code_is_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, "", "image_service_unavailable", 1},
 		{"mapped_gateway_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"400"}`, "image_service_unavailable", 1},
 		{"mapped_gateway_success_is_still_ambiguous", http.StatusBadGateway, `{"error":{"type":"server_error","code":"content_policy","message":"private-provider-diagnostic"}}`, false, `{"502":"200"}`, "image_service_unavailable", 1},
@@ -146,11 +151,12 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			require.NoError(t, db.First(&execution, "generation_id = ?", generation.ID).Error)
 			var user model.User
 			require.NoError(t, db.First(&user, generation.UserID).Error)
-			if tc.rejected {
+			if tc.confirmedFailure {
 				assert.Equal(t, 1, batch.Delivered)
+				assert.Zero(t, batch.Deferred)
 				assert.Equal(t, model.ImageGenerationStatusFailed, generation.Status)
 				assert.Equal(t, "upstream", generation.FailureStage)
-				assert.Equal(t, service.ImageExecutionFailureContentPolicy, generation.ErrorCode)
+				assert.Equal(t, tc.wantCode, generation.ErrorCode)
 				assert.NotContains(t, generation.ErrorMessage, "private-provider-diagnostic")
 				assert.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
 				assert.EqualValues(t, 1000, user.Quota)

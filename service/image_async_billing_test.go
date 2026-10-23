@@ -124,6 +124,34 @@ func TestImageAsyncPolicyCompletionPreservesResultAndFence(t *testing.T) {
 	}
 }
 
+func TestImageAsyncDefinitiveProviderErrorRefundsImmediately(t *testing.T) {
+	if model.MembershipEnabled() {
+		t.Skip("legacy fixture runs with membership disabled")
+	}
+	db := newImageAccountingRecoveryTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.KKAIImageGenerationReference{}))
+	require.NoError(t, db.Create(&model.User{Id: 79, Username: "async-provider-error", Password: "password", Quota: 1000}).Error)
+	generation := seedRecoverableImageGeneration(t, db, 79, 1)
+	_, err := model.ReserveImageGenerationBilling(context.Background(), db, generation.ID, model.TaskBillingSourceWallet, 300)
+	require.NoError(t, err)
+	fence := imageExecutionFenceFixture(t, db, generation)
+	require.NoError(t, db.Model(&model.KKAIImageExecution{}).Where("generation_id = ?", generation.ID).Update("state", model.ImageGenerationExecutionDispatching).Error)
+
+	require.NoError(t, CompleteImageExecution(context.Background(), db, generation.ID, fence, ImageExecutionFailureProviderError))
+	require.NoError(t, db.First(&generation, generation.ID).Error)
+	assert.Equal(t, model.ImageGenerationStatusFailed, generation.Status)
+	assert.Equal(t, "upstream", generation.FailureStage)
+	assert.Equal(t, "image_service_unavailable", generation.ErrorCode)
+	assert.Equal(t, model.ImageGenerationBillingStateRefunded, generation.BillingState)
+	assert.Zero(t, generation.FinalQuota)
+	var user model.User
+	require.NoError(t, db.First(&user, generation.UserID).Error)
+	assert.EqualValues(t, 1000, user.Quota)
+	var execution model.KKAIImageExecution
+	require.NoError(t, db.First(&execution, "generation_id = ?", generation.ID).Error)
+	assert.Equal(t, model.ImageGenerationExecutionDone, execution.State)
+}
+
 func TestImageAsyncUnknownErrorClassificationPreservesBillingAndFence(t *testing.T) {
 	if model.MembershipEnabled() {
 		t.Skip("legacy fixture runs with membership disabled")

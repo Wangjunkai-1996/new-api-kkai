@@ -126,6 +126,9 @@ func runImageGenerationEvent(ctx context.Context, event model.KKAIOutboxEvent) (
 	case model.ImageGenerationExecutionResultReady:
 		return service.CompleteImageExecution(ctx, model.DB, id, fence, "")
 	default:
+		if failureCode == service.ImageExecutionFailureProviderError {
+			return service.CompleteImageExecution(ctx, model.DB, id, fence, failureCode)
+		}
 		if err := service.MarkImageExecutionUnknown(ctx, model.DB, id, fence, stored.UpstreamRequestID, failureCode); err != nil {
 			return err
 		}

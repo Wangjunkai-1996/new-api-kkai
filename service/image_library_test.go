@@ -43,6 +43,30 @@ func TestListImageGenerationsIsUserScopedAndReturnsMediaURLs(t *testing.T) {
 	assert.Equal(t, first.ID, next.Items[0].ID)
 }
 
+func TestImageGenerationViewExposesUnknownExecutionStateWhileSubmitting(t *testing.T) {
+	db := newImageLibraryTestDB(t)
+	generation := createImageLibraryGeneration(t, db, 7, "unknown execution")
+	require.NoError(t, db.Model(&model.KKAIImageGeneration{}).Where("id = ?", generation.ID).Updates(map[string]any{
+		"status":        model.ImageGenerationStatusSubmitting,
+		"billing_state": model.ImageGenerationBillingStateProcessing,
+		"finished_at":   0,
+	}).Error)
+	require.NoError(t, db.AutoMigrate(&model.KKAIImageExecution{}))
+	require.NoError(t, db.Create(&model.KKAIImageExecution{
+		GenerationID: generation.ID,
+		State:        model.ImageGenerationExecutionUnknown,
+		Payload:      "{}",
+	}).Error)
+	view, err := GetImageGenerationView(context.Background(), db, 7, generation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, model.ImageGenerationStatusSubmitting, view.Status)
+	assert.Equal(t, model.ImageGenerationExecutionUnknown, view.ExecutionState)
+	page, err := ListImageGenerations(context.Background(), db, 7, ImageGenerationFilter{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, model.ImageGenerationExecutionUnknown, page.Items[0].ExecutionState)
+}
+
 func TestListImageGenerationsFiltersByPromptModelAndRequestID(t *testing.T) {
 	db := newImageLibraryTestDB(t)
 	promptMatch := createImageLibraryGeneration(t, db, 7, "A neon city at dusk")

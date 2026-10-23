@@ -135,6 +135,7 @@ export type ImageGeneration = {
   parameters: ImageParameters
   request_id: string
   status: ImageGenerationStatus
+  execution_state?: string
   requested_count: number
   succeeded_count: number
   final_quota: number

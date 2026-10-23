@@ -25,6 +25,7 @@ import {
   buildImageComposerValues,
   canAccessImageStudio,
   getImageGenerationPollInterval,
+  isImageGenerationCheckingOutcome,
   imageSubmissionFingerprint,
   normalizeImageStudioAccessMode,
   resolveImageGenerationStatus,
@@ -283,6 +284,27 @@ describe('image submission recovery', () => {
         100,
         true
       ),
+      false
+    )
+  })
+
+  test('distinguishes an uncertain in-flight result from a normal submission', () => {
+    assert.equal(
+      isImageGenerationCheckingOutcome({
+        status: 'submitting',
+        execution_state: 'unknown',
+      }),
+      true
+    )
+    assert.equal(
+      isImageGenerationCheckingOutcome({
+        status: 'submitting',
+        execution_state: 'dispatching',
+      }),
+      false
+    )
+    assert.equal(
+      isImageGenerationCheckingOutcome({ status: 'unknown' }),
       false
     )
   })

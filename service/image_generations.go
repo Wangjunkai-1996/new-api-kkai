@@ -58,6 +58,7 @@ type ImageGenerationView struct {
 	Parameters           map[string]any   `json:"parameters"`
 	RequestID            string           `json:"request_id"`
 	Status               string           `json:"status"`
+	ExecutionState       string           `json:"execution_state,omitempty"`
 	RequestedCount       int              `json:"requested_count"`
 	SucceededCount       int              `json:"succeeded_count"`
 	FinalQuota           int              `json:"final_quota"`
@@ -151,7 +152,11 @@ func GetImageGenerationView(
 		Order("position ASC, id ASC").Find(&assets).Error; err != nil {
 		return nil, fmt.Errorf("list image generation assets: %w", err)
 	}
-	view, err := buildImageGenerationView(*generation, assets)
+	executionStates, err := imageGenerationExecutionStates(ctx, db, []int64{generation.ID})
+	if err != nil {
+		return nil, err
+	}
+	view, err := buildImageGenerationView(*generation, assets, executionStates[generation.ID])
 	if err != nil {
 		return nil, err
 	}
@@ -230,8 +235,12 @@ func ListImageGenerations(
 			assetsByGeneration[*asset.GenerationID] = append(assetsByGeneration[*asset.GenerationID], asset)
 		}
 	}
+	executionStates, err := imageGenerationExecutionStates(ctx, db, ids)
+	if err != nil {
+		return nil, err
+	}
 	for _, generation := range generations {
-		view, err := buildImageGenerationView(generation, assetsByGeneration[generation.ID])
+		view, err := buildImageGenerationView(generation, assetsByGeneration[generation.ID], executionStates[generation.ID])
 		if err != nil {
 			return nil, err
 		}
@@ -241,6 +250,27 @@ func ListImageGenerations(
 		page.NextCursor = strconv.FormatInt(generations[len(generations)-1].ID, 10)
 	}
 	return page, nil
+}
+
+func imageGenerationExecutionStates(ctx context.Context, db *gorm.DB, generationIDs []int64) (map[int64]string, error) {
+	states := make(map[int64]string)
+	if db == nil || len(generationIDs) == 0 || !db.Migrator().HasTable(&model.KKAIImageExecution{}) {
+		return states, nil
+	}
+	var executions []struct {
+		GenerationID int64
+		State        string
+	}
+	if err := db.WithContext(ctx).Model(&model.KKAIImageExecution{}).
+		Select("generation_id", "state").Where("generation_id IN ?", generationIDs).Find(&executions).Error; err != nil {
+		return nil, fmt.Errorf("list image generation execution states: %w", err)
+	}
+	for _, execution := range executions {
+		if execution.State == model.ImageGenerationExecutionUnknown {
+			states[execution.GenerationID] = execution.State
+		}
+	}
+	return states, nil
 }
 
 func DeleteImageGeneration(ctx context.Context, db *gorm.DB, userID int, generationID int64) error {
@@ -391,6 +421,7 @@ func discardImageGenerationAssets(
 func buildImageGenerationView(
 	generation model.KKAIImageGeneration,
 	assets []model.KKAIImageAsset,
+	executionState string,
 ) (ImageGenerationView, error) {
 	quota, err := common.HistoricalCreditQuota("kkai_image_generations", generation.ID, generation.FinalQuota)
 	if err != nil {
@@ -404,6 +435,9 @@ func buildImageGenerationView(
 	status := generation.Status
 	if status == model.ImageGenerationStatusRecovering {
 		status = model.ImageGenerationStatusSubmitting
+	}
+	if status != model.ImageGenerationStatusSubmitting || generation.BillingState != model.ImageGenerationBillingStateProcessing || executionState != model.ImageGenerationExecutionUnknown {
+		executionState = ""
 	}
 	deliverable := generation.BillingState == model.ImageGenerationBillingStateSettled &&
 		(generation.Status == model.ImageGenerationStatusSucceeded || generation.Status == model.ImageGenerationStatusPartial)
@@ -428,7 +462,7 @@ func buildImageGenerationView(
 		ID: generation.ID, ModelProfileID: generation.ModelProfileID, SampleID: generation.SampleID,
 		SpecificationVersion: generation.SpecificationVersion, Model: generation.Model,
 		Prompt: generation.Prompt, Parameters: parameters, RequestID: generation.RequestID,
-		Status: status, RequestedCount: generation.RequestedCount,
+		Status: status, ExecutionState: executionState, RequestedCount: generation.RequestedCount,
 		SucceededCount: generation.SucceededCount, FinalQuota: quota,
 		FailureStage: generation.FailureStage, ErrorCode: errorCode,
 		ErrorMessage: errorMessage, StartedAt: generation.StartedAt,

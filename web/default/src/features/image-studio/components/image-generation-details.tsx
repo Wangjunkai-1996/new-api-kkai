@@ -45,6 +45,7 @@ import {
 } from '@/stores/system-config-store'
 
 import { getImageGenerationErrorKey } from '../image-generation-error'
+import { isImageGenerationCheckingOutcome } from '../image-domain'
 import type { ImageGeneration } from '../types'
 
 const unknownCauseKeys = new Map([
@@ -77,6 +78,14 @@ export function ImageGenerationDetails(props: {
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const generation = props.generation
   const errorKey = generation ? getImageGenerationErrorKey(generation) : null
+  const checkingOutcome = generation
+    ? isImageGenerationCheckingOutcome(generation)
+    : false
+  let statusLabel = ''
+  if (generation) {
+    statusLabel = t(`imageStudio.status.${generation.status}`)
+    if (checkingOutcome) statusLabel = t('imageStudio.status.confirming')
+  }
   const unknownCauseKey =
     generation?.status === 'unknown'
       ? unknownCauseKeys.get(generation.error_code ?? '')
@@ -123,7 +132,7 @@ export function ImageGenerationDetails(props: {
               {readyAssets.length === 0 && (
                 <div className='text-muted-foreground flex min-h-64 flex-col items-center justify-center gap-3 rounded-xl border border-dashed'>
                   <ImageIcon className='size-8' aria-hidden='true' />
-                  <span>{t(`imageStudio.status.${generation.status}`)}</span>
+                  <span>{statusLabel}</span>
                 </div>
               )}
               {readyAssets.map((asset, index) => (
@@ -181,7 +190,7 @@ export function ImageGenerationDetails(props: {
                         : 'secondary'
                     }
                   >
-                    {t(`imageStudio.status.${generation.status}`)}
+                    {statusLabel}
                   </Badge>
                   <span className='text-muted-foreground text-xs'>
                     {t('imageStudio.outputCount', {
@@ -196,6 +205,16 @@ export function ImageGenerationDetails(props: {
                     <AlertDescription className='text-xs break-words'>
                       <p>{t(errorKey)}</p>
                       {unknownCauseKey && <p>{t(unknownCauseKey)}</p>}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {checkingOutcome && (
+                  <Alert>
+                    <AlertTitle>{t('imageStudio.status.confirming')}</AlertTitle>
+                    <AlertDescription className='text-xs'>
+                      {t(
+                        'This request returned an unclear result. The system is checking for saved output. Please do not submit it again.'
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}

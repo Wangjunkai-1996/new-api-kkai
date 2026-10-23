@@ -51,6 +51,7 @@ import {
 } from '@/stores/system-config-store'
 
 import { getImageGenerationErrorKey } from '../image-generation-error'
+import { isImageGenerationCheckingOutcome } from '../image-domain'
 import type { ImageAsset, ImageGeneration } from '../types'
 
 export type ImageCreationResultsProps = {
@@ -314,7 +315,11 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
     urls
   )
   const activeSubmission = !!props.activity && props.activity.phase !== 'idle'
-  const pending = generation?.status === 'submitting' || activeSubmission
+  const checkingOutcome = generation
+    ? isImageGenerationCheckingOutcome(generation)
+    : false
+  const pending =
+    !checkingOutcome && (generation?.status === 'submitting' || activeSubmission)
   useEffect(() => {
     if (!pending) return
     const section = resultsRef.current
@@ -349,7 +354,12 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
   let stateDescription = t(
     'Describe an idea. Your results will appear here, ready for the next step.'
   )
-  if (pending) {
+  if (checkingOutcome) {
+    stateTitle = t('imageStudio.status.confirming')
+    stateDescription = t(
+      'This request returned an unclear result. The system is checking for saved output. Please do not submit it again.'
+    )
+  } else if (pending) {
     stateTitle = t('Creating your next image')
     stateDescription = t(
       'Waiting for the model. Your previous results are saved.'
@@ -403,7 +413,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
           <span
             className={cn(
               'image-create-status-dot',
-              pending && 'is-pending',
+              (pending || checkingOutcome) && 'is-pending',
               hasFailure && 'is-error'
             )}
             aria-hidden='true'
@@ -418,10 +428,14 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
           )}
         </div>
         <span className='image-create-result-status' aria-live='polite'>
-          {activeSubmission && t('Creating your next image')}
-          {generation && !activeSubmission && (
+          {activeSubmission && !checkingOutcome &&
+            t('Creating your next image')}
+          {generation && (!activeSubmission || checkingOutcome) && (
             <>
-              {t(`imageStudio.status.${generation.status}`)} ·{' '}
+              {checkingOutcome
+                ? t('imageStudio.status.confirming')
+                : t(`imageStudio.status.${generation.status}`)}{' '}
+              ·{' '}
               {t('imageStudio.outputCount', {
                 ready: generation.succeeded_count,
                 total: generation.requested_count,
@@ -470,12 +484,15 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
             {t('Previous result')}
           </span>
         )}
-        {(pending || hasFailure || !source) && (
+        {(pending || checkingOutcome || hasFailure || !source) && (
           <div
             className={cn(
               'image-create-empty-result',
               pending && source && 'image-create-task-card',
-              hasFailure && source && !pending && 'image-create-task-overlay'
+              (hasFailure || checkingOutcome) &&
+                source &&
+                !pending &&
+                'image-create-task-overlay'
             )}
             role='status'
             aria-live='polite'
@@ -486,7 +503,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
               </span>
             ) : (
               <span className='image-create-state-icon'>
-                {hasFailure ? (
+                {hasFailure || checkingOutcome ? (
                   <CircleAlert aria-hidden='true' />
                 ) : (
                   <ImageIcon aria-hidden='true' />
@@ -600,7 +617,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
           )}
         </div>
       )}
-      {generation && !pending && (
+      {generation && !pending && !checkingOutcome && (
         <div
           className={cn('image-create-task-feedback', !!errorKey && 'is-error')}
           role='status'
@@ -640,6 +657,9 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
                 cover?.thumbnail_url || cover?.content_url,
                 urls
               )
+              const historyStatus = isImageGenerationCheckingOutcome(item)
+                ? t('imageStudio.status.confirming')
+                : t(`imageStudio.status.${item.status}`)
               return (
                 <button
                   key={item.id}
@@ -648,7 +668,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
                   aria-pressed={generation?.id === item.id}
                   aria-label={t('View creation {{number}}: {{status}}', {
                     number: props.history.length - index,
-                    status: t(`imageStudio.status.${item.status}`),
+                    status: historyStatus,
                   })}
                   onClick={() => props.onSelectGeneration(item.id)}
                 >
@@ -666,7 +686,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
                   )}
                   <span>
                     <span>#{props.history.length - index}</span>
-                    <span>{t(`imageStudio.status.${item.status}`)}</span>
+                    <span>{historyStatus}</span>
                   </span>
                 </button>
               )

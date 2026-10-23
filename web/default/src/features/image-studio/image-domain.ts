@@ -72,6 +72,11 @@ export const isImageGenerationActive = (
   status: ImageGenerationStatus
 ): boolean => status === 'submitting'
 
+export const isImageGenerationCheckingOutcome = (
+  generation: Pick<ImageGeneration, 'status' | 'execution_state'>
+): boolean =>
+  generation.status === 'submitting' && generation.execution_state === 'unknown'
+
 export const isImageSubmissionReceiptExpired = (expiresAt: number): boolean =>
   expiresAt <= Date.now()
 

@@ -280,6 +280,36 @@ describe('creation workbench results', () => {
     }
   )
 
+  test('shows an uncertain dispatch as checking and never offers a retry', async () => {
+    const item = generation({
+      status: 'submitting',
+      execution_state: 'unknown',
+      assets: [],
+      succeeded_count: 0,
+    })
+    const props = propsFor(item)
+    render(<ImageCreationResults {...props} />)
+
+    expect(screen.getAllByText('imageStudio.status.confirming')).toHaveLength(2)
+    expect(
+      screen.queryByText('imageStudio.status.submitting')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This request returned an unclear result. The system is checking for saved output. Please do not submit it again.'
+      )
+    ).toBeVisible()
+    expect(screen.queryByText('Creating your next image')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Generate again' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Retry generation' })
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Check status' }))
+    expect(props.onCheckStatus).toHaveBeenCalledExactlyOnceWith(item)
+  })
+
   test('retains the previous decoded image while the selected image loads', async () => {
     const props = propsFor()
     const view = render(<ImageCreationResults {...props} />)

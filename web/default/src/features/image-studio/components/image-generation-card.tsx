@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import { getImageGenerationErrorKey } from '../image-generation-error'
+import { isImageGenerationCheckingOutcome } from '../image-domain'
 import type { ImageGeneration } from '../types'
 
 export function ImageGenerationCard(props: {
@@ -49,7 +50,12 @@ export function ImageGenerationCard(props: {
   const cover = readyAssets[0]
   const [naturalSize, setNaturalSize] = useState({ assetId: 0, ratio: 4 / 3 })
   const [loadedAssetId, setLoadedAssetId] = useState<number>()
-  const submitting = props.generation.status === 'submitting'
+  const checkingOutcome = isImageGenerationCheckingOutcome(props.generation)
+  const submitting =
+    props.generation.status === 'submitting' && !checkingOutcome
+  const statusLabel = checkingOutcome
+    ? t('imageStudio.status.confirming')
+    : t(`imageStudio.status.${props.generation.status}`)
   const retryable = props.generation.status === 'failed'
   const canRegenerate =
     retryable ||
@@ -152,7 +158,7 @@ export function ImageGenerationCard(props: {
               <span className='text-muted-foreground max-w-full text-xs'>
                 {props.generation.status === 'succeeded'
                   ? t('Preparing preview')
-                  : t(`imageStudio.status.${props.generation.status}`)}
+                  : statusLabel}
               </span>
               {errorKey && (
                 <span className='text-muted-foreground line-clamp-2 text-xs'>
@@ -164,7 +170,7 @@ export function ImageGenerationCard(props: {
         </AnimatePresence>
         {props.generation.status !== 'succeeded' && cover && (
           <span className='pointer-events-none absolute top-3 left-3 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur-sm'>
-            {t(`imageStudio.status.${props.generation.status}`)}
+            {statusLabel}
           </span>
         )}
         {props.generation.requested_count > 1 && (
