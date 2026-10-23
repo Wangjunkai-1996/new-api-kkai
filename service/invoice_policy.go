@@ -5,6 +5,7 @@ import (
 	"net/mail"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,13 +18,14 @@ func (s InvoiceService) Policy() InvoicePolicy {
 	// Manual issuance needs an opt-in, not a configured tax-platform identity.
 	// Seller fields remain optional snapshots for installations that use them.
 	p := InvoicePolicy{
-		PolicyVersion: "manual-v1",
-		InvoiceTypes:  []InvoiceTypePolicy{{ID: "manual", Label: "Invoice", RequiredFields: []string{}}},
-		Currencies:    []InvoiceCurrencyPolicy{{Currency: "CNY", Exponent: 2}},
-		Sources:       []string{"topup", "membership"},
-		Providers:     []string{model.PaymentProviderEpay},
-		Timezone:      "Asia/Shanghai",
-		Limits:        map[string]int{"max_orders": 50, "max_file_bytes": 20 * 1024 * 1024},
+		PolicyVersion:      "manual-v1",
+		MinimumAmountMinor: "20000",
+		InvoiceTypes:       []InvoiceTypePolicy{{ID: "manual", Label: "Invoice", RequiredFields: []string{}}},
+		Currencies:         []InvoiceCurrencyPolicy{{Currency: "CNY", Exponent: 2}},
+		Sources:            []string{"topup", "membership"},
+		Providers:          []string{model.PaymentProviderEpay},
+		Timezone:           "Asia/Shanghai",
+		Limits:             map[string]int{"max_orders": 50, "max_file_bytes": 20 * 1024 * 1024},
 	}
 	common.OptionMapRWMutex.RLock()
 	raw := common.OptionMap["InvoicePolicy"]
@@ -38,6 +40,19 @@ func (s InvoiceService) Policy() InvoicePolicy {
 	}
 	p.Limits = map[string]int{"max_orders": 50, "max_file_bytes": 20 * 1024 * 1024}
 	valid := p.PolicyVersion != "" && len(p.PolicyVersion) <= 64 && len(p.SellerID) <= 64 && len(p.SellerName) <= 200 && len(p.TaxGroup) <= 64 && len(p.InvoiceTypes) > 0
+	var configured map[string]any
+	if common.UnmarshalJsonStr(raw, &configured) != nil {
+		valid = false
+	}
+	if value, exists := configured["minimum_amount_minor"]; exists {
+		var ok bool
+		p.MinimumAmountMinor, ok = value.(string)
+		valid = valid && ok
+	}
+	minimum, err := strconv.ParseInt(p.MinimumAmountMinor, 10, 64)
+	if err != nil || minimum < 20000 || strings.Trim(p.MinimumAmountMinor, "0123456789") != "" {
+		valid = false
+	}
 	for _, it := range p.InvoiceTypes {
 		if it.ID == "" || len(it.ID) > 64 || it.Label == "" {
 			valid = false

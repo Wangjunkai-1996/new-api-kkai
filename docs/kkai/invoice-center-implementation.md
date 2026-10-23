@@ -320,3 +320,35 @@ go test ./cmd/kkai-migrate -run '^TestDescribeContractJSON' -count=1 -timeout=12
 已安装infra精确提交`f9ddf519042c62f59b111ee7f311268eaf64fa43`，安装自检、完整manual self-test和`make newapi-status`通过；应用pin已同步。该提交还保留并经审查了原有HTTP错误分类及验收交接文档改动。
 
 新鲜只读schema观察为16，digest仍为`sha256:a3aa3e80103389d77030a52cdc1bb8d67a947514af56fe08938df2ee688dbd7c`；用户已独立授权按runbook29扩展至17。数据库异地备份`20261023T002244Z`在目标端和B2回读验证有效，manifest SHA256为`3baaf56e7797911ac4d6a05f40752bc9e06efc61dce596acc755c309dbcab871`，加密dump SHA256为`7854e41155d4346e05ee41301eccb490a5979449b6d85e57ed78e5735bfe7e52`，加密globals SHA256为`04a134aa282461d562a9cdf9c2d37d2e86abe1ed8694e98d10c831edb08820fd`。它只证明数据库备份，不证明附件异地备份。
+
+## 发票审查修复与200元门槛（2026-10-23，本地）
+
+本轮仅修改本地代码，没有提交、迁移或部署，也未重新读取生产状态。
+
+- 新申请按核验实付合计执行200元最低金额，可合并小额订单，等于200元可提交；`minimum_amount_minor` 可提高，不得低于 `"20000"`，无效配置失败关闭。既有申请及其幂等重放不追溯最低金额。
+- 已开具申请继续持有付款claim，确认、异议、暂停和更正补发均不释放；新增全生命周期重复申请回归。
+- 提交结果不确定时保留原输入和幂等键，直接查询原提交结果；冻结编辑及跨子页抬头替换。quote期间冻结订单选择，防止慢响应恢复已移除订单。
+- 有完整匹配财务grant审计的会员主收据恢复开票资格；旧政策申请可经暂停/恢复重新核验兼容性并留痕采纳新政策版本，不修改原付款及抬头快照。
+- PDF改为有界语法扫描，避免注释、文本和普通流中的主动字段字样造成误拒；保留主动内容字段拒绝。通知列表批量读取关联数据，已读操作批量写入；只读quote和抬头查询不再使整个发票缓存失效。
+
+本轮定向验证：
+
+```sh
+# 仓库根目录：5个包全部通过；未配置真实MySQL DSN的子测试跳过。
+go test ./service ./controller ./middleware ./model ./router -run '^TestInvoice' -count=1 -timeout=120s
+# 交叉审后仅复测PDF变化范围：通过。
+go test ./service -run '^TestInvoicePDF|^TestInvoiceAssets' -count=1 -timeout=120s
+
+# web/default：4文件，38/38通过。
+bunx --no-install vitest run src/features/invoice
+bunx --no-install oxlint -c .oxlintrc.json src/features/invoice
+bunx --no-install oxfmt --check src/features/invoice
+bunx --no-install tsgo -p tsconfig.invoice-review.json --noEmit
+bun run i18n:sync
+```
+
+前端范围lint、格式、类型检查及i18n同步均通过。类型检查使用临时配置扩展`tsconfig.app.json`，`incremental: false`，types为`node`、`vitest/globals`、`@testing-library/jest-dom`，include为`src/features/invoice/**/*.ts`、`src/features/invoice/**/*.tsx`、`src/env.d.ts`，`exclude: []`；检查后删除。7种语言各新增6键，新增翻译回归校验占位符。
+
+PDF回归涵盖文本/注释/普通及压缩流误拒、转义主动名称、间接长度、xref stream、对象流解压上限、ICC色彩流，以及三份完整合成PDF中缺失或伪造ObjStm类型的主动内容旁路。扫描深度64、总值和对象各10万、对象流累计解压20MiB；间接长度无法可靠定位或重复定义、间接流类型及复杂对象流过滤器/DecodeParms保守拒绝。
+
+跳过全套测试、全库类型检查和生产构建。本轮未重新验证真实MySQL/PostgreSQL事务、真实对象存储/SMTP或浏览器连接真实后端的端到端流程；PDF仍是基础结构及已知主动内容扫描，无法可靠解析的结构保守拒绝。

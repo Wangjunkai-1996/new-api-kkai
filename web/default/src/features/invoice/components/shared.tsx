@@ -40,8 +40,9 @@ export function InvoiceError(props: {
   const code =
     getServerErrorSources(props.error)
       .map((source) => source.code)
-      .find((value) => typeof value === 'string') ||
-    (props.error instanceof Error ? props.error.message : undefined)
+      .find(
+        (value) => typeof value === 'string' && !value.startsWith('ERR_')
+      ) || (props.error instanceof Error ? props.error.message : undefined)
   let message =
     props.message ||
     t('The request could not be completed. Your input is preserved.')
@@ -65,6 +66,9 @@ export function InvoiceError(props: {
     message = t(
       'Payment eligibility has changed. Review the selected orders again.'
     )
+  }
+  if (code === 'INVOICE_BELOW_MINIMUM') {
+    message = t('Add eligible payments to reach the minimum invoice amount.')
   }
   if (
     [

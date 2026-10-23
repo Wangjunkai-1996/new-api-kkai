@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
+import { getServerErrorSources } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -32,7 +33,7 @@ import {
 } from './lib/format'
 import { applyInvoiceProfileErrors, invoiceProfileSchema } from './lib/profile'
 import { useInvoiceOperation } from './lib/use-invoice-operation'
-import type { InvoiceProfile } from './types'
+import type { InvoiceCreateInput, InvoiceProfile } from './types'
 
 export function NewInvoicePage(props: {
   sourceType?: string
@@ -48,6 +49,8 @@ export function NewInvoicePage(props: {
   const preselected = useRef('')
   const [profileId, setProfileId] = useState('')
   const [saved, setSaved] = useState(false)
+  const submitting = useRef(false)
+  const editingLocked = op.busy || !!draft.pendingCreate
   const form = useForm<InvoiceProfile>({
     resolver: zodResolver(invoiceProfileSchema),
     defaultValues: draft.profile,
@@ -74,10 +77,26 @@ export function NewInvoicePage(props: {
         (order) => `${order.currency}:${order.currency_exponent}`
       )
     ).size > 1
+  const configuredMinimum = policy?.minimum_amount_minor
+  const minimum =
+    configuredMinimum &&
+    /^\d+$/.test(configuredMinimum) &&
+    BigInt(configuredMinimum) >= 20000n
+      ? BigInt(configuredMinimum)
+      : 20000n
+  const totalMinor = BigInt(sumInvoiceOrders(draft.orders))
+  const belowMinimum = totalMinor < minimum
+  const minimumLabel = formatInvoiceMoney(
+    minimum.toString(),
+    'CNY',
+    2,
+    i18n.language
+  )
   const invalid =
     draft.orders.length === 0 ||
     draft.orders.length > (policy?.limits.max_orders || 50) ||
     incompatible ||
+    belowMinimum ||
     !type ||
     draft.orders.some((order) => !order.eligible)
   const totals = invoiceMoneyTotals(draft.orders)
@@ -100,6 +119,7 @@ export function NewInvoicePage(props: {
     if (
       (!props.orderId && !props.orderNo) ||
       !policy?.enabled ||
+      draft.pendingCreate ||
       preselected.current === key
     ) {
       return
@@ -150,10 +170,12 @@ export function NewInvoicePage(props: {
     props.orderId,
     props.orderNo,
     policy?.enabled,
+    draft.pendingCreate,
     setDraft,
     setOperationError,
   ])
   async function next() {
+    if (editingLocked || invalid) return
     if (draft.step === 2 && !(await form.trigger())) return
     if (draft.step === 2) {
       const required =
@@ -169,8 +191,11 @@ export function NewInvoicePage(props: {
       }
       if (missing) return
     }
-    const quote = await op.run('quote', { orders: draft.orders, type }, () =>
-      quoteInvoice(draft.orders, type, policy?.policy_version)
+    const quote = await op.run(
+      'quote',
+      { orders: draft.orders, type },
+      () => quoteInvoice(draft.orders, type, policy?.policy_version),
+      { invalidate: false }
     )
     if (!quote) return
     if (!quote.eligible) {
@@ -187,90 +212,144 @@ export function NewInvoicePage(props: {
       ...previous,
       orders: quote.items,
       invoiceType: type,
-      step: Math.min(3, previous.step + 1),
+      step:
+        BigInt(quote.amount_minor) < minimum
+          ? 1
+          : Math.min(3, previous.step + 1),
       profile: form.getValues(),
     }))
   }
   async function submit() {
-    if (!policy || !draft.consent || invalid) return
-    const quote = await op.run('quote', { orders: draft.orders, type }, () =>
-      quoteInvoice(draft.orders, type, policy.policy_version)
-    )
-    if (!quote) return
-    if (!quote.eligible || quote.policy_version !== policy.policy_version) {
-      setDraft((previous) => ({
-        ...previous,
-        orders: quote.items,
-        step: 1,
-        consent: false,
-      }))
-      op.setError(new Error('ORDER_UNAVAILABLE'))
-      return
-    }
-    if (
-      quote.amount_minor !== sumInvoiceOrders(draft.orders) ||
-      quote.currency !== draft.orders[0]?.currency
-    ) {
-      setDraft((previous) => ({
-        ...previous,
-        orders: quote.items,
-        consent: false,
-      }))
-      op.setError(new Error('PAYMENT_CHANGED'))
-      return
-    }
-    const input = {
-      items: draft.orders.map((order) => ({
-        source_type: order.source_type,
-        order_id: order.order_id,
-      })),
-      profile: {
-        ...form.getValues(),
-        tax_id:
-          profileValues.kind === 'person' ? '' : profileValues.tax_id || '',
-      },
-      invoice_type: type,
-      policy_version: policy.policy_version,
-      note: draft.note,
-      user_confirmed: true,
-    }
-    const result = await op.run(
-      'create',
-      input,
-      () => createInvoice(input, draft.key),
-      (error) => {
-        if (applyInvoiceProfileErrors(form, error)) {
-          setDraft((previous) => ({ ...previous, step: 2, consent: false }))
+    if (submitting.current || op.busy) return
+    submitting.current = true
+    try {
+      let pending = draft.pendingCreate
+      if (!pending) {
+        if (!policy || !draft.consent || invalid) return
+        const quote = await op.run(
+          'quote',
+          { orders: draft.orders, type },
+          () => quoteInvoice(draft.orders, type, policy.policy_version),
+          { invalidate: false }
+        )
+        if (!quote) return
+        if (!quote.eligible || quote.policy_version !== policy.policy_version) {
+          setDraft((previous) => ({
+            ...previous,
+            orders: quote.items,
+            step: 1,
+            consent: false,
+          }))
+          op.setError(new Error('ORDER_UNAVAILABLE'))
+          return
         }
+        if (
+          quote.amount_minor !== sumInvoiceOrders(draft.orders) ||
+          quote.currency !== draft.orders[0]?.currency ||
+          BigInt(quote.amount_minor) < minimum
+        ) {
+          setDraft((previous) => ({
+            ...previous,
+            orders: quote.items,
+            consent: false,
+          }))
+          op.setError(new Error('PAYMENT_CHANGED'))
+          return
+        }
+        const input: InvoiceCreateInput = {
+          items: draft.orders.map((order) => ({
+            source_type: order.source_type,
+            order_id: order.order_id,
+          })),
+          profile: {
+            ...form.getValues(),
+            tax_id:
+              profileValues.kind === 'person' ? '' : profileValues.tax_id || '',
+          },
+          invoice_type: type,
+          policy_version: policy.policy_version,
+          note: draft.note,
+          user_confirmed: true,
+        }
+        pending = { input, key: draft.key }
+        setDraft((previous) => ({ ...previous, pendingCreate: pending }))
       }
-    )
-    if (result) {
-      setDraft(freshInvoiceDraft(user?.email))
-      void navigate({
-        to: '/invoices/$invoiceId',
-        params: { invoiceId: result.public_id },
-      })
+      const { input, key } = pending
+      const result = await op.run(
+        'create',
+        input,
+        () => createInvoice(input, key),
+        {
+          onError: (error) => {
+            const sources = getServerErrorSources(error)
+            const rejection = sources.some((source) => {
+              if (!source.response || typeof source.response !== 'object') {
+                return false
+              }
+              const response = source.response as {
+                status?: number
+                data?: { code?: string }
+              }
+              const status = Number(response.status)
+              return (
+                status >= 400 &&
+                status < 500 &&
+                [
+                  'VALIDATION_FAILED',
+                  'INVOICE_BELOW_MINIMUM',
+                  'POLICY_CHANGED',
+                  'PAYMENT_CHANGED',
+                  'ORDER_ALREADY_CLAIMED',
+                  'INCOMPATIBLE_GROUP',
+                  'INVOICE_METADATA_MISMATCH',
+                  'INVOICE_TYPE_UNSUPPORTED',
+                  'DUPLICATE_PAYMENT',
+                ].includes(String(response.data?.code))
+              )
+            })
+            if (!rejection) return
+            const profileError = applyInvoiceProfileErrors(form, error)
+            setDraft((previous) => ({
+              ...previous,
+              pendingCreate: undefined,
+              key: crypto.randomUUID(),
+              ...(profileError ? { step: 2, consent: false } : {}),
+            }))
+          },
+        }
+      )
+      if (result) {
+        setDraft(freshInvoiceDraft(user?.email))
+        void navigate({
+          to: '/invoices/$invoiceId',
+          params: { invoiceId: result.public_id },
+        })
+      }
+    } finally {
+      submitting.current = false
     }
   }
   let actionLabel = t('Next: invoice information')
   if (draft.step === 2) actionLabel = t('Next: review request')
   if (draft.step === 3) actionLabel = t('Submit invoice request')
+  if (draft.pendingCreate) actionLabel = t('Check submission result')
   if (op.busy) actionLabel = t('Processing...')
   const action = (
     <Button
       className='invoice-primary-action min-h-11 w-full'
       disabled={
-        !policy?.enabled ||
-        invalid ||
         op.busy ||
-        (draft.step === 3 && !draft.consent)
+        (!draft.pendingCreate &&
+          (!policy?.enabled || invalid || (draft.step === 3 && !draft.consent)))
       }
-      onClick={() => void (draft.step === 3 ? submit() : next())}
+      onClick={() =>
+        void (draft.pendingCreate || draft.step === 3 ? submit() : next())
+      }
     >
       {actionLabel}
     </Button>
   )
-  if (policy && !policy.enabled) {
+  if (policy && !policy.enabled && !draft.pendingCreate) {
     return (
       <InvoiceError
         message={t(
@@ -290,7 +369,7 @@ export function NewInvoicePage(props: {
             <button
               type='button'
               key={label}
-              disabled={index + 1 > draft.step}
+              disabled={editingLocked || index + 1 > draft.step}
               onClick={() => setDraft({ ...draft, step: index + 1 })}
               aria-current={draft.step === index + 1 ? 'step' : undefined}
             >
@@ -301,10 +380,18 @@ export function NewInvoicePage(props: {
         )}
       </div>
       <InvoiceError error={op.error} />
+      {draft.pendingCreate && (
+        <p role='status' className='rounded-lg border p-3 text-sm'>
+          {t(
+            'Your submission result is not confirmed. Check the result before editing or submitting another request.'
+          )}
+        </p>
+      )}
       <div className='invoice-workspace'>
-        <div className='min-w-0'>
+        <fieldset disabled={editingLocked} className='min-w-0'>
           {draft.step === 1 && (
             <InvoiceOrderSelector
+              disabled={editingLocked}
               selected={draft.orders}
               onChange={(orders) =>
                 setDraft({ ...draft, orders, consent: false })
@@ -331,8 +418,11 @@ export function NewInvoicePage(props: {
                       const id = event.target.value
                       setProfileId(id)
                       if (id) {
-                        const profile = await op.run('load-profile', id, () =>
-                          getInvoiceProfile(id)
+                        const profile = await op.run(
+                          'load-profile',
+                          id,
+                          () => getInvoiceProfile(id),
+                          { invalidate: false }
                         )
                         if (profile) form.reset(profile)
                       }
@@ -351,7 +441,11 @@ export function NewInvoicePage(props: {
                   <NativeSelect
                     value={type}
                     onChange={(event) =>
-                      setDraft({ ...draft, invoiceType: event.target.value })
+                      setDraft({
+                        ...draft,
+                        invoiceType: event.target.value,
+                        consent: false,
+                      })
                     }
                   >
                     {availableTypes.map((option) => (
@@ -375,7 +469,11 @@ export function NewInvoicePage(props: {
                     maxLength={500}
                     value={draft.note}
                     onChange={(event) =>
-                      setDraft({ ...draft, note: event.target.value })
+                      setDraft({
+                        ...draft,
+                        note: event.target.value,
+                        consent: false,
+                      })
                     }
                   />
                 </label>
@@ -395,8 +493,10 @@ export function NewInvoicePage(props: {
                         'save-profile',
                         profile,
                         (key) => saveInvoiceProfile(profile, key),
-                        (error) => {
-                          applyInvoiceProfileErrors(form, error)
+                        {
+                          onError: (error) => {
+                            applyInvoiceProfileErrors(form, error)
+                          },
                         }
                       )
                       if (result) {
@@ -423,8 +523,10 @@ export function NewInvoicePage(props: {
                               { ...form.getValues(), id: profileId },
                               key
                             ),
-                          (error) => {
-                            applyInvoiceProfileErrors(form, error)
+                          {
+                            onError: (error) => {
+                              applyInvoiceProfileErrors(form, error)
+                            },
                           }
                         )
                         if (result) {
@@ -529,6 +631,7 @@ export function NewInvoicePage(props: {
                 <label className='mt-6 flex items-start gap-3 text-sm leading-relaxed'>
                   <Checkbox
                     className='mt-1'
+                    disabled={editingLocked}
                     checked={draft.consent}
                     onCheckedChange={(consent) =>
                       setDraft({ ...draft, consent })
@@ -541,7 +644,7 @@ export function NewInvoicePage(props: {
               </div>
             </section>
           )}
-        </div>
+        </fieldset>
         <aside className='invoice-panel invoice-summary'>
           <div className='invoice-panel-body'>
             <h2 className='text-sm font-medium'>{t('Request summary')}</h2>
@@ -569,6 +672,32 @@ export function NewInvoicePage(props: {
               <p>{t('Each selected payment is invoiced in full.')}</p>
               <p className='mt-2'>
                 {t(
+                  'Minimum per request: {{amount}}. Eligible payments can be combined.',
+                  {
+                    amount: minimumLabel,
+                  }
+                )}
+              </p>
+              {belowMinimum && !incompatible && (
+                <p
+                  className='mt-2 text-amber-700 dark:text-amber-300'
+                  role='status'
+                >
+                  {t(
+                    'Select {{amount}} more in eligible payments to continue.',
+                    {
+                      amount: formatInvoiceMoney(
+                        (minimum - totalMinor).toString(),
+                        'CNY',
+                        2,
+                        i18n.language
+                      ),
+                    }
+                  )}
+                </p>
+              )}
+              <p className='mt-2'>
+                {t(
                   'Approval starts invoice preparation. Delivery follows after issuance.'
                 )}
               </p>
@@ -590,6 +719,7 @@ export function NewInvoicePage(props: {
               <Button
                 variant='ghost'
                 className='mt-2 w-full'
+                disabled={editingLocked}
                 onClick={() => setDraft({ ...draft, step: draft.step - 1 })}
               >
                 {t('Previous step')}
@@ -608,10 +738,12 @@ export function NewInvoicePage(props: {
                     <span className='wrap-anywhere'>{order.order_no}</span>
                     <button
                       type='button'
-                      className='text-primary shrink-0 underline'
+                      className='text-primary shrink-0 underline disabled:cursor-not-allowed disabled:opacity-50'
+                      disabled={editingLocked}
                       onClick={() =>
                         setDraft({
                           ...draft,
+                          consent: false,
                           orders: draft.orders.filter(
                             (item) =>
                               invoiceOrderKey(item) !== invoiceOrderKey(order)
@@ -653,6 +785,7 @@ export function NewInvoicePage(props: {
             <Button
               variant='ghost'
               size='sm'
+              disabled={editingLocked}
               onClick={() => setDraft({ ...draft, step: draft.step - 1 })}
             >
               {t('Previous step')}

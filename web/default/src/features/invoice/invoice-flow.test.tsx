@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import * as invoiceApi from './api'
 import { InvoiceAdminActions } from './components/admin-actions'
+import { InvoiceProfiles } from './components/profiles'
 import { InvoiceUserActions } from './components/user-actions'
 import { DraftContext, type InvoiceDraft, freshInvoiceDraft } from './lib/draft'
 import { NewInvoicePage } from './new'
@@ -53,7 +54,7 @@ const order: InvoiceOrder = {
   order_no: 'MEM2026102201',
   paid_at: '2026-10-22T00:00:00Z',
   payment_label: 'Card',
-  amount_minor: '12000',
+  amount_minor: '22000',
   currency: 'CNY',
   currency_exponent: 2,
   eligible: true,
@@ -80,7 +81,7 @@ const invoice: InvoiceRequest = {
   seller_id: 'seller',
   seller_name: 'Example Seller',
   invoice_type: 'ordinary',
-  amount_minor: '12000',
+  amount_minor: '22000',
   currency: 'CNY',
   currency_exponent: 2,
   items_count: 1,
@@ -111,7 +112,7 @@ beforeEach(() => {
   vi.spyOn(invoiceApi, 'quoteInvoice').mockResolvedValue({
     items: [order],
     eligible: true,
-    amount_minor: '12000',
+    amount_minor: '22000',
     currency: 'CNY',
     merge_group_id: 'same_seller_cny',
     policy_version: 'v1',
@@ -140,6 +141,7 @@ function DraftHarness(props: {
   step: number
   required?: string[]
   orders?: InvoiceOrder[]
+  minimum?: string
 }) {
   const [draft, setDraft] = useState<InvoiceDraft>(() => ({
     ...freshInvoiceDraft(),
@@ -151,6 +153,7 @@ function DraftHarness(props: {
   }))
   const rules = {
     ...policy,
+    minimum_amount_minor: props.minimum,
     invoice_types: [
       { ...policy.invoice_types[0], required_fields: props.required || [] },
     ],
@@ -279,6 +282,76 @@ test('saved title updates carry the server version after creation and every upda
   expect(save.mock.calls[2][0]).toMatchObject({ id: 'profile_1', version: 2 })
 })
 
+test('a pending submission prevents a saved title read from changing the original draft', async () => {
+  const user = userEvent.setup()
+  const savedProfile = { ...profile, id: 'profile_1', title: 'Saved Company' }
+  vi.mocked(invoiceApi.getInvoiceProfiles).mockResolvedValue({
+    items: [savedProfile],
+    total: 1,
+    p: 1,
+    page_size: 100,
+  })
+  let finishProfile!: (value: InvoiceProfile) => void
+  vi.spyOn(invoiceApi, 'getInvoiceProfile').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finishProfile = resolve
+      })
+  )
+  function ProfilesHarness() {
+    const [draft, setDraft] = useState<InvoiceDraft>(() => ({
+      ...freshInvoiceDraft(),
+      orders: [order],
+      profile,
+      step: 3,
+    }))
+    return (
+      <DraftContext.Provider value={{ draft, setDraft, policy }}>
+        <button
+          type='button'
+          onClick={() =>
+            setDraft((previous) => ({
+              ...previous,
+              pendingCreate: {
+                key: previous.key,
+                input: {
+                  items: [
+                    {
+                      source_type: order.source_type,
+                      order_id: order.order_id,
+                    },
+                  ],
+                  profile,
+                  invoice_type: 'ordinary',
+                  policy_version: 'v1',
+                  note: '',
+                  user_confirmed: true,
+                },
+              },
+            }))
+          }
+        >
+          Simulate pending submission
+        </button>
+        <output aria-label='Draft title'>{draft.profile.title}</output>
+        <InvoiceProfiles policy={policy} />
+      </DraftContext.Provider>
+    )
+  }
+  renderWithClient(<ProfilesHarness />)
+  const useTitle = await screen.findByRole('button', { name: 'Use this title' })
+  await user.click(useTitle)
+  await user.click(
+    screen.getByRole('button', { name: 'Simulate pending submission' })
+  )
+  finishProfile(savedProfile)
+  await waitFor(() =>
+    expect(navigate).toHaveBeenCalledWith({ to: '/invoices/new' })
+  )
+  expect(screen.getByLabelText('Draft title')).toHaveTextContent(profile.title)
+  expect(useTitle).toBeDisabled()
+})
+
 test('policy required fields block review and identify the missing field', async () => {
   const user = userEvent.setup()
   renderWithClient(<DraftHarness step={2} required={['address']} />)
@@ -301,7 +374,7 @@ test('final submission rechecks changed payments before creating a request', asy
   vi.mocked(invoiceApi.quoteInvoice).mockResolvedValueOnce({
     items: [{ ...order, eligible: false, reason_codes: ['ORDER_CLAIMED'] }],
     eligible: false,
-    amount_minor: '12000',
+    amount_minor: '22000',
     currency: 'CNY',
     merge_group_id: 'same_seller_cny',
     policy_version: 'v1',
@@ -319,27 +392,51 @@ test('final submission rechecks changed payments before creating a request', asy
   ).toBeDisabled()
 })
 
-test('unknown create outcome retries with the same idempotency key and preserved input', async () => {
+test('a committed create with a lost response replays the exact input and key without quoting claimed orders', async () => {
   const user = userEvent.setup()
   const create = vi
     .spyOn(invoiceApi, 'createInvoice')
-    .mockRejectedValueOnce(new Error('Network disconnected'))
+    .mockRejectedValueOnce(new Error('Server committed; response disconnected'))
     .mockResolvedValueOnce(invoice)
+  vi.mocked(invoiceApi.quoteInvoice)
+    .mockResolvedValueOnce({
+      items: [order],
+      eligible: true,
+      amount_minor: '22000',
+      currency: 'CNY',
+      merge_group_id: 'same_seller_cny',
+      policy_version: 'v1',
+    })
+    .mockResolvedValueOnce({
+      items: [
+        {
+          ...order,
+          eligible: false,
+          reason_codes: ['ORDER_CLAIMED'],
+          claimed_request_public_id: invoice.public_id,
+        },
+      ],
+      eligible: false,
+      amount_minor: '0',
+      currency: '',
+      merge_group_id: '',
+      policy_version: 'v1',
+    })
   renderWithClient(<DraftHarness step={3} />)
   await user.click(
     screen.getAllByRole('button', { name: 'Submit invoice request' })[0]
   )
   await screen.findByRole('alert')
+  expect(
+    screen.getByRole('button', { name: 'Edit information' })
+  ).toBeDisabled()
   await user.click(
-    screen.getAllByRole('button', { name: 'Submit invoice request' })[0]
+    screen.getAllByRole('button', { name: 'Check submission result' })[0]
   )
   await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
   expect(create.mock.calls[0][1]).toBe(create.mock.calls[1][1])
-  expect(create.mock.calls[1][0]).toMatchObject({
-    items: [{ source_type: 'membership', order_id: 'member_1' }],
-    profile,
-  })
-  expect(invoiceApi.quoteInvoice).toHaveBeenCalledTimes(2)
+  expect(create.mock.calls[1][0]).toEqual(create.mock.calls[0][0])
+  expect(invoiceApi.quoteInvoice).toHaveBeenCalledTimes(1)
   await waitFor(() =>
     expect(navigate).toHaveBeenCalledWith({
       to: '/invoices/$invoiceId',
@@ -446,7 +543,7 @@ test('upload selection does not deliver until the admin explicitly confirms comp
         version: 8,
         attachment_id: 'attachment_1',
         invoice_no: 'FP-2026-1',
-        amount_minor: '12000',
+        amount_minor: '22000',
         currency: 'CNY',
       }),
       expect.any(String),
@@ -459,9 +556,9 @@ test('a changed quoted amount requires the user to review and confirm again', as
   const user = userEvent.setup()
   const create = vi.spyOn(invoiceApi, 'createInvoice')
   vi.mocked(invoiceApi.quoteInvoice).mockResolvedValueOnce({
-    items: [{ ...order, amount_minor: '11900' }],
+    items: [{ ...order, amount_minor: '21900' }],
     eligible: true,
-    amount_minor: '11900',
+    amount_minor: '21900',
     currency: 'CNY',
     merge_group_id: 'same_seller_cny',
     policy_version: 'v1',
@@ -578,4 +675,233 @@ test('server profile validation returns to the preserved form with a field error
   expect(screen.getByRole('textbox', { name: /Invoice title/ })).toHaveValue(
     'Example Company'
   )
+})
+
+test('pending quotes freeze order selection, removal, step changes and invoice input', async () => {
+  const user = userEvent.setup()
+  let finishQuote!: (
+    quote: Awaited<ReturnType<typeof invoiceApi.quoteInvoice>>
+  ) => void
+  let finishReview!: (
+    quote: Awaited<ReturnType<typeof invoiceApi.quoteInvoice>>
+  ) => void
+  vi.mocked(invoiceApi.quoteInvoice)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishQuote = resolve
+        })
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReview = resolve
+        })
+    )
+  renderWithClient(<DraftHarness step={1} />)
+  const checkbox = await screen.findByRole('checkbox', {
+    name: `Select order ${order.order_no}`,
+  })
+  await user.click(
+    screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
+  )
+  expect(checkbox).toHaveAttribute('aria-disabled', 'true')
+  await user.click(checkbox)
+  expect(checkbox).toBeChecked()
+  await user.click(screen.getByText('View selected orders'))
+  expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /1Select orders/ })).toBeDisabled()
+  finishQuote({
+    items: [order],
+    eligible: true,
+    amount_minor: '22000',
+    currency: 'CNY',
+    merge_group_id: 'same_seller_cny',
+    policy_version: 'v1',
+  })
+  expect(
+    await screen.findByRole('textbox', { name: /Invoice title/ })
+  ).toBeEnabled()
+  expect(screen.getAllByText('1 selected')).toHaveLength(2)
+  expect(invoiceApi.getInvoiceOrders).toHaveBeenCalledTimes(1)
+  expect(invoiceApi.getInvoiceProfiles).toHaveBeenCalledTimes(1)
+  await user.click(
+    screen.getAllByRole('button', { name: 'Next: review request' })[0]
+  )
+  expect(screen.getByRole('textbox', { name: /Invoice title/ })).toBeDisabled()
+  expect(
+    screen.getByRole('textbox', { name: 'Additional note' })
+  ).toBeDisabled()
+  expect(screen.getByRole('combobox', { name: 'Invoice type' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled()
+  expect(
+    screen.getAllByRole('button', { name: 'Previous step' })[0]
+  ).toBeDisabled()
+  finishReview({
+    items: [order],
+    eligible: true,
+    amount_minor: '22000',
+    currency: 'CNY',
+    merge_group_id: 'same_seller_cny',
+    policy_version: 'v1',
+  })
+  expect(
+    await screen.findByRole('button', { name: 'Edit information' })
+  ).toBeEnabled()
+})
+
+test.each([
+  { amount: '19999', enabled: false },
+  { amount: '20000', enabled: true },
+  { amount: '20001', enabled: true },
+  { amount: '24999', minimum: '25000', enabled: false },
+  { amount: '25000', minimum: '25000', enabled: true },
+  {
+    amount: '900719925474099299',
+    minimum: '900719925474099300',
+    enabled: false,
+  },
+])(
+  'minimum invoice amount gates the next step exactly: $amount / $minimum',
+  (scenario) => {
+    renderWithClient(
+      <DraftHarness
+        step={1}
+        minimum={scenario.minimum}
+        orders={[
+          {
+            ...order,
+            amount_minor: scenario.amount,
+          },
+        ]}
+      />
+    )
+    const button = screen.getAllByRole('button', {
+      name: 'Next: invoice information',
+    })[0]
+    if (scenario.enabled) expect(button).toBeEnabled()
+    else expect(button).toBeDisabled()
+  }
+)
+
+test('small eligible payments can be combined to exactly reach the minimum while claimed orders stay unavailable', async () => {
+  const user = userEvent.setup()
+  const second = {
+    ...order,
+    order_id: 'payment_2',
+    order_no: 'PAYMENT-2',
+    amount_minor: '8000',
+  }
+  vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
+    items: [
+      { ...order, amount_minor: '12000' },
+      second,
+      {
+        ...order,
+        order_id: 'claimed',
+        order_no: 'CLAIMED',
+        eligible: false,
+        reason_codes: ['ORDER_CLAIMED'],
+      },
+    ],
+    total: 3,
+    p: 1,
+    page_size: 20,
+  })
+  renderWithClient(<DraftHarness step={1} orders={[]} />)
+  await user.click(
+    await screen.findByRole('checkbox', {
+      name: `Select order ${order.order_no}`,
+    })
+  )
+  expect(
+    screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
+  ).toBeDisabled()
+  expect(
+    screen.getByText('Select CN¥80.00 more in eligible payments to continue.')
+  ).toBeVisible()
+  expect(
+    screen.queryByRole('checkbox', { name: 'Select order CLAIMED' })
+  ).not.toBeInTheDocument()
+  await user.click(
+    screen.getByRole('checkbox', { name: 'Select order PAYMENT-2' })
+  )
+  expect(
+    screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
+  ).toBeEnabled()
+  expect(
+    screen.queryByText(/more in eligible payments to continue/)
+  ).not.toBeInTheDocument()
+})
+
+test('requests below the minimum cannot submit or quote even from the final step', async () => {
+  const user = userEvent.setup()
+  const create = vi.spyOn(invoiceApi, 'createInvoice')
+  renderWithClient(
+    <DraftHarness step={3} orders={[{ ...order, amount_minor: '19999' }]} />
+  )
+  const submit = screen.getAllByRole('button', {
+    name: 'Submit invoice request',
+  })[0]
+  expect(submit).toBeDisabled()
+  await user.click(submit)
+  expect(create).not.toHaveBeenCalled()
+  expect(invoiceApi.quoteInvoice).not.toHaveBeenCalled()
+})
+
+test('a definitive validation refusal allows corrections and creates a fresh submission key', async () => {
+  const user = userEvent.setup()
+  const create = vi
+    .spyOn(invoiceApi, 'createInvoice')
+    .mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: {
+          code: 'VALIDATION_FAILED',
+          field_errors: { 'profile.email': 'INVALID_EMAIL' },
+        },
+      },
+    })
+    .mockResolvedValueOnce(invoice)
+  renderWithClient(<DraftHarness step={3} />)
+  await user.click(
+    screen.getAllByRole('button', { name: 'Submit invoice request' })[0]
+  )
+  const email = await screen.findByRole('textbox', { name: /Invoice email/ })
+  await user.clear(email)
+  await user.type(email, 'corrected@example.com')
+  await user.click(
+    screen.getAllByRole('button', { name: 'Next: review request' })[0]
+  )
+  await user.click(screen.getByRole('checkbox'))
+  await user.click(
+    screen.getAllByRole('button', { name: 'Submit invoice request' })[0]
+  )
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+  expect(create.mock.calls[1][1]).not.toBe(create.mock.calls[0][1])
+  expect(create.mock.calls[1][0].profile?.email).toBe('corrected@example.com')
+})
+
+test('a higher server minimum refreshes invoice policy and shows the business error behind an Axios code', async () => {
+  const user = userEvent.setup()
+  vi.spyOn(invoiceApi, 'createInvoice').mockRejectedValueOnce({
+    code: 'ERR_BAD_REQUEST',
+    response: {
+      status: 422,
+      data: { code: 'INVOICE_BELOW_MINIMUM' },
+    },
+  })
+  renderWithClient(<DraftHarness step={3} />)
+  const invalidate = vi.spyOn(clients[0], 'invalidateQueries')
+  await user.click(
+    screen.getAllByRole('button', { name: 'Submit invoice request' })[0]
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Add eligible payments to reach the minimum invoice amount.'
+  )
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['invoices'] })
+  expect(
+    screen.queryByRole('button', { name: 'Check submission result' })
+  ).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit information' })).toBeEnabled()
 })

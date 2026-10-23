@@ -30,6 +30,7 @@ export interface InvoicePolicy {
   enabled: boolean
   disabled_reason?: string
   policy_version: string
+  minimum_amount_minor?: string
   seller_id: string
   seller_name: string
   currencies: { currency: string; exponent: number }[]

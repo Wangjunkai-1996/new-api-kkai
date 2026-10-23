@@ -361,10 +361,8 @@ func validateInvoiceAttachment(content []byte) (string, error) {
 	if !bytes.HasSuffix(trimmed, []byte("%%EOF")) || bytes.Count(content, []byte(" obj")) > 100000 {
 		return "", invalid
 	}
-	for _, token := range []string{"/JavaScript", "/JS", "/Launch", "/EmbeddedFile", "/RichMedia", "/OpenAction", "/AA", "/Encrypt"} {
-		if bytes.Contains(content, []byte(token)) {
-			return "", invalid
-		}
+	if !invoicePDFNamesSafe(content) {
+		return "", invalid
 	}
 	start := bytes.LastIndex(content, []byte("startxref"))
 	if start < 0 {

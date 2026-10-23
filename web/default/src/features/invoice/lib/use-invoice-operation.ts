@@ -13,7 +13,10 @@ export function useInvoiceOperation() {
     operation: string,
     payload: unknown,
     action: (key: string) => Promise<T>,
-    onError?: (cause: unknown) => void
+    options?: {
+      onError?: (cause: unknown) => void
+      invalidate?: boolean
+    }
   ): Promise<T | undefined> {
     if (busyRef.current) return undefined
     const digest = operation + JSON.stringify(payload)
@@ -25,19 +28,23 @@ export function useInvoiceOperation() {
     try {
       const result = await action(key)
       keys.current.delete(digest)
-      await client.invalidateQueries({ queryKey: ['invoices'] })
+      if (options?.invalidate !== false) {
+        await client.invalidateQueries({ queryKey: ['invoices'] })
+      }
       return result
     } catch (cause) {
       setError(cause)
-      onError?.(cause)
+      options?.onError?.(cause)
       const code = getServerErrorSources(cause)
         .map((source) => source.code)
-        .find((value) => typeof value === 'string')
+        .find((value) => typeof value === 'string' && !value.startsWith('ERR_'))
       if (
         String(code).includes('CONFLICT') ||
         [
           'INVALID_STATE',
           'PAYMENT_CHANGED',
+          'INVOICE_BELOW_MINIMUM',
+          'POLICY_CHANGED',
           'DELIVERY_VERSION_CHANGED',
         ].includes(String(code))
       ) {

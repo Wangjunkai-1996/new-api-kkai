@@ -451,25 +451,40 @@ func (s InvoiceService) Notifications(ctx context.Context, scope InvoiceScope, f
 		return result, err
 	}
 	result.Total, result.UnreadCount = total, unread
+	if len(rows) == 0 {
+		return result, nil
+	}
+	db := s.database(ctx)
+	requestIDs := make([]int64, 0, len(rows))
+	eventIDs := make([]int64, 0, len(rows))
 	for _, e := range rows {
-		var request model.InvoiceRequest
-		if err := s.database(ctx).Where("id = ? AND tenant_id = ?", e.RequestID, scope.TenantID).First(&request).Error; err != nil {
-			return result, err
+		requestIDs = append(requestIDs, e.RequestID)
+		eventIDs = append(eventIDs, e.ID)
+	}
+	var requests []model.InvoiceRequest
+	if err := db.Select("id", "public_id").Where("tenant_id = ? AND id IN ?", scope.TenantID, requestIDs).Find(&requests).Error; err != nil {
+		return result, err
+	}
+	publicIDs := make(map[int64]string, len(requests))
+	for _, request := range requests {
+		publicIDs[request.ID] = request.PublicID
+	}
+	var reads []model.InvoiceEventRead
+	if err := db.Where("tenant_id = ? AND user_id = ? AND event_id IN ?", scope.TenantID, scope.UserID, eventIDs).Find(&reads).Error; err != nil {
+		return result, err
+	}
+	readAt := make(map[int64]string, len(reads))
+	for _, read := range reads {
+		readAt[read.EventID] = invoiceTime(read.ReadAt)
+	}
+	for _, e := range rows {
+		publicID, ok := publicIDs[e.RequestID]
+		if !ok {
+			return result, gorm.ErrRecordNotFound
 		}
-		dto, err := invoiceEventDTO(e, request)
-		if err != nil {
-			return result, err
-		}
-		dto.Description = ""
-		n := InvoiceNotification{InvoiceEventDTO: dto, RequestPublicID: request.PublicID}
-		var read model.InvoiceEventRead
-		err = s.database(ctx).Where("event_id = ? AND tenant_id = ? AND user_id = ?", e.ID, scope.TenantID, scope.UserID).First(&read).Error
-		if err == nil {
-			n.ReadAt = invoiceTime(read.ReadAt)
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return result, err
-		}
-		result.Items = append(result.Items, n)
+		// Notification summaries never expose or need to decrypt event descriptions.
+		dto := InvoiceEventDTO{ID: e.PublicID, Kind: e.Kind, Status: e.Status, ActorAdmin: e.ActorAdmin, DeliveryVersion: e.DeliveryVersion, CreatedAt: invoiceTime(e.CreatedAt)}
+		result.Items = append(result.Items, InvoiceNotification{InvoiceEventDTO: dto, RequestPublicID: publicID, ReadAt: readAt[e.ID]})
 	}
 	return result, nil
 }
@@ -486,21 +501,24 @@ func (s InvoiceService) ReadNotifications(ctx context.Context, scope InvoiceScop
 	}
 	if eventID != "" {
 		q = q.Where("public_id = ?", eventID)
+	} else {
+		reads := db.Model(&model.InvoiceEventRead{}).Select("event_id").Where("tenant_id = ? AND user_id = ?", scope.TenantID, scope.UserID)
+		q = q.Where("id NOT IN (?)", reads)
 	}
 	var rows []model.InvoiceEvent
-	if err := q.Find(&rows).Error; err != nil {
+	if err := q.Select("id").Find(&rows).Error; err != nil {
 		return err
 	}
 	if eventID != "" && len(rows) == 0 {
 		return gorm.ErrRecordNotFound
 	}
-	return db.Transaction(func(tx *gorm.DB) error {
-		for _, e := range rows {
-			r := model.InvoiceEventRead{TenantID: scope.TenantID, EventID: e.ID, UserID: scope.UserID, ReadAt: time.Now().Unix()}
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&r).Error; err != nil {
-				return err
-			}
-		}
+	if len(rows) == 0 {
 		return nil
-	})
+	}
+	reads := make([]model.InvoiceEventRead, 0, len(rows))
+	now := time.Now().Unix()
+	for _, e := range rows {
+		reads = append(reads, model.InvoiceEventRead{TenantID: scope.TenantID, EventID: e.ID, UserID: scope.UserID, ReadAt: now})
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(reads, 100).Error
 }

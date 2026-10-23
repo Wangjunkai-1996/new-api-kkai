@@ -202,7 +202,7 @@ export function InvoiceAdminActions(props: { invoice: InvoiceRequest }) {
           {dialog === 'resume' && (
             <p className='text-sm'>
               {t(
-                'Payment evidence will be checked again before the previous processing stage is restored.'
+                'Payment evidence, invoice information and policy compatibility will be checked again. Resuming adopts the current policy version and restores the previous processing stage.'
               )}
             </p>
           )}

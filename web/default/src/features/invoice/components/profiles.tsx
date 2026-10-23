@@ -38,7 +38,7 @@ import { InvoiceEmpty, InvoiceError } from './shared'
 export function InvoiceProfiles(props: { policy?: InvoicePolicy }) {
   const { t } = useTranslation()
   const userId = useAuthStore((state) => state.auth.user?.id)
-  const { setDraft } = useInvoiceDraft()
+  const { draft, setDraft } = useInvoiceDraft()
   const navigate = useNavigate()
   const profiles = useQuery({
     queryKey: [...invoiceKey(userId), 'profiles'],
@@ -50,8 +50,11 @@ export function InvoiceProfiles(props: { policy?: InvoicePolicy }) {
   const [removing, setRemoving] = useState<InvoiceProfile | null>(null)
   const op = useInvoiceOperation()
   async function edit(profile: InvoiceProfile) {
-    const result = await op.run('profile-read', profile.id, () =>
-      getInvoiceProfile(profile.id || '')
+    const result = await op.run(
+      'profile-read',
+      profile.id,
+      () => getInvoiceProfile(profile.id || ''),
+      { invalidate: false }
     )
     if (result) setEditing(result)
   }
@@ -96,18 +99,25 @@ export function InvoiceProfiles(props: { policy?: InvoicePolicy }) {
             <div className='mt-4 flex gap-2'>
               <Button
                 size='sm'
-                disabled={op.busy}
+                disabled={op.busy || !!draft.pendingCreate}
                 onClick={async () => {
-                  const value = await op.run('profile-read', profile.id, () =>
-                    getInvoiceProfile(profile.id || '')
+                  const value = await op.run(
+                    'profile-read',
+                    profile.id,
+                    () => getInvoiceProfile(profile.id || ''),
+                    { invalidate: false }
                   )
                   if (value) {
-                    setDraft((previous) => ({
-                      ...previous,
-                      profile: value,
-                      step: previous.orders.length ? 2 : 1,
-                      consent: false,
-                    }))
+                    setDraft((previous) =>
+                      previous.pendingCreate
+                        ? previous
+                        : {
+                            ...previous,
+                            profile: value,
+                            step: previous.orders.length ? 2 : 1,
+                            consent: false,
+                          }
+                    )
                     void navigate({ to: '/invoices/new' })
                   }
                 }}
@@ -227,8 +237,10 @@ function InvoiceProfileEditor(props: {
                   },
                   key
                 ),
-              (error) => {
-                applyInvoiceProfileErrors(form, error)
+              {
+                onError: (error) => {
+                  applyInvoiceProfileErrors(form, error)
+                },
               }
             )
             if (result) props.onClose()

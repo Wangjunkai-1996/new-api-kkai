@@ -206,6 +206,19 @@ function InvoiceWorkspaceContent() {
                   </p>
                   <p>
                     {t(
+                      'Minimum per request: {{amount}}. Eligible payments can be combined.',
+                      {
+                        amount: formatInvoiceMoney(
+                          policy.data?.minimum_amount_minor || '20000',
+                          'CNY',
+                          2,
+                          i18n.language
+                        ),
+                      }
+                    )}
+                  </p>
+                  <p>
+                    {t(
                       'Approval starts invoice preparation. Your invoice is available only after an administrator delivers the issued file.'
                     )}
                   </p>

@@ -24,6 +24,7 @@ export function InvoiceOrderSelector(props: {
   selected: InvoiceOrder[]
   onChange: (orders: InvoiceOrder[]) => void
   unavailable?: boolean
+  disabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const userId = useAuthStore((state) => state.auth.user?.id)
@@ -57,6 +58,7 @@ export function InvoiceOrderSelector(props: {
     selectedKeys.has(invoiceOrderKey(order))
   ).length
   function toggle(order: InvoiceOrder, checked: boolean) {
+    if (props.disabled) return
     if (checked) props.onChange([...props.selected, order])
     else {
       props.onChange(
@@ -106,11 +108,13 @@ export function InvoiceOrderSelector(props: {
         {!props.unavailable && !!pageOrders.length && (
           <label className='invoice-label text-muted-foreground border-t px-[18px] py-3'>
             <Checkbox
+              disabled={props.disabled}
               checked={checkedCount === pageOrders.length}
               indeterminate={
                 checkedCount > 0 && checkedCount < pageOrders.length
               }
               onCheckedChange={(checked) => {
+                if (props.disabled) return
                 const pageKeys = new Set(pageOrders.map(invoiceOrderKey))
                 const remaining = props.selected.filter(
                   (order) => !pageKeys.has(invoiceOrderKey(order))
@@ -173,8 +177,9 @@ export function InvoiceOrderSelector(props: {
                 })}
                 checked={selectedKeys.has(invoiceOrderKey(order))}
                 disabled={
-                  !selectedKeys.has(invoiceOrderKey(order)) &&
-                  props.selected.length >= maxOrders
+                  props.disabled ||
+                  (!selectedKeys.has(invoiceOrderKey(order)) &&
+                    props.selected.length >= maxOrders)
                 }
                 onCheckedChange={(checked) => toggle(order, checked)}
               />
@@ -264,6 +269,7 @@ export function InvoiceOrderSelector(props: {
               selected={props.selected}
               onChange={props.onChange}
               unavailable
+              disabled={props.disabled}
             />
           )}
         </>

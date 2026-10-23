@@ -208,7 +208,31 @@ func (s InvoiceService) candidateRowsFor(ctx context.Context, scope InvoiceScope
 		for _, r := range receipts {
 			if o.ReceiptKey != nil && r.ReceiptKey == *o.ReceiptKey {
 				primaryCount++
-				valid = valid && r.Provider == o.Provider && r.ReceiptID == o.ReceiptID && r.AmountMinor == o.ActualAmountMinor && r.Currency == o.ActualCurrency && r.OneTime && r.Status == model.MembershipOrderSuccess
+				verified := r.Status == model.MembershipOrderSuccess
+				if r.Status == "resolved" && o.ResolvedAt > 0 {
+					var grant, latest struct {
+						OperationID string `json:"operation_id"`
+						ActorID     int    `json:"actor_id"`
+						Action      string `json:"action"`
+						Reason      string `json:"reason"`
+						At          int64  `json:"at"`
+					}
+					verified = common.UnmarshalJsonStr(r.Resolution, &grant) == nil && grant.Action == "grant" && grant.ActorID > 0 && strings.TrimSpace(grant.OperationID) != "" && len(grant.OperationID) <= 128 && strings.TrimSpace(grant.Reason) != "" && len(grant.Reason) <= 2048 && grant.At > 0 && grant.At >= o.PaidAt
+					verified = verified && common.UnmarshalJsonStr(o.Resolution, &latest) == nil && latest.ActorID > 0 && strings.TrimSpace(latest.OperationID) != "" && len(latest.OperationID) <= 128 && strings.TrimSpace(latest.Reason) != "" && len(latest.Reason) <= 2048 && latest.At == o.ResolvedAt && latest.At >= grant.At
+					latestMatches := latest == grant
+					if verified && latest.Action == "dismiss" {
+						// A later review may dismiss an extra payment without replacing
+						// the primary receipt's immutable grant evidence.
+						for _, extra := range receipts {
+							if extra.OrderID == o.ID && extra.ReceiptKey != r.ReceiptKey && extra.Status == "resolved" && extra.Resolution == o.Resolution {
+								latestMatches = true
+								break
+							}
+						}
+					}
+					verified = verified && latestMatches
+				}
+				valid = valid && r.OrderID == o.ID && r.Provider == o.Provider && r.ReceiptID == o.ReceiptID && r.AmountMinor == o.ActualAmountMinor && r.Currency == o.ActualCurrency && r.OneTime && verified
 			} else if r.Status != "resolved" || strings.TrimSpace(r.Resolution) == "" {
 				valid = false
 			}

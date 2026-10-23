@@ -1,6 +1,11 @@
 import { createContext, useContext } from 'react'
 
-import type { InvoiceOrder, InvoicePolicy, InvoiceProfile } from '../types'
+import type {
+  InvoiceCreateInput,
+  InvoiceOrder,
+  InvoicePolicy,
+  InvoiceProfile,
+} from '../types'
 import { emptyInvoiceProfile } from './profile'
 
 export interface InvoiceDraft {
@@ -11,6 +16,7 @@ export interface InvoiceDraft {
   note: string
   consent: boolean
   key: string
+  pendingCreate?: { input: InvoiceCreateInput; key: string }
 }
 export const DraftContext = createContext<{
   draft: InvoiceDraft

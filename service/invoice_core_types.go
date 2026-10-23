@@ -52,19 +52,20 @@ type InvoiceCurrencyPolicy struct {
 	Exponent int    `json:"exponent"`
 }
 type InvoicePolicy struct {
-	Enabled        bool                    `json:"enabled"`
-	DisabledReason string                  `json:"disabled_reason,omitempty"`
-	PolicyVersion  string                  `json:"policy_version"`
-	SellerID       string                  `json:"seller_id"`
-	SellerName     string                  `json:"seller_name"`
-	TaxGroup       string                  `json:"tax_group"`
-	InvoiceTypes   []InvoiceTypePolicy     `json:"invoice_types"`
-	Currencies     []InvoiceCurrencyPolicy `json:"currencies"`
-	Sources        []string                `json:"sources"`
-	Providers      []string                `json:"providers"`
-	Timezone       string                  `json:"timezone"`
-	SLA            string                  `json:"sla,omitempty"`
-	Limits         map[string]int          `json:"limits"`
+	Enabled            bool                    `json:"enabled"`
+	DisabledReason     string                  `json:"disabled_reason,omitempty"`
+	PolicyVersion      string                  `json:"policy_version"`
+	MinimumAmountMinor string                  `json:"minimum_amount_minor"`
+	SellerID           string                  `json:"seller_id"`
+	SellerName         string                  `json:"seller_name"`
+	TaxGroup           string                  `json:"tax_group"`
+	InvoiceTypes       []InvoiceTypePolicy     `json:"invoice_types"`
+	Currencies         []InvoiceCurrencyPolicy `json:"currencies"`
+	Sources            []string                `json:"sources"`
+	Providers          []string                `json:"providers"`
+	Timezone           string                  `json:"timezone"`
+	SLA                string                  `json:"sla,omitempty"`
+	Limits             map[string]int          `json:"limits"`
 }
 type InvoiceOrderRef struct {
 	SourceType string `json:"source_type"`

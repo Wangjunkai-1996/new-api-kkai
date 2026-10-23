@@ -62,6 +62,14 @@ func (s InvoiceService) Create(ctx context.Context, scope InvoiceScope, key stri
 		if !quote.Eligible {
 			return invoiceError(409, "PAYMENT_CHANGED")
 		}
+		amount, err := strconv.ParseInt(quote.AmountMinor, 10, 64)
+		if err != nil {
+			return invoiceError(422, "INVOICE_METADATA_MISMATCH")
+		}
+		minimum, err := strconv.ParseInt(p.MinimumAmountMinor, 10, 64)
+		if err != nil || amount < minimum {
+			return invoiceError(422, "INVOICE_BELOW_MINIMUM")
+		}
 		profile := InvoiceProfileData{}
 		if input.ProfileID != "" {
 			var saved model.InvoiceProfile
@@ -83,7 +91,7 @@ func (s InvoiceService) Create(ctx context.Context, scope InvoiceScope, key stri
 		}
 		now := time.Now().Unix()
 		row := model.InvoiceRequest{PublicID: resultID, TenantID: scope.TenantID, UserID: scope.UserID, Status: model.InvoicePendingReview, Version: 1, PolicyVersion: p.PolicyVersion, SellerID: p.SellerID, SellerName: p.SellerName, TaxGroup: p.TaxGroup, ProfileID: input.ProfileID, InvoiceType: input.InvoiceType, Currency: quote.Currency, CurrencyExponent: 2, CreatedAt: now, UpdatedAt: now}
-		row.AmountMinor, _ = strconv.ParseInt(quote.AmountMinor, 10, 64)
+		row.AmountMinor = amount
 		row.ProfileCipher, err = invoiceEncrypt(invoiceAAD(scope.TenantID, scope.UserID, resultID, "profile"), profile)
 		if err != nil {
 			return err
@@ -203,14 +211,25 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 		now := time.Now().Unix()
 		oldVersion := row.Version
 		description := ""
+		reviewedPolicyVersion := row.PolicyVersion
 		attachmentID := int64(0)
-		if slices.Contains([]string{"approve", "deliver", "reissue"}, action) {
+		if slices.Contains([]string{"approve", "deliver", "reissue", "resume"}, action) {
 			p := s.Policy()
 			if !p.Enabled {
 				return invoiceError(403, p.DisabledReason)
 			}
-			if p.SellerID != row.SellerID || p.TaxGroup != row.TaxGroup || p.PolicyVersion != row.PolicyVersion {
+			if p.SellerID != row.SellerID || p.SellerName != row.SellerName || p.TaxGroup != row.TaxGroup || action != "resume" && p.PolicyVersion != row.PolicyVersion {
 				return invoiceError(409, "POLICY_CHANGED")
+			}
+			if action == "resume" {
+				var profile InvoiceProfileData
+				if err = invoiceDecrypt(invoiceAAD(row.TenantID, row.UserID, row.PublicID, "profile"), row.ProfileCipher, &profile); err != nil {
+					return err
+				}
+				if err = invoiceValidateProfile(&profile, p, row.InvoiceType); err != nil {
+					return err
+				}
+				reviewedPolicyVersion = p.PolicyVersion
 			}
 		}
 		if slices.Contains([]string{"approve", "deliver", "reissue", "resume"}, action) {
@@ -266,7 +285,11 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 				if !invoiceDescription(input.Reason) || !slices.Contains([]string{model.InvoicePendingReview, model.InvoiceApprovedForIssue, model.InvoiceDelivered, model.InvoiceConfirmed, model.InvoiceDisputed, model.InvoiceAwaitingReconfirmation}, row.HoldFromStatus) {
 					return invoiceError(400, "VALIDATION_FAILED")
 				}
-				description = input.Reason
+				if reviewedPolicyVersion != row.PolicyVersion {
+					description = "Policy reviewed: " + row.PolicyVersion + " -> " + reviewedPolicyVersion + ". "
+				}
+				description += input.Reason
+				row.PolicyVersion = reviewedPolicyVersion
 				row.Status = row.HoldFromStatus
 				row.HoldFromStatus = ""
 				row.ReasonCipher = ""
@@ -350,7 +373,7 @@ func (s InvoiceService) Mutate(ctx context.Context, scope InvoiceScope, id, acti
 		}
 		row.Version++
 		row.UpdatedAt = now
-		update := tx.Model(&model.InvoiceRequest{}).Where("id = ? AND version = ?", row.ID, oldVersion).Updates(map[string]any{"status": row.Status, "version": row.Version, "updated_at": now, "reason_cipher": row.ReasonCipher, "hold_from_status": row.HoldFromStatus, "reviewed_at": row.ReviewedAt, "confirmed_at": row.ConfirmedAt, "delivered_at": row.DeliveredAt, "current_delivery_version": row.CurrentDeliveryVersion, "active_dispute_id": row.ActiveDisputeID, "ever_delivered": row.EverDelivered, "issued_evidence": row.IssuedEvidence})
+		update := tx.Model(&model.InvoiceRequest{}).Where("id = ? AND version = ?", row.ID, oldVersion).Updates(map[string]any{"status": row.Status, "version": row.Version, "policy_version": row.PolicyVersion, "updated_at": now, "reason_cipher": row.ReasonCipher, "hold_from_status": row.HoldFromStatus, "reviewed_at": row.ReviewedAt, "confirmed_at": row.ConfirmedAt, "delivered_at": row.DeliveredAt, "current_delivery_version": row.CurrentDeliveryVersion, "active_dispute_id": row.ActiveDisputeID, "ever_delivered": row.EverDelivered, "issued_evidence": row.IssuedEvidence})
 		if update.Error != nil {
 			return update.Error
 		}
