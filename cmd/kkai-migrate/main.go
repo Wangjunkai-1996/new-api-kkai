@@ -66,8 +66,8 @@ func main() {
 	flag.StringVar(&requestTicket, "request-ticket", "", "independent v16 request ticket operation: plan/status are read-only; apply requires the installed root-controller proof")
 	flag.StringVar(&invoiceMigration, "invoice-migration", "", "independent v17 invoice operation: plan/status are read-only; apply requires the installed invoice-controller proof")
 	flag.StringVar(&invoiceControllerProof, "invoice-controller-proof", "", "fixed root invoice-controller proof mount for invoice apply")
-	flag.StringVar(&walletPaymentMigration, "wallet-payment-migration", "", "independent v18 wallet payment operation: plan/status are read-only; apply is unavailable in this compatibility release")
-	flag.StringVar(&walletPaymentControllerProof, "wallet-payment-controller-proof", "", "reserved root wallet payment controller proof mount; unavailable in this read-only compatibility release")
+	flag.StringVar(&walletPaymentMigration, "wallet-payment-migration", "", "independent v18 wallet payment operation: plan/status are read-only; apply requires the installed wallet payment controller proof")
+	flag.StringVar(&walletPaymentControllerProof, "wallet-payment-controller-proof", "", "fixed root wallet payment controller proof mount for wallet payment apply")
 	flag.Parse()
 	if tenantRuntime {
 		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
