@@ -581,6 +581,11 @@ export function NewInvoicePage(props: {
               </p>
             )}
             <div className='mt-5'>{action}</div>
+            {draft.orders.length === 0 && (
+              <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>
+                {t('Select at least one invoiceable order to continue.')}
+              </p>
+            )}
             {draft.step > 1 && (
               <Button
                 variant='ghost'

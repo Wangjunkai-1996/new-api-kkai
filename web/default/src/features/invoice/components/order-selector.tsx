@@ -34,6 +34,13 @@ export function InvoiceOrderSelector(props: {
     page_size: 20,
   })
   const [unavailable, setUnavailable] = useState(false)
+  const hasFilters = !!(
+    filters.q ||
+    filters.source_type ||
+    filters.currency ||
+    filters.from ||
+    filters.to
+  )
   const query = useQuery({
     queryKey: [...invoiceKey(userId), 'orders', filters, props.unavailable],
     queryFn: () =>
@@ -69,9 +76,13 @@ export function InvoiceOrderSelector(props: {
               : t('Select paid orders')}
           </h2>
           <p className='text-muted-foreground mt-1 text-xs'>
-            {t(
-              'Only verified cash payments are included. Each payment can be invoiced once.'
-            )}
+            {props.unavailable
+              ? t(
+                  'These orders cannot be selected. Review the reason shown for each order.'
+                )
+              : t(
+                  'Only verified cash payments are included. Each payment can be invoiced once.'
+                )}
           </p>
         </div>
         <div className='p-4'>
@@ -119,7 +130,34 @@ export function InvoiceOrderSelector(props: {
         )}
         {query.data?.items.length === 0 && (
           <div className='p-4'>
-            <InvoiceEmpty>{t('No orders match these filters.')}</InvoiceEmpty>
+            <InvoiceEmpty>
+              <p>
+                {hasFilters || props.unavailable
+                  ? t('No orders match these filters.')
+                  : t('No invoiceable orders yet.')}
+              </p>
+              {!props.unavailable && (
+                <>
+                  <p className='mx-auto mt-2 max-w-md text-xs leading-relaxed'>
+                    {t(
+                      'Select an invoiceable order to continue. If a paid order is missing, check its invoice eligibility below.'
+                    )}
+                  </p>
+                  {!unavailable && (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      className='mt-4 max-w-full whitespace-normal'
+                      onClick={() => setUnavailable(true)}
+                      aria-expanded={unavailable}
+                    >
+                      {t('View unavailable orders and reasons')}
+                    </Button>
+                  )}
+                </>
+              )}
+            </InvoiceEmpty>
           </div>
         )}
         {query.data?.items.map((order) => (

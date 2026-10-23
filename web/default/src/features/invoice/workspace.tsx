@@ -90,10 +90,12 @@ function InvoiceWorkspaceContent() {
                   <HugeiconsIcon icon={InformationCircleIcon} size={16} />
                   {t('Invoice guide')}
                 </Button>
-                <Button size='sm' render={<Link to='/invoices/new' />}>
-                  <HugeiconsIcon icon={AddInvoiceIcon} size={16} />
-                  {t('Apply for invoice')}
-                </Button>
+                {activeTab !== 'new' && (
+                  <Button size='sm' render={<Link to='/invoices/new' />}>
+                    <HugeiconsIcon icon={AddInvoiceIcon} size={16} />
+                    {t('Apply for invoice')}
+                  </Button>
+                )}
               </div>
             </header>
             <InvoiceError

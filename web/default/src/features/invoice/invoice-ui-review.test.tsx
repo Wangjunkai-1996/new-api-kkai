@@ -9,11 +9,30 @@ import { InvoiceFileButton } from './components/files'
 import { DraftContext, freshInvoiceDraft } from './lib/draft'
 import { InvoiceRecordRow, InvoiceRecords } from './records'
 import type { InvoiceAttachment, InvoiceRequest } from './types'
+import { InvoiceWorkspace } from './workspace'
+
+const location = vi.hoisted(() => ({
+  pathname: '/invoices/new',
+  search: {} as { tab?: string },
+}))
 
 vi.mock('@tanstack/react-router', async (original) => ({
   ...(await original<typeof import('@tanstack/react-router')>()),
   useNavigate: () => vi.fn(),
-  Link: (props: { children: React.ReactNode }) => <a>{props.children}</a>,
+  useLocation: (options: { select: (value: typeof location) => unknown }) =>
+    options.select(location),
+  useBlocker: () => {},
+  Outlet: () => null,
+  Link: (props: {
+    children: React.ReactNode
+    to: string
+    role?: React.AriaRole
+    ref?: React.Ref<HTMLAnchorElement>
+  }) => (
+    <a href={props.to} role={props.role} ref={props.ref}>
+      {props.children}
+    </a>
+  ),
 }))
 
 const file: InvoiceAttachment = {
@@ -183,6 +202,61 @@ test('invoice record pagination honors the requested page size', async () => {
     await screen.findByRole('button', { name: /INV-TEST-1/ })
   ).toBeVisible()
   expect(screen.queryByRole('navigation', { name: 'Pagination' })).toBeNull()
+  view.unmount()
+  client.clear()
+})
+
+test('the current application page has no duplicate apply button and other invoice pages retain the entry', async () => {
+  vi.spyOn(invoiceApi, 'getInvoicePolicy').mockResolvedValue({
+    enabled: true,
+    policy_version: 'v1',
+    seller_id: 'seller',
+    seller_name: 'Example Seller',
+    currencies: [{ currency: 'CNY', exponent: 2 }],
+    invoice_types: [],
+    timezone: 'Asia/Shanghai',
+    limits: { max_orders: 50, max_file_bytes: 1024 },
+  })
+  vi.spyOn(invoiceApi, 'getInvoiceSummary').mockResolvedValue({
+    eligible_count: 0,
+    totals: [],
+    processing_count: 0,
+    awaiting_confirmation_count: 0,
+    unread_count: 0,
+  })
+  vi.spyOn(invoiceApi, 'getInvoiceNotifications').mockResolvedValue({
+    items: [],
+    total: 0,
+    p: 1,
+    page_size: 20,
+    unread_count: 0,
+  })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  location.pathname = '/invoices/new'
+  location.search = {}
+  const view = render(
+    <QueryClientProvider client={client}>
+      <InvoiceWorkspace />
+    </QueryClientProvider>
+  )
+  expect(
+    screen.getByRole('link', { name: 'Apply for invoice' })
+  ).toHaveAttribute('href', '/invoices/new')
+  expect(
+    screen.queryByRole('button', { name: 'Apply for invoice' })
+  ).not.toBeInTheDocument()
+  location.pathname = '/invoices'
+  location.search = { tab: 'records' }
+  view.rerender(
+    <QueryClientProvider client={client}>
+      <InvoiceWorkspace />
+    </QueryClientProvider>
+  )
+  expect(
+    screen.getByRole('button', { name: 'Apply for invoice' })
+  ).toHaveAttribute('href', '/invoices/new')
   view.unmount()
   client.clear()
 })

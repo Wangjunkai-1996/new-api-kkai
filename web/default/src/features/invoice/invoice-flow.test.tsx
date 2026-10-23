@@ -136,11 +136,15 @@ function renderWithClient(element: React.ReactNode) {
     <QueryClientProvider client={client}>{element}</QueryClientProvider>
   )
 }
-function DraftHarness(props: { step: number; required?: string[] }) {
+function DraftHarness(props: {
+  step: number
+  required?: string[]
+  orders?: InvoiceOrder[]
+}) {
   const [draft, setDraft] = useState<InvoiceDraft>(() => ({
     ...freshInvoiceDraft(),
     step: props.step,
-    orders: [order],
+    orders: props.orders || [order],
     profile: { ...profile },
     invoiceType: 'ordinary',
     consent: props.step === 3,
@@ -157,6 +161,99 @@ function DraftHarness(props: { step: number; required?: string[] }) {
     </DraftContext.Provider>
   )
 }
+
+test('an empty application explains the disabled next step and opens unavailable order reasons', async () => {
+  const user = userEvent.setup()
+  vi.mocked(invoiceApi.getInvoiceOrders).mockImplementation(
+    async (filters) => ({
+      items:
+        filters.eligibility === 'unavailable'
+          ? [
+              {
+                ...order,
+                order_no: 'HISTORICAL-1',
+                eligible: false,
+                amount_minor: null,
+                reason_codes: ['PAYMENT_UNVERIFIED'],
+              },
+            ]
+          : [],
+      total: filters.eligibility === 'unavailable' ? 1 : 0,
+      p: 1,
+      page_size: 20,
+    })
+  )
+  renderWithClient(<DraftHarness step={1} orders={[]} />)
+  expect(await screen.findByText('No invoiceable orders yet.')).toBeVisible()
+  expect(
+    screen.getByText('Select at least one invoiceable order to continue.')
+  ).toBeVisible()
+  expect(
+    screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
+  ).toBeDisabled()
+  await user.click(
+    screen.getByRole('button', {
+      name: 'View unavailable orders and reasons',
+    })
+  )
+  expect(await screen.findByText('HISTORICAL-1')).toBeVisible()
+  expect(screen.getByText('Payment evidence needs verification')).toBeVisible()
+  expect(
+    screen.getByText(
+      'These orders cannot be selected. Review the reason shown for each order.'
+    )
+  ).toBeVisible()
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Why are some orders unavailable?' })
+  ).toHaveAttribute('aria-expanded', 'true')
+  expect(
+    screen.queryByRole('button', {
+      name: 'View unavailable orders and reasons',
+    })
+  ).not.toBeInTheDocument()
+  expect(invoiceApi.quoteInvoice).not.toHaveBeenCalled()
+})
+
+test('empty order results distinguish filtered results and reset to the unfiltered explanation', async () => {
+  const user = userEvent.setup()
+  vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
+    items: [],
+    total: 0,
+    p: 1,
+    page_size: 20,
+  })
+  renderWithClient(<DraftHarness step={1} orders={[]} />)
+  await screen.findByText('No invoiceable orders yet.')
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Order source' }),
+    'topup'
+  )
+  expect(
+    await screen.findByText('No orders match these filters.')
+  ).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Reset filters' }))
+  expect(await screen.findByText('No invoiceable orders yet.')).toBeVisible()
+  expect(
+    screen.queryByText('No orders match these filters.')
+  ).not.toBeInTheDocument()
+})
+
+test('selecting an invoiceable payment enables the next step and removes the empty selection explanation', async () => {
+  const user = userEvent.setup()
+  renderWithClient(<DraftHarness step={1} orders={[]} />)
+  await user.click(
+    await screen.findByRole('checkbox', {
+      name: `Select order ${order.order_no}`,
+    })
+  )
+  expect(
+    screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
+  ).toBeEnabled()
+  expect(
+    screen.queryByText('Select at least one invoiceable order to continue.')
+  ).not.toBeInTheDocument()
+})
 
 test('saved title updates carry the server version after creation and every update', async () => {
   const user = userEvent.setup()
