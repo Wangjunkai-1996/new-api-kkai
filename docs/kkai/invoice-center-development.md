@@ -60,7 +60,7 @@
 
 | 来源 | 可申请条件 | 不得替代的依据 |
 | --- | --- | --- |
-| `topup` 充值 | 成功、有效付款时间；签名回调产生的唯一verified `InvoicePaymentReceipt`与订单owner/tenant、渠道、实收最小单位及币种匹配；无退款/拒付/冲正、来源已开启 | `Amount`额度、`Money`浮点、`TopUp.PaidMinor/Currency`应付条款、手工补单或赠送额 |
+| `topup` 充值 | 成功、有效付款时间；签名回调或商户认证查单产生的唯一verified `InvoicePaymentReceipt`与订单owner/tenant、渠道、实收最小单位及币种匹配；无已登记退款/拒付/冲正、来源已开启 | `Amount`额度、`Money`浮点、`TopUp.PaidMinor/Currency`应付条款、手工补单或赠送额 |
 | `membership` 新会员 | 直接一次性付款；订单成功；唯一已核验主回执；Actual 金额/币种/渠道与订单条款一致；额外回执均已 resolved 且有财务处理记录；无未解决异常、退款/拒付 | 当前套餐价、权益剩余、会员是否到期；额外回执金额不计入开票 |
 | `legacy_subscription` 旧订阅 | 当前默认需人工核验；补齐可信持久付款证据、映射和规则后才能开启 | 浮点 `Money`、计划标价或成功状态 |
 | 旧订阅镜像 TopUp | 先映射同笔原付款，展示一次；证据不足需核验 | 把两个来源当两笔钱 |
@@ -101,7 +101,7 @@
 | `invoice_events` / `invoice_event_reads` | 追加式事件、状态前后/actor/关联版本及用户可见说明；已读按 event + reader 唯一，支持多管理员各自阅读。本期没有内部备注接口或输入；未来新增时必须采用独立存储和管理员受众，不得复用用户可见说明。 |
 | `invoice_profiles` | public ID、tenant/user、kind、加密字段、CAS version、soft-deleted 时间；列表脱敏。软删除不删除申请快照。 |
 | `invoice_operations` | tenant/actor/operation/幂等键唯一、规范 payload digest、结果引用/安全响应、完成时间；与业务事务原子提交，用于重放和冲突识别。 |
-| `invoice_payment_receipts` | 仅由核验通过的渠道签名回调在原付款锁内写入；tenant/user/TopUpID、provider、原交易身份SHA-256、实收最小单位/币种、核验状态及付款时间。TopUpID与回执摘要各自唯一；充值与会员同一回执还共享全局claim。新的不一致回执或同回执金额变化将状态置为exception并同事务暂停关联申请，不能因原回执重放恢复verified。无可信回调的历史订单及手工补单不自动回填；迟到真实签名回执精确匹配时才可补证。 |
+| `invoice_payment_receipts` | 由核验通过的渠道签名回调或商户认证查单在原付款锁内写入；tenant/user/TopUpID、provider、原交易身份SHA-256、实收最小单位/币种、核验状态及付款时间。TopUpID与回执摘要各自唯一；充值与会员同一回执还共享全局claim。新的不一致回执将状态置为exception并同事务暂停关联申请，不能因原回执重放恢复verified。历史订单不凭success或Money自动回填，可通过受控查单核验商户、原订单、渠道交易号、成功状态及精确金额后补证；缺失的实付快照仅取自平台证据，不重复充值。 |
 
 索引至少覆盖owner/tenant + created_at/id、管理员tenant + status/created_at/id、items的来源引用/订单号查询、claim唯一键、deliveries版本唯一键、事件/已读唯一键、operations唯一键及充值回执的TopUpID/receipt_key唯一键。固定长度规范付款key可使用稳定摘要，必须保留可核验的原身份映射，避免索引超长或截断碰撞；不允许因摘要碰撞合并付款。
 
@@ -145,6 +145,8 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 
 只读的quote查询不使用业务幂等键、不写账务状态。附件上传不改变 request version；以独立 upload operation key + 内容 hash 防止重放重复暂存，仍校验 request/purpose/actor。已读操作天然幂等，不需要业务 CAS。网络超时保留表单和 key，查询/replay 原操作，不能生成新 key 盲目新建。CAS 失败返回当前安全摘要，UI 刷新详情并保留尚未提交的输入。
 
+付款核验以原充值订单锁、TopUpID/渠道回执唯一约束天然幂等，不创建申请或业务operation；客户端重试不会重复充值或重置付款异常。`Idempotency-Key`不替代每次查单和事务内证据核验。
+
 ## 6. HTTP 合约
 
 ### 6.1 通用约定
@@ -166,6 +168,7 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 | `GET /invoices/summary` | 全历史可申请付款 count/按币种 totals，processing_count、awaiting_confirmation_count、unread_count；不受候选当前页影响，不用旧 TopUp 30天接口。 |
 | `GET /invoices/eligible-orders` | `eligibility=eligible|unavailable` 分别分页；q订单号、source_type、from/to按付款时间、currency；快捷预选也可用source_type+order_id精确定位；返回候选 DTO、不可用 reason/advice、merge group。filters 不改变已选内存状态。 |
 | `POST /invoices/quote` | 只读核对1–50个付款引用及可选invoice_type/policy_version；返回逐项资格/原因、merge_group_id、精确总额及当前policy。供快捷预选、下一步及提交前核对；不创建claim、不保证以后资格仍有效，不接受客户端金额。 |
+| `POST /invoices/payments/verify` | session-only、主站、用户限速；仅接收`{source_type:"topup",order_id}`。服务端向配置商户发起HTTPS查单，严格核验后在原订单锁内补齐历史付款证据，成功返回`{verified:true}`；不重复入账，不释放claim，不清除exception。凭据、原始响应和内部错误不返回前端。 |
 | `GET /invoices` | `group=all|processing|awaiting_confirmation|completed`、status、q（申请号/订单号）、from/to按申请时间、currency、source_type、分页。group 与 status 同时指定取交集。 |
 | `GET /invoices/:public_id` | 申请 DTO、完整本人抬头快照、订单、current_delivery、历史已交付版本、用户可见事件/异议、allowed_actions；不返回内部备注、key、未交付文件或原支付 payload。 |
 | `GET /invoice-profiles` | 本人未软删资料分页、脱敏摘要及 version。 |

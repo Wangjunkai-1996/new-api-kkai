@@ -46,6 +46,14 @@ func TestInvoiceHandlersRequireTrustedSessionHostAndAdmin(t *testing.T) {
 			InvoiceDetail(test.admin)(ctx)
 			assert.Equal(t, http.StatusForbidden, response.Code)
 			assert.Contains(t, response.Body.String(), test.code)
+			if test.name != "non-admin" {
+				verifyResponse := httptest.NewRecorder()
+				verifyContext, _ := gin.CreateTestContext(verifyResponse)
+				verifyContext.Request, verifyContext.Keys = ctx.Request, ctx.Keys
+				InvoiceVerifyPayment(verifyContext)
+				assert.Equal(t, http.StatusForbidden, verifyResponse.Code)
+				assert.Contains(t, verifyResponse.Body.String(), test.code)
+			}
 		})
 	}
 }

@@ -20,6 +20,7 @@ describe('invoice money and date contracts', () => {
       'CN¥9,007,199,254,740,993.12'
     )
     expect(formatInvoiceMoney('12345', 'JPY', 0, 'en-US')).toBe('¥12,345')
+    expect(formatInvoiceMoney('12345', '', 2, 'en-US')).toBe('123.45')
     expect(formatInvoiceMoney(null, 'CNY')).toBe('—')
   })
   it('normalizes existing project locales without crashing dates or money', () => {

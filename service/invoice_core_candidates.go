@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -55,6 +56,20 @@ func invoiceDateMatches(at int64, f InvoiceFilter) bool {
 		}
 	}
 	return true
+}
+
+// invoiceOrderDisplayMinor preserves historical order prices for display only.
+// These fields are never payment evidence or inputs to invoice eligibility.
+func invoiceOrderDisplayMinor(exact int64, legacy float64) *string {
+	if exact > 0 {
+		value := strconv.FormatInt(exact, 10)
+		return &value
+	}
+	if legacy <= 0 || math.IsNaN(legacy) || math.IsInf(legacy, 0) {
+		return nil
+	}
+	value := decimal.NewFromFloat(legacy).Shift(2).StringFixed(0)
+	return &value
 }
 
 // ponytail: merge one user's payment history in memory; use a SQL union projection if individual histories outgrow memory.
@@ -152,6 +167,7 @@ func (s InvoiceService) candidateRowsFor(ctx context.Context, scope InvoiceScope
 			continue
 		}
 		c := makeCandidate("topup", o.TradeNo, o.PaymentProvider, int64(o.Id), o.PaidMinor, o.CompleteTime, o.Currency)
+		c.OrderAmountMinor, c.OrderCurrency = invoiceOrderDisplayMinor(o.PaidMinor, o.Money), o.Currency
 		if o.Status != common.TopUpStatusSuccess {
 			c.ReasonCodes = append(c.ReasonCodes, "UNPAID")
 		}
@@ -163,6 +179,9 @@ func (s InvoiceService) candidateRowsFor(ctx context.Context, scope InvoiceScope
 		if !verified || o.CompleteTime <= 0 {
 			c.ReasonCodes = append(c.ReasonCodes, "PAYMENT_UNVERIFIED")
 			c.AmountMinor = nil
+			if o.Status == common.TopUpStatusSuccess && o.PaymentProvider == model.PaymentProviderEpay && o.PaidMinor >= 0 && (proof.ID == 0 || proof.Status == "verified") && (o.Currency == "" || o.Currency == "CNY") {
+				c.AllowedActions = []string{"verify_payment"}
+			}
 		} else {
 			c.amount, c.paidAt, c.PaidAt = proof.AmountMinor, proof.PaidAt, invoiceTime(proof.PaidAt)
 		}
@@ -192,6 +211,7 @@ func (s InvoiceService) candidateRowsFor(ctx context.Context, scope InvoiceScope
 	}
 	for _, o := range memberships {
 		c := makeCandidate("membership", o.TradeNo, o.ActualProvider, o.ID, o.ActualAmountMinor, o.PaidAt, o.ActualCurrency)
+		c.OrderAmountMinor, c.OrderCurrency = invoiceOrderDisplayMinor(o.AmountMinor, 0), o.Currency
 		if o.ReceiptKey != nil && *o.ReceiptKey != "" {
 			c.canonicalKey = invoiceHash("payment:receipt:v1:0:" + invoiceHash(*o.ReceiptKey))
 		}
@@ -246,6 +266,7 @@ func (s InvoiceService) candidateRowsFor(ctx context.Context, scope InvoiceScope
 	}
 	for _, o := range legacy {
 		c := makeCandidate("legacy_subscription", o.TradeNo, o.PaymentProvider, int64(o.Id), 0, o.CompleteTime, "")
+		c.OrderAmountMinor = invoiceOrderDisplayMinor(0, o.Money)
 		c.ReasonCodes = append(c.ReasonCodes, "PAYMENT_UNVERIFIED")
 		result = append(result, c)
 	}
@@ -291,6 +312,7 @@ func (s InvoiceService) candidateRowsFor(ctx context.Context, scope InvoiceScope
 		if id, ok := claimed[c.canonicalKey]; ok {
 			c.ReasonCodes = append(c.ReasonCodes, "ORDER_CLAIMED")
 			c.ClaimedRequestPublicID = requests[id]
+			c.AllowedActions = []string{}
 		}
 		c.Eligible = len(c.ReasonCodes) == 0
 		if c.Eligible {

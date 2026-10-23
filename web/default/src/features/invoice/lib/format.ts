@@ -59,8 +59,8 @@ export function formatInvoiceMoney(
   const integer = absolute / scale
   const fraction = (absolute % scale).toString().padStart(exponent, '0')
   const pieces = new Intl.NumberFormat(invoiceLocale(locale), {
-    style: 'currency',
-    currency,
+    style: currency ? 'currency' : 'decimal',
+    currency: currency || undefined,
     minimumFractionDigits: exponent,
     maximumFractionDigits: exponent,
   }).formatToParts(integer)

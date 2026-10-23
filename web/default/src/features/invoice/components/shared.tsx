@@ -70,6 +70,24 @@ export function InvoiceError(props: {
   if (code === 'INVOICE_BELOW_MINIMUM') {
     message = t('Add eligible payments to reach the minimum invoice amount.')
   }
+  if (code === 'PAYMENT_VERIFICATION_UNAVAILABLE') {
+    message = t(
+      'Payment verification is temporarily unavailable. Try again later.'
+    )
+  }
+  if (code === 'PAYMENT_VERIFICATION_FAILED') {
+    message = t(
+      'This payment could not be verified. Check its payment status and try again, or contact support.'
+    )
+  }
+  if (code === 'PAYMENT_EXCEPTION') {
+    message = t('This payment needs manual review. Contact support.')
+  }
+  if (code === 'NOT_FOUND') {
+    message = t(
+      'The requested record is no longer available. Refresh and try again.'
+    )
+  }
   if (
     [
       'SCHEMA_NOT_READY',

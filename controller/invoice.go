@@ -120,6 +120,23 @@ func InvoiceQuote(c *gin.Context) {
 	common.ApiSuccess(c, result)
 }
 
+func InvoiceVerifyPayment(c *gin.Context) {
+	scope, ok := invoiceScope(c, false)
+	if !ok {
+		return
+	}
+	var input service.InvoiceOrderRef
+	if !invoiceDecode(c, &input) {
+		return
+	}
+	if err := (service.InvoiceService{DB: model.DB}).VerifyPayment(c.Request.Context(), scope, input); err != nil {
+		invoiceHTTPError(c, err)
+		return
+	}
+	model.RecordOperationAuditLog(scope.UserID, c.GetInt("role"), "Invoice payment verified against merchant gateway", c.ClientIP(), "invoice.payment.verify", map[string]any{"source_type": input.SourceType, "order_id": input.OrderID}, nil, nil, c)
+	common.ApiSuccess(c, gin.H{"verified": true})
+}
+
 func InvoiceCreate(c *gin.Context) {
 	scope, ok := invoiceScope(c, false)
 	if !ok {

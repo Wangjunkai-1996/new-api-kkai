@@ -16,6 +16,7 @@ func TestInvoiceFinancialRoutesRequireAuthentication(t *testing.T) {
 	for _, endpoint := range []struct{ method, path string }{
 		{"GET", "/api/invoices/policy"}, {"GET", "/api/invoices"}, {"POST", "/api/invoices"},
 		{"POST", "/api/invoices/quote"}, {"GET", "/api/invoices/summary"}, {"GET", "/api/invoices/eligible-orders"},
+		{"POST", "/api/invoices/payments/verify"},
 		{"GET", "/api/invoices/notifications"}, {"POST", "/api/invoices/notifications/read-all"}, {"POST", "/api/invoices/notifications/event/read"},
 		{"GET", "/api/invoices/private"}, {"GET", "/api/invoices/private/files/file"}, {"POST", "/api/invoices/private/attachments"},
 		{"POST", "/api/invoices/private/confirm"}, {"POST", "/api/invoices/private/disputes"}, {"POST", "/api/invoices/private/disputes/dispute/messages"},

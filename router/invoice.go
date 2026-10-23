@@ -18,6 +18,7 @@ func registerInvoiceRoutes(api *gin.RouterGroup) {
 	user.GET("/summary", controller.InvoiceSummary(false))
 	user.GET("/eligible-orders", controller.InvoiceCandidates)
 	user.POST("/quote", controller.InvoiceQuote)
+	user.POST("/payments/verify", middleware.UserCriticalRateLimit("invoice-payment-verify"), controller.InvoiceVerifyPayment)
 	user.POST("", middleware.UserCriticalRateLimit("invoice-create"), controller.InvoiceCreate)
 	user.GET("/notifications", controller.InvoiceNotifications(false))
 	user.POST("/notifications/read-all", controller.InvoiceReadNotifications(false))

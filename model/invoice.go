@@ -171,7 +171,7 @@ type InvoiceProfile struct {
 	UpdatedAt  int64  `gorm:"not null;autoUpdateTime:false"`
 }
 
-// InvoicePaymentReceipt is created only from an authenticated provider callback,
+// InvoicePaymentReceipt is created only from an authenticated provider callback or merchant query,
 // never checkout estimates or administrator completion. ReceiptKey hashes the
 // provider transaction identity so the same payment cannot fund two orders.
 type InvoicePaymentReceipt struct {

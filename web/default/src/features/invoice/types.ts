@@ -50,6 +50,8 @@ export interface InvoiceOrder extends InvoiceOrderRef {
   amount_minor: string | null
   currency: string
   currency_exponent: number
+  order_amount_minor?: string | null
+  order_currency?: string
   eligible: boolean
   reason_codes: string[]
   merge_group_id: string

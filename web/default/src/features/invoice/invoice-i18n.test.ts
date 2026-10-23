@@ -5,6 +5,14 @@ import { expect, test } from 'vitest'
 
 test('invoice minimum and submission recovery copy is translated in every supported locale', () => {
   const keys = [
+    'Verify payment',
+    'Payment verified',
+    'Payment verification is temporarily unavailable. Try again later.',
+    'This payment could not be verified. Check its payment status and try again, or contact support.',
+    'This payment needs manual review. Contact support.',
+    'The requested record is no longer available. Refresh and try again.',
+    'Order amount',
+    'Order amount unavailable',
     'Minimum per request: {{amount}}. Eligible payments can be combined.',
     'Select {{amount}} more in eligible payments to continue.',
     'Add eligible payments to reach the minimum invoice amount.',

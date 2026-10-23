@@ -1,7 +1,12 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
@@ -165,58 +170,262 @@ function DraftHarness(props: {
   )
 }
 
-test('an empty application explains the disabled next step and opens unavailable order reasons', async () => {
+test.each([
+  { amount: '33000', currency: 'CNY', expected: 'CN¥330.00' },
+  {
+    amount: '33000',
+    currency: 'USD',
+    actualCurrency: 'CNY',
+    expected: '$330.00',
+  },
+  { amount: '33000', currency: '', actualCurrency: 'CNY', expected: '330.00' },
+  { amount: null, currency: '', expected: 'Order amount unavailable' },
+])(
+  'unavailable order amount $amount / $currency stays visible without becoming invoiceable',
+  async (scenario) => {
+    const user = userEvent.setup()
+    vi.mocked(invoiceApi.getInvoiceOrders).mockImplementation(
+      async (filters) => ({
+        items:
+          filters.eligibility === 'unavailable'
+            ? [
+                {
+                  ...order,
+                  order_no: 'HISTORICAL-1',
+                  eligible: false,
+                  amount_minor: null,
+                  currency: scenario.actualCurrency || '',
+                  order_amount_minor: scenario.amount,
+                  order_currency: scenario.currency,
+                  reason_codes: ['PAYMENT_UNVERIFIED'],
+                },
+              ]
+            : [],
+        total: filters.eligibility === 'unavailable' ? 1 : 0,
+        p: 1,
+        page_size: 20,
+      })
+    )
+    renderWithClient(<DraftHarness step={1} orders={[]} />)
+    expect(await screen.findByText('No invoiceable orders yet.')).toBeVisible()
+    expect(
+      screen.getByText('Select at least one invoiceable order to continue.')
+    ).toBeVisible()
+    expect(
+      screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
+    ).toBeDisabled()
+    await user.click(
+      screen.getByRole('button', {
+        name: 'View unavailable orders and reasons',
+      })
+    )
+    expect(await screen.findByText('HISTORICAL-1')).toBeVisible()
+    expect(screen.getByText(scenario.expected)).toBeVisible()
+    if (scenario.amount != null) {
+      expect(screen.getByText('Order amount')).toBeVisible()
+    }
+    if (!scenario.currency) {
+      expect(screen.getByText('Unknown currency')).toBeVisible()
+    } else {
+      expect(
+        screen.getByText(scenario.currency, { selector: 'span' })
+      ).toBeVisible()
+    }
+    if (
+      scenario.actualCurrency &&
+      scenario.actualCurrency !== scenario.currency
+    ) {
+      expect(
+        screen.queryByText(scenario.actualCurrency, { selector: 'span' })
+      ).not.toBeInTheDocument()
+    }
+    expect(
+      screen.getByText('Payment evidence needs verification')
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        'These orders cannot be selected. Review the reason shown for each order.'
+      )
+    ).toBeVisible()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Verify payment' })
+    ).not.toBeInTheDocument()
+    const next = screen.getAllByRole('button', {
+      name: 'Next: invoice information',
+    })[0]
+    expect(next).toBeDisabled()
+    await user.click(next)
+    expect(
+      screen.getByRole('button', { name: 'Why are some orders unavailable?' })
+    ).toHaveAttribute('aria-expanded', 'true')
+    expect(
+      screen.queryByRole('button', {
+        name: 'View unavailable orders and reasons',
+      })
+    ).not.toBeInTheDocument()
+    expect(invoiceApi.quoteInvoice).not.toHaveBeenCalled()
+  }
+)
+
+test('payment verification refreshes unavailable orders and summary once and preserves the invoice minimum', async () => {
   const user = userEvent.setup()
-  vi.mocked(invoiceApi.getInvoiceOrders).mockImplementation(
-    async (filters) => ({
-      items:
-        filters.eligibility === 'unavailable'
-          ? [
-              {
-                ...order,
-                order_no: 'HISTORICAL-1',
-                eligible: false,
-                amount_minor: null,
-                reason_codes: ['PAYMENT_UNVERIFIED'],
-              },
-            ]
-          : [],
-      total: filters.eligibility === 'unavailable' ? 1 : 0,
-      p: 1,
-      page_size: 20,
+  const payment = {
+    ...order,
+    source_type: 'topup',
+    amount_minor: '12000',
+  }
+  let verified = false
+  let finishVerification!: (value: { verified: boolean }) => void
+  const verify = vi
+    .spyOn(invoiceApi, 'verifyInvoicePayment')
+    .mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishVerification = resolve
+        })
+    )
+  const success = vi
+    .spyOn(toast, 'success')
+    .mockReturnValue('verification-toast')
+  vi.mocked(invoiceApi.getInvoiceOrders).mockImplementation(async (filters) => {
+    let items: InvoiceOrder[] = verified ? [payment] : []
+    if (filters.eligibility === 'unavailable') {
+      items = verified
+        ? []
+        : [
+            {
+              ...payment,
+              amount_minor: null,
+              eligible: false,
+              allowed_actions: ['verify_payment'],
+              reason_codes: ['PAYMENT_UNVERIFIED'],
+            },
+          ]
+    }
+    return { items, total: items.length, p: 1, page_size: 20 }
+  })
+  const summary = vi
+    .spyOn(invoiceApi, 'getInvoiceSummary')
+    .mockImplementation(async () => ({
+      eligible_count: Number(verified),
+      totals: [],
+      processing_count: 0,
+      awaiting_confirmation_count: 0,
+      unread_count: 0,
+    }))
+  function SummaryObserver() {
+    const query = useQuery({
+      queryKey: [...invoiceApi.invoiceKey(42), 'summary'],
+      queryFn: invoiceApi.getInvoiceSummary,
+    })
+    return (
+      <output aria-label='Verified payment count'>
+        {query.data?.eligible_count}
+      </output>
+    )
+  }
+  renderWithClient(
+    <>
+      <DraftHarness step={1} orders={[]} />
+      <SummaryObserver />
+    </>
+  )
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'View unavailable orders and reasons',
     })
   )
-  renderWithClient(<DraftHarness step={1} orders={[]} />)
-  expect(await screen.findByText('No invoiceable orders yet.')).toBeVisible()
+  const button = await screen.findByRole('button', { name: 'Verify payment' })
+  await user.dblClick(button)
+  expect(verify).toHaveBeenCalledExactlyOnceWith(
+    { source_type: 'topup', order_id: order.order_id },
+    expect.any(String)
+  )
+  expect(button).toBeDisabled()
+  verified = true
+  finishVerification({ verified: true })
+  const selectable = await screen.findByRole('checkbox', {
+    name: `Select order ${order.order_no}`,
+  })
   expect(
-    screen.getByText('Select at least one invoiceable order to continue.')
-  ).toBeVisible()
+    screen.queryByRole('button', { name: 'Verify payment' })
+  ).not.toBeInTheDocument()
+  await waitFor(() =>
+    expect(screen.getByLabelText('Verified payment count')).toHaveTextContent(
+      '1'
+    )
+  )
+  expect(summary).toHaveBeenCalledTimes(2)
+  expect(success).toHaveBeenCalledWith('Payment verified')
+  await user.click(selectable)
   expect(
     screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
   ).toBeDisabled()
-  await user.click(
-    screen.getByRole('button', {
-      name: 'View unavailable orders and reasons',
-    })
-  )
-  expect(await screen.findByText('HISTORICAL-1')).toBeVisible()
-  expect(screen.getByText('Payment evidence needs verification')).toBeVisible()
-  expect(
-    screen.getByText(
-      'These orders cannot be selected. Review the reason shown for each order.'
-    )
-  ).toBeVisible()
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
-  expect(
-    screen.getByRole('button', { name: 'Why are some orders unavailable?' })
-  ).toHaveAttribute('aria-expanded', 'true')
-  expect(
-    screen.queryByRole('button', {
-      name: 'View unavailable orders and reasons',
-    })
-  ).not.toBeInTheDocument()
   expect(invoiceApi.quoteInvoice).not.toHaveBeenCalled()
 })
+
+test.each([
+  {
+    code: 'PAYMENT_VERIFICATION_UNAVAILABLE',
+    message:
+      'Payment verification is temporarily unavailable. Try again later.',
+  },
+  {
+    code: 'PAYMENT_VERIFICATION_FAILED',
+    message:
+      'This payment could not be verified. Check its payment status and try again, or contact support.',
+  },
+  {
+    code: 'PAYMENT_EXCEPTION',
+    message: 'This payment needs manual review. Contact support.',
+  },
+  {
+    code: 'NOT_FOUND',
+    message:
+      'The requested record is no longer available. Refresh and try again.',
+  },
+])(
+  'payment verification $code preserves an unavailable order and safely allows retry',
+  async (scenario) => {
+    const user = userEvent.setup()
+    const verify = vi
+      .spyOn(invoiceApi, 'verifyInvoicePayment')
+      .mockRejectedValue({
+        code: 'ERR_BAD_REQUEST',
+        response: {
+          status: 422,
+          data: { code: scenario.code, message: 'sensitive provider response' },
+        },
+      })
+    vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
+      items: [
+        {
+          ...order,
+          source_type: 'topup',
+          eligible: false,
+          amount_minor: null,
+          reason_codes: ['PAYMENT_UNVERIFIED'],
+          allowed_actions: ['verify_payment'],
+        },
+      ],
+      total: 1,
+      p: 1,
+      page_size: 20,
+    })
+    renderWithClient(<DraftHarness step={1} orders={[]} />)
+    const button = await screen.findByRole('button', { name: 'Verify payment' })
+    await user.click(button)
+    expect(await screen.findByRole('alert')).toHaveTextContent(scenario.message)
+    expect(
+      screen.queryByText('sensitive provider response')
+    ).not.toBeInTheDocument()
+    expect(button).toBeEnabled()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    await user.click(button)
+    await waitFor(() => expect(verify).toHaveBeenCalledTimes(2))
+  }
+)
 
 test('empty order results distinguish filtered results and reset to the unfiltered explanation', async () => {
   const user = userEvent.setup()

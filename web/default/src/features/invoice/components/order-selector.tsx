@@ -2,13 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getInvoiceOrders, invoiceKey } from '../api'
+import { getInvoiceOrders, invoiceKey, verifyInvoicePayment } from '../api'
 import { useInvoiceDraft } from '../lib/draft'
 import {
   formatInvoiceMoney,
@@ -16,6 +17,7 @@ import {
   invoiceOrderKey,
   reasonKeys,
 } from '../lib/format'
+import { useInvoiceOperation } from '../lib/use-invoice-operation'
 import type { InvoiceFilters, InvoiceOrder } from '../types'
 import { InvoiceFiltersBar } from './filters'
 import { InvoiceEmpty, InvoiceError, InvoicePagination } from './shared'
@@ -35,6 +37,8 @@ export function InvoiceOrderSelector(props: {
     page_size: 20,
   })
   const [unavailable, setUnavailable] = useState(false)
+  const op = useInvoiceOperation()
+  const disabled = props.disabled || op.busy
   const hasFilters = !!(
     filters.q ||
     filters.source_type ||
@@ -58,7 +62,7 @@ export function InvoiceOrderSelector(props: {
     selectedKeys.has(invoiceOrderKey(order))
   ).length
   function toggle(order: InvoiceOrder, checked: boolean) {
-    if (props.disabled) return
+    if (disabled) return
     if (checked) props.onChange([...props.selected, order])
     else {
       props.onChange(
@@ -96,8 +100,8 @@ export function InvoiceOrderSelector(props: {
           />
         </div>
         <InvoiceError
-          error={query.error}
-          onRetry={() => void query.refetch()}
+          error={query.error || op.error}
+          onRetry={query.isError ? () => void query.refetch() : undefined}
         />
         {query.isPending && (
           <div className='space-y-3 p-4'>
@@ -108,13 +112,13 @@ export function InvoiceOrderSelector(props: {
         {!props.unavailable && !!pageOrders.length && (
           <label className='invoice-label text-muted-foreground border-t px-[18px] py-3'>
             <Checkbox
-              disabled={props.disabled}
+              disabled={disabled}
               checked={checkedCount === pageOrders.length}
               indeterminate={
                 checkedCount > 0 && checkedCount < pageOrders.length
               }
               onCheckedChange={(checked) => {
-                if (props.disabled) return
+                if (disabled) return
                 const pageKeys = new Set(pageOrders.map(invoiceOrderKey))
                 const remaining = props.selected.filter(
                   (order) => !pageKeys.has(invoiceOrderKey(order))
@@ -164,88 +168,120 @@ export function InvoiceOrderSelector(props: {
             </InvoiceEmpty>
           </div>
         )}
-        {query.data?.items.map((order) => (
-          <div
-            key={invoiceOrderKey(order)}
-            className='invoice-order'
-            data-selected={selectedKeys.has(invoiceOrderKey(order))}
-          >
-            {order.eligible && !props.unavailable ? (
-              <Checkbox
-                aria-label={t('Select order {{order}}', {
-                  order: order.order_no,
-                })}
-                checked={selectedKeys.has(invoiceOrderKey(order))}
-                disabled={
-                  props.disabled ||
-                  (!selectedKeys.has(invoiceOrderKey(order)) &&
-                    props.selected.length >= maxOrders)
-                }
-                onCheckedChange={(checked) => toggle(order, checked)}
-              />
-            ) : (
-              <span
-                aria-hidden='true'
-                className='text-muted-foreground text-center'
-              >
-                —
-              </span>
-            )}
-            <div className='min-w-0'>
-              <p className='flex flex-wrap items-center gap-2 text-[13px] font-medium'>
-                <span>
-                  {order.source_type === 'topup'
-                    ? t('Top-up')
-                    : t('Subscription payment')}
-                </span>
-                <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs font-normal'>
-                  {order.currency || t('Unknown currency')}
-                </span>
-              </p>
-              <p className='text-muted-foreground mt-1 text-xs wrap-anywhere'>
-                {order.order_no}
-              </p>
-              <p className='text-muted-foreground mt-1 text-xs'>
-                {invoiceDate(order.paid_at, i18n.language)} ·{' '}
-                {order.payment_label}
-              </p>
-              {order.reason_codes?.map((code) => (
-                <p
-                  key={code}
-                  className='mt-1 text-xs text-amber-700 dark:text-amber-300'
-                >
-                  {t(reasonKeys[code] || 'Payment evidence needs verification')}
-                </p>
-              ))}
-              {order.claimed_request_public_id && (
-                <Link
-                  to='/invoices/$invoiceId'
-                  params={{ invoiceId: order.claimed_request_public_id }}
-                  className='text-primary mt-1 inline-block text-xs underline'
-                >
-                  {t('View request')}
-                </Link>
+        {query.data?.items.map((order) => {
+          const verifiedAmount = order.amount_minor != null
+          const amount = order.amount_minor ?? order.order_amount_minor
+          const currency = verifiedAmount
+            ? order.currency
+            : order.order_currency || ''
+          return (
+            <div
+              key={invoiceOrderKey(order)}
+              className='invoice-order'
+              data-selected={selectedKeys.has(invoiceOrderKey(order))}
+            >
+              {order.eligible && !props.unavailable ? (
+                <Checkbox
+                  aria-label={t('Select order {{order}}', {
+                    order: order.order_no,
+                  })}
+                  checked={selectedKeys.has(invoiceOrderKey(order))}
+                  disabled={
+                    disabled ||
+                    (!selectedKeys.has(invoiceOrderKey(order)) &&
+                      props.selected.length >= maxOrders)
+                  }
+                  onCheckedChange={(checked) => toggle(order, checked)}
+                />
+              ) : (
+                <span aria-hidden='true' />
               )}
-            </div>
-            <div className='text-right'>
-              <p className='text-sm font-medium whitespace-nowrap tabular-nums'>
-                {order.amount_minor === null
-                  ? t('Needs verification')
-                  : formatInvoiceMoney(
-                      order.amount_minor,
-                      order.currency,
-                      order.currency_exponent,
-                      i18n.language
+              <div className='min-w-0'>
+                <p className='flex flex-wrap items-center gap-2 text-[13px] font-medium'>
+                  <span>
+                    {order.source_type === 'topup'
+                      ? t('Top-up')
+                      : t('Subscription payment')}
+                  </span>
+                  <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs font-normal'>
+                    {currency || t('Unknown currency')}
+                  </span>
+                </p>
+                <p className='text-muted-foreground mt-1 text-xs wrap-anywhere'>
+                  {order.order_no}
+                </p>
+                <p className='text-muted-foreground mt-1 text-xs'>
+                  {invoiceDate(order.paid_at, i18n.language)} ·{' '}
+                  {order.payment_label}
+                </p>
+                {order.reason_codes?.map((code) => (
+                  <p
+                    key={code}
+                    className='mt-1 text-xs text-amber-700 dark:text-amber-300'
+                  >
+                    {t(
+                      reasonKeys[code] || 'Payment evidence needs verification'
                     )}
-              </p>
-              {order.eligible && (
-                <p className='mt-1 text-xs text-emerald-700 dark:text-emerald-300'>
-                  {t('Available')}
+                  </p>
+                ))}
+                {order.claimed_request_public_id && (
+                  <Link
+                    to='/invoices/$invoiceId'
+                    params={{ invoiceId: order.claimed_request_public_id }}
+                    className='text-primary mt-1 inline-block text-xs underline'
+                  >
+                    {t('View request')}
+                  </Link>
+                )}
+              </div>
+              <div className='text-right'>
+                <p className='text-sm font-medium whitespace-nowrap tabular-nums'>
+                  {amount == null
+                    ? t('Order amount unavailable')
+                    : formatInvoiceMoney(
+                        amount,
+                        currency,
+                        order.currency_exponent,
+                        i18n.language
+                      )}
                 </p>
-              )}
+                {!verifiedAmount && amount != null && (
+                  <p className='text-muted-foreground mt-1 text-xs'>
+                    {t('Order amount')}
+                  </p>
+                )}
+                {order.eligible && (
+                  <p className='mt-1 text-xs text-emerald-700 dark:text-emerald-300'>
+                    {t('Available')}
+                  </p>
+                )}
+                {order.allowed_actions?.includes('verify_payment') && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='mt-2'
+                    disabled={disabled}
+                    onClick={async () => {
+                      const ref = {
+                        source_type: order.source_type,
+                        order_id: order.order_id,
+                      }
+                      const result = await op.run(
+                        'verify-payment',
+                        ref,
+                        (key) => verifyInvoicePayment(ref, key)
+                      )
+                      if (result?.verified) toast.success(t('Payment verified'))
+                    }}
+                  >
+                    {t('Verify payment')}
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         <div className='px-4 pb-4'>
           <InvoicePagination
             page={filters.p || 1}
@@ -269,7 +305,7 @@ export function InvoiceOrderSelector(props: {
               selected={props.selected}
               onChange={props.onChange}
               unavailable
-              disabled={props.disabled}
+              disabled={disabled}
             />
           )}
         </>

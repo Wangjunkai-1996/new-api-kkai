@@ -72,7 +72,7 @@ apply仅支持PostgreSQL>=12的external-schema镜像。控制器proof必须从�
 
 默认策略版本`manual-v1`、票种`manual`（界面“发票”）、CNY/2、充值和订阅来源、Epay及上海时区。销售方名称/标识、税目和具体票种是可选扩展配置，不作为人工流程启用前置条件；未配置时不编造销售方身份，页面省略空销售方。抬头、企业税号、邮箱和付款核验仍保留。管理员需自行开好票据后上传PDF/PNG/JPEG，再明确交付给用户。
 
-首期只接受CNY、exponent=2，政策强制providers仅为`["epay"]`，限主站单一Epay商户；将来新增多商户必须先补齐不可变商户命名空间，配置不能绕过。充值要求Epay签名核验后的`invoice_payment_receipts`记录与订单owner、tenant、渠道、金额及币种一致且状态为verified；`TopUp.PaidMinor/Currency`只是订单预期条款，不能独自证明到账。TopUpID及渠道回执身份摘要各自唯一，充值/会员同一实收回执共享全局claim。历史记录、手工补单及其他浮点渠道在没有可信收据时继续不可开票；迟到的真实签名回执只有精确匹配才可补证。不能仅扩大providers名单放行。会员订单需唯一匹配的成功主收据，其他收据必须resolved且有非空财务处理记录。额外回执或同回执金额/字段变化均保留异常并暂停关联申请。条件字段只支持`tax_id/address/phone/bank_name/bank_account/email`；企业税号和有效邮箱还受基础规则约束。`sla`可选，未配置不显示承诺时限。
+首期只接受CNY、exponent=2，政策强制providers仅为`["epay"]`，限主站单一Epay商户；将来新增多商户必须先补齐不可变商户命名空间，配置不能绕过。充值要求Epay签名回调或商户认证查单核验后的`invoice_payment_receipts`记录与订单owner、tenant、渠道、金额及币种一致且状态为verified；`TopUp.PaidMinor/Currency`只是订单预期条款，不能独自证明到账。TopUpID及渠道回执身份摘要各自唯一，充值/会员同一实收回执共享全局claim。没有可信收据的历史记录仍不可开票；暂不可用订单可通过`POST /api/invoices/payments/verify`查单补证，前端仅传订单引用，服务端复核当前商户、原订单号、交易号、成功状态和精确金额，缺失快照来自平台实付金额，绝不使用历史Money推算。既有正实付快照必须精确一致，负数快照拒绝；只补缺失付款时间，优先保留CompleteTime，无时间时按当前CNY网关北京时间约定解析endtime并拒绝未来或早于建单时间。HTTPS强制、禁止重定向、10秒超时、响应上限64KiB，不返回密钥或原始响应。核验不重复充值、不清除异常或claim，补证后仍须合计满200元且每笔只开一次。其他浮点渠道不能通过扩大providers名单放行。会员订单需唯一匹配的成功主收据，其他收据必须resolved且有非空财务处理记录。额外回执或同回执金额/字段变化均保留异常并暂停关联申请。条件字段只支持`tax_id/address/phone/bank_name/bank_account/email`；企业税号和有效邮箱还受基础规则约束。`sla`可选，未配置不显示承诺时限。
 
 专用密钥配置：
 

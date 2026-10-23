@@ -77,6 +77,8 @@ type InvoiceCandidate struct {
 	PaidAt                 string   `json:"paid_at"`
 	PaymentLabel           string   `json:"payment_label"`
 	AmountMinor            *string  `json:"amount_minor"`
+	OrderAmountMinor       *string  `json:"order_amount_minor"`
+	OrderCurrency          string   `json:"order_currency"`
 	Currency               string   `json:"currency"`
 	CurrencyExponent       int      `json:"currency_exponent"`
 	Eligible               bool     `json:"eligible"`

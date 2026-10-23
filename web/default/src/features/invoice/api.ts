@@ -53,6 +53,13 @@ export const getInvoiceSummary = () =>
   get<InvoiceSummary>('/api/invoices/summary')
 export const getInvoiceOrders = (filters: InvoiceFilters) =>
   get<InvoicePage<InvoiceOrder>>('/api/invoices/eligible-orders', filters)
+export const verifyInvoicePayment = (order: InvoiceOrderRef, key: string) =>
+  write<{ verified: boolean }>(
+    'post',
+    '/api/invoices/payments/verify',
+    order,
+    key
+  )
 export const getInvoices = (filters: InvoiceFilters, admin = false) =>
   get<InvoicePage<InvoiceRequest>>(invoiceBase(admin), filters)
 export const getInvoice = (id: string, admin = false) =>
