@@ -1,22 +1,20 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/thanhpk/randstr"
 	waffo "github.com/waffo-com/waffo-go"
 	"github.com/waffo-com/waffo-go/config"
 	"github.com/waffo-com/waffo-go/core"
@@ -136,178 +134,21 @@ func RequestWaffoAmount(c *gin.Context) {
 
 // RequestWaffoPay 创建 Waffo 支付订单
 func RequestWaffoPay(c *gin.Context) {
-	if !setting.WaffoEnabled {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "Waffo 支付未启用"})
-		return
-	}
-
 	var req WaffoPayRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+	if !walletBind(c, &req) {
 		return
 	}
-	waffoMinTopup := int64(setting.WaffoMinTopUp)
-	if req.Amount < waffoMinTopup {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", waffoMinTopup)})
-		return
-	}
-	id := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, id, req.Amount) {
-		return
-	}
-
-	user, err := model.GetUserById(id, false)
-	if err != nil || user == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
-		return
-	}
-
-	// 从服务端配置查找支付方式，客户端只传索引或旧字段
-	var resolvedPayMethodType, resolvedPayMethodName string
-	methods := setting.GetWaffoPayMethods()
 	if req.PayMethodIndex != nil {
-		// 新协议：按索引查找
-		idx := *req.PayMethodIndex
-		if idx < 0 || idx >= len(methods) {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo 支付方式索引无效 user_id=%d pay_method_index=%d method_count=%d", id, idx, len(methods)))
-			c.JSON(http.StatusOK, gin.H{"message": "error", "data": "不支持的支付方式"})
+		methods := setting.GetWaffoPayMethods()
+		index := *req.PayMethodIndex
+		if index < 0 || index >= len(methods) {
+			walletError(c, 400, "VALIDATION_FAILED", nil)
 			return
 		}
-		resolvedPayMethodType = methods[idx].PayMethodType
-		resolvedPayMethodName = methods[idx].PayMethodName
-	} else if req.PayMethodType != "" {
-		// 兼容旧前端：验证客户端传的值在服务端列表中
-		valid := false
-		for _, m := range methods {
-			if m.PayMethodType == req.PayMethodType && m.PayMethodName == req.PayMethodName {
-				valid = true
-				resolvedPayMethodType = m.PayMethodType
-				resolvedPayMethodName = m.PayMethodName
-				break
-			}
-		}
-		if !valid {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo 支付方式无效 user_id=%d pay_method_type=%s pay_method_name=%q", id, req.PayMethodType, req.PayMethodName))
-			c.JSON(http.StatusOK, gin.H{"message": "error", "data": "不支持的支付方式"})
-			return
-		}
+		req.PayMethodType = methods[index].PayMethodType
+		req.PayMethodName = methods[index].PayMethodName
 	}
-	// resolvedPayMethodType/Name 为空时，Waffo 自动选择支付方式
-
-	group, _ := model.GetUserGroup(id, true)
-	payMoney := getWaffoPayMoney(float64(req.Amount), group)
-	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
-		return
-	}
-
-	// 生成唯一订单号，paymentRequestId 与 merchantOrderId 保持一致，简化追踪
-	merchantOrderId := fmt.Sprintf("WAFFO-%d-%d-%s", id, time.Now().UnixMilli(), randstr.String(6))
-	paymentRequestId := merchantOrderId
-
-	// Token 模式下归一化 Amount（存等价美元/CNY 数量，避免 RechargeWaffo 双重放大）
-	amount := req.Amount
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		amount = int64(float64(req.Amount) / common.QuotaPerUnit)
-		if amount < 1 {
-			amount = 1
-		}
-	}
-
-	// 创建本地订单
-	topUp := &model.TopUp{
-		UserId:          id,
-		Amount:          amount,
-		Money:           payMoney,
-		TradeNo:         merchantOrderId,
-		PaymentMethod:   model.PaymentMethodWaffo,
-		PaymentProvider: model.PaymentProviderWaffo,
-		CreateTime:      time.Now().Unix(),
-		Status:          common.TopUpStatusPending,
-	}
-	if err := topUp.Insert(); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 创建充值订单失败 user_id=%d trade_no=%s amount=%d error=%q", id, merchantOrderId, req.Amount, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
-		return
-	}
-
-	sdk, err := getWaffoSDK()
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo SDK 初始化失败 user_id=%d trade_no=%s error=%q", id, merchantOrderId, err.Error()))
-		topUp.Status = common.TopUpStatusFailed
-		_ = topUp.Update()
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付配置错误"})
-		return
-	}
-
-	callbackAddr := service.GetCallbackAddress()
-	notifyUrl := callbackAddr + "/api/waffo/webhook"
-	if setting.WaffoNotifyUrl != "" {
-		notifyUrl = setting.WaffoNotifyUrl
-	}
-	returnUrl := paymentReturnPath("/console/topup?show_history=true")
-	if setting.WaffoReturnUrl != "" {
-		returnUrl = setting.WaffoReturnUrl
-	}
-
-	currency := getWaffoCurrency()
-	goodsInfo := buildWaffoTopUpGoodsInfo(req.Amount)
-	createParams := &order.CreateOrderParams{
-		PaymentRequestID: paymentRequestId,
-		MerchantOrderID:  merchantOrderId,
-		OrderAmount:      formatWaffoAmount(payMoney, currency),
-		OrderCurrency:    currency,
-		OrderDescription: goodsInfo.GoodsName,
-		OrderRequestedAt: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
-		NotifyURL:        notifyUrl,
-		MerchantInfo: &order.MerchantInfo{
-			MerchantID: setting.WaffoMerchantId,
-		},
-		UserInfo: &order.UserInfo{
-			UserID:       strconv.Itoa(user.Id),
-			UserEmail:    getWaffoUserEmail(user),
-			UserTerminal: "WEB",
-		},
-		PaymentInfo: &order.PaymentInfo{
-			ProductName:   "ONE_TIME_PAYMENT",
-			PayMethodType: resolvedPayMethodType,
-			PayMethodName: resolvedPayMethodName,
-		},
-		GoodsInfo:          goodsInfo,
-		SuccessRedirectURL: returnUrl,
-		FailedRedirectURL:  returnUrl,
-	}
-	resp, err := sdk.Order().Create(c.Request.Context(), createParams, nil)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 创建订单失败 user_id=%d trade_no=%s error=%q", id, merchantOrderId, err.Error()))
-		topUp.Status = common.TopUpStatusFailed
-		_ = topUp.Update()
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
-		return
-	}
-	if !resp.IsSuccess() {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo 创建订单业务失败 user_id=%d trade_no=%s code=%s message=%q response=%q", id, merchantOrderId, resp.Code, resp.Message, common.GetJsonString(resp)))
-		topUp.Status = common.TopUpStatusFailed
-		_ = topUp.Update()
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
-		return
-	}
-
-	orderData := resp.GetData()
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo 充值订单创建成功 user_id=%d trade_no=%s amount=%d money=%.2f pay_method_type=%s pay_method_name=%q", id, merchantOrderId, req.Amount, payMoney, resolvedPayMethodType, resolvedPayMethodName))
-
-	paymentUrl := orderData.FetchRedirectURL()
-	if paymentUrl == "" {
-		paymentUrl = orderData.OrderAction
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "success",
-		"data": gin.H{
-			"payment_url": paymentUrl,
-			"order_id":    merchantOrderId,
-		},
-	})
+	walletLegacyCreate(c, dto.WalletQuoteRequest{PaymentProvider: model.PaymentProviderWaffo, PaymentMethod: model.PaymentMethodWaffo, Amount: strconv.FormatInt(req.Amount, 10), WaffoPayMethodType: req.PayMethodType, WaffoPayMethodName: req.PayMethodName})
 }
 
 // webhookPayloadWithSubInfo 扩展 PAYMENT_NOTIFICATION，包含 SDK 未定义的 subscriptionInfo 字段
@@ -328,22 +169,36 @@ type webhookSubscriptionInfo struct {
 
 // WaffoWebhook 处理 Waffo 回调通知（支付/退款/订阅）
 func WaffoWebhook(c *gin.Context) {
-	if !isWaffoWebhookEnabled() {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
-		c.AbortWithStatus(http.StatusForbidden)
-		return
-	}
 
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo webhook 读取请求体失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 1048577))
+	if err != nil || len(bodyBytes) > 1048576 {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo webhook 读取请求体失败 path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), "body unavailable"))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 
+	var untrusted webhookPayloadWithSubInfo
+	if common.Unmarshal(bodyBytes, &untrusted) != nil {
+		c.AbortWithStatus(400)
+		return
+	}
 	sdk, err := getWaffoSDK()
+	if strings.HasPrefix(untrusted.Result.MerchantOrderID, "WT") {
+		_, snapshot, e := service.WalletGatewayForOrder(untrusted.Result.MerchantOrderID, model.PaymentProviderWaffo)
+		if e != nil && !service.WalletOrderNotFound(e) || e == nil && snapshot == nil {
+			c.AbortWithStatus(503)
+			return
+		}
+		if snapshot != nil {
+			sdk, err = service.WalletWaffoClient(*snapshot)
+		}
+	} else if !isWaffoWebhookEnabled() {
+		c.AbortWithStatus(403)
+		return
+	}
+
 	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo webhook SDK 初始化失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo webhook SDK 初始化失败 path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), err.Error()))
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
@@ -351,18 +206,15 @@ func WaffoWebhook(c *gin.Context) {
 	wh := sdk.Webhook()
 	bodyStr := string(bodyBytes)
 	signature := c.GetHeader("X-SIGNATURE")
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo webhook 收到请求 path=%q client_ip=%s signature=%q body=%q", c.Request.RequestURI, c.ClientIP(), signature, bodyStr))
 
 	// 验证请求签名
 	if !wh.VerifySignature(bodyStr, signature) {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Waffo webhook 验签失败 path=%q client_ip=%s signature=%q body=%q", c.Request.RequestURI, c.ClientIP(), signature, bodyStr))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 
 	var event core.WebhookEvent
 	if err := common.Unmarshal(bodyBytes, &event); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo webhook 解析失败 path=%q client_ip=%s error=%q body=%q", c.Request.RequestURI, c.ClientIP(), err.Error(), bodyStr))
 		sendWaffoWebhookResponse(c, wh, false, "invalid payload")
 		return
 	}
@@ -372,7 +224,6 @@ func WaffoWebhook(c *gin.Context) {
 		// 解析为扩展类型，区分普通支付和订阅支付
 		var payload webhookPayloadWithSubInfo
 		if err := common.Unmarshal(bodyBytes, &payload); err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 支付回调载荷解析失败 event_type=%s client_ip=%s error=%q body=%q", event.EventType, c.ClientIP(), err.Error(), bodyStr))
 			sendWaffoWebhookResponse(c, wh, false, "invalid payment payload")
 			return
 		}
@@ -388,14 +239,7 @@ func WaffoWebhook(c *gin.Context) {
 func handleWaffoPayment(c *gin.Context, wh *core.WebhookHandler, result *core.PaymentNotificationResult) {
 	if result.OrderStatus != "PAY_SUCCESS" {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Waffo 订单状态非成功，忽略充值 trade_no=%s order_status=%s client_ip=%s", result.MerchantOrderID, result.OrderStatus, c.ClientIP()))
-		// 终态失败订单标记为 failed，避免永远停在 pending
-		if result.MerchantOrderID != "" {
-			if err := model.UpdatePendingTopUpStatus(result.MerchantOrderID, model.PaymentProviderWaffo, common.TopUpStatusFailed); err != nil &&
-				!errors.Is(err, model.ErrTopUpNotFound) &&
-				!errors.Is(err, model.ErrTopUpStatusInvalid) {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 标记失败订单状态失败 trade_no=%s error=%q", result.MerchantOrderID, err.Error()))
-			}
-		}
+
 		sendWaffoWebhookResponse(c, wh, true, "")
 		return
 	}
@@ -405,6 +249,55 @@ func handleWaffoPayment(c *gin.Context, wh *core.WebhookHandler, result *core.Pa
 	LockOrder(merchantOrderId)
 	defer UnlockOrder(merchantOrderId)
 
+	order, snapshot, err := service.WalletGatewayForOrder(merchantOrderId, model.PaymentProviderWaffo)
+	if service.WalletOrderNotFound(err) {
+		merchant, ok := result.MerchantInfo["merchantId"].(string)
+		currency := strings.ToUpper(result.UserCurrency)
+		exponent, e := walletCurrencyExponent(currency)
+		if !ok || merchant == "" || merchant != setting.WaffoMerchantId || e != nil || result.AcquiringOrderID == "" {
+			sendWaffoWebhookResponse(c, wh, false, "unmatched payment identity unavailable")
+			return
+		}
+		minor, e := service.WalletPaymentMinor(result.FinalDealAmount, exponent)
+		if e != nil {
+			sendWaffoWebhookResponse(c, wh, false, "invalid payment amount")
+			return
+		}
+		env := "prod"
+		if setting.WaffoSandbox {
+			env = "test"
+		}
+		err := service.SaveUnmatchedWalletPaymentReceipt(c.Request.Context(), model.WalletPaymentReceipt{Provider: model.PaymentProviderWaffo, ProviderAccountRef: "waffo:" + merchant, ProviderEnvironment: env, TransactionID: result.AcquiringOrderID, AmountMinor: minor, Currency: currency, CurrencyExponent: exponent, PaidAt: service.WalletPaymentTimestamp(result.OrderCompletedAt), EvidenceSource: "verified_callback", EvidenceRef: "waffo-payment:" + result.PaymentRequestID})
+		if err != nil {
+			sendWaffoWebhookResponse(c, wh, false, "payment persistence unavailable")
+		} else {
+			sendWaffoWebhookResponse(c, wh, true, "")
+		}
+		return
+	}
+	if err != nil {
+		sendWaffoWebhookResponse(c, wh, false, "payment verification unavailable")
+		return
+	}
+	if snapshot != nil {
+		currency := strings.ToUpper(result.UserCurrency)
+		exponent, currencyErr := walletCurrencyExponent(currency)
+		minor, e := service.WalletPaymentMinor(result.FinalDealAmount, exponent)
+		if e != nil || currencyErr != nil || result.AcquiringOrderID == "" {
+			sendWaffoWebhookResponse(c, wh, false, "actual payment evidence unavailable")
+			return
+		}
+		requested, requestErr := service.WalletPaymentMinor(result.OrderAmount, order.CurrencyExponent)
+		merchant, merchantOK := result.MerchantInfo["merchantId"].(string)
+		pricing := merchantOK && merchant == snapshot.MerchantID && result.PaymentRequestID == order.ProviderSessionID && (order.ProviderOrderID == "" || order.ProviderOrderID == result.AcquiringOrderID) && strings.ToUpper(result.OrderCurrency) == order.Currency && currency == order.Currency && requestErr == nil && requested == order.PaidMinor && minor == requested
+		_, err := service.FinalizeWalletPaymentReceipt(order, result.AcquiringOrderID, minor, currency, exponent, service.WalletPaymentTimestamp(result.OrderCompletedAt), "verified_callback", "waffo-payment:"+result.PaymentRequestID, pricing, model.TopUpUserPatch{}, "")
+		if err != nil && !service.WalletPaymentReceiptHeld(err) {
+			sendWaffoWebhookResponse(c, wh, false, "payment persistence unavailable")
+			return
+		}
+		sendWaffoWebhookResponse(c, wh, true, "")
+		return
+	}
 	if err := model.RechargeWaffo(merchantOrderId, c.ClientIP()); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Waffo 充值处理失败 trade_no=%s client_ip=%s error=%q", merchantOrderId, c.ClientIP(), err.Error()))
 		sendWaffoWebhookResponse(c, wh, false, err.Error())

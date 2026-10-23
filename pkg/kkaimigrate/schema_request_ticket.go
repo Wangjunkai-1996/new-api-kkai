@@ -143,7 +143,7 @@ func PrecheckRequestTicketExpand(ctx context.Context, db *gorm.DB) (*RequestTick
 // CheckRequestTicketSchema requires the immutable v16 receipt and exact physical
 // shape. Tables created manually do not enable request or inbox endpoints.
 func CheckRequestTicketSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, RequestTicketSchemaVersion, RequestTicketSchemaVersion, InvoiceSchemaVersion)
+	return checkThroughVersion(ctx, db, RequestTicketSchemaVersion, RequestTicketSchemaVersion, WalletPaymentSchemaVersion)
 }
 
 // ApplyRequestTicketExpand is the explicit isolated-library/controller entry.

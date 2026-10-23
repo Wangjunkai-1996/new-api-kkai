@@ -16,172 +16,95 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
-import type { ApiResponse, BillingHistoryResponse } from '../types'
 import { useBillingHistory } from './use-billing-history'
 
-const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
-
-vi.mock('@/lib/api', () => ({ api: apiMocks }))
-
-function historyResponse(
-  amount: number,
-  date = '2026-09-05'
-): { data: ApiResponse<BillingHistoryResponse> } {
-  return {
-    data: {
-      success: true,
-      data: {
-        items: [],
-        total: 0,
-        today_payment_total: amount,
-        today_payment_date: date,
-      },
-    },
-  }
+const api = vi.hoisted(() => ({ request: vi.fn() }))
+vi.mock('@/lib/api', () => ({ api }))
+vi.mock('@/features/site-config', () => ({
+  useSiteConfig: () => ({ data: { tenant_id: 0 } }),
+}))
+let client: QueryClient
+function wrapper(props: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={client}>{props.children}</QueryClientProvider>
+  )
 }
-
-describe('billing history daily payment summary', () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-    useAuthStore.getState().auth.setUser({
-      id: 11,
-      username: 'billing-user',
-      role: ROLE.USER,
-    })
-  })
-
-  afterEach(() => {
-    useAuthStore.getState().auth.reset()
-  })
-
-  test.each([
-    { role: ROLE.USER, endpoint: '/api/user/topup/self' },
-    { role: ROLE.ADMIN, endpoint: '/api/user/topup' },
-  ])(
-    'loads the appropriate scope for role $role only when opened and refreshes on reopening',
-    async ({ role, endpoint }) => {
-      useAuthStore.getState().auth.setUser({
-        id: 11,
-        username: 'billing-user',
-        role,
-      })
-      apiMocks.get
-        .mockResolvedValueOnce(historyResponse(0))
-        .mockResolvedValueOnce(historyResponse(52.5, '2026-09-06'))
-
-      const { result, rerender } = renderHook(
-        (props: { enabled: boolean }) => useBillingHistory(props),
-        { initialProps: { enabled: false } }
-      )
-
-      expect(apiMocks.get).not.toHaveBeenCalled()
-      expect(result.current.todayPaymentTotal).toBeNull()
-
-      rerender({ enabled: true })
-      await waitFor(() => expect(result.current.todayPaymentTotal).toBe(0))
-      expect(result.current.todayPaymentDate).toBe('2026-09-05')
-      expect(apiMocks.get).toHaveBeenCalledWith(`${endpoint}?p=1&page_size=10`)
-
-      rerender({ enabled: false })
-      expect(apiMocks.get).toHaveBeenCalledTimes(1)
-      rerender({ enabled: true })
-
-      await waitFor(() => expect(result.current.todayPaymentTotal).toBe(52.5))
-      expect(result.current.todayPaymentDate).toBe('2026-09-06')
-      expect(apiMocks.get).toHaveBeenCalledTimes(2)
-    }
-  )
-
-  test.each([
-    {
-      scenario: 'missing summary fields',
-      response: { success: true, data: { items: [], total: 0 } },
+const counts = {
+  all: 12,
+  pending: 3,
+  processing: 2,
+  review: 4,
+  completed: 2,
+  closed: 1,
+}
+const response = (today = 52.5) => ({
+  data: {
+    success: true,
+    data: {
+      items: [],
+      total: 12,
+      counts,
+      query_scope: 'wallet',
+      server_time: 1_790_000_000,
+      today_payment_total: today,
+      today_payment_date: '2026-10-23',
     },
-    {
-      scenario: 'a failed history request',
-      response: { success: false, message: 'Billing history unavailable' },
-    },
-  ])(
-    'clears the previous summary on $scenario without reporting zero',
-    async ({ response }) => {
-      apiMocks.get
-        .mockResolvedValueOnce(historyResponse(52.5))
-        .mockResolvedValueOnce({ data: response })
-      const { result } = renderHook(() => useBillingHistory())
-      await waitFor(() => expect(result.current.todayPaymentTotal).toBe(52.5))
-
-      await act(async () => {
-        await result.current.refresh()
-      })
-
-      expect(result.current.todayPaymentTotal).toBeNull()
-      expect(result.current.todayPaymentDate).toBeNull()
-      expect(result.current.loading).toBe(false)
-    }
-  )
-
-  test('refreshes the daily payment total after an administrator completes an order', async () => {
-    useAuthStore.getState().auth.setUser({
-      id: 11,
-      username: 'billing-admin',
-      role: ROLE.ADMIN,
-    })
-    apiMocks.get
-      .mockResolvedValueOnce(historyResponse(15))
-      .mockResolvedValueOnce(historyResponse(52.5))
-    apiMocks.post.mockResolvedValueOnce({ data: { success: true } })
-    const { result } = renderHook(() => useBillingHistory())
-    await waitFor(() => expect(result.current.todayPaymentTotal).toBe(15))
-
-    await act(async () => {
-      expect(await result.current.handleCompleteOrder('pending-order')).toBe(
-        true
-      )
-    })
-
-    expect(apiMocks.post).toHaveBeenCalledWith('/api/user/topup/complete', {
-      trade_no: 'pending-order',
-    })
-    expect(apiMocks.get).toHaveBeenCalledTimes(2)
-    expect(result.current.todayPaymentTotal).toBe(52.5)
-    expect(result.current.todayPaymentDate).toBe('2026-09-05')
-    expect(result.current.completing).toBe(false)
+  },
+})
+beforeEach(() => {
+  vi.resetAllMocks()
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
-
-  test('ignores a previous opening response that arrives after the reopened summary', async () => {
-    let resolveOldRequest!: (
-      response: ReturnType<typeof historyResponse>
-    ) => void
-    const oldRequest = new Promise<ReturnType<typeof historyResponse>>(
-      (resolve) => {
-        resolveOldRequest = resolve
-      }
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 11, username: 'admin-wallet', role: 10 })
+  api.request.mockResolvedValue(response())
+})
+afterEach(() => {
+  client.clear()
+  useAuthStore.getState().auth.reset()
+})
+describe('explicit billing history scope', () => {
+  it('keeps an administrator wallet on the self endpoint and uses one wallet range for every filter', async () => {
+    const { result } = renderHook(() => useBillingHistory(), { wrapper })
+    await waitFor(() => expect(result.current.total).toBe(12))
+    expect(api.request.mock.calls[0]?.[0].url).toBe(
+      '/api/user/topup/self?p=1&page_size=10&status_group=all&scope=wallet'
     )
-    apiMocks.get
-      .mockReturnValueOnce(oldRequest)
-      .mockResolvedValueOnce(historyResponse(52.5, '2026-09-06'))
-    const { result, rerender } = renderHook(
-      (props: { enabled: boolean }) => useBillingHistory(props),
-      { initialProps: { enabled: true } }
-    )
-
-    rerender({ enabled: false })
-    rerender({ enabled: true })
-    await waitFor(() => expect(result.current.todayPaymentTotal).toBe(52.5))
-
-    await act(async () => {
-      resolveOldRequest(historyResponse(15))
-      await oldRequest
-    })
-
+    expect(result.current.counts).toEqual(counts)
     expect(result.current.todayPaymentTotal).toBe(52.5)
-    expect(result.current.todayPaymentDate).toBe('2026-09-06')
-    expect(result.current.loading).toBe(false)
+    act(() => result.current.handleStatusChange('review'))
+    await waitFor(() => expect(api.request).toHaveBeenCalledTimes(2))
+    expect(api.request.mock.calls[1]?.[0].url).toContain(
+      'status_group=review&scope=wallet'
+    )
+  })
+  it('uses the all-user endpoint only when explicitly opened as admin', async () => {
+    const { result } = renderHook(() => useBillingHistory({ scope: 'admin' }), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.total).toBe(12))
+    expect(api.request.mock.calls[0]?.[0].url).toBe(
+      '/api/user/topup?p=1&page_size=10&status_group=all&scope=wallet'
+    )
+  })
+  it('does not query a closed history dialog', () => {
+    renderHook(() => useBillingHistory({ enabled: false }), { wrapper })
+    expect(api.request).not.toHaveBeenCalled()
+  })
+  it('clears stale summary facts on a failed initial request instead of inventing zero', async () => {
+    api.request.mockRejectedValue(new Error('unavailable'))
+    const { result } = renderHook(() => useBillingHistory(), { wrapper })
+    await waitFor(() => expect(result.current.error).toBe(true))
+    expect(result.current.todayPaymentTotal).toBeNull()
+    expect(result.current.records).toEqual([])
   })
 })

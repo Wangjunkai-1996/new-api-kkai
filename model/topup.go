@@ -15,19 +15,58 @@ import (
 )
 
 type TopUp struct {
-	Id              int     `json:"id"`
-	TenantID        int64   `json:"tenant_id" gorm:"not null;default:0;index"`
-	PaidMinor       int64   `json:"paid_minor" gorm:"type:bigint;not null;default:0"`
-	Currency        string  `json:"currency" gorm:"type:varchar(8);not null;default:''"`
-	UserId          int     `json:"user_id" gorm:"index"`
-	Amount          int64   `json:"amount"`
-	Money           float64 `json:"money"`
-	TradeNo         string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
-	PaymentMethod   string  `json:"payment_method" gorm:"type:varchar(50)"`
-	PaymentProvider string  `json:"payment_provider" gorm:"type:varchar(50);default:''"`
-	CreateTime      int64   `json:"create_time"`
-	CompleteTime    int64   `json:"complete_time"`
-	Status          string  `json:"status"`
+	Id                        int     `json:"id"`
+	TenantID                  int64   `json:"tenant_id" gorm:"not null;default:0;index;uniqueIndex:idx_wallet_topup_request,priority:1"`
+	PaidMinor                 int64   `json:"paid_minor" gorm:"type:bigint;not null;default:0"`
+	Currency                  string  `json:"currency" gorm:"type:varchar(8);not null;default:''"`
+	UserId                    int     `json:"user_id" gorm:"index;uniqueIndex:idx_wallet_topup_request,priority:2"`
+	Amount                    int64   `json:"amount"`
+	Money                     float64 `json:"money"`
+	TradeNo                   string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
+	PaymentMethod             string  `json:"payment_method" gorm:"type:varchar(50)"`
+	PaymentProvider           string  `json:"payment_provider" gorm:"type:varchar(50);default:''"`
+	CreateTime                int64   `json:"create_time"`
+	CompleteTime              int64   `json:"complete_time"`
+	Status                    string  `json:"status"`
+	WalletLifecycleVersion    int     `json:"-"`
+	CurrencyExponent          int     `json:"-"`
+	CreditedQuota             int64   `json:"-"`
+	CreditDisplayAmount       string  `json:"-" gorm:"type:varchar(64)"`
+	CreditDisplayUnit         string  `json:"-" gorm:"type:varchar(32)"`
+	PricingMode               string  `json:"-" gorm:"type:varchar(32)"`
+	PricingSnapshot           string  `json:"-" gorm:"type:text"`
+	PricingNoticeCode         string  `json:"-" gorm:"type:varchar(64)"`
+	PayableMinor              *int64  `json:"-"`
+	RequestKeyHash            *string `json:"-" gorm:"type:varchar(64);uniqueIndex:idx_wallet_topup_request,priority:3"`
+	RequestHash               string  `json:"-" gorm:"type:varchar(64)"`
+	ProviderAccountRef        string  `json:"-" gorm:"type:varchar(128)"`
+	ProviderEnvironment       string  `json:"-" gorm:"type:varchar(32)"`
+	ProviderCredentialVersion string  `json:"-" gorm:"type:varchar(128)"`
+	CreateState               string  `json:"-" gorm:"type:varchar(32)"`
+	CreateClaimToken          string  `json:"-" gorm:"type:varchar(64)"`
+	CreateClaimUntil          int64   `json:"-"`
+	ProviderSessionID         string  `json:"-" gorm:"type:varchar(255)"`
+	ProviderOrderID           string  `json:"-" gorm:"type:varchar(255)"`
+	CheckoutPayload           string  `json:"-" gorm:"type:text"`
+	ProviderExpiresAt         int64   `json:"-"`
+	PayDeadlineAt             int64   `json:"-"`
+	DeadlineSource            string  `json:"-" gorm:"type:varchar(32)"`
+	LocalEndedAt              int64   `json:"-"`
+	LocalEndReason            string  `json:"-" gorm:"type:varchar(32)"`
+	CloseRequestedAt          int64   `json:"-"`
+	CloseReason               string  `json:"-" gorm:"type:varchar(32)"`
+	ClosedAt                  int64   `json:"-"`
+	CloseEvidenceRef          string  `json:"-" gorm:"type:varchar(255)"`
+	ProviderPaymentState      string  `json:"-" gorm:"type:varchar(32)"`
+	LastCheckedAt             int64   `json:"-"`
+	NextCheckAt               int64   `json:"-" gorm:"index:idx_wallet_topup_due"`
+	CheckAttempts             int     `json:"-"`
+	CheckClaimToken           string  `json:"-" gorm:"type:varchar(64)"`
+	CheckClaimUntil           int64   `json:"-"`
+	ReasonCode                string  `json:"-" gorm:"type:varchar(64)"`
+	ReviewOwner               string  `json:"-" gorm:"type:varchar(128)"`
+	ReviewStartedAt           int64   `json:"-"`
+	Version                   int64   `json:"-"`
 }
 
 const (
@@ -378,7 +417,16 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 	result, err := FinalizeTopUp(FinalizeTopUpInput{
 		TradeNo: tradeNo,
-		Prepare: prepareManualTopUpCompletion,
+		Prepare: func(order *TopUp, user *User) (TopUpCompletion, error) {
+			completion, err := prepareManualTopUpCompletion(order, user)
+			if err != nil {
+				return TopUpCompletion{}, err
+			}
+			if WalletTopUpDeadline(order) <= 0 || WalletTopUpLocalEnded(order, common.GetTimestamp()) {
+				return TopUpCompletion{}, ErrWalletAttemptEnded
+			}
+			return completion, nil
+		},
 	})
 	if err != nil {
 		return err

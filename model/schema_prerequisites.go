@@ -12,6 +12,27 @@ import (
 var ErrMainSchemaNotReady = errors.New("main application schema is not ready")
 var ErrLogSchemaNotReady = errors.New("log application schema is not ready")
 
+// topUpBaseSchema is the mandatory pre-v18 application shape. Optional wallet
+// lifecycle expansion is controlled by kkaimigrate; runtime AutoMigrate and
+// base preflight must neither demand nor implicitly install it.
+type topUpBaseSchema struct {
+	Id              int    `gorm:"primaryKey"`
+	TenantID        int64  `gorm:"not null;default:0;index"`
+	PaidMinor       int64  `gorm:"type:bigint;not null;default:0"`
+	Currency        string `gorm:"type:varchar(8);not null;default:''"`
+	UserId          int    `gorm:"index"`
+	Amount          int64
+	Money           float64
+	TradeNo         string `gorm:"unique;type:varchar(255);index"`
+	PaymentMethod   string `gorm:"type:varchar(50)"`
+	PaymentProvider string `gorm:"type:varchar(50);default:''"`
+	CreateTime      int64
+	CompleteTime    int64
+	Status          string
+}
+
+func (topUpBaseSchema) TableName() string { return "top_ups" }
+
 func mainDatabaseAutoMigrateModels() []any {
 	return []any{
 		&Channel{},
@@ -42,7 +63,7 @@ func mainDatabaseAutoMigrateModels() []any {
 		&Ability{},
 		&Log{},
 		&Midjourney{},
-		&TopUp{},
+		&topUpBaseSchema{},
 		&QuotaData{},
 		&Task{},
 		&TaskPlugin{},

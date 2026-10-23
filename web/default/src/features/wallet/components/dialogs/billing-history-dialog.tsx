@@ -16,389 +16,459 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
-import { StatusBadge } from '@/components/status-badge'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useSiteConfig } from '@/features/site-config'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatCurrencyFromUSD } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
+import { hasPermission } from '@/lib/admin-permissions'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
+import { useWalletPaymentIdentity } from '../../hooks/use-wallet-payment-flow'
+import { isLocallyEnded, PAYMENT_STATUS_LABELS } from '../../lib/payment-flow'
 import {
-  getStatusConfig,
-  getPaymentMethodName,
-  formatTimestamp,
-} from '../../lib/billing'
+  actOnWalletOrder,
+  getWalletOrder,
+  WalletPaymentError,
+} from '../../payment-flow-api'
+import type {
+  PaymentOrder,
+  PaymentStatusGroup,
+  WalletState,
+} from '../../payment-flow-types'
+import { PaymentOrderDetails } from '../current-topup-order'
+import { PaymentAmounts } from '../payment-amounts'
+import { PaymentEvidence } from '../payment-evidence'
 
+const GROUPS: Record<PaymentStatusGroup, string> = {
+  all: 'All',
+  pending: 'Awaiting payment',
+  processing: 'Processing',
+  review: 'Under review',
+  completed: 'Completed',
+  closed: 'Closed',
+}
 interface BillingHistoryDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  scope?: 'self' | 'admin'
+  unfinished?: boolean
+  onWalletChange?: (wallet: WalletState) => void
+  onRestore?: (tradeNo: string) => void
 }
-
-export function BillingHistoryDialog({
-  open,
-  onOpenChange,
-}: BillingHistoryDialogProps) {
+export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
   const { t } = useTranslation()
-  const { data: site } = useSiteConfig()
-  const {
-    records,
-    total,
-    todayPaymentTotal,
-    todayPaymentDate,
-    page,
-    pageSize,
-    keyword,
-    loading,
-    completing,
-    isAdmin,
-    handlePageChange,
-    handlePageSizeChange,
-    handleSearch,
-    handleCompleteOrder,
-  } = useBillingHistory({ enabled: open })
-
-  const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
-  const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
-
-  const totalPages = Math.ceil(total / pageSize)
-
-  const handleConfirmComplete = async () => {
-    if (confirmTradeNo) {
-      const success = await handleCompleteOrder(confirmTradeNo)
-      if (success) {
-        setConfirmTradeNo(null)
-      }
-    }
-  }
-
+  const user = useAuthStore((state) => state.auth.user)
+  const admin = props.scope === 'admin'
+  const permitted =
+    !admin ||
+    ((user?.role ?? 0) >= ROLE.ADMIN && hasPermission(user, 'billing', 'read'))
+  const history = useBillingHistory({
+    enabled: props.open && permitted,
+    scope: props.scope ?? 'self',
+    unfinished: props.unfinished,
+  })
   return (
-    <>
-      <Dialog
-        open={open}
-        onOpenChange={onOpenChange}
-        title={t('Billing History')}
-        description={t(
-          'View your topup transaction records and payment history'
-        )}
-        contentClassName='flex max-h-(--dialog-available-height) flex-col max-sm:w-screen max-sm:max-w-none max-sm:rounded-none max-sm:p-4 sm:max-w-4xl'
-        contentHeight='auto'
-        bodyClassName='space-y-3'
-      >
-        <div className='min-h-0 space-y-3'>
-          <dl
-            className='flex min-h-9 flex-wrap items-baseline justify-between gap-x-4 gap-y-1'
-            aria-live='polite'
-            aria-busy={loading}
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      title={admin ? t('All top-up orders') : t('Order History')}
+      description={
+        props.unfinished
+          ? t('Unfinished orders from all dates.')
+          : t('Recent 30-day records and all unfinished orders.')
+      }
+      contentClassName='max-sm:h-dvh max-sm:w-screen max-sm:max-w-none max-sm:rounded-none sm:max-w-[940px]'
+      bodyClassName='space-y-4'
+    >
+      {!permitted ? (
+        <p role='alert'>{t('Admin access required')}</p>
+      ) : (
+        <>
+          <div
+            className='flex flex-wrap gap-2'
+            role='group'
+            aria-label={t('Order status filter')}
           >
-            <dt className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
-              <span className='text-sm font-medium'>
-                {t("Today's payment total")}
-              </span>
-              {todayPaymentDate && (
-                <time
-                  dateTime={todayPaymentDate}
-                  className='text-muted-foreground text-xs'
-                >
-                  {todayPaymentDate}
-                </time>
-              )}
-            </dt>
-            <dd className='text-xl font-semibold wrap-anywhere tabular-nums'>
-              {loading ? (
-                <Skeleton className='h-7 w-28' />
-              ) : (
-                formatNumber(todayPaymentTotal)
-              )}
-            </dd>
-          </dl>
-          {/* Search and Filter Bar */}
-          <div className='flex items-center gap-2'>
-            <div className='relative flex-1'>
-              <Search className='text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
-              <Input
-                placeholder={t('Search by order number...')}
-                value={keyword}
-                onChange={(e) => handleSearch(e.target.value)}
-                className='h-9 pl-10'
+            {Object.entries(GROUPS).map(([group, label]) => (
+              <Button
+                key={group}
+                variant={history.status === group ? 'default' : 'outline'}
+                size='sm'
+                aria-pressed={history.status === group}
+                onClick={() =>
+                  history.handleStatusChange(group as PaymentStatusGroup)
+                }
+              >
+                {t(label)}
+                {history.counts && (
+                  <span className='ml-1 tabular-nums'>
+                    {history.counts[group as PaymentStatusGroup]}
+                  </span>
+                )}
+              </Button>
+            ))}
+          </div>
+          <div className='flex flex-wrap gap-2'>
+            <Input
+              aria-label={t('Search by order number...')}
+              placeholder={t('Search by order number...')}
+              value={history.keyword}
+              onChange={(event) => history.handleSearch(event.target.value)}
+              className='min-w-0 flex-1 basis-48'
+            />
+            <Button
+              variant='outline'
+              disabled={history.loading}
+              onClick={() => void history.refresh()}
+            >
+              <RefreshCw aria-hidden='true' />
+              {t('Refresh')}
+            </Button>
+          </div>
+          <label className='flex items-center gap-2 text-sm'>
+            <input
+              type='checkbox'
+              checked={history.exact}
+              onChange={(event) =>
+                history.handleExactChange(event.target.checked)
+              }
+            />
+            {t('Exact order number, any date')}
+          </label>
+          {history.loading && <p role='status'>{t('Loading...')}</p>}
+          {history.error && (
+            <p role='alert'>{t('Failed to load billing history')}</p>
+          )}
+          {!history.loading && !history.error && !history.records.length && (
+            <p className='py-8 text-center'>{t('No orders found')}</p>
+          )}
+          <div className='space-y-3' aria-busy={history.loading}>
+            {history.records.map((order) => (
+              <HistoryOrder
+                key={order.trade_no}
+                order={order}
+                serverTime={history.serverTime}
+                admin={admin}
+                onWalletChange={props.onWalletChange}
+                onRestore={props.onRestore}
               />
+            ))}
+          </div>
+          <div className='flex flex-wrap items-center justify-between gap-3 text-sm'>
+            <label className='flex items-center gap-2'>
+              {t('Page size')}
+              <select
+                className='bg-background rounded-md border p-2'
+                value={history.pageSize}
+                onChange={(event) =>
+                  history.handlePageSizeChange(Number(event.target.value))
+                }
+              >
+                {[10, 20, 50, 100].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span>{t('{{count}} orders', { count: history.total })}</span>
+            <div className='flex items-center gap-2'>
+              <Button
+                size='icon'
+                variant='outline'
+                aria-label={t('Previous page')}
+                disabled={history.page <= 1 || history.loading}
+                onClick={() => history.handlePageChange(history.page - 1)}
+              >
+                <ChevronLeft aria-hidden='true' />
+              </Button>
+              <span>
+                {history.page} /{' '}
+                {Math.max(1, Math.ceil(history.total / history.pageSize))}
+              </span>
+              <Button
+                size='icon'
+                variant='outline'
+                aria-label={t('Next page')}
+                disabled={
+                  history.page * history.pageSize >= history.total ||
+                  history.loading
+                }
+                onClick={() => history.handlePageChange(history.page + 1)}
+              >
+                <ChevronRight aria-hidden='true' />
+              </Button>
             </div>
-            <Select
-              items={[
-                { value: '10', label: t('10 / page') },
-                { value: '20', label: t('20 / page') },
-                { value: '50', label: t('50 / page') },
-                { value: '100', label: t('100 / page') },
-              ]}
-              value={pageSize.toString()}
-              onValueChange={(value) =>
-                value !== null && handlePageSizeChange(Number.parseInt(value))
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+function HistoryOrder(props: {
+  order: PaymentOrder
+  serverTime: number
+  admin: boolean
+  onWalletChange?: (wallet: WalletState) => void
+  onRestore?: (tradeNo: string) => void
+}) {
+  const { t } = useTranslation()
+  const identity = useWalletPaymentIdentity()
+  const client = useQueryClient()
+  const user = useAuthStore((state) => state.auth.user)
+  const { data: site } = useSiteConfig()
+  const [expanded, setExpanded] = useState(false)
+  const [confirm, setConfirm] = useState<
+    'end' | 'resume' | 'admin-reconcile' | null
+  >(null)
+  const [reason, setReason] = useState('')
+  const [feedback, setFeedback] = useState(false)
+  const details = useQuery({
+    queryKey: [
+      'wallet-payment',
+      ...identity,
+      'detail',
+      props.admin,
+      props.order.trade_no,
+    ],
+    queryFn: ({ signal }) =>
+      getWalletOrder(props.order.trade_no, props.admin, signal),
+    enabled: expanded,
+    retry: false,
+  })
+  const order = details.data?.order ?? props.order
+  const ended = isLocallyEnded(order)
+  const received =
+    order.display_status === 'success' ||
+    order.display_status === 'credit_review'
+  const mutation = useMutation({
+    mutationFn: async (action: 'end' | 'reconcile' | 'admin-reconcile') =>
+      actOnWalletOrder(order, action, reason),
+    retry: false,
+    onSuccess: (result) => {
+      props.onWalletChange?.(result.wallet)
+      setConfirm(null)
+      setFeedback(true)
+      client.setQueryData(
+        ['wallet-payment', ...identity, 'detail', props.admin, order.trade_no],
+        result
+      )
+    },
+    onError: (error) => {
+      if (error instanceof WalletPaymentError && error.wallet) {
+        props.onWalletChange?.(error.wallet)
+      }
+    },
+    onSettled: () => {
+      void client.invalidateQueries({
+        queryKey: ['wallet-payment', ...identity, 'history'],
+      })
+      void client.invalidateQueries({
+        queryKey: ['wallet-payment', ...identity, 'current'],
+      })
+    },
+  })
+  const canOperate =
+    !ended &&
+    order.allowed_actions.includes('reconcile') &&
+    props.admin &&
+    hasPermission(user, 'billing', 'write')
+  return (
+    <article className='rounded-lg border p-4'>
+      <div className='mb-3 flex flex-wrap items-start justify-between gap-2'>
+        <span className='min-w-0 font-mono text-xs break-all'>
+          {order.trade_no}
+        </span>
+        <span className='text-sm font-medium'>
+          {t(
+            PAYMENT_STATUS_LABELS[order.display_status] ??
+              'Payment status unavailable'
+          )}
+        </span>
+      </div>
+      {props.admin && order.user_id !== undefined && (
+        <p className='mb-2 text-sm'>
+          {t('User ID')}: {order.user_id}
+        </p>
+      )}
+      <PaymentAmounts pricing={order} />
+      <div className='mt-4 flex flex-wrap gap-2'>
+        <Button
+          variant='outline'
+          size='sm'
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {t('Order details')}
+        </Button>
+        {!props.admin &&
+          !ended &&
+          !received &&
+          order.allowed_actions.includes('resume') &&
+          props.onRestore && (
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setConfirm('resume')}
+            >
+              {t('Continue payment')}
+            </Button>
+          )}
+        {!props.admin &&
+          !ended &&
+          !received &&
+          order.allowed_actions.includes('end') && (
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={mutation.isPending}
+              onClick={() => setConfirm('end')}
+            >
+              {t('End this top-up')}
+            </Button>
+          )}
+        {!props.admin &&
+          !ended &&
+          order.allowed_actions.includes('reconcile') && (
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={mutation.isPending}
+              onClick={() => mutation.mutate('reconcile')}
+            >
+              {t('Check payment')}
+            </Button>
+          )}
+        {canOperate && (
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={mutation.isPending}
+            onClick={() => {
+              setExpanded(true)
+              setConfirm('admin-reconcile')
+            }}
+          >
+            {t('Verify payment')}
+          </Button>
+        )}
+        {!props.admin &&
+          site?.tenant_id === 0 &&
+          order.display_status === 'success' && (
+            <Button
+              variant='outline'
+              size='sm'
+              render={
+                <Link
+                  to='/invoices/new'
+                  search={{ source_type: 'topup', order_id: order.trade_no }}
+                />
               }
             >
-              <SelectTrigger className='h-9 w-[92px] sm:w-32'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  <SelectItem value='10'>{t('10 / page')}</SelectItem>
-                  <SelectItem value='20'>{t('20 / page')}</SelectItem>
-                  <SelectItem value='50'>{t('50 / page')}</SelectItem>
-                  <SelectItem value='100'>{t('100 / page')}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Records List */}
-          <div className='max-h-[min(42vh,360px)] overflow-y-auto pr-1 sm:max-h-[min(54vh,520px)]'>
-            {loading && (
-              <div className='space-y-3'>
-                {['first', 'second', 'third', 'fourth', 'fifth'].map(
-                  (placeholder) => (
-                    <div
-                      key={placeholder}
-                      className='rounded-lg border p-3 sm:p-4'
-                    >
-                      <div className='flex items-start justify-between'>
-                        <div className='flex-1 space-y-2'>
-                          <Skeleton className='h-4 w-48' />
-                          <Skeleton className='h-3 w-32' />
-                        </div>
-                        <Skeleton className='h-5 w-16' />
-                      </div>
-                      <div className='mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4'>
-                        <Skeleton className='h-3 w-full' />
-                        <Skeleton className='h-3 w-full' />
-                        <Skeleton className='h-3 w-full' />
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-            {!loading && records.length === 0 && (
-              <div className='text-muted-foreground flex min-h-40 flex-col items-center justify-center py-10 text-center'>
-                <p className='text-sm font-medium'>
-                  {t('No billing records found')}
-                </p>
-                <p className='mt-1 text-xs'>
-                  {keyword
-                    ? t('Try adjusting your search')
-                    : t('Your transaction history will appear here')}
-                </p>
-              </div>
-            )}
-            {!loading && records.length > 0 && (
-              <div className='space-y-3'>
-                {records.map((record) => {
-                  const statusConfig = getStatusConfig(record.status)
-                  return (
-                    <div
-                      key={record.id}
-                      className='rounded-lg border p-3 sm:p-4'
-                    >
-                      {/* Header Row */}
-                      <div className='flex items-start justify-between gap-2'>
-                        <div className='min-w-0 flex-1 space-y-1'>
-                          <div className='flex min-w-0 flex-wrap items-center gap-2'>
-                            <code className='text-foreground max-w-[calc(100%-2rem)] truncate font-mono text-sm'>
-                              {record.trade_no}
-                            </code>
-                            <Button
-                              variant='ghost'
-                              size='sm'
-                              className='h-5 w-5 shrink-0 p-0'
-                              onClick={() => copyToClipboard(record.trade_no)}
-                            >
-                              {copiedText === record.trade_no ? (
-                                <Check className='h-3 w-3' />
-                              ) : (
-                                <Copy className='h-3 w-3' />
-                              )}
-                            </Button>
-                            {isAdmin && record.user_id != null && (
-                              <StatusBadge
-                                label={`${t('User ID')}: ${record.user_id}`}
-                                variant='neutral'
-                                size='sm'
-                                copyText={String(record.user_id)}
-                              />
-                            )}
-                          </div>
-                          <div className='text-muted-foreground text-xs'>
-                            {formatTimestamp(record.create_time)}
-                          </div>
-                        </div>
-                        <StatusBadge
-                          label={statusConfig.label}
-                          variant={statusConfig.variant}
-                          showDot
-                          copyable={false}
-                        />
-                      </div>
-
-                      {/* Details Grid */}
-                      <div className='mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:grid-cols-3 sm:gap-4'>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Payment Method')}
-                          </Label>
-                          <div className='text-sm font-medium'>
-                            {getPaymentMethodName(record.payment_method, t)}
-                          </div>
-                        </div>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Amount')}
-                          </Label>
-                          <div className='text-sm font-semibold'>
-                            {formatCurrencyFromUSD(record.amount, {
-                              digitsLarge: 2,
-                              digitsSmall: 2,
-                              abbreviate: false,
-                            })}
-                          </div>
-                        </div>
-                        <div className='space-y-1'>
-                          <Label className='text-muted-foreground text-xs'>
-                            {t('Payment')}
-                          </Label>
-                          <div className='text-sm font-semibold text-red-600'>
-                            {formatNumber(record.money)}
-                          </div>
-                        </div>
-                      </div>
-
-                      {!isAdmin && site?.tenant_id === 0 && (
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          className='mt-3'
-                          render={
-                            <Link
-                              to='/invoices/new'
-                              search={{
-                                source_type: 'topup',
-                                order_id: record.trade_no,
-                              }}
-                              onClick={() => onOpenChange(false)}
-                            />
-                          }
-                        >
-                          {t('Apply for invoice')}
-                        </Button>
-                      )}
-                      {/* Admin Actions */}
-                      {isAdmin && record.status === 'pending' && (
-                        <div className='mt-4 flex justify-end'>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => setConfirmTradeNo(record.trade_no)}
-                            disabled={completing}
-                          >
-                            {t('Complete Order')}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Pagination */}
-          {!loading && records.length > 0 && (
-            <div className='flex flex-col items-center gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
-              <div className='text-muted-foreground text-xs sm:text-sm'>
-                {t('Showing')} {(page - 1) * pageSize + 1}-
-                {Math.min(page * pageSize, total)} {t('of')} {total}
-              </div>
-              <div className='flex items-center gap-2'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1}
-                  className='h-8 w-8 p-0'
-                >
-                  <ChevronLeft className='h-4 w-4' />
-                </Button>
-                <div className='text-muted-foreground flex items-center gap-1 text-sm'>
-                  <span className='font-medium'>{page}</span>
-                  <span>/</span>
-                  <span>{totalPages}</span>
-                </div>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPages}
-                  className='h-8 w-8 p-0'
-                >
-                  <ChevronRight className='h-4 w-4' />
-                </Button>
-              </div>
-            </div>
+              {t('Apply for invoice')}
+            </Button>
+          )}
+      </div>
+      {feedback && (
+        <p role='status' className='mt-3 text-sm'>
+          {t(
+            'The request was received. The displayed order state is the latest confirmed result.'
+          )}
+        </p>
+      )}
+      {mutation.isError && (
+        <p role='alert' className='mt-3 text-sm'>
+          {t(
+            'The request could not be confirmed. Refresh this order and try again.'
+          )}
+        </p>
+      )}
+      {expanded && (
+        <div className='mt-4 border-t pt-4'>
+          {details.isPending && <p role='status'>{t('Loading...')}</p>}
+          {details.isError && (
+            <p role='alert'>{t('Could not load order details.')}</p>
+          )}
+          <PaymentOrderDetails order={order} serverTime={props.serverTime} />
+          {props.admin && order.receipts && (
+            <PaymentEvidence receipts={order.receipts} />
           )}
         </div>
-      </Dialog>
-
-      {/* Confirm Complete Order Dialog */}
-      <AlertDialog
-        open={!!confirmTradeNo}
-        onOpenChange={(open) => !open && setConfirmTradeNo(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Complete Order')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(
-                'Are you sure you want to manually complete this order? The user will be credited with the corresponding quota.'
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={completing}>
-              {t('Cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmComplete}
-              disabled={completing}
-            >
-              {completing ? t('Processing...') : t('Confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+      )}
+      {confirm &&
+        !ended &&
+        (confirm === 'admin-reconcile' ? canOperate : !received) && (
+          <section
+            className='bg-muted/30 mt-4 space-y-3 rounded-lg border p-4'
+            aria-label={t('Confirm order action')}
+          >
+            <h3 className='font-semibold'>
+              {confirm === 'end'
+                ? t('End this top-up?')
+                : t('Confirm order action')}
+            </h3>
+            <p className='text-sm break-all'>{order.trade_no}</p>
+            <PaymentAmounts pricing={order} />
+            {confirm === 'end' && (
+              <p className='text-sm'>
+                {t(
+                  'Ending this top-up does not guarantee that the previous payment page is closed. Any payment actually received will still be verified and credited. Your current order will not be replaced.'
+                )}
+              </p>
+            )}
+            {confirm === 'resume' && (
+              <p className='text-sm'>
+                {t(
+                  'Restore this original order in your wallet to reopen its existing payment session.'
+                )}
+              </p>
+            )}
+            {confirm === 'admin-reconcile' && (
+              <label className='block space-y-2 text-sm'>
+                {t('Reason for verification')}
+                <Input
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  maxLength={500}
+                />
+                <span className='text-muted-foreground block'>
+                  {t(
+                    'Credits are added only after payment evidence is verified. This action does not manually mark an order as paid.'
+                  )}
+                </span>
+              </label>
+            )}
+            <div className='flex flex-wrap gap-2'>
+              <Button
+                disabled={
+                  mutation.isPending ||
+                  (confirm === 'admin-reconcile' && !reason.trim())
+                }
+                onClick={() => {
+                  if (confirm === 'resume') props.onRestore?.(order.trade_no)
+                  else if (confirm) mutation.mutate(confirm)
+                }}
+              >
+                {confirm === 'end' ? t('Confirm ending') : t('Confirm')}
+              </Button>
+              <Button
+                variant='outline'
+                disabled={mutation.isPending}
+                onClick={() => setConfirm(null)}
+              >
+                {t('Back to order')}
+              </Button>
+            </div>
+          </section>
+        )}
+    </article>
   )
 }

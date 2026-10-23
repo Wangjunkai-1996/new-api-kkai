@@ -73,6 +73,8 @@ func (s InvoiceService) verifyPayment(ctx context.Context, scope InvoiceScope, i
 	return err
 }
 
+var errEpayOrderUnpaid = errors.New("epay order unpaid")
+
 // queryInvoiceEpayPayment uses the merchant order-query protocol documented at
 // https://zpayz.cn/doc.html#d5. Like the signed CNY checkout callback, status=1
 // establishes successful payment. External refunds still require the existing
@@ -137,7 +139,7 @@ func queryInvoiceEpayPayment(ctx context.Context, client *http.Client, address, 
 	if common.Unmarshal(body, &data) != nil {
 		return receipt, 0, unavailable
 	}
-	if common.JsonRawMessageToString(data.Code) != "1" || common.JsonRawMessageToString(data.Status) != "1" || common.JsonRawMessageToString(data.MerchantID) != merchantID || data.OrderNo != order.TradeNo || data.TradeNo == "" || (data.Currency != "" && data.Currency != "CNY") {
+	if common.JsonRawMessageToString(data.Code) != "1" || common.JsonRawMessageToString(data.MerchantID) != merchantID || data.OrderNo != order.TradeNo || data.TradeNo == "" || (data.Currency != "" && data.Currency != "CNY") {
 		return receipt, 0, failed
 	}
 	// Reject explicit refund signals if a compatible gateway supplies them.
@@ -155,6 +157,13 @@ func queryInvoiceEpayPayment(ctx context.Context, client *http.Client, address, 
 	}
 	minor, err := model.ParseCNYMinor(data.Money)
 	if err != nil || minor <= 0 {
+		return receipt, 0, failed
+	}
+	status := common.JsonRawMessageToString(data.Status)
+	if status == "0" && (order.PaidMinor <= 0 || minor == order.PaidMinor) {
+		return receipt, 0, errors.Join(failed, errEpayOrderUnpaid)
+	}
+	if status != "1" {
 		return receipt, 0, failed
 	}
 	paidAt := order.CompleteTime

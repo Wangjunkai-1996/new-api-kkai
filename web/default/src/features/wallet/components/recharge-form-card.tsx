@@ -27,7 +27,7 @@ import {
   Ticket,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -46,6 +46,7 @@ import {
   getMinTopupAmount,
   getPaymentIcon,
 } from '../lib'
+import type { PaymentQuote } from '../payment-flow-types'
 import type {
   CreemProduct,
   PaymentMethod,
@@ -54,8 +55,12 @@ import type {
   WaffoPayMethod,
 } from '../types'
 import { CreemProductsSection } from './creem-products-section'
+import { PaymentAmounts } from './payment-amounts'
 
 interface RechargeFormCardProps {
+  quote?: PaymentQuote
+  confirmation?: ReactNode
+  purchaseDisabled?: boolean
   topupInfo: TopupInfo | null
   presetAmounts: PresetAmount[]
   selectedPreset: number | null
@@ -173,7 +178,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
     methodMin = minimumForMethod(props.selectedPaymentMethod)
   }
   const validAmount =
-    Number.isInteger(props.topupAmount) && props.topupAmount >= methodMin
+    Number.isSafeInteger(props.topupAmount) && props.topupAmount >= methodMin
   const quoteReady =
     validAmount &&
     props.paymentQuoteValid &&
@@ -181,6 +186,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
     props.paymentAmount > 0
   const discountRate = props.topupInfo?.discount?.[props.topupAmount] ?? 1
   const hasDiscount =
+    !props.quote &&
     discountRate > 0 &&
     discountRate < 1 &&
     props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
@@ -489,60 +495,67 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                 aria-hidden='true'
               />
             </div>
-            <div className='space-y-4 text-xs'>
-              <div className='flex justify-between gap-3'>
-                <span className='text-muted-foreground'>
-                  {t('Credited Amount')}
-                </span>
-                <strong className='text-right font-medium tabular-nums'>
-                  {validAmount ? creditAmount(props.topupAmount) : '-'}
-                </strong>
-              </div>
-              {hasDiscount && quoteReady && (
-                <div className='flex justify-between gap-3'>
-                  <span className='text-muted-foreground'>
-                    {t('Original Price')}
-                  </span>
-                  <strong className='text-muted-foreground text-right font-medium tabular-nums line-through'>
-                    {formatWalletPaymentAmount(
-                      originalPrice,
-                      props.selectedPaymentMethod?.type
-                    )}
-                  </strong>
-                </div>
-              )}
-            </div>
-            {discount > 0 && (
-              <div className='mt-5 flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'>
-                <span className='font-medium'>{t('You save')}</span>
-                <strong className='font-semibold tabular-nums'>
-                  {formatWalletPaymentAmount(
-                    discount,
-                    props.selectedPaymentMethod?.type
+            {props.quote ? (
+              <PaymentAmounts pricing={props.quote} />
+            ) : (
+              <>
+                <div className='space-y-4 text-xs'>
+                  <div className='flex justify-between gap-3'>
+                    <span className='text-muted-foreground'>
+                      {t('Credited Amount')}
+                    </span>
+                    <strong className='text-right font-medium tabular-nums'>
+                      {validAmount ? creditAmount(props.topupAmount) : '-'}
+                    </strong>
+                  </div>
+                  {hasDiscount && quoteReady && (
+                    <div className='flex justify-between gap-3'>
+                      <span className='text-muted-foreground'>
+                        {t('Original Price')}
+                      </span>
+                      <strong className='text-muted-foreground text-right font-medium tabular-nums line-through'>
+                        {formatWalletPaymentAmount(
+                          originalPrice,
+                          props.selectedPaymentMethod?.type
+                        )}
+                      </strong>
+                    </div>
                   )}
-                </strong>
-              </div>
+                </div>
+                {discount > 0 && (
+                  <div className='mt-5 flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'>
+                    <span className='font-medium'>{t('You save')}</span>
+                    <strong className='font-semibold tabular-nums'>
+                      {formatWalletPaymentAmount(
+                        discount,
+                        props.selectedPaymentMethod?.type
+                      )}
+                    </strong>
+                  </div>
+                )}
+                <div className='mt-5 flex items-end justify-between gap-3 border-t pt-5'>
+                  <span className='shrink-0 text-xs'>{t('You Pay')}</span>
+                  <motion.strong
+                    key={`${props.selectedPaymentMethod?.type}-${quoteReady ? props.paymentAmount : 'pending'}`}
+                    initial={reduceMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={MOTION_TRANSITION.fast}
+                    className='min-w-0 text-right text-3xl leading-none font-semibold break-all tabular-nums'
+                  >
+                    {quoteReady
+                      ? formatWalletPaymentAmount(
+                          props.paymentAmount,
+                          props.selectedPaymentMethod?.type
+                        )
+                      : '-'}
+                  </motion.strong>
+                </div>
+              </>
             )}
-            <div className='mt-5 flex items-end justify-between gap-3 border-t pt-5'>
-              <span className='shrink-0 text-xs'>{t('You Pay')}</span>
-              <motion.strong
-                key={`${props.selectedPaymentMethod?.type}-${quoteReady ? props.paymentAmount : 'pending'}`}
-                initial={reduceMotion ? false : { opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={MOTION_TRANSITION.fast}
-                className='min-w-0 text-right text-3xl leading-none font-semibold break-all tabular-nums'
-              >
-                {quoteReady
-                  ? formatWalletPaymentAmount(
-                      props.paymentAmount,
-                      props.selectedPaymentMethod?.type
-                    )
-                  : '-'}
-              </motion.strong>
-            </div>
             <Button
               className='mt-5 h-11 w-full shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:transform-none'
               disabled={
+                props.purchaseDisabled ||
                 !quoteReady ||
                 !props.selectedPaymentMethod ||
                 !!props.paymentLoading
@@ -555,6 +568,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
               {t('Review and Pay')}{' '}
               <ArrowRight className='size-4' aria-hidden='true' />
             </Button>
+            {props.confirmation}
           </aside>
         </div>
       )}
@@ -563,6 +577,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
         <div className={cn('mt-7', hasConfigurableTopup && 'border-t pt-6')}>
           <h3 className='mb-3 text-sm font-medium'>{t('Creem Payment')}</h3>
           <CreemProductsSection
+            disabled={props.purchaseDisabled}
             products={props.creemProducts ?? []}
             onProductSelect={(product) => props.onCreemProductSelect?.(product)}
           />

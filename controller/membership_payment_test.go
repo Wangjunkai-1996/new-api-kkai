@@ -120,7 +120,7 @@ func TestMembershipStripeWebhookVerifiesSignatureAndGrantsOnce(t *testing.T) {
 	})
 	setting.StripeApiSecret, setting.StripeWebhookSecret, setting.StripePriceId = "sk_test_membership", "whsec_membership_local", ""
 	// A membership receipt remains routable without enabling ordinary top-ups.
-	require.False(t, isStripeWebhookEnabled())
+	require.False(t, isStripeTopUpEnabled())
 	payload, err := common.Marshal(map[string]any{
 		"id": "evt_membership_local", "object": "event", "api_version": stripe.APIVersion,
 		"type": stripe.EventTypeCheckoutSessionCompleted,

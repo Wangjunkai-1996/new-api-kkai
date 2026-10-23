@@ -179,3 +179,19 @@ func TestValidatePostgresApplicationColumnTypesAcceptsCanonicalTypes(t *testing.
 		},
 	}))
 }
+
+func TestWalletOptionalSchemaDoesNotChangeBaseStartupOrImplicitMigration(t *testing.T) {
+	db := newSchemaPrerequisiteTestDB(t)
+	require.False(t, db.Migrator().HasColumn("top_ups", "wallet_lifecycle_version"))
+	require.False(t, db.Migrator().HasTable(&WalletTopUpFlow{}))
+	require.NoError(t, db.AutoMigrate(mainDatabaseAutoMigrateModels()...))
+	require.False(t, db.Migrator().HasColumn("top_ups", "wallet_lifecycle_version"), "serving auto-migration cannot silently expand financial lifecycle storage")
+	require.NoError(t, ValidateMainSchemaPrerequisites(db))
+	require.NoError(t, db.Create(&User{Id: 73, Username: "pre18-wallet", AffCode: "pre18-wallet"}).Error)
+	order := &TopUp{UserId: 73, TradeNo: "pre18-existing-payment", PaymentProvider: PaymentProviderStripe, Status: common.TopUpStatusPending}
+	require.NoError(t, order.Insert(), "the legacy insert omits optional columns before expansion")
+	order.Status = common.TopUpStatusSuccess
+	require.NoError(t, order.Update(), "the legacy completion update also omits optional columns")
+	require.NoError(t, db.Migrator().DropColumn(&topUpBaseSchema{}, "Currency"))
+	require.ErrorContains(t, ValidateMainSchemaPrerequisites(db), "top_ups.currency", "mandatory pre-v18 fields are still required")
+}

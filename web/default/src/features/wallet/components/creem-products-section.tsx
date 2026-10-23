@@ -29,20 +29,22 @@ interface CreemProductsSectionProps {
   products: CreemProduct[]
   onProductSelect: (product: CreemProduct) => void
   loading?: boolean
+  disabled?: boolean
 }
 
 export function CreemProductsSection({
   products,
   onProductSelect,
   loading,
+  disabled,
 }: CreemProductsSectionProps) {
   const { t } = useTranslation()
 
   if (loading) {
     return (
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-3'>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className='h-24 rounded-lg' />
+        {['first', 'second', 'third'].map((placeholder) => (
+          <Skeleton key={placeholder} className='h-24 rounded-lg' />
         ))}
       </div>
     )
@@ -58,18 +60,24 @@ export function CreemProductsSection({
         <Card
           key={product.productId}
           data-card-hover='false'
-          className='cursor-pointer'
-          onClick={() => onProductSelect(product)}
+          className='overflow-hidden'
         >
-          <CardContent className='p-3 text-center sm:p-4'>
-            <div className='mb-2 text-lg font-medium'>{product.name}</div>
-            <div className='text-muted-foreground mb-2 text-sm'>
-              {t('Quota')}: {formatNumber(product.quota)}
-            </div>
-            <div className='text-primary text-lg font-semibold'>
-              {formatCreemPrice(product.price, product.currency)}
-            </div>
-          </CardContent>
+          <button
+            type='button'
+            className='w-full text-left disabled:cursor-not-allowed disabled:opacity-50'
+            disabled={disabled}
+            onClick={() => onProductSelect(product)}
+          >
+            <CardContent className='p-3 text-center sm:p-4'>
+              <div className='mb-2 text-lg font-medium'>{product.name}</div>
+              <div className='text-muted-foreground mb-2 text-sm'>
+                {t('Quota')}: {formatNumber(product.quota)}
+              </div>
+              <div className='text-primary text-lg font-semibold'>
+                {formatCreemPrice(product.price, product.currency)}
+              </div>
+            </CardContent>
+          </button>
         </Card>
       ))}
     </div>

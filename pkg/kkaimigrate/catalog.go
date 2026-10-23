@@ -149,6 +149,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       invoiceSchemaStatements,
 		},
+		{
+			Version:          WalletPaymentSchemaVersion,
+			Name:             "wallet_payment_lifecycle",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "wallet_payment_lifecycle_v18",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       walletPaymentSchemaStatements,
+		},
 	}
 }
 

@@ -17,12 +17,13 @@ const (
 	migrationChecksumSchemaBackfill = 3
 	migrationChecksumSchemaGORM     = 4
 
-	migrationOperationCreateTable       = "create_table"
-	migrationOperationCreateIndex       = "create_index_on_new_table"
-	migrationOperationAddNullableColumn = "add_nullable_column"
-	migrationOperationAddColumnDefault  = "add_column_constant_default"
-	migrationOperationSetColumnDefault  = "set_column_constant_default"
-	migrationOperationContract          = "contract"
+	migrationOperationCreateTable            = "create_table"
+	migrationOperationCreateIndex            = "create_index_on_new_table"
+	migrationOperationAddNullableColumn      = "add_nullable_column"
+	migrationOperationCreateWalletTopUpIndex = "create_wallet_topup_index"
+	migrationOperationAddColumnDefault       = "add_column_constant_default"
+	migrationOperationSetColumnDefault       = "set_column_constant_default"
+	migrationOperationContract               = "contract"
 )
 
 var requiredMigrationDialects = [...]string{
@@ -237,6 +238,15 @@ func validateExpandSQL(
 		return nil
 	case migrationOperationCreateIndex:
 		return validateCreateIndexOnNewTable(tokens, createdTables)
+	case migrationOperationCreateWalletTopUpIndex:
+		switch strings.TrimSpace(statement.SQL) {
+		case "CREATE UNIQUE INDEX idx_wallet_topup_request ON top_ups (tenant_id, user_id, request_key_hash)",
+			"CREATE INDEX idx_wallet_topup_due ON top_ups (next_check_at)",
+			"CREATE INDEX idx_wallet_topup_owner ON top_ups (tenant_id, user_id, create_time, id)":
+			return nil
+		default:
+			return fmt.Errorf("wallet topup index operation is outside the frozen allowlist")
+		}
 	case migrationOperationAddNullableColumn:
 		return validateAddNullableColumn(tokens)
 	case migrationOperationAddColumnDefault:
@@ -337,7 +347,7 @@ func validateAddNullableColumn(tokens []string) error {
 	if tokens[columnIndex] == "COLUMN" {
 		columnIndex++
 	}
-	if columnIndex+1 >= len(tokens) || !isCanonicalSQLIdentifier(tokens[columnIndex]) {
+	if columnIndex+1 >= len(tokens) || !isCanonicalSQLColumnIdentifier(tokens[columnIndex]) {
 		return fmt.Errorf("add_nullable_column operation has no canonical column name")
 	}
 	typeIndex := columnIndex + 1

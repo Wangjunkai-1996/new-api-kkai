@@ -9,18 +9,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
-	"github.com/thanhpk/randstr"
 )
 
 const CreemSignatureHeader = "creem-signature"
@@ -36,12 +38,7 @@ func generateCreemSignature(payload string, secret string) string {
 
 // 验证Creem webhook签名
 func verifyCreemSignature(payload string, signature string, secret string) bool {
-	if secret == "" {
-		logger.LogWarn(context.Background(), fmt.Sprintf("Creem webhook secret 未配置 test_mode=%t signature=%q body=%q", setting.CreemTestMode, signature, payload))
-		if setting.CreemTestMode {
-			logger.LogInfo(context.Background(), fmt.Sprintf("Creem webhook 验签已跳过 reason=test_mode signature=%q body=%q", signature, payload))
-			return true
-		}
+	if strings.TrimSpace(secret) == "" {
 		return false
 	}
 
@@ -66,116 +63,12 @@ type CreemAdaptor struct {
 }
 
 func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
-	if req.PaymentMethod != model.PaymentMethodCreem {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "不支持的支付渠道"})
-		return
-	}
-
-	if req.ProductId == "" {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "请选择产品"})
-		return
-	}
-
-	// 解析产品列表
-	var products []CreemProduct
-	err := common.Unmarshal([]byte(setting.CreemProducts), &products)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 产品配置解析失败 user_id=%d error=%q", c.GetInt("id"), err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "产品配置错误"})
-		return
-	}
-
-	// 查找对应的产品
-	var selectedProduct *CreemProduct
-	for _, product := range products {
-		if product.ProductId == req.ProductId {
-			selectedProduct = &product
-			break
-		}
-	}
-
-	if selectedProduct == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "产品不存在"})
-		return
-	}
-
-	withoutBonus, err := creemProductWithoutBonus(*selectedProduct)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	selectedProduct = &withoutBonus
-	id := c.GetInt("id")
-	if rejectInvalidCreditedQuota(c, id, decimal.NewFromInt(selectedProduct.Quota)) {
-		return
-	}
-
-	user, err := model.GetUserById(id, false)
-	if err != nil || user == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
-		return
-	}
-
-	// 生成唯一的订单引用ID
-	reference := fmt.Sprintf("creem-api-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
-	referenceId := "ref_" + common.Sha1([]byte(reference))
-
-	// 先创建订单记录，使用产品配置的金额和充值额度
-	topUp := &model.TopUp{
-		UserId:          id,
-		Amount:          selectedProduct.Quota, // 充值额度
-		Money:           selectedProduct.Price, // 支付金额
-		TradeNo:         referenceId,
-		PaymentMethod:   model.PaymentMethodCreem,
-		PaymentProvider: model.PaymentProviderCreem,
-		CreateTime:      time.Now().Unix(),
-		Status:          common.TopUpStatusPending,
-	}
-	err = topUp.Insert()
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 创建充值订单失败 user_id=%d trade_no=%s product_id=%s error=%q", id, referenceId, selectedProduct.ProductId, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
-		return
-	}
-
-	// 创建支付链接，传入用户邮箱
-	checkoutUrl, err := genCreemLink(c.Request.Context(), referenceId, selectedProduct, user.Email, user.Username)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 创建支付链接失败 user_id=%d trade_no=%s product_id=%s error=%q", id, referenceId, selectedProduct.ProductId, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
-		return
-	}
-
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值订单创建成功 user_id=%d trade_no=%s product_id=%s product_name=%q quota=%d money=%.2f", id, referenceId, selectedProduct.ProductId, selectedProduct.Name, selectedProduct.Quota, selectedProduct.Price))
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "success",
-		"data": gin.H{
-			"checkout_url": checkoutUrl,
-			"order_id":     referenceId,
-		},
-	})
+	walletLegacyCreate(c, dto.WalletQuoteRequest{PaymentProvider: model.PaymentProviderCreem, PaymentMethod: req.PaymentMethod, ProductID: req.ProductId})
 }
 
 func RequestCreemPay(c *gin.Context) {
 	var req CreemPayRequest
-
-	// 读取body内容用于打印，同时保留原始数据供后续使用
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem 支付请求读取失败 error=%q", err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "read query error"})
-		return
-	}
-
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 支付请求已收到 user_id=%d body=%q", c.GetInt("id"), string(bodyBytes)))
-
-	// 重新设置body供后续的ShouldBindJSON使用
-	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-
-	err = c.ShouldBindJSON(&req)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+	if !walletBind(c, &req) {
 		return
 	}
 	creemAdaptor.RequestPay(c, &req)
@@ -243,37 +136,75 @@ type CreemWebhookEvent struct {
 }
 
 func CreemWebhook(c *gin.Context) {
-	if !isCreemWebhookEnabled() && !membershipCallbackConfigured(model.PaymentProviderCreem) {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
-		c.AbortWithStatus(http.StatusForbidden)
-		return
-	}
 
 	// 读取body内容用于打印，同时保留原始数据供后续使用
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem webhook 读取请求体失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 1048577))
+	if err != nil || len(bodyBytes) > 1048576 {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem webhook 读取请求体失败 path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), "body unavailable"))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 
 	// 获取签名头
 	signature := c.GetHeader(CreemSignatureHeader)
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook 收到请求 path=%q client_ip=%s signature=%q body=%q", c.Request.RequestURI, c.ClientIP(), signature, string(bodyBytes)))
 	if signature == "" {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem webhook 缺少签名 path=%q client_ip=%s body=%q", c.Request.RequestURI, c.ClientIP(), string(bodyBytes)))
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
 
+	var untrusted CreemWebhookEvent
+	if common.Unmarshal(bodyBytes, &untrusted) != nil {
+		c.AbortWithStatus(400)
+		return
+	}
+	unmatched := false
+	secret := setting.CreemWebhookSecret
+	if strings.HasPrefix(untrusted.Object.RequestId, "WT") {
+		original, err := service.WalletPaymentWebhookSecret(untrusted.Object.RequestId, model.PaymentProviderCreem)
+		if err != nil {
+			if !service.WalletOrderNotFound(err) {
+				c.AbortWithStatus(503)
+				return
+			}
+			unmatched = true
+		} else {
+			secret = original
+		}
+	}
 	// 验证签名
-	if !verifyCreemSignature(string(bodyBytes), signature, setting.CreemWebhookSecret) {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Creem webhook 验签失败 path=%q client_ip=%s signature=%q body=%q", c.Request.RequestURI, c.ClientIP(), signature, string(bodyBytes)))
+	if !verifyCreemSignature(string(bodyBytes), signature, secret) {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
 
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook 验签成功 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
+	if unmatched {
+		if untrusted.EventType != "checkout.completed" || untrusted.Object.Order.Status != "paid" {
+			c.Status(200)
+			return
+		}
+		account := os.Getenv("WALLET_CREEM_ACCOUNT_REF")
+		env := "prod"
+		if setting.CreemTestMode {
+			env = "test"
+		}
+		transaction := untrusted.Object.Order.Transaction
+		if transaction == "" {
+			transaction = untrusted.Object.Order.Id
+		}
+		currency := strings.ToUpper(untrusted.Object.Order.Currency)
+		exponent, err := walletCurrencyExponent(currency)
+		if account == "" || untrusted.Object.Order.Mode != env || transaction == "" || err != nil {
+			c.AbortWithStatus(503)
+			return
+		}
+		if err := service.SaveUnmatchedWalletPaymentReceipt(c.Request.Context(), model.WalletPaymentReceipt{Provider: model.PaymentProviderCreem, ProviderAccountRef: account, ProviderEnvironment: env, TransactionID: transaction, AmountMinor: int64(untrusted.Object.Order.AmountPaid), Currency: currency, CurrencyExponent: exponent, PaidAt: 0, EvidenceSource: "verified_callback", EvidenceRef: "creem-event:" + untrusted.Id}); err != nil {
+			c.AbortWithStatus(500)
+			return
+		}
+		c.Status(200)
+		return
+	}
+	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem webhook 验签成功 path=%q client_ip=%s", c.Request.URL.Path, c.ClientIP()))
 
 	// 重新设置body供后续的ShouldBindJSON使用
 	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -281,7 +212,6 @@ func CreemWebhook(c *gin.Context) {
 	// 解析新格式的webhook数据
 	var webhookEvent CreemWebhookEvent
 	if err := c.ShouldBindJSON(&webhookEvent); err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Creem webhook 解析失败 path=%q client_ip=%s error=%q body=%q", c.Request.RequestURI, c.ClientIP(), err.Error(), string(bodyBytes)))
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
@@ -338,13 +268,11 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 	}
 
 	// 验证订单类型，目前只处理一次性付款（充值）
-	if event.Object.Order.Type != "onetime" {
+	if event.Object.Order.Type != "onetime" && !strings.HasPrefix(referenceId, "WT") {
 		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 暂不支持该订单类型，忽略处理 request_id=%s creem_order_id=%s order_type=%s", referenceId, event.Object.Order.Id, event.Object.Order.Type))
 		c.Status(http.StatusOK)
 		return
 	}
-
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 支付完成回调 trade_no=%s creem_order_id=%s amount_paid=%d currency=%s product_name=%q customer_email=%q customer_name=%q", referenceId, event.Object.Order.Id, event.Object.Order.AmountPaid, event.Object.Order.Currency, event.Object.Product.Name, event.Object.Customer.Email, event.Object.Customer.Name))
 
 	// 查询本地订单确认存在
 	topUp := model.GetTopUpByTradeNo(referenceId)
@@ -354,9 +282,31 @@ func handleCheckoutCompleted(c *gin.Context, event *CreemWebhookEvent) {
 		return
 	}
 
-	if topUp.Status != common.TopUpStatusPending {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("Creem 充值订单状态非 pending，忽略处理 trade_no=%s status=%s creem_order_id=%s", referenceId, topUp.Status, event.Object.Order.Id))
-		c.Status(http.StatusOK) // 已处理过的订单，返回成功避免重复处理
+	if topUp.WalletLifecycleVersion == 1 {
+		_, snapshot, err := service.WalletGatewayForOrder(referenceId, model.PaymentProviderCreem)
+		if err != nil || snapshot == nil {
+			c.AbortWithStatus(503)
+			return
+		}
+		transaction := event.Object.Order.Transaction
+		if transaction == "" {
+			transaction = event.Object.Order.Id
+		}
+		currency := strings.ToUpper(event.Object.Order.Currency)
+		exponent, currencyErr := walletCurrencyExponent(currency)
+		if transaction == "" || event.Object.Order.Id == "" || currencyErr != nil || event.Object.Order.AmountPaid < 0 {
+			c.AbortWithStatus(400)
+			return
+		}
+		// Creem's checkout event does not carry an authoritative paid_at.
+		// Persist it for operations instead of inventing a payment timestamp.
+		pricing := event.Object.Order.Type == "onetime" && (topUp.ProviderSessionID == "" || event.Object.Id == topUp.ProviderSessionID) && event.Object.Order.Product == snapshot.ProductID && event.Object.Order.Mode == topUp.ProviderEnvironment && currency == topUp.Currency && event.Object.Units == 1 && int64(event.Object.Order.SubTotal) == topUp.PaidMinor && event.Object.Order.AmountPaid == event.Object.Order.AmountDue && event.Object.Order.TaxAmount >= 0 && event.Object.Order.SubTotal >= 0 && int64(event.Object.Order.SubTotal) <= math.MaxInt64-int64(event.Object.Order.TaxAmount) && int64(event.Object.Order.AmountDue) == int64(event.Object.Order.SubTotal)+int64(event.Object.Order.TaxAmount)
+		_, err = service.FinalizeWalletPaymentReceipt(topUp, transaction, int64(event.Object.Order.AmountPaid), currency, exponent, 0, "verified_callback", "creem-event:"+event.Id, pricing, model.TopUpUserPatch{}, "")
+		if err != nil && !service.WalletPaymentReceiptHeld(err) {
+			c.AbortWithStatus(500)
+			return
+		}
+		c.Status(200)
 		return
 	}
 
@@ -441,7 +391,7 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", setting.CreemApiKey)
 
-	logger.LogInfo(ctx, fmt.Sprintf("Creem 支付请求已发送 api_url=%s product_id=%s email=%q trade_no=%s", apiUrl, product.ProductId, email, referenceId))
+	logger.LogInfo(ctx, fmt.Sprintf("Creem 支付请求已发送 api_url=%s product_id=%s trade_no=%s", apiUrl, product.ProductId, referenceId))
 
 	// 发送请求
 	client := &http.Client{
@@ -459,8 +409,6 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 		return "", fmt.Errorf("读取响应失败: %v", err)
 	}
 
-	logger.LogInfo(ctx, fmt.Sprintf("Creem API 响应已收到 trade_no=%s status_code=%d body=%q", referenceId, resp.StatusCode, string(body)))
-
 	// 检查响应状态
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("Creem API http status %d ", resp.StatusCode)
@@ -476,6 +424,5 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 		return "", fmt.Errorf("Creem API resp no checkout url ")
 	}
 
-	logger.LogInfo(ctx, fmt.Sprintf("Creem 支付链接创建成功 trade_no=%s response_id=%s checkout_url=%q", referenceId, checkoutResp.Id, checkoutResp.CheckoutUrl))
 	return checkoutResp.CheckoutUrl, nil
 }

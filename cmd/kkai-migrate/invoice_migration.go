@@ -91,7 +91,7 @@ func inspectInvoiceMigration(ctx context.Context, db *gorm.DB) (*invoiceMigratio
 	if err != nil {
 		return nil, err
 	}
-	if contract.RuntimeMinVersion != 14 || contract.RuntimeMaxVersion != 17 || contract.MigrationTargetVersion != 14 || contract.MigrationKind != kkaimigrate.MigrationKindNone || contract.MigrationSetDigest != contract.CompatiblePrefixes["14"] || contract.CompatiblePrefixes["16"] == "" || contract.CompatiblePrefixes["17"] == "" {
+	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 17 && contract.RuntimeMaxVersion != 18) || contract.MigrationTargetVersion != 14 || contract.MigrationKind != kkaimigrate.MigrationKindNone || contract.MigrationSetDigest != contract.CompatiblePrefixes["14"] || contract.CompatiblePrefixes["16"] == "" || contract.CompatiblePrefixes["17"] == "" {
 		return nil, fmt.Errorf("%w: invoice controller requires the exact v14-v17 compatibility runtime", kkaimigrate.ErrUnsafeMigration)
 	}
 	name, schema, err := kkaimigrate.TenantOnlineDatabaseIdentity(ctx, db)
@@ -113,6 +113,10 @@ func validateInvoiceControllerProof(proof *invoiceControllerProof, status *invoi
 	if err != nil {
 		return err
 	}
+	// The installed invoice mutation protocol remains the exact v14-v17
+	// contract. Declaring optional v18 never widens this proof's authority.
+	expected.RuntimeMaxVersion = 17
+	delete(expected.CompatiblePrefixes, "18")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 17 || expected.MigrationTargetVersion != 14 || status.Schema != "kkai_invoice_migration_status_v1" || (status.CurrentVersion != 16 && status.CurrentVersion != 17) || status.TargetVersion != 17 || !status.Safe || status.SourceDigest != expected.CompatiblePrefixes["16"] || status.TargetDigest != expected.CompatiblePrefixes["17"] || status.PlanChecksum != kkaimigrate.InvoicePlanChecksum() || status.InvoicesPresent != (status.CurrentVersion == 17) {
 		return fmt.Errorf("invoice controller requires the exact canonical v16/v17 database and compiled plan")
 	}

@@ -168,91 +168,104 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 			return ErrTopUpStatusInvalid
 		}
 
-		epoch, err := common.CurrentCreditEpoch()
+		completed, err := completeLockedTopUpTx(tx, topUp, input, completedAt)
 		if err != nil {
 			return err
 		}
-		if epoch != nil {
-			if _, ok := epoch.LegacyMaxIDs["top_ups"]; !ok {
-				return common.ErrCreditEpochInvalid
-			}
-		}
-		if epoch.IsLegacy("top_ups", int64(topUp.Id)) {
-			return ErrTopUpLegacyReviewRequired
-		}
-		user := &User{}
-		if err := lockForUpdate(tx).Where("id = ?", topUp.UserId).First(user).Error; err != nil {
-			return err
-		}
-		if topUp.TenantID != user.TenantID || (user.TenantID > 0 && (topUp.PaymentProvider != PaymentProviderEpay || topUp.Currency != ResellerCurrencyCNY || topUp.PaidMinor <= 0)) {
-			return ErrResellerFinanceInvalidInput
-		}
-		completion, err := input.Prepare(topUp, user)
-		if err != nil {
-			return err
-		}
-		if completion.QuotaDelta <= 0 {
-			return ErrTopUpQuotaInvalid
-		}
-		if completion.PaymentMethod != "" {
-			topUp.PaymentMethod = completion.PaymentMethod
-		}
-		topUp.Status = common.TopUpStatusSuccess
-		topUp.CompleteTime = completedAt
-		if err := tx.Save(topUp).Error; err != nil {
-			return err
-		}
-
-		updates := map[string]any{"quota": gorm.Expr("quota + ?", completion.QuotaDelta)}
-		if completion.UserPatch.StripeCustomer != nil {
-			updates["stripe_customer"] = *completion.UserPatch.StripeCustomer
-		}
-		if completion.UserPatch.EmailIfEmpty != nil && user.Email == "" {
-			updates["email"] = *completion.UserPatch.EmailIfEmpty
-		}
-		maximumQuotaBeforeCredit := int64(math.MaxInt64) - completion.QuotaDelta
-		if user.Quota > maximumQuotaBeforeCredit {
-			return ErrTopUpQuotaInvalid
-		}
-		updated := userQuotaCreditQuery(tx, user.Id, completion.QuotaDelta).Updates(updates)
-		if updated.Error != nil {
-			return updated.Error
-		}
-		if updated.RowsAffected != 1 {
-			return ErrTopUpQuotaInvalid
-		}
-
-		if topUp.TenantID > 0 {
-			fee, err := decimalCeilInt64(decimal.NewFromInt(topUp.PaidMinor).Mul(decimal.RequireFromString(ResellerPaymentFeeRate)))
-			if err != nil {
-				return err
-			}
-			_, err = CreateCustomerPaymentLotTx(tx, ResellerPaymentLotInput{
-				TenantID: topUp.TenantID, CustomerID: user.Id, TopUpID: int64(topUp.Id),
-				OperationID: fmt.Sprintf("topup:%d", topUp.Id), PaidMinor: topUp.PaidMinor,
-				PaymentFeeMinor: fee, CreditedQuota: completion.QuotaDelta, Now: completedAt,
-			})
-			if err != nil {
-				return err
-			}
-		} else {
-			activeFromID, err := topUpRebateActiveFromID()
-			if err != nil {
-				return err
-			}
-			if int64(topUp.Id) >= activeFromID {
-				if err := enqueueTopUpCompletedEvent(tx, topUp, user, completion.QuotaDelta, completedAt); err != nil {
-					return err
-				}
-			}
-		}
-
-		result.TopUp = *topUp
-		result.QuotaDelta = completion.QuotaDelta
+		*result = *completed
 		return nil
 	}); err != nil {
 		return nil, err
 	}
+	return result, nil
+}
+
+// completeLockedTopUpTx is shared by the ordinary pending-only path and the
+// independently verified late-payment path. Caller owns the top-up row lock.
+func completeLockedTopUpTx(tx *gorm.DB, topUp *TopUp, input FinalizeTopUpInput, completedAt int64) (*FinalizeTopUpResult, error) {
+	result := &FinalizeTopUpResult{}
+
+	epoch, err := common.CurrentCreditEpoch()
+	if err != nil {
+		return nil, err
+	}
+	if epoch != nil {
+		if _, ok := epoch.LegacyMaxIDs["top_ups"]; !ok {
+			return nil, common.ErrCreditEpochInvalid
+		}
+	}
+	if epoch.IsLegacy("top_ups", int64(topUp.Id)) {
+		return nil, ErrTopUpLegacyReviewRequired
+	}
+	user := &User{}
+	if err := lockForUpdate(tx).Where("id = ?", topUp.UserId).First(user).Error; err != nil {
+		return nil, err
+	}
+	if topUp.TenantID != user.TenantID || (user.TenantID > 0 && (topUp.PaymentProvider != PaymentProviderEpay || topUp.Currency != ResellerCurrencyCNY || topUp.PaidMinor <= 0)) {
+		return nil, ErrResellerFinanceInvalidInput
+	}
+	completion, err := input.Prepare(topUp, user)
+	if err != nil {
+		return nil, err
+	}
+	if completion.QuotaDelta <= 0 {
+		return nil, ErrTopUpQuotaInvalid
+	}
+	if completion.PaymentMethod != "" {
+		topUp.PaymentMethod = completion.PaymentMethod
+	}
+	topUp.Status = common.TopUpStatusSuccess
+	topUp.CompleteTime = completedAt
+	if err := tx.Save(topUp).Error; err != nil {
+		return nil, err
+	}
+
+	updates := map[string]any{"quota": gorm.Expr("quota + ?", completion.QuotaDelta)}
+	if completion.UserPatch.StripeCustomer != nil {
+		updates["stripe_customer"] = *completion.UserPatch.StripeCustomer
+	}
+	if completion.UserPatch.EmailIfEmpty != nil && user.Email == "" {
+		updates["email"] = *completion.UserPatch.EmailIfEmpty
+	}
+	maximumQuotaBeforeCredit := int64(math.MaxInt64) - completion.QuotaDelta
+	if user.Quota > maximumQuotaBeforeCredit {
+		return nil, ErrTopUpQuotaInvalid
+	}
+	updated := userQuotaCreditQuery(tx, user.Id, completion.QuotaDelta).Updates(updates)
+	if updated.Error != nil {
+		return nil, updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		return nil, ErrTopUpQuotaInvalid
+	}
+
+	if topUp.TenantID > 0 {
+		fee, err := decimalCeilInt64(decimal.NewFromInt(topUp.PaidMinor).Mul(decimal.RequireFromString(ResellerPaymentFeeRate)))
+		if err != nil {
+			return nil, err
+		}
+		_, err = CreateCustomerPaymentLotTx(tx, ResellerPaymentLotInput{
+			TenantID: topUp.TenantID, CustomerID: user.Id, TopUpID: int64(topUp.Id),
+			OperationID: fmt.Sprintf("topup:%d", topUp.Id), PaidMinor: topUp.PaidMinor,
+			PaymentFeeMinor: fee, CreditedQuota: completion.QuotaDelta, Now: completedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		activeFromID, err := topUpRebateActiveFromID()
+		if err != nil {
+			return nil, err
+		}
+		if int64(topUp.Id) >= activeFromID {
+			if err := enqueueTopUpCompletedEvent(tx, topUp, user, completion.QuotaDelta, completedAt); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	result.TopUp = *topUp
+	result.QuotaDelta = completion.QuotaDelta
 	return result, nil
 }
 

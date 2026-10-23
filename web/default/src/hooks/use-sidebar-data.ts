@@ -35,6 +35,7 @@ import {
   Percent,
   Puzzle,
   Radio,
+  Receipt,
   ServerCog,
   Settings,
   Ticket,
@@ -50,7 +51,9 @@ import { useInvitationFeatureStatus } from '@/features/invitations/hooks/use-inv
 import { useRequestAvailability } from '@/features/requests/use-request-availability'
 import { useSiteConfig } from '@/features/site-config'
 import { useVideoStudioAccess } from '@/features/video-studio/hooks/use-video-studio-access'
+import { hasPermission } from '@/lib/admin-permissions'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 const TENANT_CONSOLE_ROUTES = new Set([
   '/dashboard/overview',
@@ -70,6 +73,7 @@ const TENANT_CONSOLE_ROUTES = new Set([
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
   const { data: site } = useSiteConfig()
+  const user = useAuthStore((state) => state.auth.user)
   const isTenant = (site?.tenant_id ?? 0) > 0
   const invitationFeature = useInvitationFeatureStatus(
     Boolean(site) && !isTenant
@@ -261,6 +265,16 @@ export function useSidebarData(): SidebarData {
                   title: t('Invitation Operations'),
                   url: '/invitations/admin',
                   icon: HandCoins,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
+          ...(hasPermission(user, 'billing', 'read')
+            ? [
+                {
+                  title: t('All top-up orders'),
+                  url: '/wallet?show_history=true&history_scope=admin',
+                  icon: Receipt,
                   requiredRole: ROLE.ADMIN,
                 },
               ]

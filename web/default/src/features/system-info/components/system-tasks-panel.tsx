@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 
 import { SystemTaskHistory } from './system-task-history'
 import { SystemTasksTable } from './system-tasks-table'
+import { WalletTopupReconcileRun } from './wallet-topup-reconcile-run'
 
 const ACTIVE_POLL_INTERVAL_MS = 8000
 
@@ -157,6 +158,9 @@ export function SystemTasksPanel() {
       </div>
       <div className='p-4 pt-0 sm:p-5 sm:pt-0'>
         <SystemTaskHistory activeRefreshAt={tasksQuery.dataUpdatedAt} />
+        <div className='mt-4'>
+          <WalletTopupReconcileRun />
+        </div>
       </div>
     </section>
   )

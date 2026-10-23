@@ -87,6 +87,7 @@ func TestInvoiceTopUpManualCompletionAndLegacyEstimateDoNotCreateEvidence(t *tes
 			db, topUp := setupInvoiceTopUpReceiptTest(t)
 			var err error
 			if manual {
+				require.NoError(t, db.Model(&topUp).Update("create_time", common.GetTimestamp()).Error)
 				err = ManualCompleteTopUp(topUp.TradeNo, "127.0.0.1")
 			} else {
 				require.NoError(t, db.Model(&topUp).Updates(map[string]any{"paid_minor": 0, "currency": ""}).Error)

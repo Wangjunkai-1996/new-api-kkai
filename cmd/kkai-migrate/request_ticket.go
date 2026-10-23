@@ -79,7 +79,7 @@ func inspectRequestTicket(ctx context.Context, db *gorm.DB) (*requestTicketStatu
 	if err != nil {
 		return nil, err
 	}
-	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 16 && contract.RuntimeMaxVersion != 17) || contract.MigrationTargetVersion != 14 || contract.MigrationKind != kkaimigrate.MigrationKindNone || contract.MigrationSetDigest != contract.CompatiblePrefixes["14"] || contract.CompatiblePrefixes["15"] == "" || contract.CompatiblePrefixes["16"] == "" {
+	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 16 && contract.RuntimeMaxVersion != 17 && contract.RuntimeMaxVersion != 18) || contract.MigrationTargetVersion != 14 || contract.MigrationKind != kkaimigrate.MigrationKindNone || contract.MigrationSetDigest != contract.CompatiblePrefixes["14"] || contract.CompatiblePrefixes["15"] == "" || contract.CompatiblePrefixes["16"] == "" {
 		return nil, fmt.Errorf("%w: request ticket inspection requires the canonical v14/v15/v16 prefixes", kkaimigrate.ErrUnsafeMigration)
 	}
 	name, schema, err := kkaimigrate.TenantOnlineDatabaseIdentity(ctx, db)
@@ -107,6 +107,7 @@ func validateRequestTicketProof(proof *requestTicketControllerProof, status *req
 	// never broader authorization for this historical controller.
 	expected.RuntimeMaxVersion = 16
 	delete(expected.CompatiblePrefixes, "17")
+	delete(expected.CompatiblePrefixes, "18")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 16 || expected.MigrationTargetVersion != 14 || status.Schema != "kkai_request_ticket_v1" || (status.CurrentVersion != 15 && status.CurrentVersion != 16) || status.TargetVersion != 16 || !status.Safe || status.SourceDigest != expected.CompatiblePrefixes["15"] || status.TargetDigest != expected.CompatiblePrefixes["16"] || status.PlanChecksum != kkaimigrate.RequestTicketPlanChecksum() {
 		return fmt.Errorf("request ticket controller requires the exact compiled v15/v16 contract")
 	}

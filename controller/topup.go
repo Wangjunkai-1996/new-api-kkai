@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -183,6 +183,9 @@ func getPayMoney(amount int64, group string) float64 {
 }
 
 func getPayMoneyDecimal(amount int64, group string, tenant bool) decimal.Decimal {
+	if !walletPositiveFinite(common.QuotaPerUnit, operation_setting.Price) {
+		return decimal.Zero
+	}
 	dAmount := decimal.NewFromInt(amount)
 	// 充值金额以“展示类型”为准：
 	// - USD/CNY: 前端传 amount 为金额单位；TOKENS: 前端传 tokens，需要换成 USD 金额
@@ -194,6 +197,9 @@ func getPayMoneyDecimal(amount int64, group string, tenant bool) decimal.Decimal
 	topupGroupRatio, discount := topUpPromotionFactors(group, amount)
 	if tenant {
 		topupGroupRatio, discount = 1, 1
+	}
+	if !walletPositiveFinite(topupGroupRatio, discount) {
+		return decimal.Zero
 	}
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
 	dPrice := decimal.NewFromFloat(operation_setting.Price)
@@ -316,98 +322,10 @@ func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
 
 func RequestEpay(c *gin.Context) {
 	var req EpayRequest
-	err := c.ShouldBindJSON(&req)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+	if !walletBind(c, &req) {
 		return
 	}
-	if req.Amount < getMinTopup() {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": fmt.Sprintf("充值数量不能小于 %d", getMinTopup())})
-		return
-	}
-	id := c.GetInt("id")
-	if rejectInvalidTopUpQuota(c, id, req.Amount) {
-		return
-	}
-
-	group, err := model.GetUserGroup(id, true)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
-		return
-	}
-	tenant, _ := middleware.GetTenantContext(c)
-	payAmount := getPayMoneyDecimal(req.Amount, group, tenant.TenantID > 0).Round(2)
-	payMoney := payAmount.InexactFloat64() // legacy display only; the ledger uses payAmount.
-	if _, err := model.ParseCNYMinor(payAmount.StringFixed(2)); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
-		return
-	}
-
-	if !operation_setting.ContainsPayMethod(req.PaymentMethod) {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "支付方式不存在"})
-		return
-	}
-
-	callBackAddress := service.GetCallbackAddress()
-	returnUrl, _ := url.Parse(paymentReturnPath("/console/log"))
-	if tenant.TenantID > 0 {
-		returnUrl = &url.URL{Scheme: "https", Host: tenant.Hostname, Path: "/wallet", RawQuery: "show_history=true"}
-	}
-	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
-	tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
-	tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
-	client := GetEpayClient()
-	if client == nil {
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "当前管理员未配置支付信息"})
-		return
-	}
-	uri, params, err := client.Purchase(&epay.PurchaseArgs{
-		Type:           req.PaymentMethod,
-		ServiceTradeNo: tradeNo,
-		Name:           fmt.Sprintf("TUC%d", req.Amount),
-		Money:          payAmount.StringFixed(2),
-		Device:         epay.PC,
-		NotifyUrl:      notifyUrl,
-		ReturnUrl:      returnUrl,
-	})
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 拉起支付失败 user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", id, tradeNo, req.PaymentMethod, req.Amount, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
-		return
-	}
-	amount := req.Amount
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		dAmount := decimal.NewFromInt(int64(amount))
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		amount = dAmount.Div(dQuotaPerUnit).IntPart()
-	}
-	topUp := &model.TopUp{
-		TenantID:        tenant.TenantID,
-		UserId:          id,
-		Amount:          amount,
-		Money:           payMoney,
-		TradeNo:         tradeNo,
-		PaymentMethod:   req.PaymentMethod,
-		PaymentProvider: model.PaymentProviderEpay,
-		CreateTime:      time.Now().Unix(),
-		Status:          common.TopUpStatusPending,
-	}
-	if err := topUp.SetCNYPaymentSnapshot(payAmount.StringFixed(2)); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	err = topUp.Insert()
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 创建充值订单失败 user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", id, tradeNo, req.PaymentMethod, req.Amount, err.Error()))
-		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
-		return
-	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值订单创建成功 user_id=%d trade_no=%s payment_method=%s amount=%d money=%.2f uri=%q params=%q", id, tradeNo, req.PaymentMethod, req.Amount, payMoney, uri, common.GetJsonString(params)))
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": params, "url": uri})
+	walletLegacyCreate(c, dto.WalletQuoteRequest{PaymentProvider: model.PaymentProviderEpay, PaymentMethod: req.PaymentMethod, Amount: strconv.FormatInt(req.Amount, 10)})
 }
 
 // tradeNo lock
@@ -453,18 +371,13 @@ func UnlockOrder(tradeNo string) {
 }
 
 func EpayNotify(c *gin.Context) {
-	if !isEpayWebhookEnabled() {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
-		_, _ = c.Writer.Write([]byte("fail"))
-		return
-	}
 
 	var params map[string]string
 
 	if c.Request.Method == "POST" {
 		// POST 请求：从 POST body 解析参数
 		if err := c.Request.ParseForm(); err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook POST 表单解析失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook POST 表单解析失败 path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), err.Error()))
 			_, _ = c.Writer.Write([]byte("fail"))
 			return
 		}
@@ -479,42 +392,65 @@ func EpayNotify(c *gin.Context) {
 			return r
 		}, map[string]string{})
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 收到请求 path=%q client_ip=%s method=%s params=%q", c.Request.RequestURI, c.ClientIP(), c.Request.Method, common.GetJsonString(params)))
 
 	if len(params) == 0 {
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 参数为空 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 参数为空 path=%q client_ip=%s", c.Request.URL.Path, c.ClientIP()))
+		_, _ = c.Writer.Write([]byte("fail"))
+		return
+	}
+	if handled, err := service.HandleWalletEpayCallback(c.Request.Context(), params); handled {
+		if err != nil {
+			_, _ = c.Writer.Write([]byte("fail"))
+		} else {
+			_, _ = c.Writer.Write([]byte("success"))
+		}
+		return
+	}
+	if !isEpayWebhookEnabled() {
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
 	}
 	client := GetEpayClient()
 	if client == nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 client 未初始化 path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP()))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 client 未初始化 path=%q client_ip=%s", c.Request.URL.Path, c.ClientIP()))
 		_, err := c.Writer.Write([]byte("fail"))
 		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), err.Error()))
 		}
 		return
 	}
 	verifyInfo, err := client.Verify(params)
 	if err != nil || !verifyInfo.VerifyStatus {
 		if _, writeErr := c.Writer.Write([]byte("fail")); writeErr != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr.Error()))
+			logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), writeErr.Error()))
 		}
 		if err != nil {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_error=%q", c.Request.RequestURI, c.ClientIP(), err.Error()))
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_error=%q", c.Request.URL.Path, c.ClientIP(), err.Error()))
 		} else {
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_status=false", c.Request.RequestURI, c.ClientIP()))
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签失败 path=%q client_ip=%s verify_status=false", c.Request.URL.Path, c.ClientIP()))
 		}
 		return
 	}
-	logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 验签成功 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
 
 	if verifyInfo.TradeStatus != epay.StatusTradeSuccess {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 webhook 忽略事件 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, verifyInfo.TradeStatus, c.ClientIP(), common.GetJsonString(verifyInfo)))
 		_, _ = c.Writer.Write([]byte("success"))
 		return
 	}
 
+	if _, err := model.FindTopUpByTradeNo(verifyInfo.ServiceTradeNo); service.WalletOrderNotFound(err) && model.WalletPaymentSchemaAvailable() {
+		minor, err := model.ParseCNYMinor(params["money"])
+		if err != nil || params["pid"] != operation_setting.EpayId || params["trade_no"] == "" {
+			_, _ = c.Writer.Write([]byte("fail"))
+			return
+		}
+		err = service.SaveUnmatchedWalletPaymentReceipt(c.Request.Context(), model.WalletPaymentReceipt{Provider: model.PaymentProviderEpay, ProviderAccountRef: "epay:" + walletHash([]string{operation_setting.PayAddress, operation_setting.EpayId}), ProviderEnvironment: "prod", TransactionID: params["trade_no"], AmountMinor: minor, Currency: "CNY", CurrencyExponent: 2, PaidAt: 0, EvidenceSource: "verified_callback", EvidenceRef: "epay-notify:" + params["trade_no"]})
+		if err != nil {
+			_, _ = c.Writer.Write([]byte("fail"))
+		} else {
+			_, _ = c.Writer.Write([]byte("success"))
+		}
+		return
+	}
 	// The process-local lock reduces duplicate work. FinalizeTopUp's row locks
 	// and transaction remain the cross-instance correctness boundary.
 	LockOrder(verifyInfo.ServiceTradeNo)
@@ -523,7 +459,6 @@ func EpayNotify(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrTopUpNotFound):
-			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 回调订单不存在 trade_no=%s callback_type=%s client_ip=%s verify_info=%q", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP(), common.GetJsonString(verifyInfo)))
 		case errors.Is(err, model.ErrPaymentMethodMismatch):
 			logger.LogWarn(c.Request.Context(), fmt.Sprintf("易支付 订单支付网关不匹配 trade_no=%s callback_type=%s client_ip=%s", verifyInfo.ServiceTradeNo, verifyInfo.Type, c.ClientIP()))
 		case errors.Is(err, model.ErrTopUpStatusInvalid):
@@ -537,7 +472,6 @@ func EpayNotify(c *gin.Context) {
 		return
 	}
 	if !result.AlreadyCompleted {
-		logger.LogInfo(c.Request.Context(), fmt.Sprintf("易支付 充值成功 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d money=%.2f topup=%q", result.TopUp.TradeNo, result.TopUp.UserId, c.ClientIP(), result.QuotaDelta, result.TopUp.Money, common.GetJsonString(result.TopUp)))
 		model.RecordTopupLog(result.TopUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(result.QuotaDelta), result.TopUp.Money), c.ClientIP(), result.TopUp.PaymentMethod, "epay")
 	}
 	if _, writeErr := c.Writer.Write([]byte("success")); writeErr != nil {
@@ -582,6 +516,9 @@ type topUpHistoryResponse struct {
 }
 
 func GetUserTopUps(c *gin.Context) {
+	if walletFilteredHistory(c, false) {
+		return
+	}
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
 	keyword := c.Query("keyword")
@@ -609,7 +546,12 @@ func GetUserTopUps(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
+	rows, err := walletLegacyHistory(topups)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(rows)
 	common.ApiSuccess(c, topUpHistoryResponse{
 		PageInfo:          pageInfo,
 		TodayPaymentTotal: todayPaymentTotal,
@@ -619,6 +561,9 @@ func GetUserTopUps(c *gin.Context) {
 
 // GetAllTopUps 管理员获取全平台充值记录
 func GetAllTopUps(c *gin.Context) {
+	if walletFilteredHistory(c, true) {
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	keyword := c.Query("keyword")
 
@@ -645,7 +590,12 @@ func GetAllTopUps(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(topups)
+	rows, err := walletLegacyHistory(topups)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetItems(rows)
 	common.ApiSuccess(c, topUpHistoryResponse{
 		PageInfo:          pageInfo,
 		TodayPaymentTotal: todayPaymentTotal,
@@ -657,21 +607,33 @@ type AdminCompleteTopupRequest struct {
 	TradeNo string `json:"trade_no"`
 }
 
-// AdminCompleteTopUp 管理员补单接口
+// AdminCompleteTopUp adapts the old manual-completion route to audited verification.
 func AdminCompleteTopUp(c *gin.Context) {
 	var req AdminCompleteTopupRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.TradeNo == "" {
-		common.ApiErrorMsg(c, "参数错误")
+	if !walletBind(c, &req) {
 		return
 	}
-
-	// 订单级互斥，防止并发补单
-	LockOrder(req.TradeNo)
-	defer UnlockOrder(req.TradeNo)
-
-	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP()); err != nil {
-		common.ApiError(c, err)
+	if req.TradeNo == "" || len(req.TradeNo) > 255 {
+		walletError(c, 400, "VALIDATION_FAILED", nil)
 		return
 	}
-	common.ApiSuccess(c, nil)
+	var order model.TopUp
+	if err := model.WalletTopUpOnlyQuery(model.DB).Where("trade_no = ?", req.TradeNo).First(&order).Error; err != nil {
+		walletModelError(c, model.ErrTopUpNotFound)
+		return
+	}
+	if !walletManualReconciliationAllowed(&order) {
+		walletModelError(c, model.ErrWalletAttemptEnded)
+		return
+	}
+	if _, err := model.ScheduleWalletTopUpCheck(model.WalletTopUpScope{TenantID: order.TenantID, UserID: order.UserId}, order.TradeNo); err != nil {
+		walletModelError(c, err)
+		return
+	}
+	if _, _, err := service.EnqueueSystemTask(service.WalletTopUpReconcileTaskType, nil); err != nil {
+		walletModelError(c, err)
+		return
+	}
+	model.RecordLog(c.GetInt("id"), model.LogTypeManage, fmt.Sprintf("核实充值（旧补单入口） trade_no=%s", order.TradeNo))
+	walletSuccess(c, http.StatusAccepted, gin.H{"trade_no": order.TradeNo, "status": "verification_requested"})
 }

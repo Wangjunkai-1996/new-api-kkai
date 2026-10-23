@@ -70,7 +70,7 @@ func inspectResellerPrefix(ctx context.Context, db *gorm.DB) (*resellerPrefixSta
 	if err != nil {
 		return nil, err
 	}
-	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 15 && contract.RuntimeMaxVersion != 16 && contract.RuntimeMaxVersion != 17) || contract.MigrationTargetVersion != 14 || contract.CompatiblePrefixes["14"] == "" || contract.CompatiblePrefixes["15"] == "" {
+	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 15 && contract.RuntimeMaxVersion != 16 && contract.RuntimeMaxVersion != 17 && contract.RuntimeMaxVersion != 18) || contract.MigrationTargetVersion != 14 || contract.CompatiblePrefixes["14"] == "" || contract.CompatiblePrefixes["15"] == "" {
 		return nil, fmt.Errorf("%w: prefix controller requires the v14/v15 compatibility runtime", kkaimigrate.ErrUnsafeMigration)
 	}
 	name, schema, err := kkaimigrate.TenantOnlineDatabaseIdentity(ctx, db)

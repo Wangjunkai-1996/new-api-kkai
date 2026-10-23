@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/samber/lo"
 	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 	"gorm.io/gorm"
 )
@@ -28,6 +29,9 @@ type WaffoPancakePriceSnapshot struct {
 // BuyerIdentity must be stable per user (see WaffoPancakeBuyerIdentityFromUserID).
 // OrderMerchantExternalID = our trade_no; Pancake echoes it back in webhooks.
 type WaffoPancakeCreateSessionParams struct {
+	// Wallet lifecycle callers use the encrypted original merchant snapshot.
+	MerchantID              string
+	PrivateKey              string
 	ProductID               string
 	BuyerIdentity           string
 	PriceSnapshot           *WaffoPancakePriceSnapshot
@@ -63,6 +67,12 @@ type WaffoPancakeWebhookEvent struct {
 type WaffoPancakeWebhookData struct {
 	// OrderID = Pancake ORD_* (logs); OrderMerchantExternalID = our trade_no (lookup).
 	OrderID                       string
+	OrderStatus                   string
+	PaymentID                     string
+	PaymentStatus                 string
+	PaymentDate                   string
+	Subtotal                      string
+	Total                         string
 	OrderMerchantExternalID       string
 	BuyerEmail                    string
 	Currency                      string
@@ -115,6 +125,9 @@ func CreateWaffoPancakeCheckoutSession(ctx context.Context, params *WaffoPancake
 		return nil, fmt.Errorf("missing order merchant external id")
 	}
 	client, err := newWaffoPancakeClient()
+	if params.MerchantID != "" || params.PrivateKey != "" {
+		client, err = newWaffoPancakeClientFromCreds(params.MerchantID, params.PrivateKey)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("build Waffo Pancake client: %w", err)
 	}
@@ -191,6 +204,12 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 		Mode:      string(evt.Mode),
 		Data: WaffoPancakeWebhookData{
 			OrderID:                       evt.Data.OrderID,
+			OrderStatus:                   lo.FromPtr(evt.Data.OrderStatus),
+			PaymentID:                     lo.FromPtr(evt.Data.PaymentID),
+			PaymentStatus:                 lo.FromPtr(evt.Data.PaymentStatus),
+			PaymentDate:                   lo.FromPtr(evt.Data.PaymentDate),
+			Subtotal:                      lo.FromPtr(evt.Data.Subtotal),
+			Total:                         lo.FromPtr(evt.Data.Total),
 			OrderMerchantExternalID:       externalID,
 			BuyerEmail:                    evt.Data.BuyerEmail,
 			Currency:                      evt.Data.Currency,

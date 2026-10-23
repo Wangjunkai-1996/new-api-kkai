@@ -465,7 +465,7 @@ func executeMigrationSchema(db *gorm.DB, dialect string, item migration) error {
 }
 
 func executeMigrationStatement(db *gorm.DB, dialect string, statement migrationStatement) error {
-	if statement.Operation == migrationOperationCreateIndex {
+	if statement.Operation == migrationOperationCreateIndex || statement.Operation == migrationOperationCreateWalletTopUpIndex {
 		table, index, err := migrationCreateIndexIdentifiers(dialect, statement.SQL)
 		if err != nil {
 			return err
