@@ -3270,6 +3270,7 @@
     "Historical Amount Unverified": "過去の金額は確認待ち",
     "Historical capitalization": "過去の大文字小文字",
     "Historical invoice — cannot be confirmed": "過去の請求書（確認対象外）",
+    "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.": "過去の支払いの確認は {{time}} に自動で再開します。確認済みの支払いは引き続き利用できます。",
     "Historical tokens": "過去のトークン",
     "Historical top-up reconciliation": "過去のチャージ注文の照合",
     "Historical Usage": "履歴使用状況",

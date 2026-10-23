@@ -3270,6 +3270,7 @@
     "Historical Amount Unverified": "Số tiền cũ cần xác minh",
     "Historical capitalization": "Kiểu chữ hoa/thường cũ",
     "Historical invoice — cannot be confirmed": "Hóa đơn cũ — không thể xác nhận",
+    "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.": "Việc xác minh các khoản thanh toán cũ sẽ tự tiếp tục lúc {{time}}. Các khoản đã xác minh vẫn khả dụng.",
     "Historical tokens": "Token trước đây",
     "Historical top-up reconciliation": "Đối soát đơn nạp tiền cũ",
     "Historical Usage": "Lịch sử sử dụng",

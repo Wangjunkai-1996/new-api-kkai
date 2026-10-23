@@ -3270,6 +3270,7 @@
     "Historical Amount Unverified": "历史金额待核对",
     "Historical capitalization": "历史大小写",
     "Historical invoice — cannot be confirmed": "历史发票，不可确认",
+    "Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.": "历史付款核验暂缓至 {{time}}，届时会自动继续；已核验金额可正常使用。",
     "Historical tokens": "历史令牌",
     "Historical top-up reconciliation": "历史充值订单核实",
     "Historical Usage": "历史使用情况",
