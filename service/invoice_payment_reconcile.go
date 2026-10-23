@@ -109,6 +109,18 @@ func queryInvoiceEpayPayment(ctx context.Context, client *http.Client, address, 
 	if err != nil || len(body) > 64<<10 {
 		return receipt, 0, unavailable
 	}
+	// Some Epay gateways serialize the order object as a JSON string.
+	// Unwrap one layer only; the same evidence checks below still apply.
+	if common.GetJsonType(body) == "string" {
+		var encoded string
+		if common.Unmarshal(body, &encoded) != nil {
+			return receipt, 0, unavailable
+		}
+		body = []byte(encoded)
+	}
+	if common.GetJsonType(body) != "object" {
+		return receipt, 0, unavailable
+	}
 	var data struct {
 		Code         common.RawMessage `json:"code"`
 		Status       common.RawMessage `json:"status"`

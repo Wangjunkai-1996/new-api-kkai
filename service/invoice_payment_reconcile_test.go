@@ -19,23 +19,27 @@ import (
 
 func TestInvoiceEpayMerchantQueryValidatesEvidenceAndProtectsCredentials(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		patch map[string]any
+		name   string
+		patch  map[string]any
+		quoted bool
 	}{
-		{"valid", nil},
-		{"missing merchant", map[string]any{"pid": nil}},
-		{"wrong merchant", map[string]any{"pid": "456"}},
-		{"wrong order", map[string]any{"out_trade_no": "someone-else"}},
-		{"missing transaction", map[string]any{"trade_no": ""}},
-		{"unpaid", map[string]any{"status": 0}},
-		{"refunded", map[string]any{"status": 2}},
-		{"lookup failed", map[string]any{"code": 0, "msg": "secret provider detail"}},
-		{"unsupported currency", map[string]any{"currency": "USD"}},
-		{"partial refund", map[string]any{"refund_money": "0.01"}},
-		{"refund status", map[string]any{"refund_status": 1}},
-		{"invalid amount", map[string]any{"money": "1.001"}},
-		{"negative amount", map[string]any{"money": "-1.00"}},
-		{"exponent amount", map[string]any{"money": "1e2"}},
+		{name: "valid"},
+		{name: "valid quoted", quoted: true},
+		{name: "missing merchant", patch: map[string]any{"pid": nil}},
+		{name: "wrong merchant", patch: map[string]any{"pid": "456"}},
+		{name: "wrong order", patch: map[string]any{"out_trade_no": "someone-else"}},
+		{name: "quoted wrong order", patch: map[string]any{"out_trade_no": "someone-else"}, quoted: true},
+		{name: "missing transaction", patch: map[string]any{"trade_no": ""}},
+		{name: "unpaid", patch: map[string]any{"status": 0}},
+		{name: "refunded", patch: map[string]any{"status": 2}},
+		{name: "lookup failed", patch: map[string]any{"code": 0, "msg": "secret provider detail"}},
+		{name: "unsupported currency", patch: map[string]any{"currency": "USD"}},
+		{name: "partial refund", patch: map[string]any{"refund_money": "0.01"}},
+		{name: "quoted partial refund", patch: map[string]any{"refund_money": "0.01"}, quoted: true},
+		{name: "refund status", patch: map[string]any{"refund_status": 1}},
+		{name: "invalid amount", patch: map[string]any{"money": "1.001"}},
+		{name: "negative amount", patch: map[string]any{"money": "-1.00"}},
+		{name: "exponent amount", patch: map[string]any{"money": "1e2"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data := map[string]any{"code": 1, "status": 1, "pid": 123, "out_trade_no": "legacy-order", "trade_no": "provider-receipt", "money": "250.01", "type": "wxpay2"}
@@ -49,12 +53,16 @@ func TestInvoiceEpayMerchantQueryValidatesEvidenceAndProtectsCredentials(t *test
 				assert.Equal(t, "legacy-order", r.URL.Query().Get("out_trade_no"))
 				body, err := common.Marshal(data)
 				require.NoError(t, err)
+				if tc.quoted {
+					body, err = common.Marshal(string(body))
+					require.NoError(t, err)
+				}
 				_, _ = w.Write(body)
 			}))
 			defer server.Close()
 			order := model.TopUp{TradeNo: "legacy-order", CompleteTime: 1_700_000_000}
 			receipt, paidAt, err := queryInvoiceEpayPayment(context.Background(), server.Client(), server.URL+"/merchant", "123", "test-secret", order)
-			if tc.name == "valid" {
+			if tc.patch == nil {
 				require.NoError(t, err)
 				assert.EqualValues(t, 25001, receipt.AmountMinor)
 				assert.Equal(t, "CNY", receipt.Currency)
@@ -67,6 +75,16 @@ func TestInvoiceEpayMerchantQueryValidatesEvidenceAndProtectsCredentials(t *test
 			assert.NotContains(t, err.Error(), "secret provider detail")
 		})
 	}
+	t.Run("invalid string payloads are not evidence", func(t *testing.T) {
+		for _, body := range []string{`"not JSON"`, `"{broken}"`, `"\"{}\""`, `"null"`, `"[]"`, `"1"`, `"{}" {}`} {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			_, _, err := queryInvoiceEpayPayment(context.Background(), server.Client(), server.URL, "123", "test-secret", model.TopUp{TradeNo: "legacy-order"})
+			server.Close()
+			invoiceRequireCode(t, err, "PAYMENT_VERIFICATION_UNAVAILABLE")
+		}
+	})
 	t.Run("redirect never receives credentials", func(t *testing.T) {
 		calls := 0
 		destination := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
@@ -101,7 +119,9 @@ func TestInvoicePaymentReconciliationRestoresEligibilityAndPreservesMinimumAndCl
 			providerAmount := amount
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				calls++
-				_, _ = fmt.Fprintf(w, `{"code":1,"status":1,"pid":"123","trade_no":"paid-order","out_trade_no":"payment-a","money":"%d.00","endtime":"2026-01-01 12:00:00"}`, providerAmount)
+				body, err := common.Marshal(fmt.Sprintf(`{"code":1,"status":1,"pid":"123","trade_no":"paid-order","out_trade_no":"payment-a","money":"%d.00","endtime":"2026-01-01 12:00:00"}`, providerAmount))
+				require.NoError(t, err)
+				_, _ = w.Write(body)
 			}))
 			defer server.Close()
 			oldAddress, oldID, oldKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
