@@ -5100,6 +5100,7 @@
     "Payment verification is temporarily unavailable. Try again later.": "付款核验暂时不可用，请稍后重试。",
     "Payment verified": "付款已核验",
     "Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.": "在根管理员确认合规条款之前，支付、兑换码、订阅套餐和邀请奖励功能将保持锁定。",
+    "Payments still unverified: {{count}}. Verified payments remain available.": "还有 {{count}} 笔付款暂无法核验，已核验金额可正常使用。",
     "Payout failed": "发放失败",
     "Payout is disabled": "发放功能已禁用",
     "Payout is pending": "发放处理中",

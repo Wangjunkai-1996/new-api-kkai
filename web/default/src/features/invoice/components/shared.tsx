@@ -43,9 +43,9 @@ export function InvoiceError(props: {
       .find(
         (value) => typeof value === 'string' && !value.startsWith('ERR_')
       ) || (props.error instanceof Error ? props.error.message : undefined)
-  let message =
-    props.message ||
-    t('The request could not be completed. Your input is preserved.')
+  let message = t(
+    'The request could not be completed. Your input is preserved.'
+  )
   if (
     ['VERSION_CONFLICT', 'INVALID_STATE', 'DELIVERY_VERSION_CHANGED'].includes(
       String(code)
@@ -104,7 +104,7 @@ export function InvoiceError(props: {
       role='alert'
       className='border-destructive/25 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'
     >
-      <p>{message}</p>
+      <p>{props.message || message}</p>
       {props.onRetry && (
         <Button
           type='button'

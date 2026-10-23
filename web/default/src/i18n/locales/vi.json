@@ -5100,6 +5100,7 @@
     "Payment verification is temporarily unavailable. Try again later.": "Tạm thời không thể xác minh thanh toán. Vui lòng thử lại sau.",
     "Payment verified": "Đã xác minh thanh toán",
     "Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.": "Thanh toán, mã đổi thưởng, gói đăng ký và phần thưởng mời sẽ bị khóa cho đến khi quản trị viên root xác nhận điều khoản tuân thủ.",
+    "Payments still unverified: {{count}}. Verified payments remain available.": "Còn {{count}} khoản thanh toán chưa xác minh được. Các khoản đã xác minh vẫn có thể sử dụng.",
     "Payout failed": "Payout failed",
     "Payout is disabled": "Payout is disabled",
     "Payout is pending": "Payout is pending",

@@ -148,6 +148,15 @@ test.each([
   ['rate limiting', { response: { status: 429 } }],
   ['a service outage', { response: { status: 503 } }],
   ['a network failure', new Error('Network Error')],
+  ['an authentication failure', { response: { status: 401 } }],
+  [
+    'a validation error',
+    { response: { status: 400, data: { code: 'VALIDATION_FAILED' } } },
+  ],
+  [
+    'an unknown conflict',
+    { response: { status: 409, data: { code: 'PAYMENT_UNVERIFIED' } } },
+  ],
 ])(
   'stops the batch after %s without automatic retries',
   async (_name, error) => {
@@ -168,24 +177,39 @@ test.each([
   }
 )
 
-test('continues after an individual business failure and refreshes successful changes', async () => {
-  const error = {
-    response: { status: 409, data: { code: 'PAYMENT_UNVERIFIED' } },
-  }
-  vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
-    items: [candidate('first'), candidate('second')],
-    p: 1,
-    page_size: 100,
-    total: 2,
-  })
-  vi.mocked(invoiceApi.verifyInvoicePayment).mockRejectedValueOnce(error)
-  const hook = renderSync()
-  await waitFor(() => expect(hook.result.current.isError).toBe(true))
+test.each(['PAYMENT_VERIFICATION_FAILED', 'PAYMENT_EXCEPTION'])(
+  'keeps a specific %s order failure separate from two successful verifications',
+  async (code) => {
+    const error = { response: { status: 409, data: { code } } }
+    vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
+      items: [
+        candidate('historical', { order_no: 'HISTORICAL-PAYMENT-123' }),
+        candidate('first'),
+        candidate('second'),
+      ],
+      p: 1,
+      page_size: 100,
+      total: 3,
+    })
+    vi.mocked(invoiceApi.verifyInvoicePayment).mockRejectedValueOnce(error)
+    const hook = renderSync()
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
 
-  expect(hook.result.current.error).toBe(error)
-  expect(invoiceApi.verifyInvoicePayment).toHaveBeenCalledTimes(2)
-  expect(hook.invalidate).toHaveBeenCalledTimes(1)
-})
+    expect(hook.result.current.error).toBeNull()
+    expect(hook.result.current.failures).toEqual([
+      {
+        order: {
+          source_type: 'topup',
+          order_id: 'historical',
+          order_no: 'HISTORICAL-PAYMENT-123',
+        },
+        error,
+      },
+    ])
+    expect(invoiceApi.verifyInvoicePayment).toHaveBeenCalledTimes(3)
+    expect(hook.invalidate).toHaveBeenCalledTimes(1)
+  }
+)
 
 test('retries interrupted orders before earlier individual business failures', async () => {
   vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
@@ -194,11 +218,22 @@ test('retries interrupted orders before earlier individual business failures', a
     page_size: 100,
     total: 2,
   })
+  const individualError = {
+    response: { status: 409, data: { code: 'PAYMENT_VERIFICATION_FAILED' } },
+  }
+  const interruption = { response: { status: 429 } }
   vi.mocked(invoiceApi.verifyInvoicePayment)
-    .mockRejectedValueOnce({ response: { status: 409 } })
-    .mockRejectedValueOnce({ response: { status: 429 } })
+    .mockRejectedValueOnce(individualError)
+    .mockRejectedValueOnce(interruption)
   const hook = renderSync()
   await waitFor(() => expect(hook.result.current.isError).toBe(true))
+  expect(hook.result.current.error).toBe(interruption)
+  expect(hook.result.current.failures).toEqual([
+    {
+      order: { source_type: 'topup', order_id: 'first', order_no: 'first' },
+      error: individualError,
+    },
+  ])
 
   act(() => hook.result.current.mutate())
   await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
@@ -208,7 +243,42 @@ test('retries interrupted orders before earlier individual business failures', a
       .mocked(invoiceApi.verifyInvoicePayment)
       .mock.calls.map(([order]) => order.order_id)
   ).toEqual(['first', 'second', 'second', 'first'])
+  expect(hook.result.current.failures).toEqual([])
   expect(hook.invalidate).toHaveBeenCalledTimes(2)
+})
+
+test('keeps previous order failures until a complete fresh snapshot proves they are gone', async () => {
+  const error = {
+    response: { status: 409, data: { code: 'PAYMENT_VERIFICATION_FAILED' } },
+  }
+  vi.mocked(invoiceApi.verifyInvoicePayment).mockRejectedValueOnce(error)
+  const hook = renderSync()
+  await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
+  const failure = hook.result.current.failures[0]
+  expect(failure?.order.order_id).toBe('first')
+
+  vi.mocked(invoiceApi.getInvoiceOrders)
+    .mockResolvedValueOnce({
+      items: [candidate('second')],
+      p: 1,
+      page_size: 100,
+      total: 101,
+    })
+    .mockRejectedValueOnce({ response: { status: 503 } })
+  act(() => hook.result.current.mutate())
+  await waitFor(() => expect(hook.result.current.isError).toBe(true))
+  expect(hook.result.current.failures).toEqual([failure])
+
+  vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
+    items: [],
+    p: 1,
+    page_size: 100,
+    total: 0,
+  })
+  act(() => hook.result.current.mutate())
+  await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
+  expect(hook.result.current.failures).toEqual([])
+  expect(invoiceApi.verifyInvoicePayment).toHaveBeenCalledTimes(1)
 })
 
 test('does not write a partial snapshot when a later page fails', async () => {

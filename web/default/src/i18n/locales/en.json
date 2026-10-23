@@ -5100,6 +5100,7 @@
     "Payment verification is temporarily unavailable. Try again later.": "Payment verification is temporarily unavailable. Try again later.",
     "Payment verified": "Payment verified",
     "Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.": "Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.",
+    "Payments still unverified: {{count}}. Verified payments remain available.": "Payments still unverified: {{count}}. Verified payments remain available.",
     "Payout failed": "Payout failed",
     "Payout is disabled": "Payout is disabled",
     "Payout is pending": "Payout is pending",

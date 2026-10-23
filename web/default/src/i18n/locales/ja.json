@@ -5100,6 +5100,7 @@
     "Payment verification is temporarily unavailable. Try again later.": "現在、支払いの確認を利用できません。しばらくしてから再試行してください。",
     "Payment verified": "支払いを確認しました",
     "Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.": "ルート管理者がコンプライアンス条件を確認するまで、支払い、引換コード、サブスクリプションプラン、招待報酬はロックされます。",
+    "Payments still unverified: {{count}}. Verified payments remain available.": "確認できていない支払い：{{count}}件。確認済みの支払いは引き続き利用できます。",
     "Payout failed": "Payout failed",
     "Payout is disabled": "Payout is disabled",
     "Payout is pending": "Payout is pending",

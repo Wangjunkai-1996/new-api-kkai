@@ -7,6 +7,7 @@ test('invoice minimum and submission recovery copy is translated in every suppor
   const keys = [
     'Updating your payment records automatically…',
     'Some payment records could not be updated. Please try again later.',
+    'Payments still unverified: {{count}}. Verified payments remain available.',
     'Verify payment',
     'Payment verified',
     'Payment verification is temporarily unavailable. Try again later.',

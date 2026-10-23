@@ -25,7 +25,7 @@ import { getInvoicePolicy, getInvoiceSummary, invoiceKey } from './api'
 import { InvoiceNotifications } from './components/notifications'
 import { InvoiceError } from './components/shared'
 import { DraftContext, freshInvoiceDraft } from './lib/draft'
-import { formatInvoiceMoney } from './lib/format'
+import { formatInvoiceMoney, invoiceOrderKey } from './lib/format'
 import { useInvoicePaymentSync } from './lib/use-invoice-payment-sync'
 
 import './invoice.css'
@@ -133,6 +133,38 @@ function InvoiceWorkspaceContent() {
               }
               onRetry={() => paymentSync.mutate()}
             />
+            {paymentSync.failures.length > 0 && (
+              <details className='bg-muted/30 rounded-lg border p-3 text-sm'>
+                <summary className='cursor-pointer'>
+                  {t(
+                    'Payments still unverified: {{count}}. Verified payments remain available.',
+                    { count: paymentSync.failures.length }
+                  )}
+                </summary>
+                <ul className='mt-3 space-y-3'>
+                  {paymentSync.failures.map((failure) => (
+                    <li key={invoiceOrderKey(failure.order)}>
+                      <p className='mb-1 font-medium break-all'>
+                        {failure.order.order_no}
+                      </p>
+                      <InvoiceError error={failure.error} />
+                    </li>
+                  ))}
+                </ul>
+                {!paymentSync.isError && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='mt-3'
+                    disabled={paymentSync.isPending}
+                    onClick={() => paymentSync.mutate()}
+                  >
+                    {t('Retry')}
+                  </Button>
+                )}
+              </details>
+            )}
             <div className='bg-card grid grid-cols-1 divide-y rounded-xl border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
               <div className='p-5'>
                 <p className='text-muted-foreground text-xs'>

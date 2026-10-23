@@ -5100,6 +5100,7 @@
     "Payment verification is temporarily unavailable. Try again later.": "La vérification des paiements est temporairement indisponible. Réessayez plus tard.",
     "Payment verified": "Paiement vérifié",
     "Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.": "Les paiements, codes de兑换, forfaits d’abonnement et récompenses d’invitation sont verrouillés jusqu’à ce que l’administrateur racine confirme les conditions de conformité.",
+    "Payments still unverified: {{count}}. Verified payments remain available.": "Paiements non vérifiés : {{count}}. Les paiements vérifiés restent disponibles.",
     "Payout failed": "Payout failed",
     "Payout is disabled": "Payout is disabled",
     "Payout is pending": "Payout is pending",
