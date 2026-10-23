@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -80,7 +79,7 @@ func InvoicePolicy(c *gin.Context) {
 		return
 	}
 	policy := (service.InvoiceService{DB: model.DB}).Policy()
-	if kkaimigrate.CheckInvoiceSchema(c.Request.Context(), model.DB) != nil {
+	if !service.InvoiceSchemaReady(c.Request.Context(), model.DB) {
 		policy.Enabled, policy.DisabledReason = false, "SCHEMA_NOT_READY"
 	}
 	common.ApiSuccess(c, policy)
