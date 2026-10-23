@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getCurrentHost } from '@/lib/host-scope'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getInvoicePolicy, getInvoiceSummary, invoiceKey } from './api'
@@ -25,12 +26,18 @@ import { InvoiceNotifications } from './components/notifications'
 import { InvoiceError } from './components/shared'
 import { DraftContext, freshInvoiceDraft } from './lib/draft'
 import { formatInvoiceMoney } from './lib/format'
+import { useInvoicePaymentSync } from './lib/use-invoice-payment-sync'
 
 import './invoice.css'
 
 export function InvoiceWorkspace() {
   const user = useAuthStore((state) => state.auth.user)
-  return <InvoiceWorkspaceContent key={user?.id} />
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  return (
+    <InvoiceWorkspaceContent
+      key={`${getCurrentHost()}:${user?.id}:${sessionId}`}
+    />
+  )
 }
 function InvoiceWorkspaceContent() {
   const { t, i18n } = useTranslation()
@@ -53,6 +60,11 @@ function InvoiceWorkspaceContent() {
     retry: false,
     gcTime: 0,
   })
+  const paymentSync = useInvoicePaymentSync(policy.data?.enabled === true)
+  const syncingPayments =
+    policy.isPending ||
+    (policy.data?.enabled && paymentSync.isIdle) ||
+    paymentSync.isPending
   const activeTab = path.endsWith('/new') ? 'new' : search.tab || 'records'
   useBlocker({
     shouldBlockFn: ({ next }) =>
@@ -105,12 +117,28 @@ function InvoiceWorkspaceContent() {
                 void summary.refetch()
               }}
             />
+            {paymentSync.isPending && (
+              <p role='status' className='text-muted-foreground text-sm'>
+                {t('Updating your payment records automatically…')}
+              </p>
+            )}
+            <InvoiceError
+              error={paymentSync.error}
+              message={
+                paymentSync.isError
+                  ? t(
+                      'Some payment records could not be updated. Please try again later.'
+                    )
+                  : undefined
+              }
+              onRetry={() => paymentSync.mutate()}
+            />
             <div className='bg-card grid grid-cols-1 divide-y rounded-xl border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
               <div className='p-5'>
                 <p className='text-muted-foreground text-xs'>
                   {t('Available to invoice')}
                 </p>
-                {summary.isPending ? (
+                {summary.isPending || syncingPayments ? (
                   <Skeleton className='mt-2 h-8 w-32' />
                 ) : (
                   <div className='mt-2 text-[26px] font-medium tabular-nums'>
@@ -129,9 +157,11 @@ function InvoiceWorkspaceContent() {
                   </div>
                 )}
                 <p className='text-muted-foreground mt-1 text-xs'>
-                  {t('{{count}} verified payments', {
-                    count: summary.data?.eligible_count || 0,
-                  })}
+                  {syncingPayments
+                    ? t('Updating your payment records automatically…')
+                    : t('{{count}} verified payments', {
+                        count: summary.data?.eligible_count || 0,
+                      })}
                 </p>
               </div>
               <div className='p-5'>

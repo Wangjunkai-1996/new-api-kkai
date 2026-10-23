@@ -6,7 +6,6 @@ import {
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
@@ -16,6 +15,7 @@ import { InvoiceAdminActions } from './components/admin-actions'
 import { InvoiceProfiles } from './components/profiles'
 import { InvoiceUserActions } from './components/user-actions'
 import { DraftContext, type InvoiceDraft, freshInvoiceDraft } from './lib/draft'
+import { useInvoicePaymentSync } from './lib/use-invoice-payment-sync'
 import { NewInvoicePage } from './new'
 import type {
   InvoiceOrder,
@@ -268,7 +268,7 @@ test.each([
   }
 )
 
-test('payment verification refreshes unavailable orders and summary once and preserves the invoice minimum', async () => {
+test('automatic payment verification refreshes orders and summary without a click and preserves the invoice minimum', async () => {
   const user = userEvent.setup()
   const payment = {
     ...order,
@@ -285,9 +285,6 @@ test('payment verification refreshes unavailable orders and summary once and pre
           finishVerification = resolve
         })
     )
-  const success = vi
-    .spyOn(toast, 'success')
-    .mockReturnValue('verification-toast')
   vi.mocked(invoiceApi.getInvoiceOrders).mockImplementation(async (filters) => {
     let items: InvoiceOrder[] = verified ? [payment] : []
     if (filters.eligibility === 'unavailable') {
@@ -315,6 +312,7 @@ test('payment verification refreshes unavailable orders and summary once and pre
       unread_count: 0,
     }))
   function SummaryObserver() {
+    useInvoicePaymentSync(true)
     const query = useQuery({
       queryKey: [...invoiceApi.invoiceKey(42), 'summary'],
       queryFn: invoiceApi.getInvoiceSummary,
@@ -331,18 +329,15 @@ test('payment verification refreshes unavailable orders and summary once and pre
       <SummaryObserver />
     </>
   )
-  await user.click(
-    await screen.findByRole('button', {
-      name: 'View unavailable orders and reasons',
-    })
+  await waitFor(() =>
+    expect(verify).toHaveBeenCalledExactlyOnceWith(
+      { source_type: 'topup', order_id: order.order_id },
+      expect.any(String)
+    )
   )
-  const button = await screen.findByRole('button', { name: 'Verify payment' })
-  await user.dblClick(button)
-  expect(verify).toHaveBeenCalledExactlyOnceWith(
-    { source_type: 'topup', order_id: order.order_id },
-    expect.any(String)
-  )
-  expect(button).toBeDisabled()
+  expect(
+    screen.queryByRole('button', { name: 'Verify payment' })
+  ).not.toBeInTheDocument()
   verified = true
   finishVerification({ verified: true })
   const selectable = await screen.findByRole('checkbox', {
@@ -357,75 +352,12 @@ test('payment verification refreshes unavailable orders and summary once and pre
     )
   )
   expect(summary).toHaveBeenCalledTimes(2)
-  expect(success).toHaveBeenCalledWith('Payment verified')
   await user.click(selectable)
   expect(
     screen.getAllByRole('button', { name: 'Next: invoice information' })[0]
   ).toBeDisabled()
   expect(invoiceApi.quoteInvoice).not.toHaveBeenCalled()
 })
-
-test.each([
-  {
-    code: 'PAYMENT_VERIFICATION_UNAVAILABLE',
-    message:
-      'Payment verification is temporarily unavailable. Try again later.',
-  },
-  {
-    code: 'PAYMENT_VERIFICATION_FAILED',
-    message:
-      'This payment could not be verified. Check its payment status and try again, or contact support.',
-  },
-  {
-    code: 'PAYMENT_EXCEPTION',
-    message: 'This payment needs manual review. Contact support.',
-  },
-  {
-    code: 'NOT_FOUND',
-    message:
-      'The requested record is no longer available. Refresh and try again.',
-  },
-])(
-  'payment verification $code preserves an unavailable order and safely allows retry',
-  async (scenario) => {
-    const user = userEvent.setup()
-    const verify = vi
-      .spyOn(invoiceApi, 'verifyInvoicePayment')
-      .mockRejectedValue({
-        code: 'ERR_BAD_REQUEST',
-        response: {
-          status: 422,
-          data: { code: scenario.code, message: 'sensitive provider response' },
-        },
-      })
-    vi.mocked(invoiceApi.getInvoiceOrders).mockResolvedValue({
-      items: [
-        {
-          ...order,
-          source_type: 'topup',
-          eligible: false,
-          amount_minor: null,
-          reason_codes: ['PAYMENT_UNVERIFIED'],
-          allowed_actions: ['verify_payment'],
-        },
-      ],
-      total: 1,
-      p: 1,
-      page_size: 20,
-    })
-    renderWithClient(<DraftHarness step={1} orders={[]} />)
-    const button = await screen.findByRole('button', { name: 'Verify payment' })
-    await user.click(button)
-    expect(await screen.findByRole('alert')).toHaveTextContent(scenario.message)
-    expect(
-      screen.queryByText('sensitive provider response')
-    ).not.toBeInTheDocument()
-    expect(button).toBeEnabled()
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
-    await user.click(button)
-    await waitFor(() => expect(verify).toHaveBeenCalledTimes(2))
-  }
-)
 
 test('empty order results distinguish filtered results and reset to the unfiltered explanation', async () => {
   const user = userEvent.setup()

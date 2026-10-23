@@ -2,14 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getInvoiceOrders, invoiceKey, verifyInvoicePayment } from '../api'
+import { getInvoiceOrders, invoiceKey } from '../api'
 import { useInvoiceDraft } from '../lib/draft'
 import {
   formatInvoiceMoney,
@@ -17,7 +16,6 @@ import {
   invoiceOrderKey,
   reasonKeys,
 } from '../lib/format'
-import { useInvoiceOperation } from '../lib/use-invoice-operation'
 import type { InvoiceFilters, InvoiceOrder } from '../types'
 import { InvoiceFiltersBar } from './filters'
 import { InvoiceEmpty, InvoiceError, InvoicePagination } from './shared'
@@ -37,8 +35,7 @@ export function InvoiceOrderSelector(props: {
     page_size: 20,
   })
   const [unavailable, setUnavailable] = useState(false)
-  const op = useInvoiceOperation()
-  const disabled = props.disabled || op.busy
+  const disabled = props.disabled
   const hasFilters = !!(
     filters.q ||
     filters.source_type ||
@@ -100,7 +97,7 @@ export function InvoiceOrderSelector(props: {
           />
         </div>
         <InvoiceError
-          error={query.error || op.error}
+          error={query.error}
           onRetry={query.isError ? () => void query.refetch() : undefined}
         />
         {query.isPending && (
@@ -254,29 +251,6 @@ export function InvoiceOrderSelector(props: {
                   <p className='mt-1 text-xs text-emerald-700 dark:text-emerald-300'>
                     {t('Available')}
                   </p>
-                )}
-                {order.allowed_actions?.includes('verify_payment') && (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    className='mt-2'
-                    disabled={disabled}
-                    onClick={async () => {
-                      const ref = {
-                        source_type: order.source_type,
-                        order_id: order.order_id,
-                      }
-                      const result = await op.run(
-                        'verify-payment',
-                        ref,
-                        (key) => verifyInvoicePayment(ref, key)
-                      )
-                      if (result?.verified) toast.success(t('Payment verified'))
-                    }}
-                  >
-                    {t('Verify payment')}
-                  </Button>
                 )}
               </div>
             </div>
