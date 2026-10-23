@@ -356,7 +356,7 @@ export function NewInvoicePage(props: {
                   >
                     {availableTypes.map((option) => (
                       <option key={option.id} value={option.id}>
-                        {option.label}
+                        {option.id === 'manual' ? t('Invoice') : option.label}
                       </option>
                     ))}
                   </NativeSelect>
@@ -463,10 +463,12 @@ export function NewInvoicePage(props: {
                 </Button>
               </div>
               <div className='invoice-panel-body'>
-                <div className='invoice-data-row'>
-                  <span>{t('Seller')}</span>
-                  <span>{policy?.seller_name}</span>
-                </div>
+                {policy?.seller_name && (
+                  <div className='invoice-data-row'>
+                    <span>{t('Seller')}</span>
+                    <span>{policy.seller_name}</span>
+                  </div>
+                )}
                 <div className='invoice-data-row'>
                   <span>{t('Invoice title')}</span>
                   <span>{profileValues.title}</span>
@@ -487,10 +489,11 @@ export function NewInvoicePage(props: {
                 <div className='invoice-data-row'>
                   <span>{t('Invoice type')}</span>
                   <span>
-                    {
-                      policy?.invoice_types.find((option) => option.id === type)
-                        ?.label
-                    }
+                    {type === 'manual'
+                      ? t('Invoice')
+                      : policy?.invoice_types.find(
+                          (option) => option.id === type
+                        )?.label}
                   </span>
                 </div>
                 <div className='mt-5 flex items-center justify-between'>

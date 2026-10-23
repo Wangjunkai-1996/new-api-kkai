@@ -389,3 +389,8 @@ summary 中 processing = pending_review + approved_for_issue + disputed + financ
 本轮补齐最终11表迁移及独立`invoice-migration-v1`应用协议，基础设施侧已本地实现相应控制器；应用要求固定root-owned只读proof、最长120秒时效、精确数据库/digest/checksum/镜像和active/rollback/writer实际进程身份，在迁移锁内重新授权并验证最终回执。普通`--target 17`（包括offline）仍拒绝写入，v16工单协议没有被放宽。最终11表SQLite、真实隔离PostgreSQL18.4/MySQL5.7的schema以及PostgreSQL原子guard/receipt定向验证通过；MySQL首轮因隔离测试容器OOM中断，恢复后仅复测失败范围并通过。业务层真实MySQL5.7重复读的4个子项也已通过，验证旧快照不能绕过付款、收据异常及全局claim的锁后当前读。
 
 具体命令、页面截图、配置方法和最终验证结果统一维护在[实施记录](./invoice-center-implementation.md)。本记录阶段尚未安装生产控制器、执行生产迁移或部署；真实S3/SMTP与浏览器连接真实后端的全生命周期联调也未完成。全仓测试/构建未运行，上线必须继续满足对应版本迁移及发布runbook的强制门槛。
+
+
+### 人工开票流程修订（2026-10-23）
+
+本功能管理申请、人工审核和人工开好的票据附件，不执行税务开票。启用策略最小为`{"enabled":true}`；销售方/税目配置不再是人工流程启用门槛。默认`manual`票种、CNY和充值/订阅实付来源，付款核验、资料加密、权限及唯一占用要求不变。空销售方不在页面展示。默认附件后端为共享持久化`/data/invoices-private`私有目录，登录后经授权API下载；独立私有S3为可选配置。无需用户提供税务开票接口或新建云存储账号。最终配置及验收以[实施记录](./invoice-center-implementation.md)为准。

@@ -2,18 +2,29 @@ package service
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"net/mail"
 	"os"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 )
 
 func (s InvoiceService) Policy() InvoicePolicy {
-	p := InvoicePolicy{PolicyVersion: "unconfigured", InvoiceTypes: []InvoiceTypePolicy{}, Currencies: []InvoiceCurrencyPolicy{}, Sources: []string{}, Providers: []string{}, Timezone: "Asia/Shanghai", Limits: map[string]int{"max_orders": 50, "max_file_bytes": 20 * 1024 * 1024}}
+	// Manual issuance needs an opt-in, not a configured tax-platform identity.
+	// Seller fields remain optional snapshots for installations that use them.
+	p := InvoicePolicy{
+		PolicyVersion: "manual-v1",
+		InvoiceTypes:  []InvoiceTypePolicy{{ID: "manual", Label: "Invoice", RequiredFields: []string{}}},
+		Currencies:    []InvoiceCurrencyPolicy{{Currency: "CNY", Exponent: 2}},
+		Sources:       []string{"topup", "membership"},
+		Providers:     []string{model.PaymentProviderEpay},
+		Timezone:      "Asia/Shanghai",
+		Limits:        map[string]int{"max_orders": 50, "max_file_bytes": 20 * 1024 * 1024},
+	}
 	common.OptionMapRWMutex.RLock()
 	raw := common.OptionMap["InvoicePolicy"]
 	common.OptionMapRWMutex.RUnlock()

@@ -103,10 +103,12 @@ export function InvoiceDetail(props: {
               <span>{invoice.username || invoice.user_id}</span>
             </div>
           )}
-          <div className='invoice-data-row'>
-            <span>{t('Seller')}</span>
-            <span>{invoice.seller_name}</span>
-          </div>
+          {invoice.seller_name && (
+            <div className='invoice-data-row'>
+              <span>{t('Seller')}</span>
+              <span>{invoice.seller_name}</span>
+            </div>
+          )}
           <div className='invoice-data-row'>
             <span>{t('Invoice title')}</span>
             <span>{invoice.profile.title}</span>
@@ -119,7 +121,11 @@ export function InvoiceDetail(props: {
           )}
           <div className='invoice-data-row'>
             <span>{t('Invoice type')}</span>
-            <span>{invoice.invoice_type}</span>
+            <span>
+              {invoice.invoice_type === 'manual'
+                ? t('Invoice')
+                : invoice.invoice_type}
+            </span>
           </div>
           <div className='invoice-data-row'>
             <span>{t('Invoice email')}</span>

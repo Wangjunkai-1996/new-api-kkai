@@ -2,7 +2,7 @@
 
 - 日期：2026-10-23。
 - 基线：[PRD](./invoice-center-prd.md)、[开发文档](./invoice-center-development.md)、[UI规格](./invoice-center-ui-spec.md)、[冻结设计](./invoice-center-design-preview.html)。
-- 状态：前后端、独立v17迁移应用协议及基础设施控制器已在本地实现，并完成下列定向验证；尚未安装新控制器、执行生产迁移或部署本功能。最终11表已通过SQLite及隔离PostgreSQL/MySQL schema定向验证；真实私有对象存储、SMTP和前后端端到端联调仍待验收。
+- 状态：前后端、独立v17迁移应用协议及基础设施控制器已在本地实现，并完成下列定向验证；新控制器已安装并通过自检及生产健康检查；尚未执行生产迁移或部署本功能。最终11表已通过SQLite及隔离PostgreSQL/MySQL schema定向验证；真实私有对象存储、SMTP和前后端端到端联调仍待验收。
 
 ## 1. 已实现范围
 
@@ -14,7 +14,7 @@
 | 常用抬头 | 本人新增、查看、编辑、选择、软删除；CAS版本保护；申请使用不可变资料快照。资料和敏感说明使用专用AES-GCM密钥加密。 |
 | 管理 | 待审核、待开票、异议、全部队列；计数遵守统一筛选规则；审核通过/拒绝、上传后明确交付、回复和更正补发、财务暂停/恢复。 |
 | 收票反馈 | 当前版确认、已确认后仍可反馈、异议追加说明/佐证、同版回复后重核、新版补发后重确认；历史正式文件保留。 |
-| 文件 | PDF/PNG/JPEG，单文件20MiB，私有S3兼容存储；受权代理预览/下载、内容校验、暂存过期清理，用户不可见未交付草稿。 |
+| 文件 | PDF/PNG/JPEG，单文件20MiB，共享持久化目录内私有存储（可选S3）；受权代理预览/下载、内容校验、暂存过期清理，用户不可见未交付草稿。 |
 | 付款异常 | 充值签名回调持久化独立核验收据；应付快照和手工补单不能充当实收证据。充值异常回执、会员额外实收与关联申请暂停同事务；保留claim、暂停前阶段和已交付版本。会员额外回执须有既有财务处理记录才能恢复，不累加额外款项开票。 |
 | 通知 | 事件/站内未读、现有持久outbox进度邮件、重试/死信状态；邮件不携带税号、票据附件或直链，失败不撤销交付。 |
 | 页面入口 | 用户侧栏、钱包充值记录、会员订单；管理员侧栏。复用现有shell、Base UI、Hugeicons、主题和六语言，生成繁中。 |
@@ -64,28 +64,13 @@ apply仅支持PostgreSQL>=12的external-schema镜像。控制器proof必须从�
 
 ### 3.2 政策与专用密钥
 
-`common.OptionMap["InvoicePolicy"]`非空时优先，否则读取`KKAI_INVOICE_POLICY`。通过现有受控配置渠道录入，不新增财务设置后台。下例仅展示JSON结构，卖方、税目和票种必须由财务确认，不能原样用于真实业务：
+`common.OptionMap["InvoicePolicy"]`非空时优先，否则读取`KKAI_INVOICE_POLICY`。本功能由管理员线下人工开票，系统管理申请、审核和附件交付，不连接税务开票接口。最小启用策略如下；未配置或显式关闭时不接受新申请：
 
 ```json
-{
-  "enabled": true,
-  "policy_version": "invoice-policy-2026-01",
-  "seller_id": "replace-with-approved-seller-id",
-  "seller_name": "财务确认的销售方名称",
-  "tax_group": "replace-with-approved-tax-group",
-  "invoice_types": [
-    {
-      "id": "electronic_ordinary",
-      "label": "电子普通发票",
-      "required_fields": ["email"]
-    }
-  ],
-  "currencies": [{"currency": "CNY", "exponent": 2}],
-  "sources": ["topup", "membership"],
-  "providers": ["epay"],
-  "timezone": "Asia/Shanghai"
-}
+{"enabled": true}
 ```
+
+默认策略版本`manual-v1`、票种`manual`（界面“发票”）、CNY/2、充值和订阅来源、Epay及上海时区。销售方名称/标识、税目和具体票种是可选扩展配置，不作为人工流程启用前置条件；未配置时不编造销售方身份，页面省略空销售方。抬头、企业税号、邮箱和付款核验仍保留。管理员需自行开好票据后上传PDF/PNG/JPEG，再明确交付给用户。
 
 首期只接受CNY、exponent=2，政策强制providers仅为`["epay"]`，限主站单一Epay商户；将来新增多商户必须先补齐不可变商户命名空间，配置不能绕过。充值要求Epay签名核验后的`invoice_payment_receipts`记录与订单owner、tenant、渠道、金额及币种一致且状态为verified；`TopUp.PaidMinor/Currency`只是订单预期条款，不能独自证明到账。TopUpID及渠道回执身份摘要各自唯一，充值/会员同一实收回执共享全局claim。历史记录、手工补单及其他浮点渠道在没有可信收据时继续不可开票；迟到的真实签名回执只有精确匹配才可补证。不能仅扩大providers名单放行。会员订单需唯一匹配的成功主收据，其他收据必须resolved且有非空财务处理记录。额外回执或同回执金额/字段变化均保留异常并暂停关联申请。条件字段只支持`tax_id/address/phone/bank_name/bank_account/email`；企业税号和有效邮箱还受基础规则约束。`sla`可选，未配置不显示承诺时限。
 
@@ -94,12 +79,22 @@ apply仅支持PostgreSQL>=12的external-schema镜像。控制器proof必须从�
 ```text
 KKAI_INVOICE_KEY_ID=invoice-key-1
 KKAI_INVOICE_KEYS={"invoice-key-1":"替换为32字节随机密钥的标准Base64"}
-KKAI_INVOICE_POLICY=上面的完整JSON
+KKAI_INVOICE_POLICY={"enabled":true}
 ```
 
 密钥不写入源码、文档、日志或前端；由密钥管理/运行环境注入。生产可用`KKAI_INVOICE_KEYS_FILE`指向只读挂载的单行密钥JSON文件，优先于直接环境值；文件不可读、为空、超限或正文含换行时失败关闭，允许一个末尾换行。轮换时保留旧key ID对应密钥，才能读取历史资料；缺失或认证失败时失败关闭。上线前仍需验证备份恢复与旧key可读。关闭新申请时保留历史解密密钥和对象存储访问，避免同时破坏历史查询。
 
-### 3.3 私有对象存储与邮件
+### 3.3 私有附件与邮件
+
+默认复用蓝绿槽及writer共享的持久化`/data`，不新增公开文件服务：
+
+```text
+KKAI_INVOICE_STORAGE_DIR=/data/invoices-private
+```
+
+宿主目录`/srv/kkai/data/apps/newapi/invoices-private`由部署角色创建，10007:10007、0700，文件0600。附件以不可猜测业务对象key映射到扁平文件名，用受限目录访问和原子写入，拒绝路径穿越、软链接和非普通文件。文件仅经发票API逐次鉴权预览/下载，不发布静态URL。跨槽共享与持久化沿用现有`/data`挂载；当前核心DR只覆盖数据库，不包含附件字节，restic appdata计时器现场为禁用。不得把数据库备份视为附件备份；附件异地备份仍需补齐，资料解密密钥须单独安全保留。
+
+也可显式清空本地目录配置并使用独立私有S3；本地目录配置错误时不会悄悄回退S3：
 
 ```text
 KKAI_INVOICE_S3_PRIVATE=true
@@ -301,3 +296,27 @@ bunx --no-install oxlint -c .oxlintrc.json src/features/invoice/components/files
 | 全量回归 | 按仓库成本规则跳过全套Go/前端测试、全库类型检查及生产构建。没有新增依赖或改动lockfile；上线仍执行对应发布runbook的必需门槛。 |
 
 本次记录覆盖可审查的本地业务代码、迁移协议和页面。正式启用必须完成核心数据、财务、隐私与真实环境验收，并满足对应版本的迁移和发布门槛；迁移、配置就绪和部署成功须分别留证，不能互相替代。
+
+
+## 人工流程补齐与发布准备（2026-10-23）
+
+用户明确采用人工开票：系统负责申请、审批和附件交付；用户自行进行上线后的业务流程验收，代理未验证真实账号的申请、审批、上传、下载、确认和异议闭环。此前浏览器夹具与定向测试不充当生产E2E。
+
+本轮补齐私有本地附件存储和可选S3、空销售方/税目支持、人工策略默认值及页面空值处理。附件文件的原子写入和删除都同步目录元数据后才确认成功；本地文件0600、目录0700，跨实例可读且拒绝路径穿越和软链接。前端新增后端能力要求`manual_invoice_requests`，避免新页面被控制器选择到不支持开票API的历史后端。
+
+实际执行并通过：
+
+```sh
+go test ./service ./controller ./middleware -run '^TestInvoice' -count=1 -timeout=120s
+go test ./service -run '^TestInvoiceLocalStore|^TestInvoiceAssets|^TestInvoiceManualPolicyOptInAndSecurityRequirements$' -count=1 -timeout=120s
+go test ./common -run '^Test.*ConsoleContract' -count=1 -timeout=60s
+go test ./cmd/kkai-migrate -run '^TestDescribeContractJSON' -count=1 -timeout=120s
+```
+
+前端`bunx --no-install vitest run src/features/invoice`21/21通过，范围oxlint、临时范围tsgo和格式检查通过，i18n新增“Invoice”七语言同步通过。未执行应用全套测试。
+
+基础设施完整`make check`已按用户批准执行；语法和策略检查至最后ShellCheck发现本次新增被source的fixture缺少shell声明及test_root标注。修正后仅重跑失败的完整ShellCheck命令及剩余ShellCheck命令，均通过；随后对修改输入执行invoice Compose定向渲染（disabled/local/S3）及范围Ansible检查。生产真实配置的`ansible-playbook -i inventory/hosts.yml /tmp/kkai-invoice-production-config.yml --check --diff`通过，随后同一范围apply创建私有目录，不重建应用容器。专用AES密钥通过安全文件注入并保留受保护的本地恢复副本，未输出密钥内容。
+
+已安装infra精确提交`f9ddf519042c62f59b111ee7f311268eaf64fa43`，安装自检、完整manual self-test和`make newapi-status`通过；应用pin已同步。该提交还保留并经审查了原有HTTP错误分类及验收交接文档改动。
+
+新鲜只读schema观察为16，digest仍为`sha256:a3aa3e80103389d77030a52cdc1bb8d67a947514af56fe08938df2ee688dbd7c`；用户已独立授权按runbook29扩展至17。数据库异地备份`20261023T002244Z`在目标端和B2回读验证有效，manifest SHA256为`3baaf56e7797911ac4d6a05f40752bc9e06efc61dce596acc755c309dbcab871`，加密dump SHA256为`7854e41155d4346e05ee41301eccb490a5979449b6d85e57ed78e5735bfe7e52`，加密globals SHA256为`04a134aa282461d562a9cdf9c2d37d2e86abe1ed8694e98d10c831edb08820fd`。它只证明数据库备份，不证明附件异地备份。

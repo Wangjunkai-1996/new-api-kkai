@@ -95,16 +95,20 @@ func TestInvoiceClaimIdempotencyAndSafeRejection(t *testing.T) {
 func TestInvoiceDeliveryReplyReissueAndHistoricalAccess(t *testing.T) {
 	s, user := invoiceFixture(t)
 	common.OptionMapRWMutex.Lock()
-	common.OptionMap["InvoicePolicy"] = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(common.OptionMap["InvoicePolicy"], `"seller_id":"seller"`, `"seller_id":""`), `"seller_name":"Example Seller"`, `"seller_name":""`), `"tax_group":"service"`, `"tax_group":""`)
+	common.OptionMap["InvoicePolicy"] = `{"enabled":true}`
 	common.OptionMapRWMutex.Unlock()
 	policy := s.Policy()
 	require.True(t, policy.Enabled)
 	assert.Empty(t, policy.SellerID)
 	assert.Empty(t, policy.SellerName)
 	assert.Empty(t, policy.TaxGroup)
+	assert.Equal(t, []string{"topup", "membership"}, policy.Sources)
 	ctx := context.Background()
 	admin := InvoiceScope{TenantID: 0, UserID: 2, Admin: true}
-	r, err := s.Create(ctx, user, "flow-create", invoiceCreateInput())
+	input := invoiceCreateInput()
+	input.InvoiceType = "manual"
+	input.PolicyVersion = policy.PolicyVersion
+	r, err := s.Create(ctx, user, "flow-create", input)
 	require.NoError(t, err)
 	r, err = s.Mutate(ctx, admin, r.PublicID, "approve", "flow-approve", InvoiceActionInput{Version: r.Version})
 	require.NoError(t, err)
@@ -148,6 +152,38 @@ func TestInvoiceDeliveryReplyReissueAndHistoricalAccess(t *testing.T) {
 	require.NotNil(t, r.CurrentDelivery)
 	_, err = s.Mutate(ctx, admin, r.PublicID, "reject", "flow-illegal-reject", InvoiceActionInput{Version: r.Version, Reason: "Not allowed", NotIssuedConfirmed: true})
 	invoiceRequireCode(t, err, "INVALID_STATE")
+}
+
+func TestInvoiceManualPolicyOptInAndSecurityRequirements(t *testing.T) {
+	s, _ := invoiceFixture(t)
+	t.Setenv("KKAI_INVOICE_POLICY", "")
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		envKey  string
+		env     string
+		enabled bool
+		reason  string
+	}{
+		{name: "manual defaults", raw: `{"enabled":true}`, enabled: true},
+		{name: "explicit disable", raw: `{"enabled":false}`, reason: "FEATURE_DISABLED"},
+		{name: "no opt in", reason: "POLICY_UNCONFIGURED"},
+		{name: "invalid configured policy", raw: `{`, reason: "POLICY_UNCONFIGURED"},
+		{name: "encryption remains required", raw: `{"enabled":true}`, envKey: "KKAI_INVOICE_KEYS", env: "", reason: "ENCRYPTION_UNAVAILABLE"},
+		{name: "private storage remains required", raw: `{"enabled":true}`, envKey: "KKAI_INVOICE_S3_PRIVATE", env: "false", reason: "STORAGE_UNAVAILABLE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			common.OptionMapRWMutex.Lock()
+			common.OptionMap["InvoicePolicy"] = tc.raw
+			common.OptionMapRWMutex.Unlock()
+			if tc.envKey != "" {
+				t.Setenv(tc.envKey, tc.env)
+			}
+			policy := s.Policy()
+			assert.Equal(t, tc.enabled, policy.Enabled)
+			assert.Equal(t, tc.reason, policy.DisabledReason)
+		})
+	}
 }
 func TestInvoiceMembershipReceiptsLegacyAliasesAndMissingAmount(t *testing.T) {
 	s, user := invoiceFixture(t)

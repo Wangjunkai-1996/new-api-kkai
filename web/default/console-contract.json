@@ -6,6 +6,7 @@
     "task_plugins",
     "studio_media_urls",
     "reseller_sites",
-    "reseller_group_pricing"
+    "reseller_group_pricing",
+    "manual_invoice_requests"
   ]
 }
