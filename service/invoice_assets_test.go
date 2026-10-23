@@ -39,7 +39,7 @@ func invoiceAssetFixture(t *testing.T) (InvoiceAssetService, []byte, InvoiceScop
 }
 
 type failingInvoicePutStore struct {
-	VideoAssetStore
+	InvoiceAssetStore
 	fail bool
 }
 
@@ -47,13 +47,13 @@ func (s *failingInvoicePutStore) Put(ctx context.Context, key, contentType strin
 	if s.fail {
 		return fmt.Errorf("temporary object transfer failure")
 	}
-	return s.VideoAssetStore.Put(ctx, key, contentType, reader, size)
+	return s.InvoiceAssetStore.Put(ctx, key, contentType, reader, size)
 }
 
 func TestInvoiceAssetsRetryKnownFailedUpload(t *testing.T) {
 	s, content, _, admin := invoiceAssetFixture(t)
 	ctx := context.Background()
-	store := &failingInvoicePutStore{VideoAssetStore: s.Store, fail: true}
+	store := &failingInvoicePutStore{InvoiceAssetStore: s.Store, fail: true}
 	s.Store = store
 	_, err := s.Upload(ctx, admin, "owned-request", "retry-upload-key", "invoice", "invoice.png", bytes.NewReader(content))
 	invoiceRequireCode(t, err, "STORAGE_UNAVAILABLE")

@@ -33,16 +33,31 @@ const (
 	invoiceImageMaxPixels           = 20_000_000
 )
 
-// Invoice assets only use server-side private object operations. The store must
-// never publish the invoice prefix or apply the video's public serving policy.
-type InvoiceAssetService struct {
-	DB    *gorm.DB
-	Store VideoAssetStore
+// InvoiceAssetStore only supports server-side operations. Invoice downloads
+// always pass through the session and ownership checks, never public URLs.
+type InvoiceAssetStore interface {
+	Get(context.Context, string) (VideoAssetObject, error)
+	Put(context.Context, string, string, io.Reader, int64) error
+	Delete(context.Context, []string) error
 }
 
-// InvoiceAssetStoreFromEnvironment deliberately uses dedicated credentials and
-// a private bucket, rather than assuming the existing video bucket is private.
-func InvoiceAssetStoreFromEnvironment(ctx context.Context) (VideoAssetStore, error) {
+type InvoiceAssetService struct {
+	DB    *gorm.DB
+	Store InvoiceAssetStore
+}
+
+// Local storage uses the shared private application volume. S3 is optional and
+// must use dedicated credentials and a private bucket, never the video bucket.
+func InvoiceAssetStoreFromEnvironment(ctx context.Context) (InvoiceAssetStore, error) {
+	if directory := os.Getenv("KKAI_INVOICE_STORAGE_DIR"); directory != "" {
+		store := &localInvoiceAssetStore{directory: directory}
+		root, err := store.openRoot()
+		if err != nil {
+			return nil, invoiceError(http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE")
+		}
+		_ = root.Close()
+		return store, nil
+	}
 	if os.Getenv("KKAI_INVOICE_S3_PRIVATE") != "true" {
 		return nil, invoiceError(http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE")
 	}

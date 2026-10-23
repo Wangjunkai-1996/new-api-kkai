@@ -21,6 +21,7 @@ func invoiceFixture(t *testing.T) (InvoiceService, InvoiceScope) {
 	t.Helper()
 	t.Setenv("KKAI_INVOICE_KEY_ID", "test-key")
 	t.Setenv("KKAI_INVOICE_KEYS", `{"test-key":"`+base64.StdEncoding.EncodeToString(make([]byte, 32))+`"}`)
+	t.Setenv("KKAI_INVOICE_STORAGE_DIR", "")
 	t.Setenv("KKAI_INVOICE_S3_PRIVATE", "true")
 	t.Setenv("KKAI_INVOICE_S3_ENDPOINT", "https://storage.example.com")
 	t.Setenv("KKAI_INVOICE_S3_BUCKET", "private-invoices")
@@ -93,6 +94,14 @@ func TestInvoiceClaimIdempotencyAndSafeRejection(t *testing.T) {
 }
 func TestInvoiceDeliveryReplyReissueAndHistoricalAccess(t *testing.T) {
 	s, user := invoiceFixture(t)
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap["InvoicePolicy"] = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(common.OptionMap["InvoicePolicy"], `"seller_id":"seller"`, `"seller_id":""`), `"seller_name":"Example Seller"`, `"seller_name":""`), `"tax_group":"service"`, `"tax_group":""`)
+	common.OptionMapRWMutex.Unlock()
+	policy := s.Policy()
+	require.True(t, policy.Enabled)
+	assert.Empty(t, policy.SellerID)
+	assert.Empty(t, policy.SellerName)
+	assert.Empty(t, policy.TaxGroup)
 	ctx := context.Background()
 	admin := InvoiceScope{TenantID: 0, UserID: 2, Admin: true}
 	r, err := s.Create(ctx, user, "flow-create", invoiceCreateInput())

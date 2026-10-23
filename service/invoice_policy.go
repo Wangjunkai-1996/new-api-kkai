@@ -26,7 +26,7 @@ func (s InvoiceService) Policy() InvoicePolicy {
 		return p
 	}
 	p.Limits = map[string]int{"max_orders": 50, "max_file_bytes": 20 * 1024 * 1024}
-	valid := p.PolicyVersion != "" && len(p.PolicyVersion) <= 64 && p.SellerID != "" && len(p.SellerID) <= 64 && p.SellerName != "" && len(p.SellerName) <= 200 && p.TaxGroup != "" && len(p.TaxGroup) <= 64 && len(p.InvoiceTypes) > 0
+	valid := p.PolicyVersion != "" && len(p.PolicyVersion) <= 64 && len(p.SellerID) <= 64 && len(p.SellerName) <= 200 && len(p.TaxGroup) <= 64 && len(p.InvoiceTypes) > 0
 	for _, it := range p.InvoiceTypes {
 		if it.ID == "" || len(it.ID) > 64 || it.Label == "" {
 			valid = false
