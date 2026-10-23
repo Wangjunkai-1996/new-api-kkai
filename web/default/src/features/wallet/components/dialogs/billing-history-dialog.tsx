@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -44,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useSiteConfig } from '@/features/site-config'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatNumber } from '@/lib/format'
@@ -65,6 +67,7 @@ export function BillingHistoryDialog({
   onOpenChange,
 }: BillingHistoryDialogProps) {
   const { t } = useTranslation()
+  const { data: site } = useSiteConfig()
   const {
     records,
     total,
@@ -293,6 +296,25 @@ export function BillingHistoryDialog({
                         </div>
                       </div>
 
+                      {!isAdmin && site?.tenant_id === 0 && (
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          className='mt-3'
+                          render={
+                            <Link
+                              to='/invoices/new'
+                              search={{
+                                source_type: 'topup',
+                                order_id: record.trade_no,
+                              }}
+                              onClick={() => onOpenChange(false)}
+                            />
+                          }
+                        >
+                          {t('Apply for invoice')}
+                        </Button>
+                      )}
                       {/* Admin Actions */}
                       {isAdmin && record.status === 'pending' && (
                         <div className='mt-4 flex justify-end'>

@@ -141,6 +141,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       requestTicketSchemaStatements,
 		},
+		{
+			Version:          InvoiceSchemaVersion,
+			Name:             "invoice_center",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "invoice_center_v17",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       invoiceSchemaStatements,
+		},
 	}
 }
 

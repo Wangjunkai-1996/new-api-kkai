@@ -154,8 +154,13 @@ func validateRuntimeSchema(db *gorm.DB, dialect string, currentVersion int64) er
 				return err
 			}
 		}
-		if currentVersion == RequestTicketSchemaVersion {
-			return validateRequestTicketSchema(db, true)
+		if currentVersion >= RequestTicketSchemaVersion {
+			if err := validateRequestTicketSchema(db, true); err != nil {
+				return err
+			}
+		}
+		if currentVersion >= InvoiceSchemaVersion {
+			return validateInvoiceSchema(db, true)
 		}
 		return nil
 	}

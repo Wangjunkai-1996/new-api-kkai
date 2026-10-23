@@ -65,8 +65,12 @@ func readTenantControllerProof(path string) (*tenantControllerProof, error) {
 }
 
 func readTenantControllerProofJSON(path string) ([]byte, error) {
-	if path != tenantControllerProofPath || runtime.GOOS != "linux" {
-		return nil, fmt.Errorf("controller proof requires the fixed Linux read-only mount %s", tenantControllerProofPath)
+	return readRootControllerProofJSON(path, tenantControllerProofPath)
+}
+
+func readRootControllerProofJSON(path, fixedPath string) ([]byte, error) {
+	if path != fixedPath || runtime.GOOS != "linux" {
+		return nil, fmt.Errorf("controller proof requires the fixed Linux read-only mount %s", fixedPath)
 	}
 	if os.Geteuid() != 0 {
 		return nil, fmt.Errorf("controller proof requires UID 0 in the isolated migration container")

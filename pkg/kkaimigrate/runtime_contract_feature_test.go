@@ -16,13 +16,14 @@ func TestContractForDialectRequiresTenantSchema(t *testing.T) {
 			contract, err := ContractForDialect(dialect)
 			require.NoError(t, err)
 			assert.EqualValues(t, 14, contract.RuntimeMinVersion)
-			assert.EqualValues(t, 16, contract.RuntimeMaxVersion)
+			assert.EqualValues(t, 17, contract.RuntimeMaxVersion)
 			assert.EqualValues(t, 14, contract.MigrationTargetVersion)
 			assert.Equal(t, MigrationKindNone, contract.MigrationKind)
 			assert.Equal(t, contract.MigrationSetDigest, contract.CompatiblePrefixes["14"])
 			assert.Contains(t, contract.CompatiblePrefixes, "15")
 			assert.Contains(t, contract.CompatiblePrefixes, "16")
-			assert.Len(t, contract.CompatiblePrefixes, 3)
+			assert.Contains(t, contract.CompatiblePrefixes, "17")
+			assert.Len(t, contract.CompatiblePrefixes, 4)
 		})
 	}
 }

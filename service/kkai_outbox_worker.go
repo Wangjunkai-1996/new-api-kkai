@@ -24,6 +24,7 @@ type kkaiOutboxRuntimeHandlers struct {
 	taskAccounting             KKAIOutboxHandler
 	riskActionCommitted        KKAIOutboxHandler
 	topUpCompleted             KKAIOutboxHandler
+	invoiceNotification        KKAIOutboxHandler
 }
 
 type kkaiOutboxRuntimeWorker struct {
@@ -76,6 +77,7 @@ func newKKAIOutboxRuntimeWorker(
 			name: "webhook",
 			handlers: []topicHandler{
 				{topic: model.KKAIOutboxTopicTopUpCompleted, handler: handlers.topUpCompleted},
+				{topic: InvoiceNotificationTopic, handler: handlers.invoiceNotification},
 			},
 		},
 	}

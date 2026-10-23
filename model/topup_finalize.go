@@ -45,6 +45,7 @@ type FinalizeTopUpInput struct {
 	ExpectedProvider string
 	Prepare          PrepareTopUpCompletion
 	CompletedAt      int64
+	PaymentReceipt   *TopUpPaymentReceipt
 }
 
 type FinalizeTopUpResult struct {
@@ -126,9 +127,11 @@ func FinalizeTopUp(input FinalizeTopUpInput) (*FinalizeTopUpResult, error) {
 			return result, nil
 		}
 		lastErr = err
-		completed, lookupErr := completedTopUpReplay(input)
-		if lookupErr == nil && completed != nil {
-			return completed, nil
+		if input.PaymentReceipt == nil {
+			completed, lookupErr := completedTopUpReplay(input)
+			if lookupErr == nil && completed != nil {
+				return completed, nil
+			}
 		}
 		if !isSQLiteBusyError(err) {
 			return nil, err
@@ -149,6 +152,14 @@ func finalizeTopUpOnce(input FinalizeTopUpInput, completedAt int64) (*FinalizeTo
 			return ErrPaymentMethodMismatch
 		}
 		result.TopUp = *topUp
+		if topUp.Status != common.TopUpStatusPending && topUp.Status != common.TopUpStatusSuccess {
+			return ErrTopUpStatusInvalid
+		}
+		if input.PaymentReceipt != nil {
+			if err := recordInvoiceTopUpReceiptTx(tx, *topUp, *input.PaymentReceipt, completedAt); err != nil {
+				return err
+			}
+		}
 		if topUp.Status == common.TopUpStatusSuccess {
 			result.AlreadyCompleted = true
 			return nil

@@ -519,7 +519,7 @@ func EpayNotify(c *gin.Context) {
 	// and transaction remain the cross-instance correctness boundary.
 	LockOrder(verifyInfo.ServiceTradeNo)
 	defer UnlockOrder(verifyInfo.ServiceTradeNo)
-	result, err := model.RechargeEpay(verifyInfo.ServiceTradeNo, verifyInfo.Type, params["money"])
+	result, err := model.RechargeEpayVerified(verifyInfo.ServiceTradeNo, verifyInfo.Type, params["money"], params["trade_no"])
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrTopUpNotFound):

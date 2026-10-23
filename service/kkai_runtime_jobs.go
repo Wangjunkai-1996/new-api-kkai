@@ -59,6 +59,7 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		taskAccounting:             TaskAccountingHandler{}.Handle,
 		riskActionCommitted:        riskOutboxHandler.Handle,
 		topUpCompleted:             topUpCompleted,
+		invoiceNotification:        (InvoiceNotificationHandler{DB: model.DB}).Handle,
 	})
 	if err != nil {
 		return err
@@ -70,6 +71,9 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		return err
 	}
 	if err := RegisterImageStudioBackgroundJobs(registry, workerID); err != nil {
+		return err
+	}
+	if err := RegisterInvoiceBackgroundJobs(registry); err != nil {
 		return err
 	}
 	if err := RegisterResellerFinanceBackgroundJobs(registry); err != nil {

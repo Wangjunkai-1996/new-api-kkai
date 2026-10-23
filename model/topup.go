@@ -455,9 +455,24 @@ func RechargeWaffoPancake(tradeNo string) (err error) {
 }
 
 func RechargeEpay(tradeNo string, paymentMethod string, paidAmount ...string) (*FinalizeTopUpResult, error) {
+	return rechargeEpay(tradeNo, paymentMethod, nil, paidAmount...)
+}
+
+// RechargeEpayVerified is used only after authenticating a successful Epay
+// callback. A durable exact receipt, not checkout data, enables invoice eligibility.
+func RechargeEpayVerified(tradeNo, paymentMethod, paidAmount, providerReceiptID string) (*FinalizeTopUpResult, error) {
+	minor, err := ParseCNYMinor(paidAmount)
+	if err != nil || minor <= 0 {
+		return nil, ErrResellerFinanceInvalidInput
+	}
+	return rechargeEpay(tradeNo, paymentMethod, &TopUpPaymentReceipt{ProviderReceiptID: providerReceiptID, AmountMinor: minor, Currency: ResellerCurrencyCNY}, paidAmount)
+}
+
+func rechargeEpay(tradeNo, paymentMethod string, receipt *TopUpPaymentReceipt, paidAmount ...string) (*FinalizeTopUpResult, error) {
 	return FinalizeTopUp(FinalizeTopUpInput{
 		TradeNo:          tradeNo,
 		ExpectedProvider: PaymentProviderEpay,
+		PaymentReceipt:   receipt,
 		Prepare: func(topUp *TopUp, _ *User) (TopUpCompletion, error) {
 			if topUp.TenantID > 0 {
 				if len(paidAmount) != 1 {

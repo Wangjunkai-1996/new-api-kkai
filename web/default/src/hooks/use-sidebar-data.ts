@@ -182,6 +182,16 @@ export function useSidebarData(): SidebarData {
             url: '/membership/ratios',
             icon: Percent,
           },
+          ...(!isTenant
+            ? [
+                {
+                  title: t('Invoice center'),
+                  url: '/invoices',
+                  activeUrls: ['/invoices'],
+                  icon: FileText,
+                },
+              ]
+            : []),
           {
             title: t('Wallet'),
             url: '/wallet',
@@ -209,6 +219,17 @@ export function useSidebarData(): SidebarData {
         id: 'admin',
         title: t('Admin'),
         items: [
+          ...(!isTenant
+            ? [
+                {
+                  title: t('Invoice management'),
+                  url: '/invoice-admin',
+                  activeUrls: ['/invoice-admin'],
+                  icon: FileText,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           ...(requestAvailability.available
             ? [
                 {

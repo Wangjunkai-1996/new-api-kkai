@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -24,6 +25,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useSiteConfig } from '@/features/site-config'
 import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
@@ -60,6 +62,7 @@ export function MembershipOrderStatus(props: { order: MembershipOrder }) {
 
 export function MembershipOrders(props: { admin?: boolean }) {
   const { t, i18n } = useTranslation()
+  const { data: site } = useSiteConfig()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const client = useQueryClient()
   const previous = useRef<string | null>(null)
@@ -174,6 +177,24 @@ export function MembershipOrders(props: { admin?: boolean }) {
               <p className='text-muted-foreground mt-2 text-xs'>
                 {order.resolution_note}
               </p>
+            )}
+            {!props.admin && site?.tenant_id === 0 && (
+              <Button
+                variant='outline'
+                size='sm'
+                className='mt-3'
+                render={
+                  <Link
+                    to='/invoices/new'
+                    search={{
+                      source_type: 'membership',
+                      order_id: order.trade_no,
+                    }}
+                  />
+                }
+              >
+                {t('Apply for invoice')}
+              </Button>
             )}
             {!props.admin && order.status === 'pending' && (
               <Button

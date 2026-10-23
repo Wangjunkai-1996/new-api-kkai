@@ -253,6 +253,22 @@ func CompleteMembershipPayment(input MembershipPaymentInput) (*MembershipOrder, 
 		var payment MembershipPaymentReceipt
 		query := tx.Where("receipt_key = ?", receiptKey).First(&payment)
 		if query.Error == nil && payment.OrderID == result.ID {
+			// Lock an existing replay, without introducing a MySQL gap lock before
+			// the unique insert that arbitrates concurrent first receipts below.
+			if err := lockForUpdate(tx).Where("receipt_key = ?", receiptKey).First(&payment).Error; err != nil {
+				return err
+			}
+			if payment.Provider != input.Provider || payment.ReceiptID != input.ReceiptID || payment.AmountMinor != input.AmountMinor || payment.Currency != strings.ToUpper(input.Currency) || payment.OneTime != input.OneTime {
+				payment.Status, payment.Reason = MembershipOrderException, "verified payment receipt changed"
+				if err := tx.Save(&payment).Error; err != nil {
+					return err
+				}
+				result.ExceptionReason = payment.Reason
+				if err := tx.Save(&result).Error; err != nil {
+					return err
+				}
+				return holdMembershipInvoiceForPaymentExceptionTx(tx, result, now)
+			}
 			return nil
 		}
 		duplicate := query.Error == nil
@@ -278,7 +294,10 @@ func CompleteMembershipPayment(input MembershipPaymentInput) (*MembershipOrder, 
 					return err
 				}
 				result.ExceptionReason = payment.Reason
-				return tx.Save(&result).Error
+				if err := tx.Save(&result).Error; err != nil {
+					return err
+				}
+				return holdMembershipInvoiceForPaymentExceptionTx(tx, result, now)
 			}
 			return nil
 		}

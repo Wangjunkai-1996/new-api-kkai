@@ -19,6 +19,11 @@ func requestTicketProofFixture(t *testing.T) (*requestTicketControllerProof, *re
 	t.Helper()
 	contract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	require.NoError(t, err)
+	// Preserve the installed historical controller's exact v14-v16 proof.
+	// Declaring invoice compatibility does not authorize that controller to
+	// mutate a newer schema or accept a broader runtime contract.
+	contract.RuntimeMaxVersion = 16
+	delete(contract.CompatiblePrefixes, "17")
 	now := time.Unix(1800000000, 0)
 	status := &requestTicketStatus{
 		Schema: "kkai_request_ticket_v1", CurrentVersion: 15, TargetVersion: 16, Safe: true,
@@ -39,8 +44,11 @@ func requestTicketProofFixture(t *testing.T) (*requestTicketControllerProof, *re
 			Version: "release", TenantRoutingEnabled: &routing, TenantAware: &aware, SeparateLogDatabase: &logs,
 		}}
 		// Each running process declares its own immutable contract.
-		evidence.SchemaContract.SchemaContract, err = kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
-		require.NoError(t, err)
+		evidence.SchemaContract.SchemaContract = contract
+		evidence.SchemaContract.CompatiblePrefixes = make(map[string]string, len(contract.CompatiblePrefixes))
+		for version, digest := range contract.CompatiblePrefixes {
+			evidence.SchemaContract.CompatiblePrefixes[version] = digest
+		}
 		evidence.SchemaContract.SchemaManagement = "external"
 		proof.Runtimes = append(proof.Runtimes, evidence)
 	}

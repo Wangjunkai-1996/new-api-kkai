@@ -32,6 +32,8 @@ import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
 import { Route as AuthenticatedImageStudioRouteRouteImport } from './routes/_authenticated/image-studio/route'
 import { Route as AuthenticatedInvitationsRouteImport } from './routes/_authenticated/invitations'
+import { Route as AuthenticatedInvoiceAdminRouteRouteImport } from './routes/_authenticated/invoice-admin/route'
+import { Route as AuthenticatedInvoicesRouteRouteImport } from './routes/_authenticated/invoices/route'
 import { Route as AuthenticatedRequestAdminRouteImport } from './routes/_authenticated/request-admin'
 import { Route as AuthenticatedRequestsRouteRouteImport } from './routes/_authenticated/requests/route'
 import { Route as AuthenticatedResellerAdminRouteImport } from './routes/_authenticated/reseller-admin'
@@ -58,6 +60,11 @@ import { Route as AuthenticatedImageStudioCreateRouteImport } from './routes/_au
 import { Route as AuthenticatedImageStudioLibraryRouteImport } from './routes/_authenticated/image-studio/library'
 import { Route as AuthenticatedInvitationsIndexRouteImport } from './routes/_authenticated/invitations/index'
 import { Route as AuthenticatedInvitationsAdminRouteImport } from './routes/_authenticated/invitations/admin'
+import { Route as AuthenticatedInvoiceAdminIndexRouteImport } from './routes/_authenticated/invoice-admin/index'
+import { Route as AuthenticatedInvoiceAdminInvoiceIdRouteImport } from './routes/_authenticated/invoice-admin/$invoiceId'
+import { Route as AuthenticatedInvoicesIndexRouteImport } from './routes/_authenticated/invoices/index'
+import { Route as AuthenticatedInvoicesInvoiceIdRouteImport } from './routes/_authenticated/invoices/$invoiceId'
+import { Route as AuthenticatedInvoicesNewRouteImport } from './routes/_authenticated/invoices/new'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedMembershipIndexRouteImport } from './routes/_authenticated/membership/index'
 import { Route as AuthenticatedMembershipRatiosRouteImport } from './routes/_authenticated/membership/ratios'
@@ -216,6 +223,18 @@ const AuthenticatedInvitationsRoute =
     path: '/invitations',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedInvoiceAdminRouteRoute =
+  AuthenticatedInvoiceAdminRouteRouteImport.update({
+    id: '/invoice-admin',
+    path: '/invoice-admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedInvoicesRouteRoute =
+  AuthenticatedInvoicesRouteRouteImport.update({
+    id: '/invoices',
+    path: '/invoices',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedRequestAdminRoute =
   AuthenticatedRequestAdminRouteImport.update({
     id: '/request-admin',
@@ -360,6 +379,36 @@ const AuthenticatedInvitationsAdminRoute =
     id: '/admin',
     path: '/admin',
     getParentRoute: () => AuthenticatedInvitationsRoute,
+  } as any)
+const AuthenticatedInvoiceAdminIndexRoute =
+  AuthenticatedInvoiceAdminIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedInvoiceAdminRouteRoute,
+  } as any)
+const AuthenticatedInvoiceAdminInvoiceIdRoute =
+  AuthenticatedInvoiceAdminInvoiceIdRouteImport.update({
+    id: '/$invoiceId',
+    path: '/$invoiceId',
+    getParentRoute: () => AuthenticatedInvoiceAdminRouteRoute,
+  } as any)
+const AuthenticatedInvoicesIndexRoute =
+  AuthenticatedInvoicesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedInvoicesRouteRoute,
+  } as any)
+const AuthenticatedInvoicesInvoiceIdRoute =
+  AuthenticatedInvoicesInvoiceIdRouteImport.update({
+    id: '/$invoiceId',
+    path: '/$invoiceId',
+    getParentRoute: () => AuthenticatedInvoicesRouteRoute,
+  } as any)
+const AuthenticatedInvoicesNewRoute =
+  AuthenticatedInvoicesNewRouteImport.update({
+    id: '/new',
+    path: '/new',
+    getParentRoute: () => AuthenticatedInvoicesRouteRoute,
   } as any)
 const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
   id: '/keys/',
@@ -619,6 +668,8 @@ export interface FileRoutesByFullPath {
   '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
+  '/invoice-admin': typeof AuthenticatedInvoiceAdminRouteRouteWithChildren
+  '/invoices': typeof AuthenticatedInvoicesRouteRouteWithChildren
   '/requests': typeof AuthenticatedRequestsRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
@@ -654,6 +705,9 @@ export interface FileRoutesByFullPath {
   '/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
   '/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
+  '/invoice-admin/$invoiceId': typeof AuthenticatedInvoiceAdminInvoiceIdRoute
+  '/invoices/$invoiceId': typeof AuthenticatedInvoicesInvoiceIdRoute
+  '/invoices/new': typeof AuthenticatedInvoicesNewRoute
   '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
@@ -669,6 +723,8 @@ export interface FileRoutesByFullPath {
   '/group-status/': typeof AuthenticatedGroupStatusIndexRoute
   '/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/invitations/': typeof AuthenticatedInvitationsIndexRoute
+  '/invoice-admin/': typeof AuthenticatedInvoiceAdminIndexRoute
+  '/invoices/': typeof AuthenticatedInvoicesIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/membership/': typeof AuthenticatedMembershipIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
@@ -739,6 +795,9 @@ export interface FileRoutesByTo {
   '/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
   '/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
+  '/invoice-admin/$invoiceId': typeof AuthenticatedInvoiceAdminInvoiceIdRoute
+  '/invoices/$invoiceId': typeof AuthenticatedInvoicesInvoiceIdRoute
+  '/invoices/new': typeof AuthenticatedInvoicesNewRoute
   '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
@@ -754,6 +813,8 @@ export interface FileRoutesByTo {
   '/group-status': typeof AuthenticatedGroupStatusIndexRoute
   '/image-studio': typeof AuthenticatedImageStudioIndexRoute
   '/invitations': typeof AuthenticatedInvitationsIndexRoute
+  '/invoice-admin': typeof AuthenticatedInvoiceAdminIndexRoute
+  '/invoices': typeof AuthenticatedInvoicesIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/membership': typeof AuthenticatedMembershipIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
@@ -798,6 +859,8 @@ export interface FileRoutesById {
   '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
   '/_authenticated/image-studio': typeof AuthenticatedImageStudioRouteRouteWithChildren
+  '/_authenticated/invoice-admin': typeof AuthenticatedInvoiceAdminRouteRouteWithChildren
+  '/_authenticated/invoices': typeof AuthenticatedInvoicesRouteRouteWithChildren
   '/_authenticated/requests': typeof AuthenticatedRequestsRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/_authenticated/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
@@ -833,6 +896,9 @@ export interface FileRoutesById {
   '/_authenticated/image-studio/create': typeof AuthenticatedImageStudioCreateRoute
   '/_authenticated/image-studio/library': typeof AuthenticatedImageStudioLibraryRoute
   '/_authenticated/invitations/admin': typeof AuthenticatedInvitationsAdminRoute
+  '/_authenticated/invoice-admin/$invoiceId': typeof AuthenticatedInvoiceAdminInvoiceIdRoute
+  '/_authenticated/invoices/$invoiceId': typeof AuthenticatedInvoicesInvoiceIdRoute
+  '/_authenticated/invoices/new': typeof AuthenticatedInvoicesNewRoute
   '/_authenticated/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
@@ -848,6 +914,8 @@ export interface FileRoutesById {
   '/_authenticated/group-status/': typeof AuthenticatedGroupStatusIndexRoute
   '/_authenticated/image-studio/': typeof AuthenticatedImageStudioIndexRoute
   '/_authenticated/invitations/': typeof AuthenticatedInvitationsIndexRoute
+  '/_authenticated/invoice-admin/': typeof AuthenticatedInvoiceAdminIndexRoute
+  '/_authenticated/invoices/': typeof AuthenticatedInvoicesIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/membership/': typeof AuthenticatedMembershipIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
@@ -891,6 +959,8 @@ export interface FileRouteTypes {
     | '/reseller-application'
     | '/user-agreement'
     | '/image-studio'
+    | '/invoice-admin'
+    | '/invoices'
     | '/requests'
     | '/system-settings'
     | '/video-studio'
@@ -926,6 +996,9 @@ export interface FileRouteTypes {
     | '/image-studio/create'
     | '/image-studio/library'
     | '/invitations/admin'
+    | '/invoice-admin/$invoiceId'
+    | '/invoices/$invoiceId'
+    | '/invoices/new'
     | '/membership/ratios'
     | '/models/$section'
     | '/requests/$requestId'
@@ -941,6 +1014,8 @@ export interface FileRouteTypes {
     | '/group-status/'
     | '/image-studio/'
     | '/invitations/'
+    | '/invoice-admin/'
+    | '/invoices/'
     | '/keys/'
     | '/membership/'
     | '/models/'
@@ -1011,6 +1086,9 @@ export interface FileRouteTypes {
     | '/image-studio/create'
     | '/image-studio/library'
     | '/invitations/admin'
+    | '/invoice-admin/$invoiceId'
+    | '/invoices/$invoiceId'
+    | '/invoices/new'
     | '/membership/ratios'
     | '/models/$section'
     | '/requests/$requestId'
@@ -1026,6 +1104,8 @@ export interface FileRouteTypes {
     | '/group-status'
     | '/image-studio'
     | '/invitations'
+    | '/invoice-admin'
+    | '/invoices'
     | '/keys'
     | '/membership'
     | '/models'
@@ -1069,6 +1149,8 @@ export interface FileRouteTypes {
     | '/reseller-application'
     | '/user-agreement'
     | '/_authenticated/image-studio'
+    | '/_authenticated/invoice-admin'
+    | '/_authenticated/invoices'
     | '/_authenticated/requests'
     | '/_authenticated/system-settings'
     | '/_authenticated/video-studio'
@@ -1104,6 +1186,9 @@ export interface FileRouteTypes {
     | '/_authenticated/image-studio/create'
     | '/_authenticated/image-studio/library'
     | '/_authenticated/invitations/admin'
+    | '/_authenticated/invoice-admin/$invoiceId'
+    | '/_authenticated/invoices/$invoiceId'
+    | '/_authenticated/invoices/new'
     | '/_authenticated/membership/ratios'
     | '/_authenticated/models/$section'
     | '/_authenticated/requests/$requestId'
@@ -1119,6 +1204,8 @@ export interface FileRouteTypes {
     | '/_authenticated/group-status/'
     | '/_authenticated/image-studio/'
     | '/_authenticated/invitations/'
+    | '/_authenticated/invoice-admin/'
+    | '/_authenticated/invoices/'
     | '/_authenticated/keys/'
     | '/_authenticated/membership/'
     | '/_authenticated/models/'
@@ -1340,6 +1427,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInvitationsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/invoice-admin': {
+      id: '/_authenticated/invoice-admin'
+      path: '/invoice-admin'
+      fullPath: '/invoice-admin'
+      preLoaderRoute: typeof AuthenticatedInvoiceAdminRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/invoices': {
+      id: '/_authenticated/invoices'
+      path: '/invoices'
+      fullPath: '/invoices'
+      preLoaderRoute: typeof AuthenticatedInvoicesRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/request-admin': {
       id: '/_authenticated/request-admin'
       path: '/request-admin'
@@ -1521,6 +1622,41 @@ declare module '@tanstack/react-router' {
       fullPath: '/invitations/admin'
       preLoaderRoute: typeof AuthenticatedInvitationsAdminRouteImport
       parentRoute: typeof AuthenticatedInvitationsRoute
+    }
+    '/_authenticated/invoice-admin/': {
+      id: '/_authenticated/invoice-admin/'
+      path: '/'
+      fullPath: '/invoice-admin/'
+      preLoaderRoute: typeof AuthenticatedInvoiceAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedInvoiceAdminRouteRoute
+    }
+    '/_authenticated/invoice-admin/$invoiceId': {
+      id: '/_authenticated/invoice-admin/$invoiceId'
+      path: '/$invoiceId'
+      fullPath: '/invoice-admin/$invoiceId'
+      preLoaderRoute: typeof AuthenticatedInvoiceAdminInvoiceIdRouteImport
+      parentRoute: typeof AuthenticatedInvoiceAdminRouteRoute
+    }
+    '/_authenticated/invoices/': {
+      id: '/_authenticated/invoices/'
+      path: '/'
+      fullPath: '/invoices/'
+      preLoaderRoute: typeof AuthenticatedInvoicesIndexRouteImport
+      parentRoute: typeof AuthenticatedInvoicesRouteRoute
+    }
+    '/_authenticated/invoices/$invoiceId': {
+      id: '/_authenticated/invoices/$invoiceId'
+      path: '/$invoiceId'
+      fullPath: '/invoices/$invoiceId'
+      preLoaderRoute: typeof AuthenticatedInvoicesInvoiceIdRouteImport
+      parentRoute: typeof AuthenticatedInvoicesRouteRoute
+    }
+    '/_authenticated/invoices/new': {
+      id: '/_authenticated/invoices/new'
+      path: '/new'
+      fullPath: '/invoices/new'
+      preLoaderRoute: typeof AuthenticatedInvoicesNewRouteImport
+      parentRoute: typeof AuthenticatedInvoicesRouteRoute
     }
     '/_authenticated/keys/': {
       id: '/_authenticated/keys/'
@@ -1863,6 +1999,41 @@ const AuthenticatedImageStudioRouteRouteWithChildren =
     AuthenticatedImageStudioRouteRouteChildren,
   )
 
+interface AuthenticatedInvoiceAdminRouteRouteChildren {
+  AuthenticatedInvoiceAdminInvoiceIdRoute: typeof AuthenticatedInvoiceAdminInvoiceIdRoute
+  AuthenticatedInvoiceAdminIndexRoute: typeof AuthenticatedInvoiceAdminIndexRoute
+}
+
+const AuthenticatedInvoiceAdminRouteRouteChildren: AuthenticatedInvoiceAdminRouteRouteChildren =
+  {
+    AuthenticatedInvoiceAdminInvoiceIdRoute:
+      AuthenticatedInvoiceAdminInvoiceIdRoute,
+    AuthenticatedInvoiceAdminIndexRoute: AuthenticatedInvoiceAdminIndexRoute,
+  }
+
+const AuthenticatedInvoiceAdminRouteRouteWithChildren =
+  AuthenticatedInvoiceAdminRouteRoute._addFileChildren(
+    AuthenticatedInvoiceAdminRouteRouteChildren,
+  )
+
+interface AuthenticatedInvoicesRouteRouteChildren {
+  AuthenticatedInvoicesInvoiceIdRoute: typeof AuthenticatedInvoicesInvoiceIdRoute
+  AuthenticatedInvoicesNewRoute: typeof AuthenticatedInvoicesNewRoute
+  AuthenticatedInvoicesIndexRoute: typeof AuthenticatedInvoicesIndexRoute
+}
+
+const AuthenticatedInvoicesRouteRouteChildren: AuthenticatedInvoicesRouteRouteChildren =
+  {
+    AuthenticatedInvoicesInvoiceIdRoute: AuthenticatedInvoicesInvoiceIdRoute,
+    AuthenticatedInvoicesNewRoute: AuthenticatedInvoicesNewRoute,
+    AuthenticatedInvoicesIndexRoute: AuthenticatedInvoicesIndexRoute,
+  }
+
+const AuthenticatedInvoicesRouteRouteWithChildren =
+  AuthenticatedInvoicesRouteRoute._addFileChildren(
+    AuthenticatedInvoicesRouteRouteChildren,
+  )
+
 interface AuthenticatedRequestsRouteRouteChildren {
   AuthenticatedRequestsRequestIdRoute: typeof AuthenticatedRequestsRequestIdRoute
   AuthenticatedRequestsIndexRoute: typeof AuthenticatedRequestsIndexRoute
@@ -1986,6 +2157,8 @@ const AuthenticatedInvitationsRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedImageStudioRouteRoute: typeof AuthenticatedImageStudioRouteRouteWithChildren
+  AuthenticatedInvoiceAdminRouteRoute: typeof AuthenticatedInvoiceAdminRouteRouteWithChildren
+  AuthenticatedInvoicesRouteRoute: typeof AuthenticatedInvoicesRouteRouteWithChildren
   AuthenticatedRequestsRouteRoute: typeof AuthenticatedRequestsRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedVideoStudioRouteRoute: typeof AuthenticatedVideoStudioRouteRouteWithChildren
@@ -2020,6 +2193,9 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedImageStudioRouteRoute:
     AuthenticatedImageStudioRouteRouteWithChildren,
+  AuthenticatedInvoiceAdminRouteRoute:
+    AuthenticatedInvoiceAdminRouteRouteWithChildren,
+  AuthenticatedInvoicesRouteRoute: AuthenticatedInvoicesRouteRouteWithChildren,
   AuthenticatedRequestsRouteRoute: AuthenticatedRequestsRouteRouteWithChildren,
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,

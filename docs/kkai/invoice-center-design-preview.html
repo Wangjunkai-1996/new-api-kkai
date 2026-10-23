@@ -1,0 +1,348 @@
+<!--
+KKAI 发票中心设计参考 v1.1 · 2026-10-22。
+本文件冻结原设计的 CSS、布局和视觉；仅修正演示占用、拒绝释放、交付版本和回复状态。
+它是设计演示，不是生产前端或服务端状态机。正式新增筛选、佐证上传、多条抬头管理、
+finance_hold、移动端固定 CTA 等要求见 invoice-center-ui-spec.md；API 与安全规则见
+invoice-center-development.md。演示身份切换、虚构订单和非正式发票不得进入产品。
+原始设计来源：本任务 invoice-center.html；独立使用时需宿主提供 Lucide/Tweak（可选）。
+-->
+<style>
+#kkai-invoice-design {
+  --iv-bg: light-dark(#f7f8fa, #1c1e22);
+  --iv-surface: light-dark(#ffffff, #25282d);
+  --iv-nav: light-dark(#fcfcfd, #202328);
+  --iv-text: light-dark(#202733, #e8edf4);
+  --iv-muted: light-dark(#657083, #a1aabb);
+  --iv-line: light-dark(#e9ecf1, #363b44);
+  --iv-primary: light-dark(#1975c6, #71b9fb);
+  --iv-on-primary: light-dark(#ffffff, #102a42);
+  --iv-soft: light-dark(#edf5fd, #24384b);
+  --iv-green: light-dark(#168366, #6dd8b4);
+  --iv-green-soft: light-dark(#edf8f3, #243d35);
+  --iv-amber: light-dark(#986313, #edc37a);
+  --iv-amber-soft: light-dark(#fff7e8, #413724);
+  --iv-red: light-dark(#b3494b, #f0a1a4);
+  --iv-red-soft: light-dark(#fff1f1, #442d32);
+  --iv-radius: 12px;
+  color: var(--iv-text); font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 13px; line-height: 1.55; width: 100%; text-align: left;
+}
+#kkai-invoice-design * { box-sizing: border-box; }
+#kkai-invoice-design button, #kkai-invoice-design input, #kkai-invoice-design select, #kkai-invoice-design textarea { font: inherit; }
+#kkai-invoice-design button { color: inherit; }
+#kkai-invoice-design button:disabled { opacity: .45; cursor: not-allowed; }
+#kkai-invoice-design h1, #kkai-invoice-design h2, #kkai-invoice-design h3, #kkai-invoice-design p { margin: 0; }
+#kkai-invoice-design h1 { font-size: 26px; font-weight: 500; letter-spacing: -.8px; line-height: 1.3; }
+#kkai-invoice-design h2 { font-size: 16px; font-weight: 500; }
+#kkai-invoice-design h3 { font-size: 14px; font-weight: 500; }
+#kkai-invoice-design small { font-size: 11px; }
+#kkai-invoice-design .iv-review { display: flex; align-items: center; gap: 14px; padding: 0 2px 13px; flex-wrap: wrap; }
+#kkai-invoice-design .iv-review-title { font-size: 12px; color: var(--iv-muted); letter-spacing: .3px; }
+#kkai-invoice-design .iv-segment { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--iv-line); background: var(--iv-surface); border-radius: 9px; }
+#kkai-invoice-design .iv-segment button { border: 0; background: transparent; padding: 6px 16px; border-radius: 6px; font-size: 12px; }
+#kkai-invoice-design .iv-segment button[aria-pressed=true] { background: var(--iv-text); color: var(--iv-surface); }
+#kkai-invoice-design .iv-review .iv-demo { margin-left: auto; padding-right: 94px; color: var(--iv-muted); font-size: 11px; }
+#kkai-invoice-design .iv-app { display: grid; grid-template-columns: 164px minmax(0,1fr); background: var(--iv-bg); border: 1px solid var(--iv-line); border-radius: 14px; overflow: clip; min-height: 760px; }
+#kkai-invoice-design .iv-sidebar { background: var(--iv-nav); border-right: 1px solid var(--iv-line); padding: 21px 12px; display: flex; flex-direction: column; }
+#kkai-invoice-design .iv-brand { display: flex; align-items: center; gap: 9px; padding: 0 10px 27px; font-size: 19px; font-weight: 500; letter-spacing: -.5px; }
+#kkai-invoice-design .iv-brand-mark { width: 28px; height: 29px; background: var(--iv-primary); border-radius: 8px; color: var(--iv-on-primary); display: grid; place-items: center; font-size: 16px; }
+#kkai-invoice-design .iv-nav-label { color: var(--iv-muted); padding: 12px 10px 7px; font-size: 11px; }
+#kkai-invoice-design .iv-nav-item { display: flex; gap: 10px; align-items: center; padding: 10px; margin: 2px 0; border-radius: 8px; color: var(--iv-muted); font-size: 12px; }
+#kkai-invoice-design .iv-nav-item.active { background: var(--iv-soft); color: var(--iv-primary); font-weight: 500; }
+#kkai-invoice-design .iv-icon { width: 17px; height: 17px; display: inline-block; flex-shrink: 0; vertical-align: middle; }
+#kkai-invoice-design .iv-nav-bottom { margin-top: auto; padding-top: 35px; }
+#kkai-invoice-design .iv-user { padding: 15px 8px 0; border-top: 1px solid var(--iv-line); display: flex; align-items: center; gap: 9px; font-size: 12px; }
+#kkai-invoice-design .iv-avatar { width: 29px; height: 29px; border: 1px solid var(--iv-line); border-radius: 50%; background: var(--iv-surface); display: grid; place-items: center; color: var(--iv-muted); }
+#kkai-invoice-design .iv-body { min-width: 0; }
+#kkai-invoice-design .iv-topbar { height: 53px; padding: 0 27px; border-bottom: 1px solid var(--iv-line); background: var(--iv-surface); display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+#kkai-invoice-design .iv-breadcrumb { display: flex; align-items: center; gap: 10px; color: var(--iv-muted); }
+#kkai-invoice-design .iv-breadcrumb span:last-child { color: var(--iv-text); }
+#kkai-invoice-design .iv-page { padding: 28px; }
+#kkai-invoice-design .iv-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+#kkai-invoice-design .iv-eyebrow { color: var(--iv-primary); font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 500; margin-bottom: 8px; }
+#kkai-invoice-design .iv-subtitle { color: var(--iv-muted); margin-top: 8px; font-size: 12px; }
+#kkai-invoice-design .iv-btn { border: 1px solid var(--iv-line); background: var(--iv-surface); border-radius: 8px; padding: 8px 12px; display: inline-flex; justify-content: center; align-items: center; gap: 6px; white-space: nowrap; font-weight: 500; font-size: 12px; text-decoration: none; }
+#kkai-invoice-design .iv-btn:hover:not(:disabled) { border-color: var(--iv-primary); }
+#kkai-invoice-design .iv-btn.primary { background: var(--iv-primary); color: var(--iv-on-primary); border-color: var(--iv-primary); }
+#kkai-invoice-design .iv-btn.danger { color: var(--iv-red); }
+#kkai-invoice-design .iv-btn.wide { width: 100%; padding: 10px; }
+#kkai-invoice-design .iv-link { border: 0; padding: 0; color: var(--iv-primary); background: transparent; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+#kkai-invoice-design .iv-muted { color: var(--iv-muted); }
+#kkai-invoice-design .iv-mini { font-size: 11px; }
+#kkai-invoice-design .iv-numeric { font-variant-numeric: tabular-nums; letter-spacing: -.3px; }
+#kkai-invoice-design .iv-balance { display: flex; gap: 24px; align-items: center; margin-bottom: 24px; padding: 1px 0 22px; border-bottom: 1px solid var(--iv-line); }
+#kkai-invoice-design .iv-balance .iv-balance-item { flex: 1; border-right: 1px solid var(--iv-line); }
+#kkai-invoice-design .iv-balance .iv-balance-item:last-child { border: 0; }
+#kkai-invoice-design .iv-balance-label { color: var(--iv-muted); font-size: 11px; margin-bottom: 4px; }
+#kkai-invoice-design .iv-balance-value { font-size: 24px; font-weight: 500; line-height: 1.3; }
+#kkai-invoice-design .iv-balance-value span { font-size: 15px; padding-right: 3px; }
+#kkai-invoice-design .iv-balance-meta { color: var(--iv-muted); font-size: 11px; margin-top: 4px; }
+#kkai-invoice-design .iv-tabs { display: flex; align-items: center; gap: 25px; border-bottom: 1px solid var(--iv-line); margin-bottom: 22px; }
+#kkai-invoice-design .iv-tab { border: 0; border-bottom: 2px solid transparent; padding: 0 0 11px; color: var(--iv-muted); background: transparent; font-size: 12px; }
+#kkai-invoice-design .iv-tab.active { color: var(--iv-primary); border-bottom-color: var(--iv-primary); font-weight: 500; }
+#kkai-invoice-design .iv-count { border-radius: 5px; padding: 1px 5px; margin-left: 4px; background: var(--iv-soft); font-size: 10px; }
+#kkai-invoice-design .iv-workspace { display: grid; grid-template-columns: minmax(0,1fr) 236px; gap: 18px; align-items: start; }
+#kkai-invoice-design .iv-panel { background: var(--iv-surface); border: 1px solid var(--iv-line); border-radius: var(--iv-radius); min-width: 0; }
+#kkai-invoice-design .iv-panel-head { padding: 17px 18px; border-bottom: 1px solid var(--iv-line); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#kkai-invoice-design .iv-panel-body { padding: 18px; }
+#kkai-invoice-design .iv-steps { display: flex; align-items: center; gap: 8px; margin-bottom: 19px; font-size: 11px; }
+#kkai-invoice-design .iv-step { display: flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--iv-muted); }
+#kkai-invoice-design .iv-step b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--iv-surface); border: 1px solid var(--iv-line); font-size: 10px; font-weight: 500; }
+#kkai-invoice-design .iv-step.current { color: var(--iv-primary); }
+#kkai-invoice-design .iv-step.current b { background: var(--iv-primary); color: var(--iv-on-primary); border-color: var(--iv-primary); }
+#kkai-invoice-design .iv-step.done b { background: var(--iv-soft); color: var(--iv-primary); border-color: var(--iv-soft); }
+#kkai-invoice-design .iv-step-line { height: 1px; background: var(--iv-line); flex: 1; }
+#kkai-invoice-design .iv-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 13px 17px; border-bottom: 1px solid var(--iv-line); }
+#kkai-invoice-design .iv-filter { padding: 5px 9px; background: transparent; border: 0; border-radius: 6px; color: var(--iv-muted); font-size: 11px; }
+#kkai-invoice-design .iv-filter.active { color: var(--iv-primary); background: var(--iv-soft); }
+#kkai-invoice-design .iv-check { accent-color: var(--iv-primary); width: 15px; height: 15px; flex-shrink: 0; margin: 0; }
+#kkai-invoice-design .iv-table-header { display: grid; grid-template-columns: 20px 1fr 86px; gap: 10px; padding: 10px 18px; background: var(--iv-nav); font-size: 11px; color: var(--iv-muted); }
+#kkai-invoice-design .iv-order { display: grid; grid-template-columns: 20px minmax(0,1fr) 86px; gap: 10px; align-items: center; padding: 16px 18px; border-top: 1px solid var(--iv-line); background: transparent; }
+#kkai-invoice-design .iv-order.selected { background: color-mix(in srgb, var(--iv-soft) 55%, var(--iv-surface)); }
+#kkai-invoice-design .iv-order-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; font-weight: 500; }
+#kkai-invoice-design .iv-order-ref { color: var(--iv-muted); font-size: 10px; overflow-wrap: anywhere; margin-top: 4px; }
+#kkai-invoice-design .iv-order-meta { margin-top: 5px; font-size: 10px; color: var(--iv-muted); }
+#kkai-invoice-design .iv-right { text-align: right; }
+#kkai-invoice-design .iv-source { padding: 1px 5px; border: 1px solid var(--iv-line); border-radius: 4px; color: var(--iv-muted); font-size: 10px; font-weight: 400; white-space: nowrap; }
+#kkai-invoice-design .iv-order.disabled { background: var(--iv-nav); color: var(--iv-muted); }
+#kkai-invoice-design .iv-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--iv-primary); background: var(--iv-soft); padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
+#kkai-invoice-design .iv-tag::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+#kkai-invoice-design .iv-tag.green { color: var(--iv-green); background: var(--iv-green-soft); }
+#kkai-invoice-design .iv-tag.amber { color: var(--iv-amber); background: var(--iv-amber-soft); }
+#kkai-invoice-design .iv-tag.red { color: var(--iv-red); background: var(--iv-red-soft); }
+#kkai-invoice-design .iv-tag.gray { color: var(--iv-muted); background: var(--iv-bg); }
+#kkai-invoice-design .iv-panel-foot { padding: 12px 18px; border-top: 1px solid var(--iv-line); font-size: 10px; color: var(--iv-muted); display: flex; justify-content: space-between; gap: 10px; }
+#kkai-invoice-design .iv-summary { padding: 18px; }
+#kkai-invoice-design .iv-summary-label { color: var(--iv-muted); font-size: 11px; margin-top: 19px; }
+#kkai-invoice-design .iv-amount { font-size: 29px; font-weight: 500; margin-top: 3px; line-height: 1.35; letter-spacing: -.8px; }
+#kkai-invoice-design .iv-amount span { font-size: 17px; margin-right: 3px; }
+#kkai-invoice-design .iv-rule { height: 1px; background: var(--iv-line); margin: 17px 0; border: 0; }
+#kkai-invoice-design .iv-dl { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin: 10px 0; }
+#kkai-invoice-design .iv-dl span:first-child { color: var(--iv-muted); }
+#kkai-invoice-design .iv-note { font-size: 11px; color: var(--iv-muted); display: flex; gap: 7px; margin-top: 13px; line-height: 1.7; }
+#kkai-invoice-design .iv-soft-note { background: var(--iv-soft); border-radius: 8px; padding: 10px 12px; color: var(--iv-primary); font-size: 11px; margin-bottom: 17px; line-height: 1.7; }
+#kkai-invoice-design .iv-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: 11px; }
+#kkai-invoice-design .iv-field input, #kkai-invoice-design .iv-field select, #kkai-invoice-design .iv-field textarea { background: var(--iv-surface); color: var(--iv-text); border: 1px solid var(--iv-line); padding: 9px 10px; border-radius: 7px; width: 100%; min-width: 0; }
+#kkai-invoice-design .iv-field textarea { resize: vertical; min-height: 85px; }
+#kkai-invoice-design .iv-field input:focus, #kkai-invoice-design .iv-field select:focus, #kkai-invoice-design .iv-field textarea:focus { outline: 2px solid var(--iv-primary); outline-offset: 2px; }
+#kkai-invoice-design .iv-field em { color: var(--iv-red); font-style: normal; }
+#kkai-invoice-design .iv-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+#kkai-invoice-design .iv-choice { display: flex; gap: 8px; margin: 9px 0 17px; }
+#kkai-invoice-design .iv-choice button { flex: 1; border: 1px solid var(--iv-line); border-radius: 8px; background: var(--iv-surface); padding: 10px; font-size: 12px; }
+#kkai-invoice-design .iv-choice button[aria-pressed=true] { color: var(--iv-primary); border-color: var(--iv-primary); background: var(--iv-soft); }
+#kkai-invoice-design .iv-check-label { display: flex; align-items: start; gap: 8px; font-size: 11px; color: var(--iv-muted); }
+#kkai-invoice-design .iv-check-label input { margin-top: 3px; }
+#kkai-invoice-design .iv-error { color: var(--iv-red); background: var(--iv-red-soft); padding: 9px 12px; border-radius: 7px; font-size: 11px; margin-bottom: 13px; }
+#kkai-invoice-design .iv-data-row { display: grid; grid-template-columns: 92px minmax(0,1fr); gap: 10px; font-size: 11px; margin: 11px 0; overflow-wrap: anywhere; }
+#kkai-invoice-design .iv-data-row span:first-child { color: var(--iv-muted); }
+#kkai-invoice-design .iv-request { width: 100%; border: 0; border-top: 1px solid var(--iv-line); background: var(--iv-surface); padding: 16px 18px; text-align: left; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; align-items: center; }
+#kkai-invoice-design .iv-request:first-child { border-top: 0; border-radius: var(--iv-radius) var(--iv-radius) 0 0; }
+#kkai-invoice-design .iv-request.active { background: var(--iv-soft); box-shadow: inset 3px 0 var(--iv-primary); }
+#kkai-invoice-design .iv-request:hover { background: var(--iv-nav); }
+#kkai-invoice-design .iv-request-title { font-size: 12px; font-weight: 500; margin-bottom: 4px; overflow-wrap: anywhere; }
+#kkai-invoice-design .iv-request .iv-tag { margin-top: 8px; }
+#kkai-invoice-design .iv-detail-top { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 18px; }
+#kkai-invoice-design .iv-detail-total { margin-top: 7px; font-size: 24px; font-weight: 500; }
+#kkai-invoice-design .iv-detail-total span { font-size: 15px; margin-right: 3px; }
+#kkai-invoice-design .iv-file { border: 1px solid var(--iv-line); border-radius: 8px; display: flex; align-items: center; gap: 11px; padding: 11px; margin-top: 8px; }
+#kkai-invoice-design .iv-file-icon { height: 37px; width: 31px; color: var(--iv-primary); background: var(--iv-soft); display: grid; place-items: center; border-radius: 5px; }
+#kkai-invoice-design .iv-file-copy { min-width: 0; flex: 1; font-size: 11px; overflow-wrap: anywhere; }
+#kkai-invoice-design .iv-file-copy small { color: var(--iv-muted); font-size: 10px; }
+#kkai-invoice-design .iv-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 16px; }
+#kkai-invoice-design .iv-actions > .iv-btn { flex: 1; }
+#kkai-invoice-design .iv-timeline { padding: 2px 0; list-style: none; margin: 13px 0 0; }
+#kkai-invoice-design .iv-timeline li { position: relative; padding: 0 0 18px 19px; border-left: 1px solid var(--iv-line); margin-left: 4px; font-size: 11px; }
+#kkai-invoice-design .iv-timeline li:last-child { border: 0; padding-bottom: 0; }
+#kkai-invoice-design .iv-timeline li::before { content: ''; width: 7px; height: 7px; background: var(--iv-line); border: 2px solid var(--iv-surface); box-sizing: content-box; border-radius: 50%; position: absolute; left: -6px; top: 3px; }
+#kkai-invoice-design .iv-timeline li:first-child::before { background: var(--iv-primary); }
+#kkai-invoice-design .iv-timeline time { color: var(--iv-muted); display: block; margin-top: 3px; font-size: 10px; }
+#kkai-invoice-design .iv-admin-grid { display: grid; grid-template-columns: 237px minmax(0,1fr); gap: 17px; align-items: start; }
+#kkai-invoice-design .iv-queue-tabs { display: flex; gap: 9px; flex-wrap: wrap; margin-bottom: 18px; }
+#kkai-invoice-design .iv-queue-tab { border: 1px solid var(--iv-line); padding: 8px 13px; border-radius: 8px; background: var(--iv-surface); font-size: 12px; }
+#kkai-invoice-design .iv-queue-tab.active { background: var(--iv-soft); border-color: var(--iv-primary); color: var(--iv-primary); }
+#kkai-invoice-design .iv-queue-tab b { font-weight: 500; margin-left: 9px; }
+#kkai-invoice-design .iv-search { border: 0; background: transparent; outline: 0; min-width: 0; width: 100%; color: var(--iv-text); font-size: 11px; }
+#kkai-invoice-design .iv-empty { padding: 38px 18px; text-align: center; font-size: 12px; color: var(--iv-muted); }
+#kkai-invoice-design .iv-upload { padding: 19px 14px; border: 1px dashed var(--iv-line); border-radius: 9px; text-align: center; font-size: 12px; margin-bottom: 16px; }
+#kkai-invoice-design .iv-upload .iv-icon { margin-bottom: 8px; color: var(--iv-primary); height: 22px; width: 22px; }
+#kkai-invoice-design .iv-upload input { margin-top: 11px; max-width: 100%; font-size: 10px; }
+#kkai-invoice-design .iv-toast { padding: 10px 14px; margin-bottom: 16px; border: 1px solid color-mix(in srgb, var(--iv-green) 25%, var(--iv-line)); border-radius: 8px; background: var(--iv-green-soft); color: var(--iv-green); display: flex; align-items: center; gap: 8px; font-size: 12px; }
+#kkai-invoice-design .iv-footer { color: var(--iv-muted); font-size: 10px; display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; padding: 0 1px; }
+#kkai-invoice-design .iv-overlay { position: absolute; inset: 0; z-index: 5; background: light-dark(#17203266,#0009); display: grid; place-items: start center; padding: 45px 18px; border-radius: 14px; }
+#kkai-invoice-design .iv-dialog { background: var(--iv-surface); border: 1px solid var(--iv-line); border-radius: 14px; width: min(470px,100%); padding: 22px; box-shadow: 0 18px 70px light-dark(#20273324,#0008); }
+#kkai-invoice-design .iv-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 20px; }
+#kkai-invoice-design .iv-invoice-sample { position: relative; padding: 22px 16px; border: 1px solid var(--iv-line); background: var(--iv-nav); font-size: 11px; margin-bottom: 15px; }
+#kkai-invoice-design .iv-invoice-sample h3 { text-align: center; color: var(--iv-primary); margin: 0 0 19px; }
+#kkai-invoice-design .iv-watermark { color: var(--iv-red); border: 1px solid var(--iv-red); padding: 3px 8px; text-align: center; margin: 16px 0 0; font-size: 10px; }
+#kkai-invoice-design .iv-relative { position: relative; }
+#kkai-invoice-design .iv-head-box { padding: 18px; border: 1px solid var(--iv-line); border-radius: 9px; display: flex; gap: 14px; align-items: start; margin-bottom: 15px; }
+@media(max-width:900px) {
+  #kkai-invoice-design .iv-app { grid-template-columns: 132px minmax(0,1fr); }
+  #kkai-invoice-design .iv-sidebar { padding: 19px 8px; }
+  #kkai-invoice-design .iv-page { padding: 23px 19px; }
+  #kkai-invoice-design .iv-topbar { padding: 0 19px; }
+  #kkai-invoice-design .iv-workspace { grid-template-columns: minmax(0,1fr) 214px; gap: 13px; }
+  #kkai-invoice-design .iv-admin-grid { grid-template-columns: 210px minmax(0,1fr); gap: 13px; }
+  #kkai-invoice-design .iv-panel-head, #kkai-invoice-design .iv-panel-body, #kkai-invoice-design .iv-summary { padding: 15px; }
+}
+@media(max-width:730px) {
+  #kkai-invoice-design .iv-app { grid-template-columns: 1fr; }
+  #kkai-invoice-design .iv-sidebar { display: none; }
+  #kkai-invoice-design .iv-review .iv-demo { padding-right: 0; }
+  #kkai-invoice-design .iv-workspace { grid-template-columns: minmax(0,1fr) 214px; }
+  #kkai-invoice-design .iv-review { gap: 9px; }
+}
+@media(max-width:560px) {
+  #kkai-invoice-design .iv-review-title { width: 100%; }
+  #kkai-invoice-design .iv-page { padding: 23px 15px; }
+  #kkai-invoice-design .iv-heading { gap: 10px; }
+  #kkai-invoice-design .iv-heading > .iv-btn { padding: 7px 9px; }
+  #kkai-invoice-design h1 { font-size: 24px; }
+  #kkai-invoice-design .iv-balance { gap: 13px; }
+  #kkai-invoice-design .iv-balance-value { font-size: 20px; }
+  #kkai-invoice-design .iv-balance-label { font-size: 10px; }
+  #kkai-invoice-design .iv-workspace, #kkai-invoice-design .iv-admin-grid { grid-template-columns: minmax(0,1fr); }
+  #kkai-invoice-design .iv-summary { padding: 17px; }
+  #kkai-invoice-design .iv-tabs { gap: 20px; }
+  #kkai-invoice-design .iv-form-grid { grid-template-columns: 1fr; }
+  #kkai-invoice-design .iv-steps { gap: 6px; }
+  #kkai-invoice-design .iv-step { gap: 4px; font-size: 10px; }
+  #kkai-invoice-design .iv-footer { flex-direction: column; gap: 4px; }
+  #kkai-invoice-design .iv-field input, #kkai-invoice-design .iv-field select, #kkai-invoice-design .iv-field textarea { font-size: 16px; }
+  #kkai-invoice-design .iv-admin-grid .iv-list { display: grid; grid-template-columns: 1fr; }
+  #kkai-invoice-design .iv-btn, #kkai-invoice-design .iv-filter, #kkai-invoice-design .iv-tab, #kkai-invoice-design .iv-link { min-height: 38px; }
+}
+@media(pointer:coarse) {
+  #kkai-invoice-design button, #kkai-invoice-design .iv-order, #kkai-invoice-design .iv-check-label { min-height: 44px; }
+}
+</style>
+<div id="kkai-invoice-design" aria-label="KKAI 发票中心推荐设计">
+  <div class="iv-review">
+    <span class="iv-review-title">KKAI · 发票体验 / 推荐方案</span>
+    <div class="iv-segment" aria-label="预览视角">
+      <button type="button" class="cursor-interaction" data-role="user" aria-pressed="true">用户端</button>
+      <button type="button" class="cursor-interaction" data-role="admin" aria-pressed="false">管理端</button>
+    </div>
+    <span class="iv-demo">交互设计 V1 · 演示数据</span>
+  </div>
+  <div class="iv-app iv-relative">
+    <aside class="iv-sidebar" aria-label="应用导航">
+      <div class="iv-brand"><span class="iv-brand-mark">K</span> KKAI</div>
+      <div class="iv-nav-label">工作空间</div>
+      <div class="iv-nav-item"><i data-lucide="layout-dashboard" class="iv-icon" aria-hidden="true"></i> 数据概览</div>
+      <div class="iv-nav-item"><i data-lucide="key-round" class="iv-icon" aria-hidden="true"></i> API 密钥</div>
+      <div class="iv-nav-item"><i data-lucide="image" class="iv-icon" aria-hidden="true"></i> 创作工作室</div>
+      <div class="iv-nav-label">账户与账务</div>
+      <div class="iv-nav-item"><i data-lucide="wallet" class="iv-icon" aria-hidden="true"></i> 我的钱包</div>
+      <div class="iv-nav-item"><i data-lucide="crown" class="iv-icon" aria-hidden="true"></i> 会员订阅</div>
+      <div class="iv-nav-item active"><i data-lucide="receipt-text" class="iv-icon" aria-hidden="true"></i> <span id="iv-nav-active">发票中心</span></div>
+      <div class="iv-nav-item"><i data-lucide="history" class="iv-icon" aria-hidden="true"></i> 使用记录</div>
+      <div class="iv-nav-bottom">
+        <div class="iv-nav-item"><i data-lucide="circle-help" class="iv-icon" aria-hidden="true"></i> 帮助与反馈</div>
+        <div class="iv-user"><span class="iv-avatar">L</span><div><span id="iv-user-name">林先生</span><div class="iv-muted iv-mini" id="iv-user-role">个人工作空间</div></div></div>
+      </div>
+    </aside>
+    <div class="iv-body">
+      <header class="iv-topbar"><div class="iv-breadcrumb"><span id="iv-crumb">账户与账务</span><span>/</span><span id="iv-title">发票中心</span></div><button class="iv-link cursor-interaction" data-action="rules"><i data-lucide="circle-help" class="iv-icon" aria-hidden="true"></i> 开票说明</button></header>
+      <main class="iv-page" id="iv-content"></main>
+    </div>
+    <div id="iv-modal"></div>
+  </div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('kkai-invoice-design');
+  const content = root.querySelector('#iv-content');
+  const modal = root.querySelector('#iv-modal');
+  const orders = [
+    {id:'o1',name:'账户充值',kind:'充值',trade:'TOP-20261021-0081',date:'2026.10.21 14:32',pay:'支付宝',amount:50000,eligible:false,claimedBy:'INV-20261022-0036',reason:'已被申请 INV-20261022-0036 占用'},
+    {id:'o2',name:'专业会员 · 月度订阅',kind:'会员订阅',trade:'MEMBER-20261020-0168',date:'2026.10.20 09:15',pay:'微信支付',amount:69900,eligible:false,claimedBy:'INV-20261022-0036',reason:'已被申请 INV-20261022-0036 占用'},
+    {id:'o3',name:'账户充值',kind:'充值',trade:'TOP-20261018-0063',date:'2026.10.18 16:08',pay:'支付宝',amount:100000,eligible:true},
+    {id:'o4',name:'基础会员 · 月度订阅',kind:'会员订阅',trade:'MEMBER-20261012-0042',date:'2026.10.12 10:26',pay:'支付宝',amount:29900,eligible:true},
+    {id:'o5',name:'历史订阅订单',kind:'会员订阅',trade:'SUB-20260408-0029',date:'2026.04.08 11:20',pay:'历史订单',amount:null,eligible:false,reason:'缺少实收凭证，暂不可申请'}
+  ];
+  const requests = [
+    {id:'INV-20261022-0036',orderIds:['o1','o2'],title:'上海示例科技有限公司',amount:119900,status:'pending_review',sources:'充值 + 会员订阅',count:2,date:'2026.10.22 10:24',tax:'91310000XXXXXXXXXX',email:'finance@example.com',events:[['申请已提交','2026.10.22 10:24','已收到申请，等待财务审核。']]},
+    {id:'INV-20261019-0028',title:'上海示例科技有限公司',amount:80000,status:'delivered',sources:'账户充值',count:1,date:'2026.10.19 16:20',tax:'91310000XXXXXXXXXX',email:'finance@example.com',deliveryVersion:1,deliveries:[],invoiceNo:'DEMO-20261021-0028',issueDate:'2026-10-21',events:[['发票已交付，等待确认','2026.10.21 15:30','财务已上传 PDF 原件。'],['审核通过','2026.10.20 10:10','开票资料审核通过。'],['申请已提交','2026.10.19 16:20','1 笔充值订单，共 ¥800.00。']]},
+    {id:'INV-20261015-0021',title:'林先生',amount:29900,status:'approved_for_issue',sources:'会员订阅',count:1,date:'2026.10.15 11:00',tax:'',email:'lin@example.com',events:[['审核通过，待开票','2026.10.16 09:25','开票资料已核对。'],['申请已提交','2026.10.15 11:00','基础会员月度订阅。']]},
+    {id:'INV-20261010-0015',title:'上海示例科技有限公司',amount:69900,status:'disputed',sources:'会员订阅',count:1,date:'2026.10.10 13:40',tax:'91310000XXXXXXXXXX',email:'finance@example.com',deliveryVersion:1,deliveries:[],invoiceNo:'DEMO-20261012-0015',issueDate:'2026-10-12',dispute:'发票中的公司名称少了“科技”二字，请核对后补发。',events:[['用户提出异议','2026.10.13 09:10','抬头信息有误，请核对后补发。'],['发票已交付','2026.10.12 14:20','第 1 版发票已发送。']]}
+  ];
+  const statusMap = {pending_review:['待审核','amber'],approved_for_issue:['待开票',''],delivered:['待确认',''],awaiting_reconfirmation:['待重新确认',''],confirmed:['已确认','green'],disputed:['异议处理中','red'],rejected:['已拒绝','gray']};
+  let state = {role:'user',tab:'apply',step:1,filter:'全部',selected:[],kind:'企业',title:'',tax:'',email:'',note:'',savedHead:false,consent:false,requestId:requests[1].id,queue:'pending_review',adminId:requests[0].id,search:'',error:'',toast:'',dialog:null,reissuingId:null,nextRequestNumber:37};
+  const saved = globalThis.openai?.widgetState?.privateContent;
+  if(saved && ['user','admin'].includes(saved.role)) { state.role=saved.role; if(['apply','records','heads'].includes(saved.tab))state.tab=saved.tab; }
+  const money = n => (n/100).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = n => `<i class="iv-icon" data-lucide="${n}" aria-hidden="true"></i>`;
+  const button = (label,action,cls='',disabled=false) => `<button type="button" class="iv-btn cursor-interaction ${cls}" data-action="${action}" ${disabled?'disabled':''}>${label}</button>`;
+  const badge = r => `<span class="iv-tag ${statusMap[r.status][1]}">${statusMap[r.status][0]}</span>`;
+  const picked = () => orders.filter(o=>state.selected.includes(o.id));
+  const sum = () => picked().reduce((a,o)=>a+o.amount,0);
+  const record = () => requests.find(r=>r.id===state.requestId) || requests[0];
+  const currentAdmin = () => requests.find(r=>r.id===state.adminId) || requests[0];
+  function persist() { globalThis.openai?.setWidgetState?.({modelContent:{design:'发票中心推荐方案',view:state.role,page:state.tab},privateContent:{role:state.role,tab:state.tab}})?.catch(()=>{}); }
+  function lucideIcons(){ globalThis.lucide?.createIcons({attrs:{width:17,height:17}}); }
+  function heading(admin=false) { return `<div class="iv-heading"><div><div class="iv-eyebrow">${admin?'FINANCE WORKSPACE':'BILLING & INVOICES'}</div><h1>${admin?'发票管理':'发票中心'}</h1><p class="iv-subtitle">${admin?'从审核到交付，每笔申请都有据可查。':'充值与会员订阅，一处申请、查看和管理。'}</p></div>${admin?`<span class="iv-tag green">财务工作台</span>`:button(icon('plus')+' 申请开票','new')}</div>`; }
+  function footer(){return `<div class="iv-footer"><span>KKAI · new-api / QuantumNous</span><span>发票资料仅用于开票与必要的财务留存</span></div>`;}
+  function steps(){return `<div class="iv-steps" aria-label="申请进度">${['选择订单','发票信息','核对提交'].map((s,i)=>`${i?'<span class="iv-step-line"></span>':''}<span class="iv-step ${state.step===i+1?'current':state.step>i+1?'done':''}" ${state.step===i+1?'aria-current="step"':''}><b>${state.step>i+1?'✓':i+1}</b>${s}</span>`).join('')}</div>`;}
+  function summary(){return `<aside><div class="iv-panel iv-summary"><h3>本次申请</h3><div class="iv-summary-label">开票金额</div><div class="iv-amount iv-numeric"><span>¥</span>${money(sum())}</div><div class="iv-mini iv-muted" style="margin-top:6px">已选择 ${state.selected.length} 笔订单 · 人民币 CNY</div><hr class="iv-rule"><div class="iv-dl"><span>账户充值</span><span>${picked().filter(o=>o.kind==='充值').length} 笔</span></div><div class="iv-dl"><span>会员订阅</span><span>${picked().filter(o=>o.kind==='会员订阅').length} 笔</span></div><div class="iv-dl"><span>发票类型</span><span>电子普通发票</span></div><div class="iv-dl"><span>交付方式</span><span>站内下载 / 邮件提醒</span></div><hr class="iv-rule">${state.step===1?button('下一步：填写发票信息 '+icon('arrow-right'),'next','primary wide',!state.selected.length):state.step===2?button('下一步：核对并提交 '+icon('arrow-right'),'next','primary wide'):button('提交开票申请','submit','primary wide',!state.consent)}${state.step>1?`<button type="button" class="iv-link cursor-interaction" style="margin-top:13px" data-action="back">${icon('arrow-left')} 返回上一步</button>`:''}<div class="iv-note">${icon('shield-check')}<span>按订单实付金额开票；申请提交后锁定所选订单，避免重复申请。</span></div></div><div class="iv-note" style="padding:0 7px">${icon('circle-help')}<span>不确定如何申请？<br><button class="iv-link cursor-interaction" data-action="rules">查看开票说明</button></span></div></aside>`;}
+  function orderList(){let shown=orders.filter(o=>state.filter==='全部'||o.kind===state.filter);return `<div class="iv-panel"><div class="iv-panel-head"><h3>选择开票订单</h3><span class="iv-mini iv-muted">同一开票主体 · CNY</span></div><div class="iv-tools">${['全部','充值','会员订阅'].map(f=>`<button type="button" class="iv-filter cursor-interaction ${state.filter===f?'active':''}" data-filter="${f}" aria-pressed="${state.filter===f}">${f}</button>`).join('')}</div><div class="iv-table-header"><input type="checkbox" class="iv-check cursor-interaction" id="iv-select-all" aria-label="选择当前筛选下全部可开票订单" ${shown.filter(o=>o.eligible).length&&shown.filter(o=>o.eligible).every(o=>state.selected.includes(o.id))?'checked':''}><span>订单 / 支付时间</span><span class="iv-right">实付金额</span></div>${shown.map(o=>`<label class="iv-order ${state.selected.includes(o.id)?'selected':''} ${!o.eligible?'disabled':''}"><input type="checkbox" class="iv-check cursor-interaction" data-order="${o.id}" aria-label="${o.eligible?'选择'+esc(o.name)+' ¥'+money(o.amount):esc(o.name)+'，'+esc(o.reason||'暂不可申请')}" ${state.selected.includes(o.id)?'checked':''} ${!o.eligible?'disabled':''}><span><span class="iv-order-name">${o.name}<span class="iv-source">${o.kind}</span></span><span class="iv-order-ref">${o.trade}</span><span class="iv-order-meta" style="display:block">${o.date} · ${o.pay}</span>${!o.eligible?`<span class="iv-order-meta" style="display:block;color:var(--iv-amber)">${esc(o.reason||'暂不可申请')}</span>`:''}</span><span class="iv-right"><span class="iv-numeric" style="font-weight:500">${o.amount!==null?'¥'+money(o.amount):'待核验'}</span><span class="iv-order-meta" style="display:block">${o.eligible?'可开票 · 实付已核验':o.claimedBy?'申请已占用':'待人工核验'}</span></span></label>`).join('')}<div class="iv-panel-foot"><span>充值与会员订单 · 不可申请原因逐笔展示</span><span>${shown.length} 笔订单</span></div></div>`;}
+  function form(){return `<div class="iv-panel"><div class="iv-panel-head"><h3>填写发票信息</h3><span class="iv-mini iv-muted">电子普通发票</span></div><div class="iv-panel-body">${state.error?`<div class="iv-error" role="alert">${esc(state.error)}</div>`:''}<div class="iv-choice" aria-label="抬头类型">${['企业','个人'].map(k=>`<button type="button" class="cursor-interaction" data-kind="${k}" aria-pressed="${state.kind===k}">${icon(k==='企业'?'building-2':'user-round')} ${k}抬头</button>`).join('')}</div>${state.savedHead?`<button type="button" class="iv-link cursor-interaction" style="margin-bottom:14px" data-action="use-head">${icon('bookmark')} 使用常用抬头</button>`:''}<label class="iv-field">发票抬头 <em>*</em><input id="iv-form-title" autocomplete="organization" placeholder="${state.kind==='企业'?'请输入完整企业名称':'请输入姓名'}" value="${esc(state.title)}" required></label>${state.kind==='企业'?`<label class="iv-field">纳税人识别号 <em>*</em><input id="iv-form-tax" placeholder="请输入纳税人识别号" value="${esc(state.tax)}" required><small class="iv-muted">请与企业税务登记信息保持一致。</small></label>`:''}<label class="iv-field">接收邮箱 <em>*</em><input type="email" id="iv-form-email" autocomplete="email" placeholder="finance@example.com" value="${esc(state.email)}" required><small class="iv-muted">发票可在站内下载，邮箱用于接收进度提醒。</small></label><label class="iv-field">补充说明 <span class="iv-muted">（选填）</span><textarea id="iv-form-note" maxlength="500" placeholder="如有特殊开票要求，请在此说明">${esc(state.note)}</textarea></label><label class="iv-check-label"><input type="checkbox" class="iv-check" id="iv-save-head" ${state.savedHead?'checked':''}><span>保存为常用抬头，下次申请时使用</span></label></div></div>`;}
+  function verify(){return `<div class="iv-panel"><div class="iv-panel-head"><h3>核对申请信息</h3><button class="iv-link cursor-interaction" data-action="edit">修改信息</button></div><div class="iv-panel-body"><div class="iv-soft-note">提交后将进入人工审核。请仔细核对抬头、税号和金额。</div>${[['抬头类型',state.kind+'抬头'],['发票抬头',state.title],...(state.kind==='企业'?[['纳税人识别号',state.tax]]:[]),['接收邮箱',state.email],['发票类型','电子普通发票'],['开票金额','¥'+money(sum())],...(state.note?[['补充说明',state.note]]:[])].map(([k,v])=>`<div class="iv-data-row"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<hr class="iv-rule"><h3 style="margin-bottom:12px">关联订单 · ${picked().length} 笔</h3>${picked().map(o=>`<div class="iv-dl"><span>${o.name}</span><span class="iv-numeric">¥${money(o.amount)}</span></div>`).join('')}<hr class="iv-rule"><label class="iv-check-label"><input type="checkbox" class="iv-check" id="iv-consent" ${state.consent?'checked':''}><span>我已核对开票资料，并确认所选订单未在其他渠道开票。</span></label></div></div>`;}
+  function userPage(){const eligible=orders.filter(o=>o.eligible);const processing=requests.filter(r=>['pending_review','approved_for_issue','disputed'].includes(r.status)).length;return `${heading()}<div class="iv-balance"><div class="iv-balance-item"><div class="iv-balance-label">可申请开票</div><div class="iv-balance-value iv-numeric"><span>¥</span>${money(eligible.reduce((a,o)=>a+o.amount,0))}</div><div class="iv-balance-meta">${eligible.length} 笔已付款订单</div></div><div class="iv-balance-item"><div class="iv-balance-label">申请处理中</div><div class="iv-balance-value iv-numeric">${processing}<span style="padding-left:5px">笔</span></div><div class="iv-balance-meta">审核、开票或异议处理中</div></div><div class="iv-balance-item"><div class="iv-balance-label">待确认发票</div><div class="iv-balance-value iv-numeric">${requests.filter(r=>['delivered','awaiting_reconfirmation'].includes(r.status)).length}<span style="padding-left:5px">张</span></div><div class="iv-balance-meta">查看后确认或提出异议</div></div></div><nav class="iv-tabs" aria-label="发票中心功能">${[['apply','申请开票'],['records','申请记录'],['heads','常用抬头']].map(([id,label])=>`<button type="button" class="iv-tab cursor-interaction ${state.tab===id?'active':''}" data-tab="${id}" aria-pressed="${state.tab===id}">${label}${id==='records'?`<span class="iv-count">${requests.length}</span>`:''}</button>`).join('')}</nav>${state.tab==='apply'?`${steps()}<div class="iv-workspace"><div>${state.step===1?orderList():state.step===2?form():verify()}</div>${summary()}</div>`:state.tab==='records'?userRecords():heads()}${footer()}`;}
+  function timeline(r){return `<h3>处理进度</h3><ol class="iv-timeline">${r.events.map(([name,date,desc])=>`<li><div>${esc(name)}</div><time>${date}</time><div class="iv-muted" style="margin-top:4px">${esc(desc)}</div></li>`).join('')}</ol>`;}
+  function fileRow(r){if(!r.deliveryVersion)return '';return `<div class="iv-file"><span class="iv-file-icon">${icon('file-text')}</span><span class="iv-file-copy">电子发票 · 第 ${r.deliveryVersion} 版.pdf<br><small>PDF 原件 · 286 KB</small></span><button type="button" class="iv-link cursor-interaction" data-preview="${r.id}" aria-label="预览发票">${icon('eye')} 预览</button></div>`;}
+  function userRecords(){const r=record();return `<div class="iv-admin-grid"><div class="iv-panel iv-list">${requests.map(q=>`<button class="iv-request cursor-interaction ${q.id===r.id?'active':''}" data-request="${q.id}"><span><span class="iv-request-title" style="display:block">${q.id}</span><span class="iv-mini iv-muted">${q.sources} · ${q.count} 笔订单</span><br>${badge(q)}</span><span class="iv-right"><span class="iv-numeric" style="font-size:14px">¥${money(q.amount)}</span><br><small class="iv-muted">${q.date.slice(0,10)}</small></span></button>`).join('')}</div><div class="iv-panel"><div class="iv-panel-body"><div class="iv-detail-top"><div><div class="iv-mini iv-muted">${r.id}</div><div class="iv-detail-total iv-numeric"><span>¥</span>${money(r.amount)}</div></div>${badge(r)}</div><div class="iv-data-row"><span>发票抬头</span><span>${esc(r.title)}</span></div><div class="iv-data-row"><span>发票类型</span><span>电子普通发票</span></div><div class="iv-data-row"><span>接收邮箱</span><span>${esc(r.email)}</span></div>${r.deliveryVersion?`${fileRow(r)}<div class="iv-mini iv-muted" style="margin-top:10px">发票文件已交付至账户，可随时查看。</div>`:''}${['delivered','awaiting_reconfirmation'].includes(r.status)?`<div class="iv-actions">${button('确认收到发票','confirm','primary')}${button('发票有问题','dispute')}</div>`:''}${r.status==='disputed'?`<div class="iv-soft-note" style="margin-top:16px;color:var(--iv-red);background:var(--iv-red-soft)">您的异议已收到：${esc(r.dispute)}<br>财务处理中，发票与订单将继续保留。</div>`:''}${r.status==='rejected'?`<div class="iv-error" style="margin-top:16px">拒绝原因：${esc(r.reason)}。关联订单已释放，可修改资料后重新申请。</div>`:''}<hr class="iv-rule">${timeline(r)}</div></div></div>`;}
+  function heads(){return `<div class="iv-panel"><div class="iv-panel-head"><h3>常用抬头</h3>${button(icon('plus')+' 新建抬头','add-head')}</div><div class="iv-panel-body">${state.savedHead?`<div class="iv-head-box">${icon('building-2')}<div style="flex:1"><h3>${esc(state.title||'上海示例科技有限公司')}</h3><p class="iv-muted iv-mini" style="margin-top:6px">企业 · 纳税人识别号 ${esc(state.tax?state.tax.slice(0,6)+'**********':'913100**********')}</p><p class="iv-muted iv-mini" style="margin-top:3px">${esc(state.email||'finance@example.com')}</p></div><button class="iv-link cursor-interaction" data-action="edit-head">编辑</button></div>`:`<div class="iv-empty">还没有常用抬头。<br><span class="iv-mini">申请开票时保存，或在这里新建。</span></div>`}<div class="iv-mini iv-muted">修改常用抬头仅影响后续申请，不会修改已提交的开票资料。</div></div></div>`;}
+  function adminPage(){const queue=requests.filter(r=>state.queue==='all'||r.status===state.queue);const shown=queue.filter(r=>(r.id+r.title).toLowerCase().includes(state.search.toLowerCase()));let r=shown.find(q=>q.id===state.adminId)||shown[0];if(r)state.adminId=r.id;return `${heading(true)}<div class="iv-queue-tabs">${[['pending_review','待审核'],['approved_for_issue','待开票'],['disputed','异议待办'],['all','全部申请']].map(([k,n])=>`<button type="button" class="iv-queue-tab cursor-interaction ${state.queue===k?'active':''}" data-queue="${k}" aria-pressed="${state.queue===k}">${n}<b>${k==='all'?requests.length:requests.filter(q=>q.status===k).length}</b></button>`).join('')}</div><div class="iv-admin-grid"><section class="iv-panel"><div class="iv-tools">${icon('search')}<input class="iv-search" id="iv-admin-search" aria-label="按申请号或抬头搜索" placeholder="搜索申请号 / 抬头" value="${esc(state.search)}"></div><div class="iv-list">${shown.length?shown.map(q=>`<button class="iv-request cursor-interaction ${q.id===r.id?'active':''}" data-admin-request="${q.id}"><span><span class="iv-request-title" style="display:block">${esc(q.title)}</span><span class="iv-mini iv-muted">${q.id}</span><br>${badge(q)}</span><span class="iv-right iv-numeric" style="font-weight:500">¥${money(q.amount)}</span><span class="iv-mini iv-muted" style="grid-column:1/-1">${q.sources} · ${q.count} 笔订单</span></button>`).join(''):'<div class="iv-empty">当前没有待办申请</div>'}</div><div class="iv-panel-foot"><span>共 ${shown.length} 笔申请</span><span>按提交时间排序</span></div></section>${r?adminDetail(r):'<div class="iv-panel iv-empty">当前队列已处理完毕</div>'}</div>${footer()}`;}
+  function adminDetail(r){return `<section class="iv-panel"><div class="iv-panel-head"><div><h3>申请详情</h3><div class="iv-mini iv-muted" style="margin-top:4px">${r.id}</div></div>${badge(r)}</div><div class="iv-panel-body"><div class="iv-detail-top"><div><div class="iv-mini iv-muted">申请金额 · CNY</div><div class="iv-detail-total iv-numeric"><span>¥</span>${money(r.amount)}</div></div><span class="iv-tag green">支付凭证已核验</span></div><div class="iv-data-row"><span>申请用户</span><span>林先生 · ID 1042</span></div><div class="iv-data-row"><span>发票抬头</span><span>${esc(r.title)}</span></div><div class="iv-data-row"><span>纳税人识别号</span><span>${esc(r.tax||'个人抬头，无需税号')}</span></div><div class="iv-data-row"><span>发票类型</span><span>电子普通发票</span></div><div class="iv-data-row"><span>接收邮箱</span><span>${esc(r.email)}</span></div><hr class="iv-rule"><h3 style="margin-bottom:11px">关联订单 <span class="iv-muted iv-mini">${r.count} 笔 · ${r.status==='rejected'?'已释放':'已占用'}</span></h3>${(r.orderIds?r.orderIds.map(id=>orders.find(o=>o.id===id)).filter(Boolean).map(o=>[o.name,o.kind,'¥'+money(o.amount)]):r.count===2?[['账户充值','充值','¥500.00'],['专业会员 · 月度订阅','会员订阅','¥699.00']]:[[r.sources,r.sources,'¥'+money(r.amount)]]).map(([name,source,amount])=>`<div class="iv-dl"><span style="color:var(--iv-text)">${name}<span class="iv-source" style="margin-left:5px">${source}</span></span><span class="iv-numeric">${amount}</span></div>`).join('')}<hr class="iv-rule">${r.status==='pending_review'?`<div class="iv-soft-note">审核通过后进入待开票。上传并交付发票后，用户才能确认或反馈。</div><div class="iv-actions">${button('拒绝申请','reject','danger')}${button(icon('check')+' 审核通过','approve','primary')}</div>`:r.status==='approved_for_issue'?uploadForm(r):r.status==='disputed'?(state.reissuingId===r.id?`${fileRow(r)}<hr class="iv-rule">${uploadForm(r)}`:disputeAdmin(r)):`${fileRow(r)}<hr class="iv-rule">${timeline(r)}`}</div></section>`;}
+  function uploadForm(r){return `<h3 style="margin-bottom:12px">开具并交付</h3><label class="iv-upload" style="display:block">${icon('upload')}<br>上传已开具的发票原件<div class="iv-muted iv-mini" style="margin-top:5px">PDF / PNG / JPG，单文件不超过 20 MB</div><input type="file" id="iv-upload-file" accept="application/pdf,image/png,image/jpeg"></label><div class="iv-form-grid"><label class="iv-field">发票号码 <em>*</em><input id="iv-invoice-number" placeholder="请输入发票号码"></label><label class="iv-field">开票日期 <em>*</em><input id="iv-invoice-date" type="date" value="2026-10-22"></label></div><label class="iv-field">开票金额（元）<input id="iv-invoice-amount" inputmode="decimal" value="${(r.amount/100).toFixed(2)}"></label><div class="iv-soft-note">交付金额必须与申请金额一致。文件发布后保留历史，不能覆盖删除。</div>${button('确认交付发票','deliver','primary wide')}<button type="button" class="iv-link cursor-interaction" style="margin-top:12px" data-action="demo-file">使用演示文件体验交付</button>`;}
+  function disputeAdmin(r){return `<h3>用户异议</h3><div class="iv-error" style="margin-top:12px">抬头信息有误<br><span style="color:var(--iv-text)">${esc(r.dispute)}</span></div>${fileRow(r)}<div class="iv-note">${icon('history')}<span>原发票继续保留。若需红冲或重新开具，请先完成线下财务处理，再补发新版本。</span></div><label class="iv-field" style="margin-top:15px">处理回复 <em>*</em><textarea id="iv-resolution" placeholder="向用户说明核查结果或更正进度"></textarea></label><div class="iv-actions">${button('回复并请用户确认','resolve')}${button('更正并补发','reissue','primary')}</div>`;}
+  function render(){root.querySelectorAll('[data-role]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.role===state.role)));root.querySelector('#iv-nav-active').textContent=state.role==='admin'?'发票管理':'发票中心';root.querySelector('#iv-title').textContent=state.role==='admin'?'发票管理':'发票中心';root.querySelector('#iv-crumb').textContent=state.role==='admin'?'管理控制台':'账户与账务';root.querySelector('#iv-user-name').textContent=state.role==='admin'?'财务管理员':'林先生';root.querySelector('#iv-user-role').textContent=state.role==='admin'?'财务操作权限':'个人工作空间';content.innerHTML=(state.toast?`<div class="iv-toast" role="status">${icon('circle-check')}${esc(state.toast)}</div>`:'')+(state.role==='user'?userPage():adminPage());lucideIcons();}
+  function closeDialog(){modal.innerHTML='';state.dialog=null;if(returnFocus?.isConnected)returnFocus.focus();}
+  let returnFocus=null;
+  function dialog(title,body,actions=''){returnFocus=document.activeElement;modal.innerHTML=`<div class="iv-overlay"><section class="iv-dialog" role="dialog" aria-modal="true" aria-labelledby="iv-dialog-title"><div class="iv-dialog-head"><h2 id="iv-dialog-title">${title}</h2><button type="button" class="iv-link cursor-interaction" data-action="close" aria-label="关闭">${icon('x')}</button></div>${body}${actions?`<div class="iv-actions">${actions}</div>`:''}</section></div>`;lucideIcons();modal.querySelector('input,textarea,button')?.focus();}
+  function event(r,name,desc){r.events.unshift([name,'2026.10.22 10:30',desc]);}
+  function requireForm(){state.title=root.querySelector('#iv-form-title').value.trim();state.tax=root.querySelector('#iv-form-tax')?.value.trim()||'';state.email=root.querySelector('#iv-form-email').value.trim();state.note=root.querySelector('#iv-form-note').value.trim();state.savedHead=root.querySelector('#iv-save-head').checked;if(!state.title)return '请填写发票抬头。';if(state.kind==='企业'&&!/^[A-Za-z0-9]{15,20}$/.test(state.tax))return '请填写 15–20 位字母或数字的纳税人识别号。';if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(state.email))return '请填写有效的接收邮箱。';return '';}
+  root.addEventListener('click',e=>{
+    const role=e.target.closest('[data-role]');if(role){state.role=role.dataset.role;state.toast='';state.error='';closeDialog();render();persist();return;}
+    const tab=e.target.closest('[data-tab]');if(tab){state.tab=tab.dataset.tab;state.toast='';render();persist();return;}
+    const filter=e.target.closest('[data-filter]');if(filter){state.filter=filter.dataset.filter;render();return;}
+    const kind=e.target.closest('[data-kind]');if(kind){state.kind=kind.dataset.kind;render();return;}
+    const req=e.target.closest('[data-request]');if(req){state.requestId=req.dataset.request;state.toast='';render();return;}
+    const ar=e.target.closest('[data-admin-request]');if(ar){state.demoFile=false;state.reissuingId=null;state.adminId=ar.dataset.adminRequest;state.error='';state.toast='';render();return;}
+    const queue=e.target.closest('[data-queue]');if(queue){state.demoFile=false;state.reissuingId=null;state.queue=queue.dataset.queue;state.search='';state.toast='';render();return;}
+    const preview=e.target.closest('[data-preview]');if(preview){const r=requests.find(q=>q.id===preview.dataset.preview);if(!r?.deliveryVersion)return;dialog('电子发票预览',`<div class="iv-invoice-sample"><h3>电子普通发票 · 样例</h3><div class="iv-data-row"><span>购买方</span><span>${esc(r.title)}</span></div><div class="iv-data-row"><span>开票金额</span><span>¥${money(r.amount)}</span></div><div class="iv-data-row"><span>开票日期</span><span>${esc(r.issueDate||'2026-10-22')}</span></div><div class="iv-data-row"><span>文件版本</span><span>第 ${r.deliveryVersion} 版</span></div><div class="iv-watermark">交互设计演示 · 非真实发票</div></div><p class="iv-mini iv-muted">正式交付时展示税务系统生成的文件原件。</p>`,button('关闭预览','close'));return;}
+    const action=e.target.closest('[data-action]')?.dataset.action;if(!action)return;
+    state.error='';
+    if(action==='close'){closeDialog();return;}
+    if(action==='rules'){dialog('开票说明',`<div style="font-size:12px"><h3>哪些订单可以申请？</h3><p class="iv-muted" style="margin:7px 0 16px">已完成付款并核验实收金额的充值、直接付款会员订阅。会员已到期不影响已付款订单的申请资格。</p><h3>金额如何计算？</h3><p class="iv-muted" style="margin:7px 0 16px">按实付金额全额申请；同一开票主体、同一币种且税目兼容的订单可合并。余额抵扣不新增可开票金额。</p><h3>有问题如何处理？</h3><p class="iv-muted" style="margin:7px 0 0">交付后可提出异议。确认收票仅代表收到并核对，不替代税务查验；异议不会自动退款或释放开票金额。</p></div>`,button('我知道了','close','primary'));return;}
+    if(action==='new'){state.role='user';state.tab='apply';state.step=1;state.toast='';}
+    if(action==='next'){if(state.step===1&&!state.selected.length)return;if(state.step===2){state.error=requireForm();if(state.error){render();return;}}state.step++;}
+    if(action==='back')state.step=Math.max(1,state.step-1);
+    if(action==='edit')state.step=2;
+    if(action==='use-head'){state.title='上海示例科技有限公司';state.tax='91310000DEMO123456';state.email='finance@example.com';}
+    if(action==='submit'){if(!state.consent||!state.selected.length||picked().some(o=>!o.eligible))return;const selected=picked();const r={id:'INV-20261022-'+String(state.nextRequestNumber++).padStart(4,'0'),orderIds:selected.map(o=>o.id),title:state.title,amount:sum(),status:'pending_review',sources:[...new Set(selected.map(o=>o.kind))].join(' + '),count:selected.length,date:'2026.10.22 10:30',tax:state.tax,email:state.email,events:[['申请已提交','2026.10.22 10:30','资料已提交，订单开票金额已锁定。']]};requests.unshift(r);selected.forEach(o=>{o.eligible=false;o.claimedBy=r.id;o.reason='已被申请 '+r.id+' 占用';});state.selected=[];state.consent=false;state.requestId=r.id;state.tab='records';state.step=1;state.toast='申请已提交，后续进度将在这里通知您。';}
+    if(action==='confirm'){state.dialog='confirm';dialog('确认收到发票',`<p class="iv-muted" style="font-size:12px">请确认已查看发票，抬头、金额和附件无误。收票确认不替代税务查验。</p>`,button('返回检查','close')+button('确认收到','confirm-final','primary'));return;}
+    if(action==='confirm-final'){const r=record();if(!['delivered','awaiting_reconfirmation'].includes(r.status))return;r.status='confirmed';event(r,'用户已确认收票','用户已查看并确认收到该发票。');closeDialog();state.toast='已确认收到发票，记录将继续为您保留。';}
+    if(action==='dispute'){dialog('反馈发票问题',`<label class="iv-field">问题类型<select id="iv-dispute-type"><option>抬头 / 税号有误</option><option>金额有误</option><option>附件无法查看</option><option>其他问题</option></select></label><label class="iv-field">问题说明 <em>*</em><textarea id="iv-dispute-text" maxlength="1000" placeholder="请具体描述问题，方便财务核对"></textarea></label><div id="iv-dialog-error" role="alert"></div>`,button('取消','close')+button('提交反馈','dispute-final','primary'));return;}
+    if(action==='dispute-final'){const text=modal.querySelector('#iv-dispute-text').value.trim();if(!text){modal.querySelector('#iv-dialog-error').innerHTML='<div class="iv-error">请填写问题说明。</div>';return;}const r=record();if(!['delivered','awaiting_reconfirmation'].includes(r.status))return;r.status='disputed';r.dispute=text;event(r,'用户提出异议',text);closeDialog();state.toast='问题已反馈给财务，您可以在这里查看处理进度。';}
+    if(action==='approve'){dialog('审核通过',`<p class="iv-muted" style="font-size:12px">已核对抬头、税号及 ${currentAdmin().count} 笔订单，申请金额 ¥${money(currentAdmin().amount)}。通过后进入待开票，尚不会向用户交付发票。</p>`,button('继续核对','close')+button('确认通过','approve-final','primary'));return;}
+    if(action==='approve-final'){const r=currentAdmin();r.status='approved_for_issue';event(r,'审核通过，待开票','财务已完成开票资料审核。');closeDialog();state.queue='approved_for_issue';state.toast='审核已通过，请上传已开具的发票原件。';}
+    if(action==='reject'){dialog('拒绝开票申请',`<label class="iv-field">拒绝原因 <em>*</em><textarea id="iv-reject-reason" placeholder="请写明原因，用户将看到这段说明" maxlength="1000"></textarea></label><div id="iv-dialog-error" role="alert"></div><p class="iv-mini iv-muted">拒绝后释放订单，用户可修改资料后重新申请。</p>`,button('取消','close')+button('确认拒绝','reject-final','danger'));return;}
+    if(action==='reject-final'){const reason=modal.querySelector('#iv-reject-reason').value.trim();if(!reason){modal.querySelector('#iv-dialog-error').innerHTML='<div class="iv-error">请填写拒绝原因。</div>';return;}const r=currentAdmin();if(r.status!=='pending_review'||r.deliveryVersion)return;r.status='rejected';r.reason=reason;orders.filter(o=>(r.orderIds||[]).includes(o.id)&&o.claimedBy===r.id).forEach(o=>{o.eligible=true;o.claimedBy=null;o.reason='';});event(r,'申请已拒绝',reason);closeDialog();state.toast='申请已拒绝，原因已通知用户。';}
+    if(action==='demo-file'){state.demoFile=true;root.querySelector('#iv-invoice-number').value='DEMO-'+currentAdmin().id+'-V'+((currentAdmin().deliveryVersion||0)+1);const box=root.querySelector('.iv-upload');box.innerHTML=`${icon('file-check-2')}<br>演示发票.pdf · 已校验<div class="iv-muted iv-mini" style="margin-top:4px">仅用于体验交付流程</div>`;lucideIcons();return;}
+    if(action==='deliver'){const file=root.querySelector('#iv-upload-file')?.files?.[0];const number=root.querySelector('#iv-invoice-number').value.trim();const date=root.querySelector('#iv-invoice-date').value;const value=root.querySelector('#iv-invoice-amount').value;const r=currentAdmin();let error='';if(!file&&!state.demoFile)error='请先上传发票文件。';else if(file&&(!['application/pdf','image/png','image/jpeg'].includes(file.type)||file.size>20*1024*1024))error='仅支持 20 MB 以内的 PDF、PNG 或 JPEG。';else if(!number||!date)error='请填写发票号码和开票日期。';else if(!/^\d+(\.\d{1,2})?$/.test(value)||Math.round(Number(value)*100)!==r.amount)error='开票金额必须与申请金额一致。';if(error){state.error=error;let b=root.querySelector('#iv-issue-error');if(!b){b=document.createElement('div');b.id='iv-issue-error';b.setAttribute('role','alert');b.className='iv-error';root.querySelector('.iv-upload').before(b);}b.textContent=error;return;}if(r.status!=='approved_for_issue'&&!(r.status==='disputed'&&state.reissuingId===r.id))return;if(r.deliveryVersion){r.deliveries.push({version:r.deliveryVersion,invoiceNo:r.invoiceNo,issueDate:r.issueDate});}r.deliveryVersion=(r.deliveryVersion||0)+1;r.status='delivered';r.invoiceNo=number;r.issueDate=date;state.reissuingId=null;event(r,'发票已交付，等待确认','已上传原始文件并通知用户。');state.demoFile=false;state.toast='发票已交付，用户可查看附件并确认或反馈。';state.queue='all';}
+    if(action==='resolve'||action==='reissue'){const text=root.querySelector('#iv-resolution').value.trim();if(!text){let b=root.querySelector('#iv-resolution-error');if(!b){b=document.createElement('div');b.className='iv-error';b.id='iv-resolution-error';b.setAttribute('role','alert');root.querySelector('#iv-resolution').after(b);}b.textContent='请填写处理回复。';return;}const r=currentAdmin();if(action==='resolve'){r.status='awaiting_reconfirmation';state.reissuingId=null;event(r,'财务已回复，请用户核对',text);state.queue='all';state.toast='回复已发送，等待用户再次核对。';}else{state.reissuingId=r.id;state.demoFile=false;event(r,'进入更正补发',text);state.queue='disputed';state.toast='请上传更正后的发票；原版本继续保留。';}}
+    if(action==='add-head'||action==='edit-head'){dialog(action==='add-head'?'新建常用抬头':'编辑常用抬头',`<label class="iv-field">企业名称<input id="iv-head-name" value="${esc(state.title)}" placeholder="上海示例科技有限公司"></label><label class="iv-field">纳税人识别号<input id="iv-head-tax" value="${esc(state.tax)}" placeholder="请输入纳税人识别号"></label><label class="iv-field">接收邮箱<input type="email" id="iv-head-email" value="${esc(state.email)}" placeholder="finance@example.com"></label><div id="iv-dialog-error" role="alert"></div>`,button('取消','close')+button('保存抬头','save-head','primary'));return;}
+    if(action==='save-head'){const name=modal.querySelector('#iv-head-name').value.trim();const tax=modal.querySelector('#iv-head-tax').value.trim();const email=modal.querySelector('#iv-head-email').value.trim();if(!name||!/^[A-Za-z0-9]{15,20}$/.test(tax)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){modal.querySelector('#iv-dialog-error').innerHTML='<div class="iv-error">请填写完整企业名称、有效税号和邮箱。</div>';return;}state.title=name;state.tax=tax;state.email=email;state.savedHead=true;closeDialog();state.toast='常用抬头已保存。';}
+    render();persist();
+  });
+  root.addEventListener('change',e=>{const input=e.target;if(input.dataset.order){if(input.checked)state.selected.push(input.dataset.order);else state.selected=state.selected.filter(id=>id!==input.dataset.order);render();}if(input.id==='iv-select-all'){const ids=orders.filter(o=>o.eligible&&(state.filter==='全部'||o.kind===state.filter)).map(o=>o.id);state.selected=input.checked?[...new Set([...state.selected,...ids])]:state.selected.filter(id=>!ids.includes(id));render();}if(input.id==='iv-consent'){state.consent=input.checked;render();}if(input.id==='iv-save-head')state.savedHead=input.checked;});
+  root.addEventListener('input',e=>{const id=e.target.id;if(id==='iv-form-title')state.title=e.target.value;if(id==='iv-form-tax')state.tax=e.target.value;if(id==='iv-form-email')state.email=e.target.value;if(id==='iv-form-note')state.note=e.target.value;if(id==='iv-admin-search'){const pos=e.target.selectionStart;state.search=e.target.value;render();const field=root.querySelector('#iv-admin-search');field.focus();field.setSelectionRange(pos,pos);}});
+  root.addEventListener('keydown',e=>{if(!modal.firstChild)return;if(e.key==='Escape'){closeDialog();return;}if(e.key==='Tab'){const all=[...modal.querySelectorAll('button,input,select,textarea')].filter(el=>!el.disabled);if(e.shiftKey&&document.activeElement===all[0]){e.preventDefault();all[all.length-1].focus();}else if(!e.shiftKey&&document.activeElement===all[all.length-1]){e.preventDefault();all[0].focus();}}});
+  window.addEventListener('openai:set_globals',e=>{const s=e.detail?.globals?.widgetState?.privateContent;if(s&&['user','admin'].includes(s.role)){state.role=s.role;if(['apply','records','heads'].includes(s.tab))state.tab=s.tab;render();}});
+  render();
+  if(globalThis.Tweak){const design={radius:12};const t=new Tweak({container:root,onChange:()=>root.style.setProperty('--iv-radius',design.radius+'px')});t.addSlider(design,'radius',{label:'面板圆角',min:8,max:18,unit:'px',reference:'--iv-radius'});}
+})();
+</script>

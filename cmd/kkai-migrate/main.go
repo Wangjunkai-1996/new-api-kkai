@@ -21,25 +21,27 @@ import (
 
 func main() {
 	var (
-		dsn                   string
-		dsnFromStdin          bool
-		dryRun                bool
-		checkOnly             bool
-		currentOnly           bool
-		precheck              bool
-		describe              bool
-		dialect               string
-		minimumVersion        int64
-		targetVersion         int64
-		tenantLogSchema       string
-		tenantExpand          string
-		tenantControllerProof string
-		tenantRuntime         bool
-		resellerPrefix        string
-		requestTicket         string
-		observe               bool
-		jsonOutput            bool
-		timeout               time.Duration
+		dsn                    string
+		dsnFromStdin           bool
+		dryRun                 bool
+		checkOnly              bool
+		currentOnly            bool
+		precheck               bool
+		describe               bool
+		dialect                string
+		minimumVersion         int64
+		targetVersion          int64
+		tenantLogSchema        string
+		tenantExpand           string
+		tenantControllerProof  string
+		tenantRuntime          bool
+		resellerPrefix         string
+		requestTicket          string
+		invoiceMigration       string
+		invoiceControllerProof string
+		observe                bool
+		jsonOutput             bool
+		timeout                time.Duration
 	)
 	flag.StringVar(&dsn, "dsn", firstNonEmpty(os.Getenv("KKAI_MIGRATION_DSN"), os.Getenv("SQL_DSN")), "database DSN")
 	flag.BoolVar(&dsnFromStdin, "dsn-stdin", false, "read one database DSN from stdin")
@@ -50,7 +52,7 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
-	flag.Int64Var(&targetVersion, "target", 0, "explicit target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; 15/16 permit precheck/dry-run only; target 12 is retired; omitted keeps the runtime target")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; 15/16/17 permit precheck/dry-run only; target 12 is retired; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
@@ -60,9 +62,11 @@ func main() {
 	flag.BoolVar(&tenantRuntime, "tenant-runtime", false, "declare compiled tenant runtime capability; requires --dialect and --json, no database access")
 	flag.StringVar(&resellerPrefix, "reseller-prefix", "", "independent v15 prefix operation: plan/status are read-only; apply requires the installed root-controller proof")
 	flag.StringVar(&requestTicket, "request-ticket", "", "independent v16 request ticket operation: plan/status are read-only; apply requires the installed root-controller proof")
+	flag.StringVar(&invoiceMigration, "invoice-migration", "", "independent v17 invoice operation: plan/status are read-only; apply requires the installed invoice-controller proof")
+	flag.StringVar(&invoiceControllerProof, "invoice-controller-proof", "", "fixed root invoice-controller proof mount for invoice apply")
 	flag.Parse()
 	if tenantRuntime {
-		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
+		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
 			log.Fatal("--tenant-runtime requires only --dialect and --json")
 		}
 		if err := writeTenantRuntimeContract(dialect, os.Stdout); err != nil {
@@ -73,18 +77,26 @@ func main() {
 	if tenantControllerProof != "" && tenantExpand != "apply" && tenantExpand != "finalize" && resellerPrefix != "apply" && requestTicket != "apply" {
 		log.Fatal("--tenant-controller-proof is only valid for a controlled apply/finalize operation")
 	}
+	if invoiceControllerProof != "" && invoiceMigration != "apply" {
+		log.Fatal("--invoice-controller-proof is only valid for --invoice-migration apply")
+	}
+	if invoiceMigration != "" {
+		if err := validateInvoiceMigrationCommand(invoiceMigration, invoiceControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if requestTicket != "" {
-		if err := validateRequestTicketCommand(requestTicket, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || flag.NArg() != 0); err != nil {
+		if err := validateRequestTicketCommand(requestTicket, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || invoiceMigration != "" || invoiceControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if resellerPrefix != "" {
-		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || requestTicket != "" || flag.NArg() != 0); err != nil {
+		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if tenantExpand != "" {
-		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || requestTicket != "" || flag.NArg() != 0); err != nil {
+		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -108,14 +120,14 @@ func main() {
 		return
 	}
 	if precheck {
-		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
-			log.Fatal("--precheck requires --target 8, 12, 13, 15, or 16 and --json and cannot be combined with other operations")
+		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion && targetVersion != kkaimigrate.InvoiceSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8, 12, 13, 15, 16, or 17 and --json and cannot be combined with other operations")
 		}
 	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -140,6 +152,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if invoiceMigration != "" {
+		if err := runInvoiceMigration(ctx, db, invoiceMigration, invoiceControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI invoice migration operation failed: %v", err)
+		}
+		return
+	}
 	if requestTicket != "" {
 		if err := runRequestTicket(ctx, db, requestTicket, tenantControllerProof, os.Stdout); err != nil {
 			log.Fatalf("KKAI request ticket operation failed: %v", err)
@@ -240,8 +258,10 @@ func runMigrationPrecheck(ctx context.Context, db *gorm.DB, target int64, output
 		result, err = kkaimigrate.PrecheckResellerApplicationExpand(ctx, db)
 	case kkaimigrate.RequestTicketSchemaVersion:
 		result, err = kkaimigrate.PrecheckRequestTicketExpand(ctx, db)
+	case kkaimigrate.InvoiceSchemaVersion:
+		result, err = kkaimigrate.PrecheckInvoiceExpand(ctx, db)
 	default:
-		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, or 16", target)
+		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, 16, or 17", target)
 	}
 	if err != nil {
 		return err
@@ -297,8 +317,13 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 			return nil, fmt.Errorf("%w: target 16 is read-only; use --request-ticket apply with the installed controller proof", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyRequestTicketExpand(ctx, db, options)
+	case kkaimigrate.InvoiceSchemaVersion:
+		if !options.DryRun {
+			return nil, fmt.Errorf("%w: target 17 is read-only; use --invoice-migration apply with the installed invoice-controller proof", kkaimigrate.ErrUnsafeMigration)
+		}
+		return kkaimigrate.ApplyInvoiceExpand(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16/17", targetVersion)
 	}
 }
 
