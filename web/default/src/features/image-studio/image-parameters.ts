@@ -34,18 +34,7 @@ export const getImageSizeParameter = (
   const parameter = profile.specification.parameters.find(
     (candidate) => candidate.request_key === 'size'
   )
-  if (parameter?.control !== 'select') return undefined
-  const additionalOptions = [
-    { label: '2K | 3:4', value: '1536x2048' },
-    { label: '2K | 4:3', value: '2048x1536' },
-  ].filter(
-    (option) =>
-      !parameter.options.some((preset) => preset.value === option.value) &&
-      isValidImageCustomSize(option.value, profile.specification.custom_size)
-  )
-  return additionalOptions.length > 0
-    ? { ...parameter, options: [...parameter.options, ...additionalOptions] }
-    : parameter
+  return parameter?.control === 'select' ? parameter : undefined
 }
 
 export const getImageOutputParameter = (

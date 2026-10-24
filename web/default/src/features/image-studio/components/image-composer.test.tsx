@@ -444,7 +444,7 @@ describe('image composer', () => {
     expect(await screen.findByLabelText('Prompt')).toHaveValue(
       generation.prompt
     )
-    expect(screen.getByLabelText('Output size')).toHaveValue('1536x2048')
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
     const generate = screen.getByRole('button', { name: 'Generate 1 image' })
     await waitFor(() => expect(generate).toBeEnabled())
     expect(mocks.generationQuoteRequest?.parameters).toEqual({
@@ -843,7 +843,7 @@ describe('image composer', () => {
       target: { value: '一张2048×1536的咖啡海报' },
     })
 
-    expect(screen.getByLabelText('Output size')).toHaveValue('2048x1536')
+    expect(screen.getByLabelText('Custom size')).toHaveValue('2048x1536')
     expect(
       screen.getByText('Output size from prompt: 2048 × 1536')
     ).toBeInTheDocument()
@@ -872,22 +872,20 @@ describe('image composer', () => {
   })
 
   test('keeps a manual size through unrelated prompt edits and deletion, then applies changed dimensions', async () => {
-    const user = userEvent.setup()
     mocks.models = [sizedProfile()]
     render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
     const prompt = await screen.findByLabelText('Prompt')
-    const outputSize = screen.getByLabelText('Output size')
     const customSize = screen.getByLabelText('Custom size')
     fireEvent.change(prompt, {
       target: { value: 'A 2048x1536 poster' },
     })
-    expect(outputSize).toHaveValue('2048x1536')
+    expect(customSize).toHaveValue('2048x1536')
 
-    await user.selectOptions(outputSize, '1536x2048')
+    fireEvent.change(customSize, { target: { value: '1536x2048' } })
     fireEvent.change(prompt, {
       target: { value: 'A colorful 2048x1536 poster' },
     })
-    expect(outputSize).toHaveValue('1536x2048')
+    expect(customSize).toHaveValue('1536x2048')
     await waitFor(() => {
       expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
         '1536x2048'
@@ -895,7 +893,7 @@ describe('image composer', () => {
     })
 
     fireEvent.change(prompt, { target: { value: 'A colorful poster' } })
-    expect(outputSize).toHaveValue('1536x2048')
+    expect(customSize).toHaveValue('1536x2048')
     fireEvent.change(prompt, {
       target: { value: 'A colorful 2048x1024 poster' },
     })
@@ -911,21 +909,15 @@ describe('image composer', () => {
     {
       text: 'A 2049x1536 poster',
       displayedSize: '2049x1536',
-      sizeField: 'Custom size',
     },
-    {
-      text: 'A poster; output size: 2048x',
-      displayedSize: '1536x2048',
-      sizeField: 'Output size',
-    },
+    { text: 'A poster; output size: 2048x', displayedSize: '1536x2048' },
     {
       text: '一张2048x1536或者1536x2048的海报',
       displayedSize: '1536x2048',
-      sizeField: 'Output size',
     },
   ])(
     'blocks invalid or conflicting prompt dimensions immediately: $text',
-    async ({ text, displayedSize, sizeField }) => {
+    async ({ text, displayedSize }) => {
       mocks.models = [sizedProfile()]
       mocks.draftState.draft = {
         model_profile_id: 7,
@@ -940,7 +932,7 @@ describe('image composer', () => {
       fireEvent.change(prompt, { target: { value: text } })
 
       expect(generate).toBeDisabled()
-      expect(screen.getByLabelText(sizeField)).toHaveValue(displayedSize)
+      expect(screen.getByLabelText('Custom size')).toHaveValue(displayedSize)
       await waitFor(() => expect(mocks.generationQuoteRequest).toBeNull())
       expect(mocks.generationMutation.mutateAsync).not.toHaveBeenCalled()
     }
@@ -955,7 +947,7 @@ describe('image composer', () => {
     }
     render(<ImageComposer tokenGate={tokenGate} onSubmitted={vi.fn()} />)
     const prompt = await screen.findByLabelText('Prompt')
-    expect(screen.getByLabelText('Output size')).toHaveValue('1536x2048')
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
     fireEvent.change(prompt, {
       target: { value: 'A colorful 2048x1536 poster' },
     })
@@ -994,7 +986,7 @@ describe('image composer', () => {
 
     await user.selectOptions(model, '8')
 
-    expect(screen.getByLabelText('Output size')).toHaveValue('1536x2048')
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
     await waitFor(() => {
       expect(mocks.generationQuoteRequest).toMatchObject({
         model: compatible.model,
@@ -1022,7 +1014,7 @@ describe('image composer', () => {
 
     await user.selectOptions(model, '7')
 
-    expect(screen.getByLabelText('Output size')).toHaveValue('1536x2048')
+    expect(screen.getByLabelText('Custom size')).toHaveValue('1536x2048')
     await waitFor(() => {
       expect(mocks.generationQuoteRequest?.parameters.dimensions).toBe(
         '1536x2048'
@@ -1063,7 +1055,7 @@ describe('image composer', () => {
         screen.getByRole('combobox', { name: 'Model' }),
         '8'
       )
-      expect(screen.getByLabelText('Output size')).toHaveValue('2048x1536')
+      expect(screen.getByLabelText('Custom size')).toHaveValue('2048x1536')
       await waitFor(() => {
         expect(
           screen.getByRole('button', { name: 'Generate 1 image' })
