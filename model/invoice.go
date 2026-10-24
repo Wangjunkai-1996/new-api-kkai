@@ -171,9 +171,11 @@ type InvoiceProfile struct {
 	UpdatedAt  int64  `gorm:"not null;autoUpdateTime:false"`
 }
 
-// InvoicePaymentReceipt is created only from an authenticated provider callback or merchant query,
-// never checkout estimates or administrator completion. ReceiptKey hashes the
-// provider transaction identity so the same payment cannot fund two orders.
+// InvoicePaymentReceipt records accepted payment evidence, normally from an
+// authenticated callback or merchant query. Explicitly authorized legacy-order
+// approvals use a separate receipt namespace and a durable reconciliation audit;
+// checkout estimates and generic administrator completion never create evidence.
+// Provider receipt keys identify one transaction across mirrored orders.
 type InvoicePaymentReceipt struct {
 	ID                  int64  `gorm:"primaryKey"`
 	TenantID            int64  `gorm:"not null"`
