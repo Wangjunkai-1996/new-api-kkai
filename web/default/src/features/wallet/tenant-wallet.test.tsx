@@ -29,7 +29,7 @@ import {
   paymentWallet,
 } from './payment-flow-fixtures'
 import type { PaymentQuote } from './payment-flow-types'
-import type { TopupInfo } from './types'
+import type { CreemProduct, TopupInfo } from './types'
 
 const site = vi.hoisted(() => ({ tenant_id: 0 }))
 const flow = vi.hoisted(() => ({
@@ -88,7 +88,8 @@ vi.mock('./components/recharge-form-card', () => ({
     paymentQuoteValid: boolean
     calculating: boolean
     onPaymentSubmit: () => void
-    confirmation: ReactNode
+    creemProducts?: CreemProduct[]
+    onCreemProductSelect: (product: CreemProduct) => void
   }) => (
     <>
       <p>Customer topup</p>
@@ -109,7 +110,15 @@ vi.mock('./components/recharge-form-card', () => ({
           >
             Review and Pay
           </button>
-          {props.confirmation}
+          {props.creemProducts?.map((product) => (
+            <button
+              key={product.productId}
+              type='button'
+              onClick={() => props.onCreemProductSelect(product)}
+            >
+              {product.name}
+            </button>
+          ))}
         </>
       )}
     </>
@@ -252,10 +261,6 @@ it('debounces quote inputs and hides a previous amount until the final amount is
     })
     expect(quoteMock).toHaveBeenCalledTimes(1)
     expect(screen.getByText('QUOTE-10')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'Review and Pay' }))
-    expect(
-      screen.getByRole('button', { name: 'Create order and pay' })
-    ).toBeVisible()
     fireEvent.change(screen.getByLabelText('Top-up amount'), {
       target: { value: '20' },
     })
@@ -263,9 +268,6 @@ it('debounces quote inputs and hides a previous amount until the final amount is
       target: { value: '200' },
     })
     expect(screen.queryByText('QUOTE-10')).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Create order and pay' })
-    ).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Review and Pay' })
     ).toBeDisabled()
@@ -285,6 +287,13 @@ it('debounces quote inputs and hides a previous amount until the final amount is
     )
     expect(screen.getByText('QUOTE-200')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Review and Pay' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Review and Pay' }))
+    expect(flow.create).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ quote_token: 'QUOTE-200' })
+    )
+    expect(
+      screen.queryByRole('heading', { name: 'Confirm top-up order' })
+    ).not.toBeInTheDocument()
   } finally {
     mounted.unmount()
     client.clear()
@@ -292,3 +301,84 @@ it('debounces quote inputs and hides a previous amount until the final amount is
     vi.useRealTimers()
   }
 })
+
+it.each(['epay', 'creem'])(
+  '%s refreshes an expired quote without creating, then submits with one click',
+  async (provider) => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const quoteMock = vi.mocked(quoteWalletPayment)
+    quoteMock.mockReset().mockImplementation(async (request) => ({
+      ...paymentQuote(),
+      payment_provider: request.payment_provider,
+      payment_method: request.payment_method,
+      quote_token: `EXPIRED-${request.payment_provider}`,
+      expires_at: 1,
+    }))
+    flow.create.mockReset()
+    flow.wallet = paymentWallet()
+    topup.info = {
+      enable_online_topup: provider === 'epay',
+      enable_stripe_topup: false,
+      enable_creem_topup: provider === 'creem',
+      pay_methods:
+        provider === 'epay' ? [{ name: 'Alipay', type: 'alipay' }] : [],
+      min_topup: 10,
+      stripe_min_topup: 10,
+      amount_options: [],
+      discount: {},
+      creem_products: [
+        {
+          name: 'Creem top-up',
+          productId: 'product-1',
+          price: 10,
+          quota: 10,
+          currency: 'USD',
+        },
+      ],
+    }
+    const mounted = render(
+      <QueryClientProvider client={client}>
+        <Wallet
+          topupInfo={topup.info}
+          presetAmounts={[]}
+          topupLoading={false}
+        />
+      </QueryClientProvider>
+    )
+    try {
+      if (provider === 'creem') {
+        fireEvent.click(screen.getByRole('button', { name: 'Creem top-up' }))
+      }
+      await screen.findByText(
+        provider === 'creem' ? '10 USD' : `EXPIRED-${provider}`
+      )
+      expect(flow.create).not.toHaveBeenCalled()
+      const freshQuote = {
+        ...paymentQuote(),
+        payment_provider: provider,
+        payment_method: provider === 'epay' ? 'alipay' : 'creem',
+        quote_token: `FRESH-${provider}`,
+        credit_display: { amount: '20', unit: 'USD' },
+      }
+      quoteMock.mockResolvedValue(freshQuote)
+      const paymentButtons = () =>
+        screen.getAllByRole('button', { name: 'Review and Pay' })
+      fireEvent.click(paymentButtons()[paymentButtons().length - 1])
+      expect(flow.create).not.toHaveBeenCalled()
+      await screen.findByText(
+        provider === 'creem' ? '20 USD' : `FRESH-${provider}`
+      )
+      fireEvent.click(paymentButtons()[paymentButtons().length - 1])
+      expect(flow.create).toHaveBeenCalledExactlyOnceWith(freshQuote)
+      expect(
+        screen.queryByRole('heading', { name: 'Confirm top-up order' })
+      ).not.toBeInTheDocument()
+    } finally {
+      mounted.unmount()
+      client.clear()
+      topup.info = null
+    }
+  }
+)

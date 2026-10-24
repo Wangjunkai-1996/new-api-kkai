@@ -62,8 +62,8 @@
 
 | 服务端／本地条件 | 主区内容 | 允许恢复表单的条件 |
 | --- | --- | --- |
-| 首次恢复请求未完成 | “正在恢复订单”，加载反馈与必要重试 | 无；不能短暂先露出购买表单 |
-| 恢复失败、响应无效、网络／鉴权失败 | 恢复失败说明、重试／登录路径；已知订单继续保留 | 无；失败不等于 idle |
+| 首次恢复请求未完成（最多20秒） | “正在恢复订单”，加载反馈与必要重试 | 无；不能短暂先露出购买表单 |
+| 恢复超时、响应无效、网络／鉴权失败 | 恢复失败说明、重试／登录路径；已知订单继续保留 | 无；失败不等于 idle |
 | `flow.phase=idle` 且 `can_create=true` | 余额、充值表单和原本允许的空闲模块 | 可确认新报价与提交一次创建 |
 | 合法 `idle` 且 `can_create=false` | 空闲余额及按各自配置允许的兑换／订阅等模块；充值购买禁用，显示服务端给出的安全业务原因与适当重试 | 无；充值关闭、额度容量或渠道购买限制不等于恢复失败，不阻断独立业务 |
 | 本次确认后或 `creating` | 创建进度；未知时核实说明，不再露表单 | 无已确认收款时可按服务器能力结束／到期后精确返回，不能凭网络失败本地放行 |
@@ -116,7 +116,7 @@
 - `WalletState` 的 `flow.id`、`flow.revision`、phase、order、`can_create`、`create_block_reason_code`、`other_unfinished_count`、`server_time` 是当前流程依据。合法 idle 的禁用原因按 `PAYMENT_DISABLED`、`CHANNEL_UNAVAILABLE`、`QUOTA_CAPACITY_EXCEEDED` 映射可翻译说明；活动流程／可恢复订单依后端相应原因恢复，不自行当作空闲。未知原因使用安全通用禁用说明并允许刷新，不猜测放行。revision 和 order version 按后端字符串契约处理，不能 `Number()` 转换、字典序比较或当时间戳。
 - `OrderDTO.display_status`、`status_group`、`allowed_actions` 决定标签、筛选与动作；前端穷尽已知值，未知安全退化。`creating` 归 processing，不可冒充 pending 或已分配责任的 review；ended/timed_out 归 closed，只有后端允许 acknowledge 才显示可执行的“返回充值”；不按客户端 created_at 自行解锁。local_ended_at/local_end_reason 为本地操作事实，不能等同 closed_at/close_reason 的渠道证据。
 - `expected_payment`／`payable_payment`／`received_payment` 使用 `amount_minor` 字符串、currency、exponent，充值使用 `credited_quota`／`credit_display`。统一在 wallet 的金额格式化边界处理精度；不得把 int64 先转 JS number 再格式化。可以复用 `Intl.NumberFormat`，但必须证明转换安全；大整数用字符串／BigInt 分解，不引入新的十进制依赖。
-- 报价与订单统一按 `pricing_mode` 显示：fixed 的 expected_payment=payable_payment，标签“应付金额”；channel_adjusted 在 payable_payment=null 时以 expected_payment 显示“订单金额”，将 `pricing_notice_code=CHANNEL_ADJUSTMENTS_APPLY` 翻译为“最终金额以支付页合法优惠、税费为准”。渠道可信确认 payable_payment 后才显示“应付金额”，不能覆盖冻结基础快照；received_payment 始终独立标“已收款”。unknown 仅用于缺证据旧单，显示待核实，不允许拿它确认新购买。上述规则应用到新单确认、当前卡、历史卡、取消／续付确认，不能按 provider 猜标签或把基础值写成“最终应付”。
+- 报价与订单统一按 `pricing_mode` 显示：fixed 的 expected_payment=payable_payment，标签“应付金额”；channel_adjusted 在 payable_payment=null 时以 expected_payment 显示“订单金额”，将 `pricing_notice_code=CHANNEL_ADJUSTMENTS_APPLY` 翻译为“最终金额以支付页合法优惠、税费为准”。渠道可信确认 payable_payment 后才显示“应付金额”，不能覆盖冻结基础快照；received_payment 始终独立标“已收款”。unknown 仅用于缺证据旧单，显示待核实，不允许拿它确认新购买。上述规则应用到空闲支付明细、当前卡、历史卡、取消／续付确认，不能按 provider 猜标签或把基础值写成“最终应付”。
 - 订单／应付金额、已收款、充值额度分别显示。不能再以 payment_method 猜币种，不能将历史充值额度套用当前汇率或站点显示配置重建订单快照。缺失字段保留“正在核实／未取得”，不补造值；旧展示字段严格按后端 legacy 语义单独标注。
 - `deadline_at` 为空不伪造倒计时；有可信 deadline 才相对 server_time 展示剩余时间，时间均按后端秒单位处理。本地倒计时只停止入口并读取服务端当前状态，不自行写过期终态或对废单发起人工核实。
 - 列表、current、普通详情、query cache、URL 和日志中不放 checkout／token。checkout 仅在用户发起 resume 的短暂内存中使用；不回写全局可持久 query、不存 localStorage／sessionStorage，不让客服复制包含凭据的页面 URL。
@@ -135,8 +135,8 @@ restore／current／acknowledge 的 data 直接为 WalletState；orders／cancel
 ### 5.1 空闲报价、创建与创建不确定
 
 1. 服务器恢复为合法 idle 后恢复空闲模块；仅 `can_create=true` 时允许充值购买，false 时依据后端原因禁用，不连带停用独立配置允许的兑换／订阅。自定义额度必须保留安全整数、正值、渠道最低额和服务端上限校验；输入草稿与提交值分离，输入后首次点击购买应立即有效。
-2. 预设／金额／付款方式／Creem 产品变化立即使旧报价无效。新 quote 按输入模式发送正整数字符串或产品 ID；同一报价的币种、额度、渠道和期限用于行内确认，金额标签及变量说明严格按 pricing_mode／payable_payment／pricing_notice_code；确认前“返回修改”不称取消订单。报价异步旧响应不能覆盖新输入；Stripe优惠／Pancake税费等 channel_adjusted 且尚无可信最终应付时明确显示基础“订单金额”与规则提示，不能标注未经确定的最终应付。
-3. 点击最终确认即进入创建中并隐藏空闲模块；同一提交生成一个幂等 key，重复点击和网络重试复用。不得自动重新生成 key，不以超时回到可购买表单。返回后真正新购买才生成新 key。
+2. 预设／金额／付款方式／Creem 产品变化立即使旧报价无效。新 quote 按输入模式发送正整数字符串或产品 ID；支付明细直接展示同一报价的金额、币种和额度，付款方式与选择保持一致，金额标签及变量说明严格按 pricing_mode／payable_payment／pricing_notice_code。报价异步旧响应不能覆盖新输入；Stripe优惠／Pancake税费等 channel_adjusted 且尚无可信最终应付时明确显示基础“订单金额”与规则提示，不能标注未经确定的最终应付。
+3. 点击“核对并支付”直接调用统一创建流程，进入创建中并隐藏空闲模块，不先设置确认状态或展开第二个创建按钮。提交前仍校验 can_create、报价与输入一致、非报价请求中及报价未到期；失效则重新报价，不沿用旧报价或刷新后自动下单。Creem 先选择产品查看报价，再单击支付按钮，选择产品不创建订单。同一提交生成一个幂等 key，重复点击和网络重试复用；不得自动重新生成 key，不以超时回到可购买表单。返回后真正新购买才生成新 key。
 4. create 返回 `{wallet,order}`，先采用最新 wallet，并仅当本次返回 order 正是该当前单且允许 resume 时再取入口；create 本身不提供 checkout，也不证明付款页已打开。旧幂等 key 的重放不能复活已结束的旧 flow；若钱包已有另一当前单，不因旧操作响应自动打开那笔新单。创建期间服务端若返回已有流程冲突，恢复真实当前流程，不弹出第二笔购买入口。
 5. 远端结果不确定时本地单已存在，显示创建／支付结果核实并按原订单 reconcile。若连本地提交响应丢失，先用同 key 重试或 current/restore；数据库／网络不可用不等于未创建。不能无界重试创建；余额不因 create／打开页面而乐观增加。
 6. 可靠确认未形成订单／会话时显示失败结果及合法返回路径，不能把所有 HTTP 非 2xx 都当作安全未创建。创建幂等恢复不能依赖 checkout token 在浏览器持久化。
@@ -145,7 +145,7 @@ restore／current／acknowledge 的 data 直接为 WalletState；orders／cancel
 
 所有余额充值渠道执行同一原则，包括普通 POST form、Stripe、Creem、Waffo、Pancake；不得保留 Pancake 或 Safari 在钱包内 `_self` 的例外。
 
-- 在“确认创建”或“重新打开支付页面”的直接用户事件中，可同步预开由本页控制的空白占位标签页；创建／resume 完成后仅向该占位目标导向经过校验的 URL 或提交已验证的 POST form。使用不可预测的单次 target，隔离外部页 opener；只在导航前操作自己的同源占位，导航后不读第三方内容。
+- 在“核对并支付”或“重新打开支付页面”的直接用户事件中，可同步预开由本页控制的空白占位标签页；创建／resume 完成后仅向该占位目标导向经过校验的 URL 或提交已验证的 POST form。使用不可预测的单次 target，隔离外部页 opener；只在导航前操作自己的同源占位，导航后不读第三方内容。
 - URL／form action 只允许后端契约支持的绝对 HTTP(S) 目标，生产策略依照后端渠道配置；禁止 javascript/data 或将任意后端字符串塞进 innerHTML。form fields 通过 DOM 属性构建，提交后清理。不得把所有 http 链接假设为可信服务商。
 - 预开失败、返回 null、导航／form 提交失败或无法证明打开结果时，钱包仍保留原订单并显示“订单已创建。如支付页面未打开，请点击‘重新打开支付页面’。”提供直接手动入口。不能只显示“跳转成功”toast，不自动切当前钱包页。
 - `window.open` 配合 noopener 可能拿不到句柄，不能仅据此断言被拦；具体占位及 opener 隔离实现需 Chromium 与 Safari 浏览器验证。无法安全预开时允许保留原订单并让用户手动打开，不以关闭标签页或再次新建绕过拦截。
@@ -224,7 +224,7 @@ POST create/cancel/end/ack 不在 mount effect 或响应 effect 内自动触发�
 ### 8.2 可访问性与响应式验收要求
 
 - 主区用语义 section 与状态标题，订单字段用清楚标签；状态颜色必须带文字。处理中给 `aria-busy` 和节制的 live status，计时每秒变化不逐秒读屏。
-- 取消、续付确认在当前订单内展开，`aria-expanded`／`aria-controls`、确认标题和返回路径齐全；无需为取消再叠 AlertDialog。新单确认同样在表单内展开，直接操作不能让第一次点击只更新草稿而丢失提交。
+- 取消、续付确认在当前订单内展开，`aria-expanded`／`aria-controls`、确认标题和返回路径齐全；无需为取消再叠 AlertDialog。新单在表单支付明细内核对，单击“核对并支付”直接提交，不增加行内二次确认；直接操作不能让第一次点击只更新草稿而丢失提交。
 - 记录弹层沿现有可访问 Dialog，保留 Title／Description、焦点锁定、Escape／关闭、触发点焦点恢复、背景滚动管理；手机全屏也不能堆第二层详情／确认弹层。
 - 创建后焦点转到订单标题／主动作；取消提交转进度；结果转说明／可用主动作；返回充值后转表单标题或额度输入。列表项离开筛选后焦点有明确落点，刷新不反复抢焦点。
 - 图标按钮有翻译后的 aria-label，装饰图标隐藏；复制与网络错误均有可读反馈。键盘 Tab／Shift+Tab／Enter／Space 可操作；不只靠 toast 承载唯一资金事实。
@@ -249,7 +249,7 @@ POST create/cancel/end/ack 不在 mount effect 或响应 effect 内自动触发�
 | `hooks/use-wallet-payment-flow.ts`（新增） | current restore/read 与统一 create/end/cancel/reconcile/ack mutation、有限轮询、身份／响应隔离 | 不本地解锁；未知创建可恢复；A03/A08/A09/A18/A21/A26/A29/A32 |
 | `components/current-topup-order.tsx`（新增） | 当前详情、行内结束／取消、进度／核实、本地超时结果、显眼返回按钮 | 对照原型 orderCard 布局；A01/A05/A09/A14/A22/A23/A27/A28 |
 | `index.tsx` | 接阶段容器、本人记录入口；非idle隐藏独立卡及所有购买模块；余额统一刷新 | 不删兑换／订阅／租户条件；当前优先；A15/A19/A24/A27/A30 |
-| `components/recharge-form-card.tsx`、`dialogs/payment-confirm-dialog.tsx`、`dialogs/creem-confirm-dialog.tsx`、`creem-products-section.tsx` | 接冻结 quote、行内新单确认／返回修改、创建中退场；Creem纳入同一guard | 保留金额边界、输入首次购买、预设／最低额与配置；不残留隐藏弹窗可触发创建 |
+| `lifecycle-wallet-page.tsx`、`components/recharge-form-card.tsx`、`components/creem-products-section.tsx` | 接冻结 quote，支付明细核对后单击直接创建、创建中退场；Creem纳入同一guard，不增加新单二次确认 | 保留金额边界、输入首次购买、预设／最低额与配置；不残留隐藏弹窗可触发创建 |
 | `hooks/use-payment.ts`、`use-creem-payment.ts`、`use-waffo-payment.ts`、`use-waffo-pancake-payment.ts`、`lib/payment.ts` | 将余额充值创建／开页责任收敛到统一流程，复用必要报价／目标提交逻辑；删除已替代的同页跳转和布尔成功语义 | 不影响订阅调用方；实现前 rg 全部调用者；A01/A04/A19/A20 |
 | `hooks/use-billing-history.ts`、`components/dialogs/billing-history-dialog.tsx` | 显式scope、筛选／精确搜索／分页计数、同卡详情确认、核实支付、管理证据与任务进度 | 保留可信今日汇总／发票条件；无无凭据补单；A02/A07/A12/A16/A24/A30 |
 | `lib/billing.ts`、`lib/format.ts`、必要 `constants.ts` | 统一展示状态／分组／labelKey、未知fallback、冻结Money与额度格式 | 不按渠道猜币种、不拿当前汇率改历史；A13与金额验收 |
@@ -265,7 +265,7 @@ POST create/cancel/end/ack 不在 mount effect 或响应 effect 内自动触发�
 
 | PRD 验收 | 页面／契约落点 | 最小有效验证 |
 | --- | --- | --- |
-| A01/A04/A19/A20/A28 | 创建后仅当前单，外部标签／POST form／被拦手动入口 | 组件mock创建与resume；真实浏览器Chromium+Safari验证新tab、钱包不跳离，关闭页后原单仍在 |
+| A01/A04/A19/A20/A28 | 单击支付即创建，无二次确认；创建后仅当前单，外部标签／POST form／被拦手动入口 | 组件mock创建与resume，覆盖Creem先选产品再单击支付、旧报价禁提交与失效刷新不自动创建；真实浏览器Chromium+Safari验证新tab、钱包不跳离，关闭页后原单仍在 |
 | A03/A27 | quote变更失效、同key创建重试、创建未知锁定 | 可控deferred响应测试；同次重复点击与网络超时不二次建单，输入后首次购买有效 |
 | A05/A06/A07/A22/A25 | 行内取消、能力限制及资金竞争 | 取消先processing；mock晚到paid后UI不退回cancelled；无取消渠道不出现假按钮 |
 | A08/A09/A14/A23/A31/A32 | 本地结束／超时、可靠结果与明确返回 | 未确认收款的未知单可按能力结束／到期；结果保留主按钮，精确 ack 才现表单，失败不解锁；废单无人工入口，paid 优先且 A 晚款不覆盖 B |

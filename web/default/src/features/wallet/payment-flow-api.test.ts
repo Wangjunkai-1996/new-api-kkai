@@ -86,6 +86,26 @@ it('rejects missing new lifecycle support without trying an old purchase endpoin
     expect.objectContaining({ url: '/api/user/topup/current/restore' })
   )
 })
+it('bounds wallet restore reads so a stalled recovery leaves the page retryable', async () => {
+  const timeout = vi.spyOn(AbortSignal, 'timeout')
+  try {
+    api.request.mockResolvedValue({
+      data: { success: true, data: paymentWallet() },
+    })
+
+    await restoreWalletPayment()
+
+    expect(timeout).toHaveBeenCalledWith(20_000)
+    expect(api.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        url: '/api/user/topup/current/restore',
+      })
+    )
+  } finally {
+    timeout.mockRestore()
+  }
+})
 it('does not allow an unknown legacy pricing snapshot to confirm a new quote', async () => {
   api.request.mockResolvedValue({
     data: {

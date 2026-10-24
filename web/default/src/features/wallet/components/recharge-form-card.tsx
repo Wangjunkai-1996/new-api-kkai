@@ -27,7 +27,7 @@ import {
   Ticket,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -59,7 +59,6 @@ import { PaymentAmounts } from './payment-amounts'
 
 interface RechargeFormCardProps {
   quote?: PaymentQuote
-  confirmation?: ReactNode
   purchaseDisabled?: boolean
   topupInfo: TopupInfo | null
   presetAmounts: PresetAmount[]
@@ -568,7 +567,13 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
               {t('Review and Pay')}{' '}
               <ArrowRight className='size-4' aria-hidden='true' />
             </Button>
-            {props.confirmation}
+            {props.quote && (
+              <p className='text-muted-foreground mt-3 text-xs'>
+                {t(
+                  'Payment opens in a new tab. Your order remains available in this wallet.'
+                )}
+              </p>
+            )}
           </aside>
         </div>
       )}

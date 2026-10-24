@@ -33,6 +33,13 @@ import type {
 } from './payment-flow-types'
 
 const decimal = z.string().regex(/^\d+$/)
+const WALLET_RESTORE_TIMEOUT_MS = 20_000
+
+function walletRestoreSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(WALLET_RESTORE_TIMEOUT_MS)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
+}
+
 const money = z.object({
   amount_minor: decimal,
   currency: z.string().regex(/^[A-Z]{3}$/),
@@ -216,7 +223,7 @@ export async function restoreWalletPayment(
       'post',
       '/api/user/topup/current/restore',
       tradeNo ? { trade_no: tradeNo } : {},
-      signal
+      walletRestoreSignal(signal)
     )
   )
 }

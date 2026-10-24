@@ -95,7 +95,6 @@ export function LifecycleWalletPage(props: WalletPageProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>()
   const [waffoIndex, setWaffoIndex] = useState<number | null>(null)
   const [product, setProduct] = useState<CreemProduct | null>(null)
-  const [confirmation, setConfirmation] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(!!props.initialShowHistory)
   const [historyUnfinished, setHistoryUnfinished] = useState(false)
   const [redemptionCode, setRedemptionCode] = useState('')
@@ -223,55 +222,16 @@ export function LifecycleWalletPage(props: WalletPageProps) {
     refetchOnWindowFocus: false,
   })
   const currentQuote = quoteSettled ? quote.data : undefined
-  const review = () => {
-    if (currentQuote && !quote.isFetching && canBuy) {
-      setConfirmation(currentQuote.quote_token)
-    }
-  }
-  const confirm = () => {
-    if (
-      !canBuy ||
-      !currentQuote ||
-      quote.isFetching ||
-      confirmation !== currentQuote.quote_token
-    ) {
+  const submitPayment = () => {
+    if (!canBuy || !currentQuote || quote.isFetching) {
       return
     }
     if (currentQuote.expires_at <= Date.now() / 1000) {
-      setConfirmation(null)
       void quote.refetch()
       return
     }
-    setConfirmation(null)
     flow.create(currentQuote)
   }
-  const resetReview = () => {
-    setConfirmation(null)
-    setProduct(null)
-  }
-  const inlineConfirmation =
-    confirmation && currentQuote?.quote_token === confirmation ? (
-      <section
-        className='bg-muted/30 mt-4 space-y-4 rounded-lg border p-4'
-        aria-label={t('Confirm top-up order')}
-      >
-        <h3 className='font-semibold'>{t('Confirm top-up order')}</h3>
-        <PaymentAmounts pricing={currentQuote} />
-        <p className='text-muted-foreground text-sm'>
-          {t(
-            'Payment opens in a new tab. Your order remains available in this wallet.'
-          )}
-        </p>
-        <div className='flex flex-wrap gap-2'>
-          <Button className='min-h-11' onClick={confirm} disabled={flow.busy}>
-            {t('Create order and pay')}
-          </Button>
-          <Button variant='outline' onClick={resetReview}>
-            {t('Back to edit')}
-          </Button>
-        </div>
-      </section>
-    ) : null
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
@@ -401,13 +361,13 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                 presetAmounts={presetAmounts}
                 selectedPreset={selectedPreset}
                 onSelectPreset={(preset) => {
-                  resetReview()
+                  setProduct(null)
                   setAmount(preset.value)
                   setSelectedPreset(preset.value)
                 }}
                 topupAmount={amount}
                 onTopupAmountChange={(value) => {
-                  resetReview()
+                  setProduct(null)
                   setAmount(value)
                   setSelectedPreset(null)
                 }}
@@ -417,11 +377,11 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                 selectedPaymentMethod={availableMethod}
                 selectedWaffoMethodIndex={activeWaffoIndex}
                 onPaymentMethodSelect={(method) => {
-                  resetReview()
+                  setProduct(null)
                   setSelectedMethod(method)
                   setWaffoIndex(null)
                 }}
-                onPaymentSubmit={review}
+                onPaymentSubmit={submitPayment}
                 paymentLoading={null}
                 redemptionCode={redemptionCode}
                 onRedemptionCodeChange={setRedemptionCode}
@@ -438,7 +398,6 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                 enableCreemTopup={topupInfo?.enable_creem_topup}
                 onCreemProductSelect={(value) => {
                   if (canBuy) {
-                    setConfirmation(null)
                     setProduct(value)
                   }
                 }}
@@ -446,7 +405,7 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                 waffoPayMethods={topupInfo?.waffo_pay_methods}
                 waffoMinTopup={topupInfo?.waffo_min_topup}
                 onWaffoMethodSelect={(_, index) => {
-                  resetReview()
+                  setProduct(null)
                   setSelectedMethod({
                     name:
                       topupInfo?.waffo_pay_methods?.[index]?.name ?? 'Waffo',
@@ -456,25 +415,28 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                 }}
                 enableWaffoPancakeTopup={topupInfo?.enable_waffo_pancake_topup}
                 quote={!product ? currentQuote : undefined}
-                confirmation={!product ? inlineConfirmation : null}
                 purchaseDisabled={!canBuy}
               />
               {product && (
                 <section className='bg-card space-y-4 rounded-lg border p-5'>
                   <h3 className='font-semibold'>{product.name}</h3>
                   {currentQuote && <PaymentAmounts pricing={currentQuote} />}
+                  <p className='text-muted-foreground text-sm'>
+                    {t(
+                      'Payment opens in a new tab. Your order remains available in this wallet.'
+                    )}
+                  </p>
                   <div className='flex gap-2'>
                     <Button
                       disabled={!canBuy || !currentQuote || quote.isFetching}
-                      onClick={review}
+                      onClick={submitPayment}
                     >
                       {t('Review and Pay')}
                     </Button>
-                    <Button variant='outline' onClick={resetReview}>
+                    <Button variant='outline' onClick={() => setProduct(null)}>
                       {t('Back to edit')}
                     </Button>
                   </div>
-                  {inlineConfirmation}
                 </section>
               )}
               {site?.tenant_id === 0 && (
