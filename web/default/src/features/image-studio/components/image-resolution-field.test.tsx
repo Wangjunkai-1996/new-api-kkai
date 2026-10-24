@@ -91,7 +91,11 @@ const profile: ImageModelProfile = {
   updated_at: 1,
 }
 
-function Harness(props: { model?: ImageModelProfile; size?: string }) {
+function Harness(props: {
+  model?: ImageModelProfile
+  size?: string
+  legacy?: boolean
+}) {
   const model = props.model ?? profile
   const form = useForm<ImageComposerValues>({
     defaultValues: {
@@ -106,17 +110,25 @@ function Harness(props: { model?: ImageModelProfile; size?: string }) {
   const values = useWatch({ control: form.control })
   return (
     <Form {...form}>
-      <ImageResolutionField control={form.control} profile={model} />
-      <ImageParameterFields
-        control={form.control}
-        profile={model}
-        group='quality'
-      />
-      <ImageParameterFields
-        control={form.control}
-        profile={model}
-        group='advanced'
-      />
+      {props.legacy ? (
+        <ImageParameterFields control={form.control} profile={model} />
+      ) : (
+        <ImageResolutionField control={form.control} profile={model} />
+      )}
+      {!props.legacy && (
+        <>
+          <ImageParameterFields
+            control={form.control}
+            profile={model}
+            group='quality'
+          />
+          <ImageParameterFields
+            control={form.control}
+            profile={model}
+            group='advanced'
+          />
+        </>
+      )}
       <output aria-label='Parameters'>
         {JSON.stringify(values.parameters)}
       </output>
@@ -125,6 +137,39 @@ function Harness(props: { model?: ImageModelProfile; size?: string }) {
 }
 
 describe('resolution and parameter groups', () => {
+  test.each([
+    ['3:4', '1536x2048', 1536, 2048],
+    ['4:3', '2048x1536', 2048, 1536],
+  ])(
+    'selects the %s preset without entering custom pixels',
+    async (ratio, size, width, height) => {
+      const user = userEvent.setup()
+      render(<Harness />)
+
+      await user.selectOptions(screen.getByLabelText('Resolution preset'), size)
+
+      expect(screen.getByLabelText('Resolution preset')).toHaveValue(size)
+      expect(screen.getByLabelText('Custom width')).toHaveValue(width)
+      expect(screen.getByLabelText('Custom height')).toHaveValue(height)
+      expect(screen.getByText(ratio)).toBeInTheDocument()
+      expect(
+        JSON.parse(screen.getByLabelText('Parameters').textContent ?? '{}')
+      ).toMatchObject({ dimensions: size, detail: 'high' })
+    }
+  )
+
+  test('offers both ratios in the regeneration parameter fields', async () => {
+    const user = userEvent.setup()
+    render(<Harness legacy />)
+
+    for (const size of ['1536x2048', '2048x1536']) {
+      await user.selectOptions(screen.getByLabelText('Output size'), size)
+      expect(
+        JSON.parse(screen.getByLabelText('Parameters').textContent ?? '{}')
+      ).toMatchObject({ dimensions: size })
+    }
+  })
+
   test('writes dimensions to the declared parameter and swaps width and height', async () => {
     const user = userEvent.setup()
     render(<Harness />)

@@ -24,6 +24,7 @@ import {
   getImageOutputCount,
   getImageOutputParameter,
   getImageProfileMaxOutputs,
+  getImageSizeParameter,
   isValidImageCustomSize,
   normalizeImageParameters,
   parseImageParameters,
@@ -98,17 +99,55 @@ describe('image parameters', () => {
       specification: { ...profile.specification, custom_size: customSize },
     }
 
-    assert.equal(isValidImageCustomSize('2048x1536', customSize), true)
-    assert.deepEqual(
-      parseImageParameters(customProfile, {
-        size: '2048x1536',
-        count: 1,
-      }),
-      {
-        success: true,
-        parameters: { size: '2048x1536', count: 1 },
-      }
-    )
+    for (const size of ['1536x2048', '2048x1536']) {
+      assert.equal(isValidImageCustomSize(size, customSize), true)
+      assert.deepEqual(
+        parseImageParameters(customProfile, { size, count: 1 }),
+        {
+          success: true,
+          parameters: { size, count: 1 },
+        }
+      )
+    }
+  })
+
+  test('preserves configured size labels without adding duplicate presets', () => {
+    const customProfile: ImageModelProfile = {
+      ...profile,
+      specification: {
+        ...profile.specification,
+        custom_size: customSize,
+        parameters: [
+          {
+            key: 'size',
+            label: 'Size',
+            request_key: 'size',
+            control: 'select',
+            options: [{ label: 'Custom portrait', value: '1536x2048' }],
+          },
+        ],
+      },
+    }
+    assert.deepEqual(getImageSizeParameter(customProfile)?.options, [
+      { label: 'Custom portrait', value: '1536x2048' },
+      { label: '2K | 4:3', value: '2048x1536' },
+    ])
+  })
+
+  test('does not add sizes unsupported by preset-only or constrained models', () => {
+    const constrainedProfile: ImageModelProfile = {
+      ...profile,
+      specification: {
+        ...profile.specification,
+        custom_size: { ...customSize, max_edge: 1024 },
+      },
+    }
+    for (const model of [profile, constrainedProfile]) {
+      assert.deepEqual(
+        getImageSizeParameter(model)?.options,
+        getImageSizeParameter(profile)?.options
+      )
+    }
   })
 
   test('rejects non-canonical or out-of-constraint custom sizes', () => {

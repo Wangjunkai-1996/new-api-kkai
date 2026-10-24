@@ -24,7 +24,10 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 
-import { getImageProfileMaxOutputs } from '../image-parameters'
+import {
+  getImageProfileMaxOutputs,
+  getImageSizeParameter,
+} from '../image-parameters'
 import type {
   ImageComposerValues,
   ImageModelProfile,
@@ -39,16 +42,20 @@ export function ImageParameterFields(props: {
   disabled?: boolean
 }) {
   const { t } = useTranslation()
-  const parameters = props.profile.specification.parameters.filter(
-    (parameter) => {
+  const parameters = props.profile.specification.parameters
+    .map((parameter) =>
+      parameter.request_key === 'size'
+        ? (getImageSizeParameter(props.profile) ?? parameter)
+        : parameter
+    )
+    .filter((parameter) => {
       if (props.hideOutputCount && parameter.request_key === 'n') return false
       if (props.group === 'quality') return parameter.request_key === 'quality'
       if (props.group === 'advanced') {
         return !['size', 'n', 'quality'].includes(parameter.request_key)
       }
       return true
-    }
-  )
+    })
   if (parameters.length === 0) return null
   return (
     <fieldset
