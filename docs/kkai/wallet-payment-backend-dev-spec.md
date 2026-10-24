@@ -1,16 +1,18 @@
 # 钱包充值生命周期后端开发规格
 
+**2026-10-24 交互修订：** 主动确认结束成功后，在同一次用户操作内串行精确 acknowledge，成功直接回充值页，无需再点返回；失败保留 ended 与返回重试。自动超时仍保留超时提示和“返回充值”按钮。自动确认只作用于原身份、flow/revision 与原订单均仍一致的 ended 结果，实际收款、身份变化、另一当前流程和迟到旧响应不能自动清理。以下条款按此区分主动结束与自动超时。
+
 **2026-10-23 生效修订：** [本站超时与废单规范](./wallet-payment-local-timeout-spec.md)已获用户确认，统一规定本站 30 分钟期限、本地结束／超时结果及“返回充值”、废单禁止继续支付／人工补单、晚到款继续处理。本文下方与修订冲突的“仅本地超时不能结束、未知永久锁定、30 分钟仅期望、废单仍可人工核实”条款停止适用；其余资金、权限和互斥布局要求保留。
 
 日期：2026-10-23。状态：已确认的开发基线；当前本地实现、验证与渠道限制见 [实施记录](./wallet-payment-implementation.md)。下文“本轮只编写文档”等内容保留为设计阶段记录。
 
-依据：[产品 PRD](./wallet-payment-lifecycle-prd.md)、[生命周期方案](./wallet-payment-lifecycle-plan.md)、[UI 规格](./wallet-payment-ui-spec.md)。本文件是本轮新增 API、DTO、持久化职责和后端行为的唯一契约来源；下文拟新增符号不是现有能力。接口实现不得反向改变已确认页面：存在当前流程时只显示订单详情；无已确认收款时，本地结束／超时即保留结果及“返回充值”，无须等待渠道关闭；精确确认后才清除流程、恢复表单。
+依据：[产品 PRD](./wallet-payment-lifecycle-prd.md)、[生命周期方案](./wallet-payment-lifecycle-plan.md)、[UI 规格](./wallet-payment-ui-spec.md)。本文件是本轮新增 API、DTO、持久化职责和后端行为的唯一契约来源；下文拟新增符号不是现有能力。接口实现不得反向改变已确认页面：存在当前流程时只显示订单详情；无已确认收款时，本地结束／超时均先提供精确确认结果，不等待渠道关闭；主动 end 成功由前端在原操作内串行精确 acknowledge，直接恢复表单，超时仍由用户点返回。确认成功才清流程，失败保留结果与重试。
 
 ## 1. 实施边界与不变量
 
 - 范围为余额充值。保留会员、订阅、兑换码、租户资金批次、发票和返佣的既有契约，不将它们统一重写为新支付平台。
 - 一单一个可付款会话。恢复支付只返回原会话，不创建新单、不重算价格、不延长期限；新充值必须发生在旧当前流程经服务端确认结束之后。
-- 同一用户、同一租户最多一个本次当前充值流程。尚未结束且未到期的 `creating`、结果未知、支付处理中、取消中，以及已确认收款的到账核实均锁定购买；本地结束／超时和可靠终态保留结果，直到精确确认“返回充值”。
+- 同一用户、同一租户最多一个本次当前充值流程。尚未结束且未到期的 `creating`、结果未知、支付处理中、取消中，以及已确认收款的到账核实均锁定购买；本地结束／超时和可靠终态保留结果，直到精确 acknowledge；主动 end 成功可由前端同次串行确认，超时及其他结果仍点击返回。
 - 已有历史待核实单不自动变成本次流程；本次未知单不能由前端擅自归档解锁；无已确认收款时可经服务端本地结束／到期及精确确认返回。
 - 验证付款、保存付款事实、发放额度和结束界面流程是不同职责。关闭支付网页、回跳参数、本地超时、申请取消均不是付款或关单证据。
 - 可信迟到付款不得因本地 `expired/cancelled/failed` 被丢弃；同一订单只发放一次额度，同一渠道交易不能资助另一笔订单。
@@ -168,7 +170,7 @@ type CheckoutDTO =
 | `POST /api/user/topup/orders/:trade_no/resume` | `{flow_id,flow_revision}` | `{wallet:WalletState,checkout:CheckoutDTO|null}`。只允许匹配当前且状态／能力允许的原单；状态已变时返回 409 与最新 wallet，checkout null；不创建会话或绑定历史 |
 | `POST /api/user/topup/orders/:trade_no/cancel` | `{expected_order_version:string}` | `{wallet:WalletState,order:OrderDTO}`。202 申请已保存；重复请求返回现状；当前之外的本人历史单也可按真实能力取消，不替换 current。最新状态变更先返回冲突刷新，不盲写旧版本 |
 | `POST /api/user/topup/orders/:trade_no/reconcile` | `{}` | `{wallet:WalletState,order:OrderDTO}`；202 已排队、200 现有结果。被核实的历史单不替换 wallet.current。限流、合并同单请求，不由每次点击直接开一个无界渠道调用 |
-| `POST /api/user/topup/orders/:trade_no/end` | `{expected_order_version:string}` | `{wallet,order}`。本人结束本站操作，历史单不替换 current；已超时废单拒绝。结果保留直到精确确认 |
+| `POST /api/user/topup/orders/:trade_no/end` | `{expected_order_version:string}` | `{wallet,order}`。本人结束本站操作，历史单不替换 current；已超时废单拒绝。结果保留直到精确确认；当前原单 ended 可由前端在同次操作内串行 acknowledge |
 | `POST /api/user/topup/current/acknowledge` | `{flow_id,flow_revision,trade_no}` | WalletState。成功、可靠取消／过期、确认无可付会话的失败及本地 ended/timed_out 允许；原子校验当前身份及实际最新事实，再结束本流程，返回 idle；不创建新单，不删除旧记录 |
 | `GET /api/user/topup/self` | 现有 `p/page_size/keyword`；新增 `status_group`、`exact_trade_no`、`scope=wallet\|recent\|unfinished` | 保留旧 PageInfo、今日统计；items 增量带 OrderDTO 信息，新增 `counts`、`query_scope`、`server_time`。六筛选固定 wallet 并集范围；exact_trade_no 与 keyword 互斥且跨全部账龄 |
 | `GET /api/user/topup` | 同类筛选，管理员范围 | 全平台聚合；不混入本人 current。旧调用无新参数保持全龄，query_scope=legacy_admin；新六筛选显式 scope=wallet。新增详情 `GET /api/user/topup/orders/:trade_no/admin` |
@@ -274,7 +276,7 @@ ACK 条件：已入账，或已可靠保存证据及待处理责任可由后台�
 
 `phase=result` 不等于 can_create。`can_create=true` 必须是 idle、没有活动流程和待恢复的可靠可处理对象，并通过服务端购买规则；反向不成立，合法 idle 也可能 can_create=false。`create_block_reason_code` 固定为 null、CURRENT_FLOW_ACTIVE、RECOVERABLE_ORDER_EXISTS、PAYMENT_DISABLED、CHANNEL_UNAVAILABLE 或 QUOTA_CAPACITY_EXCEEDED，由后端给出最直接原因；idle 禁用在线购买仍可读取余额与记录，不冒充恢复失败，不改变兑换码／订阅等独立能力。DB／认证失败是 HTTP 错误，不伪造 idle。`other_unfinished_count` 按用户＋租户统计其他 pending、processing、review、credit_review 和尚未定性的记录，不能叫“可付款数量”，不含成功、可靠关闭及无已确认收款的本地结束／到期废单，不取全平台或原始 pending 总数。
 
-`acknowledge` 在同事务中锁 flow 和对应 TopUp，再检查实时可结束事实。迟到关闭响应或旧客户端 ack 与新创建竞争，由 flow id/revision 和条件更新保证旧响应不能释放新流程。用户只是看历史或关闭记录不调用 ack。
+`acknowledge` 在同事务中锁 flow 和对应 TopUp，再检查实时可结束事实。主动 end 的前端串行确认仍使用同一精确契约；超时、已到账、credit_review、身份变化或另一当前 flow 不自动确认。迟到关闭响应或旧客户端 ack 与新创建竞争，由 flow id/revision 和条件更新保证旧响应不能释放新流程。用户只是看历史或关闭记录不调用 ack。
 
 ## 7. 渠道验证清单与未决边界
 

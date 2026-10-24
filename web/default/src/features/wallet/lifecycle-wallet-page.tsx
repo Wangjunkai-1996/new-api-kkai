@@ -458,6 +458,11 @@ export function LifecycleWalletPage(props: WalletPageProps) {
           onOpenChange={setHistoryOpen}
           scope={props.historyScope ?? 'self'}
           onWalletChange={flow.apply}
+          onOrderAction={async (result, action) => {
+            if (await flow.acceptOrderAction(result, action)) {
+              setHistoryOpen(false)
+            }
+          }}
           onRestore={(tradeNo) => {
             setHistoryOpen(false)
             flow.restore(tradeNo)

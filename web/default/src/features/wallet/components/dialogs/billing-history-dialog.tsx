@@ -42,6 +42,7 @@ import {
 } from '../../payment-flow-api'
 import type {
   PaymentOrder,
+  PaymentOrderResult,
   PaymentStatusGroup,
   WalletState,
 } from '../../payment-flow-types'
@@ -64,6 +65,7 @@ interface BillingHistoryDialogProps {
   scope?: 'self' | 'admin'
   unfinished?: boolean
   onWalletChange?: (wallet: WalletState) => void
+  onOrderAction?: (result: PaymentOrderResult, action: string) => Promise<void>
   onRestore?: (tradeNo: string) => void
 }
 export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
@@ -192,6 +194,7 @@ export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
                 serverTime={history.serverTime}
                 admin={admin}
                 onWalletChange={props.onWalletChange}
+                onOrderAction={props.onOrderAction}
                 onRestore={props.onRestore}
               />
             ))}
@@ -252,6 +255,7 @@ function HistoryOrder(props: {
   serverTime: number
   admin: boolean
   onWalletChange?: (wallet: WalletState) => void
+  onOrderAction?: (result: PaymentOrderResult, action: string) => Promise<void>
   onRestore?: (tradeNo: string) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -284,22 +288,33 @@ function HistoryOrder(props: {
     order.display_status === 'success' ||
     order.display_status === 'credit_review'
   const mutation = useMutation({
-    mutationFn: async (action: 'end' | 'reconcile' | 'admin-reconcile') =>
-      actOnWalletOrder(order, action, reason),
+    mutationFn: async (action: 'end' | 'reconcile' | 'admin-reconcile') => {
+      try {
+        const result = await actOnWalletOrder(order, action, reason)
+        client.setQueryData(
+          [
+            'wallet-payment',
+            ...identity,
+            'detail',
+            props.admin,
+            order.trade_no,
+          ],
+          result
+        )
+        await props.onOrderAction?.(result, action)
+        if (!props.onOrderAction) props.onWalletChange?.(result.wallet)
+        return result
+      } catch (error) {
+        if (error instanceof WalletPaymentError && error.wallet) {
+          props.onWalletChange?.(error.wallet)
+        }
+        throw error
+      }
+    },
     retry: false,
-    onSuccess: (result) => {
-      props.onWalletChange?.(result.wallet)
+    onSuccess: () => {
       setConfirm(null)
       setFeedback(true)
-      client.setQueryData(
-        ['wallet-payment', ...identity, 'detail', props.admin, order.trade_no],
-        result
-      )
-    },
-    onError: (error) => {
-      if (error instanceof WalletPaymentError && error.wallet) {
-        props.onWalletChange?.(error.wallet)
-      }
     },
     onSettled: () => {
       void client.invalidateQueries({

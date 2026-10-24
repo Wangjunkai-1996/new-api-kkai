@@ -40,6 +40,7 @@ import {
 } from '../payment-flow-api'
 import type {
   PaymentOrder,
+  PaymentOrderResult,
   PaymentQuote,
   WalletState,
 } from '../payment-flow-types'
@@ -136,9 +137,10 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       setNotice('')
       await client.cancelQueries({ queryKey, exact: true })
       pollUntil.current = Date.now() + 120_000
+      return identityKey
     },
-    onError: (error) => {
-      if (currentIdentity.current !== identityKey) return
+    onError: (error, _run, operationIdentity) => {
+      if (currentIdentity.current !== operationIdentity) return
       if (error instanceof WalletPaymentError && error.wallet) {
         apply(error.wallet)
       }
@@ -306,6 +308,36 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     const target = preparePaymentWindow()
     mutation.mutate(() => open(order, wallet, target))
   }
+  const acceptOrderAction = async (
+    result: PaymentOrderResult,
+    action: string
+  ): Promise<boolean> => {
+    if (currentIdentity.current !== identityKey) return false
+    apply(result.wallet)
+    const wallet = client.getQueryData<WalletState>(queryKey)
+    if (
+      action !== 'end' ||
+      !wallet?.flow.id ||
+      wallet.flow.id !== result.wallet.flow.id ||
+      wallet.flow.revision !== result.wallet.flow.revision ||
+      wallet.flow.phase !== 'result' ||
+      wallet.flow.order?.trade_no !== result.order.trade_no ||
+      wallet.flow.order.version !== result.order.version ||
+      wallet.flow.order.display_status !== 'ended' ||
+      !wallet.flow.order.allowed_actions.includes('acknowledge')
+    ) {
+      return false
+    }
+    apply(await acknowledgeWalletPayment(wallet))
+    if (
+      currentIdentity.current !== identityKey ||
+      client.getQueryData<WalletState>(queryKey)?.flow.phase !== 'idle'
+    ) {
+      return false
+    }
+    setAttempt((previous) => (previous === attempt ? null : previous))
+    return true
+  }
   const act = (
     order: PaymentOrder,
     action: 'cancel' | 'end' | 'reconcile' | 'admin-reconcile',
@@ -323,7 +355,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     operationBusy.current = true
     mutation.mutate(async () => {
       const result = await actOnWalletOrder(order, action, reason)
-      apply(result.wallet)
+      await acceptOrderAction(result, action)
     })
   }
   const acknowledge = () => {
@@ -358,6 +390,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     create,
     resume,
     act,
+    acceptOrderAction,
     acknowledge,
     restore,
     retryCreate: () => {

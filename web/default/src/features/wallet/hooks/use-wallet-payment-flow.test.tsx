@@ -185,6 +185,105 @@ describe('authoritative wallet flow', () => {
     expect(result.current.wallet?.can_create).toBe(false)
     expect(result.current.wallet?.flow.phase).toBe('result')
   })
+  it('returns to top-up immediately after ending the current order', async () => {
+    const original = paymentOrder()
+    api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+    const ended = paymentOrder({
+      version: '2',
+      display_status: 'ended',
+      status_group: 'closed',
+      allowed_actions: ['acknowledge'],
+    })
+    const endedWallet = paymentWallet(ended, {
+      flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: ended },
+    })
+    api.actOnWalletOrder.mockResolvedValue({
+      order: ended,
+      wallet: endedWallet,
+    })
+    api.acknowledgeWalletPayment.mockResolvedValue(
+      paymentWallet(null, {
+        flow: { id: null, revision: '3', phase: 'idle', order: null },
+      })
+    )
+    const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    await waitFor(() => expect(result.current.wallet?.flow.phase).toBe('order'))
+    act(() => result.current.act(original, 'end'))
+    await waitFor(() => expect(result.current.wallet?.can_create).toBe(true))
+    expect(result.current.wallet?.flow.phase).toBe('idle')
+    expect(api.acknowledgeWalletPayment).toHaveBeenCalledExactlyOnceWith(
+      endedWallet
+    )
+  })
+  it('preserves an ended result when automatic return fails and allows retry', async () => {
+    const original = paymentOrder()
+    api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+    const ended = paymentOrder({
+      version: '2',
+      display_status: 'ended',
+      status_group: 'closed',
+      allowed_actions: ['acknowledge'],
+    })
+    api.actOnWalletOrder.mockResolvedValue({
+      order: ended,
+      wallet: paymentWallet(ended, {
+        flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: ended },
+      }),
+    })
+    api.acknowledgeWalletPayment
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValueOnce(
+        paymentWallet(null, {
+          flow: { id: null, revision: '3', phase: 'idle', order: null },
+        })
+      )
+    const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    await waitFor(() => expect(result.current.wallet?.flow.phase).toBe('order'))
+    act(() => result.current.act(original, 'end'))
+    await waitFor(() =>
+      expect(result.current.notice).toBe('WALLET_STATE_UNAVAILABLE')
+    )
+    expect(result.current.wallet?.flow.order?.display_status).toBe('ended')
+    expect(result.current.wallet?.can_create).toBe(false)
+    act(() => result.current.acknowledge())
+    await waitFor(() => expect(result.current.wallet?.can_create).toBe(true))
+    expect(api.actOnWalletOrder).toHaveBeenCalledTimes(1)
+    expect(api.acknowledgeWalletPayment).toHaveBeenCalledTimes(2)
+  })
+  it.each(['success', 'credit_review', 'timed_out'] as const)(
+    'does not automatically dismiss %s returned by an end request',
+    async (displayStatus) => {
+      const original = paymentOrder()
+      api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+      const updated = paymentOrder({
+        version: '2',
+        display_status: displayStatus,
+        allowed_actions: ['acknowledge'],
+      })
+      api.actOnWalletOrder.mockResolvedValue({
+        order: updated,
+        wallet: paymentWallet(updated, {
+          flow: {
+            id: 'FLOW-1',
+            revision: '2',
+            phase: 'result',
+            order: updated,
+          },
+        }),
+      })
+      const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+      await waitFor(() =>
+        expect(result.current.wallet?.flow.phase).toBe('order')
+      )
+      act(() => result.current.act(original, 'end'))
+      await waitFor(() =>
+        expect(result.current.wallet?.flow.order?.display_status).toBe(
+          displayStatus
+        )
+      )
+      expect(api.acknowledgeWalletPayment).not.toHaveBeenCalled()
+    }
+  )
   it('blocks simultaneous creates and reuses the original key after an unknown result', async () => {
     api.restoreWalletPayment.mockResolvedValue(paymentWallet())
     api.createWalletPayment
@@ -288,6 +387,103 @@ describe('authoritative wallet flow', () => {
     await waitFor(() => expect(result.current.busy).toBe(false))
     expect(result.current.wallet?.flow.order?.trade_no).toBe('NEW-ORDER')
     expect(result.current.wallet?.flow.phase).toBe('order')
+    expect(api.acknowledgeWalletPayment).not.toHaveBeenCalled()
+  })
+  it('does not acknowledge an end response after the signed-in user changes', async () => {
+    const original = paymentOrder()
+    api.restoreWalletPayment
+      .mockResolvedValueOnce(paymentWallet(original))
+      .mockResolvedValueOnce(paymentWallet())
+    let resolveEnd: (value: {
+      wallet: WalletState
+      order: ReturnType<typeof paymentOrder>
+    }) => void = () => {}
+    api.actOnWalletOrder.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEnd = resolve
+        })
+    )
+    const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    await waitFor(() => expect(result.current.wallet?.flow.phase).toBe('order'))
+    act(() => result.current.act(original, 'end'))
+    await waitFor(() => expect(api.actOnWalletOrder).toHaveBeenCalledTimes(1))
+    act(() => {
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 12, username: 'another-user', role: 1 })
+    })
+    await waitFor(() => expect(result.current.wallet?.flow.phase).toBe('idle'))
+    const ended = paymentOrder({
+      version: '2',
+      display_status: 'ended',
+      allowed_actions: ['acknowledge'],
+    })
+    await act(async () =>
+      resolveEnd({
+        order: ended,
+        wallet: paymentWallet(ended, {
+          flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: ended },
+        }),
+      })
+    )
+    await waitFor(() => expect(result.current.busy).toBe(false))
+    expect(api.acknowledgeWalletPayment).not.toHaveBeenCalled()
+    expect(result.current.wallet?.flow.phase).toBe('idle')
+  })
+  it('preserves a new purchase retry when an earlier automatic return arrives late', async () => {
+    const ended = paymentOrder({
+      version: '2',
+      display_status: 'ended',
+      allowed_actions: ['acknowledge'],
+    })
+    const endedWallet = paymentWallet(ended, {
+      flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: ended },
+    })
+    const idle = paymentWallet(null, {
+      flow: { id: null, revision: '3', phase: 'idle', order: null },
+    })
+    api.restoreWalletPayment.mockResolvedValue(endedWallet)
+    let resolveAutomaticReturn: (wallet: WalletState) => void = () => {}
+    api.acknowledgeWalletPayment
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveAutomaticReturn = resolve
+          })
+      )
+      .mockResolvedValueOnce(idle)
+    api.createWalletPayment.mockRejectedValue(new Error('response lost'))
+    const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    await waitFor(() =>
+      expect(result.current.wallet?.flow.phase).toBe('result')
+    )
+    let automaticReturn: Promise<boolean>
+    act(() => {
+      automaticReturn = result.current.acceptOrderAction(
+        { order: ended, wallet: endedWallet },
+        'end'
+      )
+    })
+    act(() => result.current.acknowledge())
+    await waitFor(() => expect(result.current.wallet?.can_create).toBe(true))
+    await waitFor(() => expect(result.current.busy).toBe(false))
+    act(() => result.current.create(paymentQuote()))
+    await waitFor(() =>
+      expect(result.current.notice).toBe('WALLET_STATE_UNAVAILABLE')
+    )
+    await act(async () => {
+      resolveAutomaticReturn(idle)
+      await automaticReturn
+    })
+    expect(result.current.creating).toBe(true)
+    act(() => result.current.retryCreate())
+    await waitFor(() =>
+      expect(api.createWalletPayment).toHaveBeenCalledTimes(2)
+    )
+    expect(api.createWalletPayment.mock.calls[0]?.[2]).toBe(
+      api.createWalletPayment.mock.calls[1]?.[2]
+    )
   })
   it('refreshes at the site deadline and waits for the server timeout result', async () => {
     vi.useFakeTimers()

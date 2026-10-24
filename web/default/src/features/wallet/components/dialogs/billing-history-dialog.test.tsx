@@ -191,6 +191,41 @@ it('ends an active historical top-up without restoring it over the current order
     screen.queryByRole('button', { name: 'Continue payment' })
   ).not.toBeInTheDocument()
 })
+it('keeps the ended history result visible when automatic return fails', async () => {
+  const original = paymentOrder()
+  history.records = [original]
+  const ended = paymentOrder({
+    version: '2',
+    display_status: 'ended',
+    status_group: 'closed',
+    allowed_actions: ['acknowledge'],
+  })
+  const result = {
+    order: ended,
+    wallet: paymentWallet(ended, {
+      flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: ended },
+    }),
+  }
+  vi.mocked(actOnWalletOrder).mockResolvedValue(result)
+  const onOrderAction = vi.fn().mockRejectedValue(new Error('response lost'))
+  render(
+    <QueryClientProvider client={client}>
+      <BillingHistoryDialog
+        open
+        onOpenChange={vi.fn()}
+        onOrderAction={onOrderAction}
+      />
+    </QueryClientProvider>
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'End this top-up' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm ending' }))
+  await waitFor(() => expect(onOrderAction).toHaveBeenCalledWith(result, 'end'))
+  expect(await screen.findByRole('alert')).toBeVisible()
+  expect(screen.getByText('Top-up ended')).toBeVisible()
+  expect(
+    screen.queryByRole('button', { name: 'End this top-up' })
+  ).not.toBeInTheDocument()
+})
 it('shows authorized funds review after a late payment without reopening the ended checkout', () => {
   history.records = [
     paymentOrder({
