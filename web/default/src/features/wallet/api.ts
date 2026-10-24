@@ -45,6 +45,8 @@ import type {
 // Wallet API Functions
 // ============================================================================
 
+const TOPUP_INFO_TIMEOUT_MS = 20_000
+
 /**
  * Check if API response is successful
  */
@@ -56,7 +58,9 @@ export function isApiSuccess(response: ApiResponse): boolean {
  * Get topup configuration info
  */
 export async function getTopupInfo(): Promise<TopupInfoResponse> {
-  const res = await api.get('/api/user/topup/info')
+  const res = await api.get('/api/user/topup/info', {
+    timeout: TOPUP_INFO_TIMEOUT_MS,
+  })
   return res.data
 }
 
