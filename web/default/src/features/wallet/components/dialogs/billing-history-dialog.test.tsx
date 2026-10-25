@@ -341,3 +341,36 @@ it('keeps unverified historical cash unknown and offers all-time history in the 
   })
   expect(history.handlePeriodChange).toHaveBeenCalledWith('all')
 })
+
+it('preserves history and confirmation while capability changes disable payment writes', async () => {
+  const order = paymentOrder()
+  history.records = [order]
+  vi.mocked(getWalletOrder).mockResolvedValue({
+    order,
+    wallet: paymentWallet(order),
+  })
+  const restore = vi.fn()
+  const view = (writesEnabled: boolean) => (
+    <QueryClientProvider client={client}>
+      <BillingHistoryDialog
+        open
+        onOpenChange={vi.fn()}
+        writesEnabled={writesEnabled}
+        onRestore={restore}
+      />
+    </QueryClientProvider>
+  )
+  const rendered = render(view(true))
+  fireEvent.click(screen.getByRole('button', { name: 'End this top-up' }))
+  expect(screen.getByRole('button', { name: 'Confirm ending' })).toBeEnabled()
+  rendered.rerender(view(false))
+  for (const name of ['Confirm ending', 'Continue payment', 'Check payment']) {
+    expect(screen.getByRole('button', { name })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name }))
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Order details' }))
+  await waitFor(() => expect(getWalletOrder).toHaveBeenCalledTimes(1))
+  expect(actOnWalletOrder).not.toHaveBeenCalled()
+  expect(restore).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Back to order' })).toBeEnabled()
+})

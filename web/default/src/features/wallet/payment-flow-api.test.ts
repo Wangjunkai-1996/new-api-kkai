@@ -27,6 +27,7 @@ import {
   walletStateSchema,
   WalletPaymentError,
   getWalletPayment,
+  walletRequestRetryAt,
 } from './payment-flow-api'
 import {
   paymentOrder,
@@ -123,6 +124,65 @@ it('does not allow an unknown legacy pricing snapshot to confirm a new quote', a
     })
   ).rejects.toThrow()
 })
+it.each(['query cancellation', 'timeout'] as const)(
+  'ends a quote after %s without retrying it',
+  async (reason) => {
+    const query = new AbortController()
+    const timeout = new AbortController()
+    const abort = new DOMException('Request cancelled', 'AbortError')
+    const timer = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(timeout.signal)
+    api.request.mockImplementation(
+      (config) =>
+        new Promise((_resolve, reject) => {
+          config?.signal?.addEventListener?.('abort', () => reject(abort), {
+            once: true,
+          })
+        })
+    )
+    const pending = quoteWalletPayment(
+      { payment_provider: 'epay', payment_method: 'alipay', amount: '10' },
+      query.signal
+    )
+    const rejected = expect(pending).rejects.toBe(abort)
+    if (reason === 'timeout') timeout.abort()
+    else query.abort()
+    await rejected
+    expect(timer).toHaveBeenCalledExactlyOnceWith(20_000)
+    expect(api.request).toHaveBeenCalledTimes(1)
+    timer.mockRestore()
+  }
+)
+
+it.each([
+  [15, undefined, 115_000],
+  [undefined, '30', 130_000],
+  [-1, '10', 110_000],
+  [undefined, 'Thu, 01 Jan 1970 00:02:00 GMT', 120_000],
+  [undefined, 'not-a-date', undefined],
+  [Infinity, undefined, undefined],
+  [1e99, undefined, undefined],
+])(
+  'parses reliable retry metadata from the original failure time (%s, %s)',
+  (seconds, header, expected) => {
+    const error = {
+      isAxiosError: true,
+      response: {
+        status: 429,
+        data: { retry_after_seconds: seconds },
+        headers: { 'retry-after': header },
+      },
+    }
+    expect(walletRequestRetryAt(error, 100_000)).toBe(expected)
+    expect(
+      walletRequestRetryAt(
+        { ...error, response: { ...error.response, status: 500 } },
+        100_000
+      )
+    ).toBeUndefined()
+  }
+)
 it('preserves only whitelisted administrator payment evidence without losing receipt ID precision', async () => {
   const order = paymentOrder({
     receipts: [

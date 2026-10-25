@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import { useSiteConfig } from '@/features/site-config'
 import { useAuthStore } from '@/stores/auth-store'
@@ -38,6 +45,7 @@ import {
   restoreWalletPayment,
   resumeWalletPayment,
   WalletPaymentError,
+  walletRequestRetryAt,
 } from '../payment-flow-api'
 import type {
   PaymentOrder,
@@ -45,6 +53,14 @@ import type {
   PaymentQuote,
   WalletState,
 } from '../payment-flow-types'
+
+function canRefreshWalletRead(error: unknown): boolean {
+  if (!(error instanceof WalletPaymentError) || error.status !== 429) {
+    return true
+  }
+  const retryAt = walletRequestRetryAt(error)
+  return retryAt !== undefined && retryAt <= Date.now()
+}
 
 export function useWalletPaymentIdentity() {
   const userId = useAuthStore((state) => state.auth.user?.id)
@@ -58,10 +74,36 @@ export function useWalletPaymentIdentity() {
   )
 }
 
-export function useWalletPaymentFlow(initialTradeNo?: string) {
+export function useWalletPaymentFlow(
+  initialTradeNo?: string,
+  writesEnabled = true
+) {
   const identity = useWalletPaymentIdentity()
+  const identityReady = identity.every(
+    (part) => part !== undefined && part !== null && part !== ''
+  )
   const identityKey = identity.join(':')
   const currentIdentity = useRef(identityKey)
+  const writeGate = useMemo(
+    () => ({ identityKey, writesEnabled }),
+    [identityKey, writesEnabled]
+  )
+  const activeWriteGate = useRef<{
+    key: typeof writeGate
+    confirmed: boolean
+    acceptingReads: boolean
+  } | null>(null)
+  const [confirmedGate, setConfirmedGate] = useState<typeof writeGate>()
+  useLayoutEffect(() => {
+    activeWriteGate.current = {
+      key: writeGate,
+      confirmed: false,
+      acceptingReads: false,
+    }
+    return () => {
+      activeWriteGate.current = null
+    }
+  }, [writeGate])
   const pollUntil = useRef(0)
   const [pollDeadline, setPollDeadline] = useState(() => Date.now() + 120_000)
   const [pollingPaused, setPollingPaused] = useState(false)
@@ -104,6 +146,8 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   )
   const current = useQuery({
     queryKey,
+    enabled: identityReady,
+    networkMode: 'always',
     queryFn: async ({ signal }) => {
       let next = await getWalletPayment(signal)
       const previous = client.getQueryData<WalletState>(queryKey)
@@ -119,6 +163,9 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       }
       return next
     },
+    retryOnMount: (query) => canRefreshWalletRead(query.state.error),
+    refetchOnMount: (query) =>
+      canRefreshWalletRead(query.state.error) ? 'always' : false,
     retry: false,
     meta: { errorToast: false },
     refetchOnWindowFocus: false,
@@ -127,8 +174,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       const phase = query.state.data?.flow.phase
       if (
         document.hidden ||
-        (query.state.error instanceof WalletPaymentError &&
-          query.state.error.status === 429) ||
+        !canRefreshWalletRead(query.state.error) ||
         Date.now() > pollUntil.current ||
         !phase ||
         phase === 'idle' ||
@@ -140,17 +186,93 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     },
     refetchIntervalInBackground: false,
   })
+  const previousWriteGate = useRef(writeGate)
+  const { refetch } = current
+  useLayoutEffect(() => {
+    const cache = client.getQueryCache()
+    const query = cache.find({ queryKey, exact: true })
+    const previous = previousWriteGate.current
+    previousWriteGate.current = writeGate
+    const requiresNewRead =
+      previous !== writeGate &&
+      previous.identityKey === writeGate.identityKey &&
+      writeGate.writesEnabled &&
+      identityReady
+    if (activeWriteGate.current) {
+      activeWriteGate.current.acceptingReads = identityReady && !requiresNewRead
+    }
+    const unsubscribe = cache.subscribe((event) => {
+      if (
+        event.type !== 'updated' ||
+        event.query !== query ||
+        activeWriteGate.current?.key !== writeGate
+      ) {
+        return
+      }
+      // Cached data and setQueryData are display-only until this observer sees
+      // a successful network read. Shared in-flight reads still count once.
+      if (
+        activeWriteGate.current.acceptingReads &&
+        event.action.type === 'success' &&
+        !event.action.manual
+      ) {
+        activeWriteGate.current.confirmed = true
+        setConfirmedGate(writeGate)
+      } else if (
+        event.action.type === 'error' &&
+        event.query.state.status === 'error'
+      ) {
+        activeWriteGate.current.confirmed = false
+        setConfirmedGate((previous) =>
+          previous === writeGate ? undefined : previous
+        )
+      }
+    })
+    // A read started while writes were disabled cannot re-authorize payment.
+    let cancelled = false
+    if (requiresNewRead) {
+      void client.cancelQueries({ queryKey, exact: true }).then(() => {
+        if (cancelled || activeWriteGate.current?.key !== writeGate) return
+        activeWriteGate.current.acceptingReads = true
+        if (canRefreshWalletRead(client.getQueryState(queryKey)?.error)) {
+          void refetch()
+        }
+      })
+    }
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [client, identityReady, queryKey, refetch, writeGate])
+  const writesReady =
+    identityReady &&
+    writesEnabled &&
+    confirmedGate === writeGate &&
+    current.isSuccess
+  const canWrite = useCallback(
+    () =>
+      identityReady &&
+      activeWriteGate.current?.key === writeGate &&
+      writeGate.writesEnabled &&
+      activeWriteGate.current.confirmed &&
+      client.getQueryState(queryKey)?.status === 'success',
+    [client, identityReady, queryKey, writeGate]
+  )
   const returned = useQuery({
     queryKey: ['wallet-payment', ...identity, 'return-order', initialTradeNo],
+    networkMode: 'always',
     queryFn: ({ signal }) => {
       if (!initialTradeNo) throw new Error('Payment return unavailable')
       return getWalletOrder(initialTradeNo, false, signal)
     },
     enabled:
+      identityReady &&
       !!initialTradeNo &&
       !returnDismissed &&
       current.data?.flow.order?.trade_no !== initialTradeNo,
     retry: false,
+    retryOnMount: (query) => canRefreshWalletRead(query.state.error),
+    refetchOnMount: (query) => canRefreshWalletRead(query.state.error),
     meta: { errorToast: false },
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -220,6 +342,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   })
   const recoveryRevision = current.data?.flow.revision
   const recoverable =
+    writesReady &&
     !initialTradeNo &&
     current.data?.flow.phase === 'idle' &&
     !current.data.can_create &&
@@ -236,13 +359,13 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     ) {
       return
     }
-    restored.current = recoveryKey
     operationBusy.current = true
     mutate(async () => {
+      if (!canWrite()) return
+      restored.current = recoveryKey
       apply(await restoreWalletPayment())
     })
-  }, [identityKey, recoveryRevision, recoverable, mutate, apply])
-  const { refetch } = current
+  }, [identityKey, recoveryRevision, recoverable, mutate, apply, canWrite])
   const deadline = current.data?.flow.order?.deadline_at
   const serverTime = current.data?.server_time
   const phase = current.data?.flow.phase
@@ -250,6 +373,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     current.data?.flow.order?.display_status === 'credit_review'
   useEffect(() => {
     if (
+      !identityReady ||
       !deadline ||
       !serverTime ||
       deadline <= serverTime ||
@@ -263,10 +387,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     const timer = window.setTimeout(
       () => {
         const error = client.getQueryState(queryKey)?.error
-        if (
-          document.hidden ||
-          (error instanceof WalletPaymentError && error.status === 429)
-        ) {
+        if (document.hidden || !canRefreshWalletRead(error)) {
           return
         }
         restartPolling()
@@ -277,6 +398,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     return () => window.clearTimeout(timer)
   }, [
     deadline,
+    identityReady,
     serverTime,
     phase,
     fundsReceived,
@@ -289,13 +411,14 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   const returnError = returned.error
   useEffect(() => {
     const refresh = () => {
-      if (document.hidden || Date.now() - lastFocusRefresh.current < 1000) {
+      if (
+        !identityReady ||
+        document.hidden ||
+        Date.now() - lastFocusRefresh.current < 1000
+      ) {
         return
       }
-      if (
-        current.error instanceof WalletPaymentError &&
-        current.error.status === 429
-      ) {
+      if (!canRefreshWalletRead(current.error)) {
         return
       }
       lastFocusRefresh.current = Date.now()
@@ -306,12 +429,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
         !returnDismissed &&
         current.data?.flow.order?.trade_no !== initialTradeNo
       ) {
-        if (
-          !(
-            returnError instanceof WalletPaymentError &&
-            returnError.status === 429
-          )
-        ) {
+        if (canRefreshWalletRead(returnError)) {
           void refetchReturned()
         }
       }
@@ -324,6 +442,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     }
   }, [
     identityKey,
+    identityReady,
     refetch,
     current.error,
     current.data?.flow.order?.trade_no,
@@ -340,8 +459,12 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     target: ReturnType<typeof preparePaymentWindow>
   ) => {
     try {
+      if (!canWrite()) {
+        closePaymentPlaceholder(target)
+        return
+      }
       const result = await resumeWalletPayment(order, wallet)
-      if (currentIdentity.current !== identityKey) {
+      if (currentIdentity.current !== identityKey || !canWrite()) {
         closePaymentPlaceholder(target)
         return
       }
@@ -373,6 +496,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     const wallet = client.getQueryData<WalletState>(queryKey)
     if (
       currentIdentity.current !== identityKey ||
+      !canWrite() ||
       blocked('wallet_checkout') ||
       operationBusy.current ||
       mutation.isPending ||
@@ -394,6 +518,10 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     const target = preparedTarget ?? preparePaymentWindow()
     mutation.mutate(async () => {
       try {
+        if (!canWrite()) {
+          closePaymentPlaceholder(target)
+          return
+        }
         const result = await createWalletPayment(
           value.quote.quote_token,
           value.revision,
@@ -434,7 +562,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     })
   }
   const resume = () => {
-    if (blocked('wallet_checkout')) return
+    if (!canWrite() || blocked('wallet_checkout')) return
     const wallet = current.data,
       order = wallet?.flow.order
     if (
@@ -459,6 +587,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     apply(result.wallet)
     const wallet = client.getQueryData<WalletState>(queryKey)
     if (
+      !canWrite() ||
       action !== 'end' ||
       !wallet?.flow.id ||
       wallet.flow.id !== result.wallet.flow.id ||
@@ -487,6 +616,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     reason?: string
   ) => {
     if (
+      !canWrite() ||
       blocked(
         action === 'reconcile' || action === 'admin-reconcile'
           ? 'wallet_reconcile'
@@ -502,6 +632,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     }
     operationBusy.current = true
     mutation.mutate(async () => {
+      if (!canWrite()) return
       const result = await actOnWalletOrder(order, action, reason)
       await acceptOrderAction(result, action)
     })
@@ -509,6 +640,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   const acknowledge = () => {
     const wallet = current.data
     if (
+      !canWrite() ||
       blocked('wallet_state') ||
       !wallet?.flow.order?.allowed_actions.includes('acknowledge') ||
       operationBusy.current ||
@@ -518,21 +650,23 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     }
     operationBusy.current = true
     mutation.mutate(async () => {
+      if (!canWrite()) return
       apply(await acknowledgeWalletPayment(wallet))
       setDismissedReturn(returnKey)
       setAttempt(null)
     })
   }
   const restore = (tradeNo?: string) => {
-    if (operationBusy.current || blocked('wallet_state')) return
+    if (!canWrite() || operationBusy.current || blocked('wallet_state')) return
     operationBusy.current = true
     mutation.mutate(async () => {
-      apply(await restoreWalletPayment(tradeNo))
+      if (canWrite()) apply(await restoreWalletPayment(tradeNo))
     })
   }
   const resumeReturned = () => {
     const order = returned.data?.order
     if (
+      !canWrite() ||
       !order ||
       order.display_status !== 'pending' ||
       !order.allowed_actions.includes('resume') ||
@@ -549,6 +683,10 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     const target = preparePaymentWindow()
     mutation.mutate(async () => {
       try {
+        if (!canWrite()) {
+          closePaymentPlaceholder(target)
+          return
+        }
         const wallet = await restoreWalletPayment(order.trade_no)
         apply(wallet)
         if (wallet.flow.order?.trade_no !== order.trade_no) {
@@ -564,7 +702,10 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   }
   return {
     wallet: current.data,
-    loading: current.isPending,
+    loading:
+      current.isPending ||
+      (writesEnabled && !current.isError && confirmedGate !== writeGate),
+    writesReady,
     error: current.isError,
     readError: current.error,
     operationError,
@@ -587,9 +728,10 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     resumeReturned,
     refreshReturned: () => {
       if (
-        returned.error instanceof WalletPaymentError &&
-        returned.error.retryAt &&
-        returned.error.retryAt > Date.now()
+        !identityReady ||
+        (returned.error instanceof WalletPaymentError &&
+          returned.error.retryAt &&
+          returned.error.retryAt > Date.now())
       ) {
         return
       }
@@ -612,9 +754,10 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     },
     refresh: () => {
       if (
-        current.error instanceof WalletPaymentError &&
-        current.error.retryAt &&
-        current.error.retryAt > Date.now()
+        !identityReady ||
+        (current.error instanceof WalletPaymentError &&
+          current.error.retryAt &&
+          current.error.retryAt > Date.now())
       ) {
         return
       }

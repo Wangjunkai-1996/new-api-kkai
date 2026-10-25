@@ -17,17 +17,45 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
+import axios from 'axios'
 
 import { getWalletFundingSummary } from '../funding-summary-api'
+import { walletRequestRetryAt } from '../payment-flow-api'
 import { useWalletPaymentIdentity } from './use-wallet-payment-flow'
+
+function canRefreshSummary(query: {
+  state: { error: unknown; errorUpdatedAt: number }
+}): boolean {
+  if (
+    !axios.isAxiosError(query.state.error) ||
+    query.state.error.response?.status !== 429
+  ) {
+    return true
+  }
+  const retryAt = walletRequestRetryAt(
+    query.state.error,
+    query.state.errorUpdatedAt
+  )
+  return retryAt !== undefined && retryAt <= Date.now()
+}
 
 export function useWalletFundingSummary(enabled = true) {
   const identity = useWalletPaymentIdentity()
   return useQuery({
     queryKey: ['wallet-payment', ...identity, 'funding-summary'],
     queryFn: ({ signal }) => getWalletFundingSummary(signal),
-    enabled,
+    networkMode: 'always',
+    enabled:
+      enabled &&
+      identity.every(
+        (part) => part !== undefined && part !== null && part !== ''
+      ),
     retry: false,
+    retryOnMount: false,
+    refetchOnMount: canRefreshSummary,
+    refetchOnWindowFocus: canRefreshSummary,
+    refetchOnReconnect: canRefreshSummary,
+    meta: { errorToast: false },
     staleTime: 0,
   })
 }

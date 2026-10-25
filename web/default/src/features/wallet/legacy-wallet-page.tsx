@@ -16,16 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowUpRight, Receipt } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
-import { Button } from '@/components/ui/button'
 import { MembershipWalletSummary } from '@/features/membership/components/wallet-summary'
 import { useSiteConfig } from '@/features/site-config'
-import { getSelf } from '@/lib/api'
 import { MOTION_TRANSITION } from '@/lib/motion'
 
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
@@ -33,7 +28,6 @@ import { LegacyBillingHistoryDialog } from './components/dialogs/legacy-billing-
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
-import { WalletStatsCard } from './components/wallet-stats-card'
 import { DEFAULT_DISCOUNT_RATE, PAYMENT_TYPES } from './constants'
 import {
   usePayment,
@@ -44,7 +38,6 @@ import {
 } from './hooks'
 import { getMinTopupAmount, dispatchSelectedPayment } from './lib'
 import type {
-  UserWalletData,
   PaymentMethod,
   PresetAmount,
   CreemProduct,
@@ -73,9 +66,8 @@ function paymentMinimum(method: PaymentMethod, topupInfo: TopupInfo): number {
 export function LegacyWalletPage(props: WalletPageProps) {
   const { data: site } = useSiteConfig()
   const showPlatformBenefits = site?.tenant_id === 0
-  const { t } = useTranslation()
-  const [user, setUser] = useState<UserWalletData | null>(null)
-  const [userLoading, setUserLoading] = useState(true)
+  const user = props.user
+  const fetchUser = props.onRefreshUser
   const [topupAmount, setTopupAmount] = useState(0)
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
@@ -89,9 +81,6 @@ export function LegacyWalletPage(props: WalletPageProps) {
     value: number
   } | null>(null)
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
-  const [billingDialogOpen, setBillingDialogOpen] = useState(
-    !!props.initialShowHistory
-  )
   const [redemptionCode, setRedemptionCode] = useState('')
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
   const [selectedCreemProduct, setSelectedCreemProduct] =
@@ -205,26 +194,6 @@ export function LegacyWalletPage(props: WalletPageProps) {
     Number.isFinite(paymentAmount) &&
     paymentAmount > 0
 
-  // Fetch and refresh user data
-  const fetchUser = useCallback(async () => {
-    try {
-      const response = await getSelf()
-      if (response.success && response.data) {
-        setUser(response.data as UserWalletData)
-      }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch user data:', error)
-    } finally {
-      setUserLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    // eslint-disable-next-line react/set-state-in-effect -- Loading the current user is an external request.
-    fetchUser()
-  }, [fetchUser])
-
   useEffect(() => {
     if (props.initialShowHistory) {
       window.history.replaceState({}, '', window.location.pathname)
@@ -262,7 +231,7 @@ export function LegacyWalletPage(props: WalletPageProps) {
   }, [topupInfo, presetAmounts, paymentMethods])
 
   useEffect(() => {
-    if (!activePaymentType || topupAmount <= 0) return
+    if (!props.writesEnabled || !activePaymentType || topupAmount <= 0) return
     let cancelled = false
     calculatePaymentAmount(topupAmount, activePaymentType)
       .then((value) => {
@@ -286,7 +255,12 @@ export function LegacyWalletPage(props: WalletPageProps) {
     return () => {
       cancelled = true
     }
-  }, [activePaymentType, topupAmount, calculatePaymentAmount])
+  }, [
+    activePaymentType,
+    topupAmount,
+    calculatePaymentAmount,
+    props.writesEnabled,
+  ])
 
   // Handle preset selection
   const handleSelectPreset = (preset: PresetAmount) => {
@@ -309,12 +283,13 @@ export function LegacyWalletPage(props: WalletPageProps) {
   }
 
   const handlePaymentSubmit = () => {
-    if (paymentQuoteValid) setConfirmDialogOpen(true)
+    if (props.writesEnabled && paymentQuoteValid) setConfirmDialogOpen(true)
   }
 
   // Handle payment confirmation
   const handlePaymentConfirm = async () => {
-    if (!availableMethod || !paymentQuoteValid) return
+    if (!props.writesEnabled || !availableMethod || !paymentQuoteValid) return
+    props.onLegacyPaymentStarted?.()
 
     const success = await dispatchSelectedPayment(
       availableMethod,
@@ -335,7 +310,7 @@ export function LegacyWalletPage(props: WalletPageProps) {
 
   // Handle redemption
   const handleRedeem = async () => {
-    if (!redemptionCode) return
+    if (!props.writesEnabled || !redemptionCode) return
 
     const success = await redeemCode(redemptionCode)
     if (success) {
@@ -346,13 +321,15 @@ export function LegacyWalletPage(props: WalletPageProps) {
 
   // Handle Creem product selection
   const handleCreemProductSelect = (product: CreemProduct) => {
+    if (!props.writesEnabled) return
     setSelectedCreemProduct(product)
     setCreemDialogOpen(true)
   }
 
   // Handle Creem payment confirmation
   const handleCreemConfirm = async () => {
-    if (!selectedCreemProduct) return
+    if (!props.writesEnabled || !selectedCreemProduct) return
+    props.onLegacyPaymentStarted?.()
 
     const success = await processCreemPayment(selectedCreemProduct.productId)
     if (success) {
@@ -379,76 +356,61 @@ export function LegacyWalletPage(props: WalletPageProps) {
 
   return (
     <>
-      <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <Button
-            variant='outline'
-            className='border-border bg-card hover:border-primary/40 h-10 gap-2 px-3 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:transform-none'
-            onClick={() => setBillingDialogOpen(true)}
-          >
-            <Receipt aria-hidden='true' />
-            {t('Order History')}
-            <ArrowUpRight className='size-3.5' aria-hidden='true' />
-          </Button>
-        </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          <motion.div
-            initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={MOTION_TRANSITION.default}
-            className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-7'
-          >
-            <WalletStatsCard user={user} loading={userLoading} />
+      <motion.div
+        initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={MOTION_TRANSITION.default}
+        className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-7'
+      >
+        {showPlatformBenefits && <MembershipWalletSummary />}
 
-            {showPlatformBenefits && <MembershipWalletSummary />}
+        <div id='wallet-add-funds' className='scroll-mt-4'>
+          <RechargeFormCard
+            topupInfo={topupInfo}
+            presetAmounts={presetAmounts}
+            selectedPreset={selectedPreset}
+            onSelectPreset={handleSelectPreset}
+            topupAmount={topupAmount}
+            onTopupAmountChange={handleTopupAmountChange}
+            paymentAmount={paymentAmount}
+            calculating={calculating}
+            onPaymentMethodSelect={handlePaymentMethodSelect}
+            selectedPaymentMethod={availableMethod}
+            selectedWaffoMethodIndex={activeWaffoMethodIndex}
+            onPaymentSubmit={handlePaymentSubmit}
+            paymentQuoteValid={props.writesEnabled && paymentQuoteValid}
+            purchaseDisabled={!props.writesEnabled}
+            paymentLoading={null}
+            redemptionCode={redemptionCode}
+            onRedemptionCodeChange={setRedemptionCode}
+            onRedeem={handleRedeem}
+            redeeming={redeeming}
+            topupLink={topupInfo?.topup_link}
+            loading={topupLoading}
+            creemProducts={topupInfo?.creem_products}
+            enableCreemTopup={topupInfo?.enable_creem_topup}
+            onCreemProductSelect={handleCreemProductSelect}
+            enableWaffoTopup={topupInfo?.enable_waffo_topup}
+            waffoPayMethods={topupInfo?.waffo_pay_methods}
+            waffoMinTopup={topupInfo?.waffo_min_topup}
+            onWaffoMethodSelect={handleWaffoMethodSelect}
+            enableWaffoPancakeTopup={topupInfo?.enable_waffo_pancake_topup}
+          />
+        </div>
 
-            <div id='wallet-add-funds' className='scroll-mt-4'>
-              <RechargeFormCard
-                topupInfo={topupInfo}
-                presetAmounts={presetAmounts}
-                selectedPreset={selectedPreset}
-                onSelectPreset={handleSelectPreset}
-                topupAmount={topupAmount}
-                onTopupAmountChange={handleTopupAmountChange}
-                paymentAmount={paymentAmount}
-                calculating={calculating}
-                onPaymentMethodSelect={handlePaymentMethodSelect}
-                selectedPaymentMethod={availableMethod}
-                selectedWaffoMethodIndex={activeWaffoMethodIndex}
-                onPaymentSubmit={handlePaymentSubmit}
-                paymentQuoteValid={paymentQuoteValid}
-                paymentLoading={null}
-                redemptionCode={redemptionCode}
-                onRedemptionCodeChange={setRedemptionCode}
-                onRedeem={handleRedeem}
-                redeeming={redeeming}
-                topupLink={topupInfo?.topup_link}
-                loading={topupLoading}
-                creemProducts={topupInfo?.creem_products}
-                enableCreemTopup={topupInfo?.enable_creem_topup}
-                onCreemProductSelect={handleCreemProductSelect}
-                enableWaffoTopup={topupInfo?.enable_waffo_topup}
-                waffoPayMethods={topupInfo?.waffo_pay_methods}
-                waffoMinTopup={topupInfo?.waffo_min_topup}
-                onWaffoMethodSelect={handleWaffoMethodSelect}
-                enableWaffoPancakeTopup={topupInfo?.enable_waffo_pancake_topup}
-              />
-            </div>
-
-            {showPlatformBenefits && (
-              <SubscriptionPlansCard
-                topupInfo={topupInfo}
-                userQuota={user?.quota}
-                onPurchaseSuccess={fetchUser}
-              />
-            )}
-          </motion.div>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+        {showPlatformBenefits && (
+          <SubscriptionPlansCard
+            topupInfo={topupInfo}
+            userQuota={user?.quota}
+            onPurchaseSuccess={fetchUser}
+            writesEnabled={props.writesEnabled}
+            onPurchaseStarted={props.onLegacyPaymentStarted}
+          />
+        )}
+      </motion.div>
 
       <PaymentConfirmDialog
-        open={confirmDialogOpen}
+        open={confirmDialogOpen && props.writesEnabled}
         onOpenChange={setConfirmDialogOpen}
         onConfirm={handlePaymentConfirm}
         topupAmount={topupAmount}
@@ -463,12 +425,12 @@ export function LegacyWalletPage(props: WalletPageProps) {
 
       <LegacyBillingHistoryDialog
         scope={props.historyScope ?? 'self'}
-        open={billingDialogOpen}
-        onOpenChange={setBillingDialogOpen}
+        open={props.historyOpen}
+        onOpenChange={props.onHistoryOpenChange}
       />
 
       <CreemConfirmDialog
-        open={creemDialogOpen}
+        open={creemDialogOpen && props.writesEnabled}
         onOpenChange={setCreemDialogOpen}
         onConfirm={handleCreemConfirm}
         product={selectedCreemProduct}

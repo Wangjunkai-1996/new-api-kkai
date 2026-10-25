@@ -30,47 +30,46 @@ import { formatQuota } from '@/lib/format'
 import { useWalletFundingSummary } from '../hooks/use-wallet-funding-summary'
 import type { UserWalletData } from '../types'
 import { WalletCashAmounts } from './wallet-cash-amounts'
+import { WalletRequestError } from './wallet-request-error'
 
 interface WalletStatsCardProps {
   user: UserWalletData | null
   loading?: boolean
+  balanceRefreshing?: boolean
+  balanceError?: unknown
+  balanceErrorUpdatedAt?: number
+  balanceUpdatedAt?: number
+  onBalanceRetry?: () => void
   fundingSummaryEnabled?: boolean
 }
 
 export function WalletStatsCard(props: WalletStatsCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const funding = useWalletFundingSummary(props.fundingSummaryEnabled === true)
-  const summary =
-    props.fundingSummaryEnabled && !funding.isError ? funding.data : undefined
-
-  if (props.loading) {
-    return (
-      <div className='bg-muted/25 grid grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] items-center gap-x-3 gap-y-4 border-y px-3 py-4 sm:gap-5 sm:px-5 sm:py-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.43fr)_minmax(0,0.85fr)_minmax(0,0.72fr)]'>
-        <div className='min-w-0'>
-          <Skeleton className='h-4 w-24' />
-          <Skeleton className='mt-2 h-9 w-64 max-w-full' />
-          <Skeleton className='mt-2 h-3 w-28 max-w-full' />
-        </div>
-        {['payments', 'usage', 'requests'].map((key) => (
-          <div
-            key={key}
-            className='min-w-0 border-l pl-3 sm:pl-5 [&:nth-child(3)]:border-0 [&:nth-child(3)]:pl-0 md:[&:nth-child(3)]:border-l md:[&:nth-child(3)]:pl-5'
-          >
-            <Skeleton className='h-3 w-20 max-w-full' />
-            <Skeleton className='mt-2 h-5 w-28 max-w-full' />
-            <Skeleton className='mt-2 h-3 w-24 max-w-full' />
-          </div>
-        ))}
-      </div>
-    )
-  }
+  const summary = props.fundingSummaryEnabled ? funding.data : undefined
+  const balanceLoading = props.loading && !props.user
+  const summaryLoading =
+    props.fundingSummaryEnabled && funding.isPending && !summary
+  const balanceValue = props.user
+    ? formatQuota(props.user.quota)
+    : t('Not available')
+  const consumedValue = props.user
+    ? formatQuota(props.user.used_quota)
+    : t('Not available')
+  const requestCount = props.user
+    ? props.user.request_count.toLocaleString()
+    : t('Not available')
 
   return (
     <section
       aria-label={t('Wallet amount statistics')}
       className='bg-muted/25 grid grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] items-center gap-x-3 gap-y-4 border-y px-3 py-4 sm:gap-5 sm:px-5 sm:py-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.43fr)_minmax(0,0.85fr)_minmax(0,0.72fr)]'
     >
-      <div className='min-w-0'>
+      <section
+        aria-label={t('Current Balance')}
+        aria-busy={balanceLoading || props.balanceRefreshing}
+        className='min-w-0'
+      >
         <div className='text-muted-foreground flex items-center gap-2 text-xs'>
           <span
             className='bg-success size-1.5 shrink-0 rounded-full'
@@ -79,13 +78,57 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           {t('Current Balance')}
         </div>
         <div className='mt-2 text-[29px] leading-tight font-semibold break-all tabular-nums sm:text-[34px]'>
-          {props.user ? formatQuota(props.user.quota) : t('Not available')}
+          {balanceLoading ? (
+            <Skeleton
+              aria-hidden='true'
+              className='h-9 w-64 max-w-full motion-reduce:animate-none'
+            />
+          ) : (
+            balanceValue
+          )}
         </div>
         <p className='text-muted-foreground mt-1.5 text-[11px]'>
           {t('Includes top-ups, rebates and gifts')}
         </p>
-      </div>
-      <div className='min-w-0 border-l pl-3 sm:pl-5'>
+        {(balanceLoading || props.balanceRefreshing) && (
+          <p role='status' className='text-muted-foreground mt-2 text-xs'>
+            {balanceLoading
+              ? t('Loading wallet balance...')
+              : t('Updating wallet balance...')}
+          </p>
+        )}
+        {props.user && !!props.balanceUpdatedAt && (
+          <p className='text-muted-foreground mt-2 text-xs'>
+            {t('Last updated:')}{' '}
+            <time dateTime={new Date(props.balanceUpdatedAt).toISOString()}>
+              {new Date(props.balanceUpdatedAt).toLocaleTimeString(
+                i18n.language
+              )}
+            </time>
+          </p>
+        )}
+        {!!props.balanceError && (
+          <WalletRequestError
+            error={props.balanceError}
+            errorUpdatedAt={props.balanceErrorUpdatedAt}
+            onRetry={props.onBalanceRetry}
+            retryDisabled={props.balanceRefreshing}
+            retryLabel={t('Retry balance')}
+            message={
+              props.user
+                ? t(
+                    'We could not refresh your wallet balance. The displayed balance may be out of date.'
+                  )
+                : t('We could not load your wallet balance. Try again.')
+            }
+          />
+        )}
+      </section>
+      <section
+        aria-label={t('Total paid top-ups')}
+        aria-busy={props.fundingSummaryEnabled && funding.isFetching}
+        className='min-w-0 border-l pl-3 sm:pl-5'
+      >
         <div className='text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs'>
           <span>{t('Total paid top-ups')}</span>
           <Tooltip>
@@ -114,22 +157,68 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             </TooltipContent>
           </Tooltip>
         </div>
-        <WalletCashAmounts
-          payments={summary?.cash_payments}
-          loading={props.fundingSummaryEnabled && funding.isPending}
-          className='text-[19px] sm:text-[21px]'
-        />
+        {summaryLoading ? (
+          <Skeleton
+            aria-hidden='true'
+            className='h-7 w-32 max-w-full motion-reduce:animate-none'
+          />
+        ) : (
+          <WalletCashAmounts
+            payments={summary?.cash_payments}
+            className='text-[19px] sm:text-[21px]'
+          />
+        )}
         <p className='text-muted-foreground mt-1.5 text-[11px]'>
           {t('Excludes rebates and gifts · Before refunds')}
         </p>
-      </div>
+        {props.fundingSummaryEnabled && funding.isFetching && (
+          <p role='status' className='text-muted-foreground mt-2 text-xs'>
+            {summaryLoading
+              ? t('Loading payment totals...')
+              : t('Updating payment totals...')}
+          </p>
+        )}
+        {summary && !!funding.dataUpdatedAt && (
+          <p className='text-muted-foreground mt-2 text-xs'>
+            {t('Last updated:')}{' '}
+            <time dateTime={new Date(funding.dataUpdatedAt).toISOString()}>
+              {new Date(funding.dataUpdatedAt).toLocaleTimeString(
+                i18n.language
+              )}
+            </time>
+          </p>
+        )}
+        {props.fundingSummaryEnabled && funding.isError && (
+          <WalletRequestError
+            error={funding.error}
+            errorUpdatedAt={funding.errorUpdatedAt}
+            onRetry={() => void funding.refetch()}
+            retryDisabled={funding.isFetching}
+            retryLabel={t('Retry payment totals')}
+            message={
+              summary
+                ? t(
+                    'We could not refresh your payment totals. The displayed totals may be out of date.'
+                  )
+                : t('We could not load your payment totals. Try again.')
+            }
+          />
+        )}
+      </section>
       <div className='min-w-0 md:border-l md:pl-5'>
         <span className='text-muted-foreground text-xs'>
           {t('Total consumed credits')}
         </span>
-        <strong className='mt-1.5 block text-[17px] font-medium break-all tabular-nums'>
-          {props.user ? formatQuota(props.user.used_quota) : t('Not available')}
-        </strong>
+        <div className='mt-1.5 text-[17px] font-medium break-all tabular-nums'>
+          {balanceLoading ? (
+            <Skeleton
+              aria-hidden='true'
+              className='h-6 w-28 max-w-full motion-reduce:animate-none'
+            />
+          ) : (
+            consumedValue
+          )}
+        </div>
         <p className='text-muted-foreground mt-1.5 text-[11px]'>
           {t('Deducted for actual usage')}
         </p>
@@ -138,11 +227,16 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
         <span className='text-muted-foreground text-xs'>
           {t('API Requests')}
         </span>
-        <strong className='mt-1.5 block text-[17px] font-medium break-all tabular-nums'>
-          {props.user
-            ? props.user.request_count.toLocaleString()
-            : t('Not available')}
-        </strong>
+        <div className='mt-1.5 text-[17px] font-medium break-all tabular-nums'>
+          {balanceLoading ? (
+            <Skeleton
+              aria-hidden='true'
+              className='h-6 w-20 max-w-full motion-reduce:animate-none'
+            />
+          ) : (
+            requestCount
+          )}
+        </div>
         <p className='text-muted-foreground mt-1.5 text-[11px]'>
           {t('Total API calls')}
         </p>

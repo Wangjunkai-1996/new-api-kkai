@@ -67,6 +67,7 @@ interface BillingHistoryDialogProps {
   onWalletChange?: (wallet: WalletState) => void
   onOrderAction?: (result: PaymentOrderResult, action: string) => Promise<void>
   onRestore?: (tradeNo: string) => void
+  writesEnabled?: boolean
 }
 export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
   const { t } = useTranslation()
@@ -196,6 +197,7 @@ export function BillingHistoryDialog(props: BillingHistoryDialogProps) {
                 onWalletChange={props.onWalletChange}
                 onOrderAction={props.onOrderAction}
                 onRestore={props.onRestore}
+                writesEnabled={props.writesEnabled}
               />
             ))}
           </div>
@@ -257,6 +259,7 @@ function HistoryOrder(props: {
   onWalletChange?: (wallet: WalletState) => void
   onOrderAction?: (result: PaymentOrderResult, action: string) => Promise<void>
   onRestore?: (tradeNo: string) => void
+  writesEnabled?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const identity = useWalletPaymentIdentity()
@@ -289,6 +292,9 @@ function HistoryOrder(props: {
     order.display_status === 'credit_review'
   const mutation = useMutation({
     mutationFn: async (action: 'end' | 'reconcile' | 'admin-reconcile') => {
+      if (props.writesEnabled === false) {
+        throw new Error('Wallet payment actions are unavailable')
+      }
       try {
         const result = await actOnWalletOrder(order, action, reason)
         client.setQueryData(
@@ -416,6 +422,7 @@ function HistoryOrder(props: {
               <Button
                 variant='outline'
                 size='sm'
+                disabled={props.writesEnabled === false}
                 onClick={() => setConfirm('resume')}
               >
                 {t('Continue payment')}
@@ -428,7 +435,7 @@ function HistoryOrder(props: {
               <Button
                 variant='outline'
                 size='sm'
-                disabled={mutation.isPending}
+                disabled={props.writesEnabled === false || mutation.isPending}
                 onClick={() => setConfirm('end')}
               >
                 {t('End this top-up')}
@@ -440,7 +447,7 @@ function HistoryOrder(props: {
               <Button
                 variant='outline'
                 size='sm'
-                disabled={mutation.isPending}
+                disabled={props.writesEnabled === false || mutation.isPending}
                 onClick={() => mutation.mutate('reconcile')}
               >
                 {t('Check payment')}
@@ -450,7 +457,7 @@ function HistoryOrder(props: {
             <Button
               variant='outline'
               size='sm'
-              disabled={mutation.isPending}
+              disabled={props.writesEnabled === false || mutation.isPending}
               onClick={() => {
                 setExpanded(true)
                 setConfirm('admin-reconcile')
@@ -549,10 +556,12 @@ function HistoryOrder(props: {
             <div className='flex flex-wrap gap-2'>
               <Button
                 disabled={
+                  props.writesEnabled === false ||
                   mutation.isPending ||
                   (confirm === 'admin-reconcile' && !reason.trim())
                 }
                 onClick={() => {
+                  if (props.writesEnabled === false) return
                   if (confirm === 'resume') props.onRestore?.(order.trade_no)
                   else if (confirm) mutation.mutate(confirm)
                 }}

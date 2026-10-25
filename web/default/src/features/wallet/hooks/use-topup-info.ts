@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect, useCallback, useRef } from 'react'
-
-import { handleServerError } from '@/lib/handle-server-error'
+import { type Query, useQuery, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
 
 import { getTopupInfo } from '../api'
 import {
@@ -26,6 +25,7 @@ import {
   mergePresetAmounts,
   getMinTopupAmount,
 } from '../lib'
+import { WalletPaymentError, walletRequestRetryAt } from '../payment-flow-api'
 import type {
   TopupInfo,
   PresetAmount,
@@ -33,6 +33,7 @@ import type {
   PaymentMethod,
   WaffoPayMethod,
 } from '../types'
+import { useWalletPaymentIdentity } from './use-wallet-payment-flow'
 
 // ============================================================================
 // Topup Info Hook
@@ -165,27 +166,45 @@ function parseDiscountMap(data: unknown): Record<number, number> {
   )
 }
 
+interface WalletConfiguration {
+  topupInfo: TopupInfo
+  presetAmounts: PresetAmount[]
+  capability: 'legacy' | 'lifecycle' | 'invalid'
+  confirmedLifecycle: boolean
+}
+
+function canRefreshWalletConfiguration(query: Query<WalletConfiguration>) {
+  const error = query.state.error
+  const limited =
+    (error instanceof WalletPaymentError && error.status === 429) ||
+    (axios.isAxiosError(error) && error.response?.status === 429)
+  if (!limited) return true
+  const retryAt = walletRequestRetryAt(error, query.state.errorUpdatedAt)
+  return retryAt !== undefined && Date.now() >= retryAt
+}
+
 export function useTopupInfo() {
-  const [topupInfo, setTopupInfo] = useState<TopupInfo | null>(null)
-  const [presetAmounts, setPresetAmounts] = useState<PresetAmount[]>([])
-  const [loading, setLoading] = useState(true)
-  const requestIdRef = useRef(0)
-
-  const fetchTopupInfo = useCallback(async (background = false) => {
-    const requestId = ++requestIdRef.current
-    try {
-      if (!background) setLoading(true)
-
-      const response = await getTopupInfo()
-      if (requestId !== requestIdRef.current) return
-
+  const client = useQueryClient()
+  const identity = useWalletPaymentIdentity()
+  const identityReady = identity.every(
+    (part) => part !== undefined && part !== null && part !== ''
+  )
+  const queryKey = ['wallet-payment', ...identity, 'info']
+  const query = useQuery({
+    queryKey,
+    enabled: identityReady,
+    queryFn: async ({ signal }): Promise<WalletConfiguration> => {
+      const response = await getTopupInfo(signal)
       if (!response.success || !response.data) {
-        handleServerError(response)
-        return
+        throw new Error('Wallet configuration unavailable')
       }
-
-      const processedData: TopupInfo = {
+      const ready = response.data.wallet_lifecycle_ready
+      let capability: 'legacy' | 'lifecycle' | 'invalid' = 'invalid'
+      if (ready === undefined || ready === false) capability = 'legacy'
+      if (ready === true) capability = 'lifecycle'
+      const topupInfo: TopupInfo = {
         ...response.data,
+        wallet_lifecycle_ready: typeof ready === 'boolean' ? ready : undefined,
         pay_methods: parsePaymentMethods(
           response.data.pay_methods,
           response.data.stripe_min_topup
@@ -197,44 +216,47 @@ export function useTopupInfo() {
           response.data.waffo_pay_methods
         ),
       }
-
-      setTopupInfo(processedData)
-
-      if (processedData.amount_options.length > 0) {
-        const customPresets = mergePresetAmounts(
-          processedData.amount_options,
-          processedData.discount || {}
-        )
-        setPresetAmounts(customPresets)
-      } else {
-        const minTopup = getMinTopupAmount(processedData)
-        const defaultPresets = generatePresetAmounts(minTopup)
-        setPresetAmounts(defaultPresets)
-      }
-    } catch (err) {
-      if (requestId === requestIdRef.current) handleServerError(err)
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    queueMicrotask(() => {
-      if (!cancelled) void fetchTopupInfo()
-    })
-
-    return () => {
-      cancelled = true
-      requestIdRef.current += 1
-    }
-  }, [fetchTopupInfo])
+      const presetAmounts =
+        topupInfo.amount_options.length > 0
+          ? mergePresetAmounts(
+              topupInfo.amount_options,
+              topupInfo.discount || {}
+            )
+          : generatePresetAmounts(getMinTopupAmount(topupInfo))
+      const confirmedLifecycle =
+        capability === 'lifecycle' ||
+        client.getQueryData<WalletConfiguration>(queryKey)
+          ?.confirmedLifecycle === true
+      return { topupInfo, presetAmounts, capability, confirmedLifecycle }
+    },
+    staleTime: 30_000,
+    gcTime: 300_000,
+    retryOnMount: false,
+    refetchOnMount: (query) =>
+      canRefreshWalletConfiguration(query) ? 'always' : false,
+    refetchOnWindowFocus: canRefreshWalletConfiguration,
+    refetchOnReconnect: canRefreshWalletConfiguration,
+    networkMode: 'always',
+    retry: false,
+    meta: { errorToast: false },
+    refetchInterval: (state) =>
+      state.state.data?.capability === 'lifecycle' || state.state.error
+        ? false
+        : 30_000,
+    refetchIntervalInBackground: false,
+  })
 
   return {
-    topupInfo,
-    presetAmounts,
-    loading,
-    refetch: fetchTopupInfo,
+    topupInfo: query.data?.topupInfo ?? null,
+    presetAmounts: query.data?.presetAmounts ?? [],
+    capability: query.data?.capability,
+    confirmedLifecycle: query.data?.confirmedLifecycle === true,
+    loading: query.isPending,
+    refreshing: query.isFetching,
+    fresh: query.isFetchedAfterMount && query.isSuccess,
+    error: query.error,
+    errorUpdatedAt: query.errorUpdatedAt,
+    refetch: query.refetch,
+    identityReady,
   }
 }

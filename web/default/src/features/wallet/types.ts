@@ -168,6 +168,13 @@ export interface WalletPageProps {
   topupInfo: TopupInfo | null
   presetAmounts: PresetAmount[]
   topupLoading: boolean
+  user: UserWalletData | null
+  onRefreshUser: () => Promise<void>
+  historyOpen: boolean
+  historyUnfinished: boolean
+  onHistoryOpenChange: (open: boolean, unfinished?: boolean) => void
+  writesEnabled: boolean
+  onLegacyPaymentStarted?: () => void
 }
 
 /**

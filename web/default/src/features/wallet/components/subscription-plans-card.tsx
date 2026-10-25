@@ -69,6 +69,8 @@ interface SubscriptionPlansCardProps {
   onAvailabilityChange?: (available: boolean) => void
   userQuota?: number
   onPurchaseSuccess?: () => void | Promise<void>
+  writesEnabled?: boolean
+  onPurchaseStarted?: () => void
 }
 
 function getEpayMethods(payMethods: PaymentMethod[] = []): PaymentMethod[] {
@@ -100,6 +102,8 @@ export function SubscriptionPlansCard({
   onAvailabilityChange,
   userQuota,
   onPurchaseSuccess,
+  writesEnabled = true,
+  onPurchaseStarted,
 }: SubscriptionPlansCardProps) {
   const { t } = useTranslation()
   const groupDisplayNames = useGroupDisplayNames()
@@ -619,7 +623,9 @@ export function SubscriptionPlansCard({
                       <Button
                         variant='outline'
                         className='w-full'
+                        disabled={!writesEnabled}
                         onClick={() => {
+                          if (!writesEnabled) return
                           setSelectedPlan(p)
                           setPurchaseOpen(true)
                         }}
@@ -655,6 +661,8 @@ export function SubscriptionPlansCard({
         epayMethods={epayMethods}
         userQuota={userQuota}
         onPurchaseSuccess={onPurchaseSuccess}
+        writesEnabled={writesEnabled}
+        onPurchaseStarted={onPurchaseStarted}
         purchaseLimit={
           selectedPlan?.plan?.max_purchase_per_user
             ? Number(selectedPlan.plan.max_purchase_per_user)

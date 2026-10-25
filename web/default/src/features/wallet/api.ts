@@ -39,13 +39,14 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  UserWalletData,
 } from './types'
 
 // ============================================================================
 // Wallet API Functions
 // ============================================================================
 
-const TOPUP_INFO_TIMEOUT_MS = 20_000
+const WALLET_READ_TIMEOUT_MS = 20_000
 
 /**
  * Check if API response is successful
@@ -57,9 +58,25 @@ export function isApiSuccess(response: ApiResponse): boolean {
 /**
  * Get topup configuration info
  */
-export async function getTopupInfo(): Promise<TopupInfoResponse> {
+export async function getTopupInfo(
+  signal?: AbortSignal
+): Promise<TopupInfoResponse> {
   const res = await api.get('/api/user/topup/info', {
-    timeout: TOPUP_INFO_TIMEOUT_MS,
+    timeout: WALLET_READ_TIMEOUT_MS,
+    signal,
+    disableDuplicate: true,
+  })
+  return res.data
+}
+
+export async function getWalletBalance(
+  signal?: AbortSignal
+): Promise<ApiResponse<UserWalletData>> {
+  const res = await api.get('/api/user/self', {
+    timeout: WALLET_READ_TIMEOUT_MS,
+    signal,
+    disableDuplicate: true,
+    skipErrorHandler: true,
   })
   return res.data
 }

@@ -16,12 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { LifecycleWalletPage as Wallet } from './lifecycle-wallet-page'
+import { LifecycleWalletPage } from './lifecycle-wallet-page'
 import { quoteWalletPayment } from './payment-flow-api'
 import {
   paymentOrder,
@@ -29,7 +33,26 @@ import {
   paymentWallet,
 } from './payment-flow-fixtures'
 import type { PaymentQuote } from './payment-flow-types'
-import type { CreemProduct, TopupInfo } from './types'
+import type { CreemProduct, TopupInfo, WalletPageProps } from './types'
+
+function Wallet(
+  props: Pick<WalletPageProps, 'topupInfo' | 'presetAmounts' | 'topupLoading'>
+) {
+  const [history, setHistory] = useState({ open: false, unfinished: false })
+  return (
+    <LifecycleWalletPage
+      {...props}
+      user={null}
+      onRefreshUser={async () => undefined}
+      historyOpen={history.open}
+      historyUnfinished={history.unfinished}
+      onHistoryOpenChange={(open, unfinished = false) =>
+        setHistory({ open, unfinished })
+      }
+      writesEnabled
+    />
+  )
+}
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -49,6 +72,7 @@ vi.mock('./hooks/use-wallet-payment-flow', () => ({
     error: false,
     creating: false,
     busy: false,
+    writesReady: true,
     notice: '',
     apply: vi.fn(),
     restore: vi.fn(),
@@ -66,18 +90,6 @@ vi.mock('./payment-flow-api', async (importOriginal) => ({
 vi.mock('@/features/site-config', () => ({
   useSiteConfig: () => ({ data: site }),
 }))
-vi.mock('@/lib/api', () => ({
-  getSelf: async () => ({ success: true, data: { quota: 10000 } }),
-}))
-vi.mock('@/components/layout', () => {
-  const SectionPageLayout = (props: { children: ReactNode }) => (
-    <div>{props.children}</div>
-  )
-  SectionPageLayout.Title = SectionPageLayout
-  SectionPageLayout.Actions = SectionPageLayout
-  SectionPageLayout.Content = SectionPageLayout
-  return { SectionPageLayout }
-})
 vi.mock('@/features/membership/components/wallet-summary', () => ({
   MembershipWalletSummary: () => <p>Membership benefits</p>,
 }))
@@ -129,12 +141,6 @@ vi.mock('./components/recharge-form-card', () => ({
     </>
   ),
 }))
-vi.mock('./components/wallet-stats-card', () => ({
-  WalletStatsCard: (props: { fundingSummaryEnabled?: boolean }) =>
-    props.fundingSummaryEnabled ? (
-      <p>Wallet funding statistics enabled</p>
-    ) : null,
-}))
 vi.mock('./components/dialogs/billing-history-dialog', () => ({
   BillingHistoryDialog: (props: { open: boolean; unfinished?: boolean }) =>
     props.open ? (
@@ -177,7 +183,6 @@ it.each([0, 12])(
       </QueryClientProvider>
     )
     expect(await screen.findByText('Customer topup')).toBeVisible()
-    expect(screen.getByText('Wallet funding statistics enabled')).toBeVisible()
     for (const label of ['Membership benefits', 'Subscription benefits']) {
       if (tenantId === 0) expect(screen.getByText(label)).toBeVisible()
       else expect(screen.queryByText(label)).not.toBeInTheDocument()
@@ -185,7 +190,7 @@ it.each([0, 12])(
   }
 )
 
-it('keeps balance visible and hides purchase modules during a current order', () => {
+it('hides purchase modules during a current order while its details remain visible', () => {
   const order = paymentOrder({ allowed_actions: ['reconcile'] })
   flow.wallet = paymentWallet(order)
   render(
@@ -193,7 +198,6 @@ it('keeps balance visible and hides purchase modules during a current order', ()
       <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
     </QueryClientProvider>
   )
-  expect(screen.getByText('Wallet funding statistics enabled')).toBeVisible()
   expect(screen.queryByText('Customer topup')).not.toBeInTheDocument()
   expect(screen.queryByText('Subscription benefits')).not.toBeInTheDocument()
   expect(screen.queryByText('Membership benefits')).not.toBeInTheDocument()
@@ -469,5 +473,48 @@ it('reuses an unexpired quote when switching amount A to B and back to A', async
     mounted.unmount()
     client.clear()
     topup.info = null
+  }
+})
+
+it('shows a local quote failure while offline instead of leaving the quote paused indefinitely', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const quoteMock = vi.mocked(quoteWalletPayment)
+  quoteMock.mockReset().mockRejectedValue(new Error('offline'))
+  flow.wallet = paymentWallet()
+  const info: TopupInfo = {
+    enable_online_topup: true,
+    enable_stripe_topup: false,
+    pay_methods: [{ name: 'Alipay', type: 'alipay' }],
+    min_topup: 10,
+    stripe_min_topup: 10,
+    amount_options: [10],
+    discount: {},
+  }
+  onlineManager.setOnline(false)
+  const mounted = render(
+    <QueryClientProvider client={client}>
+      <Wallet
+        topupInfo={info}
+        presetAmounts={[{ value: 10 }]}
+        topupLoading={false}
+      />
+    </QueryClientProvider>
+  )
+  try {
+    expect(
+      await screen.findByText(
+        'We could not obtain a valid payment quote. Please try again.'
+      )
+    ).toBeVisible()
+    expect(quoteMock).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole('button', { name: 'Review and Pay' })
+    ).toBeDisabled()
+  } finally {
+    mounted.unmount()
+    client.clear()
+    onlineManager.setOnline(true)
   }
 })

@@ -188,6 +188,38 @@ export class WalletPaymentError extends Error {
   }
 }
 
+export function walletRequestRetryAt(
+  error: unknown,
+  observedAt = Date.now()
+): number | undefined {
+  let retryAt: number | undefined
+  if (error instanceof WalletPaymentError && error.status === 429) {
+    retryAt = error.retryAt
+  } else if (
+    axios.isAxiosError<{ retry_after_seconds?: unknown }>(error) &&
+    error.response?.status === 429
+  ) {
+    const seconds = error.response.data?.retry_after_seconds
+    const header = error.response.headers?.['retry-after']
+    if (
+      typeof seconds === 'number' &&
+      Number.isFinite(seconds) &&
+      seconds >= 0
+    ) {
+      retryAt = observedAt + seconds * 1000
+    } else if (typeof header === 'string' && /^\d+$/.test(header)) {
+      retryAt = observedAt + Number(header) * 1000
+    } else if (typeof header === 'string') {
+      retryAt = Date.parse(header)
+    }
+  }
+  return retryAt !== undefined &&
+    Number.isFinite(retryAt) &&
+    Math.abs(retryAt) <= 8_640_000_000_000_000
+    ? retryAt
+    : undefined
+}
+
 // New lifecycle APIs deliberately never fall back to unguarded legacy /pay.
 async function paymentRequest<T>(
   method: 'get' | 'post',
@@ -211,28 +243,12 @@ async function paymentRequest<T>(
     if (axios.isAxiosError(error) && error.response) {
       const data = error.response.data ?? {}
       const parsed = walletStateSchema.safeParse(data.data?.wallet)
-      const retryAfter = error.response.headers?.['retry-after']
-      let seconds: number | undefined
-      if (typeof data.retry_after_seconds === 'number') {
-        seconds = data.retry_after_seconds
-      } else if (typeof retryAfter === 'string' && /^\d+$/.test(retryAfter)) {
-        seconds = Number(retryAfter)
-      }
-      let retryAt: number | undefined
-      if (seconds !== undefined && Number.isFinite(seconds) && seconds >= 0) {
-        retryAt = Date.now() + seconds * 1000
-      } else if (typeof retryAfter === 'string') {
-        retryAt = Date.parse(retryAfter)
-      }
       throw new WalletPaymentError(
         typeof data.code === 'string' ? data.code : 'WALLET_STATE_UNAVAILABLE',
         parsed.success ? parsed.data : undefined,
         {
           status: error.response.status,
-          retryAt:
-            retryAt !== undefined && Number.isFinite(retryAt)
-              ? retryAt
-              : undefined,
+          retryAt: walletRequestRetryAt(error),
           rateLimitScope:
             typeof data.rate_limit_scope === 'string'
               ? data.rate_limit_scope
@@ -285,7 +301,7 @@ export async function quoteWalletPayment(
     'post',
     '/api/user/topup/quote',
     request,
-    signal
+    walletRequestSignal(signal)
   )
   const schema = orderSchema
     .pick({

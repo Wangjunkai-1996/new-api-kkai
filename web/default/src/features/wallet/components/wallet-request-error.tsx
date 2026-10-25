@@ -16,55 +16,68 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import axios from 'axios'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 
-import { WalletPaymentError } from '../payment-flow-api'
+import { WalletPaymentError, walletRequestRetryAt } from '../payment-flow-api'
 
-function useWalletCooldown(error: unknown): number {
-  const retryAt =
-    error instanceof WalletPaymentError ? error.retryAt : undefined
+function useWalletCooldown(error: unknown, errorUpdatedAt?: number) {
+  const cooldown = useMemo(() => {
+    const limited =
+      (error instanceof WalletPaymentError && error.status === 429) ||
+      (axios.isAxiosError(error) && error.response?.status === 429)
+    return { limited, retryAt: walletRequestRetryAt(error, errorUpdatedAt) }
+  }, [error, errorUpdatedAt])
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
-    if (!retryAt || retryAt <= Date.now()) return
-    const timer = window.setInterval(() => {
-      const time = Date.now()
-      setNow(time)
-      if (time >= retryAt) window.clearInterval(timer)
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [retryAt])
-  return retryAt ? Math.max(0, Math.ceil((retryAt - now) / 1000)) : 0
+    if (!cooldown.retryAt || cooldown.retryAt <= now) return
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(2_147_483_647, Math.max(0, cooldown.retryAt - Date.now()))
+    )
+    return () => window.clearTimeout(timer)
+  }, [cooldown.retryAt, now])
+  return {
+    ...cooldown,
+    blocked: !!cooldown.retryAt && cooldown.retryAt > now,
+  }
 }
 
 export function WalletRequestError(props: {
   error: unknown
+  errorUpdatedAt?: number
   onRetry?: () => void
   retryLabel?: string
+  retryDisabled?: boolean
   message?: string
 }) {
-  const { t } = useTranslation()
-  const seconds = useWalletCooldown(props.error)
-  const limited =
-    props.error instanceof WalletPaymentError && props.error.status === 429
+  const { t, i18n } = useTranslation()
+  const cooldown = useWalletCooldown(props.error, props.errorUpdatedAt)
   let message =
     props.message ??
     t(
       'We could not update this payment information. Your order is still saved.'
     )
-  if (limited) {
-    message =
-      seconds > 0
-        ? t('Too many requests. Try again in {{seconds}} seconds.', { seconds })
-        : t('Too many requests. Please wait before trying again.')
+  if (cooldown.limited) {
+    const limitMessage = cooldown.retryAt
+      ? t('Too many requests. Try again at {{time}}.', {
+          time: new Date(cooldown.retryAt).toLocaleTimeString(i18n.language),
+        })
+      : t('Too many requests. Please wait before trying again.')
+    message = props.message ? `${props.message} ${limitMessage}` : limitMessage
   }
   return (
-    <div role='alert' className='bg-muted rounded-lg border p-4 text-sm'>
-      {message}
+    <div className='bg-muted rounded-lg border p-4 text-sm'>
+      <p role='alert'>{message}</p>
       {props.onRetry && (
-        <Button variant='link' disabled={seconds > 0} onClick={props.onRetry}>
+        <Button
+          variant='link'
+          disabled={cooldown.blocked || props.retryDisabled}
+          onClick={props.onRetry}
+        >
           {props.retryLabel ?? t('Retry')}
         </Button>
       )}

@@ -44,6 +44,10 @@ const fundingSummarySchema = z.object({
 export type WalletFundingSummary = z.infer<typeof fundingSummarySchema>
 
 export async function getWalletFundingSummary(signal?: AbortSignal) {
-  const response = await api.get('/api/user/topup/summary', { signal })
+  const response = await api.get('/api/user/topup/summary', {
+    signal,
+    timeout: 20_000,
+    disableDuplicate: true,
+  })
   return fundingSummarySchema.parse(requireServerSuccess(response.data).data)
 }

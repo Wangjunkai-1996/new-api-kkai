@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Crown, CalendarClock, Package } from 'lucide-react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -61,6 +61,8 @@ interface Props {
   purchaseCount?: number
   userQuota?: number
   onPurchaseSuccess?: () => void | Promise<void>
+  writesEnabled?: boolean
+  onPurchaseStarted?: () => void
 }
 
 export function SubscriptionPurchaseDialog(props: Props) {
@@ -77,6 +79,14 @@ function SubscriptionPurchaseDialogContent(props: Props) {
   const groupDisplayNames = useGroupDisplayNames()
   const { currency } = useSystemConfig()
   const [paying, setPaying] = useState(false)
+  const [checkoutPaused, setCheckoutPaused] = useState(false)
+  const writesAllowed = useRef(props.writesEnabled !== false)
+  useLayoutEffect(() => {
+    writesAllowed.current = props.writesEnabled !== false
+    return () => {
+      writesAllowed.current = false
+    }
+  }, [props.writesEnabled])
   const [epayChoice, setSelectedEpayMethod] = useState<string | null>(null)
   const selectedEpayMethod = epayChoice ?? props.epayMethods?.[0]?.type ?? ''
 
@@ -108,10 +118,16 @@ function SubscriptionPurchaseDialogContent(props: Props) {
     (props.purchaseCount || 0) >= (props.purchaseLimit || 0)
 
   const handlePayStripe = async () => {
+    if (props.writesEnabled === false || paying || checkoutPaused) return
+    props.onPurchaseStarted?.()
     setPaying(true)
     try {
       const res = await paySubscriptionStripe({ plan_id: plan.id })
       if (res.message === 'success' && res.data?.pay_link) {
+        if (!writesAllowed.current) {
+          setCheckoutPaused(true)
+          return
+        }
         window.open(res.data.pay_link, '_blank')
         toast.success(t('Payment page opened'))
         props.onOpenChange(false)
@@ -126,10 +142,16 @@ function SubscriptionPurchaseDialogContent(props: Props) {
   }
 
   const handlePayCreem = async () => {
+    if (props.writesEnabled === false || paying || checkoutPaused) return
+    props.onPurchaseStarted?.()
     setPaying(true)
     try {
       const res = await paySubscriptionCreem({ plan_id: plan.id })
       if (res.message === 'success' && res.data?.checkout_url) {
+        if (!writesAllowed.current) {
+          setCheckoutPaused(true)
+          return
+        }
         window.open(res.data.checkout_url, '_blank')
         toast.success(t('Payment page opened'))
         props.onOpenChange(false)
@@ -146,10 +168,16 @@ function SubscriptionPurchaseDialogContent(props: Props) {
   // In-tab redirect (not window.open) — user-gesture context is lost
   // across the await, so a popup would be blocked. Same as the wallet hook.
   const handlePayWaffoPancake = async () => {
+    if (props.writesEnabled === false || paying || checkoutPaused) return
+    props.onPurchaseStarted?.()
     setPaying(true)
     try {
       const res = await paySubscriptionWaffoPancake({ plan_id: plan.id })
       if (res.message === 'success' && res.data?.checkout_url) {
+        if (!writesAllowed.current) {
+          setCheckoutPaused(true)
+          return
+        }
         toast.success(t('Redirecting to payment page...'))
         window.location.href = res.data.checkout_url
       } else {
@@ -167,10 +195,12 @@ function SubscriptionPurchaseDialogContent(props: Props) {
     /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 
   const handlePayEpay = async () => {
+    if (props.writesEnabled === false || paying || checkoutPaused) return
     if (!selectedEpayMethod) {
       toast.error(t('Please select a payment method'))
       return
     }
+    props.onPurchaseStarted?.()
     setPaying(true)
     try {
       const res = await paySubscriptionEpay({
@@ -178,6 +208,10 @@ function SubscriptionPurchaseDialogContent(props: Props) {
         payment_method: selectedEpayMethod,
       })
       if (res.message === 'success' && res.url) {
+        if (!writesAllowed.current) {
+          setCheckoutPaused(true)
+          return
+        }
         const form = document.createElement('form')
         form.action = res.url
         form.method = 'POST'
@@ -207,10 +241,12 @@ function SubscriptionPurchaseDialogContent(props: Props) {
   }
 
   const handlePayBalance = async () => {
+    if (props.writesEnabled === false || paying || checkoutPaused) return
     if (!allowBalancePay) {
       toast.error(t('This plan does not allow balance redemption'))
       return
     }
+    props.onPurchaseStarted?.()
     setPaying(true)
     try {
       const res = await paySubscriptionBalance({ plan_id: plan.id })
@@ -297,6 +333,16 @@ function SubscriptionPurchaseDialogContent(props: Props) {
           </div>
         </div>
 
+        {checkoutPaused && (
+          <Alert>
+            <AlertDescription>
+              {t(
+                'The payment request was received, but payment availability changed. Check Order History before trying again.'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
         {limitReached && (
           <Alert variant='destructive'>
             <AlertDescription>
@@ -332,7 +378,12 @@ function SubscriptionPurchaseDialogContent(props: Props) {
             variant='outline'
             onClick={handlePayBalance}
             disabled={
-              paying || limitReached || !allowBalancePay || insufficientBalance
+              props.writesEnabled === false ||
+              checkoutPaused ||
+              paying ||
+              limitReached ||
+              !allowBalancePay ||
+              insufficientBalance
             }
           >
             {t('Pay with Balance')}
@@ -351,7 +402,12 @@ function SubscriptionPurchaseDialogContent(props: Props) {
                     variant='outline'
                     className='flex-1'
                     onClick={handlePayStripe}
-                    disabled={paying || limitReached}
+                    disabled={
+                      props.writesEnabled === false ||
+                      checkoutPaused ||
+                      paying ||
+                      limitReached
+                    }
                   >
                     Stripe
                   </Button>
@@ -361,7 +417,12 @@ function SubscriptionPurchaseDialogContent(props: Props) {
                     variant='outline'
                     className='flex-1'
                     onClick={handlePayCreem}
-                    disabled={paying || limitReached}
+                    disabled={
+                      props.writesEnabled === false ||
+                      checkoutPaused ||
+                      paying ||
+                      limitReached
+                    }
                   >
                     Creem
                   </Button>
@@ -371,7 +432,12 @@ function SubscriptionPurchaseDialogContent(props: Props) {
                     variant='outline'
                     className='flex-1'
                     onClick={handlePayWaffoPancake}
-                    disabled={paying || limitReached}
+                    disabled={
+                      props.writesEnabled === false ||
+                      checkoutPaused ||
+                      paying ||
+                      limitReached
+                    }
                   >
                     Waffo Pancake
                   </Button>
@@ -392,7 +458,13 @@ function SubscriptionPurchaseDialogContent(props: Props) {
                 />
                 <Button
                   onClick={handlePayEpay}
-                  disabled={paying || !selectedEpayMethod || limitReached}
+                  disabled={
+                    props.writesEnabled === false ||
+                    checkoutPaused ||
+                    paying ||
+                    !selectedEpayMethod ||
+                    limitReached
+                  }
                 >
                   {t('Pay')}
                 </Button>

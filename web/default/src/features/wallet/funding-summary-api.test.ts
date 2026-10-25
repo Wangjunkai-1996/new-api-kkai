@@ -40,7 +40,11 @@ it('reads the authenticated summary envelope without narrowing it to a history p
   api.get.mockResolvedValue({ data: { success: true, data: summary } })
   const signal = new AbortController().signal
   await expect(getWalletFundingSummary(signal)).resolves.toEqual(summary)
-  expect(api.get).toHaveBeenCalledWith('/api/user/topup/summary', { signal })
+  expect(api.get).toHaveBeenCalledWith('/api/user/topup/summary', {
+    signal,
+    timeout: 20_000,
+    disableDuplicate: true,
+  })
 })
 
 it('rejects a failed summary instead of creating a zero payment total', async () => {

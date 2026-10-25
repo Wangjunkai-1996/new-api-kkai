@@ -20,7 +20,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { getTopupInfo } from './api'
+import { getTopupInfo, getWalletBalance } from './api'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }))
 
@@ -33,5 +33,35 @@ it('bounds the wallet configuration request so initial loading can recover', asy
 
   expect(api.get).toHaveBeenCalledWith('/api/user/topup/info', {
     timeout: 20_000,
+    signal: undefined,
+    disableDuplicate: true,
   })
+})
+
+it.each([
+  ['configuration', getTopupInfo, '/api/user/topup/info'],
+  ['balance', getWalletBalance, '/api/user/self'],
+] as const)(
+  'keeps the %s query abort signal independent from other GET callers',
+  async (_name, read, url) => {
+    const controller = new AbortController()
+    const data = { success: true, data: { quota: 500_000 } }
+    vi.mocked(api.get).mockResolvedValue({ data })
+    await expect(read(controller.signal)).resolves.toEqual(data)
+    expect(api.get).toHaveBeenCalledExactlyOnceWith(
+      url,
+      expect.objectContaining({
+        signal: controller.signal,
+        timeout: 20_000,
+        disableDuplicate: true,
+      })
+    )
+  }
+)
+
+it('surfaces a failed balance read without retrying or synthesizing a zero balance', async () => {
+  const error = new Error('balance unavailable')
+  vi.mocked(api.get).mockRejectedValue(error)
+  await expect(getWalletBalance()).rejects.toBe(error)
+  expect(api.get).toHaveBeenCalledTimes(1)
 })
