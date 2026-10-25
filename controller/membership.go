@@ -294,7 +294,7 @@ func AdminGetMembershipConfig(c *gin.Context) {
 	catalog, err := model.GetMembershipCatalog()
 	if err != nil {
 		if !model.MembershipEnabled() && model.DB != nil && errors.Is(err, model.ErrMembershipSchemaNotReady) {
-			common.ApiSuccess(c, gin.H{"runtime_enabled": false, "sales_enabled": false, "topup_discounts_disabled": false, "release_id": 0, "model_limits": map[string]model.MembershipModelLimit{}, "tiers": []model.MembershipTier{}, "groups": []model.MembershipGroup{}})
+			common.ApiSuccess(c, gin.H{"runtime_enabled": false, "schema_ready": false, "sales_enabled": false, "topup_discounts_disabled": false, "release_id": 0, "model_limits": map[string]model.MembershipModelLimit{}, "tiers": []model.MembershipTier{}, "groups": []model.MembershipGroup{}})
 			return
 		}
 		membershipAPIError(c, err)
@@ -309,7 +309,11 @@ func AdminGetMembershipConfig(c *gin.Context) {
 			catalog.Groups = append(catalog.Groups, model.MembershipGroup{Key: key, DisplayName: setting.GetGroupDisplayName(key), Enabled: true})
 		}
 	}
-	common.ApiSuccess(c, catalog)
+	common.ApiSuccess(c, struct {
+		model.MembershipCatalog
+		RuntimeEnabled bool `json:"runtime_enabled"`
+		SchemaReady    bool `json:"schema_ready"`
+	}{MembershipCatalog: *catalog, RuntimeEnabled: model.MembershipEnabled(), SchemaReady: true})
 }
 
 func AdminPublishMembershipConfig(c *gin.Context) {
@@ -336,7 +340,11 @@ func AdminPublishMembershipConfig(c *gin.Context) {
 		membershipAPIError(c, err)
 		return
 	}
-	common.ApiSuccess(c, published)
+	common.ApiSuccess(c, struct {
+		model.MembershipCatalog
+		RuntimeEnabled bool `json:"runtime_enabled"`
+		SchemaReady    bool `json:"schema_ready"`
+	}{MembershipCatalog: *published, RuntimeEnabled: model.MembershipEnabled(), SchemaReady: true})
 }
 
 func AdminResolveMembershipOrder(c *gin.Context) {

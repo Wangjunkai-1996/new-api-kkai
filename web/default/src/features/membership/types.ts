@@ -51,6 +51,7 @@ export interface MembershipGroup {
 
 export interface MembershipCatalog {
   runtime_enabled?: boolean
+  schema_ready?: boolean
   release_id: number
   sales_enabled: boolean
   topup_discounts_disabled?: boolean

@@ -51,6 +51,7 @@ func TestAdminGetMembershipConfigHandlesUnpreparedSchemaWithoutHidingFailures(t 
 				Data    struct {
 					model.MembershipCatalog
 					RuntimeEnabled *bool `json:"runtime_enabled"`
+					SchemaReady    *bool `json:"schema_ready"`
 				} `json:"data"`
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
@@ -61,6 +62,8 @@ func TestAdminGetMembershipConfigHandlesUnpreparedSchemaWithoutHidingFailures(t 
 				require.True(t, response.Success)
 				require.NotNil(t, response.Data.RuntimeEnabled)
 				assert.False(t, *response.Data.RuntimeEnabled)
+				require.NotNil(t, response.Data.SchemaReady)
+				assert.False(t, *response.Data.SchemaReady)
 				assert.False(t, response.Data.SalesEnabled)
 				assert.False(t, response.Data.TopupDiscountsDisabled)
 				assert.Zero(t, response.Data.ReleaseID)
@@ -72,7 +75,10 @@ func TestAdminGetMembershipConfigHandlesUnpreparedSchemaWithoutHidingFailures(t 
 			case name == "ready_schema":
 				assert.Equal(t, http.StatusOK, recorder.Code)
 				require.True(t, response.Success)
-				assert.Nil(t, response.Data.RuntimeEnabled)
+				require.NotNil(t, response.Data.RuntimeEnabled)
+				assert.Equal(t, model.MembershipEnabled(), *response.Data.RuntimeEnabled)
+				require.NotNil(t, response.Data.SchemaReady)
+				assert.True(t, *response.Data.SchemaReady)
 				assert.Positive(t, response.Data.ReleaseID)
 				require.Len(t, response.Data.Tiers, 1)
 				assert.Equal(t, "gold", response.Data.Tiers[0].ID)

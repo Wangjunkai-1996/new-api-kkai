@@ -59,14 +59,28 @@ export function MembershipAdmin() {
               </AlertDescription>
             </Alert>
           )}
-          {config.data?.runtime_enabled === false && (
+          {config.data?.runtime_enabled === false &&
+            config.data.schema_ready !== false && (
+              <Alert>
+                <AlertDescription>
+                  {t('Memberships are not available yet.')}
+                  <span className='block'>
+                    {t('Runtime')}: {t('Disabled')}
+                  </span>
+                </AlertDescription>
+              </Alert>
+            )}
+          {config.data?.schema_ready === false && (
             <Alert>
               <AlertDescription>
                 {t('Memberships are not available yet.')}
+                <span className='block'>
+                  {t('Database')}: {t('Unavailable')}
+                </span>
               </AlertDescription>
             </Alert>
           )}
-          {config.data && config.data.runtime_enabled !== false && (
+          {config.data && config.data.schema_ready !== false && (
             <>
               <MembershipCatalogEditor
                 key={config.data.release_id}
