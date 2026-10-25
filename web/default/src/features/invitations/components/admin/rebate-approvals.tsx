@@ -86,6 +86,10 @@ export const RebateApprovals = (props: { requestKind?: RebateRequestKind }) => {
         'Failed to load rebate requests'
       ),
   })
+  if (query.isError && (action || selectedIds.length > 0)) {
+    setAction(null)
+    setSelectedIds([])
+  }
   const mutation = useMutation({
     mutationFn: runRequestAction,
     onSuccess: async (data, completedAction) => {
@@ -123,7 +127,11 @@ export const RebateApprovals = (props: { requestKind?: RebateRequestKind }) => {
           {requestKind === 'ordinary' && (
             <Button
               size='sm'
-              disabled={selectedIds.length === 0 || mutation.isPending}
+              disabled={
+                !query.isSuccess ||
+                selectedIds.length === 0 ||
+                mutation.isPending
+              }
               onClick={() =>
                 setAction({
                   kind: 'batch-approve-pay',
@@ -172,14 +180,14 @@ export const RebateApprovals = (props: { requestKind?: RebateRequestKind }) => {
             onRetry={() => void query.refetch()}
           />
         )}
-        {query.data?.items.length === 0 && (
+        {query.isSuccess && query.data.items.length === 0 && (
           <EmptyState
             icon={CheckCircle2}
             title={t('No rebate requests')}
             bordered
           />
         )}
-        {query.data && query.data.items.length > 0 && (
+        {query.isSuccess && query.data.items.length > 0 && (
           <RebateApprovalTable
             requests={query.data.items}
             requestKind={requestKind}
@@ -189,7 +197,7 @@ export const RebateApprovals = (props: { requestKind?: RebateRequestKind }) => {
             onAction={setAction}
           />
         )}
-        {query.data && (
+        {query.isSuccess && (
           <PaginationControls
             page={page}
             pageSize={PAGE_SIZE}
@@ -199,10 +207,10 @@ export const RebateApprovals = (props: { requestKind?: RebateRequestKind }) => {
         )}
       </CardContent>
       <RequestActionDialog
-        action={action}
+        action={query.isSuccess ? action : null}
         pending={mutation.isPending}
         onActionChange={setAction}
-        onConfirm={() => action && mutation.mutate(action)}
+        onConfirm={() => query.isSuccess && action && mutation.mutate(action)}
       />
     </Card>
   )

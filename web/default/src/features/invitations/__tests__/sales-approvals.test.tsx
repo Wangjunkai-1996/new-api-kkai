@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 
@@ -144,4 +144,90 @@ test('maintenance disables external issue confirmation while leaving review rese
   expect(
     screen.getByRole('menuitem', { name: 'Reset Review' })
   ).not.toHaveAttribute('aria-disabled', 'true')
+})
+
+test.each([
+  { name: 'populated', items: [request], total: 21 },
+  { name: 'empty', items: [], total: 0 },
+])('hides a cached $name approval list when refreshing fails', async (data) => {
+  const user = userEvent.setup()
+  let requestsFail = false
+  vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url.endsWith('/status')) {
+      return {
+        data: {
+          success: true,
+          data: { available: true, settlementEnabled: true },
+        },
+      }
+    }
+    if (url.endsWith('/sales-profile')) {
+      return {
+        data: { success: true, data: { active: true, registered: true } },
+      }
+    }
+    return {
+      data: requestsFail
+        ? { success: false, message: 'Database error' }
+        : {
+            success: true,
+            data: {
+              items: data.items,
+              total: data.total,
+              page: 1,
+              pageSize: 20,
+            },
+          },
+    }
+  })
+  const post = vi.spyOn(api, 'post')
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  render(
+    <QueryClientProvider client={client}>
+      <RebateApprovals requestKind='sales' />
+    </QueryClientProvider>
+  )
+  await screen.findByText(
+    data.items.length ? 'sales-four' : 'No rebate requests'
+  )
+  if (data.items.length) {
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Actions' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Confirm Issue' }))
+    await user.type(
+      screen.getByLabelText('Issue Reference or Note'),
+      'paid-ref-17'
+    )
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled()
+  }
+
+  requestsFail = true
+  await act(async () => {
+    await client.refetchQueries({
+      queryKey: ['kkai', 'invitations', 'admin', 'requests'],
+    })
+  })
+
+  await screen.findByText('Failed to load rebate requests')
+  expect(screen.getByText('Database error')).toBeInTheDocument()
+  expect(screen.queryByText('No rebate requests')).not.toBeInTheDocument()
+  expect(screen.queryByText('sales-four')).not.toBeInTheDocument()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Next page' })
+  ).not.toBeInTheDocument()
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  )
+  expect(post).not.toHaveBeenCalled()
+
+  requestsFail = false
+  await user.click(screen.getByRole('button', { name: 'Retry' }))
+  await screen.findByText(
+    data.items.length ? 'sales-four' : 'No rebate requests'
+  )
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(post).not.toHaveBeenCalled()
 })
