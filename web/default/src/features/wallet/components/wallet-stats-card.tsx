@@ -25,6 +25,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 
 import { useWalletFundingSummary } from '../hooks/use-wallet-funding-summary'
@@ -102,7 +103,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             {t('Last updated:')}{' '}
             <time dateTime={new Date(props.balanceUpdatedAt).toISOString()}>
               {new Date(props.balanceUpdatedAt).toLocaleTimeString(
-                i18n.language
+                toIntlLocale(i18n.language)
               )}
             </time>
           </p>
@@ -183,7 +184,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             {t('Last updated:')}{' '}
             <time dateTime={new Date(funding.dataUpdatedAt).toISOString()}>
               {new Date(funding.dataUpdatedAt).toLocaleTimeString(
-                i18n.language
+                toIntlLocale(i18n.language)
               )}
             </time>
           </p>

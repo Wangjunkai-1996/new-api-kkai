@@ -17,12 +17,63 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import i18next from 'i18next'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { WalletPaymentError } from '../payment-flow-api'
 import { WalletRequestError } from './wallet-request-error'
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  void i18next.changeLanguage('en')
+})
+
+it.each([
+  ['zhCN', 'zh-CN', 'wallet'],
+  ['zhTW', 'zh-TW', 'wallet'],
+  ['zhCN', 'zh-CN', 'axios'],
+  ['zhTW', 'zh-TW', 'axios'],
+] as const)(
+  'keeps the %s %s %s rate-limit error local and honors its retry deadline',
+  async (language, locale, source) => {
+    await i18next.changeLanguage(language)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-25T04:00:00Z'))
+    const retryAt = Date.now() + 60_000
+    const retry = vi.fn()
+    const error =
+      source === 'wallet'
+        ? new WalletPaymentError('WALLET_RATE_LIMITED', undefined, {
+            status: 429,
+            retryAt,
+          })
+        : {
+            isAxiosError: true,
+            response: {
+              status: 429,
+              headers: { 'retry-after': '60' },
+              data: {},
+            },
+          }
+    render(
+      <WalletRequestError
+        error={error}
+        errorUpdatedAt={Date.now()}
+        onRetry={retry}
+      />
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      new Date(retryAt).toLocaleTimeString(locale)
+    )
+    const button = screen.getByRole('button', { name: 'Retry' })
+    expect(button).toBeDisabled()
+    expect(retry).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(button).toBeEnabled()
+    fireEvent.click(button)
+    expect(retry).toHaveBeenCalledTimes(1)
+  }
+)
 
 it('announces a fixed retry time once and only unlocks the button at the deadline', () => {
   vi.useFakeTimers()

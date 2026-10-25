@@ -30,6 +30,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import i18next from 'i18next'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
@@ -235,7 +236,44 @@ afterEach(() => {
   client.clear()
   focusManager.setFocused(undefined)
   onlineManager.setOnline(true)
+  void i18next.changeLanguage('en')
 })
+
+it.each([
+  ['zhCN', 'zh-CN', 'balance'],
+  ['zhTW', 'zh-TW', 'balance'],
+  ['zhCN', 'zh-CN', 'totals'],
+  ['zhTW', 'zh-TW', 'totals'],
+] as const)(
+  'renders cached %s %s %s timestamps without losing the wallet',
+  async (language, locale, source) => {
+    const updatedAt = 1_790_000_000_000
+    await i18next.changeLanguage(language)
+    if (source === 'totals') {
+      client.setQueryData(
+        ['wallet-payment', 'example.test', 0, 1, 'session', 'funding-summary'],
+        summary,
+        { updatedAt }
+      )
+      vi.mocked(getWalletFundingSummary).mockReturnValue(new Promise(() => {}))
+    }
+    const view = render(
+      <QueryClientProvider client={client}>
+        <WalletStatsCard
+          user={user}
+          balanceUpdatedAt={source === 'balance' ? updatedAt : undefined}
+          fundingSummaryEnabled={source === 'totals'}
+        />
+      </QueryClientProvider>
+    )
+    expect(screen.getByText('123')).toBeVisible()
+    const time = view.container.querySelector('time')
+    expect(time).toHaveAttribute('dateTime', new Date(updatedAt).toISOString())
+    expect(time).toHaveTextContent(
+      new Date(updatedAt).toLocaleTimeString(locale)
+    )
+  }
+)
 
 it('ends offline initial loading with a local error instead of a paused query', async () => {
   onlineManager.setOnline(false)

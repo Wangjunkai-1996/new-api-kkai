@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { toIntlLocale } from '@/i18n/languages'
 
 import { WalletPaymentError, walletRequestRetryAt } from '../payment-flow-api'
 
@@ -64,7 +65,9 @@ export function WalletRequestError(props: {
   if (cooldown.limited) {
     const limitMessage = cooldown.retryAt
       ? t('Too many requests. Try again at {{time}}.', {
-          time: new Date(cooldown.retryAt).toLocaleTimeString(i18n.language),
+          time: new Date(cooldown.retryAt).toLocaleTimeString(
+            toIntlLocale(i18n.language)
+          ),
         })
       : t('Too many requests. Please wait before trying again.')
     message = props.message ? `${props.message} ${limitMessage}` : limitMessage
