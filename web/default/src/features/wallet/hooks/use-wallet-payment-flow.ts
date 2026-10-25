@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useSiteConfig } from '@/features/site-config'
 import { useAuthStore } from '@/stores/auth-store'
@@ -34,6 +34,7 @@ import {
   actOnWalletOrder,
   createWalletPayment,
   getWalletPayment,
+  getWalletOrder,
   restoreWalletPayment,
   resumeWalletPayment,
   WalletPaymentError,
@@ -49,7 +50,12 @@ export function useWalletPaymentIdentity() {
   const userId = useAuthStore((state) => state.auth.user?.id)
   const session = useAuthStore((state) => state.auth.session?.sid)
   const { data: site } = useSiteConfig()
-  return [window.location.host, site?.tenant_id, userId, session] as const
+  const host = window.location.host
+  const tenantId = site?.tenant_id
+  return useMemo(
+    () => [host, tenantId, userId, session] as const,
+    [host, tenantId, userId, session]
+  )
 }
 
 export function useWalletPaymentFlow(initialTradeNo?: string) {
@@ -57,15 +63,29 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   const identityKey = identity.join(':')
   const currentIdentity = useRef(identityKey)
   const pollUntil = useRef(0)
+  const [pollDeadline, setPollDeadline] = useState(() => Date.now() + 120_000)
+  const [pollingPaused, setPollingPaused] = useState(false)
+  const [operationError, setOperationError] = useState<unknown>()
+  const [notice, setNotice] = useState('')
+  const [dismissedReturn, setDismissedReturn] = useState('')
+  const returnKey = `${identityKey}:${initialTradeNo ?? ''}`
+  const returnDismissed = dismissedReturn === returnKey
   useEffect(() => {
     currentIdentity.current = identityKey
     pollUntil.current = Date.now() + 120_000
+    setPollDeadline(pollUntil.current)
+    setPollingPaused(false)
+    setOperationError(undefined)
+    setNotice('')
   }, [identityKey])
   const client = useQueryClient()
-  const queryKey = ['wallet-payment', ...identity, 'current'] as const
+  const queryKey = useMemo(
+    () => ['wallet-payment', ...identity, 'current'] as const,
+    [identity]
+  )
   const restored = useRef('')
+  const lastFocusRefresh = useRef(0)
   const operationBusy = useRef(false)
-  const [notice, setNotice] = useState('')
   const [attempt, setAttempt] = useState<{
     identity: string
     key: string
@@ -73,32 +93,19 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     revision: string
   } | null>(null)
   const currentAttempt = attempt?.identity === identityKey ? attempt : null
-  const apply = (next: WalletState) => {
-    if (currentIdentity.current !== identityKey) return
-    client.setQueryData<WalletState>(queryKey, (previous) =>
-      mergeWalletState(previous, next)
-    )
-  }
+  const apply = useCallback(
+    (next: WalletState) => {
+      if (currentIdentity.current !== identityKey) return
+      client.setQueryData<WalletState>(queryKey, (previous) =>
+        mergeWalletState(previous, next)
+      )
+    },
+    [client, identityKey, queryKey]
+  )
   const current = useQuery({
     queryKey,
     queryFn: async ({ signal }) => {
-      let next: WalletState
-      try {
-        next =
-          restored.current === identityKey
-            ? await getWalletPayment(signal)
-            : await restoreWalletPayment(initialTradeNo, signal)
-      } catch (error) {
-        if (
-          !(error instanceof WalletPaymentError) ||
-          error.code !== 'CURRENT_FLOW_ACTIVE' ||
-          !error.wallet
-        ) {
-          throw error
-        }
-        next = error.wallet
-      }
-      restored.current = identityKey
+      let next = await getWalletPayment(signal)
       const previous = client.getQueryData<WalletState>(queryKey)
       next = mergeWalletState(previous, next)
       const status = next.flow.order?.display_status
@@ -113,12 +120,15 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       return next
     },
     retry: false,
+    meta: { errorToast: false },
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: (query) => {
       const phase = query.state.data?.flow.phase
       if (
         document.hidden ||
+        (query.state.error instanceof WalletPaymentError &&
+          query.state.error.status === 429) ||
         Date.now() > pollUntil.current ||
         !phase ||
         phase === 'idle' ||
@@ -130,17 +140,65 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     },
     refetchIntervalInBackground: false,
   })
+  const returned = useQuery({
+    queryKey: ['wallet-payment', ...identity, 'return-order', initialTradeNo],
+    queryFn: ({ signal }) => {
+      if (!initialTradeNo) throw new Error('Payment return unavailable')
+      return getWalletOrder(initialTradeNo, false, signal)
+    },
+    enabled:
+      !!initialTradeNo &&
+      !returnDismissed &&
+      current.data?.flow.order?.trade_no !== initialTradeNo,
+    retry: false,
+    meta: { errorToast: false },
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: (query) => {
+      const order = query.state.data?.order
+      if (
+        document.hidden ||
+        Date.now() >= pollUntil.current ||
+        query.state.error ||
+        !order ||
+        ['completed', 'closed'].includes(order.status_group)
+      ) {
+        return false
+      }
+      return 5000
+    },
+  })
+  const blocked = (scope: string) =>
+    operationError instanceof WalletPaymentError &&
+    operationError.status === 429 &&
+    !!operationError.retryAt &&
+    operationError.retryAt > Date.now() &&
+    (!operationError.rateLimitScope || operationError.rateLimitScope === scope)
+  const restartPolling = useCallback(() => {
+    pollUntil.current = Date.now() + 120_000
+    setPollDeadline(pollUntil.current)
+    setPollingPaused(false)
+  }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setPollingPaused(true),
+      Math.max(0, pollDeadline - Date.now())
+    )
+    return () => window.clearTimeout(timer)
+  }, [pollDeadline])
   const mutation = useMutation({
     mutationFn: async (run: () => Promise<void>) => run(),
     retry: false,
     onMutate: async () => {
       setNotice('')
+      setOperationError(undefined)
       await client.cancelQueries({ queryKey, exact: true })
-      pollUntil.current = Date.now() + 120_000
+      restartPolling()
       return identityKey
     },
     onError: (error, _run, operationIdentity) => {
       if (currentIdentity.current !== operationIdentity) return
+      setOperationError(error)
       if (error instanceof WalletPaymentError && error.wallet) {
         apply(error.wallet)
       }
@@ -160,6 +218,30 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       })
     },
   })
+  const recoveryRevision = current.data?.flow.revision
+  const recoverable =
+    !initialTradeNo &&
+    current.data?.flow.phase === 'idle' &&
+    !current.data.can_create &&
+    ['RECOVERABLE_ORDER_EXISTS', 'CURRENT_FLOW_ACTIVE'].includes(
+      current.data.create_block_reason_code ?? ''
+    )
+  const { mutate } = mutation
+  useEffect(() => {
+    const recoveryKey = `${identityKey}:${recoveryRevision}`
+    if (
+      !recoverable ||
+      restored.current === recoveryKey ||
+      operationBusy.current
+    ) {
+      return
+    }
+    restored.current = recoveryKey
+    operationBusy.current = true
+    mutate(async () => {
+      apply(await restoreWalletPayment())
+    })
+  }, [identityKey, recoveryRevision, recoverable, mutate, apply])
   const { refetch } = current
   const deadline = current.data?.flow.order?.deadline_at
   const serverTime = current.data?.server_time
@@ -170,6 +252,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     if (
       !deadline ||
       !serverTime ||
+      deadline <= serverTime ||
       !phase ||
       fundsReceived ||
       phase === 'idle' ||
@@ -179,18 +262,59 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     }
     const timer = window.setTimeout(
       () => {
-        pollUntil.current = Date.now() + 120_000
+        const error = client.getQueryState(queryKey)?.error
+        if (
+          document.hidden ||
+          (error instanceof WalletPaymentError && error.status === 429)
+        ) {
+          return
+        }
+        restartPolling()
         void refetch()
       },
       Math.max(0, deadline - serverTime) * 1000
     )
     return () => window.clearTimeout(timer)
-  }, [deadline, serverTime, phase, fundsReceived, refetch])
+  }, [
+    deadline,
+    serverTime,
+    phase,
+    fundsReceived,
+    refetch,
+    restartPolling,
+    client,
+    queryKey,
+  ])
+  const { refetch: refetchReturned } = returned
+  const returnError = returned.error
   useEffect(() => {
     const refresh = () => {
-      if (document.hidden) return
-      pollUntil.current = Date.now() + 120_000
+      if (document.hidden || Date.now() - lastFocusRefresh.current < 1000) {
+        return
+      }
+      if (
+        current.error instanceof WalletPaymentError &&
+        current.error.status === 429
+      ) {
+        return
+      }
+      lastFocusRefresh.current = Date.now()
+      restartPolling()
       void refetch()
+      if (
+        initialTradeNo &&
+        !returnDismissed &&
+        current.data?.flow.order?.trade_no !== initialTradeNo
+      ) {
+        if (
+          !(
+            returnError instanceof WalletPaymentError &&
+            returnError.status === 429
+          )
+        ) {
+          void refetchReturned()
+        }
+      }
     }
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
@@ -198,7 +322,17 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)
     }
-  }, [identityKey, refetch])
+  }, [
+    identityKey,
+    refetch,
+    current.error,
+    current.data?.flow.order?.trade_no,
+    initialTradeNo,
+    returnDismissed,
+    returnError,
+    refetchReturned,
+    restartPolling,
+  ])
 
   const open = async (
     order: PaymentOrder,
@@ -232,24 +366,32 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
       throw error
     }
   }
-  const create = (quote: PaymentQuote) => {
+  const create = (
+    quote: PaymentQuote,
+    preparedTarget?: ReturnType<typeof preparePaymentWindow>
+  ) => {
+    const wallet = client.getQueryData<WalletState>(queryKey)
     if (
+      currentIdentity.current !== identityKey ||
+      blocked('wallet_checkout') ||
       operationBusy.current ||
       mutation.isPending ||
-      !current.data?.can_create ||
-      current.data.flow.phase !== 'idle'
+      client.getQueryState(queryKey)?.status === 'error' ||
+      !wallet?.can_create ||
+      wallet.flow.phase !== 'idle'
     ) {
+      if (preparedTarget) closePaymentPlaceholder(preparedTarget)
       return
     }
     const value = currentAttempt ?? {
       identity: identityKey,
       key: crypto.randomUUID(),
       quote,
-      revision: current.data.flow.revision,
+      revision: wallet.flow.revision,
     }
     operationBusy.current = true
     setAttempt(value)
-    const target = preparePaymentWindow()
+    const target = preparedTarget ?? preparePaymentWindow()
     mutation.mutate(async () => {
       try {
         const result = await createWalletPayment(
@@ -292,6 +434,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     })
   }
   const resume = () => {
+    if (blocked('wallet_checkout')) return
     const wallet = current.data,
       order = wallet?.flow.order
     if (
@@ -344,6 +487,11 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     reason?: string
   ) => {
     if (
+      blocked(
+        action === 'reconcile' || action === 'admin-reconcile'
+          ? 'wallet_reconcile'
+          : 'wallet_state'
+      ) ||
       operationBusy.current ||
       isLocallyEnded(order) ||
       ((action === 'end' || action === 'cancel') &&
@@ -361,6 +509,7 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
   const acknowledge = () => {
     const wallet = current.data
     if (
+      blocked('wallet_state') ||
       !wallet?.flow.order?.allowed_actions.includes('acknowledge') ||
       operationBusy.current ||
       mutation.isPending
@@ -370,20 +519,83 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     operationBusy.current = true
     mutation.mutate(async () => {
       apply(await acknowledgeWalletPayment(wallet))
+      setDismissedReturn(returnKey)
       setAttempt(null)
     })
   }
-  const restore = (tradeNo: string) => {
-    if (operationBusy.current) return
+  const restore = (tradeNo?: string) => {
+    if (operationBusy.current || blocked('wallet_state')) return
     operationBusy.current = true
     mutation.mutate(async () => {
       apply(await restoreWalletPayment(tradeNo))
+    })
+  }
+  const resumeReturned = () => {
+    const order = returned.data?.order
+    if (
+      !order ||
+      order.display_status !== 'pending' ||
+      !order.allowed_actions.includes('resume') ||
+      isLocallyEnded(order) ||
+      current.isError ||
+      current.data?.flow.order ||
+      operationBusy.current ||
+      blocked('wallet_state') ||
+      blocked('wallet_checkout')
+    ) {
+      return
+    }
+    operationBusy.current = true
+    const target = preparePaymentWindow()
+    mutation.mutate(async () => {
+      try {
+        const wallet = await restoreWalletPayment(order.trade_no)
+        apply(wallet)
+        if (wallet.flow.order?.trade_no !== order.trade_no) {
+          closePaymentPlaceholder(target)
+          return
+        }
+        await open(wallet.flow.order, wallet, target)
+      } catch (error) {
+        closePaymentPlaceholder(target)
+        throw error
+      }
     })
   }
   return {
     wallet: current.data,
     loading: current.isPending,
     error: current.isError,
+    readError: current.error,
+    operationError,
+    pollingPaused,
+    returnedOrder:
+      !returnDismissed && initialTradeNo !== current.data?.flow.order?.trade_no
+        ? returned.data?.order
+        : undefined,
+    returnedServerTime: returned.data?.wallet.server_time,
+    returnedLoading:
+      !!initialTradeNo &&
+      !returnDismissed &&
+      initialTradeNo !== current.data?.flow.order?.trade_no &&
+      returned.isPending,
+    returnedError:
+      !returnDismissed && initialTradeNo !== current.data?.flow.order?.trade_no
+        ? returned.error
+        : null,
+    dismissReturned: () => setDismissedReturn(returnKey),
+    resumeReturned,
+    refreshReturned: () => {
+      if (
+        returned.error instanceof WalletPaymentError &&
+        returned.error.retryAt &&
+        returned.error.retryAt > Date.now()
+      ) {
+        return
+      }
+      restartPolling()
+      void returned.refetch()
+    },
     notice,
     busy: mutation.isPending,
     creating: !!currentAttempt,
@@ -393,11 +605,21 @@ export function useWalletPaymentFlow(initialTradeNo?: string) {
     acceptOrderAction,
     acknowledge,
     restore,
+    recoverable,
+    retryRecovery: () => restore(),
     retryCreate: () => {
       if (currentAttempt) create(currentAttempt.quote)
     },
     refresh: () => {
-      pollUntil.current = Date.now() + 120_000
+      if (
+        current.error instanceof WalletPaymentError &&
+        current.error.retryAt &&
+        current.error.retryAt > Date.now()
+      ) {
+        return
+      }
+      setOperationError(undefined)
+      restartPolling()
       void current.refetch()
     },
     apply,

@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
 
+import { WalletPaymentError } from '../payment-flow-api'
 import {
   paymentOrder,
   paymentQuote,
@@ -35,6 +36,7 @@ import { useWalletPaymentFlow } from './use-wallet-payment-flow'
 const api = vi.hoisted(() => ({
   restoreWalletPayment: vi.fn(),
   getWalletPayment: vi.fn(),
+  getWalletOrder: vi.fn(),
   createWalletPayment: vi.fn(),
   resumeWalletPayment: vi.fn(),
   actOnWalletOrder: vi.fn(),
@@ -74,9 +76,163 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 describe('authoritative wallet flow', () => {
+  it('reads a returned historical order without restoring or replacing another current order', async () => {
+    const current = paymentOrder({ trade_no: 'CURRENT-ORDER' })
+    const historical = paymentOrder({
+      trade_no: 'RETURNED-ORDER',
+      display_status: 'success',
+      status_group: 'completed',
+      allowed_actions: [],
+    })
+    api.getWalletPayment.mockResolvedValue(paymentWallet(current))
+    api.getWalletOrder.mockResolvedValue({
+      wallet: paymentWallet(current),
+      order: historical,
+    })
+    const { result } = renderHook(
+      () => useWalletPaymentFlow('RETURNED-ORDER'),
+      { wrapper }
+    )
+    await waitFor(() =>
+      expect(result.current.returnedOrder?.display_status).toBe('success')
+    )
+    expect(result.current.wallet?.flow.order?.trade_no).toBe('CURRENT-ORDER')
+    expect(api.restoreWalletPayment).not.toHaveBeenCalled()
+    expect(api.acknowledgeWalletPayment).not.toHaveBeenCalled()
+    act(() => result.current.resumeReturned())
+    expect(api.resumeWalletPayment).not.toHaveBeenCalled()
+    act(() => result.current.dismissReturned())
+    expect(result.current.returnedOrder).toBeUndefined()
+    expect(result.current.wallet?.flow.order?.trade_no).toBe('CURRENT-ORDER')
+  })
+  it('still displays the returned order when reading the current wallet fails', async () => {
+    const order = paymentOrder({
+      display_status: 'success',
+      status_group: 'completed',
+      allowed_actions: [],
+    })
+    api.getWalletPayment.mockRejectedValue(new Error('current unavailable'))
+    api.getWalletOrder.mockResolvedValue({ wallet: paymentWallet(), order })
+    const { result } = renderHook(() => useWalletPaymentFlow(order.trade_no), {
+      wrapper,
+    })
+    await waitFor(() =>
+      expect(result.current.returnedOrder?.display_status).toBe('success')
+    )
+    expect(result.current.readError).toBeDefined()
+    expect(api.restoreWalletPayment).not.toHaveBeenCalled()
+    act(() => result.current.resumeReturned())
+    expect(api.resumeWalletPayment).not.toHaveBeenCalled()
+  })
+  it('restores an orphaned unfinished order once and does not retry a failed write on refresh', async () => {
+    api.getWalletPayment.mockResolvedValue(
+      paymentWallet(null, {
+        can_create: false,
+        create_block_reason_code: 'RECOVERABLE_ORDER_EXISTS',
+      })
+    )
+    api.restoreWalletPayment.mockRejectedValue(new Error('network unavailable'))
+    const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    await waitFor(() => expect(result.current.operationError).toBeDefined())
+    expect(api.restoreWalletPayment).toHaveBeenCalledTimes(1)
+    act(() => result.current.refresh())
+    await waitFor(() => expect(api.getWalletPayment).toHaveBeenCalledTimes(2))
+    expect(api.restoreWalletPayment).toHaveBeenCalledTimes(1)
+    expect(result.current.wallet?.can_create).toBe(false)
+    const recovered = paymentOrder()
+    api.restoreWalletPayment.mockResolvedValue(
+      paymentWallet(recovered, {
+        flow: {
+          id: 'RECOVERED',
+          revision: '2',
+          phase: 'order',
+          order: recovered,
+        },
+      })
+    )
+    act(() => result.current.retryRecovery())
+    await waitFor(() =>
+      expect(result.current.wallet?.flow.order?.trade_no).toBe('ORDER-1')
+    )
+    expect(api.restoreWalletPayment).toHaveBeenCalledTimes(2)
+  })
+  it('lets the user restore and resume a returned pending order with one action', async () => {
+    const order = paymentOrder({ trade_no: 'RETURNED-ORDER' })
+    const bound = paymentWallet(order, {
+      flow: { id: 'RETURNED-FLOW', revision: '2', phase: 'order', order },
+    })
+    api.getWalletPayment.mockResolvedValue(paymentWallet())
+    api.getWalletOrder.mockResolvedValue({ wallet: paymentWallet(), order })
+    api.restoreWalletPayment.mockResolvedValue(bound)
+    api.resumeWalletPayment.mockResolvedValue({ wallet: bound, checkout: null })
+    const { result } = renderHook(
+      () => useWalletPaymentFlow('RETURNED-ORDER'),
+      { wrapper }
+    )
+    await waitFor(() =>
+      expect(result.current.returnedOrder?.trade_no).toBe('RETURNED-ORDER')
+    )
+    expect(api.restoreWalletPayment).not.toHaveBeenCalled()
+    act(() => result.current.resumeReturned())
+    await waitFor(() =>
+      expect(api.resumeWalletPayment).toHaveBeenCalledExactlyOnceWith(
+        order,
+        bound
+      )
+    )
+    expect(api.restoreWalletPayment).toHaveBeenCalledExactlyOnceWith(
+      'RETURNED-ORDER'
+    )
+    expect(result.current.wallet?.flow.order?.trade_no).toBe('RETURNED-ORDER')
+  })
+  it('does not resend a throttled create on focus and keeps current-state reads available', async () => {
+    api.getWalletPayment.mockResolvedValue(paymentWallet())
+    api.createWalletPayment.mockRejectedValue(
+      new WalletPaymentError('WALLET_RATE_LIMITED', undefined, {
+        status: 429,
+        retryAt: Date.now() + 60_000,
+        rateLimitScope: 'wallet_checkout',
+      })
+    )
+    const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    await waitFor(() => expect(result.current.wallet?.can_create).toBe(true))
+    act(() => result.current.create(paymentQuote()))
+    await waitFor(() =>
+      expect(result.current.operationError).toBeInstanceOf(WalletPaymentError)
+    )
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+      result.current.retryCreate()
+    })
+    await waitFor(() => expect(api.getWalletPayment).toHaveBeenCalledTimes(2))
+    expect(api.createWalletPayment).toHaveBeenCalledTimes(1)
+  })
+  it('stops automatic reads after 120 seconds without ending or reconciling the order', async () => {
+    vi.useFakeTimers()
+    api.getWalletPayment.mockResolvedValue(paymentWallet(paymentOrder()))
+    const hook = renderHook(() => useWalletPaymentFlow(), { wrapper })
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_001)
+      })
+      const count = api.getWalletPayment.mock.calls.length
+      expect(hook.result.current.pollingPaused).toBe(true)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+      expect(api.getWalletPayment).toHaveBeenCalledTimes(count)
+      expect(api.actOnWalletOrder).not.toHaveBeenCalled()
+      expect(hook.result.current.wallet?.flow.order?.display_status).toBe(
+        'pending'
+      )
+    } finally {
+      hook.unmount()
+      vi.useRealTimers()
+    }
+  })
   it('refreshes mounted funding totals when a current-order refresh confirms payment', async () => {
     const pending = paymentOrder()
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet(pending))
+    api.getWalletPayment.mockResolvedValue(paymentWallet(pending))
     const funding = {
       cash_payments: [],
       confirmed_payment_count: 0,
@@ -133,7 +289,7 @@ describe('authoritative wallet flow', () => {
     const resultWallet = paymentWallet(expired, {
       flow: { id: 'FLOW-1', revision: '2', phase: 'result', order: expired },
     })
-    api.restoreWalletPayment.mockResolvedValue(resultWallet)
+    api.getWalletPayment.mockResolvedValue(resultWallet)
     let resolveAck: (value: WalletState) => void = () => {}
     api.acknowledgeWalletPayment.mockImplementation(
       () =>
@@ -166,7 +322,7 @@ describe('authoritative wallet flow', () => {
       status_group: 'completed',
       allowed_actions: ['acknowledge'],
     })
-    api.restoreWalletPayment.mockResolvedValue(
+    api.getWalletPayment.mockResolvedValue(
       paymentWallet(order, {
         flow: { id: 'FLOW-1', revision: '2', phase: 'result', order },
       })
@@ -187,7 +343,7 @@ describe('authoritative wallet flow', () => {
   })
   it('returns to top-up immediately after ending the current order', async () => {
     const original = paymentOrder()
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+    api.getWalletPayment.mockResolvedValue(paymentWallet(original))
     const ended = paymentOrder({
       version: '2',
       display_status: 'ended',
@@ -217,7 +373,7 @@ describe('authoritative wallet flow', () => {
   })
   it('preserves an ended result when automatic return fails and allows retry', async () => {
     const original = paymentOrder()
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+    api.getWalletPayment.mockResolvedValue(paymentWallet(original))
     const ended = paymentOrder({
       version: '2',
       display_status: 'ended',
@@ -254,7 +410,7 @@ describe('authoritative wallet flow', () => {
     'does not automatically dismiss %s returned by an end request',
     async (displayStatus) => {
       const original = paymentOrder()
-      api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+      api.getWalletPayment.mockResolvedValue(paymentWallet(original))
       const updated = paymentOrder({
         version: '2',
         display_status: displayStatus,
@@ -285,7 +441,7 @@ describe('authoritative wallet flow', () => {
     }
   )
   it('blocks simultaneous creates and reuses the original key after an unknown result', async () => {
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet())
+    api.getWalletPayment.mockResolvedValue(paymentWallet())
     api.createWalletPayment
       .mockRejectedValueOnce(new Error('response lost'))
       .mockResolvedValueOnce({
@@ -317,7 +473,7 @@ describe('authoritative wallet flow', () => {
     await waitFor(() => expect(result.current.creating).toBe(false))
   })
   it('does not reopen or rebind a replayed old order when another order is current', async () => {
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet())
+    api.getWalletPayment.mockResolvedValue(paymentWallet())
     const latest = paymentOrder({ trade_no: 'NEW-ORDER' })
     const wallet = paymentWallet(latest, {
       flow: { id: 'NEW-FLOW', revision: '5', phase: 'order', order: latest },
@@ -334,8 +490,8 @@ describe('authoritative wallet flow', () => {
     )
     expect(api.resumeWalletPayment).not.toHaveBeenCalled()
   })
-  it('keeps purchase unavailable when the new restore API is unavailable', async () => {
-    api.restoreWalletPayment.mockRejectedValue(new Error('404'))
+  it('keeps purchase unavailable when the current-state read is unavailable', async () => {
+    api.getWalletPayment.mockRejectedValue(new Error('404'))
     const { result } = renderHook(() => useWalletPaymentFlow(), { wrapper })
     await waitFor(() => expect(result.current.error).toBe(true))
     expect(result.current.wallet).toBeUndefined()
@@ -344,7 +500,7 @@ describe('authoritative wallet flow', () => {
   })
   it('does not let a late end result replace a newer current order', async () => {
     const original = paymentOrder()
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet(original))
+    api.getWalletPayment.mockResolvedValue(paymentWallet(original))
     let resolveEnd: (value: {
       wallet: WalletState
       order: ReturnType<typeof paymentOrder>
@@ -391,7 +547,7 @@ describe('authoritative wallet flow', () => {
   })
   it('does not acknowledge an end response after the signed-in user changes', async () => {
     const original = paymentOrder()
-    api.restoreWalletPayment
+    api.getWalletPayment
       .mockResolvedValueOnce(paymentWallet(original))
       .mockResolvedValueOnce(paymentWallet())
     let resolveEnd: (value: {
@@ -443,7 +599,7 @@ describe('authoritative wallet flow', () => {
     const idle = paymentWallet(null, {
       flow: { id: null, revision: '3', phase: 'idle', order: null },
     })
-    api.restoreWalletPayment.mockResolvedValue(endedWallet)
+    api.getWalletPayment.mockResolvedValue(endedWallet)
     let resolveAutomaticReturn: (wallet: WalletState) => void = () => {}
     api.acknowledgeWalletPayment
       .mockImplementationOnce(
@@ -491,7 +647,7 @@ describe('authoritative wallet flow', () => {
       deadline_at: 1_790_000_002,
       deadline_source: 'local_policy',
     })
-    api.restoreWalletPayment.mockResolvedValue(paymentWallet(order))
+    api.getWalletPayment.mockResolvedValueOnce(paymentWallet(order))
     let resolveCurrent: (wallet: WalletState) => void = () => {}
     api.getWalletPayment.mockImplementation(
       () =>
@@ -508,11 +664,11 @@ describe('authoritative wallet flow', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1998)
       })
-      expect(api.getWalletPayment).not.toHaveBeenCalled()
+      expect(api.getWalletPayment).toHaveBeenCalledTimes(1)
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1)
       })
-      expect(api.getWalletPayment).toHaveBeenCalledTimes(1)
+      expect(api.getWalletPayment).toHaveBeenCalledTimes(2)
       expect(api.actOnWalletOrder).not.toHaveBeenCalled()
       expect(hook.result.current.wallet?.flow.phase).toBe('order')
       const timedOut = paymentOrder({

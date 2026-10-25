@@ -9,6 +9,42 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// WalletPaymentRateLimit isolates normal wallet interactions from login and
+// session renewal. GlobalAPIRateLimit remains the shared IP abuse guard.
+func WalletPaymentRateLimit(scope string) gin.HandlerFunc {
+	if !common.CriticalRateLimitEnable {
+		return defNext
+	}
+	var requests int
+	var seconds int64
+	switch scope {
+	case "quote":
+		requests, seconds = 60, 60
+	case "checkout":
+		requests, seconds = 30, 600
+	case "state":
+		requests, seconds = 20, 60
+	case "check":
+		requests, seconds = common.CriticalRateLimitNum, common.CriticalRateLimitDuration
+	default:
+		panic("unknown wallet payment rate limit scope")
+	}
+	limit := userRateLimitFactory(requests, seconds, "UC:wallet-payment:"+scope)
+	return func(c *gin.Context) {
+		limit(c)
+		if c.IsAborted() && c.Writer.Status() == http.StatusTooManyRequests {
+			// The shared limiter does not return the remaining window. Do not
+			// invent a Retry-After value that could restart a payment too early.
+			c.Header("Cache-Control", "no-store")
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"success": false,
+				"code":    "WALLET_RATE_LIMITED",
+				"message": "WALLET_RATE_LIMITED",
+			})
+		}
+	}
+}
+
 // WalletPaymentMutationGuard preserves scoped API access while applying the
 // browser session's existing Origin policy to wallet mutations.
 func WalletPaymentMutationGuard() gin.HandlerFunc {

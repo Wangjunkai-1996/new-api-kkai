@@ -318,8 +318,7 @@ test.each([
 )
 
 test('an unavailable default URL endpoint keeps the fallback placeholder and allows saving a custom address', async () => {
-  const onInternalServerError = vi.fn()
-  client = createAppQueryClient(onInternalServerError)
+  client = createAppQueryClient()
   const originalGet = vi.mocked(api.get).getMockImplementation()
   vi.mocked(api.get).mockImplementation(async (url, config) => {
     if (url === '/api/channel/default_base_urls') {
@@ -347,7 +346,6 @@ test('an unavailable default URL endpoint keeps the fallback placeholder and all
     base_url: 'https://custom.example',
   })
   expect(api.get).toHaveBeenCalledWith('/api/channel/default_base_urls')
-  expect(onInternalServerError).not.toHaveBeenCalled()
 })
 
 test('model mapping help opens on click, stays open after pointer exit, and closes without dismissing the channel', async () => {

@@ -319,7 +319,7 @@ func walletStateDTO(state *model.WalletTopUpState) dto.WalletState {
 	}
 	if out.CanCreate && state.HasRecoverableCandidate {
 		out.CanCreate = false
-		out.CreateBlockReasonCode = walletString("CURRENT_FLOW_ACTIVE")
+		out.CreateBlockReasonCode = walletString("RECOVERABLE_ORDER_EXISTS")
 	}
 	if out.CanCreate && !operation_setting.IsPaymentComplianceConfirmed() {
 		out.CanCreate = false

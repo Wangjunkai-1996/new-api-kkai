@@ -17,20 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
-import { z } from 'zod'
 
 import { Wallet } from '@/features/wallet'
-
-const walletSearchSchema = z.object({
-  show_history: z.boolean().optional(),
-  trade_no: z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[A-Za-z0-9_-]+$/)
-    .optional(),
-  history_scope: z.enum(['self', 'admin']).optional(),
-})
+import { walletSearchSchema } from '@/lib/wallet-return'
 
 export const Route = createFileRoute('/_authenticated/wallet/')({
   component: RouteComponent,
@@ -38,12 +27,14 @@ export const Route = createFileRoute('/_authenticated/wallet/')({
 })
 
 function RouteComponent() {
-  const { show_history, trade_no, history_scope } = Route.useSearch()
+  const { show_history, trade_no, history_scope, invalid_payment_return } =
+    Route.useSearch()
   return (
     <Wallet
       key={`${trade_no ?? ''}:${history_scope ?? 'self'}:${show_history === true}`}
       initialShowHistory={show_history}
       initialTradeNo={trade_no}
+      invalidPaymentReturn={invalid_payment_return}
       historyScope={history_scope}
     />
   )

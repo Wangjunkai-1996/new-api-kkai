@@ -49,6 +49,40 @@ func TestWalletTopUpDTORequiresReliableClosureAndExplicitAcknowledgement(t *test
 	assert.Empty(t, legacy.AllowedActions)
 }
 
+func TestWalletCurrentDistinguishesRecoverableOrderFromBoundFlow(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state model.WalletTopUpState
+		code  string
+		phase string
+	}{
+		{
+			name:  "recoverable order without a bound flow",
+			state: model.WalletTopUpState{HasRecoverableCandidate: true},
+			code:  "RECOVERABLE_ORDER_EXISTS",
+			phase: "idle",
+		},
+		{
+			name: "existing bound flow",
+			state: model.WalletTopUpState{
+				HasRecoverableCandidate: true,
+				Flow:                    &model.WalletTopUpFlow{FlowID: "current", Revision: 2},
+				Order:                   &model.TopUp{TradeNo: "WT-current", Status: common.TopUpStatusSuccess},
+			},
+			code:  "CURRENT_FLOW_ACTIVE",
+			phase: "result",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := walletStateDTO(&tc.state)
+			require.NotNil(t, state.CreateBlockReasonCode)
+			assert.Equal(t, tc.code, *state.CreateBlockReasonCode)
+			assert.Equal(t, tc.phase, state.Flow.Phase)
+			assert.False(t, state.CanCreate)
+		})
+	}
+}
+
 func TestWalletMoneyRejectsInvalidConfiguration(t *testing.T) {
 	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 0, -1} {
 		assert.False(t, walletPositiveFinite(value))

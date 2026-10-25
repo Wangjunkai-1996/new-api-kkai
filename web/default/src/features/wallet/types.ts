@@ -163,6 +163,7 @@ export interface TopupInfo {
 export interface WalletPageProps {
   initialShowHistory?: boolean
   initialTradeNo?: string
+  invalidPaymentReturn?: boolean
   historyScope?: 'self' | 'admin'
   topupInfo: TopupInfo | null
   presetAmounts: PresetAmount[]

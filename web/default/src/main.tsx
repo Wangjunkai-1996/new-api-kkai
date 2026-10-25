@@ -17,7 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClientProvider } from '@tanstack/react-query'
-import { RouterProvider, createRouter } from '@tanstack/react-router'
+import {
+  RouterProvider,
+  createBrowserHistory,
+  createRouter,
+} from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 
@@ -45,16 +49,16 @@ import './styles/index.css'
 initializeFrontendCache()
 installBuildMetadata()
 
-const queryClient = createAppQueryClient(() => {
-  void router.navigate({ to: '/500' })
-})
+const queryClient = createAppQueryClient()
+const history = createBrowserHistory()
 
 installAuthQueryCacheBoundary(queryClient)
 
 // Create a new router instance
 const router = createRouter({
   routeTree,
-  context: { queryClient },
+  history,
+  context: { queryClient, history },
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
 })

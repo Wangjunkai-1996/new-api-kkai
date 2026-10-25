@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Receipt } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,11 +28,15 @@ import { useSiteConfig } from '@/features/site-config'
 import { useDebounce } from '@/hooks/use-debounce'
 import { getSelf } from '@/lib/api'
 
-import { CurrentTopupOrder } from './components/current-topup-order'
+import {
+  CurrentTopupOrder,
+  PaymentOrderDetails,
+} from './components/current-topup-order'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { PaymentAmounts } from './components/payment-amounts'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
+import { WalletRequestError } from './components/wallet-request-error'
 import { WalletStatsCard } from './components/wallet-stats-card'
 import { PAYMENT_TYPES } from './constants'
 import { useRedemption } from './hooks'
@@ -41,7 +45,14 @@ import {
   useWalletPaymentIdentity,
 } from './hooks/use-wallet-payment-flow'
 import { getMinTopupAmount } from './lib'
-import { PAYMENT_BLOCK_LABELS } from './lib/payment-flow'
+import {
+  closePaymentPlaceholder,
+  hasSamePaymentTerms,
+  isLocallyEnded,
+  PAYMENT_BLOCK_LABELS,
+  PAYMENT_STATUS_LABELS,
+  preparePaymentWindow,
+} from './lib/payment-flow'
 import { quoteWalletPayment } from './payment-flow-api'
 import type { PaymentQuoteRequest } from './payment-flow-types'
 import type {
@@ -66,6 +77,7 @@ function paymentMinimum(method: PaymentMethod, info: TopupInfo): number {
 }
 export function LifecycleWalletPage(props: WalletPageProps) {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const { data: site } = useSiteConfig()
   const identity = useWalletPaymentIdentity()
   const flow = useWalletPaymentFlow(props.initialTradeNo)
@@ -73,12 +85,7 @@ export function LifecycleWalletPage(props: WalletPageProps) {
   const presetAmounts = props.presetAmounts
   const topupLoading = props.topupLoading
   const userQuery = useQuery({
-    queryKey: [
-      'wallet-payment',
-      ...identity,
-      'balance',
-      flow.wallet?.flow.order?.display_status,
-    ],
+    queryKey: ['wallet-payment', ...identity, 'balance'],
     queryFn: async () => {
       const response = await getSelf()
       if (!response.success || !response.data) {
@@ -87,7 +94,24 @@ export function LifecycleWalletPage(props: WalletPageProps) {
       return response.data as UserWalletData
     },
     retry: false,
+    meta: { errorToast: false },
   })
+  const paymentStatus = flow.wallet?.flow.order?.display_status
+  const returnStatus = flow.returnedOrder?.display_status
+  useEffect(() => {
+    if (
+      ![paymentStatus, returnStatus].some(
+        (status) => status === 'success' || status === 'credit_review'
+      )
+    ) {
+      return
+    }
+    for (const scope of ['balance', 'funding-summary', 'history']) {
+      void client.invalidateQueries({
+        queryKey: ['wallet-payment', ...identity, scope],
+      })
+    }
+  }, [client, identity, paymentStatus, returnStatus])
   const user = userQuery.data ?? null
   const userLoading = userQuery.isPending
   const [amount, setAmount] = useState(0)
@@ -172,8 +196,14 @@ export function LifecycleWalletPage(props: WalletPageProps) {
   }, [topupInfo, selectedMethod, waffoIndex, methods, amount])
   const activeWaffoIndex =
     availableMethod?.type === PAYMENT_TYPES.WAFFO ? (waffoIndex ?? 0) : null
-  const idle = flow.wallet?.flow.phase === 'idle' && !flow.creating
-  const canBuy = idle && flow.wallet?.can_create === true
+  const showingReturned = !!(
+    flow.returnedOrder ||
+    flow.returnedLoading ||
+    flow.returnedError
+  )
+  const idle =
+    !showingReturned && flow.wallet?.flow.phase === 'idle' && !flow.creating
+  const canBuy = idle && !flow.readError && flow.wallet?.can_create === true
   const quoteRequest = useMemo<PaymentQuoteRequest | null>(() => {
     if (product) {
       return {
@@ -218,19 +248,64 @@ export function LifecycleWalletPage(props: WalletPageProps) {
     },
     enabled: canBuy && !!debouncedQuoteRequest && quoteSettled,
     retry: false,
-    staleTime: 0,
+    staleTime: (query) =>
+      Math.min(
+        2_147_483_646,
+        Math.max(
+          0,
+          (query.state.data?.expires_at ?? 0) * 1000 - query.state.dataUpdatedAt
+        )
+      ),
+    meta: { errorToast: false },
     refetchOnWindowFocus: false,
   })
   const currentQuote = quoteSettled ? quote.data : undefined
-  const submitPayment = () => {
-    if (!canBuy || !currentQuote || quote.isFetching) {
+  const [quoteChanged, setQuoteChanged] = useState(false)
+  const [refreshingQuote, setRefreshingQuote] = useState(false)
+  const quoteRefreshBusy = useRef(false)
+  const activeQuoteRequest = useRef(quoteRequest)
+  useEffect(() => {
+    activeQuoteRequest.current = quoteRequest
+  }, [quoteRequest])
+  const submitPayment = async () => {
+    if (
+      !canBuy ||
+      !currentQuote ||
+      quote.isFetching ||
+      quoteRefreshBusy.current
+    ) {
       return
     }
-    if (currentQuote.expires_at <= Date.now() / 1000) {
-      void quote.refetch()
+    setQuoteChanged(false)
+    if (currentQuote.expires_at > Date.now() / 1000) {
+      flow.create(currentQuote)
       return
     }
-    flow.create(currentQuote)
+    quoteRefreshBusy.current = true
+    setRefreshingQuote(true)
+    const target = preparePaymentWindow()
+    const request = quoteRequest
+    try {
+      const result = await quote.refetch()
+      if (
+        result.error ||
+        !result.data ||
+        result.data.expires_at <= Date.now() / 1000 ||
+        activeQuoteRequest.current !== request
+      ) {
+        closePaymentPlaceholder(target)
+        return
+      }
+      if (!hasSamePaymentTerms(currentQuote, result.data)) {
+        closePaymentPlaceholder(target)
+        setQuoteChanged(true)
+        return
+      }
+      flow.create(result.data, target)
+    } finally {
+      quoteRefreshBusy.current = false
+      setRefreshingQuote(false)
+    }
   }
   return (
     <SectionPageLayout>
@@ -249,27 +324,138 @@ export function LifecycleWalletPage(props: WalletPageProps) {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto flex w-full max-w-7xl flex-col gap-5'>
+          <WalletStatsCard
+            user={user}
+            loading={userLoading}
+            fundingSummaryEnabled
+          />
+          {props.invalidPaymentReturn && (
+            <div
+              role='alert'
+              className='bg-muted rounded-lg border p-4 text-sm'
+            >
+              {t(
+                'We could not identify this payment return. Check Order History for the latest status.'
+              )}
+              <Button
+                variant='link'
+                onClick={() => {
+                  setHistoryUnfinished(false)
+                  setHistoryOpen(true)
+                }}
+              >
+                {t('Order History')}
+              </Button>
+            </div>
+          )}
+          {!!flow.operationError && (
+            <WalletRequestError
+              error={flow.operationError}
+              onRetry={flow.refresh}
+              retryLabel={t('Refresh')}
+              message={
+                !flow.wallet?.flow.order
+                  ? t(
+                      'The request could not be confirmed. Refresh this order and try again.'
+                    )
+                  : undefined
+              }
+            />
+          )}
+          {userQuery.isError && (
+            <WalletRequestError
+              error={userQuery.error}
+              onRetry={() => void userQuery.refetch()}
+              message={t(
+                'We could not refresh your wallet balance. The displayed balance may be out of date.'
+              )}
+            />
+          )}
+          {!!flow.readError && (
+            <WalletRequestError
+              error={flow.readError}
+              onRetry={flow.refresh}
+              message={
+                !flow.wallet
+                  ? t(
+                      'We could not restore your wallet payment state. New payments are temporarily unavailable.'
+                    )
+                  : undefined
+              }
+            />
+          )}
+          {flow.returnedLoading && (
+            <p role='status'>{t('Checking the returned payment order...')}</p>
+          )}
+          {!!flow.returnedError && (
+            <WalletRequestError
+              error={flow.returnedError}
+              onRetry={flow.refreshReturned}
+              message={t(
+                'The request could not be confirmed. Refresh this order and try again.'
+              )}
+            />
+          )}
+          {flow.returnedOrder && (
+            <section className='bg-card mx-auto w-full max-w-2xl space-y-5 rounded-xl border p-6'>
+              <p className='text-muted-foreground text-sm'>
+                {t('Returned payment order')}
+              </p>
+              <h2 className='text-2xl font-semibold'>
+                {t(PAYMENT_STATUS_LABELS[flow.returnedOrder.display_status])}
+              </h2>
+              <PaymentOrderDetails
+                order={flow.returnedOrder}
+                serverTime={
+                  flow.returnedServerTime ?? flow.wallet?.server_time ?? 0
+                }
+              />
+              {flow.returnedOrder.display_status === 'success' && (
+                <p>{t('Payment received and credits added to your wallet.')}</p>
+              )}
+              <div className='flex flex-wrap gap-3'>
+                {!flow.wallet?.flow.order &&
+                  !flow.readError &&
+                  flow.returnedOrder.display_status === 'pending' &&
+                  !isLocallyEnded(flow.returnedOrder) &&
+                  flow.returnedOrder.allowed_actions.includes('resume') && (
+                    <Button disabled={flow.busy} onClick={flow.resumeReturned}>
+                      {t('Continue payment')}
+                    </Button>
+                  )}
+                <Button variant='outline' onClick={flow.refreshReturned}>
+                  {t('Refresh')}
+                </Button>
+              </div>
+            </section>
+          )}
+          {showingReturned && (
+            <Button variant='outline' onClick={flow.dismissReturned}>
+              {flow.wallet?.flow.order
+                ? t('Return to current order')
+                : t('Back to wallet')}
+            </Button>
+          )}
+          {flow.pollingPaused &&
+            (['creating', 'order', 'processing', 'review'].includes(
+              flow.wallet?.flow.phase ?? ''
+            ) ||
+              (flow.returnedOrder &&
+                !['completed', 'closed'].includes(
+                  flow.returnedOrder.status_group
+                ))) && (
+              <p role='status' className='text-muted-foreground text-sm'>
+                {t(
+                  'Automatic checking is paused. You can check again or view this order later in history.'
+                )}
+              </p>
+            )}
           {flow.loading && (
             <div className='bg-card rounded-lg border p-6' role='status'>
               {t('Restoring your top-up order...')}
             </div>
           )}
-          {!flow.loading && flow.error && !flow.wallet && (
-            <div
-              className='bg-card space-y-4 rounded-lg border p-6'
-              role='alert'
-            >
-              <p>
-                {t(
-                  'We could not restore your wallet payment state. New payments are temporarily unavailable.'
-                )}
-              </p>
-              <Button variant='outline' onClick={flow.refresh}>
-                {t('Retry')}
-              </Button>
-            </div>
-          )}
-          {flow.wallet?.flow.order && (
+          {!showingReturned && flow.wallet?.flow.order && (
             <CurrentTopupOrder
               key={flow.wallet.flow.id}
               wallet={flow.wallet}
@@ -318,11 +504,6 @@ export function LifecycleWalletPage(props: WalletPageProps) {
           )}
           {idle && (
             <>
-              <WalletStatsCard
-                user={user}
-                loading={userLoading}
-                fundingSummaryEnabled
-              />
               {site?.tenant_id === 0 && <MembershipWalletSummary />}
               {!canBuy && (
                 <p
@@ -334,8 +515,16 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                       flow.wallet?.create_block_reason_code ?? ''
                     ] ?? 'Online top-up is currently unavailable.'
                   )}{' '}
-                  <Button variant='link' onClick={flow.refresh}>
-                    {t('Refresh')}
+                  <Button
+                    variant='link'
+                    disabled={flow.busy}
+                    onClick={
+                      flow.recoverable ? flow.retryRecovery : flow.refresh
+                    }
+                  >
+                    {flow.recoverable
+                      ? t('Restore unfinished order')
+                      : t('Refresh')}
                   </Button>
                 </p>
               )}
@@ -347,13 +536,19 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                 </p>
               )}
               {quote.isError && quoteSettled && canBuy && (
-                <p role='alert'>
-                  {t(
+                <WalletRequestError
+                  error={quote.error}
+                  onRetry={() => void quote.refetch()}
+                  message={t(
                     'We could not obtain a valid payment quote. Please try again.'
-                  )}{' '}
-                  <Button variant='link' onClick={() => void quote.refetch()}>
-                    {t('Retry')}
-                  </Button>
+                  )}
+                />
+              )}
+              {quoteChanged && (
+                <p role='status'>
+                  {t(
+                    'The payment quote has changed. Review the updated amounts before paying.'
+                  )}
                 </p>
               )}
               <RechargeFormCard
@@ -372,7 +567,9 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                   setSelectedPreset(null)
                 }}
                 paymentAmount={currentQuote ? 1 : 0}
-                calculating={!quoteSettled || quote.isFetching}
+                calculating={
+                  !quoteSettled || quote.isFetching || refreshingQuote
+                }
                 paymentQuoteValid={canBuy && !!currentQuote && !product}
                 selectedPaymentMethod={availableMethod}
                 selectedWaffoMethodIndex={activeWaffoIndex}
@@ -428,7 +625,12 @@ export function LifecycleWalletPage(props: WalletPageProps) {
                   </p>
                   <div className='flex gap-2'>
                     <Button
-                      disabled={!canBuy || !currentQuote || quote.isFetching}
+                      disabled={
+                        !canBuy ||
+                        !currentQuote ||
+                        quote.isFetching ||
+                        refreshingQuote
+                      }
                       onClick={submitPayment}
                     >
                       {t('Review and Pay')}

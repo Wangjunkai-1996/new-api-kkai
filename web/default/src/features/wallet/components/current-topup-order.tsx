@@ -163,7 +163,9 @@ export function CurrentTopupOrder(props: {
             disabled={props.busy}
             onClick={props.onAcknowledge}
           >
-            {t('Return to top-up')}
+            {order.display_status === 'success'
+              ? t('Top up again')
+              : t('Return to top-up')}
           </Button>
         )}
         {!final &&

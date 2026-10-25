@@ -22,6 +22,7 @@ import type {
   MoneyDTO,
   PaymentOrder,
   PaymentCheckout,
+  PaymentQuote,
   WalletState,
 } from '../payment-flow-types'
 
@@ -110,6 +111,33 @@ export function mergeWalletState(
     return previous
   }
   return next
+}
+export function hasSamePaymentTerms(
+  previous: PaymentQuote,
+  next: PaymentQuote
+): boolean {
+  return (
+    JSON.stringify([
+      previous.expected_payment,
+      previous.payable_payment,
+      previous.credited_quota,
+      previous.credit_display,
+      previous.payment_provider,
+      previous.payment_method,
+      previous.pricing_mode,
+      previous.pricing_notice_code,
+    ]) ===
+    JSON.stringify([
+      next.expected_payment,
+      next.payable_payment,
+      next.credited_quota,
+      next.credit_display,
+      next.payment_provider,
+      next.payment_method,
+      next.pricing_mode,
+      next.pricing_notice_code,
+    ])
+  )
 }
 export interface PaymentWindow {
   window: Window | null

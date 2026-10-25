@@ -23,6 +23,7 @@ import {
   Outlet,
   redirect,
   useNavigate,
+  type RouterHistory,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { useEffect } from 'react'
@@ -44,6 +45,7 @@ import {
   clearAuthentication,
 } from '@/lib/auth-session'
 import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
+import { getWalletReturnRedirect } from '@/lib/wallet-return'
 import { useAuthStore } from '@/stores/auth-store'
 
 function RootComponent() {
@@ -107,9 +109,18 @@ let setupStatusChecked = false
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
+  history?: RouterHistory
 }>()({
   // 应用初始化与路由解析前统一校验会话
-  beforeLoad: async ({ location, context }) => {
+  beforeLoad: async ({ location, context, preload }) => {
+    const rawLocation = context.history?.location
+    const walletReturn = getWalletReturnRedirect(
+      location.pathname,
+      !preload && rawLocation?.pathname === location.pathname
+        ? rawLocation.search
+        : location.searchStr
+    )
+    if (walletReturn) throw redirect(walletReturn)
     // A missing or disabled Host must not render the platform as a fallback.
     const site = await context.queryClient.fetchQuery(siteConfigQueryOptions())
     const isResellerOwnerRoute =

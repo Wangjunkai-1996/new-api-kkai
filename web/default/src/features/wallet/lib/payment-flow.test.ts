@@ -18,9 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { paymentOrder, paymentWallet } from '../payment-flow-fixtures'
+import {
+  paymentOrder,
+  paymentQuote,
+  paymentWallet,
+} from '../payment-flow-fixtures'
 import {
   formatPaymentMoney,
+  hasSamePaymentTerms,
   mergeWalletState,
   openPaymentCheckout,
   preparePaymentWindow,
@@ -146,4 +151,28 @@ describe('payment facts and external checkout', () => {
     expect(document.querySelector('form')).toBeNull()
     expect(target.navigated).toBe(true)
   })
+})
+
+it('only continues refreshed checkout when all payment terms remain unchanged', () => {
+  const quote = paymentQuote()
+  expect(
+    hasSamePaymentTerms(quote, {
+      ...quote,
+      quote_token: 'FRESH',
+      expires_at: quote.expires_at + 60,
+    })
+  ).toBe(true)
+  for (const change of [
+    {
+      expected_payment: { amount_minor: '1001', currency: 'CNY', exponent: 2 },
+    },
+    { payable_payment: { amount_minor: '1000', currency: 'USD', exponent: 2 } },
+    { credited_quota: '10001' },
+    { credit_display: { amount: '10', unit: 'CNY' } },
+    { payment_method: 'wxpay' },
+    { payment_provider: 'stripe' },
+    { pricing_mode: 'channel_adjusted' as const },
+  ]) {
+    expect(hasSamePaymentTerms(quote, { ...quote, ...change })).toBe(false)
+  }
 })

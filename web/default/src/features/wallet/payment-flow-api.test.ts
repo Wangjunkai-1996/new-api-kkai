@@ -25,6 +25,8 @@ import {
   quoteWalletPayment,
   restoreWalletPayment,
   walletStateSchema,
+  WalletPaymentError,
+  getWalletPayment,
 } from './payment-flow-api'
 import {
   paymentOrder,
@@ -183,3 +185,37 @@ it('ends a top-up using its order version while preserving the latest separate w
   expect(result.order.local_end_reason).toBe('user_ended')
   expect(result.wallet.flow.order?.trade_no).toBe('CURRENT-ORDER')
 })
+
+it.each([
+  ['15', undefined, true],
+  [undefined, 30, true],
+  ['not-a-date', undefined, false],
+])(
+  'preserves HTTP 429 and only exposes a reliable cooldown (%s)',
+  async (header, seconds, known) => {
+    api.request.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 429,
+        headers: { 'retry-after': header },
+        data: {
+          code: 'WALLET_RATE_LIMITED',
+          rate_limit_scope: 'wallet_quote',
+          retry_after_seconds: seconds,
+        },
+      },
+    })
+    try {
+      await getWalletPayment()
+      expect.fail('Expected throttled request to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(WalletPaymentError)
+      expect(error).toMatchObject({
+        status: 429,
+        response: { status: 429 },
+        rateLimitScope: 'wallet_quote',
+      })
+      expect((error as WalletPaymentError).retryAt !== undefined).toBe(known)
+    }
+  }
+)

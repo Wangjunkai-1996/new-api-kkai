@@ -17,9 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 
 import { LifecycleWalletPage as Wallet } from './lifecycle-wallet-page'
 import { quoteWalletPayment } from './payment-flow-api'
@@ -30,6 +30,8 @@ import {
 } from './payment-flow-fixtures'
 import type { PaymentQuote } from './payment-flow-types'
 import type { CreemProduct, TopupInfo } from './types'
+
+afterEach(() => vi.restoreAllMocks())
 
 const site = vi.hoisted(() => ({ tenant_id: 0 }))
 const flow = vi.hoisted(() => ({
@@ -57,7 +59,10 @@ vi.mock('./hooks/use-wallet-payment-flow', () => ({
     create: flow.create,
   }),
 }))
-vi.mock('./payment-flow-api', () => ({ quoteWalletPayment: vi.fn() }))
+vi.mock('./payment-flow-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./payment-flow-api')>()),
+  quoteWalletPayment: vi.fn(),
+}))
 vi.mock('@/features/site-config', () => ({
   useSiteConfig: () => ({ data: site }),
 }))
@@ -180,7 +185,7 @@ it.each([0, 12])(
   }
 )
 
-it('hides independent balance and purchase modules during a current order', () => {
+it('keeps balance visible and hides purchase modules during a current order', () => {
   const order = paymentOrder({ allowed_actions: ['reconcile'] })
   flow.wallet = paymentWallet(order)
   render(
@@ -188,6 +193,7 @@ it('hides independent balance and purchase modules during a current order', () =
       <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
     </QueryClientProvider>
   )
+  expect(screen.getByText('Wallet funding statistics enabled')).toBeVisible()
   expect(screen.queryByText('Customer topup')).not.toBeInTheDocument()
   expect(screen.queryByText('Subscription benefits')).not.toBeInTheDocument()
   expect(screen.queryByText('Membership benefits')).not.toBeInTheDocument()
@@ -382,3 +388,86 @@ it.each(['epay', 'creem'])(
     }
   }
 )
+
+it('refreshes unchanged expired payment terms and continues from the same click', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null)
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const quoteMock = vi.mocked(quoteWalletPayment)
+  const old = { ...paymentQuote(), expires_at: 1, quote_token: 'EXPIRED' }
+  const fresh = { ...paymentQuote(), quote_token: 'FRESH' }
+  quoteMock.mockReset().mockResolvedValueOnce(old).mockResolvedValueOnce(fresh)
+  flow.create.mockReset()
+  flow.wallet = paymentWallet()
+  topup.info = {
+    enable_online_topup: true,
+    enable_stripe_topup: false,
+    pay_methods: [{ name: 'Alipay', type: 'alipay' }],
+    min_topup: 10,
+    stripe_min_topup: 10,
+    amount_options: [],
+    discount: {},
+  }
+  const mounted = render(
+    <QueryClientProvider client={client}>
+      <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
+    </QueryClientProvider>
+  )
+  try {
+    await screen.findByText('EXPIRED')
+    fireEvent.click(screen.getByRole('button', { name: 'Review and Pay' }))
+    await waitFor(() =>
+      expect(flow.create).toHaveBeenCalledExactlyOnceWith(
+        fresh,
+        expect.objectContaining({ navigated: false })
+      )
+    )
+    expect(quoteMock).toHaveBeenCalledTimes(2)
+  } finally {
+    mounted.unmount()
+    client.clear()
+    topup.info = null
+  }
+})
+it('reuses an unexpired quote when switching amount A to B and back to A', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const quoteMock = vi.mocked(quoteWalletPayment)
+  quoteMock.mockReset().mockImplementation(async (request) => ({
+    ...paymentQuote(),
+    quote_token: `CACHED-${request.amount}`,
+  }))
+  flow.wallet = paymentWallet()
+  topup.info = {
+    enable_online_topup: true,
+    enable_stripe_topup: false,
+    pay_methods: [{ name: 'Alipay', type: 'alipay' }],
+    min_topup: 10,
+    stripe_min_topup: 10,
+    amount_options: [],
+    discount: {},
+  }
+  const mounted = render(
+    <QueryClientProvider client={client}>
+      <Wallet topupInfo={topup.info} presetAmounts={[]} topupLoading={false} />
+    </QueryClientProvider>
+  )
+  try {
+    await screen.findByText('CACHED-10')
+    fireEvent.change(screen.getByLabelText('Top-up amount'), {
+      target: { value: '20' },
+    })
+    await screen.findByText('CACHED-20')
+    fireEvent.change(screen.getByLabelText('Top-up amount'), {
+      target: { value: '10' },
+    })
+    await screen.findByText('CACHED-10')
+    expect(quoteMock).toHaveBeenCalledTimes(2)
+  } finally {
+    mounted.unmount()
+    client.clear()
+    topup.info = null
+  }
+})

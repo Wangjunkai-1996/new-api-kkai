@@ -33,10 +33,10 @@ import type {
 } from './payment-flow-types'
 
 const decimal = z.string().regex(/^\d+$/)
-const WALLET_RESTORE_TIMEOUT_MS = 20_000
+const WALLET_REQUEST_TIMEOUT_MS = 20_000
 
-function walletRestoreSignal(signal?: AbortSignal): AbortSignal {
-  const timeout = AbortSignal.timeout(WALLET_RESTORE_TIMEOUT_MS)
+function walletRequestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(WALLET_REQUEST_TIMEOUT_MS)
   return signal ? AbortSignal.any([signal, timeout]) : timeout
 }
 
@@ -165,11 +165,26 @@ export const walletStateSchema = z
   )
 
 export class WalletPaymentError extends Error {
+  readonly status?: number
+  readonly retryAt?: number
+  readonly rateLimitScope?: string
+  readonly response?: { status: number }
+
   constructor(
     public code: string,
-    public wallet?: WalletState
+    public wallet?: WalletState,
+    details?: {
+      status?: number
+      retryAt?: number
+      rateLimitScope?: string
+      cause?: unknown
+    }
   ) {
-    super(code)
+    super(code, { cause: details?.cause })
+    this.status = details?.status
+    this.retryAt = details?.retryAt
+    this.rateLimitScope = details?.rateLimitScope
+    if (details?.status) this.response = { status: details.status }
   }
 }
 
@@ -193,12 +208,37 @@ async function paymentRequest<T>(
     } as Parameters<typeof api.request>[0])
     payload = response.data
   } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.data) {
-      const data = error.response.data
+    if (axios.isAxiosError(error) && error.response) {
+      const data = error.response.data ?? {}
       const parsed = walletStateSchema.safeParse(data.data?.wallet)
+      const retryAfter = error.response.headers?.['retry-after']
+      let seconds: number | undefined
+      if (typeof data.retry_after_seconds === 'number') {
+        seconds = data.retry_after_seconds
+      } else if (typeof retryAfter === 'string' && /^\d+$/.test(retryAfter)) {
+        seconds = Number(retryAfter)
+      }
+      let retryAt: number | undefined
+      if (seconds !== undefined && Number.isFinite(seconds) && seconds >= 0) {
+        retryAt = Date.now() + seconds * 1000
+      } else if (typeof retryAfter === 'string') {
+        retryAt = Date.parse(retryAfter)
+      }
       throw new WalletPaymentError(
         typeof data.code === 'string' ? data.code : 'WALLET_STATE_UNAVAILABLE',
-        parsed.success ? parsed.data : undefined
+        parsed.success ? parsed.data : undefined,
+        {
+          status: error.response.status,
+          retryAt:
+            retryAt !== undefined && Number.isFinite(retryAt)
+              ? retryAt
+              : undefined,
+          rateLimitScope:
+            typeof data.rate_limit_scope === 'string'
+              ? data.rate_limit_scope
+              : undefined,
+          cause: error,
+        }
       )
     }
     throw error
@@ -223,7 +263,7 @@ export async function restoreWalletPayment(
       'post',
       '/api/user/topup/current/restore',
       tradeNo ? { trade_no: tradeNo } : {},
-      walletRestoreSignal(signal)
+      walletRequestSignal(signal)
     )
   )
 }
@@ -233,7 +273,7 @@ export async function getWalletPayment(signal?: AbortSignal) {
       'get',
       '/api/user/topup/current',
       undefined,
-      signal
+      walletRequestSignal(signal)
     )
   )
 }
@@ -361,7 +401,7 @@ export async function getWalletOrder(
     'get',
     `/api/user/topup/orders/${encodeURIComponent(tradeNo)}${admin ? '/admin' : ''}`,
     undefined,
-    signal
+    walletRequestSignal(signal)
   )
   return {
     wallet: walletStateSchema.parse(result.wallet),

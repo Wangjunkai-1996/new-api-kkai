@@ -33,15 +33,13 @@ declare module '@tanstack/react-query' {
   }
 }
 
-export function createAppQueryClient(
-  onInternalServerError?: () => void
-): QueryClient {
+export function createAppQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
         retry: (failureCount, error) => {
           if (import.meta.env.DEV || failureCount > 3) return false
-          return ![401, 403].includes(getServerErrorStatus(error) ?? 0)
+          return ![401, 403, 429].includes(getServerErrorStatus(error) ?? 0)
         },
         refetchOnWindowFocus: false,
         staleTime: 10 * 1000,
@@ -58,7 +56,6 @@ export function createAppQueryClient(
     queryCache: new QueryCache({
       onError: (error, query) => {
         if (query.meta?.errorToast !== false) handleServerError(error)
-        if (getServerErrorStatus(error) === 500) onInternalServerError?.()
       },
     }),
   })
