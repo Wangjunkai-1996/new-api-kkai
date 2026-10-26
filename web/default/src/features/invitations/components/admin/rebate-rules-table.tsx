@@ -21,7 +21,6 @@ import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 import {
   Table,
   TableBody,
@@ -30,8 +29,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useGroupDisplayNames } from '@/hooks/use-group-display-names'
 
-import { ALL_USER_GROUP, type RebateRule } from '../../types'
+import { ALL_USER_GROUP, SALES_USER_GROUP, type RebateRule } from '../../types'
 
 export const RebateRulesTable = (props: {
   rules: RebateRule[]
@@ -40,6 +40,11 @@ export const RebateRulesTable = (props: {
 }) => {
   const { t } = useTranslation()
   const groupDisplayNames = useGroupDisplayNames()
+  const rebateGroupDisplayNames: Record<string, string> = {
+    ...groupDisplayNames,
+    [ALL_USER_GROUP]: t('All User Groups'),
+    [SALES_USER_GROUP]: t('Sales Accounts'),
+  }
   return (
     <div className='overflow-hidden rounded-md border'>
       <Table>
@@ -56,9 +61,7 @@ export const RebateRulesTable = (props: {
             <TableRow key={rule.id}>
               <TableCell>
                 <Badge variant='secondary'>
-                  {rule.user_group === ALL_USER_GROUP
-                    ? t('All User Groups')
-                    : groupDisplayNames[rule.user_group] || rule.user_group}
+                  {rebateGroupDisplayNames[rule.user_group] || rule.user_group}
                 </Badge>
               </TableCell>
               <TableCell>{t(rule.rule_type)}</TableCell>
@@ -66,26 +69,28 @@ export const RebateRulesTable = (props: {
                 {(Number(rule.rebate_rate) * 100).toFixed(2)}%
               </TableCell>
               <TableCell>
-                <div className='flex justify-end gap-1'>
-                  <Button
-                    size='icon-sm'
-                    variant='ghost'
-                    aria-label={t('Edit')}
-                    title={t('Edit')}
-                    onClick={() => props.onEdit(rule)}
-                  >
-                    <Pencil />
-                  </Button>
-                  <Button
-                    size='icon-sm'
-                    variant='ghost'
-                    aria-label={t('Delete')}
-                    title={t('Delete')}
-                    onClick={() => props.onDelete(rule)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
+                {rule.user_group !== SALES_USER_GROUP && (
+                  <div className='flex justify-end gap-1'>
+                    <Button
+                      size='icon-sm'
+                      variant='ghost'
+                      aria-label={t('Edit')}
+                      title={t('Edit')}
+                      onClick={() => props.onEdit(rule)}
+                    >
+                      <Pencil />
+                    </Button>
+                    <Button
+                      size='icon-sm'
+                      variant='ghost'
+                      aria-label={t('Delete')}
+                      title={t('Delete')}
+                      onClick={() => props.onDelete(rule)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                )}
               </TableCell>
             </TableRow>
           ))}

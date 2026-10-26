@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { RebateRequest } from './user'
 
 export const ALL_USER_GROUP = '__all__'
+export const SALES_USER_GROUP = '__sales__'
 
 export type RebateRule = {
   id: number
