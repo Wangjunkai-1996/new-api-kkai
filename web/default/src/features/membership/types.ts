@@ -112,6 +112,7 @@ export interface MembershipOrder {
   price_minor: number
   currency: string
   quota: number
+  account_id?: number
   created_at: number
   paid_at?: number
   checkout_state?: 'creating' | 'ready'

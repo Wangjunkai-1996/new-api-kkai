@@ -141,20 +141,16 @@ const membership: MembershipSelf = {
   server_time: 1000,
   account,
   tier,
-  discounts: [
-    {
-      group_key: 'enterprise',
-      display_name: 'Enterprise',
-      description: 'Long-context requests',
-      base_ratio: 0.2,
-      wallet_ratio: 0.2,
-      coefficient: 0.9,
-      membership_ratio: 0.18,
-      savings: 0.1,
-      enabled: true,
-      published: true,
-    },
-  ],
+  discounts: (catalog.group_quotes ?? []).map((quote) => ({
+    group_key: quote.group_key,
+    display_name: quote.display_name,
+    description: quote.description,
+    base_ratio: quote.base_ratio,
+    wallet_ratio: quote.wallet_ratio,
+    ...quote.tier_quotes.orbit,
+    enabled: true,
+    published: true,
+  })),
   pending_order: null,
 }
 
@@ -214,7 +210,14 @@ describe('membership ratio comparison', () => {
     ).toHaveAttribute('href', '/membership')
     const table = screen.getByRole('table', { name: 'Group ratio comparison' })
     expect(
-      within(table).getByRole('columnheader', { name: /Orbit Club/ })
+      within(table).getByRole('columnheader', {
+        name: /My membership ratio.*Orbit Club/,
+      })
+    ).toBeVisible()
+    expect(
+      within(table).getByRole('columnheader', {
+        name: /Orbit Club.*Group discounts/,
+      })
     ).toBeVisible()
     expect(
       within(table).queryByRole('columnheader', { name: /Diamond|King/ })
@@ -223,28 +226,38 @@ describe('membership ratio comparison', () => {
     const enterprise = within(table).getByRole('row', {
       name: /Enterprise.*Long-context requests/,
     })
-    expect(within(enterprise).getByText('0.18')).toBeVisible()
-    expect(within(enterprise).getByText('Save 10% vs wallet')).toBeVisible()
+    const enterpriseCells = within(enterprise).getAllByRole('cell')
+    expect(within(enterpriseCells[2]).getByText('0.18')).toBeVisible()
+    expect(within(enterpriseCells[3]).getByText('0.18')).toBeVisible()
+    expect(
+      within(enterpriseCells[2]).getByText('Save 10% vs wallet')
+    ).toBeVisible()
 
     const legacy = within(table).getByRole('row', {
       name: /Legacy group.*Existing negotiated price/,
     })
-    expect(within(legacy).getAllByText('0.16')).toHaveLength(2)
-    expect(within(legacy).getByText('Existing discount retained')).toBeVisible()
+    expect(within(legacy).getAllByText('0.16')).toHaveLength(3)
+    expect(
+      within(within(legacy).getAllByRole('cell')[2]).getByText(
+        'Existing discount retained'
+      )
+    ).toBeVisible()
     expect(within(legacy).queryByText('0.19')).not.toBeInTheDocument()
 
     const free = within(table).getByRole('row', {
       name: /Playground.*Free requests/,
     })
-    expect(within(free).getByText('Free group')).toBeVisible()
+    expect(within(free).getAllByText('Free group')).toHaveLength(2)
     expect(within(free).queryByText(/NaN|Infinity/)).not.toBeInTheDocument()
 
     const standard = within(table).getByRole('row', {
       name: /Standard group.*No additional discount/,
     })
-    expect(within(standard).getAllByText('0.25')).toHaveLength(2)
+    expect(within(standard).getAllByText('0.25')).toHaveLength(3)
     expect(
-      within(standard).getByText('No extra membership discount')
+      within(within(standard).getAllByRole('cell')[2]).getByText(
+        'No extra membership discount'
+      )
     ).toBeVisible()
   })
 
@@ -290,9 +303,26 @@ describe('membership ratio comparison', () => {
     expect(screen.queryByText('Save 10% vs wallet')).not.toBeInTheDocument()
   })
 
+  it('does not show a personal column with missing group prices', async () => {
+    setMembership(catalog, {
+      ...membership,
+      discounts: membership.discounts.filter(
+        (quote) => quote.group_key !== 'enterprise'
+      ),
+    })
+    await renderRatios()
+
+    expect(
+      screen.getByText(
+        'Membership information could not be loaded. Please refresh before purchasing.'
+      )
+    ).toBeVisible()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
   it('shows current published discounts for an existing member and preserves authoritative quotes', async () => {
     await renderRatios()
-    expect(screen.getByText('0.18')).toBeVisible()
+    expect(screen.getAllByText('0.18')).toHaveLength(2)
     expect(screen.queryByText('0.19')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
@@ -317,8 +347,29 @@ describe('membership ratio comparison', () => {
     ).toBeVisible()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Membership plans' }))
-    expect(screen.getByText('0.18')).toBeVisible()
+    expect(screen.getAllByText('0.18')).toHaveLength(2)
     expect(screen.queryByText('0.19')).not.toBeInTheDocument()
+  })
+
+  it('shows the active member price from self beside a different offer price', async () => {
+    setMembership(catalog, {
+      ...membership,
+      discounts: membership.discounts.map((quote) => ({
+        ...quote,
+        membership_ratio: 0.17,
+        savings: 0.15,
+      })),
+    })
+    await renderRatios()
+
+    const row = screen.getByRole('row', {
+      name: /Enterprise.*Long-context requests/,
+    })
+    const cells = within(row).getAllByRole('cell')
+    expect(within(cells[2]).getByText('0.17')).toBeVisible()
+    expect(within(cells[2]).getByText('Save 15% vs wallet')).toBeVisible()
+    expect(within(cells[3]).getByText('0.18')).toBeVisible()
+    expect(within(cells[3]).getByText('Save 10% vs wallet')).toBeVisible()
   })
 
   it('searches group descriptions and filters by actual savings', async () => {
@@ -359,6 +410,9 @@ describe('membership ratio comparison', () => {
         account: { ...account, ...accountChange },
       })
       await renderRatios()
+      expect(
+        screen.queryByRole('columnheader', { name: /My membership ratio/ })
+      ).not.toBeInTheDocument()
       await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
 
       expect(screen.getByText('No active membership benefits')).toBeVisible()

@@ -205,8 +205,11 @@ func MembershipCharge(info *relaycommon.RelayInfo, actual int) int {
 
 func membershipBillingError(err error) *relaytypes.NewAPIError {
 	status, code := http.StatusConflict, relaytypes.ErrorCodeUpdateDataError
-	if errors.Is(err, model.ErrMembershipInsufficientQuota) || errors.Is(err, model.ErrTaskBillingInsufficientToken) {
+	if errors.Is(err, model.ErrMembershipInsufficientQuota) {
 		status, code = http.StatusForbidden, relaytypes.ErrorCodeInsufficientUserQuota
+	} else if errors.Is(err, model.ErrTaskBillingInsufficientToken) {
+		status, code = http.StatusForbidden, relaytypes.ErrorCodePreConsumeTokenQuotaFailed
+		err = fmt.Errorf("API key cannot authorize this request; check its quota or use a new key: %w", err)
 	} else if errors.Is(err, model.ErrMembershipInvalidInput) {
 		status, code = http.StatusBadRequest, relaytypes.ErrorCodeInvalidRequest
 	}

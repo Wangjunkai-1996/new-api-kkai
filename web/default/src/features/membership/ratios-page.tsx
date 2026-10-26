@@ -59,8 +59,20 @@ export function MembershipRatiosPage() {
   const currentColumn = {
     id: 'current',
     name: self?.tier?.name ?? t('Current membership'),
+    personal: true,
   }
-  const columns: MembershipRatioColumn[] = current ? [currentColumn] : tiers
+  let columns: MembershipRatioColumn[] = tiers
+  if (active) {
+    columns = [
+      {
+        ...currentColumn,
+        name: t('My membership ratio'),
+        subtitle: currentColumn.name,
+      },
+      ...tiers,
+    ]
+  }
+  if (current) columns = [currentColumn]
   const groupQuotes = catalog?.group_quotes
   const offersAvailable =
     Array.isArray(groupQuotes) &&
@@ -116,13 +128,6 @@ export function MembershipRatiosPage() {
           (quote.savings ?? -1) >= 0 &&
           (quote.savings ?? 2) <= 1
       ))
-  const quotesAvailable = offersAvailable && benefitsAvailable
-  const saleRows: MembershipRatioRow[] = offersAvailable
-    ? (groupQuotes ?? []).map((quote) => ({
-        ...quote,
-        quotes: quote.tier_quotes,
-      }))
-    : []
   const currentRows: MembershipRatioRow[] =
     active && benefitsAvailable
       ? (self?.discounts ?? [])
@@ -138,6 +143,26 @@ export function MembershipRatiosPage() {
             },
           }))
       : []
+  const currentQuotes = new Map(
+    currentRows.map((row) => [row.group_key, row.quotes.current])
+  )
+  const quotesAvailable =
+    offersAvailable &&
+    benefitsAvailable &&
+    (!active ||
+      (groupQuotes?.every((quote) => currentQuotes.has(quote.group_key)) ??
+        false))
+  const saleRows: MembershipRatioRow[] = offersAvailable
+    ? (groupQuotes ?? []).map((quote) => {
+        const personalQuote = currentQuotes.get(quote.group_key)
+        return {
+          ...quote,
+          quotes: personalQuote
+            ? { ...quote.tier_quotes, current: personalQuote }
+            : quote.tier_quotes,
+        }
+      })
+    : []
   const rows = current ? currentRows : saleRows
   const maximumSaving = rows.reduce(
     (highest, row) =>

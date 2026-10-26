@@ -193,6 +193,41 @@ func TestMembershipReservationRestoresFrozenPricesAndCapsSettlement(t *testing.T
 	assert.EqualValues(t, 80, updated.UsedQuota)
 }
 
+func TestMembershipResponsesRejectsInsufficientAPIKeyQuotaWithoutChargingMember(t *testing.T) {
+	ctx, user := setupMembershipServiceTest(t)
+	token := model.Token{UserId: user.Id, Key: "limited-member-key", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 3}
+	require.NoError(t, model.DB.Create(&token).Error)
+	outputCap := uint(10)
+	price := types.PriceData{ModelRatio: 2, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.2}}
+	info := &relaycommon.RelayInfo{
+		UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, RequestId: "responses-limited-key",
+		RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{MaxOutputTokens: &outputCap},
+		OriginModelName: "test-model", UsingGroup: "gpt", PriceData: price,
+	}
+	require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 10, &relaytypes.TokenCountMeta{MaxTokens: 10}))
+	apiErr := PreConsumeBilling(ctx, 4, info)
+	require.NotNil(t, apiErr)
+	require.ErrorIs(t, apiErr, model.ErrTaskBillingInsufficientToken)
+	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	assert.Equal(t, relaytypes.ErrorCodePreConsumeTokenQuotaFailed, apiErr.GetErrorCode())
+	assert.Contains(t, apiErr.Error(), "API key cannot authorize this request")
+	assert.NotContains(t, apiErr.Error(), token.Key)
+
+	self, err := model.GetMembershipSelf(user.Id)
+	require.NoError(t, err)
+	require.NotNil(t, self.Account)
+	assert.EqualValues(t, 100, self.Account.Available())
+	require.NoError(t, model.DB.First(&token, token.Id).Error)
+	assert.Equal(t, 3, token.RemainQuota)
+	assert.Zero(t, token.UsedQuota)
+	var wallet model.User
+	require.NoError(t, model.DB.First(&wallet, user.Id).Error)
+	assert.EqualValues(t, 10000, wallet.Quota)
+	var billingCount int64
+	require.NoError(t, model.DB.Model(&model.MembershipBillingRecord{}).Where("request_id = ?", info.RequestId).Count(&billingCount).Error)
+	assert.Zero(t, billingCount)
+}
+
 func TestMembershipReservationUsesLatestPublishedDiscountForExistingMember(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

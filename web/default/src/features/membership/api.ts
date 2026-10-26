@@ -56,6 +56,15 @@ export async function getMembershipOrders(
   return requireServerSuccess(response.data).data
 }
 
+export async function getMembershipOrder(
+  tradeNo: string
+): Promise<MembershipOrder> {
+  const response = await api.get<MembershipResponse<MembershipOrder>>(
+    `/api/membership/orders/${encodeURIComponent(tradeNo)}`
+  )
+  return requireServerSuccess(response.data).data
+}
+
 export async function createMembershipOrder(
   request: MembershipOrderRequest
 ): Promise<MembershipCheckout> {

@@ -24,6 +24,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -41,6 +42,7 @@ import { MembershipCenter } from '.'
 import {
   createMembershipOrder,
   getMembershipCatalog,
+  getMembershipOrder,
   getMembershipOrders,
   getMembershipSelf,
   publishMembershipCatalog,
@@ -72,6 +74,7 @@ import type {
 vi.mock('./api', () => ({
   createMembershipOrder: vi.fn(),
   getMembershipCatalog: vi.fn(),
+  getMembershipOrder: vi.fn(),
   getMembershipOrders: vi.fn(),
   getMembershipSelf: vi.fn(),
   publishMembershipCatalog: vi.fn(),
@@ -151,6 +154,7 @@ const membership: MembershipSelf = {
 beforeEach(() => {
   vi.mocked(createMembershipOrder).mockReset()
   vi.mocked(getMembershipCatalog).mockReset()
+  vi.mocked(getMembershipOrder).mockReset()
   vi.mocked(getMembershipOrders).mockReset()
   vi.mocked(getMembershipSelf).mockReset()
   vi.mocked(publishMembershipCatalog).mockReset()
@@ -768,13 +772,7 @@ describe('membership payment safety', () => {
     expect(createMembershipOrder).not.toHaveBeenCalled()
   })
 
-  it('refreshes authoritative state on payment return and never activates from return parameters', async () => {
-    const originalURL = window.location.href
-    window.history.replaceState(
-      null,
-      '',
-      '/membership?order=MEMBER-9-return&trade_status=TRADE_SUCCESS'
-    )
+  it('shows purchase success only after the returned order succeeds and membership refreshes', async () => {
     const order: MembershipOrder = {
       id: 6,
       trade_no: 'MEMBER-9-return',
@@ -797,51 +795,251 @@ describe('membership payment safety', () => {
         pending_order: order,
       })
       .mockResolvedValue(membership)
-    vi.mocked(getMembershipOrders)
-      .mockResolvedValueOnce([order])
-      .mockResolvedValue([{ ...order, status: 'success' }])
+    vi.mocked(getMembershipOrder)
+      .mockResolvedValueOnce(order)
+      .mockResolvedValue({ ...order, status: 'success', account_id: 20 })
+    vi.mocked(getMembershipOrders).mockResolvedValue([order])
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     })
+    const onHandled = vi.fn()
+    const router = createRouter({
+      routeTree: createRootRoute({
+        component: () => (
+          <MembershipCenter
+            initialTradeNo={order.trade_no}
+            onPaymentReturnHandled={onHandled}
+          />
+        ),
+      }),
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    await router.load()
+    render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+    const pending = await screen.findByText('Awaiting payment confirmation')
+    expect(pending).toBeVisible()
+    expect(
+      screen.queryByRole('dialog', { name: 'Membership activated' })
+    ).not.toBeInTheDocument()
+    expect(getMembershipSelf).toHaveBeenCalledOnce()
+    const notice = pending.closest<HTMLElement>('[role="alert"]')
+    if (!notice) throw new Error('Payment return notice missing')
+    await userEvent.click(
+      within(notice).getByRole('button', { name: 'Refresh' })
+    )
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Membership activated',
+    })
+    expect(within(dialog).getByText('Gold')).toBeVisible()
+    expect(await screen.findByText('Active')).toBeVisible()
+    expect(getMembershipSelf).toHaveBeenCalledTimes(2)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(onHandled).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole('dialog', { name: 'Membership activated' })
+    ).not.toBeInTheDocument()
+    expect(createMembershipOrder).not.toHaveBeenCalled()
+    expect(resolveMembershipOrder).not.toHaveBeenCalled()
+    expect(resumeMembershipPayment).not.toHaveBeenCalled()
+  })
+
+  it('polls a pending returned order until activation without user action', async () => {
+    const order: MembershipOrder = {
+      id: 6,
+      trade_no: 'MEMBER-9-return',
+      tier_id: tier.id,
+      tier_name: tier.name,
+      status: 'pending',
+      price_minor: 9900,
+      currency: 'CNY',
+      quota: tier.quota,
+      created_at: 1000,
+    }
+    vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
+    vi.mocked(getMembershipSelf)
+      .mockResolvedValueOnce({ ...membership, account: null, tier: null })
+      .mockResolvedValue(membership)
+    vi.mocked(getMembershipOrder)
+      .mockResolvedValueOnce(order)
+      .mockResolvedValue({ ...order, status: 'success', account_id: 20 })
+    vi.mocked(getMembershipOrders).mockResolvedValue([order])
+    const router = createRouter({
+      routeTree: createRootRoute({
+        component: () => <MembershipCenter initialTradeNo={order.trade_no} />,
+      }),
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    await router.load()
+    vi.useFakeTimers()
     try {
+      render(
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      expect(
+        screen.getAllByText('Awaiting payment confirmation')[0]
+      ).toBeVisible()
+      expect(getMembershipOrder).toHaveBeenCalledOnce()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(
+        vi.mocked(getMembershipOrder).mock.calls.length
+      ).toBeGreaterThanOrEqual(2)
+      expect(
+        screen.getByRole('dialog', { name: 'Membership activated' })
+      ).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('withholds purchase success when membership refresh fails and retries verification', async () => {
+    const order: MembershipOrder = {
+      id: 6,
+      trade_no: 'MEMBER-9-return',
+      tier_id: tier.id,
+      tier_name: tier.name,
+      status: 'success',
+      account_id: 20,
+      price_minor: 9900,
+      currency: 'CNY',
+      quota: tier.quota,
+      created_at: 1000,
+    }
+    vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
+    vi.mocked(getMembershipSelf)
+      .mockResolvedValueOnce({ ...membership, account: null, tier: null })
+      .mockRejectedValueOnce(new Error('Membership unavailable'))
+      .mockResolvedValueOnce({
+        ...membership,
+        account: membership.account ? { ...membership.account, id: 19 } : null,
+      })
+      .mockResolvedValue(membership)
+    vi.mocked(getMembershipOrder).mockResolvedValue(order)
+    vi.mocked(getMembershipOrders).mockResolvedValue([order])
+    const router = createRouter({
+      routeTree: createRootRoute({
+        component: () => <MembershipCenter initialTradeNo={order.trade_no} />,
+      }),
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    await router.load()
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+    const verificationMessage =
+      'Payment confirmed, but your membership status could not be verified.'
+    const message = await screen.findByText(verificationMessage)
+    expect(message).toBeVisible()
+    expect(
+      screen.queryByRole('dialog', { name: 'Membership activated' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Active')).not.toBeInTheDocument()
+    const notice = message.closest<HTMLElement>('[role="alert"]')
+    if (!notice) throw new Error('Membership verification notice missing')
+    await userEvent.click(
+      within(notice).getByRole('button', { name: 'Refresh' })
+    )
+    await waitFor(() => expect(getMembershipSelf).toHaveBeenCalledTimes(3))
+    const retriedMessage = await screen.findByText(verificationMessage)
+    expect(retriedMessage).toBeVisible()
+    expect(screen.queryByText('My membership')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('dialog', { name: 'Membership activated' })
+    ).not.toBeInTheDocument()
+    const retryNotice = retriedMessage.closest<HTMLElement>('[role="alert"]')
+    if (!retryNotice) throw new Error('Membership verification notice missing')
+    await userEvent.click(
+      within(retryNotice).getByRole('button', { name: 'Refresh' })
+    )
+    expect(
+      await screen.findByRole('dialog', { name: 'Membership activated' })
+    ).toBeVisible()
+    expect(await screen.findByText('Active')).toBeVisible()
+    expect(getMembershipSelf).toHaveBeenCalledTimes(4)
+  })
+
+  it.each(['paid_exception', 'closed'])(
+    'does not report purchase success when the returned order is %s',
+    async (status) => {
+      const order: MembershipOrder = {
+        id: 6,
+        trade_no: 'MEMBER-9-return',
+        tier_id: tier.id,
+        tier_name: tier.name,
+        status,
+        price_minor: 9900,
+        currency: 'CNY',
+        quota: tier.quota,
+        created_at: 1000,
+      }
+      vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
+      vi.mocked(getMembershipSelf).mockResolvedValue({
+        ...membership,
+        account: null,
+        tier: null,
+        discounts: [],
+        pending_order: null,
+      })
+      vi.mocked(getMembershipOrder).mockResolvedValue(order)
+      vi.mocked(getMembershipOrders).mockResolvedValue([order])
+      const onHandled = vi.fn()
       const router = createRouter({
-        routeTree: createRootRoute({ component: MembershipCenter }),
+        routeTree: createRootRoute({
+          component: () => (
+            <MembershipCenter
+              initialTradeNo={order.trade_no}
+              onPaymentReturnHandled={onHandled}
+            />
+          ),
+        }),
         history: createMemoryHistory({ initialEntries: ['/'] }),
       })
       await router.load()
       render(
-        <QueryClientProvider client={client}>
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
           <RouterProvider router={router} />
         </QueryClientProvider>
       )
-      expect(
-        await screen.findByText('Awaiting payment confirmation')
-      ).toBeVisible()
-      expect(
-        screen.getByText(
-          'Choose a membership to prepay quota and receive group discounts.'
-        )
-      ).toBeVisible()
-      expect(screen.queryByText('Active')).not.toBeInTheDocument()
-      expect(screen.queryByText('Membership activated')).not.toBeInTheDocument()
-      expect(getMembershipSelf).toHaveBeenCalledOnce()
-      const ordersSection = screen
-        .getByRole('heading', { name: 'My membership orders' })
-        .closest('section')
-      if (!ordersSection) throw new Error('Membership orders section missing')
-      await userEvent.click(
-        within(ordersSection).getByRole('button', { name: 'Refresh' })
+      const label =
+        status === 'closed' ? 'Order closed' : 'Payment received, needs review'
+      const notice = (await screen.findByText(label)).closest<HTMLElement>(
+        '[role="alert"]'
       )
-      expect(await screen.findByText('Membership activated')).toBeVisible()
-      expect(await screen.findByText('Active')).toBeVisible()
-      expect(getMembershipSelf).toHaveBeenCalledTimes(2)
-      expect(createMembershipOrder).not.toHaveBeenCalled()
-      expect(resolveMembershipOrder).not.toHaveBeenCalled()
-      expect(resumeMembershipPayment).not.toHaveBeenCalled()
-    } finally {
-      window.history.replaceState(null, '', originalURL)
+      if (!notice) throw new Error('Payment return notice missing')
+      expect(
+        screen.queryByRole('dialog', { name: 'Membership activated' })
+      ).not.toBeInTheDocument()
+      await userEvent.click(
+        within(notice).getByRole('button', { name: 'Close' })
+      )
+      expect(onHandled).toHaveBeenCalledOnce()
+      expect(getMembershipSelf).toHaveBeenCalledOnce()
     }
-  })
+  )
 
   it('prevents retrying an externally unresolved checkout', async () => {
     vi.mocked(getMembershipOrders).mockResolvedValue([

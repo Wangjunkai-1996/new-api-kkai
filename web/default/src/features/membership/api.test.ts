@@ -20,9 +20,18 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { resolveMembershipOrder } from './api'
+import { getMembershipOrder, resolveMembershipOrder } from './api'
 
-vi.mock('@/lib/api', () => ({ api: { post: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+
+it('reads the authenticated membership order by its encoded trade number', async () => {
+  const order = { id: 9, trade_no: 'MEMBER-9-return', status: 'success' }
+  vi.mocked(api.get).mockResolvedValue({ data: { success: true, data: order } })
+  await expect(getMembershipOrder('MEMBER-9-return')).resolves.toEqual(order)
+  expect(api.get).toHaveBeenCalledExactlyOnceWith(
+    '/api/membership/orders/MEMBER-9-return'
+  )
+})
 
 describe('membership order resolution transport', () => {
   it('addresses the encoded trade number and keeps resolution facts in the body', async () => {

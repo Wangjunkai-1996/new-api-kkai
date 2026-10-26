@@ -44,6 +44,8 @@ export interface MembershipRatioRow {
 export interface MembershipRatioColumn {
   id: string
   name: string
+  personal?: boolean
+  subtitle?: string
 }
 
 export function MembershipRatioComparison(props: {
@@ -71,7 +73,8 @@ export function MembershipRatioComparison(props: {
     )
   })
   // Keep each tier readable when an installation offers many dynamic plans.
-  const wide = props.columns.length > 3
+  const wide = props.columns.length > 4
+  const fourColumns = props.columns.length === 4
 
   return (
     <>
@@ -97,12 +100,13 @@ export function MembershipRatioComparison(props: {
           {t('Only show savings')}
         </label>
       </div>
-      <div className='px-5 sm:px-6'>
+      <div className='overflow-x-auto px-5 sm:px-6'>
         <table
           role='table'
           className={cn(
             'block w-full border-separate border-spacing-0 text-sm @5xl/content:table @5xl/content:table-fixed',
-            wide && '@5xl/content:block'
+            wide && '@5xl/content:block',
+            fourColumns && '@5xl/content:min-w-[1100px]'
           )}
         >
           <caption className='sr-only'>{t('Group ratio comparison')}</caption>
@@ -116,19 +120,28 @@ export function MembershipRatioComparison(props: {
             <tr role='row'>
               <th
                 scope='col'
-                className='text-muted-foreground w-[30%] border-y py-4 pr-4 text-left text-xs font-normal'
+                className={cn(
+                  'text-muted-foreground border-y py-4 pr-4 text-left text-xs font-normal',
+                  fourColumns ? 'w-[26%]' : 'w-[30%]'
+                )}
               >
                 {t('Billing group')}
               </th>
               <th
                 scope='col'
-                className='text-muted-foreground w-[16%] border-y px-3 py-4 text-right text-xs font-normal'
+                className={cn(
+                  'text-muted-foreground border-y px-3 py-4 text-right text-xs font-normal',
+                  fourColumns ? 'w-[14%]' : 'w-[16%]'
+                )}
               >
                 {t('Standard ratio')}
               </th>
               <th
                 scope='col'
-                className='text-muted-foreground w-[19%] border-y px-3 py-4 text-right text-xs font-normal'
+                className={cn(
+                  'text-muted-foreground border-y px-3 py-4 text-right text-xs font-normal',
+                  fourColumns ? 'w-[16%]' : 'w-[19%]'
+                )}
               >
                 {t('My wallet ratio')}
               </th>
@@ -136,13 +149,27 @@ export function MembershipRatioComparison(props: {
                 <th
                   key={column.id}
                   scope='col'
-                  className='border-y border-[#e8d9b7] bg-[#fbf7ed] px-4 py-3 text-right font-medium break-words first:rounded-tl-lg last:rounded-tr-lg dark:border-[#4a4132] dark:bg-[#2d2a24]'
+                  className={cn(
+                    'border-y px-4 py-3 text-right font-medium break-words first:rounded-tl-lg last:rounded-tr-lg',
+                    column.personal
+                      ? 'border-primary/30 bg-primary/10'
+                      : 'border-[#e8d9b7] bg-[#fbf7ed] dark:border-[#4a4132] dark:bg-[#2d2a24]'
+                  )}
                 >
-                  <span className='text-[#876321] dark:text-[#dec387]'>
+                  <span
+                    className={cn(
+                      column.personal
+                        ? 'text-primary'
+                        : 'text-[#876321] dark:text-[#dec387]'
+                    )}
+                  >
                     {column.name}
                   </span>
                   <span className='text-muted-foreground mt-1 block text-xs font-normal'>
-                    {props.current ? t('My benefits') : t('Group discounts')}
+                    {column.subtitle ??
+                      (props.current || column.personal
+                        ? t('My benefits')
+                        : t('Group discounts'))}
                   </span>
                 </th>
               ))}
@@ -246,14 +273,20 @@ export function MembershipRatioComparison(props: {
                         role='cell'
                         key={column.id}
                         className={cn(
-                          'mt-2 flex items-center justify-between gap-4 rounded-lg bg-[#fbf7ed] px-3 py-3 @5xl/content:mt-0 @5xl/content:table-cell @5xl/content:rounded-none @5xl/content:border-b @5xl/content:border-[#e8d9b7] @5xl/content:px-4 @5xl/content:py-5 @5xl/content:text-right dark:bg-[#2d2a24] dark:@5xl/content:border-[#4a4132]',
+                          'mt-2 flex items-center justify-between gap-4 rounded-lg px-3 py-3 @5xl/content:mt-0 @5xl/content:table-cell @5xl/content:rounded-none @5xl/content:border-b @5xl/content:px-4 @5xl/content:py-5 @5xl/content:text-right',
+                          column.personal
+                            ? 'bg-primary/10 @5xl/content:border-primary/30'
+                            : 'bg-[#fbf7ed] @5xl/content:border-[#e8d9b7] dark:bg-[#2d2a24] dark:@5xl/content:border-[#4a4132]',
                           wide &&
                             '@5xl/content:mt-2 @5xl/content:flex @5xl/content:rounded-lg @5xl/content:border-0 @5xl/content:px-3 @5xl/content:py-3'
                         )}
                       >
                         <span
                           className={cn(
-                            'min-w-0 text-xs break-words text-[#876321] @5xl/content:hidden dark:text-[#dec387]',
+                            'min-w-0 text-xs break-words @5xl/content:hidden',
+                            column.personal
+                              ? 'text-primary'
+                              : 'text-[#876321] dark:text-[#dec387]',
                             wide && '@5xl/content:block'
                           )}
                         >

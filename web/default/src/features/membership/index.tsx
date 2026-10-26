@@ -16,27 +16,95 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Dialog } from '@/components/dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
+import { getMembershipOrder } from './api'
 import { CurrentMembership } from './components/current-membership'
 import { MembershipDiscounts } from './components/discount-comparison'
 import { MembershipOrders } from './components/orders'
 import { MembershipPurchaseDialog } from './components/purchase-dialog'
 import { MembershipTierCard } from './components/tier-card'
 import { useMembership } from './hooks'
-import type { MembershipTier } from './types'
+import type { MembershipOrder, MembershipTier } from './types'
 
-export function MembershipCenter() {
+export function MembershipCenter(props: {
+  initialTradeNo?: string
+  onPaymentReturnHandled?: () => void
+}) {
   const { t } = useTranslation()
   const membership = useMembership()
+  const client = useQueryClient()
+  const refetchSelf = membership.self.refetch
+  const refetchCatalog = membership.catalog.refetch
   const [selectedTier, setSelectedTier] = useState<MembershipTier | null>(null)
+  const [confirmedOrder, setConfirmedOrder] = useState<MembershipOrder | null>(
+    null
+  )
+  const [returnRefreshFailed, setReturnRefreshFailed] = useState(false)
+  const [returnRefreshing, setReturnRefreshing] = useState(false)
+  const handledReturn = useRef(false)
+  const returnedOrder = useQuery({
+    queryKey: [
+      'membership',
+      membership.userId,
+      'return-order',
+      props.initialTradeNo,
+    ],
+    queryFn: () => getMembershipOrder(props.initialTradeNo ?? ''),
+    enabled: !!props.initialTradeNo,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'pending' ? 5000 : false,
+    refetchIntervalInBackground: false,
+  })
+  const confirmReturnedOrder = useCallback(
+    async (order: MembershipOrder) => {
+      setReturnRefreshFailed(false)
+      setReturnRefreshing(true)
+      try {
+        const [selfResult, catalogResult] = await Promise.all([
+          refetchSelf(),
+          refetchCatalog(),
+        ])
+        const self = selfResult.data
+        const account = self?.account
+        if (
+          selfResult.isError ||
+          catalogResult.isError ||
+          !catalogResult.data ||
+          !account ||
+          !order.account_id ||
+          account.id !== order.account_id ||
+          account.status !== 'active' ||
+          account.expires_at <= self.server_time
+        ) {
+          setReturnRefreshFailed(true)
+          return
+        }
+        void client.invalidateQueries({ queryKey: ['pricing'] })
+        setConfirmedOrder(order)
+      } catch {
+        setReturnRefreshFailed(true)
+      } finally {
+        setReturnRefreshing(false)
+      }
+    },
+    [client, refetchCatalog, refetchSelf]
+  )
+  useEffect(() => {
+    const order = returnedOrder.data
+    if (order?.status !== 'success' || handledReturn.current) return
+    handledReturn.current = true
+    void confirmReturnedOrder(order)
+  }, [returnedOrder.data, confirmReturnedOrder])
   const catalog = membership.catalog.data
   const self = membership.self.data
   const loading = membership.catalog.isPending || membership.self.isPending
@@ -104,6 +172,29 @@ export function MembershipCenter() {
               </AlertDescription>
             </Alert>
           )}
+          {returnRefreshFailed && (
+            <Alert variant='destructive'>
+              <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+                <span>
+                  {t(
+                    'Payment confirmed, but your membership status could not be verified.'
+                  )}
+                </span>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  disabled={returnRefreshing}
+                  onClick={() => {
+                    if (returnedOrder.data?.status === 'success') {
+                      void confirmReturnedOrder(returnedOrder.data)
+                    }
+                  }}
+                >
+                  {t('Refresh')}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           {!loading && !error && !runtimeEnabled && (
             <Alert>
               <AlertDescription>
@@ -111,61 +202,126 @@ export function MembershipCenter() {
               </AlertDescription>
             </Alert>
           )}
-          {!loading && !error && runtimeEnabled && catalog && self && (
-            <>
-              <CurrentMembership membership={self} now={membership.now} />
-              {!catalog.sales_enabled && (
-                <Alert>
-                  <AlertDescription>
-                    {t(
-                      'New membership purchases are temporarily unavailable. Existing benefits remain valid.'
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-              <section
-                aria-label={t('Membership plans')}
-                className='grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3'
-              >
-                {tiers.map((tier) => (
-                  <MembershipTierCard
-                    key={tier.id}
-                    tier={tier}
-                    salesEnabled={catalog.sales_enabled}
-                    onPurchase={setSelectedTier}
-                  />
-                ))}
-              </section>
-              <MembershipDiscounts
-                catalog={catalog}
-                currentDiscounts={self.discounts}
-                active={active}
-              />
-              <details className='bg-card rounded-xl border p-5'>
-                <summary className='cursor-pointer font-medium'>
-                  {t('How membership billing works')}
-                </summary>
-                <div className='text-muted-foreground mt-4 space-y-3 text-sm leading-relaxed'>
-                  <p>
-                    {t(
-                      'Subscription quota is used first. If it cannot cover the full request reservation, the entire request uses your wallet at your existing group price.'
-                    )}
-                  </p>
-                  <p>
-                    {t(
-                      'Unused subscription quota stays available for smaller requests. Wallet and subscription quota are never mixed for one request.'
-                    )}
-                  </p>
-                  <p>
-                    {t(
-                      'Quota expires after 30 days and is not reset or renewed automatically. A failed request returns unused reserved quota to its original source without extending validity.'
-                    )}
-                  </p>
-                </div>
-              </details>
-              <MembershipOrders />
-            </>
-          )}
+          {!loading &&
+            !error &&
+            !returnRefreshFailed &&
+            runtimeEnabled &&
+            catalog &&
+            self && (
+              <>
+                {props.initialTradeNo && returnedOrder.isPending && (
+                  <Alert>
+                    <AlertDescription>
+                      {t('Checking the returned payment order...')}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {props.initialTradeNo && returnedOrder.isError && (
+                  <Alert variant='destructive'>
+                    <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+                      <span>{t('Could not load membership orders.')}</span>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => void returnedOrder.refetch()}
+                      >
+                        {t('Refresh')}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {returnedOrder.data?.status === 'pending' && (
+                  <Alert>
+                    <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+                      <span>{t('Awaiting payment confirmation')}</span>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => void returnedOrder.refetch()}
+                      >
+                        {t('Refresh')}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {(returnedOrder.data?.status === 'paid_exception' ||
+                  returnedOrder.data?.status === 'closed') && (
+                  <Alert
+                    variant={
+                      returnedOrder.data.status === 'paid_exception'
+                        ? 'destructive'
+                        : 'default'
+                    }
+                  >
+                    <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+                      <span>
+                        {returnedOrder.data.status === 'paid_exception'
+                          ? t('Payment received, needs review')
+                          : t('Order closed')}
+                      </span>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={props.onPaymentReturnHandled}
+                      >
+                        {t('Close')}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <CurrentMembership membership={self} now={membership.now} />
+                {!catalog.sales_enabled && (
+                  <Alert>
+                    <AlertDescription>
+                      {t(
+                        'New membership purchases are temporarily unavailable. Existing benefits remain valid.'
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <section
+                  aria-label={t('Membership plans')}
+                  className='grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3'
+                >
+                  {tiers.map((tier) => (
+                    <MembershipTierCard
+                      key={tier.id}
+                      tier={tier}
+                      salesEnabled={catalog.sales_enabled}
+                      onPurchase={setSelectedTier}
+                    />
+                  ))}
+                </section>
+                <MembershipDiscounts
+                  catalog={catalog}
+                  currentDiscounts={self.discounts}
+                  active={active}
+                />
+                <details className='bg-card rounded-xl border p-5'>
+                  <summary className='cursor-pointer font-medium'>
+                    {t('How membership billing works')}
+                  </summary>
+                  <div className='text-muted-foreground mt-4 space-y-3 text-sm leading-relaxed'>
+                    <p>
+                      {t(
+                        'Subscription quota is used first. If it cannot cover the full request reservation, the entire request uses your wallet at your existing group price.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'Unused subscription quota stays available for smaller requests. Wallet and subscription quota are never mixed for one request.'
+                      )}
+                    </p>
+                    <p>
+                      {t(
+                        'Quota expires after 30 days and is not reset or renewed automatically. A failed request returns unused reserved quota to its original source without extending validity.'
+                      )}
+                    </p>
+                  </div>
+                </details>
+                <MembershipOrders />
+              </>
+            )}
         </div>
         {selectedTier && self && catalog && (
           <MembershipPurchaseDialog
@@ -181,6 +337,32 @@ export function MembershipCenter() {
             onRefresh={() => void membership.refresh()}
             onOrderCreated={() => void membership.refresh()}
           />
+        )}
+        {confirmedOrder && (
+          <Dialog
+            open
+            onOpenChange={(open) => {
+              if (open) return
+              setConfirmedOrder(null)
+              props.onPaymentReturnHandled?.()
+            }}
+            title={t('Membership activated')}
+            description={t('Your membership benefits are active.')}
+            contentClassName='sm:max-w-md'
+            showCloseButton={false}
+          >
+            <div className='space-y-4'>
+              <p className='font-medium'>{confirmedOrder.tier_name}</p>
+              <Button
+                onClick={() => {
+                  setConfirmedOrder(null)
+                  props.onPaymentReturnHandled?.()
+                }}
+              >
+                {t('Close')}
+              </Button>
+            </div>
+          </Dialog>
         )}
       </SectionPageLayout.Content>
     </SectionPageLayout>

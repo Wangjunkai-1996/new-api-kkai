@@ -17,9 +17,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { MembershipCenter } from '@/features/membership'
 
 export const Route = createFileRoute('/_authenticated/membership/')({
-  component: MembershipCenter,
+  validateSearch: z.object({
+    order: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,128}$/)
+      .optional()
+      .catch(undefined),
+  }),
+  component: MembershipRoute,
 })
+
+function MembershipRoute() {
+  const { order } = Route.useSearch()
+  const navigate = Route.useNavigate()
+  return (
+    <MembershipCenter
+      key={order}
+      initialTradeNo={order}
+      onPaymentReturnHandled={() =>
+        void navigate({ search: {}, replace: true })
+      }
+    />
+  )
+}
