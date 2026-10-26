@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import diamondEmblem from '@/assets/membership/diamond.webp'
+import goldEmblem from '@/assets/membership/gold.webp'
+import kingEmblem from '@/assets/membership/king.webp'
 import { submitPaymentForm } from '@/features/wallet/lib/payment'
 import { toIntlLocale } from '@/i18n/languages'
 
@@ -25,6 +28,12 @@ import type {
   MembershipOrder,
   MembershipTier,
 } from './types'
+
+export const membershipEmblems = {
+  gold: goldEmblem,
+  diamond: diamondEmblem,
+  king: kingEmblem,
+}
 
 export function openMembershipCheckout(checkout: MembershipCheckout): boolean {
   const destination = checkout.payment_url || checkout.submit_url

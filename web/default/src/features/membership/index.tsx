@@ -18,14 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { Info, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getWalletBalance } from '@/features/wallet/api'
+import { useWalletPaymentIdentity } from '@/features/wallet/hooks/use-wallet-payment-flow'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatQuota } from '@/lib/format'
 
 import { getMembershipOrder } from './api'
 import { CurrentMembership } from './components/current-membership'
@@ -34,13 +39,14 @@ import { MembershipOrders } from './components/orders'
 import { MembershipPurchaseDialog } from './components/purchase-dialog'
 import { MembershipTierCard } from './components/tier-card'
 import { useMembership } from './hooks'
+import { membershipEmblems } from './lib'
 import type { MembershipOrder, MembershipTier } from './types'
 
 export function MembershipCenter(props: {
   initialTradeNo?: string
   onPaymentReturnHandled?: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const membership = useMembership()
   const client = useQueryClient()
   const refetchSelf = membership.self.refetch
@@ -51,6 +57,22 @@ export function MembershipCenter(props: {
   )
   const [returnRefreshFailed, setReturnRefreshFailed] = useState(false)
   const [returnRefreshing, setReturnRefreshing] = useState(false)
+  const [view, setView] = useState<'overview' | 'orders'>('overview')
+  const walletIdentity = useWalletPaymentIdentity()
+  const wallet = useQuery({
+    queryKey: ['wallet-payment', ...walletIdentity, 'balance'],
+    enabled: walletIdentity.every((part) => part !== undefined && part !== ''),
+    queryFn: async ({ signal }) => {
+      const response = await getWalletBalance(signal)
+      if (!response.success || !response.data) {
+        throw new Error('Wallet balance unavailable')
+      }
+      return response.data
+    },
+    retry: false,
+    meta: { errorToast: false },
+  })
+  const walletQuota = wallet.data?.quota
   const handledReturn = useRef(false)
   const returnedOrder = useQuery({
     queryKey: [
@@ -117,41 +139,84 @@ export function MembershipCenter(props: {
   const active =
     self?.account?.status === 'active' &&
     self.account.expires_at > membership.now
+  const sampleGroup = catalog?.groups.find(
+    (group) =>
+      group.enabled &&
+      group.published &&
+      tiers.some((tier) => tier.discounts[group.key] !== undefined)
+  )
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t('Membership center')}
+        <span className='text-2xl font-semibold'>{t('Membership center')}</span>
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Link
-          to='/membership/ratios'
-          className={buttonVariants({ variant: 'outline' })}
-        >
-          {t('Membership ratios')}
-        </Link>
+        {view === 'overview' && (
+          <a
+            href='#membership-billing-guide'
+            className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-xs'
+            onClick={() => {
+              const guide = document.querySelector<HTMLDetailsElement>(
+                '#membership-billing-guide'
+              )
+              if (guide) guide.open = true
+            }}
+          >
+            <Info className='size-4' aria-hidden='true' />
+            {t('How membership billing works')}
+          </a>
+        )}
         <Button
-          variant='outline'
-          onClick={() => void membership.refresh()}
+          variant='ghost'
+          size='icon'
+          aria-label={t('Refresh')}
+          title={t('Refresh')}
+          onClick={() => {
+            void membership.refresh()
+            void wallet.refetch()
+          }}
           disabled={membership.self.isFetching || membership.catalog.isFetching}
         >
-          {t('Refresh')}
+          <RefreshCw aria-hidden='true' />
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='mx-auto flex w-full max-w-7xl flex-col gap-7 pb-8'>
-          <header className='max-w-2xl pt-2'>
-            <p className='text-muted-foreground text-xs font-medium tracking-widest'>
-              {t('MEMBERSHIP')}
-            </p>
-            <h1 className='mt-3 text-3xl font-semibold tracking-tight sm:text-4xl'>
-              {t('A better price for every call.')}
-            </h1>
-            <p className='text-muted-foreground mt-3 text-sm leading-relaxed'>
+        <div className='flex w-full max-w-5xl flex-col gap-6 pb-8'>
+          <header>
+            <p className='text-muted-foreground text-sm'>
               {t(
-                'Prepay a shared quota, enjoy group-specific discounts, and keep your wallet ready for continuous use.'
+                'Your membership status, available quota, and pricing benefits.'
               )}
             </p>
+            <nav
+              className='mt-5 flex gap-6 border-b text-sm'
+              aria-label={t('Membership center')}
+            >
+              <button
+                type='button'
+                className={`-mb-px border-b-2 pb-3 ${view === 'overview' ? 'border-foreground font-medium' : 'text-muted-foreground hover:text-foreground border-transparent'}`}
+                aria-current={view === 'overview' ? 'page' : undefined}
+                onClick={() => setView('overview')}
+              >
+                {t('Membership overview')}
+              </button>
+              <Link
+                to='/usage-logs/$section'
+                params={{ section: 'common' }}
+                className='text-muted-foreground hover:text-foreground -mb-px border-b-2 border-transparent pb-3'
+              >
+                {t('Usage logs')}
+              </Link>
+              <button
+                type='button'
+                className={`-mb-px border-b-2 pb-3 ${view === 'orders' ? 'border-foreground font-medium' : 'text-muted-foreground hover:text-foreground border-transparent'}`}
+                aria-current={view === 'orders' ? 'page' : undefined}
+                onClick={() => setView('orders')}
+              >
+                {t('Membership orders')}
+              </button>
+            </nav>
           </header>
           {loading && (
             <>
@@ -269,8 +334,30 @@ export function MembershipCenter(props: {
                     </AlertDescription>
                   </Alert>
                 )}
-                <CurrentMembership membership={self} now={membership.now} />
-                {!catalog.sales_enabled && (
+                {view === 'overview' && (
+                  <>
+                    <CurrentMembership membership={self} now={membership.now} />
+                    <div className='text-muted-foreground flex flex-wrap items-center justify-between gap-2 px-1 text-xs'>
+                      <span>
+                        {t('Wallet')}
+                        {walletQuota !== undefined
+                          ? ` ${formatQuota(walletQuota)}`
+                          : ''}
+                        {' · '}
+                        {t(
+                          'Your existing group price is retained when the wallet pays.'
+                        )}
+                      </span>
+                      <Link
+                        to='/membership/ratios'
+                        className='hover:text-foreground'
+                      >
+                        {t('Membership ratios')} →
+                      </Link>
+                    </div>
+                  </>
+                )}
+                {view === 'overview' && !catalog.sales_enabled && (
                   <Alert>
                     <AlertDescription>
                       {t(
@@ -279,47 +366,68 @@ export function MembershipCenter(props: {
                     </AlertDescription>
                   </Alert>
                 )}
-                <section
-                  aria-label={t('Membership plans')}
-                  className='grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3'
-                >
-                  {tiers.map((tier) => (
-                    <MembershipTierCard
-                      key={tier.id}
-                      tier={tier}
-                      salesEnabled={catalog.sales_enabled}
-                      onPurchase={setSelectedTier}
+                {view === 'overview' && (
+                  <>
+                    <section
+                      className='space-y-4'
+                      aria-label={t('Membership plans')}
+                    >
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <h2 className='text-base font-semibold'>
+                          {t('Membership plans')}
+                        </h2>
+                        <Link
+                          to='/membership/ratios'
+                          className='text-muted-foreground hover:text-foreground text-xs'
+                        >
+                          {t('Membership ratios')} →
+                        </Link>
+                      </div>
+                      <div className='grid grid-cols-1 gap-3 md:grid-cols-3'>
+                        {tiers.map((tier) => (
+                          <MembershipTierCard
+                            key={tier.id}
+                            tier={tier}
+                            sampleGroup={sampleGroup}
+                            salesEnabled={catalog.sales_enabled}
+                            onPurchase={setSelectedTier}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                    <MembershipDiscounts
+                      catalog={catalog}
+                      currentDiscounts={self.discounts}
+                      active={active}
                     />
-                  ))}
-                </section>
-                <MembershipDiscounts
-                  catalog={catalog}
-                  currentDiscounts={self.discounts}
-                  active={active}
-                />
-                <details className='bg-card rounded-xl border p-5'>
-                  <summary className='cursor-pointer font-medium'>
-                    {t('How membership billing works')}
-                  </summary>
-                  <div className='text-muted-foreground mt-4 space-y-3 text-sm leading-relaxed'>
-                    <p>
-                      {t(
-                        'Subscription quota is used first. If it cannot cover the full request reservation, the entire request uses your wallet at your existing group price.'
-                      )}
-                    </p>
-                    <p>
-                      {t(
-                        'Unused subscription quota stays available for smaller requests. Wallet and subscription quota are never mixed for one request.'
-                      )}
-                    </p>
-                    <p>
-                      {t(
-                        'Quota expires after 30 days and is not reset or renewed automatically. A failed request returns unused reserved quota to its original source without extending validity.'
-                      )}
-                    </p>
-                  </div>
-                </details>
-                <MembershipOrders />
+                    <details
+                      id='membership-billing-guide'
+                      className='border-t pt-4'
+                    >
+                      <summary className='cursor-pointer text-sm font-medium'>
+                        {t('How membership billing works')}
+                      </summary>
+                      <div className='text-muted-foreground mt-4 space-y-3 text-sm leading-relaxed'>
+                        <p>
+                          {t(
+                            'Subscription quota is used first. If it cannot cover the full request reservation, the entire request uses your wallet at your existing group price.'
+                          )}
+                        </p>
+                        <p>
+                          {t(
+                            'Unused subscription quota stays available for smaller requests. Wallet and subscription quota are never mixed for one request.'
+                          )}
+                        </p>
+                        <p>
+                          {t(
+                            'Quota expires after 30 days and is not reset or renewed automatically. A failed request returns unused reserved quota to its original source without extending validity.'
+                          )}
+                        </p>
+                      </div>
+                    </details>
+                  </>
+                )}
+                {view === 'orders' && <MembershipOrders />}
               </>
             )}
         </div>
@@ -334,8 +442,14 @@ export function MembershipCenter(props: {
             releaseId={catalog.release_id}
             salesEnabled={catalog.sales_enabled && !error}
             onClose={() => setSelectedTier(null)}
-            onRefresh={() => void membership.refresh()}
-            onOrderCreated={() => void membership.refresh()}
+            onRefresh={() => {
+              void membership.refresh()
+              void wallet.refetch()
+            }}
+            onOrderCreated={(order) => {
+              void membership.refresh()
+              if (!order.payment_url && !order.submit_url) setView('orders')
+            }}
           />
         )}
         {confirmedOrder && (
@@ -351,15 +465,66 @@ export function MembershipCenter(props: {
             contentClassName='sm:max-w-md'
             showCloseButton={false}
           >
-            <div className='space-y-4'>
-              <p className='font-medium'>{confirmedOrder.tier_name}</p>
+            <div className='space-y-5 text-center'>
+              <img
+                src={membershipEmblems[self?.tier?.style ?? 'gold']}
+                width={128}
+                height={128}
+                alt=''
+                aria-hidden='true'
+                className='mx-auto size-28 object-contain drop-shadow-lg'
+              />
+              <p className='text-xl font-semibold'>
+                {confirmedOrder.tier_name}
+              </p>
+              <dl className='bg-muted/40 space-y-3 rounded-lg border p-4 text-left text-sm'>
+                <div className='flex justify-between gap-3'>
+                  <dt className='text-muted-foreground'>
+                    {t('Included quota')}
+                  </dt>
+                  <dd className='font-medium tabular-nums'>
+                    {formatQuota(confirmedOrder.quota)}
+                  </dd>
+                </div>
+                {self?.account && (
+                  <>
+                    <div className='flex justify-between gap-3 border-t pt-3'>
+                      <dt className='text-muted-foreground'>
+                        {t('Available now')}
+                      </dt>
+                      <dd className='font-semibold tabular-nums'>
+                        {formatQuota(
+                          Math.max(
+                            0,
+                            self.account.amount_total -
+                              self.account.amount_used -
+                              self.account.amount_reserved
+                          )
+                        )}
+                      </dd>
+                    </div>
+                    <div className='flex justify-between gap-3'>
+                      <dt className='text-muted-foreground'>
+                        {t('Expires at')}
+                      </dt>
+                      <dd className='font-medium tabular-nums'>
+                        {new Date(
+                          self.account.expires_at * 1000
+                        ).toLocaleString(toIntlLocale(i18n.language))}
+                      </dd>
+                    </div>
+                  </>
+                )}
+              </dl>
               <Button
+                className='w-full'
                 onClick={() => {
+                  setView('overview')
                   setConfirmedOrder(null)
                   props.onPaymentReturnHandled?.()
                 }}
               >
-                {t('Close')}
+                {t('View membership')}
               </Button>
             </div>
           </Dialog>

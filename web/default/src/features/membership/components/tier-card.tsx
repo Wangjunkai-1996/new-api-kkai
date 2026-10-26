@@ -16,45 +16,47 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  CrownIcon,
-  Diamond01Icon,
-  Medal01Icon,
-} from '@hugeicons/core-free-icons'
-import { HugeiconsIcon } from '@hugeicons/react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { canPurchaseMembership, formatMembershipPrice } from '../lib'
-import type { MembershipTier } from '../types'
+import {
+  canPurchaseMembership,
+  formatMembershipPrice,
+  membershipEmblems,
+} from '../lib'
+import type { MembershipGroup, MembershipTier } from '../types'
 
 const appearances = {
   gold: {
-    icon: Medal01Icon,
-    accent: 'text-amber-800 dark:text-amber-200',
-    background: 'from-amber-100/80 dark:from-amber-950/40',
-    border: 'border-amber-300/60 dark:border-amber-800/60',
+    accent: 'text-amber-700 dark:text-[#e2c17d]',
+    border: 'border-amber-300/60 dark:border-[#4a4236]',
+    current: 'bg-amber-50/50 dark:bg-[#29261f]',
+    action:
+      'border-amber-400/40 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-600/35 dark:bg-amber-900/15 dark:text-amber-200 dark:hover:bg-amber-900/25',
   },
   diamond: {
-    icon: Diamond01Icon,
-    accent: 'text-sky-800 dark:text-sky-200',
-    background: 'from-sky-100/80 dark:from-sky-950/40',
-    border: 'border-sky-300/60 dark:border-sky-800/60',
+    accent: 'text-sky-700 dark:text-[#a2d5f5]',
+    border: 'border-sky-300/60 dark:border-[#465e70]',
+    current: 'bg-sky-50/60 dark:bg-[#202d37]',
+    action:
+      'border-sky-400/40 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-500/35 dark:bg-sky-900/20 dark:text-sky-200 dark:hover:bg-sky-900/30',
   },
   king: {
-    icon: CrownIcon,
-    accent: 'text-violet-800 dark:text-violet-200',
-    background: 'from-violet-100/80 dark:from-violet-950/40',
-    border: 'border-violet-300/60 dark:border-violet-800/60',
+    accent: 'text-violet-700 dark:text-[#d6b9f5]',
+    border: 'border-violet-300/60 dark:border-[#58476a]',
+    current: 'bg-violet-50/60 dark:bg-[#2b2634]',
+    action:
+      'border-violet-400/40 bg-violet-50 text-violet-800 hover:bg-violet-100 dark:border-violet-500/35 dark:bg-violet-900/20 dark:text-violet-200 dark:hover:bg-violet-900/30',
   },
 }
 
 export function MembershipTierCard(props: {
   tier: MembershipTier
+  sampleGroup?: MembershipGroup
   salesEnabled: boolean
   onPurchase: (tier: MembershipTier) => void
 }) {
@@ -77,87 +79,103 @@ export function MembershipTierCard(props: {
     payment_unavailable: t('No payment method is available for this tier.'),
   }
   const reason = reasons[props.tier.eligibility?.reason ?? '']
+  const sampleDiscount = props.sampleGroup
+    ? props.tier.discounts[props.sampleGroup.key]
+    : undefined
+  const samplePercent =
+    sampleDiscount === undefined
+      ? null
+      : new Intl.NumberFormat(toIntlLocale(i18n.language), {
+          style: 'percent',
+          maximumFractionDigits: 2,
+        }).format(sampleDiscount)
 
   return (
     <article
       className={cn(
-        'bg-card flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border shadow-sm',
-        style.border
+        'bg-card flex h-full min-w-0 flex-col rounded-lg border p-5 transition-colors',
+        style.border,
+        current && style.current
       )}
     >
-      <div
-        className={cn(
-          'flex items-center justify-between gap-3 bg-gradient-to-br to-transparent px-6 pt-6 pb-5',
-          style.background
-        )}
-      >
-        <div
-          className={cn(
-            'flex size-12 items-center justify-center rounded-2xl border border-current/10 bg-background/60',
-            style.accent
-          )}
-        >
-          <HugeiconsIcon
-            icon={style.icon}
-            size={26}
-            strokeWidth={1.5}
+      <div className='grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-x-2 sm:block'>
+        <div className='contents sm:flex sm:min-h-15 sm:items-start sm:justify-between sm:gap-3'>
+          <div className='order-2 min-w-0 sm:order-1 sm:pt-1'>
+            <h2 className='text-sm font-semibold sm:text-base'>
+              {props.tier.name}
+            </h2>
+            <p className='text-muted-foreground mt-0.5 text-xs'>
+              {current
+                ? t('Current membership')
+                : t('Prepaid calls, member pricing')}
+            </p>
+          </div>
+          <img
+            src={membershipEmblems[props.tier.style]}
+            width={60}
+            height={60}
+            alt=''
             aria-hidden='true'
+            className='order-1 size-11 shrink-0 object-contain sm:order-2 sm:size-15'
           />
         </div>
-        {current && (
-          <Badge variant='secondary'>{t('Current membership')}</Badge>
-        )}
-      </div>
-      <div className='flex flex-1 flex-col gap-5 px-6 pb-6'>
-        <div>
-          <h2 className='text-xl font-semibold tracking-tight'>
-            {props.tier.name}
-          </h2>
-          <p className='text-muted-foreground mt-1 text-sm'>
-            {t('Prepaid calls, member pricing')}
-          </p>
-        </div>
-        <div>
-          <span className='text-3xl font-semibold tracking-tight'>
+        <div className='order-3 min-w-0 text-right sm:mt-4 sm:text-left'>
+          <span className='text-[22px] leading-tight font-semibold break-all tabular-nums sm:text-[28px]'>
             {formatMembershipPrice(
               props.tier.price_minor,
               props.tier.currency,
               i18n.language
             )}
           </span>
-          <span className='text-muted-foreground ml-2 text-sm'>
-            {t('One-time payment')}
-          </span>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {t('One-time payment')} · {t('30 days')}
+          </p>
         </div>
-        <dl className='space-y-3 border-y py-4 text-sm'>
-          <div className='flex items-center justify-between gap-3'>
-            <dt className='text-muted-foreground'>{t('Included quota')}</dt>
-            <dd className='font-medium'>{formatQuota(props.tier.quota)}</dd>
-          </div>
-          <div className='flex items-center justify-between gap-3'>
-            <dt className='text-muted-foreground'>{t('Validity Period')}</dt>
-            <dd className='font-medium'>{t('30 days')}</dd>
-          </div>
-          <div className='flex items-center justify-between gap-3'>
-            <dt className='text-muted-foreground'>{t('Group discounts')}</dt>
-            <dd className='font-medium'>{t('See comparison below')}</dd>
-          </div>
-        </dl>
-        <p className='text-muted-foreground text-xs leading-relaxed'>
-          {t(
-            'Membership quota is shared across your accessible groups. No automatic renewal.'
-          )}
-        </p>
-        <Button
-          className='mt-auto w-full'
-          variant={current ? 'secondary' : 'default'}
-          disabled={!canPurchaseMembership(props.tier, props.salesEnabled)}
-          onClick={() => props.onPurchase(props.tier)}
-        >
-          {actionLabel}
-        </Button>
-        {reason && <p className='text-muted-foreground text-xs'>{reason}</p>}
       </div>
+      <dl className='mt-4 border-t pt-3 text-xs sm:pt-4'>
+        <div className='flex items-start justify-between gap-3'>
+          <dt>{t('Included quota')}</dt>
+          <dd className='font-medium tabular-nums'>
+            {formatQuota(props.tier.quota)}
+          </dd>
+        </div>
+      </dl>
+      <div className='mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 pt-2.5 sm:block'>
+        <div className='min-w-0 text-xs'>
+          <dl>
+            <div className='flex items-start justify-between gap-2'>
+              <dt className='text-muted-foreground min-w-0 truncate'>
+                {props.sampleGroup?.display_name || t('Group discounts')}
+              </dt>
+              <dd
+                className={cn(
+                  'shrink-0 font-medium tabular-nums',
+                  style.accent
+                )}
+              >
+                {samplePercent ?? t('See comparison below')}
+              </dd>
+            </div>
+          </dl>
+          <p className='text-muted-foreground mt-1.5 sm:mt-2.5'>
+            {t('Existing lower price retained')}
+          </p>
+        </div>
+        <div className='sm:pt-5'>
+          <Button
+            className={cn(
+              'h-auto min-h-9 max-w-36 min-w-0 px-3 py-2 text-xs whitespace-normal sm:w-full sm:max-w-none sm:text-sm',
+              current ? '' : style.action
+            )}
+            variant={current ? 'secondary' : 'outline'}
+            disabled={!canPurchaseMembership(props.tier, props.salesEnabled)}
+            onClick={() => props.onPurchase(props.tier)}
+          >
+            {actionLabel}
+          </Button>
+        </div>
+      </div>
+      {reason && <p className='text-muted-foreground mt-2 text-xs'>{reason}</p>}
     </article>
   )
 }

@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Input } from '@/components/ui/input'
 import { toIntlLocale } from '@/i18n/languages'
+import { cn } from '@/lib/utils'
 
 import type { MembershipCatalog, MembershipGroupQuote } from '../types'
 
@@ -50,14 +51,14 @@ export function MembershipDiscounts(props: {
 
   return (
     <section
-      className='space-y-4'
+      className='space-y-3'
       aria-labelledby='membership-discounts-heading'
     >
       <div className='flex flex-col justify-between gap-3 sm:flex-row sm:items-center'>
         <div>
           <h2
             id='membership-discounts-heading'
-            className='text-lg font-semibold'
+            className='text-base font-semibold'
           >
             {t('Group discounts')}
           </h2>
@@ -68,7 +69,7 @@ export function MembershipDiscounts(props: {
           </p>
         </div>
         <Input
-          className='sm:max-w-64'
+          className='h-9 sm:max-w-64'
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder={t('Search groups')}
@@ -76,62 +77,69 @@ export function MembershipDiscounts(props: {
         />
       </div>
       {visibleGroups.length === 0 && (
-        <p className='text-muted-foreground rounded-xl border p-5 text-sm'>
+        <p className='text-muted-foreground border-y py-4 text-sm'>
           {t('No matching groups')}
         </p>
       )}
-      <div className='overflow-hidden rounded-2xl border'>
-        {visibleGroups.map((group) => {
-          const current = discounts.get(group.key)
-          return (
-            <div
-              key={group.key}
-              className='bg-card flex flex-col gap-4 border-b p-5 last:border-b-0 lg:flex-row lg:items-center'
-            >
-              <div className='lg:w-44 lg:shrink-0'>
-                <h3 className='font-medium'>
-                  {group.display_name || group.key}
-                </h3>
-                <p className='text-muted-foreground mt-1 text-xs'>
-                  {group.enabled ? t('Billing group') : t('Group disabled')}
-                </p>
-              </div>
-              {props.active && (
-                <div className='bg-muted/60 rounded-lg p-3 lg:w-52 lg:shrink-0'>
-                  <p className='text-muted-foreground text-xs'>
-                    {t('My current discount')}
+      {visibleGroups.length > 0 && (
+        <div className='divide-y border-y'>
+          {visibleGroups.map((group) => {
+            const current = discounts.get(group.key)
+            return (
+              <div
+                key={group.key}
+                className={cn(
+                  'grid min-w-0 gap-x-5 gap-y-3 py-4 lg:items-center',
+                  props.active
+                    ? 'lg:grid-cols-[minmax(10rem,1.1fr)_minmax(10rem,0.9fr)_minmax(0,2fr)]'
+                    : 'lg:grid-cols-[minmax(10rem,1fr)_minmax(0,3fr)]'
+                )}
+              >
+                <div className='min-w-0'>
+                  <h3 className='text-sm font-medium'>
+                    {group.display_name || group.key}
+                  </h3>
+                  <p className='text-muted-foreground mt-1 text-xs'>
+                    {group.enabled ? t('Billing group') : t('Group disabled')}
                   </p>
-                  <p className='mt-1 font-semibold'>
-                    {current?.published
-                      ? formatCoefficient(current.coefficient)
-                      : t('No extra discount')}
-                  </p>
-                  {current && (
-                    <p className='text-muted-foreground mt-1 text-xs'>
-                      {t('Current billing ratio')}: {current.membership_ratio} ·{' '}
-                      {t('Wallet')}: {current.wallet_ratio}
-                    </p>
-                  )}
                 </div>
-              )}
-              <dl className='grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3'>
-                {tiers.map((tier) => (
-                  <div key={tier.id}>
-                    <dt className='text-muted-foreground text-xs'>
-                      {tier.name} · {t('Group discounts')}
-                    </dt>
-                    <dd className='mt-1 font-semibold'>
-                      {group.published
-                        ? formatCoefficient(tier.discounts[group.key] ?? 1)
-                        : t('Not yet published')}
-                    </dd>
+                {props.active && (
+                  <div className='border-primary/50 bg-primary/5 min-w-0 border-l-2 py-1 pl-3'>
+                    <p className='text-muted-foreground text-xs'>
+                      {t('My current discount')}
+                    </p>
+                    <p className='mt-0.5 text-sm font-semibold tabular-nums'>
+                      {current?.published
+                        ? formatCoefficient(current.coefficient)
+                        : t('No extra discount')}
+                    </p>
+                    {current && (
+                      <p className='text-muted-foreground mt-0.5 text-xs'>
+                        {t('Current billing ratio')}: {current.membership_ratio}{' '}
+                        · {t('Wallet')}: {current.wallet_ratio}
+                      </p>
+                    )}
                   </div>
-                ))}
-              </dl>
-            </div>
-          )
-        })}
-      </div>
+                )}
+                <dl className='grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3'>
+                  {tiers.map((tier) => (
+                    <div key={tier.id} className='min-w-0'>
+                      <dt className='text-muted-foreground text-xs'>
+                        {tier.name} · {t('Group discounts')}
+                      </dt>
+                      <dd className='mt-1 text-sm font-semibold tabular-nums'>
+                        {group.published
+                          ? formatCoefficient(tier.discounts[group.key] ?? 1)
+                          : t('Not yet published')}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <p className='text-muted-foreground text-xs leading-relaxed'>
         {t(
           'Percentages apply to the group base ratio. Your existing group price is retained when lower; discounts are not stacked. Wallet payments do not receive the membership discount.'

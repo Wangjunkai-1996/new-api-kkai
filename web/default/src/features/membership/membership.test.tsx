@@ -36,7 +36,10 @@ import i18next from 'i18next'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ModelPriceCell } from '@/features/pricing/components/model-price-cell'
+import { getWalletBalance } from '@/features/wallet/api'
 import { submitPaymentForm } from '@/features/wallet/lib/payment'
+import type { UserWalletData } from '@/features/wallet/types'
+import { formatQuota } from '@/lib/format'
 
 import { MembershipCenter } from '.'
 import {
@@ -84,6 +87,10 @@ vi.mock('./api', () => ({
   resolveMembershipBillingReview: vi.fn(),
 }))
 vi.mock('@/lib/handle-server-error', () => ({ handleServerError: vi.fn() }))
+vi.mock('@/features/wallet/api', () => ({ getWalletBalance: vi.fn() }))
+vi.mock('@/features/wallet/hooks/use-wallet-payment-flow', () => ({
+  useWalletPaymentIdentity: () => ['test.local', 0, 9, 'session'],
+}))
 
 const tier: MembershipTier = {
   id: 'level-a',
@@ -152,6 +159,12 @@ const membership: MembershipSelf = {
 }
 
 beforeEach(() => {
+  vi.mocked(getWalletBalance)
+    .mockReset()
+    .mockResolvedValue({
+      success: true,
+      data: { quota: 123450000 } as UserWalletData,
+    })
   vi.mocked(createMembershipOrder).mockReset()
   vi.mocked(getMembershipCatalog).mockReset()
   vi.mocked(getMembershipOrder).mockReset()
@@ -163,6 +176,37 @@ beforeEach(() => {
 })
 
 describe('membership purchase and benefits', () => {
+  it('refreshes the displayed wallet balance with membership information', async () => {
+    vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
+    vi.mocked(getMembershipSelf).mockResolvedValue(membership)
+    const router = createRouter({
+      routeTree: createRootRoute({ component: () => <MembershipCenter /> }),
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    await router.load()
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    )
+    expect(
+      await screen.findByText(`Wallet ${formatQuota(123450000)}`, {
+        exact: false,
+      })
+    ).toBeVisible()
+    vi.mocked(getWalletBalance).mockResolvedValue({
+      success: true,
+      data: { quota: 678900000 } as UserWalletData,
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(
+      await screen.findByText(`Wallet ${formatQuota(678900000)}`, {
+        exact: false,
+      })
+    ).toBeVisible()
+    expect(getMembershipSelf).toHaveBeenCalledTimes(2)
+  })
+
   it('uses server eligibility rather than inferring rank from the tier name', async () => {
     const onPurchase = vi.fn()
     const { rerender } = render(
@@ -221,18 +265,15 @@ describe('membership purchase and benefits', () => {
     render(<CurrentMembership membership={membership} now={1000} />)
     expect(screen.getByText('Active')).toBeVisible()
     expect(screen.getByText('Reserved by requests')).toBeVisible()
+    expect(screen.getByText(formatQuota(0))).toBeVisible()
     expect(screen.queryByText('Quota exhausted')).not.toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Reserved quota is temporarily unavailable. It does not end your membership.'
-      )
-    ).toBeVisible()
   })
 
   it('shows an expired membership even when the last fetched status was active', () => {
     render(<CurrentMembership membership={membership} now={2000} />)
     expect(screen.getByText('Expired')).toBeVisible()
     expect(screen.queryByText('Active')).not.toBeInTheDocument()
+    expect(screen.queryByText(formatQuota(0))).not.toBeInTheDocument()
   })
 
   it('shows current published discounts and the authoritative server price', () => {
@@ -296,9 +337,16 @@ describe('membership purchase and benefits', () => {
       within(dialog).queryByText('Pay with Balance')
     ).not.toBeInTheDocument()
     expect(within(dialog).getByText('Estimated carried quota')).toBeVisible()
+    const continueButton = within(dialog).getByRole('button', {
+      name: 'Continue to payment',
+    })
+    expect(continueButton).toBeDisabled()
     await userEvent.click(
-      within(dialog).getByRole('button', { name: 'Continue to payment' })
+      within(dialog).getByRole('checkbox', {
+        name: 'I understand that quota expires, does not transfer to my wallet, and does not renew automatically.',
+      })
     )
+    await userEvent.click(continueButton)
     expect(createMembershipOrder).toHaveBeenCalledWith(
       {
         tier_id: 'level-b',
@@ -676,9 +724,16 @@ describe('membership payment safety', () => {
         />
       </QueryClientProvider>
     )
-    await userEvent.dblClick(
-      screen.getByRole('button', { name: 'Continue to payment' })
+    const continueButton = screen.getByRole('button', {
+      name: 'Continue to payment',
+    })
+    expect(continueButton).toBeDisabled()
+    await userEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'I understand that quota expires, does not transfer to my wallet, and does not renew automatically.',
+      })
     )
+    await userEvent.dblClick(continueButton)
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
     expect(createMembershipOrder).toHaveBeenCalledTimes(1)
     expect(createMembershipOrder).toHaveBeenCalledWith(
@@ -837,7 +892,10 @@ describe('membership payment safety', () => {
     expect(within(dialog).getByText('Gold')).toBeVisible()
     expect(await screen.findByText('Active')).toBeVisible()
     expect(getMembershipSelf).toHaveBeenCalledTimes(2)
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(within(dialog).getByText(formatQuota(order.quota))).toBeVisible()
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'View membership' })
+    )
     expect(onHandled).toHaveBeenCalledOnce()
     expect(
       screen.queryByRole('dialog', { name: 'Membership activated' })

@@ -17,12 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation } from '@tanstack/react-query'
+import { ArrowRight, Clock3 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { formatQuota } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -31,6 +33,7 @@ import { createMembershipOrder } from '../api'
 import {
   canPurchaseMembership,
   formatMembershipPrice,
+  membershipEmblems,
   openMembershipCheckout,
 } from '../lib'
 import type {
@@ -50,6 +53,7 @@ export function MembershipPurchaseDialog(props: {
 }) {
   const { t, i18n } = useTranslation()
   const [methodKey, setMethodKey] = useState('')
+  const [accepted, setAccepted] = useState(false)
   const methods = props.tier.payment_methods ?? []
   const selectedMethod =
     methods.find(
@@ -77,49 +81,88 @@ export function MembershipPurchaseDialog(props: {
         if (!open && !purchase.isPending) props.onClose()
       }}
       title={
-        upgrade ? t('Upgrade membership') : t('Confirm membership purchase')
+        <span className='flex items-center gap-3 pr-5'>
+          <img
+            src={membershipEmblems[props.tier.style]}
+            width={64}
+            height={64}
+            alt=''
+            aria-hidden='true'
+            className='size-16 shrink-0 object-contain'
+          />
+          <span className='min-w-0 leading-snug'>
+            {upgrade
+              ? t('Upgrade membership')
+              : t('Confirm membership purchase')}
+            <span className='mt-1 block text-base font-medium'>
+              {props.tier.name}
+            </span>
+          </span>
+        </span>
       }
       description={t('Benefits activate only after payment is confirmed.')}
-      contentClassName='sm:max-w-lg'
+      contentClassName='rounded-2xl sm:max-w-[28rem] sm:p-7'
     >
-      <div className='space-y-5'>
-        <div className='rounded-xl border p-4'>
-          <p className='font-semibold'>{props.tier.name}</p>
-          <p className='mt-2 text-2xl font-semibold'>
-            {formatMembershipPrice(
-              props.tier.price_minor,
-              props.tier.currency,
-              i18n.language
-            )}
-          </p>
-          <p className='text-muted-foreground mt-1 text-sm'>
-            {t('One-time payment')} · {t('30 days')}
-          </p>
-        </div>
-        <dl className='space-y-3 text-sm'>
-          <div className='flex justify-between gap-3'>
-            <dt>{t('Included quota')}</dt>
-            <dd className='font-medium'>{formatQuota(props.tier.quota)}</dd>
+      <div className='space-y-4'>
+        <dl className='bg-muted/40 space-y-3 rounded-lg border p-4 text-sm'>
+          <div className='flex items-baseline justify-between gap-3'>
+            <dt className='text-muted-foreground'>{t('One-time payment')}</dt>
+            <dd className='font-semibold tabular-nums'>
+              {formatMembershipPrice(
+                props.tier.price_minor,
+                props.tier.currency,
+                i18n.language
+              )}
+            </dd>
+          </div>
+          <div className='flex items-baseline justify-between gap-3'>
+            <dt className='text-muted-foreground'>{t('Included quota')}</dt>
+            <dd className='font-medium tabular-nums'>
+              {formatQuota(props.tier.quota)}
+            </dd>
           </div>
           {upgrade && (
-            <div className='flex justify-between gap-3'>
-              <dt>{t('Estimated carried quota')}</dt>
-              <dd className='font-medium'>{formatQuota(carry)}</dd>
+            <div className='flex items-baseline justify-between gap-3'>
+              <dt className='text-muted-foreground'>
+                {t('Estimated carried quota')}
+              </dt>
+              <dd className='font-medium tabular-nums'>
+                + {formatQuota(carry)}
+              </dd>
+            </div>
+          )}
+          <div className='flex items-baseline justify-between gap-3 border-t pt-3'>
+            <dt className='font-medium'>
+              {t('Estimated quota after activation')}
+            </dt>
+            <dd className='font-semibold tabular-nums'>
+              {formatQuota(props.tier.quota + carry)}
+            </dd>
+          </div>
+          {upgrade && account && account.amount_reserved > 0 && (
+            <div className='flex items-baseline justify-between gap-3 text-xs'>
+              <dt className='text-muted-foreground'>
+                {t('Reserved by requests')}
+              </dt>
+              <dd className='text-muted-foreground tabular-nums'>
+                {formatQuota(account.amount_reserved)}
+              </dd>
             </div>
           )}
         </dl>
-        {upgrade && (
-          <p className='text-muted-foreground text-sm leading-relaxed'>
-            {t(
-              'Upgrade pays the full new price. Remaining quota carries over without conversion; reserved requests keep their original pricing. A new 30-day period starts. Future requests use the latest published tier discounts. Final carried quota is calculated when payment is confirmed.'
+        <div className='bg-muted/50 text-muted-foreground flex gap-2 rounded-lg border p-3 text-xs leading-relaxed'>
+          <Clock3 className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
+          <div>
+            <p>{t('A new 30-day period starts when payment is confirmed.')}</p>
+            {upgrade && (
+              <p className='mt-1'>
+                {t(
+                  'Upgrade pays the full new price. Remaining quota carries over without conversion; reserved requests keep their original pricing. A new 30-day period starts. Future requests use the latest published tier discounts. Final carried quota is calculated when payment is confirmed.'
+                )}
+              </p>
             )}
-          </p>
-        )}
-        <p className='text-muted-foreground text-sm leading-relaxed'>
-          {t(
-            'Quota is not reset. Membership ends on expiry or settled exhaustion. Requests then continue using your wallet without membership discounts.'
-          )}
-        </p>
+          </div>
+        </div>
         <div className='space-y-2'>
           <Label htmlFor='membership-payment-method'>
             {t('Payment method')}
@@ -144,6 +187,23 @@ export function MembershipPurchaseDialog(props: {
               </option>
             ))}
           </select>
+        </div>
+        <div className='flex items-start gap-2.5'>
+          <Checkbox
+            id='membership-purchase-confirm'
+            checked={accepted}
+            onCheckedChange={(checked) => setAccepted(checked === true)}
+            disabled={purchase.isPending || purchase.isSuccess}
+            className='mt-0.5'
+          />
+          <Label
+            htmlFor='membership-purchase-confirm'
+            className='text-muted-foreground cursor-pointer text-xs leading-relaxed font-normal'
+          >
+            {t(
+              'I understand that quota expires, does not transfer to my wallet, and does not renew automatically.'
+            )}
+          </Label>
         </div>
         {purchase.isError && (
           <Alert variant='destructive'>
@@ -170,36 +230,53 @@ export function MembershipPurchaseDialog(props: {
             <Alert>
               <AlertDescription>
                 {t(
-                  'Order created. Check its payment status below before placing another order.'
+                  'Order created. Check its status in Membership orders before placing another order.'
                 )}
               </AlertDescription>
             </Alert>
           )}
-        <Button
-          className='w-full'
-          disabled={
-            purchase.isPending ||
-            purchase.isSuccess ||
-            !selectedMethod ||
-            !canPurchaseMembership(props.tier, props.salesEnabled)
-          }
-          onClick={() => {
-            if (selectedMethod) {
-              purchase.mutate({
-                tier_id: props.tier.id,
-                payment_provider: selectedMethod.provider,
-                payment_method: selectedMethod.method,
-                release_id: props.releaseId,
-                expected_account_id: account?.id ?? 0,
-                expected_revision: account?.revision ?? 0,
-              })
+        <div className='grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-2.5 pt-1'>
+          <Button
+            variant='outline'
+            size='lg'
+            disabled={purchase.isPending}
+            onClick={props.onClose}
+          >
+            {t('Cancel')}
+          </Button>
+          <Button
+            size='lg'
+            className='h-auto min-h-9 min-w-0 py-2'
+            disabled={
+              purchase.isPending ||
+              purchase.isSuccess ||
+              !accepted ||
+              !selectedMethod ||
+              !canPurchaseMembership(props.tier, props.salesEnabled)
             }
-          }}
-        >
-          {purchase.isPending
-            ? t('Creating order...')
-            : t('Continue to payment')}
-        </Button>
+            onClick={() => {
+              if (selectedMethod) {
+                purchase.mutate({
+                  tier_id: props.tier.id,
+                  payment_provider: selectedMethod.provider,
+                  payment_method: selectedMethod.method,
+                  release_id: props.releaseId,
+                  expected_account_id: account?.id ?? 0,
+                  expected_revision: account?.revision ?? 0,
+                })
+              }
+            }}
+          >
+            <span className='min-w-0 text-center leading-snug whitespace-normal'>
+              {purchase.isPending
+                ? t('Creating order...')
+                : t('Continue to payment')}
+            </span>
+            {!purchase.isPending && (
+              <ArrowRight className='size-4' aria-hidden='true' />
+            )}
+          </Button>
+        </div>
       </div>
     </Dialog>
   )
