@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -123,6 +124,73 @@ func TestMembershipTokenRefundUsesOriginalLimitAndSurvivesAdministrativeReset(t 
 	require.NoError(t, DB.First(&token, token.Id).Error)
 	assert.Equal(t, 100, token.RemainQuota)
 	assert.Zero(t, token.UsedQuota)
+	self, err := GetMembershipSelf(user.Id)
+	require.NoError(t, err)
+	assert.EqualValues(t, 100, self.Account.Available())
+}
+
+func TestMembershipUnlimitedTokenUsageOverflowDoesNotBlockBilling(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		used int
+	}{
+		{name: "legacy negative usage", used: -1},
+		{name: "near usage limit", used: math.MaxInt32 - 10},
+		{name: "legacy usage above limit", used: math.MaxInt32 + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user, catalog := setupMembershipTest(t)
+			buyMembershipTest(t, user.Id, catalog, "gold", "unlimited-overflow")
+			token := Token{UserId: user.Id, Key: "unlimited-overflow-token", UnlimitedQuota: true, UsedQuota: tc.used, Status: common.TokenStatusEnabled, ExpiredTime: -1}
+			require.NoError(t, DB.Create(&token).Error)
+
+			input := membershipReservation(t, user.Id, "unlimited-subscription", 40, 50)
+			input.SkipToken, input.TokenID, input.TokenKey = false, token.Id, token.Key
+			reserved, err := ReserveMembershipBilling(input)
+			require.NoError(t, err)
+			assert.Equal(t, MembershipSource, reserved.Source)
+			assert.EqualValues(t, 40, reserved.ReservedQuota)
+			assert.Zero(t, reserved.TokenReserved)
+			settled, err := SettleMembershipBilling(input.RequestID, 20)
+			require.NoError(t, err)
+			assert.EqualValues(t, 20, settled.ChargedQuota)
+			assert.Zero(t, settled.TokenUsedRefundUnapplied)
+
+			input = membershipReservation(t, user.Id, "unlimited-wallet", 110, 120)
+			input.SkipToken, input.TokenID, input.TokenKey = false, token.Id, token.Key
+			reserved, err = ReserveMembershipBilling(input)
+			require.NoError(t, err)
+			assert.Equal(t, MembershipWalletSource, reserved.Source)
+			assert.EqualValues(t, 120, reserved.ReservedQuota)
+			assert.Zero(t, reserved.TokenReserved)
+			var owner User
+			require.NoError(t, DB.First(&owner, user.Id).Error)
+			assert.EqualValues(t, 380, owner.Quota)
+			released, err := ReleaseMembershipBilling(input.RequestID)
+			require.NoError(t, err)
+			assert.Zero(t, released.TokenUsedRefundUnapplied)
+			require.NoError(t, DB.First(&owner, user.Id).Error)
+			assert.EqualValues(t, 500, owner.Quota)
+			require.NoError(t, DB.First(&token, token.Id).Error)
+			assert.Equal(t, tc.used, token.UsedQuota)
+		})
+	}
+}
+
+func TestMembershipFiniteTokenUsageOverflowStillRejectsReservation(t *testing.T) {
+	user, catalog := setupMembershipTest(t)
+	buyMembershipTest(t, user.Id, catalog, "gold", "finite-overflow")
+	token := Token{UserId: user.Id, Key: "finite-overflow-token", RemainQuota: 100, UsedQuota: math.MaxInt32 - 10, Status: common.TokenStatusEnabled, ExpiredTime: -1}
+	require.NoError(t, DB.Create(&token).Error)
+	input := membershipReservation(t, user.Id, "finite-overflow-request", 40, 50)
+	input.SkipToken, input.TokenID, input.TokenKey = false, token.Id, token.Key
+	_, err := ReserveMembershipBilling(input)
+	assert.ErrorIs(t, err, ErrTaskBillingInsufficientToken)
+	_, err = GetMembershipBillingRecord(input.RequestID)
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+	require.NoError(t, DB.First(&token, token.Id).Error)
+	assert.Equal(t, 100, token.RemainQuota)
+	assert.Equal(t, math.MaxInt32-10, token.UsedQuota)
 	self, err := GetMembershipSelf(user.Id)
 	require.NoError(t, err)
 	assert.EqualValues(t, 100, self.Account.Available())

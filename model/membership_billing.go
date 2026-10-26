@@ -140,19 +140,24 @@ func ReserveMembershipBillingTx(tx *gorm.DB, input MembershipReservationInput) (
 		if !token.UnlimitedQuota && int64(token.RemainQuota) < record.ReservedQuota {
 			return nil, ErrTaskBillingInsufficientToken
 		}
-		if token.UsedQuota < 0 || int64(token.UsedQuota) > math.MaxInt32-record.ReservedQuota {
+		// An unlimited token may have untrackable legacy usage; zero TokenReserved
+		// ensures settlement never refunds usage this request did not record.
+		trackTokenUsage := token.UsedQuota >= 0 && int64(token.UsedQuota) <= math.MaxInt32-record.ReservedQuota
+		if !token.UnlimitedQuota && !trackTokenUsage {
 			return nil, ErrTaskBillingInsufficientToken
 		}
 		if !token.UnlimitedQuota {
 			token.RemainQuota -= int(record.ReservedQuota)
 		}
-		token.UsedQuota += int(record.ReservedQuota)
+		if trackTokenUsage {
+			token.UsedQuota += int(record.ReservedQuota)
+			record.TokenReserved = record.ReservedQuota
+			record.TokenQuotaDebited = !token.UnlimitedQuota
+		}
 		token.AccessedTime = now
 		if err := tx.Save(&token).Error; err != nil {
 			return nil, err
 		}
-		record.TokenReserved = record.ReservedQuota
-		record.TokenQuotaDebited = !token.UnlimitedQuota
 	}
 	if err := tx.Create(record).Error; err != nil {
 		return nil, err
