@@ -36,7 +36,7 @@ import { LogCostDisplay } from './log-cost-display'
 function renderCost(
   props: React.ComponentProps<typeof LogCostDisplay>
 ): ReturnType<typeof render> {
-  return render(<LogCostDisplay {...props} />)
+  return render(<LogCostDisplay logType={2} {...props} />)
 }
 
 describe('log cost display', () => {
@@ -92,6 +92,9 @@ describe('log cost display', () => {
     expect(screen.getByRole('img', { name: 'Wallet' })).toBeVisible()
     expect(screen.queryByText('Wallet')).not.toBeInTheDocument()
     expect(screen.queryByText('Subscription')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Membership discount not used for this request')
+    ).not.toBeInTheDocument()
   })
 
   test('keeps the recorded charge when cache-read display pricing differs', () => {
@@ -172,6 +175,107 @@ describe('log cost display', () => {
     expect(screen.queryByText('Wallet')).not.toBeInTheDocument()
     expect(screen.queryByText('Subscription')).not.toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  test('shows the frozen membership tier and estimated saving on the charged log', () => {
+    renderCost({
+      quota: 45000,
+      other: {
+        billing_source: 'membership',
+        membership_tier_name: 'Gold',
+        membership_tier_style: 'gold',
+        membership_estimated_saved_quota: 5000,
+        membership_savings: 0.1,
+      },
+    })
+
+    expect(screen.getByText('$0.09')).toBeVisible()
+    expect(screen.getByText('Gold · Membership quota')).toBeVisible()
+    expect(screen.getByText('About $0.01 saved with membership')).toBeVisible()
+  })
+
+  test.each([
+    {
+      other: { membership_discount: 0.9, membership_savings: 0 },
+      expected: 'Existing lower price retained',
+    },
+    {
+      other: { membership_discount: 1, membership_savings: 0 },
+      expected: 'No extra discount for this group',
+    },
+    {
+      other: { membership_discount: 0.9, membership_savings: 0.04 },
+      expected: 'Membership ratio 4% below wallet',
+    },
+  ])(
+    'uses frozen membership benefit data without inventing a dollar saving',
+    ({ other, expected }) => {
+      renderCost({
+        quota: 45000,
+        other: { billing_source: 'membership', ...other },
+      })
+      expect(screen.getByText('Membership quota')).toBeVisible()
+      expect(screen.getByText(expected)).toBeVisible()
+      expect(
+        screen.queryByText(/About .* saved with membership/)
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  test('marks a membership wallet fallback without claiming a discount', () => {
+    renderCost({
+      quota: 5000,
+      other: { billing_source: 'wallet', membership_wallet_fallback: true },
+    })
+
+    expect(screen.getByText('Wallet payment')).toBeVisible()
+    expect(
+      screen.getByText('Membership discount not used for this request')
+    ).toBeVisible()
+    expect(screen.queryByText('Membership quota')).not.toBeInTheDocument()
+  })
+
+  test('recognizes older wallet fallback logs by their frozen membership account', () => {
+    renderCost({
+      quota: 5000,
+      other: { billing_source: 'wallet', membership_account_id: 41 },
+    })
+
+    expect(screen.getByText('Wallet payment')).toBeVisible()
+    expect(
+      screen.getByText('Membership discount not used for this request')
+    ).toBeVisible()
+  })
+
+  test('historical member logs show their source without fabricated savings', () => {
+    renderCost({ quota: 5000, other: { billing_source: 'membership' } })
+
+    expect(screen.getByText('Membership quota')).toBeVisible()
+    expect(
+      screen.getByText('Discount details unavailable for this historical log')
+    ).toBeVisible()
+    expect(screen.queryByText(/saved with membership/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/discount for this group/)
+    ).not.toBeInTheDocument()
+  })
+
+  test('does not label a refund as another membership charge', () => {
+    renderCost({
+      logType: 6,
+      quota: 5000,
+      other: {
+        billing_source: 'membership',
+        membership_tier_name: 'Gold',
+        membership_estimated_saved_quota: 1000,
+      },
+    })
+
+    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(
+      screen.queryByText('Gold · Membership quota')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/saved with membership/)).not.toBeInTheDocument()
   })
 
   test('keeps a large amount unabridged in a single-line cost bubble', () => {

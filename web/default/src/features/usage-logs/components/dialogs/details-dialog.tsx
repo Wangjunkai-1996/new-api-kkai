@@ -239,11 +239,21 @@ function BillingBreakdown(props: {
   }
 
   const userGR = other.user_group_ratio
-  const isUserGR = userGR != null && Number.isFinite(userGR) && userGR !== -1
+  const isUserGR =
+    other.billing_source !== 'membership' &&
+    userGR != null &&
+    Number.isFinite(userGR) &&
+    userGR !== -1
   const effectiveGR = isUserGR ? userGR : other.group_ratio
   if (effectiveGR != null && Number.isFinite(effectiveGR)) {
     rows.push({
-      label: isUserGR ? t('User Exclusive Ratio') : t('Group Ratio'),
+      label: isUserGR
+        ? t('User Exclusive Ratio')
+        : t(
+            other.billing_source === 'membership'
+              ? 'My membership ratio'
+              : 'Group Ratio'
+          ),
       value: `${formatRatio(effectiveGR)}x`,
     })
   }
@@ -498,6 +508,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
+  const isMembership = isConsume && other?.billing_source === 'membership'
+  const isMembershipWallet =
+    isConsume &&
+    other?.billing_source === 'wallet' &&
+    (other.membership_wallet_fallback === true ||
+      (other.membership_account_id ?? 0) > 0)
   const isTieredBilling =
     isConsume &&
     !isViolation &&
@@ -1353,6 +1369,74 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 value={`${formatLogQuota(other.subscription_remain)}${other.subscription_total != null ? ` / ${formatLogQuota(other.subscription_total)}` : ''}`}
                 mono
               />
+            )}
+          </DetailSection>
+        )}
+
+        {(isMembership || isMembershipWallet) && other && (
+          <DetailSection label={t('Membership billing')}>
+            <DetailRow
+              label={t('Source')}
+              value={
+                isMembership
+                  ? `${other.membership_tier_name ? `${other.membership_tier_name} · ` : ''}${t('Membership quota')}`
+                  : t('Wallet payment')
+              }
+            />
+            {isMembership && other.membership_wallet_ratio != null && (
+              <DetailRow
+                label={t('Original wallet ratio')}
+                value={`${formatRatio(other.membership_wallet_ratio)}x`}
+                mono
+              />
+            )}
+            {isMembership && other.membership_candidate_ratio != null && (
+              <DetailRow
+                label={t('Membership candidate ratio')}
+                value={`${formatRatio(other.membership_candidate_ratio)}x`}
+                mono
+              />
+            )}
+            {other.group_ratio != null && (
+              <DetailRow
+                label={t('Actual billing ratio')}
+                value={`${formatRatio(other.group_ratio)}x`}
+                mono
+              />
+            )}
+            <DetailRow
+              label={t('Final charge')}
+              value={formatLogQuota(props.log.quota)}
+              mono
+            />
+            {isMembership &&
+              other.membership_estimated_wallet_quota != null && (
+                <DetailRow
+                  label={t('Estimated wallet cost for same usage')}
+                  value={formatLogQuota(
+                    other.membership_estimated_wallet_quota
+                  )}
+                  mono
+                />
+              )}
+            {isMembership &&
+              other.membership_estimated_saved_quota != null &&
+              other.membership_estimated_saved_quota > 0 && (
+                <DetailRow
+                  label={t('Estimated membership savings')}
+                  value={formatLogQuota(other.membership_estimated_saved_quota)}
+                  mono
+                />
+              )}
+            {isMembership && other.membership_discount == null && (
+              <p className='text-muted-foreground text-xs'>
+                {t('Discount details unavailable for this historical log')}
+              </p>
+            )}
+            {isMembershipWallet && (
+              <p className='text-muted-foreground text-xs'>
+                {t('Membership discount not used for this request')}
+              </p>
             )}
           </DetailSection>
         )}

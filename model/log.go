@@ -57,6 +57,37 @@ func sanitizeClickHouseLikePattern(input string) (string, error) {
 	return input, nil
 }
 
+// Filter before counting and pagination, using the stored top-level source so
+// nested diagnostics or JSON-looking strings cannot change a log's source.
+func applyLogBillingSourceFilter(tx *gorm.DB, source string) (*gorm.DB, error) {
+	if source == "" {
+		return tx, nil
+	}
+	if source != MembershipSource && source != MembershipWalletSource {
+		return nil, errors.New("invalid billing_source")
+	}
+	var sourceExpr string
+	switch common.LogDatabaseType() {
+	case common.DatabaseTypeSQLite:
+		sourceExpr = "json_extract(COALESCE(NULLIF(logs.other, ''), '{}'), '$.billing_source')"
+	case common.DatabaseTypeMySQL:
+		sourceExpr = "JSON_UNQUOTE(JSON_EXTRACT(COALESCE(NULLIF(logs.other, ''), '{}'), '$.billing_source'))"
+	case common.DatabaseTypePostgreSQL:
+		sourceExpr = "(COALESCE(NULLIF(logs.other, ''), '{}')::json ->> 'billing_source')"
+	case common.DatabaseTypeClickHouse:
+		sourceExpr = "JSONExtractString(logs.other, 'billing_source')"
+	default:
+		return nil, errors.New("unsupported log database for billing_source")
+	}
+	tx = tx.Where("logs.type = ?", LogTypeConsume)
+	if source == MembershipSource {
+		return tx.Where(sourceExpr+" = ?", MembershipSource), nil
+	}
+	// Wallet usage predates source snapshots. Empty legacy sources are wallet;
+	// explicit subscriptions and unknown future sources must remain excluded.
+	return tx.Where("COALESCE("+sourceExpr+", '') IN ?", []string{"", MembershipWalletSource, ImageMembershipWalletSource}), nil
+}
+
 type Log struct {
 	TenantID          int64  `json:"-" gorm:"type:bigint;not null;default:0;index"`
 	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
@@ -565,12 +596,17 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, billingSources ...string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
 	} else {
 		tx = LOG_DB.Where("logs.type = ?", logType)
+	}
+	if len(billingSources) > 0 {
+		if tx, err = applyLogBillingSourceFilter(tx, billingSources[0]); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
@@ -667,12 +703,17 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 
 const logSearchCountLimit = 10000
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string, billingSources ...string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB.Where("logs.user_id = ?", userId)
 	} else {
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
+	}
+	if len(billingSources) > 0 {
+		if tx, err = applyLogBillingSourceFilter(tx, billingSources[0]); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
@@ -728,6 +769,10 @@ type Stat struct {
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, userIDs ...int) (stat Stat, err error) {
+	return SumUsedQuotaBySource(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, "", userIDs...)
+}
+
+func SumUsedQuotaBySource(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, billingSource string, userIDs ...int) (stat Stat, err error) {
 	quotaExpr, err := creditEpochQuotaExpression(LOG_DB, "logs")
 	if err != nil {
 		return stat, err
@@ -736,6 +781,12 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
+	if tx, err = applyLogBillingSourceFilter(tx, billingSource); err != nil {
+		return stat, err
+	}
+	if rpmTpmQuery, err = applyLogBillingSourceFilter(rpmTpmQuery, billingSource); err != nil {
+		return stat, err
+	}
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err

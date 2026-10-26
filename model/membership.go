@@ -243,6 +243,8 @@ type MembershipQuote struct {
 	Revision        int64   `json:"revision"`
 	ReleaseID       int64   `json:"release_id"`
 	TierID          string  `json:"tier_id"`
+	TierName        string  `json:"tier_name"`
+	TierStyle       string  `json:"tier_style"`
 	Active          bool    `json:"active"`
 	Discount        float64 `json:"discount"`
 	MembershipRatio float64 `json:"membership_ratio"`

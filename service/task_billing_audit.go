@@ -95,6 +95,9 @@ func validateTaskBillingAuditPayload(payload model.TaskBillingAuditPayload) erro
 
 func taskBillingAuditLogDetails(task *model.Task, payload model.TaskBillingAuditPayload) (*model.LogOther, string) {
 	other := taskBillingOther(task)
+	if payload.LogType == model.LogTypeConsume && task.PrivateData.MembershipBillingRequestID != "" {
+		appendMembershipPricingLogInfo(other, task.PrivateData.BillingSource, task.PrivateData.MembershipPricing, 0, 0)
+	}
 	other.SetPublic("task_id", task.TaskID)
 	if payload.Operation == model.TaskBillingAuditOperationRefund {
 		other.SetPublic("reason", task.PublicFailureReason(payload.Reason))

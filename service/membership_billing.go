@@ -33,7 +33,7 @@ func PrepareMembershipReservation(info *relaycommon.RelayInfo, maximumBeforeGrou
 	}
 	snapshot := types.MembershipPricing{
 		Version: 1, GroupKey: info.UsingGroup, ModelName: info.GetBillingModelName(),
-		TierID: quote.TierID, ReleaseID: quote.ReleaseID, AccountID: quote.AccountID, AccountRevision: quote.Revision,
+		TierID: quote.TierID, TierName: quote.TierName, TierStyle: quote.TierStyle, ReleaseID: quote.ReleaseID, AccountID: quote.AccountID, AccountRevision: quote.Revision,
 		BaseRatio: base, WalletRatio: walletRatio, Discount: quote.Discount,
 		Price: info.PriceData, OtherRatios: info.PriceData.OtherRatios(), QuotaPerUnit: common.QuotaPerUnit,
 		ToolPrices:            operation_setting.SnapshotToolPrices(info.GetBillingModelName()),

@@ -93,6 +93,11 @@ function formatRatioCompact(ratio: number | undefined): string {
 }
 
 function getGroupRatio(other: LogOtherData | null): number | null {
+  if (other?.billing_source === 'membership') {
+    return Number.isFinite(other.group_ratio)
+      ? (other.group_ratio ?? null)
+      : null
+  }
   const userGroupRatio = other?.user_group_ratio
   if (
     userGroupRatio != null &&
@@ -319,13 +324,18 @@ function buildTypeDetailSegments(
       const userGroupRatio = other.user_group_ratio
       const groupRatio = other.group_ratio
       const isUserGroup =
+        other.billing_source !== 'membership' &&
         userGroupRatio != null &&
         Number.isFinite(userGroupRatio) &&
         userGroupRatio !== -1
       const effectiveRatio = isUserGroup ? userGroupRatio : groupRatio
       const ratioLabel = isUserGroup
         ? t('User Exclusive Ratio')
-        : t('Group Ratio')
+        : t(
+            other.billing_source === 'membership'
+              ? 'My membership ratio'
+              : 'Group Ratio'
+          )
 
       if (effectiveRatio != null && Number.isFinite(effectiveRatio)) {
         segments.push({
@@ -785,6 +795,7 @@ export function useCommonLogsColumns(
             <LogCostDisplay
               quota={quota}
               other={other}
+              logType={log.type}
               showBillingSource={showBillingSource}
               settlement={log.tenant_settlement}
             />

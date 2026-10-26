@@ -90,6 +90,7 @@ function buildSearchSourceKey(values: {
   model?: unknown
   token?: unknown
   group?: unknown
+  billing_source?: unknown
   username?: unknown
   requestId?: unknown
   upstreamRequestId?: unknown
@@ -102,6 +103,7 @@ function buildSearchSourceKey(values: {
     values.model,
     values.token,
     values.group,
+    values.billing_source,
     values.username,
     values.requestId,
     values.upstreamRequestId,
@@ -154,6 +156,7 @@ export function CommonLogsFilterBar<TData>(
       model: searchParams.model,
       token: searchParams.token,
       group: searchParams.group,
+      billing_source: searchParams.billing_source,
       username: searchParams.username,
       requestId: searchParams.requestId,
       upstreamRequestId: searchParams.upstreamRequestId,
@@ -168,6 +171,7 @@ export function CommonLogsFilterBar<TData>(
       model: searchParams.model || undefined,
       token: searchParams.token || undefined,
       group: searchParams.group || undefined,
+      billing_source: searchParams.billing_source,
       username: searchParams.username || undefined,
       requestId: searchParams.requestId || undefined,
       upstreamRequestId: searchParams.upstreamRequestId || undefined,
@@ -184,6 +188,7 @@ export function CommonLogsFilterBar<TData>(
     searchParams.model,
     searchParams.token,
     searchParams.group,
+    searchParams.billing_source,
     searchParams.username,
     searchParams.requestId,
     searchParams.upstreamRequestId,
@@ -218,7 +223,7 @@ export function CommonLogsFilterBar<TData>(
         params: { section: 'common' },
         search: {
           ...filterParams,
-          type: [logType],
+          type: [nextFilters.billing_source ? '2' : logType],
           page: 1,
         },
       })
@@ -270,7 +275,11 @@ export function CommonLogsFilterBar<TData>(
 
   const hasTypeFilter = logType !== LOG_TYPE_ALL_VALUE
   const hasAdditionalFilters =
-    !!filters.model || !!filters.group || hasTypeFilter || hasExpandedFilters
+    !!filters.model ||
+    !!filters.group ||
+    !!filters.billing_source ||
+    hasTypeFilter ||
+    hasExpandedFilters
 
   const expandedFilterCount = [
     filters.token,
@@ -291,7 +300,9 @@ export function CommonLogsFilterBar<TData>(
       })),
     [t]
   )
-  const selectedLogType = logTypeItems.find((type) => type.value === logType)
+  const selectedLogType = logTypeItems.find(
+    (type) => type.value === (filters.billing_source ? '2' : logType)
+  )
   const deprecatedTypeDescription = t(
     'Only used to find historical logs. New records are available in Audit Logs.'
   )
@@ -359,11 +370,38 @@ export function CommonLogsFilterBar<TData>(
       />
     </LogsFilterField>
   )
+  const sourceFilter = (
+    <LogsFilterField>
+      <Select
+        items={[
+          { value: 'all', label: t('All funding sources') },
+          { value: 'membership', label: t('Membership quota') },
+          { value: 'wallet', label: t('Wallet') },
+        ]}
+        value={filters.billing_source ?? 'all'}
+        onValueChange={(value) => {
+          const source =
+            value === 'membership' || value === 'wallet' ? value : undefined
+          handleChange('billing_source', source)
+        }}
+      >
+        <SelectTrigger aria-label={t('Funding source')}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectItem value='all'>{t('All funding sources')}</SelectItem>
+          <SelectItem value='membership'>{t('Membership quota')}</SelectItem>
+          <SelectItem value='wallet'>{t('Wallet')}</SelectItem>
+        </SelectContent>
+      </Select>
+    </LogsFilterField>
+  )
   const typeFilter = (
     <LogsFilterField>
       <Select
         items={logTypeItems}
-        value={logType}
+        value={filters.billing_source ? '2' : logType}
+        disabled={!!filters.billing_source}
         onValueChange={(value) => {
           const nextLogType =
             value !== null && isLogTypeValue(value) ? value : LOG_TYPE_ALL_VALUE
@@ -494,6 +532,7 @@ export function CommonLogsFilterBar<TData>(
           {dateRangeFilter}
           {modelFilter}
           {groupFilter}
+          {sourceFilter}
           {typeFilter}
         </>
       }
@@ -503,13 +542,18 @@ export function CommonLogsFilterBar<TData>(
         <>
           {modelFilter}
           {groupFilter}
+          {sourceFilter}
           {typeFilter}
           {advancedFilters}
         </>
       }
       mobileFilterCount={
-        [filters.model, filters.group, hasTypeFilter].filter(Boolean).length +
-        expandedFilterCount
+        [
+          filters.model,
+          filters.group,
+          filters.billing_source,
+          hasTypeFilter,
+        ].filter(Boolean).length + expandedFilterCount
       }
       hasAdvancedActiveFilters={hasExpandedFilters}
       advancedFilterCount={expandedFilterCount}

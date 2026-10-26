@@ -42,6 +42,7 @@ const usageLogsSearchSchema = z.object({
   token: z.string().optional().catch(''),
   channel: z.string().optional().catch(''),
   group: z.string().optional().catch(''),
+  billing_source: z.enum(['membership', 'wallet']).optional().catch(undefined),
   username: z.string().optional().catch(''),
   requestId: z.string().optional().catch(''),
   upstreamRequestId: z.string().optional().catch(''),
@@ -61,11 +62,14 @@ export const Route = createFileRoute('/_authenticated/usage-logs/$section')({
     const hasTypeSearch = Array.isArray(search?.type)
       ? search.type.length > 0
       : search?.type != null && search.type !== ''
-    if (params.section !== 'common' && hasTypeSearch) {
+    if (
+      params.section !== 'common' &&
+      (hasTypeSearch || search.billing_source)
+    ) {
       throw redirect({
         to: '/usage-logs/$section',
         params: { section: params.section },
-        search: { ...search, type: undefined },
+        search: { ...search, type: undefined, billing_source: undefined },
         replace: true,
       })
     }

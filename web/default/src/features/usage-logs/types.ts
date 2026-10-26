@@ -49,6 +49,7 @@ export interface CommonFilters {
  * Common logs specific filters
  */
 export interface CommonLogFilters extends CommonFilters {
+  billing_source?: 'membership' | 'wallet'
   model?: string
   token?: string
   group?: string
@@ -252,6 +253,17 @@ export interface LogOtherData {
   is_system_prompt_overwritten?: boolean
   po?: string[]
   billing_source?: string
+  membership_account_id?: number
+  membership_tier_id?: string
+  membership_tier_name?: string
+  membership_tier_style?: 'gold' | 'diamond' | 'king'
+  membership_discount?: number
+  membership_wallet_ratio?: number
+  membership_candidate_ratio?: number
+  membership_savings?: number
+  membership_estimated_wallet_quota?: number
+  membership_estimated_saved_quota?: number
+  membership_wallet_fallback?: boolean
   group?: string
   stream_status?: {
     status?: string
@@ -288,6 +300,7 @@ export interface LogOtherData {
  * Log statistics data
  */
 export interface LogStatistics {
+  billing_source?: 'membership' | 'wallet'
   quota: number
   rpm: number
   tpm: number
@@ -431,6 +444,7 @@ export interface TaskArtifactsResponse {
 // ============================================================================
 
 export interface GetLogsParams {
+  billing_source?: 'membership' | 'wallet'
   p?: number
   page_size?: number
   type?: number
@@ -449,6 +463,7 @@ export interface GetLogsResponse {
   success: boolean
   message?: string
   data?: {
+    billing_source?: 'membership' | 'wallet'
     items: UsageLog[] | MidjourneyLog[] | TaskLog[]
     total: number
     page: number
@@ -457,6 +472,7 @@ export interface GetLogsResponse {
 }
 
 export interface GetLogStatsParams {
+  billing_source?: 'membership' | 'wallet'
   type?: number
   username?: string
   token_name?: string

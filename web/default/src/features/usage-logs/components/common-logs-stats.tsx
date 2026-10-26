@@ -23,7 +23,10 @@ import { useTranslation } from 'react-i18next'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSiteConfig } from '@/features/site-config'
 import { formatLogQuota } from '@/lib/format'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import {
+  createServerError,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { getLogStats, getUserLogStats } from '../api'
@@ -71,12 +74,25 @@ export function CommonLogsStats() {
       const result = isAdmin
         ? requireServerSuccess(await getLogStats(params))
         : requireServerSuccess(await getUserLogStats(params))
+      if (
+        params.billing_source &&
+        result.data?.billing_source !== params.billing_source
+      ) {
+        throw createServerError(
+          undefined,
+          t('Funding source filtering is temporarily unavailable.')
+        )
+      }
 
       return result.success
         ? result.data || DEFAULT_LOG_STATS
         : DEFAULT_LOG_STATS
     },
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData, previousQuery) =>
+      (previousQuery?.queryKey[2] as typeof searchParams)?.billing_source ===
+      searchParams.billing_source
+        ? previousData
+        : undefined,
   })
 
   if (isLoading) {

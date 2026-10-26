@@ -339,6 +339,13 @@ func GetMembershipQuote(userID int, groupKey string, baseRatio, userRatio float6
 	if err != nil {
 		return nil, err
 	}
+	for _, tier := range catalog.Tiers {
+		if tier.ID == account.TierID {
+			quote.TierName = tier.Name
+			quote.TierStyle = tier.Style
+			break
+		}
+	}
 	quote.MembershipRatio = ResolveMembershipRatio(baseRatio, userRatio, quote.Discount)
 	return quote, nil
 }

@@ -49,6 +49,9 @@ func (TaskAccountingHandler) Handle(ctx context.Context, event model.KKAIOutboxE
 		accountingContext = &model.TaskAccountingContext{}
 	}
 	other := taskBillingOther(task)
+	if task.PrivateData.MembershipBillingRequestID != "" {
+		appendMembershipPricingLogInfo(other, task.PrivateData.BillingSource, task.PrivateData.MembershipPricing, task.PrivateData.MembershipAssessedQuota, int64(task.PrivateData.AccountingQuota))
+	}
 	other.SetPublic("is_task", true)
 	if accountingContext.RequestPath != "" {
 		other.SetPublic("request_path", accountingContext.RequestPath)

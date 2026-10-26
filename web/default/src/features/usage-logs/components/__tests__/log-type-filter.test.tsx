@@ -58,7 +58,18 @@ async function renderFilter() {
   vi.spyOn(api, 'get').mockImplementation(async (url) => ({
     data: {
       success: true,
-      data: url === '/api/user/self/groups' ? {} : { quota: 0, rpm: 0, tpm: 0 },
+      data:
+        url === '/api/user/self/groups'
+          ? {}
+          : {
+              quota: 0,
+              rpm: 0,
+              tpm: 0,
+              billing_source:
+                new URL(url, 'http://localhost').searchParams.get(
+                  'billing_source'
+                ) ?? undefined,
+            },
     },
   }))
   const root = createRootRoute()
@@ -88,6 +99,51 @@ async function renderFilter() {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+})
+
+it('applies funding-source filtering to server queries and resets pagination', async () => {
+  const router = await renderFilter()
+  await userEvent.click(
+    screen.getByRole('combobox', { name: 'Funding source' })
+  )
+  await userEvent.click(
+    screen.getByRole('option', { name: 'Membership quota' })
+  )
+  expect(screen.getByRole('combobox', { name: 'Type' })).toHaveTextContent(
+    'Consume'
+  )
+  expect(screen.getByRole('combobox', { name: 'Type' })).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search).toMatchObject({
+      billing_source: 'membership',
+      type: ['2'],
+      page: 1,
+    })
+  )
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(api.get)
+        .mock.calls.some(
+          ([url]) =>
+            url.includes('/api/log/self/stat?') &&
+            new URL(url, 'http://localhost').searchParams.get(
+              'billing_source'
+            ) === 'membership'
+        )
+    ).toBe(true)
+  )
+  await userEvent.click(
+    screen.getByRole('combobox', { name: 'Funding source' })
+  )
+  await userEvent.click(
+    screen.getByRole('option', { name: 'All funding sources' })
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() =>
+    expect(router.state.location.search.billing_source).toBeUndefined()
+  )
 })
 
 it('marks only retired log types as deprecated while keeping historical filters selectable', async () => {

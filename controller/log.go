@@ -22,7 +22,8 @@ func GetAllLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId)
+	billingSource := c.Query("billing_source")
+	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId, billingSource)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -34,7 +35,10 @@ func GetAllLogs(c *gin.Context) {
 	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, struct {
+		*common.PageInfo
+		BillingSource string `json:"billing_source,omitempty"`
+	}{pageInfo, billingSource})
 	return
 }
 
@@ -49,14 +53,18 @@ func GetUserLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
+	billingSource := c.Query("billing_source")
+	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId, billingSource)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(logs)
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, struct {
+		*common.PageInfo
+		BillingSource string `json:"billing_source,omitempty"`
+	}{pageInfo, billingSource})
 	return
 }
 
@@ -109,7 +117,8 @@ func GetLogsStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	billingSource := c.Query("billing_source")
+	stat, err := model.SumUsedQuotaBySource(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, billingSource)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -119,9 +128,10 @@ func GetLogsStat(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": stat.Quota,
-			"rpm":   stat.Rpm,
-			"tpm":   stat.Tpm,
+			"billing_source": billingSource,
+			"quota":          stat.Quota,
+			"rpm":            stat.Rpm,
+			"tpm":            stat.Tpm,
 		},
 	})
 	return
@@ -135,7 +145,8 @@ func GetLogsSelfStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, "", tokenName, channel, group, c.GetInt("id"))
+	billingSource := c.Query("billing_source")
+	quotaNum, err := model.SumUsedQuotaBySource(logType, startTimestamp, endTimestamp, modelName, "", tokenName, channel, group, billingSource, c.GetInt("id"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -145,9 +156,10 @@ func GetLogsSelfStat(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": quotaNum.Quota,
-			"rpm":   quotaNum.Rpm,
-			"tpm":   quotaNum.Tpm,
+			"billing_source": billingSource,
+			"quota":          quotaNum.Quota,
+			"rpm":            quotaNum.Rpm,
+			"tpm":            quotaNum.Tpm,
 			//"token": tokenNum,
 		},
 	})

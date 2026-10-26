@@ -65,6 +65,7 @@ async function renderLogs(props: {
   role: number
   enabledPlans: boolean[]
   activeSubscription: boolean
+  membershipResponse?: Promise<unknown>
 }) {
   useAuthStore
     .getState()
@@ -91,6 +92,10 @@ async function renderLogs(props: {
           : [],
         all_subscriptions: [{ subscription: { status: 'expired' } }],
       }
+    } else if (url === '/api/membership/self') {
+      data = props.membershipResponse
+        ? await props.membershipResponse
+        : { runtime_enabled: true, account: null, server_time: 1000 }
     } else if (
       url.startsWith('/api/log?') ||
       url.startsWith('/api/log/self?')
@@ -126,15 +131,47 @@ async function renderLogs(props: {
     </QueryClientProvider>
   )
   await screen.findAllByText('$0.01')
-  await waitFor(() => expect(client.isFetching()).toBe(0))
+  if (!props.membershipResponse) {
+    await waitFor(() => expect(client.isFetching()).toBe(0))
+  }
   return client
 }
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   useAuthStore.setState(useAuthStore.getInitialState(), true)
   useSystemConfigStore.setState(useSystemConfigStore.getInitialState(), true)
   localStorage.clear()
+})
+
+test('keeps logs usable while membership is loading and then displays the membership summary', async () => {
+  let resolveMembership: (value: unknown) => void = () => undefined
+  const membershipResponse = new Promise<unknown>((resolve) => {
+    resolveMembership = resolve
+  })
+  const client = await renderLogs({
+    role: ROLE.USER,
+    enabledPlans: [],
+    activeSubscription: false,
+    membershipResponse,
+  })
+
+  expect(screen.queryByText('Current membership')).not.toBeInTheDocument()
+  expect(screen.getAllByText('$0.01')).toHaveLength(2)
+  resolveMembership({
+    runtime_enabled: true,
+    account: { status: 'active', expires_at: 2000 },
+    server_time: 1000,
+    tier: { name: 'Gold' },
+  })
+  expect(await screen.findByText('Current membership')).toBeVisible()
+  expect(screen.getByText('Gold')).toBeVisible()
+  expect(screen.getByRole('link', { name: 'View membership' })).toHaveAttribute(
+    'href',
+    '/membership'
+  )
+  client.clear()
 })
 
 test.each([{ enabledPlans: [] }, { enabledPlans: [false] }])(

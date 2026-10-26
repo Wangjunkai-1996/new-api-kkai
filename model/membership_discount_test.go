@@ -26,6 +26,12 @@ func TestMembershipDiscountChangesApplyToExistingAndNewMembers(t *testing.T) {
 					quote, err := GetMembershipQuote(userID, "gpt", 0.2, 0.2)
 					require.NoError(t, err)
 					assert.Equal(t, coefficient, quote.Discount)
+					for _, tier := range catalog.Tiers {
+						if tier.ID == tierID {
+							assert.Equal(t, tier.Name, quote.TierName)
+							assert.Equal(t, tier.Style, quote.TierStyle)
+						}
+					}
 					assert.InDelta(t, 0.2*coefficient, quote.MembershipRatio, 1e-9)
 					assert.Equal(t, catalog.ReleaseID, quote.ReleaseID)
 				}

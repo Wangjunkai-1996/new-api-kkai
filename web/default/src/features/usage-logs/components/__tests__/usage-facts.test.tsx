@@ -109,6 +109,62 @@ test('shows the recorded request and response models in log details', () => {
   queryClient.clear()
 })
 
+test('shows frozen member and wallet prices with the actual charged ratio', () => {
+  const queryClient = renderDetails({
+    billing_source: 'membership',
+    membership_tier_name: 'Gold',
+    membership_wallet_ratio: 0.3,
+    membership_candidate_ratio: 0.288,
+    membership_discount: 0.96,
+    membership_estimated_wallet_quota: 5208,
+    membership_estimated_saved_quota: 208,
+    group_ratio: 0.288,
+    user_group_ratio: 0.3,
+  })
+
+  expect(rowValue('Source')).toBe('Gold · Membership quota')
+  expect(rowValue('Original wallet ratio')).toBe('0.3000x')
+  expect(rowValue('Membership candidate ratio')).toBe('0.2880x')
+  expect(rowValue('Actual billing ratio')).toBe('0.2880x')
+  expect(rowValue('Final charge')).toBe('$0.01')
+  expect(rowValue('Estimated wallet cost for same usage')).toBe('$0.010416')
+  expect(rowValue('Estimated membership savings')).toBe('$0.000416')
+  expect(screen.queryByText('User Exclusive Ratio')).not.toBeInTheDocument()
+  queryClient.clear()
+})
+
+test('historical member detail omits unavailable price comparisons', () => {
+  const queryClient = renderDetails({ billing_source: 'membership' })
+
+  expect(rowValue('Source')).toBe('Membership quota')
+  expect(
+    screen.getByText('Discount details unavailable for this historical log')
+  ).toBeVisible()
+  expect(
+    screen.queryByText('Estimated membership savings')
+  ).not.toBeInTheDocument()
+  expect(screen.queryByText('Original wallet ratio')).not.toBeInTheDocument()
+  queryClient.clear()
+})
+
+test('wallet fallback detail names the source without member price claims', () => {
+  const queryClient = renderDetails({
+    billing_source: 'wallet',
+    membership_wallet_fallback: true,
+    group_ratio: 0.3,
+  })
+
+  expect(rowValue('Source')).toBe('Wallet payment')
+  expect(rowValue('Actual billing ratio')).toBe('0.3000x')
+  expect(
+    screen.getByText('Membership discount not used for this request')
+  ).toBeVisible()
+  expect(
+    screen.queryByText('Estimated membership savings')
+  ).not.toBeInTheDocument()
+  queryClient.clear()
+})
+
 describe('usage facts billing details', () => {
   test('shows the settled image count and a per-image price', () => {
     const queryClient = renderDetails({

@@ -18,6 +18,8 @@ type MembershipPricing struct {
 	GroupKey                string                       `json:"group_key"`
 	ModelName               string                       `json:"model_name"`
 	TierID                  string                       `json:"tier_id,omitempty"`
+	TierName                string                       `json:"tier_name,omitempty"`
+	TierStyle               string                       `json:"tier_style,omitempty"`
 	ReleaseID               int64                        `json:"release_id,omitempty"`
 	AccountID               int64                        `json:"account_id,omitempty"`
 	AccountRevision         int64                        `json:"account_revision,omitempty"`

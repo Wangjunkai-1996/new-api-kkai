@@ -185,6 +185,7 @@ func RecordMidjourneyMembershipBilling(task *model.Midjourney, record *model.Mem
 	other.SetPublic("task_id", task.MjId)
 	other.SetPublic("billing_source", record.Source)
 	other.SetPublic("group_ratio", snapshot.Price.GroupRatioInfo.GroupRatio)
+	appendMembershipPricingLogInfo(other, record.Source, &snapshot, record.ActualQuota, record.ChargedQuota)
 	other.SetAdmin("membership_request_id", record.RequestID)
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId: record.UserID, LogType: model.LogTypeConsume, ChannelId: task.GetBillingChannelId(),

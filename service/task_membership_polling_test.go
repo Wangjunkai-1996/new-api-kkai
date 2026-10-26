@@ -283,6 +283,12 @@ func TestMembershipSunoPollingInformationalReasonKeepsTaskPendingUntilSuccess(t 
 	require.Len(t, logs, 1)
 	assert.Equal(t, task.TaskID, logs[0].RequestId)
 	assert.EqualValues(t, initial.ReservedQuota, logs[0].Quota)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
+	assert.Equal(t, model.MembershipSource, other["billing_source"])
+	assert.Equal(t, "Gold", other["membership_tier_name"])
+	assert.Equal(t, 0.5, other["membership_discount"])
+	assert.EqualValues(t, initial.ReservedQuota, other["membership_estimated_saved_quota"])
 }
 
 func TestMembershipSunoPollingFailureDoesNotRecordConsumptionAfterRelease(t *testing.T) {

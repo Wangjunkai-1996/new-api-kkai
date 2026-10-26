@@ -321,6 +321,9 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		logQuota = -quotaDelta
 	}
 	other := taskBillingOther(task)
+	if logType == model.LogTypeConsume && task.PrivateData.MembershipBillingRequestID != "" {
+		appendMembershipPricingLogInfo(other, task.PrivateData.BillingSource, task.PrivateData.MembershipPricing, 0, 0)
+	}
 	other.SetPublic("task_id", task.TaskID)
 	other.SetPublic("pre_consumed_quota", preConsumedQuota)
 	other.SetPublic("actual_quota", actualQuota)

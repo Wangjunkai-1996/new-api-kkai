@@ -3,7 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
-	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,7 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	}
 	if relayInfo.MembershipBillingRequestID != "" && other != nil {
 		other.SetPublic("billing_source", relayInfo.BillingSource)
-		other.SetPublic("membership_account_id", relayInfo.MembershipPricing.AccountID)
+		appendMembershipPricingLogInfo(other, relayInfo.BillingSource, relayInfo.MembershipPricing, int64(relayInfo.MembershipAssessedQuota), int64(relayInfo.MembershipChargedQuota))
 		other.SetAdmin("membership_billing", map[string]any{
 			"request_id":      relayInfo.MembershipBillingRequestID,
 			"authorized":      relayInfo.FinalPreConsumedQuota,
@@ -55,6 +56,55 @@ func attachQuotaSaturation(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, o
 	attachQuotaSaturationToOther(other, clamp)
 	logger.LogWarn(ctx, fmt.Sprintf("quota saturation on consume log: op=%s kind=%s original=%g clamped=%d user=%d model=%s",
 		clamp.Op, clamp.Kind, clamp.Original, clamp.Clamped, relayInfo.UserId, relayInfo.OriginModelName))
+}
+
+func appendMembershipPricingLogInfo(other *model.LogOther, source string, pricing *types.MembershipPricing, assessed, charged int64) {
+	if other == nil || pricing == nil {
+		return
+	}
+	if source == model.MembershipWalletSource {
+		if pricing.AccountID > 0 {
+			other.SetPublic("membership_account_id", pricing.AccountID)
+			other.SetPublic("membership_wallet_fallback", true)
+		}
+		return
+	}
+	if source != model.MembershipSource {
+		return
+	}
+	other.SetPublic("membership_account_id", pricing.AccountID)
+	other.SetPublic("membership_tier_id", pricing.TierID)
+	if pricing.TierName != "" {
+		other.SetPublic("membership_tier_name", pricing.TierName)
+	}
+	if pricing.TierStyle != "" {
+		other.SetPublic("membership_tier_style", pricing.TierStyle)
+	}
+	other.SetPublic("membership_discount", pricing.Discount)
+	other.SetPublic("membership_wallet_ratio", pricing.WalletRatio)
+	memberRatio := pricing.Price.GroupRatioInfo.GroupRatio
+	candidateRatio := pricing.WalletRatio
+	if pricing.Discount < 1 {
+		candidateRatio = pricing.BaseRatio * pricing.Discount
+	}
+	other.SetPublic("membership_candidate_ratio", candidateRatio)
+	savings := 0.0
+	if pricing.WalletRatio > 0 {
+		savings = max(0, (pricing.WalletRatio-memberRatio)/pricing.WalletRatio)
+	}
+	other.SetPublic("membership_savings", savings)
+	if assessed <= 0 || assessed != charged || memberRatio <= 0 || savings <= 0 {
+		return
+	}
+	walletEstimate := float64(assessed) * pricing.WalletRatio / memberRatio
+	if walletEstimate >= common.MaxQuota || math.IsNaN(walletEstimate) || math.IsInf(walletEstimate, 0) {
+		return
+	}
+	walletQuota, clamp := common.QuotaRoundChecked(walletEstimate)
+	if clamp == nil && int64(walletQuota) > charged {
+		other.SetPublic("membership_estimated_wallet_quota", walletQuota)
+		other.SetPublic("membership_estimated_saved_quota", int64(walletQuota)-charged)
+	}
 }
 
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other *model.LogOther) {

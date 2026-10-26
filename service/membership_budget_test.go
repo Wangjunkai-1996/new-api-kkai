@@ -261,6 +261,7 @@ func TestMembershipReservationUsesLatestPublishedDiscountForExistingMember(t *te
 			require.Equal(t, model.MembershipSource, record.Source)
 			require.NoError(t, ApplyMembershipReservation(info, record))
 			assert.Equal(t, catalog.ReleaseID, info.MembershipPricing.ReleaseID)
+			assert.Equal(t, "Gold", info.MembershipPricing.TierName)
 			assert.Equal(t, tc.coefficient, info.MembershipPricing.Discount)
 			assert.InDelta(t, 0.2*tc.coefficient, info.PriceData.GroupRatioInfo.GroupRatio, 1e-9)
 		})
