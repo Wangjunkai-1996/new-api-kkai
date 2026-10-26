@@ -27,12 +27,30 @@ import type {
   MembershipCheckout,
   MembershipOrder,
   MembershipTier,
+  MembershipTierQuote,
 } from './types'
 
 export const membershipEmblems = {
   gold: goldEmblem,
   diamond: diamondEmblem,
   king: kingEmblem,
+}
+
+export function isMembershipTierQuote(
+  value: unknown
+): value is MembershipTierQuote {
+  if (!value || typeof value !== 'object') return false
+  const quote = value as MembershipTierQuote
+  return (
+    Number.isFinite(quote.coefficient) &&
+    quote.coefficient > 0 &&
+    quote.coefficient <= 1 &&
+    Number.isFinite(quote.membership_ratio) &&
+    quote.membership_ratio >= 0 &&
+    Number.isFinite(quote.savings) &&
+    quote.savings >= 0 &&
+    quote.savings <= 1
+  )
 }
 
 export function openMembershipCheckout(checkout: MembershipCheckout): boolean {

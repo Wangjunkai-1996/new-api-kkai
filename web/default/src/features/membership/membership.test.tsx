@@ -127,6 +127,19 @@ const catalog: MembershipCatalog = {
       published: true,
     },
   ],
+  group_quotes: [
+    {
+      group_key: 'enterprise',
+      display_name: 'Enterprise',
+      description: 'Long-context requests',
+      base_ratio: 0.2,
+      wallet_ratio: 0.15,
+      tier_quotes: {
+        'level-a': { coefficient: 0.9, membership_ratio: 0.15, savings: 0 },
+        'level-b': { coefficient: 0.8, membership_ratio: 0.15, savings: 0 },
+      },
+    },
+  ],
 }
 const membership: MembershipSelf = {
   server_time: 1000,
@@ -149,6 +162,8 @@ const membership: MembershipSelf = {
       group_key: 'enterprise',
       display_name: 'Enterprise',
       coefficient: 0.9,
+      base_ratio: 0.2,
+      savings: 0,
       membership_ratio: 0.15,
       wallet_ratio: 0.15,
       enabled: true,
@@ -213,6 +228,44 @@ describe('membership purchase and benefits', () => {
     ).toBeVisible()
     expect(getMembershipSelf).toHaveBeenCalledTimes(2)
   })
+
+  it.each([
+    ['expired', { expires_at: 1000 }, false],
+    ['fully consumed', { amount_used: 1000000, amount_reserved: 0 }, false],
+    ['fully reserved', { amount_used: 600000, amount_reserved: 400000 }, true],
+  ])(
+    'only highlights an effective current tier when quota is %s',
+    async (_state, accountChange, active) => {
+      if (!membership.account) {
+        throw new Error('Membership fixture has no account')
+      }
+      vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
+      vi.mocked(getMembershipSelf).mockResolvedValue({
+        ...membership,
+        account: { ...membership.account, ...accountChange },
+      })
+      const router = createRouter({
+        routeTree: createRootRoute({ component: () => <MembershipCenter /> }),
+        history: createMemoryHistory({ initialEntries: ['/'] }),
+      })
+      await router.load()
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      )
+      const comparison = await screen.findByRole('table', {
+        name: 'Group discounts',
+      })
+      const highlighted = within(comparison)
+        .getAllByRole('columnheader')
+        .filter((header) => header.hasAttribute('aria-current'))
+      expect(highlighted).toHaveLength(active ? 1 : 0)
+      if (active) {
+        expect(highlighted[0]).toHaveAccessibleName(/Gold/)
+      }
+    }
+  )
 
   it('uses server eligibility rather than inferring rank from the tier name', async () => {
     const onPurchase = vi.fn()
@@ -283,38 +336,160 @@ describe('membership purchase and benefits', () => {
     expect(screen.queryByText(formatQuota(0))).not.toBeInTheDocument()
   })
 
-  it('shows current published discounts and the authoritative server price', () => {
+  it('highlights the current tier without duplicating its authoritative price column', () => {
+    const comparisonCatalog: MembershipCatalog = {
+      ...catalog,
+      tiers: [
+        ...catalog.tiers,
+        { ...tier, id: 'level-c', name: 'King', rank: 3, style: 'king' },
+      ],
+      group_quotes: [
+        {
+          group_key: 'enterprise',
+          display_name: 'Enterprise',
+          description: 'Long-context requests',
+          base_ratio: 0.2,
+          wallet_ratio: 0.2,
+          tier_quotes: {
+            'level-a': {
+              coefficient: 0.9,
+              membership_ratio: 0.18,
+              savings: 0.1,
+            },
+            'level-b': {
+              coefficient: 0.8,
+              membership_ratio: 0.16,
+              savings: 0.2,
+            },
+            'level-c': {
+              coefficient: 0.7,
+              membership_ratio: 0.14,
+              savings: 0.3,
+            },
+          },
+        },
+      ],
+    }
+    const currentDiscounts = membership.discounts.map((discount) => ({
+      ...discount,
+      coefficient: 0.85,
+      wallet_ratio: 0.2,
+      membership_ratio: 0.17,
+      savings: 0.15,
+    }))
     const { rerender } = render(
       <MembershipDiscounts
-        catalog={catalog}
-        currentDiscounts={membership.discounts}
-        active
+        catalog={comparisonCatalog}
+        currentDiscounts={currentDiscounts}
+        currentTierId='level-a'
       />
     )
-    expect(screen.getByText('My current discount')).toBeVisible()
-    expect(screen.getAllByText('90%')).toHaveLength(2)
-    expect(screen.getByText('80%')).toBeVisible()
-    expect(screen.getByText(/Current billing ratio.*0.15/)).toBeVisible()
+    const table = screen.getByRole('table', { name: 'Group discounts' })
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4)
+    expect(
+      within(table).getByRole('columnheader', { name: /Gold/ })
+    ).toHaveAttribute('aria-current', 'true')
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .filter((header) => header.hasAttribute('aria-current'))
+    ).toHaveLength(1)
+    expect(screen.queryByText('My current discount')).not.toBeInTheDocument()
+    const group = within(table).getByRole('row', {
+      name: /Enterprise.*Long-context requests/,
+    })
+    const cells = within(group).getAllByRole('cell')
+    expect(cells).toHaveLength(3)
+    expect(within(cells[0]).getByText('0.17')).toBeVisible()
+    expect(within(cells[0]).getByText('Save 15% vs wallet')).toBeVisible()
+    expect(within(cells[0]).queryByText('0.18')).not.toBeInTheDocument()
+    expect(within(cells[1]).getByText('0.16')).toBeVisible()
+    expect(within(cells[2]).getByText('0.14')).toBeVisible()
+
     rerender(
       <MembershipDiscounts
-        catalog={{
-          ...catalog,
-          tiers: [{ ...tier, discounts: { enterprise: 0.85 } }],
-        }}
-        currentDiscounts={membership.discounts.map((discount) => ({
-          ...discount,
-          coefficient: 0.85,
-        }))}
-        active
+        catalog={comparisonCatalog}
+        currentDiscounts={currentDiscounts}
+        currentTierId='level-b'
       />
     )
-    expect(screen.getAllByText('85%')).toHaveLength(2)
-    expect(screen.queryByText('90%')).not.toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search groups' }), {
+    expect(
+      within(table).getByRole('columnheader', { name: /Gold/ })
+    ).not.toHaveAttribute('aria-current')
+    expect(
+      within(table).getByRole('columnheader', { name: /Diamond/ })
+    ).toHaveAttribute('aria-current', 'true')
+    expect(within(cells[0]).getByText('0.18')).toBeVisible()
+    expect(within(cells[1]).getByText('0.17')).toBeVisible()
+
+    rerender(
+      <MembershipDiscounts
+        catalog={comparisonCatalog}
+        currentDiscounts={currentDiscounts}
+      />
+    )
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .some((header) => header.hasAttribute('aria-current'))
+    ).toBe(false)
+    expect(within(cells[1]).getByText('0.16')).toBeVisible()
+    expect(within(table).queryByText('0.17')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search groups' }), {
       target: { value: 'missing' },
     })
     expect(screen.getByText('No matching groups')).toBeVisible()
   })
+
+  it('retains a current tier column when its plan is no longer offered for sale', () => {
+    render(
+      <MembershipDiscounts
+        catalog={{ ...catalog, sales_enabled: false, tiers: [] }}
+        currentDiscounts={membership.discounts}
+        currentTierId={tier.id}
+        currentTier={{ ...tier, enabled: false }}
+      />
+    )
+    const table = screen.getByRole('table', { name: 'Group discounts' })
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(2)
+    expect(
+      within(table).getByRole('columnheader', { name: /Gold/ })
+    ).toHaveAttribute('aria-current', 'true')
+    const price = within(table).getByRole('cell')
+    expect(within(price).getByText('0.15')).toBeVisible()
+    expect(within(price).getByText('Existing discount retained')).toBeVisible()
+  })
+
+  it.each(['catalog', 'current membership', 'offered tier'])(
+    'shows an error instead of presenting incomplete %s quotes as prices',
+    (source) => {
+      const incompleteCatalog = { ...catalog }
+      if (source === 'catalog') delete incompleteCatalog.group_quotes
+      if (source === 'offered tier') {
+        incompleteCatalog.group_quotes = catalog.group_quotes?.map((quote) => ({
+          ...quote,
+          tier_quotes: { 'level-a': quote.tier_quotes['level-a'] },
+        }))
+      }
+      render(
+        <MembershipDiscounts
+          catalog={incompleteCatalog}
+          currentDiscounts={
+            source === 'current membership' ? [] : membership.discounts
+          }
+          currentTierId={tier.id}
+        />
+      )
+      expect(
+        screen.getByText(
+          'Membership information could not be loaded. Please refresh before purchasing.'
+        )
+      ).toBeVisible()
+      expect(screen.queryByRole('table')).not.toBeInTheDocument()
+      expect(screen.queryByText('No matching groups')).not.toBeInTheDocument()
+      expect(screen.queryByText('0.15')).not.toBeInTheDocument()
+    }
+  )
 
   it('submits the shown release and account revision and keeps a failed payment unactivated', async () => {
     vi.mocked(createMembershipOrder).mockRejectedValue(

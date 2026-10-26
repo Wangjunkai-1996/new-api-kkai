@@ -36,7 +36,10 @@ export function RatioValue(props: { value?: number }) {
   )
 }
 
-export function MembershipRatioPrice(props: { quote?: MembershipTierQuote }) {
+export function MembershipRatioPrice(props: {
+  quote?: MembershipTierQuote
+  accentClassName?: string
+}) {
   const { t, i18n } = useTranslation()
   if (!props.quote) {
     return (
@@ -56,7 +59,9 @@ export function MembershipRatioPrice(props: { quote?: MembershipTierQuote }) {
 
   return (
     <>
-      <span className='block text-lg font-semibold text-[#876321] dark:text-[#dec387]'>
+      <span
+        className={`block text-lg font-semibold ${props.accentClassName ?? 'text-[#876321] dark:text-[#dec387]'}`}
+      >
         <RatioValue value={props.quote.membership_ratio} />
       </span>
       <span

@@ -138,7 +138,8 @@ export function MembershipCenter(props: {
     catalog?.runtime_enabled !== false && self?.runtime_enabled !== false
   const active =
     self?.account?.status === 'active' &&
-    self.account.expires_at > membership.now
+    self.account.expires_at > membership.now &&
+    self.account.amount_used < self.account.amount_total
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
@@ -390,7 +391,8 @@ export function MembershipCenter(props: {
                     <MembershipDiscounts
                       catalog={catalog}
                       currentDiscounts={self.discounts}
-                      active={active}
+                      currentTier={active ? self.tier : null}
+                      currentTierId={active ? self.account?.tier_id : undefined}
                     />
                     <details
                       id='membership-billing-guide'
