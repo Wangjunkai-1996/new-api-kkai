@@ -195,7 +195,7 @@ export function useSidebarData(): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
-          ...(invitationFeature.userVisible
+          ...(invitationFeature.userNavigationVisible
             ? [
                 {
                   title: invitationFeature.salesVisible

@@ -23,6 +23,7 @@ import type { ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
+import { ErrorState } from '@/components/error-state'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
@@ -55,9 +56,27 @@ export const KkaiWalletRewardsCard = (props: WalletRewardsProps) => {
   })
   const stats = feature.userVisible ? statsQuery.data : null
 
+  if (feature.accessError) {
+    return (
+      <Card>
+        <CardContent>
+          <ErrorState
+            title={
+              feature.query.isError
+                ? t('Failed to load invitation settings')
+                : t('Failed to load sales account')
+            }
+            description={feature.accessError.message}
+            onRetry={() => void feature.retryAccess()}
+          />
+        </CardContent>
+      </Card>
+    )
+  }
+
   if (
     isInvitationWalletLoading(
-      feature.query.isPending,
+      feature.isPending,
       feature.userVisible,
       statsQuery.isPending
     )

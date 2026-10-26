@@ -45,6 +45,8 @@ import {
   getInvitationErrorMessage,
 } from '../../format'
 
+const AVAILABLE_REBATES_KEY = ['kkai', 'invitations', 'available-rebates']
+
 export const RebateTransfer = (props: {
   sales?: boolean
   disabled?: boolean
@@ -54,7 +56,7 @@ export const RebateTransfer = (props: {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const availableQuery = useQuery({
     refetchInterval: 30_000,
-    queryKey: ['kkai', 'invitations', 'available-rebates'],
+    queryKey: AVAILABLE_REBATES_KEY,
     enabled: !props.disabled,
     queryFn: async () =>
       requireInvitationData(
@@ -62,9 +64,20 @@ export const RebateTransfer = (props: {
         'Failed to load available rebates'
       ),
   })
+  if (confirmOpen && (!availableQuery.isSuccess || props.disabled)) {
+    setConfirmOpen(false)
+  }
   const transferMutation = useMutation({
     mutationFn: async () => {
-      if (!availableQuery.data) throw new Error('No rebates available')
+      if (
+        props.disabled ||
+        queryClient.getQueryState(AVAILABLE_REBATES_KEY)?.status !==
+          'success' ||
+        !availableQuery.data?.recordIds.length ||
+        availableQuery.data.amount <= 0
+      ) {
+        throw new Error(t('Failed to load available rebates'))
+      }
       return requireInvitationData(
         await requestRebateTransfer({
           amount: availableQuery.data.amount,
@@ -94,6 +107,7 @@ export const RebateTransfer = (props: {
       )
     : formatRebateAmount(available?.amount ?? 0)
   const canTransfer =
+    availableQuery.isSuccess &&
     Boolean(available && available.amount > 0 && available.recordIds.length) &&
     !props.disabled &&
     !transferMutation.isPending
@@ -145,7 +159,10 @@ export const RebateTransfer = (props: {
         </CardTitle>
       </CardHeader>
       <CardContent>{content}</CardContent>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog
+        open={confirmOpen && availableQuery.isSuccess && !props.disabled}
+        onOpenChange={setConfirmOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Confirm rebate request')}</AlertDialogTitle>
@@ -163,10 +180,10 @@ export const RebateTransfer = (props: {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={transferMutation.isPending}
+              disabled={!canTransfer}
               onClick={(event) => {
                 event.preventDefault()
-                transferMutation.mutate()
+                if (canTransfer) transferMutation.mutate()
               }}
             >
               {transferMutation.isPending ? t('Submitting...') : t('Confirm')}

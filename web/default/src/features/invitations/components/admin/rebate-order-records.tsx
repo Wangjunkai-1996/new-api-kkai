@@ -62,8 +62,9 @@ export const RebateOrderRecords = () => {
     'all'
   )
   const [action, setAction] = useState<OrderRecordActionInput | null>(null)
+  const queryKey = [...ORDER_RECORDS_KEY, page, orderType]
   const query = useQuery({
-    queryKey: [...ORDER_RECORDS_KEY, page, orderType],
+    queryKey,
     queryFn: async () =>
       requireInvitationData(
         await getAdminRebateOrderRecords({
@@ -74,8 +75,14 @@ export const RebateOrderRecords = () => {
         'Failed to load rebate order records'
       ),
   })
+  if (!query.isSuccess && action) setAction(null)
   const mutation = useMutation({
-    mutationFn: runOrderRecordAction,
+    mutationFn: async (input: OrderRecordActionInput) => {
+      if (queryClient.getQueryState(queryKey)?.status !== 'success') {
+        throw new Error(t('Failed to load rebate order records'))
+      }
+      return runOrderRecordAction(input)
+    },
     onSuccess: async () => {
       setAction(null)
       toast.success(t('Rebate order record updated'))
@@ -119,20 +126,20 @@ export const RebateOrderRecords = () => {
             onRetry={() => void query.refetch()}
           />
         )}
-        {query.data?.items.length === 0 && (
+        {query.isSuccess && query.data.items.length === 0 && (
           <EmptyState
             icon={ReceiptText}
             title={t('No order records')}
             bordered
           />
         )}
-        {query.data && query.data.items.length > 0 && (
+        {query.isSuccess && query.data.items.length > 0 && (
           <RebateOrderRecordTable
             records={query.data.items}
             onAction={setAction}
           />
         )}
-        {query.data && (
+        {query.isSuccess && (
           <PaginationControls
             page={page}
             pageSize={PAGE_SIZE}
@@ -147,10 +154,10 @@ export const RebateOrderRecords = () => {
             ? `${action.record.orderType}:${action.record.orderId}:${action.action}`
             : 'closed'
         }
-        input={action}
+        input={query.isSuccess ? action : null}
         pending={mutation.isPending}
         onClose={() => setAction(null)}
-        onConfirm={(input) => mutation.mutate(input)}
+        onConfirm={(input) => query.isSuccess && mutation.mutate(input)}
       />
     </Card>
   )

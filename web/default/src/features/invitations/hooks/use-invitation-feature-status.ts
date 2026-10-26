@@ -55,11 +55,26 @@ export const useInvitationFeatureStatus = (enabled = true) => {
     retry: false,
     staleTime: 60_000,
   })
+  const access = deriveInvitationAccess(status, profileQuery.data)
+  const accessError = enabled
+    ? query.error || (profileEnabled ? profileQuery.error : null)
+    : null
+  const isPending =
+    query.isPending || (profileEnabled && profileQuery.isPending)
 
   return {
     query,
-    isPending: query.isPending || (profileEnabled && profileQuery.isPending),
+    accessError,
+    retryAccess: () =>
+      query.isError ? query.refetch() : profileQuery.refetch(),
+    isPending,
     status,
-    ...deriveInvitationAccess(status, profileQuery.data),
+    ...access,
+    userVisible: access.userVisible && !isPending && !accessError,
+    userNavigationVisible:
+      access.userVisible ||
+      (enabled &&
+        Boolean(userId) &&
+        (query.isError || (profileEnabled && !profileQuery.isSuccess))),
   }
 }

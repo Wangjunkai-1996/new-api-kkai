@@ -60,8 +60,9 @@ export const RebatePayoutRecords = () => {
   const [page, setPage] = useState(1)
   const [source, setSource] = useState<'order' | 'signup'>('order')
   const [action, setAction] = useState<PayoutActionInput | null>(null)
+  const queryKey = [...PAYOUT_RECORDS_KEY, page, source]
   const query = useQuery({
-    queryKey: [...PAYOUT_RECORDS_KEY, page, source],
+    queryKey,
     queryFn: async () =>
       requireInvitationData(
         await getAdminRebateRecords({
@@ -72,8 +73,12 @@ export const RebatePayoutRecords = () => {
         'Failed to load payout records'
       ),
   })
+  if (!query.isSuccess && action) setAction(null)
   const mutation = useMutation({
     mutationFn: async (input: PayoutActionInput) => {
+      if (queryClient.getQueryState(queryKey)?.status !== 'success') {
+        throw new Error(t('Failed to load payout records'))
+      }
       if (input.kind === 'payout') {
         return requireInvitationData(
           await executeAdminRebatePayout(input.command),
@@ -134,17 +139,17 @@ export const RebatePayoutRecords = () => {
             onRetry={() => void query.refetch()}
           />
         )}
-        {query.data?.items.length === 0 && (
+        {query.isSuccess && query.data.items.length === 0 && (
           <EmptyState icon={Banknote} title={t('No payout records')} bordered />
         )}
-        {query.data && query.data.items.length > 0 && (
+        {query.isSuccess && query.data.items.length > 0 && (
           <PayoutRecordTable
             records={query.data.items}
             mode={source}
             onAction={setAction}
           />
         )}
-        {query.data && (
+        {query.isSuccess && (
           <PaginationControls
             page={page}
             pageSize={PAGE_SIZE}
@@ -154,10 +159,10 @@ export const RebatePayoutRecords = () => {
         )}
       </CardContent>
       <PayoutActionDialog
-        input={action}
+        input={query.isSuccess ? action : null}
         pending={mutation.isPending}
         onClose={() => setAction(null)}
-        onConfirm={() => action && mutation.mutate(action)}
+        onConfirm={() => query.isSuccess && action && mutation.mutate(action)}
       />
     </Card>
   )

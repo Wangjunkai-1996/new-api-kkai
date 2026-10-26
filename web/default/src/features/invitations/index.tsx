@@ -22,6 +22,7 @@ import { Gift, History, RefreshCw, WalletCards, Users } from 'lucide-react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -52,9 +53,25 @@ export const Invitations = () => {
       : requestedTab
 
   useEffect(() => {
-    if (feature.isPending || feature.userVisible) return
+    if (feature.isPending || feature.accessError || feature.userVisible) {
+      return
+    }
     void navigate({ to: '/wallet', replace: true })
-  }, [feature.isPending, feature.userVisible, navigate])
+  }, [feature.isPending, feature.accessError, feature.userVisible, navigate])
+
+  if (feature.accessError) {
+    return (
+      <ErrorState
+        title={
+          feature.query.isError
+            ? t('Failed to load invitation settings')
+            : t('Failed to load sales account')
+        }
+        description={feature.accessError.message}
+        onRetry={() => void feature.retryAccess()}
+      />
+    )
+  }
 
   if (!feature.userVisible) return null
 
