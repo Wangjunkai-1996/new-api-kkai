@@ -3627,6 +3627,7 @@
     "Include Rule Name": "Включить имя правила",
     "Included quota": "Включённая квота",
     "Included quota (USD)": "Квота плана (USD)",
+    "Included site quota": "Включённый лимит платформы",
     "Includes changes that require security verification, such as password, two-factor settings, and account deletion.": "Включает изменения, требующие подтверждения безопасности, например пароль, настройки двухфакторной аутентификации и удаление аккаунта.",
     "Includes request rules": "Включает правила запросов",
     "Includes tool-call surcharge": "Включает доплату за вызов инструмента",

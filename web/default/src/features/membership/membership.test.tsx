@@ -194,6 +194,13 @@ describe('membership purchase and benefits', () => {
         exact: false,
       })
     ).toBeVisible()
+    const planCards = screen.getAllByRole('article')
+    expect(planCards).toHaveLength(2)
+    expect(within(planCards[0]).getByText('Included site quota')).toBeVisible()
+    expect(
+      within(planCards[0]).queryByText('Enterprise')
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText('Enterprise').length).toBeGreaterThan(0)
     vi.mocked(getWalletBalance).mockResolvedValue({
       success: true,
       data: { quota: 678900000 } as UserWalletData,

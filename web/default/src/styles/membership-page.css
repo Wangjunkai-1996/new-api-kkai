@@ -1,0 +1,33 @@
+.membership-page-enter > * {
+  animation: membership-page-rise 0.46s cubic-bezier(0.22, 0.75, 0.2, 1) both;
+}
+
+.membership-page-enter > :nth-child(2) {
+  animation-delay: 0.06s;
+}
+
+.membership-page-enter > :nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.membership-page-enter > :nth-child(n + 4) {
+  animation-delay: 0.18s;
+}
+
+@keyframes membership-page-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .membership-page-enter > * {
+    animation: none;
+  }
+}

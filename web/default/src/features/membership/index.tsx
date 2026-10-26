@@ -22,14 +22,12 @@ import { Info, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Dialog } from '@/components/dialog'
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getWalletBalance } from '@/features/wallet/api'
 import { useWalletPaymentIdentity } from '@/features/wallet/hooks/use-wallet-payment-flow'
-import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 
 import { getMembershipOrder } from './api'
@@ -37,16 +35,18 @@ import { CurrentMembership } from './components/current-membership'
 import { MembershipDiscounts } from './components/discount-comparison'
 import { MembershipOrders } from './components/orders'
 import { MembershipPurchaseDialog } from './components/purchase-dialog'
+import { MembershipSuccessDialog } from './components/success-dialog'
 import { MembershipTierCard } from './components/tier-card'
 import { useMembership } from './hooks'
-import { membershipEmblems } from './lib'
 import type { MembershipOrder, MembershipTier } from './types'
+
+import '@/styles/membership-page.css'
 
 export function MembershipCenter(props: {
   initialTradeNo?: string
   onPaymentReturnHandled?: () => void
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const membership = useMembership()
   const client = useQueryClient()
   const refetchSelf = membership.self.refetch
@@ -139,13 +139,6 @@ export function MembershipCenter(props: {
   const active =
     self?.account?.status === 'active' &&
     self.account.expires_at > membership.now
-  const sampleGroup = catalog?.groups.find(
-    (group) =>
-      group.enabled &&
-      group.published &&
-      tiers.some((tier) => tier.discounts[group.key] !== undefined)
-  )
-
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
@@ -182,7 +175,7 @@ export function MembershipCenter(props: {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='flex w-full flex-col gap-6 pb-8'>
+        <div className='membership-page-enter flex w-full flex-col gap-6 pb-8'>
           <header>
             <p className='text-muted-foreground text-sm'>
               {t(
@@ -388,7 +381,6 @@ export function MembershipCenter(props: {
                           <MembershipTierCard
                             key={tier.id}
                             tier={tier}
-                            sampleGroup={sampleGroup}
                             salesEnabled={catalog.sales_enabled}
                             onPurchase={setSelectedTier}
                           />
@@ -452,82 +444,20 @@ export function MembershipCenter(props: {
             }}
           />
         )}
-        {confirmedOrder && (
-          <Dialog
-            open
-            onOpenChange={(open) => {
-              if (open) return
+        {confirmedOrder && self && (
+          <MembershipSuccessDialog
+            order={confirmedOrder}
+            membership={self}
+            onClose={() => {
               setConfirmedOrder(null)
               props.onPaymentReturnHandled?.()
             }}
-            title={t('Membership activated')}
-            description={t('Your membership benefits are active.')}
-            contentClassName='sm:max-w-md'
-            showCloseButton={false}
-          >
-            <div className='space-y-5 text-center'>
-              <img
-                src={membershipEmblems[self?.tier?.style ?? 'gold']}
-                width={128}
-                height={128}
-                alt=''
-                aria-hidden='true'
-                className='mx-auto size-28 object-contain drop-shadow-lg'
-              />
-              <p className='text-xl font-semibold'>
-                {confirmedOrder.tier_name}
-              </p>
-              <dl className='bg-muted/40 space-y-3 rounded-lg border p-4 text-left text-sm'>
-                <div className='flex justify-between gap-3'>
-                  <dt className='text-muted-foreground'>
-                    {t('Included quota')}
-                  </dt>
-                  <dd className='font-medium tabular-nums'>
-                    {formatQuota(confirmedOrder.quota)}
-                  </dd>
-                </div>
-                {self?.account && (
-                  <>
-                    <div className='flex justify-between gap-3 border-t pt-3'>
-                      <dt className='text-muted-foreground'>
-                        {t('Available now')}
-                      </dt>
-                      <dd className='font-semibold tabular-nums'>
-                        {formatQuota(
-                          Math.max(
-                            0,
-                            self.account.amount_total -
-                              self.account.amount_used -
-                              self.account.amount_reserved
-                          )
-                        )}
-                      </dd>
-                    </div>
-                    <div className='flex justify-between gap-3'>
-                      <dt className='text-muted-foreground'>
-                        {t('Expires at')}
-                      </dt>
-                      <dd className='font-medium tabular-nums'>
-                        {new Date(
-                          self.account.expires_at * 1000
-                        ).toLocaleString(toIntlLocale(i18n.language))}
-                      </dd>
-                    </div>
-                  </>
-                )}
-              </dl>
-              <Button
-                className='w-full'
-                onClick={() => {
-                  setView('overview')
-                  setConfirmedOrder(null)
-                  props.onPaymentReturnHandled?.()
-                }}
-              >
-                {t('View membership')}
-              </Button>
-            </div>
-          </Dialog>
+            onViewMembership={() => {
+              setView('overview')
+              setConfirmedOrder(null)
+              props.onPaymentReturnHandled?.()
+            }}
+          />
         )}
       </SectionPageLayout.Content>
     </SectionPageLayout>

@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { toIntlLocale } from '@/i18n/languages'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -28,7 +27,7 @@ import {
   formatMembershipPrice,
   membershipEmblems,
 } from '../lib'
-import type { MembershipGroup, MembershipTier } from '../types'
+import type { MembershipTier } from '../types'
 
 const appearances = {
   gold: {
@@ -56,7 +55,6 @@ const appearances = {
 
 export function MembershipTierCard(props: {
   tier: MembershipTier
-  sampleGroup?: MembershipGroup
   salesEnabled: boolean
   onPurchase: (tier: MembershipTier) => void
 }) {
@@ -79,21 +77,10 @@ export function MembershipTierCard(props: {
     payment_unavailable: t('No payment method is available for this tier.'),
   }
   const reason = reasons[props.tier.eligibility?.reason ?? '']
-  const sampleDiscount = props.sampleGroup
-    ? props.tier.discounts[props.sampleGroup.key]
-    : undefined
-  const samplePercent =
-    sampleDiscount === undefined
-      ? null
-      : new Intl.NumberFormat(toIntlLocale(i18n.language), {
-          style: 'percent',
-          maximumFractionDigits: 2,
-        }).format(sampleDiscount)
-
   return (
     <article
       className={cn(
-        'bg-card flex h-full min-w-0 flex-col rounded-lg border p-5 transition-colors',
+        'group bg-card flex h-full min-w-0 flex-col rounded-lg border p-5 motion-safe:transition-[transform,border-color,box-shadow] motion-safe:duration-200 motion-safe:hover:-translate-y-1 motion-safe:hover:shadow-lg',
         style.border,
         current && style.current
       )}
@@ -116,7 +103,7 @@ export function MembershipTierCard(props: {
             height={60}
             alt=''
             aria-hidden='true'
-            className='order-1 size-11 shrink-0 object-contain sm:order-2 sm:size-15'
+            className='order-1 size-11 shrink-0 object-contain motion-safe:transition-transform motion-safe:duration-200 motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:scale-110 motion-safe:group-hover:-rotate-3 sm:order-2 sm:size-15'
           />
         </div>
         <div className='order-3 min-w-0 text-right sm:mt-4 sm:text-left'>
@@ -132,35 +119,24 @@ export function MembershipTierCard(props: {
           </p>
         </div>
       </div>
-      <dl className='mt-4 border-t pt-3 text-xs sm:pt-4'>
+      <dl className='mt-4 space-y-2.5 border-t pt-3 text-xs sm:pt-4'>
         <div className='flex items-start justify-between gap-3'>
-          <dt>{t('Included quota')}</dt>
-          <dd className='font-medium tabular-nums'>
+          <dt className='text-muted-foreground'>{t('Included site quota')}</dt>
+          <dd className='text-sm font-semibold tabular-nums'>
             {formatQuota(props.tier.quota)}
+          </dd>
+        </div>
+        <div className='flex items-start justify-between gap-3'>
+          <dt className='text-muted-foreground'>{t('Group discounts')}</dt>
+          <dd className={cn('text-right font-medium', style.accent)}>
+            {t('See comparison below')}
           </dd>
         </div>
       </dl>
       <div className='mt-auto grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 pt-2.5 sm:block'>
-        <div className='min-w-0 text-xs'>
-          <dl>
-            <div className='flex items-start justify-between gap-2'>
-              <dt className='text-muted-foreground min-w-0 truncate'>
-                {props.sampleGroup?.display_name || t('Group discounts')}
-              </dt>
-              <dd
-                className={cn(
-                  'shrink-0 font-medium tabular-nums',
-                  style.accent
-                )}
-              >
-                {samplePercent ?? t('See comparison below')}
-              </dd>
-            </div>
-          </dl>
-          <p className='text-muted-foreground mt-1.5 sm:mt-2.5'>
-            {t('Existing lower price retained')}
-          </p>
-        </div>
+        <p className='text-muted-foreground min-w-0 text-xs'>
+          {t('Existing lower price retained')}
+        </p>
         <div className='sm:pt-5'>
           <Button
             className={cn(

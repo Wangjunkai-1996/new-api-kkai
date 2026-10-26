@@ -3627,6 +3627,7 @@
     "Include Rule Name": "包含规则名",
     "Included quota": "套餐额度",
     "Included quota (USD)": "套餐额度（美元）",
+    "Included site quota": "包含站内额度",
     "Includes changes that require security verification, such as password, two-factor settings, and account deletion.": "包含需要安全验证的变更，例如密码、两步验证设置和删除账户。",
     "Includes request rules": "包含请求规则",
     "Includes tool-call surcharge": "包含工具调用附加费",

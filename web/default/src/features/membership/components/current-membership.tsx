@@ -25,6 +25,8 @@ import { cn } from '@/lib/utils'
 import { membershipEmblems } from '../lib'
 import type { MembershipSelf } from '../types'
 
+import '@/styles/membership-credential.css'
+
 const appearances = {
   gold: {
     surface:
@@ -72,8 +74,10 @@ export function CurrentMembership(props: {
   return (
     <section
       aria-label={t('My membership')}
+      data-style={props.membership.tier?.style ?? 'gold'}
       className={cn(
-        'relative overflow-hidden rounded-[16px] border p-5 sm:p-7',
+        'membership-credential relative overflow-hidden rounded-[16px] border p-5 sm:p-7',
+        active && 'membership-credential--active',
         appearance.surface
       )}
     >
@@ -129,13 +133,13 @@ export function CurrentMembership(props: {
             </p>
           )}
         </div>
-        <div className='flex min-w-0 flex-col items-center justify-center'>
+        <div className='membership-credential__emblem-area flex min-w-0 flex-col items-center justify-center'>
           {(!account || props.membership.tier) && (
             <img
               src={appearance.image}
               alt=''
               aria-hidden='true'
-              className='aspect-square w-24 object-contain drop-shadow-lg sm:w-40'
+              className='membership-credential__emblem aspect-square w-24 object-contain drop-shadow-lg sm:w-40'
             />
           )}
           {account && props.membership.tier && (
