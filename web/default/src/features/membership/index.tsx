@@ -182,7 +182,7 @@ export function MembershipCenter(props: {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='flex w-full max-w-5xl flex-col gap-6 pb-8'>
+        <div className='flex w-full flex-col gap-6 pb-8'>
           <header>
             <p className='text-muted-foreground text-sm'>
               {t(
