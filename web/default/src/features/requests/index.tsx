@@ -52,7 +52,7 @@ export function RequestsPage() {
 
   return (
     <Main className='request-workspace overflow-y-auto'>
-      <div className='mx-auto flex w-full max-w-[1080px] flex-col gap-6 px-4 py-6 sm:px-[30px] sm:py-[30px]'>
+      <div className='flex w-full flex-col gap-6 px-4 py-6 sm:px-[30px] sm:py-[30px]'>
         <header className='grid grid-cols-[minmax(0,1fr)_58px] items-center gap-x-3.5 gap-y-3 sm:min-h-[104px] sm:grid-cols-[minmax(0,1fr)_88px_auto] sm:gap-[18px]'>
           <div className='min-w-0'>
             <p className='text-muted-foreground mb-1.5 text-[11px] tracking-wide'>
