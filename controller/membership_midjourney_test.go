@@ -144,7 +144,6 @@ func TestMembershipMidjourneySettlesOriginalSourceAfterPolling(t *testing.T) {
 	}{
 		{"member_success", "/mj/submit/imagine", `{"prompt":"cat"}`, "SUCCESS", 1000, 0, 50},
 		{"member_failure", "/mj/insight-face/swap", `{"sourceBase64":"source","targetBase64":"target"}`, "FAILURE", 1000, 0, 50},
-		{"wallet_only", "/fast/mj/submit/imagine", `{"prompt":"cat"}`, "SUCCESS", 0, 123, 100},
 		{"wallet_fallback", "/mj/submit/imagine", `{"prompt":"cat"}`, "SUCCESS", 10, 123, 100},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,20 +248,65 @@ func TestMembershipMidjourneySettlesOriginalSourceAfterPolling(t *testing.T) {
 }
 
 func TestMembershipMidjourneyPreservesLegacySubmission(t *testing.T) {
-	db, router, calls := membershipMidjourneyFixture(t, nil)
-	if model.MembershipEnabled() {
-		require.NoError(t, db.Create(&model.UserSubscription{UserId: 7, Status: "active", EndTime: time.Now().Add(time.Hour).Unix()}).Error)
-	} else {
-		// Disabled installations must not require the membership tables.
-		require.NoError(t, db.Migrator().DropTable(&model.MembershipCatalogState{}))
+	for _, tc := range []struct {
+		name   string
+		legacy bool
+	}{{"wallet_only", false}, {"legacy_subscription", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, router, calls := membershipMidjourneyFixture(t, nil)
+			if model.MembershipEnabled() && tc.legacy {
+				require.NoError(t, db.Create(&model.UserSubscription{UserId: 7, Status: "active", EndTime: time.Now().Add(time.Hour).Unix()}).Error)
+			} else if !model.MembershipEnabled() {
+				// Disabled installations must not require the membership tables.
+				require.NoError(t, db.Migrator().DropTable(&model.MembershipCatalogState{}))
+			}
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/mj/submit/imagine", strings.NewReader(`{"prompt":"cat"}`))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, req)
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), "queue full")
+			assert.EqualValues(t, 1, calls.Load())
+			if model.MembershipEnabled() {
+				var count int64
+				require.NoError(t, db.Model(&model.MembershipBillingRecord{}).Count(&count).Error)
+				assert.Zero(t, count)
+			}
+		})
 	}
+}
+
+func TestMembershipMidjourneyWalletWithoutAccountSettlesOnLegacyPath(t *testing.T) {
+	if !model.MembershipEnabled() {
+		t.Skip("requires KKAI_MEMBERSHIP_ENABLED=true")
+	}
+	db, router, calls := membershipMidjourneyFixture(t, func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(request.URL.Path, "/list-by-condition") {
+			_, _ = w.Write([]byte(`[{"id":"wallet-task","status":"SUCCESS","progress":"100%"}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":1,"description":"submitted","result":"wallet-task"}`))
+	})
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", 7).Update("quota", 123).Error)
 	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/mj/submit/imagine", strings.NewReader(`{"prompt":"cat"}`))
+	req := httptest.NewRequest(http.MethodPost, "/fast/mj/submit/imagine", strings.NewReader(`{"prompt":"cat"}`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, req)
-	assert.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "queue full")
-	assert.EqualValues(t, 1, calls.Load())
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.EqualValues(t, 1, calls.Load())
+	var task model.Midjourney
+	require.NoError(t, db.Where("mj_id = ?", "wallet-task").First(&task).Error)
+	record, err := model.GetMidjourneyMembershipRecord(task.Id)
+	require.NoError(t, err)
+	assert.Nil(t, record)
+	runMidjourneyTaskUpdateOnce(context.Background(), nil)
+	require.NoError(t, db.First(&task, task.Id).Error)
+	assert.Equal(t, "SUCCESS", task.Status)
+	var user model.User
+	require.NoError(t, db.First(&user, 7).Error)
+	assert.EqualValues(t, 23, user.Quota)
+	assert.EqualValues(t, 100, user.UsedQuota)
 }
 
 func TestMembershipMidjourneyKeepsHistoricalTaskReadsAvailable(t *testing.T) {

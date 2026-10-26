@@ -28,9 +28,17 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	if err := service.PrepareImagePricing(c, info); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
+	membershipBilling := false
+	if info.TenantID == 0 && model.MembershipEnabled() && !info.IsChannelTest {
+		var err error
+		membershipBilling, err = model.ShouldUseMembershipBilling(info.UserId)
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+	}
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	meta := &types.TokenCountMeta{TokenType: types.TokenTypeTokenizer}
-	if info.Request != nil && (info.TenantID > 0 || needSensitiveCheck || constant.CountToken || model.MembershipEnabled()) {
+	if info.Request != nil && (info.TenantID > 0 || needSensitiveCheck || constant.CountToken || membershipBilling) {
 		meta = info.Request.GetTokenCountMeta()
 	} else {
 		// Avoid building CombineText when only the pricing quantities are needed.
@@ -55,7 +63,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	}
 
 	tokens, err := service.EstimateRequestToken(c, meta, info)
-	if info.TenantID == 0 && model.MembershipEnabled() {
+	if membershipBilling {
 		tokens, err = service.CountRequestToken(c, meta, info)
 	}
 	if err != nil {
@@ -70,11 +78,11 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 	if err := service.ApplyImageStudioMaximumPreconsume(c, info, &priceData, tokens, meta); err != nil {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest)
 	}
-	if info.TenantID == 0 {
+	if membershipBilling {
 		if err := service.PrepareMembershipBudget(c, info, &priceData, tokens, meta); err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
-	} else {
+	} else if info.TenantID > 0 {
 		if err := service.PrepareTenantBudget(info, &priceData, tokens, meta); err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}

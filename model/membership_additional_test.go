@@ -205,6 +205,26 @@ func TestMembershipLegacyContractsAndReverseCreationGuard(t *testing.T) {
 	assert.ErrorIs(t, err, ErrMembershipConflict)
 }
 
+func TestMembershipBillingRequiresActiveAccount(t *testing.T) {
+	if !MembershipEnabled() {
+		t.Skip("requires KKAI_MEMBERSHIP_ENABLED=true")
+	}
+	user, catalog := setupMembershipTest(t)
+	use, err := ShouldUseMembershipBilling(user.Id)
+	require.NoError(t, err)
+	assert.False(t, use)
+
+	_, account := buyMembershipTest(t, user.Id, catalog, "gold", "billing-selector")
+	use, err = ShouldUseMembershipBilling(user.Id)
+	require.NoError(t, err)
+	assert.True(t, use)
+
+	require.NoError(t, DB.Model(account).Update("expires_at", common.GetTimestamp()-1).Error)
+	use, err = ShouldUseMembershipBilling(user.Id)
+	require.NoError(t, err)
+	assert.False(t, use)
+}
+
 func TestMembershipOwningTransactionHonorsCancellation(t *testing.T) {
 	setupMembershipTest(t)
 	ctx, cancel := context.WithCancel(context.Background())

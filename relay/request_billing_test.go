@@ -58,6 +58,40 @@ func setupTenantRequestBilling(t *testing.T) (model.User, model.Token) {
 	return user, token
 }
 
+func TestPrepareWalletRequestBillingWithoutMembershipAccount(t *testing.T) {
+	if !model.MembershipEnabled() {
+		t.Skip("requires KKAI_MEMBERSHIP_ENABLED=true")
+	}
+	user, token := setupTenantRequestBilling(t)
+	require.NoError(t, model.DB.AutoMigrate(model.MembershipModels()...))
+	require.NoError(t, model.DB.AutoMigrate(&model.UserSubscription{}))
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("tenant_id", 0).Error)
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", token.Id).Update("tenant_id", 0).Error)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"tenant-text","messages":[{"role":"user","content":"hello"}],"max_tokens":10}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	t.Cleanup(func() { common.CleanupBodyStorage(c) })
+	request := &dto.GeneralOpenAIRequest{}
+	require.NoError(t, common.UnmarshalBodyReusable(c, request))
+	apiType, _ := common.ChannelType2APIType(constant.ChannelTypeOpenAI)
+	info := &relaycommon.RelayInfo{
+		UserId: user.Id, UserGroup: "default", TokenId: token.Id, TokenKey: token.Key,
+		RequestId: "ordinary-wallet-with-membership-enabled", Request: request,
+		OriginModelName: "tenant-text", RelayFormat: types.RelayFormatOpenAI,
+		RelayMode: relayconstant.RelayModeChatCompletions, UsingGroup: "default",
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: apiType},
+	}
+	require.Nil(t, PrepareRequestBilling(c, info, nil))
+	require.NotNil(t, info.Billing)
+	assert.Nil(t, info.MembershipPricing)
+	assert.False(t, info.HasDurableBilling())
+	require.NoError(t, service.SettleBilling(c, info, 100))
+	var wallet model.User
+	require.NoError(t, model.DB.First(&wallet, user.Id).Error)
+	assert.Equal(t, user.Quota-100, wallet.Quota)
+}
+
 func TestPrepareTenantRequestBillingUsesPlatformProtocolWithoutMembershipCatalog(t *testing.T) {
 	user, token := setupTenantRequestBilling(t)
 	for index, tc := range []struct {

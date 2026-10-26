@@ -437,8 +437,16 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	}
 	meta := request.GetTokenCountMeta()
 	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
+	memberBilling := false
 	if model.MembershipEnabled() {
-		tokens, err = service.CountRequestToken(c, meta, relayInfo)
+		var billingErr error
+		memberBilling, billingErr = model.ShouldUseMembershipBilling(relayInfo.UserId)
+		if billingErr != nil {
+			return nil, billingErr
+		}
+		if memberBilling {
+			tokens, err = service.CountRequestToken(c, meta, relayInfo)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -453,8 +461,10 @@ func calculateImageStudioQuote(c *gin.Context) (*imageStudioQuotePrice, error) {
 	); err != nil {
 		return nil, err
 	}
-	if err := service.PrepareMembershipBudget(c, relayInfo, &priceData, tokens, meta); err != nil {
-		return nil, err
+	if memberBilling {
+		if err := service.PrepareMembershipBudget(c, relayInfo, &priceData, tokens, meta); err != nil {
+			return nil, err
+		}
 	}
 	relayInfo.PriceData = priceData
 	var membershipPricing *types.MembershipPricing
