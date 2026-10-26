@@ -146,7 +146,7 @@ describe('profile sidebar visibility', () => {
       result.current
         .find((group) => group.id === 'personal')
         ?.items.map((item) => item.title)
-    ).toEqual(['Membership center', 'Membership ratios', 'Wallet', 'Profile'])
+    ).toEqual(['Membership center', 'Invoice center', 'Wallet', 'Profile'])
     expect(
       result.current
         .flatMap((group) => group.items)

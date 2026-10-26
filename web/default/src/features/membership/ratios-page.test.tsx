@@ -209,16 +209,15 @@ describe('membership ratio comparison', () => {
       screen.getByRole('link', { name: 'View membership plans' })
     ).toHaveAttribute('href', '/membership')
     const table = screen.getByRole('table', { name: 'Group ratio comparison' })
+    const orbitColumn = within(table).getByRole('columnheader', {
+      name: /Orbit Club.*Group discounts/,
+    })
+    expect(orbitColumn).toHaveAttribute('aria-current', 'true')
     expect(
-      within(table).getByRole('columnheader', {
-        name: /My membership ratio.*Orbit Club/,
+      within(table).queryByRole('columnheader', {
+        name: /My membership ratio/,
       })
-    ).toBeVisible()
-    expect(
-      within(table).getByRole('columnheader', {
-        name: /Orbit Club.*Group discounts/,
-      })
-    ).toBeVisible()
+    ).not.toBeInTheDocument()
     expect(
       within(table).queryByRole('columnheader', { name: /Diamond|King/ })
     ).not.toBeInTheDocument()
@@ -227,8 +226,8 @@ describe('membership ratio comparison', () => {
       name: /Enterprise.*Long-context requests/,
     })
     const enterpriseCells = within(enterprise).getAllByRole('cell')
+    expect(enterpriseCells).toHaveLength(3)
     expect(within(enterpriseCells[2]).getByText('0.18')).toBeVisible()
-    expect(within(enterpriseCells[3]).getByText('0.18')).toBeVisible()
     expect(
       within(enterpriseCells[2]).getByText('Save 10% vs wallet')
     ).toBeVisible()
@@ -236,7 +235,7 @@ describe('membership ratio comparison', () => {
     const legacy = within(table).getByRole('row', {
       name: /Legacy group.*Existing negotiated price/,
     })
-    expect(within(legacy).getAllByText('0.16')).toHaveLength(3)
+    expect(within(legacy).getAllByText('0.16')).toHaveLength(2)
     expect(
       within(within(legacy).getAllByRole('cell')[2]).getByText(
         'Existing discount retained'
@@ -247,13 +246,13 @@ describe('membership ratio comparison', () => {
     const free = within(table).getByRole('row', {
       name: /Playground.*Free requests/,
     })
-    expect(within(free).getAllByText('Free group')).toHaveLength(2)
+    expect(within(free).getAllByText('Free group')).toHaveLength(1)
     expect(within(free).queryByText(/NaN|Infinity/)).not.toBeInTheDocument()
 
     const standard = within(table).getByRole('row', {
       name: /Standard group.*No additional discount/,
     })
-    expect(within(standard).getAllByText('0.25')).toHaveLength(3)
+    expect(within(standard).getAllByText('0.25')).toHaveLength(2)
     expect(
       within(within(standard).getAllByRole('cell')[2]).getByText(
         'No extra membership discount'
@@ -303,7 +302,7 @@ describe('membership ratio comparison', () => {
     expect(screen.queryByText('Save 10% vs wallet')).not.toBeInTheDocument()
   })
 
-  it('does not show a personal column with missing group prices', async () => {
+  it('does not show incomplete member prices', async () => {
     setMembership(catalog, {
       ...membership,
       discounts: membership.discounts.filter(
@@ -322,7 +321,7 @@ describe('membership ratio comparison', () => {
 
   it('shows current published discounts for an existing member and preserves authoritative quotes', async () => {
     await renderRatios()
-    expect(screen.getAllByText('0.18')).toHaveLength(2)
+    expect(screen.getAllByText('0.18')).toHaveLength(1)
     expect(screen.queryByText('0.19')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
@@ -347,29 +346,47 @@ describe('membership ratio comparison', () => {
     ).toBeVisible()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Membership plans' }))
-    expect(screen.getAllByText('0.18')).toHaveLength(2)
+    expect(screen.getAllByText('0.18')).toHaveLength(1)
     expect(screen.queryByText('0.19')).not.toBeInTheDocument()
   })
 
-  it('shows the active member price from self beside a different offer price', async () => {
-    setMembership(catalog, {
-      ...membership,
-      discounts: membership.discounts.map((quote) => ({
-        ...quote,
-        membership_ratio: 0.17,
-        savings: 0.15,
-      })),
-    })
+  it('shows the active member price in its tier without changing other tier offers', async () => {
+    const otherTier = { ...tier, id: 'nova', name: 'Nova Club', rank: 5 }
+    setMembership(
+      {
+        ...catalog,
+        tiers: [tier, otherTier],
+        group_quotes: catalog.group_quotes?.map((quote) => ({
+          ...quote,
+          tier_quotes: { ...quote.tier_quotes, nova: quote.tier_quotes.orbit },
+        })),
+      },
+      {
+        ...membership,
+        discounts: membership.discounts.map((quote) => ({
+          ...quote,
+          membership_ratio: 0.17,
+          savings: 0.15,
+        })),
+      }
+    )
     await renderRatios()
 
     const row = screen.getByRole('row', {
       name: /Enterprise.*Long-context requests/,
     })
     const cells = within(row).getAllByRole('cell')
+    expect(cells).toHaveLength(4)
     expect(within(cells[2]).getByText('0.17')).toBeVisible()
     expect(within(cells[2]).getByText('Save 15% vs wallet')).toBeVisible()
     expect(within(cells[3]).getByText('0.18')).toBeVisible()
     expect(within(cells[3]).getByText('Save 10% vs wallet')).toBeVisible()
+    expect(
+      screen.getByRole('columnheader', { name: /Orbit Club.*Group discounts/ })
+    ).toHaveAttribute('aria-current', 'true')
+    expect(
+      screen.getByRole('columnheader', { name: /Nova Club.*Group discounts/ })
+    ).not.toHaveAttribute('aria-current')
   })
 
   it('searches group descriptions and filters by actual savings', async () => {
@@ -411,8 +428,8 @@ describe('membership ratio comparison', () => {
       })
       await renderRatios()
       expect(
-        screen.queryByRole('columnheader', { name: /My membership ratio/ })
-      ).not.toBeInTheDocument()
+        screen.getByRole('columnheader', { name: /Orbit Club/ })
+      ).not.toHaveAttribute('aria-current')
       await userEvent.click(screen.getByRole('tab', { name: 'My benefits' }))
 
       expect(screen.getByText('No active membership benefits')).toBeVisible()

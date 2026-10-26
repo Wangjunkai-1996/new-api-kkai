@@ -61,18 +61,13 @@ export function MembershipRatiosPage() {
     name: self?.tier?.name ?? t('Current membership'),
     personal: true,
   }
-  let columns: MembershipRatioColumn[] = tiers
-  if (active) {
-    columns = [
-      {
-        ...currentColumn,
-        name: t('My membership ratio'),
-        subtitle: currentColumn.name,
-      },
-      ...tiers,
-    ]
-  }
-  if (current) columns = [currentColumn]
+  const columns: MembershipRatioColumn[] = current
+    ? [currentColumn]
+    : tiers.map((tier) => ({
+        id: tier.id,
+        name: tier.name,
+        personal: active && tier.id === account?.tier_id,
+      }))
   const groupQuotes = catalog?.group_quotes
   const offersAvailable =
     Array.isArray(groupQuotes) &&
@@ -157,9 +152,10 @@ export function MembershipRatiosPage() {
         const personalQuote = currentQuotes.get(quote.group_key)
         return {
           ...quote,
-          quotes: personalQuote
-            ? { ...quote.tier_quotes, current: personalQuote }
-            : quote.tier_quotes,
+          quotes:
+            personalQuote && account
+              ? { ...quote.tier_quotes, [account.tier_id]: personalQuote }
+              : quote.tier_quotes,
         }
       })
     : []
@@ -342,7 +338,7 @@ export function MembershipRatiosPage() {
                   </div>
                   <TabsContent value={view}>
                     <p className='mx-5 mt-5 rounded-lg bg-[#fbf7ed] px-3 py-3 text-xs leading-relaxed text-[#876321] sm:mx-6 dark:bg-[#2d2a24] dark:text-[#dec387]'>
-                      {current
+                      {current || active
                         ? t(
                             'Your benefits use the latest published discounts for your membership tier.'
                           )

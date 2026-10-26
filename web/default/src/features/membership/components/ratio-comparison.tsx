@@ -149,6 +149,7 @@ export function MembershipRatioComparison(props: {
                 <th
                   key={column.id}
                   scope='col'
+                  aria-current={column.personal ? 'true' : undefined}
                   className={cn(
                     'border-y px-4 py-3 text-right font-medium break-words first:rounded-tl-lg last:rounded-tr-lg',
                     column.personal
@@ -167,9 +168,7 @@ export function MembershipRatioComparison(props: {
                   </span>
                   <span className='text-muted-foreground mt-1 block text-xs font-normal'>
                     {column.subtitle ??
-                      (props.current || column.personal
-                        ? t('My benefits')
-                        : t('Group discounts'))}
+                      (props.current ? t('My benefits') : t('Group discounts'))}
                   </span>
                 </th>
               ))}
