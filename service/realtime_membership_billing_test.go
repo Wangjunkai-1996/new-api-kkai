@@ -14,19 +14,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMembershipRealtimeBudgetBoundsMixedAudioAndRequiresProviderEvidence(t *testing.T) {
+func TestMembershipRealtimeBudgetEstimatesMixedAudio(t *testing.T) {
 	oldFee := model_setting.GetGrokSettings().ViolationDeductionEnabled
 	model_setting.GetGrokSettings().ViolationDeductionEnabled = false
 	t.Cleanup(func() { model_setting.GetGrokSettings().ViolationDeductionEnabled = oldFee })
 	info := &relaycommon.RelayInfo{PriceData: types.PriceData{ModelRatio: 2, CompletionRatio: 3, AudioRatio: 10, AudioCompletionRatio: 4}}
-	limits := model.MembershipModelLimit{MaxInputTokens: 100, MaxOutputTokens: 10, Evidence: "provider total response limit"}
-	require.NoError(t, PrepareRealtimeMembershipBudget(info, limits, 10))
+	require.NoError(t, PrepareRealtimeMembershipBudget(info, 100, 10))
 	assert.Equal(t, 2800.0, info.MembershipPricing.MaximumBeforeGroup)
 	info.PriceData.AddOtherRatio("unsupported_dimension", 2)
-	require.ErrorContains(t, PrepareRealtimeMembershipBudget(info, limits, 10), "additional request multipliers")
+	require.ErrorContains(t, PrepareRealtimeMembershipBudget(info, 100, 10), "additional request multipliers")
 	info.PriceData.ReplaceOtherRatios(nil)
-	limits.Evidence = ""
-	require.Error(t, PrepareRealtimeMembershipBudget(info, limits, 10))
+	require.Error(t, PrepareRealtimeMembershipBudget(info, -1, 10))
+	require.Error(t, PrepareRealtimeMembershipBudget(info, 100, 0))
 }
 
 func TestMembershipRealtimeBudgetRejectsUnrepresentedRequestPredicates(t *testing.T) {
@@ -36,8 +35,7 @@ func TestMembershipRealtimeBudgetRejectsUnrepresentedRequestPredicates(t *testin
 		`tier("base",p)*(hour("UTC")>12?2:1)`,
 	} {
 		info := &relaycommon.RelayInfo{TieredBillingSnapshot: &billingexpr.BillingSnapshot{ExprString: expression, ExprHash: billingexpr.ExprHashString(expression), QuotaPerUnit: 500000}}
-		limits := model.MembershipModelLimit{MaxInputTokens: 100, MaxOutputTokens: 10, Evidence: "provider total response limit"}
-		require.ErrorContains(t, PrepareRealtimeMembershipBudget(info, limits, 10), "token-only expression")
+		require.ErrorContains(t, PrepareRealtimeMembershipBudget(info, 100, 10), "token-only expression")
 	}
 }
 

@@ -4155,6 +4155,7 @@
     "Membership quota price": "Membership quota price",
     "Membership rank": "Membership rank",
     "Membership ratios": "Membership ratios",
+    "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.": "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.",
     "Membership sales are currently closed.": "Membership sales are currently closed.",
     "Memberships are not available yet.": "Memberships are not available yet.",
     "Memberships last 30 days, never reset quota, and accept one-time external payments only.": "Memberships last 30 days, never reset quota, and accept one-time external payments only.",

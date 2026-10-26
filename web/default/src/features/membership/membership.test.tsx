@@ -535,6 +535,14 @@ describe('membership publication validation', () => {
         <MembershipCatalogEditor catalog={singleTierCatalog} />
       </QueryClientProvider>
     )
+    expect(
+      screen.getByText(
+        'Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.'
+      )
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('heading', { name: 'Request authorization limits' })
+    ).not.toBeInTheDocument()
     await userEvent.type(
       screen.getByRole('textbox', { name: 'Plan Title' }),
       ' membership'

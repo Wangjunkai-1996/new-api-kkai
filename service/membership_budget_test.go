@@ -67,12 +67,85 @@ func TestMembershipBudgetBoundsEveryCacheCategory(t *testing.T) {
 	assert.GreaterOrEqual(t, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup, float64(actual.Quota), "five-minute cache creation is independently configurable and must fit the full reservation")
 }
 
-func TestMembershipBudgetRequiresOutputBound(t *testing.T) {
+func TestMembershipBudgetEstimatesOmittedOutputWithoutChangingRequest(t *testing.T) {
 	ctx, user := setupMembershipServiceTest(t)
-	info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeChatCompletions, Request: &dto.GeneralOpenAIRequest{}, OriginModelName: "test-model"}
+	request := &dto.GeneralOpenAIRequest{}
+	info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeChatCompletions, Request: request, OriginModelName: "test-model"}
 	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1}
-	require.ErrorContains(t, PrepareMembershipBudget(ctx, info, &price, 100, &relaytypes.TokenCountMeta{}), "max_tokens")
-	require.Nil(t, info.MembershipPricing)
+	require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 100, &relaytypes.TokenCountMeta{}))
+	require.NotNil(t, info.MembershipPricing)
+	assert.Equal(t, 1124.0, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
+	assert.False(t, info.MembershipPricing.RequiresOutputBound)
+	assert.Nil(t, request.MaxTokens)
+	assert.Nil(t, request.MaxCompletionTokens)
+	info.MembershipBillingRequestID = "estimated"
+	outbound, err := http.NewRequest(http.MethodPost, "https://example.invalid/v1/chat/completions", strings.NewReader(`{"model":"test-model"}`))
+	require.NoError(t, err)
+	require.NoError(t, ValidateMembershipOutbound(outbound, info))
+	oversized, err := http.NewRequest(http.MethodPost, "https://example.invalid/v1/chat/completions", strings.NewReader(`{"max_tokens":1073741824}`))
+	require.NoError(t, err)
+	require.ErrorContains(t, ValidateMembershipOutbound(oversized, info), "authorized output limit")
+
+	zero := uint(0)
+	request.MaxTokens = &zero
+	require.ErrorContains(t, PrepareMembershipBudget(ctx, &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeChatCompletions, Request: request, OriginModelName: "test-model"}, &price, 100, &relaytypes.TokenCountMeta{}), "must be positive")
+}
+
+func TestMembershipBudgetEstimatesOneSearchWithEmptyModelLimits(t *testing.T) {
+	ctx, user := setupMembershipServiceTest(t)
+	catalog, err := model.GetMembershipCatalog()
+	require.NoError(t, err)
+	catalog.ModelLimits = nil
+	_, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
+	require.NoError(t, err)
+	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1}
+	for _, tc := range []struct {
+		name, model, tool string
+		request           dto.Request
+	}{
+		{"search preview", "test-search-preview", dto.BuildInToolWebSearchPreview, &dto.GeneralOpenAIRequest{}},
+		{"Gemini search", "gemini-test", dto.BuildInToolGoogleSearch, &dto.GeminiChatRequest{Tools: []byte(`[{"google_search":{}}]`)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeChatCompletions, Request: tc.request, OriginModelName: tc.model}
+			require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 10}))
+			require.NotNil(t, info.MembershipPricing)
+			toolPrice := info.MembershipPricing.ToolPrices[tc.tool]
+			assert.Positive(t, toolPrice)
+			assert.Equal(t, 11+toolPrice/1000*common.QuotaPerUnit, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
+		})
+	}
+}
+
+func TestMembershipBudgetEstimatesOmittedPaidToolCounts(t *testing.T) {
+	ctx, user := setupMembershipServiceTest(t)
+	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1}
+	for _, tc := range []struct {
+		name, tool string
+		request    dto.Request
+		mode       int
+	}{
+		{"responses search", dto.BuildInToolWebSearch, &dto.OpenAIResponsesRequest{Tools: []byte(`[{"type":"web_search"}]`)}, relayconstant.RelayModeResponses},
+		{"claude search", dto.BuildInToolWebSearch, &dto.ClaudeRequest{Tools: []any{dto.ClaudeWebSearchTool{Type: "web_search_20250305"}}}, relayconstant.RelayModeChatCompletions},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: tc.mode, Request: tc.request, OriginModelName: "test-model"}
+			require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 10}))
+			toolPrice := info.MembershipPricing.ToolPrices[tc.tool]
+			assert.Positive(t, toolPrice)
+			assert.Equal(t, 11+toolPrice/1000*common.QuotaPerUnit, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
+			assert.Empty(t, info.MembershipPricing.ToolCallLimits)
+		})
+	}
+}
+
+func TestMembershipSpeechReservesOutputFromVisibleInput(t *testing.T) {
+	ctx, user := setupMembershipServiceTest(t)
+	info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeAudioSpeech, Request: &dto.AudioRequest{Input: "Hello"}, OriginModelName: "test-model"}
+	price := types.PriceData{ModelRatio: 1, CompletionRatio: 2}
+	require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 5, &relaytypes.TokenCountMeta{}))
+	assert.Equal(t, 5+1024*2.0, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
+	assert.False(t, info.MembershipPricing.RequiresOutputBound)
 }
 
 func TestMembershipReservationRestoresFrozenPricesAndCapsSettlement(t *testing.T) {
@@ -224,15 +297,18 @@ func TestMembershipGroupQuotesSkipVirtualAndRemovedGroups(t *testing.T) {
 	assert.Empty(t, quotes)
 }
 
-func TestMembershipBudgetUsesVerifiedHiddenContextBound(t *testing.T) {
+func TestMembershipBudgetUsesRequestEstimateWithoutModelLimits(t *testing.T) {
 	ctx, user := setupMembershipServiceTest(t)
 	price := types.PriceData{ModelRatio: 1, CompletionRatio: 2}
-	info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{}, OriginModelName: "test-model"}
+	outputCap := uint(10)
+	info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{MaxOutputTokens: &outputCap}, OriginModelName: "test-model"}
 	require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 10}))
 	require.NotNil(t, info.MembershipPricing)
-	assert.Equal(t, 300.0, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup, "reserve verified aggregate input and output rather than the one visible token")
-	unknown := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{}, OriginModelName: "unknown-model"}
-	require.ErrorContains(t, PrepareMembershipBudget(ctx, unknown, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 10}), "verified")
-	assert.Nil(t, unknown.MembershipPricing)
-	require.ErrorContains(t, PrepareMembershipBudget(ctx, info, &price, 101, &relaytypes.TokenCountMeta{MaxTokens: 10}), "exceeds")
+	assert.Equal(t, 21.0, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
+	assert.Equal(t, 1, info.MembershipPricing.MaxInputTokens)
+	unknown := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeResponses, Request: &dto.OpenAIResponsesRequest{MaxOutputTokens: &outputCap}, OriginModelName: "unknown-model"}
+	require.NoError(t, PrepareMembershipBudget(ctx, unknown, &price, 1, &relaytypes.TokenCountMeta{MaxTokens: 10}))
+	assert.Equal(t, 21.0, unknown.MembershipPricing.MaximumBeforeGroup-unknown.MembershipPricing.ViolationFeeBeforeGroup)
+	require.NoError(t, PrepareMembershipBudget(ctx, info, &price, 101, &relaytypes.TokenCountMeta{MaxTokens: 10}))
+	assert.Equal(t, 121.0, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
 }

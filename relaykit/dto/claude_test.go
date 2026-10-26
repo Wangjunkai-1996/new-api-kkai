@@ -28,3 +28,22 @@ func TestClaudeRequestPreservesSafeguardsAndPerMessageOutputConfig(t *testing.T)
 	require.Len(t, decoded.Messages, 1)
 	assert.JSONEq(t, `{"effort":"high"}`, string(decoded.Messages[0].OutputConfig))
 }
+
+func TestClaudeRequestCountsEitherExplicitOutputLimit(t *testing.T) {
+	small, medium, large := uint(512), uint(2048), uint(4096)
+	for _, tc := range []struct {
+		name          string
+		maxTokens     *uint
+		maxToSample   *uint
+		wantMaxTokens int
+	}{
+		{name: "legacy limit only", maxToSample: &medium, wantMaxTokens: 2048},
+		{name: "larger legacy limit", maxTokens: &small, maxToSample: &medium, wantMaxTokens: 2048},
+		{name: "larger standard limit", maxTokens: &large, maxToSample: &medium, wantMaxTokens: 4096},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := ClaudeRequest{MaxTokens: tc.maxTokens, MaxTokensToSample: tc.maxToSample}
+			assert.Equal(t, tc.wantMaxTokens, request.GetTokenCountMeta().MaxTokens)
+		})
+	}
+}

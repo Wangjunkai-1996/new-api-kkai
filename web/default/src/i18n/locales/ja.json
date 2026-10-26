@@ -4155,6 +4155,7 @@
     "Membership quota price": "会員枠の料金",
     "Membership rank": "会員ランク順",
     "Membership ratios": "会員倍率",
+    "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.": "会員のリクエストでは、内容に基づく見積額を事前に確保します。会員枠からの最終請求額は確保額を超えず、超過分はプラットフォームが負担します。",
     "Membership sales are currently closed.": "会員プランは現在販売停止中です。",
     "Memberships are not available yet.": "会員機能はまだ利用できません。",
     "Memberships last 30 days, never reset quota, and accept one-time external payments only.": "有効期間は 30 日間です。利用枠はリセットされず、外部での単発払いのみ利用できます。",

@@ -22,8 +22,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// PrepareMembershipBudget reserves an upper bound before contacting upstream.
-// An omitted output/tool bound is not permission to subsidize an unbounded call.
+// PrepareMembershipBudget reserves an estimate before contacting upstream.
+// Settlement caps the user's charge at the reservation if actual usage exceeds it.
 func PrepareMembershipBudget(c *gin.Context, info *relaycommon.RelayInfo, price *types.PriceData, promptTokens int, meta *relaytypes.TokenCountMeta) error {
 	if !model.MembershipEnabled() || info.IsChannelTest {
 		return nil
@@ -63,8 +63,8 @@ func PrepareMembershipBudget(c *gin.Context, info *relaycommon.RelayInfo, price 
 	return nil
 }
 
-// prepareRequestBudget uses verified aggregate provider bounds for every billed
-// usage category. Wallet and membership authorizations share this calculation.
+// prepareRequestBudget estimates this request from counted input and its output
+// limit. Wallet and membership authorizations share this calculation.
 func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, promptTokens int, meta *relaytypes.TokenCountMeta) (*types.MembershipPricing, error) {
 	if promptTokens < 0 || meta == nil || meta.MaxTokens < 0 {
 		return nil, model.ErrMembershipInvalidInput
@@ -76,14 +76,8 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 	output := float64(meta.MaxTokens)
 	copies := 1
 	needsOutput := false
-	providerOutputBound := false
 	toolCost := 0.0
 	toolLimits := make(map[string]int)
-	catalog, err := model.GetMembershipCatalog()
-	if err != nil {
-		return nil, err
-	}
-	limits := catalog.ModelLimits[info.GetBillingModelName()]
 	switch request := info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
 		switch info.RelayMode {
@@ -94,14 +88,17 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 		if request.N != nil {
 			copies = *request.N
 		}
+		if request.MaxTokens != nil && *request.MaxTokens == 0 || request.MaxCompletionTokens != nil && *request.MaxCompletionTokens == 0 {
+			return nil, fmt.Errorf("max_tokens and max_completion_tokens must be positive when provided")
+		}
 		if strings.HasSuffix(info.GetBillingModelName(), "search-preview") {
-			if limits.MaxToolCalls <= 0 {
-				return nil, fmt.Errorf("configure the provider's verified maximum search calls for this model")
-			}
-			toolCost += tools[dto.BuildInToolWebSearchPreview] * float64(limits.MaxToolCalls) / 1000
+			toolCost += tools[dto.BuildInToolWebSearchPreview] / 1000
 		}
 	case *dto.OpenAIResponsesRequest:
 		needsOutput = true
+		if request.MaxOutputTokens != nil && *request.MaxOutputTokens == 0 {
+			return nil, fmt.Errorf("max_output_tokens must be positive when provided")
+		}
 		maximumToolPrice := 0.0
 		for _, tool := range request.GetToolsMap() {
 			name, _ := tool["type"].(string)
@@ -112,64 +109,64 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 			maximumToolPrice = max(maximumToolPrice, price)
 		}
 		if maximumToolPrice > 0 {
-			if request.MaxToolCalls == nil || *request.MaxToolCalls == 0 || *request.MaxToolCalls > math.MaxInt32/2 {
-				return nil, fmt.Errorf("max_tool_calls must specify a bounded positive limit for paid server tools")
+			toolCalls := uint(1)
+			if request.MaxToolCalls != nil {
+				toolCalls = *request.MaxToolCalls
+				if toolCalls == 0 || toolCalls > math.MaxInt32/2 {
+					return nil, fmt.Errorf("max_tool_calls must specify a bounded positive limit for paid server tools")
+				}
+				toolLimits["max_tool_calls"] = int(toolCalls)
 			}
-			toolCost += maximumToolPrice * float64(*request.MaxToolCalls)
-			toolLimits["max_tool_calls"] = int(*request.MaxToolCalls)
+			toolCost += maximumToolPrice * float64(toolCalls)
 		}
 	case *dto.ClaudeRequest:
 		needsOutput = true
+		if request.MaxTokens != nil && *request.MaxTokens == 0 || request.MaxTokensToSample != nil && *request.MaxTokensToSample == 0 {
+			return nil, fmt.Errorf("max_tokens and max_tokens_to_sample must be positive when provided")
+		}
 		_, searches := dto.ProcessTools(request.GetTools())
 		for _, tool := range searches {
-			if tool.MaxUses <= 0 {
-				return nil, fmt.Errorf("web_search.max_uses must specify a positive limit for membership billing")
+			if tool.MaxUses < 0 {
+				return nil, fmt.Errorf("web_search.max_uses must not be negative")
 			}
-			toolCost += tools[dto.BuildInToolWebSearch] * float64(tool.MaxUses) / 1000
-			toolLimits["web_search"] += tool.MaxUses
+			uses := max(1, tool.MaxUses)
+			toolCost += tools[dto.BuildInToolWebSearch] * float64(uses) / 1000
+			if tool.MaxUses > 0 {
+				toolLimits["web_search"] += tool.MaxUses
+			}
 		}
 	case *dto.GeminiChatRequest:
 		needsOutput = true
+		if request.GenerationConfig.MaxOutputTokens != nil && *request.GenerationConfig.MaxOutputTokens == 0 {
+			return nil, fmt.Errorf("maxOutputTokens must be positive when provided")
+		}
 		if request.GenerationConfig.CandidateCount != nil {
 			copies = *request.GenerationConfig.CandidateCount
 		}
 		if strings.Contains(string(request.Tools), "google_search") || strings.Contains(string(request.Tools), "googleSearch") {
-			if limits.MaxToolCalls <= 0 {
-				return nil, fmt.Errorf("configure the provider's verified maximum search calls for this model")
-			}
-			toolCost += tools[dto.BuildInToolGoogleSearch] * float64(limits.MaxToolCalls) / 1000
+			toolCost += tools[dto.BuildInToolGoogleSearch] / 1000
 		}
 	case *dto.ImageRequest:
-		providerOutputBound = true
 		count, err := request.ImageCount(false)
 		if err != nil {
 			return nil, err
 		}
 		copies = count
 	case *dto.AudioRequest:
-		// Speech/transcription APIs expose no max_tokens field. Their aggregate
-		// generated usage still needs a verified provider bound in the catalog.
-		providerOutputBound = true
+		if info.RelayMode == relayconstant.RelayModeAudioSpeech && output <= 0 && !price.UsePrice {
+			// Speech has no output token parameter; reserve from visible text.
+			output = max(1024, input)
+		}
 	}
 	if copies < 1 || copies > dto.MaxImageN {
 		return nil, fmt.Errorf("output count is outside the supported billing bound")
 	}
 	if needsOutput && output <= 0 && !price.UsePrice {
-		return nil, fmt.Errorf("set max_tokens, max_completion_tokens or max_output_tokens so the full request can be authorized before dispatch")
+		// Billing-only default; it does not add a provider limit to the request.
+		output = 1024
 	}
-	// Local tokenization is an estimate, especially for media and server-side
-	// context. The catalog records a provider-enforced aggregate request bound;
-	// it must include every internal tool/model turn, not just a context window.
-	if info.ImagePricingSnapshot == nil && (!price.UsePrice || info.TieredBillingSnapshot != nil) {
-		if strings.TrimSpace(limits.Evidence) == "" || limits.MaxInputTokens <= 0 || ((needsOutput || providerOutputBound) && limits.MaxOutputTokens <= 0) {
-			return nil, fmt.Errorf("configure verified aggregate input/output token limits for membership model %q", info.GetBillingModelName())
-		}
-		if int64(promptTokens) > limits.MaxInputTokens || int64(meta.MaxTokens) > limits.MaxOutputTokens && meta.MaxTokens > 0 {
-			return nil, fmt.Errorf("request exceeds this model's verified membership token limits")
-		}
-		input = float64(limits.MaxInputTokens)
-		output = float64(limits.MaxOutputTokens)
-	}
+	// Counted input can miss hidden upstream context or media usage. Any actual
+	// charge above this estimate is recorded as platform excess at settlement.
 	output *= float64(copies)
 	if snapshot := info.TieredBillingSnapshot; snapshot != nil {
 		requestInput := billingexpr.RequestInput{}
@@ -209,8 +206,8 @@ func prepareRequestBudget(info *relaycommon.RelayInfo, price *types.PriceData, p
 	if maximum < 0 || math.IsNaN(maximum) || math.IsInf(maximum, 0) {
 		return nil, model.ErrMembershipInvalidInput
 	}
-	// Capture auxiliary prices in the same step that computes their upper bound.
-	return &types.MembershipPricing{MaxInputTokens: int(limits.MaxInputTokens), MaxOutputTokens: meta.MaxTokens, OutputCopies: copies, ToolCallLimits: toolLimits, RequiresOutputBound: needsOutput && !price.UsePrice, MaximumBeforeGroup: maximum, ToolPrices: tools, QuotaPerUnit: common.QuotaPerUnit, GeminiAudioInputPrice: audioPrice}, nil
+	// Capture auxiliary prices in the same step that computes the reservation.
+	return &types.MembershipPricing{MaxInputTokens: promptTokens, MaxOutputTokens: meta.MaxTokens, OutputCopies: copies, ToolCallLimits: toolLimits, RequiresOutputBound: needsOutput && meta.MaxTokens > 0 && !price.UsePrice, MaximumBeforeGroup: maximum, ToolPrices: tools, QuotaPerUnit: common.QuotaPerUnit, GeminiAudioInputPrice: audioPrice}, nil
 }
 
 // ValidateMembershipOutbound checks the effective request after conversion and
@@ -275,15 +272,12 @@ func validateRequestBudgetOutbound(request *http.Request, info *relaycommon.Rela
 	}
 	found := false
 	for _, path := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "max_tokens_to_sample", "max_new_tokens", "maxTokens", "generationConfig.maxOutputTokens", "generation_config.max_output_tokens", "parameters.max_tokens", "parameters.max_new_tokens", "options.num_predict"} {
-		if !snapshot.RequiresOutputBound {
-			break
-		}
 		value := gjson.GetBytes(data, path)
 		if !value.Exists() {
 			continue
 		}
 		n := value.Float()
-		if value.Type != gjson.Number || n <= 0 || n != math.Trunc(n) || n > float64(snapshot.MaxOutputTokens) {
+		if value.Type != gjson.Number || n <= 0 || n != math.Trunc(n) || n > dto.MaxTokensLimit || snapshot.RequiresOutputBound && n > float64(snapshot.MaxOutputTokens) {
 			return fmt.Errorf("upstream %s exceeds the authorized output limit", path)
 		}
 		found = true

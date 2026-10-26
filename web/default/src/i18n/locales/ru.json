@@ -4155,6 +4155,7 @@
     "Membership quota price": "Цена квоты участника",
     "Membership rank": "Порядок уровней",
     "Membership ratios": "Коэффициенты подписки",
+    "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.": "Для запросов участника резервируется сумма, рассчитанная по параметрам запроса. Итоговое списание из квоты не превышает резерв; превышение оплачивает платформа.",
     "Membership sales are currently closed.": "Продажа членства временно закрыта.",
     "Memberships are not available yet.": "Планы пока недоступны.",
     "Memberships last 30 days, never reset quota, and accept one-time external payments only.": "Срок плана — 30 дней, квота не сбрасывается. Доступна только разовая внешняя оплата.",

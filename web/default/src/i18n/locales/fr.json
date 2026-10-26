@@ -4155,6 +4155,7 @@
     "Membership quota price": "Prix avec quota membre",
     "Membership rank": "Ordre des niveaux",
     "Membership ratios": "Multiplicateurs membres",
+    "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.": "Les requêtes des membres réservent un montant estimé selon leur contenu. Le débit final sur le quota membre ne dépasse pas cette réserve ; la plateforme prend en charge tout dépassement.",
     "Membership sales are currently closed.": "Les ventes d’adhésions sont actuellement fermées.",
     "Memberships are not available yet.": "Les adhésions ne sont pas encore disponibles.",
     "Memberships last 30 days, never reset quota, and accept one-time external payments only.": "Validité de 30 jours, quota sans réinitialisation et paiement externe unique.",

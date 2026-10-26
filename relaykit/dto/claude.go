@@ -270,6 +270,9 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	if c.MaxTokens != nil {
 		maxTokens = int(*c.MaxTokens)
 	}
+	if c.MaxTokensToSample != nil {
+		maxTokens = max(maxTokens, int(*c.MaxTokensToSample))
+	}
 	var tokenCountMeta = types.TokenCountMeta{
 		TokenType: types.TokenTypeTokenizer,
 		MaxTokens: maxTokens,

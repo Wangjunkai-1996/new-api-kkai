@@ -106,23 +106,19 @@ func TestMembershipResponsesAccountingDistinguishesReportedZeroFromEstimates(t *
 	}
 }
 
-func TestMembershipSpeechRequiresProviderOutputBoundWithoutClientMaxTokens(t *testing.T) {
+func TestMembershipSpeechUsesInputEstimateWithoutClientMaxTokens(t *testing.T) {
 	c, user := setupMembershipServiceTest(t)
 	catalog, err := model.GetMembershipCatalog()
 	require.NoError(t, err)
-	catalog.ModelLimits["test-model"] = model.MembershipModelLimit{MaxInputTokens: 100, Evidence: "provider request maximum"}
+	delete(catalog.ModelLimits, "test-model")
 	catalog, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
 	require.NoError(t, err)
 	info := &relaycommon.RelayInfo{UserId: user.Id, OriginModelName: "test-model", Request: &dto.AudioRequest{}}
 	price := types.PriceData{ModelRatio: 1, AudioRatio: 2, AudioCompletionRatio: 4}
-	require.ErrorContains(t, PrepareMembershipBudget(c, info, &price, 2, &relaytypes.TokenCountMeta{}), "input/output")
-	catalog.ModelLimits["test-model"] = model.MembershipModelLimit{MaxInputTokens: 100, MaxOutputTokens: 1000, Evidence: "provider request maximum"}
-	_, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
-	require.NoError(t, err)
 	require.NoError(t, PrepareMembershipBudget(c, info, &price, 2, &relaytypes.TokenCountMeta{}))
 	require.NotNil(t, info.MembershipPricing)
-	assert.False(t, info.MembershipPricing.RequiresOutputBound, "speech uses its verified provider bound, not a nonexistent max_tokens request field")
-	assert.GreaterOrEqual(t, info.MembershipPricing.MaximumBeforeGroup, 8000.0)
+	assert.False(t, info.MembershipPricing.RequiresOutputBound)
+	assert.Equal(t, 6.0, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup)
 }
 
 func TestMembershipDispatchPersistsAndEnforcesTheSameDeadline(t *testing.T) {

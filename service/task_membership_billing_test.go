@@ -1,35 +1,51 @@
 package service
 
 import (
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMembershipTaskExpressionBudgetUsesVerifiedLimitsAndRejectsEstimates(t *testing.T) {
-	setupMembershipServiceTest(t)
-	catalog, err := model.GetMembershipCatalog()
-	require.NoError(t, err)
-	catalog.ModelLimits = map[string]model.MembershipModelLimit{"test-video": {TaskUsageLimits: map[string]float64{"seconds": 5, "image_count": 2}, Evidence: "provider enforces aggregate request dimensions"}}
-	_, err = model.PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
-	require.NoError(t, err)
-	snapshot := &billingexpr.BillingSnapshot{TaskUsageBilling: true, ExprString: `tier("video",u("seconds")*u("image_count")*0.1)`, QuotaPerUnit: 500000,
+func TestMembershipTaskExpressionBudgetUsesSubmissionEstimateWithoutModelLimits(t *testing.T) {
+	snapshot := &billingexpr.BillingSnapshot{TaskUsageBilling: true, ExprString: `tier("video",u("seconds")*u("image_count")*0.1)`,
+		QuotaPerUnit: 500000, EstimatedQuotaBeforeGroup: 50000,
 		UsageFacts: map[string]any{"seconds": 1.0, "image_count": 1.0}}
 	info := &relaycommon.RelayInfo{TieredBillingSnapshot: snapshot, OriginModelName: "test-video"}
-	schema := map[string]jsplugin.UsageFieldSchema{"seconds": {Type: "number", Unit: "second"}, "image_count": {Type: "number", Unit: "count"}, "tokens": {Type: "number", Unit: "token"}}
-	require.NoError(t, PrepareTaskMembershipExpressionBudget(info, schema))
+	require.NoError(t, PrepareTaskMembershipExpressionBudget(info, nil))
 	require.NotNil(t, info.MembershipPricing)
-	assert.Equal(t, 500000.0, info.MembershipPricing.MaximumBeforeGroup)
-	snapshot.ExprString = `tier("token",u("tokens")*0.1)`
-	snapshot.UsageFacts["tokens"] = 100.0
-	require.ErrorContains(t, PrepareTaskMembershipExpressionBudget(info, schema), "no verified maximum")
+	assert.Equal(t, 50000.0, info.MembershipPricing.MaximumBeforeGroup)
+	assert.Equal(t, 500000.0, info.MembershipPricing.QuotaPerUnit)
+}
+
+func TestMembershipTaskExpressionBudgetRejectsInvalidEstimate(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		fact     any
+		estimate float64
+	}{
+		{"NaN fact", math.NaN(), 50000},
+		{"infinite fact", math.Inf(1), 50000},
+		{"negative fact", -1.0, 50000},
+		{"NaN estimate", 1.0, math.NaN()},
+		{"infinite estimate", 1.0, math.Inf(1)},
+		{"negative estimate", 1.0, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+				TaskUsageBilling: true, EstimatedQuotaBeforeGroup: tc.estimate,
+				UsageFacts: map[string]any{"seconds": tc.fact},
+			}}
+			require.Error(t, PrepareTaskMembershipExpressionBudget(info, nil))
+			assert.Nil(t, info.MembershipPricing)
+		})
+	}
 }
 
 func TestMembershipTaskCompletionPersistsActualForCrashRecovery(t *testing.T) {

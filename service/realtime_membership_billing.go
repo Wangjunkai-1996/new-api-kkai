@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -13,17 +12,17 @@ import (
 	"github.com/QuantumNous/new-api/types"
 )
 
-// PrepareRealtimeMembershipBudget bounds one manually started upstream response,
-// including its entire context. Local counts do not bound retained audio/history.
-func PrepareRealtimeMembershipBudget(info *relaycommon.RelayInfo, limits model.MembershipModelLimit, outputLimit int) error {
-	if info == nil || limits.MaxInputTokens <= 0 || limits.MaxInputTokens > math.MaxInt32 || limits.MaxOutputTokens <= 0 || limits.MaxOutputTokens > math.MaxInt32 || strings.TrimSpace(limits.Evidence) == "" || outputLimit <= 0 || int64(outputLimit) > limits.MaxOutputTokens {
-		return fmt.Errorf("configure verified aggregate input/output limits for this realtime model and use a finite max_output_tokens")
+// PrepareRealtimeMembershipBudget estimates one manually started response. The
+// ledger caps the customer charge if retained context or audio costs more.
+func PrepareRealtimeMembershipBudget(info *relaycommon.RelayInfo, estimatedInput, outputLimit int) error {
+	if info == nil || estimatedInput < 0 || estimatedInput > math.MaxInt32/2 || outputLimit <= 0 || outputLimit > math.MaxInt32/2 {
+		return fmt.Errorf("realtime membership billing requires finite input and output estimates")
 	}
 	price := info.PriceData
 	if len(price.OtherRatios()) != 0 {
 		return fmt.Errorf("realtime membership pricing does not support additional request multipliers")
 	}
-	input, output := float64(limits.MaxInputTokens), float64(limits.MaxOutputTokens)
+	input, output := float64(estimatedInput), float64(outputLimit)
 	maximum := 0.0
 	if snapshot := info.TieredBillingSnapshot; snapshot != nil {
 		variables := billingexpr.UsedVarsByHash(snapshot.ExprString, snapshot.ExprHash)
@@ -69,6 +68,6 @@ func PrepareRealtimeMembershipBudget(info *relaycommon.RelayInfo, limits model.M
 	if maximum < 0 || math.IsNaN(maximum) || math.IsInf(maximum, 0) {
 		return model.ErrMembershipInvalidInput
 	}
-	info.MembershipPricing = &types.MembershipPricing{MaximumBeforeGroup: maximum, MaxInputTokens: int(limits.MaxInputTokens), MaxOutputTokens: outputLimit, OutputCopies: 1, QuotaPerUnit: common.QuotaPerUnit, ViolationFeeBeforeGroup: fee}
+	info.MembershipPricing = &types.MembershipPricing{MaximumBeforeGroup: maximum, MaxInputTokens: estimatedInput, MaxOutputTokens: outputLimit, OutputCopies: 1, QuotaPerUnit: common.QuotaPerUnit, ViolationFeeBeforeGroup: fee}
 	return nil
 }

@@ -142,6 +142,7 @@ func membershipRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (res
 	requestDone := c.Done()
 	clientGone, sessionReady, sessionPending := false, false, false
 	connectionID, turnNumber := common.NewRequestId(), 0
+	var pendingInput, priorUsage int64
 	for {
 		select {
 		case <-requestDone:
@@ -173,6 +174,13 @@ func membershipRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (res
 				return membershipRealtimeError("invalid realtime event"), nil
 			}
 			kind, _ := event["type"].(string)
+			frameTokens := int64((len(frame.message) + 3) / 4)
+			if kind == "input_audio_buffer.append" {
+				frameTokens = int64((len(frame.message) + 511) / 512)
+			}
+			if pendingInput+priorUsage+frameTokens > dto.MaxTokensLimit {
+				return membershipRealtimeError("realtime input estimate exceeds the supported billing limit"), nil
+			}
 			switch kind {
 			case "session.update":
 				if active != nil || sessionPending {
@@ -208,22 +216,16 @@ func membershipRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (res
 				turnInfo.Billing, turnInfo.MembershipPricing, turnInfo.TieredBillingSnapshot = nil, nil, nil
 				turnContext := c.Copy()
 				turnContext.Set(common.RequestIdKey, turnInfo.RequestId)
-				catalog, err := model.GetMembershipCatalog()
-				if err != nil {
-					return membershipRealtimeError("cannot load realtime model limits"), nil
-				}
 				price, err := helper.ModelPriceHelper(turnContext, &turnInfo, 0, &types.TokenCountMeta{})
 				if err != nil {
 					return membershipRealtimeError(err.Error()), nil
 				}
 				turnInfo.PriceData = price
-				limits := catalog.ModelLimits[turnInfo.GetBillingModelName()]
-				outputLimit, err := membershipRealtimeOutputLimit(response["max_output_tokens"], limits.MaxOutputTokens)
+				outputLimit, err := membershipRealtimeOutputLimit(response["max_output_tokens"])
 				if err != nil {
 					return membershipRealtimeError(err.Error()), nil
 				}
-				response["max_output_tokens"] = outputLimit
-				if err := service.PrepareRealtimeMembershipBudget(&turnInfo, limits, outputLimit); err != nil {
+				if err := service.PrepareRealtimeMembershipBudget(&turnInfo, int(pendingInput+priorUsage+frameTokens), outputLimit); err != nil {
 					return membershipRealtimeError(err.Error()), nil
 				}
 				if apiErr := service.PreConsumeBilling(turnContext, 0, &turnInfo); apiErr != nil {
@@ -252,6 +254,7 @@ func membershipRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (res
 			default:
 				return membershipRealtimeError("unsupported event for manual realtime membership billing: " + kind), nil
 			}
+			pendingInput += frameTokens
 			encoded, err := common.Marshal(event)
 			if err != nil || writeMembershipRealtime(info.TargetWs, encoded, active) != nil {
 				return membershipRealtimeError("failed to send the authorized realtime event"), nil
@@ -302,6 +305,7 @@ func membershipRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (res
 					upstreamEnded = true
 					return membershipRealtimeError(err.Error()), nil
 				}
+				priorUsage, pendingInput = int64(event.Response.Usage.TotalTokens), 0
 				active, deadline = nil, nil
 				responseTimer.Stop()
 			case "error":
@@ -467,16 +471,13 @@ func containsRealtimeImage(value any) bool {
 	return false
 }
 
-func membershipRealtimeOutputLimit(value any, maximum int64) (int, error) {
-	if maximum <= 0 || maximum > math.MaxInt32 {
-		return 0, fmt.Errorf("configure a verified realtime max_output_tokens before starting responses")
-	}
+func membershipRealtimeOutputLimit(value any) (int, error) {
 	if value == nil {
-		return int(maximum), nil
+		return 1024, nil
 	}
 	number, ok := value.(float64)
-	if !ok || number <= 0 || number > float64(maximum) || math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number {
-		return 0, fmt.Errorf("max_output_tokens must be a positive integer within the configured model limit")
+	if !ok || number <= 0 || number > dto.MaxTokensLimit || math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number {
+		return 0, fmt.Errorf("max_output_tokens must be a finite positive integer within the billing limit")
 	}
 	return int(number), nil
 }

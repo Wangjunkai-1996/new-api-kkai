@@ -4155,6 +4155,7 @@
     "Membership quota price": "订阅额度价格",
     "Membership rank": "会员等级顺序",
     "Membership ratios": "会员倍率",
+    "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.": "会员请求会根据请求内容估算并预扣额度。最终从会员额度扣除的费用不会超过预扣额，超出部分由平台承担。",
     "Membership sales are currently closed.": "会员暂未开放购买。",
     "Memberships are not available yet.": "会员功能暂未开放。",
     "Memberships last 30 days, never reset quota, and accept one-time external payments only.": "会员有效期为 30 天，额度不重置，仅支持外部单次付款。",

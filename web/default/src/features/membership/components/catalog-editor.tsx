@@ -37,7 +37,6 @@ import { membershipCatalogSchema } from '../form'
 import { normalizeMembershipCatalogForSubmission } from '../lib'
 import type { MembershipCatalog } from '../types'
 import { MembershipDiscountEditor } from './discount-editor'
-import { MembershipModelLimitEditor } from './model-limit-editor'
 
 export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
   const { t } = useTranslation()
@@ -105,6 +104,11 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
       <p className='text-muted-foreground text-sm'>
         {t(
           'Memberships last 30 days, never reset quota, and accept one-time external payments only.'
+        )}
+      </p>
+      <p className='text-muted-foreground text-sm'>
+        {t(
+          'Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.'
         )}
       </p>
       <div className='grid gap-5 xl:grid-cols-3'>
@@ -348,13 +352,6 @@ export function MembershipCatalogEditor(props: { catalog: MembershipCatalog }) {
       >
         {t('Add membership tier')}
       </Button>
-      <MembershipModelLimitEditor
-        value={catalog.model_limits ?? {}}
-        onChange={(limits) =>
-          form.setValue('model_limits', limits, { shouldDirty: true })
-        }
-        disabled={publish.isPending}
-      />
       <MembershipDiscountEditor
         catalog={catalog}
         onDiscountChange={(index, group, value) =>

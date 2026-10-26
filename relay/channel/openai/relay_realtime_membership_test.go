@@ -50,11 +50,14 @@ func TestMembershipRealtimeRejectsUnfundedAutomaticFeatures(t *testing.T) {
 	var response map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(`{"input":[{"content":[{"type":"input_image"}]}]}`, &response))
 	require.Error(t, validateMembershipRealtimeResponse(response))
-	_, err := membershipRealtimeOutputLimit(11.0, 10)
+	_, err := membershipRealtimeOutputLimit(-1.0)
 	require.Error(t, err)
-	_, err = membershipRealtimeOutputLimit("inf", 10)
+	_, err = membershipRealtimeOutputLimit("inf")
 	require.Error(t, err)
-	limit, err := membershipRealtimeOutputLimit(nil, 10)
+	defaultLimit, err := membershipRealtimeOutputLimit(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1024, defaultLimit)
+	limit, err := membershipRealtimeOutputLimit(10.0)
 	require.NoError(t, err)
 	assert.Equal(t, 10, limit)
 }
@@ -88,7 +91,7 @@ func startMembershipRealtimeTest(t *testing.T) (*websocket.Conn, *websocket.Conn
 	})
 	require.NoError(t, db.Create(&model.User{Id: 777, Username: "realtime-member", Group: "default", Quota: 10000}).Error)
 	require.NoError(t, db.Create(&model.Channel{Id: 77, Name: "realtime-fixture"}).Error)
-	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{SalesEnabled: true, Tiers: []model.MembershipTier{{ID: "gold", Name: "Gold", Style: "gold", Rank: 1, Currency: "USD", PriceMinor: 100, Quota: 100, Enabled: true, Discounts: map[string]float64{"member-test-group": 0.5}}}, Groups: []model.MembershipGroup{{Key: "member-test-group", Published: true, Enabled: true}}, ModelLimits: map[string]model.MembershipModelLimit{"member-realtime-test": {MaxInputTokens: 100, MaxOutputTokens: 10, Evidence: "verified total response bounds"}}}, 0, 1)
+	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{SalesEnabled: true, Tiers: []model.MembershipTier{{ID: "gold", Name: "Gold", Style: "gold", Rank: 1, Currency: "USD", PriceMinor: 100, Quota: 100, Enabled: true, Discounts: map[string]float64{"member-test-group": 0.5}}}, Groups: []model.MembershipGroup{{Key: "member-test-group", Published: true, Enabled: true}}}, 0, 1)
 	require.NoError(t, err)
 	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: 777, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: "realtime-order", ExpiresAt: common.GetTimestamp() + 300})
 	require.NoError(t, err)
@@ -125,18 +128,19 @@ func TestMembershipRealtimeAuthorizesEveryTurnAndFallsBackAtWalletPrice(t *testi
 		`{"total_tokens":100,"input_tokens":90,"output_tokens":10,"input_token_details":{"text_tokens":90},"output_token_details":{"text_tokens":10}}`,
 		`{"total_tokens":10,"input_tokens":4,"output_tokens":6,"input_token_details":{"text_tokens":4},"output_token_details":{"text_tokens":6}}`,
 	} {
-		forwarded := membershipRealtimeExchange(t, downstream, upstream, `{"type":"response.create"}`)
+		forwarded := membershipRealtimeExchange(t, downstream, upstream, `{"type":"response.create","response":{"max_output_tokens":10}}`)
 		assert.JSONEq(t, `{"type":"response.create","response":{"max_output_tokens":10}}`, string(forwarded))
 		var reserved model.MembershipBillingRecord
 		require.NoError(t, model.DB.Where("state = ?", "reserved").First(&reserved).Error)
 		assert.Positive(t, reserved.DispatchedAt)
 		if index == 0 {
 			assert.Equal(t, model.MembershipSource, reserved.Source)
-			assert.EqualValues(t, 55, reserved.ReservedQuota)
+			assert.Positive(t, reserved.ReservedQuota)
+			assert.Less(t, reserved.ReservedQuota, int64(50))
 			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"member-test-group":2}`))
 		} else {
 			assert.Equal(t, model.MembershipWalletSource, reserved.Source)
-			assert.EqualValues(t, 220, reserved.ReservedQuota)
+			assert.Greater(t, reserved.ReservedQuota, int64(100))
 		}
 		membershipRealtimeExchange(t, upstream, downstream, `{"type":"response.created","response":{"id":"r"}}`)
 		membershipRealtimeExchange(t, upstream, downstream, `{"type":"response.done","response":{"id":"r","usage":`+usage+`}}`)
@@ -147,7 +151,8 @@ func TestMembershipRealtimeAuthorizesEveryTurnAndFallsBackAtWalletPrice(t *testi
 	require.NoError(t, model.DB.Order("request_id").Find(&records).Error)
 	require.Len(t, records, 2)
 	assert.NotEqual(t, records[0].RequestID, records[1].RequestID)
-	assert.EqualValues(t, 50, records[0].ChargedQuota)
+	assert.Equal(t, records[0].ReservedQuota, records[0].ChargedQuota)
+	assert.EqualValues(t, 50-records[0].ChargedQuota, records[0].ExcessQuota)
 	assert.EqualValues(t, 20, records[1].ChargedQuota)
 	var user model.User
 	require.NoError(t, model.DB.First(&user, 777).Error)
@@ -161,12 +166,12 @@ func TestMembershipRealtimeRetainsUnknownUsageAndDrainsLatePolicy(t *testing.T) 
 			downstream, upstream, result := startMembershipRealtimeTest(t)
 			membershipRealtimeExchange(t, downstream, upstream, `{"type":"session.update","session":{"turn_detection":null}}`)
 			membershipRealtimeExchange(t, upstream, downstream, `{"type":"session.updated","session":{"turn_detection":null}}`)
-			membershipRealtimeExchange(t, downstream, upstream, `{"type":"response.create"}`)
+			membershipRealtimeExchange(t, downstream, upstream, `{"type":"response.create","response":{"max_output_tokens":10}}`)
 			membershipRealtimeExchange(t, upstream, downstream, `{"type":"response.created","response":{"id":"r"}}`)
 			if mode == "missing usage" {
 				require.NoError(t, upstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.done","response":{"id":"r"}}`)))
 			} else {
-				require.NoError(t, downstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create"}`)))
+				require.NoError(t, downstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","response":{"max_output_tokens":10}}`)))
 				require.NoError(t, upstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","error":{"code":"cyber_policy","message":"rejected upstream"}}`)))
 			}
 			apiErr := <-result
@@ -177,7 +182,7 @@ func TestMembershipRealtimeRetainsUnknownUsageAndDrainsLatePolicy(t *testing.T) 
 			var record model.MembershipBillingRecord
 			require.NoError(t, model.DB.First(&record).Error)
 			assert.Equal(t, "reserved", record.State)
-			assert.EqualValues(t, 55, record.ReservedQuota)
+			assert.Positive(t, record.ReservedQuota)
 			assert.Zero(t, record.ChargedQuota)
 		})
 	}
@@ -195,7 +200,7 @@ func TestMembershipRealtimeInsufficientFullBudgetNeverDispatches(t *testing.T) {
 	membershipRealtimeExchange(t, downstream, upstream, `{"type":"session.update","session":{"turn_detection":null}}`)
 	membershipRealtimeExchange(t, upstream, downstream, `{"type":"session.updated","session":{"turn_detection":null}}`)
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"member-realtime-test":10000}`))
-	require.NoError(t, downstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create"}`)))
+	require.NoError(t, downstream.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","response":{"max_output_tokens":10}}`)))
 	apiErr := <-result
 	require.NotNil(t, apiErr)
 	assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())

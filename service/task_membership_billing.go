@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
@@ -59,9 +58,9 @@ func preConsumeTaskMembership(c *gin.Context, task *model.Task, info *relaycommo
 	return nil
 }
 
-// PrepareTaskMembershipExpressionBudget uses provider-enforced aggregate usage
-// bounds. A plugin's estimated facts or a schema unit alone is not an upper bound.
-func PrepareTaskMembershipExpressionBudget(info *relaycommon.RelayInfo, schema map[string]jsplugin.UsageFieldSchema) error {
+// PrepareTaskMembershipExpressionBudget reserves the submission estimate;
+// usage above it is assessed at settlement but borne by the platform.
+func PrepareTaskMembershipExpressionBudget(info *relaycommon.RelayInfo, _ map[string]jsplugin.UsageFieldSchema) error {
 	if info.MembershipBillingRequestID != "" {
 		return nil
 	}
@@ -69,22 +68,21 @@ func PrepareTaskMembershipExpressionBudget(info *relaycommon.RelayInfo, schema m
 	if snapshot == nil || !snapshot.TaskUsageBilling {
 		return model.ErrMembershipInvalidInput
 	}
-	catalog, err := model.GetMembershipCatalog()
-	if err != nil {
-		return err
-	}
-	limits := catalog.ModelLimits[info.GetBillingModelName()].TaskUsageLimits
-	bounds := make(map[string]billingexpr.UsageBound, len(limits))
-	for key, maximum := range limits {
-		if field, exists := schema[key]; !exists || field.Type != "number" {
-			return fmt.Errorf("task usage limit %q must reference a numeric usage field", key)
+	for key, fact := range snapshot.UsageFacts {
+		switch value := fact.(type) {
+		case float64:
+			if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+				return fmt.Errorf("task usage fact %q must be finite and nonnegative", key)
+			}
+		case float32:
+			if value < 0 || math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+				return fmt.Errorf("task usage fact %q must be finite and nonnegative", key)
+			}
 		}
-		bounds[key] = billingexpr.UsageBound{Maximum: maximum}
 	}
-
-	maximum, err := billingexpr.MaximumTaskQuota(snapshot, bounds)
-	if err != nil {
-		return err
+	maximum := snapshot.EstimatedQuotaBeforeGroup
+	if maximum < 0 || math.IsNaN(maximum) || math.IsInf(maximum, 0) {
+		return model.ErrMembershipInvalidInput
 	}
 	info.MembershipPricing = &types.MembershipPricing{MaximumBeforeGroup: maximum, QuotaPerUnit: snapshot.QuotaPerUnit}
 	return nil

@@ -4155,6 +4155,7 @@
     "Membership quota price": "Giá dùng hạn mức thành viên",
     "Membership rank": "Thứ tự hạng thành viên",
     "Membership ratios": "Hệ số thành viên",
+    "Membership requests reserve an estimated amount based on request details. The final membership charge cannot exceed the reservation; the platform covers any excess.": "Yêu cầu của thành viên được tạm giữ một khoản ước tính theo nội dung yêu cầu. Phí cuối cùng trừ vào hạn mức không vượt khoản tạm giữ; nền tảng chi trả phần vượt.",
     "Membership sales are currently closed.": "Hiện tạm ngừng bán gói thành viên.",
     "Memberships are not available yet.": "Tính năng thành viên chưa được mở.",
     "Memberships last 30 days, never reset quota, and accept one-time external payments only.": "Gói có hiệu lực 30 ngày, không đặt lại hạn mức và chỉ nhận thanh toán bên ngoài một lần.",
