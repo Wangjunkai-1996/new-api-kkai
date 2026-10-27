@@ -38,6 +38,7 @@ import dayjs from '@/lib/dayjs'
 
 import { taskActionMapper } from '../lib/mappers'
 import type { TaskLog } from '../types'
+import { videoWorkFailure } from './video-work-failure-copy'
 import {
   isVideoWorkActive,
   videoWorkElapsed,
@@ -66,7 +67,16 @@ export function VideoWorkItem(props: VideoWorkItemProps) {
   const log = props.log
   const active = isVideoWorkActive(log) || log.media?.state === 'processing'
   const model = videoWorkModel(log) || t('Unknown model')
-  const poster = log.media?.state === 'ready' ? log.media.poster_url : undefined
+  const failure =
+    log.status === 'FAILURE' ? videoWorkFailure(log, t) : undefined
+  let posterNote = t('No cover available')
+  if (log.poster?.state === 'pending') {
+    posterNote = t('Preparing cover')
+  } else if (log.poster?.failure_code === 'source_unavailable') {
+    posterNote = t('Source unavailable for cover')
+  }
+  const poster =
+    log.media?.state === 'ready' ? log.media.poster_url : log.poster?.url
   const showPoster = poster && poster !== failedPoster
   const completed = log.status === 'SUCCESS'
   const unavailable =
@@ -144,6 +154,9 @@ export function VideoWorkItem(props: VideoWorkItemProps) {
             {t('{{count}} seconds', { count: duration })}
           </span>
         )}
+        {!showPoster && canPreview && (
+          <span className='video-work-media-note'>{posterNote}</span>
+        )}
         {unavailable && completed && (
           <span className='video-work-media-note'>
             {log.result_discarded
@@ -155,6 +168,11 @@ export function VideoWorkItem(props: VideoWorkItemProps) {
       <div className='video-work-model-info'>
         <h2 className='video-work-model'>{model}</h2>
         <p className='video-work-metadata'>{metadata.join(' · ')}</p>
+        {failure && (
+          <p className='video-work-failure-summary' title={failure.title}>
+            {failure.title}
+          </p>
+        )}
         <div className='video-work-task-id'>
           <code title={log.task_id}>{log.task_id}</code>
           <VideoWorkCopy taskId={log.task_id} />

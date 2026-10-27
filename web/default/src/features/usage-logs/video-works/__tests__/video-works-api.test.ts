@@ -20,7 +20,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { getVideoWorks } from '../../api'
+import { getVideoWorks, prepareVideoPosters } from '../../api'
 
 const item = {
   id: 11,
@@ -133,4 +133,66 @@ test('keeps corrupt historical amounts unavailable without rejecting the entire 
     data: { success: true, data: { ...page, items: [{ ...item, quota: -1 }] } },
   })
   await expect(getVideoWorks({}, false)).rejects.toThrow()
+})
+
+test('preserves a safe failure snapshot and a task poster in the list contract', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        ...page,
+        items: [
+          {
+            ...item,
+            status: 'FAILURE',
+            failure: {
+              code: 'privacy_restriction',
+              message:
+                "The request failed because the input image 'content[1]' may contain real person.",
+              stage: 'submission',
+            },
+            poster: {
+              state: 'ready',
+              url: 'https://media.example/cover.jpg',
+              expires_at: 2000000000,
+            },
+          },
+        ],
+      },
+    },
+  })
+  const result = await getVideoWorks({}, false)
+  expect(result.items[0].failure).toEqual({
+    code: 'privacy_restriction',
+    message:
+      "The request failed because the input image 'content[1]' may contain real person.",
+    stage: 'submission',
+  })
+  expect(result.items[0].poster?.url).toBe('https://media.example/cover.jpg')
+})
+
+test('prepares the requested artifact cover with a bounded task batch', async () => {
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        items: [
+          { id: 11, poster: { state: 'pending', artifact_key: 'video-2' } },
+        ],
+      },
+    },
+  })
+  const signal = new AbortController().signal
+  const result = await prepareVideoPosters([11], false, signal, 'video-2')
+  expect(result).toEqual([
+    { id: 11, poster: { state: 'pending', artifact_key: 'video-2' } },
+  ])
+  expect(post).toHaveBeenCalledWith(
+    '/api/task/self/video-posters/prepare',
+    {
+      task_record_ids: [11],
+      artifact_key: 'video-2',
+    },
+    expect.objectContaining({ signal })
+  )
 })

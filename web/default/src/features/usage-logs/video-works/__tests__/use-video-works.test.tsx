@@ -28,7 +28,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getTaskArtifacts, getVideoWorks } from '../../api'
+import { getTaskArtifacts, getVideoWorks, prepareVideoPosters } from '../../api'
 import type { TaskLog, VideoWorksPage } from '../../types'
 import { useSelectedVideoWork } from '../use-selected-video-work'
 import { useVideoWorkArtifacts } from '../use-video-work-artifacts'
@@ -63,6 +63,7 @@ vi.mock('../../components/usage-logs-provider', () => ({
 vi.mock('../../api', () => ({
   getVideoWorks: vi.fn(),
   getTaskArtifacts: vi.fn(),
+  prepareVideoPosters: vi.fn(),
 }))
 
 const log: TaskLog = {
@@ -106,6 +107,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-27T02:44:06Z'))
   vi.mocked(getVideoWorks).mockReset().mockResolvedValue(page(log))
   vi.mocked(getTaskArtifacts).mockReset()
+  vi.mocked(prepareVideoPosters).mockReset().mockResolvedValue([])
   environment.search = {}
   environment.tenantId = 0
   environment.siteError = null
@@ -471,4 +473,109 @@ test('never substitutes another numeric record with the same public task ID into
   await settle()
   expect(hook.result.current.shouldClose).toBe(true)
   expect(hook.result.current.log).toBeNull()
+})
+
+test('prepares missing API covers in one batch, polls pending work, and stops after the real poster arrives', async () => {
+  vi.mocked(getVideoWorks)
+    .mockResolvedValueOnce({ ...page(log), items: [log, { ...log, id: 12 }] })
+    .mockResolvedValue(
+      page({
+        ...log,
+        poster: {
+          state: 'ready',
+          url: 'https://store.example/cover.jpg',
+          expires_at: 2_000_000_000,
+        },
+      })
+    )
+  vi.mocked(prepareVideoPosters).mockResolvedValue([
+    { id: 11, poster: { state: 'pending' } },
+    { id: 12, poster: { state: 'pending' } },
+  ])
+  const hook = renderHook(useVideoWorks, { wrapper })
+  await settle()
+  expect(prepareVideoPosters).toHaveBeenCalledExactlyOnceWith(
+    [11, 12],
+    true,
+    expect.any(AbortSignal)
+  )
+  expect(hook.result.current.items[0].poster?.state).toBe('pending')
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000)
+  })
+  expect(hook.result.current.items[0].poster?.state).toBe('ready')
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60_000)
+  })
+  expect(getVideoWorks).toHaveBeenCalledTimes(2)
+  expect(prepareVideoPosters).toHaveBeenCalledOnce()
+  expect(getTaskArtifacts).not.toHaveBeenCalled()
+})
+
+test('poster endpoint failure never hides records or retries preparation repeatedly', async () => {
+  vi.mocked(prepareVideoPosters).mockRejectedValue({
+    response: { status: 404 },
+  })
+  const hook = renderHook(useVideoWorks, { wrapper })
+  await settle()
+  expect(hook.result.current.items).toEqual([log])
+  expect(hook.result.current.error).toBeNull()
+  await act(async () => {
+    await hook.result.current.refetch()
+  })
+  await settle()
+  expect(prepareVideoPosters).toHaveBeenCalledOnce()
+})
+
+test('bounds preparation batches to 20 task IDs on a 100-row page', async () => {
+  const items = Array.from({ length: 41 }, (_, index) => ({
+    ...log,
+    id: index + 1,
+  }))
+  vi.mocked(getVideoWorks).mockResolvedValue({
+    ...page(log),
+    items,
+    total: 41,
+  })
+  renderHook(useVideoWorks, { wrapper })
+  await settle()
+  expect(prepareVideoPosters).toHaveBeenCalledTimes(3)
+  expect(
+    vi.mocked(prepareVideoPosters).mock.calls.map(([ids]) => ids.length)
+  ).toEqual([20, 20, 1])
+})
+
+test('cancels poster preparation on identity changes and cannot write an old scope result into the new list', async () => {
+  let signal: AbortSignal | undefined
+  let finish!: (items: Awaited<ReturnType<typeof prepareVideoPosters>>) => void
+  vi.mocked(prepareVideoPosters)
+    .mockImplementationOnce((_ids, _admin, requestSignal) => {
+      signal = requestSignal
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    })
+    .mockResolvedValue([])
+  const hook = renderHook(useVideoWorks, { wrapper })
+  await settle()
+  environment.access = 'self'
+  vi.mocked(getVideoWorks).mockResolvedValue(page({ ...log, id: 12 }))
+  hook.rerender()
+  await settle()
+  expect(signal?.aborted).toBe(true)
+  await act(async () => {
+    finish([
+      {
+        id: 11,
+        poster: {
+          state: 'ready',
+          url: 'https://store.example/private.jpg',
+          expires_at: 2_000_000_000,
+        },
+      },
+    ])
+  })
+  await settle()
+  expect(hook.result.current.items[0].id).toBe(12)
+  expect(hook.result.current.items[0].poster).toBeUndefined()
 })

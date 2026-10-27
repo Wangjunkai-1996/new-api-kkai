@@ -95,6 +95,30 @@ func TestGetTaskDoesNotProjectArtifacts(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), "upstream.invalid")
 }
 
+func TestGetTaskRedactsFailedVideoReason(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	task.Action = constant.TaskActionImageToVideo
+	task.Status = model.TaskStatusFailure
+	task.FailReason = "The input image 'content[1]' may contain real person. Authorization: Bearer private-token"
+	require.NoError(t, model.DB.Save(task).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", task.UserId)
+	c.Params = gin.Params{{Key: "key", Value: task.TaskID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/tasks/"+task.TaskID, nil)
+	GetTask(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		FailReason string `json:"fail_reason"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Contains(t, response.FailReason, "content[1]")
+	assert.NotContains(t, response.FailReason, "private-token")
+	assert.NotContains(t, recorder.Body.String(), "private-token")
+}
+
 func TestGetTaskArtifactsReturnsEmptyForLegacyTask(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	recorder := httptest.NewRecorder()

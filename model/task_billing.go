@@ -450,6 +450,12 @@ func applyTaskSubmissionAcceptance(task *Task, acceptance TaskSubmissionAcceptan
 	task.Progress = acceptance.Progress
 	task.FailReason = acceptance.FailReason
 	task.FinishTime = acceptance.FinishTime
+	if task.Status == TaskStatusFailure {
+		task.PrivateData.Failure = NewTaskFailureSnapshot("generation", "", acceptance.FailReason, acceptance.TaskData)
+		if execution := task.PrivateData.Execution; execution != nil {
+			task.PrivateData.Failure.RequestID = execution.RequestID
+		}
+	}
 }
 
 func AdjustTaskBilling(ctx context.Context, taskID int64, targetQuota int) (*TaskBillingMutation, error) {
@@ -705,6 +711,15 @@ func (task *Task) UpdateWithStatusPreservingBilling(from TaskSnapshot) (bool, er
 		privateData.ResultURL = task.PrivateData.ResultURL
 		privateData.ArchiveSource = task.PrivateData.ArchiveSource
 		privateData.PluginState = task.PrivateData.PluginState
+		if task.Status == TaskStatusFailure && privateData.Failure == nil {
+			privateData.Failure = task.PrivateData.Failure
+			if privateData.Failure == nil {
+				privateData.Failure = NewTaskFailureSnapshot("generation", "", task.FailReason, task.Data)
+			}
+			if execution := privateData.Execution; execution != nil {
+				privateData.Failure.RequestID = execution.RequestID
+			}
+		}
 		task.PrivateData = privateData
 		task.UpdatedAt = time.Now().Unix()
 		result := tx.Model(&Task{}).

@@ -129,6 +129,8 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
+	Failure             *TaskFailureSnapshot           `json:"failure,omitempty"`
+	VideoPosters        map[string]TaskVideoPosterSnapshot `json:"video_posters,omitempty"`
 	RequestPolicy       json.RawMessage        `json:"request_policy,omitempty"`
 	Execution           *TaskExecutionSnapshot `json:"execution,omitempty"`
 	Key                 string                 `json:"key,omitempty"`
@@ -235,7 +237,7 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil && p.BillingState == "" &&
 		p.TokenQuota == 0 && !p.TokenBilling && p.RecoveryAt == 0 && p.TargetQuota == nil &&
 		p.BillingRevision == 0 && p.AccountingState == "" && p.AccountingQuota == 0 && !p.AccountingRequired &&
-		p.AccountingContext == nil {
+		p.AccountingContext == nil && p.Failure == nil && len(p.VideoPosters) == 0 {
 		return nil, nil
 	}
 	b, err := common.Marshal(p)

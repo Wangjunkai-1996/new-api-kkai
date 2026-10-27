@@ -18,7 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { describe, expect, test, vi } from 'vitest'
+
+import zh from '@/i18n/locales/zh.json'
 
 import type { TaskArtifactProjection, TaskLog } from '../types'
 import { VideoWorkItem } from './video-work-item'
@@ -38,6 +41,9 @@ vi.mock('./use-video-work-artifacts', () => ({
     useArtifacts(...args)
     return mediaQuery
   },
+}))
+vi.mock('./use-video-works-identity', () => ({
+  useVideoWorksIdentity: () => ({ ready: false, active: false }),
 }))
 
 function task(overrides: Partial<TaskLog> = {}): TaskLog {
@@ -198,4 +204,83 @@ describe('video work UI', () => {
       'https://storage.example/download.mp4?signature=def'
     )
   })
+})
+
+test('failure details show Chinese explanation and safe original text without a video placeholder or invented refund', async () => {
+  i18next.addResourceBundle('zh', 'translation', zh.translation)
+  await i18next.changeLanguage('zh')
+  const message =
+    "The request failed because the input image 'content[1]' may contain real person."
+  try {
+    render(
+      <VideoWorkPreview
+        log={task({
+          status: 'FAILURE',
+          failure: {
+            code: 'privacy_restriction',
+            message,
+            stage: 'submission',
+          },
+          fail_reason: 'task submission failed',
+          billing: { amount_available: false, state: 'unknown' },
+        })}
+        isAdmin={false}
+        isRoot={false}
+        onClose={vi.fn()}
+        onBilling={vi.fn()}
+      />
+    )
+    expect(
+      screen.getByRole('heading', { name: '输入素材触发隐私限制' })
+    ).toBeVisible()
+    expect(screen.getByText(message)).toBeVisible()
+    expect(
+      screen.getByText(
+        '上游判断输入素材可能包含真人或受限的隐私内容，因此拒绝生成。'
+      )
+    ).toBeVisible()
+    expect(screen.getAllByText('—')).not.toHaveLength(0)
+    expect(screen.queryByText('已退款')).not.toBeInTheDocument()
+    expect(screen.queryByText('task submission failed')).not.toBeInTheDocument()
+    expect(document.querySelector('video')).toBeNull()
+    expect(document.querySelector('.video-work-player-state')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: '复制错误详情' }))
+    expect(screen.getByRole('button', { name: '已复制' })).toBeVisible()
+  } finally {
+    await i18next.changeLanguage('en')
+  }
+})
+
+test('legacy failure diagnostics are not shown without a safe server projection', () => {
+  render(
+    <VideoWorkPreview
+      log={task({
+        status: 'FAILURE',
+        fail_reason:
+          'task submission failed Authorization: Bearer secret-value',
+        failure: undefined,
+      })}
+      isAdmin={false}
+      isRoot={false}
+      onClose={vi.fn()}
+      onBilling={vi.fn()}
+    />
+  )
+  expect(
+    screen.getByText('Detailed failure information is unavailable')
+  ).toBeVisible()
+  expect(screen.queryByText(/secret-value/)).not.toBeInTheDocument()
+})
+
+test('a missing API cover retains video playback and download while displaying the processing state', () => {
+  render(
+    <VideoWorkItem
+      log={task({ poster: { state: 'pending' } })}
+      isAdmin={false}
+      {...actions}
+    />
+  )
+  expect(screen.getByText('Preparing cover')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Download video' })).toBeEnabled()
+  expect(document.querySelector('video')).toBeNull()
 })

@@ -730,6 +730,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.FinishTime = now
 		}
 		refundReason = taskResult.Reason
+		task.PrivateData.Failure = model.NewTaskFailureSnapshot("generation", "", refundReason, task.Data)
 		task.FailReason = task.PublicFailureReason(refundReason)
 		if managedResult {
 			logger.LogInfo(ctx, fmt.Sprintf("Managed task %s failed: reason_bytes=%d", task.TaskID, len(task.FailReason)))

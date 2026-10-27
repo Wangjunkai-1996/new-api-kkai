@@ -27,6 +27,7 @@ import type {
   TaskMediaState,
   TaskMediaSummary,
   TaskPluginAuthor,
+  TaskVideoPoster,
 } from '../types'
 
 const taskArtifactTypes = new Set(['image', 'video', 'audio', 'file'])
@@ -228,6 +229,38 @@ function parseHostedTaskVideo(
   return video
 }
 
+export function parseTaskVideoPoster(value: unknown): TaskVideoPoster {
+  if (
+    !isRecord(value) ||
+    !['pending', 'ready', 'unavailable'].includes(String(value.state))
+  ) {
+    throw new TaskArtifactApiError('invalid_video_poster')
+  }
+  const poster: TaskVideoPoster = {
+    state: value.state as TaskVideoPoster['state'],
+  }
+  if (poster.state === 'ready') {
+    if (
+      !Number.isSafeInteger(value.expires_at) ||
+      Number(value.expires_at) <= 0
+    ) {
+      throw new TaskArtifactApiError('invalid_video_poster_expiry')
+    }
+    poster.url = parseHostedMediaUrl(value.url)
+    poster.expires_at = Number(value.expires_at)
+  }
+  if (
+    typeof value.artifact_key === 'string' &&
+    safeArtifactKeyPattern.test(value.artifact_key)
+  ) {
+    poster.artifact_key = value.artifact_key
+  }
+  if (typeof value.failure_code === 'string') {
+    poster.failure_code = value.failure_code
+  }
+  return poster
+}
+
 function parseTaskArtifact(value: unknown): TaskArtifact {
   if (!isRecord(value)) {
     throw new TaskArtifactApiError('invalid_artifact')
@@ -255,6 +288,7 @@ function parseTaskArtifact(value: unknown): TaskArtifact {
     }
     artifact.mime_type = mimeType
   }
+  if (value.poster != null) artifact.poster = parseTaskVideoPoster(value.poster)
   return artifact
 }
 

@@ -74,7 +74,10 @@ export function useVideoWorkArtifacts(log: TaskLog | null, open: boolean) {
     refetchInterval: (current) =>
       enabled &&
       !current.state.error &&
-      current.state.data?.hostedVideo?.state === 'processing'
+      (current.state.data?.hostedVideo?.state === 'processing' ||
+        current.state.data?.artifacts.some(
+          (artifact) => artifact.poster?.state === 'pending'
+        ))
         ? 10_000
         : false,
   })
@@ -130,6 +133,10 @@ export function useVideoWorkArtifacts(log: TaskLog | null, open: boolean) {
   }, [client, identity.active, open, requestKey])
 
   const status = getServerErrorStatus(query.error)
+  const retryFetch = useCallback(
+    () => refetch({ cancelRefetch: false }),
+    [refetch]
+  )
   return {
     data:
       open && !blocked && status !== 401 && status !== 403
@@ -138,7 +145,7 @@ export function useVideoWorkArtifacts(log: TaskLog | null, open: boolean) {
     isLoading: enabled && query.isLoading,
     isFetching: query.isFetching,
     error: query.error,
-    refetch: () => refetch({ cancelRefetch: false }),
+    refetch: retryFetch,
     renewMedia,
   }
 }

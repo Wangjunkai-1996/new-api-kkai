@@ -3,8 +3,10 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 
+	"github.com/QuantumNous/new-api/constant"
 	"gorm.io/gorm"
 )
 
@@ -15,7 +17,8 @@ func (t *Task) IsAssetHostedResult() bool {
 }
 
 func (t *Task) PublicResultURL() string {
-	if t == nil || t.IsAssetHostedResult() {
+	if t == nil || t.IsAssetHostedResult() ||
+		(t.Status == TaskStatusFailure && slices.Contains(constant.VideoTaskActions(), t.Action)) {
 		return ""
 	}
 	return t.GetResultURL()
@@ -31,6 +34,12 @@ func (t *Task) PublicData() json.RawMessage {
 func (t *Task) PublicFailReason() string {
 	if t == nil || strings.TrimSpace(t.FailReason) == "" {
 		return ""
+	}
+	if t.Status == TaskStatusFailure && slices.Contains(constant.VideoTaskActions(), t.Action) {
+		if detail := t.FailureForDisplay(); detail != nil && detail.Message != "" {
+			return detail.Message
+		}
+		return AssetHostedTaskPublicFailureReason
 	}
 	return t.PublicFailureReason(t.FailReason)
 }

@@ -23,11 +23,12 @@ import { useEffect, useRef } from 'react'
 
 import { getServerErrorStatus } from '@/lib/server-error-message'
 
-import { getVideoWorks } from '../api'
+import { getVideoWorks, prepareVideoPosters } from '../api'
 import type {
   GetTaskLogsParams,
   TaskLog,
   VideoWorksStatusCounts,
+  VideoWorksPage,
 } from '../types'
 import { useVideoWorksIdentity } from './use-video-works-identity'
 
@@ -57,7 +58,9 @@ export function videoWorksRefreshInterval(items: TaskLog[]): number | false {
   if (
     items.some(
       (item) =>
-        activeStatuses.has(item.status) || item.media?.state === 'processing'
+        activeStatuses.has(item.status) ||
+        item.media?.state === 'processing' ||
+        item.poster?.state === 'pending'
     )
   ) {
     return 10_000
@@ -121,6 +124,7 @@ export function useVideoWorks() {
   const requestKey = JSON.stringify(queryKey)
   const failures = useRef({ key: '', count: 0 })
   const renewedPosters = useRef({ key: '', ids: new Set<number>() })
+  const preparedPosters = useRef({ key: '', ids: new Set<number>() })
   const query = useQuery({
     queryKey,
     queryFn: async ({ signal }) => {
@@ -169,6 +173,71 @@ export function useVideoWorks() {
       })
     }
   }, [client, identity.active, requestKey])
+  const posterIds = JSON.stringify(
+    (data?.items ?? [])
+      .filter(
+        (item) =>
+          item.status === 'SUCCESS' &&
+          !item.media &&
+          !item.result_discarded &&
+          !item.poster
+      )
+      .map((item) => item.id)
+  )
+  useEffect(() => {
+    if (!identity.ready || !identity.active || query.error) return
+    if (preparedPosters.current.key !== requestKey) {
+      preparedPosters.current = { key: requestKey, ids: new Set() }
+    }
+    const attempt = preparedPosters.current
+    const ids = (JSON.parse(posterIds) as number[]).filter(
+      (id) => !attempt.ids.has(id)
+    )
+    if (!ids.length) return
+    ids.forEach((id) => attempt.ids.add(id))
+    const controller = new AbortController()
+    const batches = Array.from({ length: Math.ceil(ids.length / 20) }, (_, i) =>
+      ids.slice(i * 20, (i + 1) * 20)
+    )
+    void Promise.allSettled(
+      batches.map((batch) =>
+        prepareVideoPosters(batch, identity.isAdminView, controller.signal)
+      )
+    )
+      .then((results) => {
+        if (controller.signal.aborted || preparedPosters.current !== attempt) {
+          return
+        }
+        const posters = results.flatMap((result) =>
+          result.status === 'fulfilled' ? result.value : []
+        )
+        const byId = new Map(posters.map((item) => [item.id, item.poster]))
+        client.setQueryData<VideoWorksPage>(
+          JSON.parse(requestKey),
+          (current) =>
+            current && {
+              ...current,
+              items: current.items.map((item) =>
+                byId.has(item.id)
+                  ? { ...item, poster: byId.get(item.id) }
+                  : item
+              ),
+            }
+        )
+      })
+      // Poster preparation is optional: old backends and failed cache work must
+      // not hide video records or trigger an automatic POST retry storm.
+      .catch(() => {})
+    return () => controller.abort()
+  }, [
+    client,
+    identity.active,
+    identity.isAdminView,
+    identity.ready,
+    posterIds,
+    query.error,
+    requestKey,
+  ])
   return {
     items: data?.items ?? [],
     total: data?.total ?? 0,
@@ -189,11 +258,12 @@ export function useVideoWorks() {
       if (renewedPosters.current.key !== requestKey) {
         renewedPosters.current = { key: requestKey, ids: new Set() }
       }
+      const expiry = log.media?.poster_expires_at ?? log.poster?.expires_at
       if (
         !identity.ready ||
         !identity.active ||
-        !log.media?.poster_expires_at ||
-        log.media.poster_expires_at * 1000 > Date.now() + 1000 ||
+        !expiry ||
+        expiry * 1000 > Date.now() + 1000 ||
         renewedPosters.current.ids.has(log.id)
       ) {
         return false
@@ -203,8 +273,12 @@ export function useVideoWorks() {
       const updated = result.data?.items.find((item) => item.id === log.id)
       return (
         !result.isError &&
-        Boolean(updated?.media?.poster_url) &&
-        (updated?.media?.poster_expires_at ?? 0) * 1000 > Date.now()
+        Boolean(updated?.media?.poster_url ?? updated?.poster?.url) &&
+        (updated?.media?.poster_expires_at ??
+          updated?.poster?.expires_at ??
+          0) *
+          1000 >
+          Date.now()
       )
     },
   }

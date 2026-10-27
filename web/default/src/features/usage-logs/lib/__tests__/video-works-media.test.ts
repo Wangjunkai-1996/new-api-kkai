@@ -132,6 +132,52 @@ describe('video work media contracts', () => {
     ).toThrow()
   })
 
+  test('keeps a poster attached to its own output video and rejects unsafe cover URLs', () => {
+    const projection = parseTaskArtifactsResponse({
+      success: true,
+      data: {
+        artifacts: [
+          {
+            key: 'second-video',
+            type: 'video',
+            content_url: contentUrl,
+            poster: {
+              state: 'ready',
+              url: signedUrl,
+              expires_at: 2_000_000_000,
+              artifact_key: 'second-video',
+            },
+          },
+        ],
+      },
+    })
+    expect(projection.artifacts[0].poster).toEqual({
+      state: 'ready',
+      url: signedUrl,
+      expires_at: 2_000_000_000,
+      artifact_key: 'second-video',
+    })
+    expect(() =>
+      parseTaskArtifactsResponse({
+        success: true,
+        data: {
+          artifacts: [
+            {
+              key: 'second-video',
+              type: 'video',
+              content_url: contentUrl,
+              poster: {
+                state: 'ready',
+                url: 'javascript:alert(1)',
+                expires_at: 2_000_000_000,
+              },
+            },
+          ],
+        },
+      })
+    ).toThrow('invalid_content_url')
+  })
+
   test('does not expose an upstream fallback alongside a hosted result', () => {
     expect(() =>
       parseTaskArtifactsResponse(

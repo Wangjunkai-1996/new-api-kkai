@@ -23,10 +23,11 @@ import (
 )
 
 type taskArtifactResponse struct {
-	Key        string `json:"key"`
-	Type       string `json:"type"`
-	MimeType   string `json:"mime_type,omitempty"`
-	ContentURL string `json:"content_url"`
+	Key        string               `json:"key"`
+	Type       string               `json:"type"`
+	MimeType   string               `json:"mime_type,omitempty"`
+	ContentURL string               `json:"content_url"`
+	Poster     *dto.TaskVideoPoster `json:"poster,omitempty"`
 }
 
 var (
@@ -52,6 +53,8 @@ func GetTask(c *gin.Context) {
 	failReason := task.FailReason
 	if task.Status == model.TaskStatusSuccess && taskFailReasonIsLegacyResultURL(task.FailReason) {
 		failReason = ""
+	} else if task.Status == model.TaskStatusFailure {
+		failReason = task.PublicFailReason()
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"task_id":     task.TaskID,
@@ -121,6 +124,12 @@ func writeTaskArtifacts(c *gin.Context, task *model.Task, dashboard bool) {
 		return
 	}
 	items := make([]taskArtifactResponse, 0, len(artifacts))
+	var posterStore service.VideoAssetStore
+	if len(task.PrivateData.VideoPosters) > 0 {
+		if allowed, err := authorizedTaskVideoPosterOwners(c.Request.Context(), model.DB, []*model.Task{task}, c.GetInt("id"), dashboard && c.GetInt("role") >= common.RoleAdminUser); err == nil && allowed[task.ID] {
+			posterStore, _ = videoStudioAssetStore(c)
+		}
+	}
 	for _, artifact := range artifacts {
 		contentURL, buildErr := service.BuildTaskArtifactContentURL(task.TaskID, artifact.Key)
 		if buildErr != nil {
@@ -132,6 +141,7 @@ func writeTaskArtifacts(c *gin.Context, task *model.Task, dashboard bool) {
 			Type:       artifact.Type,
 			MimeType:   artifact.MimeType,
 			ContentURL: contentURL,
+			Poster:     service.TaskVideoPosterForDisplay(c.Request.Context(), posterStore, task, artifact.Key),
 		})
 	}
 	response := gin.H{"task_id": task.TaskID, "artifacts": items}
@@ -496,6 +506,10 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 			}
 		}
 		item := relay.TaskModel2Dto(task)
+		item.Failure = task.FailureForDisplay()
+		if task.Status == model.TaskStatusFailure {
+			item.ResultURL = ""
+		}
 		item.Billing = service.TaskBillingForDisplay(task)
 		item.Data = nil
 		item.LegacyVideoAvailable = legacyVideoAvailable(task)

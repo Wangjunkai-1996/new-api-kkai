@@ -369,10 +369,16 @@ export interface TaskLog {
   }
   legacy_video_available?: boolean
   media?: TaskMediaSummary
+  poster?: TaskVideoPoster
   // A synchronous result returned inline and never persisted; artifact
   // retrieval is not offered for it.
   result_discarded?: boolean
   fail_reason?: string
+  failure?: {
+    code: string
+    message?: string
+    stage?: string
+  }
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   admin_info?: {
     request_id?: string
@@ -409,11 +415,20 @@ export interface TaskPluginRuntimeInfo {
 
 export type TaskArtifactType = 'image' | 'video' | 'audio' | 'file'
 
+export interface TaskVideoPoster {
+  state: 'pending' | 'ready' | 'unavailable'
+  url?: string
+  expires_at?: number
+  artifact_key?: string
+  failure_code?: string
+}
+
 export interface TaskArtifact {
   key: string
   type: TaskArtifactType
   mime_type?: string
   content_url: string
+  poster?: TaskVideoPoster
 }
 
 export interface AudioClip {

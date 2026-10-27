@@ -62,8 +62,30 @@ func getVideoWorks(c *gin.Context, adminView bool) {
 		return
 	}
 	outputs, mediaErr := service.LoadTaskVideoOutputs(c.Request.Context(), model.DB, tasks, c.GetInt("id"), adminView)
+	posterOwners, posterOwnerErr := authorizedTaskVideoPosterOwners(c.Request.Context(), model.DB, tasks, c.GetInt("id"), adminView)
+	posterTasks := make([]*model.Task, 0, len(tasks))
+	if posterOwnerErr == nil {
+		for _, task := range tasks {
+			if posterOwners[task.ID] && outputs[task.ID] == nil && len(task.PrivateData.VideoPosters) > 0 {
+				posterTasks = append(posterTasks, task)
+			}
+		}
+	}
+	posterDataLoaded, posterDataErr := model.LoadVideoWorksPosterData(c.Request.Context(), model.DB, posterTasks)
+	if posterDataErr != nil {
+		common.SysError("load video work poster source versions failed: " + posterDataErr.Error())
+	}
 	// Media authorization already loaded owners in one batch, including names.
 	items := tasksToDto(tasks, false, role)
+	failures, failureErr := service.LoadTaskFailures(c.Request.Context(), tasks)
+	if failureErr != nil {
+		common.SysError("load video work failure details failed: " + failureErr.Error())
+	}
+	for _, item := range items {
+		if failure := failures[item.ID]; failure != nil {
+			item.Failure = failure
+		}
+	}
 	var store service.VideoAssetStore
 	var storeErr error
 	storeLoaded := false
@@ -82,6 +104,24 @@ func getVideoWorks(c *gin.Context, adminView bool) {
 		item.Billing.AmountAvailable = &available
 		output := outputs[item.ID]
 		if output == nil {
+			if posterOwnerErr == nil && posterOwners[item.ID] && len(tasks[i].PrivateData.VideoPosters) > 0 {
+				data, loaded := posterDataLoaded[item.ID]
+				if posterDataErr != nil || !loaded {
+					item.Poster = &dto.TaskVideoPoster{State: "unavailable", FailureCode: "service_unavailable"}
+					continue
+				}
+				posterTask := *tasks[i]
+				posterTask.Data = data
+				keys, keyErr := taskVideoPosterArtifactKeys(&posterTask)
+				if keyErr != nil || len(keys) == 0 {
+					continue
+				}
+				if !storeLoaded {
+					store, storeErr = videoStudioAssetStore(c)
+					storeLoaded = true
+				}
+				item.Poster = service.TaskVideoPosterForDisplay(c.Request.Context(), store, &posterTask, keys[0])
+			}
 			// A batch error cannot establish that an ordinary task uses Studio.
 			continue
 		}

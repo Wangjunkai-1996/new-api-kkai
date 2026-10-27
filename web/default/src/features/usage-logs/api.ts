@@ -25,6 +25,7 @@ import { buildQueryParams } from './lib/query-params'
 import {
   parseTaskArtifactsResponse,
   parseTaskMediaSummary,
+  parseTaskVideoPoster,
   TaskArtifactApiError,
 } from './lib/task-artifacts'
 import type {
@@ -161,6 +162,25 @@ const videoWorkSchema = z
     submit_time: z.number().finite(),
     status: z.string(),
     billing: z.object({ amount_available: z.boolean() }).passthrough(),
+    failure: z
+      .object({
+        code: z.string(),
+        message: z.string().optional(),
+        stage: z.string().optional(),
+      })
+      .optional(),
+    poster: z
+      .unknown()
+      .optional()
+      .transform((value) => {
+        if (value == null) return undefined
+        try {
+          return parseTaskVideoPoster(value)
+        } catch {
+          // A malformed optional cover cannot hide the task or its bill.
+          return undefined
+        }
+      }),
     media: z
       .unknown()
       .optional()
@@ -203,4 +223,41 @@ export async function getVideoWorks(
     { ...taskArtifactRequestConfig, signal }
   )
   return videoWorksPageSchema.parse(requireServerSuccess(response.data).data)
+}
+
+const preparedVideoPostersSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.number().int().positive(),
+        poster: z
+          .unknown()
+          .optional()
+          .transform((value) =>
+            value == null ? undefined : parseTaskVideoPoster(value)
+          ),
+      })
+    )
+    .max(100),
+})
+
+export async function prepareVideoPosters(
+  ids: number[],
+  isAdmin: boolean,
+  signal?: AbortSignal,
+  artifactKey?: string
+) {
+  const response = await api.post(
+    isAdmin
+      ? '/api/task/video-posters/prepare'
+      : '/api/task/self/video-posters/prepare',
+    {
+      task_record_ids: ids,
+      ...(artifactKey ? { artifact_key: artifactKey } : {}),
+    },
+    { ...taskArtifactRequestConfig, signal }
+  )
+  return preparedVideoPostersSchema.parse(
+    requireServerSuccess(response.data).data
+  ).items
 }

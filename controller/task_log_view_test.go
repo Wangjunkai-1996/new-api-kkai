@@ -277,7 +277,7 @@ func TestTaskLogDTOKeepsFailureReasonAndDoesNotMarkPluginTaskLegacy(t *testing.T
 		FailReason: "provider rejected the request",
 	}
 	failedView := tasksToDto([]*model.Task{failed}, false, common.RoleCommonUser)[0]
-	assert.Equal(t, "provider rejected the request", failedView.FailReason)
+	assert.Equal(t, "video generation failed", failedView.FailReason)
 	assert.False(t, failedView.LegacyVideoAvailable)
 
 	pluginTask := &model.Task{
@@ -297,6 +297,30 @@ func TestTaskLogDTOKeepsFailureReasonAndDoesNotMarkPluginTaskLegacy(t *testing.T
 	assert.False(t, pluginView.LegacyVideoAvailable)
 	assert.Empty(t, pluginView.ResultURL)
 	assert.Empty(t, pluginView.FailReason)
+}
+
+func TestTaskLogDTOProjectsOnlySafeFailureDetails(t *testing.T) {
+	task := &model.Task{
+		TaskID: "failed-video", Action: constant.TaskActionTextToVideo, Status: model.TaskStatusFailure,
+		FailReason: "video generation failed",
+		PrivateData: model.TaskPrivateData{
+			Key: "secret-provider-key", ResultURL: "https://provider.internal/private.mp4?signature=secret",
+			Failure: &model.TaskFailureSnapshot{
+				Code: "privacy_restriction", Stage: "generation", RequestID: "secret-request",
+				Message: "The input image 'content[1]' may contain real person.",
+			},
+		},
+	}
+	item := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+	require.NotNil(t, item.Failure)
+	assert.Equal(t, "privacy_restriction", item.Failure.Code)
+	assert.Equal(t, "The input image 'content[1]' may contain real person.", item.Failure.Message)
+	encoded, err := common.Marshal(item)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "secret-provider-key")
+	assert.NotContains(t, string(encoded), "secret-request")
+	assert.NotContains(t, string(encoded), "provider.internal")
+	assert.NotContains(t, string(encoded), "signature")
 }
 
 func taskBillingFields(t *testing.T, billing *dto.TaskBilling) map[string]any {

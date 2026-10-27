@@ -112,6 +112,16 @@ func executeTaskSubmission(c *gin.Context, relayInfo *relaycommon.RelayInfo) (*t
 		if task != nil && task.ID > 0 {
 			if failed, _, err := model.FailTaskBeforeSubmission(c, task.ID, "task submission failed"); err == nil && failed != nil {
 				*task = *failed
+				if taskErr != nil && task.Status == model.TaskStatusFailure {
+					reason := taskErr.Message
+					if taskErr.Error != nil {
+						reason = taskErr.Error.Error()
+					}
+					failure := model.NewTaskFailureSnapshot("submission", taskErr.UpstreamErrorCode, reason, nil)
+					if err := model.RecordTaskFailure(c, task.ID, failure); err != nil {
+						logger.LogWarn(c, fmt.Sprintf("record task failure diagnostics: task_id=%d", task.ID))
+					}
+				}
 			}
 		}
 	}()

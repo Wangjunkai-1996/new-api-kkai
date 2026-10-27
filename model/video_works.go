@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -116,4 +117,37 @@ func ListVideoWorks(ctx context.Context, db *gorm.DB, userID, offset, limit int,
 	items := make([]*Task, 0)
 	err := query.Order("id DESC").Offset(offset).Limit(limit).Find(&items).Error
 	return items, counts, total, err
+}
+
+// LoadVideoWorksPosterData fetches only current-page rows that have a cached
+// poster. Task.Data is needed to validate the poster's source version, but is
+// deliberately omitted from the regular list and never returned to clients.
+func LoadVideoWorksPosterData(ctx context.Context, db *gorm.DB, tasks []*Task) (map[int64][]byte, error) {
+	const maxDataBytes = 256 << 10
+	loaded := make(map[int64][]byte)
+	ids := make([]int64, 0, len(tasks))
+	for _, task := range tasks {
+		if len(task.PrivateData.VideoPosters) > 0 && !task.IsAssetHostedResult() {
+			ids = append(ids, task.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return loaded, nil
+	}
+	sizeExpr := "COALESCE(LENGTH(data), 0)"
+	switch db.Dialector.Name() {
+	case "sqlite", "mysql":
+	case "postgres":
+		sizeExpr = "COALESCE(OCTET_LENGTH(data::text), 0)"
+	default:
+		return loaded, fmt.Errorf("unsupported video works database dialect: %s", db.Dialector.Name())
+	}
+	var rows []Task
+	if err := db.WithContext(ctx).Select("id", "data").Where("id IN ? AND "+sizeExpr+" <= ?", ids, maxDataBytes).Find(&rows).Error; err != nil {
+		return loaded, err
+	}
+	for _, row := range rows {
+		loaded[row.ID] = row.Data
+	}
+	return loaded, nil
 }

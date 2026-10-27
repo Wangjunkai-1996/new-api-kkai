@@ -361,65 +361,7 @@ func videoGenerationFailureCode(task model.Task) string {
 		}
 	}
 
-	if strings.Contains(diagnostic, "copyright restrictions") {
-		return videoGenerationFailureCodeCopyrightRestriction
-	}
-	if strings.Contains(diagnostic, "sensitivecontentdetected.privacyinformation") ||
-		strings.Contains(diagnostic, "may contain real person") ||
-		strings.Contains(diagnostic, "sensitive information") {
-		return videoGenerationFailureCodePrivacyRestriction
-	}
-	if strings.Contains(diagnostic, "sensitivecontentdetected.policyviolation") ||
-		strings.Contains(diagnostic, "content policy") {
-		return videoGenerationFailureCodeContentPolicy
-	}
-	if strings.Contains(diagnostic, "扣费失败") {
-		return videoGenerationFailureCodeBillingFailure
-	}
-	if strings.Contains(diagnostic, "insufficient_user_quota") ||
-		strings.Contains(diagnostic, "余额不足") ||
-		strings.Contains(diagnostic, "credit limit is insufficient") {
-		return videoGenerationFailureCodeQuotaExceeded
-	}
-	if strings.Contains(diagnostic, "unsupportedimageformat") ||
-		strings.Contains(diagnostic, "format is not supported") ||
-		strings.Contains(diagnostic, "file type is not supported") ||
-		strings.Contains(diagnostic, "文件类型不受支持") ||
-		strings.Contains(diagnostic, "格式不受支持") {
-		return videoGenerationFailureCodeUnsupportedMedia
-	}
-	if strings.Contains(diagnostic, "resource not found") ||
-		strings.Contains(diagnostic, "resource download failed") ||
-		strings.Contains(diagnostic, "invalidparameter.downloadfailed") ||
-		strings.Contains(diagnostic, "failed to download media from the provided url") ||
-		strings.Contains(diagnostic, "invalid video_url") ||
-		strings.Contains(diagnostic, "asset_ref_invalid") ||
-		strings.Contains(diagnostic, "资源同步失败") {
-		return videoGenerationFailureCodeMediaUnavailable
-	}
-	if strings.Contains(diagnostic, "invalidparameter") ||
-		strings.Contains(diagnostic, "invalid_parameter") ||
-		strings.Contains(diagnostic, "invalid parameter") ||
-		strings.Contains(diagnostic, "duration (seconds)") ||
-		strings.Contains(diagnostic, "pixel count") ||
-		strings.Contains(diagnostic, "width must be between") ||
-		strings.Contains(diagnostic, "video height") {
-		return videoGenerationFailureCodeInputInvalid
-	}
-	if strings.Contains(diagnostic, "任务不存在或已过期") {
-		return videoGenerationFailureCodeTaskExpired
-	}
-	if strings.Contains(diagnostic, "timed out") ||
-		strings.Contains(diagnostic, "超时") ||
-		strings.Contains(diagnostic, "upstream request failed") ||
-		strings.Contains(diagnostic, "当前用户未分配该模型可用的厂商") ||
-		strings.Contains(diagnostic, "upstream returned error") {
-		return videoGenerationFailureCodeTemporaryFailure
-	}
-	if strings.Contains(failReason, "task submission failed") {
-		return videoGenerationFailureCodeSubmissionFailure
-	}
-	return ""
+	return model.ClassifyTaskFailure(diagnostic)
 }
 
 func videoGenerationStatus(task model.Task, output *model.KKAIVideoAsset) string {

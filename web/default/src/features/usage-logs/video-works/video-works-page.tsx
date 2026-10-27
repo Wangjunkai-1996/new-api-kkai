@@ -203,6 +203,7 @@ function VideoWorksContent(props: { query: ReturnType<typeof useVideoWorks> }) {
         {!query.error && !query.isLoading && query.items.length > 0 && (
           <>
             <div className='video-works-table-head' aria-hidden='true'>
+              <span>{t('Cover')}</span>
               <span>{t('Video work')}</span>
               <span>{t('Status')}</span>
               <span>{t('Created')}</span>

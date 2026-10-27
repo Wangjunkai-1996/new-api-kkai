@@ -158,6 +158,9 @@ func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegist
 	if err := controller.RegisterImageGenerationBackgroundJobs(registry, workerID); err != nil {
 		return nil, err
 	}
+	if err := controller.RegisterTaskVideoPosterBackgroundJobs(registry, workerID); err != nil {
+		return nil, err
+	}
 	return registry, nil
 }
 

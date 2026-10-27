@@ -391,6 +391,8 @@ func SetApiRouter(router *gin.Engine) {
 		taskRoute := apiRouter.Group("/task")
 		{
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
+			taskRoute.POST("/self/video-posters/prepare", middleware.UserAuth(), controller.PrepareTaskVideoPosters)
+			taskRoute.POST("/video-posters/prepare", middleware.AdminAuth(), controller.AdminPrepareTaskVideoPosters)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
 			taskRoute.GET("/:task_id/artifacts", middleware.UserAuth(), controller.GetDashboardTaskArtifacts)
 		}

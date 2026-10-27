@@ -18,19 +18,21 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { RefreshIcon, Video01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import failedArt from '@/assets/video-works/failed.webp'
 import processingArt from '@/assets/video-works/processing.webp'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 
+import { prepareVideoPosters } from '../api'
 import { getTaskArtifactDownloadUrl } from '../lib/task-artifacts'
 import type { TaskLog } from '../types'
 import { useVideoWorkArtifacts } from './use-video-work-artifacts'
+import { useVideoWorksIdentity } from './use-video-works-identity'
 import { VideoWorkDetails } from './video-work-details'
+import { VideoWorkFailure } from './video-work-failure'
 import { isVideoWorkActive, videoWorkModel } from './video-work-state'
 import { VideoWorkCopy } from './video-work-summary'
 
@@ -47,6 +49,8 @@ export function VideoWorkPreview(props: VideoWorkPreviewProps) {
   const [failed, setFailed] = useState(false)
   const [revision, setRevision] = useState(0)
   const [selectedKey, setSelectedKey] = useState<string>()
+  const preparedArtifacts = useRef(new Set<string>())
+  const identity = useVideoWorksIdentity()
   const active =
     isVideoWorkActive(props.log) || props.log.media?.state === 'processing'
   const query = useVideoWorkArtifacts(
@@ -60,6 +64,45 @@ export function VideoWorkPreview(props: VideoWorkPreviewProps) {
   const videos = artifacts.filter((artifact) => artifact.type === 'video')
   const selected =
     videos.find((artifact) => artifact.key === selectedKey) || videos[0]
+  const artifactKey = selected?.key
+  const artifactHasPoster = Boolean(selected?.poster)
+  const refetchArtifacts = query.refetch
+  useEffect(() => {
+    if (
+      !identity.ready ||
+      !identity.active ||
+      props.log.status !== 'SUCCESS' ||
+      !artifactKey ||
+      artifactHasPoster ||
+      props.log.poster?.artifact_key === artifactKey ||
+      preparedArtifacts.current.has(artifactKey)
+    ) {
+      return
+    }
+    preparedArtifacts.current.add(artifactKey)
+    const controller = new AbortController()
+    void prepareVideoPosters(
+      [props.log.id],
+      props.isAdmin,
+      controller.signal,
+      artifactKey
+    )
+      .then(() => {
+        if (!controller.signal.aborted) void refetchArtifacts()
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [
+    identity.ready,
+    identity.active,
+    props.log.id,
+    props.log.status,
+    props.log.poster?.artifact_key,
+    props.isAdmin,
+    artifactKey,
+    artifactHasPoster,
+    refetchArtifacts,
+  ])
   let source = selected?.content_url || query.data?.legacyContentUrl
   let download = source ? getTaskArtifactDownloadUrl(source) : undefined
   if (hosted) {
@@ -78,10 +121,6 @@ export function VideoWorkPreview(props: VideoWorkPreviewProps) {
       'You can preview and download it when processing is complete.'
     )
     art = processingArt
-  } else if (props.log.status === 'FAILURE') {
-    title = t('This video could not be generated')
-    description = t('Review the failure reason and billing details below.')
-    art = failedArt
   } else if (props.log.result_discarded) {
     title = t('Result not retained')
     description = t(
@@ -149,7 +188,14 @@ export function VideoWorkPreview(props: VideoWorkPreviewProps) {
         controls
         playsInline
         preload='metadata'
-        poster={props.log.media?.poster_url}
+        poster={
+          hosted
+            ? props.log.media?.poster_url
+            : (selected?.poster?.url ??
+              (props.log.poster?.artifact_key === selected?.key
+                ? props.log.poster?.url
+                : undefined))
+        }
         onError={() => {
           void query.renewMedia().then((renewed) => {
             if (renewed) setRevision((value) => value + 1)
@@ -157,6 +203,31 @@ export function VideoWorkPreview(props: VideoWorkPreviewProps) {
           })
         }}
       />
+    )
+  }
+  if (props.log.status === 'FAILURE') {
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) props.onClose()
+        }}
+        title={t('Generation failed')}
+        contentClassName='video-work-preview-dialog video-work-failure-dialog sm:max-w-[680px]'
+        bodyClassName='video-work-failure-content'
+      >
+        <VideoWorkFailure log={props.log} />
+        <VideoWorkDetails
+          log={props.log}
+          isAdmin={props.isAdmin}
+          isRoot={props.isRoot}
+          onBilling={props.onBilling}
+        />
+        <div className='video-work-preview-id'>
+          <code>{props.log.task_id}</code>
+          <VideoWorkCopy taskId={props.log.task_id} />
+        </div>
+      </Dialog>
     )
   }
   return (
@@ -198,12 +269,6 @@ export function VideoWorkPreview(props: VideoWorkPreviewProps) {
             <code>{props.log.task_id}</code>
             <VideoWorkCopy taskId={props.log.task_id} />
           </div>
-          {props.log.fail_reason && (
-            <div className='video-work-failure'>
-              <strong>{t('Fail Reason')}</strong>
-              <p>{props.log.fail_reason}</p>
-            </div>
-          )}
           {artifacts.some((artifact) => artifact.type !== 'video') && (
             <div className='video-work-attachments'>
               {artifacts

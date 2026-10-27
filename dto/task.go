@@ -46,6 +46,8 @@ type TaskDto struct {
 	Quota                int             `json:"quota"`
 	Billing              *TaskBilling    `json:"billing,omitempty"`
 	Media                *TaskVideoMedia `json:"media,omitempty"`
+	Failure              *TaskFailure   `json:"failure,omitempty"`
+	Poster               *TaskVideoPoster `json:"poster,omitempty"`
 	Action               string          `json:"action"`
 	Status               string          `json:"status"`
 	FailReason           string          `json:"fail_reason"`
@@ -99,6 +101,14 @@ type TaskVideoMedia struct {
 	Width           int     `json:"width,omitempty"`
 	Height          int     `json:"height,omitempty"`
 	DurationSeconds float64 `json:"duration_seconds,omitempty"`
+}
+
+type TaskVideoPoster struct {
+	State       string `json:"state"`
+	URL         string `json:"url,omitempty"`
+	ExpiresAt   int64  `json:"expires_at,omitempty"`
+	ArtifactKey string `json:"artifact_key,omitempty"`
+	FailureCode string `json:"failure_code,omitempty"`
 }
 
 type TaskHostedVideo struct {
