@@ -189,6 +189,13 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
     discountRate > 0 &&
     discountRate < 1 &&
     props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
+  const quoteDiscountRate =
+    props.quote &&
+    discountRate > 0 &&
+    discountRate < 1 &&
+    props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
+      ? discountRate
+      : undefined
   const originalPrice =
     quoteReady && hasDiscount
       ? props.paymentAmount / discountRate
@@ -495,7 +502,10 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
               />
             </div>
             {props.quote ? (
-              <PaymentAmounts pricing={props.quote} />
+              <PaymentAmounts
+                pricing={props.quote}
+                discountRate={quoteDiscountRate}
+              />
             ) : (
               <>
                 <div className='space-y-4 text-xs'>

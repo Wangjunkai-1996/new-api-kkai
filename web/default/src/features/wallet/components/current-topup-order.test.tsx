@@ -104,6 +104,14 @@ describe('current top-up result and payment facts', () => {
       )
     ).toBeVisible()
   })
+  it('shows configured top-up savings in the lifecycle payment summary', () => {
+    render(<PaymentAmounts pricing={paymentOrder()} discountRate={0.8} />)
+
+    expect(screen.getByText('Original Price')).toBeVisible()
+    expect(screen.getByText('You save')).toBeVisible()
+    expect(screen.getByText('CNY 12.50')).toBeVisible()
+    expect(screen.getByText('CNY 2.50')).toBeVisible()
+  })
   it('offers a local end action without claiming to cancel the provider session', () => {
     const end = vi.fn()
     const order = paymentOrder({
