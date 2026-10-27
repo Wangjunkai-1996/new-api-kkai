@@ -38,6 +38,7 @@ type WaffoPancakeCreateSessionParams struct {
 	BuyerEmail              string
 	ExpiresInSeconds        *int
 	OrderMerchantExternalID string
+	Metadata                map[string]string
 }
 
 // WaffoPancakeCheckoutSession is the response of CreateWaffoPancakeCheckoutSession.
@@ -80,6 +81,8 @@ type WaffoPancakeWebhookData struct {
 	TaxAmount                     string
 	ProductName                   string
 	MerchantProvidedBuyerIdentity string
+	OrderMetadata                 map[string]string
+	ProductMetadata               map[string]string
 }
 
 // NormalizedEventType returns the event type or empty string for a nil event.
@@ -139,6 +142,7 @@ func CreateWaffoPancakeCheckoutSession(ctx context.Context, params *WaffoPancake
 			BuyerEmail:              optionalString(params.BuyerEmail),
 			ExpiresInSeconds:        params.ExpiresInSeconds,
 			OrderMerchantExternalID: optionalString(params.OrderMerchantExternalID),
+			Metadata:                params.Metadata,
 		},
 		BuyerIdentity: params.BuyerIdentity,
 	}
@@ -217,6 +221,8 @@ func VerifyConfiguredWaffoPancakeWebhook(payload string, signatureHeader string)
 			TaxAmount:                     evt.Data.TaxAmount,
 			ProductName:                   evt.Data.ProductName,
 			MerchantProvidedBuyerIdentity: identity,
+			OrderMetadata:                 evt.Data.OrderMetadata,
+			ProductMetadata:               evt.Data.ProductMetadata,
 		},
 	}, nil
 }

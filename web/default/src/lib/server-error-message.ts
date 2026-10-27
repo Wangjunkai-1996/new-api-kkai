@@ -91,6 +91,18 @@ const serverErrorMessageKeys = {
   TELEGRAM_BIND_USER_DELETED: 'This user account no longer exists.',
   TELEGRAM_BIND_USER_DISABLED: 'This user account is disabled.',
   TELEGRAM_BIND_INTERNAL_ERROR: 'Telegram binding failed. Please try again.',
+  membership_invalid_request:
+    'The request could not be completed. Your input is preserved.',
+  membership_disabled:
+    'New membership purchases are temporarily unavailable. Existing benefits remain valid.',
+  membership_unavailable:
+    'Membership information could not be loaded. Please refresh before purchasing.',
+  membership_state_changed:
+    'Payment eligibility has changed. Review the selected orders again.',
+  membership_payment_review:
+    'Payment is recorded. An administrator will review this order; do not pay again.',
+  membership_not_found: 'Content not found.',
+  membership_internal_error: 'Please try again later.',
 } as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {

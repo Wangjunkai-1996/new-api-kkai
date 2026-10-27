@@ -373,6 +373,7 @@ func genCreemLink(ctx context.Context, referenceId string, product *CreemProduct
 		Metadata: map[string]string{
 			"username":     username,
 			"reference_id": referenceId,
+			"product_id":   product.ProductId,
 			"product_name": product.Name,
 			"quota":        fmt.Sprintf("%d", product.Quota),
 		},

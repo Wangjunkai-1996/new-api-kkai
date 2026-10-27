@@ -34,6 +34,37 @@ type membershipCheckout struct {
 	FormFields map[string]string `json:"form_fields,omitempty"`
 }
 
+func validateMembershipCheckout(checkout *membershipCheckout) error {
+	if checkout == nil || (checkout.PaymentURL == "" && checkout.SubmitURL == "") {
+		return errors.New("membership checkout URL is unavailable")
+	}
+	for _, raw := range []string{checkout.PaymentURL, checkout.SubmitURL} {
+		if raw == "" {
+			continue
+		}
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return errors.New("membership checkout URL must use HTTPS")
+		}
+	}
+	if checkout.SubmitURL == "" && len(checkout.FormFields) > 0 {
+		return errors.New("membership checkout form is missing its submit URL")
+	}
+	return nil
+}
+
+func membershipStripeEnvironment(apiKey string) string {
+	key := strings.ToLower(strings.TrimSpace(apiKey))
+	switch {
+	case strings.HasPrefix(key, "sk_test_"), strings.HasPrefix(key, "rk_test_"):
+		return "test"
+	case strings.HasPrefix(key, "sk_live_"), strings.HasPrefix(key, "rk_live_"):
+		return "prod"
+	default:
+		return ""
+	}
+}
+
 func obtainMembershipCheckout(ctx context.Context, order *model.MembershipOrder) (*membershipCheckout, error) {
 	claimed, create, err := model.ClaimMembershipCheckout(order.TradeNo, order.UserID)
 	if err != nil {
@@ -45,15 +76,21 @@ func obtainMembershipCheckout(ctx context.Context, order *model.MembershipOrder)
 		if err := common.UnmarshalJsonStr(order.CheckoutData, &checkout); err != nil {
 			return nil, err
 		}
+		if err := validateMembershipCheckout(&checkout); err != nil {
+			return nil, err
+		}
 		return &checkout, nil
 	}
 	checkout, err := createMembershipCheckout(ctx, order)
+	if err == nil {
+		err = validateMembershipCheckout(checkout)
+	}
 	var data []byte
 	if err == nil {
 		data, err = common.Marshal(checkout)
 	}
 	if err == nil {
-		err = model.SaveMembershipCheckout(order.TradeNo, string(data))
+		err = model.SaveMembershipCheckoutClaim(order.TradeNo, order.CheckoutStartedAt, string(data))
 	}
 	if err != nil {
 		// Remote providers may have created a payable session even when their
@@ -83,7 +120,7 @@ func membershipPaymentMethods(tier model.MembershipTier) []membershipPaymentMeth
 			methods = append(methods, membershipPaymentMethod{Provider: model.PaymentProviderEpay, Method: kind, Name: method["name"]})
 		}
 	}
-	if (strings.HasPrefix(setting.StripeApiSecret, "sk_") || strings.HasPrefix(setting.StripeApiSecret, "rk_")) && setting.StripeWebhookSecret != "" {
+	if membershipStripeEnvironment(setting.StripeApiSecret) != "" && setting.StripeWebhookSecret != "" {
 		methods = append(methods, membershipPaymentMethod{Provider: model.PaymentProviderStripe, Method: model.PaymentMethodStripe, Name: "Stripe"})
 	}
 	if tier.PaymentProducts[model.PaymentProviderCreem] != "" && setting.CreemApiKey != "" && setting.CreemWebhookSecret != "" {
@@ -141,6 +178,8 @@ func createMembershipCheckout(ctx context.Context, order *model.MembershipOrder)
 				ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{Name: stripe.String(terms.Tier.Name)},
 			}}},
 		}
+		params.AddMetadata("membership_tier_id", terms.Tier.ID)
+		params.AddMetadata("membership_release_id", strconv.FormatInt(terms.ReleaseID, 10))
 		params.Context = ctx
 		params.SetIdempotencyKey(order.TradeNo)
 		if user.StripeCustomer != "" {
@@ -194,6 +233,7 @@ func createMembershipCheckout(ctx context.Context, order *model.MembershipOrder)
 		checkout, err := service.CreateWaffoPancakeCheckoutSession(ctx, &service.WaffoPancakeCreateSessionParams{
 			ProductID: productID, BuyerIdentity: service.WaffoPancakeBuyerIdentityFromUserID(user.Id), BuyerEmail: getWaffoPancakeBuyerEmail(user),
 			PriceSnapshot: &service.WaffoPancakePriceSnapshot{Amount: decimal.NewFromInt(order.AmountMinor).Div(decimal.NewFromInt(100)).StringFixed(2), TaxCategory: "saas"}, ExpiresInSeconds: &expires, OrderMerchantExternalID: order.TradeNo,
+			Metadata: map[string]string{"membership_product_id": productID, "membership_tier_id": terms.Tier.ID, "membership_release_id": strconv.FormatInt(terms.ReleaseID, 10)},
 		})
 		if err != nil {
 			return nil, err
@@ -254,7 +294,7 @@ func ResumeMembershipPayment(c *gin.Context) {
 		membershipAPIError(c, err)
 		return
 	}
-	view, err := membershipOrderResponse(order)
+	view, err := membershipOrderResponse(order, false)
 	if err != nil {
 		membershipAPIError(c, err)
 		return
@@ -328,10 +368,39 @@ func MembershipEpayNotify(c *gin.Context) {
 
 func completeMembershipStripe(event stripe.Event) error {
 	tradeNo := event.GetObjectValue("client_reference_id")
+	order, err := model.GetMembershipOrder(tradeNo, 0)
+	if err != nil {
+		return err
+	}
+	var terms model.MembershipOrderTerms
+	termsErr := common.UnmarshalJsonStr(order.Terms, &terms)
 	amount, err := strconv.ParseInt(event.GetObjectValue("amount_total"), 10, 64)
 	validation := ""
 	if err != nil || amount <= 0 {
 		validation = "invalid provider amount"
+	}
+	if termsErr != nil {
+		validation = "invalid membership order terms"
+	}
+	if termsErr == nil && terms.VerificationVersion > 0 {
+		if tierID := event.GetObjectValue("metadata", "membership_tier_id"); tierID == "" || tierID != terms.Tier.ID {
+			validation = "membership tier metadata mismatch"
+		}
+		if releaseID := event.GetObjectValue("metadata", "membership_release_id"); releaseID == "" || releaseID != strconv.FormatInt(terms.ReleaseID, 10) {
+			validation = "membership release metadata mismatch"
+		}
+		liveMode := strings.ToLower(strings.TrimSpace(event.GetObjectValue("livemode")))
+		if liveMode != "true" && liveMode != "false" {
+			validation = "Stripe environment is missing"
+		} else {
+			actualEnvironment := "test"
+			if liveMode == "true" {
+				actualEnvironment = "prod"
+			}
+			if terms.ProviderEnvironment == "" || terms.ProviderEnvironment != actualEnvironment {
+				validation = "Stripe environment mismatch"
+			}
+		}
 	}
 	receipt := event.GetObjectValue("payment_intent")
 	if receipt == "" {
@@ -345,29 +414,101 @@ func completeMembershipStripe(event stripe.Event) error {
 }
 
 func completeMembershipCreem(event *CreemWebhookEvent) error {
-	validation := ""
-	if event.Object.Product.BillingType != "onetime" {
-		validation = "product is not one-time"
+	if event == nil {
+		return model.ErrMembershipInvalidInput
 	}
-	_, err := model.CompleteMembershipPayment(model.MembershipPaymentInput{
+	order, err := model.GetMembershipOrder(event.Object.RequestId, 0)
+	if err != nil {
+		return err
+	}
+	var terms model.MembershipOrderTerms
+	termsErr := common.UnmarshalJsonStr(order.Terms, &terms)
+	validation := ""
+	if termsErr != nil {
+		validation = "invalid membership order terms"
+	}
+	expectedProduct := ""
+	if termsErr == nil {
+		expectedProduct = strings.TrimSpace(terms.ProviderProductID)
+		if expectedProduct == "" {
+			// Legacy orders predate the provider snapshot. The published tier is
+			// the only compatible fallback for those orders.
+			expectedProduct = strings.TrimSpace(terms.Tier.PaymentProducts[model.PaymentProviderCreem])
+		}
+	}
+	if expectedProduct == "" {
+		validation = "Creem product identity is unavailable"
+	} else if event.Object.Product.Id != expectedProduct || event.Object.Order.Product != expectedProduct {
+		validation = "Creem product mismatch"
+	}
+	if event.Object.Product.BillingType != "onetime" || event.Object.Order.Type != "onetime" || event.Object.Units != 1 {
+		validation = "Creem payment is not a one-time unit"
+	}
+	if termsErr == nil && terms.VerificationVersion > 0 {
+		expectedEnvironment := strings.TrimSpace(terms.ProviderEnvironment)
+		if expectedEnvironment == "" || event.Object.Order.Mode == "" || !strings.EqualFold(event.Object.Order.Mode, expectedEnvironment) {
+			validation = "Creem environment mismatch"
+		}
+		if event.Object.Mode == "" || !strings.EqualFold(event.Object.Mode, expectedEnvironment) {
+			validation = "Creem event environment mismatch"
+		}
+	}
+	_, err = model.CompleteMembershipPayment(model.MembershipPaymentInput{
 		TradeNo: event.Object.RequestId, Provider: model.PaymentProviderCreem, ReceiptID: event.Object.Order.Id,
 		AmountMinor: int64(event.Object.Order.AmountPaid), Currency: strings.ToUpper(event.Object.Order.Currency),
-		OneTime: event.Object.Order.Type == "onetime", Paid: event.Object.Order.Status == "paid", ValidationError: validation,
+		OneTime: event.Object.Order.Type == "onetime" && event.Object.Product.BillingType == "onetime" && event.Object.Units == 1, Paid: event.Object.Order.Status == "paid", ValidationError: validation,
 	})
 	return err
 }
 
 func completeMembershipPancake(event *service.WaffoPancakeWebhookEvent) error {
+	if event == nil {
+		return model.ErrMembershipInvalidInput
+	}
 	order, err := model.GetMembershipOrder(event.Data.OrderMerchantExternalID, 0)
 	if err != nil {
 		return err
 	}
+	var terms model.MembershipOrderTerms
+	termsErr := common.UnmarshalJsonStr(order.Terms, &terms)
 	validation := ""
+	if termsErr != nil {
+		validation = "invalid membership order terms"
+	}
 	if event.Data.MerchantProvidedBuyerIdentity != service.WaffoPancakeBuyerIdentityFromUserID(order.UserID) {
 		validation = "buyer identity mismatch"
 	}
-	if event.StoreID != setting.WaffoPancakeStoreID {
+	expectedStore := strings.TrimSpace(setting.WaffoPancakeStoreID)
+	if termsErr == nil && terms.ProviderStoreID != "" {
+		expectedStore = strings.TrimSpace(terms.ProviderStoreID)
+	}
+	if expectedStore == "" || event.StoreID != expectedStore {
 		validation = "store identity mismatch"
+	}
+	if termsErr == nil && terms.VerificationVersion > 0 {
+		if terms.ProviderEnvironment == "" || event.Mode == "" || !strings.EqualFold(event.Mode, terms.ProviderEnvironment) {
+			validation = "Pancake environment mismatch"
+		}
+		productID := strings.TrimSpace(terms.ProviderProductID)
+		if productID == "" {
+			validation = "Pancake product identity is unavailable"
+		} else {
+			metadataProductID := event.Data.OrderMetadata["membership_product_id"]
+			if metadataProductID == "" {
+				metadataProductID = event.Data.ProductMetadata["membership_product_id"]
+			}
+			metadataTierID := event.Data.OrderMetadata["membership_tier_id"]
+			if metadataTierID == "" {
+				metadataTierID = event.Data.ProductMetadata["membership_tier_id"]
+			}
+			metadataReleaseID := event.Data.OrderMetadata["membership_release_id"]
+			if metadataReleaseID == "" {
+				metadataReleaseID = event.Data.ProductMetadata["membership_release_id"]
+			}
+			if metadataProductID != productID || metadataTierID != terms.Tier.ID || metadataReleaseID != strconv.FormatInt(terms.ReleaseID, 10) {
+				validation = "Pancake product metadata mismatch"
+			}
+		}
 	}
 	amount, err := membershipMoneyMinor(event.Data.Amount)
 	if err != nil {

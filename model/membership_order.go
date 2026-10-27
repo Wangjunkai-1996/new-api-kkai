@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -26,6 +27,23 @@ func lockMembershipUserTx(tx *gorm.DB, userID int) (*User, *MembershipUserState,
 		return nil, nil, err
 	}
 	return &user, &state, nil
+}
+
+// hasUnresolvedMembershipPaymentExceptionTx is checked while the owning user
+// row is locked. A paid exception is a verified payment whose entitlement has
+// not been granted or dismissed; allowing another order to activate first can
+// make the original payment permanently ungrantable.
+func hasUnresolvedMembershipPaymentExceptionTx(tx *gorm.DB, userID int, excludeOrderID int64) (bool, error) {
+	query := tx.Model(&MembershipOrder{}).
+		Where("user_id = ? AND status = ? AND resolved_at = 0", userID, MembershipOrderException)
+	if excludeOrderID > 0 {
+		query = query.Where("id <> ?", excludeOrderID)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func CreateMembershipOrder(input MembershipOrderInput) (*MembershipOrder, error) {
@@ -69,11 +87,26 @@ func CreateMembershipOrder(input MembershipOrderInput) (*MembershipOrder, error)
 		if selected == nil || !selected.Enabled {
 			return ErrMembershipInvalidInput
 		}
+		pendingReview, err := hasUnresolvedMembershipPaymentExceptionTx(tx, input.UserID, 0)
+		if err != nil {
+			return err
+		}
+		if pendingReview {
+			return ErrMembershipPaymentReview
+		}
 		account, err := membershipAccountTx(tx, input.UserID, now)
 		if err != nil {
 			return err
 		}
-		terms := MembershipOrderTerms{Tier: *selected, ReleaseID: catalog.ReleaseID, DurationSeconds: MembershipDurationSeconds, Action: "purchase"}
+		terms := MembershipOrderTerms{
+			Tier: *selected, ReleaseID: catalog.ReleaseID, DurationSeconds: MembershipDurationSeconds, Action: "purchase",
+			ProviderEnvironment: strings.TrimSpace(input.ProviderEnvironment),
+			ProviderProductID:   strings.TrimSpace(input.ProviderProductID),
+			ProviderStoreID:     strings.TrimSpace(input.ProviderStoreID),
+		}
+		if terms.ProviderEnvironment != "" || terms.ProviderProductID != "" || terms.ProviderStoreID != "" {
+			terms.VerificationVersion = 1
+		}
 		if account != nil && account.ActiveAt(now) {
 			if selected.ID == account.TierID || selected.Rank <= account.Rank {
 				return fmt.Errorf("%w: an active membership can only upgrade", ErrMembershipConflict)
@@ -118,6 +151,9 @@ func CreateMembershipOrder(input MembershipOrderInput) (*MembershipOrder, error)
 				}
 			}
 			if pending.Status == MembershipOrderPending {
+				if membershipCheckoutRequiresManualReview(&pending) {
+					return fmt.Errorf("%w: existing payment checkout requires review", ErrMembershipConflict)
+				}
 				if err := tx.Model(&pending).Update("status", MembershipOrderClosed).Error; err != nil {
 					return err
 				}
@@ -327,7 +363,7 @@ func CompleteMembershipPayment(input MembershipPaymentInput) (*MembershipOrder, 
 		if reason == "" {
 			err = activateMembershipOrderTx(tx, &result, state, now)
 			if err != nil {
-				if !errors.Is(err, ErrMembershipConflict) && !errors.Is(err, ErrMembershipInvalidInput) {
+				if !errors.Is(err, ErrMembershipConflict) && !errors.Is(err, ErrMembershipInvalidInput) && !errors.Is(err, ErrMembershipPaymentReview) {
 					return err
 				}
 				reason = err.Error()
@@ -358,6 +394,13 @@ func CompleteMembershipPayment(input MembershipPaymentInput) (*MembershipOrder, 
 }
 
 func activateMembershipOrderTx(tx *gorm.DB, order *MembershipOrder, state *MembershipUserState, now int64) error {
+	pendingReview, err := hasUnresolvedMembershipPaymentExceptionTx(tx, order.UserID, order.ID)
+	if err != nil {
+		return err
+	}
+	if pendingReview {
+		return ErrMembershipPaymentReview
+	}
 	if legacy, err := hasLegacyMembershipTx(tx, order.UserID, now); err != nil {
 		return err
 	} else if legacy {
@@ -529,6 +572,21 @@ func ClaimMembershipCheckout(tradeNo string, userID int) (*MembershipOrder, bool
 		if result.CheckoutState == "ready" {
 			return nil
 		}
+		if result.CheckoutState == "creating" {
+			now := common.GetTimestamp()
+			if result.Provider == PaymentProviderEpay && result.CheckoutData == "" && result.CheckoutStartedAt > 0 && now-result.CheckoutStartedAt >= int64(membershipEpayCheckoutRecoveryAfter/time.Second) {
+				result.CheckoutStartedAt = now
+				if err := tx.Save(&result).Error; err != nil {
+					return err
+				}
+				claimed = true
+				return nil
+			}
+			if result.Provider != PaymentProviderEpay && result.CheckoutStartedAt > 0 && now-result.CheckoutStartedAt >= int64(membershipRemoteCheckoutReviewAfter/time.Second) {
+				common.SysError(fmt.Sprintf("membership checkout requires manual review trade_no=%s provider=%s state=%s started_at=%d", result.TradeNo, result.Provider, result.CheckoutState, result.CheckoutStartedAt))
+			}
+			return ErrMembershipConflict
+		}
 		if result.CheckoutState != "" {
 			return ErrMembershipConflict
 		}
@@ -543,11 +601,22 @@ func ClaimMembershipCheckout(tradeNo string, userID int) (*MembershipOrder, bool
 }
 
 func SaveMembershipCheckout(tradeNo string, data string) error {
+	return SaveMembershipCheckoutClaim(tradeNo, 0, data)
+}
+
+// SaveMembershipCheckoutClaim persists a checkout only while the caller's
+// creating claim is still current. A zero startedAt preserves the legacy
+// unqualified behavior for internal callers and tests.
+func SaveMembershipCheckoutClaim(tradeNo string, startedAt int64, data string) error {
 	var decoded any
 	if len(data) > 65536 || common.UnmarshalJsonStr(data, &decoded) != nil {
 		return ErrMembershipInvalidInput
 	}
-	updated := DB.Model(&MembershipOrder{}).Where("trade_no = ? AND checkout_state = ?", tradeNo, "creating").Updates(map[string]any{"checkout_state": "ready", "checkout_data": data})
+	query := DB.Model(&MembershipOrder{}).Where("trade_no = ? AND checkout_state = ?", tradeNo, "creating")
+	if startedAt > 0 {
+		query = query.Where("checkout_started_at = ?", startedAt)
+	}
+	updated := query.Updates(map[string]any{"checkout_state": "ready", "checkout_data": data})
 	if updated.Error != nil {
 		return updated.Error
 	}
@@ -555,6 +624,26 @@ func SaveMembershipCheckout(tradeNo string, data string) error {
 		return ErrMembershipConflict
 	}
 	return nil
+}
+
+const (
+	membershipEpayCheckoutRecoveryAfter = 10 * time.Minute
+	membershipRemoteCheckoutReviewAfter = 5 * time.Minute
+)
+
+// membershipCheckoutRequiresManualReview reports checkout states that may
+// already be payable at an upstream provider. Such orders must not be closed
+// implicitly when a user starts a different purchase.
+func membershipCheckoutRequiresManualReview(order *MembershipOrder) bool {
+	if order == nil || order.CheckoutState == "" {
+		return false
+	}
+	if order.CheckoutState == "creating" && order.Provider == PaymentProviderEpay && order.CheckoutData == "" {
+		// Epay only signs a local form; no remote checkout exists before the
+		// form is saved as ready. Stale claims are recoverable by ClaimMembershipCheckout.
+		return false
+	}
+	return true
 }
 
 // ReleaseMembershipEpayCheckout only resets a failed local form-generation

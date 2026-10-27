@@ -41,6 +41,13 @@ func membershipAccessibleGroupPrices(userID int, catalog *model.MembershipCatalo
 	if err != nil {
 		return nil, err
 	}
+	return membershipAccessibleGroupPricesForUser(user, catalog)
+}
+
+func membershipAccessibleGroupPricesForUser(user *model.User, catalog *model.MembershipCatalog) ([]MembershipGroupPrice, error) {
+	if user == nil || catalog == nil {
+		return nil, model.ErrMembershipInvalidInput
+	}
 	allowed := GetUserUsableGroups(user.Group)
 	groups := make(map[string]model.MembershipGroup, len(catalog.Groups))
 	for _, group := range catalog.Groups {
@@ -111,6 +118,21 @@ func GetMembershipCatalogGroupQuotes(userID int, catalog *model.MembershipCatalo
 	if err != nil {
 		return nil, err
 	}
+	return membershipCatalogGroupQuotes(prices, catalog), nil
+}
+
+// GetMembershipCatalogGroupQuotesForUser reuses a user loaded by the caller.
+// Catalog endpoints already need the user for group filtering, so this avoids
+// a second identical user query while preserving the ID-based API above.
+func GetMembershipCatalogGroupQuotesForUser(user *model.User, catalog *model.MembershipCatalog) ([]MembershipCatalogGroupQuote, error) {
+	prices, err := membershipAccessibleGroupPricesForUser(user, catalog)
+	if err != nil {
+		return nil, err
+	}
+	return membershipCatalogGroupQuotes(prices, catalog), nil
+}
+
+func membershipCatalogGroupQuotes(prices []MembershipGroupPrice, catalog *model.MembershipCatalog) []MembershipCatalogGroupQuote {
 	rows := make([]MembershipCatalogGroupQuote, 0, len(prices))
 	for _, price := range prices {
 		quotes := make(map[string]MembershipTierQuote)
@@ -127,5 +149,5 @@ func GetMembershipCatalogGroupQuotes(userID int, catalog *model.MembershipCatalo
 		}
 		rows = append(rows, MembershipCatalogGroupQuote{MembershipGroupPrice: price, TierQuotes: quotes})
 	}
-	return rows, nil
+	return rows
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -28,14 +29,46 @@ type membershipTierView struct {
 }
 
 type membershipOrderView struct {
-	model.MembershipOrder
-	TierName   string `json:"tier_name"`
-	PriceMinor int64  `json:"price_minor"`
-	Quota      int64  `json:"quota"`
-	Action     string `json:"action"`
+	ID                int64                   `json:"id"`
+	TradeNo           string                  `json:"trade_no"`
+	UserID            int                     `json:"user_id,omitempty"`
+	TierID            string                  `json:"tier_id"`
+	TierName          string                  `json:"tier_name"`
+	PriceMinor        int64                   `json:"price_minor"`
+	AmountMinor       int64                   `json:"amount_minor"`
+	Currency          string                  `json:"currency"`
+	Provider          string                  `json:"provider,omitempty"`
+	PaymentMethod     string                  `json:"payment_method,omitempty"`
+	Quota             int64                   `json:"quota"`
+	Action            string                  `json:"action"`
+	Status            string                  `json:"status"`
+	AccountID         int64                   `json:"account_id,omitempty"`
+	CreatedAt         int64                   `json:"created_at"`
+	PaidAt            int64                   `json:"paid_at,omitempty"`
+	ExpiresAt         int64                   `json:"expires_at,omitempty"`
+	ReceiptID         string                  `json:"receipt_id,omitempty"`
+	ActualAmountMinor int64                   `json:"actual_amount_minor,omitempty"`
+	ActualCurrency    string                  `json:"actual_currency,omitempty"`
+	ActualProvider    string                  `json:"actual_provider,omitempty"`
+	ActualOneTime     bool                    `json:"actual_one_time,omitempty"`
+	ResolvedAt        int64                   `json:"resolved_at,omitempty"`
+	CheckoutState     string                  `json:"checkout_state,omitempty"`
+	ExceptionReason   string                  `json:"exception_reason,omitempty"`
+	ResolutionNote    string                  `json:"resolution_note,omitempty"`
+	Payments          []membershipPaymentView `json:"payments,omitempty"`
 }
 
-func membershipOrderResponse(order *model.MembershipOrder) (*membershipOrderView, error) {
+type membershipPaymentView struct {
+	ReceiptID   string `json:"receipt_id"`
+	Provider    string `json:"provider"`
+	Status      string `json:"status"`
+	Reason      string `json:"reason,omitempty"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+	OneTime     bool   `json:"one_time"`
+}
+
+func membershipOrderResponse(order *model.MembershipOrder, admin bool) (*membershipOrderView, error) {
 	if order == nil {
 		return nil, nil
 	}
@@ -43,24 +76,72 @@ func membershipOrderResponse(order *model.MembershipOrder) (*membershipOrderView
 	if err := common.UnmarshalJsonStr(order.Terms, &terms); err != nil {
 		return nil, err
 	}
-	return &membershipOrderView{MembershipOrder: *order, TierName: terms.Tier.Name,
-		PriceMinor: order.AmountMinor, Quota: terms.Tier.Quota, Action: terms.Action}, nil
+	view := &membershipOrderView{ID: order.ID, TradeNo: order.TradeNo, TierID: order.TierID,
+		TierName: terms.Tier.Name, PriceMinor: order.AmountMinor, AmountMinor: order.AmountMinor, Currency: order.Currency,
+		Quota: terms.Tier.Quota, Action: terms.Action, Status: order.Status, AccountID: order.AccountID,
+		CreatedAt: order.CreatedAt, PaidAt: order.PaidAt, CheckoutState: order.CheckoutState}
+	if !admin {
+		return view, nil
+	}
+	view.UserID = order.UserID
+	view.Provider = order.Provider
+	view.PaymentMethod = order.PaymentMethod
+	view.ExpiresAt = order.ExpiresAt
+	view.ReceiptID = order.ReceiptID
+	view.ActualAmountMinor = order.ActualAmountMinor
+	view.ActualCurrency = order.ActualCurrency
+	view.ActualProvider = order.ActualProvider
+	view.ActualOneTime = order.ActualOneTime
+	view.ResolvedAt = order.ResolvedAt
+	view.ExceptionReason = order.ExceptionReason
+	if order.Resolution != "" {
+		var resolution struct {
+			Reason string `json:"reason"`
+		}
+		if err := common.UnmarshalJsonStr(order.Resolution, &resolution); err == nil {
+			view.ResolutionNote = strings.TrimSpace(resolution.Reason)
+		}
+	}
+	if len(order.Payments) > 0 {
+		view.Payments = make([]membershipPaymentView, 0, len(order.Payments))
+		for _, payment := range order.Payments {
+			view.Payments = append(view.Payments, membershipPaymentView{ReceiptID: payment.ReceiptID,
+				Provider: payment.Provider, Status: payment.Status, Reason: payment.Reason,
+				AmountMinor: payment.AmountMinor, Currency: payment.Currency, OneTime: payment.OneTime})
+		}
+	}
+	return view, nil
 }
 
 func membershipAPIError(c *gin.Context, err error) {
 	status := http.StatusBadRequest
 	code := "membership_invalid_request"
+	message := "Membership request is invalid."
 	switch {
+	case errors.Is(err, model.ErrMembershipInvalidInput):
+		// Keep validation failures generic; details can contain provider or
+		// catalog internals that are not part of the public API contract.
 	case errors.Is(err, model.ErrMembershipDisabled):
 		status, code = http.StatusServiceUnavailable, "membership_disabled"
+		message = "New membership purchases are temporarily unavailable. Existing benefits remain valid."
 	case errors.Is(err, model.ErrMembershipSchemaNotReady):
 		status, code = http.StatusServiceUnavailable, "membership_unavailable"
+		message = "Membership information could not be loaded. Please refresh before purchasing."
 	case errors.Is(err, model.ErrMembershipConflict), errors.Is(err, model.ErrMembershipQuoteChanged):
 		status, code = http.StatusConflict, "membership_state_changed"
+		message = "Payment eligibility has changed. Review the selected orders again."
+	case errors.Is(err, model.ErrMembershipPaymentReview):
+		status, code = http.StatusConflict, "membership_payment_review"
+		message = "Payment is recorded. An administrator will review this order; do not pay again."
 	case errors.Is(err, model.ErrMembershipNotFound):
 		status, code = http.StatusNotFound, "membership_not_found"
+		message = "Content not found."
+	default:
+		status, code = http.StatusInternalServerError, "membership_internal_error"
+		message = "Please try again later."
+		logger.LogError(c.Request.Context(), fmt.Sprintf("membership request failed path=%s error=%v", c.Request.URL.Path, err))
 	}
-	c.JSON(status, gin.H{"success": false, "message": err.Error(), "code": code})
+	c.JSON(status, gin.H{"success": false, "message": message, "code": code})
 }
 
 func GetMembershipCatalog(c *gin.Context) {
@@ -124,7 +205,7 @@ func GetMembershipCatalog(c *gin.Context) {
 		tier.PaymentProducts = nil
 		tiers = append(tiers, membershipTierView{MembershipTier: tier, Eligibility: eligibility, PaymentMethods: methods})
 	}
-	quotes, err := service.GetMembershipCatalogGroupQuotes(user.Id, catalog)
+	quotes, err := service.GetMembershipCatalogGroupQuotesForUser(user, catalog)
 	if err != nil {
 		membershipAPIError(c, err)
 		return
@@ -160,7 +241,7 @@ func GetMembershipSelf(c *gin.Context) {
 	}
 	var pending *membershipOrderView
 	if len(orders) > 0 {
-		pending, err = membershipOrderResponse(&orders[0])
+		pending, err = membershipOrderResponse(&orders[0], false)
 		if err != nil {
 			membershipAPIError(c, err)
 			return
@@ -196,7 +277,7 @@ func listMembershipOrders(c *gin.Context, userID int) {
 	}
 	views := make([]membershipOrderView, 0, len(orders))
 	for i := range orders {
-		view, err := membershipOrderResponse(&orders[i])
+		view, err := membershipOrderResponse(&orders[i], userID == 0)
 		if err != nil {
 			membershipAPIError(c, err)
 			return
@@ -212,7 +293,7 @@ func GetMembershipOrder(c *gin.Context) {
 		membershipAPIError(c, err)
 		return
 	}
-	view, err := membershipOrderResponse(order)
+	view, err := membershipOrderResponse(order, false)
 	if err != nil {
 		membershipAPIError(c, err)
 		return
@@ -264,13 +345,32 @@ func CreateMembershipOrder(c *gin.Context) {
 		}
 	}
 	if !permitted {
-		membershipAPIError(c, fmt.Errorf("payment method is unavailable for this membership"))
+		membershipAPIError(c, model.ErrMembershipInvalidInput)
 		return
+	}
+	providerEnvironment := ""
+	providerProductID := ""
+	providerStoreID := ""
+	switch input.Provider {
+	case model.PaymentProviderStripe:
+		providerEnvironment = membershipStripeEnvironment(setting.StripeApiSecret)
+	case model.PaymentProviderCreem:
+		providerEnvironment = "prod"
+		if setting.CreemTestMode {
+			providerEnvironment = "test"
+		}
+		providerProductID = tier.PaymentProducts[model.PaymentProviderCreem]
+	case model.PaymentProviderWaffoPancake:
+		// The membership Pancake client currently targets the production API.
+		providerEnvironment = "prod"
+		providerProductID = tier.PaymentProducts[model.PaymentProviderWaffoPancake]
+		providerStoreID = strings.TrimSpace(setting.WaffoPancakeStoreID)
 	}
 	userID := c.GetInt("id")
 	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{
 		UserID: userID, TierID: input.TierID, ReleaseID: catalog.ReleaseID, Provider: input.Provider, PaymentMethod: input.Method,
 		ExpectedAccountID: input.ExpectedAccountID, ExpectedRevision: input.ExpectedRevision,
+		ProviderEnvironment: providerEnvironment, ProviderProductID: providerProductID, ProviderStoreID: providerStoreID,
 		TradeNo: fmt.Sprintf("MEMBER-%d-%s", userID, common.GetRandomString(24)), ExpiresAt: time.Now().Add(45 * time.Minute).Unix(),
 	})
 	if err != nil {
@@ -282,7 +382,7 @@ func CreateMembershipOrder(c *gin.Context) {
 		membershipAPIError(c, err)
 		return
 	}
-	view, err := membershipOrderResponse(order)
+	view, err := membershipOrderResponse(order, false)
 	if err != nil {
 		membershipAPIError(c, err)
 		return
@@ -331,7 +431,7 @@ func AdminPublishMembershipConfig(c *gin.Context) {
 	baseGroups := ratio_setting.GetGroupRatioCopy()
 	for _, group := range input.Catalog.Groups {
 		if _, ok := baseGroups[group.Key]; !ok && group.Enabled {
-			membershipAPIError(c, fmt.Errorf("unknown enabled billing group: %s", group.Key))
+			membershipAPIError(c, model.ErrMembershipInvalidInput)
 			return
 		}
 	}
@@ -362,7 +462,7 @@ func AdminResolveMembershipOrder(c *gin.Context) {
 		membershipAPIError(c, err)
 		return
 	}
-	view, err := membershipOrderResponse(order)
+	view, err := membershipOrderResponse(order, true)
 	if err != nil {
 		membershipAPIError(c, err)
 		return

@@ -35,6 +35,7 @@ var (
 	ErrMembershipInsufficientQuota = errors.New("insufficient wallet quota")
 	ErrMembershipInvalidInput      = errors.New("invalid membership input")
 	ErrMembershipNotFound          = errors.New("membership record not found")
+	ErrMembershipPaymentReview     = errors.New("membership payment exception requires review")
 	membershipRuntimeEnabled       atomic.Bool
 	membershipSchemaCache          struct {
 		sync.Mutex
@@ -155,6 +156,12 @@ type MembershipOrderTerms struct {
 	Action            string         `json:"action"`
 	ExpectedAccountID int64          `json:"expected_account_id"`
 	ExpectedRevision  int64          `json:"expected_revision"`
+	// Payment identity is frozen with the order. Empty values are retained for
+	// legacy orders created before provider verification snapshots were added.
+	VerificationVersion int    `json:"verification_version,omitempty"`
+	ProviderEnvironment string `json:"provider_environment,omitempty"`
+	ProviderProductID   string `json:"provider_product_id,omitempty"`
+	ProviderStoreID     string `json:"provider_store_id,omitempty"`
 }
 
 type MembershipOrder struct {
@@ -208,15 +215,18 @@ type MembershipPaymentReceipt struct {
 func (MembershipPaymentReceipt) TableName() string { return "kkai_membership_payments" }
 
 type MembershipOrderInput struct {
-	UserID            int
-	TierID            string
-	ReleaseID         int64
-	Provider          string
-	PaymentMethod     string
-	TradeNo           string
-	ExpiresAt         int64
-	ExpectedAccountID int64
-	ExpectedRevision  int64
+	UserID              int
+	TierID              string
+	ReleaseID           int64
+	Provider            string
+	PaymentMethod       string
+	TradeNo             string
+	ExpiresAt           int64
+	ExpectedAccountID   int64
+	ExpectedRevision    int64
+	ProviderEnvironment string
+	ProviderProductID   string
+	ProviderStoreID     string
 }
 
 // MembershipPaymentInput contains verified provider facts, never client return parameters.

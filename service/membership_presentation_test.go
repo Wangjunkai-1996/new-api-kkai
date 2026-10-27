@@ -92,6 +92,18 @@ func TestMembershipCatalogQuotesUseActualWalletPricesAndLatestTerms(t *testing.T
 	}
 }
 
+func TestMembershipCatalogQuotesForLoadedUserMatchLookup(t *testing.T) {
+	_, user := setupMembershipServiceTest(t)
+	catalog, err := model.GetMembershipCatalog()
+	require.NoError(t, err)
+
+	byID, err := GetMembershipCatalogGroupQuotes(user.Id, catalog)
+	require.NoError(t, err)
+	byUser, err := GetMembershipCatalogGroupQuotesForUser(&user, catalog)
+	require.NoError(t, err)
+	assert.Equal(t, byID, byUser)
+}
+
 func TestMembershipGroupQuotesStopDiscountAtExpiryOrExhaustion(t *testing.T) {
 	for _, state := range []string{"expired", "exhausted"} {
 		t.Run(state, func(t *testing.T) {

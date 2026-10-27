@@ -23,6 +23,8 @@ import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembershipAdmin } from '@/features/membership/admin'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { SubscriptionsDialogs } from './components/subscriptions-dialogs'
 import { SubscriptionsPrimaryButtons } from './components/subscriptions-primary-buttons'
@@ -80,17 +82,30 @@ function SubscriptionsContent() {
 
 export function Subscriptions() {
   const { t } = useTranslation()
+  const isSuperAdmin = useAuthStore(
+    (state) => (state.auth.user?.role ?? ROLE.GUEST) >= ROLE.SUPER_ADMIN
+  )
   return (
-    <Tabs defaultValue='membership' className='min-h-0 flex-1'>
+    <Tabs
+      defaultValue={isSuperAdmin ? 'membership' : 'legacy'}
+      className='min-h-0 flex-1'
+    >
       <TabsList className='mx-4 mt-3 shrink-0 sm:mx-6'>
-        <TabsTrigger value='membership'>
-          {t('Membership management')}
-        </TabsTrigger>
+        {isSuperAdmin && (
+          <TabsTrigger value='membership'>
+            {t('Membership management')}
+          </TabsTrigger>
+        )}
         <TabsTrigger value='legacy'>{t('Legacy subscriptions')}</TabsTrigger>
       </TabsList>
-      <TabsContent value='membership' className='flex min-h-0 flex-1 flex-col'>
-        <MembershipAdmin />
-      </TabsContent>
+      {isSuperAdmin && (
+        <TabsContent
+          value='membership'
+          className='flex min-h-0 flex-1 flex-col'
+        >
+          <MembershipAdmin />
+        </TabsContent>
+      )}
       <TabsContent value='legacy' className='flex min-h-0 flex-1 flex-col'>
         <SubscriptionsProvider>
           <SubscriptionsContent />
