@@ -34,7 +34,7 @@ const USAGE_LOGS_SECTIONS = [
   },
   {
     id: 'task',
-    titleKey: 'Task Logs',
+    titleKey: 'Video Works',
     build: () => null, // Content is rendered directly in the page component
   },
 ] as const

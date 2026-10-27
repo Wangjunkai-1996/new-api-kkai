@@ -119,7 +119,7 @@ export function SidebarModulesSection({
         description: t('History of MjProxy-style image tasks.'),
       },
       task: {
-        title: t('Task logs'),
+        title: t('Video Works'),
         description: t('Background job tracker for queued work.'),
       },
     },

@@ -1,14 +1,177 @@
 package controller
 
 import (
+	"encoding/base64"
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func setTaskLogCreditEpoch(t *testing.T, marker string) {
+	t.Helper()
+	common.OptionMapRWMutex.Lock()
+	previous := common.OptionMap
+	common.OptionMap = map[string]string{common.CreditEpochOption: marker}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previous
+		common.OptionMapRWMutex.Unlock()
+	})
+}
+
+func taskLogCreditEpochMarker(t *testing.T) string {
+	t.Helper()
+	marker, err := common.Marshal(common.CreditEpochCutover{
+		Version: 1, MigrationID: "task-billing-display", SourceEpoch: common.CreditEpochLegacy,
+		TargetEpoch: common.CreditEpochUSD, Numerator: 3, Denominator: 40,
+		PlanHash: "plan", PricingPlanHash: "pricing", AppliedAt: 1,
+		LegacyTopUpPolicy: "hold", LegacyMaxIDs: map[string]int64{"tasks": 10},
+	})
+	require.NoError(t, err)
+	return string(marker)
+}
+
+func TestTaskLogDTOBillingProjectsPublicSnapshot(t *testing.T) {
+	setTaskLogCreditEpoch(t, taskLogCreditEpochMarker(t))
+	task := &model.Task{
+		ID: 11, TaskID: "task_billed", Quota: 100,
+		PrivateData: model.TaskPrivateData{
+			Key: "secret-key", UpstreamTaskID: "secret-upstream-id", NodeName: "secret-node",
+			BillingState: model.TaskBillingStateCompleted, BillingSource: model.TaskBillingSourceWallet,
+			BillingContext: &model.TaskBillingContext{
+				ModelPrice: 0.2, GroupRatio: 0.8, PerCallBilling: true,
+				OtherRatios: map[string]float64{"seconds": 12, "size": 1.5, "unexpected_ratio": 2},
+			},
+			AccountingContext: &model.TaskAccountingContext{
+				HasUserGroupRatio: true, UserGroupRatio: 0.7, TokenName: "secret-token",
+			},
+		},
+	}
+	expected := map[string]any{
+		"state": "completed", "billing_source": "wallet", "pricing_epoch": common.CreditEpochUSD,
+		"model_price": 0.2, "group_ratio": 0.8, "user_group_ratio": 0.7,
+		"billing_unit": "second", "seconds": float64(12), "size": 1.5,
+	}
+	for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser} {
+		view := tasksToDto([]*model.Task{task}, false, role)[0]
+		assert.Equal(t, expected, taskBillingFields(t, view.Billing))
+		assert.Equal(t, 100, view.Quota)
+		encoded, err := common.Marshal(view.Billing)
+		require.NoError(t, err)
+		assert.NotContains(t, string(encoded), "secret")
+	}
+}
+
+func TestTaskLogDTOBillingOmitsUnconfirmedAndLegacyPrices(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		marker string
+		id     int64
+		epoch  string
+	}{
+		{name: "legacy", marker: taskLogCreditEpochMarker(t), id: 10, epoch: common.CreditEpochLegacy},
+		{name: "missing marker", id: 11},
+		{name: "invalid marker", marker: "{}", id: 11},
+		{name: "missing identity", marker: taskLogCreditEpochMarker(t)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setTaskLogCreditEpoch(t, test.marker)
+			task := &model.Task{ID: test.id, Quota: 100, PrivateData: model.TaskPrivateData{
+				BillingState: model.TaskBillingStateRefunded, BillingSource: model.TaskBillingSourceWallet,
+				BillingContext: &model.TaskBillingContext{ModelPrice: 2, GroupRatio: 1},
+			}}
+			view := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+			expected := map[string]any{"state": "refunded", "billing_source": "wallet"}
+			if test.epoch != "" {
+				expected["pricing_epoch"] = test.epoch
+				assert.Equal(t, 8, view.Quota, "legacy total uses the existing historical quota conversion")
+			}
+			assert.Equal(t, expected, taskBillingFields(t, view.Billing))
+		})
+	}
+}
+
+func TestTaskLogDTOBillingPreservesFrozenTieredAndMembershipTerms(t *testing.T) {
+	setTaskLogCreditEpoch(t, taskLogCreditEpochMarker(t))
+	task := &model.Task{ID: 11, PrivateData: model.TaskPrivateData{
+		BillingState: model.TaskBillingStateAccepted, BillingSource: model.MembershipSource,
+		MembershipBillingRequestID: "secret-membership-request",
+		MembershipAssessedQuota:    999999, MembershipExcessQuota: 888888,
+		MembershipPricing: &types.MembershipPricing{
+			TierName: "Gold", TierStyle: "gold", Discount: 0.8, WalletRatio: 1, BaseRatio: 1,
+			Price: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.8}},
+		},
+		BillingContext: &model.TaskBillingContext{GroupRatio: 0.8, TieredSnapshot: &billingexpr.BillingSnapshot{
+			ExprString: `tier("video", u("seconds") * 2)`, DisplayExprString: `tier("video", u("seconds") * 3)`,
+			EstimatedTier: "video", UsageFacts: map[string]any{"seconds": float64(12)},
+		}},
+	}}
+	view := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+	assert.Equal(t, "accepted", taskBillingFields(t, view.Billing)["state"])
+	assert.Equal(t, "membership", taskBillingFields(t, view.Billing)["billing_source"])
+	assert.Equal(t, "Gold", taskBillingFields(t, view.Billing)["membership_tier_name"])
+	assert.Equal(t, 0.8, taskBillingFields(t, view.Billing)["membership_discount"])
+	assert.Equal(t, "tiered_expr", taskBillingFields(t, view.Billing)["billing_mode"])
+	assert.Equal(t, "video", taskBillingFields(t, view.Billing)["matched_tier"])
+	assert.Equal(t, map[string]any{"seconds": float64(12)}, taskBillingFields(t, view.Billing)["usage_facts"])
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(`tier("video", u("seconds") * 3)`)), taskBillingFields(t, view.Billing)["expr_b64"])
+	encoded, err := common.Marshal(view.Billing)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), base64.StdEncoding.EncodeToString([]byte(`tier("video", u("seconds") * 2)`)))
+	assert.NotContains(t, string(encoded), "secret")
+	assert.NotContains(t, string(encoded), "quota", "a snapshot cannot invent reserved, final, refunded, or saved amounts")
+
+	task.TenantID = model.PlatformTenantID + 1
+	view = tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(`tier("video", u("seconds") * 2)`)), taskBillingFields(t, view.Billing)["expr_b64"])
+}
+
+func TestTaskLogDTOBillingRejectsPrivateOrInvalidFactsAndPreservesKnownZero(t *testing.T) {
+	setTaskLogCreditEpoch(t, taskLogCreditEpochMarker(t))
+	task := &model.Task{ID: 11, PrivateData: model.TaskPrivateData{
+		AccountingContext: &model.TaskAccountingContext{HasUserGroupRatio: true, UserGroupRatio: 0},
+		BillingContext: &model.TaskBillingContext{
+			ModelPrice: math.Inf(1), GroupRatio: math.NaN(),
+			TieredSnapshot: &billingexpr.BillingSnapshot{
+				ExprString: `tier("video", u("seconds") + u("image_count") + u("secret"))`,
+				UsageFacts: map[string]any{"seconds": float64(0), "image_count": math.Inf(1), "secret": "bearer-token", "duration": float64(9), "headers": map[string]any{"Authorization": "secret-key"}},
+			},
+		},
+	}}
+	fields := taskBillingFields(t, tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0].Billing)
+	assert.Equal(t, float64(0), fields["user_group_ratio"])
+	assert.Equal(t, map[string]any{"seconds": float64(0)}, fields["usage_facts"])
+	assert.NotContains(t, fields, "model_price")
+	assert.NotContains(t, fields, "group_ratio")
+	assert.NotContains(t, fields, "image_count")
+	encoded, err := common.Marshal(fields)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "bearer-token")
+	assert.NotContains(t, string(encoded), "secret-key")
+}
+
+func TestTaskLogDTODoesNotInferBillingFromGenerationStatus(t *testing.T) {
+	setTaskLogCreditEpoch(t, "")
+	for _, status := range []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusFailure} {
+		task := &model.Task{Status: status, PrivateData: model.TaskPrivateData{
+			BillingState: "unknown-future-state", BillingSource: "unknown-future-source",
+		}}
+		view := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+		assert.Empty(t, view.Billing)
+		encoded, err := common.Marshal(view)
+		require.NoError(t, err)
+		assert.NotContains(t, string(encoded), `"billing"`)
+	}
+}
 
 func TestTaskLogDTOSeparatesUserAdminAndRootDetails(t *testing.T) {
 	task := &model.Task{
@@ -134,4 +297,13 @@ func TestTaskLogDTOKeepsFailureReasonAndDoesNotMarkPluginTaskLegacy(t *testing.T
 	assert.False(t, pluginView.LegacyVideoAvailable)
 	assert.Empty(t, pluginView.ResultURL)
 	assert.Empty(t, pluginView.FailReason)
+}
+
+func taskBillingFields(t *testing.T, billing *dto.TaskBilling) map[string]any {
+	t.Helper()
+	encoded, err := common.Marshal(billing)
+	require.NoError(t, err)
+	var fields map[string]any
+	require.NoError(t, common.Unmarshal(encoded, &fields))
+	return fields
 }

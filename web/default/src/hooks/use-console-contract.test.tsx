@@ -12,7 +12,7 @@ import { useConsoleContract } from './use-console-contract'
 
 const contract = {
   format_version: 1,
-  api_contracts: [2],
+  api_contracts: [2, 3],
   capabilities: [
     'dashboard_jwt',
     'scoped_access_tokens',
@@ -21,6 +21,7 @@ const contract = {
     'token_group_inline',
     'reseller_sites',
     'reseller_group_pricing',
+    'manual_invoice_requests',
   ],
 }
 let queryClient: QueryClient
@@ -71,12 +72,12 @@ describe('useConsoleContract', () => {
     expect(result.current.console.required).toBe(false)
   })
 
-  it('reuses fresh status and observes a shared refresh immediately', async () => {
+  it('reuses fresh status and blocks after a rollback to the previous API', async () => {
     queryClient.setQueryData(STATUS_QUERY_KEY, { console_contract: contract })
     const apiGet = vi.spyOn(api, 'get').mockResolvedValue({
       data: {
         success: true,
-        data: { console_contract: { ...contract, api_contracts: [1] } },
+        data: { console_contract: { ...contract, api_contracts: [2] } },
       },
     })
     const { result } = renderHook(() => useConsoleContract(), {
@@ -89,7 +90,7 @@ describe('useConsoleContract', () => {
       queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY })
     )
     await waitFor(() => expect(result.current.compatible).toBe(false))
-    expect(result.current.contract?.api_contracts).toEqual([1])
+    expect(result.current.contract?.api_contracts).toEqual([2])
     expect(apiGet).toHaveBeenCalledExactlyOnceWith('/api/status')
   })
 
@@ -127,7 +128,7 @@ describe('useConsoleContract', () => {
       })
       await waitFor(() => expect(result.current.loading).toBe(false))
       expect(result.current.required).toBe(true)
-      expect(result.current.contract?.api_contracts).toEqual([2])
+      expect(result.current.contract?.api_contracts).toEqual([2, 3])
       expect(result.current.contract?.capabilities).not.toContain(
         missingCapability
       )

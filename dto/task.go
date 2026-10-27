@@ -44,6 +44,8 @@ type TaskDto struct {
 	Group                string          `json:"group"`
 	ChannelId            int             `json:"channel_id"`
 	Quota                int             `json:"quota"`
+	Billing              *TaskBilling    `json:"billing,omitempty"`
+	Media                *TaskVideoMedia `json:"media,omitempty"`
 	Action               string          `json:"action"`
 	Status               string          `json:"status"`
 	FailReason           string          `json:"fail_reason"`
@@ -59,6 +61,55 @@ type TaskDto struct {
 	Data                 json.RawMessage `json:"data"`
 	AdminInfo            *TaskAdminInfo  `json:"admin_info,omitempty"`
 	RootInfo             *TaskRootInfo   `json:"root_info,omitempty"`
+}
+
+type TaskBilling struct {
+	AmountAvailable          *bool              `json:"amount_available,omitempty"`
+	State                    string             `json:"state,omitempty"`
+	BillingSource            string             `json:"billing_source,omitempty"`
+	PricingEpoch             string             `json:"pricing_epoch,omitempty"`
+	ModelPrice               *float64           `json:"model_price,omitempty"`
+	ModelRatio               *float64           `json:"model_ratio,omitempty"`
+	GroupRatio               *float64           `json:"group_ratio,omitempty"`
+	UserGroupRatio           *float64           `json:"user_group_ratio,omitempty"`
+	BillingUnit              string             `json:"billing_unit,omitempty"`
+	BillingMode              string             `json:"billing_mode,omitempty"`
+	Seconds                  *float64           `json:"seconds,omitempty"`
+	Duration                 *float64           `json:"duration,omitempty"`
+	Size                     *float64           `json:"size,omitempty"`
+	Resolution               *float64           `json:"resolution,omitempty"`
+	ImageCount               *float64           `json:"image_count,omitempty"`
+	ExprB64                  string             `json:"expr_b64,omitempty"`
+	MatchedTier              string             `json:"matched_tier,omitempty"`
+	UsageFacts               map[string]float64 `json:"usage_facts,omitempty"`
+	MembershipTierName       string             `json:"membership_tier_name,omitempty"`
+	MembershipTierStyle      string             `json:"membership_tier_style,omitempty"`
+	MembershipDiscount       *float64           `json:"membership_discount,omitempty"`
+	MembershipWalletRatio    *float64           `json:"membership_wallet_ratio,omitempty"`
+	MembershipCandidateRatio *float64           `json:"membership_candidate_ratio,omitempty"`
+	MembershipSavings        *float64           `json:"membership_savings,omitempty"`
+	MembershipWalletFallback *bool              `json:"membership_wallet_fallback,omitempty"`
+}
+
+type TaskVideoMedia struct {
+	Source          string  `json:"source"`
+	State           string  `json:"state"`
+	PosterURL       string  `json:"poster_url,omitempty"`
+	PosterExpiresAt int64   `json:"poster_expires_at,omitempty"`
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
+}
+
+type TaskHostedVideo struct {
+	TaskRecordID    int64   `json:"task_record_id"`
+	State           string  `json:"state"`
+	ContentURL      string  `json:"content_url,omitempty"`
+	DownloadURL     string  `json:"download_url,omitempty"`
+	ExpiresAt       int64   `json:"expires_at,omitempty"`
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	DurationSeconds float64 `json:"duration_seconds,omitempty"`
 }
 
 type TaskPluginInfo struct {

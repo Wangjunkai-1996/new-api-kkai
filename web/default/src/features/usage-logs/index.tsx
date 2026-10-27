@@ -39,6 +39,7 @@ import {
   USAGE_LOGS_DEFAULT_SECTION,
   type UsageLogsSectionId,
 } from './section-registry'
+import { VideoWorksPage } from './video-works/video-works-page'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 const TASK_LOG_SECTIONS = ['drawing', 'task'] as const
@@ -51,7 +52,7 @@ const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
     titleKey: 'Drawing Logs',
   },
   task: {
-    titleKey: 'Task Logs',
+    titleKey: 'Video Works',
   },
 }
 
@@ -75,7 +76,7 @@ function UsageLogsContent() {
   const tabNavGroups = useMemo<NavGroup[]>(
     () => [
       {
-        title: 'Task Logs',
+        title: 'Video Works',
         items: TASK_LOG_SECTIONS.map((section) => ({
           title: SECTION_META[section].titleKey,
           url: `/usage-logs/${section}`,
@@ -117,10 +118,11 @@ function UsageLogsContent() {
     [setViewScope]
   )
 
-  const pageMeta =
-    activeCategory === 'common' ? SECTION_META.common : SECTION_META.task
+  const pageMeta = SECTION_META[activeCategory]
   const showTaskSwitcher =
     activeCategory !== 'common' && visibleSections.length > 1
+
+  if (activeCategory === 'task') return <VideoWorksPage />
 
   return (
     <>

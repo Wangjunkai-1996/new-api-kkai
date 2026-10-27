@@ -106,7 +106,7 @@ export function SidebarModulesCard() {
         },
         {
           key: 'task',
-          title: t('Task Logs'),
+          title: t('Video Works'),
           description: t('System task records'),
         },
       ],

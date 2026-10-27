@@ -35,7 +35,7 @@ func setupGenericTaskTest(t *testing.T) *model.Task {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	require.NoError(t, database.AutoMigrate(&model.Task{}, &model.Channel{}, &model.User{}))
+	require.NoError(t, database.AutoMigrate(&model.Task{}, &model.Channel{}, &model.User{}, &model.KKAIVideoGeneration{}, &model.KKAIVideoTaskAsset{}, &model.KKAIVideoAsset{}))
 	model.DB = database
 	t.Cleanup(func() {
 		model.DB = originalDB

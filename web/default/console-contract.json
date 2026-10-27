@@ -1,5 +1,5 @@
 {
-  "api_contract": 2,
+  "api_contract": 3,
   "required_capabilities": [
     "dashboard_jwt",
     "scoped_access_tokens",

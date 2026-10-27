@@ -114,21 +114,15 @@ function LegacyAudioPreview(props: { taskId: string }) {
 
   return (
     <>
-      <button
-        type='button'
-        className='group flex items-center gap-1 text-left text-xs'
-        onClick={() => setOpen(true)}
-      >
+      <Button type='button' size='sm' onClick={() => setOpen(true)}>
         <HugeiconsIcon
           icon={MusicNote01Icon}
-          className='text-muted-foreground size-3'
           strokeWidth={2}
+          data-icon='inline-start'
           aria-hidden='true'
         />
-        <span className='text-foreground leading-snug group-hover:underline'>
-          {t('Click to preview audio')}
-        </span>
-      </button>
+        {t('Preview audio')}
+      </Button>
       <AudioPreviewDialog
         open={open}
         onOpenChange={setOpen}
@@ -383,7 +377,7 @@ function EmptyTaskArtifacts() {
         <EmptyMedia variant='icon'>
           <HugeiconsIcon icon={File01Icon} strokeWidth={2} aria-hidden='true' />
         </EmptyMedia>
-        <EmptyTitle>{t('Artifacts')}</EmptyTitle>
+        <EmptyTitle>{t('Generated works')}</EmptyTitle>
         <EmptyDescription>{t('None')}</EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -432,45 +426,39 @@ export function TaskArtifactsCell(props: { log: TaskLog }) {
   return (
     <>
       {previewMode === 'legacy-video' ? (
-        <button
-          type='button'
-          className='text-foreground text-xs hover:underline'
-          onClick={() => setOpen(true)}
-        >
-          {t('Click to preview video')}
-        </button>
+        <Button type='button' size='sm' onClick={() => setOpen(true)}>
+          <HugeiconsIcon
+            icon={Video01Icon}
+            strokeWidth={2}
+            data-icon='inline-start'
+            aria-hidden='true'
+          />
+          {t('Preview video')}
+        </Button>
       ) : (
-        <Button
-          type='button'
-          variant='outline'
-          size='xs'
-          onClick={() => setOpen(true)}
-        >
+        <Button type='button' size='sm' onClick={() => setOpen(true)}>
           <HugeiconsIcon
             icon={File01Icon}
             strokeWidth={2}
             data-icon='inline-start'
+            aria-hidden='true'
           />
-          {t('Artifacts')}
+          {t('View creations')}
         </Button>
       )}
       <Dialog
         open={open}
         onOpenChange={setOpen}
         title={
-          previewMode === 'legacy-video' ? (
-            t('Preview')
-          ) : (
-            <span className='flex items-center gap-2'>
-              <HugeiconsIcon
-                icon={File01Icon}
-                className='text-muted-foreground size-4'
-                strokeWidth={2}
-                aria-hidden='true'
-              />
-              {t('Artifacts')}
-            </span>
-          )
+          <span className='flex items-center gap-2'>
+            <HugeiconsIcon
+              icon={File01Icon}
+              className='text-muted-foreground size-4'
+              strokeWidth={2}
+              aria-hidden='true'
+            />
+            {t('Generated works')}
+          </span>
         }
         contentClassName={
           previewMode === 'legacy-video' ? 'sm:max-w-xl' : 'sm:max-w-4xl'

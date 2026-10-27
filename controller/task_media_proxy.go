@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -212,6 +213,7 @@ func proxyTaskMedia(c *gin.Context, task *model.Task, descriptor *relaychannel.T
 	case http.StatusOK, http.StatusPartialContent, http.StatusNotModified, http.StatusRequestedRangeNotSatisfiable:
 		copyTaskMediaResponseHeaders(c.Writer.Header(), resp.Header)
 		setTaskMediaResponseSecurityHeaders(c.Writer.Header())
+		setTaskMediaDownloadHeader(c)
 		c.Status(resp.StatusCode)
 		c.Writer.WriteHeaderNow()
 		if c.Request.Method == http.MethodHead || resp.StatusCode == http.StatusNotModified {
@@ -490,6 +492,33 @@ func setTaskMediaResponseSecurityHeaders(header http.Header) {
 	header.Set("X-Content-Type-Options", "nosniff")
 }
 
+func setTaskMediaDownloadHeader(c *gin.Context) {
+	if !c.GetBool("task_artifact_download") {
+		return
+	}
+	name := c.Param("key")
+	if !taskArtifactKeyPattern.MatchString(name) {
+		name = "artifact"
+	}
+	extension := ".bin"
+	mediaType, _, _ := mime.ParseMediaType(c.Writer.Header().Get("Content-Type"))
+	switch mediaType {
+	case "video/mp4":
+		extension = ".mp4"
+	case "video/webm":
+		extension = ".webm"
+	case "audio/mpeg":
+		extension = ".mp3"
+	case "audio/wav":
+		extension = ".wav"
+	case "image/png":
+		extension = ".png"
+	case "image/jpeg":
+		extension = ".jpg"
+	}
+	c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name + extension}))
+}
+
 func writeTaskMediaProxyError(c *gin.Context, err error) {
 	if c.Writer.Written() {
 		logger.LogError(c.Request.Context(), err.Error())
@@ -547,6 +576,7 @@ func writeTaskMediaDataURL(c *gin.Context, dataURL string) error {
 	c.Writer.Header().Set("Content-Type", mimeType)
 	c.Writer.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
 	setTaskMediaResponseSecurityHeaders(c.Writer.Header())
+	setTaskMediaDownloadHeader(c)
 	c.Writer.WriteHeader(http.StatusOK)
 	if c.Request.Method == http.MethodHead {
 		return nil

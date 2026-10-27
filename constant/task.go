@@ -41,6 +41,13 @@ func NormalizeTaskAction(action string) string {
 	return action
 }
 
+// VideoTaskActions includes persisted legacy names as well as canonical names.
+func VideoTaskActions() []string {
+	return []string{TaskActionImageToVideo, TaskActionTextToVideo, TaskActionFirstTailToVideo,
+		TaskActionReferenceToVideo, TaskActionPluginRemix, TaskActionGenerate,
+		TaskActionTextGenerate, TaskActionFirstTailGenerate, TaskActionReferenceGenerate, TaskActionRemix}
+}
+
 var SunoModel2Action = map[string]string{
 	"suno_music":  SunoActionMusic,
 	"suno_lyrics": SunoActionLyrics,

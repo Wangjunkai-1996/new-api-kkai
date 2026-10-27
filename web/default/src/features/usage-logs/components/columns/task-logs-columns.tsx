@@ -32,8 +32,10 @@ import { cn } from '@/lib/utils'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import type { TaskLog } from '../../types'
 import { TaskDetailsDialog } from '../dialogs/task-details-dialog'
+import { ModelBadge } from '../model-badge'
 import { PluginAuthorLink } from '../plugin-author-link'
 import { TaskArtifactsCell } from '../task-artifacts'
+import { TaskBillingCell } from '../task-billing'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   createDurationColumn,
@@ -89,6 +91,57 @@ export function useTaskLogsColumns(
   const { t } = useTranslation()
   return useMemo(() => {
     const columns: ColumnDef<TaskLog>[] = [
+      {
+        id: 'model',
+        header: t('Model'),
+        accessorFn: (log) =>
+          log.properties?.origin_model_name ||
+          log.properties?.upstream_model_name ||
+          '',
+        cell: ({ row, getValue }) => {
+          const model = getValue<string>()
+          return (
+            <div className='flex max-w-[220px] flex-col items-start gap-1'>
+              {model ? (
+                <ModelBadge
+                  modelName={model}
+                  actualModel={
+                    row.original.properties?.upstream_model_name !== model
+                      ? row.original.properties?.upstream_model_name
+                      : undefined
+                  }
+                  wrapText
+                />
+              ) : (
+                <span className='text-muted-foreground text-xs'>-</span>
+              )}
+              <span className='text-muted-foreground text-xs'>
+                {t(
+                  taskActionMapper.getLabel(
+                    row.original.action,
+                    row.original.action
+                  )
+                )}
+              </span>
+            </div>
+          )
+        },
+        size: 220,
+      },
+      {
+        id: 'artifacts',
+        header: t('Generated works'),
+        cell: ({ row }) => (
+          <TaskArtifactsCell key={row.original.task_id} log={row.original} />
+        ),
+        size: 150,
+      },
+      {
+        accessorKey: 'quota',
+        header: t('Cost'),
+        cell: ({ row }) => <TaskBillingCell log={row.original} />,
+        size: 160,
+      },
       {
         accessorKey: 'submit_time',
         header: t('Submit Time'),
@@ -202,7 +255,6 @@ export function useTaskLogsColumns(
         accessorKey: 'task_id',
         header: t('Task ID'),
         cell: ({ row }) => {
-          const log = row.original
           const taskId = row.getValue('task_id') as string
           if (!taskId) {
             return <span className='text-muted-foreground/60 text-xs'>-</span>
@@ -216,9 +268,6 @@ export function useTaskLogsColumns(
                 size='sm'
                 className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
               />
-              <span className='text-muted-foreground/60 truncate text-[11px]'>
-                {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
-              </span>
             </div>
           )
         },
@@ -250,15 +299,6 @@ export function useTaskLogsColumns(
         },
       },
       createProgressColumn<TaskLog>({ headerLabel: t('Progress') }),
-      {
-        id: 'artifacts',
-        header: t('Artifacts'),
-        cell: ({ row }) => (
-          <TaskArtifactsCell key={row.original.task_id} log={row.original} />
-        ),
-        size: 120,
-        maxSize: 140,
-      },
       {
         accessorKey: 'fail_reason',
         header: t('Details'),

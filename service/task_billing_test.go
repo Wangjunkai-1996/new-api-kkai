@@ -297,6 +297,7 @@ func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
 	assert.NotContains(t, snapshot, "negative")
 	assert.NotContains(t, snapshot, "nan")
 	assert.NotContains(t, snapshot, "inf")
+	assert.NotContains(t, snapshot, "image_count", "video duration ratios do not imply an image count")
 }
 
 func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {

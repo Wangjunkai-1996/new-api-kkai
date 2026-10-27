@@ -16,25 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { TASK_MOBILE_SUMMARY_FIELDS } from '../lib/task-mobile-layout'
 
 describe('task log mobile layout', () => {
-  test('keeps plugin, channel, duration, progress, and artifacts visible in the summary', () => {
-    assert.deepEqual(
-      TASK_MOBILE_SUMMARY_FIELDS.map((field) => field.id),
-      [
-        'submit_time',
-        'user',
-        'plugin',
-        'channel_id',
-        'duration',
-        'progress',
-        'artifacts',
-      ]
-    )
+  test('keeps model, cost, and artifacts visible alongside task progress in the summary', () => {
+    expect(TASK_MOBILE_SUMMARY_FIELDS.map((field) => field.id)).toEqual([
+      'model',
+      'quota',
+      'submit_time',
+      'user',
+      'plugin',
+      'channel_id',
+      'duration',
+      'progress',
+      'artifacts',
+    ])
   })
 })

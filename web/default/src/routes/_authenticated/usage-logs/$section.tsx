@@ -34,10 +34,15 @@ const logTypeSearchSchema = z
   .catch([])
 
 const usageLogsSearchSchema = z.object({
-  page: z.number().optional().catch(1),
-  pageSize: z.number().optional().catch(undefined),
+  page: z.number().int().positive().optional().catch(1),
+  pageSize: z.number().int().min(1).max(100).optional().catch(undefined),
   type: logTypeSearchSchema.optional(),
   filter: z.string().optional().catch(''),
+  q: z.string().trim().max(191).optional().catch(''),
+  status_group: z
+    .enum(['all', 'success', 'processing', 'failed'])
+    .optional()
+    .catch('all'),
   model: z.string().optional().catch(''),
   token: z.string().optional().catch(''),
   channel: z.string().optional().catch(''),

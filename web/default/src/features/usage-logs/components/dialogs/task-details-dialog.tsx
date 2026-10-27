@@ -23,13 +23,14 @@ import { useTranslation } from 'react-i18next'
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Label } from '@/components/ui/label'
-import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import { resolveTaskDetailAccess } from '../../lib/task-details'
 import type { TaskLog } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
+import { TaskBillingDetails } from '../task-billing'
 
 function DetailRow(props: {
   label: React.ReactNode
@@ -119,7 +120,9 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
           <DetailRow label={t('Platform')} value={props.log.platform} mono />
           <DetailRow
             label={t('Action')}
-            value={t(taskActionMapper.getLabel(props.log.action))}
+            value={t(
+              taskActionMapper.getLabel(props.log.action, props.log.action)
+            )}
           />
           <DetailRow
             label={t('Progress')}
@@ -160,6 +163,8 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
           ) : null}
         </DetailSection>
 
+        {props.open && <TaskBillingDetails log={props.log} />}
+
         {props.isAdmin ? (
           <DetailSection
             label={t('Admin Only')}
@@ -181,11 +186,6 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
               mono
             />
             <DetailRow label={t('Group')} value={props.log.group || '-'} />
-            <DetailRow
-              label={t('Quota')}
-              value={formatLogQuota(props.log.quota)}
-              mono
-            />
             {props.log.admin_info?.request_id ? (
               <DetailRow
                 label={t('Request ID')}

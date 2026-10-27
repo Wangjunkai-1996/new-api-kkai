@@ -165,10 +165,13 @@ function quotaSaturationKindLabel(
   return t('Invalid (NaN)')
 }
 
-function BillingBreakdown(props: {
-  log: UsageLog
+export function BillingBreakdown(props: {
+  log: Pick<UsageLog, 'quota'>
   other: LogOtherData
   isAdmin: boolean
+  totalLabel?: string
+  totalAvailable?: boolean
+  tierLabel?: string
 }) {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
@@ -195,7 +198,7 @@ function BillingBreakdown(props: {
     if (tieredSummary) {
       if (tieredSummary.tier.label) {
         rows.push({
-          label: t('Matched Tier'),
+          label: props.tierLabel ?? t('Matched Tier'),
           value: tieredSummary.tier.label,
         })
       }
@@ -207,7 +210,7 @@ function BillingBreakdown(props: {
       }
     } else {
       rows.push({
-        label: t('Matched Tier'),
+        label: props.tierLabel ?? t('Matched Tier'),
         value: other.matched_tier || t('No matching results'),
       })
     }
@@ -383,8 +386,8 @@ function BillingBreakdown(props: {
         </>
       )}
       <DetailRow
-        label={t('Total Cost')}
-        value={formatLogQuota(log.quota)}
+        label={props.totalLabel ?? t('Total Cost')}
+        value={props.totalAvailable === false ? '—' : formatLogQuota(log.quota)}
         mono
       />
     </DetailSection>

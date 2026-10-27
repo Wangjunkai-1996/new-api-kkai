@@ -74,6 +74,11 @@ func GetTaskArtifacts(c *gin.Context) {
 		writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
 		return
 	}
+	task.PrivateData.AssetHostedResult, err = service.TaskUsesStudioAssets(c.Request.Context(), model.DB, task)
+	if err != nil {
+		writeTaskArtifactError(c, http.StatusInternalServerError, "artifact_internal_error", "Failed to query video media")
+		return
+	}
 	writeTaskArtifacts(c, task, false)
 }
 
@@ -85,6 +90,24 @@ func GetDashboardTaskArtifacts(c *gin.Context) {
 	}
 	if !exists || task == nil {
 		writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
+		return
+	}
+	// Public identifiers in legacy records were not globally unique. Resolve
+	// the same authorized scope before exposing either hosted or generic media.
+	query := model.DB.Model(&model.Task{}).Where("task_id = ?", task.TaskID)
+	if c.GetInt("token_id") != 0 || c.GetInt("role") < common.RoleAdminUser {
+		query = query.Where("user_id = ?", c.GetInt("id"))
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		writeTaskArtifactError(c, http.StatusInternalServerError, "artifact_internal_error", "Failed to query task")
+		return
+	}
+	if count != 1 {
+		writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
+		return
+	}
+	if writeHostedTaskArtifacts(c, task) {
 		return
 	}
 	writeTaskArtifacts(c, task, true)
@@ -164,7 +187,7 @@ func legacySunoAudioClips(data json.RawMessage) []map[string]any {
 }
 
 func projectTaskArtifacts(task *model.Task) ([]relaychannel.TaskArtifact, error) {
-	if task == nil || task.Status != model.TaskStatusSuccess || !taskHasPluginExecution(task) || !task.ResultRetrievable() {
+	if task == nil || task.Status != model.TaskStatusSuccess || !taskHasPluginExecution(task) || !task.ResultRetrievable() || task.IsAssetHostedResult() {
 		return []relaychannel.TaskArtifact{}, nil
 	}
 	adaptor := relay.GetTaskAdaptor(task.Platform)
@@ -250,7 +273,7 @@ func taskHasPluginExecution(task *model.Task) bool {
 }
 
 func legacyVideoAvailable(task *model.Task) bool {
-	if task == nil || task.Status != model.TaskStatusSuccess ||
+	if task == nil || task.IsAssetHostedResult() || task.Status != model.TaskStatusSuccess ||
 		taskHasPluginExecution(task) || task.Platform == constant.TaskPlatformSuno ||
 		strings.TrimSpace(task.GetResultURL()) == "" {
 		return false
@@ -260,7 +283,7 @@ func legacyVideoAvailable(task *model.Task) bool {
 		constant.TaskActionTextToVideo,
 		constant.TaskActionFirstTailToVideo,
 		constant.TaskActionReferenceToVideo,
-		constant.TaskActionRemix:
+		constant.TaskActionPluginRemix:
 		return true
 	default:
 		return false
@@ -314,6 +337,13 @@ func writeTaskArtifactError(c *gin.Context, status int, code, message string) {
 }
 
 func TaskArtifactContent(c *gin.Context) {
+	if values, exists := c.Request.URL.Query()["download"]; exists {
+		if len(values) != 1 || values[0] != "1" {
+			writeTaskArtifactError(c, http.StatusBadRequest, "artifact_invalid_download", "Invalid download option")
+			return
+		}
+		c.Set("task_artifact_download", true)
+	}
 	task, exists, err := getTaskForArtifactRequest(c, c.Param("key"))
 	if err != nil {
 		writeTaskArtifactError(c, http.StatusInternalServerError, "artifact_internal_error", "Failed to query task")
@@ -324,7 +354,12 @@ func TaskArtifactContent(c *gin.Context) {
 		return
 	}
 	artifactKey := strings.TrimSpace(c.Param("artifact_key"))
-	if !taskArtifactKeyPattern.MatchString(artifactKey) || !task.ResultRetrievable() {
+	task.PrivateData.AssetHostedResult, err = service.TaskUsesStudioAssets(c.Request.Context(), model.DB, task)
+	if err != nil {
+		writeTaskArtifactError(c, http.StatusInternalServerError, "artifact_internal_error", "Failed to query video media")
+		return
+	}
+	if !taskArtifactKeyPattern.MatchString(artifactKey) || !task.ResultRetrievable() || task.IsAssetHostedResult() {
 		writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
 		return
 	}
@@ -409,6 +444,10 @@ func taskArtifactClientHeaders(headers http.Header) map[string]string {
 */
 
 func GetAllTask(c *gin.Context) {
+	if c.Query("media_type") != "" {
+		getVideoWorks(c, true)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
@@ -420,6 +459,10 @@ func GetAllTask(c *gin.Context) {
 }
 
 func GetUserTask(c *gin.Context) {
+	if c.Query("media_type") != "" {
+		getVideoWorks(c, false)
+		return
+	}
 	pageInfo := common.GetPageQuery(c)
 	userID := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
@@ -453,6 +496,7 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 			}
 		}
 		item := relay.TaskModel2Dto(task)
+		item.Billing = service.TaskBillingForDisplay(task)
 		item.Data = nil
 		item.LegacyVideoAvailable = legacyVideoAvailable(task)
 		item.ResultDiscarded = task.PrivateData.ResultDiscarded

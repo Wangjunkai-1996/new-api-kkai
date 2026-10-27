@@ -19,10 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 import { TASK_STATUS } from '../constants'
 import type {
   AudioClip,
+  HostedTaskVideo,
   TaskArtifact,
   TaskArtifactProjection,
   TaskArtifactsResponse,
   TaskLog,
+  TaskMediaState,
+  TaskMediaSummary,
   TaskPluginAuthor,
 } from '../types'
 
@@ -50,10 +53,12 @@ export class TaskArtifactApiError extends Error {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseContentUrl(value: unknown): string {
+// Studio URLs are storage signatures, not task capabilities. Only the URL
+// safety rules are shared; task URLs keep their stricter path/query contract.
+export function parseHostedMediaUrl(value: unknown): string {
   if (typeof value !== 'string') {
     throw new TaskArtifactApiError('invalid_content_url')
   }
@@ -61,6 +66,7 @@ function parseContentUrl(value: unknown): string {
   const contentUrl = value.trim()
   if (
     contentUrl.length === 0 ||
+    contentUrl.length > 8192 ||
     contentUrl !== value ||
     contentUrl.includes('#') ||
     !/^https?:\/\//i.test(contentUrl)
@@ -88,16 +94,7 @@ function parseContentUrl(value: unknown): string {
       authority.includes('@') ||
       url.username ||
       url.password ||
-      url.hash ||
-      !taskArtifactContentPathPattern.test(url.pathname)
-    ) {
-      throw new TaskArtifactApiError('invalid_content_url')
-    }
-    const accessToken = url.searchParams.get('access')
-    if (
-      accessToken == null ||
-      !taskArtifactAccessTokenPattern.test(accessToken) ||
-      url.search !== `?access=${accessToken}`
+      url.hash
     ) {
       throw new TaskArtifactApiError('invalid_content_url')
     }
@@ -106,6 +103,129 @@ function parseContentUrl(value: unknown): string {
     if (error instanceof TaskArtifactApiError) throw error
     throw new TaskArtifactApiError('invalid_content_url')
   }
+}
+
+function parseContentUrl(value: unknown): string {
+  const contentUrl = parseHostedMediaUrl(value)
+  const url = new URL(contentUrl)
+  const accessToken = url.searchParams.get('access')
+  const download = url.searchParams.get('download')
+  if (
+    !taskArtifactContentPathPattern.test(url.pathname) ||
+    accessToken == null ||
+    !taskArtifactAccessTokenPattern.test(accessToken) ||
+    url.searchParams.getAll('access').length !== 1 ||
+    url.searchParams.getAll('download').length > 1 ||
+    (download !== null && download !== '1') ||
+    [...url.searchParams.keys()].some(
+      (key) => key !== 'access' && key !== 'download'
+    ) ||
+    ![
+      `?access=${accessToken}`,
+      `?access=${accessToken}&download=1`,
+      `?download=1&access=${accessToken}`,
+    ].includes(url.search)
+  ) {
+    throw new TaskArtifactApiError('invalid_content_url')
+  }
+  return contentUrl
+}
+
+export function getTaskArtifactDownloadUrl(contentUrl: string): string {
+  const url = new URL(parseContentUrl(contentUrl))
+  url.searchParams.set('download', '1')
+  return url.toString()
+}
+
+const mediaStates = new Set([
+  'ready',
+  'processing',
+  'unavailable',
+  'restricted',
+])
+
+function parseMediaDimensions(value: Record<string, unknown>) {
+  const dimensions: Pick<
+    TaskMediaSummary,
+    'width' | 'height' | 'duration_seconds'
+  > = {}
+  for (const key of ['width', 'height', 'duration_seconds'] as const) {
+    const number = value[key]
+    if (number === undefined) continue
+    if (typeof number !== 'number' || !Number.isFinite(number) || number <= 0) {
+      throw new TaskArtifactApiError('invalid_media_dimensions')
+    }
+    dimensions[key] = number
+  }
+  return dimensions
+}
+
+export function parseTaskMediaSummary(value: unknown): TaskMediaSummary {
+  if (
+    !isRecord(value) ||
+    value.source !== 'studio' ||
+    typeof value.state !== 'string' ||
+    !mediaStates.has(value.state)
+  ) {
+    throw new TaskArtifactApiError('invalid_media_summary')
+  }
+  const media: TaskMediaSummary = {
+    source: 'studio',
+    state: value.state as TaskMediaState,
+    ...parseMediaDimensions(value),
+  }
+  if (value.poster_url != null || value.poster_expires_at != null) {
+    if (
+      media.state !== 'ready' ||
+      !Number.isSafeInteger(value.poster_expires_at) ||
+      Number(value.poster_expires_at) <= 0
+    ) {
+      throw new TaskArtifactApiError('invalid_media_summary')
+    }
+    media.poster_url = parseHostedMediaUrl(value.poster_url)
+    media.poster_expires_at = Number(value.poster_expires_at)
+  }
+  return media
+}
+
+function parseHostedTaskVideo(
+  value: unknown,
+  expectedRecordId?: number
+): HostedTaskVideo {
+  if (
+    !isRecord(value) ||
+    typeof value.state !== 'string' ||
+    !mediaStates.has(value.state) ||
+    !Number.isSafeInteger(value.task_record_id) ||
+    Number(value.task_record_id) <= 0 ||
+    (expectedRecordId !== undefined &&
+      value.task_record_id !== expectedRecordId)
+  ) {
+    throw new TaskArtifactApiError('invalid_hosted_video_identity')
+  }
+  const video: HostedTaskVideo = {
+    task_record_id: Number(value.task_record_id),
+    state: value.state as TaskMediaState,
+    ...parseMediaDimensions(value),
+  }
+  if (video.state === 'ready') {
+    if (
+      !Number.isSafeInteger(value.expires_at) ||
+      Number(value.expires_at) <= 0
+    ) {
+      throw new TaskArtifactApiError('invalid_hosted_video_expiry')
+    }
+    video.content_url = parseHostedMediaUrl(value.content_url)
+    video.download_url = parseHostedMediaUrl(value.download_url)
+    video.expires_at = Number(value.expires_at)
+  } else if (
+    value.content_url != null ||
+    value.download_url != null ||
+    value.expires_at != null
+  ) {
+    throw new TaskArtifactApiError('invalid_hosted_video_state')
+  }
+  return video
 }
 
 function parseTaskArtifact(value: unknown): TaskArtifact {
@@ -161,7 +281,8 @@ export function parseLegacyAudioClips(data: unknown): AudioClip[] {
 }
 
 export function parseTaskArtifactsResponse(
-  response: TaskArtifactsResponse
+  response: TaskArtifactsResponse,
+  expectedRecordId?: number
 ): TaskArtifactProjection {
   if (!response.success) {
     throw new TaskArtifactApiError(
@@ -188,6 +309,19 @@ export function parseTaskArtifactsResponse(
     keys.add(artifact.key)
   }
   const projection: TaskArtifactProjection = { artifacts }
+  if (response.data?.hosted_video != null) {
+    projection.hostedVideo = parseHostedTaskVideo(
+      response.data.hosted_video,
+      expectedRecordId
+    )
+    if (
+      artifacts.length ||
+      response.data.legacy_content_url != null ||
+      response.data.legacy_audio_clips != null
+    ) {
+      throw new TaskArtifactApiError('ambiguous_hosted_video_response')
+    }
+  }
   if (response.data?.legacy_content_url != null) {
     projection.legacyContentUrl = parseContentUrl(
       response.data.legacy_content_url

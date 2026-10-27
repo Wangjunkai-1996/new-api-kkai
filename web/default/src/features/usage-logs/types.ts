@@ -349,6 +349,14 @@ export interface TaskLog {
   group: string
   quota: number
   submit_time: number // seconds
+  billing?: LogOtherData & {
+    amount_available?: boolean
+    state?: string
+    pricing_epoch?: string
+    duration?: number
+    size?: number
+    resolution?: number
+  }
   start_time?: number // seconds
   finish_time?: number // seconds
   progress?: string
@@ -360,6 +368,7 @@ export interface TaskLog {
     origin_model_name?: string
   }
   legacy_video_available?: boolean
+  media?: TaskMediaSummary
   // A synchronous result returned inline and never persisted; artifact
   // retrieval is not offered for it.
   result_discarded?: boolean
@@ -424,6 +433,7 @@ export interface AudioClip {
 
 export interface TaskArtifactProjection {
   artifacts: TaskArtifact[]
+  hostedVideo?: HostedTaskVideo
   legacyContentUrl?: string
   legacyAudioClips?: AudioClip[]
 }
@@ -436,6 +446,7 @@ export interface TaskArtifactsResponse {
     artifacts?: unknown
     legacy_content_url?: unknown
     legacy_audio_clips?: unknown
+    hosted_video?: unknown
   }
 }
 
@@ -515,6 +526,54 @@ export interface GetTaskLogsParams {
   task_id?: string
   start_timestamp?: number
   end_timestamp?: number
+  media_type?: 'video'
+  q?: string
+  status_group?: VideoWorksStatusGroup
+}
+
+export type VideoWorksStatusGroup = 'all' | 'success' | 'processing' | 'failed'
+export type TaskMediaState =
+  | 'ready'
+  | 'processing'
+  | 'unavailable'
+  | 'restricted'
+
+export interface TaskMediaSummary {
+  source: 'studio'
+  state: TaskMediaState
+  poster_url?: string
+  poster_expires_at?: number
+  width?: number
+  height?: number
+  duration_seconds?: number
+}
+
+export interface HostedTaskVideo {
+  task_record_id: number
+  state: TaskMediaState
+  content_url?: string
+  download_url?: string
+  expires_at?: number
+  width?: number
+  height?: number
+  duration_seconds?: number
+}
+
+export interface VideoWorksStatusCounts {
+  all: number
+  success: number
+  processing: number
+  failed: number
+  unknown: number
+}
+
+export interface VideoWorksPage {
+  items: TaskLog[]
+  total: number
+  page: number
+  page_size: number
+  status_counts: VideoWorksStatusCounts
+  media_warning?: 'media_temporarily_unavailable'
 }
 
 // ============================================================================

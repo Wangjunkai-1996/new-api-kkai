@@ -46,6 +46,7 @@ interface LogCostDisplayProps {
   other: LogOtherData | null
   logType?: number
   showBillingSource?: boolean
+  prominent?: boolean
   settlement?: UsageLog['tenant_settlement']
 }
 
@@ -200,7 +201,11 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
             variant='neutral'
             size='lg'
             copyable={false}
-            className='border-border/80 bg-muted/60 text-foreground rounded-md border font-semibold tabular-nums'
+            className={
+              props.prominent
+                ? 'text-foreground h-auto border-0 bg-transparent p-0 text-[38px] leading-tight font-semibold tracking-tight tabular-nums'
+                : 'border-border/80 bg-muted/60 text-foreground rounded-md border font-semibold tabular-nums'
+            }
           >
             {source ? (
               <Tooltip>

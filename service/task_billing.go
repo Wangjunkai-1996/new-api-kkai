@@ -116,7 +116,9 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 			}
 			setTaskImageCount(other, snap.UsageFacts["image_count"])
 		} else if priceData := taskBillingContextPriceData(bc); priceData != nil {
-			setTaskImageCount(other, priceData.OtherRatios()["image_count"])
+			if count, exists := priceData.OtherRatios()["image_count"]; exists {
+				setTaskImageCount(other, count)
+			}
 		}
 	}
 	props := task.Properties

@@ -190,6 +190,12 @@ export const TASK_ACTIONS = {
   FIRST_TAIL_GENERATE: 'firstTailGenerate', // 首尾生视频
   REFERENCE_GENERATE: 'referenceGenerate', // 参照生视频
   REMIX_GENERATE: 'remixGenerate', // 视频 Remix
+
+  IMAGE_TO_VIDEO: 'image_to_video',
+  TEXT_TO_VIDEO: 'text_to_video',
+  FIRST_TAIL_TO_VIDEO: 'first_tail_to_video',
+  REFERENCE_TO_VIDEO: 'reference_to_video',
+  REMIX: 'remix',
 } as const
 
 /**
@@ -290,6 +296,17 @@ export const MJ_SUBMIT_RESULT_MAPPINGS: Record<string, StatusMapping> = {
  * Task action type mappings
  */
 export const TASK_ACTION_MAPPINGS: Record<string, StatusMapping> = {
+  [TASK_ACTIONS.IMAGE_TO_VIDEO]: { label: 'Image to Video', variant: 'blue' },
+  [TASK_ACTIONS.TEXT_TO_VIDEO]: { label: 'Text to Video', variant: 'blue' },
+  [TASK_ACTIONS.FIRST_TAIL_TO_VIDEO]: {
+    label: 'First/Last Frame to Video',
+    variant: 'blue',
+  },
+  [TASK_ACTIONS.REFERENCE_TO_VIDEO]: {
+    label: 'Reference Video',
+    variant: 'blue',
+  },
+  [TASK_ACTIONS.REMIX]: { label: 'Video Remix', variant: 'blue' },
   [TASK_ACTIONS.MUSIC]: { label: 'Generate Music', variant: 'neutral' },
   [TASK_ACTIONS.LYRICS]: { label: 'Generate Lyrics', variant: 'pink' },
   [TASK_ACTIONS.GENERATE]: { label: 'Image to Video', variant: 'blue' },

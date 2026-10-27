@@ -6,7 +6,7 @@ describe('console API compatibility', () => {
   it('accepts compatible backends without a release ID, source SHA or schema', () => {
     const contract = parseConsoleContract({
       format_version: 1,
-      api_contracts: [1, 2],
+      api_contracts: [2, 3],
       capabilities: [
         'dashboard_jwt',
         'scoped_access_tokens',
@@ -15,6 +15,7 @@ describe('console API compatibility', () => {
         'membership_ratio_quotes',
         'reseller_sites',
         'reseller_group_pricing',
+        'manual_invoice_requests',
       ],
     })
     expect(supportsConsole(contract)).toBe(true)
@@ -39,12 +40,15 @@ describe('console API compatibility', () => {
       supportsConsole(
         parseConsoleContract({
           format_version: 1,
-          api_contracts: [3],
+          api_contracts: [4],
           capabilities: [
             'dashboard_jwt',
             'scoped_access_tokens',
             'task_plugins',
             'studio_media_urls',
+            'reseller_sites',
+            'reseller_group_pricing',
+            'manual_invoice_requests',
           ],
         })
       )
@@ -56,7 +60,7 @@ describe('console API compatibility', () => {
       supportsConsole(
         parseConsoleContract({
           format_version: 1,
-          api_contracts: [2],
+          api_contracts: [3],
           capabilities: [
             'dashboard_jwt',
             'scoped_access_tokens',
@@ -71,7 +75,7 @@ describe('console API compatibility', () => {
     expect(
       supportsConsole({
         format_version: 1,
-        api_contracts: [2],
+        api_contracts: [3],
         capabilities: [
           'dashboard_jwt',
           'scoped_access_tokens',
@@ -79,6 +83,7 @@ describe('console API compatibility', () => {
           'studio_media_urls',
           'reseller_sites',
           'reseller_group_pricing',
+          'manual_invoice_requests',
         ],
       })
     ).toBe(true)
@@ -88,7 +93,7 @@ describe('console API compatibility', () => {
     expect(
       supportsConsole({
         format_version: 1,
-        api_contracts: [2],
+        api_contracts: [3],
         capabilities: [
           'token_group_inline',
           'video_sample_categories',
@@ -106,6 +111,23 @@ describe('console API compatibility', () => {
     expect(
       supportsConsole({
         format_version: 1,
+        api_contracts: [3],
+        capabilities: [
+          'dashboard_jwt',
+          'scoped_access_tokens',
+          'task_plugins',
+          'studio_media_urls',
+          'reseller_sites',
+          'manual_invoice_requests',
+        ],
+      })
+    ).toBe(false)
+  })
+
+  it('rejects the previous API without video works even when all required capabilities match', () => {
+    expect(
+      supportsConsole({
+        format_version: 1,
         api_contracts: [2],
         capabilities: [
           'dashboard_jwt',
@@ -113,6 +135,8 @@ describe('console API compatibility', () => {
           'task_plugins',
           'studio_media_urls',
           'reseller_sites',
+          'reseller_group_pricing',
+          'manual_invoice_requests',
         ],
       })
     ).toBe(false)

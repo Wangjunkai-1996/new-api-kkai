@@ -1,0 +1,98 @@
+[
+  {
+    "file": "desktop-dark.png",
+    "width": 862,
+    "height": 1100,
+    "sha256": "725326730ff89b21eedb4ec3cb2e496c2186444d37d4387ffb13c99ba9fc0495"
+  },
+  {
+    "file": "desktop-light.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "9b725d8e607eecc2a37b03aecada65658635b4d390c8d98df1ff4eade4067f9b"
+  },
+  {
+    "file": "mobile.png",
+    "width": 375,
+    "height": 2592,
+    "sha256": "d0bbf35f6fd2811b6a3d67b2f894cd55d3166cc568fb5fbcf85336328163ae84"
+  },
+  {
+    "file": "mobile-320.png",
+    "width": 320,
+    "height": 2289,
+    "sha256": "f28cb2f397d2754e76aa60bf7972c11eabe0c5609d473afb28ac1156c4470b7c"
+  },
+  {
+    "file": "preview.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "25a2a6e238bbd9e5affae554c02f6b5b62911645edfe25978b8963c2f78169c4"
+  },
+  {
+    "file": "billing.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "b674c2dd4d4dfcb287e3ba00420a5fcf6edc22f55b3f0c9255acdeaac6f82ca3"
+  },
+  {
+    "file": "empty.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "5baf74f8cd695a356f1ff22dc890f2abe54cb55d136fe1bb7068f8725b4d42e3"
+  },
+  {
+    "file": "filtered-empty.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "0128d6fdb79ce1351016e6c550efbc2403da52c26c0dedc12b46f15fbc4be780"
+  },
+  {
+    "file": "failure.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "45d59e11858e9a72f4ad52a49dbdcd36b6428f055ce3a10e0334bd900a12c9df"
+  },
+  {
+    "file": "media-retry.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "aaf37037f87a3647edeac720696f0ab92c12afb121622e6c916b1b7437753544"
+  },
+  {
+    "file": "list-error.png",
+    "width": 1024,
+    "height": 1100,
+    "sha256": "6baa91b3854019fea12b0cc812ed72a441957adee8855ad9e3e897556c4497f3"
+  },
+  {
+    "file": "mobile-preview.png",
+    "width": 375,
+    "height": 812,
+    "sha256": "80d60ecfa7f6472008c035ab41c8fbea51fdfe5e3faaf4ff3dc817490e2f55b9"
+  },
+  {
+    "file": "mobile-preview-scroll.png",
+    "width": 375,
+    "height": 812,
+    "sha256": "22e12654cd19a1bc7a2b5e76d16844d60ace145946626f1df32deef4a46447e2"
+  },
+  {
+    "file": "mobile-billing.png",
+    "width": 375,
+    "height": 812,
+    "sha256": "a37f2711526e3af958c9d1d612ab92602824bd0aa52720e4bc8612f2873290cf"
+  },
+  {
+    "file": "mobile-ru.png",
+    "width": 375,
+    "height": 2714,
+    "sha256": "e34fb7916190563591884c9f9ff1a9057341188c9ffa52dde392cc8121448b0d"
+  },
+  {
+    "file": "mobile-fr.png",
+    "width": 375,
+    "height": 2696,
+    "sha256": "d83e48c832ac9823df2fc7ddf65a7a751a3727fd5126956b47512a37dd50e9f5"
+  }
+]

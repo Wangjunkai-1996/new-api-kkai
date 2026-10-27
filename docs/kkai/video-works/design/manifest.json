@@ -1,0 +1,223 @@
+{
+  "baseline": "video-works-complete / v3 final",
+  "archived_on": "2026-10-27",
+  "source_directory_name": "01a17cbc-5d00-7a72-939b-4b75a06a5dfa",
+  "files": [
+    {
+      "path": "design/prototype.fragment.html",
+      "source": "video-works-complete.html",
+      "classification": "approved-prototype",
+      "bytes": 382393,
+      "sha256": "6f9b18bec75823e2a33599672e30487ee2d9923d305b55e1974f47853113178d"
+    },
+    {
+      "path": "design/desktop-dark.png",
+      "source": "v3-final-1024.png",
+      "classification": "approved-baseline",
+      "bytes": 271191,
+      "sha256": "0eb3a4b3caad656fd3653081f9da2960ef12577fedf4f00c617cbd4540089cc4",
+      "dimensions_px": [
+        1024,
+        1074
+      ]
+    },
+    {
+      "path": "design/desktop-light.png",
+      "source": "v3-final-light.png",
+      "classification": "approved-baseline",
+      "bytes": 254088,
+      "sha256": "5af341f0471e9d192c3c889905da6ea637c8c1490c06caffcd837f8de7256696",
+      "dimensions_px": [
+        1024,
+        1074
+      ]
+    },
+    {
+      "path": "design/mobile.png",
+      "source": "v3-final-375.png",
+      "classification": "approved-baseline",
+      "bytes": 457843,
+      "sha256": "859cc24ea145a74d8f81a16116d884e1d33bc7e528359572ed91ebe7495accf3",
+      "dimensions_px": [
+        375,
+        2429
+      ]
+    },
+    {
+      "path": "design/preview.png",
+      "source": "v3-final-preview.png",
+      "classification": "approved-baseline",
+      "bytes": 428511,
+      "sha256": "d1a1290ce84c7c2782c9c03fa688ed82b6078959c55aa1527a178ef5e4b362df",
+      "dimensions_px": [
+        1024,
+        1074
+      ]
+    },
+    {
+      "path": "design/empty.png",
+      "source": "v3-final-empty.png",
+      "classification": "approved-baseline",
+      "bytes": 115459,
+      "sha256": "b20dc1a2a8851108221fa77228bd1ada3bff1d2eaaa6f11f35590cba37dfbc4a",
+      "dimensions_px": [
+        1024,
+        748
+      ]
+    },
+    {
+      "path": "design/retry.png",
+      "source": "v3-final-retry.png",
+      "classification": "approved-baseline",
+      "bytes": 145686,
+      "sha256": "596cbac8f2ece47f08752971ad874a60999031ceb6c80715f50fe066d8b8dd09",
+      "dimensions_px": [
+        1024,
+        1074
+      ]
+    },
+    {
+      "path": "design/billing-reference.png",
+      "source": "billing.png",
+      "classification": "supplementary-reference",
+      "bytes": 126656,
+      "sha256": "de252381a066c68c4441b3fc95929586914c9becc539611a431c2916a6d58b8e",
+      "dimensions_px": [
+        1024,
+        850
+      ]
+    },
+    {
+      "path": "assets/header.png",
+      "source": "v3-assets/header.png",
+      "classification": "production-illustration",
+      "bytes": 327460,
+      "sha256": "3205c0d736339f0ea6211665f059089b3186b2e70170ea844cc7dc4b367b4cee",
+      "dimensions_px": [
+        633,
+        480
+      ]
+    },
+    {
+      "path": "assets/header.webp",
+      "source": "v3-assets/header.webp",
+      "classification": "production-illustration",
+      "bytes": 47860,
+      "sha256": "43009669714df4ad462a651f2d2535defd723cb010e79c31231ffed2bb7c0c75",
+      "dimensions_px": [
+        633,
+        480
+      ]
+    },
+    {
+      "path": "assets/empty.png",
+      "source": "v3-assets/empty.png",
+      "classification": "production-illustration",
+      "bytes": 104632,
+      "sha256": "9fb0901923126efdc3ce124cf0f1d347f27f38301ea462e072931e646385f539",
+      "dimensions_px": [
+        354,
+        300
+      ]
+    },
+    {
+      "path": "assets/empty.webp",
+      "source": "v3-assets/empty.webp",
+      "classification": "production-illustration",
+      "bytes": 16678,
+      "sha256": "8239a0525410121f819a8037389b0b7552d520008c5357db787cba66e7303f63",
+      "dimensions_px": [
+        354,
+        300
+      ]
+    },
+    {
+      "path": "assets/processing.png",
+      "source": "v3-assets/processing.png",
+      "classification": "production-illustration",
+      "bytes": 86046,
+      "sha256": "af8ac07e201e2a475de95473d6ab62aede818786484f2c975181a9bb2901855d",
+      "dimensions_px": [
+        304,
+        300
+      ]
+    },
+    {
+      "path": "assets/processing.webp",
+      "source": "v3-assets/processing.webp",
+      "classification": "production-illustration",
+      "bytes": 22600,
+      "sha256": "5a2fa3c79e6c407759cf0b8aa6c794d87c374ef9b78ecfaba60748855fde2cbb",
+      "dimensions_px": [
+        304,
+        300
+      ]
+    },
+    {
+      "path": "assets/failed.png",
+      "source": "v3-assets/failed.png",
+      "classification": "production-illustration",
+      "bytes": 93313,
+      "sha256": "d1480bb9db942c492fb6c15ecde7933d73054c9bff41fcd9b10d4c7a64cfa086",
+      "dimensions_px": [
+        352,
+        264
+      ]
+    },
+    {
+      "path": "assets/failed.webp",
+      "source": "v3-assets/failed.webp",
+      "classification": "production-illustration",
+      "bytes": 9954,
+      "sha256": "04f95641ed36490065d513695c57018f52864e1c1ed787dedb65d57fdd0a4ec2",
+      "dimensions_px": [
+        352,
+        264
+      ]
+    },
+    {
+      "path": "assets/expired.png",
+      "source": "v3-assets/expired.png",
+      "classification": "production-illustration",
+      "bytes": 95597,
+      "sha256": "0b4a94ffbd60c5da965b3f1d6004c01bcb3723331c49270320402c3fda26436b",
+      "dimensions_px": [
+        360,
+        264
+      ]
+    },
+    {
+      "path": "assets/expired.webp",
+      "source": "v3-assets/expired.webp",
+      "classification": "production-illustration",
+      "bytes": 14050,
+      "sha256": "eb9b1187512c583a7044083e4081b78b6e8615e97fb1269cd6832b7a3ab67302",
+      "dimensions_px": [
+        360,
+        264
+      ]
+    },
+    {
+      "path": "assets/demo/ocean.webp",
+      "source": "v3-assets/ocean.webp",
+      "classification": "demo-only",
+      "bytes": 65014,
+      "sha256": "2ea61f1e23f5558ca53e9a938adf69cf4af04235740d9a3571a73e6c4fb2b2c7",
+      "dimensions_px": [
+        960,
+        540
+      ]
+    },
+    {
+      "path": "assets/demo/coupe.webp",
+      "source": "v3-assets/coupe.webp",
+      "classification": "demo-only",
+      "bytes": 62724,
+      "sha256": "a98e90fc0440ffd435dff73a7df53de76d6b038d36f8548b104cced67cef49e9",
+      "dimensions_px": [
+        960,
+        540
+      ]
+    }
+  ]
+}

@@ -16,10 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { z } from 'zod'
+
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { buildQueryParams } from './lib/query-params'
-import { parseTaskArtifactsResponse } from './lib/task-artifacts'
+import {
+  parseTaskArtifactsResponse,
+  parseTaskMediaSummary,
+  TaskArtifactApiError,
+} from './lib/task-artifacts'
 import type {
   GetLogsParams,
   GetLogsResponse,
@@ -29,6 +36,7 @@ import type {
   GetTaskLogsParams,
   TaskArtifactsResponse,
   UserInfo,
+  VideoWorksPage,
 } from './types'
 
 // ============================================================================
@@ -118,10 +126,81 @@ const taskArtifactRequestConfig = {
   skipErrorHandler: true,
 } satisfies ApiRequestConfig
 
-export async function getTaskArtifacts(taskId: string) {
+export async function getTaskArtifacts(
+  taskId: string,
+  options: {
+    signal?: AbortSignal
+    recordId?: number
+    requireHosted?: boolean
+  } = {}
+) {
   const response = await api.get<TaskArtifactsResponse>(
     `/api/task/${encodeURIComponent(taskId)}/artifacts`,
-    taskArtifactRequestConfig
+    {
+      ...taskArtifactRequestConfig,
+      ...(options.signal ? { signal: options.signal } : {}),
+    }
   )
-  return parseTaskArtifactsResponse(response.data)
+  const projection = parseTaskArtifactsResponse(response.data, options.recordId)
+  if (options.requireHosted && !projection.hostedVideo) {
+    throw new TaskArtifactApiError('missing_hosted_video')
+  }
+  return projection
+}
+
+const videoWorkSchema = z
+  .object({
+    id: z.number().int().positive(),
+    user_id: z.number().int().nonnegative(),
+    task_id: z.string().min(1),
+    platform: z.string(),
+    action: z.string(),
+    channel_id: z.number().int().nonnegative(),
+    group: z.string(),
+    quota: z.number().finite(),
+    submit_time: z.number().finite(),
+    status: z.string(),
+    billing: z.object({ amount_available: z.boolean() }).passthrough(),
+    media: z
+      .unknown()
+      .optional()
+      .transform((value) =>
+        value == null ? undefined : parseTaskMediaSummary(value)
+      ),
+  })
+  .passthrough()
+  .refine((task) => !task.billing.amount_available || task.quota >= 0, {
+    message: 'Invalid available task amount',
+    path: ['quota'],
+  })
+
+const videoWorksPageSchema = z.object({
+  items: z
+    .array(videoWorkSchema)
+    .nullable()
+    .transform((items) => items ?? []),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  page_size: z.number().int().positive().max(100),
+  status_counts: z.object({
+    all: z.number().int().nonnegative(),
+    success: z.number().int().nonnegative(),
+    processing: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    unknown: z.number().int().nonnegative(),
+  }),
+  media_warning: z.literal('media_temporarily_unavailable').optional(),
+})
+
+export async function getVideoWorks(
+  params: GetTaskLogsParams,
+  isAdmin: boolean,
+  signal?: AbortSignal
+): Promise<VideoWorksPage> {
+  const query = buildQueryParams({ ...params, media_type: 'video' })
+  const response = await api.get(
+    `${isAdmin ? '/api/task/' : '/api/task/self'}?${query}`,
+    { ...taskArtifactRequestConfig, signal }
+  )
+  return videoWorksPageSchema.parse(requireServerSuccess(response.data).data)
 }

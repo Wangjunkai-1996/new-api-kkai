@@ -243,7 +243,8 @@ describe('task artifact projection', () => {
       `https://media.example.com/v1/tasks/task-public/artifacts/video-main/content?token=${artifactAccessToken}`,
       `https://media.example.com/v1/tasks/task-public/artifacts/video-main/content?access=${'A'.repeat(42)}`,
       `${validContentUrl}&access=${artifactAccessToken}`,
-      `${validContentUrl}&download=1`,
+      `${validContentUrl}&download=0`,
+      `${validContentUrl}&download=1&download=1`,
     ]
 
     for (const contentUrl of unsafeUrls) {

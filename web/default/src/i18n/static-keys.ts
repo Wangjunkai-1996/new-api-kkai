@@ -853,7 +853,7 @@ export const STATIC_I18N_KEYS = [
   'API usage records',
   'Drawing Logs',
   'Drawing task records',
-  'Task Logs',
+  'Video Works',
   'System task records',
   'Personal Center Area',
   'User personal functions',

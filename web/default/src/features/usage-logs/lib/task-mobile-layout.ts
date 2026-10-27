@@ -23,11 +23,13 @@ interface TaskMobileSummaryField {
 }
 
 export const TASK_MOBILE_SUMMARY_FIELDS: readonly TaskMobileSummaryField[] = [
+  { id: 'model', label: 'Model' },
+  { id: 'quota', label: 'Cost' },
   { id: 'submit_time', label: 'Submit Time' },
   { id: 'user', label: 'User', primaryOnly: true },
   { id: 'plugin', label: 'Plugin' },
   { id: 'channel_id', label: 'Channel', primaryOnly: true },
   { id: 'duration', label: 'Duration', primaryOnly: true },
   { id: 'progress', label: 'Progress' },
-  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'artifacts', label: 'Generated works' },
 ]

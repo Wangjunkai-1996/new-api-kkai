@@ -66,14 +66,14 @@ describe('task artifacts cell', () => {
 
     expect(screen.getByText('Result not retained')).toBeVisible()
     expect(
-      screen.queryByRole('button', { name: /Artifacts/ })
+      screen.queryByRole('button', { name: 'View creations' })
     ).not.toBeInTheDocument()
   })
 
   test('given a retained successful plugin task, the artifacts button is offered', () => {
     renderCell(taskLog())
 
-    expect(screen.getByRole('button', { name: /Artifacts/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'View creations' })).toBeVisible()
     expect(screen.queryByText('Result not retained')).not.toBeInTheDocument()
   })
 
@@ -83,7 +83,7 @@ describe('task artifacts cell', () => {
     expect(screen.getByText('-')).toBeVisible()
     expect(screen.queryByText('Result not retained')).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: /Artifacts/ })
+      screen.queryByRole('button', { name: 'View creations' })
     ).not.toBeInTheDocument()
   })
   test('fetches retained files only when opened and renders the signed download URL', async () => {
@@ -101,7 +101,7 @@ describe('task artifacts cell', () => {
     renderCell(taskLog())
     expect(get).not.toHaveBeenCalled()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Artifacts' }))
+    await userEvent.click(screen.getByRole('button', { name: 'View creations' }))
 
     expect(await screen.findByRole('img', { name: 'result' })).toHaveAttribute(
       'src',
@@ -128,7 +128,7 @@ describe('task artifacts cell', () => {
         data: { success: true, data: { artifacts: [] } },
       })
     renderCell(taskLog())
-    await userEvent.click(screen.getByRole('button', { name: 'Artifacts' }))
+    await userEvent.click(screen.getByRole('button', { name: 'View creations' }))
 
     expect(await screen.findByText('Failed to load artifacts')).toBeVisible()
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
