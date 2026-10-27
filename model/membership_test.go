@@ -233,7 +233,7 @@ func TestMembershipCatalogConflictsAndDisabledSalesPreserveEntitlements(t *testi
 	catalog.SalesEnabled = false
 	saved, err := PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
 	require.NoError(t, err)
-	assert.True(t, saved.TopupDiscountsDisabled)
+	assert.False(t, saved.TopupDiscountsDisabled)
 	quote, err := GetMembershipQuote(user.Id, "gpt", 0.2, 0.2)
 	require.NoError(t, err)
 	assert.True(t, quote.Active)
@@ -261,4 +261,31 @@ func TestMembershipBillingTransactionRollsBackWithOwningTask(t *testing.T) {
 	var count int64
 	require.NoError(t, DB.Model(&MembershipBillingRecord{}).Where("request_id = ?", input.RequestID).Count(&count).Error)
 	assert.Zero(t, count)
+}
+
+func TestMembershipCatalogRestoresTopUpPromotionsAfterSalesLaunch(t *testing.T) {
+	_, catalog := setupMembershipTest(t)
+	assert.True(t, catalog.SalesEnabled)
+	assert.False(t, catalog.TopupDiscountsDisabled)
+
+	// Releases created before restoration can retain the old flag in both places.
+	catalog.TopupDiscountsDisabled = true
+	payload, err := common.Marshal(catalog)
+	require.NoError(t, err)
+	require.NoError(t, DB.Model(&MembershipPricingRelease{}).Where("id = ?", catalog.ReleaseID).Update("payload", string(payload)).Error)
+	require.NoError(t, DB.Model(&MembershipCatalogState{}).Where("id = ?", 1).Update("topup_discounts_disabled", true).Error)
+	current, err := GetMembershipCatalog()
+	require.NoError(t, err)
+	assert.False(t, current.TopupDiscountsDisabled)
+	assert.True(t, current.SalesEnabled)
+
+	// A stale administrator draft must not reintroduce the retired policy.
+	saved, err := PublishMembershipCatalog(*catalog, catalog.ReleaseID, 1)
+	require.NoError(t, err)
+	assert.False(t, saved.TopupDiscountsDisabled)
+	assert.True(t, saved.SalesEnabled)
+	current, err = GetMembershipCatalog()
+	require.NoError(t, err)
+	assert.False(t, current.TopupDiscountsDisabled)
+	assert.Equal(t, saved.ReleaseID, current.ReleaseID)
 }

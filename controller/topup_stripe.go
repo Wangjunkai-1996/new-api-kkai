@@ -367,7 +367,7 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 			},
 		},
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
-		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled && !model.MembershipTopupDiscountsDisabled()),
+		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
 	}
 
 	if "" == customerId {

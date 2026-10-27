@@ -133,21 +133,6 @@ func GetTopUpInfo(c *gin.Context) {
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
 	}
-	if model.MembershipTopupDiscountsDisabled() {
-		data["discount"] = map[int]float64{}
-		data["topup_discounts_disabled"] = true
-		var products []CreemProduct
-		if err := common.UnmarshalJsonStr(setting.CreemProducts, &products); err == nil {
-			available := make([]CreemProduct, 0, len(products))
-			for _, product := range products {
-				product, err = creemProductWithoutBonus(product)
-				if err == nil {
-					available = append(available, product)
-				}
-			}
-			data["creem_products"] = common.GetJsonString(available)
-		}
-	}
 	if tenant, ok := middleware.GetTenantContext(c); ok && tenant.TenantID > 0 {
 		data["enable_stripe_topup"], data["enable_creem_topup"] = false, false
 		data["enable_waffo_topup"], data["enable_waffo_pancake_topup"] = false, false

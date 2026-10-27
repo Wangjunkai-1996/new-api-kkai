@@ -34,7 +34,7 @@ func TestAdminGetMembershipConfigHandlesUnpreparedSchemaWithoutHidingFailures(t 
 					require.NoError(t, err)
 					release := model.MembershipPricingRelease{Payload: string(payload), ActorID: 1}
 					require.NoError(t, db.Create(&release).Error)
-					require.NoError(t, db.Create(&model.MembershipCatalogState{ID: 1, ReleaseID: release.ID}).Error)
+					require.NoError(t, db.Create(&model.MembershipCatalogState{ID: 1, ReleaseID: release.ID, TopupDiscountsDisabled: true}).Error)
 				}
 				if name == "closed_database" {
 					require.NoError(t, sqlDB.Close())
@@ -80,6 +80,7 @@ func TestAdminGetMembershipConfigHandlesUnpreparedSchemaWithoutHidingFailures(t 
 				require.NotNil(t, response.Data.SchemaReady)
 				assert.True(t, *response.Data.SchemaReady)
 				assert.Positive(t, response.Data.ReleaseID)
+				assert.False(t, response.Data.TopupDiscountsDisabled, "payment settings must remain editable with the historical disable flag")
 				require.Len(t, response.Data.Tiers, 1)
 				assert.Equal(t, "gold", response.Data.Tiers[0].ID)
 				assert.EqualValues(t, 60000, response.Data.Tiers[0].PriceMinor)

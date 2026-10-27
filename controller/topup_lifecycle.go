@@ -450,7 +450,7 @@ func walletQuote(c *gin.Context, input dto.WalletQuoteRequest) (*walletQuoteClai
 		s.WebhookSecret = setting.StripeWebhookSecret
 		s.PriceID = setting.StripePriceId
 		s.Quantity = amount
-		s.AllowPromotionCodes = setting.StripePromotionCodesEnabled && !model.MembershipTopupDiscountsDisabled()
+		s.AllowPromotionCodes = setting.StripePromotionCodesEnabled
 		price, e := service.WalletStripePrice(c.Request.Context(), s.APIKey, s.PriceID)
 		if e != nil || price == nil || !price.Active || price.UnitAmount <= 0 || price.BillingScheme != "per_unit" || price.TransformQuantity != nil || price.Recurring != nil {
 			return nil, nil, errors.New("PAYMENT_PROVIDER_UNAVAILABLE")
@@ -491,16 +491,12 @@ func walletQuote(c *gin.Context, input dto.WalletQuoteRequest) (*walletQuoteClai
 		var selected *CreemProduct
 		for _, p := range products {
 			if p.ProductId == input.ProductID {
-				p, err = creemProductWithoutBonus(p)
 				selected = &p
 				break
 			}
 		}
 		if selected == nil {
 			return nil, nil, errors.New("VALIDATION_FAILED")
-		}
-		if err != nil {
-			return nil, nil, err
 		}
 		q.CreditedQuota = selected.Quota
 		q.StoredAmount = selected.Quota

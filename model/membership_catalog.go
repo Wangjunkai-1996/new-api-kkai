@@ -41,7 +41,8 @@ func currentMembershipCatalogTx(tx *gorm.DB) (*MembershipCatalog, error) {
 		return nil, err
 	}
 	catalog.SalesEnabled = state.SalesEnabled
-	catalog.TopupDiscountsDisabled = state.TopupDiscountsDisabled
+	// Retain the legacy API field, but membership sales no longer disable wallet promotions.
+	catalog.TopupDiscountsDisabled = false
 	return catalog, nil
 }
 
@@ -123,7 +124,7 @@ func PublishMembershipCatalog(input MembershipCatalog, expectedReleaseID int64, 
 		if len(retained) != 0 {
 			return fmt.Errorf("%w: tiers referenced by active memberships or pending orders must be retained", ErrMembershipInvalidInput)
 		}
-		catalog.TopupDiscountsDisabled = state.TopupDiscountsDisabled || catalog.TopupDiscountsDisabled || catalog.SalesEnabled
+		catalog.TopupDiscountsDisabled = false
 		catalog.ReleaseID = 0
 		payload, err := common.Marshal(catalog)
 		if err != nil {
@@ -397,33 +398,6 @@ func GetMembershipSelf(userID int) (*MembershipSelf, error) {
 		result.Tier.Discounts = result.Discounts
 	}
 	return result, nil
-}
-
-func MembershipTopupDiscountsDisabled() bool {
-	if DB == nil {
-		return false
-	}
-	// A failed catalogue read must never reinstate previously removed discounts.
-	if err := CheckMembershipSchema(); err != nil {
-		if !MembershipEnabled() {
-			available, inspectErr := membershipTableAvailable(DB, "kkai_membership_catalog")
-			if inspectErr == nil && !available {
-				return false
-			}
-		}
-		common.SysError("membership top-up discount state unavailable: " + err.Error())
-		return true
-	}
-	var state MembershipCatalogState
-	err := DB.First(&state, 1).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false
-	}
-	if err != nil {
-		common.SysError("membership top-up discount state read: " + err.Error())
-		return true
-	}
-	return state.TopupDiscountsDisabled
 }
 
 // checkMembershipGroupTx rejects disabled routing identities before accepting a

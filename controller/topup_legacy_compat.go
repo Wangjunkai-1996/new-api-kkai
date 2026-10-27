@@ -305,12 +305,10 @@ func requestLegacyCreem(c *gin.Context) {
 		return
 	}
 
-	withoutBonus, err := creemProductWithoutBonus(*selectedProduct)
-	if err != nil {
-		common.ApiError(c, err)
+	if !walletPositiveFinite(selectedProduct.Price) {
+		common.ApiError(c, fmt.Errorf("invalid Creem product price"))
 		return
 	}
-	selectedProduct = &withoutBonus
 	id := c.GetInt("id")
 	if rejectInvalidCreditedQuota(c, id, decimal.NewFromInt(selectedProduct.Quota)) {
 		return
