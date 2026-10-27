@@ -92,21 +92,11 @@ vi.mock('./components/wallet-stats-card', () => ({
   ),
 }))
 vi.mock('@/components/layout', () => {
-  const Layout = Object.assign(
-    (props: { children: React.ReactNode }) => <main>{props.children}</main>,
-    {
-      Title: (props: { children: React.ReactNode }) => (
-        <h1>{props.children}</h1>
-      ),
-      Actions: (props: { children: React.ReactNode }) => (
-        <nav>{props.children}</nav>
-      ),
-      Content: (props: { children: React.ReactNode }) => (
-        <section>{props.children}</section>
-      ),
-    }
-  )
-  return { SectionPageLayout: Layout }
+  return {
+    Main: (props: { children: React.ReactNode }) => (
+      <main>{props.children}</main>
+    ),
+  }
 })
 function info(ready?: boolean): TopupInfo {
   return {

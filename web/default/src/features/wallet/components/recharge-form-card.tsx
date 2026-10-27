@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   ArrowRight,
   ArrowUpRight,
+  BadgePercent,
   Check,
   ChevronDown,
   Loader2,
@@ -31,6 +32,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -94,7 +96,6 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
   const { t } = useTranslation()
   const [customOpen, setCustomOpen] = useState(false)
   const [localAmount, setLocalAmount] = useState('')
-  const [redemptionOpen, setRedemptionOpen] = useState(true)
   const reduceMotion = useReducedMotion()
   const customActive = customOpen || props.selectedPreset === null
 
@@ -204,16 +205,23 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
     quoteReady && hasDiscount
       ? Math.max(0, originalPrice - props.paymentAmount)
       : 0
+  const maximumDiscount =
+    props.selectedPaymentMethod?.type === PAYMENT_TYPES.STRIPE
+      ? 0
+      : Math.max(
+          0,
+          ...props.presetAmounts.map((preset) => {
+            const rate =
+              preset.discount ?? props.topupInfo?.discount?.[preset.value] ?? 1
+            return rate > 0 && rate < 1 ? Math.round((1 - rate) * 100) : 0
+          })
+        )
   const tokenDisplay = getCurrencyDisplay().config.quotaDisplayType === 'TOKENS'
   const creditAmount = (amount: number) =>
     formatTopupCreditAmount(amount, t('Tokens'))
 
   const handleCustomToggle = () => {
-    if (customActive && props.presetAmounts.length > 0) {
-      setCustomOpen(false)
-      props.onSelectPreset(props.presetAmounts[0])
-      return
-    }
+    if (customActive) return
     setCustomOpen(true)
     setLocalAmount('')
     props.onTopupAmountChange(0)
@@ -228,7 +236,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
 
   if (props.loading) {
     return (
-      <section className='space-y-5' aria-label={t('Add Funds')}>
+      <section className='flex flex-col gap-5' aria-label={t('Add Funds')}>
         <Skeleton className='h-6 w-32' />
         <div className='grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]'>
           <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
@@ -243,113 +251,132 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
   }
 
   return (
-    <section className='min-w-0' aria-labelledby='wallet-recharge-heading'>
-      <div className='mb-4 flex items-end gap-5 sm:mb-5'>
+    <section
+      className='@container/recharge min-w-0'
+      aria-labelledby='wallet-recharge-heading'
+    >
+      <div className='mb-3.5 flex flex-wrap items-center justify-between gap-3'>
         <h2
           id='wallet-recharge-heading'
-          className='shrink-0 text-lg font-semibold'
+          className='shrink-0 text-[17px] font-semibold'
         >
           {t('Online Top-up')}
         </h2>
-        <span className='bg-border mb-1 h-px flex-1' aria-hidden='true' />
+        {hasConfigurableTopup && maximumDiscount > 0 && (
+          <span className='flex items-center gap-1.5 text-xs text-[var(--wallet-success)]'>
+            <BadgePercent className='size-4' aria-hidden='true' />
+            {t('Up to {{percent}}% off', { percent: maximumDiscount })}
+          </span>
+        )}
       </div>
 
       {hasConfigurableTopup && (
-        <div className='grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-7'>
-          <div className='min-w-0'>
-            <div className='mb-3 flex items-start justify-between gap-3'>
-              <div>
-                <h3 className='text-sm font-medium'>
-                  {t('Select credit amount')}
-                </h3>
-                <p className='text-muted-foreground mt-1 text-xs'>
-                  {t('For API usage')}
-                </p>
-              </div>
-              <span className='text-muted-foreground text-xs'>
-                {tokenDisplay ? t('Tokens') : 'USD · $'}
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={MOTION_TRANSITION.slow}
+          className='grid items-start gap-3.5 @min-[700px]/recharge:grid-cols-[minmax(0,1fr)_minmax(264px,0.46fr)] @min-[920px]/recharge:gap-5'
+        >
+          <div className='bg-card @container/amounts min-w-0 rounded-[16px] border p-[18px] @min-[920px]/recharge:p-[22px]'>
+            <div className='mb-3.5 flex items-start justify-between gap-3'>
+              <h3 className='text-[13px] font-medium'>
+                {t('Select credit amount')}
+              </h3>
+              <span className='text-muted-foreground text-right text-[11px]'>
+                {tokenDisplay ? t('Tokens') : 'USD'} · {t('For API usage')}
               </span>
             </div>
 
-            {props.presetAmounts.length > 0 && (
-              <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
-                {props.presetAmounts.map((preset) => {
-                  const presetDiscount =
-                    preset.discount ??
-                    props.topupInfo?.discount?.[preset.value] ??
-                    1
-                  const selected =
-                    props.selectedPreset === preset.value && !customActive
-                  let discountLabel = ''
-                  if (selected && hasDiscount && discount > 0) {
-                    discountLabel = `${t('You save')} ${formatWalletPaymentAmount(
-                      discount,
-                      props.selectedPaymentMethod?.type
-                    )}`
-                  } else if (
-                    presetDiscount > 0 &&
-                    presetDiscount < 1 &&
-                    props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
-                  ) {
-                    discountLabel = `${t('Discount')} ${Math.round((1 - presetDiscount) * 100)}%`
-                  }
-                  return (
-                    <button
-                      key={preset.value}
-                      type='button'
-                      aria-pressed={selected}
-                      onClick={() => {
-                        setCustomOpen(false)
-                        props.onSelectPreset(preset)
-                      }}
-                      className={cn(
-                        'group relative flex min-h-[72px] min-w-0 flex-col justify-between gap-2 rounded-md border bg-card px-3 py-2.5 text-left transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none',
-                        selected &&
-                          'border-primary bg-primary/[0.06] shadow-[inset_0_0_0_1px_var(--primary)]'
+            <div
+              className='grid grid-cols-2 gap-2.5 @min-[400px]/amounts:grid-cols-3 @min-[580px]/amounts:grid-cols-4'
+              role='group'
+              aria-label={t('Select credit amount')}
+            >
+              {props.presetAmounts.map((preset) => {
+                const presetDiscount =
+                  preset.discount ??
+                  props.topupInfo?.discount?.[preset.value] ??
+                  1
+                const selected =
+                  props.selectedPreset === preset.value && !customActive
+                let discountLabel = ''
+                if (
+                  presetDiscount > 0 &&
+                  presetDiscount < 1 &&
+                  props.selectedPaymentMethod?.type !== PAYMENT_TYPES.STRIPE
+                ) {
+                  discountLabel = `${t('Discount')} ${Math.round((1 - presetDiscount) * 100)}%`
+                }
+                return (
+                  <button
+                    key={preset.value}
+                    type='button'
+                    aria-pressed={selected}
+                    onClick={() => {
+                      setCustomOpen(false)
+                      props.onSelectPreset(preset)
+                    }}
+                    className={cn(
+                      'group focus-visible:ring-ring relative flex min-h-[94px] min-w-0 flex-col justify-between gap-2 rounded-[11px] border bg-card px-3 py-3.5 text-left transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:ring-2 focus-visible:outline-none active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none',
+                      selected &&
+                        'border-primary bg-primary/[0.06] shadow-[inset_0_0_0_1px_var(--primary)]'
+                    )}
+                  >
+                    <span className='flex w-full items-start justify-between gap-1'>
+                      <strong className='min-w-0 text-xl leading-tight font-semibold tracking-tight break-all tabular-nums'>
+                        {tokenDisplay ? '' : '$'}
+                        {formatNumber(preset.value)}
+                      </strong>
+                      {selected && (
+                        <Check
+                          className='text-primary absolute top-2 right-2 size-3.5 shrink-0'
+                          aria-hidden='true'
+                        />
                       )}
-                    >
-                      <span className='flex w-full items-start justify-between gap-1'>
-                        <strong className='min-w-0 text-base leading-none font-semibold break-all tabular-nums sm:text-xl'>
-                          {tokenDisplay ? '' : '$'}
-                          {formatNumber(preset.value)}
-                        </strong>
-                        {selected && (
-                          <Check
-                            className='text-primary size-3.5 shrink-0'
-                            aria-hidden='true'
-                          />
-                        )}
+                    </span>
+                    {discountLabel ? (
+                      <Badge
+                        variant='secondary'
+                        className='h-auto max-w-full rounded-[5px] bg-[var(--wallet-success-soft)] px-1.5 py-0.5 text-[11px] font-normal whitespace-normal text-[var(--wallet-success)] tabular-nums'
+                      >
+                        {discountLabel}
+                      </Badge>
+                    ) : (
+                      <span className='text-muted-foreground py-0.5 text-[11px]'>
+                        {t('Standard price')}
                       </span>
-                      {discountLabel ? (
-                        <span className='inline-flex min-h-5 w-fit max-w-full items-center rounded-sm bg-emerald-600 px-1.5 py-1 text-[11px] leading-tight font-semibold break-words text-white tabular-nums dark:bg-emerald-500 dark:text-emerald-950'>
-                          {discountLabel}
-                        </span>
-                      ) : (
-                        <span className='h-5' aria-hidden='true' />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-
-            <div className='mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1'>
+                    )}
+                  </button>
+                )
+              })}
               <button
                 type='button'
                 onClick={handleCustomToggle}
+                aria-pressed={customActive}
                 aria-expanded={customActive}
                 aria-controls='wallet-custom-amount'
-                className='text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline'
+                className={cn(
+                  'focus-visible:ring-ring relative flex min-h-[94px] min-w-0 flex-col justify-between gap-2 rounded-[11px] border bg-card px-3 py-3.5 text-left transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:ring-2 focus-visible:outline-none active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none',
+                  customActive &&
+                    'border-primary bg-primary/[0.06] shadow-[inset_0_0_0_1px_var(--primary)]'
+                )}
               >
-                <Plus className='size-3.5' aria-hidden='true' />{' '}
-                {t('Custom Amount')}
+                <strong className='flex items-center gap-1 text-[13px] font-medium'>
+                  <Plus className='size-3.5 shrink-0' aria-hidden='true' />
+                  {t('Custom Amount')}
+                </strong>
+                <span className='text-muted-foreground py-0.5 text-[11px]'>
+                  {t('Top up as needed')}
+                </span>
+                {customActive && (
+                  <Check
+                    className='text-primary absolute top-2 right-2 size-3.5'
+                    aria-hidden='true'
+                  />
+                )}
               </button>
-              <span className='text-muted-foreground text-xs'>
-                {t('Minimum topup amount: {{amount}}', {
-                  amount: creditAmount(minTopup),
-                })}
-              </span>
             </div>
+
             {customActive && (
               <div id='wallet-custom-amount' className='mt-3'>
                 <label
@@ -368,10 +395,18 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                     customOpen ? localAmount : String(props.topupAmount || '')
                   }
                   onChange={(event) => handleAmountChange(event.target.value)}
-                  className='h-10'
+                  className='h-11 rounded-[9px]'
+                  aria-invalid={!validAmount}
+                  aria-describedby={
+                    !validAmount ? 'wallet-custom-error' : undefined
+                  }
                 />
                 {!validAmount && (
-                  <p className='text-destructive mt-1.5 text-xs' role='alert'>
+                  <p
+                    id='wallet-custom-error'
+                    className='text-destructive mt-1.5 text-xs'
+                    role='alert'
+                  >
                     {t('Enter an amount of at least {{amount}}', {
                       amount: creditAmount(methodMin),
                     })}
@@ -380,11 +415,20 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
               </div>
             )}
 
-            <div className='mt-5 border-t pt-5 sm:mt-7'>
-              <h3 className='mb-3 text-sm font-medium'>
+            <p className='text-muted-foreground mt-3 text-[11px]'>
+              {t('Minimum topup amount: {{amount}}', {
+                amount: creditAmount(minTopup),
+              })}
+            </p>
+            <div className='mt-6 border-t pt-[22px]'>
+              <h3 className='mb-3.5 text-[13px] font-medium'>
                 {t('Payment Method')}
               </h3>
-              <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+              <div
+                className='grid grid-cols-1 gap-2.5 @min-[300px]/amounts:grid-cols-2'
+                role='group'
+                aria-label={t('Payment Method')}
+              >
                 {standardMethods.map((method) => {
                   const minimum = minimumForMethod(method)
                   const disabled = props.topupAmount < minimum
@@ -405,7 +449,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                       aria-pressed={selected}
                       onClick={() => props.onPaymentMethodSelect(method)}
                       className={cn(
-                        'flex h-12 min-w-0 items-center gap-2.5 rounded-md border bg-card px-3 text-left text-sm transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:hover:transform-none',
+                        'focus-visible:ring-ring flex min-h-[51px] min-w-0 items-center gap-2.5 rounded-[10px] border bg-card px-3 py-2.5 text-left text-[13px] transition-[border-color,background-color] duration-200 hover:border-primary focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none',
                         selected && 'border-primary bg-primary/[0.07]'
                       )}
                     >
@@ -418,12 +462,13 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                       <span className='min-w-0 flex-1 truncate'>
                         {method.name}
                       </span>
-                      {selected && (
-                        <Check
-                          className='text-primary size-4 shrink-0'
-                          aria-hidden='true'
-                        />
-                      )}
+                      <span
+                        className={cn(
+                          'bg-card size-[15px] shrink-0 rounded-full border',
+                          selected && 'border-primary border-[4px]'
+                        )}
+                        aria-hidden='true'
+                      />
                     </button>
                   )
                 })}
@@ -452,7 +497,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                           props.onWaffoMethodSelect?.(method, index)
                         }
                         className={cn(
-                          'flex h-12 min-w-0 items-center gap-2.5 rounded-md border bg-card px-3 text-left text-sm transition-[transform,border-color,box-shadow,background-color] duration-200 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:hover:transform-none',
+                          'focus-visible:ring-ring flex min-h-[51px] min-w-0 items-center gap-2.5 rounded-[10px] border bg-card px-3 py-2.5 text-left text-[13px] transition-[border-color,background-color] duration-200 hover:border-primary focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none',
                           selected && 'border-primary bg-primary/[0.07]'
                         )}
                       >
@@ -468,12 +513,13 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                         <span className='min-w-0 flex-1 truncate'>
                           {method.name}
                         </span>
-                        {selected && (
-                          <Check
-                            className='text-primary size-4 shrink-0'
-                            aria-hidden='true'
-                          />
-                        )}
+                        <span
+                          className={cn(
+                            'bg-card size-[15px] shrink-0 rounded-full border',
+                            selected && 'border-primary border-[4px]'
+                          )}
+                          aria-hidden='true'
+                        />
                       </button>
                     )
                   })}
@@ -491,10 +537,10 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
           </div>
 
           <aside
-            className='bg-card border-t-primary rounded-md border border-t-2 p-5 shadow-sm transition-shadow duration-200 hover:shadow-md motion-reduce:transition-none lg:sticky lg:top-5'
+            className='bg-card border-t-primary min-w-0 rounded-[16px] border border-t-2 p-[18px] shadow-[0_8px_30px_var(--wallet-shadow)] @min-[700px]/recharge:sticky @min-[700px]/recharge:top-5 @min-[920px]/recharge:p-[22px]'
             aria-label={t('Payment Summary')}
           >
-            <div className='mb-6 flex items-center justify-between text-sm font-medium'>
+            <div className='mb-[22px] flex items-center justify-between text-sm font-medium'>
               <span>{t('Payment Summary')}</span>
               <Receipt
                 className='text-muted-foreground size-4'
@@ -504,17 +550,50 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
             {props.quote ? (
               <PaymentAmounts
                 pricing={props.quote}
+                variant='wallet'
                 discountRate={quoteDiscountRate}
               />
             ) : (
               <>
-                <div className='space-y-4 text-xs'>
+                <div className='border-b pb-[22px]'>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('You Pay')}
+                  </span>
+                  <motion.strong
+                    key={`${props.selectedPaymentMethod?.type}-${quoteReady ? props.paymentAmount : 'pending'}`}
+                    initial={reduceMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={MOTION_TRANSITION.fast}
+                    className='mt-2 block min-w-0 text-[35px] leading-tight font-semibold tracking-tight break-all tabular-nums'
+                    aria-live='polite'
+                  >
+                    {quoteReady
+                      ? formatWalletPaymentAmount(
+                          props.paymentAmount,
+                          props.selectedPaymentMethod?.type
+                        )
+                      : '—'}
+                  </motion.strong>
+                  {discount > 0 && (
+                    <Badge
+                      variant='secondary'
+                      className='mt-2 h-auto max-w-full rounded-[5px] bg-[var(--wallet-success-soft)] px-2 py-1 text-[11px] font-normal whitespace-normal text-[var(--wallet-success)]'
+                    >
+                      {t('You save')}{' '}
+                      {formatWalletPaymentAmount(
+                        discount,
+                        props.selectedPaymentMethod?.type
+                      )}
+                    </Badge>
+                  )}
+                </div>
+                <div className='mt-3 flex flex-col gap-3 text-xs'>
                   <div className='flex justify-between gap-3'>
                     <span className='text-muted-foreground'>
                       {t('Credited Amount')}
                     </span>
-                    <strong className='text-right font-medium tabular-nums'>
-                      {validAmount ? creditAmount(props.topupAmount) : '-'}
+                    <strong className='min-w-0 text-right font-medium break-all tabular-nums'>
+                      {validAmount ? creditAmount(props.topupAmount) : '—'}
                     </strong>
                   </div>
                   {hasDiscount && quoteReady && (
@@ -522,7 +601,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                       <span className='text-muted-foreground'>
                         {t('Original Price')}
                       </span>
-                      <strong className='text-muted-foreground text-right font-medium tabular-nums line-through'>
+                      <strong className='min-w-0 text-right font-medium break-all tabular-nums line-through'>
                         {formatWalletPaymentAmount(
                           originalPrice,
                           props.selectedPaymentMethod?.type
@@ -531,38 +610,18 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                     </div>
                   )}
                 </div>
-                {discount > 0 && (
-                  <div className='mt-5 flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'>
-                    <span className='font-medium'>{t('You save')}</span>
-                    <strong className='font-semibold tabular-nums'>
-                      {formatWalletPaymentAmount(
-                        discount,
-                        props.selectedPaymentMethod?.type
-                      )}
-                    </strong>
-                  </div>
-                )}
-                <div className='mt-5 flex items-end justify-between gap-3 border-t pt-5'>
-                  <span className='shrink-0 text-xs'>{t('You Pay')}</span>
-                  <motion.strong
-                    key={`${props.selectedPaymentMethod?.type}-${quoteReady ? props.paymentAmount : 'pending'}`}
-                    initial={reduceMotion ? false : { opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={MOTION_TRANSITION.fast}
-                    className='min-w-0 text-right text-3xl leading-none font-semibold break-all tabular-nums'
-                  >
-                    {quoteReady
-                      ? formatWalletPaymentAmount(
-                          props.paymentAmount,
-                          props.selectedPaymentMethod?.type
-                        )
-                      : '-'}
-                  </motion.strong>
-                </div>
               </>
             )}
+            <div className='mt-3 flex justify-between gap-3 text-xs'>
+              <span className='text-muted-foreground'>
+                {t('Payment Method')}
+              </span>
+              <strong className='min-w-0 text-right font-medium break-words'>
+                {props.selectedPaymentMethod?.name ?? '—'}
+              </strong>
+            </div>
             <Button
-              className='mt-5 h-11 w-full shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:transform-none'
+              className='mt-6 h-[46px] w-full rounded-[9px] text-[13px] shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:transform-none'
               disabled={
                 props.purchaseDisabled ||
                 !quoteReady ||
@@ -578,19 +637,25 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
               <ArrowRight className='size-4' aria-hidden='true' />
             </Button>
             {props.quote && (
-              <p className='text-muted-foreground mt-3 text-xs'>
+              <p className='text-muted-foreground mt-3 flex items-start gap-1.5 text-[11px]'>
+                <ArrowUpRight
+                  className='mt-0.5 size-3.5 shrink-0'
+                  aria-hidden='true'
+                />
                 {t(
                   'Payment opens in a new tab. Your order remains available in this wallet.'
                 )}
               </p>
             )}
           </aside>
-        </div>
+        </motion.div>
       )}
 
       {hasCreem && (
         <div className={cn('mt-7', hasConfigurableTopup && 'border-t pt-6')}>
-          <h3 className='mb-3 text-sm font-medium'>{t('Creem Payment')}</h3>
+          <h3 className='mb-3.5 text-[13px] font-medium'>
+            {t('Creem Payment')}
+          </h3>
           <CreemProductsSection
             disabled={props.purchaseDisabled}
             products={props.creemProducts ?? []}
@@ -607,20 +672,16 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
         </Alert>
       )}
 
-      <div className='bg-muted/25 mt-8 border-y px-4 sm:px-5'>
+      <div className='bg-card mt-[18px] rounded-xl border'>
         {redemptionEnabled ? (
-          <details
-            className='group'
-            open={redemptionOpen}
-            onToggle={(event) => setRedemptionOpen(event.currentTarget.open)}
-          >
-            <summary className='flex cursor-pointer list-none items-center justify-between gap-3 py-4 [&::-webkit-details-marker]:hidden'>
+          <details className='group'>
+            <summary className='focus-visible:ring-ring flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-5 py-4 focus-visible:ring-2 focus-visible:outline-none [&::-webkit-details-marker]:hidden'>
               <span className='flex min-w-0 items-center gap-2.5'>
                 <Ticket
                   className='text-primary size-4 shrink-0'
                   aria-hidden='true'
                 />
-                <strong className='text-sm font-medium'>
+                <strong className='text-xs font-medium'>
                   {t('Redeem with a code')}
                 </strong>
                 <span className='text-muted-foreground hidden text-xs sm:inline'>
@@ -628,11 +689,11 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
                 </span>
               </span>
               <ChevronDown
-                className='text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180'
+                className='text-muted-foreground size-3.5 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none'
                 aria-hidden='true'
               />
             </summary>
-            <div className='pb-5'>
+            <div className='border-t px-5 py-4'>
               <label
                 htmlFor='redemption-code'
                 className='text-muted-foreground mb-2 block text-xs'
@@ -678,7 +739,7 @@ export function RechargeFormCard(props: RechargeFormCardProps) {
             </div>
           </details>
         ) : (
-          <p className='text-muted-foreground py-4 text-xs'>
+          <p className='text-muted-foreground px-5 py-4 text-xs'>
             {t(
               'Redemption codes are disabled until the administrator confirms compliance terms.'
             )}

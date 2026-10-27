@@ -1,0 +1,158 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+.wallet-page {
+  --wallet-success: #146743;
+  --wallet-success-soft: #eaf7f0;
+  --wallet-gold: #886027;
+  --wallet-shadow: #152b4914;
+  container-type: inline-size;
+}
+
+.dark .wallet-page {
+  --wallet-success: #7bdfb1;
+  --wallet-success-soft: #203a32;
+  --wallet-gold: #e4c28b;
+  --wallet-shadow: #00000030;
+}
+
+.wallet-content {
+  padding: 28px clamp(20px, 2.4cqw, 44px) 32px;
+}
+
+.wallet-overview {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.2fr) repeat(3, minmax(0, 0.5fr));
+  align-items: center;
+  border-radius: 16px;
+}
+
+.wallet-balance {
+  padding: 25px 26px;
+  border-radius: 16px 0 0 16px;
+  background: radial-gradient(
+    ellipse at 0 0,
+    color-mix(in oklch, var(--primary) 9%, transparent),
+    transparent 80%
+  );
+}
+
+.wallet-balance-value {
+  font-size: clamp(28px, 3cqw, 42px);
+}
+
+.wallet-metric {
+  margin-block: 22px;
+  padding-inline: 20px;
+  border-inline-start: 1px solid var(--border);
+}
+
+.wallet-membership.wallet-enter {
+  animation-delay: 60ms;
+}
+
+@container (max-width: 1100px) {
+  .wallet-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .wallet-balance {
+    grid-column: 1 / -1;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .wallet-overview > :nth-child(2) {
+    border-inline-start: 0;
+  }
+
+  .wallet-balance-value {
+    font-size: 36px;
+  }
+}
+
+@container (max-width: 600px) {
+  .wallet-content {
+    padding: 20px 16px 28px;
+  }
+
+  .wallet-balance {
+    padding: 20px;
+  }
+
+  .wallet-balance-value {
+    font-size: 32px;
+  }
+
+  .wallet-metric {
+    padding-inline: 14px;
+    margin-block: 18px;
+  }
+}
+
+@container (max-width: 440px) {
+  .wallet-membership {
+    flex-wrap: wrap;
+  }
+
+  .wallet-membership-copy {
+    flex-basis: calc(100% - 48px);
+  }
+
+  .wallet-membership > a {
+    margin-inline-start: 48px;
+  }
+
+  .wallet-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wallet-request-count {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 12px;
+    padding-block: 14px;
+    margin: 0 14px;
+    padding-inline: 0;
+    border-inline-start: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .wallet-request-count > * {
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wallet-enter {
+    animation: wallet-enter 350ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  }
+}
+
+@keyframes wallet-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

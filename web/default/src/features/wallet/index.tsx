@@ -18,12 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
-import { ArrowUpRight, Receipt } from 'lucide-react'
+import { History } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
+import { Main } from '@/components/layout'
 import { Button } from '@/components/ui/button'
+
+import '@/styles/wallet.css'
 
 import { getWalletBalance } from './api'
 import { WalletRequestError } from './components/wallet-request-error'
@@ -152,21 +154,27 @@ function WalletPage(props: WalletProps) {
     </div>
   )
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button
-          variant='outline'
-          className='border-border bg-card hover:border-primary/40 h-10 gap-2 px-3 shadow-sm'
-          onClick={() => openHistory(true)}
-        >
-          <Receipt aria-hidden='true' />
-          {t('Order History')}
-          <ArrowUpRight className='size-3.5' aria-hidden='true' />
-        </Button>
-      </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>
-        <div className='mx-auto flex w-full max-w-7xl flex-col gap-5'>
+    <Main className='wallet-page'>
+      <div className='min-h-0 flex-1 overflow-auto'>
+        <div className='wallet-content mx-auto flex w-full max-w-[1760px] flex-col gap-5'>
+          <header className='flex flex-wrap items-center justify-between gap-x-4 gap-y-3'>
+            <div className='min-w-40 flex-1'>
+              <h1 className='text-2xl font-semibold tracking-tight sm:text-[26px]'>
+                {t('Wallet')}
+              </h1>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t('Manage your credits for every API call.')}
+              </p>
+            </div>
+            <Button
+              variant='outline'
+              className='ms-auto h-10 shrink-0 gap-2 rounded-[9px] px-3'
+              onClick={() => openHistory(true)}
+            >
+              <History aria-hidden='true' />
+              {t('Order History')}
+            </Button>
+          </header>
           <WalletStatsCard
             user={balance.data ?? null}
             loading={balance.isPending}
@@ -215,7 +223,7 @@ function WalletPage(props: WalletProps) {
             {!mode && !topup.error && !capabilityMismatch && loading}
           </Suspense>
         </div>
-      </SectionPageLayout.Content>
-    </SectionPageLayout>
+      </div>
+    </Main>
   )
 }

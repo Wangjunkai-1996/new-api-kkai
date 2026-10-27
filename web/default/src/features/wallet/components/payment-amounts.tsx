@@ -16,7 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { motion, useReducedMotion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
+
+import { Badge } from '@/components/ui/badge'
+import { MOTION_TRANSITION } from '@/lib/motion'
 
 import { formatPaymentMoney } from '../lib/payment-flow'
 import type { MoneyDTO, PaymentPricing } from '../payment-flow-types'
@@ -51,12 +55,86 @@ function getDiscountBreakdown(
 export function PaymentAmounts(props: {
   pricing: PaymentPricing
   discountRate?: number
+  variant?: 'default' | 'wallet'
 }) {
   const { t, i18n } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const pricing = props.pricing
   const payable = pricing.payable_payment
   const displayedPayment = payable ?? pricing.expected_payment
   const discount = getDiscountBreakdown(displayedPayment, props.discountRate)
+  if (props.variant === 'wallet') {
+    const formattedPayment = formatPaymentMoney(displayedPayment, i18n.language)
+    const currency =
+      formattedPayment !== '—' ? displayedPayment?.currency : undefined
+    return (
+      <div className='flex flex-col gap-3'>
+        <div className='border-b pb-[22px]'>
+          <span className='text-muted-foreground text-xs'>
+            {payable ? t('Amount due') : t('Order amount')}
+          </span>
+          <div
+            className='mt-2 flex flex-wrap items-baseline gap-x-2'
+            aria-live='polite'
+          >
+            {currency && (
+              <span className='text-muted-foreground text-[13px]'>
+                {currency}
+              </span>
+            )}
+            <motion.strong
+              key={formattedPayment}
+              initial={reduceMotion ? false : { opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={MOTION_TRANSITION.fast}
+              className='min-w-0 text-[35px] leading-tight font-semibold tracking-tight break-all tabular-nums'
+            >
+              {currency
+                ? formattedPayment.slice(currency.length + 1)
+                : formattedPayment}
+            </motion.strong>
+          </div>
+          {discount && (
+            <Badge
+              variant='secondary'
+              className='mt-2 h-auto max-w-full rounded-[5px] bg-[var(--wallet-success-soft)] px-2 py-1 text-[11px] font-normal whitespace-normal text-[var(--wallet-success)]'
+            >
+              {t('You save')}{' '}
+              {formatPaymentMoney(discount.savings, i18n.language)}
+            </Badge>
+          )}
+        </div>
+        <div className='flex justify-between gap-3 text-xs'>
+          <span className='text-muted-foreground'>{t('Credited Amount')}</span>
+          <span className='min-w-0 text-right font-medium break-all tabular-nums'>
+            {pricing.credit_display
+              ? `${pricing.credit_display.amount} ${pricing.credit_display.unit}`
+              : t('Not available')}
+          </span>
+        </div>
+        {discount && (
+          <div className='flex justify-between gap-3 text-xs'>
+            <span className='text-muted-foreground'>{t('Original Price')}</span>
+            <span className='min-w-0 text-right font-medium break-all tabular-nums line-through'>
+              {formatPaymentMoney(discount.original, i18n.language)}
+            </span>
+          </div>
+        )}
+        {pricing.pricing_mode === 'channel_adjusted' && !payable && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'The final amount includes any valid discounts and taxes shown on the payment page.'
+            )}
+          </p>
+        )}
+        {pricing.pricing_mode === 'unknown' && (
+          <p className='text-muted-foreground text-xs'>
+            {t('The original payment amount is being verified.')}
+          </p>
+        )}
+      </div>
+    )
+  }
   return (
     <div className='space-y-3'>
       <div className='flex flex-wrap items-baseline justify-between gap-2'>

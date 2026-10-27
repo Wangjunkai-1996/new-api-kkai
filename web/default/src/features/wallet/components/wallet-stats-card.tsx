@@ -64,12 +64,12 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   return (
     <section
       aria-label={t('Wallet amount statistics')}
-      className='bg-muted/25 grid grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] items-center gap-x-3 gap-y-4 border-y px-3 py-4 sm:gap-5 sm:px-5 sm:py-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.43fr)_minmax(0,0.85fr)_minmax(0,0.72fr)]'
+      className='wallet-overview wallet-enter bg-card rounded-2xl border'
     >
       <section
         aria-label={t('Current Balance')}
         aria-busy={balanceLoading || props.balanceRefreshing}
-        className='min-w-0'
+        className='wallet-balance min-w-0'
       >
         <div className='text-muted-foreground flex items-center gap-2 text-xs'>
           <span
@@ -78,7 +78,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           />
           {t('Current Balance')}
         </div>
-        <div className='mt-2 text-[29px] leading-tight font-semibold break-all tabular-nums sm:text-[34px]'>
+        <div className='wallet-balance-value mt-2.5 leading-tight font-semibold tracking-[-0.045em] break-all tabular-nums'>
           {balanceLoading ? (
             <Skeleton
               aria-hidden='true'
@@ -88,7 +88,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
             balanceValue
           )}
         </div>
-        <p className='text-muted-foreground mt-1.5 text-[11px]'>
+        <p className='text-muted-foreground mt-2 text-xs'>
           {t('Includes top-ups, rebates and gifts')}
         </p>
         {(balanceLoading || props.balanceRefreshing) && (
@@ -128,7 +128,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
       <section
         aria-label={t('Total paid top-ups')}
         aria-busy={props.fundingSummaryEnabled && funding.isFetching}
-        className='min-w-0 border-l pl-3 sm:pl-5'
+        className='wallet-metric min-w-0'
       >
         <div className='text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs'>
           <span>{t('Total paid top-ups')}</span>
@@ -166,7 +166,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
         ) : (
           <WalletCashAmounts
             payments={summary?.cash_payments}
-            className='text-[19px] sm:text-[21px]'
+            className='text-lg font-semibold'
           />
         )}
         <p className='text-muted-foreground mt-1.5 text-[11px]'>
@@ -206,11 +206,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           />
         )}
       </section>
-      <div className='min-w-0 md:border-l md:pl-5'>
+      <div className='wallet-metric min-w-0'>
         <span className='text-muted-foreground text-xs'>
           {t('Total consumed credits')}
         </span>
-        <div className='mt-1.5 text-[17px] font-medium break-all tabular-nums'>
+        <div className='mt-2 text-lg font-semibold break-all tabular-nums'>
           {balanceLoading ? (
             <Skeleton
               aria-hidden='true'
@@ -224,11 +224,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
           {t('Deducted for actual usage')}
         </p>
       </div>
-      <div className='min-w-0 border-l pl-3 sm:pl-5'>
+      <div className='wallet-metric wallet-request-count min-w-0'>
         <span className='text-muted-foreground text-xs'>
           {t('API Requests')}
         </span>
-        <div className='mt-1.5 text-[17px] font-medium break-all tabular-nums'>
+        <div className='mt-2 text-lg font-semibold break-all tabular-nums'>
           {balanceLoading ? (
             <Skeleton
               aria-hidden='true'
