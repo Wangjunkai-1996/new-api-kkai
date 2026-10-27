@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
@@ -102,6 +103,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 			continue
 		}
 		timedOutCount++
+		perfmetrics.RecordTaskResult(task, nil)
 		if !isLegacy && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, reason)
 		}
@@ -295,6 +297,10 @@ func UpdateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, task
 			if updateErr != nil || !won {
 				continue
 			}
+			if snap.Status != model.TaskStatusSuccess && snap.Status != model.TaskStatusFailure &&
+				(task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) {
+				perfmetrics.RecordTaskResult(task, &result.TaskInfo)
+			}
 			if task.Status == model.TaskStatusSuccess {
 				settleTaskBillingOnComplete(ctx, adaptor, task, &result.TaskInfo)
 			}
@@ -419,6 +425,10 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		if !won {
 			logger.LogWarn(ctx, fmt.Sprintf("Suno task %s already transitioned, skip billing", task.TaskID))
 			continue
+		}
+		if snap.Status != model.TaskStatusSuccess && snap.Status != model.TaskStatusFailure &&
+			(task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) {
+			perfmetrics.RecordTaskResult(task, &responseItem.TaskInfo)
 		}
 		if shouldRefund {
 			RefundTaskQuota(ctx, task, task.FailReason)
@@ -558,6 +568,9 @@ func failPollingTask(ctx context.Context, observed *model.Task, reason string) (
 	won, err := failedTask.UpdateWithStatusPreservingBilling(snapshot)
 	if err != nil || !won {
 		return won, err
+	}
+	if snapshot.Status != model.TaskStatusSuccess && snapshot.Status != model.TaskStatusFailure {
+		perfmetrics.RecordTaskResult(&failedTask, nil)
 	}
 	if failedTask.Quota == 0 {
 		return true, nil
@@ -751,6 +764,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			logger.LogWarn(ctx, fmt.Sprintf("Task %s already transitioned by another process, skip billing", task.TaskID))
 			shouldRefund = false
 			shouldSettle = false
+		} else if snap.Status != model.TaskStatusSuccess && snap.Status != model.TaskStatusFailure {
+			perfmetrics.RecordTaskResult(task, taskResult)
 		}
 	} else if !snap.Equal(task.Snapshot()) {
 		if _, err := task.UpdateWithStatusPreservingBilling(snap); err != nil {

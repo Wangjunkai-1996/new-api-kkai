@@ -10,6 +10,13 @@ same sample is kept in a bounded local fallback. Redis queries are authoritative
 when available. If Redis is disabled or unavailable, the endpoint continues
 with local signals and persisted `perf_metrics` rows instead of failing.
 
+Polled asynchronous tasks, including Seedance videos, add one sample when the
+task first reaches success or failure. Only the winning persisted transition
+records it; pending states, transient polling errors, repeated polls, and
+terminal metadata updates do not add samples. This also covers batch/Suno
+polling and terminal polling failures/timeouts. Tasks do not enter the
+text-request cache rate.
+
 The selected window controls health, success rate, latency, TTFT, and staleness.
 It does not filter `recent_events`: every visible group returns its latest 60
 requests, ordered oldest to newest, even when those requests predate the selected
