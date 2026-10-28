@@ -16,12 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AxiosError } from 'axios'
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-import type { VideoModelProfile } from './types'
+import type {
+  VideoGeneration,
+  VideoModelProfile,
+  VideoSubmissionReceipt,
+} from './types'
 import { VideoCreatePage } from './video-create-page'
 
 const mocks = vi.hoisted(() => ({
@@ -32,12 +37,19 @@ const mocks = vi.hoisted(() => ({
   gate: {} as Record<string, unknown>,
   modelsQuery: {} as Record<string, unknown>,
   sampleQuery: {} as Record<string, unknown>,
+  generationsQuery: {} as Record<string, unknown>,
 }))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const original =
     await importOriginal<typeof import('@tanstack/react-router')>()
-  return { ...original, useNavigate: () => mocks.navigate }
+  return {
+    ...original,
+    useNavigate: () => mocks.navigate,
+    Link: (props: { children?: ReactNode; to: string }) => (
+      <a href={props.to}>{props.children}</a>
+    ),
+  }
 })
 
 vi.mock('@/hooks/use-media-query', () => ({
@@ -51,14 +63,75 @@ vi.mock('./hooks/use-video-token-gate', () => ({
 vi.mock('./queries', () => ({
   useVideoModels: () => mocks.modelsQuery,
   useVideoSample: () => mocks.sampleQuery,
+  useVideoGenerations: (
+    _filters: unknown,
+    _polling: boolean,
+    _task: string | undefined,
+    id: number | undefined
+  ) => ({
+    ...mocks.generationsQuery,
+    targetGeneration: (mocks.generationsQuery.items as VideoGeneration[]).find(
+      (item) => item.id === id
+    ),
+  }),
+  isVideoGenerationTombstoneError: () => false,
 }))
 
 vi.mock('./components/video-composer', () => ({
-  VideoComposer: () => <div>composer-mounted</div>,
+  VideoComposer: (props: {
+    onSubmitted?: (receipt: VideoSubmissionReceipt) => void
+  }) => (
+    <div>
+      <span>composer-mounted</span>
+      <input aria-label='Draft text' defaultValue='My draft' />
+      <button
+        type='button'
+        onClick={() => props.onSubmitted?.({ task_id: 'task_accepted' })}
+      >
+        Accept submission
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('@/lib/studio-media', () => ({
+  useStudioMediaUrls: () => ({
+    data: { urls: {}, deniedPaths: {} },
+    identityDenied: false,
+    refetch: vi.fn(),
+  }),
+  signedStudioMediaUrl: () => undefined,
+}))
+vi.mock('./components/video-generation-player', () => ({
+  VideoGenerationPlayer: (props: {
+    generation: VideoGeneration
+    active: boolean
+    onPlay?: () => void
+  }) => (
+    <div data-testid='result-player' data-active={props.active}>
+      <span>{props.generation.prompt}</span>
+      <button type='button' onClick={props.onPlay}>
+        Play result
+      </button>
+    </div>
+  ),
+}))
+vi.mock('./components/video-generation-details', () => ({
+  VideoGenerationDetails: () => null,
 }))
 
 vi.mock('./components/video-sample-gallery', () => ({
-  VideoSampleGallery: () => <div>gallery-mounted</div>,
+  VideoSampleGallery: (props: {
+    previewActive?: boolean
+    onPreviewStart?: () => void
+  }) => (
+    <div data-testid='gallery' data-active={props.previewActive}>
+      <span>gallery-mounted</span>
+      <button type='button' onClick={props.onPreviewStart}>
+        Play inspiration
+      </button>
+    </div>
+  ),
 }))
 
 vi.mock('./components/video-studio-nav', () => ({
@@ -89,6 +162,7 @@ const setPreparingGate = () => {
     access: null,
     tokenId: null,
     requiredGroup: 'Seedance 视频',
+    effectiveGroup: 'Seedance 视频',
     checking: false,
     preparing: true,
     checkFailed: false,
@@ -149,6 +223,16 @@ describe('video studio entry gate', () => {
     setPreparingGate()
     setModelsQuery({})
     setSampleQuery()
+    Object.assign(mocks.generationsQuery, {
+      items: [],
+      isError: false,
+      isLoading: false,
+      isSuccess: true,
+      targetDiscoveryExpired: false,
+      targetUnavailable: false,
+      refresh: vi.fn(),
+      retryTargetDiscovery: vi.fn(),
+    })
   })
 
   test('does not mount false model or sample empty states while ensuring access', () => {
@@ -216,6 +300,67 @@ describe('video studio entry gate', () => {
     expect(
       screen.queryByText('videoStudio.workspace.prepareFailed')
     ).not.toBeInTheDocument()
+  })
+
+  test('an accepted submission stays on create, keeps the draft and locates its task', async () => {
+    setReadyGate()
+    setModelsQuery({ data: [profile] })
+    render(<VideoCreatePage />)
+    const draft = screen.getByRole('textbox', { name: 'Draft text' })
+    fireEvent.change(draft, { target: { value: 'My ongoing edit' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Accept submission' }))
+    expect(screen.getByRole('textbox', { name: 'Draft text' })).toBe(draft)
+    expect(draft).toHaveValue('My ongoing edit')
+    expect(screen.getByText('task_accepted')).toBeInTheDocument()
+    expect(
+      screen.getByText('videoStudio.generationLocating')
+    ).toBeInTheDocument()
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  test('choosing a recent result keeps the editor instance and media owners exclude one another', () => {
+    setReadyGate()
+    setModelsQuery({ data: [profile] })
+    mocks.generationsQuery.items = [
+      {
+        id: 2,
+        task_id: 'task_2',
+        model: 'Model 2',
+        prompt: 'Scene two',
+        status: 'ready',
+        parameters: {},
+        progress: '',
+        created_at: 1,
+      },
+      {
+        id: 1,
+        task_id: 'task_1',
+        model: 'Model 1',
+        prompt: 'Scene one',
+        status: 'ready',
+        parameters: {},
+        progress: '',
+        created_at: 1,
+      },
+    ]
+    render(<VideoCreatePage />)
+    const draft = screen.getByRole('textbox', { name: 'Draft text' })
+    fireEvent.change(draft, { target: { value: 'Keep this draft' } })
+    fireEvent.click(screen.getByRole('button', { name: /Scene one/ }))
+    expect(screen.getByRole('textbox', { name: 'Draft text' })).toBe(draft)
+    expect(draft).toHaveValue('Keep this draft')
+    expect(screen.getByTestId('result-player')).toHaveTextContent('Scene one')
+    fireEvent.click(screen.getByRole('button', { name: 'Play result' }))
+    expect(screen.getByTestId('result-player')).toHaveAttribute(
+      'data-active',
+      'true'
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Play inspiration' }))
+    expect(screen.getByTestId('result-player')).toHaveAttribute(
+      'data-active',
+      'false'
+    )
+    expect(screen.getByTestId('gallery')).toHaveAttribute('data-active', 'true')
   })
 
   test('marks the token healthy after models load successfully', async () => {

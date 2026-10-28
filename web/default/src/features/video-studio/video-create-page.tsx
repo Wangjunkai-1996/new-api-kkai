@@ -16,25 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { AxiosError } from 'axios'
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  ChevronDown,
   CircleAlert,
+  Copy,
+  Download,
+  Film,
   LoaderCircle,
   RotateCw,
-  SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
+import cinemaArt from '@/assets/video-studio/cinema-tools-still-life.webp'
 import { Button } from '@/components/ui/button'
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from '@/components/ui/drawer'
 import {
   Empty,
   EmptyContent,
@@ -43,22 +45,25 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import { useMediaQuery } from '@/hooks/use-media-query'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { toIntlLocale } from '@/i18n/languages'
+import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { VideoComposer } from './components/video-composer'
+import { VideoGenerationDetails } from './components/video-generation-details'
+import { VideoGenerationPlayer } from './components/video-generation-player'
+import { VideoGenerationStatus } from './components/video-generation-status'
 import { VideoSampleGallery } from './components/video-sample-gallery'
 import { VideoStudioEntryGate } from './components/video-studio-entry-gate'
 import { VideoStudioNav } from './components/video-studio-nav'
+import { VideoSubmissionNotice } from './components/video-submission-notice'
+import { useVideoGenerationTarget } from './hooks/use-video-generation-target'
 import { useVideoTokenGate } from './hooks/use-video-token-gate'
-import { useVideoModels, useVideoSample } from './queries'
+import { useVideoGenerations, useVideoModels, useVideoSample } from './queries'
 import type {
+  VideoGeneration,
   VideoSample,
   VideoStudioApiError,
   VideoSubmissionReceipt,
@@ -67,40 +72,112 @@ import { getVideoTokenErrorKind } from './video-token-access'
 
 type VideoCreatePageProps = {
   initialSampleId?: number
-}
-
-const normalizeVideoTaskId = (...candidates: unknown[]): string | undefined => {
-  for (const candidate of candidates) {
-    if (
-      typeof candidate === 'string' &&
-      candidate.length <= 128 &&
-      /^task_[0-9A-Za-z_-]+$/.test(candidate)
-    ) {
-      return candidate
-    }
-  }
-  return undefined
+  targetTaskId?: string
+  targetGenerationId?: number
+  onTargetChange?: (target: { task?: string; generation?: number }) => void
 }
 
 export function VideoCreatePage(props: VideoCreatePageProps) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const desktop = useMediaQuery('(min-width: 1180px)')
-  const mobile = useMediaQuery('(max-width: 767px)')
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid ?? '')
+  return <VideoCreateWorkspace key={`${userId}:${sessionId}`} {...props} />
+}
+
+function VideoCreateWorkspace(props: VideoCreatePageProps) {
+  const { t, i18n } = useTranslation()
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+  const copy = useCopyToClipboard()
   const videoTokenGate = useVideoTokenGate()
   const modelsQuery = useVideoModels(videoTokenGate.tokenId)
   const initialSampleQuery = useVideoSample(
     props.initialSampleId,
     videoTokenGate.tokenId
   )
-  const composerButtonRef = useRef<HTMLButtonElement>(null)
-  const [selectedSampleOverride, setSelectedSample] = useState<
-    VideoSample | undefined
-  >()
+  const [selectedSampleOverride, setSelectedSample] = useState<VideoSample>()
+  const [sampleSelectionId, setSampleSelectionId] = useState(0)
   const selectedSample = selectedSampleOverride ?? initialSampleQuery.data
-  const [composerOpen, setComposerOpen] = useState(false)
+  const [localTarget, setLocalTarget] = useState<{
+    task?: string
+    generation?: number
+  }>({})
+  const targetTaskId = props.onTargetChange
+    ? props.targetTaskId
+    : (localTarget.task ?? props.targetTaskId)
+  const targetGenerationId = props.onTargetChange
+    ? props.targetGenerationId
+    : (localTarget.generation ?? props.targetGenerationId)
+  const generationsQuery = useVideoGenerations(
+    {},
+    true,
+    targetTaskId,
+    targetGenerationId
+  )
+  const target = useVideoGenerationTarget({
+    generationsQuery,
+    targetTaskId,
+    targetGenerationId,
+  })
+  const generation = target.generation
+  const [activeMedia, setActiveMedia] = useState<
+    'generation' | 'sample' | 'details' | null
+  >(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [inspirationOpen, setInspirationOpen] = useState(true)
+  const inspirationChosen = useRef(false)
+  const activeScope = useRef(true)
+  useEffect(() => {
+    activeScope.current = true
+    return () => {
+      activeScope.current = false
+    }
+  }, [])
+  const resultRef = useRef<HTMLElement>(null)
+  const editorRef = useRef<HTMLElement>(null)
   const blockAndRecheckVideoToken = videoTokenGate.blockAndRecheck
   const markVideoTokenHealthy = videoTokenGate.markTokenHealthy
+  const recent = generationsQuery.items.slice(0, 3)
+  const paths = [
+    generation?.video_url,
+    generation?.poster_url,
+    generation?.download_url,
+    ...recent.map((item) => item.poster_url),
+  ]
+  const mediaQuery = useStudioMediaUrls(paths)
+  const signedGeneration = generation
+    ? {
+        ...generation,
+        video_url: signedStudioMediaUrl(
+          generation.video_url,
+          mediaQuery.data?.urls,
+          mediaQuery.data?.deniedPaths,
+          mediaQuery.identityDenied
+        ),
+        poster_url: signedStudioMediaUrl(
+          generation.poster_url,
+          mediaQuery.data?.urls,
+          mediaQuery.data?.deniedPaths,
+          mediaQuery.identityDenied
+        ),
+        download_url: signedStudioMediaUrl(
+          generation.download_url,
+          mediaQuery.data?.urls,
+          mediaQuery.data?.deniedPaths,
+          mediaQuery.identityDenied
+        ),
+      }
+    : null
+  const denied =
+    mediaQuery.identityDenied ||
+    Boolean(
+      generation?.video_url &&
+      mediaQuery.data?.deniedPaths?.[generation.video_url]
+    )
+  const posterDenied =
+    mediaQuery.identityDenied ||
+    Boolean(
+      generation?.poster_url &&
+      mediaQuery.data?.deniedPaths?.[generation.poster_url]
+    )
 
   useEffect(() => {
     if (!modelsQuery.isError) return
@@ -131,36 +208,68 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
     initialSampleQuery.isError,
   ])
 
+  const changeTarget = (next: { task?: string; generation?: number }) => {
+    setActiveMedia(null)
+    setDetailsOpen(false)
+    setLocalTarget(next)
+    props.onTargetChange?.(next)
+  }
+  const scrollTo = (element: HTMLElement | null) => {
+    element?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth',
+      block: 'start',
+    })
+  }
+  const handleSubmitted = (receipt: VideoSubmissionReceipt) => {
+    changeTarget({ task: receipt.task_id || receipt.id })
+    if (!inspirationChosen.current) setInspirationOpen(false)
+    scrollTo(resultRef.current)
+  }
+  const inspectTask = (task: string) => {
+    changeTarget({ task })
+    scrollTo(resultRef.current)
+  }
   const trySample = (sample: VideoSample) => {
     setSelectedSample(sample)
-    if (!desktop) setComposerOpen(true)
+    setSampleSelectionId((value) => value + 1)
+    scrollTo(editorRef.current)
   }
-
-  const handleComposerOpenChange = (open: boolean) => {
-    setComposerOpen(open)
-    if (!open) {
-      window.requestAnimationFrame(() => composerButtonRef.current?.focus())
+  const refreshMedia = async () => {
+    const result = await mediaQuery.refetch()
+    if (
+      result.error ||
+      !generation?.video_url ||
+      result.data?.deniedPaths?.[generation.video_url]
+    ) {
+      return undefined
     }
+    return signedStudioMediaUrl(generation.video_url, result.data?.urls)
   }
-
-  const navigateToLibrary = useCallback(
-    (...taskIdCandidates: unknown[]) => {
-      const task = normalizeVideoTaskId(...taskIdCandidates)
-      void navigate({
-        to: '/video-studio/library',
-        search: task ? { task } : {},
-      })
-    },
-    [navigate]
-  )
-
-  const handleSubmitted = useCallback(
-    (receipt: VideoSubmissionReceipt) => {
-      navigateToLibrary(receipt.task_id, receipt.id)
-    },
-    [navigateToLibrary]
-  )
-
+  const download = async () => {
+    if (!generation || generation.status !== 'ready') return
+    const result = await mediaQuery.refetch()
+    if (
+      !activeScope.current ||
+      useAuthStore.getState().auth.user?.id !== userId
+    ) {
+      return
+    }
+    const url =
+      result.error || result.data?.deniedPaths?.[generation.download_url ?? '']
+        ? undefined
+        : signedStudioMediaUrl(generation.download_url, result.data?.urls)
+    if (!url) {
+      toast.error(t('Could not download this video. Please try again.'))
+      return
+    }
+    const link = document.createElement('a')
+    link.href = url
+    link.download = generation.task_id
+    link.rel = 'noopener noreferrer'
+    link.click()
+  }
   const models = modelsQuery.data ?? []
   let entryState: ReactNode = null
   if (!videoTokenGate.tokenId) {
@@ -234,95 +343,322 @@ export function VideoCreatePage(props: VideoCreatePageProps) {
     )
   }
 
-  if (entryState) {
-    return (
-      <main
-        id='content'
-        className='flex size-full min-h-0 flex-col overflow-hidden'
-      >
-        <VideoStudioNav />
-        {entryState}
-      </main>
+  let resultContent: ReactNode
+  if (signedGeneration && target.status === 'ready') {
+    resultContent = (
+      <>
+        <VideoGenerationPlayer
+          generation={signedGeneration}
+          active={activeMedia === 'generation'}
+          mediaIdentity={`${userId}:${generation?.id}:${generation?.output_asset_id ?? ''}`}
+          denied={denied}
+          posterDenied={posterDenied}
+          onPlay={() => setActiveMedia('generation')}
+          onRefresh={refreshMedia}
+        />
+        <div className='video-studio-result-meta'>
+          <div>
+            <h3>{generation?.model}</h3>
+            <p className='video-studio-meta'>
+              {Object.values(generation?.parameters ?? {})
+                .filter((value) => typeof value !== 'boolean')
+                .join(' · ')}
+              {generation && (
+                <time>
+                  {new Date(generation.created_at * 1000).toLocaleString(
+                    toIntlLocale(i18n.language),
+                    {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }
+                  )}
+                </time>
+              )}
+            </p>
+          </div>
+          <div className='video-studio-result-actions'>
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label={t('Copy task ID')}
+              onClick={() =>
+                void copy.copyToClipboard(signedGeneration.task_id)
+              }
+            >
+              <Copy aria-hidden='true' />
+            </Button>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setActiveMedia('details')
+                setDetailsOpen(true)
+              }}
+            >
+              {t('Details')}
+            </Button>
+            {generation?.status === 'ready' && (
+              <Button
+                variant='outline'
+                disabled={denied}
+                onClick={() => void download()}
+              >
+                <Download aria-hidden='true' />
+                {t('Download')}
+              </Button>
+            )}
+          </div>
+        </div>
+      </>
+    )
+  } else if (target.status === 'loading' || target.status === 'locating') {
+    resultContent = (
+      <div className='video-studio-target-state' role='status'>
+        <Skeleton className='video-studio-result-skeleton' />
+        <p>
+          {t(
+            target.status === 'locating'
+              ? 'videoStudio.generationLocating'
+              : 'Loading...'
+          )}
+        </p>
+        {targetTaskId && <code>{targetTaskId}</code>}
+      </div>
+    )
+  } else if (['missing', 'error', 'unavailable'].includes(target.status)) {
+    let message = t('Could not load your videos.')
+    if (target.status === 'missing') {
+      message = t('videoStudio.generationNotVisible')
+    }
+    if (target.status === 'unavailable') {
+      message = t('This result is unavailable or has been removed.')
+    }
+    resultContent = (
+      <div className='video-studio-target-state' role='alert'>
+        <CircleAlert aria-hidden='true' />
+        <h3>{message}</h3>
+        {targetTaskId && <code>{targetTaskId}</code>}
+        <div className='video-studio-result-actions'>
+          <Button
+            variant='outline'
+            onClick={() => void target.retryTargetDiscovery()}
+          >
+            <RotateCw aria-hidden='true' />
+            {t('Retry')}
+          </Button>
+          <Button
+            variant='ghost'
+            nativeButton={false}
+            render={<Link to='/video-studio/tasks' />}
+          >
+            {t('videoStudio.tasks')}
+          </Button>
+        </div>
+      </div>
+    )
+  } else {
+    resultContent = (
+      <div className='video-studio-first-state'>
+        <img src={cinemaArt} alt='' width={240} height={240} />
+        <div>
+          <h3>{t('Your next scene starts here')}</h3>
+          <p>
+            {t(
+              'Describe a scene, choose your settings, and turn your idea into a video.'
+            )}
+          </p>
+          <p className='video-studio-first-steps'>
+            {t('Describe · Create · Preview')}
+          </p>
+        </div>
+      </div>
     )
   }
 
-  const composer = (
-    <VideoComposer
-      models={models}
-      sample={selectedSample}
-      videoTokenGate={videoTokenGate}
-      onSubmitted={handleSubmitted}
-      onSubmissionUnknown={navigateToLibrary}
-    />
-  )
-  const composerAction = desktop ? null : (
-    <Button
-      ref={composerButtonRef}
-      size='sm'
-      aria-label={t('videoStudio.create')}
-      onClick={() => setComposerOpen(true)}
-    >
-      <SlidersHorizontal aria-hidden='true' />
-      <span className='hidden sm:inline'>{t('videoStudio.create')}</span>
-    </Button>
-  )
-
   return (
-    <main
-      id='content'
-      className='flex size-full min-h-0 flex-col overflow-hidden'
-    >
-      <VideoStudioNav action={composerAction} />
-      <div className='flex min-h-0 flex-1'>
-        <VideoSampleGallery
-          models={models}
-          tokenId={videoTokenGate.tokenId}
-          selectedSampleId={selectedSample?.id}
-          onTokenError={blockAndRecheckVideoToken}
-          onTrySample={trySample}
+    <main id='content' className='video-studio video-studio-page'>
+      <div className='video-studio-container'>
+        <VideoStudioNav />
+        <VideoSubmissionNotice
+          generations={generationsQuery.items}
+          onInspectTask={inspectTask}
         />
-        {desktop && (
+        <div className='video-studio-mobile-jump'>
+          <Button variant='ghost' onClick={() => scrollTo(resultRef.current)}>
+            <ArrowDown aria-hidden='true' />
+            {t('View result')}
+          </Button>
+          <Button variant='ghost' onClick={() => scrollTo(editorRef.current)}>
+            <ArrowUp aria-hidden='true' />
+            {t('Back to editor')}
+          </Button>
+        </div>
+        <div className='video-studio-workspace'>
           <aside
-            className='bg-background flex w-[clamp(384px,29vw,420px)] shrink-0 flex-col border-l'
+            ref={editorRef}
+            className='video-studio-editor video-studio-panel'
             aria-label={t('videoStudio.composer')}
           >
-            <div className='shrink-0 border-b px-5 py-3'>
-              <h2 className='text-sm font-semibold'>
+            <div className='video-studio-panel-heading'>
+              <h2>
+                <Sparkles aria-hidden='true' />
                 {t('videoStudio.composer')}
               </h2>
+              {!entryState && <span>{t('Local draft')}</span>}
             </div>
-            {composer}
+            {entryState || (
+              <VideoComposer
+                models={models}
+                sample={selectedSample}
+                sampleSelectionId={sampleSelectionId}
+                videoTokenGate={videoTokenGate}
+                onSubmitted={handleSubmitted}
+                onSubmissionUnknown={inspectTask}
+              />
+            )}
           </aside>
-        )}
+          <div className='video-studio-results-column'>
+            <section
+              ref={resultRef}
+              className='video-studio-result video-studio-panel'
+              aria-label={t('Current result')}
+            >
+              <div className='video-studio-panel-heading'>
+                <h2>{t('Current result')}</h2>
+                {generation && (
+                  <VideoGenerationStatus generation={generation} compact />
+                )}
+              </div>
+              {target.isStale && (
+                <p className='video-studio-notice' role='status'>
+                  {t(
+                    'Status could not be updated. Showing the last available result.'
+                  )}
+                </p>
+              )}
+              {resultContent}
+            </section>
+            {recent.length > 0 && (
+              <section aria-label={t('Recent creations')}>
+                <div className='video-studio-section-heading'>
+                  <h2>{t('Recent creations')}</h2>
+                  <Link to='/video-studio/library'>
+                    {t('View all')}
+                    <ArrowLeft className='rotate-180' aria-hidden='true' />
+                  </Link>
+                </div>
+                <div className='video-studio-recent-grid'>
+                  {recent.map((item) => (
+                    <button
+                      key={item.id}
+                      type='button'
+                      className='video-studio-recent-card'
+                      aria-pressed={generation?.id === item.id}
+                      onClick={() => {
+                        target.selectGeneration(item.id)
+                        changeTarget({
+                          task: item.task_id,
+                          generation: item.id,
+                        })
+                      }}
+                    >
+                      <div className='video-studio-recent-image'>
+                        {signedStudioMediaUrl(
+                          item.poster_url,
+                          mediaQuery.data?.urls,
+                          mediaQuery.data?.deniedPaths,
+                          mediaQuery.identityDenied
+                        ) ? (
+                          <img
+                            src={signedStudioMediaUrl(
+                              item.poster_url,
+                              mediaQuery.data?.urls,
+                              mediaQuery.data?.deniedPaths,
+                              mediaQuery.identityDenied
+                            )}
+                            alt=''
+                            loading='lazy'
+                            decoding='async'
+                          />
+                        ) : (
+                          <Film aria-hidden='true' />
+                        )}
+                        <VideoGenerationStatus generation={item} compact />
+                      </div>
+                      <div className='video-studio-recent-info'>
+                        <strong>{item.prompt || item.model}</strong>
+                        <span>{item.model}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            {!entryState && (
+              <section className='video-studio-inspiration'>
+                <button
+                  type='button'
+                  className='video-studio-inspiration-toggle'
+                  aria-expanded={inspirationOpen}
+                  aria-controls='video-studio-inspiration-content'
+                  onClick={() => {
+                    inspirationChosen.current = true
+                    setInspirationOpen(!inspirationOpen)
+                    setActiveMedia(null)
+                  }}
+                >
+                  <img src={cinemaArt} alt='' width={72} height={56} />
+                  <span>
+                    <strong>
+                      <Sparkles aria-hidden='true' />
+                      {t('videoStudio.samples')}
+                    </strong>
+                    <small>
+                      {t('Find a starting point for your next video.')}
+                    </small>
+                  </span>
+                  <ChevronDown aria-hidden='true' />
+                </button>
+                <div
+                  id='video-studio-inspiration-content'
+                  hidden={!inspirationOpen}
+                  className='video-studio-inspiration-content'
+                >
+                  <VideoSampleGallery
+                    models={models}
+                    tokenId={videoTokenGate.tokenId}
+                    selectedSampleId={selectedSample?.id}
+                    onTokenError={blockAndRecheckVideoToken}
+                    onTrySample={trySample}
+                    visible={inspirationOpen}
+                    previewActive={inspirationOpen && activeMedia === 'sample'}
+                    onPreviewStart={() => setActiveMedia('sample')}
+                  />
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
       </div>
-
-      {!desktop && mobile && (
-        <Drawer open={composerOpen} onOpenChange={handleComposerOpenChange}>
-          <DrawerContent className='h-[92dvh] max-h-[92dvh]'>
-            <DrawerHeader className='border-b text-left'>
-              <DrawerTitle>{t('videoStudio.composer')}</DrawerTitle>
-              <DrawerDescription className='sr-only'>
-                {t('videoStudio.composerDescription')}
-              </DrawerDescription>
-            </DrawerHeader>
-            {composer}
-          </DrawerContent>
-        </Drawer>
-      )}
-
-      {!desktop && !mobile && (
-        <Sheet open={composerOpen} onOpenChange={handleComposerOpenChange}>
-          <SheetContent className='w-full sm:max-w-[420px]'>
-            <SheetHeader className='border-b'>
-              <SheetTitle>{t('videoStudio.composer')}</SheetTitle>
-              <SheetDescription className='sr-only'>
-                {t('videoStudio.composerDescription')}
-              </SheetDescription>
-            </SheetHeader>
-            {composer}
-          </SheetContent>
-        </Sheet>
-      )}
+      <VideoGenerationDetails
+        generation={signedGeneration}
+        open={detailsOpen && Boolean(generation)}
+        onOpenChange={(open) => {
+          setDetailsOpen(open)
+          setActiveMedia(open ? 'details' : null)
+        }}
+        active={activeMedia === 'details'}
+        mediaIdentity={`${userId}:${generation?.id}:${generation?.output_asset_id ?? ''}`}
+        denied={denied}
+        posterDenied={posterDenied}
+        onPlay={() => setActiveMedia('details')}
+        onRefresh={refreshMedia}
+        onCopyTask={(item: VideoGeneration) =>
+          void copy.copyToClipboard(item.task_id)
+        }
+        onDownload={() => void download()}
+      />
     </main>
   )
 }

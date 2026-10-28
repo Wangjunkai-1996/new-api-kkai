@@ -37,6 +37,8 @@ import {
 
 const media = vi.hoisted(() => ({
   urls: {} as Record<string, string>,
+  deniedPaths: {} as Record<string, 403 | 404>,
+  identityDenied: false,
   pending: false,
   reduced: false,
   refetch: vi.fn(),
@@ -44,7 +46,8 @@ const media = vi.hoisted(() => ({
 vi.mock('@/lib/studio-media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/studio-media')>()),
   useStudioMediaUrls: () => ({
-    data: { urls: media.urls },
+    data: { urls: media.urls, deniedPaths: media.deniedPaths },
+    identityDenied: media.identityDenied,
     isPending: media.pending,
     refetch: media.refetch,
   }),
@@ -98,6 +101,8 @@ const propsFor = (
 beforeEach(() => {
   media.urls = {}
   media.pending = false
+  media.deniedPaths = {}
+  media.identityDenied = false
   media.reduced = false
 })
 
@@ -127,6 +132,61 @@ describe('creation workbench results', () => {
     expect(
       screen.getByRole('link', { name: 'imageStudio.download' })
     ).toHaveAttribute('href', '/download-1.png')
+  })
+
+  test('revoked media is removed from the current result and the held transition image', async () => {
+    const first = asset(1)
+    first.content_url = '/api/image-studio/assets/1/content'
+    const second = asset(2)
+    second.content_url = '/api/image-studio/assets/2/content'
+    media.urls = {
+      [first.content_url]: 'https://media.test/first',
+      [second.content_url]: 'https://media.test/second',
+    }
+    const props = propsFor(generation({ assets: [first, second] }))
+    const view = render(<ImageCreationResults {...props} selectedAssetId={1} />)
+    const image = screen.getByRole('img', { name: props.generation.prompt })
+    Object.defineProperty(image, 'decode', {
+      value: vi.fn().mockResolvedValue(undefined),
+    })
+    fireEvent.load(image)
+    await waitFor(() => expect(image).toBeVisible())
+    view.rerender(<ImageCreationResults {...props} selectedAssetId={2} />)
+    expect(
+      view.container.querySelector('.image-create-transition-image')
+    ).toHaveAttribute('src', 'https://media.test/first')
+    media.deniedPaths = { [first.content_url]: 403 }
+    view.rerender(<ImageCreationResults {...props} selectedAssetId={2} />)
+    expect(
+      view.container.querySelector('.image-create-transition-image')
+    ).toBeNull()
+    media.deniedPaths = { [second.content_url]: 404 }
+    view.rerender(<ImageCreationResults {...props} selectedAssetId={2} />)
+    expect(
+      screen.queryByRole('img', { name: props.generation.prompt })
+    ).not.toBeInTheDocument()
+  })
+
+  test.each([
+    '/api/image-studio/assets/1/content',
+    'https://legacy.test/image',
+  ])('identity rejection removes cached media %s', (path) => {
+    const item = asset(1)
+    item.content_url = path
+    media.urls = { [item.content_url]: 'https://media.test/first' }
+    const props = propsFor(generation({ assets: [item] }))
+    const view = render(<ImageCreationResults {...props} />)
+    expect(
+      screen.getByRole('img', { name: props.generation.prompt })
+    ).toHaveAttribute(
+      'src',
+      path.startsWith('/api/') ? 'https://media.test/first' : path
+    )
+    media.identityDenied = true
+    view.rerender(<ImageCreationResults {...props} />)
+    expect(
+      screen.queryByRole('img', { name: props.generation.prompt })
+    ).not.toBeInTheDocument()
   })
 
   test('waits for decoding and does not replay reveal after URL refresh or revisiting an asset', async () => {
@@ -299,7 +359,9 @@ describe('creation workbench results', () => {
         'This request returned an unclear result. The system is checking for saved output. Please do not submit it again.'
       )
     ).toBeVisible()
-    expect(screen.queryByText('Creating your next image')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Creating your next image')
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Generate again' })
     ).not.toBeInTheDocument()

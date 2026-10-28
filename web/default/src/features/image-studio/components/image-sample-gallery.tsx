@@ -110,7 +110,9 @@ export function ImageSampleGallery(props: {
           {samples.map((sample) => {
             const imageUrl = signedStudioMediaUrl(
               sample.asset.thumbnail_url || sample.asset.content_url,
-              mediaQuery.data?.urls
+              mediaQuery.data?.urls,
+              mediaQuery.data?.deniedPaths,
+              mediaQuery.identityDenied
             )
             return (
               <button

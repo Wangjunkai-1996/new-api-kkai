@@ -18,19 +18,21 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AxiosError } from 'axios'
-import { ChevronDown, LoaderCircle, Sparkles } from 'lucide-react'
-import { nanoid } from 'nanoid'
+import { Film, Image, Layers, LoaderCircle, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
@@ -44,14 +46,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useDebounce } from '@/hooks/use-debounce'
 import { formatQuota } from '@/lib/format'
+import { useAuthStore } from '@/stores/auth-store'
 import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
+import { useVideoStudioSubmissionStore } from '@/stores/video-studio-submission-store'
 
+import { useVideoSubmission } from '../hooks/use-video-submission'
 import type { VideoTokenGateState } from '../hooks/use-video-token-gate'
-import {
-  useCreateVideoGeneration,
-  useVideoQuote,
-  useVideoReferenceAssetHydration,
-} from '../queries'
+import { useVideoQuote, useVideoReferenceAssetHydration } from '../queries'
 import {
   VIDEO_GENERATION_MODES,
   VIDEO_PROMPT_MAX_LENGTH,
@@ -69,21 +70,18 @@ import type {
 } from '../types'
 import {
   buildClearedVideoComposerValues,
-  buildCreateVideoRequest,
   buildVideoComposerValues,
   buildVideoQuoteRequest,
   getSampleReferenceAssets,
   getVideoQuoteRefreshDelay,
   getVideoSubmissionRequestKey,
   getVideoParametersForMode,
-  getVideoSubmissionLock,
   getVideoReferenceRoles,
-  isVideoQuoteStaleError,
   restoreVideoComposerDraft,
-  type VideoSubmissionLock,
   VIDEO_MODE_LABEL_KEYS,
   VIDEO_REFERENCE_ROLE_LABEL_KEYS,
   videoQuoteHasExpired,
+  videoPromptByteLength,
 } from '../video-domain'
 import {
   getHydratedVideoReferences,
@@ -96,6 +94,7 @@ import { VideoParameterFields } from './video-parameter-fields'
 type VideoComposerProps = {
   models: VideoModelProfile[]
   sample?: VideoSample
+  sampleSelectionId?: number
   videoTokenGate: VideoTokenGateState
   onSubmitted?: (receipt: VideoSubmissionReceipt) => void
   onSubmissionUnknown?: (taskId: string) => void
@@ -113,18 +112,24 @@ export function VideoComposer(props: VideoComposerProps) {
   const draft = useVideoStudioDraftStore((state) => state.draft)
   const saveDraft = useVideoStudioDraftStore((state) => state.saveDraft)
   const clearDraft = useVideoStudioDraftStore((state) => state.clearDraft)
-  const createMutation = useCreateVideoGeneration()
   const [referenceAssets, setReferenceAssets] = useState<VideoAsset[]>([])
   const [referenceHydrationIds, setReferenceHydrationIds] = useState<number[]>(
     []
   )
-  const [submitError, setSubmitError] = useState<string | null>(null)
   const [appliedSampleId, setAppliedSampleId] = useState<number | undefined>()
-  const [submissionLock, setSubmissionLock] =
-    useState<VideoSubmissionLock | null>(null)
+  const [pendingChange, setPendingChange] = useState<{
+    apply: () => void
+  } | null>(null)
+
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+  const storageError = useVideoStudioSubmissionStore(
+    (state) => state.ownerId === userId && state.storageError
+  )
+  const hydrateSubmissions = useVideoStudioSubmissionStore(
+    (state) => state.hydrate
+  )
+  const appliedSampleRef = useRef<string | undefined>(undefined)
   const [invalidQuoteKey, setInvalidQuoteKey] = useState<string | null>(null)
-  const idempotencyKeyRef = useRef<string | null>(null)
-  const idempotencyRequestRef = useRef<string | null>(null)
   const referenceUploadInputRef = useRef<HTMLInputElement>(null)
   const initializedRef = useRef(false)
   const referenceSyncBlockedRef = useRef(false)
@@ -174,19 +179,8 @@ export function VideoComposer(props: VideoComposerProps) {
   }, [draft, form, props.models])
 
   useEffect(() => {
-    if (!props.sample) return
-    const profile = props.models.find(
-      (item) => item.id === props.sample?.model_profile_id
-    )
-    if (!profile) return
-    referenceSyncBlockedRef.current = false
-    // oxlint-disable-next-line react/set-state-in-effect -- Synchronize the form and reference state with the selected catalog sample.
-    setReferenceHydrationIds([])
-    form.reset(buildVideoComposerValues(profile, props.sample))
-    setReferenceAssets(getSampleReferenceAssets(props.sample, profile))
-    setAppliedSampleId(props.sample.id)
-    setSubmissionLock(null)
-  }, [form, props.models, props.sample])
+    hydrateSubmissions(userId)
+  }, [hydrateSubmissions, userId])
 
   useEffect(() => {
     if (!values.model_profile_id) return
@@ -261,6 +255,60 @@ export function VideoComposer(props: VideoComposerProps) {
   const quoteDisplay =
     quote?.display_amount || (quote ? formatQuota(quote.quota) : '')
 
+  const submission = useVideoSubmission({
+    form,
+    selectedProfile,
+    videoTokenGate,
+    appliedSampleId,
+    quote,
+    quoteRequest,
+    quoteKey,
+    quoteRequestKey,
+    quoteReady,
+    referencesReady:
+      referenceHydrationIds.length === 0 &&
+      referenceAssets.every((asset) => asset.state === 'ready'),
+    refetchQuote,
+    onQuoteInvalidated: setInvalidQuoteKey,
+    onSubmitted: props.onSubmitted,
+    onSubmissionUnknown: props.onSubmissionUnknown,
+  })
+  const submitError = submission.error
+  const setSubmitError = submission.setError
+  const preparingSubmission = submission.isPreparing
+
+  useEffect(() => {
+    const sample = props.sample
+    if (!sample) return
+    const selectionId = `${sample.id}:${props.sampleSelectionId ?? 0}`
+    if (appliedSampleRef.current === selectionId) return
+    const profile = props.models.find(
+      (item) => item.id === sample.model_profile_id
+    )
+    if (!profile) return
+    appliedSampleRef.current = selectionId
+    const apply = () => {
+      referenceSyncBlockedRef.current = false
+      setReferenceHydrationIds([])
+      form.reset(buildVideoComposerValues(profile, sample))
+      setReferenceAssets(getSampleReferenceAssets(sample, profile))
+      setAppliedSampleId(sample.id)
+      setSubmitError(null)
+    }
+    const current = form.getValues()
+    // A catalog refetch must never apply the same sample over user edits.
+    // oxlint-disable-next-line react/set-state-in-effect -- A new explicit sample selection opens a replacement confirmation.
+    if (current.prompt || current.reference_asset_ids.length > 0) {
+      setPendingChange({ apply })
+    } else apply()
+  }, [
+    form,
+    props.models,
+    props.sample,
+    props.sampleSelectionId,
+    setSubmitError,
+  ])
+
   useEffect(() => {
     if (!quote || !quoteKey) return
 
@@ -274,19 +322,13 @@ export function VideoComposer(props: VideoComposerProps) {
     }
     const delay = getVideoQuoteRefreshDelay(quote.expires_at, Date.now())
     if (delay === 0) {
-      expireQuote()
+      // An expired response needs an explicit refresh; never loop on stale replies.
+      setInvalidQuoteKey(quoteKey)
       return
     }
     const timeout = window.setTimeout(expireQuote, delay)
     return () => window.clearTimeout(timeout)
   }, [quote, quoteKey, refetchQuote])
-
-  useEffect(() => {
-    if (submissionLock === null) return
-    if (idempotencyRequestRef.current !== quoteRequestKey) {
-      setSubmissionLock(null)
-    }
-  }, [quoteRequestKey, submissionLock])
 
   useEffect(() => {
     if (!quoteQuery.isError) return
@@ -295,7 +337,7 @@ export function VideoComposer(props: VideoComposerProps) {
     blockAndRecheckVideoToken(errorKind)
   }, [blockAndRecheckVideoToken, quoteQuery.error, quoteQuery.isError])
 
-  const handleModelChange = (profileId: number) => {
+  const applyModelChange = (profileId: number) => {
     const profile = props.models.find((item) => item.id === profileId)
     if (!profile) return
     const nextValues = buildVideoComposerValues(profile)
@@ -305,13 +347,10 @@ export function VideoComposer(props: VideoComposerProps) {
     form.reset(nextValues)
     setReferenceAssets([])
     setAppliedSampleId(undefined)
-    setSubmissionLock(null)
-    idempotencyKeyRef.current = null
-    idempotencyRequestRef.current = null
     setSubmitError(null)
   }
 
-  const handleModeChange = (mode: VideoGenerationMode) => {
+  const applyModeChange = (mode: VideoGenerationMode) => {
     form.setValue('mode', mode, { shouldValidate: true })
     if (!selectedProfile) return
     form.setValue(
@@ -335,6 +374,34 @@ export function VideoComposer(props: VideoComposerProps) {
       setReferenceHydrationIds(referenceAssetIds)
     }
     setReferenceAssets((assets) => assets.slice(0, referenceLimit))
+  }
+
+  const handleModelChange = (profileId: number) => {
+    if (profileId === form.getValues('model_profile_id')) return
+    if (
+      form.getValues('reference_asset_ids').length > 0 ||
+      referenceAssets.length > 0 ||
+      Object.keys(form.getValues('parameters')).length > 0
+    ) {
+      setPendingChange({ apply: () => applyModelChange(profileId) })
+    } else applyModelChange(profileId)
+  }
+
+  const handleModeChange = (mode: VideoGenerationMode) => {
+    if (mode === form.getValues('mode')) return
+    const currentParameters = form.getValues('parameters')
+    const nextParameters = selectedProfile
+      ? getVideoParametersForMode(selectedProfile, mode, currentParameters)
+      : currentParameters
+    if (
+      form.getValues('reference_asset_ids').length > 0 ||
+      referenceAssets.length > 0 ||
+      Object.keys(currentParameters).some(
+        (key) => nextParameters[key] !== currentParameters[key]
+      )
+    ) {
+      setPendingChange({ apply: () => applyModeChange(mode) })
+    } else applyModeChange(mode)
   }
 
   const retryReferenceHydration = () => {
@@ -368,105 +435,14 @@ export function VideoComposer(props: VideoComposerProps) {
     setReferenceHydrationIds([])
     setReferenceAssets([])
     setAppliedSampleId(undefined)
-    setSubmissionLock(null)
     setInvalidQuoteKey(null)
-    idempotencyKeyRef.current = null
-    idempotencyRequestRef.current = null
     setSubmitError(null)
     clearDraft()
     form.reset(clearedValues)
     focusReferenceUploader()
   }
 
-  // oxlint-disable-next-line react/refs -- React Hook Form invokes this callback on submission, not during render.
-  const handleSubmit = form.handleSubmit(async (submittedValues) => {
-    if (!selectedProfile || !videoTokenId) return
-    const validationError = validateComposerForProfile(
-      submittedValues,
-      selectedProfile
-    )
-    if (validationError) {
-      setSubmitError(t(validationError))
-      return
-    }
-    if (!quoteReady || !quote) {
-      setSubmitError(t('videoStudio.quoteUnavailable'))
-      await quoteQuery.refetch()
-      return
-    }
-
-    const submissionRequest = buildVideoQuoteRequest(
-      submittedValues,
-      selectedProfile,
-      videoTokenId,
-      appliedSampleId
-    )
-    const submissionRequestKey = getVideoSubmissionRequestKey(submissionRequest)
-    if (idempotencyRequestRef.current !== submissionRequestKey) {
-      idempotencyKeyRef.current = nanoid()
-      idempotencyRequestRef.current = submissionRequestKey
-    }
-
-    setSubmitError(null)
-    try {
-      const receipt = await createMutation.mutateAsync({
-        request: buildCreateVideoRequest(submissionRequest, quote),
-        idempotencyKey: idempotencyKeyRef.current ?? nanoid(),
-      })
-      idempotencyKeyRef.current = null
-      idempotencyRequestRef.current = null
-      toast.success(t('videoStudio.generationQueued'))
-      props.onSubmitted?.(receipt)
-    } catch (error) {
-      const responseError = getVideoStudioResponseError(error)
-      const responseStatus =
-        error instanceof AxiosError ? error.response?.status : undefined
-      if (isVideoQuoteStaleError(responseStatus, responseError)) {
-        if (quoteKey) setInvalidQuoteKey(quoteKey)
-        setSubmitError(t('videoStudio.quoteChanged'))
-        await quoteQuery.refetch()
-        return
-      }
-      const videoTokenErrorKind = getVideoTokenErrorKind(responseError?.code)
-      if (videoTokenGate.blockAndRecheck(videoTokenErrorKind)) {
-        let message = t('videoStudio.videoKey.invalidated')
-        if (videoTokenErrorKind === 'group-unavailable') {
-          message = t('videoStudio.videoKey.groupUnavailable', {
-            group: videoTokenGate.requiredGroup,
-          })
-        }
-        if (videoTokenErrorKind === 'limit-reached') {
-          message = t('videoStudio.videoKey.limitReached')
-        }
-        if (videoTokenErrorKind === 'models-unavailable') {
-          message = t('videoStudio.videoKey.modelsUnavailable')
-        }
-        setSubmitError(message)
-        return
-      }
-      const nextSubmissionLock = getVideoSubmissionLock(responseError)
-      if (nextSubmissionLock) {
-        setSubmissionLock(nextSubmissionLock)
-        if (nextSubmissionLock.taskId) {
-          const message = t('videoStudio.submissionUnknownWithTask', {
-            taskId: nextSubmissionLock.taskId,
-          })
-          setSubmitError(message)
-          toast.warning(message)
-          props.onSubmissionUnknown?.(nextSubmissionLock.taskId)
-        } else {
-          setSubmitError(t('videoStudio.submissionUnknown'))
-        }
-        return
-      }
-      const message =
-        responseError?.message ||
-        (error instanceof Error
-          ? error.message
-          : t('videoStudio.generationFailed'))
-      setSubmitError(message)
-    }
-  })
+  const handleSubmit = form.handleSubmit(submission.submit)
 
   const referenceRoles = selectedProfile
     ? getVideoReferenceRoles(selectedProfile, values.mode)
@@ -477,27 +453,55 @@ export function VideoComposer(props: VideoComposerProps) {
   )
   const usesVideoReference = referenceRoles.includes('reference_video')
   let generateLabel = t('videoStudio.generate')
-  if (quoteReady) {
-    generateLabel = t('videoStudio.generateWithPrice', {
-      price: quoteDisplay,
-    })
-  }
   if (quoteQuery.isFetching) generateLabel = t('videoStudio.quoting')
-  const quoteRetryAvailable =
-    quoteRequest !== null && quoteQuery.isError && !quoteQuery.isFetching
-  if (quoteRetryAvailable) generateLabel = t('videoStudio.retry')
-  if (createMutation.isPending) generateLabel = t('Submitting...')
-  let quoteStatusMessage = quoteReady ? t('videoStudio.quoteReady') : null
-  if (submissionLock !== null) {
-    quoteStatusMessage = submissionLock.taskId
-      ? t('videoStudio.submissionLocked', { taskId: submissionLock.taskId })
-      : t('videoStudio.submissionUnknown')
+  if (preparingSubmission) {
+    generateLabel = t('Submitting...')
+  }
+  let quoteStatusMessage = quoteReady
+    ? t('videoStudio.quoteReady')
+    : t('Describe your scene to get a quote.')
+  const validation = videoComposerSchema.safeParse(values)
+  if (!validation.success) {
+    const message = validation.error.issues[0]?.message
+    if (message) quoteStatusMessage = t(message)
+  } else if (selectedProfile) {
+    const message = validateComposerForProfile(validation.data, selectedProfile)
+    if (message) quoteStatusMessage = t(message)
+  }
+  if (
+    referenceHydrationIds.length > 0 ||
+    referenceAssets.some((asset) => asset.state !== 'ready')
+  ) {
+    quoteStatusMessage = t(
+      'Wait until every reference is ready before generating.'
+    )
+  }
+  if (quoteRequest && !quoteReady) {
+    quoteStatusMessage = quoteQuery.isFetching
+      ? t('videoStudio.quoting')
+      : t('videoStudio.quoteUnavailable')
+  }
+  const quoteNeedsRefresh = Boolean(
+    quoteRequest && (quoteQuery.isError || (quote !== undefined && !quoteReady))
+  )
+  if (!videoTokenGate.effectiveGroup) {
+    quoteStatusMessage = t(
+      'Your video access is being verified. Please try again shortly.'
+    )
+  }
+  if (storageError) {
+    quoteStatusMessage = t(
+      'Recovery storage is unavailable. Generation is paused to prevent duplicate charges.'
+    )
   }
   const primaryActionDisabled =
-    createMutation.isPending ||
-    submissionLock !== null ||
-    (!quoteReady && !quoteRetryAvailable)
-  const primaryActionBusy = createMutation.isPending || quoteQuery.isFetching
+    preparingSubmission ||
+    storageError ||
+    !videoTokenGate.effectiveGroup ||
+    !quoteReady ||
+    referenceHydrationIds.length > 0 ||
+    referenceAssets.some((asset) => asset.state !== 'ready')
+  const primaryActionBusy = preparingSubmission || quoteQuery.isFetching
   let primaryActionIcon = <Sparkles aria-hidden='true' />
   if (primaryActionBusy) {
     primaryActionIcon = (
@@ -511,32 +515,43 @@ export function VideoComposer(props: VideoComposerProps) {
   return (
     <Form {...form}>
       <form
-        className='flex min-h-0 flex-1 flex-col'
+        className='video-studio-composer flex min-h-0 flex-1 flex-col'
         onSubmit={handleSubmit}
         noValidate
       >
-        <div className='min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5'>
+        <div className='video-studio-form-body min-h-0 flex-1 space-y-5'>
           <FormField
             control={form.control}
             name='model_profile_id'
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t('videoStudio.model')}</FormLabel>
-                <FormControl>
-                  <NativeSelect
-                    className='w-full'
-                    value={field.value}
-                    onChange={(event) =>
-                      handleModelChange(Number(event.target.value))
-                    }
-                  >
-                    {props.models.map((profile) => (
-                      <NativeSelectOption key={profile.id} value={profile.id}>
-                        {profile.display_name}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </FormControl>
+                <div className='video-studio-model'>
+                  <Layers
+                    className='video-studio-model-icon'
+                    aria-hidden='true'
+                  />
+                  <FormControl>
+                    <NativeSelect
+                      className='w-full'
+                      value={field.value}
+                      onChange={(event) =>
+                        handleModelChange(Number(event.target.value))
+                      }
+                    >
+                      {props.models.map((profile) => (
+                        <NativeSelectOption key={profile.id} value={profile.id}>
+                          {profile.display_name}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </FormControl>
+                  {selectedProfile?.provider_label && (
+                    <span className='video-studio-model-provider'>
+                      {selectedProfile.provider_label}
+                    </span>
+                  )}
+                </div>
                 <FormMessage />
               </FormItem>
             )}
@@ -560,7 +575,7 @@ export function VideoComposer(props: VideoComposerProps) {
                           if (mode) handleModeChange(mode)
                         }}
                         variant='outline'
-                        className='grid w-full auto-cols-fr grid-flow-col'
+                        className='video-studio-modes grid w-full auto-cols-fr grid-flow-col'
                       >
                         {VIDEO_GENERATION_MODES.filter((mode) =>
                           selectedProfile.specification.modes.includes(mode)
@@ -570,6 +585,15 @@ export function VideoComposer(props: VideoComposerProps) {
                             value={mode}
                             className='min-w-0 px-2'
                           >
+                            {mode === 'text_to_video' && (
+                              <Film aria-hidden='true' />
+                            )}
+                            {mode === 'image_to_video' && (
+                              <Image aria-hidden='true' />
+                            )}
+                            {mode === 'first_last_frame' && (
+                              <Layers aria-hidden='true' />
+                            )}
                             <span className='truncate'>
                               {t(VIDEO_MODE_LABEL_KEYS[mode])}
                             </span>
@@ -582,6 +606,47 @@ export function VideoComposer(props: VideoComposerProps) {
                 )}
               />
             )}
+
+          {selectedProfile?.specification.modes.length === 1 && (
+            <div className='video-studio-mode-single'>
+              <span>{t('videoStudio.mode')}</span>
+              <span>
+                <Film aria-hidden='true' />
+                {t(
+                  VIDEO_MODE_LABEL_KEYS[
+                    selectedProfile.specification.modes[0] ?? values.mode
+                  ]
+                )}
+              </span>
+            </div>
+          )}
+
+          <FormField
+            control={form.control}
+            name='prompt'
+            render={({ field }) => (
+              <FormItem>
+                <div className='flex items-center justify-between gap-2'>
+                  <FormLabel>{t('videoStudio.prompt')}</FormLabel>
+                  <span className='text-muted-foreground text-xs tabular-nums'>
+                    {t('{{count}} / {{limit}} bytes', {
+                      count: videoPromptByteLength(field.value),
+                      limit: VIDEO_PROMPT_MAX_LENGTH,
+                    })}
+                  </span>
+                </div>
+                <FormControl>
+                  <Textarea
+                    {...field}
+                    rows={4}
+                    className='video-studio-prompt resize-y'
+                    placeholder={t('videoStudio.promptPlaceholder')}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           {referenceLimit > 0 && (
             <div className='space-y-2'>
@@ -677,71 +742,83 @@ export function VideoComposer(props: VideoComposerProps) {
             </div>
           )}
 
-          <FormField
-            control={form.control}
-            name='prompt'
-            render={({ field }) => (
-              <FormItem>
-                <div className='flex items-center justify-between gap-2'>
-                  <FormLabel>{t('videoStudio.prompt')}</FormLabel>
-                  <span className='text-muted-foreground text-xs tabular-nums'>
-                    {field.value.length}/{VIDEO_PROMPT_MAX_LENGTH}
-                  </span>
-                </div>
-                <FormControl>
-                  <Textarea
-                    {...field}
-                    rows={7}
-                    maxLength={VIDEO_PROMPT_MAX_LENGTH}
-                    className='min-h-36 resize-y'
-                    placeholder={t('videoStudio.promptPlaceholder')}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
           {selectedProfile &&
             selectedProfile.specification.parameters.length > 0 && (
-              <Collapsible defaultOpen>
-                <CollapsibleTrigger className='group flex w-full items-center justify-between py-1 text-sm font-medium'>
-                  {t('videoStudio.parameters')}
-                  <ChevronDown
-                    className='size-4 transition-transform group-data-[panel-open]:rotate-180 motion-reduce:transition-none'
-                    aria-hidden='true'
-                  />
-                </CollapsibleTrigger>
-                <CollapsibleContent className='pt-4'>
-                  <VideoParameterFields profile={selectedProfile} />
-                </CollapsibleContent>
-              </Collapsible>
+              <VideoParameterFields profile={selectedProfile} />
             )}
         </div>
 
-        <div className='bg-background shrink-0 border-t p-4 sm:px-5'>
+        <div className='video-studio-form-footer shrink-0'>
+          <div className='video-studio-price'>
+            <span>{t('Estimated cost')}</span>
+            <strong>{quoteReady ? quoteDisplay : '—'}</strong>
+          </div>
           {submitError && (
             <p className='text-destructive mb-2 text-xs' role='alert'>
               {submitError}
             </p>
+          )}
+          {quoteNeedsRefresh && (
+            <Button
+              type='button'
+              variant='outline'
+              className='mb-2 w-full'
+              disabled={quoteQuery.isFetching}
+              onClick={() => void quoteQuery.refetch()}
+            >
+              {t('Refresh quote')}
+            </Button>
           )}
           <Button
             type='submit'
             size='lg'
             className='w-full'
             disabled={primaryActionDisabled}
+            aria-describedby='video-studio-quote-status'
           >
             {primaryActionIcon}
             {generateLabel}
           </Button>
           <div
             className='text-muted-foreground mt-2 min-h-4 text-center text-xs'
+            id='video-studio-quote-status'
             aria-live='polite'
           >
             {quoteStatusMessage}
           </div>
         </div>
       </form>
+      <AlertDialog
+        open={pendingChange !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingChange(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('Replace current settings?')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'This change may replace your prompt, parameters, or reference media. Your pending submissions remain protected.'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel autoFocus>{t('Keep editing')}</AlertDialogCancel>
+            <Button
+              type='button'
+              onClick={() => {
+                pendingChange?.apply()
+                setPendingChange(null)
+              }}
+            >
+              {t('Replace settings')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Form>
   )
 }

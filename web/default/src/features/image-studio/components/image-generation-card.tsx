@@ -31,8 +31,8 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-import { getImageGenerationErrorKey } from '../image-generation-error'
 import { isImageGenerationCheckingOutcome } from '../image-domain'
+import { getImageGenerationErrorKey } from '../image-generation-error'
 import type { ImageGeneration } from '../types'
 
 export function ImageGenerationCard(props: {
@@ -79,7 +79,12 @@ export function ImageGenerationCard(props: {
         className='bg-muted/40 relative overflow-hidden'
         style={{ aspectRatio: ratio }}
       >
-        <AnimatePresence initial={false}>
+        {/* A lost media authorization must remove the previous image immediately,
+            including while an exit transition is pending. */}
+        <AnimatePresence
+          key={cover?.content_url ? 'available' : 'unavailable'}
+          initial={false}
+        >
           {cover?.content_url ? (
             <motion.button
               key={cover.id}

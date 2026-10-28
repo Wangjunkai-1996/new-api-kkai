@@ -589,7 +589,7 @@ describe('video studio private query ownership', () => {
     queryClient.clear()
   })
 
-  test('removes user A private data on an A to B switch without touching B data', () => {
+  test('clears all private snapshots across an identity switch', () => {
     useAuthStore.getState().auth.setUser(authUser(11))
     unsubscribe = installAuthQueryCacheBoundary(queryClient)
     const userAGenerations = videoStudioQueryKeys.generations(11, {})
@@ -615,13 +615,11 @@ describe('video studio private query ownership', () => {
     assert.equal(queryClient.getQueryData(userAGenerations), undefined)
     assert.equal(queryClient.getQueryData(userAAsset), undefined)
     assert.equal(queryClient.getQueryData(userAToken), undefined)
-    assert.deepEqual(queryClient.getQueryData(userBGenerations), [
-      'user-b-generation',
-    ])
+    assert.equal(queryClient.getQueryData(userBGenerations), undefined)
     assert.equal(queryClient.getQueryData(userAModels), undefined)
-    assert.deepEqual(queryClient.getQueryData(userBModels), ['user-b-model'])
+    assert.equal(queryClient.getQueryData(userBModels), undefined)
     assert.equal(queryClient.getQueryData(userASamples), undefined)
-    assert.deepEqual(queryClient.getQueryData(userBSamples), ['user-b-sample'])
+    assert.equal(queryClient.getQueryData(userBSamples), undefined)
   })
 
   test('removes the authenticated user private data when the session is reset', () => {

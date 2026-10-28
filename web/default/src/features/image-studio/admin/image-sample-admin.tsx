@@ -210,7 +210,9 @@ export function ImageSampleAdmin() {
             <img
               src={signedStudioMediaUrl(
                 sample.asset.thumbnail_url || sample.asset.content_url,
-                mediaQuery.data?.urls
+                mediaQuery.data?.urls,
+                mediaQuery.data?.deniedPaths,
+                mediaQuery.identityDenied
               )}
               alt=''
               className='size-10 rounded object-cover'
@@ -348,6 +350,7 @@ export function ImageSampleAdmin() {
                   <AssetPicker
                     asset={asset}
                     signedUrls={mediaQuery.data?.urls}
+                    identityDenied={mediaQuery.identityDenied}
                     disabled={Boolean(selected)}
                     uploading={uploadMutation.isPending}
                     onUpload={upload}
@@ -462,6 +465,7 @@ export function ImageSampleAdmin() {
 function AssetPicker(props: {
   asset: ImageAsset | null
   signedUrls?: Record<string, string>
+  identityDenied?: boolean
   disabled: boolean
   uploading: boolean
   onUpload: (file?: File) => Promise<void>
@@ -477,7 +481,9 @@ function AssetPicker(props: {
         <img
           src={signedStudioMediaUrl(
             props.asset.thumbnail_url || props.asset.content_url,
-            props.signedUrls
+            props.signedUrls,
+            undefined,
+            props.identityDenied
           )}
           alt=''
           className='max-h-72 rounded-lg border object-contain'

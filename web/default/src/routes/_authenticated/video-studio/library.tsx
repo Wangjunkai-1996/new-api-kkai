@@ -20,13 +20,13 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { VideoLibraryPage } from '@/features/video-studio'
+import { videoTaskIdSchema } from '@/features/video-studio/schemas'
 
-const videoLibrarySearchSchema = z.object({
-  task: z
-    .string()
-    .trim()
-    .max(128)
-    .regex(/^task_[0-9A-Za-z_-]+$/)
+export const videoLibrarySearchSchema = z.object({
+  task: videoTaskIdSchema.optional().catch(undefined),
+  generation: z
+    .union([z.string(), z.number()])
+    .pipe(z.coerce.number<string | number>().int().positive().safe())
     .optional()
     .catch(undefined),
 })
@@ -42,8 +42,16 @@ function VideoLibraryRoute() {
   return (
     <VideoLibraryPage
       targetTaskId={search.task}
-      onClearTarget={() => {
-        void navigate({ search: {}, replace: true })
+      targetGenerationId={search.generation}
+      onTargetChange={(target) => {
+        void navigate({
+          search: {
+            ...search,
+            task: target.task,
+            generation: target.generation,
+          },
+          replace: true,
+        })
       }}
     />
   )

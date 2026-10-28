@@ -67,6 +67,9 @@ type VideoSampleGalleryProps = {
   selectedSampleId?: number
   onTokenError: (errorKind: VideoTokenErrorKind) => boolean
   onTrySample: (sample: VideoSample) => void
+  visible?: boolean
+  previewActive?: boolean
+  onPreviewStart?: () => void
 }
 
 type VideoSamplePreviewRegistry = {
@@ -170,9 +173,14 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     dispatchPreview({ type: 'warm', id })
   }, [])
 
-  const startPreview = useCallback((id: number) => {
-    dispatchPreview({ type: 'start', id })
-  }, [])
+  const onPreviewStart = props.onPreviewStart
+  const startPreview = useCallback(
+    (id: number) => {
+      onPreviewStart?.()
+      dispatchPreview({ type: 'start', id })
+    },
+    [onPreviewStart]
+  )
 
   const stopPreview = useCallback((id: number) => {
     dispatchPreview({ type: 'stop', id })
@@ -194,16 +202,17 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
 
   useEffect(() => {
     const element = scrollRef.current
-    if (!element) return
+    if (!element || props.visible === false) return
     const observer = new ResizeObserver((entries) => {
       setWidth(entries[0]?.contentRect.width ?? 0)
     })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [props.visible])
 
   // oxlint-disable-next-line react/incompatible-library -- TanStack Virtual exposes non-memoizable callbacks by design.
   const virtualizer = useVirtualizer({
+    enabled: props.visible !== false,
     count: samples.length,
     getScrollElement: () => scrollRef.current,
     getItemKey: (index) => samples[index]?.id ?? index,
@@ -221,8 +230,9 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   const virtualItems = virtualizer.getVirtualItems()
 
   useEffect(() => {
-    virtualizer.measure()
+    if (props.visible !== false) virtualizer.measure()
   }, [
+    props.visible,
     categoryFilter,
     columnWidth,
     lanes,
@@ -232,6 +242,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
   ])
 
   useEffect(() => {
+    if (props.visible === false) return
     const lastItem = virtualItems.at(-1)
     if (
       !shouldAutoLoadNextVideoSamplePage({
@@ -247,6 +258,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
     }
     void fetchNextPage()
   }, [
+    props.visible,
     fetchNextPage,
     hasNextPage,
     isFetchNextPageError,
@@ -261,7 +273,7 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
 
   return (
     <section
-      className='flex min-h-0 flex-1 flex-col'
+      className='video-studio-sample-gallery flex min-h-0 flex-1 flex-col'
       aria-labelledby='video-samples-heading'
     >
       <div className='bg-background/95 flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2.5 backdrop-blur sm:px-4'>
@@ -393,20 +405,30 @@ export function VideoSampleGallery(props: VideoSampleGalleryProps) {
                       video_url:
                         signedStudioMediaUrl(
                           sample.video_url,
-                          mediaQuery.data?.urls
+                          mediaQuery.data?.urls,
+                          mediaQuery.data?.deniedPaths,
+                          mediaQuery.identityDenied
                         ) ?? '',
                       poster_url:
                         signedStudioMediaUrl(
                           sample.poster_url,
-                          mediaQuery.data?.urls
+                          mediaQuery.data?.urls,
+                          mediaQuery.data?.deniedPaths,
+                          mediaQuery.identityDenied
                         ) ?? '',
                       preview_url:
                         signedStudioMediaUrl(
                           sample.preview_url,
-                          mediaQuery.data?.urls
+                          mediaQuery.data?.urls,
+                          mediaQuery.data?.deniedPaths,
+                          mediaQuery.identityDenied
                         ) ?? '',
                     }}
-                    active={previewRegistry.activeId === sample.id}
+                    active={
+                      previewRegistry.activeId === sample.id &&
+                      props.previewActive !== false &&
+                      !mediaQuery.identityDenied
+                    }
                     warmed={previewRegistry.warmedIds.includes(sample.id)}
                     selected={props.selectedSampleId === sample.id}
                     onPreviewWarm={warmPreview}

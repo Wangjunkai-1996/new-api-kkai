@@ -16,12 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-
 import i18next, { type i18n } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
-import { beforeAll, describe, test } from 'vitest'
+import { beforeAll, describe, expect, test } from 'vitest'
 
 import type { VideoGeneration } from '../types'
 import { VideoGenerationCard } from './video-generation-card'
@@ -81,33 +79,23 @@ const generation = (
   ...overrides,
 })
 
-const renderCard = (item: VideoGeneration, playing: boolean): string =>
+const renderCard = (item: VideoGeneration): string =>
   renderToStaticMarkup(
     <I18nextProvider i18n={translations}>
       <VideoGenerationCard
         generation={item}
-        playing={playing}
-        onPlay={() => undefined}
-        onClose={() => undefined}
+        onOpen={() => undefined}
         onDelete={() => undefined}
       />
     </I18nextProvider>
   )
 
-describe('video generation card media lifecycle', () => {
-  test('renders only a lazy poster until the user starts playback', () => {
-    const html = renderCard(generation(), false)
-
-    assert.equal(html.includes('<video'), false)
-    assert.match(html, /loading="lazy"/)
-    assert.match(html, /aria-label="Play"/)
-  })
-
-  test('mounts exactly one player for the selected ready card', () => {
-    const html = renderCard(generation(), true)
-
-    assert.equal(html.match(/<video/g)?.length, 1)
-    assert.match(html, /preload="metadata"/)
+describe('video generation card', () => {
+  test('renders only a lazy poster and a labeled details entry, never a hidden player', () => {
+    const html = renderCard(generation())
+    expect(html).not.toContain('<video')
+    expect(html).toContain('loading="lazy"')
+    expect(html).toContain('aria-label="View video details: A test video"')
   })
 
   test('does not expose deletion as cancellation for active work', () => {
@@ -118,15 +106,13 @@ describe('video generation card media lifecycle', () => {
         video_url: undefined,
         poster_url: undefined,
         download_url: undefined,
-      }),
-      false
+      })
     )
-
-    assert.doesNotMatch(html, /aria-label="Delete"/)
-    assert.match(html, /aria-valuenow="30"/)
+    expect(html).not.toContain('aria-label="Delete"')
+    expect(html).toContain('Generating video')
   })
 
-  test('renders a safe actionable reason for known generation failures', () => {
+  test('renders the safe public failure instead of the upstream raw reason', () => {
     const html = renderCard(
       generation({
         status: 'failed',
@@ -135,11 +121,12 @@ describe('video generation card media lifecycle', () => {
         video_url: undefined,
         poster_url: undefined,
         download_url: undefined,
-      }),
-      false
+      })
     )
-
-    assert.match(html, /The generated video may involve copyrighted content\./)
-    assert.doesNotMatch(html, /video generation failed/)
+    expect(html).toContain(
+      'The generated video may involve copyrighted content.'
+    )
+    expect(html).not.toContain('video generation failed')
+    expect(html).toContain('aria-label="Delete"')
   })
 })

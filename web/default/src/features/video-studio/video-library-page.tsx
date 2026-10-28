@@ -16,18 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  CircleAlert,
-  FolderOpen,
-  LoaderCircle,
-  RotateCw,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { CircleAlert, LoaderCircle, RotateCw, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import emptyArtwork from '@/assets/video-works/empty.webp'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,414 +31,493 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { toIntlLocale } from '@/i18n/languages'
 import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { VideoGenerationCard } from './components/video-generation-card'
+import { VideoGenerationDetails } from './components/video-generation-details'
 import { VideoStudioNav } from './components/video-studio-nav'
+import { useVideoGenerationTarget } from './hooks/use-video-generation-target'
 import { useDeleteVideoGeneration, useVideoGenerations } from './queries'
 import type { VideoGeneration } from './types'
+import {
+  acceptVideoLibraryOrder,
+  type LibraryOrder,
+} from './video-library-order'
 
 type VideoLibraryPageProps = {
   targetTaskId?: string
-  onClearTarget?: () => void
+  targetGenerationId?: number
+  onTargetChange?: (target: { task?: string; generation?: number }) => void
 }
 
-const TARGET_DISCOVERY_TIMEOUT_MS = 30_000
-
 export function VideoLibraryPage(props: VideoLibraryPageProps) {
-  const { t } = useTranslation()
-  const [targetWaitExpired, setTargetWaitExpired] = useState(false)
-  const [observedTargetId, setObservedTargetId] = useState(props.targetTaskId)
-  if (observedTargetId !== props.targetTaskId) {
-    setObservedTargetId(props.targetTaskId)
-    setTargetWaitExpired(false)
-  }
-  const [targetWaitAttempt, setTargetWaitAttempt] = useState(0)
-  const generationsQuery = useVideoGenerations(
-    {},
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid ?? '')
+  return (
+    <VideoLibraryContent
+      key={`${userId}:${sessionId}`}
+      {...props}
+      userId={userId}
+    />
+  )
+}
+
+function VideoLibraryContent(
+  props: VideoLibraryPageProps & { userId: number }
+) {
+  const { t, i18n } = useTranslation()
+  const { copyToClipboard } = useCopyToClipboard()
+  const [status, setStatus] = useState<'' | 'ready'>('')
+  const query = useVideoGenerations(
+    { status: status || undefined },
     true,
-    targetWaitExpired ? undefined : props.targetTaskId
+    props.targetTaskId,
+    props.targetGenerationId
   )
-  const deleteMutation = useDeleteVideoGeneration()
+  const target = useVideoGenerationTarget({
+    generationsQuery: query,
+    targetTaskId: props.targetTaskId,
+    targetGenerationId: props.targetGenerationId,
+  })
+  const [order, setOrder] = useState<LibraryOrder>({
+    status,
+    ids: [],
+    pageCount: 0,
+    initialized: false,
+  })
+  const nextOrder = acceptVideoLibraryOrder(
+    order,
+    query.items,
+    query.data?.pages.slice(order.pageCount).flatMap((page) => page.items) ??
+      [],
+    query.data?.pages.length ?? 0,
+    status,
+    query.isSuccess
+  )
+  if (nextOrder !== order) setOrder(nextOrder)
+  const [detailsOpen, setDetailsOpen] = useState(
+    Boolean(props.targetTaskId || props.targetGenerationId)
+  )
+  const [observedTarget, setObservedTarget] = useState(
+    `${props.targetTaskId ?? ''}:${props.targetGenerationId ?? ''}`
+  )
+  const incomingTarget = `${props.targetTaskId ?? ''}:${props.targetGenerationId ?? ''}`
+  if (observedTarget !== incomingTarget) {
+    setObservedTarget(incomingTarget)
+    setDetailsOpen(Boolean(props.targetTaskId || props.targetGenerationId))
+  }
   const [deleteTarget, setDeleteTarget] = useState<VideoGeneration | null>(null)
-  const [activePlayerId, setActivePlayerId] = useState<number | null>(null)
-  const targetCardRef = useRef<HTMLDivElement>(null)
-  const scrolledTaskRef = useRef<string | null>(null)
-  const generations = useMemo(() => {
-    const seenTaskIds = new Set<string>()
-    return generationsQuery.items.filter((generation) => {
-      if (seenTaskIds.has(generation.task_id)) return false
-      seenTaskIds.add(generation.task_id)
-      return true
-    })
-  }, [generationsQuery.items])
-  const mediaPaths = useMemo(
-    () =>
-      generations.flatMap((generation) => [
-        generation.video_url,
-        generation.poster_url,
-        generation.download_url,
-      ]),
-    [generations]
-  )
-  const mediaQuery = useStudioMediaUrls(mediaPaths)
-  const targetGeneration = props.targetTaskId
-    ? generations.find(
-        (generation) => generation.task_id === props.targetTaskId
-      )
-    : undefined
-  const targetFound = Boolean(targetGeneration)
-  if (targetFound && targetWaitExpired) setTargetWaitExpired(false)
-  const targetPending = Boolean(
-    props.targetTaskId && !targetFound && !targetWaitExpired
-  )
-  const targetMissing = Boolean(
-    props.targetTaskId && !targetFound && targetWaitExpired
-  )
-
+  const deleteMutation = useDeleteVideoGeneration()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const alive = useRef(true)
   useEffect(() => {
-    if (!props.targetTaskId || targetFound) return
-
-    const timeout = window.setTimeout(
-      () => setTargetWaitExpired(true),
-      TARGET_DISCOVERY_TIMEOUT_MS
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+  const itemsById = new Map(query.items.map((item) => [item.id, item]))
+  const generations = nextOrder.ids.flatMap((id) => {
+    const generation = itemsById.get(id)
+    return generation ? [generation] : []
+  })
+  const acceptedIds = new Set(nextOrder.ids)
+  const newCount = query.items.filter(
+    (item) => !acceptedIds.has(item.id)
+  ).length
+  const rawSelected = detailsOpen ? target.generation : null
+  const mediaQuery = useStudioMediaUrls([
+    ...generations.map((item) => item.poster_url),
+    rawSelected?.poster_url,
+    rawSelected?.video_url,
+    rawSelected?.download_url,
+  ])
+  const selected = rawSelected
+    ? {
+        ...rawSelected,
+        video_url: signedStudioMediaUrl(
+          rawSelected.video_url,
+          mediaQuery.data?.urls,
+          mediaQuery.data?.deniedPaths,
+          mediaQuery.identityDenied
+        ),
+        poster_url: signedStudioMediaUrl(
+          rawSelected.poster_url,
+          mediaQuery.data?.urls,
+          mediaQuery.data?.deniedPaths,
+          mediaQuery.identityDenied
+        ),
+        download_url: signedStudioMediaUrl(
+          rawSelected.download_url,
+          mediaQuery.data?.urls,
+          mediaQuery.data?.deniedPaths,
+          mediaQuery.identityDenied
+        ),
+      }
+    : null
+  const denied =
+    mediaQuery.identityDenied ||
+    Boolean(
+      rawSelected?.video_url &&
+      mediaQuery.data?.deniedPaths[rawSelected.video_url]
     )
-    return () => window.clearTimeout(timeout)
-  }, [props.targetTaskId, targetFound, targetWaitAttempt])
+  const posterDenied =
+    mediaQuery.identityDenied ||
+    Boolean(
+      rawSelected?.poster_url &&
+      mediaQuery.data?.deniedPaths[rawSelected.poster_url]
+    )
+  const groups = useMemo(() => {
+    const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+    const dateFormatter = new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+    const grouped = new Map<string, VideoGeneration[]>()
+    for (const generation of generations) {
+      const date = dateFormatter.format(new Date(generation.created_at * 1000))
+      grouped.set(date, [...(grouped.get(date) ?? []), generation])
+    }
+    return [...grouped]
+  }, [generations, i18n.language, i18n.resolvedLanguage])
 
-  useEffect(() => {
+  const openDetails = (generation: VideoGeneration) => {
+    target.selectGeneration(generation.id)
+    props.onTargetChange?.({
+      task: generation.task_id,
+      generation: generation.id,
+    })
+    setDetailsOpen(true)
+  }
+  const closeDetails = () => {
+    setDetailsOpen(false)
+    props.onTargetChange?.({})
+  }
+  const refresh = async () => {
+    await query.refresh()
+    if (!alive.current) return
+    // The next successful render uses the current query objects in their newest order.
+    setOrder((current) => ({ ...current, initialized: false }))
+  }
+  const download = async () => {
+    if (!rawSelected) return
+    const result = await mediaQuery.refetch()
+    if (!alive.current) return
+    const url = signedStudioMediaUrl(
+      rawSelected.download_url,
+      result.data?.urls,
+      result.data?.deniedPaths
+    )
     if (
-      !props.targetTaskId ||
-      !targetGeneration ||
-      scrolledTaskRef.current === props.targetTaskId
+      !url ||
+      result.isError ||
+      result.data?.deniedPaths[rawSelected.download_url ?? '']
     ) {
+      toast.error(t('Video download is temporarily unavailable.'))
       return
     }
-
-    const card = targetCardRef.current
-    if (!card) return
-    scrolledTaskRef.current = props.targetTaskId
-    const frame = window.requestAnimationFrame(() => {
-      const reduceMotion = window.matchMedia(
-        '(prefers-reduced-motion: reduce)'
-      ).matches
-      card.scrollIntoView({
-        behavior: reduceMotion ? 'auto' : 'smooth',
-        block: 'nearest',
-      })
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [props.targetTaskId, targetGeneration])
-
-  if (activePlayerId !== null) {
-    const activeGeneration = generations.find(
-      (generation) => generation.id === activePlayerId
-    )
-    if (
-      !activeGeneration ||
-      activeGeneration.status !== 'ready' ||
-      !activeGeneration.video_url
-    ) {
-      setActivePlayerId(null)
-    }
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = ''
+    anchor.rel = 'noopener noreferrer'
+    anchor.click()
   }
-
   const confirmDelete = async () => {
-    if (!deleteTarget) return
-    try {
-      if (activePlayerId === deleteTarget.id) setActivePlayerId(null)
-      await deleteMutation.mutateAsync(deleteTarget.id)
-      await generationsQuery.forgetObservedGeneration(deleteTarget.id)
-      if (deleteTarget.task_id === props.targetTaskId) props.onClearTarget?.()
-      toast.success(t('videoStudio.deleted'))
+    if (!deleteTarget || deleteMutation.isPending) return
+    const deleted =
+      query.targetGeneration?.id === deleteTarget.id
+        ? query.targetGeneration
+        : query.items.find((item) => item.id === deleteTarget.id)
+    if (
+      !deleted ||
+      (deleted.status !== 'ready' && deleted.status !== 'failed')
+    ) {
       setDeleteTarget(null)
-    } catch (error) {
+      void query.refresh()
       toast.error(
-        error instanceof Error ? error.message : t('videoStudio.deleteFailed')
+        t(
+          'This video can no longer be deleted. Refresh its status and try again.'
+        )
       )
+      return
+    }
+    const position = nextOrder.ids.indexOf(deleted.id)
+    const adjacentId =
+      nextOrder.ids[position + 1] ?? nextOrder.ids[position - 1]
+    try {
+      await deleteMutation.mutateAsync(deleted.id)
+      if (!alive.current) return
+      await query.forgetObservedGeneration(deleted.id)
+      if (!alive.current) return
+      setDeleteTarget(null)
+      setOrder((current) => ({
+        ...current,
+        ids: current.ids.filter((id) => id !== deleted.id),
+      }))
+      if (target.selectedId === deleted.id) closeDetails()
+      toast.success(t('videoStudio.deleted'))
+      window.requestAnimationFrame(() => {
+        if (!alive.current) return
+        const adjacent = rootRef.current?.querySelector<HTMLButtonElement>(
+          `[data-video-generation-id="${adjacentId}"]`
+        )
+        ;(adjacent ?? rootRef.current)?.focus()
+      })
+    } catch {
+      if (alive.current) toast.error(t('videoStudio.deleteFailed'))
     }
   }
-
-  const retryTargetDiscovery = () => {
-    setTargetWaitExpired(false)
-    setTargetWaitAttempt((attempt) => attempt + 1)
-    void generationsQuery.refresh()
-  }
+  const targetProblem = target.explicitTarget && target.status !== 'ready'
 
   return (
-    <main
-      id='content'
-      className='flex size-full min-h-0 flex-col overflow-hidden'
-    >
-      <VideoStudioNav
-        action={
-          <Button
-            size='icon-sm'
-            variant='ghost'
-            onClick={() => void generationsQuery.refresh()}
-            aria-label={t('videoStudio.refresh')}
-          >
-            <RotateCw
-              className={
-                generationsQuery.isFetching
-                  ? 'animate-spin motion-reduce:animate-none'
-                  : undefined
-              }
-              aria-hidden='true'
-            />
-          </Button>
-        }
-      />
-      <div className='min-h-0 flex-1 overflow-y-auto p-3 sm:p-4'>
-        {targetPending && !generationsQuery.isError && (
-          <div
-            className='border-primary/30 bg-primary/5 mb-3 flex min-h-20 items-center gap-3 rounded-lg border px-4 py-3'
-            role='status'
-            aria-live='polite'
-          >
-            <LoaderCircle
-              className='text-primary size-5 shrink-0 animate-spin motion-reduce:animate-none'
-              aria-hidden='true'
-            />
-            <div className='min-w-0 flex-1'>
-              <p className='text-sm font-medium'>
-                {t('videoStudio.generationLocating')}
-              </p>
-              <code className='text-muted-foreground block truncate text-xs'>
-                {props.targetTaskId}
-              </code>
+    <main id='content' className='video-studio-v2 video-studio-page'>
+      <VideoStudioNav />
+      <div className='video-studio-page-content' ref={rootRef} tabIndex={-1}>
+        <header className='video-studio-page-toolbar'>
+          <div>
+            <h2>{t('videoStudio.library')}</h2>
+            <p>{t('Your videos, organized by creation date.')}</p>
+          </div>
+          <div className='video-studio-toolbar-actions'>
+            <div
+              className='video-studio-segmented'
+              role='group'
+              aria-label={t('Filter videos')}
+            >
+              <button
+                type='button'
+                aria-pressed={status === ''}
+                onClick={() => setStatus('')}
+              >
+                {t('All')}
+              </button>
+              <button
+                type='button'
+                aria-pressed={status === 'ready'}
+                onClick={() => setStatus('ready')}
+              >
+                {t('Playable')}
+              </button>
             </div>
             <Button
-              size='icon-sm'
               variant='ghost'
-              onClick={() => void generationsQuery.refresh()}
+              size='icon'
+              onClick={() => void refresh()}
               aria-label={t('videoStudio.refresh')}
             >
               <RotateCw aria-hidden='true' />
             </Button>
           </div>
-        )}
-
-        {targetMissing && !generationsQuery.isError && (
-          <div
-            className='border-warning/40 bg-warning/5 mb-3 flex min-h-20 items-center gap-3 rounded-lg border px-4 py-3'
-            role='alert'
-          >
-            <CircleAlert
-              className='text-warning size-5 shrink-0'
-              aria-hidden='true'
-            />
-            <div className='min-w-0 flex-1'>
-              <p className='text-sm font-medium'>
-                {t('videoStudio.generationNotVisible')}
-              </p>
-              <p className='text-muted-foreground text-xs'>
-                {t('videoStudio.generationNotVisibleDescription')}
-              </p>
-              <code className='text-muted-foreground mt-1 block truncate text-xs'>
-                {props.targetTaskId}
-              </code>
-            </div>
-            <div className='flex shrink-0 items-center gap-1'>
-              <Button
-                size='icon-sm'
-                variant='ghost'
-                onClick={retryTargetDiscovery}
-                aria-label={t('videoStudio.retry')}
-              >
-                <RotateCw aria-hidden='true' />
-              </Button>
-              {props.onClearTarget && (
-                <Button
-                  size='icon-sm'
-                  variant='ghost'
-                  onClick={props.onClearTarget}
-                  aria-label={t('Close')}
-                >
-                  <X aria-hidden='true' />
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {generationsQuery.isLoading &&
-          generations.length === 0 &&
-          !props.targetTaskId && (
-            <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
-              {Array.from({ length: 8 }, (_, index) => (
-                <Skeleton
-                  key={`library-skeleton-${index}`}
-                  className='aspect-[4/5] w-full rounded-lg'
-                />
-              ))}
-            </div>
-          )}
-
-        {generationsQuery.isError && generations.length === 0 && (
-          <Empty className='min-h-72 border'>
-            <EmptyHeader>
-              <EmptyMedia variant='icon'>
-                <FolderOpen aria-hidden='true' />
-              </EmptyMedia>
-              <EmptyTitle>{t('videoStudio.libraryFailed')}</EmptyTitle>
-              <EmptyDescription>
-                {t('videoStudio.libraryFailedDescription')}
-                {props.targetTaskId && (
-                  <code className='mt-2 block'>{props.targetTaskId}</code>
-                )}
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button
-                variant='outline'
-                onClick={() => void generationsQuery.refresh()}
-              >
-                <RotateCw aria-hidden='true' />
-                {t('videoStudio.retry')}
-              </Button>
-            </EmptyContent>
-          </Empty>
-        )}
-
-        {!generationsQuery.isLoading &&
-          !generationsQuery.isError &&
-          generations.length === 0 &&
-          !props.targetTaskId && (
-            <Empty className='min-h-72 border'>
-              <EmptyHeader>
-                <EmptyMedia variant='icon'>
-                  <FolderOpen aria-hidden='true' />
-                </EmptyMedia>
-                <EmptyTitle>{t('videoStudio.libraryEmpty')}</EmptyTitle>
-                <EmptyDescription>
-                  {t('videoStudio.libraryEmptyDescription')}
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button render={<a href='/video-studio/create' />}>
-                  {t('videoStudio.create')}
-                </Button>
-              </EmptyContent>
-            </Empty>
-          )}
-
-        {generationsQuery.isError && generations.length > 0 && (
-          <div
-            className='border-destructive/30 bg-destructive/5 text-destructive mb-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs'
-            role='alert'
-          >
-            <span className='min-w-0'>
-              {t('videoStudio.refreshFailed')}
-              {targetPending && (
-                <code className='ml-2'>{props.targetTaskId}</code>
-              )}
+        </header>
+        {newCount > 0 && (
+          <div className='video-studio-notice' role='status'>
+            <span>
+              {t('{{count}} new videos are available.', { count: newCount })}
             </span>
-            <Button
-              size='sm'
-              variant='outline'
-              onClick={() => void generationsQuery.refresh()}
-            >
-              {t('videoStudio.retry')}
+            <Button variant='ghost' onClick={() => void refresh()}>
+              {t('Show new videos')}
             </Button>
           </div>
         )}
-
-        {generations.length > 0 && (
-          <div className='grid grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
-            {generations.map((generation) => {
-              const highlighted = generation.task_id === props.targetTaskId
-              return (
-                <div
-                  key={generation.task_id}
-                  ref={highlighted ? targetCardRef : undefined}
-                >
-                  <VideoGenerationCard
-                    generation={{
-                      ...generation,
-                      video_url: signedStudioMediaUrl(
-                        generation.video_url,
-                        mediaQuery.data?.urls
-                      ),
-                      poster_url: signedStudioMediaUrl(
-                        generation.poster_url,
-                        mediaQuery.data?.urls
-                      ),
-                      download_url: signedStudioMediaUrl(
-                        generation.download_url,
-                        mediaQuery.data?.urls
-                      ),
-                    }}
-                    highlighted={highlighted}
-                    playing={activePlayerId === generation.id}
-                    onPlay={(target) => setActivePlayerId(target.id)}
-                    onClose={() => setActivePlayerId(null)}
-                    onDelete={setDeleteTarget}
-                  />
-                </div>
-              )
-            })}
+        {targetProblem && (
+          <div className='video-studio-notice' role='status'>
+            {target.status === 'loading' || target.status === 'locating' ? (
+              <LoaderCircle
+                className='animate-spin motion-reduce:animate-none'
+                aria-hidden='true'
+              />
+            ) : (
+              <CircleAlert aria-hidden='true' />
+            )}
+            <div>
+              <p>
+                {target.status === 'loading' || target.status === 'locating'
+                  ? t('videoStudio.generationLocating')
+                  : t('Video result is not available yet.')}
+              </p>
+              {target.status === 'missing' && (
+                <p>{t('videoStudio.generationNotVisibleDescription')}</p>
+              )}
+              {target.status === 'unavailable' && (
+                <p>
+                  {t('This video was deleted or you no longer have access.')}
+                </p>
+              )}
+              <code>{props.targetTaskId ?? props.targetGenerationId}</code>
+            </div>
+            <Button variant='ghost' onClick={target.retryTargetDiscovery}>
+              {t('videoStudio.refresh')}
+            </Button>
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={closeDetails}
+              aria-label={t('Close')}
+            >
+              <X aria-hidden='true' />
+            </Button>
           </div>
         )}
-
-        {generationsQuery.hasNextPage && (
-          <div className='flex justify-center pt-5'>
+        {query.isError && (
+          <div className='video-studio-notice' role='alert'>
+            <span>
+              {generations.length
+                ? t('videoStudio.refreshFailed')
+                : t('videoStudio.libraryFailedDescription')}
+            </span>
+            <Button variant='outline' onClick={() => void query.refresh()}>
+              {t('Retry')}
+            </Button>
+          </div>
+        )}
+        {query.isLoading && generations.length === 0 && (
+          <div className='video-studio-library-grid'>
+            {Array.from({ length: 6 }, (_, index) => (
+              <Skeleton key={index} className='aspect-[4/3] rounded-xl' />
+            ))}
+          </div>
+        )}
+        {query.isSuccess && generations.length === 0 && newCount === 0 && (
+          <div className='video-studio-empty'>
+            <img src={emptyArtwork} alt='' />
+            <h3>
+              {status === 'ready'
+                ? t('No playable videos yet.')
+                : t('videoStudio.libraryEmpty')}
+            </h3>
+            <p>
+              {status === 'ready'
+                ? t(
+                    'Completed videos will appear here when their files are ready.'
+                  )
+                : t('videoStudio.libraryEmptyDescription')}
+            </p>
+            {status === 'ready' ? (
+              <Button variant='outline' onClick={() => setStatus('')}>
+                {t('Show all videos')}
+              </Button>
+            ) : (
+              <Button render={<Link to='/video-studio/create' />}>
+                {t('videoStudio.create')}
+              </Button>
+            )}
+          </div>
+        )}
+        {groups.map(([date, items]) => (
+          <section key={date} aria-label={date}>
+            <h3 className='video-studio-library-date'>{date}</h3>
+            <div className='video-studio-library-grid'>
+              {items.map((generation) => (
+                <VideoGenerationCard
+                  key={generation.id}
+                  generation={{
+                    ...generation,
+                    poster_url: mediaQuery.identityDenied
+                      ? undefined
+                      : signedStudioMediaUrl(
+                          generation.poster_url,
+                          mediaQuery.data?.urls,
+                          mediaQuery.data?.deniedPaths,
+                          mediaQuery.identityDenied
+                        ),
+                  }}
+                  highlighted={
+                    detailsOpen && target.selectedId === generation.id
+                  }
+                  onOpen={openDetails}
+                  onDelete={setDeleteTarget}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+        {query.hasNextPage && (
+          <div className='video-studio-load-more'>
             <Button
               variant='outline'
-              onClick={() => generationsQuery.fetchNextPage()}
-              disabled={generationsQuery.isFetchingNextPage}
+              disabled={query.isFetchingNextPage}
+              onClick={() => void query.fetchNextPage()}
             >
-              {generationsQuery.isFetchingNextPage && (
+              {query.isFetchingNextPage && (
                 <LoaderCircle
                   className='animate-spin motion-reduce:animate-none'
                   aria-hidden='true'
                 />
               )}
-              {t('videoStudio.loadMore')}
+              {query.isFetchNextPageError
+                ? t('Retry loading more videos')
+                : t('videoStudio.loadMore')}
             </Button>
           </div>
         )}
       </div>
-
+      <VideoGenerationDetails
+        generation={selected}
+        open={detailsOpen && Boolean(selected)}
+        onOpenChange={(open) => {
+          if (!open) closeDetails()
+        }}
+        active={detailsOpen && !deleteTarget}
+        mediaIdentity={`${props.userId}:${rawSelected?.id ?? ''}`}
+        denied={denied}
+        posterDenied={posterDenied}
+        onRefresh={async () => {
+          const result = await mediaQuery.refetch()
+          if (result.error) return undefined
+          return signedStudioMediaUrl(
+            rawSelected?.video_url,
+            result.data?.urls,
+            result.data?.deniedPaths
+          )
+        }}
+        onCopyTask={(generation) => {
+          void copyToClipboard(generation.task_id)
+        }}
+        onDownload={() => {
+          void download()
+        }}
+        onDelete={setDeleteTarget}
+      />
       <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setDeleteTarget(null)
+        }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className='video-studio-dialog'>
           <AlertDialogHeader>
-            <AlertDialogMedia>
-              <Trash2 aria-hidden='true' />
-            </AlertDialogMedia>
             <AlertDialogTitle>{t('videoStudio.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('videoStudio.deleteDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteTarget && (
+            <p className='text-sm break-words'>{deleteTarget.prompt}</p>
+          )}
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('videoStudio.cancel')}</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              {t('videoStudio.cancel')}
+            </AlertDialogCancel>
             <AlertDialogAction
               variant='destructive'
               disabled={deleteMutation.isPending}
               onClick={() => void confirmDelete()}
             >
-              {deleteMutation.isPending && (
+              {deleteMutation.isPending ? (
                 <LoaderCircle
                   className='animate-spin motion-reduce:animate-none'
                   aria-hidden='true'
                 />
+              ) : (
+                <Trash2 aria-hidden='true' />
               )}
               {t('videoStudio.delete')}
             </AlertDialogAction>

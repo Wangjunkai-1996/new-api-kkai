@@ -1,8 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
+import { isAxiosError, isCancel } from 'axios'
+import { useState } from 'react'
 
 import { useAuthStore } from '@/stores/auth-store'
 
 import { api } from './api'
+import { privateUserQueryKey } from './private-query-cache'
+
+export type StudioMediaDenials = Readonly<Record<string, 403 | 404>>
 
 type StudioMediaResponse = {
   success: boolean
@@ -27,9 +32,9 @@ export function useStudioMediaUrls(paths: readonly (string | undefined)[]) {
       )
     ),
   ].sort()
-  return useQuery({
-    queryKey: ['studio-media-urls', userId, ...uniquePaths],
-    queryFn: async () => {
+  const query = useQuery({
+    queryKey: privateUserQueryKey(userId, 'studio-media-urls', ...uniquePaths),
+    queryFn: async ({ signal }) => {
       const batches: string[][] = []
       for (let index = 0; index < uniquePaths.length; index += 100) {
         batches.push(uniquePaths.slice(index, index + 100))
@@ -38,7 +43,7 @@ export function useStudioMediaUrls(paths: readonly (string | undefined)[]) {
         const response = await api.post<StudioMediaResponse>(
           '/api/studio/media-urls',
           { paths: batch },
-          { skipErrorHandler: true, disableDuplicate: true }
+          { skipErrorHandler: true, disableDuplicate: true, signal }
         )
         if (!response.data.success || !response.data.data) {
           throw new Error(
@@ -47,17 +52,42 @@ export function useStudioMediaUrls(paths: readonly (string | undefined)[]) {
         }
         return response.data.data
       }
+      const deniedPaths: Record<string, 403 | 404> = {}
+      const unavailablePaths: string[] = []
+      let unavailableError: unknown
       const signed = await Promise.all(
         batches.map(async (batch) => {
           try {
             return await signBatch(batch)
-          } catch {
+          } catch (error) {
+            signal.throwIfAborted()
+            if (
+              isCancel(error) ||
+              (isAxiosError(error) && error.response?.status === 401)
+            ) {
+              throw error
+            }
             const settled = await Promise.allSettled(
               batch.map((path) => signBatch([path]))
             )
-            const available = settled.flatMap((result) =>
-              result.status === 'fulfilled' ? [result.value] : []
-            )
+            signal.throwIfAborted()
+            const available: NonNullable<StudioMediaResponse['data']>[] = []
+            for (const [index, result] of settled.entries()) {
+              if (result.status === 'fulfilled') {
+                available.push(result.value)
+                continue
+              }
+              const status = isAxiosError(result.reason)
+                ? result.reason.response?.status
+                : undefined
+              if (isCancel(result.reason) || status === 401) throw result.reason
+              if (status === 403 || status === 404) {
+                deniedPaths[batch[index]] = status
+              } else {
+                unavailablePaths.push(batch[index])
+                unavailableError = result.reason
+              }
+            }
             return {
               urls: Object.assign(
                 {},
@@ -68,10 +98,20 @@ export function useStudioMediaUrls(paths: readonly (string | undefined)[]) {
           }
         })
       )
+      signal.throwIfAborted()
       const available = signed.filter((item) =>
         Number.isFinite(item.expires_at)
       )
+      if (
+        available.length === 0 &&
+        Object.keys(deniedPaths).length === 0 &&
+        unavailablePaths.length > 0
+      ) {
+        throw unavailableError
+      }
       return {
+        deniedPaths,
+        unavailablePaths,
         urls: Object.assign(
           {},
           ...available.map((item) => item.urls)
@@ -96,13 +136,37 @@ export function useStudioMediaUrls(paths: readonly (string | undefined)[]) {
     retry: false,
     meta: { errorToast: false },
   })
+  const [denial, setDenial] = useState<{
+    userId: number
+    dataUpdatedAt: number
+  }>()
+  const rejectedIdentity =
+    isAxiosError(query.error) && query.error.response?.status === 401
+  if (
+    rejectedIdentity &&
+    (denial?.userId !== userId || denial.dataUpdatedAt !== query.dataUpdatedAt)
+  ) {
+    setDenial({ userId, dataUpdatedAt: query.dataUpdatedAt })
+  }
+  const identityDenied =
+    userId <= 0 ||
+    rejectedIdentity ||
+    (denial?.userId === userId && query.dataUpdatedAt <= denial.dataUpdatedAt)
+  // React Query retains previous data on a failed refresh; auth failure must not.
+  return {
+    ...query,
+    data: identityDenied ? undefined : query.data,
+    identityDenied,
+  }
 }
 
 export function signedStudioMediaUrl(
   url: string | undefined,
-  signedUrls: Record<string, string> | undefined
+  signedUrls: Record<string, string> | undefined,
+  deniedPaths?: StudioMediaDenials,
+  identityDenied = false
 ): string | undefined {
-  if (!url) return undefined
+  if (identityDenied || !url || deniedPaths?.[url]) return undefined
   if (!isProtectedStudioPath(url)) return url
   return signedUrls?.[url]
 }

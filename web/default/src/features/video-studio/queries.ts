@@ -73,6 +73,10 @@ import {
   isVideoGenerationActive,
 } from './video-domain'
 import { shouldRetryVideoReferenceHydration } from './video-reference-hydration'
+import {
+  isCurrentVideoSubmissionIdentity,
+  type VideoSubmissionIdentity,
+} from './video-submission-protocol'
 
 export const videoStudioQueryKeys = {
   all: ['video-studio'] as const,
@@ -284,6 +288,7 @@ export const useVideoQuote = (
 ) => {
   const userId = useVideoStudioUserId()
   return useQuery({
+    meta: { errorToast: false },
     queryKey: videoStudioQueryKeys.quote(
       userId,
       request ?? {
@@ -309,11 +314,24 @@ export const useCreateVideoGeneration = () => {
   const queryClient = useQueryClient()
   const userId = useVideoStudioUserId()
   return useMutation({
+    meta: { errorToast: false },
+    retry: false,
     mutationFn: (input: {
       request: CreateVideoRequest
       idempotencyKey: string
-    }) => createVideoGeneration(input.request, input.idempotencyKey),
-    onSuccess: () => {
+      identity?: VideoSubmissionIdentity
+      beforeSend?: () => void
+    }) => {
+      return createVideoGeneration(
+        input.request,
+        input.idempotencyKey,
+        input.beforeSend
+      )
+    },
+    onSuccess: (_receipt, input) => {
+      if (input.identity && !isCurrentVideoSubmissionIdentity(input.identity)) {
+        return
+      }
       void queryClient.invalidateQueries({
         queryKey: videoStudioQueryKeys.privateAll(userId),
       })
@@ -554,16 +572,33 @@ export const pruneVideoGenerationQueryCaches = async (
 const EMPTY_VIDEO_GENERATIONS: VideoGeneration[] = []
 const EMPTY_VIDEO_GENERATION_OBSERVATIONS: VideoGenerationObservation[] = []
 
-const isVideoGenerationTombstoneError = (error: unknown): boolean =>
-  isAxiosError(error) && [404, 410].includes(error.response?.status ?? 0)
+export const isVideoGenerationTombstoneError = (error: unknown): boolean =>
+  isAxiosError(error) &&
+  [401, 403, 404, 410].includes(error.response?.status ?? 0)
 
 export const useVideoGenerations = (
   filters: Omit<VideoGenerationFilters, 'cursor'> = {},
   adaptivePolling = false,
-  targetTaskId?: string
+  targetTaskId?: string,
+  targetGenerationId?: number
 ) => {
   const userId = useVideoStudioUserId()
   const queryClient = useQueryClient()
+  const targetScope = `${userId}:${targetTaskId ?? ''}:${targetGenerationId ?? ''}`
+  const [expiredTargetScope, setExpiredTargetScope] = useState<string | null>(
+    null
+  )
+  const [targetAttempt, setTargetAttempt] = useState(0)
+  const [forgottenState, setForgottenState] = useState<{
+    userId: number
+    ids: Set<number>
+  }>({ userId, ids: new Set() })
+  const forgottenIds = useMemo(
+    () =>
+      forgottenState.userId === userId ? forgottenState.ids : new Set<number>(),
+    [forgottenState, userId]
+  )
+  const targetDiscoveryExpired = expiredTargetScope === targetScope
   const filterLimit = filters.limit
   const filterStatus = filters.status
   const stableFilters = useMemo(() => {
@@ -576,9 +611,12 @@ export const useVideoGenerations = (
     videoStudioQueryKeys.generations(userId, stableFilters)
   )
   const observationScopeRef = useRef(observationScope)
-  observationScopeRef.current = observationScope
+  useEffect(() => {
+    observationScopeRef.current = observationScope
+  }, [observationScope])
   const historyQuery = useInfiniteQuery({
     queryKey: videoStudioQueryKeys.generations(userId, stableFilters),
+    meta: { errorToast: false },
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       getVideoGenerations({
@@ -612,6 +650,13 @@ export const useVideoGenerations = (
   )
   const forgetObservedGeneration = useCallback(
     async (generationId: number): Promise<void> => {
+      setForgottenState((current) => ({
+        userId,
+        ids: new Set([
+          ...(current.userId === userId ? current.ids : []),
+          generationId,
+        ]),
+      }))
       await pruneVideoGenerationQueryCaches(
         queryClient,
         userId,
@@ -634,6 +679,7 @@ export const useVideoGenerations = (
   )
   const headQuery = useQuery({
     queryKey: videoStudioQueryKeys.generationHead(userId, stableFilters),
+    meta: { errorToast: false },
     queryFn: () =>
       getVideoGenerations({
         ...stableFilters,
@@ -649,6 +695,8 @@ export const useVideoGenerations = (
       if (!visible) return false
       if (
         targetTaskId &&
+        !targetGenerationId &&
+        !targetDiscoveryExpired &&
         ![...generations, ...historyItems, ...observationItems].some(
           (generation) => generation.task_id === targetTaskId
         )
@@ -668,22 +716,46 @@ export const useVideoGenerations = (
     : historyHeadItems
   const detailTargets = useMemo(() => {
     const headIds = new Set(effectiveHeadItems.map((item) => item.id))
-    return observations.filter(
-      (observation) =>
-        isVideoGenerationActive(observation.item) &&
-        !headIds.has(observation.item.id)
-    )
-  }, [effectiveHeadItems, observations])
+    const targets = observations
+      .filter(
+        (observation) =>
+          isVideoGenerationActive(observation.item) &&
+          !headIds.has(observation.item.id) &&
+          !forgottenIds.has(observation.item.id)
+      )
+      .map((observation) => ({
+        id: observation.item.id,
+        item: observation.item as VideoGeneration | undefined,
+      }))
+    if (
+      targetGenerationId &&
+      !headIds.has(targetGenerationId) &&
+      !forgottenIds.has(targetGenerationId) &&
+      !targets.some((target) => target.id === targetGenerationId)
+    ) {
+      targets.push({
+        id: targetGenerationId,
+        item: historyItems.find((item) => item.id === targetGenerationId),
+      })
+    }
+    return targets
+  }, [
+    effectiveHeadItems,
+    forgottenIds,
+    historyItems,
+    observations,
+    targetGenerationId,
+  ])
   const combineDetailQueries = useCallback(
     (queries: UseQueryResult<VideoGeneration>[]) => ({
       probes: queries.flatMap<VideoGenerationDetailProbe>((query, index) => {
-        const observation = detailTargets[index]
-        if (!observation) return []
+        const target = detailTargets[index]
+        if (!target) return []
         if (query.isError) {
           return [
             isVideoGenerationTombstoneError(query.error)
-              ? { id: observation.item.id, kind: 'not_found' }
-              : { id: observation.item.id, kind: 'transient_error' },
+              ? { id: target.id, kind: 'not_found' }
+              : { id: target.id, kind: 'transient_error' },
           ]
         }
         return query.data ? [{ item: query.data, kind: 'found' }] : []
@@ -693,36 +765,42 @@ export const useVideoGenerations = (
     [detailTargets]
   )
   const { probes: detailProbes, queries: detailQueries } = useQueries({
-    queries: detailTargets.map((observation) => ({
-      queryKey: videoStudioQueryKeys.generation(userId, observation.item.id),
-      queryFn: () => getVideoGeneration(observation.item.id, { silent: true }),
-      enabled: livePollingEnabled && isVideoGenerationActive(observation.item),
+    queries: detailTargets.map((target) => ({
+      queryKey: videoStudioQueryKeys.generation(userId, target.id),
+      meta: { errorToast: false },
+      queryFn: () => getVideoGeneration(target.id, { silent: true }),
+      enabled:
+        userId > 0 && (livePollingEnabled || target.id === targetGenerationId),
       retry: (failureCount: number, error: unknown) =>
-        !isVideoGenerationTombstoneError(error) && failureCount < 3,
-      refetchInterval: (query: { state: { data?: VideoGeneration } }) => {
-        if (!isVideoGenerationActive(observation.item)) return false
+        !isVideoGenerationTombstoneError(error) && failureCount < 2,
+      refetchInterval: (query: {
+        state: { data?: VideoGeneration; error?: unknown }
+      }) => {
+        if (isVideoGenerationTombstoneError(query.state.error)) return false
+        const item = query.state.data ?? target.item
+        if (!item || !adaptivePolling) return false
         const visible =
           typeof document === 'undefined' ||
           document.visibilityState === 'visible'
         return getVideoTaskPollInterval(
-          [query.state.data ?? observation.item],
+          [item],
           Math.floor(Date.now() / 1000),
           visible
         )
       },
-      refetchOnWindowFocus:
-        adaptivePolling && isVideoGenerationActive(observation.item),
+      refetchOnWindowFocus: adaptivePolling,
     })),
     combine: combineDetailQueries,
   })
   const tombstonedGenerationIds = useMemo(
     () =>
-      new Set(
-        detailProbes.flatMap((probe) =>
+      new Set([
+        ...forgottenIds,
+        ...detailProbes.flatMap((probe) =>
           probe.kind === 'not_found' ? [probe.id] : []
-        )
-      ),
-    [detailProbes]
+        ),
+      ]),
+    [detailProbes, forgottenIds]
   )
   const reconcileObservations = useCallback(
     async (nowMs: number): Promise<void> => {
@@ -813,18 +891,51 @@ export const useVideoGenerations = (
   )
   const refresh = async (): Promise<void> => {
     const requests: Promise<unknown>[] = [historyQuery.refetch()]
-    if (livePollingEnabled) {
-      requests.push(headQuery.refetch())
-      requests.push(
-        ...detailQueries.flatMap((query, index) => {
-          const observation = detailTargets[index]
-          return observation && isVideoGenerationActive(observation.item)
-            ? [query.refetch()]
-            : []
-        })
-      )
-    }
+    if (livePollingEnabled) requests.push(headQuery.refetch())
+    requests.push(
+      ...detailQueries.flatMap((query, index) => {
+        const target = detailTargets[index]
+        return target &&
+          !forgottenIds.has(target.id) &&
+          (livePollingEnabled || target.id === targetGenerationId)
+          ? [query.refetch()]
+          : []
+      })
+    )
     await Promise.all(requests)
+  }
+
+  const targetQuery =
+    detailQueries[
+      detailTargets.findIndex((target) => target.id === targetGenerationId)
+    ]
+  const targetGeneration =
+    targetGenerationId && !tombstonedGenerationIds.has(targetGenerationId)
+      ? (targetQuery?.data ??
+        items.find((item) => item.id === targetGenerationId))
+      : undefined
+  const targetFound = Boolean(
+    targetGeneration ||
+    (targetTaskId && items.some((item) => item.task_id === targetTaskId))
+  )
+  useEffect(() => {
+    if (!targetTaskId || targetGenerationId || targetFound) return
+    const timeout = window.setTimeout(
+      () => setExpiredTargetScope(targetScope),
+      30_000
+    )
+    return () => window.clearTimeout(timeout)
+  }, [
+    targetTaskId,
+    targetGenerationId,
+    targetFound,
+    targetScope,
+    targetAttempt,
+  ])
+  const retryTargetDiscovery = () => {
+    setExpiredTargetScope(null)
+    setTargetAttempt((attempt) => attempt + 1)
+    void refresh()
   }
 
   const liveQueryError = livePollingEnabled
@@ -834,7 +945,24 @@ export const useVideoGenerations = (
   return {
     ...historyQuery,
     forgetObservedGeneration,
-    items,
+    targetGeneration,
+    targetError:
+      targetQuery?.error ??
+      (targetGenerationId && forgottenIds.has(targetGenerationId)
+        ? new Error('Deleted generation')
+        : null),
+    targetUnavailable: Boolean(
+      targetGenerationId && tombstonedGenerationIds.has(targetGenerationId)
+    ),
+    targetIsLoading: Boolean(
+      targetGenerationId && !targetGeneration && targetQuery?.isPending
+    ),
+    targetDiscoveryExpired,
+    retryTargetDiscovery,
+    historyItems,
+    items: items.filter(
+      (item) => !stableFilters.status || item.status === stableFilters.status
+    ),
     refresh,
     error: historyQuery.error ?? liveQueryError,
     isError:
@@ -887,11 +1015,32 @@ export const useDeleteVideoGeneration = () => {
   const queryClient = useQueryClient()
   const userId = useVideoStudioUserId()
   return useMutation({
+    meta: { errorToast: false },
     mutationFn: deleteVideoGeneration,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: videoStudioQueryKeys.generationsAll(userId),
+    onSuccess: async (_result, generationId) => {
+      const allKey = videoStudioQueryKeys.generationsAll(userId)
+      const detailKey = videoStudioQueryKeys.generation(userId, generationId)
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: allKey }),
+        queryClient.cancelQueries({ queryKey: detailKey, exact: true }),
+      ])
+      const ids = new Set([generationId])
+      queryClient.setQueriesData<
+        InfiniteData<CursorPage<VideoGeneration>> | CursorPage<VideoGeneration>
+      >({ queryKey: allKey }, (current) => {
+        if (!current) return current
+        if ('pages' in current) {
+          return {
+            ...current,
+            pages: current.pages.map((page) =>
+              removeVideoGenerationsFromPage(page, ids)
+            ),
+          }
+        }
+        return removeVideoGenerationsFromPage(current, ids)
       })
+      queryClient.removeQueries({ queryKey: detailKey, exact: true })
+      void queryClient.invalidateQueries({ queryKey: allKey })
     },
   })
 }

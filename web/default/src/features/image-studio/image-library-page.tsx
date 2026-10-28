@@ -197,26 +197,56 @@ function ImageLibraryContent(props: {
   const [mediaSnapshot, setMediaSnapshot] = useState({
     source: mediaQuery.data?.urls,
     urls: mediaQuery.data?.urls ?? {},
+    identityDenied: mediaQuery.identityDenied,
+    deniedPaths: mediaQuery.data?.deniedPaths,
   })
-  if (mediaSnapshot.source !== mediaQuery.data?.urls) {
+  if (
+    mediaSnapshot.source !== mediaQuery.data?.urls ||
+    mediaSnapshot.identityDenied !== mediaQuery.identityDenied ||
+    mediaSnapshot.deniedPaths !== mediaQuery.data?.deniedPaths
+  ) {
+    const urls = mediaQuery.identityDenied
+      ? {}
+      : { ...mediaSnapshot.urls, ...mediaQuery.data?.urls }
+    for (const path of Object.keys(mediaQuery.data?.deniedPaths ?? {})) {
+      delete urls[path]
+    }
     setMediaSnapshot({
       source: mediaQuery.data?.urls,
-      urls: { ...mediaSnapshot.urls, ...mediaQuery.data?.urls },
+      urls,
+      identityDenied: mediaQuery.identityDenied,
+      deniedPaths: mediaQuery.data?.deniedPaths,
     })
   }
-  const mediaUrls = mediaSnapshot.urls
+  const mediaUrls = mediaQuery.identityDenied ? undefined : mediaSnapshot.urls
+  const deniedPaths = mediaQuery.data?.deniedPaths
   const signedGenerations = useMemo(
     () =>
       generations.map((generation) => ({
         ...generation,
         assets: generation.assets.map((asset) => ({
           ...asset,
-          content_url: signedStudioMediaUrl(asset.content_url, mediaUrls),
-          thumbnail_url: signedStudioMediaUrl(asset.thumbnail_url, mediaUrls),
-          download_url: signedStudioMediaUrl(asset.download_url, mediaUrls),
+          content_url: signedStudioMediaUrl(
+            asset.content_url,
+            mediaUrls,
+            deniedPaths,
+            mediaQuery.identityDenied
+          ),
+          thumbnail_url: signedStudioMediaUrl(
+            asset.thumbnail_url,
+            mediaUrls,
+            deniedPaths,
+            mediaQuery.identityDenied
+          ),
+          download_url: signedStudioMediaUrl(
+            asset.download_url,
+            mediaUrls,
+            deniedPaths,
+            mediaQuery.identityDenied
+          ),
         })),
       })),
-    [generations, mediaUrls]
+    [generations, mediaUrls, deniedPaths, mediaQuery.identityDenied]
   )
   const detailsGeneration = useMemo(
     () =>
@@ -224,12 +254,27 @@ function ImageLibraryContent(props: {
         ...details,
         assets: details.assets.map((asset) => ({
           ...asset,
-          content_url: signedStudioMediaUrl(asset.content_url, mediaUrls),
-          thumbnail_url: signedStudioMediaUrl(asset.thumbnail_url, mediaUrls),
-          download_url: signedStudioMediaUrl(asset.download_url, mediaUrls),
+          content_url: signedStudioMediaUrl(
+            asset.content_url,
+            mediaUrls,
+            deniedPaths,
+            mediaQuery.identityDenied
+          ),
+          thumbnail_url: signedStudioMediaUrl(
+            asset.thumbnail_url,
+            mediaUrls,
+            deniedPaths,
+            mediaQuery.identityDenied
+          ),
+          download_url: signedStudioMediaUrl(
+            asset.download_url,
+            mediaUrls,
+            deniedPaths,
+            mediaQuery.identityDenied
+          ),
         })),
       },
-    [details, mediaUrls]
+    [details, mediaUrls, deniedPaths, mediaQuery.identityDenied]
   )
   const [wallSnapshot, setWallSnapshot] = useState({
     source: generations,

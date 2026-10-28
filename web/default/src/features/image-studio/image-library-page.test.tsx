@@ -50,6 +50,8 @@ const mocks = vi.hoisted(() => ({
   getGeneration: vi.fn(),
   mediaPaths: [] as readonly (string | undefined)[],
   mediaUrls: {} as Record<string, string>,
+  deniedPaths: {} as Record<string, 403 | 404>,
+  identityDenied: false,
 }))
 
 vi.mock('@/stores/auth-store', () => ({
@@ -61,7 +63,10 @@ vi.mock('@/lib/studio-media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/studio-media')>()),
   useStudioMediaUrls: (paths: readonly (string | undefined)[]) => {
     mocks.mediaPaths = paths
-    return { data: { urls: mocks.mediaUrls } }
+    return {
+      data: { urls: mocks.mediaUrls, deniedPaths: mocks.deniedPaths },
+      identityDenied: mocks.identityDenied,
+    }
   },
 }))
 vi.mock('./api', async (importOriginal) => ({
@@ -153,6 +158,8 @@ beforeEach(() => {
     .mockImplementation(async (id: number) => generation(id))
   mocks.mediaPaths = []
   mocks.mediaUrls = {}
+  mocks.deniedPaths = {}
+  mocks.identityDenied = false
   mocks.query = {
     data: { pages: [{ items: [generation(2), generation(1)] }] },
     isLoading: false,
@@ -271,6 +278,37 @@ describe('image library continuity and privacy', () => {
     expect(
       within(screen.getByRole('dialog')).queryByText('Private image 2')
     ).not.toBeInTheDocument()
+  })
+
+  test('revoked library media cannot survive in merged URL snapshots or open details', async () => {
+    const item = generation(2)
+    const path = '/api/image-studio/assets/2/content'
+    item.assets[0].content_url = path
+    item.assets[0].thumbnail_url = path
+    mocks.query.data = { pages: [{ items: [item] }] }
+    mocks.getGeneration.mockResolvedValue(item)
+    mocks.mediaUrls = { [path]: 'https://media.test/private' }
+    const view = render(<ImageLibraryPage />, { wrapper: TestQueryProvider })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'View image details' })
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Image details' })
+    expect(await within(dialog).findByRole('img')).toHaveAttribute(
+      'src',
+      'https://media.test/private'
+    )
+    mocks.deniedPaths = { [path]: 403 }
+    mocks.mediaUrls = {}
+    view.rerender(<ImageLibraryPage />)
+    expect(within(dialog).queryByRole('img')).not.toBeInTheDocument()
+    expect(
+      document.querySelector('img[src="https://media.test/private"]')
+    ).toBeNull()
+    mocks.deniedPaths = {}
+    view.rerender(<ImageLibraryPage />)
+    expect(
+      document.querySelector('img[src="https://media.test/private"]')
+    ).toBeNull()
   })
 
   test('account changes discard an open regeneration form', async () => {

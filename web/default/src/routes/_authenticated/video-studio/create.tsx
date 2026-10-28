@@ -20,9 +20,16 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { VideoCreatePage } from '@/features/video-studio'
+import { videoTaskIdSchema } from '@/features/video-studio/schemas'
 
-const videoCreateSearchSchema = z.object({
-  sample: z.coerce.number().int().positive().optional().catch(undefined),
+export const videoCreateSearchSchema = z.object({
+  sample: z.coerce.number().int().positive().safe().optional().catch(undefined),
+  task: videoTaskIdSchema.optional().catch(undefined),
+  generation: z
+    .union([z.string(), z.number()])
+    .pipe(z.coerce.number<string | number>().int().positive().safe())
+    .optional()
+    .catch(undefined),
 })
 
 export const Route = createFileRoute('/_authenticated/video-studio/create')({
@@ -32,5 +39,22 @@ export const Route = createFileRoute('/_authenticated/video-studio/create')({
 
 function VideoCreateRoute() {
   const search = Route.useSearch()
-  return <VideoCreatePage initialSampleId={search.sample} />
+  const navigate = Route.useNavigate()
+  return (
+    <VideoCreatePage
+      initialSampleId={search.sample}
+      targetTaskId={search.task}
+      targetGenerationId={search.generation}
+      onTargetChange={(target) => {
+        void navigate({
+          search: {
+            ...search,
+            task: target.task,
+            generation: target.generation,
+          },
+          replace: true,
+        })
+      }}
+    />
+  )
 }

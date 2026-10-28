@@ -256,6 +256,11 @@ export const useVideoTokenGate = () => {
   return {
     access,
     tokenId: access?.kind === 'ready' ? access.tokenId : null,
+    effectiveGroup:
+      access?.kind === 'ready' &&
+      capabilityQuery.data?.token?.id === access.tokenId
+        ? capabilityQuery.data.token.group
+        : null,
     requiredGroup,
     checking,
     preparing,
