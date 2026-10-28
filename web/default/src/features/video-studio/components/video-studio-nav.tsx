@@ -22,6 +22,8 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
 
+import '@/styles/video-studio.css'
+
 const VIDEO_STUDIO_LINKS = [
   { to: '/video-studio/create', label: 'videoStudio.create', icon: Film },
   {
@@ -32,43 +34,44 @@ const VIDEO_STUDIO_LINKS = [
   { to: '/video-studio/tasks', label: 'videoStudio.tasks', icon: ListVideo },
 ] as const
 
-type VideoStudioNavProps = {
-  action?: React.ReactNode
-}
+type VideoStudioNavProps = { action?: React.ReactNode }
 
 export function VideoStudioNav(props: VideoStudioNavProps) {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (location) => location.pathname })
-
   return (
-    <header className='bg-background flex min-h-12 shrink-0 items-center gap-3 border-b px-3 sm:px-4'>
-      <h1 className='hidden shrink-0 text-sm font-semibold sm:block'>
-        {t('videoStudio.title')}
-      </h1>
-      <nav
-        className='flex min-w-0 flex-1 items-center'
-        aria-label={t('videoStudio.title')}
-      >
-        {VIDEO_STUDIO_LINKS.map((link) => {
-          const active = pathname === link.to
-          return (
+    <header className='video-studio-header'>
+      <div className='video-studio-heading'>
+        <div>
+          <p className='video-studio-eyebrow'>VIDEO STUDIO</p>
+          <h1>
+            {t('videoStudio.title')}
+            <span aria-hidden='true' />
+          </h1>
+        </div>
+        {props.action}
+      </div>
+      <div className='video-studio-navigation'>
+        <nav aria-label={t('videoStudio.title')}>
+          {VIDEO_STUDIO_LINKS.map((link) => (
             <Link
               key={link.to}
               to={link.to}
               className={cn(
-                'text-muted-foreground hover:text-foreground relative inline-flex h-12 min-w-0 items-center gap-1.5 px-2.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm',
-                active &&
-                  'text-foreground after:bg-primary after:absolute after:inset-x-2 after:bottom-0 after:h-0.5'
+                'video-studio-nav-link',
+                pathname === link.to && 'is-active'
               )}
-              aria-current={active ? 'page' : undefined}
+              aria-current={pathname === link.to ? 'page' : undefined}
             >
-              <link.icon className='size-3.5 shrink-0' aria-hidden='true' />
-              <span className='truncate'>{t(link.label)}</span>
+              <link.icon aria-hidden='true' />
+              {t(link.label)}
             </Link>
-          )
-        })}
-      </nav>
-      {props.action}
+          ))}
+        </nav>
+        <span className='video-studio-navigation-note'>
+          {t('From an idea to the next frame.')}
+        </span>
+      </div>
     </header>
   )
 }

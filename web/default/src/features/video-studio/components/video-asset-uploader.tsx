@@ -501,8 +501,15 @@ function VideoAssetUploadSession({
   }
 
   return (
-    <div className='space-y-2'>
-      <div className='grid grid-cols-2 gap-2'>
+    <div className='video-studio-assets space-y-2'>
+      {props.assetLabels && (
+        <div className='video-studio-asset-roles' aria-hidden='true'>
+          {props.assetLabels.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+      )}
+      <div className='video-studio-asset-grid grid grid-cols-2 gap-2'>
         {inspectedAssets.map((asset, index) => {
           const isVideo = asset.mime_type?.startsWith('video/')
           const showMedia = shouldRenderVideoAssetMedia(asset)
@@ -516,15 +523,22 @@ function VideoAssetUploadSession({
           const assetUrl = showMedia
             ? signedStudioMediaUrl(
                 asset.content_url || getVideoAssetContentUrl(asset.id),
-                mediaQuery.data?.urls
+                mediaQuery.data?.urls,
+                mediaQuery.data?.deniedPaths,
+                mediaQuery.identityDenied
               )
             : undefined
           const posterUrl = signedStudioMediaUrl(
             asset.poster_url,
-            mediaQuery.data?.urls
+            mediaQuery.data?.urls,
+            mediaQuery.data?.deniedPaths,
+            mediaQuery.identityDenied
           )
           let mediaContent
-          if (!showMedia) {
+          if (
+            !showMedia ||
+            (!assetUrl && !(isVideo && props.purpose === 'sample' && posterUrl))
+          ) {
             mediaContent = (
               <div className='text-muted-foreground flex size-full items-center justify-center'>
                 {isVideo ? (
@@ -672,7 +686,9 @@ function VideoAssetUploadSession({
             ) : (
               <FileImage className='size-4' aria-hidden='true' />
             )}
-            <span className='text-xs font-medium'>{props.label}</span>
+            <span className='text-xs font-medium'>
+              {props.assetLabels?.[props.assets.length] ?? props.label}
+            </span>
             <Plus className='size-3.5' aria-hidden='true' />
           </label>
         )}

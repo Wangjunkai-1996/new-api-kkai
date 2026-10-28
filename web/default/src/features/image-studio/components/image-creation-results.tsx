@@ -50,8 +50,8 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
-import { getImageGenerationErrorKey } from '../image-generation-error'
 import { isImageGenerationCheckingOutcome } from '../image-domain'
+import { getImageGenerationErrorKey } from '../image-generation-error'
 import type { ImageAsset, ImageGeneration } from '../types'
 
 export type ImageCreationResultsProps = {
@@ -243,6 +243,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
     userId: number
     assetId: number
     source: string
+    path: string | undefined
   }>()
   const [revealedScope, setRevealedScope] = useState({
     userId,
@@ -272,20 +273,35 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
     userId,
     source: mediaQuery.data?.urls,
     urls: mediaQuery.data?.urls ?? {},
+    identityDenied: mediaQuery.identityDenied,
+    deniedPaths: mediaQuery.data?.deniedPaths,
   })
   if (
     mediaSnapshot.userId !== userId ||
-    mediaSnapshot.source !== mediaQuery.data?.urls
+    mediaSnapshot.source !== mediaQuery.data?.urls ||
+    mediaSnapshot.identityDenied !== mediaQuery.identityDenied ||
+    mediaSnapshot.deniedPaths !== mediaQuery.data?.deniedPaths
   ) {
     setMediaSnapshot({
       userId,
       source: mediaQuery.data?.urls,
-      urls:
-        mediaQuery.data?.urls ??
-        (mediaSnapshot.userId === userId ? mediaSnapshot.urls : {}),
+      identityDenied: mediaQuery.identityDenied,
+      deniedPaths: mediaQuery.data?.deniedPaths,
+      urls: mediaQuery.identityDenied
+        ? {}
+        : (mediaQuery.data?.urls ??
+          (mediaSnapshot.userId === userId ? mediaSnapshot.urls : {})),
     })
   }
-  const urls = mediaSnapshot.userId === userId ? mediaSnapshot.urls : undefined
+  const urls =
+    !mediaQuery.identityDenied && mediaSnapshot.userId === userId
+      ? mediaSnapshot.urls
+      : undefined
+  const deniedPaths = mediaQuery.data?.deniedPaths
+  const presentedDenied =
+    mediaQuery.identityDenied ||
+    (presentedImage?.path && deniedPaths?.[presentedImage.path])
+  if (presentedImage && presentedDenied) setPresentedImage(undefined)
   const assets =
     generation?.assets
       .filter((asset) => asset.state === 'ready')
@@ -304,22 +320,31 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
   const displayGeneration = showingPrevious
     ? props.previousGeneration
     : generation
-  const source = signedStudioMediaUrl(displayAsset?.content_url, urls)
+  const source = signedStudioMediaUrl(
+    displayAsset?.content_url,
+    urls,
+    deniedPaths,
+    mediaQuery.identityDenied
+  )
   const holdingPrevious =
     !!displayAsset &&
     !!presentedImage &&
+    !presentedDenied &&
     presentedImage.userId === userId &&
     presentedImage.assetId !== displayAsset.id
   const download = signedStudioMediaUrl(
     selectedAsset?.download_url || selectedAsset?.content_url,
-    urls
+    urls,
+    deniedPaths,
+    mediaQuery.identityDenied
   )
   const activeSubmission = !!props.activity && props.activity.phase !== 'idle'
   const checkingOutcome = generation
     ? isImageGenerationCheckingOutcome(generation)
     : false
   const pending =
-    !checkingOutcome && (generation?.status === 'submitting' || activeSubmission)
+    !checkingOutcome &&
+    (generation?.status === 'submitting' || activeSubmission)
   useEffect(() => {
     if (!pending) return
     const section = resultsRef.current
@@ -428,7 +453,8 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
           )}
         </div>
         <span className='image-create-result-status' aria-live='polite'>
-          {activeSubmission && !checkingOutcome &&
+          {activeSubmission &&
+            !checkingOutcome &&
             t('Creating your next image')}
           {generation && (!activeSubmission || checkingOutcome) && (
             <>
@@ -473,6 +499,7 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
                 userId,
                 assetId: displayAsset.id,
                 source: decodedSource,
+                path: displayAsset.content_url,
               })
             }
           />
@@ -544,7 +571,9 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
           {assets.map((asset, index) => {
             const thumbnail = signedStudioMediaUrl(
               asset.thumbnail_url || asset.content_url,
-              urls
+              urls,
+              deniedPaths,
+              mediaQuery.identityDenied
             )
             return (
               <button
@@ -655,7 +684,9 @@ export function ImageCreationResults(props: ImageCreationResultsProps) {
                 )[0]
               const thumbnail = signedStudioMediaUrl(
                 cover?.thumbnail_url || cover?.content_url,
-                urls
+                urls,
+                deniedPaths,
+                mediaQuery.identityDenied
               )
               const historyStatus = isImageGenerationCheckingOutcome(item)
                 ? t('imageStudio.status.confirming')

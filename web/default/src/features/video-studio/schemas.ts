@@ -38,6 +38,8 @@ import {
   getVideoParametersForMode,
   getVideoReferenceRoles,
   videoParameterAcceptsValue,
+  trimVideoInput,
+  videoPromptByteLength,
 } from './video-domain'
 import { VIDEO_SAMPLE_CATEGORIES } from './video-sample-categories'
 
@@ -495,9 +497,15 @@ export const videoComposerSchema = z.object({
   mode: z.enum(VIDEO_GENERATION_MODES),
   prompt: z
     .string()
-    .trim()
-    .min(1, 'videoStudio.validation.promptRequired')
-    .max(VIDEO_PROMPT_MAX_LENGTH, 'videoStudio.validation.promptTooLong'),
+    .transform(trimVideoInput)
+    .refine(
+      (value) => value.length > 0,
+      'videoStudio.validation.promptRequired'
+    )
+    .refine(
+      (value) => videoPromptByteLength(value) <= VIDEO_PROMPT_MAX_LENGTH,
+      'videoStudio.validation.promptTooLong'
+    ),
   reference_asset_ids: z.array(z.number().int().positive()).max(2),
   parameters: z.record(z.string(), videoParameterValueSchema),
 }) satisfies z.ZodType<VideoComposerValues>
@@ -808,9 +816,15 @@ export const videoSampleFormSchema = z.object({
     ),
   prompt: z
     .string()
-    .trim()
-    .min(1, 'videoStudio.validation.promptRequired')
-    .max(VIDEO_PROMPT_MAX_LENGTH, 'videoStudio.validation.promptTooLong'),
+    .transform(trimVideoInput)
+    .refine(
+      (value) => value.length > 0,
+      'videoStudio.validation.promptRequired'
+    )
+    .refine(
+      (value) => videoPromptByteLength(value) <= VIDEO_PROMPT_MAX_LENGTH,
+      'videoStudio.validation.promptTooLong'
+    ),
   mode: z.enum(VIDEO_GENERATION_MODES),
   parameters: z.record(z.string(), videoParameterValueSchema),
   reference_asset_ids: z.array(z.number().int().positive()),
@@ -1212,7 +1226,7 @@ export const validateComposerForProfile = (
     return 'videoStudio.validation.modeUnsupported'
   }
 
-  if (values.prompt.trim().length > VIDEO_PROMPT_MAX_LENGTH) {
+  if (videoPromptByteLength(values.prompt) > VIDEO_PROMPT_MAX_LENGTH) {
     return 'videoStudio.validation.promptTooLong'
   }
 
@@ -1254,3 +1268,50 @@ export const validateComposerForProfile = (
 
   return null
 }
+
+export const videoTaskIdSchema = z
+  .string()
+  .trim()
+  .max(128)
+  .regex(/^task_[0-9A-Za-z_-]+$/)
+
+export const videoQuoteSchema = z.object({
+  quota: z.number().int().nonnegative().safe(),
+  request_hash: z.string().regex(/^[0-9a-fA-F]{64}$/),
+  expires_at: z.number().int().positive().safe(),
+  amount: z.number().finite().nonnegative().optional(),
+  display_amount: z.string().optional(),
+  other_ratios: z.record(z.string(), z.number().finite()).optional(),
+})
+
+export const videoSubmissionReceiptSchema = z
+  .object({
+    id: videoTaskIdSchema.optional(),
+    task_id: videoTaskIdSchema.optional(),
+    object: z.string().optional(),
+    model: z.string().optional(),
+    status: z.enum(['queued', 'in_progress', 'completed', 'failed']).optional(),
+    progress: z.number().finite().optional(),
+    created_at: z.number().finite().optional(),
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    if (!value.id && !value.task_id) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Missing video task identity',
+      })
+    }
+    if (value.id && value.task_id && value.id !== value.task_id) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Conflicting video task identities',
+      })
+    }
+    if (value.error != null || value.code != null || value.success === false) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Uncertain video submission response',
+      })
+    }
+  })

@@ -36,6 +36,13 @@ import type {
   VideoStudioApiError,
 } from './types'
 
+// Go strings.TrimSpace follows Unicode White_Space; JS trim also removes FEFF.
+export const trimVideoInput = (value: string): string =>
+  value.replaceAll(/^\p{White_Space}+|\p{White_Space}+$/gu, '')
+
+export const videoPromptByteLength = (value: string): number =>
+  new TextEncoder().encode(trimVideoInput(value)).byteLength
+
 const ACTIVE_GENERATION_STATUSES = new Set([
   'queued',
   'processing',
@@ -306,9 +313,9 @@ export const buildVideoQuoteRequest = (
 
   return {
     token_id: tokenId,
-    model: profile.model,
+    model: trimVideoInput(profile.model),
     mode: values.mode,
-    prompt: values.prompt,
+    prompt: trimVideoInput(values.prompt),
     parameters: values.parameters,
     reference_assets: referenceAssets,
     sample_id: sampleId,
@@ -333,10 +340,14 @@ export const getVideoSubmissionRequestKey = (
     model: request.model,
     mode: request.mode,
     prompt: request.prompt,
-    parameters: Object.entries(request.parameters).sort(([left], [right]) =>
-      left.localeCompare(right)
-    ),
-    reference_assets: request.reference_assets,
+    parameters: Object.entries(request.parameters).sort(([left], [right]) => {
+      if (left === right) return 0
+      return left < right ? -1 : 1
+    }),
+    reference_assets: [...request.reference_assets].sort((left, right) => {
+      if (left.role === right.role) return left.asset_id - right.asset_id
+      return left.role < right.role ? -1 : 1
+    }),
     sample_id: request.sample_id ?? null,
   })
 

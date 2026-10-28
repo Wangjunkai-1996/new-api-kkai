@@ -16,255 +16,190 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Film, LoaderCircle, RotateCw } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Copy, Film, LoaderCircle, RotateCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { StatusBadge, type StatusVariant } from '@/components/status-badge'
+import emptyArtwork from '@/assets/video-works/empty.webp'
 import { Button } from '@/components/ui/button'
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty'
-import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatTimestampToDate } from '@/lib/format'
 import { signedStudioMediaUrl, useStudioMediaUrls } from '@/lib/studio-media'
+import { useAuthStore } from '@/stores/auth-store'
 
+import { VideoGenerationStatus } from './components/video-generation-status'
 import { VideoStudioNav } from './components/video-studio-nav'
 import { useVideoGenerations } from './queries'
-import type { VideoGenerationStatus } from './types'
-import {
-  getVideoGenerationFailureMessageKey,
-  getVideoProgress,
-} from './video-domain'
-
-const STATUS_VARIANTS: Record<VideoGenerationStatus, StatusVariant> = {
-  queued: 'warning',
-  processing: 'info',
-  archiving: 'cyan',
-  ready: 'success',
-  failed: 'danger',
-}
-
-const STATUS_LABELS: Record<VideoGenerationStatus, string> = {
-  queued: 'videoStudio.status.queued',
-  processing: 'videoStudio.status.processing',
-  archiving: 'videoStudio.status.archiving',
-  ready: 'videoStudio.status.ready',
-  failed: 'videoStudio.status.failed',
-}
+import { getVideoGenerationFailureMessageKey } from './video-domain'
 
 export function VideoTasksPage() {
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid ?? '')
+  return <VideoTasksContent key={`${userId}:${sessionId}`} />
+}
+
+function VideoTasksContent() {
   const { t } = useTranslation()
-  const generationsQuery = useVideoGenerations({}, true)
-  const generations = generationsQuery.items
+  const { copyToClipboard } = useCopyToClipboard()
+  const query = useVideoGenerations({}, true)
   const mediaQuery = useStudioMediaUrls(
-    generations.flatMap((generation) => [
-      generation.poster_url,
-      generation.video_url,
-    ])
+    query.items.map((generation) => generation.poster_url)
   )
 
   return (
-    <main
-      id='content'
-      className='flex size-full min-h-0 flex-col overflow-hidden'
-    >
-      <VideoStudioNav
-        action={
-          <Button
-            size='icon-sm'
-            variant='ghost'
-            onClick={() => void generationsQuery.refresh()}
-            aria-label={t('videoStudio.refresh')}
-          >
-            <RotateCw
-              className={
-                generationsQuery.isFetching
-                  ? 'animate-spin motion-reduce:animate-none'
-                  : undefined
-              }
-              aria-hidden='true'
-            />
+    <main id='content' className='video-studio-v2 video-studio-page'>
+      <VideoStudioNav />
+      <div className='video-studio-page-content'>
+        <header className='video-studio-page-toolbar'>
+          <div>
+            <h2>{t('videoStudio.tasks')}</h2>
+            <p>{t('Follow each video from submission to completion.')}</p>
+          </div>
+          <Button variant='outline' onClick={() => void query.refresh()}>
+            <RotateCw aria-hidden='true' />
+            {t('videoStudio.refresh')}
           </Button>
-        }
-      />
-      <div className='min-h-0 flex-1 overflow-y-auto p-3 sm:p-4'>
-        {generationsQuery.isLoading && generations.length === 0 && (
-          <div className='space-y-2'>
-            {Array.from({ length: 7 }, (_, index) => (
-              <Skeleton
-                key={`task-skeleton-${index}`}
-                className='h-24 w-full rounded-lg'
-              />
+        </header>
+        {query.isLoading && query.items.length === 0 && (
+          <div className='space-y-3'>
+            {Array.from({ length: 5 }, (_, index) => (
+              <Skeleton key={index} className='h-24 rounded-xl' />
             ))}
           </div>
         )}
-
-        {generationsQuery.isError && generations.length === 0 && (
-          <Empty className='min-h-72 border'>
-            <EmptyHeader>
-              <EmptyMedia variant='icon'>
-                <Film aria-hidden='true' />
-              </EmptyMedia>
-              <EmptyTitle>{t('videoStudio.tasksFailed')}</EmptyTitle>
-              <EmptyDescription>
-                {t('videoStudio.tasksFailedDescription')}
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <Button
-                variant='outline'
-                onClick={() => void generationsQuery.refresh()}
-              >
-                <RotateCw aria-hidden='true' />
-                {t('videoStudio.retry')}
-              </Button>
-            </EmptyContent>
-          </Empty>
-        )}
-
-        {!generationsQuery.isLoading &&
-          !generationsQuery.isError &&
-          generations.length === 0 && (
-            <Empty className='min-h-72 border'>
-              <EmptyHeader>
-                <EmptyMedia variant='icon'>
-                  <Film aria-hidden='true' />
-                </EmptyMedia>
-                <EmptyTitle>{t('videoStudio.tasksEmpty')}</EmptyTitle>
-                <EmptyDescription>
-                  {t('videoStudio.tasksEmptyDescription')}
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-
-        {generationsQuery.isError && generations.length > 0 && (
-          <div
-            className='border-destructive/30 bg-destructive/5 text-destructive mb-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs'
-            role='alert'
-          >
-            <span>{t('videoStudio.refreshFailed')}</span>
-            <Button
-              size='sm'
-              variant='outline'
-              onClick={() => void generationsQuery.refresh()}
-            >
-              {t('videoStudio.retry')}
+        {query.isError && (
+          <div className='video-studio-notice' role='alert'>
+            <span>
+              {query.items.length
+                ? t('videoStudio.refreshFailed')
+                : t('videoStudio.tasksFailedDescription')}
+            </span>
+            <Button variant='outline' onClick={() => void query.refresh()}>
+              {t('Retry')}
             </Button>
           </div>
         )}
-
-        {generations.length > 0 && (
-          <div className='divide-border overflow-hidden rounded-lg border'>
-            {generations.map((generation) => {
-              const status = generation.status
-              const posterUrl = signedStudioMediaUrl(
-                generation.poster_url,
-                mediaQuery.data?.urls
-              )
-              const videoUrl = signedStudioMediaUrl(
-                generation.video_url,
-                mediaQuery.data?.urls
-              )
-              const progress = getVideoProgress(generation)
+        {query.isSuccess && query.items.length === 0 && (
+          <div className='video-studio-empty'>
+            <img src={emptyArtwork} alt='' />
+            <h3>{t('videoStudio.tasksEmpty')}</h3>
+            <p>{t('videoStudio.tasksEmptyDescription')}</p>
+            <Button render={<Link to='/video-studio/create' />}>
+              {t('videoStudio.create')}
+            </Button>
+          </div>
+        )}
+        {query.items.length > 0 && (
+          <div className='video-studio-tasks-list'>
+            <div
+              className='video-studio-task-row video-studio-task-row-head'
+              aria-hidden='true'
+            >
+              <span>{t('Video task')}</span>
+              <span>{t('Status')}</span>
+              <span>{t('Actions')}</span>
+            </div>
+            {query.items.map((generation) => {
+              const posterUrl = mediaQuery.identityDenied
+                ? undefined
+                : signedStudioMediaUrl(
+                    generation.poster_url,
+                    mediaQuery.data?.urls,
+                    mediaQuery.data?.deniedPaths,
+                    mediaQuery.identityDenied
+                  )
               const failureMessageKey =
                 getVideoGenerationFailureMessageKey(generation)
               return (
-                <article
-                  key={generation.id}
-                  className='bg-background flex min-w-0 items-center gap-3 border-b p-3 last:border-b-0 sm:gap-4'
-                >
-                  <div className='bg-muted flex aspect-video w-24 shrink-0 items-center justify-center overflow-hidden rounded-md sm:w-32'>
+                <article key={generation.id} className='video-studio-task-row'>
+                  <div className='video-studio-task-icon'>
                     {posterUrl ? (
                       <img
                         src={posterUrl}
-                        alt={generation.prompt}
-                        className='size-full object-cover'
+                        alt=''
+                        loading='lazy'
+                        decoding='async'
                       />
                     ) : (
-                      <Film
-                        className='text-muted-foreground size-5'
-                        aria-hidden='true'
-                      />
+                      <Film aria-hidden='true' />
                     )}
                   </div>
-
-                  <div className='min-w-0 flex-1 space-y-1.5'>
-                    <div className='flex min-w-0 items-center gap-2'>
-                      <p className='min-w-0 flex-1 truncate text-sm font-medium'>
-                        {generation.prompt}
-                      </p>
-                      <StatusBadge
-                        label={t(STATUS_LABELS[status])}
-                        variant={STATUS_VARIANTS[status]}
-                        copyable={false}
-                        pulse={
-                          status === 'processing' || status === 'archiving'
-                        }
-                        className='shrink-0 text-xs motion-reduce:animate-none'
-                      />
-                    </div>
-                    <div className='text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
-                      <span>{generation.model}</span>
-                      <code className='max-w-48 truncate'>
-                        {generation.task_id}
-                      </code>
-                      <span>
-                        {formatTimestampToDate(generation.created_at)}
-                      </span>
-                    </div>
-                    {(status === 'queued' || status === 'processing') && (
-                      <div className='flex items-center gap-2'>
-                        <Progress
-                          value={progress}
-                          className='max-w-56 flex-1'
-                        />
-                        <span className='text-muted-foreground text-[11px] tabular-nums'>
-                          {progress}%
-                        </span>
-                      </div>
-                    )}
+                  <div className='video-studio-task-info'>
+                    <h3>{generation.prompt}</h3>
+                    <p>{generation.model}</p>
+                    <button
+                      type='button'
+                      className='video-studio-task-copy'
+                      onClick={() => {
+                        void copyToClipboard(generation.task_id)
+                      }}
+                      aria-label={t('Copy task ID: {{id}}', {
+                        id: generation.task_id,
+                      })}
+                    >
+                      <code>{generation.task_id}</code>
+                      <Copy aria-hidden='true' />
+                    </button>
                     {failureMessageKey && (
-                      <p className='text-destructive line-clamp-1 text-xs'>
+                      <p className='video-studio-failure'>
                         {t(failureMessageKey)}
                       </p>
                     )}
                   </div>
-
-                  {status === 'ready' && videoUrl && (
+                  <div className='video-studio-task-status'>
+                    <VideoGenerationStatus generation={generation} compact />
+                    <time
+                      dateTime={new Date(
+                        generation.created_at * 1000
+                      ).toISOString()}
+                    >
+                      {formatTimestampToDate(generation.created_at)}
+                    </time>
+                  </div>
+                  <div className='video-studio-task-action'>
                     <Button
-                      size='sm'
                       variant='outline'
-                      className='hidden shrink-0 sm:inline-flex'
-                      render={<a href={videoUrl}>{t('videoStudio.play')}</a>}
-                    />
-                  )}
+                      render={
+                        <Link
+                          to={
+                            generation.status === 'ready'
+                              ? '/video-studio/library'
+                              : '/video-studio/create'
+                          }
+                          search={{
+                            task: generation.task_id,
+                            generation: generation.id,
+                          }}
+                        />
+                      }
+                    >
+                      {generation.status === 'ready'
+                        ? t('View video')
+                        : t('View task')}
+                    </Button>
+                  </div>
                 </article>
               )
             })}
           </div>
         )}
-
-        {generationsQuery.hasNextPage && (
-          <div className='flex justify-center pt-5'>
+        {query.hasNextPage && (
+          <div className='video-studio-load-more'>
             <Button
               variant='outline'
-              onClick={() => generationsQuery.fetchNextPage()}
-              disabled={generationsQuery.isFetchingNextPage}
+              disabled={query.isFetchingNextPage}
+              onClick={() => void query.fetchNextPage()}
             >
-              {generationsQuery.isFetchingNextPage && (
+              {query.isFetchingNextPage && (
                 <LoaderCircle
                   className='animate-spin motion-reduce:animate-none'
                   aria-hidden='true'
                 />
               )}
-              {t('videoStudio.loadMore')}
+              {query.isFetchNextPageError
+                ? t('Retry loading more videos')
+                : t('videoStudio.loadMore')}
             </Button>
           </div>
         )}

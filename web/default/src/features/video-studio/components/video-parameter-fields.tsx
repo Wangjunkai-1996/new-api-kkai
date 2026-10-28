@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useId } from 'react'
+import { ChevronDown, SlidersHorizontal } from 'lucide-react'
+import { useId, useState } from 'react'
 import { Controller, useFormContext, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -41,6 +42,7 @@ import type {
 import {
   decodeVideoParameterOptionValue,
   encodeVideoParameterOptionValue,
+  videoParameterAcceptsValue,
 } from '../video-domain'
 
 type VideoParameterFieldsProps = {
@@ -57,47 +59,80 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
   const fieldIdPrefix = useId()
   const form = useFormContext<VideoParameterFormValues>()
   const mode = useWatch({ control: form.control, name: 'mode' })
+  const values = useWatch({ control: form.control, name: 'parameters' })
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const usesPresetLabels = Boolean(getVideoModelPreset(props.profile.model))
   const parameters = props.profile.specification.parameters.filter(
     (parameter) => !parameter.modes || parameter.modes.includes(mode)
   )
 
-  return (
-    <div className='grid gap-4'>
-      {parameters.map((parameter, index) => {
-        const name = `parameters.${parameter.key}` as const
-        const inputId = `${fieldIdPrefix}-video-parameter-${index}`
-        const parameterLabelKey = usesPresetLabels
-          ? VIDEO_PARAMETER_LABEL_KEYS[parameter.key]
+  const commonKeys = new Set([
+    'aspect_ratio',
+    'ratio',
+    'resolution',
+    'duration',
+    'seconds',
+  ])
+  const common = parameters.filter((parameter) => commonKeys.has(parameter.key))
+  const advanced = parameters.filter(
+    (parameter) => !commonKeys.has(parameter.key)
+  )
+  const advancedInvalid = advanced.some((parameter) => {
+    const value = values?.[parameter.key]
+    if (value === undefined) return Boolean(parameter.required)
+    return !videoParameterAcceptsValue(parameter, value)
+  })
+  const renderFields = (fields: typeof parameters) =>
+    fields.map((parameter) => {
+      const isRatio =
+        parameter.key === 'aspect_ratio' || parameter.key === 'ratio'
+      const value = values?.[parameter.key]
+      let errorKey: string | undefined
+      if ((value === undefined || value === '') && parameter.required) {
+        errorKey = 'videoStudio.validation.parameterRequired'
+      } else if (
+        value !== undefined &&
+        !videoParameterAcceptsValue(parameter, value)
+      ) {
+        errorKey =
+          parameter.control === 'number' || parameter.control === 'slider'
+            ? 'videoStudio.validation.parameterOutOfRange'
+            : 'videoStudio.validation.parameterInvalid'
+      }
+      const name = `parameters.${parameter.key}` as const
+      const inputId = `${fieldIdPrefix}-video-parameter-${parameter.key}`
+      const parameterLabelKey = usesPresetLabels
+        ? VIDEO_PARAMETER_LABEL_KEYS[parameter.key]
+        : undefined
+      const parameterLabel = parameterLabelKey
+        ? t(parameterLabelKey, { defaultValue: parameter.label })
+        : parameter.label
+      const optionLabel = (value: string | number | boolean, label: string) => {
+        const fallback = label || String(value)
+        const labelKey = usesPresetLabels
+          ? VIDEO_PARAMETER_OPTION_LABEL_KEYS[parameter.key]?.[String(value)]
           : undefined
-        const parameterLabel = parameterLabelKey
-          ? t(parameterLabelKey, { defaultValue: parameter.label })
-          : parameter.label
-        const optionLabel = (
-          value: string | number | boolean,
-          label: string
-        ) => {
-          const fallback = label || String(value)
-          const labelKey = usesPresetLabels
-            ? VIDEO_PARAMETER_OPTION_LABEL_KEYS[parameter.key]?.[String(value)]
-            : undefined
-          return labelKey ? t(labelKey, { defaultValue: fallback }) : fallback
-        }
+        return labelKey ? t(labelKey, { defaultValue: fallback }) : fallback
+      }
 
-        return (
+      return (
+        <div key={parameter.key} className='space-y-2'>
           <Controller
-            key={parameter.key}
             control={form.control}
             name={name}
             render={({ field }) => {
               if (parameter.control === 'switch') {
                 return (
-                  <div className='flex items-start justify-between gap-3'>
+                  <div className='video-studio-switch-row flex items-center justify-between gap-3'>
                     <div className='min-w-0'>
                       <Label htmlFor={inputId}>{parameterLabel}</Label>
                     </div>
                     <Switch
                       id={inputId}
+                      aria-invalid={Boolean(errorKey)}
+                      aria-describedby={
+                        errorKey ? `${inputId}-error` : undefined
+                      }
                       checked={Boolean(field.value)}
                       onCheckedChange={field.onChange}
                     />
@@ -105,12 +140,19 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                 )
               }
 
-              if (parameter.control === 'segmented') {
+              if (
+                parameter.control === 'segmented' ||
+                (parameter.control === 'select' && isRatio)
+              ) {
                 return (
                   <div className='space-y-2'>
                     <Label id={`${inputId}-label`}>{parameterLabel}</Label>
                     <ToggleGroup
                       aria-labelledby={`${inputId}-label`}
+                      aria-invalid={Boolean(errorKey)}
+                      aria-describedby={
+                        errorKey ? `${inputId}-error` : undefined
+                      }
                       value={
                         field.value === undefined
                           ? []
@@ -129,7 +171,11 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                         }
                       }}
                       variant='outline'
-                      className='grid w-full auto-cols-fr grid-flow-col'
+                      className={
+                        isRatio
+                          ? 'video-studio-ratio-options'
+                          : 'video-studio-parameter-options'
+                      }
                     >
                       {parameter.options.map((option) => (
                         <ToggleGroupItem
@@ -137,9 +183,20 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                           value={encodeVideoParameterOptionValue(option.value)}
                           className='min-w-0 px-2'
                         >
-                          <span className='truncate'>
-                            {optionLabel(option.value, option.label)}
-                          </span>
+                          {isRatio &&
+                            /^\d+:\d+$/.test(String(option.value)) && (
+                              <span
+                                className='video-studio-ratio-shape'
+                                aria-hidden='true'
+                                style={{
+                                  aspectRatio: String(option.value).replace(
+                                    ':',
+                                    '/'
+                                  ),
+                                }}
+                              />
+                            )}
+                          <span>{optionLabel(option.value, option.label)}</span>
                         </ToggleGroupItem>
                       ))}
                     </ToggleGroup>
@@ -153,6 +210,10 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                     <Label htmlFor={inputId}>{parameterLabel}</Label>
                     <NativeSelect
                       id={inputId}
+                      aria-invalid={Boolean(errorKey)}
+                      aria-describedby={
+                        errorKey ? `${inputId}-error` : undefined
+                      }
                       className='w-full'
                       value={
                         field.value === undefined
@@ -194,15 +255,23 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                     <div className='flex items-center gap-2'>
                       <Input
                         id={inputId}
+                        aria-invalid={Boolean(errorKey)}
+                        aria-describedby={
+                          errorKey ? `${inputId}-error` : undefined
+                        }
                         type='number'
                         min={numericParameter.min}
                         max={numericParameter.max}
                         step={numericParameter.step}
-                        value={numericValue}
+                        value={
+                          typeof field.value === 'number' ? field.value : ''
+                        }
                         onChange={(event) => {
-                          if (event.target.value !== '') {
-                            field.onChange(event.target.valueAsNumber)
-                          }
+                          field.onChange(
+                            event.target.value === ''
+                              ? ''
+                              : event.target.valueAsNumber
+                          )
                         }}
                       />
                     </div>
@@ -220,10 +289,12 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
                   </div>
                   <Slider
                     id={inputId}
+                    aria-invalid={Boolean(errorKey)}
+                    aria-describedby={errorKey ? `${inputId}-error` : undefined}
                     min={numericParameter.min}
                     max={numericParameter.max}
                     step={numericParameter.step}
-                    value={[numericValue]}
+                    value={numericValue}
                     onValueChange={(value) =>
                       field.onChange(Array.isArray(value) ? value[0] : value)
                     }
@@ -233,8 +304,46 @@ export function VideoParameterFields(props: VideoParameterFieldsProps) {
               )
             }}
           />
-        )
-      })}
+          {errorKey && (
+            <p
+              id={`${inputId}-error`}
+              role='alert'
+              className='text-destructive text-xs'
+            >
+              {t(errorKey)}
+            </p>
+          )}
+        </div>
+      )
+    })
+  return (
+    <div className='video-studio-parameters'>
+      <div className='video-studio-common-parameters'>
+        {renderFields(common)}
+      </div>
+      {advanced.length > 0 && (
+        <div className='video-studio-advanced'>
+          <button
+            type='button'
+            aria-expanded={advancedOpen || advancedInvalid}
+            aria-controls={`${fieldIdPrefix}-advanced`}
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          >
+            <span>
+              <SlidersHorizontal aria-hidden='true' />
+              {t('Advanced settings')}
+            </span>
+            <ChevronDown aria-hidden='true' />
+          </button>
+          <div
+            id={`${fieldIdPrefix}-advanced`}
+            className='video-studio-advanced-fields'
+            hidden={!advancedOpen && !advancedInvalid}
+          >
+            {renderFields(advanced)}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

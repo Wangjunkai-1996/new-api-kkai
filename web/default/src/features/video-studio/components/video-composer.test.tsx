@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { webcrypto } from 'node:crypto'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -25,6 +27,7 @@ import { useVideoStudioDraftStore } from '@/stores/video-studio-draft-store'
 
 import type { VideoTokenGateState } from '../hooks/use-video-token-gate'
 import type {
+  CreateVideoRequest,
   VideoModelProfile,
   VideoQuoteRequest,
   VideoSample,
@@ -39,6 +42,14 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api')>()),
   ...apiMocks,
+  createVideoGeneration: (
+    request: CreateVideoRequest,
+    key: string,
+    beforeDispatch?: () => void
+  ) => {
+    beforeDispatch?.()
+    return apiMocks.createVideoGeneration(request, key)
+  },
 }))
 
 const models: VideoModelProfile[] = [1, 2].map((id) => ({
@@ -88,6 +99,7 @@ const videoTokenGate: VideoTokenGateState = {
     tokenName: 'Video',
   },
   tokenId: 17,
+  effectiveGroup: 'video',
   requiredGroup: 'video',
   checking: false,
   preparing: false,
@@ -107,6 +119,8 @@ const videoTokenGate: VideoTokenGateState = {
 let queryClient: QueryClient
 
 beforeEach(() => {
+  localStorage.clear()
+  vi.stubGlobal('crypto', webcrypto)
   vi.useFakeTimers()
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
@@ -135,6 +149,7 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
   useVideoStudioDraftStore.getState().clearDraft()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 test('quotes and submits the selected sample without mixing the previous model and prompt', async () => {
@@ -165,6 +180,10 @@ test('quotes and submits the selected sample without mixing the previous model a
     </QueryClientProvider>
   )
 
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Replace settings' }))
+  )
   expect(screen.getByRole('textbox')).toHaveValue(samples[1].prompt)
   expect(screen.getByRole('button')).toBeDisabled()
   expect(apiMocks.quoteVideoGeneration).not.toHaveBeenCalled()
@@ -198,4 +217,384 @@ test('quotes and submits the selected sample without mixing the previous model a
     expect.any(String)
   )
   expect(onSubmitted).toHaveBeenCalledWith({ task_id: 'task_video_test' })
+})
+
+test('persists the operation before POST and prevents repeating unknown content after editing away and back', async () => {
+  const onSubmitted = vi.fn()
+  apiMocks.createVideoGeneration.mockImplementation(() => {
+    const raw = localStorage.getItem('video-studio-submissions:user:11')
+    expect(raw).not.toBeNull()
+    expect(JSON.parse(raw ?? '').records[0].state).toBe('sending')
+    return Promise.reject(new Error('connection lost'))
+  })
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+        onSubmitted={onSubmitted}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.createVideoGeneration).toHaveBeenCalledTimes(1)
+  expect(onSubmitted).not.toHaveBeenCalled()
+  const input = screen.getByRole('textbox')
+  fireEvent.change(input, { target: { value: 'A different scene' } })
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  fireEvent.change(input, { target: { value: samples[0].prompt } })
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.createVideoGeneration).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('alert')).toHaveTextContent('awaiting verification')
+  view.unmount()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer models={models} videoTokenGate={videoTokenGate} />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  expect(
+    JSON.parse(localStorage.getItem('video-studio-submissions:user:11') ?? '')
+      .records[0].state
+  ).toBe('unknown')
+})
+
+test('storage failure blocks POST before any charge can be requested', async () => {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  const originalSet = Storage.prototype.setItem
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
+    function (this: Storage, key, value) {
+      if (key.startsWith('video-studio-submissions:')) {
+        throw new Error('quota exceeded')
+      }
+      return originalSet.call(this, key, value)
+    }
+  )
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.createVideoGeneration).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Recovery storage is unavailable'
+  )
+})
+
+test('an invalid successful receipt remains pending instead of announcing success', async () => {
+  apiMocks.createVideoGeneration.mockResolvedValue({
+    id: 'task_first',
+    task_id: 'task_second',
+  })
+  const onSubmitted = vi.fn()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+        onSubmitted={onSubmitted}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(onSubmitted).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert')).toHaveTextContent('awaiting verification')
+  expect(
+    JSON.parse(localStorage.getItem('video-studio-submissions:user:11') ?? '')
+      .records[0]
+  ).toMatchObject({ state: 'unknown' })
+})
+
+test('an account switch and return while hashing cancels the unsent operation', async () => {
+  let finishDigest: ((digest: ArrayBuffer) => void) | undefined
+  vi.spyOn(crypto.subtle, 'digest').mockImplementation(
+    () =>
+      new Promise<ArrayBuffer>((resolve) => {
+        finishDigest = resolve
+      })
+  )
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  await act(async () => {
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+    const form = screen.getByRole('textbox').closest('form')
+    expect(form).not.toBeNull()
+    if (form) fireEvent.submit(form)
+  })
+  expect(crypto.subtle.digest).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    useAuthStore.getState().auth.reset()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 11, username: 'user-11', role: 1 })
+    finishDigest?.(new ArrayBuffer(32))
+  })
+  expect(apiMocks.createVideoGeneration).not.toHaveBeenCalled()
+  expect(localStorage.getItem('video-studio-submissions:user:11')).toBeNull()
+})
+
+test('sample refetches do not reapply over the edited draft', async () => {
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  fireEvent.change(screen.getByRole('textbox'), {
+    target: { value: 'My edit' },
+  })
+  view.rerender(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={[...models]}
+        sample={{ ...samples[0] }}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  expect(screen.getByRole('textbox', { hidden: true })).toHaveValue('My edit')
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  view.rerender(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        sampleSelectionId={1}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { hidden: true })).toHaveValue('My edit')
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Replace settings' }))
+  )
+  expect(screen.getByRole('textbox')).toHaveValue(samples[0].prompt)
+})
+
+test.each(['quote expires', 'group changes', 'input changes'])(
+  'rechecks the frozen context after hashing: %s',
+  async (scenario) => {
+    let finishDigest: ((digest: ArrayBuffer) => void) | undefined
+    vi.spyOn(crypto.subtle, 'digest').mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          finishDigest = resolve
+        })
+    )
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <VideoComposer
+          models={models}
+          sample={samples[0]}
+          videoTokenGate={videoTokenGate}
+        />
+      </QueryClientProvider>
+    )
+    await act(() => vi.advanceTimersByTimeAsync(300))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole('button', { name: 'videoStudio.generate' })
+      )
+    )
+    if (scenario === 'quote expires') vi.setSystemTime(Date.now() + 601_000)
+    if (scenario === 'group changes') {
+      view.rerender(
+        <QueryClientProvider client={queryClient}>
+          <VideoComposer
+            models={models}
+            sample={samples[0]}
+            videoTokenGate={{ ...videoTokenGate, effectiveGroup: 'changed' }}
+          />
+        </QueryClientProvider>
+      )
+    }
+    if (scenario === 'input changes') {
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: 'Changed while preparing' },
+      })
+    }
+    await act(async () => finishDigest?.(new ArrayBuffer(32)))
+    expect(apiMocks.createVideoGeneration).not.toHaveBeenCalled()
+    expect(localStorage.getItem('video-studio-submissions:user:11')).toBeNull()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'input or access changed'
+    )
+  }
+)
+
+test('late accepted receipts update original evidence without touching a new session UI or cache', async () => {
+  let finishRequest: ((receipt: { task_id: string }) => void) | undefined
+  apiMocks.createVideoGeneration.mockImplementation(
+    () =>
+      new Promise<{ task_id: string }>((resolve) => {
+        finishRequest = resolve
+      })
+  )
+  const onSubmitted = vi.fn()
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+        onSubmitted={onSubmitted}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.createVideoGeneration).toHaveBeenCalledTimes(1)
+  const invalidation = vi.spyOn(queryClient, 'invalidateQueries')
+  await act(async () => {
+    useAuthStore.getState().auth.reset()
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 11, username: 'user-11', role: 1 })
+    finishRequest?.({ task_id: 'task_late' })
+  })
+  expect(onSubmitted).not.toHaveBeenCalled()
+  expect(invalidation).not.toHaveBeenCalled()
+  expect(
+    JSON.parse(localStorage.getItem('video-studio-submissions:user:11') ?? '')
+      .records[0]
+  ).toMatchObject({ state: 'accepted', taskId: 'task_late' })
+})
+
+test('leaving the page preserves evidence without running the old completion callback', async () => {
+  let finishRequest: ((receipt: { task_id: string }) => void) | undefined
+  apiMocks.createVideoGeneration.mockImplementation(
+    () =>
+      new Promise<{ task_id: string }>((resolve) => {
+        finishRequest = resolve
+      })
+  )
+  const onSubmitted = vi.fn()
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+        onSubmitted={onSubmitted}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'videoStudio.generate' })
+    )
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.createVideoGeneration).toHaveBeenCalledTimes(1)
+  view.unmount()
+  await act(async () => finishRequest?.({ task_id: 'task_after_leaving' }))
+  expect(onSubmitted).not.toHaveBeenCalled()
+  expect(
+    JSON.parse(localStorage.getItem('video-studio-submissions:user:11') ?? '')
+      .records[0]
+  ).toMatchObject({ state: 'accepted', taskId: 'task_after_leaving' })
+})
+
+test('expired quote responses show an explicit refresh action and never loop or enable generation', async () => {
+  const expiredQuote = {
+    quota: 100,
+    display_amount: '$1.00',
+    request_hash: 'a'.repeat(64),
+    expires_at: Math.floor(Date.now() / 1000) - 10,
+  }
+  apiMocks.quoteVideoGeneration.mockResolvedValue(expiredQuote)
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VideoComposer
+        models={models}
+        sample={samples[0]}
+        videoTokenGate={videoTokenGate}
+      />
+    </QueryClientProvider>
+  )
+  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(
+    screen.getByRole('button', { name: 'videoStudio.generate' })
+  ).toBeDisabled()
+  expect(screen.getByText('videoStudio.quoteUnavailable')).toBeInTheDocument()
+  expect(
+    screen.queryByText('Describe your scene to get a quote.')
+  ).not.toBeInTheDocument()
+  expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledTimes(1)
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh quote' }))
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledTimes(2)
+  expect(screen.getByText('videoStudio.quoteUnavailable')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Refresh quote' })).toBeEnabled()
+  apiMocks.quoteVideoGeneration.mockRejectedValue(new Error('offline'))
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh quote' }))
+  )
+  await act(() => vi.advanceTimersByTimeAsync(0))
+  expect(apiMocks.quoteVideoGeneration).toHaveBeenCalledTimes(3)
+  expect(screen.getByText('videoStudio.quoteUnavailable')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Refresh quote' })).toBeEnabled()
+  expect(apiMocks.createVideoGeneration).not.toHaveBeenCalled()
 })

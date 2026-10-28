@@ -17,14 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { getAdapter } from 'axios'
-import { t } from 'i18next'
-import { z } from 'zod'
 
 import { api } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
 
 import {
   videoTokenCapabilitySchema,
+  videoQuoteSchema,
   videoTokenCreateResultSchema,
 } from './schemas'
 import type {
@@ -49,38 +47,17 @@ import type {
   VideoUploadSignedRequest,
   VideoUploadedPart,
 } from './types'
+import {
+  getVideoSubmissionIdentity,
+  isCurrentVideoSubmissionIdentity,
+  parseVideoSubmissionReceipt,
+} from './video-submission-protocol'
 
 type ApiEnvelope<T> = {
   success: boolean
   message?: string
   data?: T
 }
-
-// The legacy UI cannot reconcile V2 submissions. Only fully accepted V1 records
-// permit generation after a rollback; preserve unknown or unreadable data.
-const legacyAcceptedSubmissionsSchema = z
-  .object({
-    version: z.literal(1),
-    records: z.array(
-      z
-        .object({
-          version: z.literal(1),
-          userId: z.number().int().positive().safe(),
-          operationId: z.string().min(1).max(128),
-          requestFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
-          createdAt: z.number().int().positive().safe(),
-          updatedAt: z.number().int().positive().safe(),
-          state: z.literal('accepted'),
-          taskId: z
-            .string()
-            .max(128)
-            .regex(/^task_[0-9A-Za-z_-]+$/),
-          generationId: z.number().int().positive().safe().optional(),
-        })
-        .strict()
-    ),
-  })
-  .strict()
 
 const unwrapVideoStudioResponse = <T>(payload: T | ApiEnvelope<T>): T => {
   if (
@@ -160,53 +137,34 @@ export const quoteVideoGeneration = async (
   const response = await api.post('/pg/videos/quote', request, {
     skipErrorHandler: true,
   })
-  return unwrapVideoStudioResponse<VideoQuote>(response.data)
+  return videoQuoteSchema.parse(
+    unwrapVideoStudioResponse<unknown>(response.data)
+  )
 }
 
 export const createVideoGeneration = async (
   request: CreateVideoRequest,
-  idempotencyKey: string
+  idempotencyKey: string,
+  beforeDispatch?: () => void
 ): Promise<VideoSubmissionReceipt> => {
-  const identity = useAuthStore.getState().auth
+  const identity = getVideoSubmissionIdentity()
   const transport = getAdapter(api.defaults.adapter)
   const response = await api.post('/pg/videos', request, {
     headers: { 'Idempotency-Key': idempotencyKey },
     skipErrorHandler: true,
     skipAuthRefresh: true,
+    // Axios request interceptors are asynchronous. Recheck at the actual transport boundary.
     adapter: (config) => {
-      try {
-        const ownerId = identity.user?.id
-        if (
-          !ownerId ||
-          !Number.isSafeInteger(ownerId) ||
-          ownerId <= 0 ||
-          identity !== useAuthStore.getState().auth
-        ) {
-          throw new Error('Video submission identity changed')
-        }
-        // Interceptors are asynchronous; read recovery data at dispatch time.
-        const raw = window.localStorage.getItem(
-          `video-studio-submissions:user:${ownerId}`
-        )
-        if (raw !== null) {
-          const { records } = legacyAcceptedSubmissionsSchema.parse(
-            JSON.parse(raw)
-          )
-          if (
-            records.some((record) => record.userId !== ownerId) ||
-            new Set(records.map((record) => record.operationId)).size !==
-              records.length
-          ) {
-            throw new Error('Invalid video recovery ownership')
-          }
-        }
-      } catch {
-        throw new Error(t('videoStudio.submissionUnknown'))
+      if (!isCurrentVideoSubmissionIdentity(identity)) {
+        throw new Error('Video submission identity changed')
       }
+      beforeDispatch?.()
       return transport(config)
     },
   })
-  return unwrapVideoStudioResponse<VideoSubmissionReceipt>(response.data)
+  return parseVideoSubmissionReceipt(
+    unwrapVideoStudioResponse<unknown>(response.data)
+  )
 }
 
 export const getVideoGenerations = async (
@@ -215,6 +173,7 @@ export const getVideoGenerations = async (
   const response = await api.get('/api/video-studio/generations', {
     params: filters,
     disableDuplicate: true,
+    skipErrorHandler: true,
   })
   return unwrapVideoStudioResponse<CursorPage<VideoGeneration>>(response.data)
 }
@@ -231,7 +190,9 @@ export const getVideoGeneration = async (
 }
 
 export const deleteVideoGeneration = async (id: number): Promise<void> => {
-  await api.delete(`/api/video-studio/generations/${id}`)
+  await api.delete(`/api/video-studio/generations/${id}`, {
+    skipErrorHandler: true,
+  })
 }
 
 export const createVideoUpload = async (

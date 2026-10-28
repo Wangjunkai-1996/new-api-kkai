@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { VirtualItem } from '@tanstack/react-virtual'
 import { render, waitFor } from '@testing-library/react'
 import { AxiosError } from 'axios'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -31,7 +32,7 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   virtualizer: {
     getTotalSize: vi.fn(() => 0),
-    getVirtualItems: vi.fn(() => []),
+    getVirtualItems: vi.fn<() => VirtualItem[]>(() => []),
     measure: vi.fn(),
     measureElement: vi.fn(),
   },
@@ -146,4 +147,32 @@ describe('video sample token recovery', () => {
       expect(mocks.onTokenError).toHaveBeenCalledWith('request-failed')
     })
   })
+})
+
+test('a collapsed gallery does not automatically load more and resumes on expansion', () => {
+  setSamplesQuery({ error: null, nextPageError: true })
+  Object.assign(mocks.query, { hasNextPage: true, isFetchNextPageError: false })
+  mocks.fetchNextPage.mockClear()
+  mocks.virtualizer.measure.mockClear()
+  mocks.virtualizer.getVirtualItems.mockReturnValue([
+    { index: 0, key: 1, start: 0, end: 200, size: 200, lane: 0 },
+  ])
+  const client = new QueryClient()
+  const renderGallery = (visible: boolean) => (
+    <QueryClientProvider client={client}>
+      <VideoSampleGallery
+        models={[]}
+        tokenId={17}
+        visible={visible}
+        onTokenError={mocks.onTokenError}
+        onTrySample={() => undefined}
+      />
+    </QueryClientProvider>
+  )
+  const { rerender } = render(renderGallery(false))
+  expect(mocks.fetchNextPage).not.toHaveBeenCalled()
+  expect(mocks.virtualizer.measure).not.toHaveBeenCalled()
+  rerender(renderGallery(true))
+  expect(mocks.fetchNextPage).toHaveBeenCalledTimes(1)
+  expect(mocks.virtualizer.measure).toHaveBeenCalled()
 })
