@@ -387,7 +387,7 @@ func PrecheckWalletPaymentExpand(ctx context.Context, db *gorm.DB) (*WalletPayme
 
 // CheckWalletPaymentSchema requires canonical receipts, not merely tables.
 func CheckWalletPaymentSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, WalletPaymentSchemaVersion, WalletPaymentSchemaVersion, WalletPaymentSchemaVersion)
+	return checkThroughVersion(ctx, db, WalletPaymentSchemaVersion, WalletPaymentSchemaVersion, ShopSchemaVersion)
 }
 
 // ApplyWalletPaymentExpand is deliberately never called from application

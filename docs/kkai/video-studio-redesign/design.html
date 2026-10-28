@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:,">
+  <title>视频工作室 · 交互设计稿 | KKAI · new-api</title>
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <div class="review-bar" aria-label="设计审查工具">
+    <div class="review-copy"><span class="review-label">DESIGN REVIEW</span><span class="review-docs"><a href="prd.md">产品文档</a><a href="review.md">审查记录</a></span><span>交互设计演示 · 未连接生成服务 · 模型、任务、金额均为示例</span></div>
+    <div class="review-controls"><label for="scene">审查场景</label><select id="scene" aria-label="审查场景"></select><button type="button" id="theme-button" aria-label="切换深色主题"></button></div>
+  </div>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="控制台导航">
+      <a class="brand" href="?scene=completed" aria-label="KKAI 视频工作室">K<span>↗</span></a>
+      <button class="side-button" data-action="console" aria-label="控制台" title="控制台"><i data-icon="grid"></i></button>
+      <button class="side-button" data-action="image" aria-label="图片工作室" title="图片工作室"><i data-icon="image"></i></button>
+      <button class="side-button active" data-tab="create" aria-label="视频工作室" title="视频工作室"><i data-icon="video"></i></button>
+      <span class="sidebar-line"></span>
+      <button class="side-button" data-action="help" aria-label="帮助" title="帮助"><i data-icon="help"></i></button>
+      <div class="sidebar-bottom"><span class="avatar">K</span></div>
+    </aside>
+    <div class="app-main">
+      <header class="topbar"><div class="breadcrumb"><span>工作台</span><i data-icon="chevron"></i><strong>视频工作室</strong></div><span class="topbar-wordmark">KKAI<span>STUDIO</span></span></header>
+      <main id="main-content" tabindex="-1">
+        <div class="page-heading"><div><div class="eyebrow">STUDIO / VIDEO</div><h1>视频工作室<span class="title-dot"></span></h1></div><button class="button subtle help-button" data-action="help"><i data-icon="help"></i>创作指南</button></div>
+        <div class="navigation-row"><nav class="tabs" aria-label="视频工作室页面"><button data-tab="create"><i data-icon="sparkles"></i>创作</button><button data-tab="library"><i data-icon="folder"></i>作品库</button><button data-tab="tasks"><i data-icon="list"></i>任务</button></nav><span class="workspace-hint">KKAI CREATIVE SUITE</span></div>
+        <div id="workspace"></div>
+        <footer class="product-footer">Powered by <strong>new-api</strong> · QuantumNous <span>KKAI 创作工作室</span></footer>
+      </main>
+    </div>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="design.js"></script>
+</body>
+</html>

@@ -25,6 +25,7 @@ func resellerPrefixProofFixture(t *testing.T) (*resellerPrefixControllerProof, *
 	delete(contract.CompatiblePrefixes, "16")
 	delete(contract.CompatiblePrefixes, "17")
 	delete(contract.CompatiblePrefixes, "18")
+	delete(contract.CompatiblePrefixes, "19")
 	now := time.Unix(1800000000, 0)
 	status := &resellerPrefixStatus{SourceDigest: contract.CompatiblePrefixes["14"], TargetDigest: contract.CompatiblePrefixes["15"],
 		PlanChecksum: kkaimigrate.ResellerApplicationPlanChecksum(), DatabaseName: "newapi", DatabaseSchema: "public"}

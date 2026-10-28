@@ -25,6 +25,7 @@ func requestTicketProofFixture(t *testing.T) (*requestTicketControllerProof, *re
 	contract.RuntimeMaxVersion = 16
 	delete(contract.CompatiblePrefixes, "17")
 	delete(contract.CompatiblePrefixes, "18")
+	delete(contract.CompatiblePrefixes, "19")
 	now := time.Unix(1800000000, 0)
 	status := &requestTicketStatus{
 		Schema: "kkai_request_ticket_v1", CurrentVersion: 15, TargetVersion: 16, Safe: true,

@@ -44,7 +44,7 @@ func checkTenantUserDeletionTx(tx *gorm.DB, userID int) error {
 		return err
 	}
 	if user.TenantID == PlatformTenantID {
-		return nil
+		return CheckShopUserDeletionTx(tx, userID)
 	}
 	var pending int64
 	// Do not lock consumption rows: settlement locks its request before the user.

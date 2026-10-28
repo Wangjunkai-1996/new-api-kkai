@@ -83,6 +83,10 @@ export function useTopNavLinks(): TopNavLink[] {
   }
 
   // Pricing
+  if (site?.tenant_id === 0) {
+    links.push({ title: t('Shop'), href: '/shop' })
+  }
+
   const pricing = modules?.pricing
   if (pricing && typeof pricing === 'object' && pricing.enabled) {
     const requiresAuth = pricing.requireAuth && !isAuthed

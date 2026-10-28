@@ -25,6 +25,7 @@ type kkaiOutboxRuntimeHandlers struct {
 	riskActionCommitted        KKAIOutboxHandler
 	topUpCompleted             KKAIOutboxHandler
 	invoiceNotification        KKAIOutboxHandler
+	shop                       KKAIOutboxHandler
 }
 
 type kkaiOutboxRuntimeWorker struct {
@@ -78,6 +79,9 @@ func newKKAIOutboxRuntimeWorker(
 			handlers: []topicHandler{
 				{topic: model.KKAIOutboxTopicTopUpCompleted, handler: handlers.topUpCompleted},
 				{topic: InvoiceNotificationTopic, handler: handlers.invoiceNotification},
+				{topic: model.ShopTopicReceipt, handler: handlers.shop},
+				{topic: model.ShopTopicFulfillment, handler: handlers.shop},
+				{topic: model.ShopTopicNotification, handler: handlers.shop},
 			},
 		},
 	}

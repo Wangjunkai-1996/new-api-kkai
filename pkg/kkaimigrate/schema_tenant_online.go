@@ -302,7 +302,7 @@ func checkTenantOnlineExpansion(ctx context.Context, db *gorm.DB, requireLegacy 
 }
 
 func CheckTenantOnlineSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion, WalletPaymentSchemaVersion)
+	return checkThroughVersion(ctx, db, TenantOnlineSchemaVersion, TenantOnlineSchemaVersion, ShopSchemaVersion)
 }
 
 // FinalizeTenantOnlineSchema is also usable for isolated rehearsal. Production

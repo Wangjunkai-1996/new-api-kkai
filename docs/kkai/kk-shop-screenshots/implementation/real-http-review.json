@@ -1,0 +1,311 @@
+{
+  "format_version": 1,
+  "reviewed_at_utc": "2026-10-28T05:16:18.282493+00:00",
+  "result": "passed",
+  "assertions_executed": 33,
+  "distinct_checks": 31,
+  "scope": "Disposable local PostgreSQL and real application HTTP acceptance; no production access.",
+  "database": {
+    "engine": "PostgreSQL",
+    "version": "18.4",
+    "image": "postgres:18.4-bookworm",
+    "binding": "loopback only",
+    "schema": "Canonical migration fixture through schema 18, followed by the real schema 19 shop expansion. Historical core model fixture columns were completed for actual application authentication and logging."
+  },
+  "application": {
+    "backend_url": "http://localhost:3000",
+    "frontend_url": "http://localhost:5178",
+    "routes": "SetApiRouter including actual shop routes",
+    "authentication": [
+      "Actual password login",
+      "Persisted user sessions and refresh cookies",
+      "UserAuth / AdminAuth / ShopSessionGuard",
+      "Actual /api/verify password security proofs bound to each financial or delivery operation"
+    ],
+    "host_resolution": "Actual TenantRouting; localhost is the configured platform host and IP-literal hosts are rejected.",
+    "workers": [
+      "Actual RegisterShopBackgroundJobs maintenance on its normal 30-second interval",
+      "Actual KKAI leader lease in PostgreSQL",
+      "Actual RegisterShopOutbox and KKAIOutboxProcessor; receipt matching and fulfillment are not mocked."
+    ]
+  },
+  "simulation": {
+    "only_external_gateway_is_simulated": true,
+    "provider": "Local TLS Epay simulator",
+    "behavior": "The real payment adapter creates checkout URLs. Local simulated payment sends a signed callback to the actual application; actual maintenance queries the local provider and actual outbox workers settle and deliver.",
+    "application_api_mocks": false,
+    "database_mocks": false,
+    "synthetic_data_only": true,
+    "outbound_email": "Disabled; no external message was sent."
+  },
+  "accounting_evidence": {
+    "original_amount_minor": 125,
+    "currency": "CNY",
+    "refund_adjustments_for_test_receipt": 1,
+    "successful_refund_total_minor": 125,
+    "buyer_api_quota_after_payment_and_refund": 12345,
+    "buyer_wallet_topups": 0,
+    "verification": "Actual user/self HTTP response plus read-only SQL assertions against the same disposable PostgreSQL."
+  },
+  "setup_and_service_commands": [
+    {
+      "command": "go test ./pkg/kkaimigrate -run '^TestShopHTTPFixtureSchema$' -count=1 -timeout=120s",
+      "result": "passed",
+      "reported_test_duration_seconds": 12.174,
+      "environment_variables": [
+        "KKAI_SHOP_HTTP_TEST_DSN (private loopback-only disposable database value; omitted)"
+      ]
+    },
+    {
+      "command": "go test ./router -run '^TestShopLiveHTTPServer$' -v -count=1 -timeout=0",
+      "result": "original local browser-acceptance server stopped through STOP with exit 0 and PASS after browser acceptance",
+      "environment_variables": [
+        "KKAI_SHOP_HTTP_TEST_DSN (private value omitted)",
+        "KKAI_SHOP_HTTP_TEST_DIR (restricted temporary credential directory)"
+      ],
+      "note": "This opt-in command hosts the local service; it is not an unbounded regression suite."
+    }
+  ],
+  "runs": [
+    {
+      "name": "automatic_delivery_and_refund",
+      "command": "python3 /tmp/kk-shop-http-b30a219778/http_acceptance.py",
+      "result": "passed",
+      "assertions": 21,
+      "checks": [
+        "real password login for three isolated users",
+        "real session cookie refresh",
+        "same idempotency key creates exactly one order",
+        "created order recovers by original request key",
+        "another buyer cannot read order",
+        "anonymous order read requires actual auth",
+        "real payment adapter creates local checkout",
+        "local merchant signed callback accepted",
+        "real maintenance and outbox settle and deliver",
+        "ordinary detail exposes masked delivery only",
+        "owner can reveal synthetic stock and response is no-store",
+        "another buyer cannot reveal delivered secret",
+        "one unique receipt from signed callback and provider query",
+        "refund approval requires actual security proof",
+        "scope-bound password proof approves refund",
+        "refund approval immediately blocks secret reveal",
+        "recorded refund remains unknown until verification",
+        "evidenced refund completes through actual HTTP lifecycle",
+        "buyer order reflects refunded state",
+        "shop payment and refund preserve API quota",
+        "one refund debit and no wallet top-up in PostgreSQL"
+      ],
+      "repository_command": "python3 scripts/kkai/tests/shop-http-acceptance.py /tmp/kk-shop-http-b30a219778",
+      "repository_driver_validation": "Python AST syntax passed; previously passed business chains were not rerun after adding fixture-directory argument and explicit loopback-only guards."
+    },
+    {
+      "name": "inventory_and_manual_delivery",
+      "command": "python3 /tmp/kk-shop-http-b30a219778/http_admin_acceptance.py",
+      "result": "passed",
+      "assertions": 12,
+      "checks": [
+        "real password login for three isolated users",
+        "real session cookie refresh",
+        "actual HTTP import preview accepts one synthetic credential",
+        "stock import commit is idempotent",
+        "stock import recovers original batch",
+        "same stock identity is recognized as duplicate",
+        "inventory list omits plaintext and ciphertext",
+        "manual purchase is paid but requires operator delivery",
+        "manual delivery requires actual operation proof",
+        "manual delivery commits with bound password proof",
+        "manual delivery retry returns committed delivery without duplicate",
+        "manual recipient can reveal exactly delivered fields"
+      ],
+      "repository_command": "python3 scripts/kkai/tests/shop-http-admin-acceptance.py /tmp/kk-shop-http-b30a219778",
+      "repository_driver_validation": "Python AST syntax passed; previously passed business chains were not rerun after adding fixture-directory argument and explicit loopback-only guards."
+    }
+  ],
+  "verification_boundaries": [
+    "Only the external Epay gateway is simulated. No actual merchant charge, refund, or settlement occurred.",
+    "Application traffic uses localhost HTTP and the local non-Secure cookie mode. Production HTTPS, Secure cookie behavior, reverse proxy routing, and production Origin policy were not exercised.",
+    "Security proofs were issued through actual password verification; 2FA, Passkeys, and external OAuth were not exercised.",
+    "PostgreSQL 18.4 was used for these HTTP runs. This report does not itself claim MySQL or SQLite HTTP acceptance.",
+    "No production status, database, merchant configuration, deployment, migration, or release operation was accessed.",
+    "The full repository test suite was skipped. The earlier 33 assertions were not rerun after the payment-event fix; a fresh current-source PostgreSQL/HTTP instance separately passed the six focused checks recorded under post_fix_real_http, including actual STOP cleanup.",
+    "Reusable drivers are saved in the repository under scripts/kkai/tests/. Their sole positional argument is a private fixture directory. They permit only localhost:3000 and its exact loopback TLS simulator, disable environment proxies and redirects, and keep private runtime data/results outside the repository."
+  ],
+  "redaction": "No credentials, access tokens, security proofs, keyrings, database DSN, payment checkout query strings or delivered account secrets are included.",
+  "fixture_cleanup_validation": {
+    "command": "go test ./router -run '^$' -count=1 -timeout=60s",
+    "result": "passed, 0.071s; compile only, no tests executed",
+    "changes": "Restore application DB handles, database dialects, Redis/cookie/password/SMTP/setup/options/translator globals, default HTTP client, Gin mode and payment configuration. Cleanup stops workers and HTTP servers before restoring globals and closing the disposable database.",
+    "runtime_status": "Fresh isolated current-source server exercised the changed cleanup through STOP: exit 0, TestShopLiveHTTPServer PASS, localhost:3000 closed. Both old and new server processes are absent."
+  },
+  "python_syntax_command": "python3 - <<'PY'\nimport ast, pathlib\nfor name in ['shop-http-acceptance.py', 'shop-http-admin-acceptance.py']:\n    path = pathlib.Path('scripts/kkai/tests') / name\n    ast.parse(path.read_text(), filename=str(path))\n    print(str(path) + ': syntax PASS')\nPY",
+  "follow_up_findings": [
+    {
+      "issue": "Duplicate public payment_received events during callback review and later provider-query confirmation",
+      "observation": "Read-only inspection of the existing local browser fixture found two public payment_received events linked to the same receipt, followed by one delivery.",
+      "database_counts": {
+        "receipts_for_order": 1,
+        "deliveries_for_order": 1,
+        "public_payment_received_events_for_same_receipt": 2
+      },
+      "event_timestamps_utc": [
+        "2026-10-28T04:46:25Z",
+        "2026-10-28T04:46:49Z"
+      ],
+      "cause": "MatchShopPaymentReceipt emitted payment_received for review as well as matched/extra. The callback lacked a trusted payment timestamp, so the first event preceded verified matching.",
+      "impact": "Incorrect public timeline; this fixture had no duplicated receipt, payment amount or delivery.",
+      "fix": "Emit the public payment fact only when the resulting receipt state is matched or extra. Existing matched/extra early returns retain retry idempotence; different provider transactions retain distinct payment events.",
+      "regression": {
+        "red_result": "Review and its retry produced two public events; after provider query there were three instead of one.",
+        "command": "go test ./model ./service -run '^(TestShopVerifiedReceiptRequiresFullIdentityAndRecovers|TestShopDistinctExtraReceiptKeepsItsOwnPaymentEvent|TestShopLateReceiptForRetiredBuyerRetainsResponsibility|TestShopSignedCallbackAndQueryNeverCreditRecharge)$' -count=1 -timeout=60s",
+        "result": "passed",
+        "model_seconds": 0.21,
+        "service_seconds": 0.104,
+        "checks": [
+          "Identity mismatch publishes no received-payment event; verified recovery publishes exactly one.",
+          "Signed callback review and retry publish no event; query confirmation and matching retries publish exactly one.",
+          "Distinct extra provider payment retains its own event while fulfillment outbox remains unique.",
+          "Retired-buyer receipt remains reviewable with responsibility retained."
+        ]
+      },
+      "evidence_boundary": "Historical browser screenshots preserve the earlier duplicate timeline and were not retaken. After the fix, a fresh isolated database and current-source HTTP process passed six focused callback/review/reconcile/worker assertions: zero public events during review, then exactly one public event for one matched receipt and one delivery. No historical events were changed or deleted."
+    }
+  ],
+  "assertion_count_scope": "33 assertions / 31 distinct checks belong to the original full-chain runs; the separate post_fix_real_http run adds six focused assertions and does not rerun those chains.",
+  "post_fix_real_http": {
+    "started_at_utc": "2026-10-28T05:12:57Z",
+    "outer_timeout_seconds": 180,
+    "container": "kk-shop-http-c22b174cd4",
+    "directory": "/tmp/kk-shop-http-final-yeygdxf1",
+    "commands": [
+      {
+        "argv": [
+          "go",
+          "test",
+          "./pkg/kkaimigrate",
+          "-run",
+          "^TestShopHTTPFixtureSchema$",
+          "-count=1",
+          "-timeout=120s"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 13.872
+      },
+      {
+        "argv": [
+          "go",
+          "test",
+          "./router",
+          "-run",
+          "^TestShopLiveHTTPServer$",
+          "-v",
+          "-count=1",
+          "-timeout=0"
+        ],
+        "mode": "local service"
+      },
+      {
+        "argv": [
+          "python3",
+          "scripts/kkai/tests/shop-http-acceptance.py",
+          "--payment-events-only",
+          "/tmp/kk-shop-http-final-yeygdxf1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 30.495
+      }
+    ],
+    "source_sha256": {
+      "model/shop_payment.go": "d0b1891ca83fcad2f4eb3b357e57ea3e0d244102c8c892c10c9ebcd22714a871",
+      "router/shop_live_http_test.go": "ae96ecd6133f86cedd29fb2beabc78b90b3f394b32622d00e4dc0ee4e8334e6f",
+      "scripts/kkai/tests/shop-http-acceptance.py": "2e027ec8d435709bba9a5be4ac2ddc6e63d48fa7ba798791d56853ebecf0d818"
+    },
+    "container_id": "d464cb8791289b8540b5a110be39a5fe0358755e8f2218afa5d3726e135c6fb2",
+    "server_pid": 76427,
+    "acceptance": {
+      "checks": [
+        "signed local callback reaches actual shop HTTP route",
+        "review retains one receipt with zero public payment events and zero deliveries",
+        "review HTTP timeline does not announce payment",
+        "actual maintenance and outbox confirm and deliver",
+        "confirmed payment has one receipt one event and one delivery",
+        "final HTTP timeline announces payment exactly once"
+      ],
+      "review_counts": [
+        1,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_counts": [
+        1,
+        0,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "result": "passed",
+    "server_exit_code": 0,
+    "server_test_pass": true,
+    "port_3000_closed": true,
+    "elapsed_seconds": 59.065,
+    "count_columns": [
+      "receipts",
+      "review_receipts",
+      "matched_receipts",
+      "public_payment_received_events",
+      "distinct_event_receipt_ids",
+      "deliveries"
+    ],
+    "scope": "Fresh private directory, new isolated PostgreSQL, canonical schema 19 and new actual HTTP server from fixed source. Actual login, order creation, signed local callback, review, reconcile, maintenance and outbox; only external payment gateway simulated.",
+    "cleanup": {
+      "server_stop_method": "STOP file; no forced termination needed",
+      "previous_server_pids_absent": [
+        71808,
+        71837
+      ],
+      "current_server_pid_absent": 76427,
+      "containers": [
+        {
+          "name": "kk-shop-http-fc1c03e5bd",
+          "id": "4866e0969ffb3373c56e1d2820f5d2df23af2e8660a861d7112eb4bf7317417d",
+          "volumes": [
+            "a6d360f3c692ccf806be9a4967dcce50882c0927234fb212f3a9407f250f0293"
+          ],
+          "container_removed": true,
+          "anonymous_volumes_removed": true
+        },
+        {
+          "name": "kk-shop-http-c22b174cd4",
+          "id": "d464cb8791289b8540b5a110be39a5fe0358755e8f2218afa5d3726e135c6fb2",
+          "volumes": [
+            "38c5ad43750c0164eafe0c9664c62db68bf815d43b5ac8477e408814d3c67aaf"
+          ],
+          "container_removed": true,
+          "anonymous_volumes_removed": true
+        }
+      ],
+      "private_files": "Both exact fixture directories, their active pointers, the one-off runner and temporary evidence files were removed after this sanitized report was persisted; all listed paths were verified absent.",
+      "removed_private_directories": [
+        "/tmp/kk-shop-http-b30a219778",
+        "/tmp/kk-shop-http-final-yeygdxf1"
+      ],
+      "removed_pointer_and_helper_paths": [
+        "/tmp/kk-shop-http-active",
+        "/tmp/kk-shop-http-final-active",
+        "/tmp/kk-shop-http-review-runner.py",
+        "/tmp/kk-shop-http-final-evidence.json",
+        "/tmp/kk-shop-http-container-cleanup.json"
+      ],
+      "verified_closed_loopback_ports": [
+        3000,
+        59986,
+        49780
+      ],
+      "verified_at_utc": "2026-10-28T05:16:40.672919+00:00"
+    }
+  }
+}

@@ -25,6 +25,7 @@ export type VerificationMethod =
   | 'oauth'
   | 'session'
 export type SecurityProofScope =
+  | ShopSecurityProofScope
   | 'channel.key.read'
   | 'passkey.register'
   | 'passkey.delete'
@@ -50,7 +51,49 @@ export type SecurityProofScope =
 /** ManageUser actions that change a user's status or role and need step-up. */
 export type AdminUserManageAction = 'disable' | 'enable' | 'promote' | 'demote'
 
+export type ShopSecurityProofScope =
+  | 'shop.inventory.reveal'
+  | 'shop.delivery.create'
+  | 'shop.delivery.reveal'
+  | 'shop.risk.release'
+  | 'shop.refund.manage'
+  | 'shop.payment.adjustment.manage'
+  | 'shop.payment.evidence.create'
+export interface ShopVerificationContext {
+  action: string
+  target_id: string
+  expected_version: string
+  idempotency_key?: string
+  details: {
+    reason?: string
+    template_version?: string
+    case_id?: string
+    case_version?: string
+    delivery_id?: string
+    attempt_id?: string
+    adjustment_id?: string
+    kind?: string
+    money?: { amount_minor: string; currency: string; exponent: number }
+    evidence_ids?: string[]
+    public_note?: string
+    channel_ref?: string
+    operated_at?: string
+    conclusion?: string
+    provider_adjustment_ref?: string
+    state?: string
+    source?: string
+    provider_transaction_id?: string
+    provider_refund_or_adjustment_id?: string
+    observed_status?: string
+    observed_at?: string
+    reference_digest?: string
+    summary_digest?: string
+    correction_of?: string
+  }
+}
+
 export type VerificationOperation =
+  | { scope: ShopSecurityProofScope; context: ShopVerificationContext }
   | { scope: 'channel.key.read'; context: { channel_id: number } }
   | {
       scope: 'account.binding.bind'
@@ -98,6 +141,7 @@ export type VerificationOperation =
         | 'access_token.update'
         | 'access_token.revoke'
         | `admin.user.${string}`
+        | ShopSecurityProofScope
       >
       context?: Record<string, never>
     }

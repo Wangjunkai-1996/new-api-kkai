@@ -1,0 +1,754 @@
+{
+  "date": "2026-10-27",
+  "pages": [
+    {
+      "page": "home",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "你的下一份数字好物。",
+      "width": 390
+    },
+    {
+      "page": "product/1",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "灵感工作台独立账号",
+      "width": 390
+    },
+    {
+      "page": "checkout/1",
+      "images": true,
+      "scrollWidth": 391,
+      "title": "确认这份选择",
+      "width": 390
+    },
+    {
+      "page": "orders",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "每一份订单，都在这里",
+      "width": 390
+    },
+    {
+      "page": "order",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "订单详情",
+      "width": 390
+    },
+    {
+      "page": "support",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "我们来解决这个问题",
+      "width": 390
+    },
+    {
+      "page": "admin",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "今天，先处理好每一份交付",
+      "width": 390
+    },
+    {
+      "page": "products",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "商品管理",
+      "width": 390
+    },
+    {
+      "page": "inventory",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "库存管理",
+      "width": 390
+    },
+    {
+      "page": "fulfillment",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "订单处理",
+      "width": 390
+    },
+    {
+      "page": "aftersales",
+      "images": true,
+      "scrollWidth": 390,
+      "title": "售后与退款",
+      "width": 390
+    },
+    {
+      "page": "home",
+      "scrollWidth": 1440,
+      "title": "你的下一份数字好物。",
+      "width": 1440
+    },
+    {
+      "page": "product/1",
+      "scrollWidth": 1440,
+      "title": "灵感工作台独立账号",
+      "width": 1440
+    },
+    {
+      "page": "checkout/1",
+      "scrollWidth": 1440,
+      "title": "确认这份选择",
+      "width": 1440
+    },
+    {
+      "page": "orders",
+      "scrollWidth": 1440,
+      "title": "每一份订单，都在这里",
+      "width": 1440
+    },
+    {
+      "page": "order",
+      "scrollWidth": 1440,
+      "title": "订单详情",
+      "width": 1440
+    },
+    {
+      "page": "support",
+      "scrollWidth": 1440,
+      "title": "我们来解决这个问题",
+      "width": 1440
+    },
+    {
+      "page": "admin",
+      "scrollWidth": 1440,
+      "title": "今天，先处理好每一份交付",
+      "width": 1440
+    },
+    {
+      "page": "products",
+      "scrollWidth": 1440,
+      "title": "商品管理",
+      "width": 1440
+    },
+    {
+      "page": "inventory",
+      "scrollWidth": 1440,
+      "title": "库存管理",
+      "width": 1440
+    },
+    {
+      "page": "fulfillment",
+      "scrollWidth": 1440,
+      "title": "订单处理",
+      "width": 1440
+    },
+    {
+      "page": "aftersales",
+      "scrollWidth": 1440,
+      "title": "售后与退款",
+      "width": 1440
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "normal",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "探索精选"
+        },
+        {
+          "disabled": false,
+          "text": "第一次购买？"
+        },
+        {
+          "disabled": false,
+          "text": "全部商品\n6"
+        },
+        {
+          "disabled": false,
+          "text": "账号\n2"
+        },
+        {
+          "disabled": false,
+          "text": "卡密\n2"
+        },
+        {
+          "disabled": false,
+          "text": "人工服务\n2"
+        },
+        {
+          "disabled": true,
+          "text": "‹"
+        },
+        {
+          "disabled": true,
+          "text": "›"
+        }
+      ],
+      "overflow": false,
+      "page": "#home",
+      "status": "DIGITAL FINDS, EVERYDAY.\n你的下一份\n数字好物。\n\n账号、卡密与开通服务。\n清楚选择，安心交付。\n\n探索精选\n第一次购买？\nKK 商城 / 数字好物陈列\nCOLLECTION 2026\n精选 / 01\nTHE COLLECTION\n让喜欢，成为日常。\n全部商品\n6\n账号\n2\n卡密\n2\n人工服务\n2\n\n每款一种规格 · 共 6 款示例商品\n\n账号\n/\n01\n灵感工作台 · 独立账号\n¥39\nCNY · 演示\nCREATIVE WORKSPACE\n\n个人版 / 30 天使用期\n\n自动交付\n有货\n卡密\n/\n02\n轻记云 · 兑换卡密\n¥29\nCNY · 演示\nNOTES, ORGANIZED.\n\n标准版 / 30 天兑换权益\n\n自动交付\n有货\n人工服务\n/\n03\n个人工具箱 · 开通服务\n¥59\nCNY · 演示\nTOOLS FOR"
+    },
+    {
+      "scenario": "guest",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "商品概念"
+        },
+        {
+          "disabled": false,
+          "text": "纸艺细节"
+        },
+        {
+          "disabled": false,
+          "text": "交付说明"
+        },
+        {
+          "disabled": false,
+          "text": "立即购买"
+        }
+      ],
+      "overflow": false,
+      "page": "#product/1",
+      "status": "KK 商城\n灵感工作台 · 独立账号\n01 / CREATIVE WORKSPACE\n概念插画 · 非真实服务界面\n商品概念\n纸艺细节\n交付说明\n商品内容\n交付与售后\n01\n买到的是什么\n\n为个人创作准备的一份独立空间。交付账号、初始密码与使用说明。\n\n商品规格\n个人版 / 30 天使用期\n交付内容\n独立账号、初始密码、登录说明\n适用范围\n示例服务网页版 · 个人使用\n使用条件\n支持的浏览器与稳定网络\n使用期限\n演示：交付后 30 天，具体以商品规则为准\n资料说明\n演示：不包含恢复资料，不支持改绑\n02\n交付与售后，先说清楚\n\n付款由服务端确认后自动交付。请在「我的订单」中查看，不承诺固定秒数到账。\n\n演示质保：完成交付后 7 天内，可就无法使用或交付不符发起售后。\n支持按商品约定排查、补发或全额原路退款，申请需审核。\n演示：交付内容可重复查看 30"
+    },
+    {
+      "scenario": "soldout",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "商品概念"
+        },
+        {
+          "disabled": false,
+          "text": "纸艺细节"
+        },
+        {
+          "disabled": false,
+          "text": "交付说明"
+        },
+        {
+          "disabled": true,
+          "text": "暂时无法购买"
+        }
+      ],
+      "overflow": false,
+      "page": "#product/1",
+      "status": "KK 商城\n灵感工作台 · 独立账号\n01 / CREATIVE WORKSPACE\n概念插画 · 非真实服务界面\n商品概念\n纸艺细节\n交付说明\n商品内容\n交付与售后\n01\n买到的是什么\n\n为个人创作准备的一份独立空间。交付账号、初始密码与使用说明。\n\n商品规格\n个人版 / 30 天使用期\n交付内容\n独立账号、初始密码、登录说明\n适用范围\n示例服务网页版 · 个人使用\n使用条件\n支持的浏览器与稳定网络\n使用期限\n演示：交付后 30 天，具体以商品规则为准\n资料说明\n演示：不包含恢复资料，不支持改绑\n02\n交付与售后，先说清楚\n\n付款由服务端确认后自动交付。请在「我的订单」中查看，不承诺固定秒数到账。\n\n演示质保：完成交付后 7 天内，可就无法使用或交付不符发起售后。\n支持按商品约定排查、补发或全额原路退款，申请需审核。\n演示：交付内容可重复查看 30"
+    },
+    {
+      "scenario": "empty",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "探索精选"
+        },
+        {
+          "disabled": false,
+          "text": "第一次购买？"
+        },
+        {
+          "disabled": false,
+          "text": "全部商品\n6"
+        },
+        {
+          "disabled": false,
+          "text": "账号\n2"
+        },
+        {
+          "disabled": false,
+          "text": "卡密\n2"
+        },
+        {
+          "disabled": false,
+          "text": "人工服务\n2"
+        },
+        {
+          "disabled": true,
+          "text": "‹"
+        },
+        {
+          "disabled": true,
+          "text": "›"
+        }
+      ],
+      "overflow": false,
+      "page": "#home",
+      "status": "DIGITAL FINDS, EVERYDAY.\n你的下一份\n数字好物。\n\n账号、卡密与开通服务。\n清楚选择，安心交付。\n\n探索精选\n第一次购买？\nKK 商城 / 数字好物陈列\nCOLLECTION 2026\n精选 / 01\nTHE COLLECTION\n让喜欢，成为日常。\n全部商品\n6\n账号\n2\n卡密\n2\n人工服务\n2\n\n每款一种规格 · 共 0 款示例商品\n\n暂无上架商品\n\n可更换关键词或清除分类筛选。\n\n查看全部商品\n商品、售价及权益均为设计演示\n‹\n1 / 1\n›\n规则先知\n规格、条件与售后，购买前可见\n站内领取\n专属数字内容，在自己的订单查看\n订单售后\n处理进展与每次交付，随时可查\nA GOOD START\n每一份选择，\n都有清楚的下一步。\n查看购买指南\n01\n读清商品约定\n\n了解规格、使用条件与售后。\n\n02\n确认订单与付款\n\n按订单金额"
+    },
+    {
+      "scenario": "error",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "探索精选"
+        },
+        {
+          "disabled": false,
+          "text": "第一次购买？"
+        },
+        {
+          "disabled": false,
+          "text": "全部商品\n6"
+        },
+        {
+          "disabled": false,
+          "text": "账号\n2"
+        },
+        {
+          "disabled": false,
+          "text": "卡密\n2"
+        },
+        {
+          "disabled": false,
+          "text": "人工服务\n2"
+        },
+        {
+          "disabled": false,
+          "text": "重新加载"
+        },
+        {
+          "disabled": true,
+          "text": "‹"
+        }
+      ],
+      "overflow": false,
+      "page": "#home",
+      "status": "DIGITAL FINDS, EVERYDAY.\n你的下一份\n数字好物。\n\n账号、卡密与开通服务。\n清楚选择，安心交付。\n\n探索精选\n第一次购买？\nKK 商城 / 数字好物陈列\nCOLLECTION 2026\n精选 / 01\nTHE COLLECTION\n让喜欢，成为日常。\n全部商品\n6\n账号\n2\n卡密\n2\n人工服务\n2\n\n每款一种规格 · 共 6 款示例商品\n\n商品暂时加载失败\n\n请稍后重试，已创建的订单不受影响。\n\n查看我的订单\n重新加载\n商品、售价及权益均为设计演示\n‹\n1 / 1\n›\n规则先知\n规格、条件与售后，购买前可见\n站内领取\n专属数字内容，在自己的订单查看\n订单售后\n处理进展与每次交付，随时可查\nA GOOD START\n每一份选择，\n都有清楚的下一步。\n查看购买指南\n01\n读清商品约定\n\n了解规格、使用条件与售后。\n\n02\n确认订单"
+    },
+    {
+      "scenario": "pricechanged",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "提交订单并前往支付"
+        }
+      ],
+      "overflow": false,
+      "page": "#checkout/1",
+      "status": "KK 商城\n确认订单\n01 选择商品\n02 确认与付款\n03 查看交付\nKK SHOP / SELECTED DIGITAL GOODS\n确认这份选择\n\n虚拟商品 · 每单 1 件 · 商品与条款均为演示\n\n商品信息有更新\n\n演示价格从 ¥35 调整为 ¥39。请重新阅读当前价格和规则，并重新确认购买。\n\n1 商品与交付\n灵感工作台 · 独立账号\n\n个人版 / 30 天使用期 · 数量 1\n\n自动交付\n\n服务端确认付款后自动交付。交付完成后，可在本人的订单中查看专属内容。\n\n2 付款方式\n现有支付渠道\n\n演示入口 · 真实渠道与币种待确认\n\n已选择\n\n该笔款项仅用于本订单，不充值 API 余额。\n\n3 购买须知\n演示：商品使用期 30 天，交付完成后 7 天内可按条款申请售后。\n人工服务以付款与必要资料齐全时间中较晚者开始计算时限。\n售后以本次订单约"
+    },
+    {
+      "scenario": "nochannel",
+      "actions": [
+        {
+          "disabled": true,
+          "text": "提交订单并前往支付"
+        }
+      ],
+      "overflow": false,
+      "page": "#checkout/1",
+      "status": "KK 商城\n确认订单\n01 选择商品\n02 确认与付款\n03 查看交付\nKK SHOP / SELECTED DIGITAL GOODS\n确认这份选择\n\n虚拟商品 · 每单 1 件 · 商品与条款均为演示\n\n1 商品与交付\n灵感工作台 · 独立账号\n\n个人版 / 30 天使用期 · 数量 1\n\n自动交付\n\n服务端确认付款后自动交付。交付完成后，可在本人的订单中查看专属内容。\n\n2 付款方式\n\n当前暂无可用支付渠道。请稍后再试，尚未创建付款。\n\n3 购买须知\n演示：商品使用期 30 天，交付完成后 7 天内可按条款申请售后。\n人工服务以付款与必要资料齐全时间中较晚者开始计算时限。\n售后以本次订单约定为准；原商品款仅支持审核后的全额退款。\n展开完整订单条款（演示）\nKK\nKK 商城\nYOUR DIGITAL RECEIPT\n订单摘要\n01\n灵感工作台 ·"
+    },
+    {
+      "scenario": "pending",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "继续付款"
+        },
+        {
+          "disabled": false,
+          "text": "结束本次购买"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "待付款\n\n请在订单保留时间内完成付款。"
+    },
+    {
+      "scenario": "checking",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "刷新结果"
+        },
+        {
+          "disabled": false,
+          "text": "刷新付款结果"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "付款核实中\n\n正在核实原付款结果，请勿重复支付。\n\n刷新结果"
+    },
+    {
+      "scenario": "delivered",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "已交付，可查看内容\n\n你的数字商品已准备好，请在下方安全查看交付内容。"
+    },
+    {
+      "scenario": "manual",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "已付款，待人工交付\n\n演示：最晚 2026-10-28 14:32（Asia/Shanghai）完成。"
+    },
+    {
+      "scenario": "missing",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "补充信息"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "等待补充信息\n\n请补充本单所需的联系邮箱，资料齐全后开始约定交付时限。"
+    },
+    {
+      "scenario": "closed",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "我已付款，查看核实进度"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "订单已关闭\n\n本次购买已结束；若已付款，付款核实仍会继续。"
+    },
+    {
+      "scenario": "late",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "已收到付款，交付待处理\n\n付款在订单保留到期后确认，当前暂无可用库存。我们正在处理。"
+    },
+    {
+      "scenario": "duplicate",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "已交付，额外付款处理中\n\n正常商品交付继续有效，额外款项有独立退款处理记录。"
+    },
+    {
+      "scenario": "after",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "售后处理中\n\n我们已收到你的问题，当前交付内容仍可查看。"
+    },
+    {
+      "scenario": "paused",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看处理记录"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "交付内容暂不可查看\n\n因本单凭据异常已暂停查看，正在核实并处理。"
+    },
+    {
+      "scenario": "expired",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看处理记录"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "交付查看期限已结束\n\n本单约定的内容查看期限已结束，历史订单和售后记录仍可查看。"
+    },
+    {
+      "scenario": "refund",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看处理记录"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "退款处理中，结果待核实\n\n原商品款退款已批准；正在核实原路退款结果，新的交付与查看已暂停。"
+    },
+    {
+      "scenario": "refunded",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看处理记录"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "支付渠道已确认退款\n\n演示：¥39.00 CNY 已原路退回，实际到账时间以支付渠道与银行为准。"
+    },
+    {
+      "scenario": "reissued",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "补发已完成\n\n新的交付内容已准备好。原交付记录保留，旧内容不再展示。"
+    },
+    {
+      "scenario": "refund_failed",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看处理记录"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "退款失败，仍在跟进\n\n原商品款退款责任保留。需核实旧尝试已结束后，再登记下一次关联尝试。"
+    },
+    {
+      "scenario": "extra_failed",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "查看交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "了解处理流程"
+        }
+      ],
+      "overflow": false,
+      "page": "#order",
+      "status": "已交付，额外付款处理中\n\n正常商品交付继续有效，额外款项有独立退款处理记录。"
+    },
+    {
+      "scenario": "payment_exception",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "筛选订单"
+        },
+        {
+          "disabled": false,
+          "text": "人工交付"
+        },
+        {
+          "disabled": false,
+          "text": "交付异常"
+        },
+        {
+          "disabled": false,
+          "text": "付款差错"
+        },
+        {
+          "disabled": false,
+          "text": "全部订单"
+        },
+        {
+          "disabled": false,
+          "text": "提交交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "请求补充信息"
+        },
+        {
+          "disabled": false,
+          "text": "记录处理进展"
+        }
+      ],
+      "overflow": false,
+      "page": "#fulfillment",
+      "status": "KK SHOP / SELECTED DIGITAL GOODS\n订单处理\n\n优先处理逾期交付与付款异常。所有资金与订单均为演示。\n\n筛选订单\n人工交付\n交付异常\n付款差错\n全部订单\nKK2026102700376\n待人工交付\n个人工具箱 · 开通服务\n\n个人版 / 人工配置 · ¥59.00 CNY\n\n演示交付截止：2026-10-28 14:32（Asia/Shanghai）。已确认付款，必要资料齐全。\n\n买家 ID\nUSER-DEMO-018\n必要联系邮箱\nbuyer@example.test\n有效商品款\n¥59.00 CNY · 已确认\n付款引用\nPAY-DEMO-0376\n质保快照\n演示：交付完成后 7 天\n交付时间口径\n资料齐全后 24 自然小时\n提交交付内容\n请求补充信息\n记录处理进展\n当前处理记录\n资料已齐全\n2026-10-27 14:32 · 演示\n付款已确认\n2026-10-27 14:31 · 演示\n订单创建\n2026-10-27 14:30 · 演示\n付款差错与订单风险\n未匹配 /"
+    },
+    {
+      "scenario": "payment_unmatched",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "筛选订单"
+        },
+        {
+          "disabled": false,
+          "text": "人工交付"
+        },
+        {
+          "disabled": false,
+          "text": "交付异常"
+        },
+        {
+          "disabled": false,
+          "text": "付款差错"
+        },
+        {
+          "disabled": false,
+          "text": "全部订单"
+        },
+        {
+          "disabled": false,
+          "text": "提交交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "请求补充信息"
+        },
+        {
+          "disabled": false,
+          "text": "记录处理进展"
+        }
+      ],
+      "overflow": false,
+      "page": "#fulfillment",
+      "status": "KK SHOP / SELECTED DIGITAL GOODS\n订单处理\n\n优先处理逾期交付与付款异常。所有资金与订单均为演示。\n\n筛选订单\n人工交付\n交付异常\n付款差错\n全部订单\nKK2026102700376\n待人工交付\n个人工具箱 · 开通服务\n\n个人版 / 人工配置 · ¥59.00 CNY\n\n演示交付截止：2026-10-28 14:32（Asia/Shanghai）。已确认付款，必要资料齐全。\n\n买家 ID\nUSER-DEMO-018\n必要联系邮箱\nbuyer@example.test\n有效商品款\n¥59.00 CNY · 已确认\n付款引用\nPAY-DEMO-0376\n质保快照\n演示：交付完成后 7 天\n交付时间口径\n资料齐全后 24 自然小时\n提交交付内容\n请求补充信息\n记录处理进展\n当前处理记录\n资料已齐全\n2026-10-27 14:32 · 演示\n付款已确认\n2026-10-27 14:31 · 演示\n订单创建\n2026-10-27 14:30 · 演示\n付款差错与订单风险\n未匹配 /"
+    },
+    {
+      "scenario": "payment_currency",
+      "actions": [
+        {
+          "disabled": false,
+          "text": "筛选订单"
+        },
+        {
+          "disabled": false,
+          "text": "人工交付"
+        },
+        {
+          "disabled": false,
+          "text": "交付异常"
+        },
+        {
+          "disabled": false,
+          "text": "付款差错"
+        },
+        {
+          "disabled": false,
+          "text": "全部订单"
+        },
+        {
+          "disabled": false,
+          "text": "提交交付内容"
+        },
+        {
+          "disabled": false,
+          "text": "请求补充信息"
+        },
+        {
+          "disabled": false,
+          "text": "记录处理进展"
+        }
+      ],
+      "overflow": false,
+      "page": "#fulfillment",
+      "status": "KK SHOP / SELECTED DIGITAL GOODS\n订单处理\n\n优先处理逾期交付与付款异常。所有资金与订单均为演示。\n\n筛选订单\n人工交付\n交付异常\n付款差错\n全部订单\nKK2026102700376\n待人工交付\n个人工具箱 · 开通服务\n\n个人版 / 人工配置 · ¥59.00 CNY\n\n演示交付截止：2026-10-28 14:32（Asia/Shanghai）。已确认付款，必要资料齐全。\n\n买家 ID\nUSER-DEMO-018\n必要联系邮箱\nbuyer@example.test\n有效商品款\n¥59.00 CNY · 已确认\n付款引用\nPAY-DEMO-0376\n质保快照\n演示：交付完成后 7 天\n交付时间口径\n资料齐全后 24 自然小时\n提交交付内容\n请求补充信息\n记录处理进展\n当前处理记录\n资料已齐全\n2026-10-27 14:32 · 演示\n付款已确认\n2026-10-27 14:31 · 演示\n订单创建\n2026-10-27 14:30 · 演示\n付款差错与订单风险\n未匹配 /"
+    }
+  ],
+  "paymentExceptions": [
+    {
+      "scene": "payment_exception",
+      "text": "付款差错 · 原收款核实\n×\n可信渠道交易\nPAY-DEMO-SHORT-0440 · 实收 19.00 CNY\n渠道 / 商户 / 环境\nDEMO-PAY / DEMO-MERCHANT / test\n关联目标订单\nKK2026102700440 · 应付 39.00 CNY\n当前处理\n待核实 · ADMIN-DEMO\n可信证据场景（演示工具）\n实收 19.00 CNY / 应付 39.00 CNY\n实收 39.00 USD / 应付 39.00 CNY\n实收 39.00 CNY / 原订单映射缺失\n可信主动查单恢复完整映射，39.00 CNY 全部匹配\n处理责任人\n证据引用 / 处理记录\n处理动作\n保留差错并记录进展\n依可信完整匹配恢复映射\n关联原收款差错退款\n\n恢复必须由可信证据同时匹配交易、商户、环境、订单归属、金额与币种。短款或异币种不能手工确认成功；无法匹配则保留差错或按原实收退款。\n\n可信实收已保存；尚未确认为有效商品款\n关闭\n核对并保存处理"
+    },
+    {
+      "scene": "payment_unmatched",
+      "text": "付款差错 · 原收款核实\n×\n可信渠道交易\nPAY-DEMO-UNMATCHED-0440 · 实收 39.00 CNY\n渠道 / 商户 / 环境\nDEMO-PAY / DEMO-MERCHANT / test\n关联目标订单\nKK2026102700440 · 应付 39.00 CNY\n当前处理\n待核实 · ADMIN-DEMO\n可信证据场景（演示工具）\n实收 19.00 CNY / 应付 39.00 CNY\n实收 39.00 USD / 应付 39.00 CNY\n实收 39.00 CNY / 原订单映射缺失\n可信主动查单恢复完整映射，39.00 CNY 全部匹配\n处理责任人\n证据引用 / 处理记录\n处理动作\n保留差错并记录进展\n依可信完整匹配恢复映射\n关联原收款差错退款\n\n恢复必须由可信证据同时匹配交易、商户、环境、订单归属、金额与币种。短款或异币种不能手工确认成功；无法匹配则保留差错或按原实收退款。\n\n可信实收已保存；尚未确认为有效商品款\n关闭\n核对并保存处理"
+    },
+    {
+      "scene": "payment_currency",
+      "text": "付款差错 · 原收款核实\n×\n可信渠道交易\nPAY-DEMO-CURRENCY-0440 · 实收 39.00 USD\n渠道 / 商户 / 环境\nDEMO-PAY / DEMO-MERCHANT / test\n关联目标订单\nKK2026102700440 · 应付 39.00 CNY\n当前处理\n待核实 · ADMIN-DEMO\n可信证据场景（演示工具）\n实收 19.00 CNY / 应付 39.00 CNY\n实收 39.00 USD / 应付 39.00 CNY\n实收 39.00 CNY / 原订单映射缺失\n可信主动查单恢复完整映射，39.00 CNY 全部匹配\n处理责任人\n证据引用 / 处理记录\n处理动作\n保留差错并记录进展\n依可信完整匹配恢复映射\n关联原收款差错退款\n\n恢复必须由可信证据同时匹配交易、商户、环境、订单归属、金额与币种。短款或异币种不能手工确认成功；无法匹配则保留差错或按原实收退款。\n\n可信实收已保存；尚未确认为有效商品款\n关闭\n核对并保存处理"
+    }
+  ],
+  "fixes": [
+    {
+      "issue": "Mobile receipt pseudo element attached to viewport caused 1px overflow",
+      "fix": "Mobile receipt panel position:relative",
+      "recheck": [
+        {
+          "width": 320,
+          "scrollWidth": 320
+        },
+        {
+          "width": 390,
+          "scrollWidth": 390
+        }
+      ]
+    }
+  ],
+  "consoleErrors": [],
+  "limitations": [
+    "Not a complete screen reader audit",
+    "200% browser zoom not tested",
+    "No real backend or payment calls"
+  ]
+}

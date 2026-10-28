@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	KnownCatalogVersion     int64 = WalletPaymentSchemaVersion
+	KnownCatalogVersion     int64 = ShopSchemaVersion
 	MigrationContractSchema       = 1
 
 	MigrationKindNone     = "none"

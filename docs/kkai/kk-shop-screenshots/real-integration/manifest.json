@@ -1,0 +1,2466 @@
+{
+  "mode": "React → actual Go HTTP → disposable PostgreSQL; no application API mocks",
+  "checks": [
+    {
+      "scene": "actual-password-login-buyer",
+      "passed": true
+    },
+    {
+      "scene": "real-product-terms",
+      "passed": true
+    },
+    {
+      "scene": "real-order-create-with-terms",
+      "termsRequired": true,
+      "orderCreated": true
+    },
+    {
+      "scene": "real-payment-create-and-signed-simulated-gateway",
+      "passed": true,
+      "externalGateway": "local TLS simulator only"
+    },
+    {
+      "scene": "actual-automatic-delivery-secret-lifecycle",
+      "delivered": true,
+      "revealPresent": true,
+      "hiddenOnPageHide": true,
+      "secretAbsentFromStorage": true
+    },
+    {
+      "scene": "real-buyer-aftersale-created",
+      "status": 201,
+      "caseCreated": true
+    },
+    {
+      "scene": "actual-manual-order-payment",
+      "created": true,
+      "externalGateway": "local simulator"
+    },
+    {
+      "scene": "real-admin-password-proof-manual-delivery",
+      "status": 200,
+      "verifyStatus": 200
+    },
+    {
+      "scene": "actual-aftersale-conversation-and-resolution",
+      "buyerMessage": true,
+      "adminAccept": true,
+      "adminPublicMessage": true,
+      "adminResolve": true,
+      "buyerSeesResolution": true
+    },
+    {
+      "scene": "actual-product-edit-preserves-order-snapshot",
+      "savedStatus": 200,
+      "newPriceMinor": "135",
+      "existingOrderPricePreserved": true
+    },
+    {
+      "scene": "actual-inventory-import",
+      "invalidRowsBlocked": true,
+      "previewStatus": 200,
+      "commitStatus": 200,
+      "inserted": 1,
+      "secretInputCleared": true
+    },
+    {
+      "scene": "timeline-localization-mobile",
+      "nonemptyTimeline": true,
+      "mobileWidth": 390,
+      "viewportWidth": 390
+    },
+    {
+      "scene": "admin-nav-exact-overview",
+      "links": [
+        {
+          "text": "概览",
+          "status": null
+        },
+        {
+          "text": "产品",
+          "status": null
+        },
+        {
+          "text": "库存",
+          "status": null
+        },
+        {
+          "text": "订单",
+          "status": "active"
+        },
+        {
+          "text": "售后支持",
+          "status": null
+        },
+        {
+          "text": "收款凭证",
+          "status": null
+        },
+        {
+          "text": "退款",
+          "status": null
+        },
+        {
+          "text": "设置",
+          "status": null
+        }
+      ]
+    },
+    {
+      "scene": "long-order-number-mobile-wrap",
+      "clientWidth": 326,
+      "scrollWidth": 326,
+      "wrap": "anywhere",
+      "fullIdentifierPreserved": true
+    },
+    {
+      "scene": "admin-audit-reason-label",
+      "visibleLabel": true,
+      "requiredPreserved": true
+    }
+  ],
+  "errors": [],
+  "responses": [
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/categories",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/api/user/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/categories",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products/sp_0ba19a6c64a77dd058292cfaba3bc7b8138b",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 504
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 504
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/api/user/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products/sp_4cbcb8a12fcf1a88f76a622c0fffba02238c",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products/sp_4cbcb8a12fcf1a88f76a622c0fffba02238c",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products/sp_4cbcb8a12fcf1a88f76a622c0fffba02238c",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/payment-attempts",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/reconcile",
+      "method": "POST",
+      "status": 202
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/reveal",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/aftersales",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/aftersales",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/aftersales",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4/messages",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/aftersales",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products/sp_b0a27c3940c270eb879cb85fc1995847d6d8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/products/sp_b0a27c3940c270eb879cb85fc1995847d6d8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f/payment-attempts",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f/reconcile",
+      "method": "POST",
+      "status": 202
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/api/user/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f/claim",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/verify/methods",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/verify",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f/deliveries",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f/reveal",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4/decisions",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4/messages",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4/decisions",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8/aftersales",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/aftersales/sa_418772021165b9796653fd39c849c793d9f4",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products/sp_b0a27c3940c270eb879cb85fc1995847d6d8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/categories",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/settings",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products/sp_b0a27c3940c270eb879cb85fc1995847d6d8",
+      "method": "PATCH",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/settings",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products/sp_b0a27c3940c270eb879cb85fc1995847d6d8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/categories",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/inventory",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products/sp_4cbcb8a12fcf1a88f76a622c0fffba02238c",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/inventory",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/inventory/import-preview",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/inventory/import-commit",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/inventory",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/products/sp_4cbcb8a12fcf1a88f76a622c0fffba02238c",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/setup",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/user/auth/refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/notice",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/site-config",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/shop/orders/so_131f3049be2cdcef626edefd9d09a23c314f",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/requests/notifications",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/shop/orders/so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "failures": [],
+  "blocked": [
+    "https://api.github.com/repos/QuantumNous/new-api/releases",
+    "https://api.github.com/repos/QuantumNous/new-api/releases"
+  ],
+  "unavailableLocalService": {
+    "path": "/invitations/api/invitations/status",
+    "status": 504
+  },
+  "authMode": "Real password login in separate buyer/admin contexts, real JWT/session refresh and real password security proof; no token injection",
+  "gatewayBoundary": "Only external Epay merchant endpoint is simulated on localhost TLS; application payment routes, signed notify, reconciliation, worker and database are real",
+  "startupNotes": [
+    "Initial harness Setup flag fixed before business acceptance",
+    "Initial harness restart produced transient status/notifications 504 and stale-session 401; buyer logged in again after final READY",
+    "Independent invitations service at port6212 is not started, so status request returns504; commerce APIs are not mocked"
+  ],
+  "commerceSummary": {
+    "requests": 130,
+    "failed": []
+  },
+  "screenshotDirectory": ".",
+  "screenshots": [
+    "01-catalog-real-desktop.png",
+    "02-product-terms-real.png",
+    "03-checkout-real.png",
+    "04-real-payment-attempt.png",
+    "05-external-gateway-simulation.png",
+    "06-automatic-delivery-masked-real.png",
+    "07-aftersale-created-real.png",
+    "08-admin-order-timeline-fixed.png",
+    "09-manual-delivery-admin-real.png",
+    "10-manual-delivery-buyer-masked-real.png",
+    "11-aftersale-resolution-admin-real.png",
+    "12-aftersale-resolution-buyer-real.png",
+    "13-product-edit-real.png",
+    "14-inventory-import-cleared-real.png",
+    "15-buyer-order-mobile-dark-real.png",
+    "16-admin-timeline-detail-real.png"
+  ],
+  "sourceFixes": [
+    "Localized fallback for empty timeline summaries, public note preserved and unknown event safe fallback",
+    "Admin overview link uses exact matching",
+    "Support resolution key replaces ambiguous Resolution translation",
+    "Long heading descriptions wrap anywhere, preserving full order IDs on mobile",
+    "Admin protected reveal now shows a visible translated Reason label while preserving required validation"
+  ],
+  "validation": {
+    "timelineTest": {
+      "command": "bunx vitest run src/features/shop/components/common.test.tsx",
+      "files": 1,
+      "tests": 6,
+      "durationSeconds": 1.69,
+      "result": "PASS"
+    },
+    "hooksTest": {
+      "command": "bunx vitest run src/features/shop/hooks/use-shop.test.tsx",
+      "files": 1,
+      "tests": 7,
+      "durationSeconds": 1.27,
+      "result": "PASS"
+    },
+    "typecheck": {
+      "command": "bunx tsgo --project tsconfig.shop.tmp.json --noEmit",
+      "result": "PASS",
+      "session": 36793
+    },
+    "lint": {
+      "command": "bunx oxlint -c .oxlintrc.json src/features/shop/components/common.tsx src/features/shop/components/common.test.tsx src/features/shop/hooks/use-shop.test.tsx src/features/shop/pages/orders.tsx src/features/shop-admin/pages/orders.tsx src/features/shop-admin/pages/aftersales.tsx src/routes/_authenticated/shop-admin/route.tsx",
+      "result": "PASS"
+    },
+    "format": {
+      "command": "bunx oxfmt --check src/features/shop/components/common.tsx src/features/shop/components/common.test.tsx src/features/shop/hooks/use-shop.test.tsx src/features/shop/pages/orders.tsx src/features/shop-admin/pages/orders.tsx src/features/shop-admin/pages/aftersales.tsx src/routes/_authenticated/shop-admin/route.tsx",
+      "result": "PASS7files"
+    },
+    "i18n": {
+      "command": "node /tmp/kk-shop-check-i18n.mjs",
+      "result": "PASS422keys×7locales; no missing/interpolation/unintended untranslated"
+    },
+    "diffCheck": {
+      "command": "git diff --check -- src/features/shop src/features/shop-admin src/routes/_authenticated/shop-admin src/i18n/locales",
+      "result": "PASS"
+    },
+    "fullSuite": "SKIPPED",
+    "productionBuild": "SKIPPED",
+    "localeWrites": {
+      "commands": [
+        "node scripts/add-missing-keys.mjs",
+        "bun run i18n:sync"
+      ],
+      "result": "10new keys×7locales; temporary writer scripts removed"
+    },
+    "cssFormat": {
+      "command": "bunx oxfmt --check src/styles/shop.css",
+      "result": "PASS"
+    },
+    "auditReasonLabel": {
+      "commands": [
+        "bunx oxlint -c .oxlintrc.json src/features/shop-admin/components/private-reveal.tsx",
+        "bunx oxfmt --check src/features/shop-admin/components/private-reveal.tsx",
+        "bunx tsgo --project tsconfig.shop.tmp.json --noEmit",
+        "git diff --check -- src/features/shop-admin/components/private-reveal.tsx src/styles/shop.css"
+      ],
+      "result": "PASS; scoped typecheck session52193; temporary config removed"
+    }
+  },
+  "backendTimelineFinding": {
+    "orderNo": "so_f784c85cf71012fc6879b7f5ceaeb02a68f8",
+    "observed": "Two payment_received entries for one receipt; PostgreSQL evidence confirms one receipt and one delivery",
+    "cause": "Old backend emitted payment_received both during callback review and after provider query matched the receipt",
+    "status": "Backend reviewer fixed and passed four targeted regression tests; screenshots retain the pre-fix backend history and are not a post-fix business rerun",
+    "historyPreserved": true
+  },
+  "cleanup": {
+    "isolatedBrowserClosed": true,
+    "temporaryTypecheckFilesRemoved": true,
+    "temporaryLocaleWritersRemoved": true,
+    "frontendDevServer": "Stopped sessions45437,35746,45093 with Ctrl-C; port5178 no listener",
+    "backend": "owned by payment_security_review; left for targeted backend regression",
+    "screenshotOnlyBrowserClosed": true,
+    "allIsolatedBrowsersClosed": true
+  },
+  "screenshotNotes": [
+    "Admin delivery-history audit reason input now has a visible label; required validation preserved",
+    "Delivery/account contents are masked in final screenshots",
+    "Development-only TanStack controls are visible"
+  ]
+}

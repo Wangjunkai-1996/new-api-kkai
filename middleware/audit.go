@@ -115,6 +115,9 @@ func beginAdminAudit(c *gin.Context) *auditResponseWriter {
 		body:           bytes.NewBuffer(nil),
 		maxSize:        64 * 1024,
 	}
+	if c.GetBool("audit_metadata_only") {
+		writer.maxSize = 0
+	}
 	c.Writer = writer
 	return writer
 }
