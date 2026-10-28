@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { getAdapter } from 'axios'
+import { t } from 'i18next'
+import { z } from 'zod'
+
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   videoTokenCapabilitySchema,
@@ -50,6 +55,32 @@ type ApiEnvelope<T> = {
   message?: string
   data?: T
 }
+
+// The legacy UI cannot reconcile V2 submissions. Only fully accepted V1 records
+// permit generation after a rollback; preserve unknown or unreadable data.
+const legacyAcceptedSubmissionsSchema = z
+  .object({
+    version: z.literal(1),
+    records: z.array(
+      z
+        .object({
+          version: z.literal(1),
+          userId: z.number().int().positive().safe(),
+          operationId: z.string().min(1).max(128),
+          requestFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+          createdAt: z.number().int().positive().safe(),
+          updatedAt: z.number().int().positive().safe(),
+          state: z.literal('accepted'),
+          taskId: z
+            .string()
+            .max(128)
+            .regex(/^task_[0-9A-Za-z_-]+$/),
+          generationId: z.number().int().positive().safe().optional(),
+        })
+        .strict()
+    ),
+  })
+  .strict()
 
 const unwrapVideoStudioResponse = <T>(payload: T | ApiEnvelope<T>): T => {
   if (
@@ -136,9 +167,44 @@ export const createVideoGeneration = async (
   request: CreateVideoRequest,
   idempotencyKey: string
 ): Promise<VideoSubmissionReceipt> => {
+  const identity = useAuthStore.getState().auth
+  const transport = getAdapter(api.defaults.adapter)
   const response = await api.post('/pg/videos', request, {
     headers: { 'Idempotency-Key': idempotencyKey },
     skipErrorHandler: true,
+    skipAuthRefresh: true,
+    adapter: (config) => {
+      try {
+        const ownerId = identity.user?.id
+        if (
+          !ownerId ||
+          !Number.isSafeInteger(ownerId) ||
+          ownerId <= 0 ||
+          identity !== useAuthStore.getState().auth
+        ) {
+          throw new Error('Video submission identity changed')
+        }
+        // Interceptors are asynchronous; read recovery data at dispatch time.
+        const raw = window.localStorage.getItem(
+          `video-studio-submissions:user:${ownerId}`
+        )
+        if (raw !== null) {
+          const { records } = legacyAcceptedSubmissionsSchema.parse(
+            JSON.parse(raw)
+          )
+          if (
+            records.some((record) => record.userId !== ownerId) ||
+            new Set(records.map((record) => record.operationId)).size !==
+              records.length
+          ) {
+            throw new Error('Invalid video recovery ownership')
+          }
+        }
+      } catch {
+        throw new Error(t('videoStudio.submissionUnknown'))
+      }
+      return transport(config)
+    },
   })
   return unwrapVideoStudioResponse<VideoSubmissionReceipt>(response.data)
 }
