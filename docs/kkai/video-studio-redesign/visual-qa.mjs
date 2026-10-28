@@ -10,8 +10,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(process.env.QA_NODE_PACKAGE || resolve(here, '../../../web/default/package.json'))
 const { chromium } = require('playwright')
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
-const base = 'http://127.0.0.1:4875'
-const output = resolve(here, 'screenshots/implementation')
+const base = process.env.QA_BASE_URL || 'http://127.0.0.1:4875'
+const output = resolve(process.env.QA_OUTPUT_DIR || resolve(here, 'screenshots/implementation'))
 await mkdir(output, { recursive: true })
 const context = await browser.newContext({ viewport: { width: 1440, height: 1280 } })
 const page = await context.newPage()
@@ -138,23 +138,27 @@ async function assertPageAlignment(scene, width) {
   await page.waitForFunction(width => document.documentElement.scrollWidth === width, width, { timeout: 3000 })
   const layout = await page.evaluate(() => {
     const root = document.querySelector('main#content')
+    const rootRect = root.getBoundingClientRect()
     const header = root.querySelector('.video-studio-header').getBoundingClientRect()
     const body = root.querySelector('.video-studio-page-content, .video-studio-workspace').getBoundingClientRect()
     return {
       headerLeft: header.left,
       bodyLeft: body.left,
+      leftInset: header.left - rootRect.left,
+      rightInset: rootRect.right - header.right,
       pageFits: root.scrollWidth <= root.clientWidth + 1,
       documentWidth: document.documentElement.scrollWidth,
     }
   })
   assert.ok(Math.abs(layout.headerLeft - layout.bodyLeft) <= 2, `${scene}: header and content align`)
+  assert.ok(layout.leftInset <= 32 && layout.rightInset <= 32, `${scene}: content uses available width`)
   assert.equal(layout.pageFits, true, `${scene}: page has no horizontal overflow`)
   assert.equal(layout.documentWidth, width, `${scene}: document has no horizontal overflow`)
   evidence.push({ scene, ...layout })
 }
 async function assertLibraryLayout(scene, width, expectedCounts = [2, 1]) {
   await assertPageAlignment(scene, width)
-  const groups = await page.locator('section .video-studio-library-grid').evaluateAll(grids => grids.map(grid => {
+  const groups = await page.locator('section .video-studio-library-grid').evaluateAll((grids, width) => grids.map(grid => {
     const group = grid.getBoundingClientRect()
     const date = grid.previousElementSibling.getBoundingClientRect()
     const toolbar = document.querySelector('.video-studio-page-toolbar').getBoundingClientRect()
@@ -163,12 +167,16 @@ async function assertLibraryLayout(scene, width, expectedCounts = [2, 1]) {
       cards: cards.length,
       titleOffset: Math.abs(toolbar.left - date.left),
       dateOffset: Math.abs(date.left - cards[0].left),
+      firstRowFits: cards.length < 2 || width < 1440 || Math.abs(cards[0].top - cards[1].top) <= 2,
+      cardsStayReadable: cards.every(card => card.width <= 600),
       cardsFit: cards.every(card => card.left >= group.left - 1 && card.right <= group.right + 1),
     }
-  }))
+  }), width)
   assert.deepEqual(groups.map(group => group.cards), expectedCounts, `${scene}: date groups`)
   assert.ok(groups.every(group => group.titleOffset <= 2), `${scene}: dates align with page title`)
   assert.ok(groups.every(group => group.dateOffset <= 2), `${scene}: dates align with first cards`)
+  assert.ok(groups.every(group => group.firstRowFits), `${scene}: desktop cards share a row`)
+  assert.ok(groups.every(group => group.cardsStayReadable), `${scene}: sparse cards stay compact`)
   assert.ok(groups.every(group => group.cardsFit), `${scene}: cards fit their groups`)
   evidence.push({ scene, groups })
 }
@@ -213,6 +221,9 @@ try {
   await assertRatioLayout('ratio-wide-desktop')
   await assertPageAlignment('create-wide-desktop', 1989)
   await capture('dark-create-wide-desktop')
+  await page.setViewportSize({ width: 2304, height: 1400 })
+  await assertPageAlignment('create-ultrawide-desktop', 2304)
+  await capture('dark-create-ultrawide-desktop')
   await page.setViewportSize({ width: 1440, height: 1280 })
   await page.getByRole('button', { name: '播放视频', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('.video-studio-player video')?.readyState >= 2)
@@ -263,6 +274,9 @@ try {
   await page.setViewportSize({ width: 1989, height: 1248 })
   await assertLibraryLayout('library-wide-desktop', 1989)
   await capture('dark-library-wide-desktop')
+  await page.setViewportSize({ width: 2304, height: 1400 })
+  await assertLibraryLayout('library-ultrawide-desktop', 2304)
+  await capture('dark-library-ultrawide-desktop')
   for (const width of [1024, 768]) {
     await page.setViewportSize({ width, height: 1024 })
     await assertLibraryLayout(`library-${width}`, width)
@@ -289,6 +303,10 @@ try {
   await assertTaskLayout('tasks-wide-desktop', 1989)
   await page.evaluate(() => document.activeElement?.blur())
   await capture('dark-tasks-wide-desktop')
+  await page.setViewportSize({ width: 2304, height: 1400 })
+  await assertTaskLayout('tasks-ultrawide-desktop', 2304)
+  await page.evaluate(() => document.activeElement?.blur())
+  await capture('dark-tasks-ultrawide-desktop')
   await page.setViewportSize({ width: 1440, height: 1280 })
   await capture('dark-tasks-desktop')
   for (const width of [390, 320]) {
