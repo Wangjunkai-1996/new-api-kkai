@@ -594,9 +594,7 @@ export function VideoComposer(props: VideoComposerProps) {
                             {mode === 'first_last_frame' && (
                               <Layers aria-hidden='true' />
                             )}
-                            <span className='truncate'>
-                              {t(VIDEO_MODE_LABEL_KEYS[mode])}
-                            </span>
+                            <span>{t(VIDEO_MODE_LABEL_KEYS[mode])}</span>
                           </ToggleGroupItem>
                         ))}
                       </ToggleGroup>

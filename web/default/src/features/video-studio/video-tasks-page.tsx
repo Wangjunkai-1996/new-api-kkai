@@ -126,7 +126,12 @@ function VideoTasksContent() {
                     )}
                   </div>
                   <div className='video-studio-task-info'>
-                    <h3>{generation.prompt}</h3>
+                    <details className='video-studio-task-prompt'>
+                      <summary aria-label={t('videoStudio.prompt')}>
+                        <span>{generation.prompt}</span>
+                      </summary>
+                      <p>{generation.prompt}</p>
+                    </details>
                     <p>{generation.model}</p>
                     <button
                       type='button'

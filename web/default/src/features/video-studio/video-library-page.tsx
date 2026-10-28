@@ -422,7 +422,11 @@ function VideoLibraryContent(
           </div>
         )}
         {groups.map(([date, items]) => (
-          <section key={date} aria-label={date}>
+          <section
+            key={date}
+            className='video-studio-library-group'
+            aria-label={date}
+          >
             <h3 className='video-studio-library-date'>{date}</h3>
             <div className='video-studio-library-grid'>
               {items.map((generation) => (
