@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
   --shop-paper: #f7f5ef;
   --shop-ink: #242b34;
   --shop-line: #dcdedb;
-  --shop-art: #eeeee7;
+  --shop-art: #e7eeed;
   color: var(--shop-ink);
   background: var(--shop-paper);
   border-radius: 1.5rem;
@@ -31,7 +31,7 @@ For commercial licensing, please contact support@quantumnous.com
   --shop-paper: #171d23;
   --shop-ink: #e9edea;
   --shop-line: #3b444c;
-  --shop-art: #d8dfdb;
+  --shop-art: #26313a;
 }
 .shop * {
   min-width: 0;
@@ -106,36 +106,6 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--primary);
   color: var(--primary-foreground);
 }
-.shop-hero {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  align-items: center;
-  gap: 1rem;
-  min-height: 270px;
-  padding: 1.5rem 2rem;
-  border: 1px solid var(--shop-line);
-  border-radius: 1.5rem;
-  margin-bottom: 1.75rem;
-  overflow: hidden;
-}
-.shop-hero h1 {
-  font-size: clamp(2rem, 4vw, 3.3rem);
-  line-height: 1.12;
-  font-weight: 650;
-  letter-spacing: -0.045em;
-  margin: 0.6rem 0 1rem;
-  max-width: 14ch;
-}
-.shop-hero img {
-  width: 100%;
-  max-height: 260px;
-  object-fit: contain;
-  mix-blend-mode: multiply;
-}
-.dark .shop-hero img {
-  mix-blend-mode: normal;
-  border-radius: 1rem;
-}
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -171,6 +141,22 @@ For commercial licensing, please contact support@quantumnous.com
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+.shop-product-placeholder {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  height: 100%;
+  color: var(--shop-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.shop-product-placeholder svg {
+  width: 3rem;
+  height: 3rem;
+  color: var(--primary);
 }
 .shop-card-content {
   padding: 1.15rem;
@@ -333,25 +319,11 @@ For commercial licensing, please contact support@quantumnous.com
     position: relative;
     top: auto;
   }
-  .shop-hero {
-    padding: 1.25rem;
-  }
 }
 @media (max-width: 540px) {
   .shop {
     padding: 1rem;
     border-radius: 1rem;
-  }
-  .shop-hero {
-    grid-template-columns: 1fr 42%;
-    padding: 1rem;
-    min-height: 210px;
-  }
-  .shop-hero h1 {
-    font-size: 1.8rem;
-  }
-  .shop-hero img {
-    min-height: 110px;
   }
   .shop-grid {
     gap: 0.7rem;
@@ -375,12 +347,6 @@ For commercial licensing, please contact support@quantumnous.com
 @media (max-width: 359px) {
   .shop-grid {
     grid-template-columns: 1fr;
-  }
-  .shop-hero {
-    grid-template-columns: 1fr;
-  }
-  .shop-hero img {
-    max-height: 120px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -86,10 +86,10 @@ const commitSchema = z.object({
   inserted_count: z.number().int(),
 })
 
-export function AdminInventoryPage() {
+export function AdminInventoryPage(props: { productId?: string } = {}) {
   const { t } = useTranslation()
   const identity = useShopIdentity()
-  const [productId, setProductId] = useState('')
+  const [productId, setProductId] = useState(props.productId ?? '')
   const [state, setState] = useState('')
   const [page, setPage] = useState(1)
   const products = useShopQuery(
@@ -233,6 +233,7 @@ function InventoryImport(props: { productId: string }) {
   const identity = useShopIdentity()
   const queryClient = useQueryClient()
   const [text, setText] = useState('')
+  const [advancedText, setAdvancedText] = useState('')
   const [invalid, setInvalid] = useState(false)
   const [marker, setMarker] = useState<RecoveryMarker | null>(() =>
     readRecovery('import-commit', props.productId)
@@ -252,6 +253,7 @@ function InventoryImport(props: { productId: string }) {
   useEffect(() => {
     const clear = () => {
       setText('')
+      setAdvancedText('')
       rows.current = null
     }
     const hide = () => {
@@ -280,31 +282,166 @@ function InventoryImport(props: { productId: string }) {
       finishRecovery('import-commit', props.productId)
       setMarker(null)
       setText('')
+      setAdvancedText('')
       rows.current = null
       preview.clear()
       await queryClient.invalidateQueries({ queryKey: ['private-user'] })
     }
   }
+  const deliveryFields =
+    product.data?.delivery_fields.map((field) => field.key) ?? []
+  let format: 'account' | 'card' | null = null
+  if (product.data?.delivery_type === 'automatic') {
+    if (
+      product.data.product_type === 'account' &&
+      deliveryFields.length === 2 &&
+      deliveryFields.includes('account_identifier') &&
+      deliveryFields.includes('password')
+    ) {
+      format = 'account'
+    } else if (
+      product.data.product_type === 'card' &&
+      deliveryFields.length === 1 &&
+      deliveryFields[0] === 'card_code'
+    ) {
+      format = 'card'
+    }
+  }
+
+  const previewImport = async (advanced: boolean) => {
+    setInvalid(false)
+    try {
+      const source = advanced ? advancedText : text
+      if (new TextEncoder().encode(source).length > 1048576) throw new Error()
+      let parsed: z.infer<typeof rowsSchema>
+      if (advanced) {
+        parsed = rowsSchema.parse(JSON.parse(source))
+      } else {
+        if (!format) throw new Error()
+        const lines = source.replaceAll('\r\n', '\n').split('\n')
+        while (lines.at(-1) === '') lines.pop()
+        if (lines.some((line) => line.includes('\r') || line.includes('\0'))) {
+          throw new Error()
+        }
+        parsed = rowsSchema.parse(
+          lines.map((line) => {
+            if (format === 'card') {
+              if (!line.trim() || line.includes('\t')) throw new Error()
+              const code = line.trim()
+              return {
+                identity: code,
+                secret_fields: [{ key: 'card_code', value: code }],
+              }
+            }
+            const pair = line.split('\t')
+            if (pair.length !== 2 || !pair[0].trim() || !pair[1].trim()) {
+              throw new Error()
+            }
+            return {
+              identity: pair[0].trim(),
+              secret_fields: [
+                { key: 'account_identifier', value: pair[0].trim() },
+                { key: 'password', value: pair[1] },
+              ],
+            }
+          })
+        )
+      }
+      if (new TextEncoder().encode(JSON.stringify(parsed)).length > 1048576) {
+        throw new Error()
+      }
+      rows.current = parsed
+      await preview.read((signal) =>
+        shopRequest(
+          '/api/admin/shop/inventory/import-preview',
+          importPreviewSchema,
+          {
+            method: 'POST',
+            body: {
+              product_id: props.productId,
+              product_version: product.data?.version,
+              template_version: product.data?.template_version,
+              rows: parsed,
+            },
+            signal,
+          }
+        )
+      )
+    } catch {
+      rows.current = null
+      setInvalid(true)
+    }
+  }
   return (
     <section className='shop-panel mt-6'>
       <h2>{t('Import inventory')}</h2>
-      <p className='shop-muted'>
-        {t(
-          'Paste a JSON array with identity and secret_fields. Identity is the stable unique account or card identifier. Maximum 200 rows and 1 MiB.'
-        )}
-      </p>
-      <Textarea
-        aria-label={t('Inventory data')}
-        autoComplete='off'
-        spellCheck={false}
-        rows={8}
-        value={text}
-        onChange={(event) => {
-          setText(event.target.value)
-          rows.current = null
-          preview.clear()
-        }}
-      />
+      {product.data?.delivery_type === 'manual' && (
+        <p className='shop-muted'>
+          {t(
+            'Manual delivery products do not use inventory. Deliver from the order.'
+          )}
+        </p>
+      )}
+      {format && (
+        <>
+          <p className='shop-muted'>
+            {format === 'account'
+              ? t(
+                  'One account and password per line, separated by a tab. Maximum 200 lines.'
+                )
+              : t('One redemption code per line. Maximum 200 lines.')}
+          </p>
+          <Textarea
+            aria-label={
+              format === 'account'
+                ? t('Accounts and passwords')
+                : t('Redemption codes')
+            }
+            autoComplete='off'
+            spellCheck={false}
+            rows={8}
+            value={text}
+            onChange={(event) => {
+              setText(event.target.value)
+              setInvalid(false)
+              rows.current = null
+              preview.clear()
+            }}
+          />
+        </>
+      )}
+      {product.data?.delivery_type === 'automatic' && (
+        <details className='mt-4' open={!format}>
+          <summary className='cursor-pointer font-semibold'>
+            {t('Advanced JSON import')}
+          </summary>
+          <p className='shop-muted mt-3'>
+            {t(
+              'Paste a JSON array with identity and secret_fields. Identity is the stable unique account or card identifier. Maximum 200 rows and 1 MiB.'
+            )}
+          </p>
+          <Textarea
+            aria-label={t('Inventory data')}
+            autoComplete='off'
+            spellCheck={false}
+            rows={8}
+            value={advancedText}
+            onChange={(event) => {
+              setAdvancedText(event.target.value)
+              setInvalid(false)
+              rows.current = null
+              preview.clear()
+            }}
+          />
+          <Button
+            className='mt-3'
+            disabled={!product.data || preview.pending || action.pending}
+            onClick={() => void previewImport(true)}
+          >
+            {t('Preview JSON import')}
+          </Button>
+        </details>
+      )}
       {invalid && (
         <p role='alert'>
           {t(
@@ -313,39 +450,14 @@ function InventoryImport(props: { productId: string }) {
         </p>
       )}
       <div className='shop-actions'>
-        <Button
-          disabled={!product.data || preview.pending || action.pending}
-          onClick={async () => {
-            setInvalid(false)
-            try {
-              if (new TextEncoder().encode(text).length > 1048576) {
-                throw new Error()
-              }
-              rows.current = rowsSchema.parse(JSON.parse(text))
-              await preview.read((signal) =>
-                shopRequest(
-                  '/api/admin/shop/inventory/import-preview',
-                  importPreviewSchema,
-                  {
-                    method: 'POST',
-                    body: {
-                      product_id: props.productId,
-                      product_version: product.data?.version,
-                      template_version: product.data?.template_version,
-                      rows: rows.current,
-                    },
-                    signal,
-                  }
-                )
-              )
-            } catch {
-              rows.current = null
-              setInvalid(true)
-            }
-          }}
-        >
-          {t('Preview import')}
-        </Button>
+        {format && (
+          <Button
+            disabled={!product.data || preview.pending || action.pending}
+            onClick={() => void previewImport(false)}
+          >
+            {t('Preview import')}
+          </Button>
+        )}
         {marker && (
           <Button variant='outline' onClick={resolve}>
             {t('Recover import result')}
@@ -402,6 +514,7 @@ function InventoryImport(props: { productId: string }) {
                 finishRecovery('import-commit', props.productId)
                 setMarker(null)
                 setText('')
+                setAdvancedText('')
                 rows.current = null
                 preview.clear()
               }

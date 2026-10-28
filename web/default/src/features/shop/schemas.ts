@@ -399,6 +399,10 @@ export const reminderSchema = z.object({
   refund_verification_seconds: z.number(),
 })
 export const settingsSchema = z.object({
+  payment_ready: z.boolean().optional(),
+  current_provider_account_ref: z.string().optional(),
+  payment_account_changed: z.boolean().optional(),
+  payment_config_ready: z.boolean().optional(),
   provider_account_ref: z.string().optional(),
   environment: z.string().optional(),
   version: versionSchema,

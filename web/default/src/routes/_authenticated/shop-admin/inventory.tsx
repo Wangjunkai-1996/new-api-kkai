@@ -17,12 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { AdminInventoryPage } from '@/features/shop-admin/pages/inventory'
+import { idSchema } from '@/features/shop/schemas'
 
 export const Route = createFileRoute('/_authenticated/shop-admin/inventory')({
+  validateSearch: z.object({
+    product_id: idSchema.optional().catch(undefined),
+  }),
   component: Page,
 })
 function Page() {
-  return <AdminInventoryPage />
+  const { product_id } = Route.useSearch()
+  return <AdminInventoryPage key={product_id ?? ''} productId={product_id} />
 }

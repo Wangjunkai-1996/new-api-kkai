@@ -10,6 +10,8 @@ func registerShopRoutes(api *gin.RouterGroup) {
 	shop := api.Group("/shop", middleware.ShopMainSiteGuard(), controller.ShopSchemaGuard)
 	shop.GET("/config", controller.GetShopConfig)
 	shop.GET("/categories", controller.ListShopCategories)
+	// Public covers inherit the API IP rate limit and use immutable caching.
+	shop.GET("/covers/:filename", controller.GetShopCover)
 	shop.GET("/products", controller.ListShopProducts)
 	shop.GET("/products/:product_id", controller.GetShopProduct)
 	shop.GET("/payments/epay/notify", controller.ShopEpayCallback)
@@ -41,6 +43,7 @@ func registerShopRoutes(api *gin.RouterGroup) {
 	admin.GET("/categories", controller.ListShopCategories)
 	admin.POST("/categories", controller.SaveShopCategory)
 	admin.PATCH("/categories/:category_id", controller.SaveShopCategory)
+	admin.POST("/covers", middleware.ShopRateLimit("import"), controller.UploadShopCover)
 	admin.GET("/products", controller.ListShopProducts)
 	admin.POST("/products", controller.SaveShopProduct)
 	admin.GET("/products/:product_id", controller.GetShopProduct)

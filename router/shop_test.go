@@ -21,7 +21,7 @@ func TestShopRoutesRejectUntrustedSiteBeforeDatabaseOrAuthentication(t *testing.
 			})
 		}
 		registerShopRoutes(engine.Group("/api"))
-		for _, route := range []struct{ method, path string }{{"GET", "/api/shop/products"}, {"POST", "/api/shop/orders"}, {"POST", "/api/shop/orders/so_test/payment-attempts"}, {"PUT", "/api/shop/orders/so_test/buyer-input"}, {"POST", "/api/shop/payments/epay/notify"}, {"POST", "/api/admin/shop/evidence"}, {"POST", "/api/admin/shop/receipts/spr_test/refunds"}, {"POST", "/api/admin/shop/orders/so_test/deliveries"}} {
+		for _, route := range []struct{ method, path string }{{"GET", "/api/shop/products"}, {"GET", "/api/shop/covers/example.jpg"}, {"POST", "/api/admin/shop/covers"}, {"POST", "/api/shop/orders"}, {"POST", "/api/shop/orders/so_test/payment-attempts"}, {"PUT", "/api/shop/orders/so_test/buyer-input"}, {"POST", "/api/shop/payments/epay/notify"}, {"POST", "/api/admin/shop/evidence"}, {"POST", "/api/admin/shop/receipts/spr_test/refunds"}, {"POST", "/api/admin/shop/orders/so_test/deliveries"}} {
 			r := httptest.NewRecorder()
 			engine.ServeHTTP(r, httptest.NewRequest(route.method, route.path, nil))
 			assert.Equal(t, http.StatusForbidden, r.Code, route.path)

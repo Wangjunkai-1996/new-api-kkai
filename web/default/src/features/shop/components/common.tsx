@@ -16,10 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ShoppingBag01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import emptyArt from '@/assets/shop/empty-state.webp'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,7 @@ import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -166,7 +168,9 @@ export function ShopEmpty(props: { title?: string; description?: string }) {
   const { t } = useTranslation()
   return (
     <Empty>
-      <img src={emptyArt} alt='' width={160} height={160} loading='lazy' />
+      <EmptyMedia variant='icon'>
+        <HugeiconsIcon icon={ShoppingBag01Icon} aria-hidden='true' />
+      </EmptyMedia>
       <EmptyHeader>
         <EmptyTitle>{props.title ?? t('Nothing here yet')}</EmptyTitle>
         <EmptyDescription>

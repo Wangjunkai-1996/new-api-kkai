@@ -28,7 +28,6 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { shopPath } from '@/features/shop/api'
-import { productImage } from '@/features/shop/assets'
 import {
   MoneyText,
   Pagination,
@@ -37,7 +36,11 @@ import {
   ShopHeading,
   ShopLoading,
 } from '@/features/shop/components/common'
-import { useShopAction, useShopQuery } from '@/features/shop/hooks/use-shop'
+import {
+  useShopAction,
+  useShopIdentity,
+  useShopQuery,
+} from '@/features/shop/hooks/use-shop'
 import { parsePrice, parseShopInteger, priceInput } from '@/features/shop/lib'
 import {
   categorySchema,
@@ -48,6 +51,13 @@ import {
 } from '@/features/shop/schemas'
 
 import { AdminActionDialog } from '../components/action-dialog'
+import { ProductCoverUpload } from '../components/product-cover-upload'
+
+const productInputLimits: Record<string, number> = {
+  name: 120,
+  summary: 300,
+  specification: 8000,
+}
 
 export function AdminProductsPage() {
   const { t } = useTranslation()
@@ -64,9 +74,7 @@ export function AdminProductsPage() {
     <>
       <ShopHeading
         title={t('Products')}
-        description={t(
-          'Publish clear terms and maintain the original rules on existing orders.'
-        )}
+        description={t('Manage your accounts and redemption codes.')}
       >
         <Button
           nativeButton={false}
@@ -83,87 +91,96 @@ export function AdminProductsPage() {
         }}
       />
       {products.isPending && <ShopLoading />}
-      {products.data?.items.length === 0 && <ShopEmpty />}
-      <div className='shop-table-wrap'>
-        <table className='shop-table'>
-          <thead>
-            <tr>
-              <th>{t('Product')}</th>
-              <th>{t('Price')}</th>
-              <th>{t('Status')}</th>
-              <th>{t('Actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.data?.items.map((product) => (
-              <tr key={product.id}>
-                <td>
-                  <Link
-                    to='/shop-admin/products/$productId'
-                    params={{ productId: product.id }}
-                  >
-                    {product.name}
-                  </Link>
-                  <p className='shop-muted'>{product.specification}</p>
-                </td>
-                <td>
-                  <MoneyText money={product.price} />
-                </td>
-                <td>
-                  {(
-                    {
-                      published: t('Published'),
-                      archived: t('Archived'),
-                    } as Record<string, string>
-                  )[product.state ?? ''] ?? t('Draft')}
-                </td>
-                <td>
-                  <div className='shop-actions'>
+      {products.data?.items.length === 0 && (
+        <ShopEmpty
+          title={t('No products yet')}
+          description={t(
+            'Create an account or redemption code product to get started.'
+          )}
+        />
+      )}
+      {Boolean(products.data?.items.length) && (
+        <div className='shop-table-wrap'>
+          <table className='shop-table'>
+            <thead>
+              <tr>
+                <th>{t('Product')}</th>
+                <th>{t('Price')}</th>
+                <th>{t('Status')}</th>
+                <th>{t('Actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.data?.items.map((product) => (
+                <tr key={product.id}>
+                  <td>
                     <Link
                       to='/shop-admin/products/$productId'
                       params={{ productId: product.id }}
                     >
-                      {t('Edit')}
+                      {product.name}
                     </Link>
-                    {['publish', 'unpublish', 'archive'].map(
-                      (verb) =>
-                        product.allowed_actions.includes(verb) && (
-                          <AdminActionDialog
-                            key={verb}
-                            label={
-                              (
-                                {
-                                  publish: t('Publish'),
-                                  unpublish: t('Unpublish'),
-                                  archive: t('Archive'),
-                                } as Record<string, string>
-                              )[verb]
-                            }
-                            description={product.name}
-                            path={`/api/admin/shop/products/${shopPath(product.id)}/${verb}`}
-                            schema={productSchema}
-                            fields={
-                              verb === 'publish'
-                                ? []
-                                : [{ name: 'reason', label: t('Reason') }]
-                            }
-                            body={(values) => ({
-                              expected_version: product.version,
-                              ...(verb !== 'publish'
-                                ? { reason: values.reason }
-                                : {}),
-                            })}
-                          />
-                        )
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {products.data && (
+                    <p className='shop-muted'>{product.specification}</p>
+                  </td>
+                  <td>
+                    <MoneyText money={product.price} />
+                  </td>
+                  <td>
+                    {(
+                      {
+                        published: t('Published'),
+                        archived: t('Archived'),
+                      } as Record<string, string>
+                    )[product.state ?? ''] ?? t('Draft')}
+                  </td>
+                  <td>
+                    <div className='shop-actions'>
+                      <Link
+                        to='/shop-admin/products/$productId'
+                        params={{ productId: product.id }}
+                      >
+                        {t('Edit')}
+                      </Link>
+                      {['publish', 'unpublish', 'archive'].map(
+                        (verb) =>
+                          product.allowed_actions.includes(verb) && (
+                            <AdminActionDialog
+                              key={verb}
+                              label={
+                                (
+                                  {
+                                    publish: t('Publish'),
+                                    unpublish: t('Unpublish'),
+                                    archive: t('Archive'),
+                                  } as Record<string, string>
+                                )[verb]
+                              }
+                              description={product.name}
+                              path={`/api/admin/shop/products/${shopPath(product.id)}/${verb}`}
+                              schema={productSchema}
+                              fields={
+                                verb === 'publish'
+                                  ? []
+                                  : [{ name: 'reason', label: t('Reason') }]
+                              }
+                              body={(values) => ({
+                                expected_version: product.version,
+                                ...(verb !== 'publish'
+                                  ? { reason: values.reason }
+                                  : {}),
+                              })}
+                            />
+                          )
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {products.data && products.data.total > products.data.page_size && (
         <Pagination
           page={page}
           total={products.data.total}
@@ -218,6 +235,7 @@ export function AdminProductsPage() {
 }
 
 export function ProductEditorPage(props: { productId?: string }) {
+  const identity = useShopIdentity()
   const product = useShopQuery(
     `/api/admin/shop/products/${shopPath(props.productId ?? '')}`,
     productSchema,
@@ -236,7 +254,7 @@ export function ProductEditorPage(props: { productId?: string }) {
   }
   return (
     <ProductEditor
-      key={product.data?.version ?? 'new'}
+      key={`${identity}:${product.data?.id ?? 'new'}:${product.data?.version ?? '0'}`}
       product={product.data}
       currency={settings.data.currency ?? ''}
       exponent={settings.data.currency_exponent ?? -1}
@@ -256,23 +274,42 @@ function ProductEditor(props: {
   const action = useShopAction()
   const p = props.product
   const [validation, setValidation] = useState('')
+  const [uploading, setUploading] = useState(false)
   const form = useForm<Record<string, string>>({
     defaultValues: {
       name: p?.name ?? '',
       summary: p?.summary ?? '',
       specification: p?.specification ?? '',
       product_type: p?.product_type ?? 'account',
-      delivery_type: p?.delivery_type ?? '',
+      delivery_type: p?.delivery_type || 'automatic',
       category_id: p?.category_id ?? '',
       price: p ? priceInput(p.price) : '',
       cover: p?.cover?.url ?? '',
-      usage_conditions: p?.usage_conditions ?? '',
+      usage_conditions: p
+        ? p.usage_conditions
+        : t(
+            'Use the account or code according to the product description. Keep delivered credentials private.'
+          ),
       delivery_terms: p?.delivery_policy?.public_terms ?? '',
-      view_terms: p?.view_policy?.public_terms ?? '',
-      warranty_terms: p?.warranty_policy?.public_terms ?? '',
-      refund_terms: p?.refund_policy?.public_terms ?? '',
-      entitlement_terms: p?.entitlement_policy?.public_terms ?? '',
-      view_seconds: String(p?.view_policy?.duration_seconds ?? ''),
+      view_terms: p
+        ? (p.view_policy?.public_terms ?? '')
+        : t(
+            'Save your credentials after delivery. They are available in this order during the viewing period.'
+          ),
+      warranty_terms: p
+        ? (p.warranty_policy?.public_terms ?? '')
+        : t(
+            'No additional warranty is included. Contact support if the delivered account or code is invalid.'
+          ),
+      refund_terms: p
+        ? (p.refund_policy?.public_terms ?? '')
+        : t(
+            'For missing or invalid delivery, request after-sales support from the order. Approved refunds return through the original payment channel.'
+          ),
+      entitlement_terms: p
+        ? (p.entitlement_policy?.public_terms ?? '')
+        : t('Validity and included benefits follow the product description.'),
+      view_seconds: String(p?.view_policy?.duration_seconds ?? 30 * 86400),
       warranty_mode: p?.warranty_policy?.mode ?? 'none',
       warranty_start: p?.warranty_policy?.start_event ?? 'first_delivered_at',
       warranty_seconds: String(p?.warranty_policy?.duration_seconds ?? ''),
@@ -285,10 +322,10 @@ function ProductEditor(props: {
       ),
       entitlement_end: p?.entitlement_policy?.fixed_end_at ?? '',
       sla_clock: p?.delivery_policy?.sla?.clock ?? 'elapsed',
-      sla_minutes: String(p?.delivery_policy?.sla?.duration_minutes ?? ''),
-      timezone: p?.delivery_policy?.sla?.timezone ?? '',
+      sla_minutes: String(p?.delivery_policy?.sla?.duration_minutes || 1440),
+      timezone: p?.delivery_policy?.sla?.timezone || 'Asia/Shanghai',
       pause: String(p?.delivery_policy?.sla?.pause_on_missing_input ?? false),
-      manual_capacity: String(p?.manual_capacity ?? ''),
+      manual_capacity: String(p?.manual_capacity ?? 10),
       inventory_identity_domain: p?.inventory_identity_domain ?? '',
       identity_normalization_version: p?.identity_normalization_version ?? '1',
       template_version: p?.template_version ?? '1',
@@ -311,6 +348,19 @@ function ProductEditor(props: {
     },
   })
   const cover = useWatch({ control: form.control, name: 'cover' })
+  const deliveryType = useWatch({
+    control: form.control,
+    name: 'delivery_type',
+  })
+  const slaClock = useWatch({ control: form.control, name: 'sla_clock' })
+  const warrantyMode = useWatch({
+    control: form.control,
+    name: 'warranty_mode',
+  })
+  const entitlementMode = useWatch({
+    control: form.control,
+    name: 'entitlement_mode',
+  })
   const input = (name: string, label: string, area = false) => (
     <Field key={name}>
       <FieldLabel htmlFor={`product-${name}`}>{label}</FieldLabel>
@@ -323,7 +373,8 @@ function ProductEditor(props: {
       ) : (
         <Input
           id={`product-${name}`}
-          maxLength={500}
+          maxLength={productInputLimits[name] ?? 500}
+          required={name === 'name'}
           {...form.register(name)}
         />
       )}
@@ -332,7 +383,11 @@ function ProductEditor(props: {
   const select = (name: string, label: string, options: [string, string][]) => (
     <Field key={name}>
       <FieldLabel htmlFor={`product-${name}`}>{label}</FieldLabel>
-      <NativeSelect id={`product-${name}`} {...form.register(name)}>
+      <NativeSelect
+        id={`product-${name}`}
+        {...form.register(name)}
+        disabled={Boolean(p) && name === 'product_type'}
+      >
         {options.map(([value, text]) => (
           <NativeSelectOption key={value} value={value}>
             {text}
@@ -357,13 +412,14 @@ function ProductEditor(props: {
       <ShopHeading
         title={p ? t('Edit product') : t('New product')}
         description={t(
-          'Drafts may be incomplete. Publishing checks every price, policy and delivery requirement.'
+          'Add product details, import accounts or codes, then publish. Delivery fields are set up automatically.'
         )}
       />
       <form
         className='shop-stack'
         onSubmit={form.handleSubmit(async (v) => {
           setValidation('')
+          if (uploading) return
           try {
             const price = v.price
               ? parsePrice(v.price, props.currency, props.exponent)
@@ -374,26 +430,29 @@ function ProductEditor(props: {
               )
               return
             }
-            const windows = v.windows.trim()
-              ? v.windows
-                  .trim()
-                  .split('\n')
-                  .map((line) => {
-                    const [weekday, start, end] = line.trim().split(/\s+/)
-                    if (
-                      !/^([01]\d|2[0-3]):[0-5]\d$/.test(start ?? '') ||
-                      !/^([01]\d|2[0-3]):[0-5]\d$/.test(end ?? '') ||
-                      start >= end
-                    ) {
-                      throw new Error()
-                    }
-                    return {
-                      weekday: parseShopInteger(weekday, 1, 7),
-                      start,
-                      end,
-                    }
-                  })
-              : []
+            const windows =
+              v.delivery_type === 'manual' &&
+              v.sla_clock === 'business' &&
+              v.windows.trim()
+                ? v.windows
+                    .trim()
+                    .split('\n')
+                    .map((line) => {
+                      const [weekday, start, end] = line.trim().split(/\s+/)
+                      if (
+                        !/^([01]\d|2[0-3]):[0-5]\d$/.test(start ?? '') ||
+                        !/^([01]\d|2[0-3]):[0-5]\d$/.test(end ?? '') ||
+                        start >= end
+                      ) {
+                        throw new Error()
+                      }
+                      return {
+                        weekday: parseShopInteger(weekday, 1, 7),
+                        start,
+                        end,
+                      }
+                    })
+                : []
             if (windows.length > 14) throw new Error()
             if (
               v.delivery_type === 'manual' &&
@@ -412,26 +471,29 @@ function ProductEditor(props: {
                 throw new Error()
               }
             }
-            const fields =
-              v.product_type === 'card'
-                ? [{ key: 'card_code', label: t('Card code'), required: true }]
-                : [
-                    {
-                      key: 'account_identifier',
-                      label: t('Account'),
-                      required: true,
-                    },
-                    { key: 'password', label: t('Password'), required: true },
-                  ]
+            let fields: Product['delivery_fields'] = [
+              {
+                key: 'account_identifier',
+                label: t('Account'),
+                required: true,
+              },
+              { key: 'password', label: t('Password'), required: true },
+            ]
+            if (v.product_type === 'card') {
+              fields = [
+                { key: 'card_code', label: t('Card code'), required: true },
+              ]
+            }
+            if (p?.delivery_fields.length) fields = p.delivery_fields
             const body = {
               ...(p ? { expected_version: p.version } : {}),
               name: v.name,
               summary: v.summary,
               specification: v.specification,
-              product_type: v.product_type,
+              product_type: p?.product_type ?? v.product_type,
               delivery_type: v.delivery_type,
               category_id: v.category_id,
-              cover: { url: v.cover, width: 1024, height: 1024, alt: '' },
+              cover: { url: v.cover, alt: v.name },
               ...(price ? { price } : {}),
               usage_conditions: v.usage_conditions,
               template_version: v.template_version,
@@ -442,10 +504,23 @@ function ProductEditor(props: {
                 ['order_note', t('Order note')],
               ]
                 .filter(([key]) => v[key] === 'true')
-                .map(([key, label]) => ({ key, label, required: true })),
+                .map(
+                  ([key, label]) =>
+                    p?.buyer_input_schema.find(
+                      (field) => field.key === key
+                    ) ?? { key, label, required: true }
+                ),
               delivery_policy: {
                 mode: v.delivery_type,
-                public_terms: v.delivery_terms,
+                public_terms:
+                  v.delivery_terms ||
+                  (v.delivery_type === 'automatic'
+                    ? t(
+                        'After payment is confirmed, your account or code is delivered automatically in this order.'
+                      )
+                    : t(
+                        'After payment is confirmed, the seller delivers your account or code in this order within the stated delivery time.'
+                      )),
                 sla:
                   v.delivery_type === 'manual'
                     ? {
@@ -475,7 +550,9 @@ function ProductEditor(props: {
                 public_terms: v.refund_terms,
               },
               manual_capacity: parseShopInteger(v.manual_capacity || '0'),
-              inventory_identity_domain: v.inventory_identity_domain,
+              inventory_identity_domain:
+                v.inventory_identity_domain ||
+                `shop:${p?.product_type ?? v.product_type}`,
               identity_normalization_version: v.identity_normalization_version,
               low_stock_threshold: parseShopInteger(
                 v.low_stock_threshold || '0'
@@ -516,56 +593,72 @@ function ProductEditor(props: {
               ['card', t('Card code')],
             ])}
             {select('delivery_type', t('Delivery type'), [
-              ['', t('Not configured')],
               ['automatic', t('Automatic delivery')],
               ['manual', t('Manual delivery')],
             ])}
-            {select('cover', t('Cover image'), [
-              ['', t('No image')],
-              ...[1, 2, 3, 4, 5, 6].map((n): [string, string] => [
-                `/shop-assets/product-${n}.webp`,
-                t('Illustration {{number}}', { number: n }),
-              ]),
-            ])}
           </FieldGroup>
-          {productImage(cover) && (
-            <img
-              src={productImage(cover)}
-              alt=''
-              width={160}
-              height={160}
-              className='rounded-xl'
-            />
+          <ProductCoverUpload
+            value={cover}
+            onChange={(url) =>
+              form.setValue('cover', url, { shouldDirty: true })
+            }
+            onBusy={setUploading}
+          />
+          <p className='shop-muted'>
+            {deliveryType === 'automatic'
+              ? t(
+                  'Import accounts or codes into inventory after saving. Each paid order receives one item automatically; buyers do not need to provide extra information.'
+                )
+              : t(
+                  'After payment, enter the account and password or redemption code on the order to deliver it.'
+                )}
+          </p>
+          {deliveryType === 'manual' && (
+            <FieldGroup className='grid sm:grid-cols-2'>
+              {input('manual_capacity', t('Manual delivery capacity'))}
+              {input('sla_minutes', t('Delivery duration in minutes'))}
+            </FieldGroup>
           )}
         </section>
-        <section className='shop-panel'>
-          <h2>{t('Delivery requirements')}</h2>
-          <FieldGroup className='grid sm:grid-cols-2'>
-            {input('template_version', t('Template version'))}
-            {input('inventory_identity_domain', t('Inventory identity domain'))}
-            {input(
-              'identity_normalization_version',
-              t('Identity normalization version')
+        <details className='shop-panel'>
+          <summary className='cursor-pointer font-semibold'>
+            {t('Advanced settings')}
+          </summary>
+          <p className='shop-muted mt-3'>
+            {t(
+              'Default delivery and after-sales terms are ready to use. Expand only if this product needs different rules.'
             )}
+          </p>
+          <FieldGroup className='mt-4 grid sm:grid-cols-2'>
             {input('low_stock_threshold', t('Low stock threshold'))}
-            {input('manual_capacity', t('Manual delivery capacity'))}
-            {select('sla_clock', t('Delivery clock'), [
-              ['elapsed', t('Elapsed time')],
-              ['business', t('Business hours')],
-            ])}
-            {input('sla_minutes', t('Delivery duration in minutes'))}
-            {input('timezone', t('IANA time zone'))}
             {input(
-              'windows',
-              t(
-                'Weekly windows: weekday 1–7, start and end time, one per line'
-              ),
-              true
+              'inventory_identity_domain',
+              t('Duplicate check group (optional)')
             )}
-            {select('pause', t('Pause for requested missing information'), [
-              ['false', t('No')],
-              ['true', t('Yes')],
-            ])}
+            {deliveryType === 'manual' && (
+              <>
+                {select('sla_clock', t('Delivery clock'), [
+                  ['elapsed', t('Elapsed time')],
+                  ['business', t('Business hours')],
+                ])}
+                {slaClock === 'business' && (
+                  <>
+                    {input('timezone', t('IANA time zone'))}
+                    {input(
+                      'windows',
+                      t(
+                        'Weekly windows: weekday 1–7, start and end time, one per line'
+                      ),
+                      true
+                    )}
+                  </>
+                )}
+                {select('pause', t('Pause for requested missing information'), [
+                  ['false', t('No')],
+                  ['true', t('Yes')],
+                ])}
+              </>
+            )}
             {[
               ['account_identifier', t('Require account identifier')],
               ['contact_email', t('Require contact email')],
@@ -577,9 +670,7 @@ function ProductEditor(props: {
               ])
             )}
           </FieldGroup>
-        </section>
-        <section className='shop-panel'>
-          <h2>{t('Product terms')}</h2>
+          <h2 className='mt-6'>{t('Product terms')}</h2>
           <FieldGroup>
             {input('usage_conditions', t('Usage conditions'), true)}
             {input('delivery_terms', t('Delivery terms'), true)}
@@ -608,18 +699,25 @@ function ProductEditor(props: {
                     ['fixed_end', t('Fixed end date')],
                   ]
                 )}
-                {select(`${prefix}_start`, t('Starts from'), [
-                  ['paid_at', t('Payment confirmed')],
-                  ['first_delivered_at', t('First delivery')],
-                ])}
-                {input(`${prefix}_seconds`, t('Duration in seconds'))}
-                {input(`${prefix}_end`, t('End date in UTC (RFC3339)'))}
+                {(prefix === 'warranty' ? warrantyMode : entitlementMode) ===
+                  'duration' && (
+                  <>
+                    {select(`${prefix}_start`, t('Starts from'), [
+                      ['paid_at', t('Payment confirmed')],
+                      ['first_delivered_at', t('First delivery')],
+                    ])}
+                    {input(`${prefix}_seconds`, t('Duration in seconds'))}
+                  </>
+                )}
+                {(prefix === 'warranty' ? warrantyMode : entitlementMode) ===
+                  'fixed_end' &&
+                  input(`${prefix}_end`, t('End date in UTC (RFC3339)'))}
                 {input(`${prefix}_terms`, t('Public terms'), true)}
               </FieldGroup>
             ))}
             {input('refund_terms', t('Refund policy'), true)}
           </FieldGroup>
-        </section>
+        </details>
         {validation && (
           <p role='alert' className='text-destructive'>
             {validation}
@@ -627,9 +725,23 @@ function ProductEditor(props: {
         )}
         <ShopErrorNotice error={action.error} />
         <div className='shop-actions'>
-          <Button type='submit' disabled={action.pending}>
-            {t('Save draft')}
+          <Button type='submit' disabled={action.pending || uploading}>
+            {p ? t('Save changes') : t('Save draft')}
           </Button>
+          {p && deliveryType === 'automatic' && (
+            <Button
+              variant='outline'
+              nativeButton={false}
+              render={
+                <Link
+                  to='/shop-admin/inventory'
+                  search={{ product_id: p.id }}
+                />
+              }
+            >
+              {t('Import inventory')}
+            </Button>
+          )}
           <Link to='/shop-admin/products'>{t('Back to products')}</Link>
         </div>
       </form>

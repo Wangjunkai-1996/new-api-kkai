@@ -16,14 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  Key01Icon,
+  ShoppingBag01Icon,
+  Ticket01Icon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
 
-import heroMobile from '@/assets/shop/hero-mobile.webp'
-import hero from '@/assets/shop/hero.webp'
-import guide from '@/assets/shop/service-guide.webp'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -78,27 +81,11 @@ export function CatalogPage(props: {
     })
   return (
     <>
-      <section className='shop-hero'>
-        <div>
-          <p className='shop-eyebrow'>KK SHOP · DIGITAL GOODS</p>
-          <h1>{t('Good things, delivered digitally.')}</h1>
-          <p className='shop-muted'>
-            {t(
-              'Thoughtfully selected digital products, with clear terms and support in one place.'
-            )}
-          </p>
-        </div>
-        <picture>
-          <source media='(max-width:540px)' srcSet={heroMobile} />
-          <img
-            src={hero}
-            alt=''
-            width={1536}
-            height={1024}
-            fetchPriority='high'
-          />
-        </picture>
-      </section>
+      <ShopHeading
+        eyebrow='KK SHOP'
+        title={t('Explore the collection')}
+        description={t('Digital delivery. No shipping address required.')}
+      />
       {config.data && !config.data.new_orders_enabled && (
         <Alert>
           <AlertDescription>
@@ -108,10 +95,6 @@ export function CatalogPage(props: {
           </AlertDescription>
         </Alert>
       )}
-      <ShopHeading
-        title={t('Explore the collection')}
-        description={t('Digital delivery. No shipping address required.')}
-      />
       <form
         className='shop-filters'
         onSubmit={(event) => {
@@ -176,28 +159,6 @@ export function CatalogPage(props: {
           onPage={(page) => change({ page })}
         />
       )}
-      <section className='shop-panel'>
-        <div className='shop-columns'>
-          <div className='shop-stack'>
-            <h2>{t('From choosing to receiving')}</h2>
-            <ol className='shop-stack'>
-              <li>{t('1. Read the product terms and confirm your order.')}</li>
-              <li>{t('2. Pay through an available payment method.')}</li>
-              <li>
-                {t('3. View delivery details and support in your order.')}
-              </li>
-            </ol>
-          </div>
-          <img
-            src={guide}
-            width={1536}
-            height={1024}
-            alt=''
-            loading='lazy'
-            className='max-h-48 w-full object-contain'
-          />
-        </div>
-      </section>
     </>
   )
 }
@@ -222,7 +183,7 @@ function ProductCard(props: { product: Product }) {
             loading='lazy'
           />
         ) : (
-          <span>{t('Digital product')}</span>
+          <ProductPlaceholder productType={product.product_type} />
         )}
       </div>
       <div className='shop-card-content'>
@@ -276,7 +237,7 @@ export function ProductPage(props: { productId: string }) {
       />
       <div className='shop-columns'>
         <div className='shop-stack'>
-          {image && (
+          {image ? (
             <img
               className='shop-product-art'
               src={image}
@@ -284,6 +245,10 @@ export function ProductPage(props: { productId: string }) {
               height={1024}
               alt={data.cover?.alt ?? data.name}
             />
+          ) : (
+            <div className='shop-product-art'>
+              <ProductPlaceholder productType={data.product_type} />
+            </div>
           )}
           <ProductTerms product={data} />
         </div>
@@ -325,6 +290,25 @@ export function ProductPage(props: { productId: string }) {
         </aside>
       </div>
     </>
+  )
+}
+
+function ProductPlaceholder(props: { productType?: string }) {
+  const { t } = useTranslation()
+  let icon = ShoppingBag01Icon
+  let label = t('Digital product')
+  if (props.productType === 'account') {
+    icon = Key01Icon
+    label = t('Account')
+  } else if (props.productType === 'card') {
+    icon = Ticket01Icon
+    label = t('Card code')
+  }
+  return (
+    <div className='shop-product-placeholder'>
+      <HugeiconsIcon icon={icon} strokeWidth={1.5} aria-hidden='true' />
+      <span>{label}</span>
+    </div>
   )
 }
 

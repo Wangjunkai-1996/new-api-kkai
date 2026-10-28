@@ -305,7 +305,16 @@ func GetShopSettings(db *gorm.DB) (*ShopSettings, error) {
 	var s ShopSettings
 	err := db.First(&s, 1).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return &ShopSettings{ID: 1}, nil
+		// Reading an unconfigured shop never opens sales or writes configuration.
+		retention, err := common.Marshal(ShopRetentionPolicy{SecretAfterDeliverySeconds: 90 * 86400, BuyerInputAfterClosureSeconds: 30 * 86400, EvidenceAfterSettlementSeconds: 365 * 86400, AuditAfterSettlementSeconds: 1095 * 86400, IdempotencyAfterClosureSeconds: 365 * 86400})
+		if err != nil {
+			return nil, err
+		}
+		reminders, err := common.Marshal(ShopReminderPolicy{PaymentUnknownSeconds: 300, DeliveryExceptionSeconds: 900, RefundVerificationSeconds: 86400})
+		if err != nil {
+			return nil, err
+		}
+		return &ShopSettings{ID: 1, Provider: "epay", Environment: "production", Currency: "CNY", CurrencyExponent: 2, MinAmountMinor: 1, MaxAmountMinor: 1000000, ReservationSeconds: 900, MaxUnpaidOrders: 3, RetentionPolicyJSON: string(retention), ReminderPolicyJSON: string(reminders)}, nil
 	}
 	return &s, err
 }

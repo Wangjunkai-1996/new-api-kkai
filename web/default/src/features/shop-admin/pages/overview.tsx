@@ -20,11 +20,21 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import type { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import {
   MoneyText,
   ShopErrorNotice,
@@ -33,13 +43,12 @@ import {
   ShopTime,
 } from '@/features/shop/components/common'
 import { useShopAction, useShopQuery } from '@/features/shop/hooks/use-shop'
-import { parseShopInteger } from '@/features/shop/lib'
+import { parsePrice, parseShopInteger, priceInput } from '@/features/shop/lib'
 import { overviewSchema, settingsSchema } from '@/features/shop/schemas'
 
 export function AdminOverviewPage() {
   const { t } = useTranslation()
   const overview = useShopQuery('/api/admin/shop/overview', overviewSchema)
-  const settings = useShopQuery('/api/admin/shop/settings', settingsSchema)
   return (
     <>
       <ShopHeading
@@ -50,11 +59,8 @@ export function AdminOverviewPage() {
         )}
       />
       <ShopErrorNotice
-        error={overview.error ?? settings.error}
-        retry={() => {
-          void overview.refetch()
-          void settings.refetch()
-        }}
+        error={overview.error}
+        retry={() => void overview.refetch()}
       />
       {overview.isPending && <ShopLoading />}
       {overview.data && (
@@ -88,9 +94,6 @@ export function AdminOverviewPage() {
         <Link to='/shop-admin/receipts'>{t('Review payment exceptions')}</Link>
         <Link to='/shop-admin/refunds'>{t('Review refunds')}</Link>
       </div>
-      {settings.data && (
-        <SettingsForm key={settings.data.version} settings={settings.data} />
-      )}
     </>
   )
 }
@@ -113,17 +116,34 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
   const { t } = useTranslation()
   const action = useShopAction()
   const data = props.settings
+  const currency = data.currency ?? 'CNY'
+  const exponent = data.currency_exponent ?? 2
   const [validation, setValidation] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [useCurrentAccount, setUseCurrentAccount] = useState(false)
+  const paymentReady = useCurrentAccount
+    ? data.payment_config_ready
+    : data.payment_ready
+  let paymentStatus = t('Payment setup incomplete')
+  if (data.payment_ready) {
+    paymentStatus = t('Ready to accept payments')
+  } else if (useCurrentAccount && data.payment_config_ready) {
+    paymentStatus = t('Ready after saving')
+  }
   const form = useForm<Record<string, string>>({
     defaultValues: {
-      provider: data.provider ?? '',
-      provider_account_ref: data.provider_account_ref ?? '',
-      environment: data.environment ?? '',
-      currency: data.currency ?? '',
       reservation: String(data.reservation_minutes ?? ''),
       pending: String(data.pending_order_limit ?? ''),
-      min: data.min_amount_minor ?? '',
-      max: data.max_amount_minor ?? '',
+      min: priceInput({
+        amount_minor: data.min_amount_minor ?? '0',
+        currency,
+        exponent,
+      }),
+      max: priceInput({
+        amount_minor: data.max_amount_minor ?? '0',
+        currency,
+        exponent,
+      }),
       enabled: String(data.new_orders_enabled),
       reason: '',
       ...Object.fromEntries(
@@ -142,64 +162,57 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
   })
   const enabled = useWatch({ control: form.control, name: 'enabled' })
   const retention = [
-    'secret_after_delivery_seconds',
-    'buyer_input_after_closure_seconds',
-    'evidence_after_settlement_seconds',
-    'audit_after_settlement_seconds',
-    'idempotency_after_closure_seconds',
+    [
+      'secret_after_delivery_seconds',
+      t('Delivery secret retention in seconds'),
+    ],
+    [
+      'buyer_input_after_closure_seconds',
+      t('Buyer information retention in seconds'),
+    ],
+    [
+      'evidence_after_settlement_seconds',
+      t('Payment evidence retention in seconds'),
+    ],
+    ['audit_after_settlement_seconds', t('Audit retention in seconds')],
+    [
+      'idempotency_after_closure_seconds',
+      t('Idempotency retention in seconds'),
+    ],
   ] as const
   const reminders = [
-    'payment_unknown_seconds',
-    'delivery_exception_seconds',
-    'refund_verification_seconds',
+    ['payment_unknown_seconds', t('Unknown payment reminder in seconds')],
+    ['delivery_exception_seconds', t('Delivery exception reminder in seconds')],
+    [
+      'refund_verification_seconds',
+      t('Refund verification reminder in seconds'),
+    ],
   ] as const
-  const fields = [
-    ['provider', t('Payment provider')],
-    ['provider_account_ref', t('Provider account reference')],
-    ['environment', t('Payment environment')],
-    ['currency', t('Currency')],
-    ['reservation', t('Reservation minutes')],
-    ['pending', t('Unpaid order limit')],
-    ['min', t('Minimum amount in minor units')],
-    ['max', t('Maximum amount in minor units')],
-    [retention[0], t('Delivery secret retention in seconds')],
-    [retention[1], t('Buyer information retention in seconds')],
-    [retention[2], t('Payment evidence retention in seconds')],
-    [retention[3], t('Audit retention in seconds')],
-    [retention[4], t('Idempotency retention in seconds')],
-    [reminders[0], t('Unknown payment reminder in seconds')],
-    [reminders[1], t('Delivery exception reminder in seconds')],
-    [reminders[2], t('Refund verification reminder in seconds')],
-    ['reason', t('Reason')],
-  ]
   return (
-    <section className='shop-panel'>
-      <h2>{t('Store settings')}</h2>
-      <p className='shop-muted'>
-        {t(
-          'Complete the operating rules before enabling new purchases. Existing orders remain accessible when sales are paused.'
+    <>
+      <ShopHeading
+        eyebrow='KK SHOP'
+        title={t('Store settings')}
+        description={t(
+          'Payments reuse your existing configuration. Operating rules have ready-to-use defaults.'
         )}
-      </p>
-      <p className='shop-muted'>
-        {t('Available payment methods use the existing payment configuration.')}{' '}
-        {data.payment_methods.join(', ') || t('Not configured')}
-      </p>
+      />
       <form
+        className='max-w-4xl space-y-5'
         onSubmit={form.handleSubmit(async (values) => {
           setValidation('')
           try {
-            const minimum = BigInt(values.min)
-            const maximum = BigInt(values.max)
+            const minimum = parsePrice(values.min, currency, exponent)
+            const maximum = parsePrice(values.max, currency, exponent)
             if (
-              !/^(0|[1-9]\d*)$/.test(values.min) ||
-              !/^(0|[1-9]\d*)$/.test(values.max) ||
-              maximum > 9223372036854775807n ||
-              minimum > maximum ||
-              !/^[A-Z]{3}$/.test(values.currency)
+              !minimum ||
+              !maximum ||
+              BigInt(minimum.amount_minor) < 1n ||
+              BigInt(minimum.amount_minor) > BigInt(maximum.amount_minor)
             ) {
               throw new Error()
             }
-            await action.run(
+            const updated = await action.run(
               '/api/admin/shop/settings',
               settingsSchema,
               {
@@ -207,72 +220,221 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
                   ? { expected_version: data.version }
                   : {}),
                 new_orders_enabled: values.enabled === 'true',
-                provider: values.provider,
-                provider_account_ref: values.provider_account_ref,
-                environment: values.environment,
-                currency: values.currency,
-                reservation_minutes: parseShopInteger(values.reservation, 1),
-                pending_order_limit: parseShopInteger(values.pending, 1),
-                min_amount_minor: values.min,
-                max_amount_minor: values.max,
+                provider: data.provider,
+                provider_account_ref: useCurrentAccount
+                  ? data.current_provider_account_ref
+                  : data.provider_account_ref,
+                environment: data.environment,
+                currency,
+                reservation_minutes: parseShopInteger(
+                  values.reservation,
+                  1,
+                  1440
+                ),
+                pending_order_limit: parseShopInteger(values.pending, 1, 100),
+                min_amount_minor: minimum.amount_minor,
+                max_amount_minor: maximum.amount_minor,
                 retention_policy: Object.fromEntries(
-                  retention.map((key) => [
+                  retention.map(([key]) => [
                     key,
-                    parseShopInteger(values[key], 1),
+                    parseShopInteger(values[key], 1, 253402300798),
                   ])
                 ),
                 reminder_policy: Object.fromEntries(
-                  reminders.map((key) => [
+                  reminders.map(([key]) => [
                     key,
-                    parseShopInteger(values[key], 1),
+                    parseShopInteger(values[key], 1, 253402300798),
                   ])
                 ),
-                reason: values.reason,
+                reason:
+                  values.reason.trim() ||
+                  'Store settings updated from admin console',
               },
               { method: 'PATCH' }
             )
+            if (updated) toast.success(t('Settings updated successfully'))
           } catch {
+            setAdvancedOpen(true)
             setValidation(t('Check numeric limits, currency and date values.'))
           }
         })}
       >
-        <FieldGroup className='grid sm:grid-cols-2'>
-          {fields.map(([name, label]) => (
-            <Field key={name}>
-              <FieldLabel htmlFor={`setting-${name}`}>{label}</FieldLabel>
-              <Input
-                id={`setting-${name}`}
-                required
-                maxLength={500}
-                {...form.register(name)}
+        <section className='shop-panel'>
+          <FieldGroup>
+            <Field orientation='horizontal'>
+              <FieldContent>
+                <FieldLabel htmlFor='shop-sales'>
+                  {t('Enable new purchases')}
+                </FieldLabel>
+                <FieldDescription>
+                  {t(
+                    'Pause new purchases without interrupting existing orders or after-sales support.'
+                  )}
+                </FieldDescription>
+              </FieldContent>
+              <Switch
+                id='shop-sales'
+                checked={enabled === 'true'}
+                disabled={
+                  action.pending ||
+                  (paymentReady !== true && enabled !== 'true')
+                }
+                onCheckedChange={(checked) =>
+                  form.setValue('enabled', String(checked))
+                }
               />
             </Field>
-          ))}
-          <Field orientation='horizontal'>
-            <input
-              id='shop-sales'
-              type='checkbox'
-              checked={enabled === 'true'}
-              onChange={(event) =>
-                form.setValue('enabled', String(event.target.checked))
+          </FieldGroup>
+        </section>
+        <section className='shop-panel space-y-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h2 className='font-semibold'>{t('Payment methods')}</h2>
+            <span
+              className={
+                data.payment_ready
+                  ? 'text-sm text-emerald-600 dark:text-emerald-400'
+                  : 'text-muted-foreground text-sm'
               }
-              className='size-5'
-            />
-            <FieldLabel htmlFor='shop-sales'>
-              {t('Enable new purchases')}
-            </FieldLabel>
-          </Field>
-          <Button type='submit' disabled={action.pending}>
-            {t('Save settings')}
-          </Button>
-        </FieldGroup>
+            >
+              {paymentStatus}
+            </span>
+          </div>
+          <p className='shop-muted text-sm'>
+            {t(
+              'Available payment methods use the existing payment configuration.'
+            )}
+          </p>
+          <p className='text-sm'>
+            {data.payment_methods
+              .map((method) => {
+                if (method === 'alipay') return t('Alipay')
+                if (method === 'wxpay') return t('WeChat Pay')
+                return method
+              })
+              .join(' · ') || t('No payment methods configured')}
+            {' · '}
+            {currency}
+          </p>
+          {data.payment_account_changed &&
+            data.current_provider_account_ref && (
+              <div className='flex flex-wrap items-center gap-3 border-t pt-3'>
+                <p className='shop-muted min-w-0 flex-1 text-sm'>
+                  {t(
+                    'The payment account changed. Existing orders keep their original payment records.'
+                  )}
+                </p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={action.pending || useCurrentAccount}
+                  onClick={() => setUseCurrentAccount(true)}
+                >
+                  {useCurrentAccount
+                    ? t('Current payment account selected')
+                    : t('Use current payment account')}
+                </Button>
+              </div>
+            )}
+          {paymentReady !== true && (
+            <p
+              role='status'
+              className='text-sm text-amber-700 dark:text-amber-400'
+            >
+              {t(
+                'Complete the existing payment setup before enabling purchases.'
+              )}
+            </p>
+          )}
+        </section>
+        <details
+          className='shop-panel'
+          open={advancedOpen}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary className='cursor-pointer font-semibold'>
+            {t('Advanced settings')}
+          </summary>
+          <p className='shop-muted mt-3 mb-5 text-sm'>
+            {t(
+              'Defaults are ready to use. Change these limits only when your business needs them.'
+            )}
+          </p>
+          <FieldGroup>
+            <FieldSet>
+              <FieldLegend>{t('Order limits')}</FieldLegend>
+              <FieldGroup className='grid sm:grid-cols-2'>
+                {[
+                  ['reservation', t('Reservation minutes')],
+                  ['pending', t('Unpaid order limit')],
+                  [
+                    'min',
+                    t('Minimum order amount ({{currency}})', { currency }),
+                  ],
+                  [
+                    'max',
+                    t('Maximum order amount ({{currency}})', { currency }),
+                  ],
+                ].map(([name, label]) => (
+                  <Field key={name}>
+                    <FieldLabel htmlFor={`setting-${name}`}>{label}</FieldLabel>
+                    <Input
+                      id={`setting-${name}`}
+                      inputMode={
+                        name === 'min' || name === 'max' ? 'decimal' : 'numeric'
+                      }
+                      maxLength={24}
+                      {...form.register(name)}
+                    />
+                  </Field>
+                ))}
+              </FieldGroup>
+            </FieldSet>
+            <FieldSet>
+              <FieldLegend>{t('Data retention and reminders')}</FieldLegend>
+              <FieldGroup className='grid sm:grid-cols-2'>
+                {[...retention, ...reminders].map(([name, label]) => (
+                  <Field key={name}>
+                    <FieldLabel htmlFor={`setting-${name}`}>{label}</FieldLabel>
+                    <Input
+                      id={`setting-${name}`}
+                      inputMode='numeric'
+                      maxLength={12}
+                      {...form.register(name)}
+                    />
+                  </Field>
+                ))}
+              </FieldGroup>
+            </FieldSet>
+            <Field>
+              <FieldLabel htmlFor='setting-reason'>
+                {t('Change note (optional)')}
+              </FieldLabel>
+              <Input
+                id='setting-reason'
+                maxLength={200}
+                {...form.register('reason')}
+              />
+            </Field>
+          </FieldGroup>
+        </details>
         {validation && (
           <p role='alert' className='text-destructive'>
             {validation}
           </p>
         )}
         <ShopErrorNotice error={action.error} />
+        <Button
+          type='submit'
+          disabled={
+            action.pending ||
+            !(useCurrentAccount
+              ? data.current_provider_account_ref
+              : data.provider_account_ref)
+          }
+        >
+          {t('Save settings')}
+        </Button>
       </form>
-    </section>
+    </>
   )
 }

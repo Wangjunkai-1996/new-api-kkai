@@ -8,11 +8,19 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 func shopSettingsDTO(value *model.ShopSettings) (gin.H, error) {
+	if value.Version == 0 {
+		defaults := *value
+		if operation_setting.EpayId != "" {
+			defaults.ProviderAccountRef = "epay:" + operation_setting.EpayId
+		}
+		value = &defaults
+	}
 	var retention *model.ShopRetentionPolicy
 	var reminders *model.ShopReminderPolicy
 	if value.RetentionPolicyJSON != "" && common.UnmarshalJsonStr(value.RetentionPolicyJSON, &retention) != nil {
@@ -28,6 +36,14 @@ func shopSettingsDTO(value *model.ShopSettings) (gin.H, error) {
 	out := gin.H{"version": shopID(value.Version), "new_orders_enabled": value.SalesEnabled, "provider": value.Provider, "provider_account_ref": value.ProviderAccountRef, "environment": value.Environment, "currency": nil, "currency_exponent": value.CurrencyExponent, "payment_methods": methods, "reservation_minutes": value.ReservationSeconds / 60, "pending_order_limit": value.MaxUnpaidOrders, "min_amount_minor": shopID(value.MinAmountMinor), "max_amount_minor": shopID(value.MaxAmountMinor), "retention_policy": retention, "reminder_policy": reminders}
 	if value.Currency != "" {
 		out["currency"] = value.Currency
+	}
+	out["payment_ready"] = service.ShopPaymentReady(value)
+	current := *value
+	current.ProviderAccountRef = "epay:" + operation_setting.EpayId
+	out["payment_config_ready"] = service.ShopPaymentReady(&current)
+	out["payment_account_changed"] = value.Version > 0 && value.ProviderAccountRef != current.ProviderAccountRef
+	if operation_setting.EpayId != "" {
+		out["current_provider_account_ref"] = current.ProviderAccountRef
 	}
 	return out, nil
 }
