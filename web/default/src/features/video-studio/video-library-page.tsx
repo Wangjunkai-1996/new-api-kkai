@@ -203,14 +203,24 @@ function VideoLibraryContent(
   }
   const refresh = async () => {
     await query.refresh()
-    if (!alive.current) return
+    if (
+      !alive.current ||
+      useAuthStore.getState().auth.user?.id !== props.userId
+    ) {
+      return
+    }
     // The next successful render uses the current query objects in their newest order.
     setOrder((current) => ({ ...current, initialized: false }))
   }
   const download = async () => {
     if (!rawSelected) return
     const result = await mediaQuery.refetch()
-    if (!alive.current) return
+    if (
+      !alive.current ||
+      useAuthStore.getState().auth.user?.id !== props.userId
+    ) {
+      return
+    }
     const url = signedStudioMediaUrl(
       rawSelected.download_url,
       result.data?.urls,
@@ -467,11 +477,17 @@ function VideoLibraryContent(
         }}
         active={detailsOpen && !deleteTarget}
         mediaIdentity={`${props.userId}:${rawSelected?.id ?? ''}`}
+        loading={Boolean(rawSelected?.video_url) && mediaQuery.isPending}
         denied={denied}
         posterDenied={posterDenied}
         onRefresh={async () => {
           const result = await mediaQuery.refetch()
-          if (result.error) return undefined
+          if (
+            result.error ||
+            useAuthStore.getState().auth.user?.id !== props.userId
+          ) {
+            return undefined
+          }
           return signedStudioMediaUrl(
             rawSelected?.video_url,
             result.data?.urls,

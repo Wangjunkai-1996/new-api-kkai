@@ -34,6 +34,7 @@ export type VideoGenerationDetailsProps = {
   onOpenChange: (open: boolean) => void
   active?: boolean
   mediaIdentity?: string
+  loading?: boolean
   denied?: boolean
   posterDenied?: boolean
   onPlay?: () => void
@@ -71,6 +72,7 @@ export function VideoGenerationDetails(props: VideoGenerationDetailsProps) {
           generation={generation}
           active={props.open && (props.active ?? true)}
           mediaIdentity={props.mediaIdentity}
+          loading={props.loading}
           denied={props.denied}
           posterDenied={props.posterDenied}
           onPlay={props.onPlay}

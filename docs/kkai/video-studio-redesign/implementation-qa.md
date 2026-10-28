@@ -1,16 +1,22 @@
 # 视频工作室重构 · 实施与验收记录
 
-2026-10-28。状态：前端实现及本地定向验证完成，真实服务与实机验证尚有未覆盖项；没有提交、合并或部署。
+2026-10-28。状态：已在独立 worktree 整合商城发布基线，完成合并后的定向验证和审查修复。实现与基线合并已留有本地提交，本轮播放器修复、脚本与证据仍为可审查的未提交改动；未合入 `production/kkrich`，未推送或发布视频工作室。真实服务与实机验证尚有未覆盖项。
+
+发布授权更新：用户随后明确“我自己测，你上线就行了”。用户接手业务测试，代理未验证真实上传、生成终态、签名续期和账单闭环；不再以缺少测试账号阻断正常发布。代码已完成的验证结论沿用，发布阶段由代理执行精确版本、入口/资源、缓存、健康、契约、错误证据和回退门禁。本轮源码及证据将提交合入本地 `production/kkrich` 后构建，最终发布状态另以发布记录为准。
+
+回退准备：在 V2 之前发布保留旧界面的过渡前端，在旧 POST 发送边界识别新版未决存储，未决、未知版本或损坏数据均禁止生成。V2 激活后必须使用该安全过渡前端作为回退目标，不能直接选择原 `e44ae8d98` 产物；不得清空用户未决记录。V2 自身仍使用输入指纹和持久操作身份保护，过渡版全局阻止未决提交的保护只用于旧界面。
 
 本记录是当前实现证据。[开发总纲](development.md)、[开发质量与验收方案](quality-and-acceptance.md)及[技术审查记录](development-review.md)保留编写时的计划与判断，其中“本轮仅文档”“未来实施”描述不代表当前交付状态。设计原型检查、代码检查、真实 React 页面检查、真实服务验收是不同证据，不互相替代。
 
 ## 1. 范围与基线
 
-- 用户已授权按设计实施，并要求隔离另一个对话的上线任务。实现位于独立工作区 `/Users/tokk/.codex/worktrees/video-studio-v2/new-api-kkai`，基线提交为 `1ead6eb1fccbdc766b009aab755237d6f41d220e`。本次交付仍是该工作区内的未提交变更。
+- 用户已授权按设计实施，并要求隔离另一个对话的上线任务。实现位于独立工作区 `/Users/tokk/.codex/worktrees/video-studio-v2/new-api-kkai`（detached HEAD）。原基线为 `1ead6eb1fccbdc766b009aab755237d6f41d220e`，实现提交为 `64ac1d76d`；商城发布后的本地生产基线 `e44ae8d98` 已合并为 `ccbeea3b5`，补齐两份测试的提交为 `f6b284f85`。原主仓库保持干净。
+- 商城对话 `01a17c9e-dd5d-73f2-a7fc-cfd4f5b69ccc` 的最终交付记录与用户确认满足计划启动条件；这只证明可以继续本任务，不替代视频工作室的真实业务验收或发布授权。商城生产状态不从本文推断。
+- 七份 locale 按键整合，保留商城原有值和视频新增 74 键；商城导航、生成路由与后端接口保持合并基线行为。最终范围仍为 default 前端及文档，没有新增后端差异。
 - 需求依据为 [PRD v1.2](prd.md) 的 VS-01～VS-20；视觉依据为 [UI 规范](ui-spec.md)及暗色 V2 [设计稿](design.html?theme=dark)。正式页面沿用应用主题，暗色与浅色均有实现，不强制覆盖全站主题。
 - 改动涉及 Video Studio 创作、作品库、任务页、相关路由、提交恢复与私有媒体边界。共享媒体授权修正同步覆盖图片工作室直接消费者。
 - “视频作品”用于参考现有组件、媒体生命周期和通用基础设施；没有将 Studio 数据强转为 `TaskLog`，没有合并 `/usage-logs/task`，没有对视频作品模块进行扩展性重构。
-- 没有新增运行时依赖，没有修改后端接口、数据库、计费公式或生产配置；没有访问生产环境或调用付费生成。
+- 没有新增运行时依赖，没有修改后端接口、数据库、计费公式或生产配置；本轮没有生产业务写入或付费生成。
 
 ## 2. 已实现内容
 
@@ -67,6 +73,9 @@
 | refetch 失败仍带旧 data，可能误报续签成功 | 先检查 `result.error` 与拒绝证据，再接受返回 data | 媒体生命周期测试及页面回调复核 |
 | 异步拦截器期间身份/输入改变；认证刷新重放付费 POST | 最终同步 guard 放在 HTTP adapter 实际发送前；该 POST 使用 `skipAuthRefresh`，mutation 明确 `retry:false` | api-submission 的真实 transport 边界测试 |
 | 报价过期触发循环；未知结果被临时状态误解锁 | 过期显式重试；未知仅由有效回执或同任务 archiving/ready 证据结束，保留长期等价输入保护 | use-video-submission / protocol / store 测试 |
+| ready 视频首次签名尚未返回却播报预览故障 | 创作页与作品库透传首次签名加载状态；等待时显示 status 并隐藏播放入口；失败/拒权仍保留不可用态；健康来源不因续期重载 | player 新增回归、真实 React 初始签名延迟断言 |
+| 作品库异步签名回执只依赖卸载清理 | 下载、详情续期及刷新回执后显式复核当前账号；与现有账号/会话 key 卸载保护共同生效 | 页面定向回归及独立差异审查 |
+| 作品库截图在海报异步解码前拍摄 | 脚本等待三张海报加载并 decode 后再截图 | 浏览器零错误通过及截图人工复核 |
 
 复核还检查了单编辑器跨断点、素材角色、失败不误称空数据、不可用目标不回退冒充其他成果、局部动效和公共组件复用边界。审查结论不扩大已执行测试或浏览器证据的覆盖范围。
 
@@ -80,13 +89,22 @@ bun run typecheck
 bun run test src/features/video-studio/video-target-route.test.ts
 ```
 
-- 定向测试：**28 个文件，251 项通过**。路由 schema 的 11 项包含在此集合内，不额外累加。
+- 商城基线整合后定向测试：**28 个文件，251 项通过**。路由 schema 的 11 项包含在此集合内，不额外累加。本轮加载态修复后只重跑下方受影响三文件，**28 项通过**（包含新增回归），未为凑总数重跑已通过的其他文件。
 - 完整前端类型检查：`bun run typecheck` 通过；已获得用户授权，不能称为文件级类型检查。
 - 局部 lint：由 Python 合并 `git diff --name-only` 与 `git ls-files --others` 的本任务文件集合，向 `bunx --no-install oxlint -c .oxlintrc.json` 传入 **50 个 TS/TSX 文件**，通过。
 - 局部格式：对 **51 个 TS/TSX/CSS 文件**执行 `bunx --no-install oxfmt --check`，通过；受保护版权头保持原样。没有将仓库 wrapper 冒充局部检查。
-- i18n：`python3 /tmp/video-studio-i18n-check.py` 通过；检查 206 个 Studio 静态键及动态键、新增 **74 键 × 7 语言**（en、zh、zh-TW、fr、ja、ru、vi）、旧值不变和插值占位一致。该检查脚本是本次本地临时审计工具，不是仓库长期工具。
+- i18n：`python3 /tmp/video-studio-i18n-check.py` 通过；合并后检查 207 个 Studio 静态键及动态键、新增 **74 键 × 7 语言**（en、zh、zh-TW、fr、ja、ru、vi）、商城旧值不变和插值占位一致。本次加载文案复用已有 `Loading...`，七语言均存在；没有新增 locale 写入。该检查脚本是本次本地临时审计工具，不是仓库长期工具。
 - `git diff --check` 通过。
-- **未运行全测试套件、全仓库 lint/格式检查、生产构建或后端测试。** 没有依赖、锁文件、后端代码或数据库变更；本地通过不能代替正式发布所需的构建与验收。
+- **未运行全测试套件、全仓库格式检查、生产构建或后端测试。** 一次文件选择脚本路径错误导致 oxlint 意外扫描全仓并报告既有问题；修正选择路径后上述 50 文件定向 lint 通过，未改动无关文件。完整前端 typecheck 已获用户授权并通过。本地通过不能代替正式发布所需的构建与验收。
+
+本轮修复后实际执行的命令（工作目录 `web/default/`），均退出 0：
+
+```sh
+bun run test src/features/video-studio/components/video-generation-player.test.tsx src/features/video-studio/video-create-page.test.tsx src/features/video-studio/video-library-page.test.tsx
+bun run typecheck
+bunx --no-install oxlint -c .oxlintrc.json src/features/video-studio/components/video-generation-player.tsx src/features/video-studio/components/video-generation-player.test.tsx src/features/video-studio/components/video-generation-details.tsx src/features/video-studio/video-create-page.tsx src/features/video-studio/video-library-page.tsx
+bunx --no-install oxfmt --check src/features/video-studio/components/video-generation-player.tsx src/features/video-studio/components/video-generation-player.test.tsx src/features/video-studio/components/video-generation-details.tsx src/features/video-studio/video-create-page.tsx src/features/video-studio/video-library-page.tsx
+```
 
 路由类型泛型修正后单独重跑上述路由测试，11 项通过。局部 lint/格式的文件选择方式如下（工作区根目录）；这保证新增但尚未提交的文件也在检查范围内：
 
@@ -123,10 +141,10 @@ VITE_REACT_APP_SERVER_URL=http://127.0.0.1:9 bun run dev --port 4875
 
 # 工作目录：工作区根目录
 ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=640x360:rate=24 -t 3 -an -c:v libx264 -pix_fmt yuv420p -movflags +faststart -y /tmp/video-studio-qa.mp4
-QA_NODE_PACKAGE=/Users/tokk/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/package.json node docs/kkai/video-studio-redesign/visual-qa.mjs
+QA_NODE_PACKAGE=/Users/tokk/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/package.json node docs/kkai/video-studio-redesign/visual-qa.mjs
 ```
 
-浏览器脚本使用本地合成的 3 秒 MP4 验证媒体解码，最终运行退出码为 0。服务地址、运行时路径与媒体 fixture 为该机器的检查环境，不是产品配置或真实后端。验收用的 4875 开发服务已停止，原 4874 设计服务未改动；临时类型配置及中间截图已清理，保留 13 张正式实现截图。
+浏览器脚本使用本地合成的 3 秒 MP4 验证媒体解码，最终运行退出码为 0，共记录 10 组证据。服务地址、运行时路径与媒体 fixture 为该机器的检查环境，不是产品配置或真实后端。验收完成后停止 4875 开发服务，原 4874 设计服务未改动；保留 17 张正式实现截图。
 
 浏览器脚本检查及 [browser-evidence.json](screenshots/implementation/browser-evidence.json)记录本次 Chromium 156 的结果：
 
@@ -134,7 +152,9 @@ QA_NODE_PACKAGE=/Users/tokk/.cache/codex-runtimes/codex-primary-runtime/dependen
 | --- | --- |
 | 暗色基调与布局 | 页面 `rgb(17, 19, 21)`，强调色 `#b1bcff`；编辑器 400px，列间距 22px |
 | 当前视频 | `readyState=4`，时长 3 秒，原生 controls 可用，`object-fit: contain` |
-| 390px 与 320px | 无横向溢出；仅一个 composer；编辑器和成果分别留有截图 |
+| 1024/768/390/320px | 无横向溢出；仅一个 composer；编辑器和成果分别留有截图 |
+| 初次签名等待 | 阻塞首次签名回执时显示 status，无错误 alert、无播放入口；回执返回后恢复播放入口 |
+| 作品库海报 | 三张图片完成 decode 后截图，人工复核可见 |
 | 详情媒体互斥 | 打开详情时主成果播放器为 0，避免两个活动播放来源 |
 | 减少动态效果 | 实际 transition 为 `0s` |
 | 浅色主题 | 页面 `rgb(246, 247, 250)`，强调色 `#4c63da` |
@@ -146,11 +166,11 @@ QA_NODE_PACKAGE=/Users/tokk/.cache/codex-runtimes/codex-primary-runtime/dependen
 
 ## 7. 未覆盖项、能力限制与交付边界
 
-1. **真实服务**：尚未联调真实后端权限、报价、供应商任务、真实上传/分片恢复、签名过期/存储故障或实际账单。没有进行付费真实生成；不将 fixture 的零错误解读为生产链路通过。
+1. **真实服务**：尚未联调真实后端权限、报价、供应商任务、真实上传/分片恢复、签名过期/存储故障或实际账单。本地无隔离后端监听/容器，未发现可用测试账号。`GET /api/video-studio/token` 对 legacy token 可能写库修复，创作页缺 token 时会自动 POST 创建；不能直接打开生产页面并称其严格只读。需要独立库、预置账号/token/作品后，允许模型/分页/详情查询、无计费报价及媒体签名，阻止生成、上传、删除与 token 创建。没有进行付费真实生成；不将 fixture 的零错误解读为生产链路通过。
 2. **实机与可访问性**：未覆盖 Safari、真实设备软键盘、全部设计宽度/侧栏组合、完整键盘和读屏流程、200% 文字、所有语言长文案以及完整对比度/触控尺寸审计。已有 jsdom 语义测试与 Chromium 布局证据只证明对应检查点。
 3. **未知提交能力**：现有 API 无法精确定位所有无 task_id 的未知操作；无证据时持续待核实，不自动重发，也不在 24 小时后换新身份。未决本地存储不是永久账本；用户清理浏览器数据或跨设备时没有可靠恢复保证。
-4. **并发范围**：未宣称不同标签页同时点击具备原子互斥；当前保护与服务端既有幂等语义不等于跨标签页的新操作去重协议。
+4. **并发范围**：不同标签页可非原子读改写同账号 localStorage，生成不同 operationId，甚至后写覆盖前一笔未决记录；服务端按幂等键去重，无法合并不同键的同内容请求。该既有能力边界须纳入上线说明，不能宣称跨标签页原子去重或全局防重复扣费。
 5. **删除服务端边界**：前端确认时重新校验终态，但后端当前没有终态强制检查。确认与 DELETE 之间的服务端竞态不是前端可以完全消除的保证。
 6. **明确不扩展的能力**：没有完整历史输入再生成、全历史搜索/状态统计、取消上游任务或退款能力，不用页面表现暗示这些服务已存在。
 7. **回退**：新未决记录包含版本。回退到不识别这些记录的旧前端可能重新开放重复提交；存在未决记录时需保留可识别保护提示的安全版本或前向修复，不能清空 store 作为修复方案。
-8. **交付状态**：没有提交、合并、构建生产镜像或部署。发布需另按维护中的 NewAPI 手册、当时后端 manifest、安装能力及实际发布范围执行，本文不声明当前生产版本、槽位、健康或回滚就绪。
+8. **交付状态**：本地实现和商城基线已在独立 worktree 固化，本轮修复及证据尚未提交；没有合入生产分支、推送、构建生产镜像或发布视频工作室。发布需另按维护中的 NewAPI 手册、当时后端 manifest、安装能力及实际发布范围执行，本文不声明当前生产版本、槽位、健康或回滚就绪。存在新版未决记录时禁止直接回退到 `e44ae8d98` 旧前端，必须保留识别该记录的安全版本或前向修复。

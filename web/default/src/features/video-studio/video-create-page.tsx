@@ -351,6 +351,7 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
           generation={signedGeneration}
           active={activeMedia === 'generation'}
           mediaIdentity={`${userId}:${generation?.id}:${generation?.output_asset_id ?? ''}`}
+          loading={Boolean(generation?.video_url) && mediaQuery.isPending}
           denied={denied}
           posterDenied={posterDenied}
           onPlay={() => setActiveMedia('generation')}
@@ -650,6 +651,7 @@ function VideoCreateWorkspace(props: VideoCreatePageProps) {
         }}
         active={activeMedia === 'details'}
         mediaIdentity={`${userId}:${generation?.id}:${generation?.output_asset_id ?? ''}`}
+        loading={Boolean(generation?.video_url) && mediaQuery.isPending}
         denied={denied}
         posterDenied={posterDenied}
         onPlay={() => setActiveMedia('details')}

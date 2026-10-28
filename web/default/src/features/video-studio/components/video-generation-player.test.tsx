@@ -47,6 +47,29 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
 })
 describe('Studio generation playback', () => {
+  test('waits for the initial signature before offering playback or reporting an error', () => {
+    const unsigned = { ...generation, video_url: undefined }
+    const view = render(
+      <VideoGenerationPlayer generation={unsigned} active={false} loading />
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('Loading...')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Play video' })
+    ).not.toBeInTheDocument()
+
+    view.rerender(
+      <VideoGenerationPlayer generation={generation} active={false} />
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Play video' })).toBeVisible()
+
+    view.unmount()
+    render(<VideoGenerationPlayer generation={unsigned} active />)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Video preview is unavailable'
+    )
+  })
   test('keeps a healthy source and position across background signature renewal', () => {
     const view = render(
       <VideoGenerationPlayer

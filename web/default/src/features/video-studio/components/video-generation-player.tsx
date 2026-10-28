@@ -30,6 +30,7 @@ export type VideoGenerationPlayerProps = {
   generation: VideoGeneration
   active: boolean
   mediaIdentity?: string
+  loading?: boolean
   denied?: boolean
   posterDenied?: boolean
   onPlay?: () => void
@@ -146,7 +147,11 @@ function VideoGenerationPlayerSession(props: VideoGenerationPlayerProps) {
     failedPoster === props.generation.poster_url
       ? undefined
       : props.generation.poster_url
-  const unavailable = props.denied || failed || (ready && !source)
+  const loading = ready && !source && props.loading && !props.denied && !failed
+  const unavailable = props.denied || failed || (ready && !source && !loading)
+  let stateMessage = t('Video preview is unavailable')
+  if (loading) stateMessage = t('Loading...')
+  if (renewing) stateMessage = t('Refreshing video access')
 
   return (
     <div
@@ -162,7 +167,7 @@ function VideoGenerationPlayerSession(props: VideoGenerationPlayerProps) {
           onError={() => setFailedPoster(props.generation.poster_url)}
         />
       )}
-      {ready && !props.active && !props.denied && (
+      {ready && !props.active && !props.denied && !loading && (
         <Button
           type='button'
           className='video-studio-player-play'
@@ -204,19 +209,17 @@ function VideoGenerationPlayerSession(props: VideoGenerationPlayerProps) {
           }}
         />
       )}
-      {ready && (unavailable || renewing) && (
+      {ready && (loading || unavailable || renewing) && (
         <div
           className='video-studio-player-state'
-          role={unavailable ? 'alert' : 'status'}
+          role={loading || renewing ? 'status' : 'alert'}
         >
           <Video aria-hidden='true' />
-          <p>
-            {renewing
-              ? t('Refreshing video access')
-              : t('Video preview is unavailable')}
-          </p>
-          <span>{t('Your task information is still available.')}</span>
-          {!props.denied && props.onRefresh && props.active && (
+          <p>{stateMessage}</p>
+          {!loading && !renewing && (
+            <span>{t('Your task information is still available.')}</span>
+          )}
+          {unavailable && !props.denied && props.onRefresh && props.active && (
             <Button
               type='button'
               variant='outline'

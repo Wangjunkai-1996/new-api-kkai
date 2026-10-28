@@ -49,6 +49,9 @@ const generations = [3, 2, 1].map(id => ({
 const samples = generations.map(g => ({ ...g, title: '城市光影', model_display_name: 'Sora 2', model_version: 1, reference_asset_ids: [], reference_content_urls: [], video_asset_id: g.id, preview_url: '', aspect_ratio: 16 / 9, category: 'other', status: 'published', sort_order: 1 }))
 let scene = 'ready'
 let postCount = 0
+let holdInitialMedia = true
+let releaseInitialMedia
+const initialMediaGate = new Promise(resolve => { releaseInitialMedia = resolve })
 await context.route('**/*', async route => {
   const url = new URL(route.request().url())
   if (url.origin !== base) return route.abort()
@@ -72,7 +75,10 @@ await context.route('**/*', async route => {
     if (scene === 'error') return route.fulfill({ status: 503, json: { success: false } })
     data = { items: scene === 'empty' ? [] : generations }
   } else if (path.startsWith('/api/video-studio/generations/')) data = generations.find(g => g.id === Number(path.split('/').at(-1)))
-  else if (path === '/api/studio/media-urls') data = { urls: Object.fromEntries(route.request().postDataJSON().paths.map(path => [path, path.endsWith('/poster') ? '/qa/poster.webp' : '/qa/video.mp4'])), expires_at: now + 36000 }
+  else if (path === '/api/studio/media-urls') {
+    if (holdInitialMedia) await initialMediaGate
+    data = { urls: Object.fromEntries(route.request().postDataJSON().paths.map(path => [path, path.endsWith('/poster') ? '/qa/poster.webp' : '/qa/video.mp4'])), expires_at: now + 36000 }
+  }
   else if (path === '/pg/videos/quote') data = { quota: 100, display_amount: '$0.24', request_hash: 'a'.repeat(64), expires_at: Math.floor(Date.now() / 1000) + 300 }
   else if (path === '/pg/videos') { postCount++; return route.fulfill({ status: 503, json: { success: false, code: 'video_submission_unknown', task_id: 'task_visual_unknown' } }) }
   return route.fulfill({ json: { success: true, data } })
@@ -86,6 +92,13 @@ async function create(search = '') {
 }
 try {
   await create()
+  await page.locator('.video-studio-player-state[role="status"]').waitFor()
+  assert.equal(await page.locator('.video-studio-player-state[role="alert"]').count(), 0)
+  assert.equal(await page.getByRole('button', { name: '播放视频', exact: true }).count(), 0)
+  evidence.push({ scene: 'initial-signature', waitingWithoutError: true, playDisabledUntilSigned: true })
+  holdInitialMedia = false
+  releaseInitialMedia()
+  await page.getByRole('button', { name: '播放视频', exact: true }).waitFor()
   await page.locator('textarea').fill(generations[0].prompt)
   await page.locator('.video-studio-form-footer strong').filter({ hasText: '$0.24' }).waitFor()
   await page.locator('.video-studio-inspiration-toggle').click()
@@ -103,7 +116,7 @@ try {
   await page.getByRole('button', { name: '首尾帧', exact: true }).click()
   await capture('dark-first-last-frames')
   await page.getByRole('button', { name: '文生视频', exact: true }).click()
-  for (const width of [390, 320]) {
+  for (const width of [1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 844 })
     await page.locator('main#content').evaluate(e => e.scrollTo(0, 0))
     await page.waitForFunction(width => document.documentElement.scrollWidth === width, width, { timeout: 3000 })
@@ -116,7 +129,7 @@ try {
     await capture(`dark-create-${width}`)
     await page.locator('.video-studio-result').scrollIntoViewIfNeeded()
     await capture(`dark-result-${width}`)
-    evidence.push({ scene: `mobile-${width}`, noHorizontalOverflow: true, oneComposer: true })
+    evidence.push({ scene: `responsive-${width}`, noHorizontalOverflow: true, oneComposer: true })
   }
   await page.emulateMedia({ reducedMotion: 'reduce' })
   assert.equal(await page.locator('.video-studio-recent-card').first().evaluate(e => getComputedStyle(e).transitionDuration), '0s')
@@ -125,6 +138,15 @@ try {
   await page.setViewportSize({ width: 1440, height: 1280 })
   await page.goto(`${base}/video-studio/library`)
   await page.locator('.video-studio-library-grid').waitFor()
+  await page.waitForFunction(() => {
+    const posters = [...document.querySelectorAll('.video-studio-library-preview img')]
+    return posters.length === 3 && posters.every(img => img.complete && img.naturalWidth > 0)
+  })
+  await page.locator('.video-studio-library-preview img').evaluateAll(async posters => {
+    await Promise.all(posters.map(img => img.decode()))
+    await new Promise(requestAnimationFrame)
+  })
+  evidence.push({ scene: 'library-posters', decoded: 3 })
   await capture('dark-library-desktop')
   generations[1].status = 'archiving'
   generations[2].status = 'processing'

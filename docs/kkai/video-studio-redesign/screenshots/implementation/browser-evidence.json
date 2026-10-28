@@ -1,8 +1,13 @@
 {
-  "date": "2026-10-28T09:02:17.587Z",
+  "date": "2026-10-28T14:09:39.073Z",
   "browser": "156.0.8078.48",
   "source": "Real React routes with local intercepted fixtures",
   "assertions": [
+    {
+      "scene": "initial-signature",
+      "waitingWithoutError": true,
+      "playDisabledUntilSigned": true
+    },
     {
       "scene": "desktop",
       "page": "rgb(17, 19, 21)",
@@ -18,18 +23,32 @@
       "fit": "contain"
     },
     {
-      "scene": "mobile-390",
+      "scene": "responsive-1024",
       "noHorizontalOverflow": true,
       "oneComposer": true
     },
     {
-      "scene": "mobile-320",
+      "scene": "responsive-768",
+      "noHorizontalOverflow": true,
+      "oneComposer": true
+    },
+    {
+      "scene": "responsive-390",
+      "noHorizontalOverflow": true,
+      "oneComposer": true
+    },
+    {
+      "scene": "responsive-320",
       "noHorizontalOverflow": true,
       "oneComposer": true
     },
     {
       "scene": "reduced-motion",
       "transition": "0s"
+    },
+    {
+      "scene": "library-posters",
+      "decoded": 3
     },
     {
       "scene": "light",
