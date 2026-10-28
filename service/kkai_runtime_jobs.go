@@ -60,6 +60,7 @@ func RegisterKKAIRuntimeBackgroundJobs(registry *BackgroundJobRegistry, workerID
 		riskActionCommitted:        riskOutboxHandler.Handle,
 		topUpCompleted:             topUpCompleted,
 		invoiceNotification:        (InvoiceNotificationHandler{DB: model.DB}).Handle,
+		shop:                       (ShopOutboxHandler{DB: model.DB, WorkerID: workerID, LockTimeout: 2 * time.Minute}).Handle,
 	})
 	if err != nil {
 		return err

@@ -216,6 +216,17 @@ export function useSidebarData(): SidebarData {
         id: 'admin',
         title: t('Admin'),
         items: [
+          ...(site?.tenant_id === 0
+            ? [
+                {
+                  title: t('Shop administration'),
+                  url: '/shop-admin',
+                  activeUrls: ['/shop-admin'],
+                  icon: Box,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           ...(!isTenant
             ? [
                 {

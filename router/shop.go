@@ -1,0 +1,87 @@
+package router
+
+import (
+	"github.com/QuantumNous/new-api/controller"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/gin-gonic/gin"
+)
+
+func registerShopRoutes(api *gin.RouterGroup) {
+	shop := api.Group("/shop", middleware.ShopMainSiteGuard(), controller.ShopSchemaGuard)
+	shop.GET("/config", controller.GetShopConfig)
+	shop.GET("/categories", controller.ListShopCategories)
+	shop.GET("/products", controller.ListShopProducts)
+	shop.GET("/products/:product_id", controller.GetShopProduct)
+	shop.GET("/payments/epay/notify", controller.ShopEpayCallback)
+	shop.POST("/payments/epay/notify", controller.ShopEpayCallback)
+	buyer := shop.Group("", middleware.UserAuth(), middleware.ShopSessionGuard(false))
+	buyer.GET("/orders", middleware.ShopRateLimit("read"), controller.ShopListOrders)
+	buyer.POST("/orders", middleware.ShopRateLimit("order"), controller.ShopCreateOrder)
+	buyer.GET("/order-requests/:key", middleware.ShopRateLimit("read"), controller.ShopOrderRecovery)
+	buyer.GET("/orders/:order_no", middleware.ShopRateLimit("read"), controller.ShopGetOrder)
+	buyer.GET("/orders/:order_no/events", middleware.ShopRateLimit("read"), controller.ShopOrderEvents)
+	buyer.POST("/orders/:order_no/close", middleware.ShopRateLimit("order"), controller.ShopCloseOrder)
+	buyer.POST("/orders/:order_no/reconcile", middleware.ShopRateLimit("reconcile"), controller.ShopReconcileOrder)
+	buyer.POST("/orders/:order_no/payment-attempts", middleware.ShopRateLimit("payment"), controller.ShopCreatePayment)
+	buyer.GET("/orders/:order_no/buyer-input", middleware.ShopRateLimit("read"), controller.ShopGetBuyerInput)
+	buyer.PUT("/orders/:order_no/buyer-input", middleware.ShopRateLimit("order"), controller.ShopUpdateBuyerInput)
+	buyer.POST("/orders/:order_no/reveal", middleware.ShopRateLimit("reveal"), controller.ShopRevealOrder)
+	buyer.GET("/orders/:order_no/aftersales", middleware.ShopRateLimit("read"), controller.ShopListAftersales)
+	buyer.POST("/orders/:order_no/aftersales", middleware.ShopRateLimit("order"), controller.ShopCreateAftersale)
+	buyer.GET("/aftersales/:case_id", middleware.ShopRateLimit("read"), controller.ShopGetAftersale)
+	buyer.POST("/aftersales/:case_id/messages", middleware.ShopRateLimit("order"), controller.ShopAftersaleMessage)
+
+	// Set metadata-only auditing before AdminAuth installs its response writer.
+	admin := api.Group("/admin/shop", middleware.ShopMainSiteGuard(), middleware.SensitiveResponseAudit(), middleware.AdminAuth(), middleware.ShopSessionGuard(true), controller.ShopSchemaGuard)
+	admin.Use(func(c *gin.Context) { c.Set("shop_admin", true); c.Next() })
+	admin.Use(middleware.ShopRateLimit("admin"))
+	admin.GET("/settings", controller.GetShopSettings)
+	admin.PATCH("/settings", controller.UpdateShopSettings)
+	admin.GET("/overview", controller.GetShopOverview)
+	admin.GET("/categories", controller.ListShopCategories)
+	admin.POST("/categories", controller.SaveShopCategory)
+	admin.PATCH("/categories/:category_id", controller.SaveShopCategory)
+	admin.GET("/products", controller.ListShopProducts)
+	admin.POST("/products", controller.SaveShopProduct)
+	admin.GET("/products/:product_id", controller.GetShopProduct)
+	admin.PATCH("/products/:product_id", controller.SaveShopProduct)
+	for _, item := range []struct{ path, state string }{{"publish", "published"}, {"unpublish", "unpublished"}, {"archive", "archived"}} {
+		state := item.state
+		admin.POST("/products/:product_id/"+item.path, func(c *gin.Context) { c.Set("shop_action", state); controller.ChangeShopProductStatus(c) })
+	}
+	admin.GET("/inventory", controller.ListShopInventory)
+	admin.POST("/inventory/import-preview", middleware.ShopRateLimit("import"), controller.PreviewShopInventory)
+	admin.POST("/inventory/import-commit", middleware.ShopRateLimit("import"), controller.CommitShopInventory)
+	admin.GET("/inventory/import-requests/:key", controller.RecoverShopInventoryImport)
+	admin.POST("/inventory/:unit_id/quarantine", controller.QuarantineShopInventory)
+	admin.POST("/inventory/:unit_id/reveal", middleware.ShopRateLimit("reveal"), controller.RevealShopInventory)
+	admin.GET("/orders", controller.ShopListOrders)
+	admin.GET("/orders/:order_no", controller.ShopGetOrder)
+	admin.GET("/orders/:order_no/events", controller.ShopOrderEvents)
+	admin.GET("/orders/:order_no/buyer-input", controller.ShopGetBuyerInput)
+	for _, item := range []struct{ path, action string }{{"claim", "claim-order"}, {"request-input", "request-input"}, {"risk-hold", "risk-hold"}, {"risk-release", "risk-release"}, {"notes", "order-note"}, {"retry-delivery", "retry-delivery"}} {
+		admin.POST("/orders/:order_no/"+item.path, controller.ShopAdminOrderAction(item.action))
+	}
+	admin.POST("/orders/:order_no/deliveries", controller.ShopDeliverOrder)
+	admin.POST("/orders/:order_no/deliveries/:delivery_id/reveal", middleware.ShopRateLimit("reveal"), controller.ShopAdminRevealDelivery)
+	admin.GET("/aftersales", controller.ShopListAftersales)
+	admin.GET("/aftersales/:case_id", controller.ShopGetAftersale)
+	admin.POST("/aftersales/:case_id/messages", controller.ShopAftersaleMessage)
+	admin.POST("/aftersales/:case_id/decisions", controller.ShopDecideAftersale)
+	admin.POST("/aftersales/:case_id/replacements", controller.ShopReplaceDelivery)
+	admin.GET("/receipts", controller.ShopListReceipts)
+	admin.GET("/receipts/:receipt_id", controller.ShopGetReceipt)
+	admin.POST("/receipts/:receipt_id/assign", controller.ShopReceiptAction("assign"))
+	admin.POST("/receipts/:receipt_id/reconcile", controller.ShopReceiptAction("reconcile"))
+	admin.POST("/receipts/:receipt_id/refunds", controller.ShopApproveRefund)
+	admin.POST("/receipts/:receipt_id/adjustments", controller.ShopRecordAdjustment)
+	admin.POST("/receipts/:receipt_id/adjustments/:adjustment_id/review", controller.ShopReviewAdjustment)
+	admin.GET("/refunds", controller.ShopListRefunds)
+	admin.GET("/refunds/:refund_id", controller.ShopGetRefund)
+	admin.POST("/refunds/:refund_id/attempts", controller.ShopRefundAction("attempt"))
+	admin.POST("/refunds/:refund_id/attempts/:attempt_id/record", controller.ShopRefundAction("record"))
+	admin.POST("/refunds/:refund_id/attempts/:attempt_id/verify", controller.ShopRefundAction("verify"))
+	admin.POST("/refunds/:refund_id/cancel", controller.ShopRefundAction("cancel"))
+	admin.POST("/evidence", controller.ShopCreateEvidence)
+	admin.GET("/evidence/:evidence_id", controller.ShopGetEvidence)
+}

@@ -1040,7 +1040,7 @@ func (user *User) delete(identity *AuthSessionIdentity) (int64, error) {
 	}
 	var nextAuthVersion int64
 	var revokedAccessTokens int64
-	if err := DB.Transaction(func(tx *gorm.DB) error {
+	if err := shopTransaction(DB, func(tx *gorm.DB) error {
 		if identity != nil {
 			if err := ValidateAuthSessionWithTx(tx, *identity); err != nil {
 				return err
@@ -1085,7 +1085,7 @@ func (user *User) HardDelete() (int64, error) {
 	var tokens []Token
 	var deletedAuthVersion int64
 	var revokedAccessTokens int64
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := shopTransaction(DB, func(tx *gorm.DB) error {
 		if err := checkTenantUserDeletionTx(tx, user.Id); err != nil {
 			return err
 		}

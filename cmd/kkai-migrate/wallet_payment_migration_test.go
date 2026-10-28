@@ -19,6 +19,8 @@ func walletPaymentProofFixture(t *testing.T) (*walletPaymentControllerProof, *wa
 	t.Helper()
 	contract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	require.NoError(t, err)
+	contract.RuntimeMaxVersion = 18
+	delete(contract.CompatiblePrefixes, "19")
 	now := time.Unix(1800000000, 0)
 	status := &walletPaymentMigrationStatus{
 		Schema: "kkai_wallet_payment_migration_status_v1", CurrentVersion: 17, TargetVersion: 18, Safe: true,

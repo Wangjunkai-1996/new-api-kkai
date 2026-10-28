@@ -16,6 +16,7 @@ import { Route as CnRestrictedRouteImport } from './routes/cn-restricted'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
 import { Route as ResellerRouteImport } from './routes/reseller'
 import { Route as ResellerApplicationRouteImport } from './routes/reseller-application'
+import { Route as ShopRouteRouteImport } from './routes/shop/route'
 import { Route as UserAgreementRouteImport } from './routes/user-agreement'
 import { Route as authForgotPasswordRouteImport } from './routes/(auth)/forgot-password'
 import { Route as authOauthRouteImport } from './routes/(auth)/oauth'
@@ -37,6 +38,7 @@ import { Route as AuthenticatedInvoicesRouteRouteImport } from './routes/_authen
 import { Route as AuthenticatedRequestAdminRouteImport } from './routes/_authenticated/request-admin'
 import { Route as AuthenticatedRequestsRouteRouteImport } from './routes/_authenticated/requests/route'
 import { Route as AuthenticatedResellerAdminRouteImport } from './routes/_authenticated/reseller-admin'
+import { Route as AuthenticatedShopAdminRouteRouteImport } from './routes/_authenticated/shop-admin/route'
 import { Route as AuthenticatedSystemSettingsRouteRouteImport } from './routes/_authenticated/system-settings/route'
 import { Route as AuthenticatedVideoStudioRouteRouteImport } from './routes/_authenticated/video-studio/route'
 import { Route as AboutIndexRouteImport } from './routes/about/index'
@@ -48,6 +50,8 @@ import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as ResellerIndexRouteImport } from './routes/reseller.index'
 import { Route as ResellerSectionRouteImport } from './routes/reseller.$section'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
+import { Route as ShopIndexRouteImport } from './routes/shop/index'
+import { Route as ShopBuyerRouteRouteImport } from './routes/shop/_buyer/route'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
@@ -75,6 +79,9 @@ import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authent
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRequestsIndexRouteImport } from './routes/_authenticated/requests/index'
 import { Route as AuthenticatedRequestsRequestIdRouteImport } from './routes/_authenticated/requests/$requestId'
+import { Route as AuthenticatedShopAdminIndexRouteImport } from './routes/_authenticated/shop-admin/index'
+import { Route as AuthenticatedShopAdminInventoryRouteImport } from './routes/_authenticated/shop-admin/inventory'
+import { Route as AuthenticatedShopAdminSettingsRouteImport } from './routes/_authenticated/shop-admin/settings'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
@@ -91,6 +98,18 @@ import { Route as AuthenticatedVideoStudioLibraryRouteImport } from './routes/_a
 import { Route as AuthenticatedVideoStudioTasksRouteImport } from './routes/_authenticated/video-studio/tasks'
 import { Route as AuthenticatedWalletIndexRouteImport } from './routes/_authenticated/wallet/index'
 import { Route as PricingModelIdIndexRouteImport } from './routes/pricing/$modelId/index'
+import { Route as ShopProductsProductIdRouteImport } from './routes/shop/products/$productId'
+import { Route as AuthenticatedShopAdminAftersalesIndexRouteImport } from './routes/_authenticated/shop-admin/aftersales/index'
+import { Route as AuthenticatedShopAdminAftersalesCaseIdRouteImport } from './routes/_authenticated/shop-admin/aftersales/$caseId'
+import { Route as AuthenticatedShopAdminOrdersIndexRouteImport } from './routes/_authenticated/shop-admin/orders/index'
+import { Route as AuthenticatedShopAdminOrdersOrderNoRouteImport } from './routes/_authenticated/shop-admin/orders/$orderNo'
+import { Route as AuthenticatedShopAdminProductsIndexRouteImport } from './routes/_authenticated/shop-admin/products/index'
+import { Route as AuthenticatedShopAdminProductsProductIdRouteImport } from './routes/_authenticated/shop-admin/products/$productId'
+import { Route as AuthenticatedShopAdminProductsNewRouteImport } from './routes/_authenticated/shop-admin/products/new'
+import { Route as AuthenticatedShopAdminReceiptsIndexRouteImport } from './routes/_authenticated/shop-admin/receipts/index'
+import { Route as AuthenticatedShopAdminReceiptsReceiptIdRouteImport } from './routes/_authenticated/shop-admin/receipts/$receiptId'
+import { Route as AuthenticatedShopAdminRefundsIndexRouteImport } from './routes/_authenticated/shop-admin/refunds/index'
+import { Route as AuthenticatedShopAdminRefundsRefundIdRouteImport } from './routes/_authenticated/shop-admin/refunds/$refundId'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAuthSectionRouteImport } from './routes/_authenticated/system-settings/auth/$section'
 import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
@@ -107,6 +126,11 @@ import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
+import { Route as ShopBuyerCheckoutProductIdRouteImport } from './routes/shop/_buyer/checkout/$productId'
+import { Route as ShopBuyerOrdersIndexRouteImport } from './routes/shop/_buyer/orders/index'
+import { Route as ShopBuyerOrdersOrderNoIndexRouteImport } from './routes/shop/_buyer/orders/$orderNo/index'
+import { Route as ShopBuyerOrdersOrderNoAftersalesRouteImport } from './routes/shop/_buyer/orders/$orderNo/aftersales'
+import { Route as ShopBuyerOrdersOrderNoPayRouteImport } from './routes/shop/_buyer/orders/$orderNo/pay'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -139,6 +163,11 @@ const ResellerRoute = ResellerRouteImport.update({
 const ResellerApplicationRoute = ResellerApplicationRouteImport.update({
   id: '/reseller-application',
   path: '/reseller-application',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopRouteRoute = ShopRouteRouteImport.update({
+  id: '/shop',
+  path: '/shop',
   getParentRoute: () => rootRouteImport,
 } as any)
 const UserAgreementRoute = UserAgreementRouteImport.update({
@@ -253,6 +282,12 @@ const AuthenticatedResellerAdminRoute =
     path: '/reseller-admin',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedShopAdminRouteRoute =
+  AuthenticatedShopAdminRouteRouteImport.update({
+    id: '/shop-admin',
+    path: '/shop-admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsRouteRoute =
   AuthenticatedSystemSettingsRouteRouteImport.update({
     id: '/system-settings',
@@ -309,6 +344,15 @@ const SetupIndexRoute = SetupIndexRouteImport.update({
   id: '/setup/',
   path: '/setup/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ShopIndexRoute = ShopIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ShopRouteRoute,
+} as any)
+const ShopBuyerRouteRoute = ShopBuyerRouteRouteImport.update({
+  id: '/_buyer',
+  getParentRoute: () => ShopRouteRoute,
 } as any)
 const authUserResetRoute = authUserResetRouteImport.update({
   id: '/user/reset',
@@ -469,6 +513,24 @@ const AuthenticatedRequestsRequestIdRoute =
     path: '/$requestId',
     getParentRoute: () => AuthenticatedRequestsRouteRoute,
   } as any)
+const AuthenticatedShopAdminIndexRoute =
+  AuthenticatedShopAdminIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminInventoryRoute =
+  AuthenticatedShopAdminInventoryRouteImport.update({
+    id: '/inventory',
+    path: '/inventory',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminSettingsRoute =
+  AuthenticatedShopAdminSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
@@ -563,6 +625,77 @@ const PricingModelIdIndexRoute = PricingModelIdIndexRouteImport.update({
   path: '/pricing/$modelId/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShopProductsProductIdRoute = ShopProductsProductIdRouteImport.update({
+  id: '/products/$productId',
+  path: '/products/$productId',
+  getParentRoute: () => ShopRouteRoute,
+} as any)
+const AuthenticatedShopAdminAftersalesIndexRoute =
+  AuthenticatedShopAdminAftersalesIndexRouteImport.update({
+    id: '/aftersales/',
+    path: '/aftersales/',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminAftersalesCaseIdRoute =
+  AuthenticatedShopAdminAftersalesCaseIdRouteImport.update({
+    id: '/aftersales/$caseId',
+    path: '/aftersales/$caseId',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminOrdersIndexRoute =
+  AuthenticatedShopAdminOrdersIndexRouteImport.update({
+    id: '/orders/',
+    path: '/orders/',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminOrdersOrderNoRoute =
+  AuthenticatedShopAdminOrdersOrderNoRouteImport.update({
+    id: '/orders/$orderNo',
+    path: '/orders/$orderNo',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminProductsIndexRoute =
+  AuthenticatedShopAdminProductsIndexRouteImport.update({
+    id: '/products/',
+    path: '/products/',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminProductsProductIdRoute =
+  AuthenticatedShopAdminProductsProductIdRouteImport.update({
+    id: '/products/$productId',
+    path: '/products/$productId',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminProductsNewRoute =
+  AuthenticatedShopAdminProductsNewRouteImport.update({
+    id: '/products/new',
+    path: '/products/new',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminReceiptsIndexRoute =
+  AuthenticatedShopAdminReceiptsIndexRouteImport.update({
+    id: '/receipts/',
+    path: '/receipts/',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminReceiptsReceiptIdRoute =
+  AuthenticatedShopAdminReceiptsReceiptIdRouteImport.update({
+    id: '/receipts/$receiptId',
+    path: '/receipts/$receiptId',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminRefundsIndexRoute =
+  AuthenticatedShopAdminRefundsIndexRouteImport.update({
+    id: '/refunds/',
+    path: '/refunds/',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
+const AuthenticatedShopAdminRefundsRefundIdRoute =
+  AuthenticatedShopAdminRefundsRefundIdRouteImport.update({
+    id: '/refunds/$refundId',
+    path: '/refunds/$refundId',
+    getParentRoute: () => AuthenticatedShopAdminRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsAuthIndexRoute =
   AuthenticatedSystemSettingsAuthIndexRouteImport.update({
     id: '/auth/',
@@ -659,9 +792,39 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
     path: '/site/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const ShopBuyerCheckoutProductIdRoute =
+  ShopBuyerCheckoutProductIdRouteImport.update({
+    id: '/checkout/$productId',
+    path: '/checkout/$productId',
+    getParentRoute: () => ShopBuyerRouteRoute,
+  } as any)
+const ShopBuyerOrdersIndexRoute = ShopBuyerOrdersIndexRouteImport.update({
+  id: '/orders/',
+  path: '/orders/',
+  getParentRoute: () => ShopBuyerRouteRoute,
+} as any)
+const ShopBuyerOrdersOrderNoIndexRoute =
+  ShopBuyerOrdersOrderNoIndexRouteImport.update({
+    id: '/orders/$orderNo/',
+    path: '/orders/$orderNo/',
+    getParentRoute: () => ShopBuyerRouteRoute,
+  } as any)
+const ShopBuyerOrdersOrderNoAftersalesRoute =
+  ShopBuyerOrdersOrderNoAftersalesRouteImport.update({
+    id: '/orders/$orderNo/aftersales',
+    path: '/orders/$orderNo/aftersales',
+    getParentRoute: () => ShopBuyerRouteRoute,
+  } as any)
+const ShopBuyerOrdersOrderNoPayRoute =
+  ShopBuyerOrdersOrderNoPayRouteImport.update({
+    id: '/orders/$orderNo/pay',
+    path: '/orders/$orderNo/pay',
+    getParentRoute: () => ShopBuyerRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/shop': typeof ShopRouteRouteWithChildren
   '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/reseller': typeof ResellerRouteWithChildren
@@ -671,6 +834,7 @@ export interface FileRoutesByFullPath {
   '/invoice-admin': typeof AuthenticatedInvoiceAdminRouteRouteWithChildren
   '/invoices': typeof AuthenticatedInvoicesRouteRouteWithChildren
   '/requests': typeof AuthenticatedRequestsRouteRouteWithChildren
+  '/shop-admin': typeof AuthenticatedShopAdminRouteRouteWithChildren
   '/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
   '/forgot-password': typeof authForgotPasswordRoute
@@ -698,6 +862,7 @@ export interface FileRoutesByFullPath {
   '/rankings/': typeof RankingsIndexRoute
   '/reseller/': typeof ResellerIndexRoute
   '/setup/': typeof SetupIndexRoute
+  '/shop/': typeof ShopIndexRoute
   '/user/reset': typeof authUserResetRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
@@ -711,6 +876,8 @@ export interface FileRoutesByFullPath {
   '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
+  '/shop-admin/inventory': typeof AuthenticatedShopAdminInventoryRoute
+  '/shop-admin/settings': typeof AuthenticatedShopAdminSettingsRoute
   '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
@@ -718,6 +885,7 @@ export interface FileRoutesByFullPath {
   '/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
   '/video-studio/library': typeof AuthenticatedVideoStudioLibraryRoute
   '/video-studio/tasks': typeof AuthenticatedVideoStudioTasksRoute
+  '/shop/products/$productId': typeof ShopProductsProductIdRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/group-status/': typeof AuthenticatedGroupStatusIndexRoute
@@ -732,6 +900,7 @@ export interface FileRoutesByFullPath {
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/requests/': typeof AuthenticatedRequestsIndexRoute
+  '/shop-admin/': typeof AuthenticatedShopAdminIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -741,6 +910,12 @@ export interface FileRoutesByFullPath {
   '/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/shop-admin/aftersales/$caseId': typeof AuthenticatedShopAdminAftersalesCaseIdRoute
+  '/shop-admin/orders/$orderNo': typeof AuthenticatedShopAdminOrdersOrderNoRoute
+  '/shop-admin/products/$productId': typeof AuthenticatedShopAdminProductsProductIdRoute
+  '/shop-admin/products/new': typeof AuthenticatedShopAdminProductsNewRoute
+  '/shop-admin/receipts/$receiptId': typeof AuthenticatedShopAdminReceiptsReceiptIdRoute
+  '/shop-admin/refunds/$refundId': typeof AuthenticatedShopAdminRefundsRefundIdRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -749,6 +924,12 @@ export interface FileRoutesByFullPath {
   '/system-settings/request-policies/$section': typeof AuthenticatedSystemSettingsRequestPoliciesSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/shop/checkout/$productId': typeof ShopBuyerCheckoutProductIdRoute
+  '/shop-admin/aftersales/': typeof AuthenticatedShopAdminAftersalesIndexRoute
+  '/shop-admin/orders/': typeof AuthenticatedShopAdminOrdersIndexRoute
+  '/shop-admin/products/': typeof AuthenticatedShopAdminProductsIndexRoute
+  '/shop-admin/receipts/': typeof AuthenticatedShopAdminReceiptsIndexRoute
+  '/shop-admin/refunds/': typeof AuthenticatedShopAdminRefundsIndexRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -757,6 +938,10 @@ export interface FileRoutesByFullPath {
   '/system-settings/request-policies/': typeof AuthenticatedSystemSettingsRequestPoliciesIndexRoute
   '/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/shop/orders/': typeof ShopBuyerOrdersIndexRoute
+  '/shop/orders/$orderNo/aftersales': typeof ShopBuyerOrdersOrderNoAftersalesRoute
+  '/shop/orders/$orderNo/pay': typeof ShopBuyerOrdersOrderNoPayRoute
+  '/shop/orders/$orderNo/': typeof ShopBuyerOrdersOrderNoIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -764,6 +949,7 @@ export interface FileRoutesByTo {
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/reseller-application': typeof ResellerApplicationRoute
   '/user-agreement': typeof UserAgreementRoute
+  '/shop': typeof ShopIndexRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/oauth': typeof authOauthRoute
   '/otp': typeof authOtpRoute
@@ -801,6 +987,8 @@ export interface FileRoutesByTo {
   '/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
+  '/shop-admin/inventory': typeof AuthenticatedShopAdminInventoryRoute
+  '/shop-admin/settings': typeof AuthenticatedShopAdminSettingsRoute
   '/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
@@ -808,6 +996,7 @@ export interface FileRoutesByTo {
   '/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
   '/video-studio/library': typeof AuthenticatedVideoStudioLibraryRoute
   '/video-studio/tasks': typeof AuthenticatedVideoStudioTasksRoute
+  '/shop/products/$productId': typeof ShopProductsProductIdRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
   '/group-status': typeof AuthenticatedGroupStatusIndexRoute
@@ -822,6 +1011,7 @@ export interface FileRoutesByTo {
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/requests': typeof AuthenticatedRequestsIndexRoute
+  '/shop-admin': typeof AuthenticatedShopAdminIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
@@ -831,6 +1021,12 @@ export interface FileRoutesByTo {
   '/video-studio': typeof AuthenticatedVideoStudioIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId': typeof PricingModelIdIndexRoute
+  '/shop-admin/aftersales/$caseId': typeof AuthenticatedShopAdminAftersalesCaseIdRoute
+  '/shop-admin/orders/$orderNo': typeof AuthenticatedShopAdminOrdersOrderNoRoute
+  '/shop-admin/products/$productId': typeof AuthenticatedShopAdminProductsProductIdRoute
+  '/shop-admin/products/new': typeof AuthenticatedShopAdminProductsNewRoute
+  '/shop-admin/receipts/$receiptId': typeof AuthenticatedShopAdminReceiptsReceiptIdRoute
+  '/shop-admin/refunds/$refundId': typeof AuthenticatedShopAdminRefundsRefundIdRoute
   '/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -839,6 +1035,12 @@ export interface FileRoutesByTo {
   '/system-settings/request-policies/$section': typeof AuthenticatedSystemSettingsRequestPoliciesSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/shop/checkout/$productId': typeof ShopBuyerCheckoutProductIdRoute
+  '/shop-admin/aftersales': typeof AuthenticatedShopAdminAftersalesIndexRoute
+  '/shop-admin/orders': typeof AuthenticatedShopAdminOrdersIndexRoute
+  '/shop-admin/products': typeof AuthenticatedShopAdminProductsIndexRoute
+  '/shop-admin/receipts': typeof AuthenticatedShopAdminReceiptsIndexRoute
+  '/shop-admin/refunds': typeof AuthenticatedShopAdminRefundsIndexRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -847,12 +1049,17 @@ export interface FileRoutesByTo {
   '/system-settings/request-policies': typeof AuthenticatedSystemSettingsRequestPoliciesIndexRoute
   '/system-settings/security': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/shop/orders': typeof ShopBuyerOrdersIndexRoute
+  '/shop/orders/$orderNo/aftersales': typeof ShopBuyerOrdersOrderNoAftersalesRoute
+  '/shop/orders/$orderNo/pay': typeof ShopBuyerOrdersOrderNoPayRoute
+  '/shop/orders/$orderNo': typeof ShopBuyerOrdersOrderNoIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/(auth)': typeof authRouteRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/shop': typeof ShopRouteRouteWithChildren
   '/cn-restricted': typeof CnRestrictedRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
   '/reseller': typeof ResellerRouteWithChildren
@@ -862,8 +1069,10 @@ export interface FileRoutesById {
   '/_authenticated/invoice-admin': typeof AuthenticatedInvoiceAdminRouteRouteWithChildren
   '/_authenticated/invoices': typeof AuthenticatedInvoicesRouteRouteWithChildren
   '/_authenticated/requests': typeof AuthenticatedRequestsRouteRouteWithChildren
+  '/_authenticated/shop-admin': typeof AuthenticatedShopAdminRouteRouteWithChildren
   '/_authenticated/system-settings': typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   '/_authenticated/video-studio': typeof AuthenticatedVideoStudioRouteRouteWithChildren
+  '/shop/_buyer': typeof ShopBuyerRouteRouteWithChildren
   '/(auth)/forgot-password': typeof authForgotPasswordRoute
   '/(auth)/oauth': typeof authOauthRoute
   '/(auth)/otp': typeof authOtpRoute
@@ -889,6 +1098,7 @@ export interface FileRoutesById {
   '/rankings/': typeof RankingsIndexRoute
   '/reseller/': typeof ResellerIndexRoute
   '/setup/': typeof SetupIndexRoute
+  '/shop/': typeof ShopIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
@@ -902,6 +1112,8 @@ export interface FileRoutesById {
   '/_authenticated/membership/ratios': typeof AuthenticatedMembershipRatiosRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/requests/$requestId': typeof AuthenticatedRequestsRequestIdRoute
+  '/_authenticated/shop-admin/inventory': typeof AuthenticatedShopAdminInventoryRoute
+  '/_authenticated/shop-admin/settings': typeof AuthenticatedShopAdminSettingsRoute
   '/_authenticated/system-settings/image-studio': typeof AuthenticatedSystemSettingsImageStudioRoute
   '/_authenticated/system-settings/video-studio': typeof AuthenticatedSystemSettingsVideoStudioRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
@@ -909,6 +1121,7 @@ export interface FileRoutesById {
   '/_authenticated/video-studio/create': typeof AuthenticatedVideoStudioCreateRoute
   '/_authenticated/video-studio/library': typeof AuthenticatedVideoStudioLibraryRoute
   '/_authenticated/video-studio/tasks': typeof AuthenticatedVideoStudioTasksRoute
+  '/shop/products/$productId': typeof ShopProductsProductIdRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/group-status/': typeof AuthenticatedGroupStatusIndexRoute
@@ -923,6 +1136,7 @@ export interface FileRoutesById {
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/requests/': typeof AuthenticatedRequestsIndexRoute
+  '/_authenticated/shop-admin/': typeof AuthenticatedShopAdminIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -932,6 +1146,12 @@ export interface FileRoutesById {
   '/_authenticated/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
   '/pricing/$modelId/': typeof PricingModelIdIndexRoute
+  '/_authenticated/shop-admin/aftersales/$caseId': typeof AuthenticatedShopAdminAftersalesCaseIdRoute
+  '/_authenticated/shop-admin/orders/$orderNo': typeof AuthenticatedShopAdminOrdersOrderNoRoute
+  '/_authenticated/shop-admin/products/$productId': typeof AuthenticatedShopAdminProductsProductIdRoute
+  '/_authenticated/shop-admin/products/new': typeof AuthenticatedShopAdminProductsNewRoute
+  '/_authenticated/shop-admin/receipts/$receiptId': typeof AuthenticatedShopAdminReceiptsReceiptIdRoute
+  '/_authenticated/shop-admin/refunds/$refundId': typeof AuthenticatedShopAdminRefundsRefundIdRoute
   '/_authenticated/system-settings/auth/$section': typeof AuthenticatedSystemSettingsAuthSectionRoute
   '/_authenticated/system-settings/billing/$section': typeof AuthenticatedSystemSettingsBillingSectionRoute
   '/_authenticated/system-settings/content/$section': typeof AuthenticatedSystemSettingsContentSectionRoute
@@ -940,6 +1160,12 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/request-policies/$section': typeof AuthenticatedSystemSettingsRequestPoliciesSectionRoute
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/shop/_buyer/checkout/$productId': typeof ShopBuyerCheckoutProductIdRoute
+  '/_authenticated/shop-admin/aftersales/': typeof AuthenticatedShopAdminAftersalesIndexRoute
+  '/_authenticated/shop-admin/orders/': typeof AuthenticatedShopAdminOrdersIndexRoute
+  '/_authenticated/shop-admin/products/': typeof AuthenticatedShopAdminProductsIndexRoute
+  '/_authenticated/shop-admin/receipts/': typeof AuthenticatedShopAdminReceiptsIndexRoute
+  '/_authenticated/shop-admin/refunds/': typeof AuthenticatedShopAdminRefundsIndexRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/_authenticated/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/_authenticated/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -948,11 +1174,16 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/request-policies/': typeof AuthenticatedSystemSettingsRequestPoliciesIndexRoute
   '/_authenticated/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/_authenticated/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/shop/_buyer/orders/': typeof ShopBuyerOrdersIndexRoute
+  '/shop/_buyer/orders/$orderNo/aftersales': typeof ShopBuyerOrdersOrderNoAftersalesRoute
+  '/shop/_buyer/orders/$orderNo/pay': typeof ShopBuyerOrdersOrderNoPayRoute
+  '/shop/_buyer/orders/$orderNo/': typeof ShopBuyerOrdersOrderNoIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/shop'
     | '/cn-restricted'
     | '/privacy-policy'
     | '/reseller'
@@ -962,6 +1193,7 @@ export interface FileRouteTypes {
     | '/invoice-admin'
     | '/invoices'
     | '/requests'
+    | '/shop-admin'
     | '/system-settings'
     | '/video-studio'
     | '/forgot-password'
@@ -989,6 +1221,7 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/reseller/'
     | '/setup/'
+    | '/shop/'
     | '/user/reset'
     | '/chat/$chatId'
     | '/dashboard/$section'
@@ -1002,6 +1235,8 @@ export interface FileRouteTypes {
     | '/membership/ratios'
     | '/models/$section'
     | '/requests/$requestId'
+    | '/shop-admin/inventory'
+    | '/shop-admin/settings'
     | '/system-settings/image-studio'
     | '/system-settings/video-studio'
     | '/usage-logs/$section'
@@ -1009,6 +1244,7 @@ export interface FileRouteTypes {
     | '/video-studio/create'
     | '/video-studio/library'
     | '/video-studio/tasks'
+    | '/shop/products/$productId'
     | '/channels/'
     | '/dashboard/'
     | '/group-status/'
@@ -1023,6 +1259,7 @@ export interface FileRouteTypes {
     | '/profile/'
     | '/redemption-codes/'
     | '/requests/'
+    | '/shop-admin/'
     | '/subscriptions/'
     | '/system-info/'
     | '/system-settings/'
@@ -1032,6 +1269,12 @@ export interface FileRouteTypes {
     | '/video-studio/'
     | '/wallet/'
     | '/pricing/$modelId/'
+    | '/shop-admin/aftersales/$caseId'
+    | '/shop-admin/orders/$orderNo'
+    | '/shop-admin/products/$productId'
+    | '/shop-admin/products/new'
+    | '/shop-admin/receipts/$receiptId'
+    | '/shop-admin/refunds/$refundId'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -1040,6 +1283,12 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/shop/checkout/$productId'
+    | '/shop-admin/aftersales/'
+    | '/shop-admin/orders/'
+    | '/shop-admin/products/'
+    | '/shop-admin/receipts/'
+    | '/shop-admin/refunds/'
     | '/system-settings/auth/'
     | '/system-settings/billing/'
     | '/system-settings/content/'
@@ -1048,6 +1297,10 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies/'
     | '/system-settings/security/'
     | '/system-settings/site/'
+    | '/shop/orders/'
+    | '/shop/orders/$orderNo/aftersales'
+    | '/shop/orders/$orderNo/pay'
+    | '/shop/orders/$orderNo/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1055,6 +1308,7 @@ export interface FileRouteTypes {
     | '/privacy-policy'
     | '/reseller-application'
     | '/user-agreement'
+    | '/shop'
     | '/forgot-password'
     | '/oauth'
     | '/otp'
@@ -1092,6 +1346,8 @@ export interface FileRouteTypes {
     | '/membership/ratios'
     | '/models/$section'
     | '/requests/$requestId'
+    | '/shop-admin/inventory'
+    | '/shop-admin/settings'
     | '/system-settings/image-studio'
     | '/system-settings/video-studio'
     | '/usage-logs/$section'
@@ -1099,6 +1355,7 @@ export interface FileRouteTypes {
     | '/video-studio/create'
     | '/video-studio/library'
     | '/video-studio/tasks'
+    | '/shop/products/$productId'
     | '/channels'
     | '/dashboard'
     | '/group-status'
@@ -1113,6 +1370,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/redemption-codes'
     | '/requests'
+    | '/shop-admin'
     | '/subscriptions'
     | '/system-info'
     | '/system-settings'
@@ -1122,6 +1380,12 @@ export interface FileRouteTypes {
     | '/video-studio'
     | '/wallet'
     | '/pricing/$modelId'
+    | '/shop-admin/aftersales/$caseId'
+    | '/shop-admin/orders/$orderNo'
+    | '/shop-admin/products/$productId'
+    | '/shop-admin/products/new'
+    | '/shop-admin/receipts/$receiptId'
+    | '/shop-admin/refunds/$refundId'
     | '/system-settings/auth/$section'
     | '/system-settings/billing/$section'
     | '/system-settings/content/$section'
@@ -1130,6 +1394,12 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/shop/checkout/$productId'
+    | '/shop-admin/aftersales'
+    | '/shop-admin/orders'
+    | '/shop-admin/products'
+    | '/shop-admin/receipts'
+    | '/shop-admin/refunds'
     | '/system-settings/auth'
     | '/system-settings/billing'
     | '/system-settings/content'
@@ -1138,11 +1408,16 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies'
     | '/system-settings/security'
     | '/system-settings/site'
+    | '/shop/orders'
+    | '/shop/orders/$orderNo/aftersales'
+    | '/shop/orders/$orderNo/pay'
+    | '/shop/orders/$orderNo'
   id:
     | '__root__'
     | '/'
     | '/(auth)'
     | '/_authenticated'
+    | '/shop'
     | '/cn-restricted'
     | '/privacy-policy'
     | '/reseller'
@@ -1152,8 +1427,10 @@ export interface FileRouteTypes {
     | '/_authenticated/invoice-admin'
     | '/_authenticated/invoices'
     | '/_authenticated/requests'
+    | '/_authenticated/shop-admin'
     | '/_authenticated/system-settings'
     | '/_authenticated/video-studio'
+    | '/shop/_buyer'
     | '/(auth)/forgot-password'
     | '/(auth)/oauth'
     | '/(auth)/otp'
@@ -1179,6 +1456,7 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/reseller/'
     | '/setup/'
+    | '/shop/'
     | '/(auth)/user/reset'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
@@ -1192,6 +1470,8 @@ export interface FileRouteTypes {
     | '/_authenticated/membership/ratios'
     | '/_authenticated/models/$section'
     | '/_authenticated/requests/$requestId'
+    | '/_authenticated/shop-admin/inventory'
+    | '/_authenticated/shop-admin/settings'
     | '/_authenticated/system-settings/image-studio'
     | '/_authenticated/system-settings/video-studio'
     | '/_authenticated/usage-logs/$section'
@@ -1199,6 +1479,7 @@ export interface FileRouteTypes {
     | '/_authenticated/video-studio/create'
     | '/_authenticated/video-studio/library'
     | '/_authenticated/video-studio/tasks'
+    | '/shop/products/$productId'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
     | '/_authenticated/group-status/'
@@ -1213,6 +1494,7 @@ export interface FileRouteTypes {
     | '/_authenticated/profile/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/requests/'
+    | '/_authenticated/shop-admin/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
@@ -1222,6 +1504,12 @@ export interface FileRouteTypes {
     | '/_authenticated/video-studio/'
     | '/_authenticated/wallet/'
     | '/pricing/$modelId/'
+    | '/_authenticated/shop-admin/aftersales/$caseId'
+    | '/_authenticated/shop-admin/orders/$orderNo'
+    | '/_authenticated/shop-admin/products/$productId'
+    | '/_authenticated/shop-admin/products/new'
+    | '/_authenticated/shop-admin/receipts/$receiptId'
+    | '/_authenticated/shop-admin/refunds/$refundId'
     | '/_authenticated/system-settings/auth/$section'
     | '/_authenticated/system-settings/billing/$section'
     | '/_authenticated/system-settings/content/$section'
@@ -1230,6 +1518,12 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/request-policies/$section'
     | '/_authenticated/system-settings/security/$section'
     | '/_authenticated/system-settings/site/$section'
+    | '/shop/_buyer/checkout/$productId'
+    | '/_authenticated/shop-admin/aftersales/'
+    | '/_authenticated/shop-admin/orders/'
+    | '/_authenticated/shop-admin/products/'
+    | '/_authenticated/shop-admin/receipts/'
+    | '/_authenticated/shop-admin/refunds/'
     | '/_authenticated/system-settings/auth/'
     | '/_authenticated/system-settings/billing/'
     | '/_authenticated/system-settings/content/'
@@ -1238,12 +1532,17 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/request-policies/'
     | '/_authenticated/system-settings/security/'
     | '/_authenticated/system-settings/site/'
+    | '/shop/_buyer/orders/'
+    | '/shop/_buyer/orders/$orderNo/aftersales'
+    | '/shop/_buyer/orders/$orderNo/pay'
+    | '/shop/_buyer/orders/$orderNo/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   authRouteRoute: typeof authRouteRouteWithChildren
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  ShopRouteRoute: typeof ShopRouteRouteWithChildren
   CnRestrictedRoute: typeof CnRestrictedRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
   ResellerRoute: typeof ResellerRouteWithChildren
@@ -1313,6 +1612,13 @@ declare module '@tanstack/react-router' {
       path: '/reseller-application'
       fullPath: '/reseller-application'
       preLoaderRoute: typeof ResellerApplicationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shop': {
+      id: '/shop'
+      path: '/shop'
+      fullPath: '/shop'
+      preLoaderRoute: typeof ShopRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/user-agreement': {
@@ -1462,6 +1768,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedResellerAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/shop-admin': {
+      id: '/_authenticated/shop-admin'
+      path: '/shop-admin'
+      fullPath: '/shop-admin'
+      preLoaderRoute: typeof AuthenticatedShopAdminRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/system-settings': {
       id: '/_authenticated/system-settings'
       path: '/system-settings'
@@ -1538,6 +1851,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/setup/'
       preLoaderRoute: typeof SetupIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/shop/': {
+      id: '/shop/'
+      path: '/'
+      fullPath: '/shop/'
+      preLoaderRoute: typeof ShopIndexRouteImport
+      parentRoute: typeof ShopRouteRoute
+    }
+    '/shop/_buyer': {
+      id: '/shop/_buyer'
+      path: ''
+      fullPath: '/shop'
+      preLoaderRoute: typeof ShopBuyerRouteRouteImport
+      parentRoute: typeof ShopRouteRoute
     }
     '/(auth)/user/reset': {
       id: '/(auth)/user/reset'
@@ -1728,6 +2055,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRequestsRequestIdRouteImport
       parentRoute: typeof AuthenticatedRequestsRouteRoute
     }
+    '/_authenticated/shop-admin/': {
+      id: '/_authenticated/shop-admin/'
+      path: '/'
+      fullPath: '/shop-admin/'
+      preLoaderRoute: typeof AuthenticatedShopAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/inventory': {
+      id: '/_authenticated/shop-admin/inventory'
+      path: '/inventory'
+      fullPath: '/shop-admin/inventory'
+      preLoaderRoute: typeof AuthenticatedShopAdminInventoryRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/settings': {
+      id: '/_authenticated/shop-admin/settings'
+      path: '/settings'
+      fullPath: '/shop-admin/settings'
+      preLoaderRoute: typeof AuthenticatedShopAdminSettingsRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
     '/_authenticated/subscriptions/': {
       id: '/_authenticated/subscriptions/'
       path: '/subscriptions'
@@ -1839,6 +2187,90 @@ declare module '@tanstack/react-router' {
       fullPath: '/pricing/$modelId/'
       preLoaderRoute: typeof PricingModelIdIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/shop/products/$productId': {
+      id: '/shop/products/$productId'
+      path: '/products/$productId'
+      fullPath: '/shop/products/$productId'
+      preLoaderRoute: typeof ShopProductsProductIdRouteImport
+      parentRoute: typeof ShopRouteRoute
+    }
+    '/_authenticated/shop-admin/aftersales/': {
+      id: '/_authenticated/shop-admin/aftersales/'
+      path: '/aftersales'
+      fullPath: '/shop-admin/aftersales/'
+      preLoaderRoute: typeof AuthenticatedShopAdminAftersalesIndexRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/aftersales/$caseId': {
+      id: '/_authenticated/shop-admin/aftersales/$caseId'
+      path: '/aftersales/$caseId'
+      fullPath: '/shop-admin/aftersales/$caseId'
+      preLoaderRoute: typeof AuthenticatedShopAdminAftersalesCaseIdRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/orders/': {
+      id: '/_authenticated/shop-admin/orders/'
+      path: '/orders'
+      fullPath: '/shop-admin/orders/'
+      preLoaderRoute: typeof AuthenticatedShopAdminOrdersIndexRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/orders/$orderNo': {
+      id: '/_authenticated/shop-admin/orders/$orderNo'
+      path: '/orders/$orderNo'
+      fullPath: '/shop-admin/orders/$orderNo'
+      preLoaderRoute: typeof AuthenticatedShopAdminOrdersOrderNoRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/products/': {
+      id: '/_authenticated/shop-admin/products/'
+      path: '/products'
+      fullPath: '/shop-admin/products/'
+      preLoaderRoute: typeof AuthenticatedShopAdminProductsIndexRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/products/$productId': {
+      id: '/_authenticated/shop-admin/products/$productId'
+      path: '/products/$productId'
+      fullPath: '/shop-admin/products/$productId'
+      preLoaderRoute: typeof AuthenticatedShopAdminProductsProductIdRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/products/new': {
+      id: '/_authenticated/shop-admin/products/new'
+      path: '/products/new'
+      fullPath: '/shop-admin/products/new'
+      preLoaderRoute: typeof AuthenticatedShopAdminProductsNewRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/receipts/': {
+      id: '/_authenticated/shop-admin/receipts/'
+      path: '/receipts'
+      fullPath: '/shop-admin/receipts/'
+      preLoaderRoute: typeof AuthenticatedShopAdminReceiptsIndexRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/receipts/$receiptId': {
+      id: '/_authenticated/shop-admin/receipts/$receiptId'
+      path: '/receipts/$receiptId'
+      fullPath: '/shop-admin/receipts/$receiptId'
+      preLoaderRoute: typeof AuthenticatedShopAdminReceiptsReceiptIdRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/refunds/': {
+      id: '/_authenticated/shop-admin/refunds/'
+      path: '/refunds'
+      fullPath: '/shop-admin/refunds/'
+      preLoaderRoute: typeof AuthenticatedShopAdminRefundsIndexRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
+    }
+    '/_authenticated/shop-admin/refunds/$refundId': {
+      id: '/_authenticated/shop-admin/refunds/$refundId'
+      path: '/refunds/$refundId'
+      fullPath: '/shop-admin/refunds/$refundId'
+      preLoaderRoute: typeof AuthenticatedShopAdminRefundsRefundIdRouteImport
+      parentRoute: typeof AuthenticatedShopAdminRouteRoute
     }
     '/_authenticated/system-settings/auth/': {
       id: '/_authenticated/system-settings/auth/'
@@ -1952,6 +2384,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/shop/_buyer/checkout/$productId': {
+      id: '/shop/_buyer/checkout/$productId'
+      path: '/checkout/$productId'
+      fullPath: '/shop/checkout/$productId'
+      preLoaderRoute: typeof ShopBuyerCheckoutProductIdRouteImport
+      parentRoute: typeof ShopBuyerRouteRoute
+    }
+    '/shop/_buyer/orders/': {
+      id: '/shop/_buyer/orders/'
+      path: '/orders'
+      fullPath: '/shop/orders/'
+      preLoaderRoute: typeof ShopBuyerOrdersIndexRouteImport
+      parentRoute: typeof ShopBuyerRouteRoute
+    }
+    '/shop/_buyer/orders/$orderNo/': {
+      id: '/shop/_buyer/orders/$orderNo/'
+      path: '/orders/$orderNo'
+      fullPath: '/shop/orders/$orderNo/'
+      preLoaderRoute: typeof ShopBuyerOrdersOrderNoIndexRouteImport
+      parentRoute: typeof ShopBuyerRouteRoute
+    }
+    '/shop/_buyer/orders/$orderNo/aftersales': {
+      id: '/shop/_buyer/orders/$orderNo/aftersales'
+      path: '/orders/$orderNo/aftersales'
+      fullPath: '/shop/orders/$orderNo/aftersales'
+      preLoaderRoute: typeof ShopBuyerOrdersOrderNoAftersalesRouteImport
+      parentRoute: typeof ShopBuyerRouteRoute
+    }
+    '/shop/_buyer/orders/$orderNo/pay': {
+      id: '/shop/_buyer/orders/$orderNo/pay'
+      path: '/orders/$orderNo/pay'
+      fullPath: '/shop/orders/$orderNo/pay'
+      preLoaderRoute: typeof ShopBuyerOrdersOrderNoPayRouteImport
+      parentRoute: typeof ShopBuyerRouteRoute
+    }
   }
 }
 
@@ -2048,6 +2515,57 @@ const AuthenticatedRequestsRouteRouteChildren: AuthenticatedRequestsRouteRouteCh
 const AuthenticatedRequestsRouteRouteWithChildren =
   AuthenticatedRequestsRouteRoute._addFileChildren(
     AuthenticatedRequestsRouteRouteChildren,
+  )
+
+interface AuthenticatedShopAdminRouteRouteChildren {
+  AuthenticatedShopAdminInventoryRoute: typeof AuthenticatedShopAdminInventoryRoute
+  AuthenticatedShopAdminSettingsRoute: typeof AuthenticatedShopAdminSettingsRoute
+  AuthenticatedShopAdminIndexRoute: typeof AuthenticatedShopAdminIndexRoute
+  AuthenticatedShopAdminAftersalesCaseIdRoute: typeof AuthenticatedShopAdminAftersalesCaseIdRoute
+  AuthenticatedShopAdminOrdersOrderNoRoute: typeof AuthenticatedShopAdminOrdersOrderNoRoute
+  AuthenticatedShopAdminProductsProductIdRoute: typeof AuthenticatedShopAdminProductsProductIdRoute
+  AuthenticatedShopAdminProductsNewRoute: typeof AuthenticatedShopAdminProductsNewRoute
+  AuthenticatedShopAdminReceiptsReceiptIdRoute: typeof AuthenticatedShopAdminReceiptsReceiptIdRoute
+  AuthenticatedShopAdminRefundsRefundIdRoute: typeof AuthenticatedShopAdminRefundsRefundIdRoute
+  AuthenticatedShopAdminAftersalesIndexRoute: typeof AuthenticatedShopAdminAftersalesIndexRoute
+  AuthenticatedShopAdminOrdersIndexRoute: typeof AuthenticatedShopAdminOrdersIndexRoute
+  AuthenticatedShopAdminProductsIndexRoute: typeof AuthenticatedShopAdminProductsIndexRoute
+  AuthenticatedShopAdminReceiptsIndexRoute: typeof AuthenticatedShopAdminReceiptsIndexRoute
+  AuthenticatedShopAdminRefundsIndexRoute: typeof AuthenticatedShopAdminRefundsIndexRoute
+}
+
+const AuthenticatedShopAdminRouteRouteChildren: AuthenticatedShopAdminRouteRouteChildren =
+  {
+    AuthenticatedShopAdminInventoryRoute: AuthenticatedShopAdminInventoryRoute,
+    AuthenticatedShopAdminSettingsRoute: AuthenticatedShopAdminSettingsRoute,
+    AuthenticatedShopAdminIndexRoute: AuthenticatedShopAdminIndexRoute,
+    AuthenticatedShopAdminAftersalesCaseIdRoute:
+      AuthenticatedShopAdminAftersalesCaseIdRoute,
+    AuthenticatedShopAdminOrdersOrderNoRoute:
+      AuthenticatedShopAdminOrdersOrderNoRoute,
+    AuthenticatedShopAdminProductsProductIdRoute:
+      AuthenticatedShopAdminProductsProductIdRoute,
+    AuthenticatedShopAdminProductsNewRoute:
+      AuthenticatedShopAdminProductsNewRoute,
+    AuthenticatedShopAdminReceiptsReceiptIdRoute:
+      AuthenticatedShopAdminReceiptsReceiptIdRoute,
+    AuthenticatedShopAdminRefundsRefundIdRoute:
+      AuthenticatedShopAdminRefundsRefundIdRoute,
+    AuthenticatedShopAdminAftersalesIndexRoute:
+      AuthenticatedShopAdminAftersalesIndexRoute,
+    AuthenticatedShopAdminOrdersIndexRoute:
+      AuthenticatedShopAdminOrdersIndexRoute,
+    AuthenticatedShopAdminProductsIndexRoute:
+      AuthenticatedShopAdminProductsIndexRoute,
+    AuthenticatedShopAdminReceiptsIndexRoute:
+      AuthenticatedShopAdminReceiptsIndexRoute,
+    AuthenticatedShopAdminRefundsIndexRoute:
+      AuthenticatedShopAdminRefundsIndexRoute,
+  }
+
+const AuthenticatedShopAdminRouteRouteWithChildren =
+  AuthenticatedShopAdminRouteRoute._addFileChildren(
+    AuthenticatedShopAdminRouteRouteChildren,
   )
 
 interface AuthenticatedSystemSettingsRouteRouteChildren {
@@ -2160,6 +2678,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedInvoiceAdminRouteRoute: typeof AuthenticatedInvoiceAdminRouteRouteWithChildren
   AuthenticatedInvoicesRouteRoute: typeof AuthenticatedInvoicesRouteRouteWithChildren
   AuthenticatedRequestsRouteRoute: typeof AuthenticatedRequestsRouteRouteWithChildren
+  AuthenticatedShopAdminRouteRoute: typeof AuthenticatedShopAdminRouteRouteWithChildren
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedVideoStudioRouteRoute: typeof AuthenticatedVideoStudioRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
@@ -2197,6 +2716,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedInvoiceAdminRouteRouteWithChildren,
   AuthenticatedInvoicesRouteRoute: AuthenticatedInvoicesRouteRouteWithChildren,
   AuthenticatedRequestsRouteRoute: AuthenticatedRequestsRouteRouteWithChildren,
+  AuthenticatedShopAdminRouteRoute:
+    AuthenticatedShopAdminRouteRouteWithChildren,
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedVideoStudioRouteRoute:
@@ -2233,6 +2754,42 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface ShopBuyerRouteRouteChildren {
+  ShopBuyerCheckoutProductIdRoute: typeof ShopBuyerCheckoutProductIdRoute
+  ShopBuyerOrdersIndexRoute: typeof ShopBuyerOrdersIndexRoute
+  ShopBuyerOrdersOrderNoAftersalesRoute: typeof ShopBuyerOrdersOrderNoAftersalesRoute
+  ShopBuyerOrdersOrderNoPayRoute: typeof ShopBuyerOrdersOrderNoPayRoute
+  ShopBuyerOrdersOrderNoIndexRoute: typeof ShopBuyerOrdersOrderNoIndexRoute
+}
+
+const ShopBuyerRouteRouteChildren: ShopBuyerRouteRouteChildren = {
+  ShopBuyerCheckoutProductIdRoute: ShopBuyerCheckoutProductIdRoute,
+  ShopBuyerOrdersIndexRoute: ShopBuyerOrdersIndexRoute,
+  ShopBuyerOrdersOrderNoAftersalesRoute: ShopBuyerOrdersOrderNoAftersalesRoute,
+  ShopBuyerOrdersOrderNoPayRoute: ShopBuyerOrdersOrderNoPayRoute,
+  ShopBuyerOrdersOrderNoIndexRoute: ShopBuyerOrdersOrderNoIndexRoute,
+}
+
+const ShopBuyerRouteRouteWithChildren = ShopBuyerRouteRoute._addFileChildren(
+  ShopBuyerRouteRouteChildren,
+)
+
+interface ShopRouteRouteChildren {
+  ShopBuyerRouteRoute: typeof ShopBuyerRouteRouteWithChildren
+  ShopIndexRoute: typeof ShopIndexRoute
+  ShopProductsProductIdRoute: typeof ShopProductsProductIdRoute
+}
+
+const ShopRouteRouteChildren: ShopRouteRouteChildren = {
+  ShopBuyerRouteRoute: ShopBuyerRouteRouteWithChildren,
+  ShopIndexRoute: ShopIndexRoute,
+  ShopProductsProductIdRoute: ShopProductsProductIdRoute,
+}
+
+const ShopRouteRouteWithChildren = ShopRouteRoute._addFileChildren(
+  ShopRouteRouteChildren,
+)
+
 interface ResellerRouteChildren {
   ResellerSectionRoute: typeof ResellerSectionRoute
   ResellerIndexRoute: typeof ResellerIndexRoute
@@ -2251,6 +2808,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   authRouteRoute: authRouteRouteWithChildren,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  ShopRouteRoute: ShopRouteRouteWithChildren,
   CnRestrictedRoute: CnRestrictedRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
   ResellerRoute: ResellerRouteWithChildren,

@@ -1,0 +1,21 @@
+{
+  "light": {
+    "--ink/--bg": 14.69,
+    "--muted/--bg": 4.77,
+    "--muted/--surface": 5.24,
+    "--primary/--primary-soft": 5.45,
+    "--success/--success-soft": 4.87,
+    "--warning/--warning-soft": 4.84,
+    "--danger/--danger-soft": 4.58,
+    "white/primary": 6.22
+  },
+  "dark": {
+    "--ink/--bg": 14.72,
+    "--muted/--bg": 8.09,
+    "--muted/--surface": 7.01,
+    "--primary/--primary-soft": 5.17,
+    "--success/--success-soft": 6.19,
+    "--warning/--warning-soft": 6.77,
+    "--danger/--danger-soft": 6.02
+  }
+}

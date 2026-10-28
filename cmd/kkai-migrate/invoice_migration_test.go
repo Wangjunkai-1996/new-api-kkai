@@ -23,6 +23,7 @@ func invoiceProofFixture(t *testing.T) (*invoiceControllerProof, *invoiceMigrati
 	require.NoError(t, err)
 	contract.RuntimeMaxVersion = 17
 	delete(contract.CompatiblePrefixes, "18")
+	delete(contract.CompatiblePrefixes, "19")
 	now := time.Unix(1800000000, 0)
 	status := &invoiceMigrationStatus{
 		Schema: "kkai_invoice_migration_status_v1", CurrentVersion: 16, TargetVersion: 17, Safe: true,

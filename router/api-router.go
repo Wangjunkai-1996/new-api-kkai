@@ -29,6 +29,7 @@ func SetApiRouter(router *gin.Engine) {
 	registerRequestTicketRoutes(apiRouter)
 	registerInvoiceRoutes(apiRouter)
 	registerWalletPaymentRoutes(apiRouter)
+	registerShopRoutes(apiRouter)
 	{
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)

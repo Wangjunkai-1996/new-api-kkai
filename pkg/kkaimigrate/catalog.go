@@ -157,6 +157,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       walletPaymentSchemaStatements,
 		},
+		{
+			Version:          ShopSchemaVersion,
+			Name:             "shop_virtual_goods",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "shop_virtual_goods_v19",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       shopSchemaStatements,
+		},
 	}
 }
 

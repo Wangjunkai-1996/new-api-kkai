@@ -1,0 +1,125 @@
+{
+  "scope": "Actual React via isolated headless Chrome; all application APIs mocked; no real payment or production access",
+  "viewport": {
+    "desktop": [
+      1440,
+      1000
+    ],
+    "mobile": [
+      390,
+      844
+    ]
+  },
+  "checks": [
+    {
+      "scene": "catalog-theme-responsive",
+      "passed": true
+    },
+    {
+      "scene": "checkout-terms-required",
+      "passed": true
+    },
+    {
+      "scene": "payment-marked-rejection-new-key-version-method",
+      "passed": true
+    },
+    {
+      "scene": "payment-transport-retry",
+      "locked": true,
+      "sameKey": true,
+      "sameBody": true
+    },
+    {
+      "scene": "delivery-reveal-lifecycle",
+      "visible": true,
+      "hidden": true,
+      "noSecretInStorage": true
+    },
+    {
+      "scene": "admin-product-form",
+      "invalidBlocked": true,
+      "price": {
+        "amount_minor": "2950",
+        "currency": "CNY",
+        "exponent": 2
+      },
+      "clearedCategory": true,
+      "clearedCover": true
+    },
+    {
+      "scene": "manual-delivery-verification",
+      "scope": "shop.delivery.create",
+      "action": "first",
+      "keyMatches": true,
+      "fields": [
+        "account_identifier",
+        "password"
+      ]
+    },
+    {
+      "scene": "inventory-import",
+      "invalidBlocked": true,
+      "commitPosted": true,
+      "hasIdempotencyKey": true,
+      "clearedAfterCommit": true,
+      "noSecretInStorage": true
+    }
+  ],
+  "pageErrors": [],
+  "unknownApiPaths": [],
+  "blockedExternalCount": 2,
+  "fixtureCorrections": [
+    "status/notice shape corrected before acceptance",
+    "mock invitations path added",
+    "inventory import-commit route supplied"
+  ],
+  "screenshots": [
+    "01-catalog-desktop-light.png",
+    "02-catalog-desktop-dark.png",
+    "03-catalog-mobile-light.png",
+    "04-catalog-mobile-dark.png",
+    "05-product-mobile-light.png",
+    "06-checkout-mobile-light.png",
+    "07-payment-mobile-light.png",
+    "08-payment-desktop-dark.png",
+    "09-delivery-masked-desktop-dark.png",
+    "10-delivery-mobile-light.png",
+    "11-admin-product-desktop-light.png",
+    "12-admin-product-mobile-dark.png",
+    "13-admin-delivery-verification-mobile-dark.png",
+    "14-inventory-import-mobile-dark.png"
+  ],
+  "limitations": [
+    "Mock contracts do not prove real provider/real backend end-to-end behavior",
+    "Manual-delivery proof provider is mocked",
+    "Development devtools visible in screenshots",
+    "No full suite, whole-workspace check, production build, or actual payment"
+  ],
+  "screenshotDirectory": ".",
+  "screenshotPaths": [
+    "01-catalog-desktop-light.png",
+    "02-catalog-desktop-dark.png",
+    "03-catalog-mobile-light.png",
+    "04-catalog-mobile-dark.png",
+    "05-product-mobile-light.png",
+    "06-checkout-mobile-light.png",
+    "07-payment-mobile-light.png",
+    "08-payment-desktop-dark.png",
+    "09-delivery-masked-desktop-dark.png",
+    "10-delivery-mobile-light.png",
+    "11-admin-product-desktop-light.png",
+    "12-admin-product-mobile-dark.png",
+    "13-admin-delivery-verification-mobile-dark.png",
+    "14-inventory-import-mobile-dark.png"
+  ],
+  "cleanup": {
+    "browserClosed": true,
+    "devSessionStopped": 53329,
+    "port5178ListenerAfterStop": false,
+    "temporaryTypecheckFilesRemoved": true
+  },
+  "finalScopedTypecheck": {
+    "command": "bunx tsgo --project tsconfig.shop.tmp.json --noEmit",
+    "exitCode": 0
+  }
+}

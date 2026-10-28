@@ -163,6 +163,13 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 	}
 	var normalized any
 	switch operation.Scope {
+	case VerificationScopeShopInventoryReveal, VerificationScopeShopDeliveryCreate, VerificationScopeShopDeliveryReveal,
+		VerificationScopeShopRiskRelease, VerificationScopeShopRefundManage, VerificationScopeShopAdjustmentManage, VerificationScopeShopEvidenceCreate:
+		context, err := normalizeShopVerification(operation)
+		if err != nil {
+			return VerificationBinding{}, err
+		}
+		normalized = context
 	case VerificationScopeChannelKeyRead:
 		var context ChannelKeyReadContext
 		if len(fields) != 1 || common.Unmarshal(fields["channel_id"], &context.ChannelID) != nil || context.ChannelID <= 0 {
@@ -325,6 +332,8 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 			return nil, model.ErrTwoFANotEnabled
 		}
 	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
+		VerificationScopeShopInventoryReveal, VerificationScopeShopDeliveryCreate, VerificationScopeShopDeliveryReveal,
+		VerificationScopeShopRiskRelease, VerificationScopeShopRefundManage, VerificationScopeShopAdjustmentManage, VerificationScopeShopEvidenceCreate,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenUpdate, VerificationScopeAccessTokenRevoke,
 		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
 		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
@@ -381,6 +390,21 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	if strings.HasPrefix(scope, verificationScopeAdminUserPrefix) && state.Role < common.RoleAdminUser {
 		return nil, ErrVerificationForbidden
 	}
+	if isShopVerificationScope(scope) {
+		if state.Role < common.RoleAdminUser {
+			return nil, ErrVerificationForbidden
+		}
+		if _, token := model.ParseAccessTokenSessionID(identity.SessionID); token || identity.SessionID == "" {
+			return nil, ErrVerificationForbidden
+		}
+		user, err := model.GetUserById(identity.UserID, false)
+		if err != nil {
+			return nil, err
+		}
+		if user.TenantID != model.PlatformTenantID {
+			return nil, ErrVerificationForbidden
+		}
+	}
 	if err := requireAccessTokenVerificationScope(identity, scope); err != nil {
 		return nil, err
 	}
@@ -393,6 +417,8 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
 			switch scope {
 			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
+				VerificationScopeShopInventoryReveal, VerificationScopeShopDeliveryCreate, VerificationScopeShopDeliveryReveal,
+				VerificationScopeShopRiskRelease, VerificationScopeShopRefundManage, VerificationScopeShopAdjustmentManage, VerificationScopeShopEvidenceCreate,
 				VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete,
 				VerificationScopeAdminUserManage, VerificationScopeAdminUserPasskeyReset,
 				VerificationScopeAdminUserTwoFADisable, VerificationScopeAdminUserBindingClear:

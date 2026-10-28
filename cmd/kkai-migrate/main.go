@@ -41,6 +41,8 @@ func main() {
 		invoiceControllerProof       string
 		walletPaymentMigration       string
 		walletPaymentControllerProof string
+		shopMigration                string
+		shopControllerProof          string
 		observe                      bool
 		jsonOutput                   bool
 		timeout                      time.Duration
@@ -54,7 +56,7 @@ func main() {
 	flag.BoolVar(&describe, "describe-contract", false, "describe the runtime schema contract")
 	flag.StringVar(&dialect, "dialect", "", "database dialect for --describe-contract")
 	flag.Int64Var(&minimumVersion, "min-version", 0, "minimum schema version for --check; defaults to the dialect requirement")
-	flag.Int64Var(&targetVersion, "target", 0, "explicit target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; 15/16/17/18 permit precheck/dry-run only; target 12 is retired; omitted keeps the runtime target")
+	flag.Int64Var(&targetVersion, "target", 0, "explicit target: 3 (new database baseline), 4, 5, 6, 7, 8, 9, 10, 11, or 13; 15/16/17/18/19 permit precheck/dry-run only; target 12 is retired; omitted keeps the runtime target")
 	flag.BoolVar(&observe, "observe", false, "read and validate the current database migration prefix")
 	flag.BoolVar(&jsonOutput, "json", false, "emit machine-readable JSON")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "overall migration timeout")
@@ -68,9 +70,11 @@ func main() {
 	flag.StringVar(&invoiceControllerProof, "invoice-controller-proof", "", "fixed root invoice-controller proof mount for invoice apply")
 	flag.StringVar(&walletPaymentMigration, "wallet-payment-migration", "", "independent v18 wallet payment operation: plan/status are read-only; apply requires the installed wallet payment controller proof")
 	flag.StringVar(&walletPaymentControllerProof, "wallet-payment-controller-proof", "", "fixed root wallet payment controller proof mount for wallet payment apply")
+	flag.StringVar(&shopMigration, "shop-migration", "", "independent v19 shop operation: plan/status are read-only; apply requires the installed shop controller proof")
+	flag.StringVar(&shopControllerProof, "shop-controller-proof", "", "fixed root shop controller proof mount for shop apply")
 	flag.Parse()
 	if tenantRuntime {
-		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
+		if !jsonOutput || dialect == "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || tenantControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || tenantLogSchema != "" || dsnFromStdin || flag.NArg() != 0 {
 			log.Fatal("--tenant-runtime requires only --dialect and --json")
 		}
 		if err := writeTenantRuntimeContract(dialect, os.Stdout); err != nil {
@@ -87,28 +91,36 @@ func main() {
 	if walletPaymentControllerProof != "" && walletPaymentMigration != "apply" {
 		log.Fatal("--wallet-payment-controller-proof is only valid for --wallet-payment-migration apply")
 	}
+	if shopControllerProof != "" && shopMigration != "apply" {
+		log.Fatal("--shop-controller-proof is only valid for --shop-migration apply")
+	}
+	if shopMigration != "" {
+		if err := validateShopMigrationCommand(shopMigration, shopControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if invoiceMigration != "" {
-		if err := validateInvoiceMigrationCommand(invoiceMigration, invoiceControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateInvoiceMigrationCommand(invoiceMigration, invoiceControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if walletPaymentMigration != "" {
-		if err := validateWalletPaymentMigrationCommand(walletPaymentMigration, walletPaymentControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateWalletPaymentMigrationCommand(walletPaymentMigration, walletPaymentControllerProof, jsonOutput, shopMigration != "" || shopControllerProof != "" || describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || tenantControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if requestTicket != "" {
-		if err := validateRequestTicketCommand(requestTicket, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateRequestTicketCommand(requestTicket, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || resellerPrefix != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if resellerPrefix != "" {
-		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateResellerPrefixCommand(resellerPrefix, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || tenantExpand != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if tenantExpand != "" {
-		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || flag.NArg() != 0); err != nil {
+		if err := validateTenantOnlineCommand(tenantExpand, tenantControllerProof, jsonOutput, describe || observe || precheck || currentOnly || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" || tenantLogSchema != "" || resellerPrefix != "" || requestTicket != "" || invoiceMigration != "" || invoiceControllerProof != "" || walletPaymentMigration != "" || walletPaymentControllerProof != "" || shopMigration != "" || shopControllerProof != "" || flag.NArg() != 0); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -132,14 +144,14 @@ func main() {
 		return
 	}
 	if precheck {
-		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion && targetVersion != kkaimigrate.InvoiceSchemaVersion && targetVersion != kkaimigrate.WalletPaymentSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
-			log.Fatal("--precheck requires --target 8, 12, 13, 15, 16, 17, or 18 and --json and cannot be combined with other operations")
+		if !jsonOutput || (targetVersion != kkaimigrate.AuthenticationSchemaVersion && targetVersion != kkaimigrate.TenantSchemaVersion && targetVersion != kkaimigrate.TenantCompatibilitySchemaVersion && targetVersion != kkaimigrate.ResellerApplicationSchemaVersion && targetVersion != kkaimigrate.RequestTicketSchemaVersion && targetVersion != kkaimigrate.InvoiceSchemaVersion && targetVersion != kkaimigrate.WalletPaymentSchemaVersion && targetVersion != kkaimigrate.ShopSchemaVersion) || observe || currentOnly || checkOnly || dryRun || minimumVersion != 0 || dialect != "" {
+			log.Fatal("--precheck requires --target 8, 12, 13, 15, 16, 17, 18, or 19 and --json and cannot be combined with other operations")
 		}
 	} else if observe {
 		if !currentOnly || !jsonOutput || checkOnly || dryRun || minimumVersion != 0 || targetVersion != 0 || dialect != "" {
 			log.Fatal("--observe requires --current --json and cannot be combined with migration operations")
 		}
-	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" || dialect != "" {
+	} else if currentOnly || jsonOutput && tenantExpand == "" && resellerPrefix == "" && requestTicket == "" && invoiceMigration == "" && walletPaymentMigration == "" && shopMigration == "" || dialect != "" {
 		log.Fatal("--current and --json require --observe or --describe-contract")
 	}
 
@@ -164,6 +176,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if shopMigration != "" {
+		if err := runShopMigration(ctx, db, shopMigration, shopControllerProof, os.Stdout); err != nil {
+			log.Fatalf("KKAI shop migration operation failed: %v", err)
+		}
+		return
+	}
 	if invoiceMigration != "" {
 		if err := runInvoiceMigration(ctx, db, invoiceMigration, invoiceControllerProof, os.Stdout); err != nil {
 			log.Fatalf("KKAI invoice migration operation failed: %v", err)
@@ -278,10 +296,12 @@ func runMigrationPrecheck(ctx context.Context, db *gorm.DB, target int64, output
 		result, err = kkaimigrate.PrecheckRequestTicketExpand(ctx, db)
 	case kkaimigrate.InvoiceSchemaVersion:
 		result, err = kkaimigrate.PrecheckInvoiceExpand(ctx, db)
+	case kkaimigrate.ShopSchemaVersion:
+		result, err = kkaimigrate.PrecheckShopExpand(ctx, db)
 	case kkaimigrate.WalletPaymentSchemaVersion:
 		result, err = kkaimigrate.PrecheckWalletPaymentExpand(ctx, db)
 	default:
-		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, 16, 17, or 18", target)
+		return fmt.Errorf("unsupported precheck target %d; expected 8, 12, 13, 15, 16, 17, 18, or 19", target)
 	}
 	if err != nil {
 		return err
@@ -342,13 +362,18 @@ func applyMigrationTarget(ctx context.Context, db *gorm.DB, targetVersion int64,
 			return nil, fmt.Errorf("%w: target 17 is read-only; use --invoice-migration apply with the installed invoice-controller proof", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyInvoiceExpand(ctx, db, options)
+	case kkaimigrate.ShopSchemaVersion:
+		if !options.DryRun {
+			return nil, fmt.Errorf("%w: target 19 is read-only; use the separately authorized installed shop migration controller", kkaimigrate.ErrUnsafeMigration)
+		}
+		return kkaimigrate.ApplyShopExpand(ctx, db, options)
 	case kkaimigrate.WalletPaymentSchemaVersion:
 		if !options.DryRun {
 			return nil, fmt.Errorf("%w: target 18 is read-only; wallet expansion requires a separately authorized installed controller", kkaimigrate.ErrUnsafeMigration)
 		}
 		return kkaimigrate.ApplyWalletPaymentExpand(ctx, db, options)
 	default:
-		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16/17/18", targetVersion)
+		return nil, fmt.Errorf("unsupported KKAI migration target %d; expected 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, or read-only 15/16/17/18/19", targetVersion)
 	}
 }
 
