@@ -170,9 +170,6 @@ func runShopMigration(ctx context.Context, db *gorm.DB, operation, proofPath str
 	if err := validateShopMigrationCommand(operation, proofPath, true, false); err != nil {
 		return err
 	}
-	if operation == "apply" {
-		return fmt.Errorf("%w: shop apply is disabled in compatibility milestone A", kkaimigrate.ErrUnsafeMigration)
-	}
 	status, err := inspectShopMigration(ctx, db)
 	if err != nil {
 		return err
