@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AlertTriangle, Check, Clock3 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
@@ -27,6 +28,7 @@ type VideoGenerationStatusProps = {
   generation: VideoGeneration
   compact?: boolean
   className?: string
+  icon?: boolean
 }
 
 export function VideoGenerationStatus(props: VideoGenerationStatusProps) {
@@ -48,9 +50,13 @@ export function VideoGenerationStatus(props: VideoGenerationStatusProps) {
     status === 'processing' && numericProgress > 0 && numericProgress <= 100
       ? numericProgress
       : undefined
+  const Container = props.compact ? 'span' : 'div'
+  let StatusIcon = Clock3
+  if (status === 'ready') StatusIcon = Check
+  if (status === 'failed') StatusIcon = AlertTriangle
 
   return (
-    <div
+    <Container
       className={cn(
         'video-studio-generation-status',
         props.compact && 'is-compact',
@@ -64,7 +70,11 @@ export function VideoGenerationStatus(props: VideoGenerationStatusProps) {
         aria-live={props.compact ? 'off' : 'polite'}
         aria-atomic='true'
       >
-        <span className='video-studio-status-dot' aria-hidden='true' />
+        {props.icon ? (
+          <StatusIcon aria-hidden='true' />
+        ) : (
+          <span className='video-studio-status-dot' aria-hidden='true' />
+        )}
         {labels[status]}
       </span>
       {progress !== undefined && (
@@ -108,6 +118,6 @@ export function VideoGenerationStatus(props: VideoGenerationStatusProps) {
           aria-label={t('Generation progress')}
         />
       )}
-    </div>
+    </Container>
   )
 }

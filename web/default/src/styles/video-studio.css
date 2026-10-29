@@ -954,90 +954,6 @@
 .video-studio-empty p {
   color: var(--vs-muted);
 }
-.video-studio-tasks-list {
-  border: 1px solid var(--vs-line);
-  border-radius: 10px;
-  background: var(--vs-surface);
-  overflow: hidden;
-}
-.video-studio-task-row {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 174px 100px;
-  gap: 16px;
-  align-items: center;
-  padding: 17px 20px;
-}
-.video-studio-task-row + .video-studio-task-row {
-  border-top: 1px solid var(--vs-line);
-}
-.video-studio-task-row:hover {
-  background: color-mix(in srgb, var(--vs-raised) 50%, transparent);
-}
-.video-studio-task-icon {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  background: var(--vs-raised);
-  color: var(--vs-accent);
-  border-radius: 9px;
-}
-.video-studio-task-info {
-  min-width: 0;
-}
-.video-studio-task-prompt summary {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  list-style: none;
-  cursor: pointer;
-  color: var(--vs-text);
-}
-.video-studio-task-prompt summary::-webkit-details-marker {
-  display: none;
-}
-.video-studio-task-prompt summary::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  margin: 6px 2px 0;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
-  flex: none;
-}
-.video-studio-task-prompt[open] summary::before {
-  transform: rotate(45deg);
-}
-.video-studio-task-prompt summary:focus-visible {
-  outline: 2px solid var(--vs-accent);
-  outline-offset: 3px;
-}
-.video-studio-task-prompt summary span {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.video-studio-task-prompt > p {
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre-wrap;
-  margin: 9px 0;
-  color: var(--vs-muted);
-  font-size: 12px;
-}
-.video-studio-task-info code {
-  color: var(--vs-muted);
-  font-size: 12px;
-}
-.video-studio-task-action {
-  min-width: 44px;
-}
 .video-studio-details-dialog {
   border: 1px solid var(--vs-line);
   border-radius: 12px;
@@ -1152,47 +1068,6 @@
   font-size: 13px;
   margin-top: 4px;
 }
-.video-studio-task-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-}
-.video-studio-task-row-head {
-  display: grid;
-  color: var(--vs-muted);
-  font-size: 12px;
-}
-.video-studio-task-row-head > :first-child {
-  grid-column: 1 / 3;
-}
-.video-studio-task-copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  text-align: left;
-}
-.video-studio-task-copy svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-.video-studio-task-info > p {
-  color: var(--vs-muted);
-  font-size: 12px;
-  margin-top: 4px;
-}
-.video-studio-task-status {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-.video-studio-task-status time {
-  color: var(--vs-muted);
-  font-size: 12px;
-}
 .video-studio-library-body h3 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1257,9 +1132,6 @@
   .video-studio-asset-roles {
     display: none;
   }
-  .video-studio-task-row-head {
-    display: none;
-  }
   .video-studio-page-toolbar {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -1300,18 +1172,6 @@
   }
   .video-studio-first-state h3 {
     font-size: 16px;
-  }
-  .video-studio-task-row {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 10px;
-    padding: 15px;
-  }
-  .video-studio-task-status {
-    grid-column: 2;
-  }
-  .video-studio-task-action {
-    grid-column: 2;
-    justify-self: start;
   }
   .video-studio-library-grid {
     grid-template-columns: minmax(0, 1fr);
