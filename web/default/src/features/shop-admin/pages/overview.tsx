@@ -198,7 +198,7 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
         )}
       />
       <form
-        className='max-w-4xl space-y-5'
+        className='grid w-full gap-5 xl:grid-cols-2'
         onSubmit={form.handleSubmit(async (values) => {
           setValidation('')
           try {
@@ -347,7 +347,7 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
           )}
         </section>
         <details
-          className='shop-panel'
+          className='shop-panel xl:col-span-2'
           open={advancedOpen}
           onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
         >
@@ -362,7 +362,7 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
           <FieldGroup>
             <FieldSet>
               <FieldLegend>{t('Order limits')}</FieldLegend>
-              <FieldGroup className='grid sm:grid-cols-2'>
+              <FieldGroup className='grid sm:grid-cols-2 xl:grid-cols-4'>
                 {[
                   ['reservation', t('Reservation minutes')],
                   ['pending', t('Unpaid order limit')],
@@ -391,7 +391,7 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
             </FieldSet>
             <FieldSet>
               <FieldLegend>{t('Data retention and reminders')}</FieldLegend>
-              <FieldGroup className='grid sm:grid-cols-2'>
+              <FieldGroup className='grid sm:grid-cols-2 xl:grid-cols-4'>
                 {[...retention, ...reminders].map(([name, label]) => (
                   <Field key={name}>
                     <FieldLabel htmlFor={`setting-${name}`}>{label}</FieldLabel>
@@ -418,22 +418,24 @@ function SettingsForm(props: { settings: z.infer<typeof settingsSchema> }) {
           </FieldGroup>
         </details>
         {validation && (
-          <p role='alert' className='text-destructive'>
+          <p role='alert' className='text-destructive xl:col-span-2'>
             {validation}
           </p>
         )}
-        <ShopErrorNotice error={action.error} />
-        <Button
-          type='submit'
-          disabled={
-            action.pending ||
-            !(useCurrentAccount
-              ? data.current_provider_account_ref
-              : data.provider_account_ref)
-          }
-        >
-          {t('Save settings')}
-        </Button>
+        <div className='space-y-4 xl:col-span-2'>
+          <ShopErrorNotice error={action.error} />
+          <Button
+            type='submit'
+            disabled={
+              action.pending ||
+              !(useCurrentAccount
+                ? data.current_provider_account_ref
+                : data.provider_account_ref)
+            }
+          >
+            {t('Save settings')}
+          </Button>
+        </div>
       </form>
     </>
   )
