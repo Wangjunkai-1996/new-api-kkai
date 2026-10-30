@@ -25,7 +25,7 @@ import (
 )
 
 func GetTopUpInfo(c *gin.Context) {
-	lifecycleReady, err := walletLifecycleReady(c.Request.Context(), model.DB)
+	lifecycleReady, err := walletLifecycleReadyForDisplay(c.Request.Context(), model.DB)
 	if err != nil {
 		walletError(c, http.StatusServiceUnavailable, "WALLET_STATE_UNAVAILABLE", nil)
 		return

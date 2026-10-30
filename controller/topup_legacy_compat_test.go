@@ -224,6 +224,14 @@ func TestWalletCompatibilityCanonical18RequiresUpdatedClient(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code, "schema damage must not be mistaken for a legacy wallet")
 }
 
+func TestWalletInfoDoesNotAuditUnrelatedRuntimeTables(t *testing.T) {
+	db := walletCallbackDB(t)
+	require.NoError(t, db.Exec("DROP TABLE kkai_policy_incidents").Error)
+	response := invokeWalletCompatibility(t, GetTopUpInfo, "")
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), `"wallet_lifecycle_ready":true`)
+}
+
 func TestWalletCompatibilityUnavailableDatabaseCannotSelectLegacy(t *testing.T) {
 	previous := model.DB
 	model.DB = nil

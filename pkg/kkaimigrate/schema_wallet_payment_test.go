@@ -36,9 +36,11 @@ func TestWalletPaymentExpandPreservesHistoryAndRequiresCanonicalReceipt(t *testi
 	item := migrationSet()[WalletPaymentSchemaVersion-1]
 	require.NoError(t, executeMigrationSchema(db, DialectSQLite, item))
 	require.ErrorIs(t, CheckWalletPaymentSchema(ctx, db), ErrSchemaNotReady, "tables alone cannot enable financial lifecycle")
+	require.ErrorIs(t, CheckWalletPaymentRuntimeSchema(ctx, db), ErrSchemaNotReady)
 	_, err = ApplyWalletPaymentExpand(ctx, db, Options{Offline: true})
 	require.NoError(t, err)
 	require.NoError(t, CheckWalletPaymentSchema(ctx, db))
+	require.NoError(t, CheckWalletPaymentRuntimeSchema(ctx, db))
 	require.NoError(t, CheckInvoiceSchema(ctx, db))
 	require.NoError(t, CheckRequestTicketSchema(ctx, db))
 	var after []AppliedMigration
@@ -58,6 +60,10 @@ func TestWalletPaymentExpandPreservesHistoryAndRequiresCanonicalReceipt(t *testi
 	require.NoError(t, err)
 	require.NoError(t, db.Exec("DROP INDEX idx_wallet_topup_request").Error)
 	require.ErrorIs(t, CheckWalletPaymentSchema(ctx, db), ErrSchemaNotReady, "idempotency uniqueness belongs to the financial schema contract")
+	require.ErrorIs(t, CheckWalletPaymentRuntimeSchema(ctx, db), ErrSchemaNotReady)
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX idx_wallet_topup_request ON top_ups (tenant_id, user_id, request_key_hash)").Error)
+	require.NoError(t, db.Exec("ALTER TABLE wallet_payment_events DROP COLUMN reason_code").Error)
+	require.ErrorIs(t, CheckWalletPaymentRuntimeSchema(ctx, db), ErrSchemaNotReady, "missing wallet columns must fail closed")
 }
 func TestWalletPaymentExpandDialectCatalogAndIndexBoundary(t *testing.T) {
 	require.NoError(t, validateMigrationCatalog(migrationSet()))

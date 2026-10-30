@@ -57,11 +57,14 @@ func TestShopExpandRequiresCanonicalReceiptAndPreservesPriorContracts(t *testing
 	require.NoError(t, db.Exec("DROP INDEX idx_shop_stock_units_reserved_order_id").Error)
 	assert.ErrorIs(t, CheckShopSchema(ctx, db), ErrSchemaNotReady)
 	require.NoError(t, CheckWalletPaymentSchema(ctx, db), "unrelated shop index damage must not disable wallet payments")
+	require.NoError(t, CheckWalletPaymentRuntimeSchema(ctx, db), "shop physical shape does not gate wallet payments")
 	require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", ShopSchemaVersion).Update("checksum", "invalid").Error)
 	assert.ErrorIs(t, CheckWalletPaymentSchema(ctx, db), ErrChecksumMismatch, "wallet still requires the canonical schema 19 receipt")
+	assert.ErrorIs(t, CheckWalletPaymentRuntimeSchema(ctx, db), ErrChecksumMismatch)
 	require.NoError(t, db.Model(&AppliedMigration{}).Where("version = ?", ShopSchemaVersion).Update("checksum", after[len(after)-1].Checksum).Error)
 	require.NoError(t, db.Exec("DROP INDEX idx_wallet_topup_request").Error)
 	assert.ErrorIs(t, CheckWalletPaymentSchema(ctx, db), ErrSchemaNotReady, "wallet uniqueness must still gate payments")
+	assert.ErrorIs(t, CheckWalletPaymentRuntimeSchema(ctx, db), ErrSchemaNotReady)
 }
 
 func TestShopSchemaSupportsCurrentRuntimeModels(t *testing.T) {

@@ -353,8 +353,13 @@ func WalletPaymentSchemaObjectsPresent(db *gorm.DB) (bool, error) {
 			return true, nil
 		}
 	}
-	for _, table := range []string{"wallet_topup_flows", "wallet_payment_receipts", "wallet_payment_events", "wallet_topup_runs"} {
-		if db.Migrator().HasTable(table) {
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return false, err
+	}
+	for _, table := range tables {
+		switch table {
+		case "wallet_topup_flows", "wallet_payment_receipts", "wallet_payment_events", "wallet_topup_runs":
 			return true, nil
 		}
 	}
@@ -390,6 +395,110 @@ func CheckWalletPaymentSchema(ctx context.Context, db *gorm.DB) error {
 	// A later shop schema must have a canonical receipt, but its physical shape
 	// does not gate wallet payments.
 	return checkThroughMigrationSet(ctx, db, WalletPaymentSchemaVersion, WalletPaymentSchemaVersion, ShopSchemaVersion, migrationSet(), WalletPaymentSchemaVersion)
+}
+
+// WalletPaymentLedgerVersion validates canonical receipts without running the
+// physical schema and tenant-data audit used by release and maintenance checks.
+func WalletPaymentLedgerVersion(ctx context.Context, db *gorm.DB) (int64, error) {
+	if ctx == nil || db == nil {
+		return 0, ErrSchemaNotReady
+	}
+	set := migrationSet()
+	dialect, err := dialectName(db)
+	if err != nil {
+		return 0, err
+	}
+	applied, err := loadApplied(db.WithContext(ctx))
+	if err != nil {
+		return 0, err
+	}
+	if err := validateAppliedAgainstMigrationSet(applied, dialect, ShopSchemaVersion, set); err != nil {
+		return 0, err
+	}
+	var version int64
+	for number := range applied {
+		if number > version {
+			version = number
+		}
+	}
+	if version < InvoiceSchemaVersion {
+		return 0, ErrSchemaNotReady
+	}
+	return version, nil
+}
+
+// CheckWalletPaymentRuntimeSchema inspects only the wallet objects that protect
+// financial writes. The full data/schema audit remains CheckWalletPaymentSchema.
+func CheckWalletPaymentRuntimeSchema(ctx context.Context, db *gorm.DB) error {
+	version, err := WalletPaymentLedgerVersion(ctx, db)
+	if err != nil {
+		return err
+	}
+	if version < WalletPaymentSchemaVersion {
+		return ErrSchemaNotReady
+	}
+	db = db.WithContext(ctx)
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return err
+	}
+	present := make(map[string]bool, len(tables))
+	for _, table := range tables {
+		present[table] = true
+	}
+	for _, requirement := range []struct {
+		table string
+		model any
+	}{
+		{"top_ups", &walletTopUpV18{}},
+		{"wallet_topup_flows", &walletTopUpFlowV18{}},
+		{"wallet_payment_receipts", &walletPaymentReceiptV18{}},
+		{"wallet_payment_events", &walletPaymentEventV18{}},
+		{"wallet_topup_runs", &walletTopUpRunV18{}},
+	} {
+		if !present[requirement.table] {
+			return fmt.Errorf("%w: missing wallet table %s", ErrSchemaNotReady, requirement.table)
+		}
+		statement := &gorm.Statement{DB: db}
+		if err := statement.Parse(requirement.model); err != nil {
+			return err
+		}
+		columns, err := db.Migrator().ColumnTypes(requirement.table)
+		if err != nil {
+			return err
+		}
+		actual := make(map[string]gorm.ColumnType, len(columns))
+		for _, column := range columns {
+			actual[column.Name()] = column
+		}
+		for _, field := range statement.Schema.Fields {
+			column, exists := actual[field.DBName]
+			if !exists {
+				return fmt.Errorf("%w: missing wallet column %s.%s", ErrSchemaNotReady, requirement.table, field.DBName)
+			}
+			if err := validateTenantOnlineColumn(db, requirement.table, field, column); err != nil {
+				return err
+			}
+		}
+		if db.Dialector.Name() == DialectPostgres && requirement.table != "top_ups" {
+			var primary []string
+			for _, field := range statement.Schema.PrimaryFields {
+				primary = append(primary, field.DBName)
+			}
+			if err := validateTenantOnlinePostgresPrimaryKey(db, requirement.table, primary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, index := range walletPaymentIndexes {
+		if !index.Unique {
+			continue
+		}
+		if err := validateTenantOnlineIndex(db, index.Table, index.Name, index.Columns, true); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 // ApplyWalletPaymentExpand is deliberately never called from application

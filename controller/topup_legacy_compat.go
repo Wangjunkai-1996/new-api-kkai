@@ -63,10 +63,39 @@ func walletLifecycleReady(ctx context.Context, db *gorm.DB) (bool, error) {
 	if err := service.CheckWalletPaymentRuntimeSchema(ctx, db); err == nil {
 		return true, nil
 	}
-	// A failed cached v18 check is never evidence of legacy readiness. Only
-	// a fresh canonical17/no-v18-objects inspection can select that mode.
+	// Never run the full legacy precheck after a v18 inspection failure.
+	version, err := kkaimigrate.WalletPaymentLedgerVersion(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	if version != kkaimigrate.InvoiceSchemaVersion {
+		return false, model.ErrWalletPaymentSchema
+	}
 	if err := checkLegacyWalletSchema(ctx, db); err != nil {
 		return false, err
+	}
+	return false, nil
+}
+
+func walletLifecycleReadyForDisplay(ctx context.Context, db *gorm.DB) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := service.CheckWalletPaymentRuntimeSchema(ctx, db); err == nil {
+		return true, nil
+	}
+	version, err := kkaimigrate.WalletPaymentLedgerVersion(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	if version != kkaimigrate.InvoiceSchemaVersion {
+		return false, model.ErrWalletPaymentSchema
+	}
+	present, err := kkaimigrate.WalletPaymentSchemaObjectsPresent(db.WithContext(ctx))
+	if err != nil {
+		return false, err
+	}
+	if present {
+		return false, model.ErrWalletPaymentSchema
 	}
 	return false, nil
 }
@@ -80,7 +109,7 @@ func checkLegacyWalletSchema(ctx context.Context, db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	if precheck.CurrentVersion == kkaimigrate.WalletPaymentSchemaVersion {
+	if precheck.CurrentVersion != kkaimigrate.InvoiceSchemaVersion {
 		return model.ErrWalletPaymentSchema
 	}
 	present, err := kkaimigrate.WalletPaymentSchemaObjectsPresent(db.WithContext(ctx))

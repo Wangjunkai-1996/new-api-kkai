@@ -28,7 +28,7 @@ func TestWalletPaymentSchemaGateRequiresReceiptAndRechecksDatabaseDrift(t *testi
 			checks++
 			_, bounded := ctx.Deadline()
 			assert.True(t, bounded)
-			return kkaimigrate.CheckWalletPaymentSchema(ctx, db)
+			return kkaimigrate.CheckWalletPaymentRuntimeSchema(ctx, db)
 		},
 	}
 	require.Error(t, gate.check(ctx, db), "physical tables without the canonical receipt cannot enable payments")
@@ -83,4 +83,12 @@ func TestWalletPaymentSchemaGateCoalescesConcurrentProbes(t *testing.T) {
 	require.ErrorIs(t, gate.check(ctx, db), context.Canceled)
 	require.ErrorIs(t, gate.check(context.Background(), nil), kkaimigrate.ErrSchemaNotReady)
 	assert.EqualValues(t, 1, checks.Load())
+}
+
+func TestWalletRuntimeCheckDoesNotAuditUnrelatedTables(t *testing.T) {
+	db := walletReceiptRecoveryDB(t)
+	ctx := context.Background()
+	require.NoError(t, db.Exec("DROP TABLE kkai_policy_incidents").Error)
+	require.Error(t, kkaimigrate.CheckWalletPaymentSchema(ctx, db))
+	require.NoError(t, kkaimigrate.CheckWalletPaymentRuntimeSchema(ctx, db))
 }

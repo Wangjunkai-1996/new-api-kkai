@@ -22,7 +22,7 @@ type walletPaymentSchemaGate struct {
 }
 
 var walletRuntimeSchema = walletPaymentSchemaGate{
-	checkSchema: kkaimigrate.CheckWalletPaymentSchema,
+	checkSchema: kkaimigrate.CheckWalletPaymentRuntimeSchema,
 	now:         time.Now,
 }
 
@@ -48,8 +48,13 @@ func (gate *walletPaymentSchemaGate) check(ctx context.Context, db *gorm.DB) err
 		return gate.err
 	}
 	// A browser closing its request must not poison readiness for every user.
-	// Complete canonical/schema inspection has its own bounded audit budget.
-	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	// The shared wallet-only inspection has its own deadline, independent of a
+	// browser closing the request.
+	budget := 3 * time.Second
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < budget {
+		budget = time.Until(deadline)
+	}
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 	defer cancel()
 	started := time.Now()
 	err := gate.checkSchema(checkCtx, db)
