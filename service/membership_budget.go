@@ -248,18 +248,26 @@ func validateRequestBudgetOutbound(request *http.Request, info *relaycommon.Rela
 	// Passthrough bodies may retain duplicate keys. Parsers disagree on which
 	// occurrence wins, so no funding authorization may depend on such a body.
 	pending := []gjson.Result{gjson.ParseBytes(data)}
+	root := true
+	top := make(map[string]gjson.Result)
 	for len(pending) > 0 {
 		value := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
+		isRoot := root
+		root = false
 		keys := make(map[string]bool)
 		duplicate := false
 		value.ForEach(func(key, child gjson.Result) bool {
 			if value.IsObject() {
-				if keys[key.String()] {
+				name := key.String()
+				if keys[name] {
 					duplicate = true
 					return false
 				}
-				keys[key.String()] = true
+				keys[name] = true
+				if isRoot {
+					top[name] = child
+				}
 			}
 			if child.IsObject() || child.IsArray() {
 				pending = append(pending, child)
@@ -272,7 +280,10 @@ func validateRequestBudgetOutbound(request *http.Request, info *relaycommon.Rela
 	}
 	found := false
 	for _, path := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "max_tokens_to_sample", "max_new_tokens", "maxTokens", "generationConfig.maxOutputTokens", "generation_config.max_output_tokens", "parameters.max_tokens", "parameters.max_new_tokens", "options.num_predict"} {
-		value := gjson.GetBytes(data, path)
+		value := top[path]
+		if dot := strings.IndexByte(path, '.'); dot >= 0 {
+			value = top[path[:dot]].Get(path[dot+1:])
+		}
 		if !value.Exists() {
 			continue
 		}
@@ -286,20 +297,23 @@ func validateRequestBudgetOutbound(request *http.Request, info *relaycommon.Rela
 		return fmt.Errorf("upstream conversion removed the authorized output limit")
 	}
 	for _, path := range []string{"n", "candidate_count", "generationConfig.candidateCount", "generation_config.candidate_count"} {
-		value := gjson.GetBytes(data, path)
+		value := top[path]
+		if dot := strings.IndexByte(path, '.'); dot >= 0 {
+			value = top[path[:dot]].Get(path[dot+1:])
+		}
 		if value.Exists() && (value.Type != gjson.Number || value.Float() < 1 || value.Float() > float64(snapshot.OutputCopies) || value.Float() != math.Trunc(value.Float())) {
 			return fmt.Errorf("upstream output count exceeds authorization")
 		}
 	}
 	if bound := snapshot.ToolCallLimits["max_tool_calls"]; bound > 0 {
-		value := gjson.GetBytes(data, "max_tool_calls")
+		value := top["max_tool_calls"]
 		if value.Type != gjson.Number || value.Float() < 1 || value.Float() > float64(bound) {
 			return fmt.Errorf("upstream tool call limit exceeds authorization")
 		}
 	}
 	if bound := snapshot.ToolCallLimits["web_search"]; bound > 0 {
 		total := 0.0
-		for _, tool := range gjson.GetBytes(data, "tools").Array() {
+		for _, tool := range top["tools"].Array() {
 			if strings.HasPrefix(tool.Get("type").String(), "web_search") {
 				value := tool.Get("max_uses")
 				if value.Type != gjson.Number || value.Float() < 1 {

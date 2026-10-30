@@ -1396,22 +1396,25 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 }
 
 func hasRemovableDisabledField(jsonData []byte, channelOtherSettings dto.ChannelOtherSettings) bool {
-	values := gjson.GetManyBytes(
-		jsonData,
-		"service_tier",
-		"inference_geo",
-		"speed",
-		"store",
-		"safety_identifier",
-		"stream_options.include_obfuscation",
-	)
-
-	return (!channelOtherSettings.AllowServiceTier && values[0].Exists()) ||
-		(!channelOtherSettings.AllowInferenceGeo && values[1].Exists()) ||
-		(!channelOtherSettings.AllowSpeed && values[2].Exists()) ||
-		(channelOtherSettings.DisableStore && values[3].Exists()) ||
-		(!channelOtherSettings.AllowSafetyIdentifier && values[4].Exists()) ||
-		(!channelOtherSettings.AllowIncludeObfuscation && values[5].Exists())
+	removable := false
+	gjson.ParseBytes(jsonData).ForEach(func(key, value gjson.Result) bool {
+		switch key.Str {
+		case "service_tier":
+			removable = !channelOtherSettings.AllowServiceTier
+		case "inference_geo":
+			removable = !channelOtherSettings.AllowInferenceGeo
+		case "speed":
+			removable = !channelOtherSettings.AllowSpeed
+		case "store":
+			removable = channelOtherSettings.DisableStore
+		case "safety_identifier":
+			removable = !channelOtherSettings.AllowSafetyIdentifier
+		case "stream_options":
+			removable = !channelOtherSettings.AllowIncludeObfuscation && value.Get("include_obfuscation").Exists()
+		}
+		return !removable
+	})
+	return removable
 }
 
 // RemoveGeminiDisabledFields removes disabled fields from Gemini request JSON data

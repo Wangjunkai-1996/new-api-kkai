@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	common2 "github.com/QuantumNous/new-api/common"
@@ -14,6 +15,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestApplyParamOverrideTrimPrefix(t *testing.T) {
@@ -2174,6 +2176,53 @@ func TestRemoveDisabledFieldsNoControlledFieldsKeepsBody(t *testing.T) {
 		t.Fatalf("RemoveDisabledFields returned error: %v", err)
 	}
 	require.Equal(t, input, string(out))
+}
+
+func TestHasRemovableDisabledFieldMatchesPathLookup(t *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		settings dto.ChannelOtherSettings
+	}{
+		{"later stream options supplies nested field", `{"stream_options":{},"stream_options":{"include_obfuscation":false}}`, dto.ChannelOtherSettings{}},
+		{"first stream options removable", `{"stream_options":{"include_obfuscation":false},"stream_options":{}}`, dto.ChannelOtherSettings{}},
+		{"escaped key", `{"\u0073tore":true}`, dto.ChannelOtherSettings{DisableStore: true}},
+		{"array root", `[{"store":true}]`, dto.ChannelOtherSettings{DisableStore: true}},
+		{"invalid suffix", `{"store":true} trailing`, dto.ChannelOtherSettings{DisableStore: true}},
+		{"invalid nested value", `{"input":[1,],"store":true}`, dto.ChannelOtherSettings{DisableStore: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			values := gjson.GetManyBytes([]byte(tc.body), "service_tier", "inference_geo", "speed", "store", "safety_identifier", "stream_options.include_obfuscation")
+			want := !tc.settings.AllowServiceTier && values[0].Exists() ||
+				!tc.settings.AllowInferenceGeo && values[1].Exists() ||
+				!tc.settings.AllowSpeed && values[2].Exists() ||
+				tc.settings.DisableStore && values[3].Exists() ||
+				!tc.settings.AllowSafetyIdentifier && values[4].Exists() ||
+				!tc.settings.AllowIncludeObfuscation && values[5].Exists()
+			require.Equal(t, want, hasRemovableDisabledField([]byte(tc.body), tc.settings))
+		})
+	}
+}
+
+func BenchmarkHasRemovableDisabledFieldLongResponses(b *testing.B) {
+	body := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"` + strings.Repeat("x", 256<<10) + `"}]}],"stream_options":{"include_obfuscation":false}}`)
+	settings := dto.ChannelOtherSettings{}
+	b.Run("six-get", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			values := gjson.GetManyBytes(body, "service_tier", "inference_geo", "speed", "store", "safety_identifier", "stream_options.include_obfuscation")
+			if !values[5].Exists() {
+				b.Fatal("missing stream option")
+			}
+		}
+	})
+	b.Run("single-scan", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			if !hasRemovableDisabledField(body, settings) {
+				b.Fatal("missing stream option")
+			}
+		}
+	})
 }
 
 func TestRemoveDisabledFieldsAllowInferenceGeo(t *testing.T) {

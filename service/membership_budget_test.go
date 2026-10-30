@@ -288,16 +288,20 @@ func TestMembershipInsufficientReservationUsesWalletPrice(t *testing.T) {
 }
 
 func TestMembershipOutboundKeepsAuthorizedBounds(t *testing.T) {
+	longInput := `{"input":[{"role":"user","content":[{"type":"input_text","text":"` + strings.Repeat("x", 256<<10) + `"}]}],`
 	cases := []struct {
 		name, body string
 		valid      bool
 	}{
 		{"bounded", `{"max_tokens":100,"n":2,"max_tool_calls":3}`, true},
+		{"long responses input", longInput + `"max_output_tokens":100,"n":2,"max_tool_calls":3}`, true},
 		{"lower limits", `{"max_tokens":40,"n":1,"max_tool_calls":1}`, true},
 		{"removed limit", `{"n":2,"max_tool_calls":3}`, false},
 		{"increased output", `{"max_tokens":101,"max_tool_calls":3}`, false},
 		{"increased copies", `{"max_tokens":100,"n":3,"max_tool_calls":3}`, false},
 		{"alternate provider field", `{"generationConfig":{"maxOutputTokens":101},"max_tool_calls":3}`, false},
+		{"nested parameter limit", `{"parameters":{"max_new_tokens":101},"max_tool_calls":3}`, false},
+		{"nested duplicate key", `{"input":[{"metadata":{"n":1,"\u006e":2}}],"max_output_tokens":100,"max_tool_calls":3}`, false},
 		{"increased tool calls", `{"max_tokens":100,"max_tool_calls":4}`, false},
 	}
 	for _, tc := range cases {
