@@ -62,9 +62,12 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 		}
 	}
 
-	tokens, err := service.EstimateRequestToken(c, meta, info)
+	var tokens int
+	var err error
 	if membershipBilling {
 		tokens, err = service.CountRequestToken(c, meta, info)
+	} else {
+		tokens, err = service.EstimateRequestToken(c, meta, info)
 	}
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeCountTokenFailed)
