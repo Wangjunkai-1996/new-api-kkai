@@ -35,6 +35,7 @@ func loadValidatedStateFromMigrationSet(
 	dialect string,
 	compatibleVersion int64,
 	migrations []migration,
+	physicalMaxVersion ...int64,
 ) (*validatedMigrationState, error) {
 	if db == nil || !db.Migrator().HasTable((AppliedMigration{}).TableName()) {
 		return nil, ErrSchemaNotReady
@@ -58,7 +59,11 @@ func loadValidatedStateFromMigrationSet(
 	if current == 0 {
 		return nil, ErrSchemaNotReady
 	}
-	if err := validateRuntimeSchema(db.WithContext(ctx), dialect, current); err != nil {
+	physicalVersion := current
+	if len(physicalMaxVersion) > 0 && physicalVersion > physicalMaxVersion[0] {
+		physicalVersion = physicalMaxVersion[0]
+	}
+	if err := validateRuntimeSchema(db.WithContext(ctx), dialect, physicalVersion); err != nil {
 		return nil, err
 	}
 	items, ok := storedPrefixItemsForDialectFromSet(dialect, current, migrations)

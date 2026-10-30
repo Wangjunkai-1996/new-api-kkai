@@ -386,7 +386,7 @@ func checkThroughVersion(ctx context.Context, db *gorm.DB, minimumVersion int64,
 	return checkThroughMigrationSet(ctx, db, minimumVersion, runtimeMinVersion, runtimeMaxVersion, migrationSet())
 }
 
-func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion int64, runtimeMinVersion int64, runtimeMaxVersion int64, migrations []migration) error {
+func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion int64, runtimeMinVersion int64, runtimeMaxVersion int64, migrations []migration, physicalMaxVersion ...int64) error {
 	if db == nil || runtimeMinVersion <= 0 || minimumVersion < runtimeMinVersion ||
 		minimumVersion > runtimeMaxVersion || runtimeMinVersion > runtimeMaxVersion ||
 		runtimeMaxVersion > latestKnownVersionFor(migrations) {
@@ -399,7 +399,10 @@ func checkThroughMigrationSet(ctx context.Context, db *gorm.DB, minimumVersion i
 	if err != nil {
 		return err
 	}
-	state, err := loadValidatedStateFromMigrationSet(ctx, db, dialect, runtimeMaxVersion, migrations)
+	if len(physicalMaxVersion) > 0 && (physicalMaxVersion[0] < minimumVersion || physicalMaxVersion[0] > runtimeMaxVersion) {
+		return ErrSchemaNotReady
+	}
+	state, err := loadValidatedStateFromMigrationSet(ctx, db, dialect, runtimeMaxVersion, migrations, physicalMaxVersion...)
 	if err != nil {
 		return err
 	}
