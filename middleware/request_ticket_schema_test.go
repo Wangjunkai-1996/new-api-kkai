@@ -45,17 +45,24 @@ func TestRequestTicketSchemaGateRejectsMissingAndForgedReceipts(t *testing.T) {
 			engine.GET("/api/requests", test.gate, func(c *gin.Context) {
 				t.Fatal("request ticket handler reached an unverified database")
 			})
+			engine.POST("/api/requests", test.gate, func(c *gin.Context) {
+				t.Fatal("request ticket write reached an unverified database")
+			})
 			engine.GET("/api/status", func(c *gin.Context) { c.Status(http.StatusOK) })
 			queries.Reset()
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/requests", nil))
 			assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 			assert.JSONEq(t, `{"success":false,"code":"REQUEST_TICKET_SCHEMA_NOT_READY","message":"request tickets are not enabled"}`, response.Body.String())
+			assert.Empty(t, queries.String(), "GET must not start a schema audit")
+			writeResponse := httptest.NewRecorder()
+			engine.ServeHTTP(writeResponse, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
+			assert.Equal(t, http.StatusServiceUnavailable, writeResponse.Code)
 			firstQueries := queries.String()
 			for _, mutation := range []string{"CREATE ", "ALTER ", "INSERT ", "UPDATE ", "DELETE "} {
 				assert.NotContains(t, firstQueries, mutation, "schema readiness must be read-only")
 			}
-			engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/requests", nil))
+			engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/requests", nil))
 			assert.Equal(t, firstQueries, queries.String(), "failed checks are throttled")
 			status := httptest.NewRecorder()
 			engine.ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/api/status", nil))
@@ -74,24 +81,64 @@ func TestRequestTicketSchemaGateEnablesAfterOnlineExpansionWithoutRestart(t *tes
 			return errors.New("canonical v16 receipt is absent")
 		}
 		return nil
-	}, func() time.Time { return now })
+	}, func(context.Context) bool { return false }, func() time.Time { return now })
 	engine := gin.New()
-	engine.GET("/api/requests", gate, func(c *gin.Context) { c.Status(http.StatusOK) })
+	engine.POST("/api/requests", gate, func(c *gin.Context) { c.Status(http.StatusOK) })
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/requests", nil))
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+
 	schemaReady = true
 	response = httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/requests", nil))
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
 	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 	assert.Equal(t, 1, checks)
-	now = now.Add(30 * time.Second)
+
+	now = now.Add(5 * time.Second)
 	response = httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/requests", nil))
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
 	assert.Equal(t, http.StatusOK, response.Code)
+
+	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, 2, checks, "writes share a bounded readiness cache")
+	schemaReady = false
 	now = now.Add(time.Hour)
 	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+	assert.Equal(t, 3, checks, "expired readiness must fail closed after schema damage")
+}
+
+func TestRequestTicketSchemaReadsDoNotWaitForWriteInspection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	readReady := true
+	gate := requestTicketSchemaGate(func(ctx context.Context) error {
+		_, bounded := ctx.Deadline()
+		assert.True(t, bounded)
+		close(started)
+		<-release
+		return nil
+	}, func(context.Context) bool { return readReady }, time.Now)
+	engine := gin.New()
+	engine.GET("/api/requests", gate, func(c *gin.Context) { c.Status(http.StatusOK) })
+	engine.POST("/api/requests", gate, func(c *gin.Context) { c.Status(http.StatusOK) })
+	writeResponse := httptest.NewRecorder()
+	go func() {
+		defer close(done)
+		engine.ServeHTTP(writeResponse, httptest.NewRequest(http.MethodPost, "/api/requests", nil))
+	}()
+	<-started
+	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/requests", nil))
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Equal(t, 2, checks, "verified readiness remains cached")
+	readReady = false
+	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/requests", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code, "GET must follow snapshot revocation")
+	close(release)
+	<-done
+	assert.Equal(t, http.StatusOK, writeResponse.Code)
 }

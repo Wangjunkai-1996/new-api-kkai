@@ -22,6 +22,7 @@ type runtimeSchemaSnapshotState struct {
 var shopReadSchema runtimeSchemaSnapshot
 var invoiceReadSchema runtimeSchemaSnapshot
 var imageAsyncReadSchema runtimeSchemaSnapshot
+var requestTicketReadSchema runtimeSchemaSnapshot
 
 func (snapshot *runtimeSchemaSnapshot) ready(ctx context.Context, db *gorm.DB) bool {
 	if ctx == nil || ctx.Err() != nil || db == nil {
@@ -51,6 +52,7 @@ func RefreshRuntimeReadSchemas(ctx context.Context, db *gorm.DB) {
 	shopReadSchema.refresh(ctx, db, kkaimigrate.CheckShopRuntimeSchema)
 	invoiceReadSchema.refresh(ctx, db, kkaimigrate.CheckInvoiceRuntimeSchema)
 	imageAsyncReadSchema.refresh(ctx, db, kkaimigrate.CheckImageAsyncRuntimeSchema)
+	requestTicketReadSchema.refresh(ctx, db, kkaimigrate.CheckRequestTicketRuntimeSchema)
 }
 
 func ShopReadSchemaReady(ctx context.Context, db *gorm.DB) bool {
@@ -59,4 +61,8 @@ func ShopReadSchemaReady(ctx context.Context, db *gorm.DB) bool {
 
 func InvoiceReadSchemaReady(ctx context.Context, db *gorm.DB) bool {
 	return invoiceReadSchema.ready(ctx, db)
+}
+
+func RequestTicketReadSchemaReady(ctx context.Context, db *gorm.DB) bool {
+	return requestTicketReadSchema.ready(ctx, db)
 }

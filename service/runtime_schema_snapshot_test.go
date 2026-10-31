@@ -52,4 +52,9 @@ func TestRuntimeReadSchemaPrewarmUsesDomainChecks(t *testing.T) {
 	assert.False(t, ShopReadSchemaReady(ctx, db), "an uninstalled shop stays unavailable")
 	assert.True(t, InvoiceReadSchemaReady(ctx, db))
 	assert.True(t, ImageAsyncSchemaReady(ctx, db))
+	assert.True(t, RequestTicketReadSchemaReady(ctx, db))
+	require.NoError(t, db.Migrator().DropTable("request_ticket_events"))
+	RefreshRuntimeReadSchemas(ctx, db)
+	assert.False(t, RequestTicketReadSchemaReady(ctx, db), "refresh revokes tickets when their storage is damaged")
+	assert.True(t, InvoiceReadSchemaReady(ctx, db), "ticket damage does not block unrelated domains")
 }

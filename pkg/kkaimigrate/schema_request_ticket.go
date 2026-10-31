@@ -146,6 +146,33 @@ func CheckRequestTicketSchema(ctx context.Context, db *gorm.DB) error {
 	return checkThroughVersion(ctx, db, RequestTicketSchemaVersion, RequestTicketSchemaVersion, ShopSchemaVersion)
 }
 
+// CheckRequestTicketRuntimeSchema validates canonical receipts and ticket storage
+// only. The full cross-domain audit remains in CheckRequestTicketSchema.
+func CheckRequestTicketRuntimeSchema(ctx context.Context, db *gorm.DB) error {
+	if ctx == nil || db == nil {
+		return ErrSchemaNotReady
+	}
+	dialect, err := dialectName(db)
+	if err != nil {
+		return err
+	}
+	db = db.WithContext(ctx)
+	applied, err := loadApplied(db)
+	if err != nil {
+		return err
+	}
+	if err := validateAppliedAgainstMigrationSet(applied, dialect, KnownCatalogVersion, migrationSet()); err != nil {
+		return err
+	}
+	if _, ok := applied[RequestTicketSchemaVersion]; !ok {
+		return fmt.Errorf("%w: request ticket migration receipt is missing", ErrSchemaNotReady)
+	}
+	if err := validateRequestTicketSchema(db, true); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
 // ApplyRequestTicketExpand is the explicit isolated-library/controller entry.
 // Production mutation requires a separately installed, reviewed controller that
 // supplies AuthorizeMutation for the exact database, plan and serving runtimes.

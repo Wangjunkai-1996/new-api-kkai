@@ -31,6 +31,7 @@ func TestRequestTicketExpandPreservesHistoryAndBusinessData(t *testing.T) {
 			options := prepareRequestTicketExpandFixture(t, db)
 			ctx := context.Background()
 			require.ErrorIs(t, CheckRequestTicketSchema(ctx, db), ErrSchemaNotReady)
+			require.ErrorIs(t, CheckRequestTicketRuntimeSchema(ctx, db), ErrSchemaNotReady)
 			var before []AppliedMigration
 			require.NoError(t, db.Order("version").Find(&before).Error)
 			application := tenantV12ResellerApplication{ApplicantUserID: 101, BusinessName: "Existing", Status: "pending"}
@@ -46,6 +47,7 @@ func TestRequestTicketExpandPreservesHistoryAndBusinessData(t *testing.T) {
 			_, err = ApplyRequestTicketExpand(ctx, db, options)
 			require.NoError(t, err)
 			require.NoError(t, CheckRequestTicketSchema(ctx, db))
+			require.NoError(t, CheckRequestTicketRuntimeSchema(ctx, db))
 			require.NoError(t, CheckTenantOnlineSchema(ctx, db))
 			require.NoError(t, CheckResellerApplicationSchema(ctx, db))
 			if RuntimeMaxVersion >= 16 {
@@ -102,12 +104,14 @@ func TestRequestTicketGateRejectsUnreceiptedTablesAndPhysicalDrift(t *testing.T)
 	item := migrationSet()[RequestTicketSchemaVersion-1]
 	require.NoError(t, executeMigrationSchema(db, DialectSQLite, item))
 	assert.ErrorIs(t, CheckRequestTicketSchema(ctx, db), ErrSchemaNotReady, "DDL without a canonical receipt cannot enable tickets")
+	assert.ErrorIs(t, CheckRequestTicketRuntimeSchema(ctx, db), ErrSchemaNotReady)
 	_, err := ApplyRequestTicketExpand(ctx, db, Options{})
 	require.NoError(t, err, "an exact interrupted expand is resumable")
 	require.NoError(t, CheckRequestTicketSchema(ctx, db))
 	require.NoError(t, db.Exec("DROP INDEX idx_request_ticket_events_unread").Error)
 	require.NoError(t, db.Exec("CREATE INDEX idx_request_ticket_events_unread ON request_ticket_events(user_id, tenant_id, read_at, id)").Error)
 	assert.ErrorIs(t, CheckRequestTicketSchema(ctx, db), ErrSchemaNotReady)
+	assert.ErrorIs(t, CheckRequestTicketRuntimeSchema(ctx, db), ErrSchemaNotReady)
 	_, err = ApplyRequestTicketExpand(ctx, db, Options{})
 	assert.ErrorIs(t, err, ErrSchemaNotReady, "reruns must not silently repair drift")
 }
