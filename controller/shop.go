@@ -73,6 +73,14 @@ func shopModelError(c *gin.Context, err error) {
 }
 func ShopSchemaGuard(c *gin.Context) {
 	shopHeaders(c)
+	if c.Request.Method == http.MethodGet && !strings.HasSuffix(c.FullPath(), "/payments/epay/notify") {
+		if !service.ShopReadSchemaReady(c.Request.Context(), model.DB) {
+			shopError(c, 503, "SHOP_SCHEMA_UNAVAILABLE")
+			return
+		}
+		c.Next()
+		return
+	}
 	if err := service.CheckShopRuntimeSchema(c.Request.Context(), model.DB); err != nil {
 		shopError(c, 503, "SHOP_SCHEMA_UNAVAILABLE")
 		return

@@ -121,6 +121,24 @@ func TestResellerApplicationPrefixPersistenceAndReview(t *testing.T) {
 	assert.Equal(t, "owner@example.com", profile.Contact)
 }
 
+func TestResellerApplicationPrefixRequiresColumnAndReceipt(t *testing.T) {
+	tenantIdentityTestDB(t)
+	require.NoError(t, DB.AutoMigrate(&ResellerApplication{}))
+	require.NoError(t, DB.Exec("CREATE TABLE kkai_schema_migrations (version bigint PRIMARY KEY)").Error)
+	require.NoError(t, DB.Table("kkai_schema_migrations").Create(map[string]any{"version": 15}).Error)
+	assert.False(t, ResellerApplicationPrefixEnabled(DB))
+	application := ResellerApplication{ApplicantUserID: 1, BusinessName: "Site", ContactEmail: "owner@example.com", DesiredDomainPrefix: "site"}
+	require.ErrorIs(t, CreateResellerApplication(&application), ErrResellerDomainPrefixUnavailable)
+
+	require.NoError(t, DB.Exec("ALTER TABLE reseller_applications ADD COLUMN desired_domain_prefix varchar(63)").Error)
+	assert.True(t, ResellerApplicationPrefixEnabled(DB))
+	require.NoError(t, DB.Table("kkai_schema_migrations").Where("version = ?", 15).Delete(map[string]any{}).Error)
+	assert.False(t, ResellerApplicationPrefixEnabled(DB))
+	require.ErrorIs(t, CreateResellerApplication(&application), ErrResellerDomainPrefixUnavailable)
+	application.DesiredDomainPrefix = ""
+	require.NoError(t, CreateResellerApplication(&application))
+}
+
 func TestResellerApplicationRejectsInvalidDetails(t *testing.T) {
 	for _, test := range []struct {
 		name  string

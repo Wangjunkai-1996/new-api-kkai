@@ -430,20 +430,22 @@ var invoiceIndexes = []invoiceIndexRequirement{
 	{Table: "invoice_payment_receipts", Name: "idx_invoice_payment_receipts_receipt_key", Columns: []string{"receipt_key"}, Unique: true},
 }
 
+var invoiceSchemaTables = []tenantOnlineStep{
+	{table: "invoice_requests", model: &invoicerequestV17{}},
+	{table: "invoice_request_items", model: &invoicerequestitemV17{}},
+	{table: "invoice_order_claims", model: &invoiceorderclaimV17{}},
+	{table: "invoice_attachments", model: &invoiceattachmentV17{}},
+	{table: "invoice_deliveries", model: &invoicedeliveryV17{}},
+	{table: "invoice_disputes", model: &invoicedisputeV17{}},
+	{table: "invoice_events", model: &invoiceeventV17{}},
+	{table: "invoice_event_reads", model: &invoiceeventreadV17{}},
+	{table: "invoice_operations", model: &invoiceoperationV17{}},
+	{table: "invoice_profiles", model: &invoiceprofileV17{}},
+	{table: "invoice_payment_receipts", model: &invoicepaymentreceiptV17{}},
+}
+
 func validateInvoiceSchema(db *gorm.DB, complete bool) error {
-	for _, step := range []tenantOnlineStep{
-		{table: "invoice_requests", model: &invoicerequestV17{}},
-		{table: "invoice_request_items", model: &invoicerequestitemV17{}},
-		{table: "invoice_order_claims", model: &invoiceorderclaimV17{}},
-		{table: "invoice_attachments", model: &invoiceattachmentV17{}},
-		{table: "invoice_deliveries", model: &invoicedeliveryV17{}},
-		{table: "invoice_disputes", model: &invoicedisputeV17{}},
-		{table: "invoice_events", model: &invoiceeventV17{}},
-		{table: "invoice_event_reads", model: &invoiceeventreadV17{}},
-		{table: "invoice_operations", model: &invoiceoperationV17{}},
-		{table: "invoice_profiles", model: &invoiceprofileV17{}},
-		{table: "invoice_payment_receipts", model: &invoicepaymentreceiptV17{}},
-	} {
+	for _, step := range invoiceSchemaTables {
 		if !complete && !db.Migrator().HasTable(step.table) {
 			continue
 		}
@@ -497,6 +499,71 @@ func PrecheckInvoiceExpand(ctx context.Context, db *gorm.DB) (*InvoiceExpandPrec
 // receipt never enable financial endpoints.
 func CheckInvoiceSchema(ctx context.Context, db *gorm.DB) error {
 	return checkThroughVersion(ctx, db, InvoiceSchemaVersion, InvoiceSchemaVersion, ShopSchemaVersion)
+}
+
+// CheckInvoiceRuntimeSchema validates only invoice storage and its canonical
+// ledger receipts. Full cross-domain and tenant-data audits stay in CheckInvoiceSchema.
+func CheckInvoiceRuntimeSchema(ctx context.Context, db *gorm.DB) error {
+	version, err := WalletPaymentLedgerVersion(ctx, db)
+	if err != nil {
+		return err
+	}
+	if version < InvoiceSchemaVersion {
+		return ErrSchemaNotReady
+	}
+	db = db.WithContext(ctx)
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return err
+	}
+	present := make(map[string]bool, len(tables))
+	for _, table := range tables {
+		present[table] = true
+	}
+	for _, step := range invoiceSchemaTables {
+		if !present[step.table] {
+			return fmt.Errorf("%w: missing invoice table %s", ErrSchemaNotReady, step.table)
+		}
+		statement := &gorm.Statement{DB: db}
+		if err := statement.Parse(step.model); err != nil {
+			return err
+		}
+		columns, err := db.Migrator().ColumnTypes(step.table)
+		if err != nil {
+			return err
+		}
+		actual := make(map[string]gorm.ColumnType, len(columns))
+		for _, column := range columns {
+			actual[column.Name()] = column
+		}
+		for _, field := range statement.Schema.Fields {
+			column, exists := actual[field.DBName]
+			if !exists {
+				return fmt.Errorf("%w: missing invoice column %s.%s", ErrSchemaNotReady, step.table, field.DBName)
+			}
+			if err := validateTenantOnlineColumn(db, step.table, field, column); err != nil {
+				return err
+			}
+		}
+		if db.Dialector.Name() == DialectPostgres {
+			var primary []string
+			for _, field := range statement.Schema.PrimaryFields {
+				primary = append(primary, field.DBName)
+			}
+			if err := validateTenantOnlinePostgresPrimaryKey(db, step.table, primary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, index := range invoiceIndexes {
+		if !index.Unique {
+			continue
+		}
+		if err := validateTenantOnlineIndex(db, index.Table, index.Name, index.Columns, true); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 // ApplyInvoiceExpand is an explicit isolated rehearsal/controller entry point.

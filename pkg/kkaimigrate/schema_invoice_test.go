@@ -79,6 +79,7 @@ func TestInvoiceExpandDatabaseCompatibility(t *testing.T) {
 			_, err = ApplyInvoiceExpand(ctx, db, options)
 			require.NoError(t, err)
 			require.NoError(t, CheckInvoiceSchema(ctx, db))
+			require.NoError(t, CheckInvoiceRuntimeSchema(ctx, db))
 			claim := invoiceorderclaimV17{TenantID: 0, CanonicalPaymentKey: "canonical-receipt", RequestID: 1, CreatedAt: 1}
 			require.NoError(t, db.Create(&claim).Error)
 			duplicate := invoiceorderclaimV17{TenantID: 0, CanonicalPaymentKey: "canonical-receipt", RequestID: 2, CreatedAt: 2}

@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestShopRoutesRejectUntrustedSiteBeforeDatabaseOrAuthentication(t *testing.T) {
@@ -28,5 +29,27 @@ func TestShopRoutesRejectUntrustedSiteBeforeDatabaseOrAuthentication(t *testing.
 			assert.Contains(t, r.Body.String(), "SHOP_MAIN_SITE_ONLY", route.path)
 			assert.Equal(t, "no-store", r.Header().Get("Cache-Control"))
 		}
+	}
+}
+
+func TestShopCoverBypassesSchemaWithoutOpeningPaymentCallback(t *testing.T) {
+	previousDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() { model.DB = previousDB })
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		common.SetContextKey(c, constant.ContextKeyTenantContext, model.TenantContext{TenantID: model.PlatformTenantID})
+	})
+	registerShopRoutes(engine.Group("/api"))
+
+	for _, route := range []struct{ path, code string }{
+		{"/api/shop/covers/example.jpg", "SHOP_COVER_STORAGE_UNAVAILABLE"},
+		{"/api/shop/products", "SHOP_SCHEMA_UNAVAILABLE"},
+		{"/api/shop/payments/epay/notify", "SHOP_SCHEMA_UNAVAILABLE"},
+	} {
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route.path, nil))
+		require.Equal(t, http.StatusServiceUnavailable, response.Code, route.path)
+		assert.Contains(t, response.Body.String(), route.code, route.path)
 	}
 }

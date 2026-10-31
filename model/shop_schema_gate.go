@@ -21,21 +21,25 @@ func RegisterShopSchemaChecker(check func(*gorm.DB) error) {
 }
 
 func shopDeletionSchemaReady(tx *gorm.DB) (bool, error) {
-	tables, err := tx.Migrator().GetTables()
-	if err != nil {
-		return false, err
-	}
-	expected, ledger := false, false
-	for _, table := range tables {
-		expected = expected || strings.HasPrefix(table, "shop_")
-		ledger = ledger || table == "kkai_schema_migrations"
-	}
-	if ledger {
+	expected := false
+	if tx.Migrator().HasTable("kkai_schema_migrations") {
 		var n int64
-		if err = tx.Table("kkai_schema_migrations").Where("version >= ?", 19).Count(&n).Error; err != nil {
+		if err := tx.Table("kkai_schema_migrations").Where("version >= ?", 19).Count(&n).Error; err != nil {
 			return false, err
 		}
-		expected = expected || n > 0
+		expected = n > 0
+	}
+	if !expected {
+		tables, err := tx.Migrator().GetTables()
+		if err != nil {
+			return false, err
+		}
+		for _, table := range tables {
+			if strings.HasPrefix(table, "shop_") {
+				expected = true
+				break
+			}
+		}
 	}
 	if !expected {
 		return false, nil
@@ -46,7 +50,7 @@ func shopDeletionSchemaReady(tx *gorm.DB) (bool, error) {
 	if check == nil {
 		return false, errors.New("shop schema verification is unavailable")
 	}
-	if err = check(tx); err != nil {
+	if err := check(tx); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -16,6 +16,16 @@ func setupWalletPaymentDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupTopUpFinalizeTestDB(t)
 	require.NoError(t, db.AutoMigrate(&WalletTopUpFlow{}, &WalletPaymentReceipt{}, &WalletPaymentEvent{}, &WalletTopUpRun{}))
+	walletPaymentSchemaChecker.RLock()
+	previous := walletPaymentSchemaChecker.check
+	walletPaymentSchemaChecker.RUnlock()
+	RegisterWalletPaymentSchemaChecker(func(candidate *gorm.DB) error {
+		if candidate != db {
+			return ErrWalletPaymentSchema
+		}
+		return nil
+	})
+	t.Cleanup(func() { RegisterWalletPaymentSchemaChecker(previous) })
 	require.NoError(t, db.Create(&User{Id: 41, Username: "wallet-user", AffCode: "wallet-user", Quota: 10, Group: "default"}).Error)
 	return db
 }

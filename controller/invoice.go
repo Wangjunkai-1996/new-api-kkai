@@ -79,7 +79,7 @@ func InvoicePolicy(c *gin.Context) {
 		return
 	}
 	policy := (service.InvoiceService{DB: model.DB}).Policy()
-	if !service.InvoiceSchemaReady(c.Request.Context(), model.DB) {
+	if !service.InvoiceReadSchemaReady(c.Request.Context(), model.DB) {
 		policy.Enabled, policy.DisabledReason = false, "SCHEMA_NOT_READY"
 	}
 	common.ApiSuccess(c, policy)

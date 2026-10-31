@@ -232,35 +232,43 @@ export function LogSettingsSection({
 
   useEffect(() => {
     if (!logCleanupTaskId || !logCleanupActive) return
+    const taskId = logCleanupTaskId
 
     let cancelled = false
-    const interval = window.setInterval(async () => {
+    async function pollTask() {
       try {
-        const res = await getSystemTask(logCleanupTaskId)
-        if (cancelled || !res.success || !res.data) return
+        const res = await getSystemTask(taskId)
+        if (cancelled) return
 
-        setLogCleanupTask(res.data)
-        if (!isActiveLogCleanupTask(res.data)) {
-          if (res.data.status === 'succeeded') {
-            const count =
-              res.data.result?.deleted_count ?? res.data.state?.processed ?? 0
-            toast.success(
-              count > 0
-                ? t('{{count}} log entries removed.', { count })
-                : t('No log entries matched the selected time.')
-            )
-          } else if (res.data.status === 'failed') {
-            handleServerError(res.data, t('Failed to clean logs'))
+        if (res.success && res.data) {
+          setLogCleanupTask(res.data)
+          if (!isActiveLogCleanupTask(res.data)) {
+            if (res.data.status === 'succeeded') {
+              const count =
+                res.data.result?.deleted_count ?? res.data.state?.processed ?? 0
+              toast.success(
+                count > 0
+                  ? t('{{count}} log entries removed.', { count })
+                  : t('No log entries matched the selected time.')
+              )
+            } else if (res.data.status === 'failed') {
+              handleServerError(res.data, t('Failed to clean logs'))
+            }
+            return
           }
         }
       } catch {
         /* keep polling */
       }
-    }, 1000)
+
+      if (!cancelled) timer = window.setTimeout(pollTask, 1000)
+    }
+
+    let timer = window.setTimeout(pollTask, 1000)
 
     return () => {
       cancelled = true
-      window.clearInterval(interval)
+      window.clearTimeout(timer)
     }
   }, [logCleanupActive, logCleanupTaskId, t])
 

@@ -75,6 +75,64 @@ func CheckShopSchema(ctx context.Context, db *gorm.DB) error {
 	return checkThroughVersion(ctx, db, ShopSchemaVersion, ShopSchemaVersion, ShopSchemaVersion)
 }
 
+// CheckShopRuntimeSchema checks only the shop objects needed by live requests.
+// Release and maintenance still use CheckShopSchema for the full audit.
+func CheckShopRuntimeSchema(ctx context.Context, db *gorm.DB) error {
+	version, err := WalletPaymentLedgerVersion(ctx, db)
+	if err != nil {
+		return err
+	}
+	if version < ShopSchemaVersion {
+		return ErrSchemaNotReady
+	}
+	db = db.WithContext(ctx)
+	for _, value := range shopV19Models() {
+		statement := &gorm.Statement{DB: db}
+		if err := statement.Parse(value); err != nil {
+			return err
+		}
+		table := statement.Schema.Table
+		if !db.Migrator().HasTable(table) {
+			return fmt.Errorf("%w: missing shop table %s", ErrSchemaNotReady, table)
+		}
+		columns, err := db.Migrator().ColumnTypes(table)
+		if err != nil {
+			return err
+		}
+		actual := make(map[string]gorm.ColumnType, len(columns))
+		for _, column := range columns {
+			actual[column.Name()] = column
+		}
+		for _, field := range statement.Schema.Fields {
+			column, exists := actual[field.DBName]
+			if !exists {
+				return fmt.Errorf("%w: missing shop column %s.%s", ErrSchemaNotReady, table, field.DBName)
+			}
+			if err := validateTenantOnlineColumn(db, table, field, column); err != nil {
+				return err
+			}
+		}
+		if db.Dialector.Name() == DialectPostgres {
+			var primary []string
+			for _, field := range statement.Schema.PrimaryFields {
+				primary = append(primary, field.DBName)
+			}
+			if err := validateTenantOnlinePostgresPrimaryKey(db, table, primary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, index := range shopIndexes {
+		if !index.Unique {
+			continue
+		}
+		if err := validateTenantOnlineIndex(db, index.Table, index.Name, index.Columns, true); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
 // ApplyShopExpand is deliberately never called from application
 // startup. Production authorization and controller adoption are separate work.
 func ApplyShopExpand(ctx context.Context, db *gorm.DB, options Options) (*Result, error) {

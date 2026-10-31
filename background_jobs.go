@@ -36,6 +36,17 @@ func newApplicationBackgroundJobs(workerID string) (*service.BackgroundJobRegist
 	}); err != nil {
 		return nil, err
 	}
+	if err := registry.Register(service.BackgroundJob{
+		Name:       "runtime-schema-readiness",
+		Interval:   time.Minute,
+		WritesData: false,
+		Run: func(ctx context.Context) error {
+			service.RefreshRuntimeReadSchemas(ctx, model.DB)
+			return nil
+		},
+	}); err != nil {
+		return nil, err
+	}
 
 	writeJobs := []service.BackgroundJob{
 		{

@@ -399,7 +399,7 @@ func TestWalletEpayUnknownOrderCallbackPersistsOnlyAuthenticatedPaidFact(t *test
 	defer sqlDB.Close()
 	require.NoError(t, unreceipted.AutoMigrate(&model.TopUp{}, &model.WalletTopUpFlow{}, &model.WalletPaymentReceipt{}, &model.WalletPaymentEvent{}, &model.WalletTopUpRun{}))
 	model.DB = unreceipted
-	assert.True(t, model.WalletPaymentSchemaAvailable())
+	assert.False(t, model.WalletPaymentSchemaAvailable())
 	assert.Equal(t, "fail", invoke("original-secret"))
 	require.NoError(t, unreceipted.Model(&model.WalletPaymentReceipt{}).Count(&count).Error)
 	assert.Zero(t, count)

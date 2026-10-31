@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,6 +26,18 @@ var (
 )
 
 const WalletTopUpAttemptTTLSeconds int64 = 30 * 60
+
+var walletPaymentSchemaChecker struct {
+	sync.RWMutex
+	check func(*gorm.DB) error
+}
+
+// RegisterWalletPaymentSchemaChecker avoids a migration package/model dependency cycle.
+func RegisterWalletPaymentSchemaChecker(check func(*gorm.DB) error) {
+	walletPaymentSchemaChecker.Lock()
+	defer walletPaymentSchemaChecker.Unlock()
+	walletPaymentSchemaChecker.check = check
+}
 
 type WalletTopUpScope struct {
 	TenantID int64
@@ -84,26 +97,10 @@ func WalletPaymentSchemaAvailable() bool {
 	if DB == nil {
 		return false
 	}
-	for _, value := range []any{&TopUp{}, &WalletTopUpFlow{}, &WalletPaymentReceipt{}, &WalletPaymentEvent{}, &WalletTopUpRun{}} {
-		stmt := &gorm.Statement{DB: DB}
-		if err := stmt.Parse(value); err != nil {
-			return false
-		}
-		cols, err := DB.Migrator().ColumnTypes(value)
-		if err != nil {
-			return false
-		}
-		actual := make(map[string]bool, len(cols))
-		for _, col := range cols {
-			actual[col.Name()] = true
-		}
-		for _, field := range stmt.Schema.Fields {
-			if field.DBName != "" && !actual[field.DBName] {
-				return false
-			}
-		}
-	}
-	return true
+	walletPaymentSchemaChecker.RLock()
+	check := walletPaymentSchemaChecker.check
+	walletPaymentSchemaChecker.RUnlock()
+	return check != nil && check(DB) == nil
 }
 
 // Legacy order reads and callback accounting remain usable before expansion;

@@ -297,6 +297,12 @@ func TestShopDeletionGateAllowsOldSchemaAndFailsClosedForPartialSchema(t *testin
 	sentinel := errors.New("canonical schema mismatch")
 	RegisterShopSchemaChecker(func(tx *gorm.DB) error { return sentinel })
 	assert.ErrorIs(t, db.Transaction(func(tx *gorm.DB) error { return CheckShopUserDeletionTx(tx, 1) }), sentinel)
+	require.NoError(t, db.Migrator().DropTable(&ShopUserState{}))
+	require.NoError(t, db.Exec("CREATE TABLE kkai_schema_migrations (version INTEGER)").Error)
+	require.NoError(t, db.Exec("INSERT INTO kkai_schema_migrations (version) VALUES (18)").Error)
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error { return CheckShopUserDeletionTx(tx, 1) }))
+	require.NoError(t, db.Exec("UPDATE kkai_schema_migrations SET version = 19").Error)
+	assert.ErrorIs(t, db.Transaction(func(tx *gorm.DB) error { return CheckShopUserDeletionTx(tx, 1) }), sentinel)
 }
 
 func TestShopIncompleteReplacementPausesOriginalSLAOnce(t *testing.T) {

@@ -237,6 +237,7 @@ func TestShopLiveHTTPServer(t *testing.T) {
 		}
 	}
 	require.NoError(t, service.CheckShopRuntimeSchema(context.Background(), db))
+	service.RefreshRuntimeReadSchemas(context.Background(), db)
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.Use(gin.Recovery(), middleware.TenantRouting(db, false, "localhost", "127.0.0.1"))

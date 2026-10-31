@@ -21,10 +21,9 @@ type invoiceSchemaReadiness struct {
 	expiresAt time.Time
 }
 
-// InvoiceSchemaReady shares the read-only canonical/schema check between policy
-// and financial routes. Expired success is never used if revalidation fails.
+// InvoiceSchemaReady bounds and shares the financial-write schema check.
 func InvoiceSchemaReady(ctx context.Context, db *gorm.DB) bool {
-	return invoiceSchemaCache.check(ctx, db, kkaimigrate.CheckInvoiceSchema, time.Now)
+	return invoiceSchemaCache.check(ctx, db, kkaimigrate.CheckInvoiceRuntimeSchema, time.Now)
 }
 
 func (state *invoiceSchemaReadiness) check(ctx context.Context, db *gorm.DB, check func(context.Context, *gorm.DB) error, now func() time.Time) bool {
@@ -37,8 +36,8 @@ func (state *invoiceSchemaReadiness) check(ctx context.Context, db *gorm.DB, che
 		return state.ready
 	}
 	// This is shared process state: one browser closing a request must not cancel
-	// the check for every customer. The complete runtime audit needs its own budget.
-	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	// the check for every customer. The invoice-only check has its own budget.
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	started := time.Now()
 	err := check(checkCtx, db.WithContext(checkCtx))

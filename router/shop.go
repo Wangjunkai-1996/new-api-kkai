@@ -7,11 +7,12 @@ import (
 )
 
 func registerShopRoutes(api *gin.RouterGroup) {
-	shop := api.Group("/shop", middleware.ShopMainSiteGuard(), controller.ShopSchemaGuard)
+	shop := api.Group("/shop", middleware.ShopMainSiteGuard())
+	// Public covers use immutable asset storage and the API IP rate limit.
+	shop.GET("/covers/:filename", controller.GetShopCover)
+	shop.Use(controller.ShopSchemaGuard)
 	shop.GET("/config", controller.GetShopConfig)
 	shop.GET("/categories", controller.ListShopCategories)
-	// Public covers inherit the API IP rate limit and use immutable caching.
-	shop.GET("/covers/:filename", controller.GetShopCover)
 	shop.GET("/products", controller.ListShopProducts)
 	shop.GET("/products/:product_id", controller.GetShopProduct)
 	shop.GET("/payments/epay/notify", controller.ShopEpayCallback)

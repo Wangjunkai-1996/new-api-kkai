@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -91,4 +92,21 @@ func TestWalletRuntimeCheckDoesNotAuditUnrelatedTables(t *testing.T) {
 	require.NoError(t, db.Exec("DROP TABLE kkai_policy_incidents").Error)
 	require.Error(t, kkaimigrate.CheckWalletPaymentSchema(ctx, db))
 	require.NoError(t, kkaimigrate.CheckWalletPaymentRuntimeSchema(ctx, db))
+}
+
+func TestWalletModelSchemaGateUsesReceiptAndDatabaseIdentity(t *testing.T) {
+	db := walletReceiptRecoveryDB(t)
+	require.True(t, model.WalletPaymentSchemaAvailable())
+
+	other, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "unreceipted.db")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := other.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, other.AutoMigrate(&model.TopUp{}, &model.WalletTopUpFlow{}, &model.WalletPaymentReceipt{}, &model.WalletPaymentEvent{}, &model.WalletTopUpRun{}))
+	model.DB = other
+	t.Cleanup(func() { model.DB = db })
+	assert.False(t, model.WalletPaymentSchemaAvailable(), "tables without a canonical receipt must not authorize payment writes")
+	model.DB = db
+	assert.True(t, model.WalletPaymentSchemaAvailable(), "a different database's failure must not poison the original database")
 }

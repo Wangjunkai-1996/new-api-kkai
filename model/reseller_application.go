@@ -55,26 +55,15 @@ func NormalizeResellerDomain(raw, rootDomain string) (string, error) {
 // ResellerApplicationPrefixEnabled stays false during rolling expansion until
 // the explicit schema migration has both added the column and recorded success.
 func ResellerApplicationPrefixEnabled(db *gorm.DB) bool {
-	if db == nil || !db.Migrator().HasTable("reseller_applications") || !db.Migrator().HasTable("kkai_schema_migrations") {
-		return false
-	}
-	columns, err := db.Migrator().ColumnTypes("reseller_applications")
-	if err != nil {
-		return false
-	}
-	present := false
-	for _, column := range columns {
-		if strings.EqualFold(column.Name(), "desired_domain_prefix") {
-			present = true
-			break
-		}
-	}
-	if !present {
+	if db == nil {
 		return false
 	}
 	var count int64
-	err = db.Session(&gorm.Session{NewDB: true}).Table("kkai_schema_migrations").Where("version = ?", 15).Count(&count).Error
-	return err == nil && count == 1
+	if err := db.Session(&gorm.Session{NewDB: true}).Table("kkai_schema_migrations").Where("version = ?", 15).Count(&count).Error; err != nil || count != 1 {
+		return false
+	}
+	var rows []struct{ DesiredDomainPrefix string }
+	return db.Session(&gorm.Session{NewDB: true}).Table("reseller_applications").Select("desired_domain_prefix").Where("1 = 0").Find(&rows).Error == nil
 }
 
 func CreateResellerApplication(application *ResellerApplication) error {
@@ -95,11 +84,10 @@ func (application *ResellerApplication) BeforeSave(tx *gorm.DB) error {
 		return err
 	}
 	application.DesiredDomainPrefix = prefix
-	if prefix != "" {
-		if !ResellerApplicationPrefixEnabled(tx) {
+	if !ResellerApplicationPrefixEnabled(tx) {
+		if prefix != "" {
 			return ErrResellerDomainPrefixUnavailable
 		}
-	} else if !tx.Migrator().HasColumn(&ResellerApplication{}, "DesiredDomainPrefix") {
 		tx.Statement.Omits = append(tx.Statement.Omits, "DesiredDomainPrefix")
 	}
 	return nil

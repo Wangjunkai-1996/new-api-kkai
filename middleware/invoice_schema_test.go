@@ -32,8 +32,9 @@ func TestInvoiceSchemaGate(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/invoices", nil).WithContext(ctx)
 			checked, handled := false, false
 			router := gin.New()
-			router.GET("/invoices", invoiceSchemaGate(func(received context.Context) bool {
+			router.GET("/invoices", invoiceSchemaGate(func(c *gin.Context) bool {
 				checked = true
+				received := c.Request.Context()
 				require.Same(t, ctx, received)
 				return tc.ready && received.Err() == nil
 			}), func(c *gin.Context) {

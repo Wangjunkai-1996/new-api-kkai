@@ -15,12 +15,14 @@ func init() {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		return kkaimigrate.CheckShopSchema(ctx, db)
+		checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		return kkaimigrate.CheckShopRuntimeSchema(checkCtx, db.WithContext(checkCtx))
 	})
 }
 
 var shopRuntimeSchema = walletPaymentSchemaGate{
-	checkSchema: kkaimigrate.CheckShopSchema,
+	checkSchema: kkaimigrate.CheckShopRuntimeSchema,
 	now:         time.Now,
 }
 

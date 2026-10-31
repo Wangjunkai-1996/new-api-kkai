@@ -46,10 +46,14 @@ func TestApplicationBackgroundJobsDeclareLeaderWriteBoundary(t *testing.T) {
 			foundPerformanceMetricFlush = true
 			require.True(t, descriptor.RunOnStart)
 		}
-		if descriptor.Name == "runtime-cache-sync" {
+		if descriptor.Name == "runtime-cache-sync" || descriptor.Name == "runtime-schema-readiness" {
 			require.False(t, descriptor.WritesData)
 			require.False(t, descriptor.RequiresLeaderLease)
 			require.False(t, descriptor.FlushesProcessLocalState)
+			if descriptor.Name == "runtime-schema-readiness" {
+				require.Equal(t, time.Minute, descriptor.Interval)
+				require.False(t, descriptor.RunOnStart, "startup prewarms readiness before HTTP serves")
+			}
 			continue
 		}
 		if descriptor.Name == "quota-dashboard-flush" || descriptor.Name == "performance-metric-flush" {

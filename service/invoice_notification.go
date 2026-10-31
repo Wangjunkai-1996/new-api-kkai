@@ -71,7 +71,7 @@ func RegisterInvoiceBackgroundJobs(registry *BackgroundJobRegistry) error {
 	return registry.Register(BackgroundJob{
 		Name: "invoice-staged-cleanup", Interval: time.Hour, WritesData: true, RequiresLeaderLease: true,
 		Run: func(ctx context.Context) error {
-			if kkaimigrate.CheckInvoiceSchema(ctx, model.DB) != nil {
+			if kkaimigrate.CheckInvoiceRuntimeSchema(ctx, model.DB) != nil {
 				return nil
 			}
 			assets, err := NewInvoiceAssetServiceFromEnvironment(ctx, model.DB)

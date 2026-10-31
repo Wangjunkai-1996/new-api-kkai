@@ -66,10 +66,6 @@ func walletScope(c *gin.Context) model.WalletTopUpScope {
 	return model.WalletTopUpScope{TenantID: tenant.TenantID, UserID: c.GetInt("id")}
 }
 func walletSchemaReady(c *gin.Context) bool {
-	if !model.WalletPaymentSchemaAvailable() {
-		walletError(c, 503, "WALLET_STATE_UNAVAILABLE", nil)
-		return false
-	}
 	if err := service.CheckWalletPaymentRuntimeSchema(c.Request.Context(), model.DB); err != nil {
 		walletError(c, 503, "WALLET_STATE_UNAVAILABLE", nil)
 		return false

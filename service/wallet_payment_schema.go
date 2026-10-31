@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
 	"gorm.io/gorm"
 )
@@ -24,6 +25,12 @@ type walletPaymentSchemaGate struct {
 var walletRuntimeSchema = walletPaymentSchemaGate{
 	checkSchema: kkaimigrate.CheckWalletPaymentRuntimeSchema,
 	now:         time.Now,
+}
+
+func init() {
+	model.RegisterWalletPaymentSchemaChecker(func(db *gorm.DB) error {
+		return CheckWalletPaymentRuntimeSchema(context.Background(), db)
+	})
 }
 
 // CheckWalletPaymentRuntimeSchema shares a bounded, cancellation-independent
