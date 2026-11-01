@@ -137,10 +137,17 @@ package_build_materials() {
 main() {
   export SOURCE_DATE_EPOCH LC_ALL=C TZ=UTC
   mkdir -p "${SOURCE_ROOT}" "${ARCHIVE_ROOT}" "${OUTPUT_ROOT}"
-  download_source \
-    "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2" \
-    "${ARCHIVE_ROOT}/ffmpeg-${FFMPEG_VERSION}.tar.bz2" \
-    "${FFMPEG_SOURCE_SHA256}"
+  if [ -f "${MEDIA_MATERIAL_DIR}/ffmpeg-source.tar.bz2" ]; then
+    cp "${MEDIA_MATERIAL_DIR}/ffmpeg-source.tar.bz2" \
+      "${ARCHIVE_ROOT}/ffmpeg-${FFMPEG_VERSION}.tar.bz2"
+    printf '%s  %s\n' "${FFMPEG_SOURCE_SHA256}" \
+      "${ARCHIVE_ROOT}/ffmpeg-${FFMPEG_VERSION}.tar.bz2" | sha256sum -c -
+  else
+    download_source \
+      "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2" \
+      "${ARCHIVE_ROOT}/ffmpeg-${FFMPEG_VERSION}.tar.bz2" \
+      "${FFMPEG_SOURCE_SHA256}"
+  fi
   download_source \
     "https://code.videolan.org/videolan/x264/-/archive/${X264_REVISION}/x264-${X264_REVISION}.tar.bz2" \
     "${ARCHIVE_ROOT}/x264-${X264_REVISION}.tar.bz2" \

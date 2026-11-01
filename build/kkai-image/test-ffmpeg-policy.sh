@@ -12,6 +12,7 @@ readonly MEDIA_STATIC_VERIFY_SCRIPT="${MEDIA_BUILD_DIR}/verify-static.sh"
 readonly MEDIA_STATIC_VERIFY_TEST="${MEDIA_BUILD_DIR}/verify-static_test.sh"
 readonly MEDIA_PACKAGE_LOCK="${MEDIA_BUILD_DIR}/BUILD-PACKAGES.lock"
 readonly MEDIA_PROVENANCE="${MEDIA_BUILD_DIR}/PROVENANCE.md"
+readonly BUILD_SCRIPT="${ROOT}/scripts/kkai/build-manual-release.sh"
 readonly MEDIA_PROCESSOR="${ROOT}/service/video_media_processor.go"
 readonly THIRD_PARTY_LICENSES="${ROOT}/THIRD-PARTY-LICENSES.md"
 
@@ -67,6 +68,8 @@ contains "FROM \${GO_IMAGE} AS video-media-build" "${DOCKERFILE}" || fail "contr
 contains 'COPY --from=kkai_image ffmpeg/BUILD-PACKAGES.lock' "${DOCKERFILE}" ||
   fail "media build package lock is not copied"
 contains 'COPY --from=kkai_image ffmpeg/build.sh' "${DOCKERFILE}" || fail "media build script is not copied"
+contains "COPY --from=kkai_image ffmpeg/ffmpeg-\${FFMPEG_VERSION}.tar.bz2" "${DOCKERFILE}" ||
+  fail "pinned FFmpeg source archive is not copied from the local build context"
 contains 'COPY --from=kkai_image ffmpeg/verify-static.sh' "${DOCKERFILE}" ||
   fail "fail-closed static linkage verifier is not copied"
 contains 'COPY --from=kkai_image ffmpeg/verify.sh' "${DOCKERFILE}" || fail "media verifier is not copied"
@@ -110,6 +113,13 @@ contains 'curl --fail --location --retry' "${MEDIA_BUILD_SCRIPT}" ||
 contains 'curl=8.23.0-r0' "${MEDIA_PACKAGE_LOCK}" ||
   fail "the locked media build toolchain does not include curl"
 contains 'sha256sum -c' "${MEDIA_BUILD_SCRIPT}" || fail "source archives are not checksum-verified"
+contains 'KKAI_FFMPEG_SOURCE_ARCHIVE' "${BUILD_SCRIPT}" || fail "local FFmpeg source override is missing"
+contains "https://ffmpeg.org/releases/ffmpeg-\${ffmpeg_version}.tar.bz2" "${BUILD_SCRIPT}" ||
+  fail "Mac build does not fetch the official FFmpeg source archive"
+contains "sha256_file \"\${ffmpeg_archive}\"" "${BUILD_SCRIPT}" ||
+  fail "Mac build does not verify the pinned FFmpeg source digest"
+contains 'ffmpeg-source.tar.bz2' "${MEDIA_BUILD_SCRIPT}" ||
+  fail "media build does not consume the locally verified FFmpeg archive"
 contains '--disable-network' "${MEDIA_BUILD_SCRIPT}" || fail "FFmpeg network support is not disabled"
 contains '--disable-autodetect' "${MEDIA_BUILD_SCRIPT}" || fail "FFmpeg dependency autodetection is not disabled"
 contains '--enable-libx264' "${MEDIA_BUILD_SCRIPT}" || fail "the required x264 encoder is not enabled"

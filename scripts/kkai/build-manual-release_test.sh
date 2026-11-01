@@ -17,9 +17,14 @@ readonly mock_bin="${test_root}/bin"
 readonly call_log="${test_root}/calls.log"
 readonly build_tmp="${test_root}/tmp"
 readonly source_fixture="${test_root}/committed-source"
-mkdir -p -- "${mock_bin}" "${build_tmp}" "${source_fixture}/common" "${source_fixture}/build/kkai-image" "${source_fixture}/scripts/kkai"
+mkdir -p -- "${mock_bin}" "${build_tmp}" "${source_fixture}/common" "${source_fixture}/build/kkai-image/ffmpeg" "${source_fixture}/scripts/kkai"
 printf 'committed application\n' >"${source_fixture}/main.go"
-printf 'committed image recipe\n' >"${source_fixture}/build/kkai-image/Dockerfile"
+readonly ffmpeg_archive="${test_root}/ffmpeg-7.1.1.tar.bz2"
+printf 'official FFmpeg source fixture\n' >"${ffmpeg_archive}"
+export KKAI_FFMPEG_SOURCE_ARCHIVE="${ffmpeg_archive}"
+ffmpeg_sha256="$(shasum -a 256 "${ffmpeg_archive}" | awk '{print $1}')"
+printf 'committed image recipe\nARG FFMPEG_VERSION=7.1.1\nARG FFMPEG_SOURCE_SHA256=%s\n' "${ffmpeg_sha256}" \
+  >"${source_fixture}/build/kkai-image/Dockerfile"
 printf 'committed image tools\n' >"${source_fixture}/build/kkai-image/go.mod"
 printf 'committed release preparation\n' >"${source_fixture}/scripts/kkai/prepare-maintenance-release.py"
 printf '{"feature":{"format_version":1,"api_contracts":[2],"capabilities":["committed_feature"]},"bridge":{"format_version":1,"api_contracts":[2],"capabilities":["committed_bridge"]}}\n' \
@@ -127,8 +132,9 @@ if [[ ${1:-} == buildx && ${2:-} == build ]]; then
   destination=''
   context=${*: -1}
   [[ $(<"${context}/main.go") == 'committed application' ]] || exit 96
-  [[ $(<"${context}/build/kkai-image/Dockerfile") == 'committed image recipe' ]] || exit 96
+  grep -Fxq 'committed image recipe' "${context}/build/kkai-image/Dockerfile" || exit 96
   [[ $(<"${context}/build/kkai-image/go.mod") == 'committed image tools' ]] || exit 96
+  cmp -s "${context}/build/kkai-image/ffmpeg/ffmpeg-7.1.1.tar.bz2" "${KKAI_FFMPEG_SOURCE_ARCHIVE}" || exit 96
   [[ ! -e ${context}/.git && ! -e ${context}/.local-releases && ! -e ${context}/web/node_modules ]] || exit 96
   [[ " $* " == *" --file ${context}/build/kkai-image/Dockerfile "* ]] || exit 96
   [[ " $* " == *" --build-context kkai_image=${context}/build/kkai-image "* ]] || exit 96
@@ -247,6 +253,25 @@ expect_failed_build_cleanup() {
     '.result == "failed" and .exit_code == $status and
      .phases[-1].name == $phase and .phases[-1].result == "failed" and .phases[-1].exit_code == $status' \
     "${record_path}" >/dev/null || fail 'failure record lost the failing phase or exit code'
+}
+
+expect_bad_ffmpeg_source_rejected() {
+  local output
+  : >"${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
+      KKAI_FFMPEG_SOURCE_ARCHIVE="${source_fixture}/main.go" \
+      "${BUILD_SCRIPT}" --schema-contract feature --version "${version}" \
+      --output-dir "${test_root}/out-bad-ffmpeg" 2>&1
+  )"; then
+    fail 'mismatched FFmpeg source unexpectedly reached the build'
+  fi
+  grep -F 'FFmpeg source archive does not match the pinned SHA-256' <<<"${output}" >/dev/null ||
+    fail 'mismatched FFmpeg source was not rejected explicitly'
+  ! grep -q '^docker ' "${call_log}" || fail 'mismatched FFmpeg source reached Docker'
+  [[ -z $(find "${build_tmp}" -mindepth 1 -maxdepth 1 -print -quit) ]] ||
+    fail 'mismatched FFmpeg source left its snapshot or lock behind'
 }
 
 expect_record_failure_stops_build() {
@@ -509,6 +534,7 @@ expect_external_frontend_mode
 expect_checkout_changes_isolated
 expect_failed_build_cleanup export
 expect_failed_build_cleanup build
+expect_bad_ffmpeg_source_rejected
 expect_record_failure_stops_build
 expect_invalid_frontend_mode_rejected
 expect_no_resource_limits

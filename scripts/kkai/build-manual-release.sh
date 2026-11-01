@@ -257,11 +257,29 @@ kkai_record_identity frontend_mode "${frontend_mode}"
 kkai_record_identity schema_contract "${schema_contract}"
 kkai_record_phase source-export
 
-# All build inputs come from the recorded commit, so other terminals can keep
-# editing the checkout without changing the release or its provenance.
+# Code and pinned build inputs come from the recorded commit, so other terminals
+# can keep editing the checkout without changing the release or its provenance.
 build_source_dir="$(mktemp -d "${TMPDIR:-/tmp}/kkai-newapi-build-source.XXXXXX")"
 git -C "${ROOT}" archive --format=tar "${source_sha}" | tar -xf - -C "${build_source_dir}" ||
   die "source tree cannot be archived"
+
+media_dockerfile="${build_source_dir}/build/kkai-image/Dockerfile"
+ffmpeg_version="$(sed -n 's/^ARG FFMPEG_VERSION=//p' "${media_dockerfile}")"
+ffmpeg_sha256="$(sed -n 's/^ARG FFMPEG_SOURCE_SHA256=//p' "${media_dockerfile}")"
+[[ "${ffmpeg_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "${ffmpeg_sha256}" =~ ^[0-9a-f]{64}$ ]] ||
+  die "invalid pinned FFmpeg source identity"
+ffmpeg_archive="${KKAI_FFMPEG_SOURCE_ARCHIVE:-}"
+if [[ -z "${ffmpeg_archive}" ]]; then
+  command -v curl >/dev/null 2>&1 || die "missing curl for official FFmpeg source download"
+  ffmpeg_archive="${build_source_dir}/ffmpeg-${ffmpeg_version}.tar.bz2"
+  curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
+    --connect-timeout 20 --max-time 300 \
+    --output "${ffmpeg_archive}" "https://ffmpeg.org/releases/ffmpeg-${ffmpeg_version}.tar.bz2" ||
+    die "official FFmpeg source download failed"
+fi
+[[ -f "${ffmpeg_archive}" && "$(sha256_file "${ffmpeg_archive}")" == "${ffmpeg_sha256}" ]] ||
+  die "FFmpeg source archive does not match the pinned SHA-256"
+cp -- "${ffmpeg_archive}" "${build_source_dir}/build/kkai-image/ffmpeg/ffmpeg-${ffmpeg_version}.tar.bz2"
 
 kkai_record_phase builder-preflight
 if ! builder_info="$(docker buildx inspect "${builder}" 2>&1)"; then

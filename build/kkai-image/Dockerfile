@@ -175,6 +175,7 @@ COPY --from=kkai_image ffmpeg/build.sh /opt/video-media-build/build.sh
 COPY --from=kkai_image ffmpeg/verify-static.sh /opt/video-media-build/verify-static.sh
 COPY --from=kkai_image ffmpeg/verify.sh /opt/video-media-build/verify.sh
 COPY --from=kkai_image ffmpeg/PROVENANCE.md /opt/video-media-build/PROVENANCE.md
+COPY --from=kkai_image ffmpeg/ffmpeg-${FFMPEG_VERSION}.tar.bz2 /opt/video-media-build/ffmpeg-source.tar.bz2
 RUN --mount=type=cache,id=kkai-newapi-build-gate-v1,target=/var/kkai-build-gate,sharing=locked \
     chmod 0755 \
       /opt/video-media-build/build.sh \
