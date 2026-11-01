@@ -208,7 +208,9 @@ func TestDoRequestNegotiatesSub2TTFTForOpenAIStreams(t *testing.T) {
 		wantHeader string
 	}{
 		{name: "OpenAI stream", stream: true, apiType: systemconstant.APITypeOpenAI, wantHeader: "1"},
+		{name: "Sub2API stream", stream: true, apiType: systemconstant.APITypeSub2API, wantHeader: "1"},
 		{name: "OpenAI nonstream", apiType: systemconstant.APITypeOpenAI},
+		{name: "Sub2API nonstream", apiType: systemconstant.APITypeSub2API},
 		{name: "other stream", stream: true, apiType: systemconstant.APITypeAnthropic},
 	}
 	for _, tt := range tests {

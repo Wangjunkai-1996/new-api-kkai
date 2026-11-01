@@ -181,3 +181,5 @@ require (
 )
 
 replace github.com/QuantumNous/new-api/relaykit => ./relaykit
+
+replace github.com/tiktoken-go/tokenizer => ./third_party/tokenizer

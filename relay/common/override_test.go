@@ -1204,6 +1204,145 @@ func TestApplyParamOverridePruneObjectsWhereAndPath(t *testing.T) {
 	}`, string(out))
 }
 
+func TestApplyParamOverridePruneMissingWildcardLeavesKeepsBody(t *testing.T) {
+	input := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"keep"}]},{"role":"assistant","content":[{"type":"output_text","text":"keep"}]}],"large_integer":9007199254740993}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{"path": "input.*.tools", "mode": "prune_objects", "value": "redacted_thinking"},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	require.NoError(t, err)
+	// A prune with no matching target must not rewrite the request. Keeping the
+	// original bytes also preserves JSON number spelling and precision.
+	require.Equal(t, string(input), string(out))
+}
+
+func TestApplyParamOverridePruneRejectsInvalidJSON(t *testing.T) {
+	for _, path := range []string{"", "input.*.tools"} {
+		for _, body := range []string{"", "not-json", `"unterminated`, "nul"} {
+			override := map[string]interface{}{"operations": []interface{}{
+				map[string]interface{}{"path": path, "mode": "prune_objects", "value": "remove"},
+			}}
+			_, err := ApplyParamOverride([]byte(body), override, nil)
+			assert.Error(t, err, "path=%q body=%q", path, body)
+		}
+	}
+}
+
+func TestApplyParamOverridePruneInvalidOptionsOnlyFailForResolvedTargets(t *testing.T) {
+	for _, test := range []struct {
+		body, path string
+		wantError  bool
+	}{
+		{`{"input":[]}`, "input.*.tools", false},
+		{`{"input":[{"content":"keep"}]}`, "input.*.tools", true},
+		{`{}`, "missing", true},
+		{`not-json`, "input.*.tools", true},
+	} {
+		override := map[string]interface{}{"operations": []interface{}{
+			map[string]interface{}{"path": test.path, "mode": "prune_objects", "value": nil},
+		}}
+		out, err := ApplyParamOverride([]byte(test.body), override, nil)
+		if test.wantError {
+			assert.Error(t, err, "path=%q body=%q", test.path, test.body)
+			continue
+		}
+		require.NoError(t, err)
+		assert.Equal(t, test.body, string(out))
+	}
+}
+
+func TestApplyParamOverridePruneWildcardContracts(t *testing.T) {
+	for _, test := range []struct {
+		name, body, path, want string
+		value                  interface{}
+	}{
+		{"array targets preserve numbers", `{"input":[{"tools":[{"type":"remove"},{"type":"function","integer":9007199254740993,"decimal":1.234567890123456789,"zero":0,"flag":false}]},{"content":"keep"}]}`, "input.*.tools", `{"input":[{"tools":[{"type":"function","integer":9007199254740993,"decimal":1.234567890123456789,"zero":0,"flag":false}]},{"content":"keep"}]}`, "remove"},
+		{"multiple wildcards", `{"groups":[{"input":[{"tools":[{"type":"remove"},{"type":"keep"}]}]},{"input":[{"tools":[{"type":"keep"}]}]}]}`, "groups.*.input.*.tools", `{"groups":[{"input":[{"tools":[{"type":"keep"}]}]},{"input":[{"tools":[{"type":"keep"}]}]}]}`, "remove"},
+		{"object wildcard", `{"input":{"b":{"tools":[{"type":"remove"}]} ,"a":{"tools":[{"type":"keep"}]}}}`, "input.*.tools", `{"input":{"b":{"tools":[]} ,"a":{"tools":[{"type":"keep"}]}}}`, "remove"},
+		{"selected root stays", `{"input":[{"tools":{"type":"remove","child":{"type":"remove"},"keep":true}}]}`, "input.*.tools", `{"input":[{"tools":{"type":"remove","keep":true}}]}`, "remove"},
+		{"nonrecursive root stays", `{"input":[{"tools":{"type":"remove","child":{"type":"remove"}}}]}`, "input.*.tools", `{"input":[{"tools":{"type":"remove","child":{"type":"remove"}}}]}`, map[string]interface{}{"type": "remove", "recursive": false}},
+		{"nonrecursive array filters direct children", `{"input":[{"tools":[{"type":"remove"},{"type":"keep","child":{"type":"remove"}}]}]}`, "input.*.tools", `{"input":[{"tools":[{"type":"keep","child":{"type":"remove"}}]}]}`, map[string]interface{}{"type": "remove", "recursive": false}},
+		{"escaped literal path uses legacy resolver", `{"input":[{"a.b":[{"type":"remove"},{"type":"keep"}]}]}`, `input.*.a\.b`, `{"input":[{"a.b":[{"type":"remove"},{"type":"keep"}]}]}`, "remove"},
+		{"duplicate path key keeps first match behavior", `{"input":[{"tools":[{"type":"remove"}],"tools":[{"type":"keep"}]}]}`, "input.*.tools", `{"input":[{"tools":[],"tools":[{"type":"keep"}]}]}`, "remove"},
+		{"plus array index keeps legacy resolver behavior", `{"input":[{}, {"group":{"tools":[{"type":"remove"},{"type":"keep"}]}}]}`, "input.+1.*.tools", `{"input":[{}, {"group":{"tools":[{"type":"remove"},{"type":"keep"}]}}]}`, "remove"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := []byte(test.body)
+			override := map[string]interface{}{"operations": []interface{}{
+				map[string]interface{}{"path": test.path, "mode": "prune_objects", "value": test.value},
+			}}
+			out, err := ApplyParamOverride(input, override, nil)
+			require.NoError(t, err)
+			assert.JSONEq(t, test.want, string(out))
+			assert.Equal(t, test.body, string(input), "the original request must remain available for retries")
+			if test.name == "array targets preserve numbers" {
+				assert.Equal(t, "9007199254740993", gjson.GetBytes(out, "input.0.tools.0.integer").Raw)
+				assert.Equal(t, "1.234567890123456789", gjson.GetBytes(out, "input.0.tools.0.decimal").Raw)
+			}
+			if test.name == "duplicate path key keeps first match behavior" {
+				assert.Equal(t, test.want, string(out))
+			}
+		})
+	}
+}
+
+func TestApplyParamOverridePruneWildcardKeepsRuleOrderAndSetSemantics(t *testing.T) {
+	input := []byte(`{"input":[{"content":"keep"},{"tools":[{"type":"keep","selector":{"b":2,"a":1}}]}]}`)
+	override := map[string]interface{}{"operations": []interface{}{
+		map[string]interface{}{"path": "input.*.tools", "mode": "set", "keep_origin": true, "value": []interface{}{map[string]interface{}{"type": "remove"}}},
+		map[string]interface{}{"path": "input.*.tools", "mode": "prune_objects", "value": "remove"},
+		map[string]interface{}{"path": "input.*.tools", "mode": "prune_objects", "value": map[string]interface{}{"where": map[string]interface{}{"selector": map[string]interface{}{"a": 1, "b": 2}}}},
+		map[string]interface{}{"path": "pruned", "mode": "set", "value": true, "conditions": []interface{}{map[string]interface{}{"path": "input.0.tools.#", "mode": "full", "value": 0}}},
+	}}
+	out, err := ApplyParamOverride(input, override, nil)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"input":[{"content":"keep","tools":[]},{"tools":[]}],"pruned":true}`, string(out))
+}
+
+func BenchmarkApplyParamOverrideResponsesPruneTools(b *testing.B) {
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{"path": "tools", "mode": "prune_objects", "value": "redacted_thinking"},
+			map[string]interface{}{"path": "tools", "mode": "prune_objects", "value": "redacted_thinking"},
+			map[string]interface{}{"path": "input.*.tools", "mode": "prune_objects", "value": "redacted_thinking"},
+		},
+	}
+	for _, fixture := range []struct {
+		name       string
+		items      int
+		textBytes  int
+		toolsEvery int
+	}{
+		{"short_sparse_tools", 128, 0, 8},
+		{"long_no_tools", 500, 2048, 0},
+		{"long_sparse_tools", 500, 2048, 8},
+		{"long_all_tools", 500, 2048, 1},
+	} {
+		b.Run(fixture.name, func(b *testing.B) {
+			items := make([]string, 0, fixture.items)
+			for i := 0; i < fixture.items; i++ {
+				item := `{"role":"user","content":[{"type":"input_text","text":"` + strings.Repeat("x", fixture.textBytes) + `"}]`
+				if fixture.toolsEvery > 0 && i%fixture.toolsEvery == 0 {
+					item += `,"tools":[{"type":"redacted_thinking"},{"type":"function","id":9007199254740993}]`
+				}
+				items = append(items, item+`}`)
+			}
+			input := []byte(`{"input":[` + strings.Join(items, ",") + `],"tools":[{"type":"function"}],"large_integer":9007199254740993}`)
+			b.ReportAllocs()
+			b.SetBytes(int64(len(input)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := ApplyParamOverride(input, override, nil); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func TestApplyParamOverrideNormalizeThinkingSignatureUnsupported(t *testing.T) {
 	input := []byte(`{"items":[{"type":"redacted_thinking"}]}`)
 	override := map[string]interface{}{

@@ -120,3 +120,60 @@ func TestPrepareTenantResponsesRequestPreservesPlatformSemantics(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareSub2ResponsesToolFilteringKeepsRetryInput(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	previousPassThrough := settings.PassThroughRequestEnabled
+	settings.PassThroughRequestEnabled = false
+	t.Cleanup(func() { settings.PassThroughRequestEnabled = previousPassThrough })
+
+	const input = `{"model":"gpt-6.1-sol","input":[{"role":"user","content":"keep"},{"role":"assistant","tools":[{"type":"web_search"},{"type":"function","name":"keep","parameters":{"const":9007199254740993}}]}],"tools":[{"type":"web_search"},{"type":"computer"},{"type":"function","name":"keep","parameters":{"const":9007199254740993}}],"stream":true,"temperature":0,"parallel_tool_calls":false}`
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(input))
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeSub2API)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "https://provider.invalid")
+	common.SetContextKey(c, constant.ContextKeyOriginalModel, "gpt-6.1-sol")
+	request := &dto.OpenAIResponsesRequest{}
+	require.NoError(t, common.Unmarshal([]byte(input), request))
+	original, err := common.Marshal(request)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{
+		Request: request, RelayMode: relayconstant.RelayModeResponses,
+		RelayFormat: types.RelayFormatOpenAIResponses, OriginModelName: request.Model,
+		RequestURLPath: "/v1/responses", UsingGroup: "default", IsStream: true,
+	}
+	common.SetContextKey(c, constant.ContextKeyChannelParamOverride, map[string]any{
+		"operations": []any{
+			map[string]any{"mode": "prune_objects", "path": "tools", "value": "web_search"},
+			map[string]any{"mode": "prune_objects", "path": "tools", "value": "computer"},
+			map[string]any{"mode": "prune_objects", "path": "input.*.tools", "value": "web_search"},
+		},
+	})
+
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt == 1 {
+			// A different channel's retry must start with the original tools.
+			common.SetContextKey(c, constant.ContextKeyChannelParamOverride, map[string]any{})
+		}
+		_, body, closer, apiErr := PrepareResponsesRequest(c, info, request)
+		require.Nil(t, apiErr)
+		payload, readErr := io.ReadAll(body)
+		require.NoError(t, closer.Close())
+		require.NoError(t, readErr)
+		wantTools, wantHistoryTools := int64(1), int64(1)
+		if attempt == 1 {
+			wantTools, wantHistoryTools = 3, 2
+		}
+		assert.Equal(t, wantTools, gjson.GetBytes(payload, "tools.#").Int())
+		assert.Equal(t, wantHistoryTools, gjson.GetBytes(payload, "input.1.tools.#").Int())
+		assert.Equal(t, "9007199254740993", gjson.GetBytes(payload, "tools.#(type==function).parameters.const").Raw)
+		assert.Equal(t, "9007199254740993", gjson.GetBytes(payload, "input.1.tools.#(type==function).parameters.const").Raw)
+		assert.False(t, gjson.GetBytes(payload, "input.0.tools").Exists())
+		assert.Equal(t, "keep", gjson.GetBytes(payload, "input.0.content").String())
+		assert.Equal(t, "0", gjson.GetBytes(payload, "temperature").Raw)
+		assert.Equal(t, "false", gjson.GetBytes(payload, "parallel_tool_calls").Raw)
+		after, marshalErr := common.Marshal(request)
+		require.NoError(t, marshalErr)
+		assert.Equal(t, original, after)
+	}
+}

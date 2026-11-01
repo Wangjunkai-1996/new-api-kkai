@@ -813,7 +813,7 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 		// 处理路径中的负数索引
 		opPath := processNegativeIndex(result, op.Path)
 		var opPaths []string
-		if isPathBasedOperation(op.Mode) {
+		if isPathBasedOperation(op.Mode) && op.Mode != "prune_objects" {
 			opPaths, err = resolveOperationPaths(result, opPath)
 			if err != nil {
 				return nil, err
@@ -956,12 +956,7 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 			}
 			return nil, returnErr
 		case "prune_objects":
-			for _, path := range opPaths {
-				result, err = pruneObjects(result, path, contextJSON, op.Value)
-				if err != nil {
-					break
-				}
-			}
+			result, err = pruneObjects(result, opPath, contextJSON, op.Value)
 		case "set_header":
 			err = setHeaderOverrideInContext(context, op.Path, op.Value, op.KeepOrigin)
 			if err == nil {
@@ -1862,19 +1857,142 @@ type pruneObjectsOptions struct {
 func pruneObjects(data []byte, path, contextJSON string, value interface{}) ([]byte, error) {
 	options, err := parsePruneObjectsOptions(value)
 	if err != nil {
+		if strings.Contains(path, "*") {
+			paths, pathErr := resolveOperationPaths(data, path)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			if len(paths) == 0 {
+				return data, nil
+			}
+		}
 		return nil, err
 	}
-
-	if path == "" {
-		var root interface{}
+	if (path == "" || strings.Contains(path, "*")) && common.GetJsonType(data) != "object" && common.GetJsonType(data) != "array" {
+		var root common.RawMessage
 		if err := common.Unmarshal(data, &root); err != nil {
 			return nil, err
 		}
-		cleaned, _, err := pruneObjectsNode(root, options, contextJSON, true)
+	}
+
+	if strings.Contains(path, "*") && !strings.ContainsAny(path, `\?#|@!()[]`) {
+		segments := strings.Split(path, ".")
+		if cleaned, _, handled, err := pruneObjectsAtPath(data, segments, options, contextJSON); handled || err != nil {
+			return cleaned, err
+		}
+	}
+	paths, err := resolveOperationPaths(data, path)
+	if err != nil {
+		return nil, err
+	}
+	result := data
+	for _, targetPath := range paths {
+		result, err = pruneObjectsAtResolvedPath(result, targetPath, options, contextJSON)
 		if err != nil {
 			return nil, err
 		}
-		return common.Marshal(cleaned)
+	}
+	return result, nil
+}
+
+// Traverse prune targets locally instead of expanding N paths and scanning the
+// entire request N times. This does not change set/delete wildcard semantics.
+// Ambiguous JSON keys and nonliteral paths retain the existing path resolver.
+func pruneObjectsAtPath(data common.RawMessage, segments []string, options pruneObjectsOptions, contextJSON string) (common.RawMessage, bool, bool, error) {
+	if len(segments) == 0 {
+		cleaned, _, changed, err := pruneObjectsNode(data, options, contextJSON, true)
+		return cleaned, changed, true, err
+	}
+	segment := strings.TrimSpace(segments[0])
+	if segment == "" || strings.Contains(segment, "*") && segment != "*" {
+		return data, false, false, nil
+	}
+	changed := false
+	switch common.GetJsonType(data) {
+	case "object":
+		// The legacy resolver discovers map keys with last-value semantics but
+		// gjson follows the first occurrence. Preserve that behavior on duplicates.
+		seen := make(map[string]bool)
+		ambiguous := false
+		gjson.ParseBytes(data).ForEach(func(key, _ gjson.Result) bool {
+			name := key.String()
+			if seen[name] || segment == "*" && strings.ContainsAny(name, `.\*?#|@!()[]`) {
+				ambiguous = true
+				return false
+			}
+			seen[name] = true
+			return true
+		})
+		if ambiguous {
+			return data, false, false, nil
+		}
+		var object map[string]common.RawMessage
+		if err := common.Unmarshal(data, &object); err != nil {
+			return nil, false, true, err
+		}
+		keys := []string{segment}
+		if segment == "*" {
+			keys = lo.Keys(object)
+			sort.Strings(keys)
+		}
+		for _, key := range keys {
+			child, exists := object[key]
+			if !exists {
+				continue
+			}
+			next, childChanged, handled, err := pruneObjectsAtPath(child, segments[1:], options, contextJSON)
+			if !handled || err != nil {
+				return data, false, handled, err
+			}
+			if childChanged {
+				object[key] = next
+				changed = true
+			}
+		}
+		if changed {
+			encoded, err := common.Marshal(object)
+			return encoded, true, true, err
+		}
+	case "array":
+		var array []common.RawMessage
+		if err := common.Unmarshal(data, &array); err != nil {
+			return nil, false, true, err
+		}
+		start, end := 0, len(array)
+		if segment != "*" {
+			// gjson's legacy resolver does not treat a leading plus as an
+			// array index; retain that behavior on the optimized traversal.
+			if strings.HasPrefix(segment, "+") {
+				return data, false, false, nil
+			}
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(array) {
+				return data, false, true, nil
+			}
+			start, end = index, index+1
+		}
+		for index := start; index < end; index++ {
+			next, childChanged, handled, err := pruneObjectsAtPath(array[index], segments[1:], options, contextJSON)
+			if !handled || err != nil {
+				return data, false, handled, err
+			}
+			if childChanged {
+				array[index] = next
+				changed = true
+			}
+		}
+		if changed {
+			encoded, err := common.Marshal(array)
+			return encoded, true, true, err
+		}
+	}
+	return data, false, true, nil
+}
+
+func pruneObjectsAtResolvedPath(data []byte, path string, options pruneObjectsOptions, contextJSON string) ([]byte, error) {
+	if path == "" {
+		cleaned, _, _, err := pruneObjectsNode(data, options, contextJSON, true)
+		return cleaned, err
 	}
 
 	target := gjson.GetBytes(data, path)
@@ -1882,24 +2000,14 @@ func pruneObjects(data []byte, path, contextJSON string, value interface{}) ([]b
 		return data, nil
 	}
 
-	var targetNode interface{}
-	if target.Type == gjson.JSON {
-		if err := common.UnmarshalJsonStr(target.Raw, &targetNode); err != nil {
-			return nil, err
-		}
-	} else {
-		targetNode = target.Value()
-	}
-
-	cleaned, _, err := pruneObjectsNode(targetNode, options, contextJSON, true)
+	cleaned, _, changed, err := pruneObjectsNode(common.RawMessage(target.Raw), options, contextJSON, true)
 	if err != nil {
 		return nil, err
 	}
-	cleanedBytes, err := common.Marshal(cleaned)
-	if err != nil {
-		return nil, err
+	if !changed {
+		return data, nil
 	}
-	return sjson.SetRawBytes(data, path, cleanedBytes)
+	return sjson.SetRawBytes(data, path, cleaned)
 }
 
 func parsePruneObjectsOptions(value interface{}) (pruneObjectsOptions, error) {
@@ -2027,47 +2135,69 @@ func parseConditionOperations(raw interface{}) ([]ConditionOperation, error) {
 	}
 }
 
-func pruneObjectsNode(node interface{}, options pruneObjectsOptions, contextJSON string, isRoot bool) (interface{}, bool, error) {
-	switch value := node.(type) {
-	case []interface{}:
-		result := make([]interface{}, 0, len(value))
+func pruneObjectsNode(node common.RawMessage, options pruneObjectsOptions, contextJSON string, isRoot bool) (common.RawMessage, bool, bool, error) {
+	changed := false
+	switch common.GetJsonType(node) {
+	case "array":
+		var value []common.RawMessage
+		if err := common.Unmarshal(node, &value); err != nil {
+			return nil, false, false, err
+		}
+		result := value[:0]
 		for _, item := range value {
-			next, drop, err := pruneObjectsNode(item, options, contextJSON, false)
+			next, drop, childChanged, err := pruneObjectsNode(item, options, contextJSON, false)
 			if err != nil {
-				return nil, false, err
+				return nil, false, false, err
 			}
+			changed = changed || drop || childChanged
 			if drop {
 				continue
 			}
 			result = append(result, next)
 		}
-		return result, false, nil
-	case map[string]interface{}:
-		shouldDrop, err := shouldPruneObject(value, options, contextJSON)
+		if changed {
+			encoded, err := common.Marshal(result)
+			return encoded, false, true, err
+		}
+	case "object":
+		// Keep the established condition comparison semantics, including object
+		// comparisons, separate from the raw values used to rebuild the payload.
+		var conditionValue map[string]interface{}
+		if err := common.Unmarshal(node, &conditionValue); err != nil {
+			return nil, false, false, err
+		}
+		shouldDrop, err := shouldPruneObject(conditionValue, options, contextJSON)
 		if err != nil {
-			return nil, false, err
+			return nil, false, false, err
 		}
 		if shouldDrop && !isRoot {
-			return nil, true, nil
+			return nil, true, true, nil
 		}
 		if !options.recursive {
-			return value, false, nil
+			return node, false, false, nil
+		}
+		var value map[string]common.RawMessage
+		if err := common.Unmarshal(node, &value); err != nil {
+			return nil, false, false, err
 		}
 		for key, child := range value {
-			next, drop, err := pruneObjectsNode(child, options, contextJSON, false)
+			next, drop, childChanged, err := pruneObjectsNode(child, options, contextJSON, false)
 			if err != nil {
-				return nil, false, err
+				return nil, false, false, err
 			}
+			changed = changed || drop || childChanged
 			if drop {
 				delete(value, key)
 				continue
 			}
 			value[key] = next
 		}
-		return value, false, nil
-	default:
-		return node, false, nil
+		if changed {
+			encoded, err := common.Marshal(value)
+			return encoded, false, true, err
+		}
 	}
+	return node, false, false, nil
 }
 
 func shouldPruneObject(node map[string]interface{}, options pruneObjectsOptions, contextJSON string) (bool, error) {
