@@ -6611,6 +6611,7 @@
     "Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.": "Các route có cùng đường vào được phân nhánh theo quy tắc client model. Yêu cầu không khớp dùng nhánh dự phòng cuối.",
     "Routes with the same incoming path are split by exact client model. Unmatched requests use the final fallback.": "Các tuyến có cùng đường dẫn vào được tách theo model client chính xác. Yêu cầu chưa khớp sẽ dùng nhánh dự phòng cuối cùng.",
     "Routes with the same incoming path match exact client model names. Separate multiple models with commas, and leave only the final fallback empty.": "Các tuyến có cùng đường dẫn vào khớp theo tên model chính xác từ yêu cầu client. Ngăn cách nhiều model bằng dấu phẩy và chỉ để trống nhánh dự phòng cuối cùng.",
+    "Routes: {{count}}": "Số tuyến: {{count}}",
     "Routing & Mapping": "Định tuyến và ánh xạ",
     "Routing & Overrides": "Định tuyến & ghi đè",
     "Routing Group": "Nhóm định tuyến",
