@@ -283,11 +283,16 @@ func ApplyImageStudioMaximumPreconsume(
 		return ErrImageStudioQuoteStale
 	}
 	if model.MembershipEnabled() && !relayInfo.IsChannelTest {
-		enabled, err := model.ShouldUseMembershipBilling(relayInfo.UserId)
-		if err != nil {
-			return err
+		enabled := relayInfo.MembershipBillingEnabled
+		if enabled == nil {
+			eligible, err := model.ShouldUseMembershipBilling(relayInfo.UserId)
+			if err != nil {
+				return err
+			}
+			relayInfo.MembershipBillingEnabled = &eligible
+			enabled = &eligible
 		}
-		if enabled {
+		if *enabled {
 			return nil
 		}
 	}

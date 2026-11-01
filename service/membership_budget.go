@@ -28,11 +28,18 @@ func PrepareMembershipBudget(c *gin.Context, info *relaycommon.RelayInfo, price 
 	if !model.MembershipEnabled() || info.IsChannelTest {
 		return nil
 	}
-	enabled, err := model.ShouldUseMembershipBilling(info.UserId)
-	if err != nil {
-		return err
+	enabled := info.MembershipBillingEnabled
+	if enabled == nil || info.RelayMode == relayconstant.RelayModeRealtime {
+		eligible, err := model.ShouldUseMembershipBilling(info.UserId)
+		if err != nil {
+			return err
+		}
+		if info.RelayMode != relayconstant.RelayModeRealtime {
+			info.MembershipBillingEnabled = &eligible
+		}
+		enabled = &eligible
 	}
-	if !enabled {
+	if !*enabled {
 		return nil
 	}
 	if info.RelayMode == relayconstant.RelayModeRealtime {

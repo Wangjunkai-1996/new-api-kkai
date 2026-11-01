@@ -199,7 +199,7 @@ func ValidateTenantOutbound(request *http.Request, info *relaycommon.RelayInfo) 
 			return err
 		}
 		meta := &relaytypes.TokenCountMeta{}
-		if info.Request != nil {
+		if info.TenantBudget.GeminiAudioInputPrice > 0 && info.Request != nil {
 			meta = info.Request.GetTokenCountMeta()
 		}
 		paid, err := tenantRequestHasPaidExtras(info, meta, info.TenantBudget, data)

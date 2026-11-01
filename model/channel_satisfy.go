@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -84,7 +85,7 @@ func ChannelSatisfiesFilters(ch *Channel, modelName string, filters []dto.Channe
 	}
 	for _, kind := range filterEvalOrder {
 		for _, filter := range filters {
-			if filter.Kind == kind && !channelMatchesFilter(ch, modelName, filter) {
+			if filter.Kind == kind && !channelMatchesFilter(ch, modelName, filter, false) {
 				return false, kind
 			}
 		}
@@ -92,6 +93,7 @@ func ChannelSatisfiesFilters(ch *Channel, modelName string, filters []dto.Channe
 	return true, ""
 }
 
+// Caller holds channelSyncLock, keeping channels and parsed configs in one snapshot.
 func filterCandidateIDs(ids []int, modelName string, filters []dto.ChannelFilter) (kept []int, emptiedBy dto.ChannelFilterKind) {
 	if len(ids) == 0 || len(filters) == 0 {
 		return ids, ""
@@ -135,20 +137,29 @@ func candidatePassesKindFilters(ch *Channel, exists bool, modelName string, kind
 		return false
 	}
 	for _, filter := range filters {
-		if !channelMatchesFilter(ch, modelName, filter) {
+		if !channelMatchesFilter(ch, modelName, filter, true) {
 			return false
 		}
 	}
 	return true
 }
 
-func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter) bool {
+func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter, cached bool) bool {
 	switch filter.Kind {
 	case dto.FilterRequestPath:
 		if filter.RequestPath == "" || !constant.IsAdvancedCustomChannel(ch.Type) {
 			return true
 		}
-		config := ch.GetOtherSettings().AdvancedCustom
+		var config *relaydto.AdvancedCustomConfig
+		if cached {
+			var found bool
+			config, found = channel2advancedCustomConfig[ch.Id]
+			if !found {
+				config = ch.GetOtherSettings().AdvancedCustom
+			}
+		} else {
+			config = ch.GetOtherSettings().AdvancedCustom
+		}
 		return config != nil && config.SupportsPathForModel(filter.RequestPath, modelName)
 	case dto.FilterTaskPluginIdentity:
 		if filter.TaskPluginKey == "" {
@@ -175,7 +186,16 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 		case constant.ChannelTypeOpenAI, constant.ChannelTypeCodex, constant.ChannelTypeSub2API, constant.ChannelTypeNewAPI:
 			return true
 		case constant.ChannelTypeAdvancedCustom, constant.ChannelTypeVLLM, constant.ChannelTypeSGLang:
-			config := ch.GetOtherSettings().AdvancedCustom
+			var config *relaydto.AdvancedCustomConfig
+			if cached {
+				var found bool
+				config, found = channel2advancedCustomConfig[ch.Id]
+				if !found {
+					config = ch.GetOtherSettings().AdvancedCustom
+				}
+			} else {
+				config = ch.GetOtherSettings().AdvancedCustom
+			}
 			if config == nil {
 				return false
 			}

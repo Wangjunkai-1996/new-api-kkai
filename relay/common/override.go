@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
@@ -198,21 +199,24 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 		return nil, err
 	}
 	if info != nil && info.MembershipBillingRequestID != "" {
-		var before, after map[string]any
+		var before map[string]any
 		if err := common.Unmarshal(jsonData, &before); err != nil {
 			return nil, err
 		}
-		if err := common.Unmarshal(result, &after); err != nil {
-			return nil, err
-		}
-		// Transport framing can change; request inputs and pricing selectors are
-		// already authorized and cannot be rewritten into additional paid work.
-		for _, key := range []string{"stream", "stream_options"} {
-			delete(before, key)
-			delete(after, key)
-		}
-		if !reflect.DeepEqual(before, after) {
-			return nil, fmt.Errorf("parameter override changes an already authorized membership request")
+		if !bytes.Equal(jsonData, result) {
+			var after map[string]any
+			if err := common.Unmarshal(result, &after); err != nil {
+				return nil, err
+			}
+			// Transport framing can change; request inputs and pricing selectors are
+			// already authorized and cannot be rewritten into additional paid work.
+			for _, key := range []string{"stream", "stream_options"} {
+				delete(before, key)
+				delete(after, key)
+			}
+			if !reflect.DeepEqual(before, after) {
+				return nil, fmt.Errorf("parameter override changes an already authorized membership request")
+			}
 		}
 	}
 	syncReasoningEffortAfterParamOverride(info, jsonData, result)

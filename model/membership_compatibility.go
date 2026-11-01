@@ -45,19 +45,21 @@ func ShouldUseMembershipBillingTx(tx *gorm.DB, userID int) (bool, error) {
 		return false, ErrMembershipInvalidInput
 	}
 	now := common.GetTimestamp()
-	legacy, err := hasLegacyMembershipTx(tx, userID, now)
-	if err != nil {
-		return false, err
-	}
 	account, err := membershipAccountTx(tx, userID, now)
 	if err != nil {
 		return false, err
 	}
-	active := account != nil && account.ActiveAt(now)
-	if legacy && active {
+	if account == nil || !account.ActiveAt(now) {
+		return false, nil
+	}
+	legacy, err := hasLegacyMembershipTx(tx, userID, now)
+	if err != nil {
+		return false, err
+	}
+	if legacy {
 		return false, fmt.Errorf("%w: conflicting legacy and membership entitlements", ErrMembershipConflict)
 	}
-	return active, nil
+	return true, nil
 }
 
 // Legacy creation and new member activation share the user row lock, including

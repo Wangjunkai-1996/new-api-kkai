@@ -191,10 +191,13 @@ type RelayInfo struct {
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
 
-	PriceData                  hosttypes.PriceData
-	TenantBudget               *hosttypes.MembershipPricing
-	MembershipPricing          *hosttypes.MembershipPricing
-	MembershipRealtime         bool
+	PriceData          hosttypes.PriceData
+	TenantBudget       *hosttypes.MembershipPricing
+	MembershipPricing  *hosttypes.MembershipPricing
+	MembershipRealtime bool
+	// MembershipBillingEnabled reuses the compatibility decision only within
+	// this request; reservation transactions still revalidate account state.
+	MembershipBillingEnabled   *bool
 	MembershipAssessedQuota    int
 	MembershipChargedQuota     int
 	MembershipBillingRequestID string
@@ -1330,7 +1333,9 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 		return jsonData, nil
 	}
 
-	var data map[string]interface{}
+	// Only controlled fields need decoding. Keep conversation history and tool
+	// schemas as raw JSON to avoid rebuilding them or rounding their numbers.
+	var data map[string]json.RawMessage
 	if err := common.Unmarshal(jsonData, &data); err != nil {
 		common.SysError("RemoveDisabledFields Unmarshal error :" + err.Error())
 		return jsonData, nil
@@ -1373,16 +1378,22 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 
 	// 默认移除 stream_options.include_obfuscation，除非明确允许（避免关闭响应流混淆保护）
 	if !channelOtherSettings.AllowIncludeObfuscation {
-		if streamOptionsAny, exists := data["stream_options"]; exists {
-			if streamOptions, ok := streamOptionsAny.(map[string]interface{}); ok {
-				if _, includeExists := streamOptions["include_obfuscation"]; includeExists {
-					delete(streamOptions, "include_obfuscation")
+		if raw := data["stream_options"]; common.GetJsonType(raw) == "object" {
+			var streamOptions map[string]json.RawMessage
+			if err := common.Unmarshal(raw, &streamOptions); err != nil {
+				common.SysError("RemoveDisabledFields Unmarshal error :" + err.Error())
+				return jsonData, nil
+			}
+			delete(streamOptions, "include_obfuscation")
+			if len(streamOptions) == 0 {
+				delete(data, "stream_options")
+			} else {
+				encoded, err := common.Marshal(streamOptions)
+				if err != nil {
+					common.SysError("RemoveDisabledFields Marshal error :" + err.Error())
+					return jsonData, nil
 				}
-				if len(streamOptions) == 0 {
-					delete(data, "stream_options")
-				} else {
-					data["stream_options"] = streamOptions
-				}
+				data["stream_options"] = encoded
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package common
 import (
 	"testing"
 
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,4 +35,65 @@ func TestMembershipOverridePreservesAuthorizedRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMembershipOverrideUnchangedBodyStillValidatesJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"invalid JSON", `{"model":`},
+		{"array root", `[{"model":"gpt-6"}]`},
+		{"out-of-range number", `{"max_output_tokens":1e999}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &RelayInfo{
+				MembershipBillingRequestID: "reserved",
+				ChannelMeta: &ChannelMeta{ParamOverride: map[string]any{
+					"operations": []any{map[string]any{"mode": "set_header", "path": "X-Test", "value": "enabled"}},
+				}},
+			}
+
+			output, err := ApplyParamOverrideWithRelayInfo([]byte(tc.body), info)
+			require.Error(t, err)
+			assert.Nil(t, output)
+		})
+	}
+}
+
+func TestMembershipOverrideUnchangedBodyKeepsRuntimeSync(t *testing.T) {
+	info := &RelayInfo{
+		MembershipBillingRequestID: "reserved",
+		RelayFormat:                relaytypes.RelayFormatOpenAIResponses,
+		ReasoningEffort:            "medium",
+		ChannelMeta: &ChannelMeta{ParamOverride: map[string]any{
+			"operations": []any{
+				map[string]any{"mode": "set_header", "path": "X-Test", "value": "enabled"},
+				map[string]any{"mode": "set", "path": "reasoning.effort", "value": "high"},
+			},
+		}},
+	}
+	body := []byte(`{"reasoning":{"effort":"high"},"input":"hello"}`)
+
+	output, err := ApplyParamOverrideWithRelayInfo(body, info)
+	require.NoError(t, err)
+	assert.Equal(t, body, output)
+	assert.Equal(t, "high", info.ReasoningEffort)
+	assert.True(t, info.UseRuntimeHeadersOverride)
+	assert.Equal(t, "enabled", info.RuntimeHeadersOverride["x-test"])
+	assert.Contains(t, info.ParamOverrideAudit, "set reasoning.effort = high")
+}
+
+func TestMembershipOverrideAllowsStreamOnlyChanges(t *testing.T) {
+	info := &RelayInfo{
+		MembershipBillingRequestID: "reserved",
+		ChannelMeta: &ChannelMeta{ParamOverride: map[string]any{
+			"stream":         true,
+			"stream_options": map[string]any{"include_usage": true},
+		}},
+	}
+
+	output, err := ApplyParamOverrideWithRelayInfo([]byte(`{"input":"hello","stream":false,"stream_options":{"include_usage":false}}`), info)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"input":"hello","stream":true,"stream_options":{"include_usage":true}}`, string(output))
 }

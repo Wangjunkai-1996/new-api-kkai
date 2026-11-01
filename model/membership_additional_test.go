@@ -293,6 +293,27 @@ func TestMembershipBillingRequiresActiveAccount(t *testing.T) {
 	assert.False(t, use)
 }
 
+func TestMembershipBillingSkipsLegacyQueryWithoutActiveAccount(t *testing.T) {
+	user, _ := setupMembershipTest(t)
+	require.NoError(t, DB.AutoMigrate(&UserSubscription{}))
+	require.NoError(t, DB.Create(&UserSubscription{
+		UserId: user.Id, Status: "active", EndTime: common.GetTimestamp() + 600, AmountTotal: 100,
+	}).Error)
+
+	queries := make(map[string]int)
+	const callback = "test:membership_inactive_eligibility_queries"
+	require.NoError(t, DB.Callback().Query().Before("gorm:query").Register(callback, func(tx *gorm.DB) {
+		queries[tx.Statement.Table]++
+	}))
+	t.Cleanup(func() { require.NoError(t, DB.Callback().Query().Remove(callback)) })
+
+	use, err := ShouldUseMembershipBillingTx(DB, user.Id)
+	require.NoError(t, err)
+	assert.False(t, use, "legacy subscriptions remain on their existing billing path")
+	assert.Equal(t, 1, queries["kkai_membership_users"])
+	assert.Zero(t, queries["user_subscriptions"], "no legacy entitlement lookup is needed without an active membership account")
+}
+
 func TestMembershipOwningTransactionHonorsCancellation(t *testing.T) {
 	setupMembershipTest(t)
 	ctx, cancel := context.WithCancel(context.Background())

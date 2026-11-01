@@ -35,6 +35,7 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo, beforePr
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
+		info.MembershipBillingEnabled = &membershipBilling
 	}
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	meta := &types.TokenCountMeta{TokenType: types.TokenTypeTokenizer}

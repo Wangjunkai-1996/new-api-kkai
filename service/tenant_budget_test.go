@@ -179,7 +179,8 @@ func TestTenantFreeReservationRejectsPaidFeaturesAddedAtDispatch(t *testing.T) {
 		{name: "zero group remains free", body: `{"input":"hello","tools":[{"type":"web_search"}]}`, group: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "free-text", Request: &dto.OpenAIResponsesRequest{}, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI}}
+			request := &tenantMetadataRequest{}
+			info := &relaycommon.RelayInfo{TenantID: 7, OriginModelName: "free-text", Request: request, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI}}
 			price := types.PriceData{ModelRatio: 0, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: tc.group}}
 			require.NoError(t, PrepareTenantBudget(info, &price, 0, &relaytypes.TokenCountMeta{}))
 			require.True(t, price.FreeModel)
@@ -191,6 +192,52 @@ func TestTenantFreeReservationRejectsPaidFeaturesAddedAtDispatch(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+			assert.Zero(t, request.metaCalls, "outbound tool checks do not need token metadata without billable audio")
 		})
+	}
+}
+
+type tenantMetadataRequest struct {
+	dto.BaseRequest
+	metaCalls int
+}
+
+func (r *tenantMetadataRequest) GetTokenCountMeta() *relaytypes.TokenCountMeta {
+	r.metaCalls++
+	return &relaytypes.TokenCountMeta{}
+}
+
+func TestTenantFreeOutboundStillRejectsBillableGeminiAudio(t *testing.T) {
+	request := &dto.GeminiChatRequest{Contents: []dto.GeminiChatContent{{Parts: []dto.GeminiPart{{InlineData: &dto.GeminiInlineData{MimeType: "audio/wav", Data: "ZGF0YQ=="}}}}}}
+	info := &relaycommon.RelayInfo{
+		TenantID: 7, OriginModelName: "gemini-2.5-flash", Request: request,
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeGemini, ApiType: constant.APITypeGemini},
+		TenantBudget: &types.MembershipPricing{
+			Price:                 types.PriceData{FreeModel: true, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+			GeminiAudioInputPrice: 1,
+		},
+	}
+	outbound, err := http.NewRequest(http.MethodPost, "https://provider.invalid", strings.NewReader(`{"contents":[]}`))
+	require.NoError(t, err)
+	assert.ErrorContains(t, ValidateTenantOutbound(outbound, info), "adds paid features")
+}
+
+func BenchmarkTenantFreeOutboundResponsesHistory(b *testing.B) {
+	input := `[{"role":"user","content":"` + strings.Repeat("history with tool output and code; ", 256) + `"}]`
+	body := `{"input":` + input + `}`
+	outbound, err := http.NewRequest(http.MethodPost, "https://provider.invalid", strings.NewReader(body))
+	if err != nil {
+		b.Fatal(err)
+	}
+	info := &relaycommon.RelayInfo{
+		TenantID: 7, OriginModelName: "free-text", Request: &dto.OpenAIResponsesRequest{Input: []byte(input)},
+		ChannelMeta:  &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI},
+		TenantBudget: &types.MembershipPricing{Price: types.PriceData{FreeModel: true, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}},
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if err := ValidateTenantOutbound(outbound, info); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

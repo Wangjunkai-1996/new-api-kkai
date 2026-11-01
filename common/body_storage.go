@@ -101,10 +101,24 @@ func (m *memoryStorage) NewReader() (io.ReadCloser, error) {
 	if atomic.LoadInt32(&m.closed) == 1 {
 		return nil, ErrStorageClosed
 	}
-	// A fresh bytes.Reader over the shared immutable backing array: an
-	// independent cursor at zero copy cost. NopCloser keeps Close a no-op, so
-	// the storage lifecycle stays owned by whoever holds the storage itself.
-	return io.NopCloser(bytes.NewReader(m.data)), nil
+	return &memoryBodyReader{Reader: bytes.NewReader(m.data), data: m.data}, nil
+}
+
+type memoryBodyReader struct {
+	*bytes.Reader
+	data []byte
+}
+
+func (*memoryBodyReader) Close() error { return nil }
+
+// ReadOnlyBodyBytes returns the immutable backing of an independent memory
+// replay reader. The caller must not modify the returned bytes.
+func ReadOnlyBodyBytes(reader io.ReadCloser) ([]byte, bool) {
+	memoryReader, ok := reader.(*memoryBodyReader)
+	if !ok {
+		return nil, false
+	}
+	return memoryReader.data, true
 }
 
 func (m *memoryStorage) Size() int64 {

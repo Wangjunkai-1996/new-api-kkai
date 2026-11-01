@@ -118,12 +118,13 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var usage = &dto.Usage{}
 	var streamErr *types.NewAPIError
 	var lastStreamData string
+	var lastStreamSent bool
 	var secondLastStreamData string // 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if lastStreamData != "" {
+		if lastStreamData != "" && !lastStreamSent {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 				sr.Error(err)
@@ -140,10 +141,19 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 
 			lastStreamData = data
+			lastStreamSent = false
 			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
 			if err := processTokenData(c, info, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
+			}
+			if info.RelayFormat == types.RelayFormatOpenAI && !info.ChannelSetting.ForceFormat &&
+				!info.ChannelSetting.ThinkingToContent && ordinaryChatStreamDelta(data) {
+				if err := HandleStreamFormat(c, info, data, false, false); err != nil {
+					common.SysLog("error handling stream format: " + err.Error())
+					sr.Error(err)
+				}
+				lastStreamSent = true
 			}
 		}
 	})
@@ -203,7 +213,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
-		if shouldSendLastResp {
+		if shouldSendLastResp && !lastStreamSent {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}
@@ -222,6 +232,24 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
+}
+
+func ordinaryChatStreamDelta(data string) bool {
+	var frame dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &frame); err != nil || frame.Usage != nil || len(frame.Choices) == 0 {
+		return false
+	}
+	hasDelta := false
+	for _, choice := range frame.Choices {
+		if choice.FinishReason != nil {
+			return false
+		}
+		if choice.Delta.Role != "" || choice.Delta.Content != nil || choice.Delta.ReasoningContent != nil ||
+			choice.Delta.Reasoning != nil || len(choice.Delta.ToolCalls) > 0 {
+			hasDelta = true
+		}
+	}
+	return hasDelta
 }
 
 // observeStreamChoices collects billable function call names and records the

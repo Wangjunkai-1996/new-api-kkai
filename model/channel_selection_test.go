@@ -86,6 +86,29 @@ func TestChannelWebSocketFilterRequiresNativeResponses(t *testing.T) {
 	}
 }
 
+func TestCachedAdvancedCustomFilterUsesParsedConfig(t *testing.T) {
+	channel := &Channel{Id: 991001, Type: constant.ChannelTypeAdvancedCustom}
+	channel.SetOtherSettings(kitdto.ChannelOtherSettings{AdvancedCustom: &kitdto.AdvancedCustomConfig{
+		Routes: []kitdto.AdvancedCustomRoute{{IncomingPath: "/v1/responses"}},
+	}})
+
+	previousChannels := channelsIDM
+	previousConfigs := channel2advancedCustomConfig
+	channelsIDM = map[int]*Channel{channel.Id: channel}
+	channel2advancedCustomConfig = map[int]*kitdto.AdvancedCustomConfig{
+		channel.Id: {Routes: []kitdto.AdvancedCustomRoute{{IncomingPath: "/v1/chat/completions"}}},
+	}
+	t.Cleanup(func() {
+		channelsIDM = previousChannels
+		channel2advancedCustomConfig = previousConfigs
+	})
+
+	filters := []dto.ChannelFilter{{Kind: dto.FilterRequestPath, RequestPath: "/v1/responses"}}
+	kept, emptiedBy := filterCandidateIDs([]int{channel.Id}, "gpt-5", filters)
+	assert.Empty(t, kept)
+	assert.Equal(t, dto.FilterRequestPath, emptiedBy)
+}
+
 func TestBatchDeleteChannelsReportsOnlyPersistedRows(t *testing.T) {
 	truncateTables(t)
 	channel := Channel{Type: constant.ChannelTypeOpenAI, Key: "key", Status: common.ChannelStatusEnabled,

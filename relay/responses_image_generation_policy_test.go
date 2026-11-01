@@ -76,6 +76,26 @@ func TestEnforceResponsesImageGenerationGroupPolicy(t *testing.T) {
 			wantChanged: false,
 		},
 		{
+			name:        "nested policy names do not change a tool-free request",
+			group:       "default",
+			body:        `{"model":"gpt-5","input":{"tools":[{"type":"image_generation"}],"tool_choice":"image_generation"}}`,
+			wantBody:    `{"model":"gpt-5","input":{"tools":[{"type":"image_generation"}],"tool_choice":"image_generation"}}`,
+			wantChanged: false,
+		},
+		{
+			name:        "escaped top-level tools cannot bypass filtering",
+			group:       "default",
+			body:        `{"model":"gpt-5","\u0074ools":[{"type":"image_generation"}]}`,
+			wantBody:    `{"model":"gpt-5"}`,
+			wantChanged: true,
+		},
+		{
+			name:       "escaped top-level tool choice cannot bypass filtering",
+			group:      "default",
+			body:       `{"model":"gpt-5","tool_\u0063hoice":"image_generation"}`,
+			wantDenied: true,
+		},
+		{
 			name:        "case insensitive policy fields cannot bypass filtering",
 			group:       "default",
 			body:        `{"model":"gpt-5","Tools":[{"Type":"image_generation"}]}`,
@@ -203,6 +223,20 @@ func TestEnforceResponsesImageGenerationGroupPolicy(t *testing.T) {
 			assert.Equal(t, test.wantChanged, changed)
 			assert.JSONEq(t, test.wantBody, string(got))
 		})
+	}
+}
+
+func TestResponsesImageGenerationPolicyRejectsInvalidToolFreeJSON(t *testing.T) {
+	for _, body := range []string{
+		`{"input":"hello"} trailing`,
+		`{"input":[1,]}`,
+		`[{"input":"hello"}]`,
+		`null`,
+	} {
+		out, changed, err := enforceResponsesImageGenerationGroupPolicy([]byte(body), "default")
+		require.Error(t, err, body)
+		assert.Nil(t, out)
+		assert.False(t, changed)
 	}
 }
 

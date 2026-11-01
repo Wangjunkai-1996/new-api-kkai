@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/tidwall/gjson"
@@ -41,15 +42,21 @@ func ValidateRelayOutboundQuantities(request *http.Request) error {
 		maxMB = 128 // Match common.GetRequestBody's shared BodyStorage limit.
 	}
 	limit := int64(maxMB) << 20
-	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
-	if request.GetBody == nil {
-		request.Body = struct {
-			io.Reader
-			io.Closer
-		}{io.MultiReader(bytes.NewReader(data), reader), reader}
-	}
-	if err != nil {
-		return err
+	var data []byte
+	if view, ok := common.ReadOnlyBodyBytes(reader); request.GetBody != nil && ok {
+		data = view
+	} else {
+		var err error
+		data, err = io.ReadAll(io.LimitReader(reader, limit+1))
+		if request.GetBody == nil {
+			request.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(data), reader), reader}
+		}
+		if err != nil {
+			return err
+		}
 	}
 	if int64(len(data)) > limit {
 		return fmt.Errorf("upstream JSON exceeds the shared request body limit")

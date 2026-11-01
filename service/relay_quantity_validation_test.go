@@ -8,11 +8,109 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func BenchmarkRelayOutboundQuantitiesReplayableMemory(b *testing.B) {
+	previousCache := common.GetDiskCacheConfig()
+	common.SetDiskCacheConfig(common.DiskCacheConfig{Enabled: false})
+	b.Cleanup(func() { common.SetDiskCacheConfig(previousCache) })
+	for _, sizeMB := range []int{1, 8} {
+		b.Run(fmt.Sprintf("%dMiB", sizeMB), func(b *testing.B) {
+			payload := append([]byte(`{"input":"`), bytes.Repeat([]byte("x"), sizeMB<<20)...)
+			payload = append(payload, []byte(`","max_output_tokens":10}`)...)
+			storage, err := common.CreateBodyStorage(payload)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() { _ = storage.Close() })
+			body := common.NewReplayableBodyReader(storage)
+			request, err := http.NewRequest(http.MethodPost, "http://upstream/responses", body)
+			if err != nil {
+				b.Fatal(err)
+			}
+			request.Header.Set("Content-Type", "application/json")
+			request.GetBody = body.NewReader
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := ValidateRelayOutboundQuantities(request); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestRelayOutboundQuantitiesReplayableMemory(t *testing.T) {
+	previousCache := common.GetDiskCacheConfig()
+	common.SetDiskCacheConfig(common.DiskCacheConfig{Enabled: false})
+	t.Cleanup(func() { common.SetDiskCacheConfig(previousCache) })
+	previousLimit := constant.MaxRequestBodyMB
+	constant.MaxRequestBodyMB = 1
+	t.Cleanup(func() { constant.MaxRequestBodyMB = previousLimit })
+
+	oversized := append([]byte(`{"input":"`), bytes.Repeat([]byte("x"), 1<<20)...)
+	oversized = append(oversized, []byte(`"}`)...)
+	for _, tc := range []struct {
+		name, body, wantError string
+	}{
+		{name: "valid", body: `{"input":"hello","max_output_tokens":10}`},
+		{name: "invalid json", body: `{"n":`, wantError: "valid JSON"},
+		{name: "duplicate quantity", body: `{"n":1,"\u006e":2}`, wantError: "duplicate upstream billing field"},
+		{name: "quantity overflow", body: fmt.Sprintf(`{"max_output_tokens":%d}`, dto.MaxTokensLimit+1), wantError: "max_output_tokens"},
+		{name: "body limit", body: string(oversized), wantError: "shared request body limit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := []byte(tc.body)
+			storage, err := common.CreateBodyStorage(payload)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, storage.Close()) })
+			require.False(t, storage.IsDisk())
+			body := common.NewReplayableBodyReader(storage)
+			request, err := http.NewRequest(http.MethodPost, "http://upstream/responses", body)
+			require.NoError(t, err)
+			request.Header.Set("Content-Type", "application/json")
+			request.GetBody = body.NewReader
+			request.ContentLength = int64(len(payload))
+			err = ValidateRelayOutboundQuantities(request)
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
+			}
+			actual, err := io.ReadAll(request.Body)
+			require.NoError(t, err)
+			assert.Equal(t, payload, actual)
+			require.NoError(t, request.Body.Close())
+		})
+	}
+}
+
+func TestRelayOutboundQuantitiesDiskReplay(t *testing.T) {
+	previousCache := common.GetDiskCacheConfig()
+	common.SetDiskCacheConfig(common.DiskCacheConfig{Enabled: true, ThresholdMB: 0, MaxSizeMB: 1, Path: t.TempDir()})
+	t.Cleanup(func() { common.SetDiskCacheConfig(previousCache) })
+	payload := []byte(`{"input":"hello","max_output_tokens":10}`)
+	storage, err := common.CreateBodyStorage(payload)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	require.True(t, storage.IsDisk())
+	body := common.NewReplayableBodyReader(storage)
+	request, err := http.NewRequest(http.MethodPost, "http://upstream/responses", body)
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", "application/json")
+	request.GetBody = body.NewReader
+	require.NoError(t, ValidateRelayOutboundQuantities(request))
+	actual, err := io.ReadAll(request.Body)
+	require.NoError(t, err)
+	assert.Equal(t, payload, actual)
+	require.NoError(t, request.Body.Close())
+}
 
 func TestRelayJSONQuantities(t *testing.T) {
 	for _, test := range []struct {

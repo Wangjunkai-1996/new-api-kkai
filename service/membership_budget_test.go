@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -65,6 +66,61 @@ func TestMembershipBudgetBoundsEveryCacheCategory(t *testing.T) {
 	info.PriceData = price
 	actual := calculateTextQuotaSummary(ctx, info, &dto.Usage{PromptTokens: 0, CompletionTokens: 10, ClaudeCacheCreation5mTokens: 100, UsageSemantic: "anthropic"})
 	assert.GreaterOrEqual(t, info.MembershipPricing.MaximumBeforeGroup-info.MembershipPricing.ViolationFeeBeforeGroup, float64(actual.Quota), "five-minute cache creation is independently configurable and must fit the full reservation")
+}
+
+func TestMembershipBudgetReusesRequestEligibilityAndRevalidatesReservation(t *testing.T) {
+	c, user := setupMembershipServiceTest(t)
+	eligible, err := model.ShouldUseMembershipBilling(user.Id)
+	require.NoError(t, err)
+	require.True(t, eligible)
+	info := &relaycommon.RelayInfo{
+		UserId: user.Id, RequestId: "resolved-member-budget", UsingGroup: "gpt", IsPlayground: true,
+		OriginModelName: "test-model", RelayMode: relayconstant.RelayModeResponses,
+		Request: &dto.OpenAIResponsesRequest{}, MembershipBillingEnabled: &eligible,
+	}
+	price := types.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.2}}
+	info.PriceData = price
+	queries := 0
+	const callback = "test:membership_budget_query_count"
+	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register(callback, func(*gorm.DB) { queries++ }))
+	t.Cleanup(func() { require.NoError(t, model.DB.Callback().Query().Remove(callback)) })
+	common.SetContextKey(c, constant.ContextKeyIsImageStudio, true)
+	meta := &relaytypes.TokenCountMeta{MaxTokens: 10}
+	require.NoError(t, ApplyImageStudioMaximumPreconsume(c, info, &price, 10, meta))
+	require.NoError(t, PrepareMembershipBudget(c, info, &price, 10, meta))
+	require.NotNil(t, info.MembershipPricing)
+	assert.Zero(t, queries, "budget preparation must reuse this request's completed eligibility lookup")
+
+	// Even a legacy entitlement introduced after the lookup must stop funding.
+	require.NoError(t, model.DB.Create(&model.UserSubscription{UserId: user.Id, Status: "active", EndTime: common.GetTimestamp() + 600, AmountTotal: 100}).Error)
+	apiErr := PreConsumeBilling(c, 4, info)
+	require.ErrorIs(t, apiErr, model.ErrMembershipQuoteChanged)
+	assert.Nil(t, info.Billing)
+	var records int64
+	require.NoError(t, model.DB.Model(&model.MembershipBillingRecord{}).Where("request_id = ?", info.RequestId).Count(&records).Error)
+	assert.Zero(t, records)
+	self, err := model.GetMembershipSelf(user.Id)
+	require.NoError(t, err)
+	require.NotNil(t, self.Account)
+	assert.Zero(t, self.Account.AmountReserved)
+}
+
+func TestMembershipBudgetRealtimeRechecksRequestEligibility(t *testing.T) {
+	c, user := setupMembershipServiceTest(t)
+	eligible, err := model.ShouldUseMembershipBilling(user.Id)
+	require.NoError(t, err)
+	require.True(t, eligible)
+	info := &relaycommon.RelayInfo{UserId: user.Id, RelayMode: relayconstant.RelayModeRealtime, MembershipBillingEnabled: &eligible}
+	price := types.PriceData{}
+	require.NoError(t, model.DB.Model(&model.MembershipAccount{}).Where("user_id = ?", user.Id).Update("status", model.MembershipCancelled).Error)
+	require.NoError(t, PrepareMembershipBudget(c, info, &price, 0, &relaytypes.TokenCountMeta{}))
+	assert.False(t, info.MembershipRealtime, "realtime setup must not trust stale eligibility")
+	assert.Nil(t, info.MembershipPricing)
+
+	require.NoError(t, model.DB.Model(&model.MembershipAccount{}).Where("user_id = ?", user.Id).Update("status", model.MembershipActive).Error)
+	require.NoError(t, PrepareMembershipBudget(c, info, &price, 0, &relaytypes.TokenCountMeta{}))
+	assert.True(t, info.MembershipRealtime)
+	assert.Nil(t, info.MembershipPricing, "each realtime response retains its own authorization")
 }
 
 func TestMembershipBudgetEstimatesOmittedOutputWithoutChangingRequest(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/tidwall/gjson"
 )
 
 var errResponsesImageGenerationGroupForbidden = errors.New(
@@ -32,6 +33,19 @@ func responsesImageGenerationPolicyApplies(info *relaycommon.RelayInfo) bool {
 func enforceResponsesImageGenerationGroupPolicy(jsonData []byte, group string) ([]byte, bool, error) {
 	if responsesImageGenerationAllowedGroup(group) {
 		return jsonData, false, nil
+	}
+	if gjson.ValidBytes(jsonData) && common.GetJsonType(jsonData) == "object" {
+		hasPolicyField := false
+		gjson.ParseBytes(jsonData).ForEach(func(key, _ gjson.Result) bool {
+			if strings.EqualFold(key.Str, "tools") || strings.EqualFold(key.Str, "tool_choice") {
+				hasPolicyField = true
+				return false
+			}
+			return true
+		})
+		if !hasPolicyField {
+			return jsonData, false, nil
+		}
 	}
 
 	var request map[string]json.RawMessage
