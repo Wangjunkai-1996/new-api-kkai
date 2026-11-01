@@ -21,6 +21,7 @@ WORKDIR /build
 
 ADD go.mod go.sum ./
 COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
 RUN go mod download
 
 COPY . .

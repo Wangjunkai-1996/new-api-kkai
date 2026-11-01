@@ -55,6 +55,7 @@ ENV CGO_ENABLED=0 \
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     go mod download && go mod verify
 COPY . .
@@ -105,6 +106,7 @@ ENV CGO_ENABLED=0 \
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY relaykit/go.mod relaykit/go.sum ./relaykit/
+COPY third_party/tokenizer/go.mod third_party/tokenizer/go.sum ./third_party/tokenizer/
 RUN --mount=type=cache,id=kkai-newapi-go-mod-v1,target=/go/pkg/mod,sharing=locked \
     go mod download && go mod verify
 COPY . .
