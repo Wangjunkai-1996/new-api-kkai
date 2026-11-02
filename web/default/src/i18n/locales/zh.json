@@ -6339,6 +6339,8 @@
     "Request Model Name": "请求模型名称",
     "Request Model:": "请求模型：",
     "Request names your users call": "用户调用的请求模型名",
+    "Request note": "申请备注",
+    "Request note (optional, visible to reviewers)": "申请备注（选填，审核人员可见）",
     "Request overrides, routing behavior, and upstream model automation": "请求覆盖、路由行为和上游模型自动化",
     "Request Path": "请求路径",
     "Request policies": "请求策略",

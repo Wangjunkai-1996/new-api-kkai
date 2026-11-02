@@ -6339,6 +6339,8 @@
     "Request Model Name": "リクエストのモデル名",
     "Request Model:": "リクエストモデル：",
     "Request names your users call": "ユーザーが呼び出すリクエストモデル名",
+    "Request note": "申請備考",
+    "Request note (optional, visible to reviewers)": "申請備考（任意、審査担当者に表示）",
     "Request overrides, routing behavior, and upstream model automation": "リクエスト上書き、ルーティング動作、上流モデル自動化",
     "Request Path": "リクエストパス",
     "Request policies": "リクエストポリシー",

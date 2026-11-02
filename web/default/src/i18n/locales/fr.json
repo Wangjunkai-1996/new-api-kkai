@@ -6339,6 +6339,8 @@
     "Request Model Name": "Nom du modèle demandé",
     "Request Model:": "Modèle demandé :",
     "Request names your users call": "Noms de requête utilisés par vos utilisateurs",
+    "Request note": "Note de la demande",
+    "Request note (optional, visible to reviewers)": "Note de la demande (facultative, visible par les responsables de validation)",
     "Request overrides, routing behavior, and upstream model automation": "Surcharges de requête, comportement de routage et automatisation des modèles amont",
     "Request Path": "Chemin de requête",
     "Request policies": "Politiques de requête",

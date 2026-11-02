@@ -464,7 +464,7 @@ export function NewInvoicePage(props: {
                   />
                 </fieldset>
                 <label className='grid gap-2 text-sm'>
-                  {t('Additional note')}
+                  {t('Request note (optional, visible to reviewers)')}
                   <Textarea
                     maxLength={500}
                     value={draft.note}
@@ -598,6 +598,12 @@ export function NewInvoicePage(props: {
                         )?.label}
                   </span>
                 </div>
+                {draft.note && (
+                  <div className='invoice-data-row'>
+                    <span>{t('Request note')}</span>
+                    <span className='whitespace-pre-wrap'>{draft.note}</span>
+                  </div>
+                )}
                 <div className='mt-5 flex items-center justify-between'>
                   <h3 className='text-sm font-medium'>
                     {t('Selected orders')}

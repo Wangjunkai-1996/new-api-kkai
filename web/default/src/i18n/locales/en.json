@@ -6339,6 +6339,8 @@
     "Request Model Name": "Request Model Name",
     "Request Model:": "Request Model:",
     "Request names your users call": "Request names your users call",
+    "Request note": "Request note",
+    "Request note (optional, visible to reviewers)": "Request note (optional, visible to reviewers)",
     "Request overrides, routing behavior, and upstream model automation": "Request overrides, routing behavior, and upstream model automation",
     "Request Path": "Request Path",
     "Request policies": "Request policies",

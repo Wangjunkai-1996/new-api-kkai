@@ -151,8 +151,8 @@ export function InvoiceDetail(props: {
           )}
           {invoice.note && (
             <div className='invoice-data-row'>
-              <span>{t('Additional note')}</span>
-              <span>{invoice.note}</span>
+              <span>{t('Request note')}</span>
+              <span className='whitespace-pre-wrap'>{invoice.note}</span>
             </div>
           )}
         </section>

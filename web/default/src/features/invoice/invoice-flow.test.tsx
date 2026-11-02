@@ -509,6 +509,51 @@ test('policy required fields block review and identify the missing field', async
   ).not.toBeInTheDocument()
 })
 
+test('request notes remain visible during review and retain edits when submitted', async () => {
+  const user = userEvent.setup()
+  const create = vi
+    .spyOn(invoiceApi, 'createInvoice')
+    .mockResolvedValue(invoice)
+  const note =
+    'Include our purchase order number.\nContact finance before issuing.'
+  const updatedNote =
+    'Purchase order: PO-2026-11\nContact finance before issuing.'
+  const noteLabel = 'Request note (optional, visible to reviewers)'
+  renderWithClient(<DraftHarness step={2} />)
+  await user.type(screen.getByRole('textbox', { name: noteLabel }), note)
+  await user.click(
+    screen.getAllByRole('button', { name: 'Next: review request' })[0]
+  )
+  expect(await screen.findByText('Request note')).toBeVisible()
+  expect(
+    screen.getByText(/Include our purchase order number/)
+  ).toHaveTextContent(note, { normalizeWhitespace: false })
+  await user.click(screen.getByRole('button', { name: 'Edit information' }))
+  const noteInput = screen.getByRole('textbox', { name: noteLabel })
+  expect(noteInput).toHaveValue(note)
+  await user.clear(noteInput)
+  await user.type(noteInput, updatedNote)
+  await user.click(
+    screen.getAllByRole('button', { name: 'Next: review request' })[0]
+  )
+  expect(
+    await screen.findByText(/Purchase order: PO-2026-11/)
+  ).toHaveTextContent(updatedNote, { normalizeWhitespace: false })
+  await user.click(
+    screen.getByRole('checkbox', {
+      name: 'I have checked the orders and invoice information and confirm they are accurate.',
+    })
+  )
+  await user.click(
+    screen.getAllByRole('button', { name: 'Submit invoice request' })[0]
+  )
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+  expect(create).toHaveBeenCalledWith(
+    expect.objectContaining({ note: updatedNote }),
+    expect.any(String)
+  )
+})
+
 test('final submission rechecks changed payments before creating a request', async () => {
   const user = userEvent.setup()
   const create = vi.spyOn(invoiceApi, 'createInvoice')
@@ -871,7 +916,9 @@ test('pending quotes freeze order selection, removal, step changes and invoice i
   )
   expect(screen.getByRole('textbox', { name: /Invoice title/ })).toBeDisabled()
   expect(
-    screen.getByRole('textbox', { name: 'Additional note' })
+    screen.getByRole('textbox', {
+      name: 'Request note (optional, visible to reviewers)',
+    })
   ).toBeDisabled()
   expect(screen.getByRole('combobox', { name: 'Invoice type' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled()

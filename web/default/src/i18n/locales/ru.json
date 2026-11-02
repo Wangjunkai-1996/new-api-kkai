@@ -6339,6 +6339,8 @@
     "Request Model Name": "Имя модели в запросе",
     "Request Model:": "Модель запроса:",
     "Request names your users call": "Имена запроса, которые вызывают пользователи",
+    "Request note": "Примечание к заявке",
+    "Request note (optional, visible to reviewers)": "Примечание к заявке (необязательно, видно проверяющим)",
     "Request overrides, routing behavior, and upstream model automation": "Переопределения запросов, маршрутизация и автоматизация upstream-моделей",
     "Request Path": "Путь запроса",
     "Request policies": "Политики запросов",

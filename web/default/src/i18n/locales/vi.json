@@ -6339,6 +6339,8 @@
     "Request Model Name": "Tên mô hình trong yêu cầu",
     "Request Model:": "Mô hình yêu cầu:",
     "Request names your users call": "Tên yêu cầu mà người dùng gọi",
+    "Request note": "Ghi chú yêu cầu",
+    "Request note (optional, visible to reviewers)": "Ghi chú yêu cầu (không bắt buộc, người duyệt có thể xem)",
     "Request overrides, routing behavior, and upstream model automation": "Ghi đè yêu cầu, hành vi định tuyến và tự động hóa mô hình upstream",
     "Request Path": "Đường dẫn yêu cầu",
     "Request policies": "Chính sách yêu cầu",

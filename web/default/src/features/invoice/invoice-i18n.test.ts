@@ -5,6 +5,8 @@ import { expect, test } from 'vitest'
 
 test('invoice minimum and submission recovery copy is translated in every supported locale', () => {
   const keys = [
+    'Request note',
+    'Request note (optional, visible to reviewers)',
     'Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.',
     'Updating your payment records automatically…',
     'Some payment records could not be updated. Please try again later.',
