@@ -7610,6 +7610,7 @@
     "The provider could not complete this generation": "上游未能完成本次產生",
     "The provider detected a possible real person or restricted private content in the input material.": "上游判斷輸入素材可能包含真人或受限的隱私內容，因此拒絕產生。",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "伺服器的公開URL，用於OAuthCallback、Webhook和其他外部整合",
+    "The recommended model {{model}} is unavailable for this API key. Please select another model.": "此 API 金鑰無法使用推薦模型 {{model}}，請選擇其他模型。",
     "The reference image could not be processed. Replace it and try again.": "參考圖無法處理，請更換圖片後重試。",
     "The request could not be completed. Your input is preserved.": "The request could not be completed. Your input is preserved.",
     "The request could not be confirmed. Refresh this order and try again.": "無法確認操作結果，請重新整理訂單後再重試。",

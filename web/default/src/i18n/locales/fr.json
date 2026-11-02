@@ -7610,6 +7610,7 @@
     "The provider could not complete this generation": "Le fournisseur n’a pas pu terminer la génération",
     "The provider detected a possible real person or restricted private content in the input material.": "Le fournisseur estime que le contenu fourni pourrait inclure une personne réelle ou des informations privées restreintes.",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "L'URL publique de votre serveur, utilisée pour les rappels OAuth, les webhooks et autres intégrations externes",
+    "The recommended model {{model}} is unavailable for this API key. Please select another model.": "Le modèle recommandé {{model}} est indisponible pour cette clé API. Veuillez en choisir un autre.",
     "The reference image could not be processed. Replace it and try again.": "L’image de référence n’a pas pu être traitée. Remplacez-la et réessayez.",
     "The request could not be completed. Your input is preserved.": "L’opération n’a pas abouti. Votre saisie est conservée.",
     "The request could not be confirmed. Refresh this order and try again.": "La requête n’a pas pu être confirmée. Actualisez la commande et réessayez.",

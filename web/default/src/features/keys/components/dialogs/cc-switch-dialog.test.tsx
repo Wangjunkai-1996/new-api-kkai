@@ -22,6 +22,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { getSiteConfigQueryKey } from '@/features/site-config'
+import { privateUserQueryKey } from '@/lib/private-query-cache'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -81,6 +82,253 @@ describe('CC Switch dialog', () => {
     queryClients.length = 0
   })
 
+  test.each([
+    {
+      app: 'Codex',
+      model: 'gpt-6-astra',
+      available: ['gpt-6-sol', 'gpt-6-astra', 'codex-auto-review'],
+      endpoint: `${window.location.origin}/v1`,
+    },
+    {
+      app: 'Claude',
+      model: 'claude-opus-5-5',
+      available: ['claude-fable-5-1', 'claude-opus-5-5'],
+      endpoint: window.location.origin,
+    },
+  ])('imports the recommended $app configuration', async (entry) => {
+    apiMocks.getTokenModels.mockResolvedValue({
+      success: true,
+      data: entry.available,
+    })
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const user = userEvent.setup()
+    renderDialog()
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Primary Model' })
+      ).toHaveValue(entry.model)
+    )
+    expect(screen.getByRole('radio', { name: entry.app })).toBeChecked()
+    if (entry.app === 'Claude') {
+      for (const name of ['Haiku Model', 'Sonnet Model', 'Opus Model']) {
+        expect(screen.getByRole('combobox', { name })).toHaveValue('')
+      }
+    }
+    await user.click(screen.getByRole('button', { name: 'Open CC Switch' }))
+
+    const url = new URL(String(open.mock.calls[0][0]))
+    expect(url.searchParams.get('app')).toBe(entry.app.toLowerCase())
+    expect(url.searchParams.get('model')).toBe(entry.model)
+    expect(url.searchParams.get('endpoint')).toBe(entry.endpoint)
+    expect(url.searchParams.get('apiKey')).toBe('sk-test')
+    expect(url.searchParams.has('haikuModel')).toBe(false)
+    expect(url.searchParams.has('sonnetModel')).toBe(false)
+    expect(url.searchParams.has('opusModel')).toBe(false)
+  })
+
+  test.each([
+    { app: 'Codex', available: ['gpt-5.6-sol'], recommended: 'gpt-6-astra' },
+    {
+      app: 'Claude',
+      available: ['claude-fable-5'],
+      recommended: 'claude-opus-5-5',
+    },
+  ])(
+    'selects $app but leaves an unavailable recommendation empty',
+    async (entry) => {
+      apiMocks.getTokenModels.mockResolvedValue({
+        success: true,
+        data: entry.available,
+      })
+      renderDialog()
+
+      expect(
+        await screen.findByText(
+          `The recommended model ${entry.recommended} is unavailable for this API key. Please select another model.`
+        )
+      ).toBeVisible()
+      expect(screen.getByRole('radio', { name: entry.app })).toBeChecked()
+      expect(
+        screen.getByRole('combobox', { name: 'Primary Model' })
+      ).toHaveValue('')
+      expect(
+        screen.getByRole('button', { name: 'Open CC Switch' })
+      ).toBeDisabled()
+    }
+  )
+
+  test('keeps mixed families manual and clears Claude fields when switching applications', async () => {
+    apiMocks.getTokenModels.mockResolvedValue({
+      success: true,
+      data: ['claude-opus-5-5', 'gpt-6-astra'],
+    })
+    const user = userEvent.setup()
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    renderDialog()
+    await screen.findByText('Please select a primary model')
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      ''
+    )
+    await user.click(screen.getByText('Claude', { selector: 'label' }))
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      'claude-opus-5-5'
+    )
+    await user.click(screen.getByRole('combobox', { name: 'Haiku Model' }))
+    await user.click(
+      await screen.findByRole('option', { name: 'claude-opus-5-5' })
+    )
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      'claude-opus-5-5'
+    )
+    await user.clear(screen.getByRole('textbox', { name: 'Name' }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'Name' }),
+      'My provider'
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Codex' }))
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      'gpt-6-astra'
+    )
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(
+      'My provider'
+    )
+    await user.click(screen.getByRole('button', { name: 'Open CC Switch' }))
+    expect(
+      new URL(String(open.mock.calls[0][0])).searchParams.has('haikuModel')
+    ).toBe(false)
+
+    await user.click(screen.getByRole('radio', { name: 'Claude' }))
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      'claude-opus-5-5'
+    )
+    expect(screen.getByRole('combobox', { name: 'Haiku Model' })).toHaveValue(
+      ''
+    )
+  })
+
+  test('preserves manual choices on refresh and blocks models removed from the token', async () => {
+    apiMocks.getTokenModels.mockResolvedValue({
+      success: true,
+      data: ['gpt-6-astra', 'gpt-6-sol'],
+    })
+    const user = userEvent.setup()
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const { queryClient } = renderDialog()
+    const queryKey = privateUserQueryKey(42, 'api-keys', 'cc-switch-models', 1)
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked()
+    )
+    await user.click(screen.getByRole('combobox', { name: 'Primary Model' }))
+    await user.click(await screen.findByRole('option', { name: 'gpt-6-sol' }))
+
+    apiMocks.getTokenModels.mockResolvedValue({
+      success: true,
+      data: ['gpt-6-astra', 'gpt-6-sol', 'claude-opus-5-5'],
+    })
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey })
+    })
+    expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      'gpt-6-sol'
+    )
+
+    apiMocks.getTokenModels.mockResolvedValue({
+      success: true,
+      data: ['gpt-6-astra'],
+    })
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey })
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A selected model no longer exists.'
+    )
+    expect(
+      screen.getByRole('button', { name: 'Open CC Switch' })
+    ).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Open CC Switch' }))
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    { app: 'Gemini', keyboard: false },
+    { app: 'Claude', keyboard: false },
+    { app: 'Claude', keyboard: true },
+  ])(
+    'preserves $app selected before loading completes (keyboard=$keyboard)',
+    async ({ app, keyboard }) => {
+      let resolveModels!: (value: { success: boolean; data: string[] }) => void
+      const response = new Promise<{ success: boolean; data: string[] }>(
+        (resolve) => {
+          resolveModels = resolve
+        }
+      )
+      apiMocks.getTokenModels.mockReturnValue(response)
+      const user = userEvent.setup()
+      renderDialog()
+
+      const radio = screen.getByRole('radio', { name: app })
+      if (keyboard) {
+        radio.focus()
+        await user.keyboard(' ')
+      } else {
+        await user.click(radio)
+      }
+      await act(async () => {
+        resolveModels({ success: true, data: ['gpt-6-astra'] })
+      })
+      await waitFor(() =>
+        expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+      )
+      expect(screen.getByRole('radio', { name: app })).toBeChecked()
+      expect(
+        screen.getByRole('combobox', { name: 'Primary Model' })
+      ).toHaveValue('')
+      expect(
+        screen.getByRole('button', { name: 'Open CC Switch' })
+      ).toBeDisabled()
+    }
+  )
+
+  test('isolates late token responses and resets defaults when reopened', async () => {
+    let resolveModels!: (value: { success: boolean; data: string[] }) => void
+    const response = new Promise<{ success: boolean; data: string[] }>(
+      (resolve) => {
+        resolveModels = resolve
+      }
+    )
+    apiMocks.getTokenModels
+      .mockReturnValueOnce(response)
+      .mockResolvedValue({ success: true, data: ['claude-opus-5-5'] })
+    const user = userEvent.setup()
+    const rendered = renderDialog(1)
+    rendered.rerender(dialogTree(rendered.queryClient, 2))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Primary Model' })
+      ).toHaveValue('claude-opus-5-5')
+    )
+    await act(async () => {
+      resolveModels({ success: true, data: ['gpt-6-astra'] })
+    })
+    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      'claude-opus-5-5'
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Codex' }))
+    rendered.rerender(dialogTree(rendered.queryClient, 2, false))
+    rendered.rerender(dialogTree(rendered.queryClient, 2, true))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Primary Model' })
+      ).toHaveValue('claude-opus-5-5')
+    )
+    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked()
+  })
+
   test('keeps each token model list isolated in the query cache', async () => {
     apiMocks.getTokenModels.mockImplementation(async (tokenId: number) => ({
       success: true,
@@ -138,6 +386,43 @@ describe('CC Switch dialog', () => {
     expect(
       screen.queryByRole('option', { name: 'old-model' })
     ).not.toBeInTheDocument()
+  })
+
+  test('waits for a fresh model list before inferring defaults on reopen', async () => {
+    apiMocks.getTokenModels.mockResolvedValueOnce({
+      success: true,
+      data: ['gpt-6-astra'],
+    })
+    const rendered = renderDialog()
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Codex' })).toBeChecked()
+    )
+    let resolveModels!: (value: { success: boolean; data: string[] }) => void
+    apiMocks.getTokenModels.mockReturnValueOnce(
+      new Promise<{ success: boolean; data: string[] }>((resolve) => {
+        resolveModels = resolve
+      })
+    )
+    rendered.rerender(dialogTree(rendered.queryClient, 1, false))
+    rendered.rerender(dialogTree(rendered.queryClient, 1, true))
+
+    expect(screen.getByText('Loading...')).toBeVisible()
+    expect(screen.getByRole('radio', { name: 'Codex' })).not.toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Primary Model' })).toHaveValue(
+      ''
+    )
+    expect(
+      screen.getByRole('button', { name: 'Open CC Switch' })
+    ).toBeDisabled()
+    await act(async () => {
+      resolveModels({ success: true, data: ['claude-opus-5-5'] })
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Primary Model' })
+      ).toHaveValue('claude-opus-5-5')
+    )
+    expect(screen.getByRole('radio', { name: 'Claude' })).toBeChecked()
   })
 
   test('hides cached models when a reopen refresh fails', async () => {

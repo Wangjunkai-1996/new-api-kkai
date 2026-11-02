@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -33,6 +33,11 @@ import { getStatusStorageKey } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getTokenModels } from '../../api'
+import {
+  CC_SWITCH_RECOMMENDED_MODELS,
+  inferCCSwitchApp,
+  type CCSwitchApp,
+} from '../../lib/cc-switch-defaults'
 
 const APP_CONFIGS = {
   claude: {
@@ -53,8 +58,6 @@ const APP_CONFIGS = {
     modelFields: [{ key: 'model', labelKey: 'Primary Model', required: true }],
   },
 } as const
-
-type AppType = keyof typeof APP_CONFIGS
 
 const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
   request: {
@@ -183,17 +186,30 @@ interface Props {
 }
 
 export function CCSwitchDialog(props: Props) {
+  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
+
+  return (
+    <CCSwitchForm
+      key={`${userId}:${props.tokenId}:${props.open}`}
+      {...props}
+      userId={userId}
+    />
+  )
+}
+
+function CCSwitchForm(props: Props & { userId: number }) {
   const { t } = useTranslation()
   const { systemName } = useSystemConfig()
-  const userId = useAuthStore((state) => state.auth.user?.id ?? 0)
-  const [app, setApp] = useState<AppType>('claude')
+  const [selectedApp, setSelectedApp] = useState<CCSwitchApp | null>(null)
   const [customName, setCustomName] = useState<string | null>(null)
   const name = customName ?? systemName
-  const [models, setModels] = useState<Record<string, string>>({})
+  const [modelOverrides, setModelOverrides] = useState<Record<string, string>>(
+    {}
+  )
 
   const modelsQuery = useQuery({
     queryKey: privateUserQueryKey(
-      userId,
+      props.userId,
       'api-keys',
       'cc-switch-models',
       props.tokenId
@@ -205,7 +221,7 @@ export function CCSwitchDialog(props: Props) {
       }
       return response.data ?? []
     },
-    enabled: props.open && props.tokenId > 0 && userId > 0,
+    enabled: props.open && props.tokenId > 0 && props.userId > 0,
     staleTime: 0,
     retry: false,
   })
@@ -219,28 +235,33 @@ export function CCSwitchDialog(props: Props) {
     return items.map((m) => ({ value: m, label: m }))
   }, [hasAvailableModels, modelsQuery.data])
 
-  useEffect(() => {
-    if (props.open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setModels({})
-
-      setApp('claude')
-
-      setCustomName(null)
-    }
-  }, [props.open, props.tokenId])
-
+  const inferredApp = hasAvailableModels
+    ? inferCCSwitchApp(modelsQuery.data ?? [])
+    : null
+  const app = selectedApp ?? inferredApp ?? 'claude'
+  const recommendedModel =
+    selectedApp || inferredApp ? CC_SWITCH_RECOMMENDED_MODELS[app] : ''
+  const recommendationAvailable =
+    hasAvailableModels && modelsQuery.data?.includes(recommendedModel)
+  // Undefined means untouched; an explicit empty value must stay empty.
+  const models: Record<string, string> = {
+    model: recommendationAvailable ? recommendedModel : '',
+    ...modelOverrides,
+  }
+  const hasInvalidModel = Object.values(models).some(
+    (value) => value && !modelsQuery.data?.includes(value)
+  )
+  const canSubmit =
+    hasAvailableModels && Boolean(models.model) && !hasInvalidModel
   const currentConfig = APP_CONFIGS[app]
 
   const handleAppChange = (val: string) => {
-    const appVal = val as AppType
-    setApp(appVal)
-    setCustomName(null)
-    setModels({})
+    setSelectedApp(val as CCSwitchApp)
+    setModelOverrides({})
   }
 
   const handleSubmit = () => {
-    if (!models.model) {
+    if (!canSubmit) {
       toast.warning(t('Please select a primary model'))
       return
     }
@@ -265,7 +286,7 @@ export function CCSwitchDialog(props: Props) {
           <Button variant='outline' onClick={() => props.onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button disabled={!hasAvailableModels} onClick={handleSubmit}>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
             {t('Open CC Switch')}
           </Button>
         </>
@@ -281,11 +302,19 @@ export function CCSwitchDialog(props: Props) {
           >
             {(
               Object.entries(APP_CONFIGS) as [
-                AppType,
-                (typeof APP_CONFIGS)[AppType],
+                CCSwitchApp,
+                (typeof APP_CONFIGS)[CCSwitchApp],
               ][]
             ).map(([key, cfg]) => (
-              <div key={key} className='flex items-center gap-2'>
+              <div
+                key={key}
+                className='flex items-center gap-2'
+                onClickCapture={() => {
+                  // Re-selecting the inferred radio is still an explicit choice.
+                  // Capture also covers its label and the native input click.
+                  if (key === app) setSelectedApp(key)
+                }}
+              >
                 <RadioGroupItem value={key} id={`app-${key}`} />
                 <Label htmlFor={`app-${key}`} className='cursor-pointer'>
                   {cfg.label}
@@ -325,6 +354,22 @@ export function CCSwitchDialog(props: Props) {
             </p>
           )}
 
+        {hasAvailableModels && !models.model && (
+          <p className='text-muted-foreground text-sm' aria-live='polite'>
+            {recommendedModel && !recommendationAvailable
+              ? t(
+                  'The recommended model {{model}} is unavailable for this API key. Please select another model.',
+                  { model: recommendedModel }
+                )
+              : t('Please select a primary model')}
+          </p>
+        )}
+        {hasAvailableModels && hasInvalidModel && (
+          <p className='text-destructive text-sm' role='alert'>
+            {t('A selected model no longer exists. Reload the model list.')}
+          </p>
+        )}
+
         {currentConfig.modelFields.map((field) => (
           <div key={field.key} className='space-y-2'>
             <Label htmlFor={`cc-switch-${field.key}`} required={field.required}>
@@ -334,10 +379,14 @@ export function CCSwitchDialog(props: Props) {
               id={`cc-switch-${field.key}`}
               aria-label={t(field.labelKey)}
               options={modelOptions}
-              value={models[field.key] || ''}
-              onValueChange={(v) =>
-                setModels((prev) => ({ ...prev, [field.key]: v ?? '' }))
-              }
+              value={models[field.key] ?? ''}
+              onValueChange={(value) => {
+                setSelectedApp(app)
+                setModelOverrides({
+                  ...models,
+                  [field.key]: value ?? '',
+                })
+              }}
               placeholder={t('Select or enter model name')}
               emptyText={t('No models found')}
             />

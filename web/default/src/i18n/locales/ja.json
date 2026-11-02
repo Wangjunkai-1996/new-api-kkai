@@ -7610,6 +7610,7 @@
     "The provider could not complete this generation": "プロバイダーが今回の生成を完了できませんでした",
     "The provider detected a possible real person or restricted private content in the input material.": "プロバイダーは、入力素材に実在の人物や制限対象の個人情報が含まれる可能性があると判断しました。",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "OAuthコールバック、Webhook、その他の外部統合に使用されるサーバーの公開URL",
+    "The recommended model {{model}} is unavailable for this API key. Please select another model.": "この API キーでは推奨モデル {{model}} を利用できません。別のモデルを選択してください。",
     "The reference image could not be processed. Replace it and try again.": "参照画像を処理できませんでした。別の画像で再試行してください。",
     "The request could not be completed. Your input is preserved.": "操作を完了できませんでした。入力内容は保持されています。",
     "The request could not be confirmed. Refresh this order and try again.": "操作結果を確認できませんでした。注文を更新してから再試行してください。",

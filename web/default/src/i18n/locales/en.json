@@ -7610,6 +7610,7 @@
     "The provider could not complete this generation": "The provider could not complete this generation",
     "The provider detected a possible real person or restricted private content in the input material.": "The provider detected a possible real person or restricted private content in the input material.",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations",
+    "The recommended model {{model}} is unavailable for this API key. Please select another model.": "The recommended model {{model}} is unavailable for this API key. Please select another model.",
     "The reference image could not be processed. Replace it and try again.": "The reference image could not be processed. Replace it and try again.",
     "The request could not be completed. Your input is preserved.": "The request could not be completed. Your input is preserved.",
     "The request could not be confirmed. Refresh this order and try again.": "The request could not be confirmed. Refresh this order and try again.",

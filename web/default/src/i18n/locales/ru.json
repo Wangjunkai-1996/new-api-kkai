@@ -7610,6 +7610,7 @@
     "The provider could not complete this generation": "Провайдер не смог завершить генерацию",
     "The provider detected a possible real person or restricted private content in the input material.": "Провайдер обнаружил возможное присутствие реального человека или запрещённых личных данных во входных материалах.",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "Публичный URL вашего сервера, используемый для OAuth-перенаправлений, вебхуков и других внешних интеграций",
+    "The recommended model {{model}} is unavailable for this API key. Please select another model.": "Рекомендуемая модель {{model}} недоступна для этого API-ключа. Выберите другую модель.",
     "The reference image could not be processed. Replace it and try again.": "Не удалось обработать исходное изображение. Замените его и повторите попытку.",
     "The request could not be completed. Your input is preserved.": "Не удалось выполнить запрос. Введённые данные сохранены.",
     "The request could not be confirmed. Refresh this order and try again.": "Не удалось подтвердить результат. Обновите заказ и повторите попытку.",

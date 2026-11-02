@@ -7610,6 +7610,7 @@
     "The provider could not complete this generation": "Nhà cung cấp không thể hoàn tất lần tạo này",
     "The provider detected a possible real person or restricted private content in the input material.": "Nhà cung cấp nhận định tư liệu đầu vào có thể chứa người thật hoặc nội dung riêng tư bị hạn chế.",
     "The public URL of your server, used for OAuth callbacks, webhooks, and other external integrations": "URL công khai của máy chủ, dùng cho callback OAuth, webhook và các tích hợp bên ngoài khác",
+    "The recommended model {{model}} is unavailable for this API key. Please select another model.": "Mô hình được đề xuất {{model}} không khả dụng với khóa API này. Vui lòng chọn mô hình khác.",
     "The reference image could not be processed. Replace it and try again.": "Không thể xử lý ảnh tham chiếu. Hãy thay ảnh khác rồi thử lại.",
     "The request could not be completed. Your input is preserved.": "Không thể hoàn tất yêu cầu. Nội dung đã nhập được giữ lại.",
     "The request could not be confirmed. Refresh this order and try again.": "Không thể xác nhận kết quả. Hãy làm mới đơn rồi thử lại.",
