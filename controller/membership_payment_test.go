@@ -171,7 +171,7 @@ func TestMembershipEpayVerifiedMoneyAndDuplicateCallbacks(t *testing.T) {
 				assert.Zero(t, receiptCount)
 				assert.Zero(t, order.PaidAt)
 				assert.Empty(t, order.ReceiptID)
-				assert.Equal(t, "PAYMENT_PROVIDER_UNAVAILABLE", check.LastError)
+				assert.Equal(t, "PAYMENT_QUERY_RESPONSE_INVALID", check.LastError)
 				assert.Greater(t, check.NextCheckAt, time.Now().Unix(), "malformed merchant replies remain retryable")
 			} else {
 				assert.EqualValues(t, 1, evidenceCount)

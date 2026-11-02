@@ -155,6 +155,11 @@ func reconcileMembershipPayment(ctx context.Context, orderID int64, client *http
 		result.Reason = "PAYMENT_PROVIDER_UNAVAILABLE"
 		if errors.Is(err, ErrMembershipPaymentEvidence) {
 			result.Status, result.Reason = model.MembershipPaymentReview, "PAYMENT_EVIDENCE_INVALID"
+		} else {
+			var queryFailure *membershipQueryFailure
+			if errors.As(err, &queryFailure) {
+				result.Reason = queryFailure.reason
+			}
 		}
 		if saveErr := model.FinishMembershipPaymentCheck(ctx, orderID, check.ClaimToken, result); saveErr != nil {
 			return "failed", saveErr

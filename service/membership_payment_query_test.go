@@ -37,18 +37,19 @@ func TestQueryMembershipEpayEvidence(t *testing.T) {
 		objectExtension string
 		trailing        string
 		wantErr         error
+		wantReason      string
 		wantUnpaid      bool
 	}{
 		{name: "paid"},
 		{name: "merchant payment method alias", fields: map[string]any{"type": "wxpay2"}},
 		{name: "one quoted JSON layer", quoted: true},
 		{name: "unpaid", fields: map[string]any{"status": 0}, wantUnpaid: true},
-		{name: "provider temporarily unavailable", fields: map[string]any{"code": 0}, wantErr: ErrMembershipPaymentUnavailable},
+		{name: "provider temporarily unavailable", fields: map[string]any{"code": 0}, wantErr: ErrMembershipPaymentUnavailable, wantReason: "PAYMENT_QUERY_PROVIDER_UNAVAILABLE"},
 		{name: "wrong merchant", fields: map[string]any{"pid": 456}, wantErr: ErrMembershipPaymentEvidence},
 		{name: "wrong order", fields: map[string]any{"out_trade_no": "MEMBER-other"}, wantErr: ErrMembershipPaymentEvidence},
-		{name: "missing merchant identity", fields: map[string]any{"pid": nil}, wantErr: ErrMembershipPaymentUnavailable},
+		{name: "missing merchant identity", fields: map[string]any{"pid": nil}, wantErr: ErrMembershipPaymentUnavailable, wantReason: "PAYMENT_QUERY_RESPONSE_INVALID"},
 		{name: "missing order identity", fields: map[string]any{"out_trade_no": ""}, wantErr: ErrMembershipPaymentUnavailable},
-		{name: "duplicate escaped merchant key", objectExtension: `,"\u0070id":123`, wantErr: ErrMembershipPaymentUnavailable},
+		{name: "duplicate escaped merchant key", objectExtension: `,"\u0070id":123`, wantErr: ErrMembershipPaymentUnavailable, wantReason: "PAYMENT_QUERY_RESPONSE_INVALID"},
 		{name: "duplicate escaped nested key", objectExtension: `,"extra":{"value":1,"\u0076alue":1}`, wantErr: ErrMembershipPaymentUnavailable},
 		{name: "trailing JSON", trailing: " {}", wantErr: ErrMembershipPaymentUnavailable},
 		{name: "unknown payment status", fields: map[string]any{"status": 2}, wantErr: ErrMembershipPaymentUnavailable},
@@ -89,6 +90,12 @@ func TestQueryMembershipEpayEvidence(t *testing.T) {
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				assert.NotContains(t, err.Error(), snapshot.APIKey)
+				if tt.wantReason != "" {
+					var failure *membershipQueryFailure
+					require.ErrorAs(t, err, &failure)
+					assert.Equal(t, tt.wantReason, failure.reason)
+					assert.Equal(t, ErrMembershipPaymentUnavailable.Error(), err.Error())
+				}
 				assert.Equal(t, membershipEpayQuery{}, got)
 				return
 			}
@@ -176,6 +183,9 @@ func TestQueryMembershipEpayDoesNotFollowRedirects(t *testing.T) {
 
 	got, err := queryMembershipEpay(context.Background(), server.Client(), order, snapshot)
 	require.ErrorIs(t, err, ErrMembershipPaymentUnavailable)
+	var failure *membershipQueryFailure
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "PAYMENT_QUERY_HTTP_UNAVAILABLE", failure.reason)
 	assert.NotContains(t, err.Error(), snapshot.APIKey)
 	assert.Equal(t, membershipEpayQuery{}, got)
 	assert.Zero(t, destinationRequests.Load(), "redirect must not forward merchant credentials")
@@ -227,6 +237,9 @@ func TestQueryMembershipEpayCanceledContext(t *testing.T) {
 
 	got, err := queryMembershipEpay(ctx, server.Client(), order, snapshot)
 	require.ErrorIs(t, err, ErrMembershipPaymentUnavailable)
+	var failure *membershipQueryFailure
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "PAYMENT_QUERY_TRANSPORT_UNAVAILABLE", failure.reason)
 	assert.NotContains(t, err.Error(), snapshot.APIKey)
 	assert.Equal(t, membershipEpayQuery{}, got)
 	assert.Zero(t, requests.Load())

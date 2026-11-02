@@ -159,7 +159,7 @@ func TestMembershipPaymentTransientHTMLResponseRecoversOnLaterPaidQuery(t *testi
 	var check model.MembershipPaymentCheck
 	require.NoError(t, db.First(&check, "order_id = ?", order.ID).Error)
 	assert.Equal(t, model.MembershipPaymentPending, check.Status)
-	assert.Equal(t, "PAYMENT_PROVIDER_UNAVAILABLE", check.LastError)
+	assert.Equal(t, "PAYMENT_QUERY_RESPONSE_INVALID", check.LastError)
 	assert.Greater(t, check.NextCheckAt, common.GetTimestamp())
 	var evidenceCount int64
 	require.NoError(t, db.Model(&model.MembershipPaymentEvidence{}).Count(&evidenceCount).Error)

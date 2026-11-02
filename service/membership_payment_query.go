@@ -22,6 +22,11 @@ type membershipEpayQuery struct {
 	ValidationError string
 }
 
+type membershipQueryFailure struct{ reason string }
+
+func (failure *membershipQueryFailure) Error() string { return ErrMembershipPaymentUnavailable.Error() }
+func (failure *membershipQueryFailure) Unwrap() error { return ErrMembershipPaymentUnavailable }
+
 // queryMembershipEpay uses only the authenticated original merchant query.
 // Query payment-method aliases are not callback signatures or order identity.
 func queryMembershipEpay(ctx context.Context, client *http.Client, order *model.MembershipOrder, snapshot *MembershipEpaySnapshot) (membershipEpayQuery, error) {
@@ -31,14 +36,14 @@ func queryMembershipEpay(ctx context.Context, client *http.Client, order *model.
 	}
 	base, err := url.Parse(snapshot.APIURL)
 	if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_CONFIG_INVALID"}
 	}
 	base.Path = path.Join(base.Path, "api.php")
 	base.RawPath = ""
 	base.RawQuery = url.Values{"act": {"order"}, "pid": {snapshot.MerchantID}, "key": {snapshot.APIKey}, "out_trade_no": {order.TradeNo}}.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, base.String(), nil)
 	if err != nil {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_CONFIG_INVALID"}
 	}
 	request.Header.Set("Accept", "application/json")
 	if client == nil {
@@ -50,25 +55,25 @@ func queryMembershipEpay(ctx context.Context, client *http.Client, order *model.
 	bounded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	response, err := bounded.Do(request)
 	if err != nil {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_TRANSPORT_UNAVAILABLE"}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_HTTP_UNAVAILABLE"}
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, (64<<10)+1))
 	if err != nil || len(body) > 64<<10 {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	if common.GetJsonType(body) == "string" {
 		var inner string
 		if common.Unmarshal(body, &inner) != nil {
-			return result, ErrMembershipPaymentUnavailable
+			return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 		}
 		body = []byte(inner)
 	}
 	if common.GetJsonType(body) != "object" {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	var unique map[string]common.RawMessage
 	var data struct {
@@ -87,17 +92,17 @@ func queryMembershipEpay(ctx context.Context, client *http.Client, order *model.
 	// Allow provider extensions while rejecting duplicate decoded keys at every
 	// depth, including escaped names, and trailing JSON values.
 	if common.UnmarshalStrict(body, &unique) != nil || common.Unmarshal(body, &data) != nil {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	// A merchant may not have created the checkout yet, or may temporarily
 	// reject queries. Neither response proves that this order can never be paid.
 	if common.JsonRawMessageToString(data.Code) != "1" {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_PROVIDER_UNAVAILABLE"}
 	}
 	merchantID := common.JsonRawMessageToString(data.MerchantID)
 	merchantType := common.GetJsonType(data.MerchantID)
 	if (merchantType != "string" && merchantType != "number") || merchantID == "" || data.OrderNo == "" {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	if merchantID != snapshot.MerchantID || data.OrderNo != order.TradeNo {
 		return result, ErrMembershipPaymentEvidence
@@ -107,14 +112,14 @@ func queryMembershipEpay(ctx context.Context, client *http.Client, order *model.
 		return result, nil
 	}
 	if status != "1" || strings.TrimSpace(data.TradeNo) != data.TradeNo || data.TradeNo == "" || len(data.TradeNo) > 128 {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	if strings.TrimSpace(data.Money) != data.Money || strings.ContainsAny(data.Money, "eE+-") {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	minor, err := model.ParseCNYMinor(data.Money)
 	if err != nil || minor <= 0 {
-		return result, ErrMembershipPaymentUnavailable
+		return result, &membershipQueryFailure{"PAYMENT_QUERY_RESPONSE_INVALID"}
 	}
 	result = membershipEpayQuery{Paid: true, ReceiptID: data.TradeNo, AmountMinor: minor, Currency: "CNY"}
 	if data.Currency != "" {
