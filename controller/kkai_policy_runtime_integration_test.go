@@ -71,10 +71,10 @@ func TestProcessKKAIPolicyAPIErrorAuditsWithoutDisablingAfterClientDisconnect(t 
 
 	require.True(t, detected)
 	assert.True(t, service.ShouldSkipRetryAfterKKAIPolicy(c))
-	assert.True(t, service.KKAIPolicyKeyCooldownApplied(c))
+	assert.False(t, service.KKAIPolicyKeyCooldownApplied(c))
 	status, publicErr := kkaiPublicOpenAIError(c, apiErr)
 	assert.Equal(t, http.StatusForbidden, status)
-	assert.Equal(t, service.KKAIPolicyMessageForCyber(), publicErr.Message)
+	assert.Equal(t, service.KKAIPolicyMessageForCyberWithoutKey(), publicErr.Message)
 	require.NoError(t, db.First(&token, token.Id).Error)
 	assert.Equal(t, common.TokenStatusEnabled, token.Status)
 	require.NoError(t, db.First(&user, user.Id).Error)

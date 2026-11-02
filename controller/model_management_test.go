@@ -1440,7 +1440,16 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					require.NotNil(t, cached)
 					pricingAfter, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 					require.NoError(t, err)
-					assert.Equal(t, pricingBefore, pricingAfter)
+					assert.Equal(t, pricingBefore.Entries, pricingAfter.Entries)
+					assert.Equal(t, pricingBefore.Options, pricingAfter.Options)
+					assert.Equal(t, pricingBefore.EmptyVersion, pricingAfter.EmptyVersion)
+					expectedChannelModels := make([]string, 0, len(pricingBefore.ChannelModels))
+					for _, channelModel := range pricingBefore.ChannelModels {
+						if channelModel != name && channelModel != second.ModelName {
+							expectedChannelModels = append(expectedChannelModels, channelModel)
+						}
+					}
+					assert.Equal(t, expectedChannelModels, pricingAfter.ChannelModels)
 					require.NoError(t, db.Model(&model.Model{}).Where("id IN ?", []int{first.Id, second.Id}).Count(&count).Error)
 					assert.Zero(t, count)
 					_, err = model.DeleteModelMetadata([]int{first.Id}, true, false)

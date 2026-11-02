@@ -90,15 +90,11 @@ func (g *KKAIPolicyIncidentGuard) handle(c *gin.Context, channel types.ChannelEr
 		clientAuthMode == kkaiPolicyClientAuthBearer && channel.ChannelId > 0 &&
 		userID > 0 && tokenID > 0 && KKAIPolicyClientSessionID(c) != "" &&
 		tokenFingerprint != "" && upstreamKeyFingerprint != ""
-	policyActionCtx := kkaiPolicyContext(c)
-	if clientCooldownAllowed {
-		var cancel context.CancelFunc
-		policyActionCtx, cancel = context.WithTimeout(
-			context.WithoutCancel(policyActionCtx),
-			kkaiPolicyEnforcementTimeout,
-		)
-		defer cancel()
-	}
+	policyActionCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(kkaiPolicyContext(c)),
+		kkaiPolicyEnforcementTimeout,
+	)
+	defer cancel()
 	metadata := map[string]any{
 		"case_id":                        eventID,
 		"causality":                      classification.Causality,
