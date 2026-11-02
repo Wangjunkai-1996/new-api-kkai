@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -172,9 +173,13 @@ func TestMembershipPaymentAbandonedClaimRemainsDiscoverable(t *testing.T) {
 	claimMembershipPaymentTest(t, order, "unused")
 	now := common.GetTimestamp()
 	require.NoError(t, DB.Model(&MembershipPaymentCheck{}).Where("order_id = ?", order.ID).Update("claim_until", now-1).Error)
+	for i := 0; i < 21; i++ {
+		check := MembershipPaymentCheck{OrderID: order.ID + int64(i) + 1, TradeNo: fmt.Sprintf("backlog-%d", i), UserID: user.Id, MerchantID: "merchant", EncryptedSnapshot: "encrypted-test-snapshot", Status: MembershipPaymentPending, NextCheckAt: now - 1}
+		require.NoError(t, DB.Create(&check).Error)
+	}
 	due, err := ListDueMembershipPaymentChecks(context.Background(), now, 20)
 	require.NoError(t, err)
-	require.Len(t, due, 1)
+	require.Len(t, due, 20)
 	assert.Equal(t, order.ID, due[0].OrderID)
 	_, err = ClaimMembershipPaymentCheck(context.Background(), order.ID, now)
 	require.NoError(t, err)

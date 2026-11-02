@@ -262,7 +262,7 @@ func ListDueMembershipPaymentChecks(ctx context.Context, now int64, limit int) (
 		limit = 100
 	}
 	var checks []MembershipPaymentCheck
-	err := DB.WithContext(ctx).Where("status = ? AND claim_until <= ? AND (next_check_at <= ? OR claim_token <> ?)", MembershipPaymentPending, now, now, "").Order("next_check_at, order_id").Limit(limit).Find(&checks).Error
+	err := DB.WithContext(ctx).Where("status = ? AND claim_until <= ? AND (next_check_at <= ? OR claim_token <> ?)", MembershipPaymentPending, now, now, "").Order("CASE WHEN claim_token <> '' THEN 0 ELSE 1 END, next_check_at, order_id").Limit(limit).Find(&checks).Error
 	return checks, err
 }
 
