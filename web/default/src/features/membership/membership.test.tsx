@@ -43,6 +43,7 @@ import { formatQuota } from '@/lib/format'
 
 import { MembershipCenter } from '.'
 import {
+  checkMembershipPayment,
   createMembershipOrder,
   getMembershipCatalog,
   getMembershipOrder,
@@ -75,6 +76,7 @@ import type {
 } from './types'
 
 vi.mock('./api', () => ({
+  checkMembershipPayment: vi.fn(),
   createMembershipOrder: vi.fn(),
   getMembershipCatalog: vi.fn(),
   getMembershipOrder: vi.fn(),
@@ -181,6 +183,7 @@ beforeEach(() => {
       data: { quota: 123450000 } as UserWalletData,
     })
   vi.mocked(createMembershipOrder).mockReset()
+  vi.mocked(checkMembershipPayment).mockReset()
   vi.mocked(getMembershipCatalog).mockReset()
   vi.mocked(getMembershipOrder).mockReset()
   vi.mocked(getMembershipOrders).mockReset()
@@ -1087,64 +1090,77 @@ describe('membership payment safety', () => {
     expect(resumeMembershipPayment).not.toHaveBeenCalled()
   })
 
-  it('polls a pending returned order until activation without user action', async () => {
-    const order: MembershipOrder = {
-      id: 6,
-      trade_no: 'MEMBER-9-return',
-      tier_id: tier.id,
-      tier_name: tier.name,
-      status: 'pending',
-      price_minor: 9900,
-      currency: 'CNY',
-      quota: tier.quota,
-      created_at: 1000,
-    }
-    vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
-    vi.mocked(getMembershipSelf)
-      .mockResolvedValueOnce({ ...membership, account: null, tier: null })
-      .mockResolvedValue(membership)
-    vi.mocked(getMembershipOrder)
-      .mockResolvedValueOnce(order)
-      .mockResolvedValue({ ...order, status: 'success', account_id: 20 })
-    vi.mocked(getMembershipOrders).mockResolvedValue([order])
-    const router = createRouter({
-      routeTree: createRootRoute({
-        component: () => <MembershipCenter initialTradeNo={order.trade_no} />,
-      }),
-      history: createMemoryHistory({ initialEntries: ['/'] }),
-    })
-    await router.load()
-    vi.useFakeTimers()
-    try {
-      render(
-        <QueryClientProvider
-          client={
-            new QueryClient({ defaultOptions: { queries: { retry: false } } })
-          }
-        >
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      )
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1)
+  it.each([
+    ['pending', undefined, 'Awaiting payment confirmation'],
+    ['closed', 'checking', 'Awaiting payment confirmation'],
+    ['closed', 'processing', 'Payment confirmed, activating membership'],
+  ] as const)(
+    'polls a %s returned order (%s) until activation without user action',
+    async (status, paymentState, label) => {
+      const order: MembershipOrder = {
+        id: 6,
+        trade_no: 'MEMBER-9-return',
+        tier_id: tier.id,
+        tier_name: tier.name,
+        status,
+        payment_state: paymentState,
+        price_minor: 9900,
+        currency: 'CNY',
+        quota: tier.quota,
+        created_at: 1000,
+      }
+      vi.mocked(getMembershipCatalog).mockResolvedValue(catalog)
+      vi.mocked(getMembershipSelf)
+        .mockResolvedValueOnce({ ...membership, account: null, tier: null })
+        .mockResolvedValue(membership)
+      vi.mocked(getMembershipOrder)
+        .mockResolvedValueOnce(order)
+        .mockResolvedValue({
+          ...order,
+          status: 'success',
+          payment_state: undefined,
+          account_id: 20,
+        })
+      vi.mocked(getMembershipOrders).mockResolvedValue([order])
+      const router = createRouter({
+        routeTree: createRootRoute({
+          component: () => <MembershipCenter initialTradeNo={order.trade_no} />,
+        }),
+        history: createMemoryHistory({ initialEntries: ['/'] }),
       })
-      expect(
-        screen.getAllByText('Awaiting payment confirmation')[0]
-      ).toBeVisible()
-      expect(getMembershipOrder).toHaveBeenCalledOnce()
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
-      })
-      expect(
-        vi.mocked(getMembershipOrder).mock.calls.length
-      ).toBeGreaterThanOrEqual(2)
-      expect(
-        screen.getByRole('dialog', { name: 'Membership activated' })
-      ).toBeVisible()
-    } finally {
-      vi.useRealTimers()
+      await router.load()
+      vi.useFakeTimers()
+      try {
+        render(
+          <QueryClientProvider
+            client={
+              new QueryClient({ defaultOptions: { queries: { retry: false } } })
+            }
+          >
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        )
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1)
+        })
+        expect(screen.getAllByText(label)[0]).toBeVisible()
+        expect(getMembershipOrder).toHaveBeenCalledOnce()
+        expect(checkMembershipPayment).not.toHaveBeenCalled()
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5000)
+        })
+        expect(
+          vi.mocked(getMembershipOrder).mock.calls.length
+        ).toBeGreaterThanOrEqual(2)
+        expect(
+          screen.getByRole('dialog', { name: 'Membership activated' })
+        ).toBeVisible()
+        expect(checkMembershipPayment).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
     }
-  })
+  )
 
   it('withholds purchase success when membership refresh fails and retries verification', async () => {
     const order: MembershipOrder = {
@@ -1313,6 +1329,116 @@ describe('membership payment safety', () => {
       )
     ).toBeVisible()
   })
+
+  it.each([false, true])(
+    'requests a payment check only when the user clicks (admin=%s)',
+    async (admin) => {
+      const order: MembershipOrder = {
+        id: 11,
+        trade_no: 'MEMBER-11-delayed',
+        tier_id: tier.id,
+        tier_name: tier.name,
+        status: 'pending',
+        price_minor: 88800,
+        currency: 'CNY',
+        quota: tier.quota,
+        created_at: 1000,
+        can_check_payment: true,
+        payment_state: 'checking',
+      }
+      const processing: MembershipOrder = {
+        ...order,
+        payment_state: 'processing',
+      }
+      vi.mocked(getMembershipOrders)
+        .mockResolvedValueOnce([order])
+        .mockResolvedValue([processing])
+      let completeCheck: ((result: MembershipOrder) => void) | undefined
+      vi.mocked(checkMembershipPayment).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            completeCheck = resolve
+          })
+      )
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      render(
+        <QueryClientProvider client={client}>
+          <MembershipOrders admin={admin} />
+        </QueryClientProvider>
+      )
+      const button = await screen.findByRole('button', {
+        name: 'Check payment',
+      })
+      expect(checkMembershipPayment).not.toHaveBeenCalled()
+      await userEvent.click(button)
+      expect(checkMembershipPayment).toHaveBeenCalledExactlyOnceWith(
+        order.trade_no,
+        admin
+      )
+      expect(button).toBeDisabled()
+      await act(async () => {
+        completeCheck?.(processing)
+      })
+      expect(
+        await screen.findByText('Payment confirmed, activating membership')
+      ).toBeVisible()
+      if (!admin) {
+        const continuePayment = screen.getByRole('button', {
+          name: 'Continue payment',
+        })
+        expect(continuePayment).toBeDisabled()
+        await userEvent.click(continuePayment)
+      }
+      expect(resumeMembershipPayment).not.toHaveBeenCalled()
+      expect(createMembershipOrder).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['pending', 'closed', 'paid_exception'])(
+    'does not claim that an unverified %s order was paid',
+    async (status) => {
+      vi.mocked(getMembershipOrders).mockResolvedValue([
+        {
+          id: 12,
+          trade_no: 'MEMBER-12-review',
+          tier_id: tier.id,
+          tier_name: tier.name,
+          status,
+          price_minor: 88800,
+          currency: 'CNY',
+          quota: tier.quota,
+          created_at: 1000,
+          payment_state: 'review',
+        },
+      ])
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MembershipOrders />
+        </QueryClientProvider>
+      )
+      expect(
+        await screen.findByText('Payment verification needs review')
+      ).toBeVisible()
+      expect(
+        screen.queryByText('Payment received, needs review')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          'Payment is recorded. An administrator will review this order; do not pay again.'
+        )
+      ).not.toBeInTheDocument()
+      const continuePayment = screen.queryByRole('button', {
+        name: 'Continue payment',
+      })
+      if (status === 'pending') {
+        expect(continuePayment).toBeDisabled()
+      } else {
+        expect(continuePayment).not.toBeInTheDocument()
+      }
+    }
+  )
 
   it('never re-grants a successful order and handles its extra receipt by trade number', async () => {
     vi.mocked(resolveMembershipOrder).mockResolvedValue()

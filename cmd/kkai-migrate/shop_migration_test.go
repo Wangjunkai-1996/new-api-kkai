@@ -19,6 +19,8 @@ func shopProofFixture(t *testing.T) (*shopControllerProof, *shopMigrationStatus,
 	t.Helper()
 	contract, err := kkaimigrate.ContractForDialect(kkaimigrate.DialectPostgres)
 	require.NoError(t, err)
+	contract.RuntimeMaxVersion = 19
+	delete(contract.CompatiblePrefixes, "20")
 	now := time.Unix(1800000000, 0)
 	status := &shopMigrationStatus{
 		Schema: "kkai_shop_migration_status_v1", CurrentVersion: 18, TargetVersion: 19, Safe: true,

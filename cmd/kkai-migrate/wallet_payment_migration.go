@@ -95,7 +95,7 @@ func inspectWalletPaymentMigration(ctx context.Context, db *gorm.DB) (*walletPay
 	if err != nil {
 		return nil, err
 	}
-	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 18 && contract.RuntimeMaxVersion != 19) ||
+	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 18 && contract.RuntimeMaxVersion != 19 && contract.RuntimeMaxVersion != 20) ||
 		contract.MigrationTargetVersion != 14 || contract.MigrationKind != kkaimigrate.MigrationKindNone ||
 		contract.MigrationSetDigest != contract.CompatiblePrefixes["14"] ||
 		contract.CompatiblePrefixes["17"] == "" || contract.CompatiblePrefixes["18"] == "" {
@@ -127,9 +127,10 @@ func validateWalletPaymentControllerProof(proof *walletPaymentControllerProof, s
 	if err != nil {
 		return err
 	}
-	// This protocol stays frozen at v18 even when the binary can read v19.
+	// This protocol stays frozen at v18 even when the binary can read later schemas.
 	expected.RuntimeMaxVersion = 18
 	delete(expected.CompatiblePrefixes, "19")
+	delete(expected.CompatiblePrefixes, "20")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 18 || expected.MigrationTargetVersion != 14 ||
 		status.Schema != "kkai_wallet_payment_migration_status_v1" || (status.CurrentVersion != 17 && status.CurrentVersion != 18) ||
 		status.TargetVersion != 18 || !status.Safe ||

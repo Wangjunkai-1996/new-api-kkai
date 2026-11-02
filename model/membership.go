@@ -227,6 +227,8 @@ type MembershipOrderInput struct {
 	ProviderEnvironment string
 	ProviderProductID   string
 	ProviderStoreID     string
+	PaymentSnapshot     string
+	MerchantID          string
 }
 
 // MembershipPaymentInput contains verified provider facts, never client return parameters.

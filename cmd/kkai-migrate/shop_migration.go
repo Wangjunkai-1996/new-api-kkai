@@ -95,7 +95,7 @@ func inspectShopMigration(ctx context.Context, db *gorm.DB) (*shopMigrationStatu
 	if err != nil {
 		return nil, err
 	}
-	if contract.RuntimeMinVersion != 14 || contract.RuntimeMaxVersion != 19 ||
+	if contract.RuntimeMinVersion != 14 || (contract.RuntimeMaxVersion != 19 && contract.RuntimeMaxVersion != 20) ||
 		contract.MigrationTargetVersion != 14 || contract.MigrationKind != kkaimigrate.MigrationKindNone ||
 		contract.MigrationSetDigest != contract.CompatiblePrefixes["14"] ||
 		contract.CompatiblePrefixes["18"] == "" || contract.CompatiblePrefixes["19"] == "" {
@@ -127,6 +127,9 @@ func validateShopControllerProof(proof *shopControllerProof, status *shopMigrati
 	if err != nil {
 		return err
 	}
+	// Keep the installed v19 mutation protocol frozen when this binary can read v20.
+	expected.RuntimeMaxVersion = 19
+	delete(expected.CompatiblePrefixes, "20")
 	if expected.RuntimeMinVersion != 14 || expected.RuntimeMaxVersion != 19 || expected.MigrationTargetVersion != 14 ||
 		status.Schema != "kkai_shop_migration_status_v1" || (status.CurrentVersion != 18 && status.CurrentVersion != 19) ||
 		status.TargetVersion != 19 || !status.Safe ||

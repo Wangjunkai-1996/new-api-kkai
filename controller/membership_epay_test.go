@@ -13,6 +13,8 @@ import (
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/kkaimigrate"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -21,10 +23,30 @@ import (
 	"gorm.io/gorm"
 )
 
-func membershipEpayFixture(t *testing.T) (*gorm.DB, *model.MembershipOrder) {
+func membershipEpayFixture(t *testing.T, address ...string) (*gorm.DB, *model.MembershipOrder) {
 	t.Helper()
-	db, order := membershipControllerFixture(t, model.PaymentProviderEpay, "CNY")
-	require.NoError(t, db.Model(order).Update("payment_method", "alipay").Error)
+	if !model.MembershipEnabled() {
+		t.Skip("requires KKAI_MEMBERSHIP_ENABLED=true")
+	}
+	t.Cleanup(func() { require.NoError(t, common.InitNodeRoleFromEnvironment()) })
+	t.Setenv("KKAI_NODE_ROLE", "leader")
+	t.Setenv("DISABLE_BACKGROUND_TASKS", "false")
+	t.Setenv("KKAI_MEMBERSHIP_PAYMENT_RECONCILE_ENABLED", "true")
+	t.Setenv("KKAI_MEMBERSHIP_PAYMENT_FULFILL_ENABLED", "true")
+	t.Setenv("WALLET_PAYMENT_SECRET", "membership-controller-stable-secret-32")
+	t.Setenv("KKAI_MEMBERSHIP_NOTIFY_ADDRESS", "")
+	require.NoError(t, common.InitNodeRoleFromEnvironment())
+	db := walletCallbackDB(t)
+	mainDB, logDB := common.MainDatabaseType(), common.LogDatabaseType()
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	t.Cleanup(func() { common.SetDatabaseTypes(mainDB, logDB) })
+	for _, apply := range []func(context.Context, *gorm.DB, kkaimigrate.Options) (*kkaimigrate.Result, error){
+		kkaimigrate.ApplyShopExpand, kkaimigrate.ApplyMembershipPaymentExpand,
+	} {
+		_, err := apply(context.Background(), db, kkaimigrate.Options{Offline: true})
+		require.NoError(t, err)
+	}
+	require.NoError(t, service.CheckMembershipPaymentRuntimeSchema(context.Background(), db))
 	oldAddress, oldID, oldKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
 	oldCallback, oldServer := operation_setting.CustomCallbackAddress, system_setting.ServerAddress
 	oldMethods, oldPrice := operation_setting.PayMethods, operation_setting.Price
@@ -41,6 +63,9 @@ func membershipEpayFixture(t *testing.T) (*gorm.DB, *model.MembershipOrder) {
 	})
 	confirmPaymentComplianceForTest(t)
 	operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey = "https://pay.example.com/gateway/", "merchant", "test-secret"
+	if len(address) > 0 {
+		operation_setting.PayAddress = address[0]
+	}
 	operation_setting.CustomCallbackAddress = "https://callback.example.com"
 	system_setting.ServerAddress = "https://dashboard.example.com/"
 	operation_setting.PayMethods = []map[string]string{{"type": "alipay", "name": "支付宝"}}
@@ -49,6 +74,19 @@ func membershipEpayFixture(t *testing.T) (*gorm.DB, *model.MembershipOrder) {
 	require.NoError(t, common.UpdateTopupGroupRatioByJSONString(`{"default":0.4}`))
 	common.SetTheme("default")
 	common.RedisEnabled = false
+	require.NoError(t, db.Create(&model.User{Id: 7, Username: "member", Group: "default", Status: 1, Quota: 123}).Error)
+	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{SalesEnabled: true,
+		Tiers: []model.MembershipTier{{ID: "gold", Name: "Gold", Rank: 1, Quota: 1000, PriceMinor: 9900, Currency: "CNY", Enabled: true}},
+	}, 0, 7)
+	require.NoError(t, err)
+	terms, err := common.Marshal(model.MembershipOrderTerms{Tier: catalog.Tiers[0], ReleaseID: catalog.ReleaseID, DurationSeconds: model.MembershipDurationSeconds, Action: "purchase"})
+	require.NoError(t, err)
+	order := &model.MembershipOrder{TradeNo: "MEMBER-test", UserID: 7, TierID: "gold", ReleaseID: catalog.ReleaseID, AmountMinor: 9900, Currency: "CNY", Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", Terms: string(terms), Status: model.MembershipOrderPending, CreatedAt: common.GetTimestamp(), ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	require.NoError(t, db.Create(order).Error)
+	snapshot, err := service.CreateMembershipEpaySnapshot(order, operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey)
+	require.NoError(t, err)
+	_, err = model.EnsureMembershipPaymentCheck(context.Background(), order.ID, operation_setting.EpayId, snapshot)
+	require.NoError(t, err)
 	return db, order
 }
 
@@ -58,10 +96,12 @@ func TestMembershipEpayCheckoutKeepsFrozenPriceAndSignedForm(t *testing.T) {
 	}
 	db, fixtureOrder := membershipEpayFixture(t)
 	require.NoError(t, db.Delete(fixtureOrder).Error)
-	require.NoError(t, db.AutoMigrate(&model.TopUp{}))
+	require.NoError(t, db.Where("order_id = ?", fixtureOrder.ID).Delete(&model.MembershipPaymentCheck{}).Error)
 	catalog, err := model.PublishMembershipCatalog(model.MembershipCatalog{SalesEnabled: true, Tiers: []model.MembershipTier{{ID: "gold", Name: "黄金 & Gold + 50% = x", Rank: 1, Style: "gold", Currency: "CNY", PriceMinor: 9995, Quota: 1000, Enabled: true}}}, fixtureOrder.ReleaseID, 7)
 	require.NoError(t, err)
-	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: 7, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: "MEMBER-fixed-price", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	snapshot, err := service.CreateMembershipEpaySnapshot(&model.MembershipOrder{UserID: 7, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", Currency: "CNY", TradeNo: "MEMBER-fixed-price"}, operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey)
+	require.NoError(t, err)
+	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{UserID: 7, TierID: "gold", ReleaseID: catalog.ReleaseID, Provider: model.PaymentProviderEpay, PaymentMethod: "alipay", TradeNo: "MEMBER-fixed-price", ExpiresAt: time.Now().Add(time.Hour).Unix(), MerchantID: operation_setting.EpayId, PaymentSnapshot: snapshot})
 	require.NoError(t, err)
 	// Change the live price before the first form is generated. Both payment
 	// amount and benefit terms still belong to the order's original release.
@@ -146,7 +186,7 @@ func TestMembershipEpayLocalCheckoutFailureCanRetry(t *testing.T) {
 			}
 			_, err := obtainMembershipCheckout(context.Background(), order)
 			if scenario == "invalid_callback" {
-				require.ErrorIs(t, err, epay.ErrInvalidParams)
+				require.ErrorContains(t, err, "HTTPS origin")
 				operation_setting.CustomCallbackAddress = "https://callback.example.com"
 			} else {
 				require.ErrorIs(t, err, failure)
@@ -200,21 +240,24 @@ func TestMembershipEpayCallbackRejectsForeignMerchantAndTampering(t *testing.T) 
 			router.ServeHTTP(response, request)
 			require.Equal(t, http.StatusOK, response.Code)
 			require.NoError(t, db.First(order, order.ID).Error)
+			var check model.MembershipPaymentCheck
+			require.NoError(t, db.First(&check, "order_id = ?", order.ID).Error)
 			if scenario == "wrong_payment_method" {
 				assert.Equal(t, "success", response.Body.String())
-				assert.Equal(t, model.MembershipOrderException, order.Status)
-				assert.Equal(t, "payment method mismatch", order.ExceptionReason)
+				assert.Positive(t, check.CallbackReceivedAt, "signed aliases may only schedule independent merchant verification")
 			} else {
 				assert.Equal(t, "fail", response.Body.String())
-				assert.Equal(t, model.MembershipOrderPending, order.Status)
-				assert.Zero(t, order.PaidAt)
-				var receipts int64
-				require.NoError(t, db.Model(&model.MembershipPaymentReceipt{}).Count(&receipts).Error)
-				assert.Zero(t, receipts)
+				assert.Zero(t, check.CallbackReceivedAt)
+				assert.Greater(t, check.NextCheckAt, common.GetTimestamp())
 			}
-			var grants int64
-			require.NoError(t, db.Model(&model.MembershipAccount{}).Count(&grants).Error)
-			assert.Zero(t, grants)
+			assert.Equal(t, model.MembershipOrderPending, order.Status)
+			assert.Zero(t, order.PaidAt)
+			assert.Empty(t, order.ExceptionReason)
+			for _, value := range []any{&model.MembershipPaymentEvidence{}, &model.MembershipPaymentReceipt{}, &model.MembershipAccount{}} {
+				var count int64
+				require.NoError(t, db.Model(value).Count(&count).Error)
+				assert.Zero(t, count, "callbacks cannot create paid facts or membership")
+			}
 		})
 	}
 }

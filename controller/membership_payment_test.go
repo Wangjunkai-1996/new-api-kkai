@@ -7,14 +7,15 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -55,16 +56,42 @@ func membershipControllerFixture(t *testing.T, provider, currency string) (*gorm
 }
 
 func TestMembershipEpayVerifiedMoneyAndDuplicateCallbacks(t *testing.T) {
-	for _, tc := range []struct{ name, money, status string }{{"exact", "99.00", model.MembershipOrderSuccess}, {"underpaid", "9.90", model.MembershipOrderException}, {"fractional_minor", "99.001", model.MembershipOrderException}} {
+	for _, tc := range []struct {
+		name, money, status, checkStatus string
+		actualMinor                      int64
+	}{
+		{"exact", "99.00", model.MembershipOrderSuccess, model.MembershipPaymentComplete, 9900},
+		{"underpaid", "9.90", model.MembershipOrderException, model.MembershipPaymentReview, 990},
+		{"fractional_minor", "99.001", model.MembershipOrderPending, model.MembershipPaymentPending, 0},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			db, order := membershipControllerFixture(t, model.PaymentProviderEpay, "CNY")
-			oldAddress, oldID, oldKey := operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey
-			t.Cleanup(func() {
-				operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey = oldAddress, oldID, oldKey
+			var order *model.MembershipOrder
+			var queryBody []byte
+			var queries atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				queries.Add(1)
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/api.php", r.URL.Path)
+				assert.Equal(t, "order", r.URL.Query().Get("act"))
+				assert.Equal(t, "merchant", r.URL.Query().Get("pid"))
+				assert.Equal(t, "test-secret", r.URL.Query().Get("key"))
+				assert.Equal(t, order.TradeNo, r.URL.Query().Get("out_trade_no"))
+				w.Header().Set("Content-Type", "application/json")
+				_, err := w.Write(queryBody)
+				assert.NoError(t, err)
+			}))
+			defer server.Close()
+			db, order := membershipEpayFixture(t, server.URL)
+			paidAt := time.Now().Unix()
+			queryBody, err := common.Marshal(map[string]any{
+				"code": 1, "status": 1, "pid": "merchant", "type": "alipay",
+				"out_trade_no": order.TradeNo, "trade_no": "provider-one", "money": tc.money, "currency": "CNY",
+				"endtime": time.Unix(paidAt, 0).In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02 15:04:05"),
 			})
-			operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey = "https://pay.example.com", "merchant", "secret"
-			require.NoError(t, db.Model(order).Update("payment_method", "alipay").Error)
-			params := epay.GenerateParams(map[string]string{"pid": "merchant", "type": "alipay", "out_trade_no": order.TradeNo, "trade_no": "provider-one", "trade_status": epay.StatusTradeSuccess, "money": tc.money, "name": "Gold"}, "secret")
+			require.NoError(t, err)
+			// Signed callback claims cannot replace authenticated merchant-query evidence.
+			params, err := epay.GenerateParamsWithError(map[string]string{"pid": "merchant", "type": "alipay", "out_trade_no": order.TradeNo, "trade_no": "callback-hint", "trade_status": epay.StatusTradeSuccess, "money": "99.00", "name": "Gold"}, "test-secret")
+			require.NoError(t, err)
 			values := url.Values{}
 			for key, value := range params {
 				values.Set(key, value)
@@ -76,17 +103,100 @@ func TestMembershipEpayVerifiedMoneyAndDuplicateCallbacks(t *testing.T) {
 				req := httptest.NewRequest(http.MethodPost, "/notify", strings.NewReader(values.Encode()))
 				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 				router.ServeHTTP(recorder, req)
+				assert.Equal(t, http.StatusOK, recorder.Code)
+				assert.Equal(t, "success", recorder.Body.String())
+			}
+			require.NoError(t, db.First(order, order.ID).Error)
+			assert.Equal(t, model.MembershipOrderPending, order.Status)
+			assert.Zero(t, order.PaidAt)
+			assert.Zero(t, order.AccountID)
+			assert.Zero(t, queries.Load())
+			for _, table := range []any{&model.MembershipPaymentEvidence{}, &model.MembershipPaymentReceipt{}, &model.MembershipAccount{}} {
+				var count int64
+				require.NoError(t, db.Model(table).Count(&count).Error)
+				assert.Zero(t, count, "callback must only wake a merchant query")
+			}
+			check, err := model.GetMembershipPaymentCheck(context.Background(), order.ID)
+			require.NoError(t, err)
+			assert.Equal(t, model.MembershipPaymentPending, check.Status)
+			assert.Equal(t, "callback", check.LastSource)
+			assert.Positive(t, check.CallbackReceivedAt)
+			assert.LessOrEqual(t, check.NextCheckAt, time.Now().Unix())
+
+			oldClient := http.DefaultClient
+			http.DefaultClient = server.Client()
+			t.Cleanup(func() { http.DefaultClient = oldClient })
+			result, err := service.ReconcileMembershipPayment(context.Background(), order.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.checkStatus, result)
+			assert.EqualValues(t, 1, queries.Load())
+			require.NoError(t, db.First(order, order.ID).Error)
+			assert.Equal(t, tc.status, order.Status)
+			settledPaidAt := order.PaidAt
+			var granted model.MembershipAccount
+			if tc.status == model.MembershipOrderSuccess {
+				require.NoError(t, db.First(&granted, order.AccountID).Error)
+				assert.Equal(t, order.UserID, granted.UserID)
+				assert.Equal(t, model.MembershipActive, granted.Status)
+				assert.EqualValues(t, 1000, granted.AmountTotal)
+				assert.EqualValues(t, 1000, granted.Available())
+				assert.Equal(t, model.MembershipDurationSeconds, granted.ExpiresAt-granted.StartedAt)
+			} else if tc.status == model.MembershipOrderException {
+				assert.Equal(t, "payment amount or currency mismatch", order.ExceptionReason)
+			}
+
+			for i := 0; i < 2; i++ {
+				recorder := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/notify", strings.NewReader(values.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				router.ServeHTTP(recorder, req)
+				assert.Equal(t, http.StatusOK, recorder.Code)
 				assert.Equal(t, "success", recorder.Body.String())
 			}
 			require.NoError(t, db.First(order, order.ID).Error)
 			assert.Equal(t, tc.status, order.Status)
-			var count int64
-			require.NoError(t, db.Model(&model.MembershipAccount{}).Count(&count).Error)
-			if tc.status == model.MembershipOrderSuccess {
-				assert.EqualValues(t, 1, count)
+			assert.Equal(t, settledPaidAt, order.PaidAt)
+			assert.Equal(t, tc.actualMinor, order.ActualAmountMinor)
+			assert.EqualValues(t, 1, queries.Load())
+			check, err = model.GetMembershipPaymentCheck(context.Background(), order.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.checkStatus, check.Status)
+
+			var evidenceCount, receiptCount, accountCount int64
+			require.NoError(t, db.Model(&model.MembershipPaymentEvidence{}).Count(&evidenceCount).Error)
+			require.NoError(t, db.Model(&model.MembershipPaymentReceipt{}).Count(&receiptCount).Error)
+			require.NoError(t, db.Model(&model.MembershipAccount{}).Count(&accountCount).Error)
+			if tc.actualMinor == 0 {
+				assert.Zero(t, evidenceCount)
+				assert.Zero(t, receiptCount)
+				assert.Zero(t, order.PaidAt)
+				assert.Empty(t, order.ReceiptID)
+				assert.Equal(t, "PAYMENT_PROVIDER_UNAVAILABLE", check.LastError)
+				assert.Greater(t, check.NextCheckAt, time.Now().Unix(), "malformed merchant replies remain retryable")
 			} else {
-				assert.Zero(t, count)
-				assert.NotEmpty(t, order.ExceptionReason)
+				assert.EqualValues(t, 1, evidenceCount)
+				assert.EqualValues(t, 1, receiptCount)
+				assert.Positive(t, order.PaidAt)
+				assert.Equal(t, "provider-one", order.ReceiptID)
+				var evidence model.MembershipPaymentEvidence
+				require.NoError(t, db.First(&evidence, "order_id = ?", order.ID).Error)
+				assert.Equal(t, model.MembershipPaymentMerchantQuery, evidence.Source)
+				assert.Equal(t, "provider-one", evidence.ReceiptID)
+				assert.Equal(t, tc.actualMinor, evidence.AmountMinor)
+				assert.Equal(t, paidAt, evidence.ProviderPaidAt)
+			}
+			if tc.status == model.MembershipOrderSuccess {
+				assert.EqualValues(t, 1, accountCount)
+				var account model.MembershipAccount
+				require.NoError(t, db.First(&account, order.AccountID).Error)
+				assert.Equal(t, granted.ID, account.ID)
+				assert.Equal(t, granted.AmountTotal, account.AmountTotal)
+				assert.Equal(t, granted.Available(), account.Available())
+				assert.Equal(t, granted.ExpiresAt, account.ExpiresAt)
+				assert.Equal(t, granted.Revision, account.Revision)
+			} else {
+				assert.Zero(t, accountCount)
+				assert.Zero(t, order.AccountID)
 			}
 			var user model.User
 			require.NoError(t, db.First(&user, 7).Error)

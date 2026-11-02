@@ -72,7 +72,7 @@ func PrecheckShopExpand(ctx context.Context, db *gorm.DB) (*ShopExpandPrecheck, 
 
 // CheckShopSchema requires canonical receipts, not merely tables.
 func CheckShopSchema(ctx context.Context, db *gorm.DB) error {
-	return checkThroughVersion(ctx, db, ShopSchemaVersion, ShopSchemaVersion, ShopSchemaVersion)
+	return checkThroughVersion(ctx, db, ShopSchemaVersion, ShopSchemaVersion, MembershipPaymentSchemaVersion)
 }
 
 // CheckShopRuntimeSchema checks only the shop objects needed by live requests.

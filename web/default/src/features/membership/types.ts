@@ -116,6 +116,8 @@ export interface MembershipOrder {
   created_at: number
   paid_at?: number
   checkout_state?: 'creating' | 'ready'
+  can_check_payment?: boolean
+  payment_state?: 'checking' | 'processing' | 'review'
   payments?: Array<{
     receipt_id: string
     status: string

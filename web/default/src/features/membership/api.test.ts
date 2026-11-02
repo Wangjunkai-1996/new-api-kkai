@@ -20,9 +20,36 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
-import { getMembershipOrder, resolveMembershipOrder } from './api'
+import {
+  checkMembershipPayment,
+  getMembershipOrder,
+  resolveMembershipOrder,
+} from './api'
 
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+
+it.each([
+  [false, '/api/membership/orders'],
+  [true, '/api/membership/admin/orders'],
+] as const)(
+  'checks payment through the scoped order route (admin=%s)',
+  async (admin, prefix) => {
+    const order = {
+      id: 9,
+      trade_no: 'MEMBER-9/check payment',
+      payment_state: 'checking',
+    }
+    vi.mocked(api.post).mockResolvedValue({
+      data: { success: true, data: order },
+    })
+    await expect(
+      checkMembershipPayment(order.trade_no, admin)
+    ).resolves.toEqual(order)
+    expect(api.post).toHaveBeenCalledExactlyOnceWith(
+      `${prefix}/MEMBER-9%2Fcheck%20payment/check`
+    )
+  }
+)
 
 it('reads the authenticated membership order by its encoded trade number', async () => {
   const order = { id: 9, trade_no: 'MEMBER-9-return', status: 'success' }

@@ -33,11 +33,12 @@ import { formatQuota } from '@/lib/format'
 import { getMembershipOrder } from './api'
 import { CurrentMembership } from './components/current-membership'
 import { MembershipDiscounts } from './components/discount-comparison'
-import { MembershipOrders } from './components/orders'
+import { MembershipOrders, MembershipOrderStatus } from './components/orders'
 import { MembershipPurchaseDialog } from './components/purchase-dialog'
 import { MembershipSuccessDialog } from './components/success-dialog'
 import { MembershipTierCard } from './components/tier-card'
 import { useMembership } from './hooks'
+import { isMembershipOrderPending } from './lib'
 import type { MembershipOrder, MembershipTier } from './types'
 
 import '@/styles/membership-page.css'
@@ -84,7 +85,9 @@ export function MembershipCenter(props: {
     queryFn: () => getMembershipOrder(props.initialTradeNo ?? ''),
     enabled: !!props.initialTradeNo,
     refetchInterval: (query) =>
-      query.state.data?.status === 'pending' ? 5000 : false,
+      query.state.data && isMembershipOrderPending(query.state.data)
+        ? 5000
+        : false,
     refetchIntervalInBackground: false,
   })
   const confirmReturnedOrder = useCallback(
@@ -289,45 +292,44 @@ export function MembershipCenter(props: {
                     </AlertDescription>
                   </Alert>
                 )}
-                {returnedOrder.data?.status === 'pending' && (
-                  <Alert>
-                    <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
-                      <span>{t('Awaiting payment confirmation')}</span>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => void returnedOrder.refetch()}
-                      >
-                        {t('Refresh')}
-                      </Button>
-                    </AlertDescription>
-                  </Alert>
-                )}
-                {(returnedOrder.data?.status === 'paid_exception' ||
-                  returnedOrder.data?.status === 'closed') && (
-                  <Alert
-                    variant={
-                      returnedOrder.data.status === 'paid_exception'
-                        ? 'destructive'
-                        : 'default'
-                    }
-                  >
-                    <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
-                      <span>
-                        {returnedOrder.data.status === 'paid_exception'
-                          ? t('Payment received, needs review')
-                          : t('Order closed')}
-                      </span>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={props.onPaymentReturnHandled}
-                      >
-                        {t('Close')}
-                      </Button>
-                    </AlertDescription>
-                  </Alert>
-                )}
+                {returnedOrder.data &&
+                  isMembershipOrderPending(returnedOrder.data) && (
+                    <Alert>
+                      <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+                        <MembershipOrderStatus order={returnedOrder.data} />
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => void returnedOrder.refetch()}
+                        >
+                          {t('Refresh')}
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                {returnedOrder.data &&
+                  !isMembershipOrderPending(returnedOrder.data) &&
+                  (returnedOrder.data.status === 'paid_exception' ||
+                    returnedOrder.data.status === 'closed') && (
+                    <Alert
+                      variant={
+                        returnedOrder.data.status === 'paid_exception'
+                          ? 'destructive'
+                          : 'default'
+                      }
+                    >
+                      <AlertDescription className='flex flex-wrap items-center justify-between gap-3'>
+                        <MembershipOrderStatus order={returnedOrder.data} />
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={props.onPaymentReturnHandled}
+                        >
+                          {t('Close')}
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 {view === 'overview' && (
                   <>
                     <CurrentMembership membership={self} now={membership.now} />

@@ -165,6 +165,14 @@ func migrationSet() []migration {
 			ChecksumVersion:  migrationChecksumSchemaCurrent,
 			Statements:       shopSchemaStatements,
 		},
+		{
+			Version:          MembershipPaymentSchemaVersion,
+			Name:             "membership_payment_reliability",
+			Kind:             MigrationKindExpand,
+			ImplementationID: "membership_payment_reliability_v20",
+			ChecksumVersion:  migrationChecksumSchemaCurrent,
+			Statements:       membershipPaymentSchemaStatements,
+		},
 	}
 }
 

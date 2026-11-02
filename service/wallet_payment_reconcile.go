@@ -176,6 +176,9 @@ func ReconcileWalletTopUp(ctx context.Context, tradeNo string) (string, error) {
 	case model.PaymentProviderEpay:
 		// The existing merchant query proves paid facts only. A non-success
 		// response or missing order never proves a pending session is closed.
+		if e := WaitEpayQueryBudget(ctx, model.DB, snapshot.APIURL, snapshot.MerchantID); e != nil {
+			return walletCheckFailed(order, result, e)
+		}
 		receipt, paidAt, e := queryInvoiceEpayPayment(ctx, http.DefaultClient, snapshot.APIURL, snapshot.MerchantID, snapshot.APIKey, *order)
 		if errors.Is(e, errEpayOrderUnpaid) {
 			result.ProviderPaymentState = "unpaid"

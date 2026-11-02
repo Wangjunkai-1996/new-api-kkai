@@ -12,6 +12,7 @@ import (
 
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -66,6 +67,11 @@ func membershipStripeEnvironment(apiKey string) string {
 }
 
 func obtainMembershipCheckout(ctx context.Context, order *model.MembershipOrder) (*membershipCheckout, error) {
+	if order.Provider == model.PaymentProviderEpay {
+		if _, err := service.MembershipEpayGateway(ctx, order); err != nil {
+			return nil, err
+		}
+	}
 	claimed, create, err := model.ClaimMembershipCheckout(order.TradeNo, order.UserID)
 	if err != nil {
 		return nil, err
@@ -111,7 +117,7 @@ func membershipPaymentMethods(tier model.MembershipTier) []membershipPaymentMeth
 	if !operation_setting.IsPaymentComplianceConfirmed() {
 		return methods
 	}
-	if tier.Currency == "CNY" && GetEpayClient() != nil {
+	if tier.Currency == "CNY" && GetEpayClient() != nil && service.MembershipPaymentReconcileEnabled() && service.MembershipPaymentFulfillEnabled() && service.WalletPaymentSecretsReady() && model.MembershipPaymentSchemaAvailable() {
 		for _, method := range operation_setting.PayMethods {
 			kind := method["type"]
 			if kind == "" || kind == model.PaymentMethodStripe || kind == model.PaymentMethodCreem || kind == model.PaymentMethodWaffo || kind == model.PaymentMethodWaffoPancake || kind == model.PaymentMethodBalance {
@@ -150,11 +156,15 @@ func createMembershipCheckout(ctx context.Context, order *model.MembershipOrder)
 		if order.Currency != "CNY" {
 			return nil, errors.New("Epay membership payments require CNY")
 		}
-		client := GetEpayClient()
-		if client == nil {
-			return nil, errors.New("Epay is not configured")
+		snapshot, err := service.MembershipEpayGateway(ctx, order)
+		if err != nil {
+			return nil, err
 		}
-		notifyURL, err := url.Parse(service.GetCallbackAddress() + "/api/membership/epay/notify")
+		client, err := epay.NewClient(&epay.Config{PartnerID: snapshot.MerchantID, Key: snapshot.APIKey}, snapshot.APIURL)
+		if err != nil {
+			return nil, service.ErrMembershipPaymentUnavailable
+		}
+		notifyURL, err := service.MembershipNotifyURL()
 		if err != nil {
 			return nil, err
 		}
@@ -284,9 +294,17 @@ func ResumeMembershipPayment(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return
 	}
+	if c.GetInt("id") <= 0 {
+		membershipAPIError(c, model.ErrMembershipInvalidInput)
+		return
+	}
 	order, err := model.GetMembershipOrder(c.Param("trade_no"), c.GetInt("id"))
 	if err != nil {
 		membershipAPIError(c, err)
+		return
+	}
+	if order.Provider == model.PaymentProviderEpay && (!service.MembershipPaymentReconcileEnabled() || !service.MembershipPaymentFulfillEnabled()) {
+		membershipAPIError(c, service.ErrMembershipPaymentUnavailable)
 		return
 	}
 	checkout, err := obtainMembershipCheckout(c.Request.Context(), order)
@@ -316,6 +334,7 @@ func membershipMoneyMinor(value string) (int64, error) {
 
 func MembershipEpayNotify(c *gin.Context) {
 	if err := c.Request.ParseForm(); err != nil {
+		logger.LogWarn(c.Request.Context(), "membership_payment callback rejected: invalid_form")
 		c.String(http.StatusOK, "fail")
 		return
 	}
@@ -326,43 +345,22 @@ func MembershipEpayNotify(c *gin.Context) {
 	params := make(map[string]string, len(values))
 	for key, values := range values {
 		if len(values) != 1 {
+			logger.LogWarn(c.Request.Context(), "membership_payment callback rejected: duplicate_parameter")
 			c.String(http.StatusOK, "fail")
 			return
 		}
 		params[key] = values[0]
 	}
-	client := GetEpayClient()
-	if client == nil {
+	if err := service.HandleMembershipEpayCallback(c.Request.Context(), params); err != nil {
+		category := "verification_unavailable"
+		if errors.Is(err, service.ErrMembershipPaymentEvidence) || errors.Is(err, model.ErrMembershipNotFound) {
+			category = "verification_rejected"
+		}
+		logger.LogWarn(c.Request.Context(), "membership_payment callback rejected: "+category)
 		c.String(http.StatusOK, "fail")
 		return
 	}
-	verified, err := client.Verify(params)
-	if err != nil || !verified.VerifyStatus || params["pid"] != operation_setting.EpayId || !strings.HasPrefix(verified.ServiceTradeNo, "MEMBER-") {
-		c.String(http.StatusOK, "fail")
-		return
-	}
-	if verified.TradeStatus != epay.StatusTradeSuccess {
-		c.String(http.StatusOK, "success")
-		return
-	}
-	amount, amountErr := membershipMoneyMinor(verified.Money)
-	validation := ""
-	if amountErr != nil {
-		validation = "invalid provider amount"
-	}
-	order, err := model.GetMembershipOrder(verified.ServiceTradeNo, 0)
-	if err != nil {
-		c.String(http.StatusOK, "fail")
-		return
-	}
-	if verified.Type != order.PaymentMethod {
-		validation = "payment method mismatch"
-	}
-	_, err = model.CompleteMembershipPayment(model.MembershipPaymentInput{TradeNo: verified.ServiceTradeNo, Provider: model.PaymentProviderEpay, ReceiptID: verified.TradeNo, AmountMinor: amount, Currency: "CNY", OneTime: true, Paid: true, ValidationError: validation})
-	if err != nil {
-		c.String(http.StatusOK, "fail")
-		return
-	}
+	logger.LogInfo(c.Request.Context(), "membership_payment callback accepted for merchant verification")
 	c.String(http.StatusOK, "success")
 }
 

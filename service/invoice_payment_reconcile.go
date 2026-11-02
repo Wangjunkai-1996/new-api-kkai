@@ -59,6 +59,9 @@ func (s InvoiceService) verifyPayment(ctx context.Context, scope InvoiceScope, i
 	}
 	// HTTPS authenticates the configured single merchant gateway; credentials and
 	// raw provider responses must never reach logs, error messages or the browser.
+	if err := WaitEpayQueryBudget(ctx, db, operation_setting.PayAddress, operation_setting.EpayId); err != nil {
+		return invoiceError(503, "PAYMENT_VERIFICATION_UNAVAILABLE")
+	}
 	receipt, paidAt, err := queryInvoiceEpayPayment(ctx, client, operation_setting.PayAddress, operation_setting.EpayId, operation_setting.EpayKey, order)
 	if err != nil {
 		return err

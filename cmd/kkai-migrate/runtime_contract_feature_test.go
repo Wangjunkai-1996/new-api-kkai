@@ -19,7 +19,7 @@ func TestDescribeContractJSONRequiresTenantSchema(t *testing.T) {
 	}
 	require.NoError(t, common.UnmarshalJsonStr(output, &result))
 	assert.EqualValues(t, 14, result.RuntimeMinVersion)
-	assert.EqualValues(t, 19, result.RuntimeMaxVersion)
+	assert.EqualValues(t, 20, result.RuntimeMaxVersion)
 	assert.EqualValues(t, 14, result.MigrationTargetVersion)
 	assert.Equal(t, result.MigrationSetDigest, result.CompatiblePrefixes["14"])
 	assert.Contains(t, result.CompatiblePrefixes, "15")
@@ -27,6 +27,7 @@ func TestDescribeContractJSONRequiresTenantSchema(t *testing.T) {
 	assert.Contains(t, result.CompatiblePrefixes, "17")
 	assert.Contains(t, result.CompatiblePrefixes, "18")
 	assert.Contains(t, result.CompatiblePrefixes, "19")
-	assert.Len(t, result.CompatiblePrefixes, 6)
+	assert.Contains(t, result.CompatiblePrefixes, "20")
+	assert.Len(t, result.CompatiblePrefixes, 7)
 	assert.Equal(t, common.SchemaManagementMode, result.SchemaManagement)
 }

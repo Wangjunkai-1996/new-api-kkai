@@ -91,7 +91,11 @@ export function canPurchaseMembership(
 }
 
 export function isMembershipOrderPending(order: MembershipOrder): boolean {
-  return order.status === 'pending'
+  return (
+    order.status === 'pending' ||
+    order.payment_state === 'checking' ||
+    order.payment_state === 'processing'
+  )
 }
 
 export function normalizeMembershipCatalogForSubmission(

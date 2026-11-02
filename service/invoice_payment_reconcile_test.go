@@ -113,6 +113,7 @@ func TestInvoicePaymentReconciliationRestoresEligibilityAndPreservesMinimumAndCl
 	for _, amount := range []int{150, 250} {
 		t.Run(fmt.Sprintf("CNY%d", amount), func(t *testing.T) {
 			s, scope := invoiceFixture(t)
+			require.NoError(t, s.DB.AutoMigrate(&model.KKAIJobLease{}))
 			require.NoError(t, s.DB.Where("top_up_id = ?", 1).Delete(&model.InvoicePaymentReceipt{}).Error)
 			require.NoError(t, s.DB.Model(&model.TopUp{}).Where("id = ?", 1).Updates(map[string]any{"paid_minor": 0, "currency": "", "complete_time": 0, "money": 999}).Error)
 			calls := 0

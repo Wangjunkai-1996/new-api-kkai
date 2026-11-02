@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +31,11 @@ import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getMembershipOrders, resumeMembershipPayment } from '../api'
+import {
+  checkMembershipPayment,
+  getMembershipOrders,
+  resumeMembershipPayment,
+} from '../api'
 import {
   formatMembershipPrice,
   isMembershipOrderPending,
@@ -42,17 +47,28 @@ import { ResolveMembershipOrderDialog } from './resolve-order-dialog'
 export function MembershipOrderStatus(props: { order: MembershipOrder }) {
   const { t } = useTranslation()
   let label = t('Payment status unknown')
-  if (props.order.status === 'pending') {
+  if (props.order.payment_state === 'processing') {
+    label = t('Payment confirmed, activating membership')
+  } else if (props.order.payment_state === 'review') {
+    label = t('Payment verification needs review')
+  } else if (props.order.status === 'success') {
+    label = t('Membership activated')
+  } else if (
+    props.order.status === 'pending' ||
+    props.order.payment_state === 'checking'
+  ) {
     label = t('Awaiting payment confirmation')
-  } else if (props.order.status === 'success') label = t('Membership activated')
-  else if (props.order.status === 'closed') label = t('Order closed')
+  } else if (props.order.status === 'closed') label = t('Order closed')
   else if (props.order.status === 'paid_exception') {
     label = t('Payment received, needs review')
   }
   return (
     <Badge
       variant={
-        props.order.status === 'paid_exception' ? 'destructive' : 'secondary'
+        props.order.status === 'paid_exception' ||
+        props.order.payment_state === 'review'
+          ? 'destructive'
+          : 'secondary'
       }
     >
       {label}
@@ -67,6 +83,24 @@ export function MembershipOrders(props: { admin?: boolean }) {
   const client = useQueryClient()
   const previous = useRef<string | null>(null)
   const [reviewing, setReviewing] = useState<MembershipOrder | null>(null)
+  const check = useMutation({
+    mutationFn: (tradeNo: string) =>
+      checkMembershipPayment(tradeNo, !!props.admin),
+    onSuccess: (updatedOrder) => {
+      client.setQueryData<MembershipOrder[]>(
+        ['membership', userId, 'orders', !!props.admin],
+        (current) =>
+          current?.map((order) =>
+            order.id === updatedOrder.id ? updatedOrder : order
+          )
+      )
+      void client.invalidateQueries({ queryKey: ['membership', userId] })
+      toast.success(
+        t('Payment check requested. Confirmation will update automatically.')
+      )
+    },
+    onError: (error) => handleServerError(error, t('Could not check payment.')),
+  })
   const resume = useMutation({
     mutationFn: resumeMembershipPayment,
     onSuccess: (checkout) => {
@@ -76,7 +110,7 @@ export function MembershipOrders(props: { admin?: boolean }) {
   })
   const orders = useQuery({
     queryKey: ['membership', userId, 'orders', !!props.admin],
-    queryFn: () => getMembershipOrders(props.admin),
+    queryFn: () => getMembershipOrders(!!props.admin),
     refetchInterval: (query) =>
       query.state.data?.some(isMembershipOrderPending) ? 5000 : false,
     refetchIntervalInBackground: false,
@@ -153,13 +187,15 @@ export function MembershipOrders(props: { admin?: boolean }) {
                 )}
               </span>
             </div>
-            {order.status === 'paid_exception' && (
-              <p className='mt-3 text-sm'>
-                {t(
-                  'Payment is recorded. An administrator will review this order; do not pay again.'
-                )}
-              </p>
-            )}
+            {order.status === 'paid_exception' &&
+              order.payment_state !== 'review' &&
+              order.payment_state !== 'processing' && (
+                <p className='mt-3 text-sm'>
+                  {t(
+                    'Payment is recorded. An administrator will review this order; do not pay again.'
+                  )}
+                </p>
+              )}
             {order.checkout_state === 'creating' &&
               order.status === 'pending' && (
                 <p className='text-muted-foreground mt-2 text-sm'>
@@ -196,13 +232,28 @@ export function MembershipOrders(props: { admin?: boolean }) {
                 {t('Apply for invoice')}
               </Button>
             )}
+            {order.can_check_payment && (
+              <Button
+                variant='outline'
+                size='sm'
+                className='mt-3'
+                disabled={check.isPending || resume.isPending}
+                onClick={() => check.mutate(order.trade_no)}
+              >
+                {t('Check payment')}
+              </Button>
+            )}
             {!props.admin && order.status === 'pending' && (
               <Button
                 variant='outline'
                 size='sm'
                 className='mt-3'
                 disabled={
-                  resume.isPending || order.checkout_state === 'creating'
+                  resume.isPending ||
+                  check.isPending ||
+                  order.checkout_state === 'creating' ||
+                  order.payment_state === 'processing' ||
+                  order.payment_state === 'review'
                 }
                 onClick={() => resume.mutate(order.trade_no)}
               >

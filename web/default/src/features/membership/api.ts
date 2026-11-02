@@ -84,6 +84,19 @@ export async function resumeMembershipPayment(
   return requireServerSuccess(response.data).data
 }
 
+export async function checkMembershipPayment(
+  tradeNo: string,
+  admin = false
+): Promise<MembershipOrder> {
+  const prefix = admin
+    ? '/api/membership/admin/orders'
+    : '/api/membership/orders'
+  const response = await api.post<MembershipResponse<MembershipOrder>>(
+    `${prefix}/${encodeURIComponent(tradeNo)}/check`
+  )
+  return requireServerSuccess(response.data).data
+}
+
 export async function resolveMembershipOrder(request: {
   trade_no: string
   action: 'grant' | 'dismiss'

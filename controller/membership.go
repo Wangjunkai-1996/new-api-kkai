@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -56,6 +57,9 @@ type membershipOrderView struct {
 	ExceptionReason   string                  `json:"exception_reason,omitempty"`
 	ResolutionNote    string                  `json:"resolution_note,omitempty"`
 	Payments          []membershipPaymentView `json:"payments,omitempty"`
+	CanCheckPayment   bool                    `json:"can_check_payment,omitempty"`
+	PaymentState      string                  `json:"payment_state,omitempty"`
+	epay              bool
 }
 
 type membershipPaymentView struct {
@@ -79,7 +83,10 @@ func membershipOrderResponse(order *model.MembershipOrder, admin bool) (*members
 	view := &membershipOrderView{ID: order.ID, TradeNo: order.TradeNo, TierID: order.TierID,
 		TierName: terms.Tier.Name, PriceMinor: order.AmountMinor, AmountMinor: order.AmountMinor, Currency: order.Currency,
 		Quota: terms.Tier.Quota, Action: terms.Action, Status: order.Status, AccountID: order.AccountID,
-		CreatedAt: order.CreatedAt, PaidAt: order.PaidAt, CheckoutState: order.CheckoutState}
+		CreatedAt: order.CreatedAt, PaidAt: order.PaidAt, CheckoutState: order.CheckoutState, epay: order.Provider == model.PaymentProviderEpay}
+	if view.epay && order.ExceptionReason == model.MembershipLegacyCredentialReview && order.PaidAt == 0 && (order.Status == model.MembershipOrderPending || order.Status == model.MembershipOrderClosed) {
+		view.PaymentState = "review"
+	}
 	if !admin {
 		return view, nil
 	}
@@ -124,10 +131,10 @@ func membershipAPIError(c *gin.Context, err error) {
 	case errors.Is(err, model.ErrMembershipDisabled):
 		status, code = http.StatusServiceUnavailable, "membership_disabled"
 		message = "New membership purchases are temporarily unavailable. Existing benefits remain valid."
-	case errors.Is(err, model.ErrMembershipSchemaNotReady):
+	case errors.Is(err, model.ErrMembershipSchemaNotReady), errors.Is(err, model.ErrMembershipPaymentSchema), errors.Is(err, service.ErrMembershipPaymentUnavailable):
 		status, code = http.StatusServiceUnavailable, "membership_unavailable"
 		message = "Membership information could not be loaded. Please refresh before purchasing."
-	case errors.Is(err, model.ErrMembershipConflict), errors.Is(err, model.ErrMembershipQuoteChanged):
+	case errors.Is(err, model.ErrMembershipConflict), errors.Is(err, model.ErrMembershipQuoteChanged), errors.Is(err, model.ErrMembershipPaymentEvidence), errors.Is(err, service.ErrMembershipPaymentEvidence):
 		status, code = http.StatusConflict, "membership_state_changed"
 		message = "Payment eligibility has changed. Review the selected orders again."
 	case errors.Is(err, model.ErrMembershipPaymentReview):
@@ -275,19 +282,27 @@ func listMembershipOrders(c *gin.Context, userID int) {
 		membershipAPIError(c, err)
 		return
 	}
-	views := make([]membershipOrderView, 0, len(orders))
+	views := make([]*membershipOrderView, 0, len(orders))
 	for i := range orders {
 		view, err := membershipOrderResponse(&orders[i], userID == 0)
 		if err != nil {
 			membershipAPIError(c, err)
 			return
 		}
-		views = append(views, *view)
+		views = append(views, view)
+	}
+	if err := loadMembershipPaymentProgress(c.Request.Context(), views); err != nil {
+		membershipAPIError(c, err)
+		return
 	}
 	common.ApiSuccess(c, views)
 }
 
 func GetMembershipOrder(c *gin.Context) {
+	if c.GetInt("id") <= 0 {
+		membershipAPIError(c, model.ErrMembershipInvalidInput)
+		return
+	}
 	order, err := model.GetMembershipOrder(c.Param("trade_no"), c.GetInt("id"))
 	if err != nil {
 		membershipAPIError(c, err)
@@ -295,6 +310,10 @@ func GetMembershipOrder(c *gin.Context) {
 	}
 	view, err := membershipOrderResponse(order, false)
 	if err != nil {
+		membershipAPIError(c, err)
+		return
+	}
+	if err := loadMembershipPaymentProgress(c.Request.Context(), []*membershipOrderView{view}); err != nil {
 		membershipAPIError(c, err)
 		return
 	}
@@ -367,11 +386,26 @@ func CreateMembershipOrder(c *gin.Context) {
 		providerStoreID = strings.TrimSpace(setting.WaffoPancakeStoreID)
 	}
 	userID := c.GetInt("id")
+	tradeNo := fmt.Sprintf("MEMBER-%d-%s", userID, common.GetRandomString(24))
+	var paymentSnapshot, merchantID string
+	if input.Provider == model.PaymentProviderEpay {
+		if err := service.CheckMembershipPaymentRuntimeSchema(c.Request.Context(), model.DB); err != nil {
+			membershipAPIError(c, model.ErrMembershipPaymentSchema)
+			return
+		}
+		merchantID = operation_setting.EpayId
+		paymentSnapshot, err = service.CreateMembershipEpaySnapshot(&model.MembershipOrder{UserID: userID, TradeNo: tradeNo, Provider: input.Provider, Currency: tier.Currency, PaymentMethod: input.Method}, operation_setting.PayAddress, merchantID, operation_setting.EpayKey)
+		if err != nil {
+			membershipAPIError(c, err)
+			return
+		}
+	}
 	order, err := model.CreateMembershipOrder(model.MembershipOrderInput{
 		UserID: userID, TierID: input.TierID, ReleaseID: catalog.ReleaseID, Provider: input.Provider, PaymentMethod: input.Method,
 		ExpectedAccountID: input.ExpectedAccountID, ExpectedRevision: input.ExpectedRevision,
 		ProviderEnvironment: providerEnvironment, ProviderProductID: providerProductID, ProviderStoreID: providerStoreID,
-		TradeNo: fmt.Sprintf("MEMBER-%d-%s", userID, common.GetRandomString(24)), ExpiresAt: time.Now().Add(45 * time.Minute).Unix(),
+		TradeNo: tradeNo, ExpiresAt: time.Now().Add(45 * time.Minute).Unix(),
+		PaymentSnapshot: paymentSnapshot, MerchantID: merchantID,
 	})
 	if err != nil {
 		membershipAPIError(c, err)
