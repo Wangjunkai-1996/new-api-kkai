@@ -68,6 +68,70 @@ func TestUpdateTokenGroupRequiresGroupField(t *testing.T) {
 	assert.Equal(t, "default", stored.Group)
 }
 
+func TestAddTokenValidatesPlatformGroupAndReturnsCreatedID(t *testing.T) {
+	for _, group := range []string{"", "default", "vip", " premium "} {
+		t.Run("group="+group, func(t *testing.T) {
+			setupTokenGroupTest(t)
+			request := map[string]any{
+				"name":                 "created-token",
+				"expired_time":         -1,
+				"remain_quota":         0,
+				"unlimited_quota":      true,
+				"model_limits_enabled": false,
+				"model_limits":         "",
+				"allow_ips":            "",
+				"group":                group,
+				"cross_group_retry":    true,
+			}
+			ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", request, 1)
+			ctx.Set("group", "default")
+			AddToken(ctx)
+
+			response := decodeAPIResponse(t, recorder)
+			require.True(t, response.Success, response.Message)
+			var data struct {
+				ID int `json:"id"`
+			}
+			require.NoError(t, common.Unmarshal(response.Data, &data))
+			require.Positive(t, data.ID)
+			assert.JSONEq(t, `{"success":true,"message":"","data":{"id":`+strconv.Itoa(data.ID)+`}}`, recorder.Body.String())
+
+			var token model.Token
+			require.NoError(t, model.DB.First(&token, data.ID).Error)
+			assert.Equal(t, 1, token.UserId)
+			assert.Equal(t, "created-token", token.Name)
+			assert.Equal(t, group, token.Group)
+			assert.True(t, token.UnlimitedQuota)
+			assert.Equal(t, int64(-1), token.ExpiredTime)
+			assert.False(t, token.CrossGroupRetry)
+		})
+	}
+}
+
+func TestAddTokenRejectsUnavailablePlatformGroup(t *testing.T) {
+	for _, group := range []string{"private", "unpriced", "auto2"} {
+		t.Run("group="+group, func(t *testing.T) {
+			setupTokenGroupTest(t)
+			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP","unpriced":"Unpriced"}`))
+			request := map[string]any{
+				"name":            "rejected-token",
+				"expired_time":    -1,
+				"unlimited_quota": true,
+				"group":           group,
+			}
+			ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", request, 1)
+			ctx.Set("group", "default")
+			AddToken(ctx)
+
+			response := decodeAPIResponse(t, recorder)
+			assert.False(t, response.Success)
+			var count int64
+			require.NoError(t, model.DB.Model(&model.Token{}).Where("user_id = ?", 1).Count(&count).Error)
+			assert.Equal(t, int64(1), count, "rejected creation must not persist a token")
+		})
+	}
+}
+
 func TestUpdateTokenGroupRejectsOtherUsersToken(t *testing.T) {
 	token := setupTokenGroupTest(t)
 	response := updateTokenGroup(t, token.Id, 2, "vip")

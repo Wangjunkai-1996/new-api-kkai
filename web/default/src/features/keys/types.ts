@@ -92,7 +92,7 @@ export interface ApiKeyFormData {
   model_limits: string
   allow_ips: string
   group: string
-  auto_groups: string[]
+  auto_groups?: string[]
   cross_group_retry: boolean
 }
 

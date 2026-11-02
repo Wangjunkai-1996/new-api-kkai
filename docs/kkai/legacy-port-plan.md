@@ -4,6 +4,15 @@ This plan classifies every path in `legacy-fork-files.txt`. A path is covered
 by the first matching workstream below. Historical commits are evidence only;
 none of them may be cherry-picked as an implementation shortcut.
 
+**CC Switch decision update, 2026-11-03:** the CC workstream, exclusion 7 and
+ticket-service port step below describe the historical rebuild plan. For the
+default console's Usage Guide and existing user-triggered import, the user has
+accepted the standard custom-URI handoff under
+[Usage Guide development, section 2.2](usage-guide-development.md#22-cc-switch-协议决策).
+Ticket exchange remains unimplemented future work; the historical restrictions
+must not be applied as an additional gate to that scoped flow. Other workstreams
+and exclusions remain applicable.
+
 ## Decision Vocabulary
 
 - **Port**: preserve externally visible behavior, then adapt it to current
@@ -29,7 +38,7 @@ none of them may be cherry-picked as an implementation shortcut.
 | BILLING | `setting/ratio_setting/**`, `relay/helper/price_test.go`, billing-specific task tests | Port | Configured completion ratio precedence, cache write/read, tier `cc`, pre/post charge parity |
 | FRT | `dto/task.go`, `model/{log,perf_metric}.go`, `relay/common/**`, `service/log_info_generate*`, stream scanner/response timing tests, FRT guard | Port | Header parsing and timing behavior tests plus patch guard |
 | RESPONSES | `relay/channel/openai/{chat_via_responses,relay_responses,responses_stream_status_test}.go` and related relay task changes | Port only if behavior test fails on upstream | Stream terminal-state tests on current converter structure |
-| CC | both CC Switch dialogs, key row action, classic helper, default verification script | Rewrite | One-time ticket, 60-second TTL, single use, replay rejection, no key in URI/logs |
+| CC | both CC Switch dialogs, key row action, classic helper, default verification script | Historical ticket rewrite | Original evidence: one-time ticket, 60-second TTL, single use, replay rejection, no key in URI/logs. The default console scoped flow now follows [Usage Guide section 2.2](usage-guide-development.md#22-cc-switch-协议决策) instead |
 | PRICING | classic pricing hook; default pricing cards/details/constants/filters; recharge display | Port | Pricing hash/display tests and browser verification |
 | WALLET | default wallet and affiliate component changes | Port after API contract review | Recharge, rebate, redemption and Waffo browser tests |
 | NAV | command menu, sidebar hooks, section layout, maintenance module registration, route files | Port minimal integration only | Permission-aware navigation tests and route build generation |
@@ -51,7 +60,9 @@ none of them may be cherry-picked as an implementation shortcut.
 4. Unsigned attribution headers or attribution containing token names/secrets.
 5. `DISABLE_BACKGROUND_TASKS` as an undifferentiated global switch.
 6. Startup `AutoMigrate` as the owner of KKAI schema.
-7. API keys, reusable credentials, or full provider payloads in CC Switch URIs.
+7. API keys, reusable credentials, or full provider payloads in CC Switch URIs,
+   except the explicit default-console handoff accepted on 2026-11-03 under
+   [Usage Guide section 2.2](usage-guide-development.md#22-cc-switch-协议决策).
 8. A single image variable shared by blue and green slots.
 9. Release manifests that can drift from the containers actually serving.
 10. Repeated policy hotfix cherry-picks, broad revert/restore commits, or copied
@@ -64,7 +75,8 @@ none of them may be cherry-picked as an implementation shortcut.
 3. Node roles, job registry, leader lease, and standby cache synchronization.
 4. Billing/FRT/Responses compatibility patches on current upstream structures.
 5. Invitation and group-status services.
-6. CC Switch ticket service and shared provider payload builder.
+6. Historical CC Switch ticket service and shared provider payload builder;
+   this is future ticket work, not a prerequisite for the scoped default-console flow.
 7. Default/classic frontend integrations, generated routes, and API schema.
 8. Infrastructure slot identity, idle-slot routing, build provenance, and runbooks.
 

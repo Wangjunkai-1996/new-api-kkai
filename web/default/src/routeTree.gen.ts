@@ -88,6 +88,7 @@ import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_
 import { Route as AuthenticatedSystemSettingsImageStudioRouteImport } from './routes/_authenticated/system-settings/image-studio'
 import { Route as AuthenticatedSystemSettingsVideoStudioRouteImport } from './routes/_authenticated/system-settings/video-studio'
 import { Route as AuthenticatedTaskPluginsIndexRouteImport } from './routes/_authenticated/task-plugins/index'
+import { Route as AuthenticatedUsageGuideIndexRouteImport } from './routes/_authenticated/usage-guide/index'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsageLogsAuditRouteImport } from './routes/_authenticated/usage-logs/audit'
@@ -567,6 +568,12 @@ const AuthenticatedTaskPluginsIndexRoute =
     path: '/task-plugins/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedUsageGuideIndexRoute =
+  AuthenticatedUsageGuideIndexRouteImport.update({
+    id: '/usage-guide/',
+    path: '/usage-guide/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedUsageLogsIndexRoute =
   AuthenticatedUsageLogsIndexRouteImport.update({
     id: '/usage-logs/',
@@ -905,6 +912,7 @@ export interface FileRoutesByFullPath {
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
+  '/usage-guide/': typeof AuthenticatedUsageGuideIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
@@ -1016,6 +1024,7 @@ export interface FileRoutesByTo {
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
   '/task-plugins': typeof AuthenticatedTaskPluginsIndexRoute
+  '/usage-guide': typeof AuthenticatedUsageGuideIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/video-studio': typeof AuthenticatedVideoStudioIndexRoute
@@ -1141,6 +1150,7 @@ export interface FileRoutesById {
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/_authenticated/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
+  '/_authenticated/usage-guide/': typeof AuthenticatedUsageGuideIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/video-studio/': typeof AuthenticatedVideoStudioIndexRoute
@@ -1264,6 +1274,7 @@ export interface FileRouteTypes {
     | '/system-info/'
     | '/system-settings/'
     | '/task-plugins/'
+    | '/usage-guide/'
     | '/usage-logs/'
     | '/users/'
     | '/video-studio/'
@@ -1375,6 +1386,7 @@ export interface FileRouteTypes {
     | '/system-info'
     | '/system-settings'
     | '/task-plugins'
+    | '/usage-guide'
     | '/usage-logs'
     | '/users'
     | '/video-studio'
@@ -1499,6 +1511,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
     | '/_authenticated/task-plugins/'
+    | '/_authenticated/usage-guide/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
     | '/_authenticated/video-studio/'
@@ -2118,6 +2131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTaskPluginsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/usage-guide/': {
+      id: '/_authenticated/usage-guide/'
+      path: '/usage-guide'
+      fullPath: '/usage-guide/'
+      preLoaderRoute: typeof AuthenticatedUsageGuideIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/usage-logs/': {
       id: '/_authenticated/usage-logs/'
       path: '/usage-logs'
@@ -2704,6 +2724,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedTaskPluginsIndexRoute: typeof AuthenticatedTaskPluginsIndexRoute
+  AuthenticatedUsageGuideIndexRoute: typeof AuthenticatedUsageGuideIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
@@ -2746,6 +2767,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedTaskPluginsIndexRoute: AuthenticatedTaskPluginsIndexRoute,
+  AuthenticatedUsageGuideIndexRoute: AuthenticatedUsageGuideIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,

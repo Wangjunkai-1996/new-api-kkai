@@ -1,0 +1,191 @@
+<style>
+#kk-guide-mock{--kg-bg:light-dark(#fff,#18191b);--kg-soft:light-dark(#f7f8fa,#202226);--kg-text:light-dark(#202327,#f0f1f3);--kg-sub:light-dark(#626973,#adb4be);--kg-line:light-dark(#e5e7eb,#36393e);--kg-main:light-dark(#1f252d,#edf0f4);--kg-on:light-dark(#fff,#1b2027);--kg-green:light-dark(#267355,#8ad2b3);--kg-tint:light-dark(#eef7f2,#20342c);--kg-orange:light-dark(#9c5232,#e6ab8e);--kg-otint:light-dark(#faf1eb,#382820);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:var(--kg-text);background:var(--kg-bg);border:1px solid var(--kg-line);border-radius:14px;position:relative;overflow:clip;text-align:left}
+#kk-guide-mock *{box-sizing:border-box}
+#kk-guide-mock [hidden]{display:none!important}
+#kk-guide-mock button,#kk-guide-mock input,#kk-guide-mock select{font:inherit}
+#kk-guide-mock button,#kk-guide-mock a{color:inherit;-webkit-tap-highlight-color:transparent}
+#kk-guide-mock button{cursor:var(--cursor-interaction,pointer)}
+#kk-guide-mock button:disabled{opacity:.45;cursor:not-allowed}
+#kk-guide-mock h1,#kk-guide-mock h2,#kk-guide-mock h3,#kk-guide-mock p{margin:0}
+#kk-guide-mock h1{font-size:26px;font-weight:600;letter-spacing:-.5px;line-height:1.4}
+#kk-guide-mock h2{font-size:17px;font-weight:600;line-height:1.5}
+#kk-guide-mock h3{font-size:16px;font-weight:600}
+#kk-guide-mock .kg-sub{color:var(--kg-sub)}
+#kk-guide-mock .kg-small{font-size:12px}
+#kk-guide-mock .kg-shell{display:grid;grid-template-columns:172px minmax(0,1fr);min-height:800px}
+#kk-guide-mock .kg-side{background:var(--kg-soft);border-right:1px solid var(--kg-line);padding:22px 12px;display:flex;flex-direction:column;gap:22px}
+#kk-guide-mock .kg-brand{display:flex;align-items:center;gap:9px;padding:0 8px;font-weight:650;font-size:18px;letter-spacing:.4px}
+#kk-guide-mock .kg-brandmark{width:29px;height:29px;background:var(--kg-main);color:var(--kg-on);display:grid;place-items:center;border-radius:8px;font-size:14px}
+#kk-guide-mock .kg-navlabel{font-size:11px;color:var(--kg-sub);padding:0 10px;margin:0 0 8px;letter-spacing:1px}
+#kk-guide-mock .kg-navitem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;color:var(--kg-sub);margin:3px 0;font-size:13px}
+#kk-guide-mock .kg-navitem.active{color:var(--kg-text);background:var(--kg-bg);box-shadow:0 1px 3px #00000009;font-weight:600}
+#kk-guide-mock .kg-sidefoot{margin-top:auto;padding:12px 8px 0;color:var(--kg-sub);font-size:11px}
+#kk-guide-mock .kg-top{height:58px;border-bottom:1px solid var(--kg-line);padding:0 28px;display:flex;align-items:center;gap:10px;color:var(--kg-sub);font-size:12px}
+#kk-guide-mock .kg-demo{margin-left:auto;margin-right:60px;border:1px solid var(--kg-line);border-radius:5px;padding:1px 7px;font-size:11px}
+#kk-guide-mock .kg-page{padding:30px 28px 24px}
+#kk-guide-mock .kg-intro{margin-top:8px;color:var(--kg-sub)}
+#kk-guide-mock .kg-tabs{display:flex;gap:25px;margin:25px 0 26px;border-bottom:1px solid var(--kg-line)}
+#kk-guide-mock .kg-tab{border:0;border-bottom:2px solid transparent;background:none;padding:0 0 11px;color:var(--kg-sub)}
+#kk-guide-mock .kg-tab[aria-selected=true]{border-bottom-color:var(--kg-main);color:var(--kg-text);font-weight:600}
+#kk-guide-mock .kg-sectionhead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+#kk-guide-mock .kg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+#kk-guide-mock .kg-preset{border:1px solid var(--kg-line);border-radius:12px;padding:21px;display:flex;flex-direction:column;gap:14px;background:var(--kg-bg)}
+#kk-guide-mock .kg-row{display:flex;align-items:center;gap:11px}
+#kk-guide-mock .kg-icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--kg-soft);color:var(--kg-text);flex-shrink:0;font-weight:600;font-size:13px}
+#kk-guide-mock .kg-icon.gpt{background:var(--kg-tint);color:var(--kg-green)}
+#kk-guide-mock .kg-icon.claude{background:var(--kg-otint);color:var(--kg-orange)}
+#kk-guide-mock .kg-tag{font-size:11px;padding:2px 7px;border-radius:5px;color:var(--kg-sub);background:var(--kg-soft);white-space:nowrap}
+#kk-guide-mock .kg-description{color:var(--kg-sub);font-size:13px;min-height:42px}
+#kk-guide-mock .kg-values{background:var(--kg-soft);border-radius:7px;padding:10px 12px;font-size:12px;display:grid;grid-template-columns:42px minmax(0,1fr);gap:5px 9px}
+#kk-guide-mock .kg-values span:nth-child(odd){color:var(--kg-sub)}
+#kk-guide-mock .kg-values span{overflow-wrap:anywhere}
+#kk-guide-mock .kg-button{border:1px solid var(--kg-line);border-radius:7px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;gap:7px;background:var(--kg-bg);text-decoration:none;font-weight:500;font-size:13px;line-height:1.5}
+#kk-guide-mock .kg-button:hover{background:var(--kg-soft)}
+#kk-guide-mock .kg-button.primary{background:var(--kg-main);color:var(--kg-on);border-color:var(--kg-main)}
+#kk-guide-mock .kg-button.full{width:100%}
+#kk-guide-mock .kg-link{border:0;padding:2px 0;background:transparent;color:var(--kg-sub);font-size:12px;display:inline-flex;gap:5px;align-items:center;text-decoration:none}
+#kk-guide-mock .kg-link:hover{color:var(--kg-text);text-decoration:underline}
+#kk-guide-mock .kg-notice{display:flex;align-items:flex-start;gap:9px;font-size:12px;color:var(--kg-sub);margin:15px 0 28px}
+#kk-guide-mock .kg-notice svg{flex-shrink:0;margin-top:2px}
+#kk-guide-mock .kg-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+#kk-guide-mock .kg-tool{padding:15px;border:1px solid var(--kg-line);border-radius:9px;display:flex;flex-direction:column;gap:10px}
+#kk-guide-mock .kg-tool .kg-icon{width:32px;height:32px;font-size:11px}
+#kk-guide-mock .kg-tool h3{font-size:14px}
+#kk-guide-mock .kg-downloads{display:flex;gap:7px;flex-wrap:wrap;margin-top:auto}
+#kk-guide-mock .kg-downloads .kg-button{font-size:11px;padding:5px 8px}
+#kk-guide-mock .kg-tool .kg-description{font-size:12px;min-height:0}
+#kk-guide-mock .kg-tool .kg-description a{text-decoration:underline}
+#kk-guide-mock .kg-platform{border:1px solid var(--kg-line);border-radius:6px;background:var(--kg-bg);padding:5px 8px;color:var(--kg-sub);font-size:12px}
+#kk-guide-mock .kg-bottom{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:22px;padding-top:18px;border-top:1px solid var(--kg-line);font-size:12px;color:var(--kg-sub)}
+#kk-guide-mock .kg-faq{border:1px solid var(--kg-line);border-radius:9px;margin:10px 0;padding:14px 16px}
+#kk-guide-mock .kg-faq summary{font-size:13px;cursor:var(--cursor-interaction,pointer)}
+#kk-guide-mock .kg-faq p{padding-top:10px;font-size:13px;color:var(--kg-sub)}
+#kk-guide-mock .kg-helpnote{background:var(--kg-soft);padding:15px;border-radius:9px;color:var(--kg-sub);font-size:13px;margin-top:18px}
+#kk-guide-mock .kg-overlay{position:absolute;inset:0;z-index:5;background:light-dark(#17212b55,#00000099);padding:80px 18px 24px;display:flex;align-items:flex-start;justify-content:center}
+#kk-guide-mock .kg-dialog{width:100%;max-width:474px;background:var(--kg-bg);border:1px solid var(--kg-line);border-radius:14px;padding:24px;box-shadow:0 18px 50px #00000024}
+#kk-guide-mock .kg-dialogtop{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px}
+#kk-guide-mock .kg-close{border:0;background:none;color:var(--kg-sub);padding:5px;display:flex}
+#kk-guide-mock .kg-dialog h2{font-size:19px}
+#kk-guide-mock .kg-steps{display:flex;align-items:center;justify-content:space-between;margin:20px 0;color:var(--kg-sub);font-size:11px;gap:6px}
+#kk-guide-mock .kg-steps span{display:flex;align-items:center;gap:5px}
+#kk-guide-mock .kg-steps b{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--kg-soft);font-weight:500;flex-shrink:0}
+#kk-guide-mock .kg-steps .on{color:var(--kg-text)}
+#kk-guide-mock .kg-steps .on b{background:var(--kg-main);color:var(--kg-on)}
+#kk-guide-mock .kg-rule{height:1px;flex:1;background:var(--kg-line)}
+#kk-guide-mock .kg-summary{background:var(--kg-soft);padding:13px 15px;border-radius:9px;margin:15px 0;display:grid;grid-template-columns:80px minmax(0,1fr);gap:8px 12px;font-size:13px}
+#kk-guide-mock .kg-summary span:nth-child(odd){color:var(--kg-sub)}
+#kk-guide-mock .kg-summary span{overflow-wrap:anywhere}
+#kk-guide-mock .kg-check{display:flex;align-items:flex-start;gap:9px;font-size:13px;margin:18px 0}
+#kk-guide-mock .kg-check input{accent-color:var(--kg-main);margin-top:4px;width:15px;height:15px;flex-shrink:0}
+#kk-guide-mock .kg-dialogactions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:20px}
+#kk-guide-mock .kg-success{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--kg-green);background:var(--kg-tint);margin-bottom:12px}
+#kk-guide-mock .kg-manual{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+#kk-guide-mock .kg-fieldlabel{font-size:12px;color:var(--kg-sub);margin-bottom:4px}
+#kk-guide-mock .kg-field{padding:9px 11px;border:1px solid var(--kg-line);border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;overflow-wrap:anywhere}
+#kk-guide-mock .kg-field code{background:none;color:var(--kg-text);padding:0;overflow-wrap:anywhere;font-size:12px}
+#kk-guide-mock .kg-status{font-size:12px;color:var(--kg-green);margin-top:12px;min-height:20px}
+#kk-guide-mock .kg-mobilehint{display:none;background:var(--kg-soft);padding:12px;border-radius:8px;font-size:12px;color:var(--kg-sub);margin-bottom:16px}
+#kk-guide-mock[data-density=compact] .kg-preset{padding:16px;gap:11px}
+#kk-guide-mock[data-density=compact] .kg-page{padding:22px}
+#kk-guide-mock[data-tool-layout=list] .kg-tools{grid-template-columns:1fr}
+#kk-guide-mock[data-tool-layout=list] .kg-tool{display:grid;grid-template-columns:160px minmax(0,1fr);align-items:center;gap:8px 14px}
+#kk-guide-mock[data-tool-layout=list] .kg-downloads{grid-column:2}
+@media(max-width:760px){#kk-guide-mock .kg-shell{grid-template-columns:1fr}#kk-guide-mock .kg-side{display:none}#kk-guide-mock .kg-page{padding:24px}#kk-guide-mock .kg-top{padding:0 24px}#kk-guide-mock .kg-demo{margin-right:45px}}
+@media(max-width:520px){#kk-guide-mock .kg-page{padding:20px 16px}#kk-guide-mock .kg-top{padding:0 16px}#kk-guide-mock .kg-demo{margin-right:34px;font-size:10px}#kk-guide-mock .kg-grid,#kk-guide-mock .kg-tools{grid-template-columns:1fr}#kk-guide-mock h1{font-size:23px}#kk-guide-mock .kg-preset{padding:18px}#kk-guide-mock .kg-mobilehint{display:block}#kk-guide-mock .kg-overlay{padding:24px 10px}#kk-guide-mock .kg-dialog{padding:19px}#kk-guide-mock .kg-dialogactions{align-items:stretch;flex-direction:column-reverse}#kk-guide-mock .kg-dialogactions .kg-link{justify-content:center}#kk-guide-mock .kg-steps{font-size:10px}#kk-guide-mock[data-tool-layout=list] .kg-tool{display:flex}#kk-guide-mock button,#kk-guide-mock .kg-button{min-height:38px}#kk-guide-mock .kg-summary{grid-template-columns:64px 1fr;padding:12px;font-size:12px}}
+</style>
+<div id="kk-guide-mock" aria-label="KKAI 使用说明设计稿">
+  <div class="kg-shell">
+    <aside class="kg-side" aria-label="控制台导航预览">
+      <div class="kg-brand"><span class="kg-brandmark">K</span>KKAI</div>
+      <div><div class="kg-navlabel">工作空间</div><div class="kg-navitem"><i data-lucide="layout-dashboard" aria-hidden="true"></i>概览</div><div class="kg-navitem active" aria-current="page"><i data-lucide="book-open" aria-hidden="true"></i>使用说明</div><div class="kg-navitem"><i data-lucide="key-round" aria-hidden="true"></i>API 密钥</div><div class="kg-navitem"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i>使用记录</div></div>
+      <div><div class="kg-navlabel">探索</div><div class="kg-navitem"><i data-lucide="boxes" aria-hidden="true"></i>模型广场</div><div class="kg-navitem"><i data-lucide="image" aria-hidden="true"></i>图像工作室</div><div class="kg-navitem"><i data-lucide="video" aria-hidden="true"></i>视频工作室</div></div>
+      <div class="kg-sidefoot">Powered by new-api<br>QuantumNous</div>
+    </aside>
+    <div class="kg-workspace">
+      <header class="kg-top"><i data-lucide="panel-left" aria-hidden="true"></i><span>控制台</span><span>/</span><span>使用说明</span><span class="kg-demo">交互设计稿</span></header>
+      <main class="kg-page">
+        <h1>从这里，开始使用 AI</h1>
+        <p class="kg-intro">选好工具，完成配置，让第一个问题得到回答。</p>
+        <div class="kg-tabs" role="tablist" aria-label="使用说明内容">
+          <button class="kg-tab" role="tab" id="kg-tab-start" aria-controls="kg-start" aria-selected="true" data-tab="start">快速开始</button>
+          <button class="kg-tab" role="tab" id="kg-tab-tools" aria-controls="kg-tools-panel" aria-selected="false" data-tab="tools">工具下载</button>
+          <button class="kg-tab" role="tab" id="kg-tab-faq" aria-controls="kg-faq" aria-selected="false" data-tab="faq">常见问题</button>
+        </div>
+        <section id="kg-start" role="tabpanel" aria-labelledby="kg-tab-start">
+          <div class="kg-mobilehint">CC Switch 配置需要在电脑上完成。你可以先查看教程，或为其他客户端准备手动配置。</div>
+          <div class="kg-sectionhead"><h2>快捷配置</h2><span class="kg-small kg-sub">通过 CC Switch 配置编程工具</span></div>
+          <div class="kg-grid">
+            <article class="kg-preset"><div class="kg-row"><div class="kg-icon gpt"><i data-lucide="terminal" aria-hidden="true"></i></div><div><h3>GPT / Codex</h3><div class="kg-small kg-sub">代码编写 · 项目开发</div></div></div><p class="kg-description">为 Codex 准备专用 API Key，并导入 CC Switch。</p><div class="kg-values"><span>分组</span><span>GPT-稳定</span><span>额度</span><span>不设置 Key 额度上限</span></div><button class="kg-button primary full" data-setup="gpt">一键配置 GPT<i data-lucide="arrow-up-right" aria-hidden="true"></i></button></article>
+            <article class="kg-preset"><div class="kg-row"><div class="kg-icon claude"><i data-lucide="asterisk" aria-hidden="true"></i></div><div><h3>Claude Code</h3><div class="kg-small kg-sub">代码协作 · 复杂任务</div></div></div><p class="kg-description">为 Claude Code 准备专用 API Key，并导入 CC Switch。</p><div class="kg-values"><span>分组</span><span>claudecode-满血企业</span><span>额度</span><span>不设置 Key 额度上限</span></div><button class="kg-button primary full" data-setup="claude">一键配置 Claude<i data-lucide="arrow-up-right" aria-hidden="true"></i></button></article>
+          </div>
+          <div class="kg-notice"><i data-lucide="info" aria-hidden="true"></i><span>Key 不单独限额，实际使用仍受账户余额、套餐与分组权限限制。</span></div>
+          <div class="kg-sectionhead"><h2>先把工具准备好</h2><button class="kg-link" data-switch="tools">全部工具<i data-lucide="arrow-right" aria-hidden="true"></i></button></div>
+          <div class="kg-tools" id="kg-featured-tools"></div>
+          <div class="kg-bottom"><span>只想聊天？试试 Cherry Studio，无需 CC Switch。</span><button class="kg-link" data-cherry="true">查看接入方法<i data-lucide="arrow-right" aria-hidden="true"></i></button></div>
+        </section>
+        <section id="kg-tools-panel" role="tabpanel" aria-labelledby="kg-tab-tools" hidden>
+          <div class="kg-sectionhead"><div><h2>选择适合你的工具</h2><p class="kg-small kg-sub">官方入口 · 按系统选择下载或安装方式</p></div><label class="kg-small kg-sub">系统 <select id="kg-os" class="kg-platform" aria-label="选择操作系统"><option value="all">全部系统</option><option value="win">Windows</option><option value="mac">macOS</option><option value="linux">Linux</option></select></label></div>
+          <div class="kg-tools" id="kg-all-tools"></div>
+          <div class="kg-helpnote">CC Switch 用来管理配置；你还需要安装 Codex、Claude Code 等实际使用的工具。客户端能力和支持系统以官方说明为准。</div>
+        </section>
+        <section id="kg-faq" role="tabpanel" aria-labelledby="kg-tab-faq" hidden>
+          <h2>接入遇到问题？</h2>
+          <details class="kg-faq" open><summary>点击后没有打开 CC Switch</summary><p>先安装并运行 CC Switch，允许浏览器打开外部应用，然后点击“再次打开”。已创建的 Key 会保留，无需重复创建，也可以选择手动配置。</p></details>
+          <details class="kg-faq"><summary>“不设置 Key 额度上限”是什么意思？</summary><p>该 Key 不设置独立的消费额度，仍会正常扣除账户余额或套餐用量。你可以随时在 API 密钥中修改额度、停用或删除它。</p></details>
+          <details class="kg-faq"><summary>Claude Code 和 Claude Desktop 是同一个工具吗？</summary><p>它们是不同的使用入口。本页 Claude 快捷配置面向 Claude Code；Claude Desktop 的下载与接入说明单独提供，配置后按对应教程启用或重启。</p></details>
+          <details class="kg-faq"><summary>配置好了，但是请求失败</summary><p>401：检查 Key 是否完整、有效；403：检查分组与模型权限；余额不足：充值或检查套餐；模型不可用：重新选择当前分组可用的模型。更具体的原因可以在使用记录中查看。</p></details>
+          <details class="kg-faq"><summary>我已经有 Key，还要新建吗？</summary><p>不需要。可以从 API 密钥页面选择自己的已有 Key，再进行配置。本向导不会修改旧 Key 的名称、额度或权限。</p></details>
+          <details class="kg-faq"><summary>网页说创建结果未确认，怎么办？</summary><p>网络中断时，Key 可能已经创建。先去 API 密钥页面核对，不要连续点击新建。已创建的 Key 也不会因为退出向导被自动删除。</p></details>
+        </section>
+      </main>
+    </div>
+  </div>
+  <div class="kg-overlay" id="kg-overlay" hidden><section class="kg-dialog" role="dialog" aria-modal="true" aria-labelledby="kg-dialog-title" id="kg-dialog"></section></div>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('kk-guide-mock');
+ const overlay=root.querySelector('#kg-overlay');
+ const dialog=root.querySelector('#kg-dialog');
+ const shell=root.querySelector('.kg-shell');
+ const saved=window.openai?.widgetState;
+ const view={tab:saved?.privateContent?.tab||'start',preset:'gpt',stage:'prepare',created:{},toolLayout:'cards',density:'standard'};
+ let originButton=null;
+ const presets={gpt:{title:'GPT / Codex',tool:'Codex',group:'GPT-稳定',endpoint:'https://你的接入域名/v1'},claude:{title:'Claude Code',tool:'Claude Code',group:'claudecode-满血企业',endpoint:'https://你的接入域名'}};
+ const tools=[
+  {name:'CC Switch',icon:'shuffle',kind:'配置管理',desc:'集中管理 API 地址、密钥与模型，一次配置，随时切换。',url:'https://github.com/farion1231/cc-switch/releases/latest',platforms:['win','mac','linux'],labels:{win:'Windows',mac:'macOS',linux:'Linux'},extra:'安装后先打开一次'},
+  {name:'Cherry Studio',icon:'messages-square',kind:'日常聊天',desc:'多模型聊天、写作和知识库。可直接填写 API Key 使用。',url:'https://www.cherry-ai.com/download',platforms:['win','mac','linux'],labels:{win:'Windows',mac:'macOS',linux:'Linux'},extra:'无需 CC Switch'},
+  {name:'Codex CLI',icon:'terminal',kind:'AI 编程',desc:'在终端中编写、理解和修改代码，使用 GPT 快捷配置。',url:'https://developers.openai.com/codex/cli/',platforms:['win','mac','linux'],labels:{win:'Windows 安装',mac:'macOS 安装',linux:'Linux 安装'},extra:'查看官方安装指南'},
+  {name:'Claude Code',icon:'asterisk',kind:'AI 编程',desc:'面向项目和代码库的编程工具，使用 Claude 快捷配置。',url:'https://code.claude.com/docs/en/setup',platforms:['win','mac','linux'],labels:{win:'Windows 安装',mac:'macOS 安装',linux:'Linux 安装'},extra:'查看官方安装指南'},
+  {name:'Codex 桌面入口',icon:'app-window',kind:'桌面工作台',desc:'使用图形界面管理编程任务。下载、命名和接入方式以当前官方说明为准。',url:'https://developers.openai.com/codex/app/',platforms:['all'],labels:{all:'官方桌面入口'},extra:'桌面版接入指南单独维护'},
+  {name:'Claude Desktop',icon:'monitor',kind:'桌面助手',desc:'Claude 的桌面入口。与 Claude Code 分开说明安装与配置方法。',url:'https://claude.com/download',platforms:['win','mac'],labels:{win:'Windows',mac:'macOS'},extra:'第三方接入需匹配客户端版本'}
+ ];
+ const platformNames={win:'Windows',mac:'macOS',linux:'Linux',all:'官方入口'};
+ function icons(){if(globalThis.lucide)lucide.createIcons({attrs:{width:16,height:16}});}
+ function persist(){if(window.openai?.setWidgetState)window.openai.setWidgetState({modelContent:{design:'使用说明',selectedSection:view.tab,selectedFlow:view.preset},privateContent:{tab:view.tab}}).catch(()=>{});}
+ function setTab(name,save=true){view.tab=['start','tools','faq'].includes(name)?name:'start';root.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===view.tab)));root.querySelector('#kg-start').hidden=view.tab!=='start';root.querySelector('#kg-tools-panel').hidden=view.tab!=='tools';root.querySelector('#kg-faq').hidden=view.tab!=='faq';if(save)persist();}
+ function toolMarkup(tool,os){const platforms=tool.platforms.filter(p=>os==='all'||p==='all'||p===os);if(!platforms.length)return '';return '<article class="kg-tool"><div class="kg-row"><span class="kg-icon"><i data-lucide="'+tool.icon+'" aria-hidden="true"></i></span><div><h3>'+tool.name+'</h3><span class="kg-small kg-sub">'+tool.kind+'</span></div></div><p class="kg-description">'+tool.desc+'</p><div class="kg-downloads">'+platforms.map(p=>'<a class="kg-button" href="'+tool.url+'" target="_blank" rel="noopener noreferrer" aria-label="'+tool.name+' '+platformNames[p]+' 官方下载或安装入口">'+tool.labels[p]+'<i data-lucide="arrow-up-right" aria-hidden="true"></i></a>').join('')+'</div><span class="kg-small kg-sub">'+tool.extra+'</span></article>';}
+ function renderTools(){root.querySelector('#kg-featured-tools').innerHTML=tools.slice(0,2).map(t=>toolMarkup(t,'all')).join('');root.querySelector('#kg-all-tools').innerHTML=tools.map(t=>toolMarkup(t,root.querySelector('#kg-os').value)).join('');icons();}
+ function close(){overlay.hidden=true;shell.inert=false;if(originButton)originButton.focus();}
+ function titleMarkup(title,subtitle){return '<div class="kg-dialogtop"><div><h2 id="kg-dialog-title">'+title+'</h2><p class="kg-small kg-sub">'+subtitle+'</p></div><button class="kg-close" data-close aria-label="关闭配置弹窗"><i data-lucide="x" aria-hidden="true"></i></button></div>';}
+ function renderDialog(){const p=presets[view.preset];let html='';
+  if(view.stage==='prepare'){
+   html=titleMarkup('配置 '+p.title,'准备好工具后，创建你的专用 Key。')+'<div class="kg-steps"><span class="on"><b>1</b>准备工具</span><i class="kg-rule"></i><span><b>2</b>创建 Key</span><i class="kg-rule"></i><span><b>3</b>客户端确认</span></div><div class="kg-row"><span class="kg-icon"><i data-lucide="shuffle" aria-hidden="true"></i></span><div><strong>先安装并打开 CC Switch</strong><p class="kg-small kg-sub">同时确认已安装 '+p.tool+'。</p></div></div><div class="kg-downloads" style="margin-top:12px"><a class="kg-button" href="https://github.com/farion1231/cc-switch/releases/latest" target="_blank" rel="noopener noreferrer">下载 CC Switch<i data-lucide="arrow-up-right" aria-hidden="true"></i></a><a class="kg-button" href="'+(view.preset==='gpt'?tools[2].url:tools[3].url)+'" target="_blank" rel="noopener noreferrer">安装 '+p.tool+'</a></div><div class="kg-summary"><span>Key 名称</span><span>'+p.group+'</span><span>所属分组</span><span>'+p.group+'</span><span>Key 额度</span><span>不单独设限</span><span>有效期</span><span>长期有效，可随时停用</span></div><p class="kg-small kg-sub">实际使用仍受账户余额、套餐和分组权限限制。创建后可在 API 密钥中管理。</p><label class="kg-check"><input type="checkbox" id="kg-ready"><span>我已安装并打开 CC Switch</span></label><div class="kg-dialogactions"><button class="kg-link" data-manual>我想手动配置</button><button class="kg-button primary" id="kg-create" disabled>创建 Key 并打开 CC Switch</button></div>';
+  }else if(view.stage==='opened'){
+   html=titleMarkup('Key 已创建','已发起打开 CC Switch，请在客户端完成导入。')+'<div class="kg-success"><i data-lucide="check" aria-hidden="true"></i></div><div class="kg-summary"><span>Key 名称</span><span>'+p.group+'</span><span>目标工具</span><span>'+p.tool+'</span></div><div class="kg-helpnote"><strong>还需要在 CC Switch 中确认</strong><p>确认导入信息并启用配置，再回到 '+p.tool+' 发起一次请求。</p></div><p class="kg-status" id="kg-feedback" aria-live="polite"></p><button class="kg-button primary full" data-reopen>再次打开 CC Switch<i data-lucide="arrow-up-right" aria-hidden="true"></i></button><div class="kg-dialogactions"><button class="kg-link" data-manual>没打开？手动配置</button><button class="kg-button" data-close>稍后再试</button></div><p class="kg-small kg-sub" style="margin-top:14px">本次 Key 已保留，重新打开不会再次创建。</p>';
+  }else if(view.stage==='manual'){
+   html=titleMarkup('手动配置 '+p.title,'使用同一个 Key，复制参数到目标客户端。')+'<div class="kg-summary"><span>所属分组</span><span>'+p.group+'</span><span>Key 额度</span><span>不单独设限</span></div>'+(view.created[view.preset]?'<div class="kg-manual"><div><div class="kg-fieldlabel">API 地址</div><div class="kg-field"><code>'+p.endpoint+'</code><button class="kg-link" data-demo-copy>复制</button></div></div><div><div class="kg-fieldlabel">API Key</div><div class="kg-field"><code>sk-••••••••••••（示例）</code><button class="kg-link" data-demo-copy>复制</button></div></div><div><div class="kg-fieldlabel">模型</div><div class="kg-field">从该 Key 当前可用的模型中选择</div></div></div><p class="kg-small kg-sub" style="margin-top:12px">妥善保管 Key，请勿截图或分享。首次调用按正常规则计费。</p><p class="kg-status" id="kg-feedback" aria-live="polite"></p><button class="kg-button primary full" data-close>我知道了</button>':'<p class="kg-small kg-sub">将创建与分组同名、长期有效的 Key。实际使用受账户余额、套餐和权限限制。</p><div class="kg-dialogactions"><button class="kg-link" data-close>取消</button><button class="kg-button primary" data-create-manual>创建 Key</button></div>');
+  }else if(view.stage==='cherry'){
+   html=titleMarkup('使用 Cherry Studio','聊天和写作，无需先安装 CC Switch。')+'<div class="kg-helpnote"><strong>1. 下载并打开 Cherry Studio</strong><p>进入设置，添加与你的模型协议对应的服务商。</p></div><div class="kg-helpnote"><strong>2. 填写本站接入信息</strong><p>填写 API 地址与已有 Key；地址格式按所选服务商的教程配置。</p></div><div class="kg-helpnote"><strong>3. 选择模型，开始对话</strong><p>从 Key 可用的模型中选择，发送第一条消息。</p></div><div class="kg-dialogactions"><button class="kg-link" data-close>返回</button><a class="kg-button primary" href="https://www.cherry-ai.com/download" target="_blank" rel="noopener noreferrer">官方下载<i data-lucide="arrow-up-right" aria-hidden="true"></i></a></div>';
+  }
+  dialog.innerHTML=html;icons();dialog.querySelector('[data-close]')?.focus();
+ }
+ function open(preset,trigger){originButton=trigger;view.preset=preset;view.stage=view.created[preset]?'opened':'prepare';overlay.hidden=false;shell.inert=true;renderDialog();persist();}
+ root.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.tab)setTab(b.dataset.tab);if(b.dataset.switch)setTab(b.dataset.switch);if(b.dataset.setup)open(b.dataset.setup,b);if(b.hasAttribute('data-close'))close();if(b.hasAttribute('data-cherry')){originButton=b;view.stage='cherry';overlay.hidden=false;shell.inert=true;renderDialog();}if(b.id==='kg-create'){view.created[view.preset]=true;view.stage='opened';renderDialog();}if(b.hasAttribute('data-reopen'))dialog.querySelector('#kg-feedback').textContent='已重新发起打开。请在 CC Switch 中确认，本次 Key 保持不变。';if(b.hasAttribute('data-manual')){view.stage='manual';renderDialog();}if(b.hasAttribute('data-create-manual')){view.created[view.preset]=true;renderDialog();}if(b.hasAttribute('data-demo-copy'))dialog.querySelector('#kg-feedback').textContent='这里仅预览复制反馈，不包含真实密钥。';});
+ root.addEventListener('change',e=>{if(e.target.id==='kg-ready')dialog.querySelector('#kg-create').disabled=!e.target.checked;if(e.target.id==='kg-os')renderTools();});
+ root.addEventListener('keydown',e=>{if(e.key==='Escape'&&!overlay.hidden){e.preventDefault();close();}if(e.key==='Tab'&&!overlay.hidden){const items=Array.from(dialog.querySelectorAll('button:not(:disabled),a[href],input,select'));const first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}if(e.target.matches('[data-tab]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const tabs=Array.from(root.querySelectorAll('[data-tab]'));let i=tabs.indexOf(e.target);i=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[i].focus();setTab(tabs[i].dataset.tab);}});
+ window.addEventListener('openai:set_globals',e=>{const next=e.detail?.globals?.widgetState?.privateContent?.tab;if(next)setTab(next,false);});
+ setTab(view.tab,false);renderTools();
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{root.dataset.density=view.density;root.dataset.toolLayout=view.toolLayout;}});tweak.addSelect(view,'density',{label:'页面密度',options:[{label:'舒展',value:'standard'},{label:'紧凑',value:'compact'}]});tweak.addSelect(view,'toolLayout',{label:'下载区布局',options:[{label:'工具卡片',value:'cards'},{label:'工具列表',value:'list'}]});}
+})();
+</script>

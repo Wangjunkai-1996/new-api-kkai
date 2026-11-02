@@ -64,7 +64,7 @@ export async function getApiKey(id: number): Promise<ApiResponse<ApiKey>> {
 // Create a new API key
 export async function createApiKey(
   data: ApiKeyFormData
-): Promise<ApiResponse<ApiKey>> {
+): Promise<ApiResponse<{ id: number }>> {
   const res = await api.post('/api/token/', data)
   return res.data
 }

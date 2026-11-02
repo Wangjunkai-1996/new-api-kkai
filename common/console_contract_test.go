@@ -19,6 +19,7 @@ func TestConsoleContract(t *testing.T) {
 	assert.Contains(t, contract.Capabilities, "reseller_sites")
 	assert.Contains(t, contract.Capabilities, "reseller_group_pricing")
 	assert.Contains(t, contract.Capabilities, "image_output_edit_source")
+	assert.Contains(t, contract.Capabilities, "token_create_result_id")
 	// Callers cannot mutate subsequent status/CLI declarations.
 	contract.APIContracts[0] = 99
 	assert.Equal(t, []int{2, 3}, ConsoleContract().APIContracts)

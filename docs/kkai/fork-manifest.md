@@ -32,7 +32,7 @@ port/rewrite/drop decisions are in `legacy-port-plan.md`.
 | Cache token billing | Unified cache read/write accounting on upstream converter | upstream `48068ce9` plus KKAI expressions | Complete; upstream implementation retained with fork acceptance tests |
 | Standby configuration synchronization | Read-only options and channel cache refresh | `0f8616b9` | Complete; PostgreSQL dual-process verification included |
 | Group status monitoring | Read API, aggregation, default frontend | `6f931ccf` through `c6ce2a85` | Complete |
-| CC Switch import | One-time ticket flow, default and classic UI | `c63c41df` through `574ef743` | Approved exclusion: CC Switch `c8b0d60c` rejects remote `configUrl` exchange; unsafe URI credentials are forbidden |
+| CC Switch import | Default console standard-protocol import; future ticket exchange tracked separately | `c63c41df` through `574ef743` | 2026-11-03: user accepted explicit local API-key handoff under [Usage Guide section 2.2](usage-guide-development.md#22-cc-switch-协议决策); Usage Guide implementation remains pending, ticket exchange is not shipped |
 | Waffo and wallet customization | Payment adapters and recharge display | production fork | Complete; upstream Waffo retained and fork UI restored |
 | Classic frontend customization | KKAI-compatible classic build and UI, excluding CC Switch | production fork | Complete; build compatibility and recharge-pricing default restored |
 | Blue/green release control | Slot identity, leader role, rollback manifest | `kkai-infra` | Private serving candidate, 10%/50%/100% canary, separate writer and readonly rollback slot |
@@ -70,8 +70,12 @@ compatibility behavior rather than presented as general upstream cleanup.
    model auto-migration is not used for KKAI tables.
 7. Blue and green slots may run different immutable image digests. Slot
    replacement is independent from active-slot switching.
-8. CC Switch URLs carry a short-lived one-time ticket, never a reusable API
-   key.
+8. The default console may hand an API key to CC Switch through its existing
+   custom URI only after explicit user action and under the scoped
+   [2026-11-03 credential-handling decision](usage-guide-development.md#22-cc-switch-协议决策).
+   This exception does not allow credentials in website HTTP URLs, logs,
+   telemetry, copied import links or persistent browser state. One-time
+   ticket exchange remains a separate future enhancement, not a shipped gate.
 9. The resting standby uses read-only database credentials. A staged acceptance
    candidate is `serving` with production writer credentials and global jobs
    disabled; request-local writes and flushes are expected.

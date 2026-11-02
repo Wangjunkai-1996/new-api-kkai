@@ -109,6 +109,24 @@ func validateTenantTokenGroup(c *gin.Context, group string) bool {
 	return false
 }
 
+func validateTokenGroupForCreate(c *gin.Context, group string) bool {
+	tenantID := common.GetContextKeyInt64(c, constant.ContextKeyTenantID)
+	if tenantID > model.PlatformTenantID {
+		return validateTenantTokenGroup(c, group)
+	}
+
+	userGroup, err := getTokenRequestUserGroup(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	if service.IsUserTokenGroupUsable(userGroup, group) {
+		return true
+	}
+	common.ApiErrorI18n(c, i18n.MsgTokenGroupInvalid)
+	return false
+}
+
 func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
 	if len(groups) == 0 {
 		if err := token.SetAutoGroups(nil); err != nil {
@@ -452,7 +470,7 @@ func AddToken(c *gin.Context) {
 		})
 		return
 	}
-	if !validateTenantTokenGroup(c, token.Group) {
+	if !validateTokenGroupForCreate(c, token.Group) {
 		return
 	}
 	if service.IsAutoGroup(token.Group) {
@@ -494,6 +512,7 @@ func AddToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
+		"data":    gin.H{"id": cleanToken.Id},
 	})
 }
 

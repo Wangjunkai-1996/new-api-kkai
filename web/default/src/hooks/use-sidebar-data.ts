@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   BadgeCheck,
+  BookOpen,
   Box,
   ClipboardList,
   CreditCard,
@@ -57,6 +58,7 @@ const TENANT_CONSOLE_ROUTES = new Set([
   '/dashboard/overview',
   '/dashboard/models',
   '/keys',
+  '/usage-guide',
   '/usage-logs/common',
   '/wallet',
   '/profile',
@@ -136,6 +138,11 @@ export function useSidebarData(): SidebarData {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
+          },
+          {
+            title: t('Usage guide'),
+            url: '/usage-guide',
+            icon: BookOpen,
           },
           {
             title: t('Usage Logs'),

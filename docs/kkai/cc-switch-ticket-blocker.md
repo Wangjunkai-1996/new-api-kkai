@@ -1,6 +1,24 @@
 # CC Switch One-Time Ticket Blocker
 
-## Required Contract
+## Current decision — 2026-11-03
+
+The user accepted the existing CC Switch import protocol for the default
+console's Usage Guide and existing API Key import entry. These user-triggered
+flows may put the API key in the local `ccswitch://` URI, subject to the
+credential-handling requirements in
+[Usage Guide development, section 2.2](usage-guide-development.md#22-cc-switch-协议决策).
+This is a scoped product decision accepting the residual risk of the browser
+and operating-system protocol handoff, not evidence that credential leakage
+has occurred or that the handoff is risk-free.
+
+One-time ticket exchange remains a possible future enhancement. It is not a
+prerequisite for this module. The historical contract and client limitation
+below are retained as rationale; they must not be used to block the accepted
+standard-protocol implementation or to claim ticket support has shipped.
+No application code, client capability, deployment or security test is changed
+or completed by this documentation decision.
+
+## Historical Required Contract (superseded for the scoped flow above)
 
 KKAI may only provide one-click CC Switch imports when all of the following are
 true:
@@ -33,7 +51,7 @@ The supported alternatives are not safe for this contract:
 The production fork's legacy usage-script patch therefore must not be ported:
 it places the same raw key in both `apiKey` and `usageApiKey`.
 
-## Unblock Conditions
+## Future Ticket Implementation Conditions
 
 CC Switch must first implement remote provider configuration retrieval for
 `configUrl` or an equivalent credential-exchange field. The client behavior
@@ -41,8 +59,8 @@ must be covered by tests proving one fetch, HTTPS-only redirects, bounded
 response size, timeout handling, and no persistence of the ticket after the
 provider configuration is saved.
 
-Once that client contract is released, NewAPI can add a fork-owned ticket
-service backed by Redis atomic consume semantics, plus default/classic builders
-that put only the exchange URL and ticket in the deep link. Until then, the
-existing upstream import remains unchanged and this manifest item is blocked,
-not complete.
+Once that client contract is released and a ticket implementation is requested,
+NewAPI can add a fork-owned ticket service backed by Redis atomic consume
+semantics, plus builders that put only the exchange URL and ticket in the deep
+link. Ticket support is not complete. The scoped standard-protocol flow above
+is allowed independently and must not be reported as ticket support.
