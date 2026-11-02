@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { getSiteConfigQueryKey } from '@/features/site-config'
 import { privateUserQueryKey } from '@/lib/private-query-cache'
+import { getStatusStorageKey } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -567,5 +568,25 @@ describe('CC Switch dialog', () => {
     expect(params.get('usageAutoInterval')).toBe('30')
     expect(params.get('usageApiKey')).toBeNull()
     expect(atob(params.get('usageScript') ?? '')).toContain('/api/usage/token/')
+  })
+
+  test('ignores a stale server address when exporting a key', () => {
+    const storageKey = getStatusStorageKey()
+    const previous = localStorage.getItem(storageKey)
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ server_address: 'http://obsolete.example.com/old' })
+      )
+      const params = new URL(
+        buildCCSwitchURL('codex', 'KKAI', { model: 'gpt-6-astra' }, 'sk-test')
+      ).searchParams
+      expect(params.get('endpoint')).toBe(`${window.location.origin}/v1`)
+      expect(params.get('homepage')).toBe(window.location.origin)
+      expect(params.get('usageBaseUrl')).toBe(window.location.origin)
+    } finally {
+      if (previous === null) localStorage.removeItem(storageKey)
+      else localStorage.setItem(storageKey, previous)
+    }
   })
 })

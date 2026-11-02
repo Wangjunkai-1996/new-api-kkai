@@ -16,8 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { getStatusStorageKey } from '@/lib/status-query'
-
 const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
   request: {
     url: "{{baseUrl}}/api/usage/token/",
@@ -98,39 +96,15 @@ const CC_SWITCH_TOKEN_USAGE_SCRIPT = `({
 
 export function getCCSwitchServerAddress(): string {
   if (typeof window === 'undefined') return ''
-  try {
-    const raw = localStorage.getItem(getStatusStorageKey())
-    if (raw) {
-      const status = JSON.parse(raw) as { server_address?: unknown }
-      if (typeof status.server_address === 'string' && status.server_address) {
-        return status.server_address
-      }
-    }
-  } catch {
-    /* empty */
+  const url = new URL(window.location.href)
+  // The browser's current host is the tenant API host; cached status can point elsewhere.
+  if (
+    url.protocol === 'http:' &&
+    !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+  ) {
+    url.protocol = 'https:'
   }
-  return window.location.origin
-}
-
-function normalizeServerAddress(value: string): string {
-  try {
-    const origin =
-      typeof window === 'undefined'
-        ? 'http://localhost'
-        : window.location.origin
-    const url = new URL(value, origin)
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      return origin
-    }
-    url.search = ''
-    url.hash = ''
-    url.pathname = url.pathname.replace(/\/+$/, '')
-    return url.toString().replace(/\/$/, '')
-  } catch {
-    return typeof window === 'undefined'
-      ? 'http://localhost'
-      : window.location.origin
-  }
+  return url.origin
 }
 
 function appendPath(base: string, path: string): string {
@@ -138,9 +112,7 @@ function appendPath(base: string, path: string): string {
 }
 
 export function getCCSwitchEndpoint(app: string): string {
-  const serverAddress = normalizeServerAddress(
-    getCCSwitchServerAddress() || 'http://localhost'
-  )
+  const serverAddress = getCCSwitchServerAddress()
   return app === 'codex' ? appendPath(serverAddress, 'v1') : serverAddress
 }
 
@@ -151,7 +123,7 @@ export function buildCCSwitchURL(
   models: Record<string, string>,
   apiKey: string
 ): string {
-  const serverAddress = normalizeServerAddress(getCCSwitchServerAddress())
+  const serverAddress = getCCSwitchServerAddress()
   const endpoint = getCCSwitchEndpoint(app)
   const params = new URLSearchParams()
   params.set('resource', 'provider')

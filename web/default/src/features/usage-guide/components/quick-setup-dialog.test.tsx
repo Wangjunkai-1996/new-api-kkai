@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type React from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   getUserGroups: vi.fn(),
   useConsoleContract: vi.fn(),
   useSiteConfig: vi.fn(),
+  copyToClipboard: vi.fn(),
 }))
 
 vi.mock('../../keys/api', () => ({
@@ -50,6 +51,9 @@ vi.mock('@/hooks/use-console-contract', () => ({
 vi.mock('@/features/site-config', () => ({
   useSiteConfig: mocks.useSiteConfig,
 }))
+vi.mock('@/lib/copy-to-clipboard', () => ({
+  copyToClipboard: mocks.copyToClipboard,
+}))
 vi.mock('@tanstack/react-router', () => ({
   Link: (props: React.ComponentProps<'a'>) => <a {...props} />,
 }))
@@ -59,12 +63,18 @@ function renderDialog(preset: 'gpt' | 'claude-code' = 'gpt') {
     defaultOptions: { queries: { retry: false } },
   })
   const onClose = vi.fn()
-  render(
+  const tree = (value: 'gpt' | 'claude-code' | null) => (
     <QueryClientProvider client={queryClient}>
-      <QuickSetupDialog preset={preset} onClose={onClose} />
+      <QuickSetupDialog preset={value} onClose={onClose} />
     </QueryClientProvider>
   )
-  return { onClose }
+  const { rerender } = render(tree(preset))
+  return {
+    onClose,
+    queryClient,
+    rerenderPreset: (value: 'gpt' | 'claude-code' | null) =>
+      rerender(tree(value)),
+  }
 }
 
 describe('QuickSetupDialog', () => {
@@ -101,6 +111,7 @@ describe('QuickSetupDialog', () => {
       success: true,
       data: { key: 'secret-key' },
     })
+    mocks.copyToClipboard.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -148,6 +159,90 @@ describe('QuickSetupDialog', () => {
     expect(mocks.fetchTokenKey).not.toHaveBeenCalled()
   })
 
+  test('retries model lookup without recreating an API key after a network error', async () => {
+    const user = userEvent.setup()
+    mocks.createApiKey.mockResolvedValue({ success: true, data: { id: 123 } })
+    mocks.getTokenModels
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockResolvedValueOnce({ success: true, data: ['gpt-6-astra'] })
+    renderDialog()
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(
+      screen.getByRole('button', { name: 'Create key and open CC Switch' })
+    )
+
+    expect(
+      await screen.findByText('Model loading failed. Please try again.')
+    ).toBeVisible()
+    expect(mocks.createApiKey).toHaveBeenCalledOnce()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(mocks.getTokenModels).toHaveBeenCalledTimes(2))
+    expect(mocks.getTokenModels).toHaveBeenNthCalledWith(2, 123)
+    expect(mocks.createApiKey).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Open CC Switch' })).toBeEnabled()
+  })
+
+  test('resumes with the created ID after closing during key creation', async () => {
+    const user = userEvent.setup()
+    let resolveCreate!: (result: {
+      success: boolean
+      data: { id: number }
+    }) => void
+    mocks.createApiKey.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve
+      })
+    )
+    const { rerenderPreset } = renderDialog()
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(
+      screen.getByRole('button', { name: 'Create key and open CC Switch' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    rerenderPreset(null)
+    rerenderPreset('gpt')
+    expect(
+      screen.getByText('The result is unknown. Check API Keys before retrying.')
+    ).toBeVisible()
+
+    await act(async () => resolveCreate({ success: true, data: { id: 123 } }))
+    expect(screen.queryByText('Creating API key...')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible()
+    expect(mocks.getTokenModels).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(mocks.getTokenModels).toHaveBeenCalledWith(123))
+    expect(mocks.createApiKey).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Open CC Switch' })).toBeEnabled()
+  })
+
+  test('shows an unknown result after closing during a failed create request', async () => {
+    const user = userEvent.setup()
+    let rejectCreate!: (error: Error) => void
+    mocks.createApiKey.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectCreate = reject
+      })
+    )
+    const { rerenderPreset } = renderDialog()
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(
+      screen.getByRole('button', { name: 'Create key and open CC Switch' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    rerenderPreset(null)
+    rerenderPreset('gpt')
+
+    await act(async () => rejectCreate(new Error('network unavailable')))
+    expect(screen.queryByText('Creating API key...')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open API Keys' })).toBeVisible()
+    expect(mocks.createApiKey).toHaveBeenCalledOnce()
+  })
+
   test('manual mode creates without the CC Switch confirmation and does not launch it', async () => {
     const user = userEvent.setup()
     mocks.createApiKey.mockResolvedValue({ success: true, data: { id: 123 } })
@@ -163,5 +258,31 @@ describe('QuickSetupDialog', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     expect(open).not.toHaveBeenCalled()
     expect(mocks.fetchTokenKey).not.toHaveBeenCalled()
+  })
+
+  test('manual setup can copy an active key without an available model', async () => {
+    const user = userEvent.setup()
+    mocks.createApiKey.mockResolvedValue({ success: true, data: { id: 123 } })
+    mocks.getTokenModels.mockResolvedValue({ success: true, data: [] })
+    const { queryClient } = renderDialog()
+
+    await user.click(
+      screen.getByRole('button', { name: 'I want to configure manually' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Create API key' }))
+    expect(
+      await screen.findByText('No models are available for this API key yet.')
+    ).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+
+    await waitFor(() =>
+      expect(mocks.copyToClipboard).toHaveBeenCalledWith('sk-secret-key')
+    )
+    expect(mocks.getApiKey).toHaveBeenCalledWith(123)
+    expect(mocks.fetchTokenKey).toHaveBeenCalledWith(123)
+    expect(document.body.textContent).not.toContain('sk-secret-key')
+    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain(
+      'sk-secret-key'
+    )
   })
 })

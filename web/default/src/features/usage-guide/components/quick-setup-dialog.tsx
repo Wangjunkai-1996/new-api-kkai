@@ -274,8 +274,25 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
   const close = useCallback(() => {
     cancelledRef.current = true
     requestRef.current += 1
+    if (props.preset) {
+      updateFlow(props.preset, (current) => {
+        if (current.stage === 'creating') {
+          return {
+            ...current,
+            stage: 'created-unknown',
+            message: t(
+              'The result is unknown. Check API Keys before retrying.'
+            ),
+          }
+        }
+        if (current.stage === 'loading-models') {
+          return { ...current, stage: 'created-model-error' }
+        }
+        return current
+      })
+    }
     props.onClose()
-  }, [props])
+  }, [props, t, updateFlow])
 
   useEffect(() => {
     if (activePreset) cancelledRef.current = false
@@ -301,7 +318,20 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
       stage: 'loading-models',
       message: undefined,
     }))
-    const result = await getTokenModels(tokenId)
+    let result
+    try {
+      result = await getTokenModels(tokenId)
+    } catch (error) {
+      if (isCurrent(preset, requestId)) {
+        updateFlow(preset, (current) => ({
+          ...current,
+          stage: 'created-model-error',
+          message: t('Model loading failed. Please try again.'),
+        }))
+        handleServerError(error, t('Model loading failed. Please try again.'))
+      }
+      return null
+    }
     if (!isCurrent(preset, requestId)) return null
     if (!result.success) {
       updateFlow(preset, (current) => ({
@@ -332,11 +362,7 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
     requestId: number
   ): Promise<string | null> => {
     const current = flowsRef.current[preset]
-    if (
-      !current.tokenId ||
-      !current.selectedModel ||
-      !isCurrent(preset, requestId)
-    ) {
+    if (!current.tokenId || !isCurrent(preset, requestId)) {
       return null
     }
     let tokenResult
@@ -406,6 +432,7 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
     requestId: number
   ) => {
     const current = flowsRef.current[preset]
+    if (!current.selectedModel) return
     const secret = await readSecret(preset, requestId)
     if (!secret || !isCurrent(preset, requestId)) return
     const models = { model: current.selectedModel, ...current.modelOverrides }
@@ -455,7 +482,11 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
         return
       }
       const tokenId = result.data?.id
-      if (!Number.isInteger(tokenId) || tokenId <= 0) {
+      if (
+        typeof tokenId !== 'number' ||
+        !Number.isInteger(tokenId) ||
+        tokenId <= 0
+      ) {
         updateFlow(preset, (current) => ({
           ...current,
           stage: 'created-unknown',
@@ -465,7 +496,13 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
         }))
         return
       }
-      updateFlow(preset, (current) => ({ ...current, tokenId, manual }))
+      updateFlow(preset, (current) => ({
+        ...current,
+        tokenId,
+        manual,
+        stage: 'created-model-error',
+        message: undefined,
+      }))
       void queryClient.invalidateQueries({ queryKey: ['keys'] })
       if (!isCurrent(preset, requestId)) return
       const models = await loadModels(preset, tokenId, requestId)
@@ -475,16 +512,19 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
         await fetchSecretAndOpen(preset, requestId)
       }
     } catch (error) {
-      if (!isCurrent(preset, requestId)) return
+      if (!isSameIdentity()) return
+      const stillOpen = isCurrent(preset, requestId)
       updateFlow(preset, (current) => ({
         ...current,
         stage: 'created-unknown',
         message: t('The result is unknown. Check API Keys before retrying.'),
       }))
-      handleServerError(
-        error,
-        t('The result is unknown. Check API Keys before retrying.')
-      )
+      if (stillOpen) {
+        handleServerError(
+          error,
+          t('The result is unknown. Check API Keys before retrying.')
+        )
+      }
     }
   }
 

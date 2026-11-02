@@ -288,7 +288,7 @@ GET /api/token/{token_id}/models
 
 复用现有 builder，明确传 app、provider name、模型和 Key。Key 可能以原始值返回，规范化时只补一次 `sk-`。保留已有 `enabled`、`homepage`、`usageEnabled`、`usageScript`、`usageBaseUrl`、`usageAutoInterval` 的已验收行为；余额显示依旧是用户余额语义，不能因为 Key 不限额显示无限账户余额。不得把密钥复制进 usageScript 字符串。
 
-API 基地址使用已验证的本站/租户配置。保持 HTTPS、无 username/password/query/hash，保留部署要求的合法路径前缀并消除重复尾斜线；Codex 只追加一个 `/v1`，Claude/usage 使用对应根基址。不要直接套 `new URL(...).origin` 导致路径前缀丢失。复用现有来源选择，若本机状态缓存不属于当前租户/站点则失效重取，禁止将其他域名的 Key 导入过期地址。手动页与 deep link 使用同一已验证结果，不能分别拼接或使用占位域名。
+API 基地址使用当前页面的同源站点地址，不读取可能过期的本机状态缓存。生产站点使用 HTTPS；本地开发允许 localhost HTTP，其他 HTTP 页面导出时升级为 HTTPS。当前 NewAPI API 在站点根路径；Codex 只追加一个 `/v1`，Claude/usage 使用根基址。地址不含 username/password/query/hash。若未来部署 API 路径前缀，需要先提供与当前站点身份绑定的实时配置，再将前缀用于手动页与 deep link；不能从旧缓存猜测前缀或导入其他域名。
 
 深链发起后的文案为“Key 已创建，已发起打开 CC Switch，请在客户端确认导入并启用”。浏览器未安装应用、用户取消或协议被拦截，都不能变成失败创建；保留 token ID，允许再次打开或进入手动配置。
 
