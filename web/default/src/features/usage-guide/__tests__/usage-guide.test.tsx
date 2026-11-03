@@ -43,12 +43,22 @@ describe('usage guide', () => {
 
     expect(screen.getByText('GPT / Codex')).toBeInTheDocument()
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0)
-    expect(screen.getByText('Codex CLI')).toBeInTheDocument()
+    expect(screen.getByText('ChatGPT')).toBeInTheDocument()
+    expect(screen.queryByText('Codex CLI')).not.toBeInTheDocument()
+    expect(
+      screen
+        .getAllByRole('button', { name: 'macOS official page' })
+        .some(
+          (button) =>
+            button.getAttribute('href') === 'https://learn.chatgpt.com/docs/app'
+        )
+    ).toBe(true)
     await user.click(screen.getByRole('tab', { name: 'Tool downloads' }))
 
     for (const tool of USAGE_TOOLS) {
       expect(screen.getAllByText(tool.nameKey).length).toBeGreaterThan(0)
     }
+    expect(screen.getByText('Codex CLI')).toBeInTheDocument()
   })
 
   it('opens a quick setup dialog from a card without unmounting the page', async () => {

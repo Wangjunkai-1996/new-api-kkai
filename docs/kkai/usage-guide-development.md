@@ -25,7 +25,7 @@
 - 一个认证路由 `/usage-guide`；
 - 页面页签：快速开始、工具下载、常见问题；
 - GPT / Codex 和 Claude Code 两张快捷配置卡；
-- CC Switch、Codex CLI、Codex 桌面入口、Claude Code、Claude Desktop、Cherry Studio 工具卡；
+- CC Switch、Codex CLI、ChatGPT（Codex 桌面应用）、Claude Code、Claude Desktop、Cherry Studio 工具卡；
 - API Key 创建结果返回精确 token ID；
 - 依据 token ID 查询当前可用模型；
 - 复用现有 CC Switch 标准深链协议；
@@ -107,7 +107,7 @@
     │   │   ├── GPT / Codex 卡片
     │   │   └── Claude Code 卡片
     │   ├── Key 额度说明
-    │   └── 先把工具准备好：CC Switch、Codex CLI、Claude Code、Cherry Studio
+    │   └── 先把工具准备好：CC Switch、ChatGPT（Codex 桌面应用）、Claude Code、Cherry Studio
     ├── 工具下载
     │   ├── 操作系统筛选：全部、Windows、macOS、Linux
     │   └── 六张工具卡
@@ -139,7 +139,7 @@
 | 快捷卡 | 12px 圆角、1px 中性边框、内距 21px、两列 gap 16px | 按 4px spacing scale 取 20px；关键间距误差不超过 4px |
 | 卡片图标/分组区 | 38px 图标底座、轻量 GPT/Claude 色彩；浅底两行字段 | 映射现有语义色，暗色不直接复制浅色十六进制值 |
 | 主要按钮 | 两张卡各自底部满宽、中性深色、箭头 | 不新增无关渐变、大插图或第二个同等级主动作 |
-| 工具卡 | 9px 圆角、15px 内距、gap 12px；首屏先显示 CC Switch/Codex CLI，再显示 Claude Code/Cherry Studio | 取 8px/16px token；下载区最多双列，保持原内容顺序 |
+| 工具卡 | 9px 圆角、15px 内距、gap 12px；首屏先显示 CC Switch/ChatGPT（Codex 桌面应用），再显示 Claude Code/Cherry Studio | 取 8px/16px token；下载区最多双列，保持原内容顺序 |
 | 弹窗 | 最大宽度 474px、内距 24px、14px 圆角 | 使用现有 Dialog，`sm:max-w-[474px]` 或最近规格；窄屏保持 16px 边距，允许内容滚动 |
 | 弹窗内容 | 标题→三步指示→安装入口→Key 摘要→确认勾选→主/次动作 | 加载、模型选择与错误块在同一弹窗展开，不再叠第二个导入弹窗 |
 
@@ -178,7 +178,7 @@ type UsageTool = {
 - 每次修改下载地址更新 `checkedAt`，链接审计至少检查 HTTP 可访问、域名归属和按钮动作；
 - 外链使用新标签页和 `noopener noreferrer`；不下载、不代理、不缓存远程二进制；
 - CC Switch 说明“配置管理工具”，并提示仍需安装目标工具；
-- Codex CLI、Codex 桌面入口分别说明。不能把 CLI 安装脚本当成桌面安装包；
+- Codex CLI、显示为 ChatGPT 的 Codex 桌面应用分别说明。不能把 CLI 安装脚本当成桌面安装包；
 - Claude Code、Claude Desktop 分开说明。Claude 快捷配置只面向 Claude Code；Desktop 只提供独立下载和手动接入说明；
 - Cherry Studio 提供聊天/写作/知识库定位和三步手动接入，不增加第二套自动导入；
 - 工具名称和品牌可保留原文，所有按钮、描述、FAQ 和状态文案走 i18n。
@@ -189,7 +189,7 @@ type UsageTool = {
 | --- | --- | --- |
 | CC Switch | `https://github.com/farion1231/cc-switch/releases/latest` | 安装后打开，作为配置管理器 |
 | Codex CLI | `https://learn.chatgpt.com/docs/codex/cli` | GPT / Codex 快捷配置目标 |
-| Codex 桌面入口 | `https://learn.chatgpt.com/docs/app` | 独立桌面说明，不能复用 CLI 文案 |
+| ChatGPT（Codex 桌面应用） | `https://learn.chatgpt.com/docs/app` | macOS 安装后显示为 ChatGPT；独立桌面入口，不能复用 CLI 文案 |
 | Claude Code | `https://code.claude.com/docs/en/setup` | Claude 快捷配置目标 |
 | Claude Desktop | `https://claude.com/download` | 独立下载与手动接入 |
 | Cherry Studio | `https://www.cherry-ai.com/download` | 手动填写 API 地址、Key、模型 |

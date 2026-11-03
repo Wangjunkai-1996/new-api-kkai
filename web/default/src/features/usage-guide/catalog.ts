@@ -135,35 +135,34 @@ export const USAGE_TOOLS: UsageTool[] = [
   },
   {
     id: 'codex-app',
-    nameKey: 'Codex desktop entry',
-    kindKey: 'Desktop coding workspace',
+    nameKey: 'ChatGPT',
+    kindKey: 'Desktop assistant',
     descriptionKey:
-      'A separate desktop coding workspace. Keep its install and connection instructions separate from Codex CLI.',
+      'Use ChatGPT on your computer for projects, files, and chats.',
     platforms: ['windows', 'macos', 'linux'],
     downloads: [
       {
         platform: 'windows',
         labelKey: 'Windows official page',
-        url: 'https://developers.openai.com/codex/app/',
+        url: 'https://learn.chatgpt.com/docs/app',
         action: 'official-page',
       },
       {
         platform: 'macos',
         labelKey: 'macOS official page',
-        url: 'https://developers.openai.com/codex/app/',
+        url: 'https://learn.chatgpt.com/docs/app',
         action: 'official-page',
       },
       {
         platform: 'linux',
         labelKey: 'Linux official page',
-        url: 'https://developers.openai.com/codex/app/',
+        url: 'https://learn.chatgpt.com/docs/app',
         action: 'official-page',
       },
     ],
-    officialUrl: 'https://developers.openai.com/codex/app/',
+    officialUrl: 'https://learn.chatgpt.com/docs/app',
     checkedAt: '2026-11-03',
-    notesKey:
-      'Use the official page to confirm current desktop availability and supported systems.',
+    notesKey: 'The GPT quick setup configures Codex CLI through CC Switch.',
   },
   {
     id: 'claude-code',
