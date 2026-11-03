@@ -58,17 +58,19 @@ type Drag = {
   origin: Position
   width: number
   height: number
+  launcher: boolean
   mobile: boolean
   moved: boolean
   last: Position
 }
 
 const POSITION_KEY = 'kkai-network-diagnostic-position'
+const LAUNCHER_POSITION_KEY = 'kkai-network-diagnostic-launcher-position-v1'
 const VIEWPORT_MARGIN = 12
 
-function readPosition(): Position | null {
+function readPosition(key = POSITION_KEY): Position | null {
   try {
-    const raw = localStorage.getItem(POSITION_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return null
@@ -81,9 +83,10 @@ function readPosition(): Position | null {
   }
 }
 
-function savePosition(position: Position): void {
+function savePosition(position: Position | null, key = POSITION_KEY): void {
   try {
-    localStorage.setItem(POSITION_KEY, JSON.stringify(position))
+    if (position) localStorage.setItem(key, JSON.stringify(position))
+    else localStorage.removeItem(key)
   } catch {
     // Position memory is optional when storage is unavailable.
   }
@@ -126,19 +129,26 @@ export function NetworkDiagnosticWidget() {
   const closeTimerRef = useRef<number | null>(null)
   const runIdRef = useRef(0)
   const dragRef = useRef<Drag | null>(null)
+  const suppressLauncherClickRef = useRef(false)
+  const launcherAnchorRef = useRef<DOMRect | null>(null)
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
   const [running, setRunning] = useState(false)
   const [samples, setSamples] = useState<ProbeSample[]>([])
   const [end, setEnd] = useState<CheckEnd | null>(null)
-  const [position, setPosition] = useState<Position | null>(readPosition)
+  const [position, setPosition] = useState<Position | null>(() =>
+    readPosition()
+  )
+  const [launcherPosition, setLauncherPosition] = useState<Position | null>(
+    () => readPosition(LAUNCHER_POSITION_KEY)
+  )
   const [pageHidden, setPageHidden] = useState(document.hidden)
 
   const summary = end ? summarizeCheck({ samples, end }) : null
   const verdict = summary?.verdict
   let mascotState = 'idle'
   if (running) mascotState = 'testing'
-  else if (verdict === 'smooth') mascotState = 'good'
+  else if (verdict === 'smooth' || verdict === 'fair') mascotState = 'good'
   else if (verdict) mascotState = 'weak'
 
   const closePanel = useCallback(() => {
@@ -186,33 +196,59 @@ export function NetworkDiagnosticWidget() {
   }, [open])
 
   useLayoutEffect(() => {
-    if (!open || !position || isMobile()) return
+    if (!open || isMobile()) return
     const panel = panelRef.current
     if (!panel) return
     const rect = panel.getBoundingClientRect()
-    const clamped = clampPosition(position, rect.width, rect.height)
-    if (clamped.x === position.x && clamped.y === position.y) return
+    const anchor = launcherAnchorRef.current
+    launcherAnchorRef.current = null
+    const current = anchor
+      ? { x: anchor.right - rect.width, y: anchor.bottom - rect.height }
+      : (position ?? { x: rect.left, y: rect.top })
+    const clamped = clampPosition(current, rect.width, rect.height)
+    if (clamped.x === position?.x && clamped.y === position?.y) return
     setPosition(clamped)
     savePosition(clamped)
   }, [open, position, samples.length, end])
 
+  useLayoutEffect(() => {
+    if (open || closing || !launcherPosition) return
+    const launcher = launcherRef.current
+    if (!launcher) return
+    const rect = launcher.getBoundingClientRect()
+    const clamped = clampPosition(launcherPosition, rect.width, rect.height)
+    if (clamped.x === launcherPosition.x && clamped.y === launcherPosition.y) {
+      return
+    }
+    setLauncherPosition(clamped)
+    savePosition(clamped, LAUNCHER_POSITION_KEY)
+  }, [open, closing, launcherPosition])
+
   useEffect(() => {
-    if (!open) return
     const onResize = () => {
-      const panel = panelRef.current
-      if (!panel || isMobile()) return
-      const rect = panel.getBoundingClientRect()
-      const current = position ?? { x: rect.left, y: rect.top }
+      if (open && isMobile()) return
+      const element = open ? panelRef.current : launcherRef.current
+      if (!element || closing) return
+      const rect = element.getBoundingClientRect()
+      const saved = open ? position : launcherPosition
+      // An untouched launcher follows its responsive CSS placement.
+      if (!open && !saved) return
+      const current = saved ?? { x: rect.left, y: rect.top }
       const clamped = clampPosition(current, rect.width, rect.height)
-      if (position && clamped.x === position.x && clamped.y === position.y) {
+      if (saved && clamped.x === saved.x && clamped.y === saved.y) {
         return
       }
-      setPosition(clamped)
-      savePosition(clamped)
+      if (open) {
+        setPosition(clamped)
+        savePosition(clamped)
+      } else {
+        setLauncherPosition(clamped)
+        savePosition(clamped, LAUNCHER_POSITION_KEY)
+      }
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [open, position])
+  }, [open, closing, position, launcherPosition])
 
   async function startCheck() {
     abortRef.current?.abort()
@@ -249,10 +285,18 @@ export function NetworkDiagnosticWidget() {
     ) {
       return
     }
-    if (isMobile() && !target.closest('.network-diagnostic__grip')) return
-    const panel = panelRef.current
-    if (!panel) return
-    const rect = panel.getBoundingClientRect()
+    const launcher = event.currentTarget === launcherRef.current
+    if (
+      !launcher &&
+      isMobile() &&
+      !target.closest('.network-diagnostic__grip')
+    ) {
+      return
+    }
+    const element = launcher ? launcherRef.current : panelRef.current
+    if (!element) return
+    if (launcher) suppressLauncherClickRef.current = false
+    const rect = element.getBoundingClientRect()
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -260,11 +304,12 @@ export function NetworkDiagnosticWidget() {
       origin: { x: rect.left, y: rect.top },
       width: rect.width,
       height: rect.height,
-      mobile: isMobile(),
+      launcher,
+      mobile: !launcher && isMobile(),
       moved: false,
       last: { x: rect.left, y: rect.top },
     }
-    panel.dataset.dragging = 'true'
+    element.dataset.dragging = 'true'
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
@@ -287,7 +332,8 @@ export function NetworkDiagnosticWidget() {
       drag.width,
       drag.height
     )
-    setPosition(drag.last)
+    if (drag.launcher) setLauncherPosition(drag.last)
+    else setPosition(drag.last)
   }
 
   function onDragEnd(event: PointerEvent<HTMLElement>) {
@@ -297,7 +343,8 @@ export function NetworkDiagnosticWidget() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
-    panelRef.current?.removeAttribute('data-dragging')
+    const element = drag.launcher ? launcherRef.current : panelRef.current
+    element?.removeAttribute('data-dragging')
     if (drag.mobile) {
       if (
         drag.moved &&
@@ -309,14 +356,22 @@ export function NetworkDiagnosticWidget() {
         panelRef.current?.style.setProperty('--network-swipe-y', '0px')
       }
     } else if (drag.moved) {
-      savePosition(drag.last)
+      if (drag.launcher) {
+        suppressLauncherClickRef.current = true
+        savePosition(drag.last, LAUNCHER_POSITION_KEY)
+        setPosition(null)
+        savePosition(null)
+      } else {
+        savePosition(drag.last)
+      }
     }
   }
 
   function onGripKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (isMobile()) return
-    const panel = panelRef.current
-    if (!panel) return
+    const launcher = event.currentTarget === launcherRef.current
+    if (!launcher && isMobile()) return
+    const element = launcher ? launcherRef.current : panelRef.current
+    if (!element) return
     const directions: Record<string, Position> = {
       ArrowLeft: { x: -1, y: 0 },
       ArrowRight: { x: 1, y: 0 },
@@ -326,15 +381,22 @@ export function NetworkDiagnosticWidget() {
     const direction = directions[event.key]
     if (!direction) return
     event.preventDefault()
-    const rect = panel.getBoundingClientRect()
+    const rect = element.getBoundingClientRect()
     const step = event.shiftKey ? 32 : 12
     const next = clampPosition(
       { x: rect.left + direction.x * step, y: rect.top + direction.y * step },
       rect.width,
       rect.height
     )
-    setPosition(next)
-    savePosition(next)
+    if (launcher) {
+      setLauncherPosition(next)
+      savePosition(next, LAUNCHER_POSITION_KEY)
+      setPosition(null)
+      savePosition(null)
+    } else {
+      setPosition(next)
+      savePosition(next)
+    }
   }
 
   function onPanelKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -346,9 +408,9 @@ export function NetworkDiagnosticWidget() {
   function verdictLabel(value: ConnectionVerdict | undefined): string {
     switch (value) {
       case 'smooth':
-        return t('Connection smooth')
+        return t('Connection excellent')
       case 'fair':
-        return t('Connection fair')
+        return t('Connection good')
       case 'slow':
         return t('Connection slow')
       case 'fluctuating':
@@ -369,8 +431,8 @@ export function NetworkDiagnosticWidget() {
   function verdictDetail(value: ConnectionVerdict | undefined): string {
     switch (value) {
       case 'smooth':
-        return t('Connection is steady')
       case 'fair':
+        return t('Connection is steady')
       case 'slow':
       case 'fluctuating':
       case 'unstable':
@@ -426,7 +488,28 @@ export function NetworkDiagnosticWidget() {
         aria-label={t('Open network diagnostics')}
         aria-expanded={open}
         aria-controls={titleId}
-        onClick={() => setOpen(true)}
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        onLostPointerCapture={onDragEnd}
+        onKeyDown={onGripKeyDown}
+        onClick={(event) => {
+          if (suppressLauncherClickRef.current && event.detail !== 0) {
+            suppressLauncherClickRef.current = false
+            return
+          }
+          if (!position) {
+            launcherAnchorRef.current =
+              launcherRef.current?.getBoundingClientRect() ?? null
+          }
+          setOpen(true)
+        }}
+        style={
+          launcherPosition
+            ? { left: launcherPosition.x, top: launcherPosition.y }
+            : undefined
+        }
         hidden={panelVisible}
       >
         <span
@@ -434,8 +517,13 @@ export function NetworkDiagnosticWidget() {
           aria-hidden='true'
         />
         <span className='network-diagnostic__launcher-dot' aria-hidden='true' />
-        <span className='network-diagnostic__launcher-hint' aria-hidden='true'>
-          {t('Having trouble? Let me check')}
+        <HugeiconsIcon
+          className='network-diagnostic__launcher-grip'
+          icon={DragDropHorizontalIcon}
+          aria-hidden='true'
+        />
+        <span className='network-diagnostic__launcher-label' aria-hidden='true'>
+          {t('Network diagnostics')}
         </span>
       </button>
 
@@ -458,6 +546,7 @@ export function NetworkDiagnosticWidget() {
             onPointerMove={onDragMove}
             onPointerUp={onDragEnd}
             onPointerCancel={onDragEnd}
+            onLostPointerCapture={onDragEnd}
           >
             <button
               type='button'

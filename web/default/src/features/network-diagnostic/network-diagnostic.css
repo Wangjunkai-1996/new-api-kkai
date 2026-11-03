@@ -37,18 +37,25 @@
 
 .network-diagnostic__launcher {
   position: absolute;
-  right: 22px;
-  bottom: 19px;
+  right: 24px;
+  bottom: max(112px, calc(env(safe-area-inset-bottom) + 96px));
   display: grid;
   place-items: center;
-  width: 58px;
-  height: 58px;
-  padding: 0;
-  border: 1px solid var(--nd-line);
-  border-radius: 50%;
-  background: var(--nd-surface);
-  box-shadow: 0 7px 18px rgb(24 70 94 / 16%);
+  width: 104px;
+  min-height: 116px;
+  padding: 0 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--nd-blue) 36%, var(--nd-line));
+  border-radius: 28px;
+  background: linear-gradient(
+    150deg,
+    var(--nd-blue-soft),
+    var(--nd-surface) 75%
+  );
+  box-shadow: 0 10px 28px rgb(24 70 94 / 22%);
   pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   transition:
     transform 180ms ease,
     box-shadow 180ms ease;
@@ -57,10 +64,20 @@
 .network-diagnostic__launcher[hidden] {
   display: none;
 }
+.network-diagnostic__launcher[style] {
+  right: auto;
+  bottom: auto;
+}
 .network-diagnostic__launcher:hover,
 .network-diagnostic__launcher:focus-visible {
-  transform: translateY(-3px) rotate(-4deg);
-  box-shadow: 0 11px 23px rgb(24 70 94 / 20%);
+  box-shadow: 0 12px 32px rgb(24 70 94 / 30%);
+}
+.network-diagnostic__launcher[data-dragging='true'] {
+  cursor: grabbing;
+  transition: none;
+}
+.network-diagnostic__launcher[data-dragging='true'] * {
+  animation-play-state: paused;
 }
 .network-diagnostic__launcher:focus-visible,
 .network-diagnostic__grip:focus-visible,
@@ -80,49 +97,41 @@
   transform-origin: 50% 75%;
 }
 .network-diagnostic__launcher-mascot {
-  width: 47px;
-  height: 47px;
+  width: 88px;
+  height: 88px;
 }
 .network-diagnostic__launcher-dot {
   position: absolute;
-  right: 1px;
-  bottom: 1px;
+  right: 12px;
+  top: 12px;
   width: 12px;
   height: 12px;
   border: 2px solid var(--nd-surface);
   border-radius: 50%;
   background: var(--nd-blue);
 }
-.network-diagnostic__launcher-hint {
+.network-diagnostic__launcher-grip {
   position: absolute;
-  right: 68px;
-  bottom: 7px;
-  padding: 10px 13px;
-  border: 1px solid var(--nd-line);
-  border-radius: 8px 8px 3px 8px;
-  background: var(--nd-surface);
-  box-shadow: 0 4px 18px rgb(24 70 94 / 9%);
+  top: 7px;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--nd-muted);
+}
+.network-diagnostic__launcher-label {
+  max-width: 100%;
   color: var(--nd-ink);
   font-size: 12px;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateX(5px);
-  transition:
-    opacity 160ms ease,
-    transform 160ms ease;
-  pointer-events: none;
-}
-.network-diagnostic__launcher:hover .network-diagnostic__launcher-hint,
-.network-diagnostic__launcher:focus-visible .network-diagnostic__launcher-hint {
-  opacity: 1;
-  transform: translateX(0);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 .network-diagnostic[data-state='idle'] .network-diagnostic__launcher-mascot,
 .network-diagnostic[data-state='idle'] .network-diagnostic__character {
-  animation: nd-idle 12s ease-in-out infinite;
+  animation: nd-idle 6s ease-in-out infinite;
 }
 .network-diagnostic[data-state='idle'] .network-diagnostic__launcher-dot {
-  animation: nd-dot 12s ease-out infinite;
+  animation: nd-dot 6s ease-out infinite;
 }
 .network-diagnostic__launcher:hover .network-diagnostic__launcher-mascot,
 .network-diagnostic__launcher:focus-visible
@@ -133,7 +142,7 @@
 .network-diagnostic__panel {
   position: absolute;
   right: 22px;
-  bottom: 89px;
+  bottom: 112px;
   width: min(380px, calc(100vw - 24px));
   max-height: calc(100dvh - 24px);
   overflow: auto;
@@ -307,7 +316,10 @@
   background: var(--nd-green-soft);
   color: var(--nd-green);
 }
-.network-diagnostic__verdict[data-verdict='fair'],
+.network-diagnostic__verdict[data-verdict='fair'] {
+  background: var(--nd-blue-soft);
+  color: var(--nd-blue);
+}
 .network-diagnostic__verdict[data-verdict='slow'],
 .network-diagnostic__verdict[data-verdict='fluctuating'],
 .network-diagnostic__verdict[data-verdict='unstable'] {
@@ -370,8 +382,6 @@
   .network-diagnostic__sample[data-result='success'] {
   background: var(--nd-green);
 }
-.network-diagnostic[data-state='fair']
-  .network-diagnostic__sample[data-result='success'],
 .network-diagnostic[data-state='slow']
   .network-diagnostic__sample[data-result='success'],
 .network-diagnostic[data-state='fluctuating']
@@ -413,7 +423,6 @@
 .network-diagnostic[data-state='smooth'] .network-diagnostic__launcher-dot {
   background: var(--nd-green);
 }
-.network-diagnostic[data-state='fair'] .network-diagnostic__launcher-dot,
 .network-diagnostic[data-state='slow'] .network-diagnostic__launcher-dot,
 .network-diagnostic[data-state='fluctuating'] .network-diagnostic__launcher-dot,
 .network-diagnostic[data-state='unstable'] .network-diagnostic__launcher-dot {
@@ -558,13 +567,26 @@
   }
   .network-diagnostic__launcher {
     right: 14px;
-    bottom: calc(13px + env(safe-area-inset-bottom));
-    width: 52px;
-    height: 52px;
+    bottom: calc(96px + env(safe-area-inset-bottom));
+    width: 68px;
+    height: 68px;
+    min-height: 0;
+    padding: 2px;
+    border-radius: 50%;
   }
   .network-diagnostic__launcher-mascot {
-    width: 42px;
-    height: 42px;
+    width: 56px;
+    height: 56px;
+  }
+  .network-diagnostic__launcher-label,
+  .network-diagnostic__launcher-grip {
+    display: none;
+  }
+  .network-diagnostic__launcher-dot {
+    top: 5px;
+    right: 5px;
+    width: 10px;
+    height: 10px;
   }
 }
 

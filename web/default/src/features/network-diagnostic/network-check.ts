@@ -156,10 +156,10 @@ export function summarizeCheck(result: CheckResult): {
   if (spread > Math.max(250, averageMs * 0.8)) {
     return { averageMs, successes, failures, verdict: 'fluctuating' }
   }
-  if (averageMs > 500) {
+  if (averageMs > 1_000) {
     return { averageMs, successes, failures, verdict: 'slow' }
   }
-  if (averageMs > 200) {
+  if (averageMs > 500) {
     return { averageMs, successes, failures, verdict: 'fair' }
   }
   return { averageMs, successes, failures, verdict: 'smooth' }

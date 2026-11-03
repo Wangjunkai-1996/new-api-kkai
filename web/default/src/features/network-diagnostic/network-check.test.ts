@@ -44,24 +44,57 @@ describe('network diagnosis', () => {
     ],
     [
       {
-        samples: [201, 220, 250, 260, 270].map((ms) => ({
+        samples: [293, 293, 293, 293, 293].map((ms) => ({
           kind: 'success' as const,
           ms,
         })),
         end: 'complete' as const,
       },
-      240,
+      293,
+      'smooth',
+    ],
+    [
+      {
+        samples: [500, 500, 500, 500, 500].map((ms) => ({
+          kind: 'success' as const,
+          ms,
+        })),
+        end: 'complete' as const,
+      },
+      500,
+      'smooth',
+    ],
+    [
+      {
+        samples: [501, 501, 501, 501, 501].map((ms) => ({
+          kind: 'success' as const,
+          ms,
+        })),
+        end: 'complete' as const,
+      },
+      501,
       'fair',
     ],
     [
       {
-        samples: [500, 520, 540, 560, 580].map((ms) => ({
+        samples: [1_000, 1_000, 1_000, 1_000, 1_000].map((ms) => ({
           kind: 'success' as const,
           ms,
         })),
         end: 'complete' as const,
       },
-      540,
+      1_000,
+      'fair',
+    ],
+    [
+      {
+        samples: [1_001, 1_001, 1_001, 1_001, 1_001].map((ms) => ({
+          kind: 'success' as const,
+          ms,
+        })),
+        end: 'complete' as const,
+      },
+      1_001,
       'slow',
     ],
     [
