@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -15,6 +17,12 @@ import (
 )
 
 func SetApiRouter(router *gin.Engine) {
+	probeRouter := router.Group("/api")
+	probeRouter.Use(middleware.RouteTag("api"), middleware.DisableCache(), middleware.NetworkProbeCORS())
+	probeResponse := func(c *gin.Context) { c.Status(http.StatusNoContent) }
+	probeRouter.GET("/network-probe", middleware.NetworkProbeRateLimit(), probeResponse)
+	probeRouter.OPTIONS("/network-probe", probeResponse)
+
 	apiRouter := router.Group("/api")
 	apiRouter.Use(middleware.RouteTag("api"))
 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
