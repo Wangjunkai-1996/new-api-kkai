@@ -119,6 +119,29 @@ describe('QuickSetupDialog', () => {
     vi.restoreAllMocks()
   })
 
+  test('offers official installation links for CC Switch and the selected client', () => {
+    const { rerenderPreset } = renderDialog()
+
+    expect(screen.getByText('Install CC Switch').closest('a')).toHaveAttribute(
+      'href',
+      'https://github.com/farion1231/cc-switch/releases/latest'
+    )
+    const codexLink = screen.getByText('Install Codex CLI').closest('a')
+    expect(codexLink).toHaveAttribute(
+      'href',
+      'https://learn.chatgpt.com/docs/codex/cli'
+    )
+    expect(codexLink).toHaveAttribute('target', '_blank')
+    expect(codexLink).toHaveAttribute('rel', 'noopener noreferrer')
+
+    rerenderPreset('claude-code')
+    expect(
+      screen.getByText('Install Claude Code').closest('a')
+    ).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup')
+    expect(screen.queryByText('Install Codex CLI')).not.toBeInTheDocument()
+    expect(mocks.createApiKey).not.toHaveBeenCalled()
+  })
+
   test('uses the returned ID and opens CC Switch once after model lookup', async () => {
     const user = userEvent.setup()
     mocks.createApiKey.mockResolvedValue({ success: true, data: { id: 123 } })

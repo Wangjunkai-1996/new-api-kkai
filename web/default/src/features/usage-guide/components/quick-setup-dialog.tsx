@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { ArrowUpRight } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -51,6 +52,7 @@ import {
   buildCCSwitchURL,
   getCCSwitchEndpoint,
 } from '../../keys/lib/cc-switch-url'
+import { USAGE_TOOLS } from '../catalog'
 
 export type QuickSetupPreset = 'gpt' | 'claude-code'
 
@@ -237,6 +239,11 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
   const activePreset = props.preset
   const flow = activePreset ? flows[activePreset] : initialFlow()
   const config = activePreset ? PRESETS[activePreset] : PRESETS.gpt
+  const installTools = USAGE_TOOLS.filter(
+    (tool) =>
+      tool.id === 'cc-switch' ||
+      tool.id === (activePreset === 'gpt' ? 'codex-cli' : 'claude-code')
+  )
   const groupsQuery = useQuery({
     queryKey: ['usage-guide-groups', userId, tenantId, host],
     queryFn: getUserGroups,
@@ -674,6 +681,25 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
                   }
                 )}
               </p>
+              <div className='flex flex-wrap gap-2'>
+                {installTools.map((tool) => (
+                  <Button
+                    key={tool.id}
+                    variant='outline'
+                    size='sm'
+                    render={
+                      <a
+                        href={tool.officialUrl}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                      />
+                    }
+                  >
+                    {t('Install {{name}}', { name: t(tool.nameKey) })}
+                    <ArrowUpRight data-icon='inline-end' />
+                  </Button>
+                ))}
+              </div>
               <label className='flex items-start gap-2 text-sm'>
                 <Checkbox
                   checked={flow.readyConfirmed}

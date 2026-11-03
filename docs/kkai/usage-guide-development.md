@@ -106,7 +106,7 @@
     │   │   ├── GPT / Codex 卡片
     │   │   └── Claude Code 卡片
     │   ├── Key 额度说明
-    │   └── 先把工具准备好：CC Switch、Cherry Studio
+    │   └── 先把工具准备好：CC Switch、Codex CLI、Claude Code、Cherry Studio
     ├── 工具下载
     │   ├── 操作系统筛选：全部、Windows、macOS、Linux
     │   └── 六张工具卡
@@ -121,7 +121,7 @@
 
 ### 3.2 视觉验收基线
 
-- 内容区域以原稿为基准，页面内边距约 30px 28px；原稿 172px 侧栏是示意，真实实现保留现有侧栏宽度、Header、页面容器和 Footer；
+- 内容区域以原稿为基准，页面内边距约 30px 28px；宽屏内容上限为 1800px；原稿 172px 侧栏是示意，真实实现保留现有侧栏宽度、Header、页面容器和 Footer；
 - 快捷配置卡桌面双列，间距约 16px；窄屏单列；
 - 快捷卡包含工具图标、标题、用途副标题、描述、分组、额度、主按钮；
 - 页面采用现有 `background`、`card`、`muted`、`foreground`、`border`、`primary` token，浅色和暗色都要可读；
@@ -138,7 +138,7 @@
 | 快捷卡 | 12px 圆角、1px 中性边框、内距 21px、两列 gap 16px | 按 4px spacing scale 取 20px；关键间距误差不超过 4px |
 | 卡片图标/分组区 | 38px 图标底座、轻量 GPT/Claude 色彩；浅底两行字段 | 映射现有语义色，暗色不直接复制浅色十六进制值 |
 | 主要按钮 | 两张卡各自底部满宽、中性深色、箭头 | 不新增无关渐变、大插图或第二个同等级主动作 |
-| 工具卡 | 9px 圆角、15px 内距、gap 12px；首屏仅 CC Switch/Cherry | 取 8px/16px token；下载区最多双列，保持原内容顺序 |
+| 工具卡 | 9px 圆角、15px 内距、gap 12px；首屏先显示 CC Switch/Codex CLI，再显示 Claude Code/Cherry Studio | 取 8px/16px token；下载区最多双列，保持原内容顺序 |
 | 弹窗 | 最大宽度 474px、内距 24px、14px 圆角 | 使用现有 Dialog，`sm:max-w-[474px]` 或最近规格；窄屏保持 16px 边距，允许内容滚动 |
 | 弹窗内容 | 标题→三步指示→安装入口→Key 摘要→确认勾选→主/次动作 | 加载、模型选择与错误块在同一弹窗展开，不再叠第二个导入弹窗 |
 
@@ -329,6 +329,7 @@ POST /api/token/{token_id}/key
 - 后端在 `common/console_contract.json` 的两个支持 profile 声明可选 capability `token_create_result_id`，同时有返回 ID 的行为测试；本次不提升全局 API contract 版本，不把它加入 `web/default/console-contract.json` 的全局 required 列表；
 - 本模块通过现有 `useConsoleContract` 读取后端能力：缺失/未知时保留教程、下载、API Keys 入口，禁用本模块的新建向导并给出刷新/重试能力读取操作，不阻断整个控制台；独立前端继续使用 `/console-runtime.json`，不另造探测接口；
 - 能力存在仍需防御缺 ID 响应，兼容灰度切换或旧缓存。前端发布/后端回退时验收上述降级，不把本地源码能力当成线上已安装证据。
+- 首次启用的发布验收必须检查公网 `/console-runtime.json` 包含 `token_create_result_id`。该文件取当前与回滚后端能力的交集：仅当前后端支持还不足以开放向导；需要通过正常发布使回滚版本也支持返回 ID，不能手改运行时文件或移除前端保护。`/api/status` 健康不代表此功能已启用。
 
 ### 6.2 权限、租户和数量
 

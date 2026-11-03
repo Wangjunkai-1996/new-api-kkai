@@ -42,7 +42,8 @@ describe('usage guide', () => {
     render(<UsageGuidePage />)
 
     expect(screen.getByText('GPT / Codex')).toBeInTheDocument()
-    expect(screen.getByText('Claude Code')).toBeInTheDocument()
+    expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0)
+    expect(screen.getByText('Codex CLI')).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'Tool downloads' }))
 
     for (const tool of USAGE_TOOLS) {

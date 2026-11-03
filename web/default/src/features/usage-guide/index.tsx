@@ -71,7 +71,12 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
   'claude-desktop': Monitor,
 }
 
-const FEATURED_TOOL_IDS = new Set(['cc-switch', 'cherry-studio'])
+const FEATURED_TOOLS = [
+  'cc-switch',
+  'codex-cli',
+  'claude-code',
+  'cherry-studio',
+].flatMap((id) => USAGE_TOOLS.filter((tool) => tool.id === id))
 
 export function UsageGuidePage() {
   const { t } = useTranslation()
@@ -87,10 +92,6 @@ export function UsageGuidePage() {
       ),
     [platform]
   )
-  const featuredTools = USAGE_TOOLS.filter((tool) =>
-    FEATURED_TOOL_IDS.has(tool.id)
-  )
-
   const openToolsTab = () => {
     setActiveTab('tools')
   }
@@ -105,7 +106,7 @@ export function UsageGuidePage() {
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('Usage guide')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
-          <div className='mx-auto w-full max-w-5xl space-y-6 py-2 sm:space-y-8 sm:py-4'>
+          <div className='mx-auto w-full max-w-[1800px] space-y-6 py-2 sm:space-y-8 sm:py-4'>
             <header className='space-y-2'>
               <h1 className='text-2xl leading-tight font-semibold tracking-tight sm:text-[26px]'>
                 {t('Start using AI from here')}
@@ -224,7 +225,7 @@ export function UsageGuidePage() {
                     </Button>
                   </div>
                   <div className='grid gap-3 sm:grid-cols-2'>
-                    {featuredTools.map((tool) => (
+                    {FEATURED_TOOLS.map((tool) => (
                       <ToolCard key={tool.id} tool={tool} />
                     ))}
                   </div>
