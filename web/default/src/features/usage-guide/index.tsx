@@ -74,7 +74,7 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
 const FEATURED_TOOLS = [
   'cc-switch',
   'codex-app',
-  'claude-code',
+  'claude-desktop',
   'cherry-studio',
 ].flatMap((id) => USAGE_TOOLS.filter((tool) => tool.id === id))
 

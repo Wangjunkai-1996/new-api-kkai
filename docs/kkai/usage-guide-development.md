@@ -107,7 +107,7 @@
     │   │   ├── GPT / Codex 卡片
     │   │   └── Claude Code 卡片
     │   ├── Key 额度说明
-    │   └── 先把工具准备好：CC Switch、ChatGPT（Codex 桌面应用）、Claude Code、Cherry Studio
+    │   └── 先把工具准备好：CC Switch、ChatGPT（Codex 桌面应用）、Claude Desktop、Cherry Studio
     ├── 工具下载
     │   ├── 操作系统筛选：全部、Windows、macOS、Linux
     │   └── 六张工具卡
@@ -139,7 +139,7 @@
 | 快捷卡 | 12px 圆角、1px 中性边框、内距 21px、两列 gap 16px | 按 4px spacing scale 取 20px；关键间距误差不超过 4px |
 | 卡片图标/分组区 | 38px 图标底座、轻量 GPT/Claude 色彩；浅底两行字段 | 映射现有语义色，暗色不直接复制浅色十六进制值 |
 | 主要按钮 | 两张卡各自底部满宽、中性深色、箭头 | 不新增无关渐变、大插图或第二个同等级主动作 |
-| 工具卡 | 9px 圆角、15px 内距、gap 12px；首屏先显示 CC Switch/ChatGPT（Codex 桌面应用），再显示 Claude Code/Cherry Studio | 取 8px/16px token；下载区最多双列，保持原内容顺序 |
+| 工具卡 | 9px 圆角、15px 内距、gap 12px；首屏先显示 CC Switch/ChatGPT（Codex 桌面应用），再显示 Claude Desktop/Cherry Studio | 取 8px/16px token；下载区最多双列，保持原内容顺序 |
 | 弹窗 | 最大宽度 474px、内距 24px、14px 圆角 | 使用现有 Dialog，`sm:max-w-[474px]` 或最近规格；窄屏保持 16px 边距，允许内容滚动 |
 | 弹窗内容 | 标题→三步指示→安装入口→Key 摘要→确认勾选→主/次动作 | 加载、模型选择与错误块在同一弹窗展开，不再叠第二个导入弹窗 |
 

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -45,6 +45,19 @@ describe('usage guide', () => {
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0)
     expect(screen.getByText('ChatGPT')).toBeInTheDocument()
     expect(screen.queryByText('Codex CLI')).not.toBeInTheDocument()
+    const featured = within(
+      screen.getByRole('region', { name: 'Prepare your tools first' })
+    )
+    expect(featured.getByText('Claude Desktop')).toBeInTheDocument()
+    expect(featured.queryByText('Claude Code')).not.toBeInTheDocument()
+    expect(
+      featured
+        .getAllByRole('button', { name: 'macOS download page' })
+        .some(
+          (button) =>
+            button.getAttribute('href') === 'https://claude.com/download'
+        )
+    ).toBe(true)
     expect(
       screen
         .getAllByRole('button', { name: 'macOS official page' })
@@ -59,6 +72,7 @@ describe('usage guide', () => {
       expect(screen.getAllByText(tool.nameKey).length).toBeGreaterThan(0)
     }
     expect(screen.getByText('Codex CLI')).toBeInTheDocument()
+    expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0)
   })
 
   it('opens a quick setup dialog from a card without unmounting the page', async () => {
