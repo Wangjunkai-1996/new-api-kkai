@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -355,7 +356,7 @@ func (s InvoiceService) List(ctx context.Context, scope InvoiceScope, f InvoiceF
 	return result, nil
 }
 func (s InvoiceService) Summary(ctx context.Context, scope InvoiceScope, f InvoiceFilter) (InvoiceSummary, error) {
-	result := InvoiceSummary{Totals: []InvoiceMoneyTotal{}, Counts: map[string]int64{}}
+	result := InvoiceSummary{Totals: []InvoiceMoneyTotal{}, InvoicedTotals: []InvoiceMoneyTotal{}, Counts: map[string]int64{}}
 	if err := invoiceValidateScope(scope); err != nil {
 		return result, err
 	}
@@ -395,6 +396,55 @@ func (s InvoiceService) Summary(ctx context.Context, scope InvoiceScope, f Invoi
 		}
 	}
 	if !scope.Admin {
+		issued, err := invoiceListQuery(db, scope, f, false)
+		if err != nil {
+			return result, err
+		}
+		issuedRows, err := issued.Where("invoice_requests.ever_delivered = ?", true).
+			Select("invoice_requests.currency, invoice_requests.currency_exponent, invoice_requests.amount_minor").
+			Order("invoice_requests.currency, invoice_requests.currency_exponent").Rows()
+		if err != nil {
+			return result, err
+		}
+		var current InvoiceMoneyTotal
+		var sum int64
+		for issuedRows.Next() {
+			var currency string
+			var exponent int
+			var amount int64
+			if err = issuedRows.Scan(&currency, &exponent, &amount); err != nil {
+				break
+			}
+			if current.Count > 0 && (current.Currency != currency || current.CurrencyExponent != exponent) {
+				current.AmountMinor = strconv.FormatInt(sum, 10)
+				result.InvoicedTotals = append(result.InvoicedTotals, current)
+				current = InvoiceMoneyTotal{}
+				sum = 0
+			}
+			if amount < 0 || sum > math.MaxInt64-amount || current.Count == math.MaxInt64 {
+				err = invoiceError(422, "INVOICE_METADATA_MISMATCH")
+				break
+			}
+			current.Currency = currency
+			current.CurrencyExponent = exponent
+			current.Count++
+			sum += amount
+		}
+		if err == nil {
+			err = issuedRows.Err()
+		}
+		if closeErr := issuedRows.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return result, err
+		}
+		if current.Count > 0 {
+			current.AmountMinor = strconv.FormatInt(sum, 10)
+			result.InvoicedTotals = append(result.InvoicedTotals, current)
+		} else {
+			result.InvoicedTotals = append(result.InvoicedTotals, InvoiceMoneyTotal{Currency: "CNY", CurrencyExponent: 2, AmountMinor: "0"})
+		}
 		rows, err := s.candidateRows(ctx, scope, db, false)
 		if err != nil {
 			return result, err

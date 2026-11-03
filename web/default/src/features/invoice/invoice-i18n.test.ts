@@ -3,8 +3,10 @@ import { resolve } from 'node:path'
 
 import { expect, test } from 'vitest'
 
-test('invoice minimum and submission recovery copy is translated in every supported locale', () => {
+test('invoice center copy is translated in every supported locale', () => {
   const keys = [
+    'Invoiced amount',
+    'Invoices delivered to your account',
     'Request note',
     'Request note (optional, visible to reviewers)',
     'Historical payment verification is paused until {{time}} and will resume automatically. Verified payments remain available.',

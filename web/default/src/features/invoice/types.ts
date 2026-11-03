@@ -72,6 +72,12 @@ export interface InvoiceSummary {
     currency_exponent: number
     amount_minor: string
   }[]
+  invoiced_totals: {
+    currency: string
+    currency_exponent: number
+    amount_minor: string
+    count: number
+  }[]
   processing_count: number
   awaiting_confirmation_count: number
   unread_count: number

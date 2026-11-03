@@ -239,6 +239,7 @@ type InvoiceSummary struct {
 
 	EligibleCount             int64               `json:"eligible_count"`
 	Totals                    []InvoiceMoneyTotal `json:"totals"`
+	InvoicedTotals            []InvoiceMoneyTotal `json:"invoiced_totals,omitempty"`
 	ProcessingCount           int64               `json:"processing_count"`
 	AwaitingConfirmationCount int64               `json:"awaiting_confirmation_count"`
 	UnreadCount               int64               `json:"unread_count"`

@@ -141,6 +141,9 @@ test.each(['business', 'rate-limit'] as const)(
           amount_minor: String(verified * 100),
         },
       ],
+      invoiced_totals: [
+        { currency: 'CNY', currency_exponent: 2, amount_minor: '0', count: 0 },
+      ],
       processing_count: 0,
       awaiting_confirmation_count: 0,
       unread_count: 0,
@@ -382,7 +385,7 @@ test('invoice record pagination honors the requested page size', async () => {
   client.clear()
 })
 
-test('the current application page has no duplicate apply button and other invoice pages retain the entry', async () => {
+test('the invoice workspace distinguishes invoiced amount and keeps a single apply entry', async () => {
   vi.spyOn(invoiceApi, 'getInvoicePolicy').mockResolvedValue({
     enabled: true,
     policy_version: 'v1',
@@ -395,7 +398,10 @@ test('the current application page has no duplicate apply button and other invoi
   })
   vi.spyOn(invoiceApi, 'getInvoiceSummary').mockResolvedValue({
     eligible_count: 0,
-    totals: [],
+    totals: [{ currency: 'CNY', currency_exponent: 2, amount_minor: '12000' }],
+    invoiced_totals: [
+      { currency: 'CNY', currency_exponent: 2, amount_minor: '4500', count: 1 },
+    ],
     processing_count: 0,
     awaiting_confirmation_count: 0,
     unread_count: 0,
@@ -417,6 +423,10 @@ test('the current application page has no duplicate apply button and other invoi
       <InvoiceWorkspace />
     </QueryClientProvider>
   )
+  await screen.findByText('CN¥45.00')
+  expect(
+    (await screen.findByText('Invoiced amount')).parentElement
+  ).toHaveTextContent('CN¥45.00')
   expect(
     screen.getByRole('link', { name: 'Apply for invoice' })
   ).toHaveAttribute('href', '/invoices/new')

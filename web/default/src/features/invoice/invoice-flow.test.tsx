@@ -307,6 +307,7 @@ test('automatic payment verification refreshes orders and summary without a clic
     .mockImplementation(async () => ({
       eligible_count: Number(verified),
       totals: [],
+      invoiced_totals: [],
       processing_count: 0,
       awaiting_confirmation_count: 0,
       unread_count: 0,

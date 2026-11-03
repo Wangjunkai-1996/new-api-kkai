@@ -167,7 +167,7 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 | Method / Path | 响应与规则 |
 | --- | --- |
 | `GET /invoices/policy` | enabled/disabled_reason、policy_version、seller 摘要、currency/exponent、invoice_types/required_fields、source capabilities、timezone、limits（50笔、20MiB、长度）、可选 SLA。只输出公开规则，不含存储/密钥配置。 |
-| `GET /invoices/summary` | 全历史可申请付款 count/按币种 totals，processing_count、awaiting_confirmation_count、unread_count；不受候选当前页影响，不用旧 TopUp 30天接口。 |
+| `GET /invoices/summary` | 全历史可申请付款 count/按币种 totals、已交付发票按币种 invoiced_totals，processing_count、awaiting_confirmation_count、unread_count；不受候选当前页影响，不用旧 TopUp 30天接口。 |
 | `GET /invoices/eligible-orders` | `eligibility=eligible|unavailable` 分别分页；q订单号、source_type、from/to按付款时间、currency；快捷预选也可用source_type+order_id精确定位；返回候选 DTO、不可用 reason/advice、merge group。filters 不改变已选内存状态。 |
 | `POST /invoices/quote` | 只读核对1–50个付款引用及可选invoice_type/policy_version；返回逐项资格/原因、merge_group_id、精确总额及当前policy。供快捷预选、下一步及提交前核对；不创建claim、不保证以后资格仍有效，不接受客户端金额。 |
 | `POST /invoices/payments/verify` | session-only、主站、用户限速；仅接收`{source_type:"topup",order_id}`。服务端向配置商户发起HTTPS查单，严格核验后在原订单锁内补齐历史付款证据，成功返回`{verified:true}`；不重复入账，不释放claim，不清除exception。凭据、原始响应和内部错误不返回前端。 |
@@ -179,7 +179,7 @@ profiles 和申请快照中的税号、邮箱、地址、电话、银行信息�
 | `PATCH /invoice-profiles/:id` | 完整业务字段 + profile version，原子更新；不改变任何申请快照。 |
 | `DELETE /invoice-profiles/:id` | body 带 version、软删除；已被申请引用仍保留快照。 |
 
-summary 中 processing = pending_review + approved_for_issue + disputed + finance_hold；awaiting_confirmation = delivered + awaiting_reconfirmation；completed = confirmed + rejected。候选 totals 仅含当前真正可申请、已核验且未 claim 的付款，多个 currency 分开，不跨币种相加。记录组采用相同定义；未读数与待办数不同。
+summary 中 processing = pending_review + approved_for_issue + disputed + finance_hold；awaiting_confirmation = delivered + awaiting_reconfirmation；completed = confirmed + rejected。候选 totals 仅含当前真正可申请、已核验且未 claim 的付款，多个 currency 分开，不跨币种相加。invoiced_totals 按本人已正式交付过的申请金额汇总，每笔申请只计一次；审核通过未交付不计，补发及后续确认、异议或暂停不重复累计。记录组采用相同定义；未读数与待办数不同。
 
 候选 DTO 示例（示例 ID/金额，不是种子数据契约）：
 

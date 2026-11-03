@@ -183,8 +183,8 @@ function InvoiceWorkspaceContent() {
                 )}
               </details>
             )}
-            <div className='bg-card grid grid-cols-1 divide-y rounded-xl border sm:grid-cols-3 sm:divide-x sm:divide-y-0'>
-              <div className='p-5'>
+            <div className='bg-border grid grid-cols-1 gap-px overflow-hidden rounded-xl border sm:grid-cols-2 xl:grid-cols-4'>
+              <div className='bg-card p-5'>
                 <p className='text-muted-foreground text-xs'>
                   {t('Available to invoice')}
                 </p>
@@ -194,7 +194,9 @@ function InvoiceWorkspaceContent() {
                   <div className='mt-2 text-[26px] font-medium tabular-nums'>
                     {summary.data?.totals?.length
                       ? summary.data.totals.map((total) => (
-                          <p key={total.currency}>
+                          <p
+                            key={`${total.currency}:${total.currency_exponent}`}
+                          >
                             {formatInvoiceMoney(
                               total.amount_minor,
                               total.currency,
@@ -214,7 +216,35 @@ function InvoiceWorkspaceContent() {
                       })}
                 </p>
               </div>
-              <div className='p-5'>
+              <div className='bg-card p-5'>
+                <p className='text-muted-foreground text-xs'>
+                  {t('Invoiced amount')}
+                </p>
+                {summary.isPending ? (
+                  <Skeleton className='mt-2 h-8 w-32' />
+                ) : (
+                  <div className='mt-2 text-[26px] font-medium tabular-nums'>
+                    {summary.data?.invoiced_totals?.length
+                      ? summary.data.invoiced_totals.map((total) => (
+                          <p
+                            key={`${total.currency}:${total.currency_exponent}`}
+                          >
+                            {formatInvoiceMoney(
+                              total.amount_minor,
+                              total.currency,
+                              total.currency_exponent,
+                              i18n.language
+                            )}
+                          </p>
+                        ))
+                      : '—'}
+                  </div>
+                )}
+                <p className='text-muted-foreground mt-1 text-xs'>
+                  {t('Invoices delivered to your account')}
+                </p>
+              </div>
+              <div className='bg-card p-5'>
                 <p className='text-muted-foreground text-xs'>
                   {t('Invoice requests in progress')}
                 </p>
@@ -225,7 +255,7 @@ function InvoiceWorkspaceContent() {
                   {t('Review, issuance or dispute handling')}
                 </p>
               </div>
-              <div className='p-5'>
+              <div className='bg-card p-5'>
                 <p className='text-muted-foreground text-xs'>
                   {t('Awaiting confirmation')}
                 </p>
