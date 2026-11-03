@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
 export const STATIC_I18N_KEYS = [
   'A desktop workspace for chat, writing, and knowledge-base workflows. It can use an API key directly.',
   'A project-aware coding client for working with repositories. The Claude quick setup targets this client.',
-  'A separate desktop entry for Claude. It has its own installation and manual connection instructions.',
-  'A separate desktop entry point for coding tasks. Keep its install and connection instructions separate from CLI.',
+  'A separate desktop assistant. It does not support directly configuring this site API key.',
+  'A separate desktop coding workspace. Keep its install and connection instructions separate from Codex CLI.',
   'AI coding in the terminal',
   'All systems',
   'All tools',
@@ -53,6 +53,7 @@ export const STATIC_I18N_KEYS = [
   'Desktop coding workspace',
   'Do not click create again immediately. Open API Keys and check for the key by its exact name. A later retry only applies to a confirmed key ID.',
   'Do not create another key until you check API Keys.',
+  'Download only. Use Claude Code or another supported client for this site API key.',
   'For 401, check that the key is complete and active. For 403, check group and model access. For a balance error, check your balance or plan. Use Usage Logs for more detail.',
   'Frequently asked questions',
   'GPT / Codex',
