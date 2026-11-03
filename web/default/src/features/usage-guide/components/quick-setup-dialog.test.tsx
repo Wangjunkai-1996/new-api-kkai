@@ -92,7 +92,10 @@ describe('QuickSetupDialog', () => {
     mocks.useSiteConfig.mockReturnValue({ data: { tenant_id: 0 } })
     mocks.getUserGroups.mockResolvedValue({
       success: true,
-      data: { 'GPT-稳定': {}, 'claudecode-满血企业': {} },
+      data: {
+        default: { display_name: 'GPT-稳定' },
+        'claudecode-满血企业': {},
+      },
     })
     mocks.getTokenModels.mockResolvedValue({
       success: true,
@@ -102,7 +105,7 @@ describe('QuickSetupDialog', () => {
       success: true,
       data: {
         id: 123,
-        group: 'GPT-稳定',
+        group: 'default',
         status: 1,
         expired_time: -1,
       },
@@ -154,11 +157,65 @@ describe('QuickSetupDialog', () => {
     )
 
     await waitFor(() => expect(open).toHaveBeenCalledOnce())
+    expect(mocks.createApiKey).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'GPT-稳定', group: 'default' })
+    )
     expect(mocks.getTokenModels).toHaveBeenCalledWith(123)
     expect(mocks.getApiKey).toHaveBeenCalledWith(123)
     expect(mocks.fetchTokenKey).toHaveBeenCalledWith(123)
     expect(String(open.mock.calls[0][0])).toContain('ccswitch://v1/import')
     expect(String(open.mock.calls[0][0])).toContain('apiKey=sk-secret-key')
+  })
+
+  test('does not guess a group when display names are duplicated', async () => {
+    mocks.getUserGroups.mockResolvedValue({
+      success: true,
+      data: {
+        default: { display_name: 'GPT-稳定' },
+        secondary: { display_name: 'GPT-稳定' },
+      },
+    })
+    renderDialog()
+
+    expect(await screen.findByText('No groups available')).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Create key and open CC Switch' })
+    ).toBeDisabled()
+    expect(mocks.createApiKey).not.toHaveBeenCalled()
+  })
+
+  test('does not use an auto group with the target display name', async () => {
+    mocks.getUserGroups.mockResolvedValue({
+      success: true,
+      data: { auto: { display_name: 'GPT-稳定', is_auto: true } },
+    })
+    renderDialog()
+
+    expect(await screen.findByText('No groups available')).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Create key and open CC Switch' })
+    ).toBeDisabled()
+    expect(mocks.createApiKey).not.toHaveBeenCalled()
+  })
+
+  test('keeps the Claude group key when it matches its display name', async () => {
+    const user = userEvent.setup()
+    mocks.createApiKey.mockResolvedValue({ success: true, data: { id: 123 } })
+    renderDialog('claude-code')
+
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(
+      screen.getByRole('button', { name: 'Create key and open CC Switch' })
+    )
+
+    await waitFor(() =>
+      expect(mocks.createApiKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'claudecode-满血企业',
+          group: 'claudecode-满血企业',
+        })
+      )
+    )
   })
 
   test('does not retry creation when the successful response has no ID', async () => {

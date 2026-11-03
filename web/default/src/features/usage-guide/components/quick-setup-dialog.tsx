@@ -34,6 +34,7 @@ import { useConsoleContract } from '@/hooks/use-console-contract'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { getUserGroups } from '@/lib/api'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { getUserGroupDisplayName } from '@/lib/group-display'
 import { handleServerError } from '@/lib/handle-server-error'
 import { getCurrentHost } from '@/lib/host-scope'
 import { useAuthStore } from '@/stores/auth-store'
@@ -77,6 +78,7 @@ type FlowStage =
 type Flow = {
   stage: FlowStage
   tokenId?: number
+  groupKey?: string
   models: string[]
   selectedModel: string
   modelOverrides: Record<string, string>
@@ -157,11 +159,11 @@ function renderActionButton(args: {
 
 const PRESETS: Record<
   QuickSetupPreset,
-  { group: string; app: CCSwitchApp; tool: string }
+  { groupLabel: string; app: CCSwitchApp; tool: string }
 > = {
-  gpt: { group: 'GPT-稳定', app: 'codex', tool: 'Codex' },
+  gpt: { groupLabel: 'GPT-稳定', app: 'codex', tool: 'Codex' },
   'claude-code': {
-    group: 'claudecode-满血企业',
+    groupLabel: 'claudecode-满血企业',
     app: 'claude',
     tool: 'Claude Code',
   },
@@ -251,12 +253,19 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
     staleTime: 60_000,
     retry: false,
   })
-  const groupAvailable = Boolean(
-    groupsQuery.data?.success && groupsQuery.data.data?.[config.group]
+  const matchingGroups = Object.entries(groupsQuery.data?.data ?? {}).filter(
+    ([key, info]) =>
+      !info.is_auto &&
+      !info.is_auto_group &&
+      getUserGroupDisplayName(key, info) === config.groupLabel
   )
+  const groupKey =
+    groupsQuery.data?.success && matchingGroups.length === 1
+      ? matchingGroups[0][0]
+      : undefined
   const canCreate = Boolean(
     contract.contract?.capabilities.includes('token_create_result_id') &&
-    groupAvailable
+    groupKey
   )
 
   useEffect(() => {
@@ -369,7 +378,11 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
     requestId: number
   ): Promise<string | null> => {
     const current = flowsRef.current[preset]
-    if (!current.tokenId || !isCurrent(preset, requestId)) {
+    if (
+      !current.tokenId ||
+      !current.groupKey ||
+      !isCurrent(preset, requestId)
+    ) {
       return null
     }
     let tokenResult
@@ -393,7 +406,7 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
     if (
       !tokenResult.success ||
       !tokenResult.data ||
-      !isActiveToken(tokenResult.data, current.tokenId, PRESETS[preset].group)
+      !isActiveToken(tokenResult.data, current.tokenId, current.groupKey)
     ) {
       updateFlow(preset, (flowState) => ({
         ...flowState,
@@ -445,7 +458,7 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
     const models = { model: current.selectedModel, ...current.modelOverrides }
     const url = buildCCSwitchURL(
       PRESETS[preset].app,
-      PRESETS[preset].group,
+      PRESETS[preset].groupLabel,
       models,
       secret
     )
@@ -458,19 +471,28 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
   }
 
   const create = async (manual: boolean) => {
-    if (!activePreset || !canCreate || (!manual && !flow.readyConfirmed)) return
+    if (
+      !activePreset ||
+      !canCreate ||
+      !groupKey ||
+      (!manual && !flow.readyConfirmed)
+    ) {
+      return
+    }
     const preset = activePreset
+    const selectedGroupKey = groupKey
     const requestId = ++requestRef.current
     cancelledRef.current = false
     updateFlow(preset, (current) => ({
       ...current,
       stage: 'creating',
+      groupKey: selectedGroupKey,
       message: undefined,
     }))
     try {
       const result = await createApiKey({
-        name: PRESETS[preset].group,
-        group: PRESETS[preset].group,
+        name: PRESETS[preset].groupLabel,
+        group: selectedGroupKey,
         expired_time: -1,
         remain_quota: 0,
         unlimited_quota: true,
@@ -662,9 +684,9 @@ export function QuickSetupDialog(props: QuickSetupDialogProps) {
           <div className='bg-muted rounded-lg p-3 text-sm'>
             <div className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1'>
               <span className='text-muted-foreground'>{t('Key name')}</span>
-              <span>{config.group}</span>
+              <span>{config.groupLabel}</span>
               <span className='text-muted-foreground'>{t('Group')}</span>
-              <span>{config.group}</span>
+              <span>{config.groupLabel}</span>
               <span className='text-muted-foreground'>{t('Quota')}</span>
               <span>{t('No separate key quota limit')}</span>
               <span className='text-muted-foreground'>{t('Validity')}</span>
