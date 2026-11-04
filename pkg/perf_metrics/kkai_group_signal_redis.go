@@ -167,7 +167,9 @@ func queryKKAIGroupBuckets(startTs int64, endTs int64, groups []string, resoluti
 	localPresent := false
 	for _, bucket := range local {
 		key := kkaiGroupBucketKey{bucket.Group, bucket.BucketTs, resolution}
-		if _, exists := byKey[key]; !exists {
+		// Snapshots overlap, so never add them. A larger local snapshot keeps
+		// samples missed by Redis writes, but cannot reconstruct a cross-node union.
+		if shared, exists := byKey[key]; !exists || bucket.RequestCount > shared.RequestCount {
 			localPresent = true
 			byKey[key] = bucket
 		}

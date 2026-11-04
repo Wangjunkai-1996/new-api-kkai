@@ -4,11 +4,22 @@
 the authenticated user. Supported windows are `now`, `15m`, `1h`, `6h`, and
 `24h`.
 
-Each relay sample updates fork-owned minute and hour aggregates. Redis stores
+Each relay sample updates fork-owned minute and five-minute aggregates. Redis stores
 the shared multi-instance aggregates and a bounded recent-event stream; the
 same sample is kept in a bounded local fallback. Redis queries are authoritative
-when available. If Redis is disabled or unavailable, the endpoint continues
+unless the local bucket has more requests, indicating missed Redis writes. The
+overlapping snapshots are never added together; this fallback cannot reconstruct
+an exact union of samples lost across multiple instances. If Redis is disabled or unavailable, the endpoint continues
 with local signals and persisted `perf_metrics` rows instead of failing.
+
+Sampling uses the known final relay result. A connection closed after a complete
+response does not erase that result. Cancellation before a known result and
+business-policy rejections remain excluded; explicit provider failures remain
+failures. Multi-choice OpenAI and Gemini streams require every requested choice
+or candidate to finish before their protocol result is complete.
+
+Asynchronous Image Studio executions record a sample after the actual provider
+call. Archival, settlement recovery and redelivery do not add another sample.
 
 Polled asynchronous tasks, including Seedance videos, add one sample when the
 task first reaches success or failure. Only the winning persisted transition
@@ -16,6 +27,11 @@ records it; pending states, transient polling errors, repeated polls, and
 terminal metadata updates do not add samples. This also covers batch/Suno
 polling and terminal polling failures/timeouts. Tasks do not enter the
 text-request cache rate.
+
+Tasks that return a terminal result during submission are sampled by the winning
+submission claim, even when persistence later needs receipt recovery. Cross-group
+retries persist the group used by the accepted attempt so later task results are
+attributed to that group.
 
 The selected window controls health, success rate, latency, TTFT, and staleness.
 It does not filter `recent_events`: every visible group returns its latest 60
@@ -40,7 +56,13 @@ not response generation time. Old samples are marked `stale` and classified as
 idle or disconnected group from appearing healthy indefinitely.
 
 The `auto` group is an aggregate of the configured auto-group members that are
-also visible to the user. It never exposes metrics for a hidden group.
+also visible to the user. Each member is counted once, including legacy lists
+with duplicate entries. It never exposes metrics for a hidden group.
+
+Previously dropped samples are not reconstructed by these fixes. Realtime
+WebSocket sessions still lack per-response health sampling and are excluded from
+the ordinary relay completion hook; a connection closing must not be counted as
+one successful request.
 
 Cache hit rate always uses the last 24 hours, independently of the selected
 health window. It is the share of eligible successful text requests with

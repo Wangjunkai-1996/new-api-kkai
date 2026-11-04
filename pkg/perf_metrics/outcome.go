@@ -18,32 +18,46 @@ const (
 )
 
 // ClassifyRelayOutcome decides whether one finished relay counts as a health
-// sample. Business rejections and client cancellations are not samples; the
-// classification is independent of retries, channel disabling and billing.
+// sample. Business rejections and cancellations before a known result are not
+// samples; classification is independent of retries, channel disabling and billing.
 func ClassifyRelayOutcome(ctx context.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError) Outcome {
 	if info == nil || info.PerformanceBusinessRejection {
-		return OutcomeIgnored
-	}
-	if ctx != nil && ctx.Err() == context.Canceled {
-		return OutcomeIgnored
-	}
-	if apiErr != nil && errors.Is(apiErr, context.Canceled) {
 		return OutcomeIgnored
 	}
 	stream := info.StreamStatus.OutcomeSnapshot()
 	if stream.Response == relaycommon.ResponseOutcomeFailed {
 		return classifyFailure(false, stream.ErrorCode, stream.ErrorType, stream.ErrorStatus)
 	}
+	if apiErr != nil && errors.Is(apiErr, context.Canceled) {
+		return OutcomeIgnored
+	}
 	if apiErr != nil {
 		root := rootAPIError(apiErr)
+		// A cancelled read has no provider result. A structured rejection or
+		// failure already received from the provider remains a known result.
+		if ctx != nil && ctx.Err() == context.Canceled {
+			switch root.GetErrorCode() {
+			case types.ErrorCodeDoRequestFailed, types.ErrorCodeReadResponseBodyFailed:
+				return OutcomeIgnored
+			}
+		}
 		local := root.GetErrorType() == types.ErrorTypeNewAPIError
 		return classifyFailure(local, string(root.GetErrorCode()), root.ToOpenAIError().Type, root.StatusCode)
 	}
-	deadlineExceeded := info.StreamStatus != nil && errors.Is(info.StreamStatus.EndError, context.DeadlineExceeded)
-	if stream.Response == relaycommon.ResponseOutcomeCancelled || stream.EndReason == relaycommon.StreamEndReasonPingFail {
+	// Responses can be fully delivered before settlement and sampling finish.
+	// A connection closed after that point must not erase the upstream result.
+	completed := stream.Response == relaycommon.ResponseOutcomeCompleted ||
+		stream.Response == relaycommon.ResponseOutcomeIncomplete ||
+		stream.EndReason == relaycommon.StreamEndReasonDone ||
+		(info.StreamStatus == nil && !info.IsStream && !info.UpstreamIsStream)
+	if ctx != nil && ctx.Err() == context.Canceled && !completed {
 		return OutcomeIgnored
 	}
-	if stream.EndReason == relaycommon.StreamEndReasonClientGone && !deadlineExceeded {
+	deadlineExceeded := info.StreamStatus != nil && errors.Is(info.StreamStatus.EndError, context.DeadlineExceeded)
+	if stream.Response == relaycommon.ResponseOutcomeCancelled {
+		return OutcomeIgnored
+	}
+	if (stream.EndReason == relaycommon.StreamEndReasonClientGone || stream.EndReason == relaycommon.StreamEndReasonPingFail) && !deadlineExceeded && !completed {
 		return OutcomeIgnored
 	}
 	if stream.Response == relaycommon.ResponseOutcomeIncomplete {

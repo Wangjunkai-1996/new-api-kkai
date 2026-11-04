@@ -93,6 +93,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	streamErr := (*types.NewAPIError)(nil)
 	seenCalls := make(map[string]struct{})
 	var functionNames []string
+	finishedChoices := make(map[int]struct{})
 
 	sendEvent := func(event relayconvert.ChatToResponsesStreamEvent) bool {
 		data, err := common.Marshal(event.Payload)
@@ -155,7 +156,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 
 		info.ObserveResponseModel(chunk.Model)
-		observeStreamChoices(info, data, seenCalls, &functionNames)
+		observeStreamChoices(info, data, seenCalls, &functionNames, 1, finishedChoices)
 		results, err := service.ConvertStreamResponseChunk(c, info, state, &chunk)
 		if err != nil {
 			if failResponsesStream(err) {

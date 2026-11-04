@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -474,6 +475,7 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 	claimedTask, claimed, err := model.ClaimTaskSubmission(c, task.ID, &model.TaskSubmissionAttempt{
 		Platform:          platform,
 		ChannelID:         info.ChannelId,
+		Group:             info.UsingGroup,
 		Action:            info.Action,
 		OriginModelName:   info.OriginModelName,
 		UpstreamModelName: info.UpstreamModelName,
@@ -645,6 +647,14 @@ func submitPreparedTask(c *gin.Context, info *relaycommon.RelayInfo, adaptor cha
 		logger.LogWarn(c, "failed to encode request policy audit: "+policyErr.Error())
 	}
 	acceptance.RequestPolicy = policyEvents
+	if immediateTerminal {
+		// The submission claim owns this upstream result, even if acceptance
+		// must later be restored from its recovery receipt.
+		completedTask := *task
+		completedTask.Status = acceptance.Status
+		completedTask.FinishTime = acceptance.FinishTime
+		perfmetrics.RecordTaskResult(&completedTask, response.Immediate)
+	}
 
 	acceptedTask, accepted, err := model.PersistTaskSubmissionAcceptance(c, task.ID, acceptance)
 	if acceptedTask != nil {

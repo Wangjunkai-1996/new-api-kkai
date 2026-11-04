@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -256,6 +257,9 @@ func executeAsyncImage(runCtx, workerCtx context.Context, generation *model.KKAI
 	c.Writer = capture
 	upstreamStarted := time.Now()
 	relayErr := relay.ImageHelper(c, info)
+	// Recovery only archives/settles the durable result; sample the actual
+	// provider execution here so redelivery cannot count it again.
+	perfmetrics.RecordRelayResult(c.Request.Context(), info, relayErr)
 	closeErr := capture.Close()
 	upstreamCode := "ok"
 	errorClass, upstreamStatus := "none", 0

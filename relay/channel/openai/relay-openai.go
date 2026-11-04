@@ -122,6 +122,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var secondLastStreamData string // 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
+	expectedChoices := 1
+	switch request := info.Request.(type) {
+	case *dto.GeneralOpenAIRequest:
+		if request != nil && request.N != nil {
+			expectedChoices = max(1, *request.N)
+		}
+	case *dto.GeminiChatRequest:
+		if request != nil && request.GenerationConfig.CandidateCount != nil {
+			expectedChoices = max(1, *request.GenerationConfig.CandidateCount)
+		}
+	}
+	finishedChoices := make(map[int]struct{})
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" && !lastStreamSent {
@@ -142,7 +154,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 			lastStreamData = data
 			lastStreamSent = false
-			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
+			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames, expectedChoices, finishedChoices)
 			if err := processTokenData(c, info, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
@@ -254,7 +266,7 @@ func ordinaryChatStreamDelta(data string) bool {
 
 // observeStreamChoices collects billable function call names and records the
 // finish reason facts used by health sampling from one parsed chunk.
-func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[string]struct{}, names *[]string) {
+func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[string]struct{}, names *[]string, expectedChoices int, finishedChoices map[int]struct{}) {
 	var streamResponse dto.ChatCompletionsStreamResponse
 	if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 		return
@@ -264,7 +276,13 @@ func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[str
 			if *choice.FinishReason == constant.FinishReasonContentFilter {
 				info.PerformanceBusinessRejection = true
 			}
-			info.StreamStatus.MarkCompleted()
+			if choice.Index >= 0 && choice.Index < expectedChoices {
+				finishedChoices[choice.Index] = struct{}{}
+			}
+			// A terminal for one choice does not finish a multi-choice request.
+			if len(finishedChoices) == expectedChoices {
+				info.StreamStatus.MarkCompleted()
+			}
 		}
 		for i, tc := range choice.Delta.ToolCalls {
 			name := strings.TrimSpace(tc.Function.Name)

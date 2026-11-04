@@ -22,17 +22,28 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_pricing_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func enableImageAsyncGroupMetrics(t *testing.T) {
+	t.Helper()
+	previous := perf_metrics_setting.GetSetting().Enabled
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"perf_metrics_setting.enabled": "true"}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"perf_metrics_setting.enabled": strconv.FormatBool(previous)}))
+	})
+}
 
 func TestSelectAsyncImageChannelPreservesUnavailableDiagnostics(t *testing.T) {
 	db, _, normalized := newImageAsyncAcceptanceFixture(t)
@@ -71,6 +82,7 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 	}
 	service.InitHttpClient()
 	service.InitTokenEncoders()
+	enableImageAsyncGroupMetrics(t)
 	t.Setenv("VIDEO_STUDIO_R2_ENDPOINT", "http://127.0.0.1:1")
 	t.Setenv("VIDEO_STUDIO_R2_REGION", "auto")
 	t.Setenv("VIDEO_STUDIO_R2_BUCKET", "image-test")
@@ -141,8 +153,16 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			ctx := service.WithImageWorkerLease(context.Background(), leader)
 			processor := service.NewKKAIOutboxProcessor(db, "image-policy-test")
 			require.NoError(t, processor.Register(service.ImageGenerateTopic, runImageGenerationEvent))
+			beforeSignals := perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events
 			batch, err := processor.ProcessBatch(ctx, 1)
 			require.NoError(t, err)
+			afterSignals := perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events
+			if tc.name == "provider_error" {
+				require.Len(t, afterSignals, len(beforeSignals)+1)
+				assert.False(t, afterSignals[len(afterSignals)-1].Success)
+			} else if tc.name == "http_policy" {
+				assert.Equal(t, beforeSignals, afterSignals, "policy rejection must not degrade provider health")
+			}
 			require.EqualValues(t, 1, calls.Load(), "worker must reach the provider exactly once")
 			require.NoError(t, db.First(generation, generation.ID).Error)
 			assert.Equal(t, tc.wantCode, generation.ErrorCode)
@@ -182,6 +202,7 @@ func TestImageAsyncWorkerPolicyRejectionRefundsWithoutResubmitting(t *testing.T)
 			_, err = processor.ProcessBatch(ctx, 1)
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, calls.Load())
+			assert.Equal(t, afterSignals, perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events, "recovery must not duplicate provider samples")
 			quotaAfterFirstExecution := user.Quota
 			require.NoError(t, db.First(&user, generation.UserID).Error)
 			assert.Equal(t, quotaAfterFirstExecution, user.Quota, "redelivery must not debit or refund twice")
@@ -230,6 +251,7 @@ func testImageAsyncWorkerEditFunding(t *testing.T, memberQuota int64, startingQu
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
 	service.InitTokenEncoders()
+	enableImageAsyncGroupMetrics(t)
 	previousGrok := *model_setting.GetGrokSettings()
 	*model_setting.GetGrokSettings() = model_setting.GrokSettings{ViolationDeductionEnabled: true, ViolationDeductionAmount: 0.05}
 	t.Cleanup(func() { *model_setting.GetGrokSettings() = previousGrok })
@@ -447,9 +469,13 @@ func testImageAsyncWorkerEditFunding(t *testing.T, memberQuota int64, startingQu
 	ctx := service.WithImageWorkerLease(context.Background(), leader)
 	processor := service.NewKKAIOutboxProcessor(db, "async-edit-integration")
 	require.NoError(t, processor.Register(service.ImageGenerateTopic, runImageGenerationEvent))
+	beforeSignals := perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events
 	batch, err := processor.ProcessBatch(ctx, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, batch.Delivered, "%+v", batch)
+	afterSignals := perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events
+	require.Len(t, afterSignals, len(beforeSignals)+1)
+	assert.True(t, afterSignals[len(afterSignals)-1].Success)
 	require.NoError(t, db.First(generation, generation.ID).Error)
 	expectedStatus := model.ImageGenerationStatusSucceeded
 	if requestedCount > 1 {
@@ -501,6 +527,7 @@ func testImageAsyncWorkerEditFunding(t *testing.T, memberQuota int64, startingQu
 	assert.Equal(t, 1, batch.Delivered)
 	assert.EqualValues(t, 1, providerCalls.Load())
 	assert.EqualValues(t, 1, storagePuts.Load())
+	assert.Equal(t, afterSignals, perfmetrics.QueryKKAIGroupRecentSignals([]string{service.ImageStudioTokenGroup}, 60).Events, "redelivery must not duplicate provider samples")
 	require.NoError(t, db.First(&user, 407).Error)
 	assert.EqualValues(t, walletAfterDelivery, user.Quota)
 	var outputCount int64

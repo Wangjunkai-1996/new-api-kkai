@@ -95,7 +95,12 @@ func applyKKAIAutoGroupMetricsForProfile(metrics map[string]kkaiGroupMetrics, us
 		return
 	}
 	auto := metrics[profile]
+	seen := map[string]bool{profile: true}
 	for _, group := range autoGroups {
+		if seen[group] {
+			continue
+		}
+		seen[group] = true
 		if _, ok := usableGroups[group]; ok {
 			auto = auto.add(metrics[group])
 		}
@@ -134,7 +139,12 @@ func applyKKAIAutoGroupEventsForProfile(events map[string][]KKAIGroupRecentEvent
 		return
 	}
 	auto := append([]KKAIGroupRecentEvent(nil), events[profile]...)
+	seen := map[string]bool{profile: true}
 	for _, group := range autoGroups {
+		if seen[group] {
+			continue
+		}
+		seen[group] = true
 		if _, ok := usableGroups[group]; ok {
 			auto = append(auto, events[group]...)
 		}

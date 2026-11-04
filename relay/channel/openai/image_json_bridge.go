@@ -160,6 +160,7 @@ func finishOpenAIImageJSONBridge(
 		return usage, nil
 	}
 	info.StreamStatus.SetEndReason(reason, nil)
+	info.StreamStatus.MarkCompleted()
 	return usage, nil
 }
 

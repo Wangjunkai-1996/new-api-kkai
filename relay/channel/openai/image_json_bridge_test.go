@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -89,6 +90,9 @@ func TestOpenaiImageJSONBridgeProducesStandardResponse(t *testing.T) {
 
 			require.Nil(t, bridgeErr)
 			require.NotNil(t, usage)
+			closed, cancel := context.WithCancel(context.Background())
+			cancel()
+			assert.Equal(t, perfmetrics.OutcomeSuccess, perfmetrics.ClassifyRelayOutcome(closed, info, nil), "delivered image remains successful after the connection closes")
 			assert.Equal(t, 3, usage.PromptTokens)
 			assert.Equal(t, 4, usage.CompletionTokens)
 			assert.Equal(t, 7, usage.TotalTokens)

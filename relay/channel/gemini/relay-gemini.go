@@ -174,6 +174,11 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var hasCandidates bool
 	var accumulatedUsageMetadata *dto.GeminiUsageMetadata
 	responseText := strings.Builder{}
+	expectedCandidates := 1
+	if request, ok := info.Request.(*dto.GeminiChatRequest); ok && request != nil && request.GenerationConfig.CandidateCount != nil {
+		expectedCandidates = max(1, *request.GenerationConfig.CandidateCount)
+	}
+	finishedCandidates := make(map[int64]struct{})
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if policyErr := structuredGeminiPolicyError([]byte(data)); policyErr != nil {
@@ -203,7 +208,13 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
 				info.PerformanceBusinessRejection = true
 			}
-			info.StreamStatus.MarkCompleted()
+			if candidate.Index >= 0 && candidate.Index < int64(expectedCandidates) {
+				finishedCandidates[candidate.Index] = struct{}{}
+			}
+			// Candidates finish independently and can repeat terminal frames.
+			if len(finishedCandidates) == expectedCandidates {
+				info.StreamStatus.MarkCompleted()
+			}
 		}
 
 		markGeminiGoogleSearchCall(c, &geminiResponse)

@@ -52,6 +52,7 @@ type TaskSubmissionAttempt struct {
 	TieredSnapshot    *billingexpr.BillingSnapshot
 	Platform          constant.TaskPlatform
 	ChannelID         int
+	Group             string
 	Action            string
 	OriginModelName   string
 	UpstreamModelName string
@@ -205,6 +206,9 @@ func ClaimTaskSubmission(ctx context.Context, taskID int64, attempt *TaskSubmiss
 			}
 			task.Platform = attempt.Platform
 			task.ChannelId = attempt.ChannelID
+			if attempt.Group != "" {
+				task.Group = attempt.Group
+			}
 			task.Action = attempt.Action
 			task.Properties.OriginModelName = attempt.OriginModelName
 			task.Properties.UpstreamModelName = attempt.UpstreamModelName
