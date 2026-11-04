@@ -141,6 +141,9 @@ func sendGeminiStreamResults(c *gin.Context, results []relayconvert.ResponseResu
 func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, responseTextBuilder *strings.Builder, toolCount *int) error {
 	for _, choice := range streamResponse.Choices {
 		responseTextBuilder.WriteString(choice.Delta.GetContentString())
+		if choice.Delta.Refusal != nil {
+			responseTextBuilder.WriteString(*choice.Delta.Refusal)
+		}
 		responseTextBuilder.WriteString(choice.Delta.GetReasoningContent())
 		if choice.Delta.ToolCalls != nil {
 			if len(choice.Delta.ToolCalls) > *toolCount {

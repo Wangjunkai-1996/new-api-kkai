@@ -11,12 +11,51 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestManagedRecoveryHTTPClientsKeepBudgetWithoutMutatingLegacyPools(t *testing.T) {
+	previousTimeout, previousHeaderTimeout := common.RelayTimeout, common.RelayResponseHeaderTimeout
+	common.RelayTimeout, common.RelayResponseHeaderTimeout = 1, 1
+	t.Cleanup(func() {
+		common.RelayTimeout, common.RelayResponseHeaderTimeout = previousTimeout, previousHeaderTimeout
+		ResetProxyClientCache()
+	})
+	ResetProxyClientCache()
+	for _, settings := range []dto.ChannelSettings{
+		{}, {HTTPProtocol: dto.HTTPProtocolHTTP1}, {HTTP2ConnectionShards: 3},
+	} {
+		t.Run(fmt.Sprintf("%s_%d", settings.HTTPProtocol, settings.HTTP2ConnectionShards), func(t *testing.T) {
+			const proxyURL = "http://recovery-timeout.test:8080"
+			ordinary, err := GetHttpClientWithProxySettings(proxyURL, settings)
+			require.NoError(t, err)
+			settings.ManagedRecoveryV1 = true
+			managed, err := GetHttpClientWithProxySettings(proxyURL, settings)
+			require.NoError(t, err)
+			again, err := GetHttpClientWithProxySettings(proxyURL, settings)
+			require.NoError(t, err)
+			assert.Same(t, managed, again)
+			assert.NotSame(t, ordinary, managed)
+			assert.Equal(t, time.Second, ordinary.Timeout)
+			assert.Equal(t, relaycommon.ManagedRecoveryRequestTimeout, managed.Timeout)
+			transports := []http.RoundTripper{managed.Transport}
+			if sharded, ok := managed.Transport.(*shardedRoundTripper); ok {
+				transports = sharded.shards
+			}
+			for _, roundTripper := range transports {
+				transport, ok := roundTripper.(*http.Transport)
+				require.True(t, ok)
+				assert.Equal(t, relaycommon.ManagedRecoveryRequestTimeout, transport.ResponseHeaderTimeout)
+			}
+		})
+	}
+}
 
 func withRelayHTTPTransportSettings(t *testing.T) {
 	t.Helper()

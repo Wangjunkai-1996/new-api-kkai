@@ -88,6 +88,7 @@ type ChatCompletionsStreamResponseChoice struct {
 
 type ChatCompletionsStreamResponseChoiceDelta struct {
 	Content          *string            `json:"content,omitempty"`
+	Refusal          *string            `json:"refusal,omitempty"`
 	ReasoningContent *string            `json:"reasoning_content,omitempty"`
 	Reasoning        *string            `json:"reasoning,omitempty"`
 	Role             string             `json:"role,omitempty"`
@@ -533,7 +534,19 @@ func ResponsesArgumentsString(arguments json.RawMessage) string {
 type ResponsesOutputContent struct {
 	Type        string `json:"type"`
 	Text        string `json:"text"`
+	Refusal     string `json:"refusal,omitempty"`
 	Annotations []any  `json:"annotations"`
+}
+
+func (c ResponsesOutputContent) MarshalJSON() ([]byte, error) {
+	if c.Type == "refusal" {
+		return kitutil.Marshal(struct {
+			Type    string `json:"type"`
+			Refusal string `json:"refusal"`
+		}{Type: c.Type, Refusal: c.Refusal})
+	}
+	type plain ResponsesOutputContent
+	return kitutil.Marshal(plain(c))
 }
 
 type ResponsesReasoningSummaryPart struct {
@@ -574,6 +587,7 @@ type ResponsesStreamResponse struct {
 	Input           *string                  `json:"input,omitempty"`
 	Name            string                   `json:"name,omitempty"`
 	Text            *string                  `json:"text,omitempty"`
+	Refusal         *string                  `json:"refusal,omitempty"`
 	Item            *ResponsesOutput         `json:"item,omitempty"`
 	SequenceNumber  *int                     `json:"sequence_number,omitempty"`
 	Annotation      json.RawMessage          `json:"annotation,omitempty"`

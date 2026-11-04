@@ -1,0 +1,52 @@
+data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_capture_responses_abandoned_failure","seq":1,"attempt":1}
+
+event: response.created
+data: {"response":{"id":"logical_capture_responses_abandoned_failure","model":"gpt-test","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"logical_capture_responses_abandoned_failure_item_1_0","role":"assistant","status":"in_progress","type":"message"},"output_index":0,"sequence_number":1,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"logical_capture_responses_abandoned_failure_item_1_0","output_index":0,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":2,"type":"response.content_part.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"abandoned text","item_id":"logical_capture_responses_abandoned_failure_item_1_0","output_index":0,"sequence_number":3,"type":"response.output_text.delta"}
+
+data: {"type":"kkai.recovery.v1","kind":"attempt_abandoned","logical_id":"logical_capture_responses_abandoned_failure","seq":2,"attempt":1}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"logical_capture_responses_abandoned_failure_item_1_0","output_index":0,"sequence_number":4,"text":"abandoned text","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"logical_capture_responses_abandoned_failure_item_1_0","output_index":0,"part":{"annotations":[],"text":"abandoned text","type":"output_text"},"sequence_number":5,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"abandoned text","type":"output_text"}],"id":"logical_capture_responses_abandoned_failure_item_1_0","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":6,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"logical_capture_responses_abandoned_failure_marker_1","role":"assistant","status":"in_progress","type":"message"},"output_index":1,"sequence_number":7,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"logical_capture_responses_abandoned_failure_marker_1","output_index":1,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":8,"type":"response.content_part.added"}
+
+data: {"type":"kkai.recovery.v1","kind":"synthetic_begin","logical_id":"logical_capture_responses_abandoned_failure","seq":3,"attempt":1}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"\n\n[Response interrupted. Regenerating...]\n\n","item_id":"logical_capture_responses_abandoned_failure_marker_1","output_index":1,"sequence_number":9,"type":"response.output_text.delta"}
+
+data: {"type":"kkai.recovery.v1","kind":"synthetic_end","logical_id":"logical_capture_responses_abandoned_failure","seq":4,"attempt":1}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"logical_capture_responses_abandoned_failure_marker_1","output_index":1,"sequence_number":10,"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"logical_capture_responses_abandoned_failure_marker_1","output_index":1,"part":{"annotations":[],"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"output_text"},"sequence_number":11,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"output_text"}],"id":"logical_capture_responses_abandoned_failure_marker_1","role":"assistant","status":"completed","type":"message"},"output_index":1,"sequence_number":12,"type":"response.output_item.done"}
+
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_abandoned_failure","seq":5,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null}
+
+event: response.failed
+data: {"response":{"error":{"code":"recovery_exhausted","message":"No eligible upstream account","type":"upstream_error"},"id":"logical_capture_responses_abandoned_failure","object":"response","output":[{"content":[{"annotations":[],"text":"abandoned text","type":"output_text"}],"id":"logical_capture_responses_abandoned_failure_item_1_0","role":"assistant","status":"completed","type":"message"},{"content":[{"annotations":[],"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"output_text"}],"id":"logical_capture_responses_abandoned_failure_marker_1","role":"assistant","status":"completed","type":"message"}],"status":"failed"},"sequence_number":13,"type":"response.failed"}
+

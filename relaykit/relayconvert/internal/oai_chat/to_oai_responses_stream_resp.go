@@ -36,6 +36,7 @@ type ChatToResponsesStreamState struct {
 	textOutputIndex    int
 	textStarted        bool
 	textDone           bool
+	textIsRefusal      bool
 	reasoningIndex     int
 	reasoningStarted   bool
 	reasoningDone      bool
@@ -46,6 +47,7 @@ type ChatToResponsesStreamState struct {
 	hostedByID         map[string]*chatToResponsesHostedTool
 	outputOrder        []chatToResponsesOutputRef
 	text               strings.Builder
+	usageText          strings.Builder
 	annotations        []any
 	reasoning          strings.Builder
 	// A mid-stream finish_reason closes the message and reasoning items. Deltas that
@@ -345,7 +347,10 @@ func ChatCompletionsStreamChunkToResponsesEvents(chunk *dto.ChatCompletionsStrea
 			events = append(events, state.appendReasoningDelta(choice.Delta.GetReasoningContent())...)
 		}
 		if choice.Delta.GetContentString() != "" {
-			events = append(events, state.appendTextDelta(choice.Delta.GetContentString())...)
+			events = append(events, state.appendMessageDelta(choice.Delta.GetContentString(), false)...)
+		}
+		if choice.Delta.Refusal != nil && *choice.Delta.Refusal != "" {
+			events = append(events, state.appendMessageDelta(*choice.Delta.Refusal, true)...)
 		}
 		if len(choice.Delta.Annotations) > 0 {
 			annotationEvents, err := state.appendAnnotationDelta(choice.Delta.Annotations)
@@ -402,14 +407,24 @@ func (s *ChatToResponsesStreamState) UsageText() string {
 	if s == nil {
 		return ""
 	}
-	return s.text.String()
+	return s.usageText.String()
 }
 
-func (s *ChatToResponsesStreamState) appendTextDelta(delta string) []ChatToResponsesStreamEvent {
-	events := s.startText()
+func (s *ChatToResponsesStreamState) appendMessageDelta(delta string, refusal bool) []ChatToResponsesStreamEvent {
+	var events []ChatToResponsesStreamEvent
+	if s.textStarted && !s.textDone && s.textIsRefusal != refusal {
+		events = s.closeMessageEvents(s.outputStatus())
+	}
+	events = append(events, s.startText()...)
+	s.textIsRefusal = refusal
 	s.text.WriteString(delta)
-	events = append(events, s.event(responsesEventOutputTextDelta, dto.ResponsesStreamResponse{
-		Type:         responsesEventOutputTextDelta,
+	s.usageText.WriteString(delta)
+	eventType := responsesEventOutputTextDelta
+	if refusal {
+		eventType = "response.refusal.delta"
+	}
+	events = append(events, s.event(eventType, dto.ResponsesStreamResponse{
+		Type:         eventType,
 		OutputIndex:  intPtr(s.textOutputIndex),
 		ContentIndex: intPtr(0),
 		Delta:        delta,
@@ -596,9 +611,8 @@ func (s *ChatToResponsesStreamState) announceTool(tool *chatToResponsesStreamToo
 	})
 }
 
-func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEvent {
+func (s *ChatToResponsesStreamState) closeMessageEvents(status string) []ChatToResponsesStreamEvent {
 	events := make([]ChatToResponsesStreamEvent, 0)
-	status := s.outputStatus()
 	if s.textStarted && !s.textDone {
 		s.textDone = true
 		textDone := dto.ResponsesStreamResponse{
@@ -607,10 +621,13 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEv
 			ContentIndex: intPtr(0),
 			ItemID:       s.messageID(),
 		}
-		if s.EmitSequenceNumber {
+		if s.textIsRefusal {
+			textDone.Type = "response.refusal.done"
+			textDone.Refusal = kitutil.GetPointer(s.text.String())
+		} else if s.EmitSequenceNumber {
 			textDone.Text = kitutil.GetPointer(s.text.String())
 		}
-		events = append(events, s.event("response.output_text.done", textDone))
+		events = append(events, s.event(textDone.Type, textDone))
 		closedMessage := s.messageOutput(status)
 		events = append(events, s.event(responsesEventOutputItemDone, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemDone,
@@ -619,6 +636,12 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEv
 		}))
 		s.closedMessages = append(s.closedMessages, *closedMessage)
 	}
+	return events
+}
+
+func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEvent {
+	status := s.outputStatus()
+	events := s.closeMessageEvents(status)
 	if s.reasoningStarted && !s.reasoningDone {
 		s.reasoningDone = true
 		reasoningDone := dto.ResponsesStreamResponse{
@@ -848,18 +871,16 @@ func (s *ChatToResponsesStreamState) messageOutput(status string) *dto.Responses
 	if annotations == nil {
 		annotations = []any{}
 	}
+	part := dto.ResponsesOutputContent{Type: "output_text", Text: s.text.String(), Annotations: annotations}
+	if s.textIsRefusal {
+		part = dto.ResponsesOutputContent{Type: "refusal", Refusal: s.text.String()}
+	}
 	return &dto.ResponsesOutput{
-		Type:   responsesOutputTypeMessage,
-		ID:     s.messageID(),
-		Status: status,
-		Role:   "assistant",
-		Content: []dto.ResponsesOutputContent{
-			{
-				Type:        "output_text",
-				Text:        s.text.String(),
-				Annotations: annotations,
-			},
-		},
+		Type:    responsesOutputTypeMessage,
+		ID:      s.messageID(),
+		Status:  status,
+		Role:    "assistant",
+		Content: []dto.ResponsesOutputContent{part},
 	}
 }
 

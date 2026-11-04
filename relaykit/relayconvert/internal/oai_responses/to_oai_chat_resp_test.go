@@ -52,6 +52,90 @@ func TestNormalizeResponsesUsagePreservesImageCacheDetails(t *testing.T) {
 	}
 }
 
+func TestResponsesRefusalKeepsNativeChatFieldIncludingDoneOnlyParts(t *testing.T) {
+	resp := &dto.OpenAIResponsesResponse{Output: []dto.ResponsesOutput{{Type: "message", Role: "assistant",
+		Content: []dto.ResponsesOutputContent{{Type: "refusal", Refusal: "cannot comply"}}}}}
+	chat, _, err := ResponsesResponseToChatCompletionsResponse(resp, "chat_1")
+	require.NoError(t, err)
+	require.Len(t, chat.Choices, 1)
+	assert.Nil(t, chat.Choices[0].Message.Content)
+	require.NotNil(t, chat.Choices[0].Message.Refusal)
+	assert.Equal(t, "cannot comply", *chat.Choices[0].Message.Refusal)
+
+	state := NewResponsesToChatStreamState("gpt-test", false)
+	for index := range 2 {
+		full := "cannot comply"
+		outputIndex, contentIndex := index, 0
+		event := &dto.ResponsesStreamResponse{Type: "response.refusal.done", OutputIndex: &outputIndex,
+			ContentIndex: &contentIndex, Refusal: &full}
+		chunks, err := ResponsesStreamEventToChatChunks(event, state)
+		require.NoError(t, err)
+		assert.Equal(t, "cannot comply", *chunks[len(chunks)-1].Choices[0].Delta.Refusal)
+		chunks, err = ResponsesStreamEventToChatChunks(event, state)
+		require.NoError(t, err)
+		assert.Empty(t, chunks)
+	}
+}
+
+func TestResponsesRefusalCompletionPreservesEveryPartWithoutDuplication(t *testing.T) {
+	first, second := "cannot comply", " with that request"
+	output := dto.ResponsesOutput{Type: "message", ID: "msg_refusal", Role: "assistant", Content: []dto.ResponsesOutputContent{
+		{Type: "refusal", Refusal: first}, {Type: "refusal", Refusal: second},
+	}}
+	for _, completion := range []string{"refusal_done", "item_done", "terminal"} {
+		t.Run(completion, func(t *testing.T) {
+			events := []dto.ResponsesStreamResponse{{Type: responsesEventRefusalDelta, OutputIndex: intPointer(0),
+				ContentIndex: intPointer(0), ItemID: output.ID, Delta: "cannot"}}
+			switch completion {
+			case "refusal_done":
+				events = append(events,
+					dto.ResponsesStreamResponse{Type: responsesEventRefusalDone, OutputIndex: intPointer(0), ContentIndex: intPointer(0), ItemID: output.ID, Refusal: &first},
+					dto.ResponsesStreamResponse{Type: responsesEventRefusalDone, OutputIndex: intPointer(0), ContentIndex: intPointer(1), ItemID: output.ID, Refusal: &second})
+			case "item_done":
+				events = append(events, dto.ResponsesStreamResponse{Type: responsesEventOutputItemDone, OutputIndex: intPointer(0), Item: &output})
+			}
+			events = append(events, dto.ResponsesStreamResponse{Type: responsesEventCompleted, Response: &dto.OpenAIResponsesResponse{
+				Output: []dto.ResponsesOutput{output}, Status: []byte(`"completed"`),
+			}})
+			state := NewResponsesToChatStreamState("gpt-test", false)
+			var refusal strings.Builder
+			for index := range events {
+				chunks, err := ResponsesStreamEventToChatChunks(&events[index], state)
+				require.NoError(t, err)
+				for _, chunk := range chunks {
+					for _, choice := range chunk.Choices {
+						if choice.Delta.Refusal != nil {
+							refusal.WriteString(*choice.Delta.Refusal)
+						}
+					}
+				}
+			}
+			assert.Equal(t, first+second, refusal.String())
+			assert.Equal(t, first+second, state.UsageText())
+			if completion == "terminal" {
+				return // Buffered conversion retains terminal output directly.
+			}
+			acc := NewResponsesBufferedAccumulator()
+			for index := range events {
+				acc.ProcessEvent(&events[index])
+			}
+			// Repeated done frames must not duplicate the complete refusal.
+			for index := 1; index < len(events); index++ {
+				acc.ProcessEvent(&events[index])
+			}
+			response := &dto.OpenAIResponsesResponse{}
+			acc.SupplementResponseOutput(response)
+			require.Len(t, response.Output, 1)
+			assert.Equal(t, output.Content, response.Output[0].Content)
+			chat, _, err := ResponsesResponseToChatCompletionsResponse(response, "chat_1")
+			require.NoError(t, err)
+			require.NotNil(t, chat.Choices[0].Message.Refusal)
+			assert.Equal(t, first+second, *chat.Choices[0].Message.Refusal)
+			assert.Nil(t, chat.Choices[0].Message.Content)
+		})
+	}
+}
+
 func TestResponsesResponseToChatCompletionsPreservesTextAndToolCalls(t *testing.T) {
 	resp := &dto.OpenAIResponsesResponse{
 		ID:        "resp_1",

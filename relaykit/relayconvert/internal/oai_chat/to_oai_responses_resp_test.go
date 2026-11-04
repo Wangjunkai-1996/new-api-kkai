@@ -43,6 +43,41 @@ func TestChatCompletionsResponseToResponsesPreservesTextToolCallsAndUsage(t *tes
 	assert.Equal(t, `"{\"q\":\"x\"}"`, string(resp.Output[1].Arguments))
 }
 
+func TestChatRefusalStaysSeparateFromRecoveryMarker(t *testing.T) {
+	refusal := "cannot comply"
+	response, _, err := ChatCompletionsResponseToResponsesResponse(&dto.OpenAITextResponse{Choices: []dto.OpenAITextResponseChoice{{
+		Message: dto.Message{Role: "assistant", Refusal: &refusal}, FinishReason: "stop",
+	}}}, "resp_1")
+	require.NoError(t, err)
+	require.Len(t, response.Output, 1)
+	part := response.Output[0].Content[0]
+	assert.Equal(t, "refusal", part.Type)
+	assert.Equal(t, refusal, part.Refusal)
+	raw, err := kitutil.Marshal(part)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"refusal","refusal":"cannot comply"}`, string(raw))
+
+	state := NewChatToResponsesStreamState("resp_1", "gpt-test")
+	refusalEvents, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{
+		Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Refusal: &refusal},
+	}}}, state)
+	require.NoError(t, err)
+	marker := "Regenerating"
+	markerEvents, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{
+		Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: &marker},
+	}}}, state)
+	require.NoError(t, err)
+	assert.Equal(t, "response.refusal.done", markerEvents[0].Type)
+	assert.Equal(t, "response.output_text.delta", markerEvents[len(markerEvents)-1].Type)
+	assert.Equal(t, "response.refusal.delta", refusalEvents[len(refusalEvents)-1].Type)
+	final := FinalizeChatCompletionsStreamToResponses(state)
+	require.NotEmpty(t, final)
+	completed := final[len(final)-1].Payload.Response
+	require.Len(t, completed.Output, 2)
+	assert.Equal(t, "refusal", completed.Output[0].Content[0].Type)
+	assert.Equal(t, "output_text", completed.Output[1].Content[0].Type)
+}
+
 func TestChatCompletionsResponseToResponsesEmitsReasoningSummaryBeforeText(t *testing.T) {
 	message := dto.Message{Role: "assistant", Content: "final answer"}
 	message.ReasoningContent = lo.ToPtr("thinking summary")

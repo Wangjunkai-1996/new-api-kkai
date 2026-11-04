@@ -17,6 +17,8 @@ const (
 	responsesEventFailed                    = "response.failed"
 	responsesEventError                     = "response.error"
 	responsesEventOutputTextDelta           = "response.output_text.delta"
+	responsesEventRefusalDelta              = "response.refusal.delta"
+	responsesEventRefusalDone               = "response.refusal.done"
 	responsesEventOutputTextAnnotationAdded = "response.output_text.annotation.added"
 	responsesEventOutputItemAdded           = "response.output_item.added"
 	responsesEventOutputItemDone            = "response.output_item.done"
@@ -103,6 +105,20 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 	msg := dto.Message{
 		Role:    "assistant",
 		Content: text,
+	}
+	var refusal strings.Builder
+	for _, output := range resp.Output {
+		for _, part := range output.Content {
+			if output.Type == responsesOutputTypeMessage && part.Type == "refusal" {
+				refusal.WriteString(part.Refusal)
+			}
+		}
+	}
+	if refusal.Len() > 0 {
+		msg.Refusal = kitutil.GetPointer(refusal.String())
+		if text == "" {
+			msg.Content = nil
+		}
 	}
 	if annotations, err := responsesAnnotationsToChat(resp); err != nil {
 		return nil, nil, err

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,8 +15,11 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -152,6 +156,66 @@ func TestShouldRetryStopsAfterOutputOrCancellation(t *testing.T) {
 		assert.False(t, shouldRetry(ctx, nil, apiErr, 2))
 		cancel()
 	}
+}
+
+func TestManagedRecoveryOwnerDoesNotReceiveAnotherRelayRetryBudget(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Set("kkai_managed_recovery_v1", true)
+	apiErr := types.WithOpenAIError(types.OpenAIError{Code: "rate_limit_exceeded", Type: "api_error"}, http.StatusTooManyRequests)
+	decision := decideRelayRetry(ctx, nil, apiErr, 10)
+	assert.Equal(t, "stop", decision.Action)
+	assert.Equal(t, "managed_recovery_owner", decision.Reason)
+}
+
+func TestManagedRecoveryPreHandshakeErrorsKeepNewAPIRetry(t *testing.T) {
+	previousRanges := operation_setting.AutomaticRetryStatusCodeRanges
+	operation_setting.AutomaticRetryStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: 500, End: 503}}
+	t.Cleanup(func() { operation_setting.AutomaticRetryStatusCodeRanges = previousRanges })
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeSub2API,
+			ChannelSetting: dto.ChannelSettings{ManagedRecoveryV1: true}}}
+	upstream := &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader(`{"error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"capacity unavailable"}}`))}
+	upstreamErr := service.RelayErrorHandler(ctx.Request.Context(), upstream, false)
+	require.Equal(t, http.StatusTooManyRequests, upstreamErr.StatusCode)
+	require.Equal(t, http.StatusTooManyRequests, upstreamErr.GetOriginalStatusCode())
+	for _, tc := range []struct {
+		name string
+		err  *types.NewAPIError
+	}{
+		{"upstream_429", upstreamErr},
+		{"missing_protocol_echo", types.NewOpenAIError(fmt.Errorf("managed recovery protocol response header missing"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)},
+		{"transport_error", types.NewOpenAIError(fmt.Errorf("upstream connection reset"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := decideRelayRetry(ctx, info, tc.err, 2)
+			assert.Equal(t, "retry", decision.Action)
+		})
+	}
+	ordinary := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses}
+	assert.Equal(t, "stop", decideRelayRetry(ctx, ordinary, upstreamErr, 2).Action)
+	for _, status := range []int{http.StatusBadRequest, http.StatusOK} {
+		mapped := *upstreamErr
+		service.ResetStatusCode(&mapped, fmt.Sprintf(`{"429":%d}`, status))
+		require.Equal(t, status, mapped.StatusCode)
+		require.Equal(t, http.StatusTooManyRequests, mapped.GetOriginalStatusCode())
+		assert.Equal(t, "retry", decideRelayRetry(ctx, info, &mapped, 2).Action)
+		assert.Equal(t, "stop", decideRelayRetry(ctx, ordinary, &mapped, 2).Action)
+	}
+	unproven := types.NewOpenAIError(fmt.Errorf("local 429"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests)
+	assert.Zero(t, unproven.GetOriginalStatusCode())
+	assert.Equal(t, "stop", decideRelayRetry(ctx, info, unproven, 2).Action)
+	ctx.Writer.Header().Set("Content-Type", "text/event-stream")
+	_, writeErr := ctx.Writer.WriteString(": PING\n\n")
+	require.NoError(t, writeErr)
+	assert.True(t, ctx.Writer.Written())
+	assert.Equal(t, "retry", decideRelayRetry(ctx, info, upstreamErr, 2).Action)
+	assert.Equal(t, "stop", decideRelayRetry(ctx, ordinary, upstreamErr, 2).Action)
+	ctx.Set("kkai_managed_recovery_v1", true)
+	assert.Equal(t, "managed_recovery_owner", decideRelayRetry(ctx, info, upstreamErr, 2).Reason)
 }
 
 func TestMembershipUnknownOutcomeStopsOtherwiseRetryableChannelFailure(t *testing.T) {

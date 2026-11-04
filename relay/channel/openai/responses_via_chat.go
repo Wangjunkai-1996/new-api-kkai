@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -56,7 +57,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 	usage := convertResult.Usage
 	if usage == nil || usage.TotalTokens == 0 {
-		text := service.ExtractOutputTextFromResponses(responsesResp)
+		text := service.ResponsesOutputForUsage(responsesResp)
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		responsesResp.Usage = relayconvert.UsageFromChatUsage(usage)
 	}
@@ -91,6 +92,8 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	recovery := newRecoveryV1State(c, info)
+	var winnerText strings.Builder
 	seenCalls := make(map[string]struct{})
 	var functionNames []string
 	finishedChoices := make(map[int]struct{})
@@ -156,7 +159,27 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 
 		info.ObserveResponseModel(chunk.Model)
-		observeStreamChoices(info, data, seenCalls, &functionNames, 1, finishedChoices)
+		if recovery.enabled && recovery.terminal {
+			observeStreamChoices(info, data, seenCalls, &functionNames, 1, finishedChoices)
+		}
+		if recovery.meterAttempt() != 0 || !recovery.enabled {
+			observeStreamChoices(info, data, seenCalls, &functionNames, 1, finishedChoices)
+			if recovery.enabled {
+				for _, choice := range chunk.Choices {
+					winnerText.WriteString(choice.Delta.GetContentString())
+					if choice.Delta.Refusal != nil {
+						winnerText.WriteString(*choice.Delta.Refusal)
+					}
+					winnerText.WriteString(choice.Delta.GetReasoningContent())
+					for _, call := range choice.Delta.ToolCalls {
+						winnerText.WriteString(call.Function.Arguments)
+					}
+				}
+			}
+		}
+		if recovery.enabled && recovery.terminal {
+			chunk.Usage = nil
+		}
 		results, err := service.ConvertStreamResponseChunk(c, info, state, &chunk)
 		if err != nil {
 			if failResponsesStream(err) {
@@ -179,16 +202,45 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return
 			}
 		}
+	}, func(data string) (bool, error) {
+		consumed, err := recovery.filter(data)
+		if err != nil || !consumed {
+			return consumed, err
+		}
+		if recovery.lastKind == "attempt_begin" {
+			winnerText.Reset()
+			seenCalls = make(map[string]struct{})
+			functionNames = nil
+			finishedChoices = make(map[int]struct{})
+			state.SetUsage(&dto.Usage{})
+		} else if recovery.terminal {
+			usage := recovery.finalUsage(info, nil)
+			if usage == nil {
+				usage = service.ResponseText2Usage(c, winnerText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+			}
+			state.SetUsage(usage)
+		}
+		return true, nil
 	})
 	info.StreamStatus.RequireTerminal()
+	if err := recovery.checkEnd(); err != nil && streamErr == nil {
+		streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+	}
 
 	if streamErr != nil {
-		return nil, streamErr
+		return recovery.finalUsage(info, nil), streamErr
 	}
 
 	usage := state.Usage()
-	if usage == nil || usage.TotalTokens == 0 {
-		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+	if recovery.enabled {
+		usage = recovery.finalUsage(info, nil)
+	}
+	if usage == nil || (!recovery.usageReported && usage.TotalTokens == 0) {
+		text := state.UsageText()
+		if recovery.enabled {
+			text = winnerText.String()
+		}
+		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
 	}
 

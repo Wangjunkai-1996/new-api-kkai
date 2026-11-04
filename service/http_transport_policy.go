@@ -16,6 +16,7 @@ type HTTPTransportPolicy struct {
 	Protocol              string // dto.HTTPProtocolAuto or dto.HTTPProtocolHTTP1
 	Shards                int    // 1..dto.MaxHTTP2ConnectionShards
 	TLSInsecureSkipVerify bool
+	ManagedRecoveryV1     bool
 }
 
 var httpTransportPolicyWarnings sync.Map
@@ -32,6 +33,7 @@ func defaultHTTPTransportPolicy() HTTPTransportPolicy {
 func NormalizeHTTPTransportPolicy(settings dto.ChannelSettings) HTTPTransportPolicy {
 	policy := defaultHTTPTransportPolicy()
 	policy.TLSInsecureSkipVerify = settings.TLSInsecureSkipVerify
+	policy.ManagedRecoveryV1 = settings.ManagedRecoveryV1
 
 	protocol := strings.ToLower(strings.TrimSpace(settings.HTTPProtocol))
 	switch protocol {
@@ -85,6 +87,9 @@ func warnHTTPTransportPolicyOnce(field, value string) {
 }
 
 func (p HTTPTransportPolicy) cacheKeyPart() string {
+	if p.ManagedRecoveryV1 {
+		return fmt.Sprintf("%s|%d|%t|recovery-v1", p.Protocol, p.Shards, p.TLSInsecureSkipVerify)
+	}
 	return fmt.Sprintf("%s|%d|%t", p.Protocol, p.Shards, p.TLSInsecureSkipVerify)
 }
 

@@ -23,10 +23,11 @@ type ResponsesUsageAccumulator struct {
 	started        bool
 	finished       bool
 	reportedUsage  bool
+	refusalByPart  map[string]string
 }
 
 func NewResponsesUsageAccumulator(info *relaycommon.RelayInfo) *ResponsesUsageAccumulator {
-	return &ResponsesUsageAccumulator{info: info, usage: &dto.Usage{}}
+	return &ResponsesUsageAccumulator{info: info, usage: &dto.Usage{}, refusalByPart: make(map[string]string)}
 }
 
 func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse) {
@@ -48,7 +49,7 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse) 
 			ApplyResponsesUsage(a.usage, event.Response.Usage)
 			if a.outputText.Len() == 0 {
 				// Some upstreams carry the output only on the terminal event.
-				a.outputText.WriteString(relayconvert.ExtractOutputTextFromResponses(event.Response))
+				a.outputText.WriteString(ResponsesOutputForUsage(event.Response))
 			}
 		}
 		if a.imageCommitted {
@@ -64,8 +65,10 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse) 
 		}
 		a.imageCounter.Commit(a.info)
 		a.imageCommitted = true
+	case "response.refusal.delta", "response.refusal.done":
+		a.outputText.WriteString(ResponsesRefusalUsageDelta(event, a.refusalByPart))
 	case "response.output_text.delta", "response.function_call_arguments.delta",
-		"response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.refusal.delta":
+		"response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		// Every delta kind here is generated output that upstream bills as
 		// output tokens, so all of them feed the missing-usage estimate.
 		a.outputText.WriteString(event.Delta)
@@ -82,6 +85,30 @@ func (a *ResponsesUsageAccumulator) Observe(event *dto.ResponsesStreamResponse) 
 			}
 		}
 	}
+}
+
+// ResponsesRefusalUsageDelta meters a refusal once across deltas and the full
+// done payload. The caller supplies state scoped to one physical attempt.
+func ResponsesRefusalUsageDelta(event *dto.ResponsesStreamResponse, seenByPart map[string]string) string {
+	key := event.ItemID
+	if event.OutputIndex != nil {
+		key = fmt.Sprintf("output:%d", *event.OutputIndex)
+	}
+	contentIndex := 0
+	if event.ContentIndex != nil {
+		contentIndex = *event.ContentIndex
+	}
+	key = fmt.Sprintf("%s/content:%d", key, contentIndex)
+	if event.Type == "response.refusal.delta" {
+		seenByPart[key] += event.Delta
+		return event.Delta
+	}
+	if event.Refusal == nil {
+		return ""
+	}
+	full, seen := *event.Refusal, seenByPart[key]
+	seenByPart[key] = full
+	return strings.TrimPrefix(full, seen)
 }
 
 func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {

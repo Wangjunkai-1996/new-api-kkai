@@ -68,6 +68,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	info.StreamStatus = relaycommon.NewStreamStatus()
 	info.StreamStatus.RequireTerminal()
 	accumulator := relayconvert.NewResponsesBufferedAccumulator()
+	recovery := newRecoveryV1State(c, info)
 	var finalResponse *dto.OpenAIResponsesResponse
 	var streamErr *types.NewAPIError
 	var toolUsage responsesToolUsage
@@ -87,6 +88,22 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			}
 			continue
 		}
+		consumed, filterErr := recovery.filter(data)
+		if filterErr != nil {
+			streamErr = types.NewOpenAIError(filterErr, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+			break
+		}
+		if consumed {
+			if recovery.lastKind == "attempt_begin" {
+				accumulator = relayconvert.NewResponsesBufferedAccumulator()
+				toolUsage = responsesToolUsage{}
+				finalResponse = nil
+			}
+			continue
+		}
+		if recovery.enabled && recovery.meterAttempt() == 0 && !recovery.terminal {
+			continue
+		}
 
 		var streamResp dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
@@ -102,11 +119,19 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			streamErr = upstreamErr
 			break
 		}
-		toolUsage.observeEvent(&streamResp)
-		accumulator.ProcessEvent(&streamResp)
+		if recovery.meterAttempt() != 0 || !recovery.enabled {
+			toolUsage.observeEvent(&streamResp)
+			accumulator.ProcessEvent(&streamResp)
+		}
 		switch streamResp.Type {
 		case "response.completed", "response.done", "response.incomplete":
 			finalResponse = streamResp.Response
+			if recovery.enabled && finalResponse != nil {
+				copy := *finalResponse
+				copy.Output = nil
+				copy.Usage = nil
+				finalResponse = &copy
+			}
 			if streamResp.Type == "response.incomplete" {
 				if finalResponse == nil {
 					finalResponse = &dto.OpenAIResponsesResponse{}
@@ -129,10 +154,16 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		}
 	}
 	if streamErr != nil {
-		return nil, streamErr
+		return recovery.finalUsage(info, nil), streamErr
+	}
+	if err := recovery.checkEnd(); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	if recovery.enabled {
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 	}
 	if finalResponse == nil {
 		finalResponse = &dto.OpenAIResponsesResponse{
@@ -143,10 +174,16 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		}
 	}
 	accumulator.SupplementResponseOutput(finalResponse)
+	if recovery.enabled && recovery.usageReported {
+		finalResponse.Usage = relayconvert.UsageFromChatUsage(recovery.usage)
+	}
 
 	responseValue, usage, err := convertResponsesResponseForClient(c, info, finalResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if recovery.enabled {
+		usage = recovery.finalUsage(info, usage)
 	}
 	responseBody, err := common.Marshal(responseValue)
 	if err != nil {
@@ -165,8 +202,8 @@ func convertResponsesResponseForClient(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	usage := relayconvert.UsageFromResponsesUsage(response.Usage)
-	if usage == nil || usage.TotalTokens == 0 {
-		text := service.ExtractOutputTextFromResponses(response)
+	if usage == nil || (usage.TotalTokens == 0 && !(c.GetBool("kkai_managed_recovery_v1") && response.Usage != nil)) {
+		text := service.ResponsesOutputForUsage(response)
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		response.Usage = relayconvert.UsageFromChatUsage(usage)
 	}
@@ -200,6 +237,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 	streamErr := (*types.NewAPIError)(nil)
 	var toolUsage responsesToolUsage
+	recovery := newRecoveryV1State(c, info)
+	var winnerText strings.Builder
+	winnerRefusalByPart := make(map[string]string)
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -280,6 +320,16 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if streamResp.Response != nil {
 			info.ObserveResponseModel(streamResp.Response.Model)
 		}
+		if recovery.enabled && streamResp.Type == "response.created" && recovery.lastAttempt > 1 {
+			return
+		}
+		if recovery.enabled && streamResp.Response != nil &&
+			(streamResp.Type == "response.completed" || streamResp.Type == "response.done" || streamResp.Type == "response.incomplete") {
+			copy := *streamResp.Response
+			copy.Output = nil
+			copy.Usage = nil
+			streamResp.Response = &copy
+		}
 		service.ObserveResponsesOutcome(info, &streamResp)
 		if upstreamErr := responsesStreamError(&streamResp); upstreamErr != nil {
 			streamErr = upstreamErr
@@ -292,7 +342,17 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
-		toolUsage.observeEvent(&streamResp)
+		if recovery.meterAttempt() != 0 || !recovery.enabled {
+			toolUsage.observeEvent(&streamResp)
+			if recovery.enabled {
+				switch streamResp.Type {
+				case "response.output_text.delta", "response.function_call_arguments.delta", "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+					winnerText.WriteString(streamResp.Delta)
+				case "response.refusal.delta", "response.refusal.done":
+					winnerText.WriteString(service.ResponsesRefusalUsageDelta(&streamResp, winnerRefusalByPart))
+				}
+			}
+		}
 
 		results, err := service.ConvertStreamResponseChunk(c, info, state, &streamResp)
 		if err != nil {
@@ -306,16 +366,44 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return
 			}
 		}
+	}, func(data string) (bool, error) {
+		consumed, err := recovery.filter(data)
+		if err != nil || !consumed {
+			return consumed, err
+		}
+		if recovery.lastKind == "attempt_begin" {
+			winnerText.Reset()
+			winnerRefusalByPart = make(map[string]string)
+			toolUsage = responsesToolUsage{}
+			state.SetUsage(&dto.Usage{})
+		} else if recovery.terminal {
+			usage := recovery.finalUsage(info, nil)
+			if usage == nil {
+				usage = service.ResponseText2Usage(c, winnerText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+			}
+			state.SetUsage(usage)
+		}
+		return true, nil
 	})
 	info.StreamStatus.RequireTerminal()
+	if err := recovery.checkEnd(); err != nil && streamErr == nil {
+		streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+	}
 
 	if streamErr != nil {
-		return nil, streamErr
+		return recovery.finalUsage(info, nil), streamErr
 	}
 
 	usage := state.Usage()
-	if usage == nil || usage.TotalTokens == 0 {
-		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+	if recovery.enabled {
+		usage = recovery.finalUsage(info, nil)
+	}
+	if usage == nil || (!recovery.usageReported && usage.TotalTokens == 0) {
+		text := state.UsageText()
+		if recovery.enabled {
+			text = winnerText.String()
+		}
+		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
 	}
 

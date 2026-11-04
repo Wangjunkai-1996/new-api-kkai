@@ -103,6 +103,12 @@ func ChatCompletionsResponseToResponsesResponseWithTools(resp *dto.OpenAITextRes
 			},
 		})
 	}
+	if choice.Message.Refusal != nil && *choice.Message.Refusal != "" {
+		out.Output = append(out.Output, dto.ResponsesOutput{
+			Type: responsesOutputTypeMessage, ID: fmt.Sprintf("%s_refusal_0", id), Status: responseOutputStatus(out), Role: "assistant",
+			Content: []dto.ResponsesOutputContent{{Type: "refusal", Refusal: *choice.Message.Refusal}},
+		})
+	}
 
 	for i, toolCall := range choice.Message.ParseToolCalls() {
 		toolOutput, err := chatToolCallToResponsesOutput(toolCall, id, i, responseOutputStatus(out), tools)

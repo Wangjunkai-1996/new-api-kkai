@@ -1,0 +1,28 @@
+data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_capture_responses_strict_refusal","seq":1,"attempt":1}
+
+event: response.created
+data: {"response":{"id":"logical_capture_responses_strict_refusal","model":"gpt-test","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"logical_capture_responses_strict_refusal_item_1_0","role":"assistant","status":"in_progress","type":"message"},"output_index":0,"sequence_number":1,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"logical_capture_responses_strict_refusal_item_1_0","output_index":0,"part":{"refusal":"","type":"refusal"},"sequence_number":2,"type":"response.content_part.added"}
+
+event: response.refusal.delta
+data: {"content_index":0,"delta":"cannot comply","item_id":"logical_capture_responses_strict_refusal_item_1_0","output_index":0,"sequence_number":3,"type":"response.refusal.delta"}
+
+event: response.refusal.done
+data: {"content_index":0,"item_id":"logical_capture_responses_strict_refusal_item_1_0","output_index":0,"refusal":"cannot comply","sequence_number":4,"type":"response.refusal.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"logical_capture_responses_strict_refusal_item_1_0","output_index":0,"part":{"refusal":"cannot comply","type":"refusal"},"sequence_number":5,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"refusal":"cannot comply","type":"refusal"}],"id":"logical_capture_responses_strict_refusal_item_1_0","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":6,"type":"response.output_item.done"}
+
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_strict_refusal","seq":2,"attempt":1,"outcome":"completed","usage_format":"responses","usage_reported":true,"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}
+
+event: response.completed
+data: {"response":{"id":"logical_capture_responses_strict_refusal","model":"gpt-test","output":[{"content":[{"refusal":"cannot comply","type":"refusal"}],"id":"logical_capture_responses_strict_refusal_item_1_0","role":"assistant","status":"completed","type":"message"}],"status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}},"sequence_number":7,"type":"response.completed"}
+

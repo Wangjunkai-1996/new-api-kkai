@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
@@ -118,6 +119,9 @@ func applyHTTP1Force(transport *http.Transport) {
 func applyHTTPTransportPolicy(transport *http.Transport, policy HTTPTransportPolicy) {
 	if transport == nil {
 		return
+	}
+	if policy.ManagedRecoveryV1 {
+		transport.ResponseHeaderTimeout = relaycommon.ManagedRecoveryRequestTimeout
 	}
 	if policy.Protocol == dto.HTTPProtocolHTTP1 {
 		applyHTTP1Force(transport)

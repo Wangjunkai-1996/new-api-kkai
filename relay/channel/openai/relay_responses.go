@@ -108,21 +108,27 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	accumulator := service.NewResponsesUsageAccumulator(info)
+	recovery := newRecoveryV1State(c, info)
 	var reportedUsage dto.Usage
 	// The accumulator observes tools before the terminal arrives. Keep those
 	// provisional counts isolated until this upstream attempt succeeds.
 	previousTools := info.ResponsesUsageInfo
-	if previousTools != nil {
-		copy := *previousTools
-		copy.BuiltInTools = make(map[string]*relaycommon.BuildInToolInfo, len(previousTools.BuiltInTools))
-		for name, tool := range previousTools.BuiltInTools {
-			if tool != nil {
-				value := *tool
-				copy.BuiltInTools[name] = &value
+	resetToolInfo := func() {
+		info.ResponsesUsageInfo = nil
+		if previousTools != nil {
+			copy := *previousTools
+			copy.BuiltInTools = make(map[string]*relaycommon.BuildInToolInfo, len(previousTools.BuiltInTools))
+			copy.ImageGenerationCalls = append([]relaycommon.ResponsesImageGenerationCall(nil), previousTools.ImageGenerationCalls...)
+			for name, tool := range previousTools.BuiltInTools {
+				if tool != nil {
+					value := *tool
+					copy.BuiltInTools[name] = &value
+				}
 			}
+			info.ResponsesUsageInfo = &copy
 		}
-		info.ResponsesUsageInfo = &copy
 	}
+	resetToolInfo()
 	committedTools := false
 	defer func() {
 		if !committedTools {
@@ -149,11 +155,19 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		if info.HasDurableBilling() && streamResponse.Response != nil && !hasReportedResponsesUsage(gjson.Get(data, "response.usage")) {
 			streamResponse.Response.Usage = nil
 		}
-		accumulator.Observe(&streamResponse)
-		if info.HasDurableBilling() && accumulator.HasReportedUsage() {
+		metered := recovery.meterAttempt() != 0 || !recovery.enabled
+		if recovery.enabled && streamResponse.Response != nil {
+			copy := *streamResponse.Response
+			copy.Output = nil // The public terminal contains abandoned display items.
+			streamResponse.Response = &copy
+		}
+		if metered {
+			accumulator.Observe(&streamResponse)
+		}
+		if metered && info.HasDurableBilling() && accumulator.HasReportedUsage() {
 			toolUsage.observeResponse(streamResponse.Response)
 		}
-		if streamResponse.Response != nil {
+		if metered && streamResponse.Response != nil {
 			service.ApplyResponsesUsage(&reportedUsage, streamResponse.Response.Usage)
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
@@ -212,13 +226,35 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Stop(streamErr)
 		}
 		if streamErr == nil {
-			toolUsage.observeEvent(&streamResponse)
+			if metered {
+				toolUsage.observeEvent(&streamResponse)
+			}
 			sendResponsesStreamData(c, streamResponse, data)
 		}
+	}, func(data string) (bool, error) {
+		consumed, err := recovery.filter(data)
+		if err != nil || !consumed {
+			return consumed, err
+		}
+		if recovery.lastKind == "attempt_begin" {
+			resetToolInfo()
+			accumulator = service.NewResponsesUsageAccumulator(info)
+			reportedUsage = dto.Usage{}
+			toolUsage = responsesToolUsage{}
+			info.BillingHasReportedUsage = false
+			info.BillingOutcomeUnknown = false
+		}
+		return true, nil
 	})
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
+	if err := recovery.checkEnd(); err != nil && streamErr == nil {
+		streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+	}
 	if streamErr != nil {
+		if recovery.enabled && recovery.usageReported {
+			return recovery.finalUsage(info, nil), streamErr
+		}
 		if info.HasDurableBilling() && accumulator.HasReportedUsage() {
 			usage := accumulator.Finish()
 			toolUsage.commit(info, false)
@@ -227,7 +263,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		return nil, streamErr
 	}
-	usage := accumulator.Finish()
+	var usage *dto.Usage
+	if recovery.enabled && recovery.usageReported {
+		usage = recovery.finalUsage(info, nil)
+	} else {
+		usage = recovery.finalUsage(info, accumulator.Finish())
+	}
 	if !sawSuccessfulTerminal {
 		endReason := relaycommon.StreamEndReasonNone
 		var endErr error
@@ -263,9 +304,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if (usage.CompletionTokens != 0 && reportedUsage.CompletionTokens == 0) ||
-		(usage.PromptTokens != 0 && reportedUsage.PromptTokens == 0) {
+	if !recovery.usageReported && ((usage.CompletionTokens != 0 && reportedUsage.CompletionTokens == 0) ||
+		(usage.PromptTokens != 0 && reportedUsage.PromptTokens == 0)) {
 		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+	}
+	if recovery.enabled {
+		toolUsage.imagesBillable = recovery.outcome == "completed"
 	}
 	toolUsage.commit(info, sawSuccessfulTerminal)
 	committedTools = true

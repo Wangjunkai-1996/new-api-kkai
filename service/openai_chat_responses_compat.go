@@ -28,3 +28,23 @@ func ResponsesFinishReasonFromStatus(resp *dto.OpenAIResponsesResponse) (string,
 func ExtractOutputTextFromResponses(resp *dto.OpenAIResponsesResponse) string {
 	return relayconvert.ExtractOutputTextFromResponses(resp)
 }
+
+// Response refusals are billable generated output but remain a separate field
+// in client responses; include them only when estimating missing usage.
+func ResponsesOutputForUsage(resp *dto.OpenAIResponsesResponse) string {
+	text := relayconvert.ExtractOutputTextFromResponses(resp)
+	if resp == nil {
+		return text
+	}
+	for _, output := range resp.Output {
+		if output.Type != "message" {
+			continue
+		}
+		for _, part := range output.Content {
+			if part.Type == "refusal" {
+				text += part.Refusal
+			}
+		}
+	}
+	return text
+}

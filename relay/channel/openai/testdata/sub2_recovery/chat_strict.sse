@@ -1,0 +1,16 @@
+data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_capture_chat_strict","seq":1,"attempt":1}
+
+data: {"type":"kkai.recovery.v1","kind":"attempt_abandoned","logical_id":"logical_capture_chat_strict","seq":2,"attempt":1}
+
+data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_capture_chat_strict","seq":3,"attempt":2}
+
+data: {"choices":[{"delta":{"content":"{\"ok\":true}"},"finish_reason":null,"index":0}],"id":"logical_capture_chat_strict","model":"gpt-test"}
+
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_chat_strict","seq":4,"attempt":2,"outcome":"completed","usage_format":"chat","usage_reported":true,"usage":{"completion_tokens":0,"prompt_tokens":0,"total_tokens":0}}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"id":"logical_capture_chat_strict"}
+
+data: {"choices":[],"id":"logical_capture_chat_strict","usage":{"completion_tokens":0,"prompt_tokens":0,"total_tokens":0}}
+
+data: [DONE]
+

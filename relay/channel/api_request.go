@@ -19,6 +19,7 @@ import (
 	systemconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/kkaiattribution"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -105,6 +106,18 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 	if parent.Err() != nil {
 		ctx, cancel := context.WithCancel(parent)
 		cancel()
+		return ctx, cancel
+	}
+	if info.ManagedRecoveryEnabled() {
+		if info.ManagedRecoveryDeadline.IsZero() {
+			startedAt := info.StartTime
+			if startedAt.IsZero() {
+				startedAt = time.Now()
+			}
+			info.ManagedRecoveryDeadline = startedAt.Add(common.ManagedRecoveryRequestTimeout)
+		}
+		ctx, cancel := context.WithDeadline(parent, info.ManagedRecoveryDeadline)
+		info.ManagedRecoveryDeadline, _ = ctx.Deadline()
 		return ctx, cancel
 	}
 	if info != nil && info.DurableImageExecution {
@@ -472,11 +485,31 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		cancelRequest()
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
+	req.Header.Del("X-KKAI-Recovery-Protocol")
+	managedRecovery := info.ManagedRecoveryEnabled()
+	if managedRecovery {
+		if req.Header.Get(kkaiattribution.SignatureHeader) == "" || info.UserId <= 0 || info.TokenId <= 0 {
+			cancelRequest()
+			return nil, errors.New("managed recovery requires signed NewAPI attribution")
+		}
+		req.Header.Set("X-KKAI-Recovery-Protocol", "1")
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		cancelRequest()
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
+	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 && resp.Header.Get("X-KKAI-Recovery-Protocol") != "1" {
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		cancelRequest()
+		return nil, errors.New("managed recovery protocol response header missing or unsupported")
+	}
+	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.Set("kkai_managed_recovery_v1", true)
+	}
+	resp.Header.Del("X-KKAI-Recovery-Protocol")
 	return bindUpstreamPolicyResponseBody(resp, cancelRequest), nil
 }
 
@@ -740,7 +773,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 	c.Set(common2.UpstreamRequestIdKey, "")
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	transportSettings := info.ChannelSetting
+	transportSettings.ManagedRecoveryV1 = info.ManagedRecoveryEnabled()
+	client, err := service.GetHttpClientWithProxySettings(transportSettings.Proxy, transportSettings)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}

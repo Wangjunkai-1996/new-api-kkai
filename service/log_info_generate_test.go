@@ -44,6 +44,19 @@ func TestGenerateTextOtherInfoUsesUpstreamHeaderForDisplayedFRT(t *testing.T) {
 	assert.NotContains(t, snapshot, "sub2_ttft_ms")
 }
 
+func TestManagedRecoveryDiagnosticsAreAdminOnly(t *testing.T) {
+	ctx := newLogInfoTestContext()
+	diagnostics := map[string]any{"logical_id": "lr_a", "attempt": 2, "first_real_text_delta_ms": int64(20)}
+	ctx.Set("kkai_recovery_v1_diagnostics", diagnostics)
+	other := model.NewLogOther()
+	AppendRelayLogAdminInfo(ctx, nil, other)
+	snapshot := other.Snapshot()
+	assert.NotContains(t, snapshot, "managed_recovery")
+	admin, ok := snapshot["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, diagnostics, admin["managed_recovery"])
+}
+
 func TestGenerateTextOtherInfoUsesSub2TTFTSidebandForDisplayedFRT(t *testing.T) {
 	for _, timingMs := range []int64{0, 1180} {
 		t.Run(time.Duration(timingMs*int64(time.Millisecond)).String(), func(t *testing.T) {

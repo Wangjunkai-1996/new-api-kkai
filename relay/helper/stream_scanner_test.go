@@ -543,6 +543,59 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 	assert.False(t, info.StreamStatus.IsNormalEnd())
 }
 
+func TestStreamScannerHandler_ManagedRecoveryWaitsBeyondLegacyIdleTimeout(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 1
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+	c, resp, info := setupStreamTest(t, reader)
+	resp.Body = reader
+	c.Set("kkai_managed_recovery_v1", true)
+	info.StartTime = time.Now()
+	go func() {
+		timer := time.NewTimer(1100 * time.Millisecond)
+		defer timer.Stop()
+		<-timer.C
+		_, _ = io.WriteString(writer, "data: [DONE]\n\n")
+		_ = writer.Close()
+	}()
+	StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
+func TestStreamScannerHandler_ManagedRecoveryStopsAtOriginalDeadlineOrCancellation(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("canceled=%t", canceled), func(t *testing.T) {
+			reader, writer := io.Pipe()
+			defer writer.Close()
+			c, resp, info := setupStreamTest(t, reader)
+			resp.Body = reader
+			c.Set("kkai_managed_recovery_v1", true)
+			info.StartTime = time.Now().Add(-relaycommon.ManagedRecoveryRequestTimeout - time.Second)
+			want := relaycommon.StreamEndReasonTimeout
+			if canceled {
+				info.StartTime = time.Now()
+				parent, cancel := context.WithCancel(context.Background())
+				c.Request = c.Request.WithContext(parent)
+				cancel()
+				want = relaycommon.StreamEndReasonClientGone
+			}
+			done := make(chan struct{})
+			go func() {
+				StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("managed stream ignored its logical deadline or client cancellation")
+			}
+			assert.Equal(t, want, info.StreamStatus.EndReason)
+		})
+	}
+}
+
 func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {
 	t.Parallel()
 

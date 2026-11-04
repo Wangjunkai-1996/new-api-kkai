@@ -1,0 +1,90 @@
+data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_capture_responses_reasoning_recovery","seq":1,"attempt":1}
+
+event: response.created
+data: {"response":{"id":"logical_capture_responses_reasoning_recovery","model":"gpt-test","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"logical_capture_responses_reasoning_recovery_item_1_0","role":"assistant","status":"in_progress","type":"message"},"output_index":0,"sequence_number":1,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_item_1_0","output_index":0,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":2,"type":"response.content_part.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"abandoned text","item_id":"logical_capture_responses_reasoning_recovery_item_1_0","output_index":0,"sequence_number":3,"type":"response.output_text.delta"}
+
+event: response.output_item.added
+data: {"item":{"id":"reason_old","status":"in_progress","summary":[],"type":"reasoning"},"output_index":1,"sequence_number":4,"type":"response.output_item.added"}
+
+event: response.reasoning_summary_part.added
+data: {"item_id":"reason_old","output_index":1,"part":{"text":"","type":"summary_text"},"sequence_number":5,"summary_index":0,"type":"response.reasoning_summary_part.added"}
+
+event: response.reasoning_summary_text.delta
+data: {"delta":"old summary","item_id":"reason_old","output_index":1,"sequence_number":6,"summary_index":0,"type":"response.reasoning_summary_text.delta"}
+
+data: {"type":"kkai.recovery.v1","kind":"attempt_abandoned","logical_id":"logical_capture_responses_reasoning_recovery","seq":2,"attempt":1}
+
+event: response.reasoning_summary_text.done
+data: {"item_id":"reason_old","output_index":1,"sequence_number":7,"summary_index":0,"text":"old summary","type":"response.reasoning_summary_text.done"}
+
+event: response.reasoning_summary_part.done
+data: {"item_id":"reason_old","output_index":1,"part":{"text":"old summary","type":"summary_text"},"sequence_number":8,"summary_index":0,"type":"response.reasoning_summary_part.done"}
+
+event: response.output_item.done
+data: {"item":{"id":"reason_old","status":"completed","summary":[{"text":"old summary","type":"summary_text"}],"type":"reasoning"},"output_index":1,"sequence_number":9,"type":"response.output_item.done"}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_item_1_0","output_index":0,"sequence_number":10,"text":"abandoned text","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_item_1_0","output_index":0,"part":{"annotations":[],"text":"abandoned text","type":"output_text"},"sequence_number":11,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"abandoned text","type":"output_text"}],"id":"logical_capture_responses_reasoning_recovery_item_1_0","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":12,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"logical_capture_responses_reasoning_recovery_marker_1","role":"assistant","status":"in_progress","type":"message"},"output_index":2,"sequence_number":13,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_marker_1","output_index":2,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":14,"type":"response.content_part.added"}
+
+data: {"type":"kkai.recovery.v1","kind":"synthetic_begin","logical_id":"logical_capture_responses_reasoning_recovery","seq":3,"attempt":1}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"\n\n[Response interrupted. Regenerating...]\n\n","item_id":"logical_capture_responses_reasoning_recovery_marker_1","output_index":2,"sequence_number":15,"type":"response.output_text.delta"}
+
+data: {"type":"kkai.recovery.v1","kind":"synthetic_end","logical_id":"logical_capture_responses_reasoning_recovery","seq":4,"attempt":1}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_marker_1","output_index":2,"sequence_number":16,"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_marker_1","output_index":2,"part":{"annotations":[],"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"output_text"},"sequence_number":17,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"output_text"}],"id":"logical_capture_responses_reasoning_recovery_marker_1","role":"assistant","status":"completed","type":"message"},"output_index":2,"sequence_number":18,"type":"response.output_item.done"}
+
+data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_capture_responses_reasoning_recovery","seq":5,"attempt":2}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"logical_capture_responses_reasoning_recovery_item_2_0","role":"assistant","status":"in_progress","type":"message"},"output_index":3,"sequence_number":19,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_item_2_0","output_index":3,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":20,"type":"response.content_part.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"winner text","item_id":"logical_capture_responses_reasoning_recovery_item_2_0","output_index":3,"sequence_number":21,"type":"response.output_text.delta"}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_item_2_0","output_index":3,"sequence_number":22,"text":"winner text","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"logical_capture_responses_reasoning_recovery_item_2_0","output_index":3,"part":{"annotations":[],"text":"winner text","type":"output_text"},"sequence_number":23,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"winner text","type":"output_text"}],"id":"logical_capture_responses_reasoning_recovery_item_2_0","role":"assistant","status":"completed","type":"message"},"output_index":3,"sequence_number":24,"type":"response.output_item.done"}
+
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_reasoning_recovery","seq":6,"attempt":2,"outcome":"completed","usage_format":"responses","usage_reported":true,"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}
+
+event: response.completed
+data: {"response":{"id":"logical_capture_responses_reasoning_recovery","model":"gpt-test","output":[{"content":[{"annotations":[],"text":"abandoned text","type":"output_text"}],"id":"logical_capture_responses_reasoning_recovery_item_1_0","role":"assistant","status":"completed","type":"message"},{"id":"reason_old","status":"completed","summary":[{"text":"old summary","type":"summary_text"}],"type":"reasoning"},{"content":[{"annotations":[],"text":"\n\n[Response interrupted. Regenerating...]\n\n","type":"output_text"}],"id":"logical_capture_responses_reasoning_recovery_marker_1","role":"assistant","status":"completed","type":"message"},{"content":[{"annotations":[],"text":"winner text","type":"output_text"}],"id":"logical_capture_responses_reasoning_recovery_item_2_0","role":"assistant","status":"completed","type":"message"}],"status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}},"sequence_number":25,"type":"response.completed"}
+

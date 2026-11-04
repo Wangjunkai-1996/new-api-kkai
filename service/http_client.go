@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/pkg/kkaiattribution"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
@@ -350,7 +351,12 @@ func newHTTPClientFromPolicy(policy HTTPTransportPolicy, proxyURL *url.URL, tlsC
 	return newHTTPClientFromTransportFactory(policy, factory), nil
 }
 
-func newHTTPClientFromTransportFactory(policy HTTPTransportPolicy, factory func() *http.Transport) *http.Client {
+func newHTTPClientFromTransportFactory(policy HTTPTransportPolicy, factory func() *http.Transport) (client *http.Client) {
+	defer func() {
+		if policy.ManagedRecoveryV1 {
+			client.Timeout = relaycommon.ManagedRecoveryRequestTimeout
+		}
+	}()
 	if policy.Shards < 1 {
 		policy.Shards = 1
 	}
