@@ -30,6 +30,11 @@ Go 并行度 4、媒体并行度 2 和重型步骤串行保持不变。
 profile 和覆盖参数的顺序不影响结果；`--no-resource-limits` 保留原有命令行顺序语义。
 metadata 不记录这些新字段，sidecar 记录最终实际参数。
 
+FFmpeg 官方源码归档按 Dockerfile 中的版本和 SHA-256 缓存在
+`${XDG_CACHE_HOME:-$HOME/.cache}/kkai-newapi/ffmpeg/`；每次使用前校验哈希，
+缺失或损坏时才重新下载。这个缓存不是发布 `.tar` 产物，常规发布清理不删除它。
+`KKAI_FFMPEG_SOURCE_ARCHIVE` 仍可指定已有归档，并同样要求匹配固定哈希。
+
 ## 上传实验
 
 以下两个选项默认均为 0，只在已授权 stage 中显式启用并对比实际耗时：

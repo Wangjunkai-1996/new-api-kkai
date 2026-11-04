@@ -40,8 +40,12 @@ build_https_proxy="${BUILD_HTTPS_PROXY:-${HTTPS_PROXY:-}}"
 build_no_proxy="${BUILD_NO_PROXY:-${NO_PROXY:-}}"
 build_lock_dir="${TMPDIR:-/tmp}/kkai-newapi-manual-build.lock"
 build_source_dir=''
+ffmpeg_download=''
 
 release_build_lock() {
+  if [[ -n "${ffmpeg_download}" ]]; then
+    rm -f -- "${ffmpeg_download}"
+  fi
   if [[ -n "${build_source_dir}" ]]; then
     rm -rf -- "${build_source_dir}"
   fi
@@ -270,12 +274,21 @@ ffmpeg_sha256="$(sed -n 's/^ARG FFMPEG_SOURCE_SHA256=//p' "${media_dockerfile}")
   die "invalid pinned FFmpeg source identity"
 ffmpeg_archive="${KKAI_FFMPEG_SOURCE_ARCHIVE:-}"
 if [[ -z "${ffmpeg_archive}" ]]; then
-  command -v curl >/dev/null 2>&1 || die "missing curl for official FFmpeg source download"
-  ffmpeg_archive="${build_source_dir}/ffmpeg-${ffmpeg_version}.tar.bz2"
-  curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
-    --connect-timeout 20 --max-time 300 \
-    --output "${ffmpeg_archive}" "https://ffmpeg.org/releases/ffmpeg-${ffmpeg_version}.tar.bz2" ||
-    die "official FFmpeg source download failed"
+  ffmpeg_cache_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/kkai-newapi/ffmpeg"
+  mkdir -p -- "${ffmpeg_cache_dir}"
+  ffmpeg_archive="${ffmpeg_cache_dir}/ffmpeg-${ffmpeg_version}-${ffmpeg_sha256}.tar.bz2"
+  if [[ ! -f "${ffmpeg_archive}" || "$(sha256_file "${ffmpeg_archive}")" != "${ffmpeg_sha256}" ]]; then
+    command -v curl >/dev/null 2>&1 || die "missing curl for official FFmpeg source download"
+    ffmpeg_download="$(mktemp "${ffmpeg_cache_dir}/.ffmpeg-${ffmpeg_version}.XXXXXX")"
+    curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
+      --connect-timeout 20 --max-time 1800 \
+      --output "${ffmpeg_download}" "https://ffmpeg.org/releases/ffmpeg-${ffmpeg_version}.tar.bz2" ||
+      die "official FFmpeg source download failed"
+    [[ "$(sha256_file "${ffmpeg_download}")" == "${ffmpeg_sha256}" ]] ||
+      die "FFmpeg source archive does not match the pinned SHA-256"
+    mv -- "${ffmpeg_download}" "${ffmpeg_archive}"
+    ffmpeg_download=''
+  fi
 fi
 [[ -f "${ffmpeg_archive}" && "$(sha256_file "${ffmpeg_archive}")" == "${ffmpeg_sha256}" ]] ||
   die "FFmpeg source archive does not match the pinned SHA-256"

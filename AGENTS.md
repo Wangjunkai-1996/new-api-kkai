@@ -93,6 +93,13 @@ For an application-only release, follow only the normal-release portion of the
 global entry and infrastructure runbook. Read slot, schema, or recovery sections
 only when the task actually changes or invokes those mechanisms.
 
+After a successful backend/combined or frontend-only release, complete the
+post-release cleanup in the global NewAPI runbook. Inventory local and production
+artifacts, remove only verified unreferenced items through the documented paths,
+preserve active/rollback and format-specific retention assets, and track any
+cleanup warning or deferred item to a documented disposition. A successful
+promotion does not prove cleanup.
+
 - Never build a production image on the production host.
 - Never use `latest`, reuse a release version, or deploy a dirty worktree.
 - Do not use raw `docker compose` commands to bypass the manual deployer.

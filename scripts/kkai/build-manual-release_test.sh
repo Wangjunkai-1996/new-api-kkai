@@ -22,6 +22,8 @@ printf 'committed application\n' >"${source_fixture}/main.go"
 readonly ffmpeg_archive="${test_root}/ffmpeg-7.1.1.tar.bz2"
 printf 'official FFmpeg source fixture\n' >"${ffmpeg_archive}"
 export KKAI_FFMPEG_SOURCE_ARCHIVE="${ffmpeg_archive}"
+export KKAI_TEST_CURL_SOURCE="${ffmpeg_archive}"
+export XDG_CACHE_HOME="${test_root}/cache"
 ffmpeg_sha256="$(shasum -a 256 "${ffmpeg_archive}" | awk '{print $1}')"
 printf 'committed image recipe\nARG FFMPEG_VERSION=7.1.1\nARG FFMPEG_SOURCE_SHA256=%s\n' "${ffmpeg_sha256}" \
   >"${source_fixture}/build/kkai-image/Dockerfile"
@@ -134,7 +136,7 @@ if [[ ${1:-} == buildx && ${2:-} == build ]]; then
   [[ $(<"${context}/main.go") == 'committed application' ]] || exit 96
   grep -Fxq 'committed image recipe' "${context}/build/kkai-image/Dockerfile" || exit 96
   [[ $(<"${context}/build/kkai-image/go.mod") == 'committed image tools' ]] || exit 96
-  cmp -s "${context}/build/kkai-image/ffmpeg/ffmpeg-7.1.1.tar.bz2" "${KKAI_FFMPEG_SOURCE_ARCHIVE}" || exit 96
+  cmp -s "${context}/build/kkai-image/ffmpeg/ffmpeg-7.1.1.tar.bz2" "${KKAI_TEST_CURL_SOURCE}" || exit 96
   [[ ! -e ${context}/.git && ! -e ${context}/.local-releases && ! -e ${context}/web/node_modules ]] || exit 96
   [[ " $* " == *" --file ${context}/build/kkai-image/Dockerfile "* ]] || exit 96
   [[ " $* " == *" --build-context kkai_image=${context}/build/kkai-image "* ]] || exit 96
@@ -160,6 +162,21 @@ echo "unexpected docker invocation: $*" >&2
 exit 94
 EOF
 chmod 0755 "${mock_bin}/git" "${mock_bin}/docker"
+
+cat >"${mock_bin}/curl" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'curl %s\n' "$*" >>"${KKAI_TEST_LOG}"
+while (( $# > 0 )); do
+  if [[ $1 == --output ]]; then
+    cp -- "${KKAI_TEST_CURL_SOURCE}" "$2"
+    exit 0
+  fi
+  shift
+done
+exit 99
+EOF
+chmod 0755 "${mock_bin}/curl"
 
 cat >"${mock_bin}/python3" <<'EOF'
 #!/usr/bin/env bash
@@ -272,6 +289,41 @@ expect_bad_ffmpeg_source_rejected() {
   ! grep -q '^docker ' "${call_log}" || fail 'mismatched FFmpeg source reached Docker'
   [[ -z $(find "${build_tmp}" -mindepth 1 -maxdepth 1 -print -quit) ]] ||
     fail 'mismatched FFmpeg source left its snapshot or lock behind'
+}
+
+expect_ffmpeg_source_cache() {
+  local cached_archive="${XDG_CACHE_HOME}/kkai-newapi/ffmpeg/ffmpeg-7.1.1-${ffmpeg_sha256}.tar.bz2"
+  local output
+
+  KKAI_FFMPEG_SOURCE_ARCHIVE='' run_build direct-unix cache-miss >/dev/null
+  grep -q '^curl ' "${call_log}" || fail 'missing FFmpeg cache did not download the source'
+  cmp -s "${cached_archive}" "${ffmpeg_archive}" || fail 'downloaded FFmpeg source was not cached'
+
+  KKAI_FFMPEG_SOURCE_ARCHIVE='' run_build direct-unix cache-hit >/dev/null
+  ! grep -q '^curl ' "${call_log}" || fail 'valid FFmpeg cache was downloaded again'
+
+  printf 'corrupt FFmpeg source\n' >"${cached_archive}"
+  KKAI_FFMPEG_SOURCE_ARCHIVE='' run_build direct-unix cache-corrupt >/dev/null
+  grep -q '^curl ' "${call_log}" || fail 'corrupt FFmpeg cache was reused'
+  cmp -s "${cached_archive}" "${ffmpeg_archive}" || fail 'corrupt FFmpeg cache was not repaired'
+
+  rm -- "${cached_archive}"
+  : >"${call_log}"
+  if output="$(
+    PATH="${mock_bin}:${PATH}" KKAI_TEST_LOG="${call_log}" \
+      KKAI_TEST_ENDPOINT_MODE=direct-unix TMPDIR="${build_tmp}" \
+      KKAI_FFMPEG_SOURCE_ARCHIVE='' KKAI_TEST_CURL_SOURCE="${source_fixture}/main.go" \
+      "${BUILD_SCRIPT}" --schema-contract feature --version "${version}" \
+      --output-dir "${test_root}/out-bad-download" 2>&1
+  )"; then
+    fail 'mismatched FFmpeg download unexpectedly reached the build'
+  fi
+  grep -F 'FFmpeg source archive does not match the pinned SHA-256' <<<"${output}" >/dev/null ||
+    fail 'mismatched FFmpeg download was not rejected explicitly'
+  [[ ! -e ${cached_archive} ]] || fail 'mismatched FFmpeg download polluted the cache'
+  [[ -z $(find "${XDG_CACHE_HOME}/kkai-newapi/ffmpeg" -maxdepth 1 -name '.ffmpeg-*' -print -quit) ]] ||
+    fail 'mismatched FFmpeg download left a temporary file'
+  ! grep -q '^docker ' "${call_log}" || fail 'mismatched FFmpeg download reached Docker'
 }
 
 expect_record_failure_stops_build() {
@@ -535,6 +587,7 @@ expect_checkout_changes_isolated
 expect_failed_build_cleanup export
 expect_failed_build_cleanup build
 expect_bad_ffmpeg_source_rejected
+expect_ffmpeg_source_cache
 expect_record_failure_stops_build
 expect_invalid_frontend_mode_rejected
 expect_no_resource_limits
