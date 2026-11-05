@@ -78,6 +78,14 @@ func newImageStudioQuoteAt(
 	if err := validateImageStudioQuoteClaims(normalized, claims); err != nil {
 		return ImageStudioQuote{}, err
 	}
+	displayQuota := quota
+	if claims.ImagePricingSnapshot != nil {
+		var err error
+		displayQuota, err = imagepricing.CalculateQuotaStrict(claims.ImagePricingSnapshot, normalized.RequestedCount)
+		if err != nil {
+			return ImageStudioQuote{}, ErrImageStudioQuoteMismatch
+		}
+	}
 	payload, err := common.Marshal(claims)
 	if err != nil {
 		return ImageStudioQuote{}, err
@@ -88,7 +96,7 @@ func newImageStudioQuoteAt(
 		return ImageStudioQuote{}, ErrImageStudioQuoteMismatch
 	}
 	return ImageStudioQuote{
-		Quota: quota, DisplayAmount: logger.FormatQuota(quota), ExpiresAt: claims.ExpiresAt,
+		Quota: quota, DisplayAmount: logger.FormatQuota(displayQuota), ExpiresAt: claims.ExpiresAt,
 		OtherRatios: cloneImageStudioRatios(claims.OtherRatios), QuoteToken: token,
 	}, nil
 }

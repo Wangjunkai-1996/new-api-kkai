@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/imagepricing"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/image_studio_setting"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -323,6 +325,36 @@ func TestImageStudioQuoteBindsNormalizedCreativeRequest(t *testing.T) {
 	normalized.RequestHash = changed
 	_, err = ValidateImageStudioQuote(normalized, now.Add(time.Minute))
 	require.ErrorIs(t, err, ErrImageStudioQuoteMismatch)
+}
+
+func TestImageStudioQuoteDisplaysImagePriceInsteadOfMembershipReservation(t *testing.T) {
+	db, profile := newImageSubmissionTestDB(t)
+	normalized, err := NormalizeImageStudioSubmission(context.Background(), db, 7, ImageStudioSubmissionRequest{
+		TokenID: 4, Model: profile.Model, Prompt: "a lighthouse",
+	})
+	require.NoError(t, err)
+	snapshot := imageStudioQuoteTestSnapshot(normalized)
+	snapshot.UnitPrice, snapshot.QuotaPerUnit, snapshot.GroupRatio = 0.02, common.QuotaPerUnit, 1
+	violationFee := 0.05 * common.QuotaPerUnit
+	reservationQuota := int(common.QuotaPerUnit) * 7 / 100
+	membership := &types.MembershipPricing{
+		Version: 1, GroupKey: "default", ModelName: normalized.Model,
+		WalletRatio: 1, BaseRatio: 1, Discount: 1, MaximumBeforeGroup: float64(reservationQuota),
+		ViolationFeeBeforeGroup: violationFee,
+		Price:                   types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+		Image:                   snapshot,
+	}
+	quote, err := newImageStudioQuoteAt(normalized, reservationQuota, map[string]float64{"n": 1}, snapshot, time.Now(), membership)
+	require.NoError(t, err)
+	assert.Equal(t, reservationQuota, quote.Quota)
+	assert.Equal(t, logger.FormatQuota(int(0.02*common.QuotaPerUnit)), quote.DisplayAmount)
+
+	normalized.QuoteToken = quote.QuoteToken
+	claims, err := ValidateImageStudioQuote(normalized, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, reservationQuota, claims.Quota)
+	require.NotNil(t, claims.MembershipPricing)
+	assert.Equal(t, violationFee, claims.MembershipPricing.ViolationFeeBeforeGroup)
 }
 
 func TestImageStudioBatchQuoteBindsRequestedCountRatio(t *testing.T) {
