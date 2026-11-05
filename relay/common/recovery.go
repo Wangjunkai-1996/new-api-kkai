@@ -12,6 +12,6 @@ import (
 const ManagedRecoveryRequestTimeout = 930 * time.Second
 
 func (info *RelayInfo) ManagedRecoveryEnabled() bool {
-	return info != nil && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeSub2API && info.ChannelSetting.ManagedRecoveryV1 &&
+	return info != nil && !info.IsChannelTest && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeSub2API && info.ChannelSetting.ManagedRecoveryV1 &&
 		(info.RelayMode == relayconstant.RelayModeResponses || info.RelayMode == relayconstant.RelayModeChatCompletions)
 }
