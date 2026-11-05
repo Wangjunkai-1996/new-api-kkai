@@ -21,6 +21,7 @@ import { describe, expect, test } from 'vitest'
 import type { TaskPluginOption } from '../../api'
 import {
   CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_SUB2API,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
   CHANNEL_TYPE_OPTIONS,
@@ -32,6 +33,7 @@ import {
   channelFormSchema,
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
+  transformFormDataToUpdatePayload,
 } from '../channel-form'
 import {
   getChannelPluginExtensions,
@@ -102,6 +104,32 @@ describe('New API channel', () => {
 
     expect(result.success).toBe(true)
   })
+})
+
+test('Sub2API managed recovery remains enabled after an ordinary channel edit', () => {
+  const channel = channelSchema.parse({
+    id: 67,
+    name: 'Sub2API gateway',
+    type: CHANNEL_TYPE_SUB2API,
+    key: '',
+    status: 1,
+    created_time: 1,
+    test_time: 0,
+    response_time: 0,
+    balance_updated_time: 0,
+    models: 'gpt-5',
+    group: 'default',
+    base_url: 'https://sub2.example',
+    setting: JSON.stringify({ managed_recovery_v1: true }),
+  })
+  const form = transformChannelToFormDefaults(channel)
+  form.name = 'Renamed gateway'
+
+  const payload = transformFormDataToUpdatePayload(
+    channelFormSchema.parse(form),
+    channel.id
+  )
+  expect(JSON.parse(payload.setting ?? '{}').managed_recovery_v1).toBe(true)
 })
 
 describe.each([
