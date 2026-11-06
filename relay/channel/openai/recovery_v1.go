@@ -18,40 +18,46 @@ import (
 const recoveryControlType = "kkai.recovery.v1"
 
 type recoveryControlFrame struct {
-	Type          string          `json:"type"`
-	Kind          string          `json:"kind"`
-	LogicalID     string          `json:"logical_id"`
-	Seq           int             `json:"seq"`
-	Attempt       int             `json:"attempt"`
-	Outcome       string          `json:"outcome"`
-	UsageFormat   string          `json:"usage_format"`
-	UsageReported *bool           `json:"usage_reported"`
-	Usage         json.RawMessage `json:"usage"`
+	Type               string          `json:"type"`
+	Kind               string          `json:"kind"`
+	LogicalID          string          `json:"logical_id"`
+	Seq                int             `json:"seq"`
+	Attempt            int             `json:"attempt"`
+	Outcome            string          `json:"outcome"`
+	UsageFormat        string          `json:"usage_format"`
+	UsageReported      *bool           `json:"usage_reported"`
+	Usage              json.RawMessage `json:"usage"`
+	SameAccountRetries json.RawMessage `json:"same_account_retries"`
+	AccountSwitches    json.RawMessage `json:"account_switches"`
+	StopReason         json.RawMessage `json:"stop_reason"`
 }
 
 type recoveryV1State struct {
-	enabled         bool
-	logicalID       string
-	seq             int
-	lastAttempt     int
-	lastKind        string
-	activeAttempt   int
-	abandoned       bool
-	synthetic       bool
-	syntheticUsed   bool
-	terminal        bool
-	outcome         string
-	usageReported   bool
-	usage           *dto.Usage
-	usageFormat     string
-	publicEnd       bool
-	publicDone      bool
-	expectedChoices int
-	finishedChoices map[int]bool
-	ctx             *gin.Context
-	startedAt       time.Time
-	firstTextAt     time.Time
-	err             error
+	enabled            bool
+	logicalID          string
+	seq                int
+	lastAttempt        int
+	lastKind           string
+	activeAttempt      int
+	abandoned          bool
+	synthetic          bool
+	syntheticUsed      bool
+	terminal           bool
+	outcome            string
+	usageReported      bool
+	usage              *dto.Usage
+	usageFormat        string
+	sameAccountRetries *int
+	accountSwitches    *int
+	stopReason         string
+	publicEnd          bool
+	publicDone         bool
+	expectedChoices    int
+	finishedChoices    map[int]bool
+	ctx                *gin.Context
+	startedAt          time.Time
+	firstTextAt        time.Time
+	err                error
 }
 
 func newRecoveryV1State(c *gin.Context, info *relaycommon.RelayInfo) *recoveryV1State {
@@ -110,6 +116,14 @@ func (s *recoveryV1State) recordDiagnostics() {
 	if !s.firstTextAt.IsZero() && !s.startedAt.IsZero() {
 		diagnostics["first_real_text_delta_ms"] = max(int64(0), s.firstTextAt.Sub(s.startedAt).Milliseconds())
 	}
+	if s.sameAccountRetries != nil && s.accountSwitches != nil {
+		diagnostics["same_account_retries"] = *s.sameAccountRetries
+		diagnostics["account_switches"] = *s.accountSwitches
+		diagnostics["recovered"] = s.outcome == "completed" && *s.sameAccountRetries+*s.accountSwitches > 0
+	}
+	if s.stopReason != "" {
+		diagnostics["stop_reason"] = s.stopReason
+	}
 	s.ctx.Set("kkai_recovery_v1_diagnostics", diagnostics)
 }
 
@@ -165,6 +179,21 @@ func (s *recoveryV1State) consume(frame recoveryControlFrame) error {
 		}
 		if abandonedFailure && reported {
 			return errors.New("abandoned recovery attempt cannot report terminal usage")
+		}
+		// Optional diagnostics must never turn a valid response into a failure.
+		// Missing/invalid counters remain unknown, including from older peers.
+		var retries, switches *int
+		if common.Unmarshal(frame.SameAccountRetries, &retries) == nil && common.Unmarshal(frame.AccountSwitches, &switches) == nil &&
+			retries != nil && switches != nil && *retries >= 0 && *switches >= 0 && *retries <= 10 && *switches <= 10 && *retries+*switches <= 10 {
+			s.sameAccountRetries = retries
+			s.accountSwitches = switches
+		}
+		var stopReason string
+		if frame.Outcome == "failed" && common.Unmarshal(frame.StopReason, &stopReason) == nil {
+			switch stopReason {
+			case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error":
+				s.stopReason = stopReason
+			}
 		}
 		s.usage = usage
 		s.usageFormat = frame.UsageFormat

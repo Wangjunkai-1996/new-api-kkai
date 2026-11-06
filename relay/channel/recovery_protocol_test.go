@@ -131,16 +131,17 @@ func TestManagedRecoverySelectsProtocolFromOutboundBody(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
-		name string
-		mode int
-		body string
-		want string
+		name      string
+		mode      int
+		body      string
+		want      string
+		wantEntry string
 	}{
-		{"responses_json", relayconstant.RelayModeResponses, `{"text":{"format":{"type":"json_schema"}},"input":"hello"}`, ""},
-		{"responses_legacy_json", relayconstant.RelayModeResponses, `{"text":{"format":{"type":"text"}},"response_format":{"type":"json_object"},"input":"hello"}`, ""},
-		{"chat_json", relayconstant.RelayModeChatCompletions, `{"response_format":{"type":"json_object"},"messages":[]}`, ""},
-		{"responses_text_with_tools", relayconstant.RelayModeResponses, `{"tools":[{"type":"function","name":"lookup"}],"tool_choice":"auto","input":"hello"}`, "1"},
-		{"chat_text_with_tools", relayconstant.RelayModeChatCompletions, `{"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":"auto","messages":[]}`, "1"},
+		{"responses_json", relayconstant.RelayModeResponses, `{"text":{"format":{"type":"json_schema"}},"input":"hello"}`, "", "excluded_json_output"},
+		{"responses_legacy_json", relayconstant.RelayModeResponses, `{"text":{"format":{"type":"text"}},"response_format":{"type":"json_object"},"input":"hello"}`, "", "excluded_json_output"},
+		{"chat_json", relayconstant.RelayModeChatCompletions, `{"response_format":{"type":"json_object"},"messages":[]}`, "", "excluded_json_output"},
+		{"responses_text_with_tools", relayconstant.RelayModeResponses, `{"tools":[{"type":"function","name":"lookup"}],"tool_choice":"auto","input":"hello"}`, "1", "handshake_succeeded"},
+		{"chat_text_with_tools", relayconstant.RelayModeChatCompletions, `{"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":"auto","messages":[]}`, "1", "handshake_succeeded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -154,8 +155,21 @@ func TestManagedRecoverySelectsProtocolFromOutboundBody(t *testing.T) {
 			assert.Equal(t, tc.want, <-seen)
 			assert.Equal(t, tc.want == "1", info.ManagedRecoveryEnabled())
 			assert.Equal(t, tc.want == "1", c.GetBool("kkai_managed_recovery_v1"))
+			assert.Equal(t, tc.wantEntry, c.GetString("kkai_managed_recovery_entry"))
 		})
 	}
+}
+
+func TestManagedRecoveryDiagnosticsHeaderIsCapturedAndStripped(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	recordManagedRecoveryDiagnostics(c, `{"same_account_retries":1,"account_switches":2,"outcome":"completed"}`)
+	diagnostics, ok := c.Get("kkai_recovery_v1_diagnostics")
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"same_account_retries": 1, "account_switches": 2, "final_outcome": "completed", "recovered": true}, diagnostics)
+	invalid, _ := gin.CreateTestContext(httptest.NewRecorder())
+	recordManagedRecoveryDiagnostics(invalid, `{"same_account_retries":99,"account_switches":0,"outcome":"completed"}`)
+	_, ok = invalid.Get("kkai_recovery_v1_diagnostics")
+	assert.False(t, ok)
 }
 
 func TestManagedRecoveryProtocolRequiresSignedChannelAndResponseEcho(t *testing.T) {
@@ -163,17 +177,18 @@ func TestManagedRecoveryProtocolRequiresSignedChannelAndResponseEcho(t *testing.
 	previousSigner := internalAttributionSigner
 	t.Cleanup(func() { internalAttributionSigner = previousSigner })
 	for _, tc := range []struct {
-		name    string
-		signed  bool
-		echo    string
-		status  int
-		wantErr bool
+		name      string
+		signed    bool
+		echo      string
+		status    int
+		wantErr   bool
+		wantEntry string
 	}{
-		{"negotiated", true, "1", http.StatusOK, false},
-		{"missing_echo", true, "", http.StatusOK, true},
-		{"unsupported_echo", true, "2", http.StatusOK, true},
-		{"upstream_429", true, "", http.StatusTooManyRequests, false},
-		{"missing_signature", false, "1", http.StatusOK, true},
+		{"negotiated", true, "1", http.StatusOK, false, "handshake_succeeded"},
+		{"missing_echo", true, "", http.StatusOK, true, "protocol_header_missing"},
+		{"unsupported_echo", true, "2", http.StatusOK, true, "protocol_header_missing"},
+		{"upstream_429", true, "", http.StatusTooManyRequests, false, "upstream_non_2xx"},
+		{"missing_signature", false, "1", http.StatusOK, true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seenProtocol := make(chan string, 1)
@@ -214,6 +229,7 @@ func TestManagedRecoveryProtocolRequiresSignedChannelAndResponseEcho(t *testing.
 			} else {
 				assert.Empty(t, seenProtocol)
 			}
+			assert.Equal(t, tc.wantEntry, c.GetString("kkai_managed_recovery_entry"))
 		})
 	}
 }
@@ -278,6 +294,7 @@ func TestManagedRecoveryCapabilityFallbackReplaysOnceWithoutProtocol(t *testing.
 	assert.NotEqual(t, headers[0].Get(kkaiattribution.NonceHeader), headers[1].Get(kkaiattribution.NonceHeader))
 	assert.False(t, info.ManagedRecoveryEnabled())
 	assert.False(t, c.GetBool("kkai_managed_recovery_v1"))
+	assert.Equal(t, "capability_fallback", c.GetString("kkai_managed_recovery_entry"))
 }
 
 func TestManagedRecoveryCapabilityFallbackIgnoresOther422AndNonReplayableBody(t *testing.T) {
@@ -288,9 +305,10 @@ func TestManagedRecoveryCapabilityFallbackIgnoresOther422AndNonReplayableBody(t 
 		name      string
 		body      io.Reader
 		errorType string
+		wantEntry string
 	}{
-		{"unrelated 422", strings.NewReader(`{"input":"hello"}`), "invalid_request_error"},
-		{"nonreplayable body", struct{ io.Reader }{strings.NewReader(`{"input":"hello"}`)}, "recovery_capability_unavailable"},
+		{"unrelated 422", strings.NewReader(`{"input":"hello"}`), "invalid_request_error", "upstream_non_2xx"},
+		{"nonreplayable body", struct{ io.Reader }{strings.NewReader(`{"input":"hello"}`)}, "recovery_capability_unavailable", "excluded_non_replayable_body"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -315,6 +333,7 @@ func TestManagedRecoveryCapabilityFallbackIgnoresOther422AndNonReplayableBody(t 
 			require.NoError(t, err)
 			require.NoError(t, resp.Body.Close())
 			assert.Equal(t, 1, calls)
+			assert.Equal(t, tc.wantEntry, c.GetString("kkai_managed_recovery_entry"))
 		})
 	}
 }
@@ -376,12 +395,13 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 	internalAttributionSigner, err = kkaiattribution.NewSigner([]string{upstream.URL}, "0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
 	for _, tc := range []struct {
-		name string
-		body string
-		want string
+		name      string
+		body      string
+		want      string
+		wantEntry string
 	}{
-		{"encrypted outbound", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, ""},
-		{"plaintext outbound", `{"input":"hello"}`, "1"},
+		{"encrypted outbound", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, "", "excluded_encrypted_input"},
+		{"plaintext outbound", `{"input":"hello"}`, "1", "handshake_succeeded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -397,6 +417,7 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 			require.NoError(t, resp.Body.Close())
 			assert.Equal(t, tc.want, protocol)
 			assert.Equal(t, tc.want == "1", info.ManagedRecoveryEnabled())
+			assert.Equal(t, tc.wantEntry, c.GetString("kkai_managed_recovery_entry"))
 		})
 	}
 	assert.Equal(t, 2, requests)

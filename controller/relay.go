@@ -165,6 +165,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.PerformanceBusinessRejection = false
 		relayInfo.PerformanceOutputTokens = 0
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		if relayInfo.RetryIndex > 0 {
+			c.Set("kkai_managed_recovery_entry", "")
+			c.Set("kkai_recovery_v1_diagnostics", nil)
+		}
 		relayInfo.ResetAttemptTiming()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {

@@ -1,6 +1,6 @@
 # Managed recovery 流式修正开发规格
 
-日期：2026-11-05；验证状态更新于 2026-11-06。状态：两端本地代码、定向验证和本地首增量/分配小样本对照已完成，进入配套发布准备；CPU、磁盘大请求、真实客户端和线上验收仍待完成。
+日期：2026-11-05；验证状态更新于 2026-11-06。状态：两端本地代码、受管恢复诊断记录、定向验证和本地首增量/分配小样本对照已完成，进入配套发布准备；CPU、磁盘大请求、真实客户端和线上验收仍待完成。
 
 上位行为以[修正方案](managed-recovery-streaming-correction-20261105.md)为准。本规格仅覆盖 NewAPI → Sub2 的 OpenAI HTTP Responses/Chat 受管恢复，保留渠道级 `managed_recovery_v1` 开关。Sub2 旧版 `KKAI_REQUEST_RECOVERY_DEVELOPMENT.md` 中要求 JSON/工具暂存到成功、首轮固定 600 秒和 NewAPI 930 秒硬截止的段落，均由本次修正规格替代；其余已实现的重试预算、账号调度、签名、别名和计量约束继续有效。两个仓库的变更必须作为同一协议版本的配套修改验收，不能只更新一端便开启渠道。
 
@@ -28,6 +28,7 @@
 1. 在 `relay/channel/api_request.go` 的 `DoApiRequest`，参照现有加密输入例外，依据**最终序列化出站请求体**判断显式 `text.format.type` 或 `response_format.type` 的 `json_object`/`json_schema`，再决定 `ManagedRecoveryV1`、请求 context、HTTP transport、握手头与后续重试归属。检查请求转换和参数覆盖后的实际形态，不能只看可能过期的 `info.Request`。不要按 `tools`/`tool_choice:auto` 直接排除。`relay/common/recovery.go`、`controller/relay.go` 的判断要共享同一次逐请求结果，避免双方都不重试或双方重试。
 2. 保留 `relay/channel/openai/recovery_v1.go` 的 v1 控制帧校验，以及 Responses/Chat 流处理器的 attempt 用量隔离。工具事件后由 Sub2 发 `terminal(failed)` 再发公共失败；NewAPI 识别失败而不在已输出流外重试。核对原生和现有转换路径的工具索引、唯一终态、最终有效尝试用量及失败时已有的部分用量规则，不把工具失败统一写成零费用或成功。
 3. 协同调整 `relay/channel/api_request.go`、`service/http_client.go` 与 `relay/helper/stream_scanner.go` 中受管流式请求的 930 秒固定取消来源：健康长流不能仅因恢复预留而被截断，客户端取消仍须传播，真实故障后的 Sub2 重试仍有界。非流式受管请求保留从 `StartTime` 起算的 930 秒总截止，避免响应头到达后正文停顿而无限等待。避免退回更短的全局 `RelayTimeout`；`ResponseHeaderTimeout` 只约束响应头，不作为整段流时限。保留现有渠道开关、签名、握手失败的明确处理和非受管请求行为。
+4. 将受管恢复的入口原因和 Sub2 终态诊断写入现有管理员日志 `other.admin_info`，只保留结构化计数和停止原因，不新增数据库表、客户端响应头或逐帧持久化。入口记录包括握手成功、JSON/加密输入/不可重放请求体排除、能力降级，以及握手前传输/HTTP/协议错误；终态记录包括同账号重试次数、切账号次数、`completed/incomplete/failed`、救回判定和工具输出后停止原因。每次外层重试清除上一尝试诊断，避免跨请求串线。内部 `X-KKAI-Recovery-Diagnostics` 仅在 NewAPI 入口消费并移除。
 
 ## 开发顺序与验收
 
@@ -43,6 +44,12 @@
 6. 受管 Responses 成功续聊和别名发布失败分别验证；两端握手/降级归属一致，取消仍有效。
 
 以 Sub2 `openai_recovery_stream_writer_test.go` 和受管 handler 测试、NewAPI `recovery_protocol_test.go`、`recovery_v1_live_http_test.go`、`relay_responses_billing_test.go` 等现有夹具为基础。此文档不代表线上功能已经修复。
+
+## 诊断查询约定
+
+诊断不增加页面或专用接口。操作员按渠道、分组和 UTC 时间窗口查询现有日志，使用[受管恢复查询说明](managed-recovery-log-query.md)及只读脚本 `scripts/kkai/query-managed-recovery.sql`。脚本按 `request_id` 在窗口内去重，汇总总请求、进入受管数、计数已知/未知、同号重试、切账号、救回、失败、工具停止及原因分布；历史日志缺少计数时标为未知，不能当作零次重试。`recovered` 只统计最新日志为消费终态、终态为 `completed`、无协议错误且确有重试或切号的请求，普通成功、错误日志和协议错误完成均不计入。
+
+查询前按 NewAPI 发布入口确认基础设施 checkout 并执行一次 `make newapi-status`；随后只读访问生产日志。查询窗口最多六小时，不输出客户正文、账号或请求 ID。Sub2 无终态的断开记录为 `openai.recovery_incomplete`，同样不能算作救回。
 
 ## 本次验证记录（2026-11-06）
 
@@ -66,6 +73,8 @@ Sub2 本地开关对照命令（在其 `backend/` 执行）已通过：
 ```sh
 go test -tags unit ./internal/handler -run '^TestOpenAIRecoveryToggleStreamsBeforeUpstreamTerminal$' -count=1 -v -timeout=120s
 ```
+
+NewAPI 受管恢复诊断字段由现有 `service/log_info_generate` 管理员日志路径写入；对应协议、入口原因、终态计数和日志归一化测试均通过。查询脚本已用本机 PostgreSQL fixture 验证请求去重、旧日志未知计数、协议错误、工具停止和后续错误日志不会误计为救回。未访问或修改生产环境。
 
 同一可控上游、25 ms 终态屏障的小样本：关闭时首增量 2.316 ms、完成 29.922 ms、624 allocs；开启时首增量 0.524 ms、完成 27.737 ms、1008 allocs（`AllocsPerRun(3)`）。这是本地功能与分配观察，不用于推断生产更快或零开销；输出可从本次执行记录回溯，没有独立性能报告文件。
 

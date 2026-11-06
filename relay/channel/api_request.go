@@ -79,6 +79,45 @@ type upstreamPolicyRequestLifecycle struct {
 	stopParent        func() bool
 }
 
+type managedRecoveryDiagnostics struct {
+	SameAccountRetries *int   `json:"same_account_retries"`
+	AccountSwitches    *int   `json:"account_switches"`
+	Outcome            string `json:"outcome"`
+	StopReason         string `json:"stop_reason"`
+}
+
+const managedRecoveryDiagnosticsHeader = "X-KKAI-Recovery-Diagnostics"
+
+func recordManagedRecoveryDiagnostics(c *gin.Context, header string) {
+	if c == nil || header == "" || len(header) > 512 {
+		return
+	}
+	var diagnostics managedRecoveryDiagnostics
+	if common2.Unmarshal([]byte(header), &diagnostics) != nil ||
+		diagnostics.SameAccountRetries == nil || diagnostics.AccountSwitches == nil ||
+		*diagnostics.SameAccountRetries < 0 || *diagnostics.AccountSwitches < 0 ||
+		*diagnostics.SameAccountRetries > 10 || *diagnostics.AccountSwitches > 10 ||
+		*diagnostics.SameAccountRetries+*diagnostics.AccountSwitches > 10 {
+		return
+	}
+	if diagnostics.Outcome != "completed" && diagnostics.Outcome != "incomplete" && diagnostics.Outcome != "failed" {
+		return
+	}
+	value := map[string]any{
+		"same_account_retries": *diagnostics.SameAccountRetries,
+		"account_switches":     *diagnostics.AccountSwitches,
+		"final_outcome":        diagnostics.Outcome,
+		"recovered":            diagnostics.Outcome == "completed" && *diagnostics.SameAccountRetries+*diagnostics.AccountSwitches > 0,
+	}
+	if diagnostics.Outcome == "failed" && diagnostics.StopReason != "" {
+		switch diagnostics.StopReason {
+		case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error":
+			value["stop_reason"] = diagnostics.StopReason
+		}
+	}
+	c.Set("kkai_recovery_v1_diagnostics", value)
+}
+
 func (l *upstreamPolicyRequestLifecycle) markUpstreamCommitted() {
 	if l == nil {
 		return
@@ -469,6 +508,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		if req.GetBody == nil {
 			// A non-replayable body cannot safely participate in managed retry.
 			info.ChannelSetting.ManagedRecoveryV1 = false
+			c.Set("kkai_managed_recovery_entry", "excluded_non_replayable_body")
 		} else {
 			body, bodyErr := req.GetBody()
 			if bodyErr != nil {
@@ -487,11 +527,13 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 			responseFormat := gjson.GetBytes(payload, "response_format.type").String()
 			if format == "json_object" || format == "json_schema" || responseFormat == "json_object" || responseFormat == "json_schema" {
 				info.ChannelSetting.ManagedRecoveryV1 = false
+				c.Set("kkai_managed_recovery_entry", "excluded_json_output")
 			}
-			if info.RelayMode == constant.RelayModeResponses {
+			if info.ManagedRecoveryEnabled() && info.RelayMode == constant.RelayModeResponses {
 				for _, item := range gjson.GetBytes(payload, "input").Array() {
 					if item.Get("encrypted_content").Exists() {
 						info.ChannelSetting.ManagedRecoveryV1 = false
+						c.Set("kkai_managed_recovery_entry", "excluded_encrypted_input")
 						break
 					}
 				}
@@ -529,10 +571,16 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
+		if managedRecovery {
+			c.Set("kkai_managed_recovery_entry", "upstream_transport_error")
+		}
 		cancelRequest()
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
+	recoveryDiagnostics := resp.Header.Get(managedRecoveryDiagnosticsHeader)
+	resp.Header.Del(managedRecoveryDiagnosticsHeader)
 	if managedRecovery && confirmedRecoveryCapabilityRejection(resp) && req.GetBody != nil {
+		c.Set("kkai_managed_recovery_entry", "capability_fallback")
 		_ = resp.Body.Close()
 		cancelRequest()
 		body, bodyErr := req.GetBody()
@@ -554,9 +602,15 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 			cancelFallback()
 			return nil, fmt.Errorf("recovery fallback failed: %w", err)
 		}
+		resp.Header.Del(managedRecoveryDiagnosticsHeader)
+		resp.Header.Del("X-KKAI-Recovery-Protocol")
 		return bindUpstreamPolicyResponseBody(resp, cancelFallback), nil
 	}
+	if managedRecovery && resp.Header.Get("X-KKAI-Recovery-Protocol") == "1" {
+		recordManagedRecoveryDiagnostics(c, recoveryDiagnostics)
+	}
 	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 && resp.Header.Get("X-KKAI-Recovery-Protocol") != "1" {
+		c.Set("kkai_managed_recovery_entry", "protocol_header_missing")
 		if resp.Body != nil {
 			_ = resp.Body.Close()
 		}
@@ -565,6 +619,9 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		c.Set("kkai_managed_recovery_v1", true)
+		c.Set("kkai_managed_recovery_entry", "handshake_succeeded")
+	} else if managedRecovery {
+		c.Set("kkai_managed_recovery_entry", "upstream_non_2xx")
 	}
 	resp.Header.Del("X-KKAI-Recovery-Protocol")
 	return bindUpstreamPolicyResponseBody(resp, cancelRequest), nil

@@ -423,3 +423,38 @@ func TestRecoveryV1RealTextMetricIncludesVisibleRefusal(t *testing.T) {
 		})
 	}
 }
+
+func TestRecoveryV1TerminalRecordsPhysicalRecoveryOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		terminal   string
+		wantSaved  bool
+		wantReason string
+	}{
+		{"rescued before first control frame", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"completed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":1,"account_switches":0}`, true, ""},
+		{"tool output prevents retry", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0,"stop_reason":"tool_output_started"}`, false, "tool_output_started"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, _, info := newResponsesChatTestContext(t, "", true)
+			c.Set("kkai_managed_recovery_v1", true)
+			s := newRecoveryV1State(c, info)
+			_, err := s.filter(`{"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"lr_metrics","seq":1,"attempt":1}`)
+			require.NoError(t, err)
+			_, err = s.filter(tc.terminal)
+			require.NoError(t, err)
+			diagnostics, exists := c.Get("kkai_recovery_v1_diagnostics")
+			require.True(t, exists)
+			values := diagnostics.(map[string]any)
+			if tc.wantSaved {
+				assert.Equal(t, 1, values["same_account_retries"])
+			} else {
+				assert.Equal(t, 0, values["same_account_retries"])
+			}
+			assert.Equal(t, 0, values["account_switches"])
+			assert.Equal(t, tc.wantSaved, values["recovered"])
+			if tc.wantReason != "" {
+				assert.Equal(t, tc.wantReason, values["stop_reason"])
+			}
+		})
+	}
+}
