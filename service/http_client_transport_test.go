@@ -43,7 +43,7 @@ func TestManagedRecoveryHTTPClientsKeepBudgetWithoutMutatingLegacyPools(t *testi
 			assert.Same(t, managed, again)
 			assert.NotSame(t, ordinary, managed)
 			assert.Equal(t, time.Second, ordinary.Timeout)
-			assert.Equal(t, relaycommon.ManagedRecoveryRequestTimeout, managed.Timeout)
+			assert.Zero(t, managed.Timeout)
 			transports := []http.RoundTripper{managed.Transport}
 			if sharded, ok := managed.Transport.(*shardedRoundTripper); ok {
 				transports = sharded.shards
@@ -51,7 +51,7 @@ func TestManagedRecoveryHTTPClientsKeepBudgetWithoutMutatingLegacyPools(t *testi
 			for _, roundTripper := range transports {
 				transport, ok := roundTripper.(*http.Transport)
 				require.True(t, ok)
-				assert.Equal(t, relaycommon.ManagedRecoveryRequestTimeout, transport.ResponseHeaderTimeout)
+				assert.Equal(t, relaycommon.ManagedRecoveryResponseHeaderTimeout, transport.ResponseHeaderTimeout)
 			}
 		})
 	}

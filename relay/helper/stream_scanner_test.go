@@ -564,36 +564,25 @@ func TestStreamScannerHandler_ManagedRecoveryWaitsBeyondLegacyIdleTimeout(t *tes
 	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
 }
 
-func TestStreamScannerHandler_ManagedRecoveryStopsAtOriginalDeadlineOrCancellation(t *testing.T) {
-	for _, canceled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("canceled=%t", canceled), func(t *testing.T) {
-			reader, writer := io.Pipe()
-			defer writer.Close()
-			c, resp, info := setupStreamTest(t, reader)
-			resp.Body = reader
-			c.Set("kkai_managed_recovery_v1", true)
-			info.StartTime = time.Now().Add(-relaycommon.ManagedRecoveryRequestTimeout - time.Second)
-			want := relaycommon.StreamEndReasonTimeout
-			if canceled {
-				info.StartTime = time.Now()
-				parent, cancel := context.WithCancel(context.Background())
-				c.Request = c.Request.WithContext(parent)
-				cancel()
-				want = relaycommon.StreamEndReasonClientGone
-			}
-			done := make(chan struct{})
-			go func() {
-				StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
-				close(done)
-			}()
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-				t.Fatal("managed stream ignored its logical deadline or client cancellation")
-			}
-			assert.Equal(t, want, info.StreamStatus.EndReason)
-		})
-	}
+func TestStreamScannerHandler_ManagedRecoveryOldStartDoesNotStopHealthyStream(t *testing.T) {
+	c, resp, info := setupStreamTest(t, strings.NewReader("data: [DONE]\n\n"))
+	c.Set("kkai_managed_recovery_v1", true)
+	info.StartTime = time.Now().Add(-relaycommon.ManagedRecoveryResponseHeaderTimeout - time.Second)
+	StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
+func TestStreamScannerHandler_ManagedRecoveryPropagatesCancellation(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	c, resp, info := setupStreamTest(t, reader)
+	resp.Body = reader
+	c.Set("kkai_managed_recovery_v1", true)
+	parent, cancel := context.WithCancel(context.Background())
+	c.Request = c.Request.WithContext(parent)
+	cancel()
+	StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
 }
 
 func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {

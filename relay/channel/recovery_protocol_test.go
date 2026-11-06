@@ -27,26 +27,44 @@ type recoveryProtocolTestAdaptor struct {
 	url string
 }
 
-func TestManagedRecoveryContextKeepsOriginalDeadlineAndParentCancellation(t *testing.T) {
-	startedAt := time.Now().Add(-time.Minute)
+func TestManagedRecoveryContextPreservesParentDeadlineAndCancellation(t *testing.T) {
 	parent, cancelParent := context.WithCancel(context.Background())
 	defer cancelParent()
-	info := &relaycommon.RelayInfo{StartTime: startedAt, RelayMode: relayconstant.RelayModeResponses,
+	info := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses, IsStream: true,
 		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeSub2API,
 			ChannelSetting: dto.ChannelSettings{ManagedRecoveryV1: true}}}
 	request, cancel := upstreamPolicyRequestContext(parent, info)
 	defer cancel()
-	deadline, ok := request.Deadline()
-	require.True(t, ok)
-	assert.Equal(t, startedAt.Add(relaycommon.ManagedRecoveryRequestTimeout), deadline)
+	_, ok := request.Deadline()
+	assert.False(t, ok)
 	next, cancelNext := upstreamPolicyRequestContext(parent, info)
 	defer cancelNext()
-	nextDeadline, ok := next.Deadline()
+	_, ok = next.Deadline()
+	assert.False(t, ok)
+	boundedParent, stop := context.WithTimeout(context.Background(), time.Hour)
+	defer stop()
+	bounded, cancelBounded := upstreamPolicyRequestContext(boundedParent, info)
+	defer cancelBounded()
+	parentDeadline, _ := boundedParent.Deadline()
+	boundedDeadline, ok := bounded.Deadline()
 	require.True(t, ok)
-	assert.Equal(t, deadline, nextDeadline)
+	assert.Equal(t, parentDeadline, boundedDeadline)
+	nonStream := *info
+	nonStream.IsStream = false
+	nonStream.StartTime = time.Now().Add(-time.Minute)
+	buffered, cancelBuffered := upstreamPolicyRequestContext(parent, &nonStream)
+	defer cancelBuffered()
+	bufferedDeadline, ok := buffered.Deadline()
+	require.True(t, ok)
+	assert.Equal(t, nonStream.StartTime.Add(managedRecoveryNonStreamTimeout), bufferedDeadline)
+	nonStream.StartTime = time.Now().Add(-managedRecoveryNonStreamTimeout - time.Second)
+	expired, cancelExpired := upstreamPolicyRequestContext(parent, &nonStream)
+	defer cancelExpired()
+	assert.ErrorIs(t, expired.Err(), context.DeadlineExceeded)
 	cancelParent()
 	assert.ErrorIs(t, request.Err(), context.Canceled)
 	assert.ErrorIs(t, next.Err(), context.Canceled)
+	assert.ErrorIs(t, buffered.Err(), context.Canceled)
 }
 
 func TestManagedRecoveryCancelsSub2AfterHeadersWithoutWaitingForPolicyDrain(t *testing.T) {
@@ -93,6 +111,51 @@ func (a *recoveryProtocolTestAdaptor) GetRequestURL(*relaycommon.RelayInfo) (str
 func (a *recoveryProtocolTestAdaptor) SetupRequestHeader(_ *gin.Context, header *http.Header, _ *relaycommon.RelayInfo) error {
 	header.Set("X-KKAI-Recovery-Protocol", "forged")
 	return nil
+}
+
+func TestManagedRecoverySelectsProtocolFromOutboundBody(t *testing.T) {
+	service.InitHttpClient()
+	previousSigner := internalAttributionSigner
+	t.Cleanup(func() { internalAttributionSigner = previousSigner })
+	seen := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get("X-KKAI-Recovery-Protocol")
+		if r.Header.Get("X-KKAI-Recovery-Protocol") == "1" {
+			w.Header().Set("X-KKAI-Recovery-Protocol", "1")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+	var err error
+	internalAttributionSigner, err = kkaiattribution.NewSigner([]string{upstream.URL}, "0123456789abcdef0123456789abcdef")
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name string
+		mode int
+		body string
+		want string
+	}{
+		{"responses_json", relayconstant.RelayModeResponses, `{"text":{"format":{"type":"json_schema"}},"input":"hello"}`, ""},
+		{"responses_legacy_json", relayconstant.RelayModeResponses, `{"text":{"format":{"type":"text"}},"response_format":{"type":"json_object"},"input":"hello"}`, ""},
+		{"chat_json", relayconstant.RelayModeChatCompletions, `{"response_format":{"type":"json_object"},"messages":[]}`, ""},
+		{"responses_text_with_tools", relayconstant.RelayModeResponses, `{"tools":[{"type":"function","name":"lookup"}],"tool_choice":"auto","input":"hello"}`, "1"},
+		{"chat_text_with_tools", relayconstant.RelayModeChatCompletions, `{"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":"auto","messages":[]}`, "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			info := &relaycommon.RelayInfo{UserId: 1, TokenId: 2, RequestId: "recovery-shape", OriginModelName: "gpt-test",
+				RelayMode: tc.mode, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeSub2API,
+					ChannelSetting: dto.ChannelSettings{ManagedRecoveryV1: true}}}
+			resp, err := DoApiRequest(&recoveryProtocolTestAdaptor{url: upstream.URL + "/v1/responses"}, c, info, strings.NewReader(tc.body))
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, tc.want, <-seen)
+			assert.Equal(t, tc.want == "1", info.ManagedRecoveryEnabled())
+			assert.Equal(t, tc.want == "1", c.GetBool("kkai_managed_recovery_v1"))
+		})
+	}
 }
 
 func TestManagedRecoveryProtocolRequiresSignedChannelAndResponseEcho(t *testing.T) {
@@ -293,7 +356,7 @@ func TestManagedRecoveryCapabilityFallbackRedispatchesReservedMembership(t *test
 	assert.Equal(t, info.ChannelId, record.ReviewChannelID)
 }
 
-func TestManagedRecoverySkipsOpaqueResponsesInput(t *testing.T) {
+func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 	service.InitHttpClient()
 	previousSigner := internalAttributionSigner
 	t.Cleanup(func() { internalAttributionSigner = previousSigner })
@@ -302,6 +365,9 @@ func TestManagedRecoverySkipsOpaqueResponsesInput(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		protocol = r.Header.Get("X-KKAI-Recovery-Protocol")
+		if protocol == "1" {
+			w.Header().Set("X-KKAI-Recovery-Protocol", "1")
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "event: response.completed\ndata: {}\n\ndata: [DONE]\n\n")
 	}))
@@ -309,19 +375,29 @@ func TestManagedRecoverySkipsOpaqueResponsesInput(t *testing.T) {
 	var err error
 	internalAttributionSigner, err = kkaiattribution.NewSigner([]string{upstream.URL}, "0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	info := &relaycommon.RelayInfo{UserId: 1, TokenId: 2, RequestId: "recovery-opaque", OriginModelName: "gpt-test",
-		RelayMode: relayconstant.RelayModeResponses,
-		Request:   &dto.OpenAIResponsesRequest{Input: []byte(`[{"type":"reasoning","encrypted_content":"opaque"}]`)},
-		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeSub2API,
-			ChannelSetting: dto.ChannelSettings{ManagedRecoveryV1: true}}}
-	resp, err := DoApiRequest(&recoveryProtocolTestAdaptor{url: upstream.URL + "/v1/responses"}, c, info,
-		strings.NewReader(`{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`))
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, 1, requests)
-	assert.Empty(t, protocol)
-	assert.False(t, info.ManagedRecoveryEnabled())
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"encrypted outbound", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, ""},
+		{"plaintext outbound", `{"input":"hello"}`, "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			info := &relaycommon.RelayInfo{UserId: 1, TokenId: 2, RequestId: "recovery-opaque", OriginModelName: "gpt-test",
+				RelayMode: relayconstant.RelayModeResponses,
+				Request:   &dto.OpenAIResponsesRequest{Input: []byte(`[{"type":"reasoning","encrypted_content":"opaque"}]`)},
+				ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeSub2API,
+					ChannelSetting: dto.ChannelSettings{ManagedRecoveryV1: true}}}
+			resp, err := DoApiRequest(&recoveryProtocolTestAdaptor{url: upstream.URL + "/v1/responses"}, c, info, strings.NewReader(tc.body))
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+			assert.Equal(t, tc.want, protocol)
+			assert.Equal(t, tc.want == "1", info.ManagedRecoveryEnabled())
+		})
+	}
+	assert.Equal(t, 2, requests)
 }

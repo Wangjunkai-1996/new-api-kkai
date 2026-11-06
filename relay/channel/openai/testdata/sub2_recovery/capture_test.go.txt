@@ -28,7 +28,9 @@ func TestCaptureNewAPIRecoveryFixtures(t *testing.T) {
 		{"responses_terminal_only", OpenAIRecoveryResponsesSSE, `{}`},
 		{"chat_multi", OpenAIRecoveryChatSSE, `{"n":2}`},
 		{"chat_strict", OpenAIRecoveryChatSSE, `{"response_format":{"type":"json_object"}}`},
+		{"chat_tool_failure", OpenAIRecoveryChatSSE, `{"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`},
 		{"responses_strict", OpenAIRecoveryResponsesSSE, `{"text":{"format":{"type":"json_object"}}}`},
+		{"responses_tool_failure", OpenAIRecoveryResponsesSSE, `{"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`},
 		{"responses_abandoned_failure", OpenAIRecoveryResponsesSSE, `{}`},
 		{"responses_exhausted", OpenAIRecoveryResponsesSSE, `{}`},
 		{"responses_refusal_recovery", OpenAIRecoveryResponsesSSE, `{}`},
@@ -50,6 +52,16 @@ func TestCaptureNewAPIRecoveryFixtures(t *testing.T) {
 			write := func(data string) { _, err := w.WriteString("data: " + data + "\n\n"); require.NoError(t, err) }
 			dispatch()
 			switch tc.name {
+			case "chat_tool_failure":
+				write(`{"id":"chat_tool","object":"chat.completion.chunk","model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_one","type":"function","function":{"name":"lookup","arguments":"{\"q\":"}}]},"finish_reason":null}]}`)
+				require.True(t, w.PublicToolOutputStarted())
+				require.NoError(t, w.FailAttempt("upstream_error", "rate_limit_exceeded", "rate limited"))
+			case "responses_tool_failure":
+				write(`{"type":"response.created","response":{"id":"resp_tool","status":"in_progress","model":"gpt-test","output":[]}}`)
+				write(`{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_upstream","type":"function_call","call_id":"call_one","name":"lookup","arguments":"","status":"in_progress"}}`)
+				write(`{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_upstream","delta":"{\"q\":"}`)
+				require.True(t, w.PublicToolOutputStarted())
+				require.NoError(t, w.FailAttempt("upstream_error", "rate_limit_exceeded", "rate limited"))
 			case "responses_auto_dispatch", "responses_abandoned_failure", "responses_reasoning_recovery":
 				write(`{"type":"response.created","response":{"id":"resp_old","status":"in_progress","model":"gpt-test","output":[]}}`)
 				write(`{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_old","type":"message","role":"assistant","status":"in_progress","content":[]}}`)

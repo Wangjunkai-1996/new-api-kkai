@@ -7,9 +7,9 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 )
 
-// Sub2 owns a 900-second logical budget. The extra 30 seconds only allow its
-// final result to cross the gateway; they never grant another model attempt.
-const ManagedRecoveryRequestTimeout = 930 * time.Second
+// A slow first response is distinct from a long, healthy stream. The scanner
+// also uses this as a per-frame idle bound, never a whole-request deadline.
+const ManagedRecoveryResponseHeaderTimeout = 930 * time.Second
 
 func (info *RelayInfo) ManagedRecoveryEnabled() bool {
 	return info != nil && !info.IsChannelTest && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeSub2API && info.ChannelSetting.ManagedRecoveryV1 &&

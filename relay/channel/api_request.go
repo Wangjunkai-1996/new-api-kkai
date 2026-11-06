@@ -23,7 +23,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -64,6 +63,7 @@ const (
 	defaultUpstreamPolicyDrainTimeout = 5 * time.Minute
 	imageUpstreamPolicyDrainTimeout   = 20 * time.Minute
 	imageUpstreamRequestTimeout       = 40 * time.Minute
+	managedRecoveryNonStreamTimeout   = 930 * time.Second
 )
 
 type upstreamPolicyResponseBody struct {
@@ -111,16 +111,14 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 		return ctx, cancel
 	}
 	if info.ManagedRecoveryEnabled() {
-		if info.ManagedRecoveryDeadline.IsZero() {
+		if !info.IsStream {
 			startedAt := info.StartTime
 			if startedAt.IsZero() {
 				startedAt = time.Now()
 			}
-			info.ManagedRecoveryDeadline = startedAt.Add(common.ManagedRecoveryRequestTimeout)
+			return context.WithDeadline(parent, startedAt.Add(managedRecoveryNonStreamTimeout))
 		}
-		ctx, cancel := context.WithDeadline(parent, info.ManagedRecoveryDeadline)
-		info.ManagedRecoveryDeadline, _ = ctx.Deadline()
-		return ctx, cancel
+		return context.WithCancel(parent)
 	}
 	if info != nil && info.DurableImageExecution {
 		return context.WithCancel(parent)
@@ -455,30 +453,53 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 }
 
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
-	if info.ManagedRecoveryEnabled() && info.RelayMode == constant.RelayModeResponses {
-		if request, ok := info.Request.(*dto.OpenAIResponsesRequest); ok {
-			for _, item := range gjson.ParseBytes(request.Input).Array() {
-				if item.Get("encrypted_content").Exists() {
-					info.ChannelSetting.ManagedRecoveryV1 = false
-					break
-				}
-			}
-		}
-	}
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
 	req, err := http.NewRequestWithContext(
-		requestCtx, c.Request.Method, fullRequestURL, requestBody,
+		c.Request.Context(), c.Request.Method, fullRequestURL, requestBody,
 	)
 	if err != nil {
-		cancelRequest()
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	ApplyUpstreamBodyMetadata(req, requestBody)
+	if info.ManagedRecoveryEnabled() {
+		if req.GetBody == nil {
+			// A non-replayable body cannot safely participate in managed retry.
+			info.ChannelSetting.ManagedRecoveryV1 = false
+		} else {
+			body, bodyErr := req.GetBody()
+			if bodyErr != nil {
+				return nil, fmt.Errorf("read recovery request body failed: %w", bodyErr)
+			}
+			payload, memoryBacked := common2.ReadOnlyBodyBytes(body)
+			var readErr error
+			if !memoryBacked {
+				payload, readErr = io.ReadAll(body)
+			}
+			_ = body.Close()
+			if readErr != nil {
+				return nil, fmt.Errorf("read recovery request body failed: %w", readErr)
+			}
+			format := gjson.GetBytes(payload, "text.format.type").String()
+			responseFormat := gjson.GetBytes(payload, "response_format.type").String()
+			if format == "json_object" || format == "json_schema" || responseFormat == "json_object" || responseFormat == "json_schema" {
+				info.ChannelSetting.ManagedRecoveryV1 = false
+			}
+			if info.RelayMode == constant.RelayModeResponses {
+				for _, item := range gjson.GetBytes(payload, "input").Array() {
+					if item.Get("encrypted_content").Exists() {
+						info.ChannelSetting.ManagedRecoveryV1 = false
+						break
+					}
+				}
+			}
+		}
+	}
+	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
+	req = req.WithContext(requestCtx)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {

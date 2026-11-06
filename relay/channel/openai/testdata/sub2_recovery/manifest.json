@@ -1,7 +1,7 @@
 {
   "producer": "Sub2 OpenAIRecoveryStreamWriter",
   "source_sha256": {
-    "internal/service/openai_recovery_stream_writer.go": "a01fe3aa05291ac9d7a9e5cd6b334d148b14f9baac3784e5ede5e340286d3c40",
+    "internal/service/openai_recovery_stream_writer.go": "9d0015da6b602db959102f173bac93c0a02081f250457646f5645cd356c8e003",
     "internal/service/openai_recovery_structured.go": "9afe2d6b58ff0b60958d9f32c2c36027047f166f4a38543b22bd80b26dce9953",
     "internal/service/openai_retry_budget.go": "1e6db86cd68b8c312d817d7c661d585f5e1c9470b67009c1d8d9f1ee405abbb2"
   },
@@ -9,6 +9,7 @@
     "chat_multi.sse": "f7e30f37bb49eb511107bdf4c743aa7966161328ea117f66b125492d79b1b25b",
     "chat_strict.sse": "09b11652dd094bf135a9879b805101e093b6472ee4fc32ba694ccd3fa9126fb9",
     "chat_strict_refusal.sse": "e80294b1f4ec231f65379b163321de0c5dcb69a697412ade362523c57abb0496",
+    "chat_tool_failure.sse": "68708493a005639cb81730b8306b6e0e1c4dbeb47d906b8d27d69b66a834b23a",
     "responses_abandoned_failure.sse": "3c593ba1a374795c9dae01c6a7711913c16c9ef2ac66c73c4fe5765a4f55c1d1",
     "responses_auto_dispatch.sse": "782a23bda52dd6094f6a083626b770df30e5f8fff6e8776480d4bb8a78de48d8",
     "responses_exhausted.sse": "bf138fad9f43f8bfa3ff23b5d73450fde36eb1e222e87c08a51b32a3ec222445",
@@ -20,6 +21,7 @@
     "responses_strict.sse": "6dd5ee52d5ccf1554afc4e5253f8bdd1f03e5055eb2d16ec4e04efbb0f0ca194",
     "responses_strict_refusal.sse": "44857c5cb3f71dae13a106b7139c3b9c8f37be61321252b0b6e69e8b35cc607f",
     "responses_strict_refusal_done_only.sse": "46d63021972a87a3f204cbbee518f11daeb0ec98b07f592e38876750439a7781",
-    "responses_terminal_only.sse": "cfdbc340d6efd016a850c15ffb281f7d43e5d7c0cc7df2142bf95854649e5edc"
+    "responses_terminal_only.sse": "cfdbc340d6efd016a850c15ffb281f7d43e5d7c0cc7df2142bf95854649e5edc",
+    "responses_tool_failure.sse": "991329834bfc298fca95b8b34225da0aa8a98b45af2063cb2c02cb2faaeb7f3d"
   }
 }

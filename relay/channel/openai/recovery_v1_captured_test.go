@@ -241,3 +241,38 @@ func TestManagedRecoveryCapturedSub2Chat(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedRecoveryCapturedSub2ToolFailures(t *testing.T) {
+	previousTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = previousTimeout })
+	for _, tc := range []struct {
+		name, toolEvent string
+		mode            int
+		format          types.RelayFormat
+		handler         func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
+	}{
+		{"responses_tool_failure", "response.output_item.added", relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses, OaiResponsesStreamHandler},
+		{"responses_tool_failure_to_chat", "tool_calls", relayconstant.RelayModeResponses, types.RelayFormatOpenAI, OaiResponsesToChatStreamHandler},
+		{"chat_tool_failure", "tool_calls", relayconstant.RelayModeChatCompletions, types.RelayFormatOpenAI, OaiStreamHandler},
+		{"chat_tool_failure_to_responses", "response.output_item.added", relayconstant.RelayModeChatCompletions, types.RelayFormatOpenAIResponses, OaiChatToResponsesStreamHandler},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := strings.TrimSuffix(strings.TrimSuffix(tc.name, "_to_chat"), "_to_responses")
+			data, err := os.ReadFile(filepath.Join("testdata", "sub2_recovery", fixture+".sse"))
+			require.NoError(t, err)
+			c, recorder, resp, info := newResponsesChatTestContext(t, string(data), true)
+			c.Set("kkai_managed_recovery_v1", true)
+			info.RelayMode = tc.mode
+			info.RelayFormat = tc.format
+			_, apiErr := tc.handler(c, info, resp)
+			require.NotNil(t, apiErr)
+			body := recorder.Body.String()
+			assert.Contains(t, body, tc.toolEvent)
+			assert.NotContains(t, body, recoveryControlType)
+			assert.NotContains(t, body, "Regenerating")
+			assert.NotContains(t, body, "response.completed")
+			assert.NotContains(t, body, "data: [DONE]")
+		})
+	}
+}

@@ -99,8 +99,6 @@ type RelayInfo struct {
 	TokenUnlimited     bool
 	StartTime          time.Time
 	UpstreamHeaderTime time.Time
-	// Fixed across stream reads; recovery keepalives must not extend this bound.
-	ManagedRecoveryDeadline time.Time
 	// Zero means no timing comment; otherwise stores milliseconds plus one.
 	sub2TTFTMs        uint64
 	FirstResponseTime time.Time

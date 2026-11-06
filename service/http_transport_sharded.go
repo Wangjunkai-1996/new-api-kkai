@@ -121,7 +121,7 @@ func applyHTTPTransportPolicy(transport *http.Transport, policy HTTPTransportPol
 		return
 	}
 	if policy.ManagedRecoveryV1 {
-		transport.ResponseHeaderTimeout = relaycommon.ManagedRecoveryRequestTimeout
+		transport.ResponseHeaderTimeout = relaycommon.ManagedRecoveryResponseHeaderTimeout
 	}
 	if policy.Protocol == dto.HTTPProtocolHTTP1 {
 		applyHTTP1Force(transport)

@@ -100,15 +100,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
 	managedRecovery := c.GetBool("kkai_managed_recovery_v1")
 	if managedRecovery {
-		deadline := info.ManagedRecoveryDeadline
-		if deadline.IsZero() {
-			startedAt := info.StartTime
-			if startedAt.IsZero() {
-				startedAt = time.Now()
-			}
-			deadline = startedAt.Add(relaycommon.ManagedRecoveryRequestTimeout)
-		}
-		streamingTimeout = time.Until(deadline)
+		streamingTimeout = max(streamingTimeout, relaycommon.ManagedRecoveryResponseHeaderTimeout)
 	}
 
 	var (
@@ -286,9 +278,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			default:
 			}
 
-			if !managedRecovery {
-				timeoutTimer.Reset(streamingTimeout)
-			}
+			timeoutTimer.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
 			trimmedData := strings.TrimSpace(data)
