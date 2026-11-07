@@ -95,7 +95,7 @@ NewAPI 受管恢复诊断字段由现有 `service/log_info_generate` 管理员�
 | --- | --- | --- | --- |
 | 普通文本、无 `encrypted_content` | 沿用现有受管文本资格 | 现有同账号重试后再切账号；预算和工具边界不变 | 正常首字实时到达；可恢复错误按既有重试语义处理 |
 | 含 `encrypted_content` 的 Responses 请求 | 进入内部 `opaque_input` 模式；不因密文整请求退出 | 初次派发外最多 2 次额外重试；只允许原账号、原 egress/binding、原 endpoint/transport 和原协议模式；不满足硬约束时不发送 | 原始请求上下文保持不变；恢复成功才返回后续结果，失败保留上游错误 |
-| 含密文且带 `previous_response_id` | 继续进入 opaque 模式 | ID 绑定的 account、egress、endpoint 必须全部匹配；不删 ID、不做纯文本重建 | 没有完整可移植快照时，保留本轮正常请求路径，不把正常生成改成失败；需要恢复时停止并记录原因 |
+| 含密文且带 `previous_response_id` | 继续进入 opaque 模式 | ID 绑定的 account、egress、endpoint 必须全部匹配；不删 ID、不做纯文本重建 | 缺少可移植快照不阻断正常请求，也不阻断原账号、原出口和原协议路线的原字节重试；首次派发外最多重试 2 次，禁止跨账号恢复或重建历史 |
 | 显式 `json_object`/`json_schema`、不可重放请求体或既有不支持形态 | 走原有非受管路径 | 不安装受管 writer；保留原有提交前安全重试 | 不新增 422，不拼接半截 JSON |
 | 上游 `invalid_encrypted_content` | 受管尝试终止 | 记录 `invalid_encrypted_content`/`opaque_context_rejected`；不删除密文伪装成功 | 返回原始错误语义 |
 | 实际工具事件已公开 | 沿用工具输出护栏 | 不再重试或切账号 | 保持一个失败终态，不重复工具调用 |
@@ -145,7 +145,7 @@ NewAPI 受管恢复诊断字段由现有 `service/log_info_generate` 管理员�
 ### 2026-11-07 本地实现记录
 
 - NewAPI 按最终出站 body 允许密文 Responses 进入受管恢复，记录 `encrypted_input_opaque`；显式 JSON 继续排除，内部诊断消费后删除。已协商的失败终态由 Sub2 收口，避免 NewAPI 再次重试同一逻辑请求。查询脚本同步计入 opaque 受管请求。
-- Sub2 保留原始 `input` 和 `previous_response_id`，固定重放首个实际派发 body；不重建密文历史、不持久化密文 snapshot。首个实际派发后锁定账号、当前或 legacy egress/binding、代理、URL/method 及协议模式，初次派发外最多两次重试。派发前的本地失败保留原有安全选路；派发后不可退回普通账号池。
+- Sub2 保留原始 `input` 和 `previous_response_id`，固定重放首个实际派发 body；不重建密文历史、不持久化密文 snapshot。首个实际派发后锁定账号、当前或 legacy egress/binding、代理、URL/method 及协议模式，初次派发外最多两次重试；缺少可移植 snapshot 不阻断此类原字节重试。派发前的本地失败保留原有安全选路；派发后不可退回普通账号池。
 - 每个受管响应别名额外保存实际路由的摘要指纹，不保存密文或代理凭据；后续 opaque 续聊在派发前校验该指纹，端点或代理变化不产生新派发。旧别名缺少指纹时不虚构历史路由证据。
 - 明确 HTTP/plugin `RequestNotSent` 的首轮失败保留原安全换号，退还物理派发预算，不记作重试或切号；已经实际发送后的路线不会因后续未发送失败解锁。未知发送状态按可能已发送处理。实际发送最多 3 次，内部 attempt 序号独立限制为 11，保持协议 v1 控制帧边界。
 - HTTP 错误与 HTTP 200 SSE 的 `response.failed`/`error` 均识别密文拒绝，保留错误语义并停止；native、passthrough、流式与非流式路径都有定向覆盖。工具事件公开后仍停止恢复。
