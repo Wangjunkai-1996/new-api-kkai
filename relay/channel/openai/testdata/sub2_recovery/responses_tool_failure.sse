@@ -9,7 +9,7 @@ data: {"item":{"arguments":"","call_id":"call_one","id":"logical_capture_respons
 event: response.function_call_arguments.delta
 data: {"delta":"{\"q\":","item_id":"logical_capture_responses_tool_failure_item_1_0","output_index":0,"sequence_number":2,"type":"response.function_call_arguments.delta"}
 
-data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_tool_failure","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null}
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_tool_failure","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0,"stop_reason":"upstream_error"}
 
 event: response.failed
 data: {"response":{"error":{"code":"rate_limit_exceeded","message":"rate limited","type":"upstream_error"},"id":"logical_capture_responses_tool_failure","object":"response","output":[{"arguments":"","call_id":"call_one","id":"logical_capture_responses_tool_failure_item_1_0","name":"lookup","status":"in_progress","type":"function_call"}],"status":"failed"},"sequence_number":3,"type":"response.failed"}

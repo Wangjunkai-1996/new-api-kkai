@@ -14,7 +14,7 @@ data: {"type":"kkai.recovery.v1","kind":"attempt_begin","logical_id":"logical_ca
 
 data: {"choices":[{"delta":{"content":"winner zero"},"finish_reason":null,"index":0},{"delta":{"content":"winner one"},"finish_reason":null,"index":1}],"id":"logical_capture_chat_multi","model":"gpt-test","object":"chat.completion.chunk"}
 
-data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_chat_multi","seq":6,"attempt":2,"outcome":"completed","usage_format":"chat","usage_reported":true,"usage":{"completion_tokens":6,"prompt_tokens":4,"total_tokens":10}}
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_chat_multi","seq":6,"attempt":2,"outcome":"completed","usage_format":"chat","usage_reported":true,"usage":{"completion_tokens":6,"prompt_tokens":4,"total_tokens":10},"same_account_retries":1,"account_switches":0}
 
 data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"id":"logical_capture_chat_multi"}
 

@@ -88,9 +88,9 @@ type managedRecoveryDiagnostics struct {
 
 const managedRecoveryDiagnosticsHeader = "X-KKAI-Recovery-Diagnostics"
 
-func recordManagedRecoveryDiagnostics(c *gin.Context, header string) {
+func recordManagedRecoveryDiagnostics(c *gin.Context, header string) bool {
 	if c == nil || header == "" || len(header) > 512 {
-		return
+		return false
 	}
 	var diagnostics managedRecoveryDiagnostics
 	if common2.Unmarshal([]byte(header), &diagnostics) != nil ||
@@ -98,10 +98,10 @@ func recordManagedRecoveryDiagnostics(c *gin.Context, header string) {
 		*diagnostics.SameAccountRetries < 0 || *diagnostics.AccountSwitches < 0 ||
 		*diagnostics.SameAccountRetries > 10 || *diagnostics.AccountSwitches > 10 ||
 		*diagnostics.SameAccountRetries+*diagnostics.AccountSwitches > 10 {
-		return
+		return false
 	}
 	if diagnostics.Outcome != "completed" && diagnostics.Outcome != "incomplete" && diagnostics.Outcome != "failed" {
-		return
+		return false
 	}
 	value := map[string]any{
 		"same_account_retries": *diagnostics.SameAccountRetries,
@@ -111,11 +111,12 @@ func recordManagedRecoveryDiagnostics(c *gin.Context, header string) {
 	}
 	if diagnostics.Outcome == "failed" && diagnostics.StopReason != "" {
 		switch diagnostics.StopReason {
-		case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error":
+		case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error", "route_unavailable", "opaque_context_rejected", "invalid_encrypted_content":
 			value["stop_reason"] = diagnostics.StopReason
 		}
 	}
 	c.Set("kkai_recovery_v1_diagnostics", value)
+	return true
 }
 
 func (l *upstreamPolicyRequestLifecycle) markUpstreamCommitted() {
@@ -504,6 +505,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	ApplyUpstreamBodyMetadata(req, requestBody)
+	opaqueInput := false
 	if info.ManagedRecoveryEnabled() {
 		if req.GetBody == nil {
 			// A non-replayable body cannot safely participate in managed retry.
@@ -532,8 +534,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 			if info.ManagedRecoveryEnabled() && info.RelayMode == constant.RelayModeResponses {
 				for _, item := range gjson.GetBytes(payload, "input").Array() {
 					if item.Get("encrypted_content").Exists() {
-						info.ChannelSetting.ManagedRecoveryV1 = false
-						c.Set("kkai_managed_recovery_entry", "excluded_encrypted_input")
+						opaqueInput = true
 						break
 					}
 				}
@@ -607,7 +608,11 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return bindUpstreamPolicyResponseBody(resp, cancelFallback), nil
 	}
 	if managedRecovery && resp.Header.Get("X-KKAI-Recovery-Protocol") == "1" {
-		recordManagedRecoveryDiagnostics(c, recoveryDiagnostics)
+		if recordManagedRecoveryDiagnostics(c, recoveryDiagnostics) {
+			// A terminal diagnostic also transfers recovery ownership for errors
+			// returned before stream headers; do not grant another outer budget.
+			c.Set("kkai_managed_recovery_v1", true)
+		}
 	}
 	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 && resp.Header.Get("X-KKAI-Recovery-Protocol") != "1" {
 		c.Set("kkai_managed_recovery_entry", "protocol_header_missing")
@@ -620,6 +625,9 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		c.Set("kkai_managed_recovery_v1", true)
 		c.Set("kkai_managed_recovery_entry", "handshake_succeeded")
+		if opaqueInput {
+			c.Set("kkai_managed_recovery_entry", "encrypted_input_opaque")
+		}
 	} else if managedRecovery {
 		c.Set("kkai_managed_recovery_entry", "upstream_non_2xx")
 	}

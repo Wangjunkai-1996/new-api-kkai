@@ -1,27 +1,27 @@
 {
   "producer": "Sub2 OpenAIRecoveryStreamWriter",
   "source_sha256": {
-    "internal/service/openai_recovery_stream_writer.go": "9d0015da6b602db959102f173bac93c0a02081f250457646f5645cd356c8e003",
+    "internal/service/openai_recovery_stream_writer.go": "245f9d1de878f6752064a3504f49d4628a87c5ca5899d0042e6298825d395b4e",
     "internal/service/openai_recovery_structured.go": "9afe2d6b58ff0b60958d9f32c2c36027047f166f4a38543b22bd80b26dce9953",
-    "internal/service/openai_retry_budget.go": "1e6db86cd68b8c312d817d7c661d585f5e1c9470b67009c1d8d9f1ee405abbb2"
+    "internal/service/openai_retry_budget.go": "62f6ce46191d297fa02f0131742972e8be539cf40a78c9a46794c91c5c20e00f"
   },
   "fixture_sha256": {
-    "chat_multi.sse": "f7e30f37bb49eb511107bdf4c743aa7966161328ea117f66b125492d79b1b25b",
-    "chat_strict.sse": "09b11652dd094bf135a9879b805101e093b6472ee4fc32ba694ccd3fa9126fb9",
-    "chat_strict_refusal.sse": "e80294b1f4ec231f65379b163321de0c5dcb69a697412ade362523c57abb0496",
-    "chat_tool_failure.sse": "68708493a005639cb81730b8306b6e0e1c4dbeb47d906b8d27d69b66a834b23a",
-    "responses_abandoned_failure.sse": "3c593ba1a374795c9dae01c6a7711913c16c9ef2ac66c73c4fe5765a4f55c1d1",
-    "responses_auto_dispatch.sse": "782a23bda52dd6094f6a083626b770df30e5f8fff6e8776480d4bb8a78de48d8",
-    "responses_exhausted.sse": "bf138fad9f43f8bfa3ff23b5d73450fde36eb1e222e87c08a51b32a3ec222445",
-    "responses_multi_part_recovery.sse": "ff34c28c666416fa81823bfcbad908392494d13bc347bb876e25e2fc9dfef99b",
-    "responses_reasoning_recovery.sse": "7475d62492832f73c8e410eef3e4d2efae8c318ebf6b1c91bf736ba37d0eff51",
-    "responses_refusal_item_snapshot.sse": "5fe96f5adc7f1b89d7554cf889e495547becc1e3040b7364e97cc687ec2b2cba",
-    "responses_refusal_partial_done.sse": "ff9473efdf59d47921c7c34b83077ab94337cffd03db9246b320381c227b5f29",
-    "responses_refusal_recovery.sse": "400d956664d02a337f64c08601a1fd5600f763e09173a65f0d3e6c91c077df22",
-    "responses_strict.sse": "6dd5ee52d5ccf1554afc4e5253f8bdd1f03e5055eb2d16ec4e04efbb0f0ca194",
-    "responses_strict_refusal.sse": "44857c5cb3f71dae13a106b7139c3b9c8f37be61321252b0b6e69e8b35cc607f",
-    "responses_strict_refusal_done_only.sse": "46d63021972a87a3f204cbbee518f11daeb0ec98b07f592e38876750439a7781",
-    "responses_terminal_only.sse": "cfdbc340d6efd016a850c15ffb281f7d43e5d7c0cc7df2142bf95854649e5edc",
-    "responses_tool_failure.sse": "991329834bfc298fca95b8b34225da0aa8a98b45af2063cb2c02cb2faaeb7f3d"
+    "chat_multi.sse": "b06271fe85a23e54c49f4e9073eb57465930ce82082dd8f7925739f2d28c2f9a",
+    "chat_strict.sse": "4054f5276582aedeb8fc79230cc768b71a3012c0d21a7a78736545d8537581f0",
+    "chat_strict_refusal.sse": "434c53a0cbe6206d7b8bc1c1a47dd7e2f177997cf5ae82c16b4d9fe06b890149",
+    "chat_tool_failure.sse": "12ac2e7b4c5f60a9deec78bb2c4ca5ce3a015f8b225fce9293d7767bf8449d9a",
+    "responses_abandoned_failure.sse": "7fa135fc4859cb9e2a91b233cebcaf5312704c18174e4a67750825867b912233",
+    "responses_auto_dispatch.sse": "771677ad02b80ca032a81325bb3ae9f01f8ebaccd0e5aaf51828ff70ff4935be",
+    "responses_exhausted.sse": "7ae8eabe177cfadb748f8df47d0196afe024a296f92b448eec771ba7749e6106",
+    "responses_multi_part_recovery.sse": "9502c9bba0a46f7fba48919b2931939e3fb9ea6e92abfb6415aad3f197ff31ba",
+    "responses_reasoning_recovery.sse": "c7837253a4ed5e9886d6394c8b63fea70dfe40d2bf0697f4de990928993d1514",
+    "responses_refusal_item_snapshot.sse": "a806e2aa73e0bf222c439932e8fc05a4fe8b3f524a34885c984290845d3a196d",
+    "responses_refusal_partial_done.sse": "0d9e799601f18e8e5e1d13af00e65803c7d2d88b71e040f4ac16c62d50ee466d",
+    "responses_refusal_recovery.sse": "bddd3f1a066bc87aac71b1873386ad2b63d34dc6eaa15d5071aeea97d73dde8c",
+    "responses_strict.sse": "31903e643128127b542d0d8dfe8bfd8d22e04f5456992aba0b49d001fd581e5e",
+    "responses_strict_refusal.sse": "e75035edc3950de14d669b17d16109528ea8acd5e092ffb6b03ac12e2aa3268d",
+    "responses_strict_refusal_done_only.sse": "951b2252673b5ce93f460bb0772f71c7646ee4ce670e36b154cbddc6f2c17b39",
+    "responses_terminal_only.sse": "9997b4c0ad2c945a16e76eb33cdcb670829080d59bfd46b85abee734b1eca726",
+    "responses_tool_failure.sse": "1025323db3df744288b85029b002ccff78e0bed7bd9f46e80294a1f34fd98d25"
   }
 }

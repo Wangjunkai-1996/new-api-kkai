@@ -26,6 +26,19 @@ import (
 )
 
 func TestManagedRecoveryCapturedSub2StreamsOverLocalHTTPBeforeTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload string
+	}{
+		{"text", `{"model":"gpt-test","stream":true,"input":"test"}`},
+		{"opaque", `{"model":"gpt-test","stream":true,"input":[{"type":"reasoning","encrypted_content":"gAAAA+opaque/=="},{"role":"user","content":"test"}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testManagedRecoveryCapturedSub2HTTP(t, tc.payload) })
+	}
+}
+
+func testManagedRecoveryCapturedSub2HTTP(t *testing.T, payload string) {
+	t.Helper()
 	service.InitHttpClient()
 	data, err := os.ReadFile(filepath.Join("testdata", "sub2_recovery", "responses_auto_dispatch.sse"))
 	require.NoError(t, err)
@@ -40,7 +53,14 @@ func TestManagedRecoveryCapturedSub2StreamsOverLocalHTTPBeforeTerminal(t *testin
 	release := func() { releaseOnce.Do(func() { close(releaseTerminal) }) }
 	defer release()
 	upstreamHeaders := make(chan http.Header, 1)
+	upstreamBody := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		upstreamBody <- string(body)
 		upstreamHeaders <- r.Header.Clone()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("X-KKAI-Recovery-Protocol", "1")
@@ -78,7 +98,7 @@ func TestManagedRecoveryCapturedSub2StreamsOverLocalHTTPBeforeTerminal(t *testin
 				ChannelBaseUrl: upstream.URL, ApiKey: "local-test-key", UpstreamModelName: "gpt-test",
 				ChannelSetting: dto.ChannelSettings{ManagedRecoveryV1: true}},
 		}
-		resp, err := channel.DoApiRequest(&Adaptor{}, c, info, strings.NewReader(`{"model":"gpt-test","stream":true,"input":"test"}`))
+		resp, err := channel.DoApiRequest(&Adaptor{}, c, info, strings.NewReader(payload))
 		if err != nil {
 			finished <- outcome{err: types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway)}
 			return
@@ -90,7 +110,7 @@ func TestManagedRecoveryCapturedSub2StreamsOverLocalHTTPBeforeTerminal(t *testin
 	t.Cleanup(downstream.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, downstream.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-test","stream":true,"input":"test"}`))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, downstream.URL+"/v1/responses", strings.NewReader(payload))
 	require.NoError(t, err)
 	resp, err := downstream.Client().Do(req)
 	require.NoError(t, err)
@@ -107,6 +127,7 @@ func TestManagedRecoveryCapturedSub2StreamsOverLocalHTTPBeforeTerminal(t *testin
 	assert.NotContains(t, first.String(), "Regenerating")
 	assert.NotContains(t, first.String(), "winner text")
 	assert.Equal(t, "1", (<-upstreamHeaders).Get("X-KKAI-Recovery-Protocol"))
+	assert.Equal(t, payload, <-upstreamBody)
 	release()
 	tail, err := io.ReadAll(reader)
 	require.NoError(t, err)

@@ -191,7 +191,7 @@ func (s *recoveryV1State) consume(frame recoveryControlFrame) error {
 		var stopReason string
 		if frame.Outcome == "failed" && common.Unmarshal(frame.StopReason, &stopReason) == nil {
 			switch stopReason {
-			case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error":
+			case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error", "route_unavailable", "opaque_context_rejected", "invalid_encrypted_content":
 				s.stopReason = stopReason
 			}
 		}

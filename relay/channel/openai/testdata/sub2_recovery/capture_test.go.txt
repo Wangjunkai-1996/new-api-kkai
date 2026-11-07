@@ -48,6 +48,7 @@ func TestCaptureNewAPIRecoveryFixtures(t *testing.T) {
 			ctx := WithOpenAIManagedRecovery(context.Background())
 			ctx = WithOpenAIModelDispatchBudget(ctx)
 			ctx = WithOpenAIModelDispatchObserver(ctx, w.BeginAttempt)
+			ctx = WithOpenAIModelDispatchStartedObserver(ctx, w.RecordDispatch)
 			dispatch := func() { require.NoError(t, takeOpenAIModelDispatch(ctx, 1)) }
 			write := func(data string) { _, err := w.WriteString("data: " + data + "\n\n"); require.NoError(t, err) }
 			dispatch()

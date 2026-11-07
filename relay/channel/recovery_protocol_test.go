@@ -172,29 +172,56 @@ func TestManagedRecoveryDiagnosticsHeaderIsCapturedAndStripped(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestManagedRecoveryDiagnosticsPreserveOpaqueStopReasons(t *testing.T) {
+	for _, reason := range []string{"route_unavailable", "opaque_context_rejected", "invalid_encrypted_content", "untrusted upstream detail"} {
+		t.Run(reason, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			recordManagedRecoveryDiagnostics(c, `{"same_account_retries":1,"account_switches":0,"outcome":"failed","stop_reason":"`+reason+`"}`)
+			diagnostics, ok := c.Get("kkai_recovery_v1_diagnostics")
+			require.True(t, ok)
+			values, ok := diagnostics.(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, false, values["recovered"])
+			assert.Equal(t, 1, values["same_account_retries"])
+			assert.Equal(t, 0, values["account_switches"])
+			if reason == "untrusted upstream detail" {
+				assert.NotContains(t, values, "stop_reason")
+			} else {
+				assert.Equal(t, reason, values["stop_reason"])
+			}
+		})
+	}
+}
+
 func TestManagedRecoveryProtocolRequiresSignedChannelAndResponseEcho(t *testing.T) {
 	service.InitHttpClient()
 	previousSigner := internalAttributionSigner
 	t.Cleanup(func() { internalAttributionSigner = previousSigner })
 	for _, tc := range []struct {
-		name      string
-		signed    bool
-		echo      string
-		status    int
-		wantErr   bool
-		wantEntry string
+		name        string
+		signed      bool
+		echo        string
+		diagnostics string
+		status      int
+		wantErr     bool
+		wantOwner   bool
+		wantEntry   string
 	}{
-		{"negotiated", true, "1", http.StatusOK, false, "handshake_succeeded"},
-		{"missing_echo", true, "", http.StatusOK, true, "protocol_header_missing"},
-		{"unsupported_echo", true, "2", http.StatusOK, true, "protocol_header_missing"},
-		{"upstream_429", true, "", http.StatusTooManyRequests, false, "upstream_non_2xx"},
-		{"missing_signature", false, "1", http.StatusOK, true, ""},
+		{"negotiated", true, "1", "", http.StatusOK, false, true, "handshake_succeeded"},
+		{"missing_echo", true, "", "", http.StatusOK, true, false, "protocol_header_missing"},
+		{"unsupported_echo", true, "2", "", http.StatusOK, true, false, "protocol_header_missing"},
+		{"upstream_429", true, "", "", http.StatusTooManyRequests, false, false, "upstream_non_2xx"},
+		{"managed_429", true, "1", `{"same_account_retries":2,"account_switches":0,"outcome":"failed","stop_reason":"route_unavailable"}`, http.StatusTooManyRequests, false, true, "upstream_non_2xx"},
+		{"invalid_diagnostics", true, "1", `{"same_account_retries":99,"account_switches":0,"outcome":"failed"}`, http.StatusTooManyRequests, false, false, "upstream_non_2xx"},
+		{"unnegotiated_diagnostics", true, "", `{"same_account_retries":2,"account_switches":0,"outcome":"failed"}`, http.StatusTooManyRequests, false, false, "upstream_non_2xx"},
+		{"missing_signature", false, "1", "", http.StatusOK, true, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seenProtocol := make(chan string, 1)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				seenProtocol <- r.Header.Get("X-KKAI-Recovery-Protocol")
 				w.Header().Set("X-KKAI-Recovery-Protocol", tc.echo)
+				w.Header().Set(managedRecoveryDiagnosticsHeader, tc.diagnostics)
 				w.WriteHeader(tc.status)
 			}))
 			defer upstream.Close()
@@ -221,7 +248,8 @@ func TestManagedRecoveryProtocolRequiresSignedChannelAndResponseEcho(t *testing.
 				require.NoError(t, err)
 				require.NotNil(t, resp)
 				assert.Empty(t, resp.Header.Get("X-KKAI-Recovery-Protocol"))
-				assert.Equal(t, tc.status == http.StatusOK, c.GetBool("kkai_managed_recovery_v1"))
+				assert.Empty(t, resp.Header.Get(managedRecoveryDiagnosticsHeader))
+				assert.Equal(t, tc.wantOwner, c.GetBool("kkai_managed_recovery_v1"))
 				_ = resp.Body.Close()
 			}
 			if tc.signed {
@@ -381,8 +409,15 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 	t.Cleanup(func() { internalAttributionSigner = previousSigner })
 	requests := 0
 	protocol := ""
+	var forwarded []byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		var err error
+		forwarded, err = io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		protocol = r.Header.Get("X-KKAI-Recovery-Protocol")
 		if protocol == "1" {
 			w.Header().Set("X-KKAI-Recovery-Protocol", "1")
@@ -400,7 +435,9 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 		want      string
 		wantEntry string
 	}{
-		{"encrypted outbound", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, "", "excluded_encrypted_input"},
+		{"encrypted outbound", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, "1", "encrypted_input_opaque"},
+		{"encrypted continuation", `{"previous_response_id":"resp_owner","input":[{"type":"reasoning","encrypted_content":"gAAAA+opaque/==\u003d"}],"stream":true}`, "1", "encrypted_input_opaque"},
+		{"encrypted structured output", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}],"text":{"format":{"type":"json_schema"}}}`, "", "excluded_json_output"},
 		{"plaintext outbound", `{"input":"hello"}`, "1", "handshake_succeeded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -416,9 +453,11 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			require.NoError(t, resp.Body.Close())
 			assert.Equal(t, tc.want, protocol)
+			assert.Equal(t, tc.body, string(forwarded))
 			assert.Equal(t, tc.want == "1", info.ManagedRecoveryEnabled())
+			assert.Equal(t, tc.want == "1", c.GetBool("kkai_managed_recovery_v1"))
 			assert.Equal(t, tc.wantEntry, c.GetString("kkai_managed_recovery_entry"))
 		})
 	}
-	assert.Equal(t, 2, requests)
+	assert.Equal(t, 4, requests)
 }

@@ -2,7 +2,7 @@
 
 无需统计接口或页面。数据保存在现有 NewAPI `logs.other.admin_info`：
 
-- `managed_recovery_entry`：已握手 `handshake_succeeded`、JSON/加密输入/不可重放体排除、Sub2 能力降级，以及握手前传输/HTTP/协议错误。
+- `managed_recovery_entry`：普通请求已握手 `handshake_succeeded`、密文请求已握手 `encrypted_input_opaque`、JSON/不可重放体排除、Sub2 能力降级，以及握手前传输/HTTP/协议错误。旧版本的 `excluded_encrypted_input` 仍可查询。
 - `managed_recovery`：逻辑终态、`same_account_retries`、`account_switches`、`stop_reason` 和 `protocol_error`。历史日志没有这些计数时只能标为未知，不能当作零次重试。
 
 生产查询前按 NewAPI 发布入口确认当前 checkout，并从同级基础设施 checkout 执行一次 `make newapi-status`。随后从本仓库执行下面的只读 PostgreSQL 查询；替换 UTC 时间、渠道和分组，窗口最多六小时：
@@ -28,6 +28,10 @@ ssh -o BatchMode=yes -o ConnectTimeout=8 sys1 \
 | `recovered` | 经重试或切号后，最新日志确实是消费日志（type=2）、终态为 `completed` 且 `protocol_error` 不是 `true` 的请求数；不把普通成功、错误日志或协议出错后的完成算成救回 |
 | `failed` / `tool_stop` | 受管失败数 / 因已输出工具事件而停止恢复的失败数 |
 | `entry_reasons` / `stop_reasons` | 请求进入或排除原因 / 受管失败终止原因的去重计数 |
+
+密文恢复的停止原因包括：`route_unavailable`（原路线不再可用）、
+`opaque_context_rejected`（上下文不支持安全恢复）及 `invalid_encrypted_content`（上游拒绝密文）。
+`encrypted_input_opaque` 已握手但缺少终态计数的请求仍计入 `counter_unknown`。
 
 `counter_unknown > 0` 表示这些请求的救回效果不能精确统计。没有受管诊断也不等于未重试：非受管路径仍可能使用 Sub2 既有重试；必要时用 NewAPI `upstream_request_id` 与 Sub2 请求 ID 的 SHA-256 关联，并只输出聚合。Sub2 ops 中的最终 `upstream_status_code` 可能是合成值，不能当作提供商原始 HTTP 状态。
 

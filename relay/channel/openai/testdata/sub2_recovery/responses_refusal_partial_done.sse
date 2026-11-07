@@ -36,7 +36,7 @@ data: {"content_index":1,"item_id":"logical_capture_responses_refusal_partial_do
 event: response.output_item.done
 data: {"item":{"content":[{"refusal":"cannot comply","type":"refusal"},{"refusal":" with that request","type":"refusal"}],"id":"logical_capture_responses_refusal_partial_done_item_1_0","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":11,"type":"response.output_item.done"}
 
-data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_refusal_partial_done","seq":2,"attempt":1,"outcome":"completed","usage_format":"responses","usage_reported":false,"usage":null}
+data: {"type":"kkai.recovery.v1","kind":"terminal","logical_id":"logical_capture_responses_refusal_partial_done","seq":2,"attempt":1,"outcome":"completed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0}
 
 event: response.completed
 data: {"response":{"id":"logical_capture_responses_refusal_partial_done","model":"gpt-test","output":[{"content":[{"refusal":"cannot comply","type":"refusal"},{"refusal":" with that request","type":"refusal"}],"id":"logical_capture_responses_refusal_partial_done_item_1_0","role":"assistant","status":"completed","type":"message"}],"status":"completed"},"sequence_number":12,"type":"response.completed"}

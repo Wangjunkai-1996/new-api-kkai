@@ -433,6 +433,9 @@ func TestRecoveryV1TerminalRecordsPhysicalRecoveryOutcome(t *testing.T) {
 	}{
 		{"rescued before first control frame", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"completed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":1,"account_switches":0}`, true, ""},
 		{"tool output prevents retry", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0,"stop_reason":"tool_output_started"}`, false, "tool_output_started"},
+		{"opaque route unavailable", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0,"stop_reason":"route_unavailable"}`, false, "route_unavailable"},
+		{"opaque context rejected", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0,"stop_reason":"opaque_context_rejected"}`, false, "opaque_context_rejected"},
+		{"invalid encrypted context", `{"type":"kkai.recovery.v1","kind":"terminal","logical_id":"lr_metrics","seq":2,"attempt":1,"outcome":"failed","usage_format":"responses","usage_reported":false,"usage":null,"same_account_retries":0,"account_switches":0,"stop_reason":"invalid_encrypted_content"}`, false, "invalid_encrypted_content"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, _, _, info := newResponsesChatTestContext(t, "", true)

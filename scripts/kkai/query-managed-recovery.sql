@@ -26,9 +26,10 @@ WITH latest AS MATERIALIZED (
   FROM latest
 ), facts AS MATERIALIZED (
   SELECT coalesce(entry <> '' OR jsonb_typeof(m) = 'object', false) AS observed,
-    coalesce(entry = 'handshake_succeeded' OR jsonb_typeof(m) = 'object', false) AS managed,
+    coalesce(entry IN ('handshake_succeeded', 'encrypted_input_opaque') OR jsonb_typeof(m) = 'object', false) AS managed,
     CASE WHEN entry IN ('handshake_succeeded', 'excluded_non_replayable_body',
-      'excluded_json_output', 'excluded_encrypted_input', 'capability_fallback',
+      'excluded_json_output', 'excluded_encrypted_input', 'encrypted_input_opaque',
+      'capability_fallback',
       'upstream_non_2xx', 'upstream_transport_error', 'protocol_header_missing') THEN entry
       WHEN coalesce(entry, '') = '' THEN 'legacy_unrecorded' ELSE 'other_or_unknown' END AS entry_reason,
     m->>'final_outcome' AS outcome,
@@ -42,7 +43,8 @@ WITH latest AS MATERIALIZED (
       THEN (m->>'account_switches')::integer END AS switches,
     CASE WHEN m->>'stop_reason' IN ('tool_output_started', 'retry_not_allowed',
       'no_viable_account', 'logical_deadline', 'delivery_reserve',
-      'retry_budget_exhausted', 'dispatch_limit', 'upstream_error') THEN m->>'stop_reason'
+      'retry_budget_exhausted', 'dispatch_limit', 'upstream_error',
+      'route_unavailable', 'opaque_context_rejected', 'invalid_encrypted_content') THEN m->>'stop_reason'
       WHEN coalesce(m->>'stop_reason', '') = '' THEN 'missing' ELSE 'other_or_unknown' END AS stop_reason
   FROM raw
 ), classified AS MATERIALIZED (
