@@ -350,12 +350,7 @@ func newHTTPClientFromPolicy(policy HTTPTransportPolicy, proxyURL *url.URL, tlsC
 	return newHTTPClientFromTransportFactory(policy, factory), nil
 }
 
-func newHTTPClientFromTransportFactory(policy HTTPTransportPolicy, factory func() *http.Transport) (client *http.Client) {
-	defer func() {
-		if policy.ManagedRecoveryV1 {
-			client.Timeout = 0
-		}
-	}()
+func newHTTPClientFromTransportFactory(policy HTTPTransportPolicy, factory func() *http.Transport) *http.Client {
 	if policy.Shards < 1 {
 		policy.Shards = 1
 	}

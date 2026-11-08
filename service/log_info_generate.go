@@ -133,12 +133,6 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 		return
 	}
 	other.SetAdmin("use_channel", ctx.GetStringSlice("use_channel"))
-	if recovery, ok := ctx.Get("kkai_recovery_v1_diagnostics"); ok && recovery != nil {
-		other.SetAdmin("managed_recovery", recovery)
-	}
-	if entry := ctx.GetString("kkai_managed_recovery_entry"); entry != "" {
-		other.SetAdmin("managed_recovery_entry", entry)
-	}
 	if relayInfo != nil {
 		if billingModel := relayInfo.GetBillingModelName(); billingModel != "" && billingModel != relayInfo.OriginModelName {
 			other.SetAdmin("billing_model", billingModel)

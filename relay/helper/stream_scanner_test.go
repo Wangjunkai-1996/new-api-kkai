@@ -543,48 +543,6 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 	assert.False(t, info.StreamStatus.IsNormalEnd())
 }
 
-func TestStreamScannerHandler_ManagedRecoveryWaitsBeyondLegacyIdleTimeout(t *testing.T) {
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 1
-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
-	reader, writer := io.Pipe()
-	t.Cleanup(func() { _ = writer.Close() })
-	c, resp, info := setupStreamTest(t, reader)
-	resp.Body = reader
-	c.Set("kkai_managed_recovery_v1", true)
-	info.StartTime = time.Now()
-	go func() {
-		timer := time.NewTimer(1100 * time.Millisecond)
-		defer timer.Stop()
-		<-timer.C
-		_, _ = io.WriteString(writer, "data: [DONE]\n\n")
-		_ = writer.Close()
-	}()
-	StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
-	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
-}
-
-func TestStreamScannerHandler_ManagedRecoveryOldStartDoesNotStopHealthyStream(t *testing.T) {
-	c, resp, info := setupStreamTest(t, strings.NewReader("data: [DONE]\n\n"))
-	c.Set("kkai_managed_recovery_v1", true)
-	info.StartTime = time.Now().Add(-relaycommon.ManagedRecoveryResponseHeaderTimeout - time.Second)
-	StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
-	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
-}
-
-func TestStreamScannerHandler_ManagedRecoveryPropagatesCancellation(t *testing.T) {
-	reader, writer := io.Pipe()
-	defer writer.Close()
-	c, resp, info := setupStreamTest(t, reader)
-	resp.Body = reader
-	c.Set("kkai_managed_recovery_v1", true)
-	parent, cancel := context.WithCancel(context.Background())
-	c.Request = c.Request.WithContext(parent)
-	cancel()
-	StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
-	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
-}
-
 func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {
 	t.Parallel()
 

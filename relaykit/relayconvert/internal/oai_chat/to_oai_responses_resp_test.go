@@ -43,7 +43,7 @@ func TestChatCompletionsResponseToResponsesPreservesTextToolCallsAndUsage(t *tes
 	assert.Equal(t, `"{\"q\":\"x\"}"`, string(resp.Output[1].Arguments))
 }
 
-func TestChatRefusalStaysSeparateFromRecoveryMarker(t *testing.T) {
+func TestChatRefusalStaysSeparateFromText(t *testing.T) {
 	refusal := "cannot comply"
 	response, _, err := ChatCompletionsResponseToResponsesResponse(&dto.OpenAITextResponse{Choices: []dto.OpenAITextResponseChoice{{
 		Message: dto.Message{Role: "assistant", Refusal: &refusal}, FinishReason: "stop",
@@ -62,13 +62,15 @@ func TestChatRefusalStaysSeparateFromRecoveryMarker(t *testing.T) {
 		Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Refusal: &refusal},
 	}}}, state)
 	require.NoError(t, err)
-	marker := "Regenerating"
-	markerEvents, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{
-		Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: &marker},
+	text := "Here is a supported alternative."
+	textEvents, err := ChatCompletionsStreamChunkToResponsesEvents(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{
+		Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: &text},
 	}}}, state)
 	require.NoError(t, err)
-	assert.Equal(t, "response.refusal.done", markerEvents[0].Type)
-	assert.Equal(t, "response.output_text.delta", markerEvents[len(markerEvents)-1].Type)
+	require.NotEmpty(t, textEvents)
+	require.NotEmpty(t, refusalEvents)
+	assert.Equal(t, "response.refusal.done", textEvents[0].Type)
+	assert.Equal(t, "response.output_text.delta", textEvents[len(textEvents)-1].Type)
 	assert.Equal(t, "response.refusal.delta", refusalEvents[len(refusalEvents)-1].Type)
 	final := FinalizeChatCompletionsStreamToResponses(state)
 	require.NotEmpty(t, final)

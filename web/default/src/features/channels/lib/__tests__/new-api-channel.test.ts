@@ -106,7 +106,7 @@ describe('New API channel', () => {
   })
 })
 
-test('Sub2API managed recovery remains enabled after an ordinary channel edit', () => {
+test('Sub2API channel edits discard the retired recovery setting', () => {
   const channel = channelSchema.parse({
     id: 67,
     name: 'Sub2API gateway',
@@ -120,7 +120,11 @@ test('Sub2API managed recovery remains enabled after an ordinary channel edit', 
     models: 'gpt-5',
     group: 'default',
     base_url: 'https://sub2.example',
-    setting: JSON.stringify({ managed_recovery_v1: true }),
+    setting: JSON.stringify({
+      managed_recovery_v1: true,
+      proxy: 'http://proxy.example:8080',
+      pass_through_body_enabled: true,
+    }),
   })
   const form = transformChannelToFormDefaults(channel)
   form.name = 'Renamed gateway'
@@ -129,7 +133,13 @@ test('Sub2API managed recovery remains enabled after an ordinary channel edit', 
     channelFormSchema.parse(form),
     channel.id
   )
-  expect(JSON.parse(payload.setting ?? '{}').managed_recovery_v1).toBe(true)
+  expect(payload.name).toBe('Renamed gateway')
+  const setting = JSON.parse(payload.setting ?? '{}')
+  expect(setting).not.toHaveProperty('managed_recovery_v1')
+  expect(setting).toMatchObject({
+    proxy: 'http://proxy.example:8080',
+    pass_through_body_enabled: true,
+  })
 })
 
 describe.each([

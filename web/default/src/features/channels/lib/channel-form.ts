@@ -21,7 +21,6 @@ import { z } from 'zod'
 import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_TYPE_NEW_API,
-  CHANNEL_TYPE_SUB2API,
   CHANNEL_TYPE_OLLAMA,
   CHANNEL_TYPE_TASK_PLUGIN,
   CHANNEL_TYPE_VLLM,
@@ -273,7 +272,6 @@ export const channelFormSchema = z
     tls_insecure_skip_verify: z.boolean().optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
-    managed_recovery_v1: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
     // Type-specific settings (stored in settings JSON)
@@ -466,7 +464,6 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   tls_insecure_skip_verify: false,
   pass_through_body_enabled: false,
   responses_websocket_enabled: false,
-  managed_recovery_v1: false,
   system_prompt: '',
   system_prompt_override: false,
   // Type-specific settings
@@ -512,7 +509,6 @@ export function transformChannelToFormDefaults(
     tls_insecure_skip_verify: false,
     pass_through_body_enabled: false,
     responses_websocket_enabled: false,
-    managed_recovery_v1: false,
     system_prompt: '',
     system_prompt_override: false,
   }
@@ -536,7 +532,6 @@ export function transformChannelToFormDefaults(
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         responses_websocket_enabled:
           parsed.responses_websocket_enabled === true,
-        managed_recovery_v1: parsed.managed_recovery_v1 === true,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
       }
@@ -671,9 +666,6 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     responses_websocket_enabled:
       supportsResponsesWebSocket(formData.type) &&
       formData.responses_websocket_enabled === true,
-    managed_recovery_v1:
-      formData.type === CHANNEL_TYPE_SUB2API &&
-      formData.managed_recovery_v1 === true,
     tls_insecure_skip_verify: formData.tls_insecure_skip_verify === true,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,

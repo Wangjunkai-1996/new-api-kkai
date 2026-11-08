@@ -165,10 +165,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.PerformanceBusinessRejection = false
 		relayInfo.PerformanceOutputTokens = 0
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		if relayInfo.RetryIndex > 0 {
-			c.Set("kkai_managed_recovery_entry", "")
-			c.Set("kkai_recovery_v1_diagnostics", nil)
-		}
 		relayInfo.ResetAttemptTiming()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
@@ -337,12 +333,7 @@ func decideRelayRetry(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types
 		stop.Reason = "request_cancelled"
 		return stop
 	}
-	if c.GetBool("kkai_managed_recovery_v1") {
-		stop.Reason = "managed_recovery_owner"
-		return stop
-	}
-	preHandshakeRecovery := info.ManagedRecoveryEnabled() && !c.GetBool("kkai_managed_recovery_v1")
-	if c.Writer.Written() && !preHandshakeRecovery && (info == nil || info.RelayFormat != types.RelayFormatOpenAIRealtime || info.TargetWs != nil || apiErr.GetErrorCode() != types.ErrorCodeDoRequestFailed) {
+	if c.Writer.Written() && (info == nil || info.RelayFormat != types.RelayFormatOpenAIRealtime || info.TargetWs != nil || apiErr.GetErrorCode() != types.ErrorCodeDoRequestFailed) {
 		stop.Reason = "response_started"
 		return stop
 	}
@@ -375,9 +366,6 @@ func decideRelayRetry(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types
 	}
 	if types.IsChannelError(apiErr) {
 		return service.PolicyDecision{Action: "retry", Reason: "channel_error", Source: "system"}
-	}
-	if preHandshakeRecovery && apiErr.GetOriginalStatusCode() == http.StatusTooManyRequests {
-		return service.PolicyDecision{Action: "retry", Reason: "managed_recovery_prehandshake_429", Source: "system"}
 	}
 	code := apiErr.StatusCode
 	if code >= 200 && code < 300 || operation_setting.IsAlwaysSkipRetryCode(apiErr.GetErrorCode()) || operation_setting.IsAlwaysSkipRetryStatusCode(code) {

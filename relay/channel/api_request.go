@@ -19,7 +19,6 @@ import (
 	systemconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/kkaiattribution"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -30,7 +29,6 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/tidwall/gjson"
 )
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from
@@ -63,7 +61,6 @@ const (
 	defaultUpstreamPolicyDrainTimeout = 5 * time.Minute
 	imageUpstreamPolicyDrainTimeout   = 20 * time.Minute
 	imageUpstreamRequestTimeout       = 40 * time.Minute
-	managedRecoveryNonStreamTimeout   = 930 * time.Second
 )
 
 type upstreamPolicyResponseBody struct {
@@ -77,46 +74,6 @@ type upstreamPolicyRequestLifecycle struct {
 	upstreamCommitted bool
 	cancel            context.CancelFunc
 	stopParent        func() bool
-}
-
-type managedRecoveryDiagnostics struct {
-	SameAccountRetries *int   `json:"same_account_retries"`
-	AccountSwitches    *int   `json:"account_switches"`
-	Outcome            string `json:"outcome"`
-	StopReason         string `json:"stop_reason"`
-}
-
-const managedRecoveryDiagnosticsHeader = "X-KKAI-Recovery-Diagnostics"
-
-func recordManagedRecoveryDiagnostics(c *gin.Context, header string) bool {
-	if c == nil || header == "" || len(header) > 512 {
-		return false
-	}
-	var diagnostics managedRecoveryDiagnostics
-	if common2.Unmarshal([]byte(header), &diagnostics) != nil ||
-		diagnostics.SameAccountRetries == nil || diagnostics.AccountSwitches == nil ||
-		*diagnostics.SameAccountRetries < 0 || *diagnostics.AccountSwitches < 0 ||
-		*diagnostics.SameAccountRetries > 10 || *diagnostics.AccountSwitches > 10 ||
-		*diagnostics.SameAccountRetries+*diagnostics.AccountSwitches > 10 {
-		return false
-	}
-	if diagnostics.Outcome != "completed" && diagnostics.Outcome != "incomplete" && diagnostics.Outcome != "failed" {
-		return false
-	}
-	value := map[string]any{
-		"same_account_retries": *diagnostics.SameAccountRetries,
-		"account_switches":     *diagnostics.AccountSwitches,
-		"final_outcome":        diagnostics.Outcome,
-		"recovered":            diagnostics.Outcome == "completed" && *diagnostics.SameAccountRetries+*diagnostics.AccountSwitches > 0,
-	}
-	if diagnostics.Outcome == "failed" && diagnostics.StopReason != "" {
-		switch diagnostics.StopReason {
-		case "tool_output_started", "retry_not_allowed", "no_viable_account", "logical_deadline", "delivery_reserve", "retry_budget_exhausted", "dispatch_limit", "upstream_error", "route_unavailable", "opaque_context_rejected", "invalid_encrypted_content":
-			value["stop_reason"] = diagnostics.StopReason
-		}
-	}
-	c.Set("kkai_recovery_v1_diagnostics", value)
-	return true
 }
 
 func (l *upstreamPolicyRequestLifecycle) markUpstreamCommitted() {
@@ -149,16 +106,6 @@ func upstreamPolicyRequestContext(parent context.Context, info *common.RelayInfo
 		ctx, cancel := context.WithCancel(parent)
 		cancel()
 		return ctx, cancel
-	}
-	if info.ManagedRecoveryEnabled() {
-		if !info.IsStream {
-			startedAt := info.StartTime
-			if startedAt.IsZero() {
-				startedAt = time.Now()
-			}
-			return context.WithDeadline(parent, startedAt.Add(managedRecoveryNonStreamTimeout))
-		}
-		return context.WithCancel(parent)
 	}
 	if info != nil && info.DurableImageExecution {
 		return context.WithCancel(parent)
@@ -498,55 +445,15 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
+	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
 	req, err := http.NewRequestWithContext(
-		c.Request.Context(), c.Request.Method, fullRequestURL, requestBody,
+		requestCtx, c.Request.Method, fullRequestURL, requestBody,
 	)
 	if err != nil {
+		cancelRequest()
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	ApplyUpstreamBodyMetadata(req, requestBody)
-	opaqueInput := false
-	if info.ManagedRecoveryEnabled() {
-		if req.GetBody == nil {
-			// A non-replayable body cannot safely participate in managed retry.
-			info.ChannelSetting.ManagedRecoveryV1 = false
-			c.Set("kkai_managed_recovery_entry", "excluded_non_replayable_body")
-		} else {
-			body, bodyErr := req.GetBody()
-			if bodyErr != nil {
-				return nil, fmt.Errorf("read recovery request body failed: %w", bodyErr)
-			}
-			payload, memoryBacked := common2.ReadOnlyBodyBytes(body)
-			var readErr error
-			if !memoryBacked {
-				payload, readErr = io.ReadAll(body)
-			}
-			_ = body.Close()
-			if readErr != nil {
-				return nil, fmt.Errorf("read recovery request body failed: %w", readErr)
-			}
-			format := gjson.GetBytes(payload, "text.format.type").String()
-			responseFormat := gjson.GetBytes(payload, "response_format.type").String()
-			if format == "json_object" || format == "json_schema" || responseFormat == "json_object" || responseFormat == "json_schema" {
-				info.ChannelSetting.ManagedRecoveryV1 = false
-				c.Set("kkai_managed_recovery_entry", "excluded_json_output")
-			}
-			if info.ManagedRecoveryEnabled() && info.RelayMode == constant.RelayModeResponses {
-				for _, item := range gjson.GetBytes(payload, "input").Array() {
-					if item.Get("encrypted_content").Exists() {
-						opaqueInput = true
-						break
-					}
-				}
-				if opaqueInput && strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String()) != "" {
-					info.ChannelSetting.ManagedRecoveryV1 = false
-					c.Set("kkai_managed_recovery_entry", "excluded_encrypted_continuation")
-				}
-			}
-		}
-	}
-	requestCtx, cancelRequest := upstreamPolicyRequestContext(c.Request.Context(), info)
-	req = req.WithContext(requestCtx)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
@@ -565,77 +472,15 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		cancelRequest()
 		return nil, fmt.Errorf("apply internal attribution headers failed: %w", err)
 	}
+	// Prevent retired internal protocol headers from reactivating an older upstream.
 	req.Header.Del("X-KKAI-Recovery-Protocol")
-	managedRecovery := info.ManagedRecoveryEnabled()
-	if managedRecovery {
-		if req.Header.Get(kkaiattribution.SignatureHeader) == "" || info.UserId <= 0 || info.TokenId <= 0 {
-			cancelRequest()
-			return nil, errors.New("managed recovery requires signed NewAPI attribution")
-		}
-		req.Header.Set("X-KKAI-Recovery-Protocol", "1")
-	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
-		if managedRecovery {
-			c.Set("kkai_managed_recovery_entry", "upstream_transport_error")
-		}
 		cancelRequest()
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
-	recoveryDiagnostics := resp.Header.Get(managedRecoveryDiagnosticsHeader)
-	resp.Header.Del(managedRecoveryDiagnosticsHeader)
-	if managedRecovery && confirmedRecoveryCapabilityRejection(resp) && req.GetBody != nil {
-		c.Set("kkai_managed_recovery_entry", "capability_fallback")
-		_ = resp.Body.Close()
-		cancelRequest()
-		body, bodyErr := req.GetBody()
-		if bodyErr != nil {
-			return nil, fmt.Errorf("replay rejected recovery request failed: %w", bodyErr)
-		}
-		info.ChannelSetting.ManagedRecoveryV1 = false
-		fallbackCtx, cancelFallback := upstreamPolicyRequestContext(c.Request.Context(), info)
-		fallbackReq := req.Clone(fallbackCtx)
-		fallbackReq.Body = body
-		fallbackReq.Header.Del("X-KKAI-Recovery-Protocol")
-		if err := applyInternalAttributionHeaders(fallbackReq, c, info); err != nil {
-			_ = body.Close()
-			cancelFallback()
-			return nil, fmt.Errorf("sign recovery fallback failed: %w", err)
-		}
-		resp, err = doRequest(c, fallbackReq, info)
-		if err != nil {
-			cancelFallback()
-			return nil, fmt.Errorf("recovery fallback failed: %w", err)
-		}
-		resp.Header.Del(managedRecoveryDiagnosticsHeader)
-		resp.Header.Del("X-KKAI-Recovery-Protocol")
-		return bindUpstreamPolicyResponseBody(resp, cancelFallback), nil
-	}
-	if managedRecovery && resp.Header.Get("X-KKAI-Recovery-Protocol") == "1" {
-		if recordManagedRecoveryDiagnostics(c, recoveryDiagnostics) {
-			// A terminal diagnostic also transfers recovery ownership for errors
-			// returned before stream headers; do not grant another outer budget.
-			c.Set("kkai_managed_recovery_v1", true)
-		}
-	}
-	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 && resp.Header.Get("X-KKAI-Recovery-Protocol") != "1" {
-		c.Set("kkai_managed_recovery_entry", "protocol_header_missing")
-		if resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		cancelRequest()
-		return nil, errors.New("managed recovery protocol response header missing or unsupported")
-	}
-	if managedRecovery && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		c.Set("kkai_managed_recovery_v1", true)
-		c.Set("kkai_managed_recovery_entry", "handshake_succeeded")
-		if opaqueInput {
-			c.Set("kkai_managed_recovery_entry", "encrypted_input_opaque")
-		}
-	} else if managedRecovery {
-		c.Set("kkai_managed_recovery_entry", "upstream_non_2xx")
-	}
 	resp.Header.Del("X-KKAI-Recovery-Protocol")
+	resp.Header.Del("X-KKAI-Recovery-Diagnostics")
 	return bindUpstreamPolicyResponseBody(resp, cancelRequest), nil
 }
 
@@ -888,32 +733,6 @@ func ConfirmedMembershipRejection(resp *http.Response) bool {
 	return false
 }
 
-// Sub2 rejects unsupported managed response shapes before model dispatch.
-// Match its complete error envelope before treating the attempt as zero-cost.
-func confirmedRecoveryCapabilityRejection(resp *http.Response) bool {
-	if resp == nil || resp.StatusCode != http.StatusUnprocessableEntity || resp.Body == nil {
-		return false
-	}
-	const maxErrorBytes = 4096
-	original := resp.Body
-	data, err := io.ReadAll(io.LimitReader(original, maxErrorBytes+1))
-	resp.Body = struct {
-		io.Reader
-		io.Closer
-	}{Reader: io.MultiReader(bytes.NewReader(data), original), Closer: original}
-	if err != nil || len(data) > maxErrorBytes {
-		return false
-	}
-	var envelope map[string]any
-	if common2.Unmarshal(data, &envelope) != nil || len(envelope) != 1 {
-		return false
-	}
-	upstreamError, ok := envelope["error"].(map[string]any)
-	return ok && len(upstreamError) == 2 &&
-		upstreamError["type"] == "recovery_capability_unavailable" &&
-		upstreamError["message"] == "Managed recovery is unavailable for this response format"
-}
-
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	if err := service.ValidateRelayOutboundQuantities(req); err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -925,9 +744,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 	c.Set(common2.UpstreamRequestIdKey, "")
-	transportSettings := info.ChannelSetting
-	transportSettings.ManagedRecoveryV1 = info.ManagedRecoveryEnabled()
-	client, err := service.GetHttpClientWithProxySettings(transportSettings.Proxy, transportSettings)
+	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
@@ -996,9 +813,8 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		info.BillingOutcomeUnknown = info.HasDurableBilling()
 		return nil, errors.New("resp is nil")
 	}
-	confirmedRecoveryRejection := info.ManagedRecoveryEnabled() && confirmedRecoveryCapabilityRejection(resp)
 	if info.MembershipBillingRequestID == info.RequestId && info.MembershipBillingRequestID != "" && resp.StatusCode >= 300 {
-		if confirmedRecoveryRejection || ConfirmedMembershipRejection(resp) {
+		if ConfirmedMembershipRejection(resp) {
 			if clearErr := model.ClearMembershipBillingRejectedAttempt(info.MembershipBillingRequestID, info.ChannelId); clearErr != nil {
 				info.BillingOutcomeUnknown = true
 				cancelDispatch()
@@ -1009,7 +825,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			info.BillingOutcomeUnknown = true
 		}
 	}
-	if info.TenantID > 0 && info.HasDurableBilling() && resp.StatusCode >= 300 && !confirmedRecoveryRejection && !ConfirmedMembershipRejection(resp) {
+	if info.TenantID > 0 && info.HasDurableBilling() && resp.StatusCode >= 300 && !ConfirmedMembershipRejection(resp) {
 		info.BillingOutcomeUnknown = true
 	}
 	info.SetUpstreamHeaderTime()

@@ -2,6 +2,7 @@ package channel_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,6 +52,57 @@ func (w *cancelOnFirstBodyWrite) WriteString(data string) (int, error) {
 	written, err := w.ResponseWriter.WriteString(data)
 	w.once.Do(w.cancel)
 	return written, err
+}
+
+func TestDoApiRequestStripsRetiredProtocolHeaders(t *testing.T) {
+	service.InitHttpClient()
+	for _, tc := range []struct {
+		name     string
+		override map[string]any
+		status   int
+	}{
+		{"passthrough success", map[string]any{"*": ""}, http.StatusOK},
+		{"passthrough error", map[string]any{"*": ""}, http.StatusTooManyRequests},
+		{"override success", map[string]any{"X-KKAI-Recovery-Protocol": "1", "X-Ordinary": "kept"}, http.StatusOK},
+		{"override error", map[string]any{"X-KKAI-Recovery-Protocol": "1", "X-Ordinary": "kept"}, http.StatusTooManyRequests},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			received := make(chan http.Header, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				received <- r.Header.Clone()
+				w.Header().Set("X-KKAI-Recovery-Protocol", "1")
+				w.Header().Set("X-KKAI-Recovery-Diagnostics", "retired")
+				w.Header().Set("X-Request-ID", "ordinary-request")
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, `{"message":"ordinary response"}`)
+			}))
+			t.Cleanup(upstream.Close)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			c.Request.Header.Set("X-KKAI-Recovery-Protocol", "1")
+			c.Request.Header.Set("X-Ordinary", "kept")
+			info := &relaycommon.RelayInfo{
+				RequestURLPath: "/v1/chat/completions", RelayMode: relayconstant.RelayModeChatCompletions,
+				StartTime: time.Now(), ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelBaseUrl: upstream.URL, ChannelType: constant.ChannelTypeOpenAI,
+					HeadersOverride: tc.override,
+				},
+			}
+			resp, err := channel.DoApiRequest(&openai.Adaptor{}, c, info, strings.NewReader(`{"model":"gpt-4o-mini"}`))
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			requestHeaders := <-received
+			assert.Empty(t, requestHeaders.Get("X-KKAI-Recovery-Protocol"))
+			assert.Equal(t, "kept", requestHeaders.Get("X-Ordinary"))
+			assert.Empty(t, resp.Header.Get("X-KKAI-Recovery-Protocol"))
+			assert.Empty(t, resp.Header.Get("X-KKAI-Recovery-Diagnostics"))
+			assert.Equal(t, "ordinary-request", resp.Header.Get("X-Request-ID"))
+			assert.Equal(t, tc.status, resp.StatusCode)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"message":"ordinary response"}`, string(body))
+		})
+	}
 }
 
 func TestDoApiRequestCancelsUpstreamBeforeResponseStarts(t *testing.T) {

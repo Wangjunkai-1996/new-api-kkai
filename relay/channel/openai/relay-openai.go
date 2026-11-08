@@ -117,7 +117,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var toolCount int
 	var usage = &dto.Usage{}
 	var streamErr *types.NewAPIError
-	recovery := newRecoveryV1State(c, info)
 	var lastStreamData string
 	var lastStreamSent bool
 	var secondLastStreamData string // 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
@@ -135,7 +134,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 	finishedChoices := make(map[int]struct{})
-	recovery.expectedChoices = expectedChoices
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" && !lastStreamSent {
@@ -156,15 +154,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 			lastStreamData = data
 			lastStreamSent = false
-			if recovery.enabled && recovery.terminal {
-				observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames, expectedChoices, finishedChoices)
-			}
-			if recovery.meterAttempt() != 0 || !recovery.enabled {
-				observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames, expectedChoices, finishedChoices)
-				if err := processTokenData(c, info, data, &responseTextBuilder, &toolCount); err != nil {
-					logger.LogError(c, "error processing stream token data: "+err.Error())
-					sr.Error(err)
-				}
+			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames, expectedChoices, finishedChoices)
+			if err := processTokenData(c, info, data, &responseTextBuilder, &toolCount); err != nil {
+				logger.LogError(c, "error processing stream token data: "+err.Error())
+				sr.Error(err)
 			}
 			if info.RelayFormat == types.RelayFormatOpenAI && !info.ChannelSetting.ForceFormat &&
 				!info.ChannelSetting.ThinkingToContent && ordinaryChatStreamDelta(data) {
@@ -175,36 +168,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				lastStreamSent = true
 			}
 		}
-	}, func(data string) (bool, error) {
-		consumed, err := recovery.filter(data)
-		if err != nil || !consumed {
-			return consumed, err
-		}
-		if recovery.lastKind == "attempt_begin" && recovery.enabled {
-			if lastStreamData != "" && !lastStreamSent {
-				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-					return true, err
-				}
-			}
-			lastStreamData, secondLastStreamData = "", ""
-			lastStreamSent = false
-			responseTextBuilder.Reset()
-			toolCount = 0
-			seenStreamToolCalls = make(map[string]struct{})
-			streamFunctionCallNames = nil
-			finishedChoices = make(map[int]struct{})
-			info.BillingHasReportedUsage = false
-			info.BillingOutcomeUnknown = false
-		}
-		return true, nil
 	})
 
 	info.StreamStatus.RequireTerminal()
-	if err := recovery.checkEnd(); err != nil && streamErr == nil {
-		streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
-	}
 	if streamErr != nil {
-		return recovery.finalUsage(info, nil), streamErr
+		return nil, streamErr
 	}
 
 	// 处理最后的响应
@@ -236,7 +204,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	}
-	if info.HasDurableBilling() && !recovery.enabled {
+	if info.HasDurableBilling() {
 		for _, frame := range []string{lastStreamData, secondLastStreamData} {
 			if !hasReportedOpenAIUsage([]byte(frame), info.RelayMode) {
 				continue
@@ -262,10 +230,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
-	if recovery.enabled {
-		usage = recovery.finalUsage(info, nil)
-		containStreamUsage = recovery.usageReported
-	}
 	if !containStreamUsage {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7

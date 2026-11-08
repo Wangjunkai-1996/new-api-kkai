@@ -192,7 +192,6 @@ const EditChannelModal = (props) => {
     thinking_to_content: false,
     proxy: '',
     pass_through_body_enabled: false,
-    managed_recovery_v1: false,
     system_prompt: '',
     system_prompt_override: false,
     settings: '',
@@ -866,8 +865,6 @@ const EditChannelModal = (props) => {
           data.proxy = parsedSettings.proxy || '';
           data.pass_through_body_enabled =
             parsedSettings.pass_through_body_enabled || false;
-          data.managed_recovery_v1 =
-            parsedSettings.managed_recovery_v1 === true;
           data.system_prompt = parsedSettings.system_prompt || '';
           data.system_prompt_override =
             parsedSettings.system_prompt_override || false;
@@ -1749,8 +1746,6 @@ const EditChannelModal = (props) => {
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
-      managed_recovery_v1:
-        localInputs.type === 59 && inputs.managed_recovery_v1 === true,
       system_prompt: localInputs.system_prompt || '',
       system_prompt_override: localInputs.system_prompt_override || false,
     };

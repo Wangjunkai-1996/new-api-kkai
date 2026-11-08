@@ -82,11 +82,7 @@ func ExtendWriteDeadline(c *gin.Context) {
 	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(streamWriteTimeout))
 }
 
-// StreamDataFilter consumes internal data frames before response metrics and
-// provider handlers observe them. It runs in stream order with dataHandler.
-type StreamDataFilter func(data string) (consumed bool, err error)
-
-func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult), filters ...StreamDataFilter) {
+func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) {
 
 	if resp == nil || dataHandler == nil {
 		return
@@ -98,20 +94,16 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	ctx, cancel := context.WithCancel(context.Background())
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
-	managedRecovery := c.GetBool("kkai_managed_recovery_v1")
-	if managedRecovery {
-		streamingTimeout = max(streamingTimeout, relaycommon.ManagedRecoveryResponseHeaderTimeout)
-	}
 
 	var (
-		stopChan     = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner      = NewStreamScanner(resp.Body)
-		timeoutTimer = time.NewTimer(streamingTimeout)
-		pingTicker   *time.Ticker
-		writeMutex   sync.Mutex     // Mutex to protect concurrent writes
-		wg           sync.WaitGroup // 用于等待所有 goroutine 退出
-		cleanupOnce  sync.Once
-		stopOnce     sync.Once
+		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
+		scanner     = NewStreamScanner(resp.Body)
+		ticker      = time.NewTicker(streamingTimeout)
+		pingTicker  *time.Ticker
+		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
+		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
+		cleanupOnce sync.Once
+		stopOnce    sync.Once
 	)
 
 	stop := func() {
@@ -145,7 +137,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				_ = resp.Body.Close()
 			}
 
-			timeoutTimer.Stop()
+			ticker.Stop()
 			if pingTicker != nil {
 				pingTicker.Stop()
 			}
@@ -230,21 +222,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
-				if len(filters) > 0 && filters[0] != nil {
-					consumed, err := filters[0](data)
-					if err != nil {
-						sr.Stop(err)
-						return
-					}
-					if consumed {
-						return
-					}
-				}
-				if data == "[DONE]" {
-					return
-				}
-				info.SetFirstResponseTime()
-				info.ReceivedResponseCount++
 				ExtendWriteDeadline(c)
 				dataHandler(data, sr)
 			}()
@@ -278,7 +255,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			default:
 			}
 
-			timeoutTimer.Reset(streamingTimeout)
+			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
 			trimmedData := strings.TrimSpace(data)
@@ -302,6 +279,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 			if !strings.HasPrefix(data, "[DONE]") {
+				info.SetFirstResponseTime()
+				info.ReceivedResponseCount++
+
 				select {
 				case dataChan <- data:
 				case <-ctx.Done():
@@ -310,15 +290,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					return
 				}
 			} else {
-				if len(filters) > 0 && filters[0] != nil {
-					select {
-					case dataChan <- "[DONE]":
-					case <-ctx.Done():
-						return
-					case <-stopChan:
-						return
-					}
-				}
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 				logger.LogDebug(c, "received [DONE], stopping scanner")
 				return
@@ -334,22 +305,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
 	})
 
-	// Legacy providers retain a bounded drain for terminal policy/accounting.
-	// Managed recovery must propagate cancellation so Sub2 cannot dispatch again.
+	// A disconnected client must not be able to hide a terminal upstream policy
+	// frame. Stop writing through the normal helpers, but keep the bounded
+	// upstream response drain alive until a terminal frame, EOF, or timeout.
 	clientDone := c.Request.Context().Done()
 	for {
 		select {
-		case <-timeoutTimer.C:
+		case <-ticker.C:
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
 			clientDone = nil
 		case <-stopChan:
 			// EndReason already set by the goroutine that triggered stopChan.
 			clientDone = nil
 		case <-clientDone:
-			if managedRecovery {
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
-				break
-			}
 			logger.LogDebug(c, "downstream disconnected; draining upstream stream for terminal policy state")
 			clientDone = nil
 			continue

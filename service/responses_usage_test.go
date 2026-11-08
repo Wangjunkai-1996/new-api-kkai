@@ -110,6 +110,76 @@ func TestResponsesUsageAccumulatorInterruptedTextFallback(t *testing.T) {
 	}
 }
 
+func TestResponsesUsageAccumulatorRefusalFallback(t *testing.T) {
+	const model = "gpt-4o"
+	refusal := "I cannot comply with that request."
+	zero, one := 0, 1
+	for _, tc := range []struct {
+		name   string
+		events []dto.ResponsesStreamResponse
+		output string
+	}{
+		{
+			name: "deltas and repeated done are counted once",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.refusal.delta", Delta: "I cannot ", OutputIndex: &zero},
+				{Type: "response.refusal.delta", Delta: "comply with that request.", OutputIndex: &zero},
+				{Type: "response.refusal.done", Refusal: &refusal, OutputIndex: &zero},
+				{Type: "response.refusal.done", Refusal: &refusal, OutputIndex: &zero},
+			},
+			output: refusal,
+		},
+		{
+			name: "done completes a partial delta",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.refusal.delta", Delta: "I cannot ", ItemID: "msg_1"},
+				{Type: "response.refusal.done", Refusal: &refusal, ItemID: "msg_1"},
+			},
+			output: refusal,
+		},
+		{
+			name: "done only is counted once",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.refusal.done", Refusal: &refusal, OutputIndex: &zero},
+				{Type: "response.refusal.done", Refusal: &refusal, OutputIndex: &zero},
+			},
+			output: refusal,
+		},
+		{
+			name: "terminal only output is counted",
+			events: []dto.ResponsesStreamResponse{{Type: "response.completed", Response: &dto.OpenAIResponsesResponse{
+				Output: []dto.ResponsesOutput{{Type: "message", Content: []dto.ResponsesOutputContent{{Type: "refusal", Refusal: refusal}}}},
+			}}},
+			output: refusal,
+		},
+		{
+			name: "identical refusals in separate parts are both counted",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.refusal.done", Refusal: &refusal, OutputIndex: &zero, ContentIndex: &zero},
+				{Type: "response.refusal.done", Refusal: &refusal, OutputIndex: &zero, ContentIndex: &one},
+			},
+			output: refusal + refusal,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: model}, StreamStatus: relaycommon.NewStreamStatus(),
+			}
+			info.SetEstimatePromptTokens(11)
+			accumulator := NewResponsesUsageAccumulator(info)
+			for i := range tc.events {
+				accumulator.Observe(&tc.events[i])
+			}
+			usage := accumulator.Finish()
+			require.NotNil(t, usage)
+			expectedCompletion := CountTextToken(tc.output, model)
+			assert.Equal(t, expectedCompletion, usage.CompletionTokens)
+			assert.Equal(t, 11, usage.PromptTokens)
+			assert.Equal(t, 11+expectedCompletion, usage.TotalTokens)
+		})
+	}
+}
+
 func TestObserveResponsesOutcomeRecordsProtocolFacts(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
