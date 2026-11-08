@@ -436,7 +436,10 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 		wantEntry string
 	}{
 		{"encrypted outbound", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, "1", "encrypted_input_opaque"},
-		{"encrypted continuation", `{"previous_response_id":"resp_owner","input":[{"type":"reasoning","encrypted_content":"gAAAA+opaque/==\u003d"}],"stream":true}`, "1", "encrypted_input_opaque"},
+		{"encrypted continuation", `{"previous_response_id":"resp_owner","input":[{"type":"reasoning","encrypted_content":"gAAAA+opaque/==\u003d"}],"stream":true}`, "", "excluded_encrypted_continuation"},
+		{"encrypted without previous ID", `{"previous_response_id":"","input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, "1", "encrypted_input_opaque"},
+		{"encrypted with blank previous ID", `{"previous_response_id":"  ","input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, "1", "encrypted_input_opaque"},
+		{"plaintext continuation", `{"previous_response_id":"resp_owner","input":"hello"}`, "1", "handshake_succeeded"},
 		{"encrypted structured output", `{"input":[{"type":"reasoning","encrypted_content":"opaque"}],"text":{"format":{"type":"json_schema"}}}`, "", "excluded_json_output"},
 		{"plaintext outbound", `{"input":"hello"}`, "1", "handshake_succeeded"},
 	} {
@@ -459,5 +462,5 @@ func TestManagedRecoveryChecksFinalResponsesInput(t *testing.T) {
 			assert.Equal(t, tc.wantEntry, c.GetString("kkai_managed_recovery_entry"))
 		})
 	}
-	assert.Equal(t, 4, requests)
+	assert.Equal(t, 7, requests)
 }

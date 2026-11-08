@@ -538,6 +538,10 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 						break
 					}
 				}
+				if opaqueInput && strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String()) != "" {
+					info.ChannelSetting.ManagedRecoveryV1 = false
+					c.Set("kkai_managed_recovery_entry", "excluded_encrypted_continuation")
+				}
 			}
 		}
 	}

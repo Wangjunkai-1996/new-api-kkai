@@ -28,7 +28,7 @@ WITH latest AS MATERIALIZED (
   SELECT coalesce(entry <> '' OR jsonb_typeof(m) = 'object', false) AS observed,
     coalesce(entry IN ('handshake_succeeded', 'encrypted_input_opaque') OR jsonb_typeof(m) = 'object', false) AS managed,
     CASE WHEN entry IN ('handshake_succeeded', 'excluded_non_replayable_body',
-      'excluded_json_output', 'excluded_encrypted_input', 'encrypted_input_opaque',
+      'excluded_json_output', 'excluded_encrypted_input', 'excluded_encrypted_continuation', 'encrypted_input_opaque',
       'capability_fallback',
       'upstream_non_2xx', 'upstream_transport_error', 'protocol_header_missing') THEN entry
       WHEN coalesce(entry, '') = '' THEN 'legacy_unrecorded' ELSE 'other_or_unknown' END AS entry_reason,

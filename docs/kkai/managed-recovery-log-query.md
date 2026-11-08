@@ -2,7 +2,7 @@
 
 无需统计接口或页面。数据保存在现有 NewAPI `logs.other.admin_info`：
 
-- `managed_recovery_entry`：普通请求已握手 `handshake_succeeded`、密文请求已握手 `encrypted_input_opaque`、JSON/不可重放体排除、Sub2 能力降级，以及握手前传输/HTTP/协议错误。旧版本的 `excluded_encrypted_input` 仍可查询。
+- `managed_recovery_entry`：普通请求已握手 `handshake_succeeded`、无 `previous_response_id` 密文请求已握手 `encrypted_input_opaque`、密文与非空 ID 并存时排除 `excluded_encrypted_continuation`、JSON/不可重放体排除、Sub2 能力降级，以及握手前传输/HTTP/协议错误。旧版本的 `excluded_encrypted_input` 仍可查询。
 - `managed_recovery`：逻辑终态、`same_account_retries`、`account_switches`、`stop_reason` 和 `protocol_error`。历史日志没有这些计数时只能标为未知，不能当作零次重试。
 
 生产查询前按 NewAPI 发布入口确认当前 checkout，并从同级基础设施 checkout 执行一次 `make newapi-status`。随后从本仓库执行下面的只读 PostgreSQL 查询；替换 UTC 时间、渠道和分组，窗口最多六小时：

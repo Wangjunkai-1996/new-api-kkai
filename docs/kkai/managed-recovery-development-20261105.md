@@ -8,7 +8,8 @@
 
 | 请求或事件 | NewAPI | Sub2 | 对客户端的结果 |
 | --- | --- | --- | --- |
-| 含 `encrypted_content` 的请求 | 进入 `opaque_input`；不因密文整请求退出（详见文末新增开发批次） | 仅按原账号、原 egress/binding、原 endpoint/transport 和原协议模式恢复 | 原始上下文保持不变，不解密、不删除、不改写 |
+| 含 `encrypted_content` 且无 `previous_response_id` 的请求 | 进入 `opaque_input`（详见文末新增开发批次） | 仅按原账号、原 egress/binding、原 endpoint/transport 和原协议模式恢复 | 原始上下文保持不变，不解密、不删除、不改写 |
+| 同时含密文和非空 `previous_response_id` | 记录 `excluded_encrypted_continuation`，退出受管恢复 | 沿用非受管请求及故障转移路径 | NewAPI 首派发字节不变；Sub2 后续行为沿用旧路径，不承诺全程不改写或成功 |
 | 显式 `json_object`/`json_schema`，或现有不支持的输入形态 | 在握手、超时和重试归属决策前退出受管模式 | 不安装受管 writer；若收到不匹配的受管握手，明确拒绝供尚未提交的请求安全回放 | 原有路径实时流式交付；仅响应提交前的安全重试，无新增 422 |
 | 文本流，包括声明 `tools`/`tool_choice:auto` 但尚未输出工具事件 | 受管握手后由 Sub2 独占恢复；过滤内部控制，隔离失败尝试用量 | 文本增量实时发出；可恢复失败按现有有界预算同号重试/切号 | 输出后失败可见“正在重新生成”；最终只有一个逻辑终态 |
 | 首个 Chat 工具 delta 或 Responses 可执行工具项目 | 继续透传业务事件，不开启外层重试 | 转发首个事件前标记该逻辑请求不可再恢复；后续工具增量立即交付 | 后续失败按协议结束，不再派发模型或拼接第二轮工具 |
@@ -87,29 +88,29 @@ NewAPI 受管恢复诊断字段由现有 `service/log_info_generate` 管理员�
 
 上线后效果查询显示，渠道 31/default 的受管恢复诊断链路可以记录握手和终态，但约 96% 的请求因 `encrypted_content` 被整请求排除，观察窗口没有可证明的重试、切账号或救回案例。因此本批次先修复恢复资格判断，再评估救回效果；不能把删除排除条件本身当作功能完成，也不能把诊断记录当作救回成功证明。
 
-本批次只允许安全地携带原始上下文恢复。它不解密、不持久化、不删除、不改写 `encrypted_content`，也不把带密文的历史重建成普通文本。跨账号携带密文暂不开放，必须等真实同协议、真实上下文和真实账号池验证通过后另行立项。
+本批次只允许无 `previous_response_id` 的密文请求安全地携带原始上下文恢复。它不解密、不持久化、不删除、不改写 `encrypted_content`，也不把带密文的历史重建成普通文本。密文与非空 ID 并存的请求沿用非受管路径；跨账号携带密文和此类 ID 续聊的受管恢复暂不开放，必须等真实同协议、真实上下文和真实账号池验证通过后另行立项。
 
 ### 联合契约
 
 | 请求 | 入口资格 | 恢复与路由 | 用户可见结果 |
 | --- | --- | --- | --- |
 | 普通文本、无 `encrypted_content` | 沿用现有受管文本资格 | 现有同账号重试后再切账号；预算和工具边界不变 | 正常首字实时到达；可恢复错误按既有重试语义处理 |
-| 含 `encrypted_content` 的 Responses 请求 | 进入内部 `opaque_input` 模式；不因密文整请求退出 | 初次派发外最多 2 次额外重试；只允许原账号、原 egress/binding、原 endpoint/transport 和原协议模式；不满足硬约束时不发送 | 原始请求上下文保持不变；恢复成功才返回后续结果，失败保留上游错误 |
-| 含密文且带 `previous_response_id` | 继续进入 opaque 模式 | ID 绑定的 account、egress、endpoint 必须全部匹配；不删 ID、不做纯文本重建 | 缺少可移植快照不阻断正常请求，也不阻断原账号、原出口和原协议路线的原字节重试；首次派发外最多重试 2 次，禁止跨账号恢复或重建历史 |
+| 含 `encrypted_content` 且无 `previous_response_id` 的 Responses 请求 | 进入内部 `opaque_input` 模式 | 初次派发外最多 2 次额外重试；只允许原账号、原 egress/binding、原 endpoint/transport 和原协议模式；不满足硬约束时不发送 | 原始请求上下文保持不变；恢复成功才返回后续结果，失败保留上游错误 |
+| 含密文且带非空 `previous_response_id` | 退出受管恢复，记录 `excluded_encrypted_continuation` | 沿用既有非受管路径及故障转移规则 | NewAPI 首派发 body 不变；不承诺后续 ID/密文全程不改写、受管重试或请求成功 |
 | 显式 `json_object`/`json_schema`、不可重放请求体或既有不支持形态 | 走原有非受管路径 | 不安装受管 writer；保留原有提交前安全重试 | 不新增 422，不拼接半截 JSON |
 | 上游 `invalid_encrypted_content` | 受管尝试终止 | 记录 `invalid_encrypted_content`/`opaque_context_rejected`；不删除密文伪装成功 | 返回原始错误语义 |
 | 实际工具事件已公开 | 沿用工具输出护栏 | 不再重试或切账号 | 保持一个失败终态，不重复工具调用 |
 
-“含密文”只改变恢复资格，不改变客户端协议；不会新增请求头、数据库表、管理页面或客户端参数。显式 JSON 的判断仍依据最终序列化出站请求体，不能只看尚未转换的入参。
+无 ID 密文请求进入受管恢复不改变客户端协议；不会新增请求头、数据库表、管理页面或客户端参数。显式 JSON 和非空 ID 的判断均依据最终序列化出站请求体，不能只看尚未转换的入参。
 
 ### 实现约束
 
-1. **NewAPI 入口**：在 `relay/channel/api_request.go` 根据最终出站 body 标记 `opaque_input`，移除仅针对 `encrypted_content` 的整请求排除；保留显式 JSON、不可重放 body 和既有不支持形态的排除。原始 body 必须可重复读取，重试前后字节完全一致。
+1. **NewAPI 入口**：在 `relay/channel/api_request.go` 根据最终出站 body 标记 `opaque_input`，仅让无 `previous_response_id` 的密文请求进入；密文与非空 ID 并存时记录 `excluded_encrypted_continuation` 并走非受管路径。保留显式 JSON、不可重放 body 和既有不支持形态的排除。进入受管恢复的原始 body 必须可重复读取，重试前后字节完全一致。
 2. **Sub2 入口与转发**：在 `backend/internal/handler/openai_managed_recovery.go` 及 gateway handler 传递 opaque 标记；恢复路径绕过 `deriveOpenAIForwardAttemptBody`、lineage 预清理、reasoning 剥离和删除密文后的重试路径。不得解密或落盘密文。
 3. **硬路由 fence**：`WithOpenAIManagedRetryAccount` 只表示偏好，不能作为保证。opaque 请求在账号选择、账号槽位获取/刷新和每次 Forward 前后都校验 account ID、egress/binding、endpoint/transport、协议模式及 passthrough 标志；校验失败记录 `route_unavailable`，不发送错账号请求，不回退普通调度器。
 4. **重试预算**：opaque 请求最多 2 次额外重试，且只能同账号同路线；不开放跨账号切换。普通文本继续现有同账号重试后切账号。每个逻辑请求只保留一个最终计量终态。
-5. **续聊绑定**：`previous_response_id` 的 owner 路由约束优先于可用性；没有完整可移植 snapshot 时不做跨账号恢复，不删除 ID、不用文本摘要替代；正常首次请求不因此失败。
-6. **诊断**：复用现有 `other.admin_info.managed_recovery`，增加入口/终止原因 `encrypted_input_opaque`、`route_unavailable`、`opaque_context_rejected`、`invalid_encrypted_content`，并保留 `same_account_retries`、`account_switches`、`recovered`、`final_outcome`。不记录密文本身、请求正文、账号标识或新逐帧日志。
+5. **续聊绑定**：密文与非空 `previous_response_id` 并存时不启用受管恢复；NewAPI 首派发 body 不变，Sub2 后续按既有非受管规则处理。纯文本 ID 续聊沿用既有资格。
+6. **诊断**：复用现有 `other.admin_info.managed_recovery`，增加入口/终止原因 `encrypted_input_opaque`、`excluded_encrypted_continuation`、`route_unavailable`、`opaque_context_rejected`、`invalid_encrypted_content`，并保留 `same_account_retries`、`account_switches`、`recovered`、`final_outcome`。不记录密文本身、请求正文、账号标识或新逐帧日志。
 
 ### 两端开发包
 
@@ -130,10 +131,10 @@ NewAPI 受管恢复诊断字段由现有 `service/log_info_generate` 管理员�
 
 使用可控上游和同步屏障，不用依赖真实等待或生产数据：
 
-1. 含密文的正常 Responses 流：首个真实文本增量早于终态；原密文字节不变；只发生一次正常 dispatch。
-2. 含密文遇 429/502：同账号、同 egress、同协议重试，最多两次额外重试；最终成功时 `same_account_retries>0`、`account_switches=0`、`recovered=true`。
+1. 无 ID 密文的正常 Responses 流：首个真实文本增量早于终态；原密文字节不变；只发生一次正常 dispatch。
+2. 无 ID 密文遇 429/502：同账号、同 egress、同协议重试，最多两次额外重试；最终成功时 `same_account_retries>0`、`account_switches=0`、`recovered=true`。
 3. 账号或 egress 发生变化：不 Forward，记录 `route_unavailable`。
-4. `previous_response_id`：owner 路由不漂移，ID 不删除，不做纯文本重建；无可移植快照不阻断本轮正常成功。
+4. 密文与非空 `previous_response_id` 并存：不启用受管握手，NewAPI 首派发 ID 与密文字节不变；不以 Sub2 后续非受管行为作为本批次保证。纯文本 ID 续聊仍可受管握手。
 5. 普通无密文文本：保留同号重试后切账号；显式 JSON 行为不变。
 6. 工具事件公开后：不重试、不切号、不重复工具帧；只有一个失败终态。
 7. `invalid_encrypted_content`：密文和原始错误保留，原因可从管理员日志查询。
@@ -144,9 +145,9 @@ NewAPI 受管恢复诊断字段由现有 `service/log_info_generate` 管理员�
 
 ### 2026-11-07 本地实现记录
 
-- NewAPI 按最终出站 body 允许密文 Responses 进入受管恢复，记录 `encrypted_input_opaque`；显式 JSON 继续排除，内部诊断消费后删除。已协商的失败终态由 Sub2 收口，避免 NewAPI 再次重试同一逻辑请求。查询脚本同步计入 opaque 受管请求。
-- Sub2 保留原始 `input` 和 `previous_response_id`，固定重放首个实际派发 body；不重建密文历史、不持久化密文 snapshot。首个实际派发后锁定账号、当前或 legacy egress/binding、代理、URL/method 及协议模式，初次派发外最多两次重试；缺少可移植 snapshot 不阻断此类原字节重试。派发前的本地失败保留原有安全选路；派发后不可退回普通账号池。
-- 每个受管响应别名额外保存实际路由的摘要指纹，不保存密文或代理凭据；后续 opaque 续聊在派发前校验该指纹，端点或代理变化不产生新派发。旧别名缺少指纹时不虚构历史路由证据。
+- NewAPI 按最终出站 body 允许无 ID 的密文 Responses 进入受管恢复，记录 `encrypted_input_opaque`；密文与非空 `previous_response_id` 并存时记录 `excluded_encrypted_continuation`，不发送受管握手。显式 JSON 继续排除，内部诊断消费后删除。已协商的失败终态由 Sub2 收口，避免 NewAPI 再次重试同一逻辑请求。查询脚本同步计入 opaque 受管请求及该排除原因。
+- Sub2 在受管 opaque 路径保留原始 `input`，固定重放首个实际派发 body；不重建密文历史、不持久化密文 snapshot。受管 opaque 首个实际派发后锁定账号、当前或 legacy egress/binding、代理、URL/method 及协议模式，初次派发外最多两次重试。密文与非空 `previous_response_id` 并存时不进入该受管路径，后续沿用既有非受管处理。受管 opaque 派发前的本地失败保留原有安全选路；派发后不可退回普通账号池。
+- 每个受管响应别名额外保存实际路由的摘要指纹，不保存密文或代理凭据；此前实现的 opaque ID 续聊路由校验保留在 Sub2，但本阶段 NewAPI 不为密文与非空 ID 的组合发送受管握手。旧别名缺少指纹时不虚构历史路由证据。
 - 明确 HTTP/plugin `RequestNotSent` 的首轮失败保留原安全换号，退还物理派发预算，不记作重试或切号；已经实际发送后的路线不会因后续未发送失败解锁。未知发送状态按可能已发送处理。实际发送最多 3 次，内部 attempt 序号独立限制为 11，保持协议 v1 控制帧边界。
 - HTTP 错误与 HTTP 200 SSE 的 `response.failed`/`error` 均识别密文拒绝，保留错误语义并停止；native、passthrough、流式与非流式路径都有定向覆盖。工具事件公开后仍停止恢复。
 - 普通 JSON 未携带内部握手时行为不变；显式请求内部握手但不支持的 JSON、图像或 compact 请求，保留既有的派发前 `422 recovery_capability_unavailable`，不能静默生成成功响应而漏掉握手回显。
