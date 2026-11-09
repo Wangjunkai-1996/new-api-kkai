@@ -1,0 +1,13 @@
+{
+  "phase": "A-50",
+  "decision": "continue",
+  "target_requests": 355,
+  "target_http_5xx": 0,
+  "active_requests": 321,
+  "active_http_5xx": 6,
+  "active_5xx_class": "relay_chat",
+  "relay_first60_errors": 0,
+  "attribution": "HTTP failures observed only in unchanged active slot; specific external cause not established",
+  "independent_scope_evidence": "A fixed paused has no new background recovery work; exact diff preserves upstream routing/URL/error conversion; candidate smallest billing workflow passed",
+  "limitations": "No slot attribution for global relay; traffic mix differs, latency summaries not directly comparable"
+}

@@ -1,0 +1,28 @@
+{
+  "account_reservations": {
+    "ledger_reserved": 795154315,
+    "mismatched_accounts": 0,
+    "total_reserved": 795154315
+  },
+  "observed_at": "2026-11-09T13:06:42.493444+00:00",
+  "phase": "before-A",
+  "reserved": [
+    {
+      "aged_72h": 0,
+      "aged_72h_quota": 0,
+      "needs_review": 555,
+      "records": 558,
+      "reserved_quota": 200059531,
+      "source": "wallet"
+    },
+    {
+      "aged_72h": 0,
+      "aged_72h_quota": 0,
+      "needs_review": 844,
+      "records": 850,
+      "reserved_quota": 795154315,
+      "source": "membership"
+    }
+  ],
+  "sidecars_present": false
+}

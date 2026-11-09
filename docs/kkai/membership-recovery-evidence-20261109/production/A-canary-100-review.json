@@ -1,0 +1,18 @@
+{
+  "phase": "A-100",
+  "decision": "accept for promotion",
+  "target_requests": 730,
+  "target_http_5xx": 5,
+  "active_samples": "unavailable at100%",
+  "global_model_events": 314,
+  "global_model_errors": 0,
+  "review": "operator and relay_lifecycle",
+  "independent_scope_evidence": [
+    "Early auth/cache/rate-limit/channel-selection rejection paths precede billing and their code/dependencies unchanged",
+    "PostgreSQL pre-consume adds no SQL or applicable new branch",
+    "Foreground cache invalidation remains Background plus identical Redis DEL/Lua/fence",
+    "A fixedpaused prevents new recovery scanning/evidence writes",
+    "New error cleanup follows existing failures and preserves original apiErr"
+  ],
+  "limitation": "Specific cause of5 HTTP relay_chat errors not identified; unchanged slot previously had6 same coarse class, which alone is not causation evidence"
+}

@@ -1,0 +1,127 @@
+{
+  "observed_at": "2026-11-09T15:12:56.138664+00:00",
+  "archives": [
+    {
+      "path": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261108.1794113765-ff2a3677d.tar",
+      "bytes": 94231040,
+      "sha256": "50def7db8098de83b625c3506ea64166666cae213d48c4972edff2e1a460cb75",
+      "metadata": {
+        "version": "kkai-prod-20261108.1794113765-ff2a3677d",
+        "source_sha": "ff2a3677da1056194eb6209ee95465072500e5d9",
+        "image_tag": "kkai-newapi-manual:kkai-prod-20261108.1794113765-ff2a3677d",
+        "schema_contract": "feature",
+        "console_contract": {
+          "format_version": 1,
+          "api_contracts": [
+            2,
+            3
+          ],
+          "capabilities": [
+            "token_group_inline",
+            "video_sample_categories",
+            "dashboard_jwt",
+            "scoped_access_tokens",
+            "task_plugins",
+            "studio_media_urls",
+            "membership_ratio_quotes",
+            "reseller_sites",
+            "reseller_group_pricing",
+            "image_output_edit_source",
+            "manual_invoice_requests",
+            "token_create_result_id"
+          ]
+        },
+        "frontend_mode": "external",
+        "archive": "kkai-prod-20261108.1794113765-ff2a3677d.tar",
+        "archive_sha256": "50def7db8098de83b625c3506ea64166666cae213d48c4972edff2e1a460cb75",
+        "platform": "linux/amd64"
+      }
+    },
+    {
+      "path": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794225812-2648161ab.tar",
+      "bytes": 94272512,
+      "sha256": "97a1278ea76263c90d10ea7fc31811236b23f15e3ccc9e6eff21cbf4800cc97b",
+      "metadata": {
+        "version": "kkai-prod-20261109.1794225812-2648161ab",
+        "source_sha": "2648161aba4755a4cc7f75a10098deb3cbbd1d4a",
+        "image_tag": "kkai-newapi-manual:kkai-prod-20261109.1794225812-2648161ab",
+        "schema_contract": "feature",
+        "console_contract": {
+          "format_version": 1,
+          "api_contracts": [
+            2,
+            3
+          ],
+          "capabilities": [
+            "token_group_inline",
+            "video_sample_categories",
+            "dashboard_jwt",
+            "scoped_access_tokens",
+            "task_plugins",
+            "studio_media_urls",
+            "membership_ratio_quotes",
+            "reseller_sites",
+            "reseller_group_pricing",
+            "image_output_edit_source",
+            "manual_invoice_requests",
+            "token_create_result_id"
+          ]
+        },
+        "frontend_mode": "external",
+        "archive": "kkai-prod-20261109.1794225812-2648161ab.tar",
+        "archive_sha256": "97a1278ea76263c90d10ea7fc31811236b23f15e3ccc9e6eff21cbf4800cc97b",
+        "platform": "linux/amd64"
+      }
+    },
+    {
+      "path": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794233284-fc46400f3.tar",
+      "bytes": 94277632,
+      "sha256": "9c29a1c9feffe9969414852369f4d83cba0ab40416c7ed526106bc5d6ed0973a",
+      "metadata": {
+        "version": "kkai-prod-20261109.1794233284-fc46400f3",
+        "source_sha": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+        "image_tag": "kkai-newapi-manual:kkai-prod-20261109.1794233284-fc46400f3",
+        "schema_contract": "feature",
+        "console_contract": {
+          "format_version": 1,
+          "api_contracts": [
+            2,
+            3
+          ],
+          "capabilities": [
+            "token_group_inline",
+            "video_sample_categories",
+            "dashboard_jwt",
+            "scoped_access_tokens",
+            "task_plugins",
+            "studio_media_urls",
+            "membership_ratio_quotes",
+            "reseller_sites",
+            "reseller_group_pricing",
+            "image_output_edit_source",
+            "manual_invoice_requests",
+            "token_create_result_id"
+          ]
+        },
+        "frontend_mode": "external",
+        "archive": "kkai-prod-20261109.1794233284-fc46400f3.tar",
+        "archive_sha256": "9c29a1c9feffe9969414852369f4d83cba0ab40416c7ed526106bc5d6ed0973a",
+        "platform": "linux/amd64"
+      }
+    }
+  ],
+  "images": [
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-11-08 12:56:30 +0800 CST",
+      "CreatedSince": "34 hours ago",
+      "Digest": "<none>",
+      "ID": "sha256:a6811eeb1d929b347284a46a6cdced8c42b171666664d8c2632619580fc05967",
+      "Repository": "kkai-newapi-manual",
+      "SharedSize": "N/A",
+      "Size": "337MB",
+      "Tag": "kkai-prod-20261108.1794113765-ff2a3677d",
+      "UniqueSize": "N/A"
+    }
+  ]
+}

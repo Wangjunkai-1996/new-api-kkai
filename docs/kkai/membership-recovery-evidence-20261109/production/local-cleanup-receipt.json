@@ -1,0 +1,31 @@
+{
+  "at": "2026-11-09T15:23:53.975420+00:00",
+  "removed": [
+    {
+      "path": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261108.1794113765-ff2a3677d.tar",
+      "bytes": 94231040,
+      "sha256": "50def7db8098de83b625c3506ea64166666cae213d48c4972edff2e1a460cb75",
+      "reason": "Accepted installed production artifacts retained; local upload archive no longer required"
+    },
+    {
+      "path": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794225812-2648161ab.tar",
+      "bytes": 94272512,
+      "sha256": "97a1278ea76263c90d10ea7fc31811236b23f15e3ccc9e6eff21cbf4800cc97b",
+      "reason": "Accepted installed production artifacts retained; local upload archive no longer required"
+    },
+    {
+      "path": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794233284-fc46400f3.tar",
+      "bytes": 94277632,
+      "sha256": "9c29a1c9feffe9969414852369f4d83cba0ab40416c7ed526106bc5d6ed0973a",
+      "reason": "Accepted installed production artifacts retained; local upload archive no longer required"
+    },
+    {
+      "tag": "kkai-newapi-manual:kkai-prod-20261108.1794113765-ff2a3677d",
+      "image_id": "sha256:a6811eeb1d929b347284a46a6cdced8c42b171666664d8c2632619580fc05967",
+      "references": 0,
+      "result": "Untagged: kkai-newapi-manual:kkai-prod-20261108.1794113765-ff2a3677d\nDeleted: sha256:a6811eeb1d929b347284a46a6cdced8c42b171666664d8c2632619580fc05967"
+    }
+  ],
+  "retained": "All metadata/evidence and online active B/rollback A. Remote retention untouched.",
+  "remaining_archives": []
+}

@@ -1,6 +1,6 @@
 # 会员请求暂占优化方案（2026-11-09）
 
-状态：P0/P1 本地恢复、持久暂停与积压优化已实现；最终源码 `fc46400f3fed2647fafadd974ea1fc8d005d6015` 的相关性能验收已通过，证据见[性能记录](membership-recovery-evidence-20261109/performance-B/README.md)。本次文档更新时，线上额度恢复仍待迁移、启用和业务对账验收；应用切流不代表额度恢复完成。P2 跨服务取证与 P3 预占金额优化尚未交付。
+状态：P0/P1 本地恢复、持久暂停与积压优化已实现；最终源码 `fc46400f3fed2647fafadd974ea1fc8d005d6015` 的相关性能验收已通过，证据见[性能记录](membership-recovery-evidence-20261109/performance-B/README.md)。P0/P1 已完成生产兼容 A/B 发布、canonical21 迁移及 apply 启用，正常会员/钱包流程和全 scope 账务对账通过；本观察窗口无自动退款终态样本，不能称全部额度已返还。详见[生产交付记录](membership-reservation-production-20261109.md)。P2 跨服务取证与 P3 预占金额优化尚未交付。
 
 范围限定为同步 Relay 会员/钱包账本；历史补偿与应用发布分别执行。原生 Task、图片和 Midjourney 继续由各自任务状态机处理，不能套用同步请求的超时释放规则。
 

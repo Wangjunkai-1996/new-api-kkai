@@ -1,0 +1,1 @@
+{"migrator_nologin_and_zero_sessions": true, "checked_at": "2026-11-09T15:18:53Z", "method": "installed require_nologin(ProductionMigrationRuntime())"}

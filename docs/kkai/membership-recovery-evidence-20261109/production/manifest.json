@@ -1,0 +1,1054 @@
+{
+  "schema": "membership-production-evidence-v1",
+  "release_source": "fc46400f3fed2647fafadd974ea1fc8d005d6015",
+  "infra_source": "29e9a8e927ea35df939e912baa381e663591f4a2",
+  "files": [
+    {
+      "path": "A-canary-10-active-http.log",
+      "sha256": "0e27e90342a4e8cbfbeb6d413f70dac9e8409f04fea162e93037c065390c4dff",
+      "uncompressed_bytes": 1161,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-active-identity.json",
+      "sha256": "3cffb45bc13a16b4585a9f87c82d43a2d83b3c214ee934841a4bf1c094056d5d",
+      "uncompressed_bytes": 265,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-evidence.log",
+      "sha256": "50860cbdec7767113fc315dd22fffcd75da3c949c0f26fbd97f051e135d03ffc",
+      "uncompressed_bytes": 3001,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-evidence.result.json",
+      "sha256": "4e20067ebf7e9f7b3aeb0db1bfe09e42d1e6b13ea1084824c05d29a5eefe96c2",
+      "uncompressed_bytes": 499,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-relay.log",
+      "sha256": "6f85ad2b8482fdc16bbc77b6fabc7a4b873f919b3d8fa0e61ce9c3035c3610d2",
+      "uncompressed_bytes": 828,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-relay.result.json",
+      "sha256": "11a022ebaeb7de1d6741f1ed11b7706f45457ca03072867e457a64555279269b",
+      "uncompressed_bytes": 566,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-review.json",
+      "sha256": "852061b9761464b20a43d5a323ca33405a8ae0bab07e52689699a7fe8dacbac7",
+      "uncompressed_bytes": 795,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-status.json",
+      "sha256": "f0fc1642c5fcf8a82b658654a232bc07ca4ad9fcd966d6f478c9faff3735a2da",
+      "uncompressed_bytes": 1464,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-10-target-http.log",
+      "sha256": "f11903d21364a64e50064994e145f5a44094748f240b542ecd38459422b06520",
+      "uncompressed_bytes": 1065,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-active-http.log",
+      "sha256": "978c4397c71c4c7296697683829eb34c5fb9a56048dddb9fa726f702910b972f",
+      "uncompressed_bytes": 728,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-active-identity.json",
+      "sha256": "3cffb45bc13a16b4585a9f87c82d43a2d83b3c214ee934841a4bf1c094056d5d",
+      "uncompressed_bytes": 265,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-evidence.log",
+      "sha256": "1cd391980b35759c3e3fbe3e00a91d96b4dbd0c73ce82e533066131780462b9c",
+      "uncompressed_bytes": 2552,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-evidence.result.json",
+      "sha256": "d998eb8fe8a62a1efbe62e13198afd10d2ef531d70c7a83da957f096e9ba60ea",
+      "uncompressed_bytes": 501,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-followup-relay.log",
+      "sha256": "d27852bf6f8c8ead4b3e5805760f83f18b66f29a009addd81b2e0cf57722e7c9",
+      "uncompressed_bytes": 807,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-followup-relay.result.json",
+      "sha256": "a10155c6fb1805536e56ea223d535bf17ea028f10e54da8f3ee1e6a6bdc1a92a",
+      "uncompressed_bytes": 576,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-relay.log",
+      "sha256": "1685dbd5da9515618d4c5cc20629e396901df697d2022a6fddfbcdd8716d0c43",
+      "uncompressed_bytes": 807,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-relay.result.json",
+      "sha256": "010e0c63136722b6e2cecec77ad46e287ba6fb64047843507deecc8f1ac8668a",
+      "uncompressed_bytes": 567,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-review.json",
+      "sha256": "3981115271d431dfd74a936d11a2e36a092a4579901c11224d449714812c63e0",
+      "uncompressed_bytes": 888,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-status.json",
+      "sha256": "010d0e4f4a801eb7be3b2d3a9d92279980a3c2871f34f31be08011f1681e4444",
+      "uncompressed_bytes": 1465,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100-target-http.log",
+      "sha256": "4f938a961c80458962a93aa46baabe151e170bfec5898a66190d23fe6e727c8d",
+      "uncompressed_bytes": 1086,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100.log",
+      "sha256": "b894f2e792f65baae7bc6ad7135616986c43d3203e5fc6fc03712cb57ef28534",
+      "uncompressed_bytes": 1297,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-100.result.json",
+      "sha256": "1709d3511bf76ff5db30ccd9d1f9a31048c288e26443c5a7f21e0a16bf0afeb1",
+      "uncompressed_bytes": 787,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-active-http.log",
+      "sha256": "d67c97b6d5a9a909ba07117911b03fb399c6ad4f9dbdfbcfea91449853573dcc",
+      "uncompressed_bytes": 1168,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-active-identity.json",
+      "sha256": "3cffb45bc13a16b4585a9f87c82d43a2d83b3c214ee934841a4bf1c094056d5d",
+      "uncompressed_bytes": 265,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-evidence.log",
+      "sha256": "2cac646fbbbda47c41bc2918537ecb97630bcce9f7df0961ad05c9d6695456ec",
+      "uncompressed_bytes": 3022,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-evidence.result.json",
+      "sha256": "a8a03344ca01172c296987aff8e86efa135501acc9776510371eaf2c00b332ee",
+      "uncompressed_bytes": 499,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-relay.log",
+      "sha256": "6aba5a38be059f5a4e740fc322a1d17525d0ff6139151aee7d52ae5f51b8a75d",
+      "uncompressed_bytes": 807,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-relay.result.json",
+      "sha256": "cc3396247f825128d60151c229de5db8a5fa712951819522e0546c322703b086",
+      "uncompressed_bytes": 566,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-review.json",
+      "sha256": "5d70652c7edf1f02332a902a8694ce4a5149207e55ce3b136cb9f5ec1d3a5213",
+      "uncompressed_bytes": 638,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-status.json",
+      "sha256": "3f422e34b1c968a861c09ef9972ffeaff94a02761ee95b3bcc955450ad3fa88a",
+      "uncompressed_bytes": 1464,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50-target-http.log",
+      "sha256": "dffd8a946024f6860216af1fee41fd4145ef471155f6bde3eba728662c8ac8b0",
+      "uncompressed_bytes": 1079,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50.log",
+      "sha256": "d1c4c7e3cef5bec59df2357cc8fe365858fe6f1dc35caf8d63be59dcad719dfd",
+      "uncompressed_bytes": 1296,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-50.result.json",
+      "sha256": "931a199e75a62c71d61f995faf15cd1b463e6d6353bb9c0e155708a69a907e0a",
+      "uncompressed_bytes": 785,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-start.log",
+      "sha256": "74791d0cb36ad5cba94580eb36c4a2f2dc769f5666a7f303a09b99d7593e128d",
+      "uncompressed_bytes": 1296,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-canary-start.result.json",
+      "sha256": "d0ceb4a3104982be662487af05c1a27f9a6b68b25e2e0619fd5717b1540aa20d",
+      "uncompressed_bytes": 794,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-candidate-acceptance-fixed.log",
+      "sha256": "b912027ae7a421ebdabe4d4a4c9f28116f205f29ba5f652c7d5125201c155bf2",
+      "uncompressed_bytes": 357,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-candidate-acceptance-fixed.result.json",
+      "sha256": "13c6c2128db57e019998ae034954956e5e4a4a9d4b1d9c06ae3587124b1cfaed",
+      "uncompressed_bytes": 753,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-candidate-acceptance.log",
+      "sha256": "f0c56e5c6a78bdec9873c9549008e43278f317d04adf3e97cd0208b60f1b7b93",
+      "uncompressed_bytes": 157,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-candidate-acceptance.result.json",
+      "sha256": "e0c1365f9ec09011816abf9d3fe048ed26c78e8c1c76d2da3bd0fade62c0fbf0",
+      "uncompressed_bytes": 747,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-handoff-ready.log",
+      "sha256": "db8ad25df524ac2ea82eaf4b58fd9f62637b465a01bda01a3e746aab3edc5d8a",
+      "uncompressed_bytes": 296,
+      "handoff_token_redacted": true
+    },
+    {
+      "path": "A-handoff-ready.result.json",
+      "sha256": "56b04254079aa5a7d9778cb614c8e159ff1fcf21deb643dc78a70a9f9447c36c",
+      "uncompressed_bytes": 880,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-post-error-window.log",
+      "sha256": "3987d48a287bf1e4be7c34282d16f789c1bc2493c784b1dda475805de032bf75",
+      "uncompressed_bytes": 927,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-post-error-window.result.json",
+      "sha256": "ef04c3792f3dfc9aa4fb06dfe0b514eb00aa9771ff7265c68c01666bb7016707",
+      "uncompressed_bytes": 568,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-post-release-snapshot.log",
+      "sha256": "4f38d9b399fc15f010ea0f51f354f796857783588fc1546dcdc73b58c1cbbad5",
+      "uncompressed_bytes": 1419,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-post-release-snapshot.result.json",
+      "sha256": "8c86f41e0eb52f7d9c34b471af38b2be20d6f028a9abf0ca46eb688551d46712",
+      "uncompressed_bytes": 684,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-promote-controller.log.gz",
+      "sha256": "d31339c92098810481d22aec990f24a8e39416e41279de57ff6c36c5601077e2",
+      "uncompressed_bytes": 14893,
+      "handoff_token_redacted": true
+    },
+    {
+      "path": "A-promote-controller.result.json",
+      "sha256": "465bc03813b20f007edd117ca92f46c1a0a0db33423049ea558b5b9b7e6c2e60",
+      "uncompressed_bytes": 850,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-promote.log",
+      "sha256": "74b70f8a6f208de73e09ed0693e938dc99268f277e0ccb5f2558eb1224e065b9",
+      "uncompressed_bytes": 63,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-promote.result.json",
+      "sha256": "c106db719944aeec8fedb379cd0442c50e0fb5134047135159d13e8da6d1cc6e",
+      "uncompressed_bytes": 691,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-public-acceptance.log",
+      "sha256": "3de0a3d50ec8b9bbe07ddca8bb2b72e5baa3e2ee9f0041434bdb2fb5ea3d3e59",
+      "uncompressed_bytes": 538,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-public-acceptance.result.json",
+      "sha256": "2bd494af4c2a695dbcd9a45c07e73e5e2ed1c4a7486548f3040c0f2d5258c7b8",
+      "uncompressed_bytes": 741,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-state.json",
+      "sha256": "d8d6a2b244aeee4a48e4ff81172692e1d96e85e4077b141feca8015ff2786b9a",
+      "uncompressed_bytes": 1904,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-status-delayed.log",
+      "sha256": "19b4ca8a12bda4cb2eca546a49a8d7a1f7cefe40a9511dc7f57cdb7c30e1a1ca",
+      "uncompressed_bytes": 275,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-status-delayed.result.json",
+      "sha256": "d8de8cf429ea12cdfd490f0f4b140efa45d66dbe75eea82d20d00018893fbc04",
+      "uncompressed_bytes": 378,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-status-immediate.log",
+      "sha256": "19b4ca8a12bda4cb2eca546a49a8d7a1f7cefe40a9511dc7f57cdb7c30e1a1ca",
+      "uncompressed_bytes": 275,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-status-immediate.result.json",
+      "sha256": "854cfaabc50bd1e4c1fb985e69742ec299606fc84dc810b8cc4a86e59e385ea2",
+      "uncompressed_bytes": 380,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-wallet-existing-log-observation.log",
+      "sha256": "c4dae495d54a3d010007915a6124ecb23d8c35c10e55ca9d8ade143021e85fd4",
+      "uncompressed_bytes": 64,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "A-wallet-existing-log-observation.result.json",
+      "sha256": "b6b771d529818f332b75c047af4dc6af45c25d86d4ba6dd03592e6eab5a13db0",
+      "uncompressed_bytes": 694,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-active-http.log",
+      "sha256": "d30e696b749e38e622e8c875c7f5f6eb99c838228da9d4dfb61157bf9ea1bb71",
+      "uncompressed_bytes": 1167,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-active-identity.json",
+      "sha256": "5ce7f7e734fbfbd123810ed469f22febc69a1871b5dafb7acd9ccebcfef20d2b",
+      "uncompressed_bytes": 264,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-evidence.log",
+      "sha256": "d98621e28b4c906e98e8b53bd00b19b1fc531e47dfde411e34da4b82ae0ea08b",
+      "uncompressed_bytes": 2919,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-evidence.result.json",
+      "sha256": "afff44437d442f8bff18e34e72afcc99d225afd5b055731cece5c7265ef9f500",
+      "uncompressed_bytes": 499,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-relay.log",
+      "sha256": "ecab3c1413655fb482416990e015023491d3b9d97558b12c4414fe7cda378a57",
+      "uncompressed_bytes": 796,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-relay.result.json",
+      "sha256": "63685a5541cc9340f72f875068c855b231883e8d1145bcdc0d2da0facf7fd972",
+      "uncompressed_bytes": 566,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-status.json",
+      "sha256": "3187cc17829b58ec3278bb48a544c5e2f505ec1982adfbb1f2bd138e7835da58",
+      "uncompressed_bytes": 1464,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-10-target-http.log",
+      "sha256": "0a4750d4c2bc04f5a4719684964c83aed135d1f8d45449b60273493e2e1b53f7",
+      "uncompressed_bytes": 985,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100-active-http.log",
+      "sha256": "33dbd8f7f9fd4dcfb83851d63a12066124691cc49d190d35934d674f15ebbc91",
+      "uncompressed_bytes": 727,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100-active-identity.json",
+      "sha256": "5ce7f7e734fbfbd123810ed469f22febc69a1871b5dafb7acd9ccebcfef20d2b",
+      "uncompressed_bytes": 264,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100-errors.log",
+      "sha256": "f2dc7441da9de7554fba0fcf4905096c1cb01c97e5581365fdf397cca543d5fe",
+      "uncompressed_bytes": 796,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100-errors.result.json",
+      "sha256": "cfd1ad353f4cf6e50f80f2f8b07469914c88452f9aaec26ec5a7f22bd3693d22",
+      "uncompressed_bytes": 568,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100-status.json",
+      "sha256": "e9f084e6c97921e9e6f2da2e48adc48390f6131ed6b08cb5df457fa6c82ba79f",
+      "uncompressed_bytes": 1465,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100-target-http.log",
+      "sha256": "282ee973037bf63f0eef730bdfcafb1745ae2681de62803db6ca7c83eb555f0c",
+      "uncompressed_bytes": 1166,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100.log",
+      "sha256": "e645ff53540b3f2d5319ea6068bee994d6a324e407c26ab10299991766a3217e",
+      "uncompressed_bytes": 1297,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-100.result.json",
+      "sha256": "3868d5d5de356d2012775c5cc016c7c56362ef62bb15299ed6f18f2d53a95384",
+      "uncompressed_bytes": 787,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-active-http.log",
+      "sha256": "32e6efd9ae4893cdd80dc48a64ef2c998148bb80586f38d96b09ff61452b321a",
+      "uncompressed_bytes": 1084,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-active-identity.json",
+      "sha256": "5ce7f7e734fbfbd123810ed469f22febc69a1871b5dafb7acd9ccebcfef20d2b",
+      "uncompressed_bytes": 264,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-evidence.log",
+      "sha256": "fa251e1651983e84e8ae0bf5123ba61760122f0369e0362f17db2cc6371477cf",
+      "uncompressed_bytes": 2935,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-evidence.result.json",
+      "sha256": "70c7ba09e1adc5592bf4ce580d4c081744ebe31b29fffd18feedc96e4a181a72",
+      "uncompressed_bytes": 499,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-relay.log",
+      "sha256": "daabba11d845a54eee6e8c83721d1f5a0a591e7f166ed871c4b1a54cbef2a0df",
+      "uncompressed_bytes": 796,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-relay.result.json",
+      "sha256": "d696db169e7dc77b104fec4e1a213aa66da90181d987a7fa8a83abf0f6d98935",
+      "uncompressed_bytes": 566,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-status.json",
+      "sha256": "913f9795d8771c311e3047c99934fb305b68cab09590a81c3e6469659704e3e5",
+      "uncompressed_bytes": 1464,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50-target-http.log",
+      "sha256": "38f23f8e9d436d6d3a804a4bda3e72ddd9f17a2b6e74c26d21297f4456ea224d",
+      "uncompressed_bytes": 1084,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50.log",
+      "sha256": "0e6c79e867639e5e70720687c41598c581e6de396ee2eb27e32a966cb0e02aae",
+      "uncompressed_bytes": 1296,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-50.result.json",
+      "sha256": "0e0d63fb348c0f2093bd8e078abc55b64cabe3472c59c4d92b2167a501e9ee7b",
+      "uncompressed_bytes": 785,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-operator-review.json",
+      "sha256": "faeb4e915f13f14e54c0e1f00ad45920234fdd79c02e4a290386d439d94a4701",
+      "uncompressed_bytes": 1255,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-start.log",
+      "sha256": "93790581b25b277ab59f8f2112758d1de3ed507bb5914b51853953fc0915edd5",
+      "uncompressed_bytes": 1296,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-canary-start.result.json",
+      "sha256": "28e972f05615311c658828110ad4658c1a55936fd581471162c4fa86cc8bb596",
+      "uncompressed_bytes": 795,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-candidate-acceptance.log",
+      "sha256": "e09d4e6e5de9c2944b2088d288e7129e15495cdf9a788312eafe78c005e180c9",
+      "uncompressed_bytes": 542,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-candidate-acceptance.result.json",
+      "sha256": "5c8d79bb0e8fb1b03fca2f63dfff9da975e08ef737de3c9c87924f5ccc79e07e",
+      "uncompressed_bytes": 747,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-handoff-ready.log",
+      "sha256": "795484cca7f963d69b7ec0b4f21e0c246c3703446d7911e5dbe64434e8f4d6cd",
+      "uncompressed_bytes": 296,
+      "handoff_token_redacted": true
+    },
+    {
+      "path": "B-handoff-ready.result.json",
+      "sha256": "369ea55a0cca7aae4858aed39711d5d350d9eb88de8ec0f14628ae8c03ec443a",
+      "uncompressed_bytes": 879,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-post-error-window.log",
+      "sha256": "c2517062ce0b1bb91cd3ccaf8ca3d6457e8736a864c65bcd7b94acade6ebd723",
+      "uncompressed_bytes": 887,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-post-error-window.result.json",
+      "sha256": "b48bb1ae1f2be64c56545f3f338e06a3a345e0eb7c244d83be507f577b181f05",
+      "uncompressed_bytes": 568,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-post-operator-review.json",
+      "sha256": "24a1b699b9546e08060a356c47c9b57b49ffe9155fdc29cc4671333eb5725934",
+      "uncompressed_bytes": 878,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-promote-controller.log.gz",
+      "sha256": "fa1ff9ff42371f052f88311ff80ec701f30367ce2b81f3976d2a623dc941cd15",
+      "uncompressed_bytes": 14900,
+      "handoff_token_redacted": true
+    },
+    {
+      "path": "B-promote-controller.result.json",
+      "sha256": "9a0ec448dea6bf83d39daf82b74baccc3d6d0bb0f253f65e56ab79eb7e5596a2",
+      "uncompressed_bytes": 850,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-public-acceptance.log",
+      "sha256": "2c1b45625c623e1c08e72606cbfb7eb6ca08e9dee48e5672c4fd9dfbf28dd385",
+      "uncompressed_bytes": 539,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-public-acceptance.result.json",
+      "sha256": "a239ee3a1e9a26025bb2d4957183fb7b665f7328cd29431741b63faca747ec0e",
+      "uncompressed_bytes": 747,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-release-snapshot.log",
+      "sha256": "3895d7a787d8b6c1beaa99475a85bce5a6ce6f30e14c55ef3e7d8015d75713f4",
+      "uncompressed_bytes": 1419,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-release-snapshot.result.json",
+      "sha256": "9326d7b67bcbd8ddd52c2c21f9f289581031c3334ac5bc832bdb3e23b69c2174",
+      "uncompressed_bytes": 687,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-state.json",
+      "sha256": "9c8cfbc7433c52bf18c972094f4b2e831131947a193bd2865f027de411fcd9ad",
+      "uncompressed_bytes": 714,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-status-delayed.log",
+      "sha256": "9202b9a228a64c7cefe9f2cf832cadd9852f6ff28b3d7e4905ed113935e08de0",
+      "uncompressed_bytes": 276,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-status-delayed.result.json",
+      "sha256": "b6aeef8a2d3f7a99f703fa16f0feac66dc2b8d99709fc4b97cc0e5bf04decce8",
+      "uncompressed_bytes": 378,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-status-immediate.log",
+      "sha256": "9202b9a228a64c7cefe9f2cf832cadd9852f6ff28b3d7e4905ed113935e08de0",
+      "uncompressed_bytes": 276,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "B-status-immediate.result.json",
+      "sha256": "617a73743a5d5434e0d7756554a47b677fa19af32f9e122df1e4af09be55590e",
+      "uncompressed_bytes": 380,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-acceptance-checklist.md",
+      "sha256": "1ab16c305f398521da642c15c78c8cef5c24add9e2897729a5b3fb9ba7e85cf6",
+      "uncompressed_bytes": 6976
+    },
+    {
+      "path": "billing-acceptance-sql-verification.json",
+      "sha256": "00fca5abddc3fb995bf8b45139ad38113068704a84570bf2dc336cb21b559bfb",
+      "uncompressed_bytes": 992,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-acceptance.py",
+      "sha256": "b76cb9f7c7ba22ed74871225cdb8cf99a88828194e0f148d7cc82d48973b1e76",
+      "uncompressed_bytes": 9012
+    },
+    {
+      "path": "billing-after-observe.log",
+      "sha256": "f0dc46b32b145ebfd01ee17a6096236793eb9854736d81323632e477e139412a",
+      "uncompressed_bytes": 1641,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-after-observe.result.json",
+      "sha256": "19fabc86c316cd0af271c3f112fe240ec8f82f40e8335e650f7f1699d1eea926",
+      "uncompressed_bytes": 752,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-apply-first.log",
+      "sha256": "2936cf30825ac8943db05a5ca85ce4b1b9d0b7bebadb97ae8200546169945db7",
+      "uncompressed_bytes": 1920,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-apply-first.result.json",
+      "sha256": "9231b302bd1a0dc5a78c7371fd4fb2ba01831c162e8c520b34d36cf4549d096f",
+      "uncompressed_bytes": 748,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-apply-repeat-baseline.log",
+      "sha256": "b2e4a0f739cf16c3183b110c1f5f2392b2255270f7588c8f9398363ac738662f",
+      "uncompressed_bytes": 1930,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-apply-repeat-baseline.result.json",
+      "sha256": "3e23ac3017138cc215a9892509d77d3fee7660a20e99fad763f49b807c7b7bf1",
+      "uncompressed_bytes": 768,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-apply-repeat-check.log",
+      "sha256": "504766eb8d01a752f9edc763f373387c81d3a8fcf00cafad4f57f710d3c59e20",
+      "uncompressed_bytes": 1928,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-apply-repeat-check.result.json",
+      "sha256": "d204f1a3c7a449e4a379865d3900692f45bfdd15a9104cfd86881c6b4ed6a593",
+      "uncompressed_bytes": 762,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-baseline-fixed.log",
+      "sha256": "28a4d2c65905bc7942abf09f32629f7cc62b34e3737371d89139db299364b51c",
+      "uncompressed_bytes": 1462,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-baseline-fixed.result.json",
+      "sha256": "b3c90f785e67d11803e9f0943e7f6a681ed1a89ac4b8015659203b28b6dfcacc",
+      "uncompressed_bytes": 748,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-baseline.log",
+      "sha256": "e367548d0711d284a5bb4d932685fbc881d7485140d272a5e44663b63bec016f",
+      "uncompressed_bytes": 606,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-baseline.result.json",
+      "sha256": "e370310b199c50a85242ee2cd11a97810906ecf2398b7cf6a845048c74211821",
+      "uncompressed_bytes": 742,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "billing-before-A.json",
+      "sha256": "351b461b8d83185f21ab1e6a9b075b939e97810234b4fa73b9166a8b712f0f28",
+      "uncompressed_bytes": 601,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "final-acceptance.json",
+      "sha256": "b0a1c68865fa6061bb8cf2037401374a65e627a8b2c7c9f96a48a75dae035c33",
+      "uncompressed_bytes": 848,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "final-release-snapshot.log",
+      "sha256": "3895d7a787d8b6c1beaa99475a85bce5a6ce6f30e14c55ef3e7d8015d75713f4",
+      "uncompressed_bytes": 1419,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "final-release-snapshot.result.json",
+      "sha256": "156b0c9ef589c703baca427dbe2e76e6b3337f3e7cc75895d7c577c16e560b6b",
+      "uncompressed_bytes": 691,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "final-status.log",
+      "sha256": "9202b9a228a64c7cefe9f2cf832cadd9852f6ff28b3d7e4905ed113935e08de0",
+      "uncompressed_bytes": 276,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "final-status.result.json",
+      "sha256": "b3f65030596eaa5744be3d24a1ffc926dcd9f163823217ac5679324412e3f98f",
+      "uncompressed_bytes": 374,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "local-cleanup-inventory-final.json",
+      "sha256": "42d48c2769e6e3fa2f0349941b074e94cabb0bb47a832f5a7e1c804727ba52df",
+      "uncompressed_bytes": 4625,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "local-cleanup-receipt.json",
+      "sha256": "ac909a5bea2e2867846f5091de38cf0ba62b241cbe9e8b2828f38608c8046f0e",
+      "uncompressed_bytes": 1667,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "migration-disposition.json",
+      "sha256": "f9a4f033dbaa965f3179fdc184f2bdb59d7603bbf0cd99ab69166211f662610a",
+      "uncompressed_bytes": 928,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup-ingest.log",
+      "sha256": "4fa11e008f37cb6ea72163cd999655fcbf8dcd34ec33bf353e44e941e66750d9",
+      "uncompressed_bytes": 176,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup-ingest.result.json",
+      "sha256": "04befa5acbeea394bfe3080a00942d4eca57096fe66787c281e897b4fec148e3",
+      "uncompressed_bytes": 585,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup-manifest.log",
+      "sha256": "77129d5e25b1a6821e5310bd9badcbd76158b6a0f071eef774cfd9a1a392699c",
+      "uncompressed_bytes": 1088,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup-manifest.result.json",
+      "sha256": "9fc192ba36f820f88b9c2ea8b1c13600ba4e1bc0038626ccbbd3113fb5d4c4e0",
+      "uncompressed_bytes": 552,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup-verify.log",
+      "sha256": "adf91471e973980c491d2beda406779afec1718328d3a4d9bdc8995aa759a0d8",
+      "uncompressed_bytes": 122,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup-verify.result.json",
+      "sha256": "f0ec554707085aff22add184a18dad3a557e8c771fff90af57f9afcc6b428604",
+      "uncompressed_bytes": 585,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup.log",
+      "sha256": "9ed7741b07847469bddb522abea6e8106d06c1a981e51b44614c367575e5a2c1",
+      "uncompressed_bytes": 86,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "pre-v21-backup.result.json",
+      "sha256": "48f2fea28f3ce266717eb5d46a4e9f7397d35f7a16f1e2c59f4b9ddd90eb85e9",
+      "uncompressed_bytes": 742,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "production-cleanup-inventory.json.gz",
+      "sha256": "59f2709e96859ef1a12225b45a5c75f69f7a49209825d221e062b20f8a56aca7",
+      "uncompressed_bytes": 262618,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "production-cleanup-receipt.json",
+      "sha256": "2f4129399119bb1f1e1e78308a8c11d0a4a18521f82985094b6457cfcf818d34",
+      "uncompressed_bytes": 1332,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-apply-rounds.log",
+      "sha256": "ce272106d787045fb98c58b9821ca1075ad97a8fef4ff2b42b2008a7d907d7f9",
+      "uncompressed_bytes": 1117,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-apply-rounds.result.json",
+      "sha256": "e0ffe179e575dacee73a74312c720e3b7130158a34ded1c1cfbf98e532d8bf9c",
+      "uncompressed_bytes": 701,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-apply.log",
+      "sha256": "34e2d4e358895b33c70c0db0f84aa3c6ec313c6fe726b7c2f9738aacb2d68761",
+      "uncompressed_bytes": 3013,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-apply.result.json",
+      "sha256": "cedc65eede7bcf8729aaa1c6b5236e312844daadc1d84cab12d4a41513e7b257",
+      "uncompressed_bytes": 854,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-error-window.log",
+      "sha256": "61dc466075785cb816ee7f1e425b8c71c18e51e123a6600eb2b84a61e733bfc7",
+      "uncompressed_bytes": 906,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-error-window.result.json",
+      "sha256": "c9b6e65fa311b87b48e3df8b5c4c9f373dbd3a4f98cd952e47448ee1c105d88a",
+      "uncompressed_bytes": 570,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-final-rounds.log",
+      "sha256": "4e51c404bce004f12ca3290f15017f9bd10701e1bb02784a82cede9c83f4d093",
+      "uncompressed_bytes": 1717,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-final-rounds.result.json",
+      "sha256": "0cc23d5b8d2b4e9f1f78fbe9825f494604fa89b36c27f3f56f4ff8daf15698c0",
+      "uncompressed_bytes": 701,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-observe-rounds.log",
+      "sha256": "051487db4cc8bbc33da7a6c692c193612536985825878ffe60ffe90dd37a3c6b",
+      "uncompressed_bytes": 517,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-observe-rounds.result.json",
+      "sha256": "de84aaf0a4f4d7ba4ae791937f1e57fd64ff6443a4e72aefe085d5cf95f41181",
+      "uncompressed_bytes": 703,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-observe.log",
+      "sha256": "f31c524f9ef742082ac30039b514e9bf9b6467a9a301c1290c95712484a8e987",
+      "uncompressed_bytes": 3025,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-observe.result.json",
+      "sha256": "9c4e8df4e4156d2f041f64402e60819a53eb24e8dc9d8505613078f3387c4b91",
+      "uncompressed_bytes": 858,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-pause-after-observe.log",
+      "sha256": "91aee7512e84e9a6619ca1008cc140bd35dcec65aac85c80b0779621e4596808",
+      "uncompressed_bytes": 1254,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-pause-after-observe.result.json",
+      "sha256": "5fd70fba2e3d1b51525b7a7864aae9c6f02d13e5b8c8222e68c2b235bd11535e",
+      "uncompressed_bytes": 800,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-paused-baseline.log",
+      "sha256": "0f457a3985e16338b018b95b155b64731d1c1d1bf433d661fd12c66807f69a17",
+      "uncompressed_bytes": 1254,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-paused-baseline.result.json",
+      "sha256": "56f8be09b7e306a644176e48362b1b835462302913609dcd2cb4ac82dd558dc6",
+      "uncompressed_bytes": 796,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-public-acceptance.log",
+      "sha256": "2ffb7b648346e9a59243cd29b5c70fc36cecca850e68d00ba8bbba49eea55a3f",
+      "uncompressed_bytes": 539,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-public-acceptance.result.json",
+      "sha256": "47745932d0724011104a114cd194bc062eb65024fa73da0365a1b3cb68a2918d",
+      "uncompressed_bytes": 742,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-status-current.log",
+      "sha256": "d4d3bb79c274586d6d49d519e4c65674cee813fe3214e47f0755392df39c185a",
+      "uncompressed_bytes": 1250,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "recovery-status-current.result.json",
+      "sha256": "ad3ae90057bb17c573d133b8cd5d448e0c32c995c655e73aaca4b5a80ac989c0",
+      "uncompressed_bytes": 779,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-after-failure-status.log",
+      "sha256": "764add95fde9a557461ffb266c67c805c2893154a11f93cfbda91b715cf9010a",
+      "uncompressed_bytes": 5971,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-after-failure-status.result.json",
+      "sha256": "a8a55bf7cbfc123b9f6e9bba95419609aa2622f4bad144106b3ef389dc834278",
+      "uncompressed_bytes": 789,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-apply.log",
+      "sha256": "d0f972999be183e3d526e62b1ce5fb47ad1d548881794febb00f2abd30182117",
+      "uncompressed_bytes": 105,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-apply.result.json",
+      "sha256": "e6153b6c828eaa512d2ac37d1344b964ebea3fe7714dd823d11558c5b0ab7058",
+      "uncompressed_bytes": 874,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-completed-replay.log",
+      "sha256": "1751ea20060c43ecfbe699eb6c492c7d66af6de20f7fdb72c5bfec39dc2143eb",
+      "uncompressed_bytes": 880,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-completed-replay.result.json",
+      "sha256": "0467f4a4b9888055210f5db462e167d689eb0dd39d212ca85a83180f9f6b4baa",
+      "uncompressed_bytes": 885,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-failed-audit.log",
+      "sha256": "6701ea5fbecbd3a34f0f60344fe20a50554690082a109c05d17c12947e451064",
+      "uncompressed_bytes": 725,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-failed-audit.result.json",
+      "sha256": "69f0aeaa3c12a30ac13fb0fc4d2cbd62835393fe3c99b532f85e94ce595e38c5",
+      "uncompressed_bytes": 764,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-plan.log",
+      "sha256": "3550fbbc78b0b741d3f6102c2e9ba723602b8f01b33138a4c00e0233f0d7f68a",
+      "uncompressed_bytes": 5972,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-plan.result.json",
+      "sha256": "d9e4433c7601d70c72269d94ec2525c4e2d9ab8e3c8b83a94781b248a2d247e9",
+      "uncompressed_bytes": 771,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-post-status.log",
+      "sha256": "9202b9a228a64c7cefe9f2cf832cadd9852f6ff28b3d7e4905ed113935e08de0",
+      "uncompressed_bytes": 276,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-post-status.result.json",
+      "sha256": "5c11daf19d941c1219bb51a65ae932e7e94d7c727feec742233b7f84c09fd116",
+      "uncompressed_bytes": 377,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-release-snapshot.log",
+      "sha256": "3895d7a787d8b6c1beaa99475a85bce5a6ce6f30e14c55ef3e7d8015d75713f4",
+      "uncompressed_bytes": 1419,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-release-snapshot.result.json",
+      "sha256": "4eaa9ecc8a7f33776076e1c93cd0be39cce5d94d0750d138b57680ea2168675d",
+      "uncompressed_bytes": 689,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "v21-role-check.json",
+      "sha256": "1c995def679a6f1d99b934ad6df77b291577084690518dd1833ed23879b6dc60",
+      "uncompressed_bytes": 152,
+      "handoff_token_redacted": false
+    },
+    {
+      "path": "worker-observe.py",
+      "sha256": "3f029aaaad59836f345e51c14f92bd7f5ae73ee7342a60fd40aa31ea401169e5",
+      "uncompressed_bytes": 1535
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "version": "kkai-prod-20261109.1794233284-fc46400f3",
+  "metadata": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794233284-fc46400f3.json",
+  "baseline_start": "2026-11-09T14:42:51Z",
+  "baseline_end": "2026-11-09T14:47:51Z",
+  "active_baseline_slot": "blue",
+  "active_baseline_version": "kkai-prod-20261109.1794225812-2648161ab",
+  "target_slot": "green",
+  "rollout_id": "205a2803651648649462314b24ced0fd",
+  "candidate_acceptance": "B-candidate-acceptance.log PASS",
+  "canary_10_start": "2026-11-09T14:51:35Z",
+  "canary_10_end": "2026-11-09T14:53:35Z",
+  "promoted": true,
+  "post_start": "2026-11-09T15:07:59Z",
+  "post_end": "2026-11-09T15:12:59Z"
+}

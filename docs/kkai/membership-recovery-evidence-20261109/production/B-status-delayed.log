@@ -1,0 +1,9 @@
+python3 scripts/production/newapi_status.py
+KKAI New API status: HEALTHY
+Service: active
+Release: /srv/kkai/newapi-releases/kkai-prod-20261109.1794233284-fc46400f3
+Active slot: green
+Version: kkai-prod-20261109.1794233284-fc46400f3
+Health: ok
+Snapshot: stable
+Rollback: ready

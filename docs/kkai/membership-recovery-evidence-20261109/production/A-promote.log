@@ -1,0 +1,1 @@
+sudo: scripts/kkai/deploy-manual-release.sh: command not found

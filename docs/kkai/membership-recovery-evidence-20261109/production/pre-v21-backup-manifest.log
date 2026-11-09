@@ -1,0 +1,42 @@
+{
+  "schema": "kkai_core_backup_v2",
+  "created_at": "2026-11-09T15:09:33Z",
+  "source_host": "ovh-sys1-prod",
+  "database": "newapi",
+  "postgresql": "pg_dump (PostgreSQL) 18.4 (Debian 18.4-1.pgdg12+1)",
+  "encryption": {
+    "format": "age/v1",
+    "recipient_sha256s": [
+      "0c7d1b1533be70f0eb347e776be599b552d4aecf85cc06f66081b32da2183347",
+      "a0ea7bfdc4fdfe11e83071bed24045b47e90577dd2fc4b225ef2765c34962b71"
+    ]
+  },
+  "scope": {
+    "all_schema": true,
+    "all_data_except": [
+      "public.logs"
+    ],
+    "globals_roles": [
+      "postgres",
+      "newapi",
+      "newapi_standby",
+      "newapi_migrator",
+      "newapi_invitations_ro",
+      "newapi_balance_ro"
+    ]
+  },
+  "files": {
+    "newapi-core.dump.age": {
+      "sha256": "a162a7c1c31889a976e254b5d22871d681d89e7a8da71b8a3bc9c88197291955",
+      "size": 104695566
+    },
+    "postgres-globals.sql.age": {
+      "sha256": "09b2f9af4d2b3397870cd64fc81d4b8f94f96e970151f02003ec6c12404ea354",
+      "size": 3127
+    }
+  },
+  "validation": {
+    "age_encrypt_complete": true,
+    "pg_dump_complete": true
+  }
+}

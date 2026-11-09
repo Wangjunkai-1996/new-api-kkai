@@ -1,0 +1,1 @@
+{"cases": [{"case": "membership_chat_sse", "complete": true, "elapsed_seconds": 2.229, "http_status": 200, "quota_invariants": true, "settled": true, "source_matches": true, "visible_output": true}], "error_class": "AssertionError", "phase": "candidate", "stage": "wallet_settlement", "success": false, "version": "kkai-prod-20261109.1794225812-2648161ab"}

@@ -1,0 +1,16 @@
+{
+  "phase": "A-10",
+  "decision": "continue",
+  "target_requests": 52,
+  "active_requests": 594,
+  "http_5xx_both": 0,
+  "relay_global_only": true,
+  "finding": "One global openai_error404; exact source unknown, not attributable to target slot",
+  "independent_scope_evidence": [
+    "A exact diff does not change routes, upstream URL/model mapping or HTTP error conversion",
+    "Membership local billing errors use new_api_error400/403/409; new error handlers retain original upstream apiErr",
+    "A recovery fixed paused; MySQL claim change not executed on PostgreSQL"
+  ],
+  "limitation": "No assertion of identified provider incident or population latency equivalence; mixed traffic and global relay aggregate cannot prove target error rate",
+  "review": "operator and relay_lifecycle"
+}

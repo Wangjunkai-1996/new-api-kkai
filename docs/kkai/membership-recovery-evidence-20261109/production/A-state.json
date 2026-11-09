@@ -1,0 +1,35 @@
+{
+  "version": "kkai-prod-20261109.1794225812-2648161ab",
+  "metadata": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai/.local-releases/kkai-prod-20261109.1794225812-2648161ab.json",
+  "baseline_start": "2026-11-09T14:03:52Z",
+  "baseline_end": "2026-11-09T14:08:52Z",
+  "active_baseline_slot": "green",
+  "active_baseline_version": "kkai-prod-20261109.1794205854-922db66ba",
+  "target_slot": "blue",
+  "candidate_acceptance": {
+    "result": "accepted_with_checker_correction",
+    "membership": "exact candidate SSE completed; unique member ledger settled and all quota invariants passed",
+    "wallet": "SSE completed; no membership ledger expected for nonmember; one matching operator consume log in bounded request interval, wallet source, quota7",
+    "limitations": "wallet consume log is functional billing evidence; no concurrent wallet balance-delta proof",
+    "evidence": [
+      "A-candidate-acceptance-fixed.log",
+      "A-wallet-existing-log-observation.log"
+    ],
+    "initial_identity_failure": "urllib timeout passed positionally; fixed before paid request"
+  },
+  "rollout_id": "549a9755717047fb94837638bbb92e63",
+  "canary_10_start": "2026-11-09T14:17:36Z",
+  "canary_10_end": "2026-11-09T14:19:36Z",
+  "candidate_start": "2026-11-09T14:39:45Z",
+  "candidate_end": "2026-11-09T14:44:45Z",
+  "promoted": true,
+  "accepted": true,
+  "post_release_review": {
+    "status_immediate": "HEALTHY exact A rollback ready",
+    "status_delayed": "HEALTHY exact A rollback ready",
+    "public_acceptance": "member SSE ledger settled; wallet SSE consume log verified",
+    "error_window": "A-post-error-window.log",
+    "assessment": "No new recovery/billing error origin found; all10 openai_error in unchanged response handling; exact provider causes not identified. Original counts retained.",
+    "cleanup": "v10 schema snapshot retention guard, protected assets retained"
+  }
+}

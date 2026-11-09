@@ -1,0 +1,26 @@
+{
+  "reviewed_at": "2026-11-09T15:11:47.448627+00:00",
+  "reviewer": "Codex executing operator",
+  "version": "kkai-prod-20261109.1794233284-fc46400f3",
+  "rollout_id": "205a2803651648649462314b24ced0fd",
+  "result": "accepted",
+  "levels": [
+    10,
+    50,
+    100
+  ],
+  "minimum_seconds_per_level": 120,
+  "target_http_5xx": [
+    0,
+    1,
+    3
+  ],
+  "target_completed_requests": [
+    51,
+    303,
+    848
+  ],
+  "scope_evidence": "B vs A does not change relay/relaykit/request billing/cache/middleware. While control absent effective mode paused; worker returns before lease/account/ledger and funds. Only continuous change is one serial bounded options primary-key SELECT per second per B process. Candidate membership/wallet acceptance passed. Old active has relay_chat 5xx at 10/50. No candidate-specific regression identified.",
+  "limits": "Model log zero errors does not prove zero HTTP errors; precise pre-existing relay_chat failure origin unresolved. Request completion/header timing is not actual first content latency; local controlled first content evidence is separate.",
+  "at_100": "848 completed, 3 relay_chat 5xx; old active 0 requests expected at 100%; matching sixty-second model event window 109 total/0 error versus130/1."
+}

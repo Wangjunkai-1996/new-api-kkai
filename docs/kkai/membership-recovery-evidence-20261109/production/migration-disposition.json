@@ -1,0 +1,15 @@
+{
+  "time": "2026-11-09T15:26:41.726091+00:00",
+  "first_apply_exit": 1,
+  "first_apply_audit": "started then failed; retained",
+  "post_observation": {
+    "canonical_version": 21,
+    "safe": true,
+    "tables_indexes_receipt_verified": true,
+    "runtimes_unchanged": true,
+    "migrator_nologin_zero_sessions": true
+  },
+  "completed_replay": "official controller returned verified on target21; read-only branch, no DDL or login enable",
+  "root_cause": "Not uniquely determined. JSON mode disables normal GORM SQL logs. Shared15s CLI/5s statement budget includes repeated full-schema inspection before and after DDL; a postcommit inspection/cleanup/identity observation failure is possible. Do not claim proven timeout.",
+  "followup": "Infrastructure maintenance: preserve sanitized failing phase/error category for future migration diagnostics; no runtime/controller changes required for verified completed migration."
+}

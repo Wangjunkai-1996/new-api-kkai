@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-11-09T15:31:33.331181+00:00",
+  "accounting_all_snapshots_pass": true,
+  "fixed_terminal_sample_count": 0,
+  "fixed_terminal_repeat_evidence": "No natural terminal sample; empty fingerprint equality is not exactly-once evidence.",
+  "recovery_error_window": {
+    "baseline_total": 292,
+    "baseline_errors": 5,
+    "apply_total": 343,
+    "apply_errors": 2,
+    "apply_http_statuses": [
+      400,
+      404
+    ],
+    "accepted_by_operator": true,
+    "basis": "Public member/wallet requests and financial invariants pass. Five recovery rounds zero failures. New apply branch runs only after failed front settlement or in bounded worker; provider request construction unchanged. No candidate-specific failure found; exact origins of model error events unresolved. Rates are events, not terminal user failure rate."
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "command": [
+    "env",
+    "BASELINE_START=2026-11-09T15:24:00Z",
+    "BASELINE_END=2026-11-09T15:26:00Z",
+    "CANDIDATE_START=2026-11-09T15:27:00Z",
+    "CANDIDATE_END=2026-11-09T15:29:00Z",
+    "make",
+    "newapi-error-window"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra",
+  "started_at": "2026-11-09T15:30:07.773076+00:00",
+  "finished_at": "2026-11-09T15:30:13.511906+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-production-20261109-x4f45urq/recovery-error-window.log"
+}

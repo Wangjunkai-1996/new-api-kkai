@@ -1,0 +1,19 @@
+{
+  "result": "passed",
+  "scope": "PostgreSQL query syntax and aggregation types; frozen migration columns represented by empty typed CTEs",
+  "writes": false,
+  "production_access": false,
+  "local_container": "kkai-membership-perf-pg18-6a44d8",
+  "script_sha256": "d4cf7b95be1a35568f4454b8d7ab86cdaf22e3de49f207fd5569c09176aadb7d",
+  "query_sha256": "b263662245da7f13af8be8a15da4fe2da2c91a161b69188a80235fed1a15195d",
+  "elapsed_seconds": 0.136,
+  "limitations": [
+    "Local parser used postgres role and omitted SET LOCAL ROLE newapi_standby; production role/grants not checked.",
+    "No real tables or data read; no DDL, rows, roles or fixture writes.",
+    "Does not establish production performance or data correctness."
+  ],
+  "initial_check_attempts": [
+    "A local read-only database inventory command had a shell quoting error; corrected without writes.",
+    "An in-memory CTE generator regex failed before SQL execution; corrected. The acceptance script was unchanged."
+  ]
+}

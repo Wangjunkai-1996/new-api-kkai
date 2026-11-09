@@ -1,0 +1,17 @@
+{
+  "reviewed_at": "2026-11-09T15:15:13.780848+00:00",
+  "result": "accepted",
+  "version": "kkai-prod-20261109.1794233284-fc46400f3",
+  "baseline": {
+    "total_events": 727,
+    "errors": 5
+  },
+  "post": {
+    "total_events": 963,
+    "errors": 1,
+    "status": 502,
+    "route": "/v1/responses"
+  },
+  "basis": "Immediate/delayed HEALTHY, exact B public membership and wallet SSE billing PASS, rollback A max21. Responses provider path unchanged versus accepted A; recovery control absent keeps B paused before work/lease/account mutations. Independent scope review finds no new path causing observed provider error; no candidate-specific regression. Retain error as unresolved production event; this is not a claim of zero errors or proof of external fault.",
+  "backup_during_window": "Low-load guarded read-only encrypted backup 15:09:33Z; successful, no gate bypass."
+}

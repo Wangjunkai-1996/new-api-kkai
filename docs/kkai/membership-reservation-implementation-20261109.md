@@ -2,7 +2,7 @@
 
 日期：2026-11-09（含第二轮本地迁移与数据库验收）。依据：[开发文档](membership-reservation-development-plan-20261109.md)。
 
-本记录保留各轮实现与验证的真实边界，不把历史本地检查当作生产发布回执。已实现 P0/P1 本地异常恢复、公平核账、v21 专用迁移及 B 版本的持久暂停控制。用户已授权继续直到上线；A 兼容版本已构建，最终控制器已验收安装，B 正在完成精确提交的性能验收。两次兼容发布、独立迁移和恢复启用分别记录，完成前不宣称应用已上线。
+本记录保留各轮实现与验证的真实边界，不把历史本地检查当作生产发布回执。已实现 P0/P1 本地异常恢复、公平核账、v21 专用迁移及 B 版本的持久暂停控制。现已完成 A/B 兼容发布、canonical21 迁移及 apply 启用，生产健康、正常业务及全 scope 账务核对通过。自然退款/补偿样本尚未出现，不能据此称全部额度已返还。最终线上状态、首次迁移确认失败及恢复、清理和限制见[生产交付记录](membership-reservation-production-20261109.md)。
 
 ## 1. 已实现行为
 
@@ -62,7 +62,7 @@ v21 只新增 `kkai_membership_billing_recovery` 和 `kkai_membership_billing_sc
 
 feature 合约最大兼容版本为 21，最低/默认迁移目标仍为 14；bridge 合约保持原范围。已有 v1–v20 迁移回执与摘要保留。旧 v15–v19 控制器继续按各自冻结合约校验；当前 v21 二进制不能借 v20 凭证执行 v20 生产迁移。历史凭证篡改测试通过固定 v20 合约保留，新生产入口拒绝 v21 冒用旧授权。
 
-已提供 canonical/表列/主键/索引检查、离线扩展 API，以及独立 `--membership-billing-recovery-migration plan|status|apply` 入口。generic `--target 21` 仍只允许预检/dry-run，真实 apply 必须携带专用 root 只读凭证。控制器已在同级 infra 实现并通过完整本地 policy；Linux CLI + PG18 真实迁移演练已通过，但未安装到生产、未更改应用 controller pin。正式前提和兼容 A/B 版本顺序见 [infra runbook 32](../../../kkai-infra/docs/runbooks/32-newapi-membership-billing-recovery-schema.md)。
+已提供 canonical/表列/主键/索引检查、离线扩展 API，以及独立 `--membership-billing-recovery-migration plan|status|apply` 入口。generic `--target 21` 仍只允许预检/dry-run，真实 apply 必须携带专用 root 只读凭证。控制器已在同级 infra 实现并通过完整本地 policy；Linux CLI + PG18 真实迁移演练已通过；后续已安装精确控制器29e9a8e并更新pin，生产迁移结果见上述交付记录。正式前提和兼容 A/B 版本顺序见 [infra runbook 32](../../../kkai-infra/docs/runbooks/32-newapi-membership-billing-recovery-schema.md)。
 
 ## 5. 首批已执行验证
 

@@ -1,0 +1,33 @@
+{
+  "command": [
+    "ssh",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=12",
+    "-o",
+    "IdentitiesOnly=yes",
+    "-o",
+    "ProxyCommand=none",
+    "-o",
+    "ProxyJump=none",
+    "-o",
+    "KexAlgorithms=curve25519-sha256",
+    "-i",
+    "/Users/tokk/.ssh/ovh_sys1",
+    "sys1",
+    "sudo",
+    "-n",
+    "/usr/local/sbin/kkai-newapi-manual-deploy",
+    "promote",
+    "--expected-infra-sha",
+    "29e9a8e927ea35df939e912baa381e663591f4a2",
+    "--deployment-protocol",
+    "router-v3-staged"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai",
+  "started_at": "2026-11-09T15:06:32.408843+00:00",
+  "finished_at": "2026-11-09T15:07:32.782344+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-production-20261109-x4f45urq/B-promote-controller.log"
+}

@@ -1,0 +1,16 @@
+{
+  "command": [
+    "env",
+    "BASELINE_START=2026-11-09T14:07:52Z",
+    "BASELINE_END=2026-11-09T14:08:52Z",
+    "CANDIDATE_START=2026-11-09T14:17:36Z",
+    "CANDIDATE_END=2026-11-09T14:18:36Z",
+    "make",
+    "newapi-error-window"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/kkai-infra",
+  "started_at": "2026-11-09T14:19:58.829654+00:00",
+  "finished_at": "2026-11-09T14:20:03.360735+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-production-20261109-x4f45urq/A-canary-10-relay.log"
+}

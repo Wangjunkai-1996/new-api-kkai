@@ -1,0 +1,38 @@
+{
+  "authorization": "exact upload cleanup after completed release gates; uid1001 upload ownership explicitly confirmed; no chown",
+  "deleted": [
+    {
+      "bytes": 2877383,
+      "inode": 1048592,
+      "method": "unlink",
+      "path": "/tmp/kkai-infra-upload-29e9a8e.xX4IDD/kkai-infra-29e9a8e927ea35df939e912baa381e663591f4a2.bundle",
+      "regular": true,
+      "sha256": "4220fd08dc4a3b9e8c031047df30614731e293484096b84ad499d4a21d71148d",
+      "symlink": false,
+      "uid": 1001
+    },
+    {
+      "method": "rmdir_after_exact_file_removed",
+      "mode": "0700",
+      "only_predelete_child": "kkai-infra-29e9a8e927ea35df939e912baa381e663591f4a2.bundle",
+      "path": "/tmp/kkai-infra-upload-29e9a8e.xX4IDD",
+      "uid": 1001
+    }
+  ],
+  "host_alias": "sys1",
+  "observed_at": "2026-11-09T15:26:39.939459+00:00",
+  "postcheck": {
+    "bundle_absent": true,
+    "executor_uid": 0,
+    "installed_source": {
+      "head": "29e9a8e927ea35df939e912baa381e663591f4a2",
+      "path": "/srv/kkai/controller-sources/29e9a8e927ea35df939e912baa381e663591f4a2",
+      "present": true,
+      "symlink": false,
+      "uid": 0
+    },
+    "upload_directory_absent": true
+  },
+  "result": "passed",
+  "retained": "all managed backend releases/images and frontend trees; installed controller source; no prune or controller changes"
+}

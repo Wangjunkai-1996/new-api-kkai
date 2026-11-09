@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    "/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-production-20261109-x4f45urq/canary-observe.py",
+    "A",
+    "10"
+  ],
+  "cwd": "/Users/tokk/Documents/Codex/2026-08-04/s-y-s-s/new-api-kkai",
+  "started_at": "2026-11-09T14:19:58.829662+00:00",
+  "finished_at": "2026-11-09T14:20:11.885980+00:00",
+  "exit_code": 0,
+  "log": "/private/var/folders/tm/gclh_4_j3530jvnqmxrhjv7c0000gn/T/membership-production-20261109-x4f45urq/A-canary-10-evidence.log"
+}

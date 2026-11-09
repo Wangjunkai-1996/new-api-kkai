@@ -4,7 +4,7 @@
 适用读者：计费后端、Relay/Sub2API 开发、数据库迁移与发布负责人、测试人员。
 设计协作：计费账本、Relay/性能、生产对账三个技术角色分别核对代码后合并。
 设计基线：`922db66baa46c07b5f36cdce8191a52d9af519db`；本轮交付源码：`fc46400f3fed2647fafadd974ea1fc8d005d6015`。
-状态：**P0/P1 本地恢复、v21 离线迁移、持久暂停、冲突积压优化及相关性能验收已完成；线上额度恢复仍待迁移、启用和业务对账验收。** 应用发布与业务恢复分别验收，本文不证明线上已返还额度。实现与验证命令见[实施记录](membership-reservation-implementation-20261109.md)及[性能证据](membership-recovery-evidence-20261109/performance-B/README.md)。下文保留完整目标设计；P2/P3 尚未交付，“拟新增”不代表这些阶段已经实现。
+状态：**P0/P1 已上线，canonical21 已确认，apply 已启用；相关性能、正常业务和全 scope 账务核对通过。** 本窗口无自然自动退款终态样本，实际证据和限制见[生产交付记录](membership-reservation-production-20261109.md)。 应用发布与业务恢复分别验收，本文不证明线上已返还额度。实现与验证命令见[实施记录](membership-reservation-implementation-20261109.md)及[性能证据](membership-recovery-evidence-20261109/performance-B/README.md)。下文保留完整目标设计；P2/P3 尚未交付，“拟新增”不代表这些阶段已经实现。
 
 ## 1. 已确定的实现边界
 
